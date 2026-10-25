@@ -43,6 +43,7 @@ The companion ("Claude") is a **humanoid that is basically another player**.
 - **Communication is paramount** (Luis): Claude always tells the player what he is doing, what he can't do and *why* (e.g. "can't get in there, you Windstepped over and I can't yet"). Every skill/movement failure must surface a specific, truthful reason to the brain so it can say it in chat; follow never silently ends.
 - **No phrase→skill mappings** (Luis): the brain must infer intent from a truthful tool list (generated from the body's capabilities), honest perception (incl. own gravestone, nearby items) and recent context (deaths, task, last chat). Fix those, never add keyword tables, and never let code veto or rewrite the model's decisions (code informs, reports outcomes, and enforces only Luis's safety rules). Validate with small real-model evals.
 - **Client freeze fix (keep!):** Claude's headless client deadlocks in Dominion's LightFlickeringWorldSubSystem tick when frames are tiny. Keep `client_mod/scripts/tickguard.lua` (bridge service; TickInterval→3600) and the 30 fps cap (GameUserSettings.ini GameFrameRateLimit/FrontendFrameRateLimit/FrameRateLimit=30; runtime `fps_cap.lua`). Watchdog: `tools/start_client_watchdog.ps1`. DISCOVERIES "Client hang (R2)".
+- **Shared stations/items** (Luis): Claude may use any shared station, furnace, fuel or item in the world; he must report what he used or collected.
 - Claude has real survival needs (hydration/sustenance kill at 0); the stay-fed reflex must be running.
 
 ### Building principles (Luis's, binding)
