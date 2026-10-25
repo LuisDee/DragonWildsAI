@@ -35,6 +35,45 @@ Rules:
 - Poll interval: the brain polls every 20 ms while waiting for a result. A Lua body can poll
   from a game-thread loop (`LoopAsync`) every 50–100 ms.
 
+## Client endpoint (route R2: Claude's own game client)
+
+The same protocol, served by the client mod instead of the server puppet:
+`client_mod/scripts/client_bridge.lua`. It loads a fresh instance of `mod/scripts/bridge.lua`, so both bodies share one implementation.
+
+| | Server body (puppet mod) | Client body (R2) |
+|---|---|---|
+| Brain switch | `DW_BODY=server` (default) / `--body server` | `DW_BODY=client` / `--body client` |
+| Default dir | `<repo>/bridge_io/` | `<repo>/client_io/bridge/` (`DW_CLIENT_BRIDGE_DIR` on the client side) |
+| brain writes | `brain_to_body.jsonl` | `brain_to_client.jsonl` |
+| body writes | `body_to_brain.jsonl` | `client_to_brain.jsonl` |
+
+- `DW_BRIDGE_DIR` still overrides the directory on the brain side. The file names always follow the body, so a brain pointed at the wrong directory never reaches the other body.
+- Entry points:
+  - `python -m brain.run_live --body client [--dry-run]`
+  - `tools\start_brain.ps1 -Body client`
+  - `python -m tools.bridge_cmd --body client <tool> [json]`
+  - `python -m brain.fake_body <dir> client`
+- **Capabilities are dynamic.** A tool is listed only while the client module functions it needs exist (`client_mod/scripts/{chat,move,sense,inventory}.lua`, hot-reloaded).
+  - Missing or broken module → `not_implemented`, and the tool is not listed.
+  - So the brain hides everything else: today `attack, gather, craft, place, give, pickup, cast, sleep, wake, look, interact` and the rule tools.
+  - `ping` and `capabilities` answers carry `body: "client"`.
+- **Chat:**
+  - The client tails `client_io/events/chat.jsonl`, written by `chat.lua`'s `Client_ReceiveChatMessage` hook.
+  - It forwards a line as `command_received{player, text}` only when the line is addressed to the companion: `!ping`, or the `brain/run_live.py` prefixes (`DW_CHAT_PREFIXES`). `DW_CLIENT_CHAT_ALL=1` forwards every line.
+  - `player` is the sender's **character name** (on Luis's Shockbyte world he is `Zezima`). It is passed through to `follow`/`go_to` unchanged.
+  - Claude's own lines (`self: true`) are never forwarded.
+  - The client empties the events file once it has consumed more than 1 MB.
+- **Tools that differ from the server body:**
+
+| Tool | Client behaviour |
+|---|---|
+| `say` | Typed into the real chat box (`chat.lua`). The reply waits up to 4 s for the server's echo of the line. Echo seen: `data.verified: true`. No echo in time: still `ok`, with `verified: false`. Never pre-empts an action. |
+| `follow` | Sync `ok {following, distance}`, then holds the action slot. If the movement ends by itself (pawn lost, stopped elsewhere), it emits `task_failed` with no second reply. |
+| `go_to` | Async. `target` is `[x,y,z]` metres or a player name. It replies when `move.status()` says the move ended. Arrival is re-checked against a fresh position, within `arrive_tolerance` (3 m) × 1.5. Otherwise it answers `verification_failed`. A coordinate target includes `target_position`. A player target has `target` and `dist_m`. Body cap 110 s. |
+| `drop` | The inventory UI's drop (`at` = `feet` only; anything else answers `not_implemented`). The server confirms asynchronously, so the reply waits up to 5 s for the carried count to fall by `count`. It then answers `ok {item: <resolved id>, count, at, inventory_left}`, or else `verification_failed`. |
+| `get_state` | Built from `sense.me` + `sense.census` + `inventory.list`. **`inventory` = hotbar + bag** (loadout excluded; an item equipped from the hotbar keeps its hotbar slot in the game, so it shows in both `inventory` and `gear`). `gear` = `{loadout slot: item}` plus `held_right` / `held_left`. Extras: `skills`, `total_level`, `stamina`, `players_online`, `body: "client"`. Answers `companion_down` while there is no pawn (menu, loading). |
+| debug (not planner tools) | `bridge_status`, `me`, `census`, `inventory`, `move_status`, `equip {item}`, `unequip {slot}` |
+
 ## Messages
 
 Every message has `"v": 1` and a `"type"`.

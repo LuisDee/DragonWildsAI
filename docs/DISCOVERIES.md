@@ -807,3 +807,24 @@ Modules: `client_mod/scripts/sense.lua` (census + me), `client_mod/scripts/inven
   - Mithril Logging Axe (slot 3, key 4): Loadout HeldRight (7) **and** HeldLeft (8) both = the axe (two-handed); pawn `PlayerEquipmentComponent:GetHeldEquipmentDataLeft()` = `ITEM_Logging_Axe_Mithril`, `HeldEquipmentActorLeft` = `BP_Logging_Axe_Mithril_C`, `GetHeldEquipmentDataRight()` nil. The axe stays listed in its hotbar slot (the loadout references it).
   - Bronze Platebody (key 5): Loadout Body = platebody, the worn Adventurer's Tunic moved into that hotbar slot (the game's swap); pawn `CurrentBodyWearable` = Bronze Platebody. Hard Leather Cowl (key 7): Loadout Head, `CurrentHeadWearable`.
   - **Luis confirmed visually ("Yep looks good!", ~17:45 UTC):** platebody, cowl and Mithril axe all show correctly on Claude from his GFN client.
+
+## R2 brain bridge on the client: live, hot-started without a restart (2026-10-25, about 17:47 UTC, client build 26162923, Shockbyte world)
+- **Hot start through the command runner works.** `client_mod/commands/bridge_start.lua` `loadfile`d `client_mod/scripts/client_bridge.lua` into the running DWClient. That file in turn loaded a fresh instance of `mod/scripts/bridge.lua` and the four client modules (chat, move, sense, inventory: all `ok`). It then started a 100 ms `LoopInGameThreadWithDelay`. No errors in `logs/client/mod_20261025T174657Z.jsonl`. `chat.start` was re-run harmlessly (idempotent).
+- **Round trip, brain to client and back** (`client_io/bridge/brain_to_client.jsonl` → `client_to_brain.jsonl`):
+  - `ping` over 10 calls: 64–169 ms (mean about 115 ms, mostly the 100 ms poll);
+  - `get_state`: 215 ms including census and inventory.
+- **`get_state` read live** (read-only; no movement, no chat):
+  - position, health 100/100, name `Claude`, skills, stamina;
+  - `players` = Luis's character **`Zezima`** at 20.9 m; `players_online` `["Claude","Zezima"]`;
+  - 2 Kebbits (passive);
+  - stones, an ash sapling and dropped loot (ash logs, hide, antler, raw meat) in `nearby_items`;
+  - `inventory` (hotbar + bag) and `gear` (Head Hard Leather, Body Bronze, Legs Adventurer's, HeldRight and HeldLeft Mithril Logging Axe);
+  - `not_implemented` = only `places` and `structures`.
+- **Capabilities** (dynamic, from the loaded modules):
+  - `get_state, say, follow, stop, go_to, drop`, plus the debug tools `bridge_status, me, census, inventory, move_status, equip, unequip`;
+  - `discover()` gives planner skills `go_to, follow, stop, drop`;
+  - absent: attack, gather, craft, give, pickup, cast, sleep, wake, look, interact, place, and the rule tools.
+- **Implications for the brain:**
+  - On this world Luis's chat sender name is his character name `Zezima`, so `command_received.player` is `Zezima`.
+  - An equipped item that came from the hotbar stays in its hotbar slot (see the equip entry above), so it appears in both `inventory` and `gear`.
+- **Not yet exercised live:** say, follow, go_to, stop and drop through the bridge. Their owners' modules are being tested separately, and the brain was not started. **UNVERIFIED** until a supervised run.

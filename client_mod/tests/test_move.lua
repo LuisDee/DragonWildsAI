@@ -11,7 +11,12 @@ local function obj(t) t.IsValid = function() return true end; t.GetFullName = t.
 local walls = {}           -- {x0,x1,y0,y1} blocks movement unless airborne
 local pawn, pc, luis, settings, eis
 local sprinting, injected, air = false, 0, 0
-local function blocked(x, y) for _, w in ipairs(walls) do if x > w[1] and x < w[2] and y > w[3] and y < w[4] then return true end end end
+local function blocked(x, y, airborne)
+    for _, w in ipairs(walls) do
+        if x > w[1] and x < w[2] and y > w[3] and y < w[4] and (w[5] or not airborne) then return true end
+    end
+end
+local frame_hook = nil
 pawn = obj({ loc = { X = 0, Y = 0, Z = 0 }, input = nil, jumps = 0 })
 function pawn:K2_GetActorLocation() return { X = self.loc.X, Y = self.loc.Y, Z = self.loc.Z } end
 function pawn:AddMovementInput(d, s) self.input = d end
@@ -39,11 +44,12 @@ local function step(n)
     for _ = 1, n do
         T = T + DT
         pawn.input = nil
+        if frame_hook then frame_hook() end
         for _, fn in pairs(loops) do fn() end
         if pawn.input then
             local sp = (sprinting and 680 or 450) * DT
             local nx, ny = pawn.loc.X + pawn.input.X * sp, pawn.loc.Y + pawn.input.Y * sp
-            if air > 0 or not blocked(nx, ny) then pawn.loc.X, pawn.loc.Y = nx, ny end
+            if not blocked(nx, ny, air > 0) then pawn.loc.X, pawn.loc.Y = nx, ny end
         else sprinting = false end
         air = math.max(0, air - DT)
     end
@@ -61,7 +67,8 @@ end
 -- ---- load the module with the test dir as root
 local real_getenv = os.getenv
 os.getenv = function(k) if k == "DW_CLIENT_ROOT" then return dir end return real_getenv(k) end
-local M = dofile(here .. "/../scripts/move.lua")
+local MOVE = real_getenv("MOVE_FILE") or (here .. "/../scripts/move.lua")
+local M = dofile(MOVE)
 local logs = {}
 local function log(m) logs[#logs + 1] = m end
 local function run(n) for _ = 1, n do step(3); pump_oracle() end end
@@ -106,11 +113,49 @@ check("stop halts", r.was == "follow" and M.status().mode == "idle" and pawn.loc
 
 -- 4. stale loop from an older load exits
 M.go_to(log, { 100, 0, 0 }, {})
-local M2 = dofile(here .. "/../scripts/move.lua")
+local M2 = dofile(MOVE)
 M2.stop(log)
 run(5)
 local n = 0; for _ in pairs(loops) do n = n + 1 end
 check("no loops left after stop from a fresh load", n == 0, n)
+
+-- 5. breadcrumbs: a tall wall the dev navmesh doesn't know; nav gives a partial path into it;
+--    the leader walks around the wall's end; Claude must retrace the leader's trail
+walls = { { 900, 1100, -2000, 600, true } }
+pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 200, Y = 0, Z = 0 }
+oracle = function(id) return ("return {id=%d,ok=true,partial=true,points={{0,0,0},{5,0,0}}}"):format(id) end
+local route = { { 200, 0 }, { 200, 1000 }, { 2000, 1000 }, { 2000, 0 } }
+local seg = 1
+frame_hook = function()
+    local tgt = route[seg + 1]
+    if not tgt then return end
+    local dx, dy = tgt[1] - luis.loc.X, tgt[2] - luis.loc.Y
+    local d = math.sqrt(dx * dx + dy * dy)
+    local sp = 400 * DT
+    if d <= sp then luis.loc.X, luis.loc.Y = tgt[1], tgt[2]; seg = seg + 1
+    else luis.loc.X, luis.loc.Y = luis.loc.X + dx / d * sp, luis.loc.Y + dy / d * sp end
+end
+M.follow(log, "Zezima", 3)
+run(400)
+s = M.status()
+local dl = math.sqrt((pawn.loc.X - luis.loc.X) ^ 2 + (pawn.loc.Y - luis.loc.Y) ^ 2)
+check("breadcrumbs: reached leader around the wall", dl < 450, string.format("d=%.0f status=%s res=%s", dl, tostring(s.status), tostring(s.result and s.result.reason)))
+check("breadcrumbs: trail was used", (s.trail_entries or 0) >= 1, s.trail_entries)
+M.stop(log)
+frame_hook = nil
+
+-- 6. bounded give-up: walled in, no trail -> stops with "stuck" after > 5 s, not a loop
+walls = { { 300, 400, -5000, 5000, true } }
+pawn.loc = { X = 0, Y = 0, Z = 0 }; oracle = nil
+local t_start = T
+M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1, timeout_s = 120 })
+run(300)
+s = M.status()
+check("gives up stuck", s.result and s.result.reason == "stuck", s.result and s.result.reason)
+check("gives up within 5-9 s of no progress", s.result and (T - t_start) > 5, T - t_start)
+local stuck_logged = false
+for _, l in ipairs(logs) do if l:find("move: stuck n=") and l:find("aim=") then stuck_logged = true end end
+check("stuck events log me/aim/goal/waypoints", stuck_logged)
 
 for _, l in ipairs(logs) do if l:find("error") then print("LOG " .. l) end end
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))

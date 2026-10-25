@@ -40,7 +40,7 @@ Read it before adding a skill, a hook, a service or an experiment. When the layo
 | `main.lua` | Entry point. Sets `package.path`, the logger and `U.set_log`, then wires bridge, debug_run, body, speech, hooks, heartbeat and perf sampler. **The only place that registers subsystems.** | — |
 | `dwlog.lua` | Append-only JSONL log, one file per run; every line is flushed (breadcrumbs survive a crash). | `init(dir)`, `event(name, data)`, `path()` |
 | `jsonutil.lua` + `dkjson.lua` | JSON (vendored dkjson 2.8, MIT); never fatal on userdata or cycles. | `encode`, `decode`, `null`, `object(t)` |
-| `bridge.lua` | Body side of the JSONL bridge: tails `brain_to_body.jsonl`, dispatches to handlers on the game thread, writes results and events. Copies the cmd's top-level `probe` flag into `args.probe`. | `handlers[name] = fn(args, ctx)`, `reply(id, res)`, `emit_event(name, data)`, `null`, `object` |
+| `bridge.lua` | Body side of the JSONL bridge: tails `brain_to_body.jsonl`, dispatches to handlers on the game thread, writes results and events. Copies the cmd's top-level `probe` flag into `args.probe`. | `handlers[name] = fn(args, ctx)`, `reply(id, res)`, `emit_event(name, data)`, `null`, `object`, `init({dir, in_name, out_name})`, `new_tail(path)` (the byte-offset JSONL tail; the client body reuses both, section 8) |
 | `hooks.lua` | Discovery and production hooks (`RegisterHook`) with per-hook extractors. The chat extractor feeds `command_received`. | `register(log, {tag = fn(fields, ctx)})`, `HOOKS`, `PENDING` |
 | `debug_cmds.lua` | `debug_run {module, fn, args}`: `loadfile`s `<name>.lua` from `scripts/`, then `experiments/`, and calls `module[fn](log, args)`. No restart needed for the named file. | `register(bridge, log, dirs)`, `resolve(dirs, name)` |
 | `dumper.lua` | Headless reflection dumps when `dump.flag` exists. | `maybe_dump(mod_root, log)` |
@@ -129,6 +129,7 @@ Debug modules run only through `debug_run`. They hold unproven work and historic
 | `brain/interface.py` | `TOOLS` (name → args model, description), `BODY_TOOLS`, `GameInterface`, `Reason` codes, events. **The contract.** |
 | `brain/protocol.py`, `BRIDGE_PROTOCOL.md` | Message envelopes; the `capabilities` request; the probe fallback |
 | `brain/bridge_client.py` | `GameInterface` over the bridge; per-tool timeouts (`DEFAULT_TIMEOUTS`) |
+| `brain/paths.py`, `brain/transport.py` | `body_kind()` (`DW_BODY` = server \| client), `bridge_dir(body)`, `endpoint_files(body)`: which body the brain drives (section 8) |
 | `brain/capabilities.py` | Asks the body which tools exist → `SkillRegistry` (the planner only plans with these) |
 | `brain/executor.py` | Runs one task, verifies it against fresh `get_state` (`VERIFIERS[skill]`), retries with a cap |
 | `brain/state_store.py` | Task tree, notes, `MOCK_SKILLS` (planner skill order) |
@@ -268,3 +269,81 @@ Raw generator output goes to `logs/catalog/` (gitignored). Only normalised files
 | R13 | **Game patches** rename classes or change layouts. | — | Use reflected names only, never offsets. After a patch: dump, catalogs, smoke tests (CLAUDE.md section 8). Wrappers fail as Lua errors (breadcrumbed), not crashes. |
 | R15 | **UE4SS nested struct userdata** (struct only; UObject/FName/FString userdata nested are fine): a struct userdata inside a Lua table (any depth) given to a UFunction param, a struct field or a TArray element. `push_structproperty` reads it with `get_userdata()` at stack index 1 instead of `stored_at_index` → native AV. | `crash_2026_10_25_15_45_24` (speech_direct v1); UE4SS source at 83330635. Probably also R3. | Never put a userdata inside a table passed to UE4SS. Tables must hold scalars only. Copy structs by property assignment (`a.B = ud`) or as a whole top-level param. `test_core` asserts that the direct and presence payloads are userdata-free. |
 | R14 | **Probe mismatch**: the brain's top-level `probe: true` was ignored by the body (the guard read `args.probe`), so a probe of `stop` really stopped. | code reading, 2026-10-25 | `bridge.lua` copies `msg.probe` into `args.probe` (needs a restart). Tested in `test_core`. |
+
+---
+
+## 8. R2 client body (Claude's own game client)
+
+Route R2 (`docs/design/real-player-remediation.md`): Claude plays through a real, headless Dragonwilds client with UE4SS and the `DWClient` mod (`client_mod/`).
+- The brain and `GameInterface` are unchanged; only the body moved.
+- The shape follows Microbot/Mineflayer (`docs/research/2026-10-25-client-side-botting.md` decision 1): a client-side game API plus an "agent server". Our agent server is the JSONL bridge.
+
+### 8.1 Layers
+
+```
+ brain/ (unchanged)  run_live --body client  (paths.body_kind, transport.endpoint_files)
+        │  JSONL: client_io/bridge/brain_to_client.jsonl ⇄ client_to_brain.jsonl (BRIDGE_PROTOCOL.md "Client endpoint")
+        ▼
+ client_mod/scripts/client_bridge.lua   dispatch · ONE action slot · waiters · get_state · chat → command_received
+        │  a fresh loadfile instance of mod/scripts/bridge.lua (one protocol implementation for both bodies)
+        │  hot-loads modules: re-reads <name>.lua at most every 2 s and reloads it when the text changed
+        ▼
+ client modules (one owner each): chat.lua · move.lua · sense.lua · inventory.lua · (next: combat, gather, ...)
+        │  shared helpers: mod/body/util.lua (loadfile), dkjson
+        ▼
+ the game's own CLIENT paths: UI handlers, Enhanced Input injection, character calls (never server RPCs)
+```
+
+- `client_mod/scripts/main.lua` (**needs a client restart to change**) does three things:
+  - keeps the command runner (`client_io/cmd/*.lua` → `client_io/out/*.json`, `tools/client_cmd.sh`);
+  - autostarts the bridge with `loadfile` (`DW_CLIENT_BRIDGE=0` turns this off);
+  - uses dkjson for runner output.
+- Everything below `main.lua` reloads without a restart. `client_mod/commands/bridge_start.lua` restarts the bridge from the newest file: it stops the old loop and keeps the chat hooks. `bridge_status.lua` and `bridge_stop.lua` complete the set.
+- Bridge events go to `logs/client/mod_<ts>.jsonl` (dwlog); module text logs go to `logs/client/client.log`.
+
+### 8.2 Module API, as the bridge uses it
+
+Every function takes the DWClient text logger `log(msg)` first and returns a table with `ok`. Fields may be flat or under `data`. A failure carries `reason` or `error`, as free text or a snake_case code; `client_bridge.REASONS` / `REASON_PATTERNS` map these to protocol reasons. Positions are metres `[x,y,z]`. Loading a module has no side effects, and live state lives in `_G`.
+
+| Module (owner) | Functions the bridge calls | Feeds tools |
+|---|---|---|
+| `chat.lua` | `start(log)` (idempotent hooks, called at bridge start); `say(log, text)`; it writes `client_io/events/chat.jsonl` `{type:"chat", from, text, self, player_id, guid}` | `say`; chat lines → `command_received` |
+| `move.lua` | `go_to(log, [x,y,z] \| name, {tolerance_m})`, `follow(log, name, distance_m)`, `stop(log)`, `status()` → `{mode, status, result={status=arrived\|failed\|stopped, reason, dist_m}}` | `go_to`, `follow`, `stop`, `move_status` |
+| `sense.lua` | `me(log)` → `{name, position, health, max_health, stamina, skills, ...}`; `census(log, {radius_m, max})` → `{players, creatures, items, resources, interactables, players_online}` | `get_state`, `me`, `census` (`look` once `sense.look` exists) |
+| `inventory.lua` | `list(log)` → `{hotbar, bag, loadout, personal, held}`; `drop(log, what, count)`; `equip(log, what)`; `unequip(log, slot)` | `get_state.inventory/inventory_items/gear`, `drop`, `equip`, `unequip`, `inventory` |
+
+### 8.3 Rules (client side)
+
+1. **Real player paths only.** UI handlers, input injection and character calls. Never call `Server_*` RPCs from the client, never write inventory or game state, never emulate an outcome. (Decision 2 of the client-side-botting research.)
+2. **Verified results.**
+   - A tool answers `ok` only once fresh game state confirms it: `go_to` re-reads the position, `drop` waits for the count to fall, `say` waits for the server's echo.
+   - The brain verifies again (`executor.VERIFIERS`).
+3. **Two speeds.** Per-frame loops (steering, combat reflexes) live in the modules. The bridge ticks every 100 ms: it polls, steps the action, tails chat and resolves waiters. The LLM only picks tools.
+4. **One action slot.**
+   - Tools that move the body (`ACTION_TOOLS`) pre-empt the current action, which answers `interrupted`.
+   - Waiters (`say`, `drop`) never pre-empt.
+   - Probes never act. Missing required args answer `invalid_args`.
+5. **The client is Luis's shared world.** Experiments that move the pawn or chat belong to that module's owner. The bridge itself is read-only until the brain sends an action.
+
+### 8.4 How to add a skill on the client (e.g. `gather`)
+
+1. **Discover and prototype** in the module that owns the concern (`client_mod/scripts/<concern>.lua`, its own command files in `client_mod/commands/`). Record what is verified in DISCOVERIES ("REAL CLIENT ROUTE (R2)").
+2. **Expose it to the brain**, by one of two routes (no restart either way):
+   - **Route** (preferred for protocol tools): add `R.<tool> = {needs = {{"<module>", "<fn>"}}, fn = function(args, ctx) ... end}` in `client_bridge.lua`.
+     - Validate args and answer `invalid_args`.
+     - Return a result (sync), `{pending = action}` (async: `poll(a)` returns nil until done, then a result; plus `cancel`, `timeout_s`), `{result, hold = action}` (answered now, keeps the slot, like follow), or `{wait = waiter, wait_s}` (confirmation without the slot, like drop).
+     - Add the name to `M.ACTION_TOOLS` if it moves the body.
+   - **Module handler** (no bridge edit): export `M.HANDLERS = {tool = function(log, args, ctx) ... end}` from a module listed in `client_bridge.MODULES`. It returns the same shapes and appears in `capabilities` at once.
+3. **Reload:** `sh tools/client_cmd.sh client_mod/commands/bridge_start.lua`. Then check `capabilities` with `python -m tools.bridge_cmd --body client capabilities`.
+4. **Test offline:**
+   - add the module's fake to `client_mod/tests/fakes/<module>.lua` (same API and result shape as the real one);
+   - add a case to `client_mod/tests/test_client_bridge.lua` covering success, each failure reason and the probe;
+   - for brain-visible behaviour, add to `tests/test_client_bridge.py` (the Lua client bridge driven by the real BridgeClient and `run_live`).
+5. **Brain side:** nothing, if the tool already exists in `interface.TOOLS`. Otherwise follow §4.1 step 4. Document client-specific behaviour in `BRIDGE_PROTOCOL.md` "Client endpoint".
+
+### 8.5 Tests
+
+| What | Command |
+|---|---|
+| Client bridge (fake modules) | `"C:\Program Files\WinGet\Links\lua.exe" client_mod/tests/test_client_bridge.lua <empty_dir>` |
+| Client bridge ⇄ brain (BridgeClient, capabilities, run_live dry run end to end) | `.venv\Scripts\python.exe -m pytest tests/test_client_bridge.py` |

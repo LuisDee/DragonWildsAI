@@ -35,7 +35,13 @@ M.cfg = {
     nav_retry_s = 5.0,         -- after a failed/absent path, ask again this often
     stuck_window_s = 1.0,      -- progress is measured over this window
     stuck_min_cm = 50,         -- less 2D progress than this in a window, while pushing = stuck
-    stuck_give_up = 8,         -- go_to fails after this many consecutive stuck windows
+    give_up_stuck = 6,         -- this many consecutive stuck windows (> 5 s, no progress) -> stop, "stuck"
+    trail_enter_stuck = 2,     -- after this many stuck windows, retrace the leader's breadcrumbs
+    trail_min_dist_cm = 600,   -- a failed/partial nav path only triggers the trail beyond this distance
+    crumb_spacing_cm = 50,     -- record a leader crumb every 0.5 m moved, grounded positions only
+    crumb_cap = 400,           -- ring buffer (~200 m of trail)
+    crumb_reset_cm = 2000,     -- leader jumped this far in one step (teleport/respawn): drop the trail
+    sprint_retry_s = 1.0,      -- toggle sprint: wait this long for the server ack before pressing again
     follow_hysteresis_cm = 100,
     log_every_s = 2.0,
 }
@@ -140,6 +146,55 @@ local function press_to_sprint(st)
     return st.pts
 end
 
+-- ------------------------------------------------------------------ breadcrumbs (leader trail)
+-- Standard companion technique (RPG party "breadcrumb" following; Breadcrumb AI; bugnet.io
+-- "companion getting stuck"): the leader's own recent grounded positions are a path known to be
+-- walkable, including player-built structures and overhangs the dev navmesh does not know.
+local function record_crumb(st, p)
+    local c = st.crumbs
+    local last = c[#c]
+    if last then
+        local d = math.sqrt((p.X - last.X) ^ 2 + (p.Y - last.Y) ^ 2 + (p.Z - last.Z) ^ 2)
+        if d < M.cfg.crumb_spacing_cm then return end
+        if d > M.cfg.crumb_reset_cm then
+            for i = #c, 1, -1 do c[i] = nil end
+            st.trail_i = nil
+        end
+    end
+    if st.target_mc == nil then
+        local ok, m = pcall(function() return st.target.CharacterMovement end)
+        st.target_mc = (ok and m and m:IsValid()) and m or false
+    end
+    if st.target_mc then
+        local ok, g = pcall(function() return st.target_mc:IsMovingOnGround() end)
+        if ok and g == false then return end -- airborne crumbs are not walkable
+    end
+    c[#c + 1] = v(p)
+    if #c > M.cfg.crumb_cap then
+        table.remove(c, 1)
+        if st.trail_i then st.trail_i = math.max(1, st.trail_i - 1) end
+    end
+end
+
+local function nearest_crumb(c, me)
+    local best, bi = math.huge, 1
+    for i, p in ipairs(c) do
+        local d = d2(me, p) + math.abs(me.Z - p.Z) * 2
+        if d < best then best, bi = d, i end
+    end
+    return bi
+end
+
+-- Advance along a point list: skip points already reached, or passed (closer to the next one than
+-- this one is). Advance-by-one with a radius below the point spacing (bugnet.io waypoint skipping).
+local function advance(pts, i, me)
+    while i <= #pts do
+        local p, nxt = pts[i], pts[i + 1]
+        if d2(me, p) < M.cfg.wp_radius_cm or (nxt and d2(me, nxt) < d2(p, nxt)) then i = i + 1 else break end
+    end
+    return i
+end
+
 -- ------------------------------------------------------------------ the loop
 local function finish(st, result, log)
     st.result = result
@@ -163,6 +218,7 @@ local function tick(st, gen, log)
     if st.target_name then
         if not (st.target and st.target:IsValid()) and t - (st.target_t or 0) > 1.0 then
             st.target, st.target_t = player_pawn(st.target_name, pawn), t
+            st.target_mc = nil
         end
         if not (st.target and st.target:IsValid()) then
             st.status = "target_not_visible"
@@ -170,6 +226,7 @@ local function tick(st, gen, log)
             return
         end
         goal = st.target:K2_GetActorLocation()
+        record_crumb(st, goal)
     else
         goal = st.goal
     end
@@ -216,25 +273,43 @@ local function tick(st, gen, log)
             local need = not st.path and since > M.cfg.nav_retry_s
                 or (st.path and st.path_goal and d2(st.path_goal, goal) > M.cfg.repath_goal_move_cm and since > M.cfg.repath_min_s)
                 or (st.want_repath and since > M.cfg.repath_min_s)
-            if need or not st.nav_t then
+            if (need or not st.nav_t) and not st.trail_i then
                 st.want_repath = false
                 if nav_request(st, me, goal) then st.nav_sent_t = t; st.nav_requests = (st.nav_requests or 0) + 1 end
             end
         end
     end
 
-    -- current steering point: next waypoint, else the goal itself
-    local aim = goal
+    -- breadcrumb trail mode: enter when the navmesh can't get us there, or after repeated stuck
     local path = st.path
-    if path then
-        -- skip waypoints already reached, or passed (closer to the next one than this one is)
-        while st.wp <= #path do
-            local p = path[st.wp]
-            local nxt = path[st.wp + 1]
-            if d2(me, p) < M.cfg.wp_radius_cm or (nxt and d2(me, nxt) < d2(p, nxt)) then st.wp = st.wp + 1 else break end
+    if st.target and not st.trail_i and #st.crumbs >= 2 then
+        local path_done = path and st.wp > #path
+        local nav_bad = (st.source == "straight" or (st.path_partial and path_done)) and dist > M.cfg.trail_min_dist_cm
+        if nav_bad or st.stuck_n >= M.cfg.trail_enter_stuck then
+            st.trail_i = nearest_crumb(st.crumbs, me)
+            st.trail_entries = (st.trail_entries or 0) + 1
+            if log then log(string.format("move: trail ON i=%d/%d why=%s", st.trail_i, #st.crumbs, nav_bad and "nav" or "stuck")) end
         end
-        if st.wp <= #path then aim = path[st.wp] end
     end
+
+    -- current steering point: trail crumb, else next waypoint, else the goal itself
+    local aim = goal
+    if st.trail_i then
+        local c = st.crumbs
+        st.trail_i = advance(c, st.trail_i, me)
+        if st.trail_i > #c then
+            st.trail_i, st.want_repath = nil, true
+            if log then log("move: trail OFF (caught up)") end
+        else
+            aim, st.source = c[st.trail_i], "trail"
+        end
+    end
+    if not st.trail_i and path then
+        st.wp = advance(path, st.wp, me)
+        if st.wp <= #path then aim = path[st.wp] end
+        if st.source == "trail" then st.source = "nav" end
+    end
+    st.aim = aim
     local dx, dy = aim.X - me.X, aim.Y - me.Y
     local dl = math.sqrt(dx * dx + dy * dy)
     if dl < 1 then dx, dy, dl = goal.X - me.X, goal.Y - me.Y, math.max(dist, 1) end
@@ -245,29 +320,33 @@ local function tick(st, gen, log)
         dx, dy = dx * 0.3 + st.strafe_dir * -dy, dy * 0.3 + st.strafe_dir * dx
     end
 
+    -- face where we go (control rotation = camera yaw; the pawn orients to its movement)
     pc:SetControlRotation({ Pitch = 0, Yaw = math.deg(math.atan(dy, dx)), Roll = 0 })
     pawn:AddMovementInput({ X = dx, Y = dy, Z = 0 }, 1.0, false)
     st.status = "moving"
 
-    -- sprint: far from the goal
-    local remaining = dist
-    if remaining > M.cfg.sprint_on_cm and st.sprint then st.sprint_want = true
-    elseif remaining < M.cfg.sprint_off_cm then st.sprint_want = false end
-    if st.sprint_want then
-        local sprinting = is_sprinting(pawn)
+    -- sprint: far from the goal, and only while making progress on the ground
+    if dist > M.cfg.sprint_on_cm and st.sprint then st.sprint_want = true
+    elseif dist < M.cfg.sprint_off_cm then st.sprint_want = false end
+    local sprinting = is_sprinting(pawn)
+    st.sprinting = sprinting
+    if st.sprint_want and st.stuck_n == 0 and not st.jump_t then
         if press_to_sprint(st) then
-            -- toggle mode: hold the key until sprint starts (max 10 frames), release, retry after 0.5 s
+            -- toggle mode (IA_Player_Sprint: Boolean, InputTriggerDown): hold the key up to 10
+            -- frames, release, and only press again after sprint_retry_s, so a slow server ack
+            -- (Client_AckRequestStartSprinting) never makes us toggle it back off
             if not sprinting then
                 st.sprint_hold = (st.sprint_hold or 0) + 1
-                if st.sprint_hold <= 10 then inject_sprint(st, pawn)
+                if st.sprint_hold <= 10 then
+                    if inject_sprint(st, pawn) and st.sprint_hold == 1 then st.sprint_presses = (st.sprint_presses or 0) + 1 end
                 elseif st.sprint_hold == 11 then st.sprint_rel_t = t
-                elseif t - st.sprint_rel_t > 0.5 then st.sprint_hold = 0 end
+                elseif t - st.sprint_rel_t > M.cfg.sprint_retry_s then st.sprint_hold = 0 end
             else st.sprint_hold = 0 end
         else
             inject_sprint(st, pawn) -- hold mode: hold every frame
         end
-        st.sprinting = sprinting
     end
+    if sprinting then st.sprint_frames = (st.sprint_frames or 0) + 1 end
 
     -- jump sequencing (frame-based): release after 0.25 s; double jump 0.35 s after the first
     if st.jump_t then
@@ -284,11 +363,12 @@ local function tick(st, gen, log)
     if t - st.win_t >= M.cfg.stuck_window_s then
         local moved = d2(me, st.win_pos)
         st.speed_cms = moved / (t - st.win_t)
+        if sprinting then st.sprint_speed_cms = st.speed_cms end
         if moved < M.cfg.stuck_min_cm then
             st.stuck_n = st.stuck_n + 1
             st.stuck_total = (st.stuck_total or 0) + 1
             local n = st.stuck_n
-            -- ladder: jump -> double jump -> strafe + double jump + repath -> repeat
+            -- ladder: jump -> double jump (+ trail if we have one) -> strafe + double jump + repath
             if not st.jump_t then
                 pcall(function() pawn:Jump() end)
                 st.jump_t, st.jump_release = t, true
@@ -299,10 +379,19 @@ local function tick(st, gen, log)
                 st.strafe_dir = (n % 2 == 0) and 1 or -1
                 st.strafe_until = t + 0.7
                 st.want_repath = true
+                if st.trail_i then st.trail_i = nearest_crumb(st.crumbs, me) end
             end
-            if log then log(string.format("move: stuck n=%d moved=%.0fcm d=%.0f src=%s", n, moved, dist, tostring(st.source))) end
-            if st.mode == "go_to" and n >= M.cfg.stuck_give_up then
-                return finish(st, { status = "failed", reason = "stuck", dist_m = dist / 100 }, log)
+            local pe = path and path[#path]
+            local ev = string.format(
+                "move: stuck n=%d moved=%.0fcm d=%.0f src=%s me=(%.0f,%.0f,%.0f) aim=(%.0f,%.0f,%.0f) goal=(%.0f,%.0f,%.0f) wp=%s/%s path_end=%s partial=%s trail=%s/%d",
+                n, moved, dist, tostring(st.source), me.X, me.Y, me.Z, aim.X, aim.Y, aim.Z, goal.X, goal.Y, goal.Z,
+                tostring(st.wp), tostring(path and #path), pe and string.format("(%.0f,%.0f,%.0f)", pe.X, pe.Y, pe.Z) or "-",
+                tostring(st.path_partial), tostring(st.trail_i), #st.crumbs)
+            st.last_stuck = ev
+            if log then log(ev) end
+            if n >= M.cfg.give_up_stuck then
+                return finish(st, { status = "failed", reason = "stuck", dist_m = dist / 100,
+                    at_m = { math.floor(me.X) / 100, math.floor(me.Y) / 100, math.floor(me.Z) / 100 } }, log)
             end
         else
             st.stuck_n = 0
@@ -312,8 +401,8 @@ local function tick(st, gen, log)
 
     if log and t - (st.log_t or 0) > M.cfg.log_every_s then
         st.log_t = t
-        log(string.format("move: %s d=%.0fcm wp=%s/%s src=%s spr=%s spd=%.0f", st.mode, dist, tostring(st.wp),
-            tostring(path and #path), tostring(st.source), tostring(st.sprinting), st.speed_cms or 0))
+        log(string.format("move: %s d=%.0fcm wp=%s/%s src=%s trail=%s/%d spr=%s spd=%.0f", st.mode, dist, tostring(st.wp),
+            tostring(path and #path), tostring(st.source), tostring(st.trail_i), #st.crumbs, tostring(sprinting), st.speed_cms or 0))
     end
 end
 
@@ -328,6 +417,7 @@ local function start(log, mode, opts)
     for k in pairs(st) do st[k] = nil end
     for k, x in pairs(keep) do st[k] = x end
     st.mode, st.pc, st.ticks, st.stuck_n = mode, pc, 0, 0
+    st.crumbs = {}
     st.t0 = now(pawn)
     st.tol_cm = (opts.tolerance_m or 1.5) * 100
     st.timeout_s = opts.timeout_s or 120
@@ -383,6 +473,9 @@ function M.status()
         sprinting = st.sprinting, sprint_route = st.sprint_route, sprint_err = st.sprint_err,
         press_to_sprint = st.pts, speed_ms = st.speed_cms and math.floor(st.speed_cms) / 100,
         stuck_n = st.stuck_n, stuck_total = st.stuck_total, jumps = st.jumps, double_jumps = st.double_jumps,
+        trail_i = st.trail_i, crumbs = st.crumbs and #st.crumbs, trail_entries = st.trail_entries,
+        sprint_presses = st.sprint_presses, sprint_frames = st.sprint_frames,
+        sprint_speed_ms = st.sprint_speed_cms and math.floor(st.sprint_speed_cms) / 100, last_stuck = st.last_stuck,
         ticks = st.ticks,
     }
 end

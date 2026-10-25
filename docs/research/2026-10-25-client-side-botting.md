@@ -51,6 +51,26 @@ Verified ourselves (DISCOVERIES):
 
 ## Not yet researched / open
 
-- Microbot `docs/ARCHITECTURE.md`, `AGENTS.md` and `MICROBOT_CLI.md` (agent server protocol): read them before extending our bridge protocol.
+- Microbot `docs/ARCHITECTURE.md`, `AGENTS.md` and `MICROBOT_CLI.md`: `AGENT_SERVER.md` was read (see the decision below); the rest are still unread.
 - Whether UE4SS can call `InjectInputForAction` (`FInputActionValue` marshalling; R15 struct-in-table bug). Test offline on the dev server first.
 - Whether `bAllowClientSideNavigation` plus cooked navmesh data works in UE 5.6 with World Partition on the client: one cheap test before building the exporter.
+
+### Decision: the client's agent server = our JSONL bridge, reused (2026-10-25)
+- **Need:** the brain must drive the real client body over the protocol it already speaks (BRIDGE_PROTOCOL.md v1), with client modules that hot-reload.
+- **Searched:**
+  - Microbot's agent server docs (`docs/AGENT_SERVER.md`, fetched from GitHub raw), plus mirrors for `MICROBOT_CLI.md`;
+  - "UE4SS Lua hot reload module loadfile";
+  - the UE4SS Lua mod guide;
+  - Lua module hot-reload patterns (Defold, LuaRocks `hotfix`);
+  - the repo's own `mod/scripts/bridge.lua`, whose prior-art header covers ue4ss-bridge and MotorTownMods.
+- **Found:**
+  - **Microbot** serves HTTP on localhost with GET for state and POST for actions. Every game read or write runs on the client thread. A long walk is non-blocking with `wait`/`timeout`, and `/observe` returns event streams with cursors. Our protocol already has the same shape: actions on the game thread, async results with ids, and an event stream. UE4SS Lua has no sockets, and the JSONL bridge is proven, so we keep JSONL rather than adopting HTTP.
+  - **UE4SS hot reload:**
+    - Built in, it is a whole-mod restart (a hotkey or the GUI), which is unusable headless.
+    - Nexus "Lua Mod Reloader" (single-mod reinstall) is manual.
+    - The general Lua idiom is to drop `package.loaded` and `require` again, keeping state elsewhere. We use `loadfile`/`load` with a content check and keep state in `_G`, as chat/move already do.
+- **Decision:** reuse + adapt.
+  - The client loads the server's `bridge.lua` unchanged. Its tail was made reusable (`new_tail`, per-instance file names).
+  - On top sits a thin dispatcher (`client_bridge.lua`) with the server body's action-slot semantics (pre-empt, interrupted, `task_done`/`task_failed`), plus waiters for client-side confirmation.
+  - Nothing was vendored and no new protocol was introduced.
+- **Sources:** https://raw.githubusercontent.com/chsami/Microbot/main/docs/AGENT_SERVER.md ; https://tomevault.io/tome/chsami/Microbot ; https://docs.ue4ss.com/guides/creating-a-lua-mod.html ; https://www.nexusmods.com/windrose/mods/520 ; https://defold.com/manuals/modules ; https://luarocks.org/modules/jinq0123/hotfix
