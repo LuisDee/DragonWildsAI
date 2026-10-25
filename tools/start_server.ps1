@@ -4,6 +4,7 @@
 # launcher only spawns it. The server writes its log to Saved\Logs\RSDragonwilds.log either way.
 . "$PSScriptRoot\config.ps1"
 
+Remove-Item (Join-Path $RepoRoot 'logs\server.stopped') -ErrorAction SilentlyContinue
 if (Get-ServerProcess) { Write-Host 'Server already running.'; exit 0 }
 
 New-Item -ItemType Directory -Force $ModLogDir, $BridgeDir | Out-Null
