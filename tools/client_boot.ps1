@@ -196,7 +196,9 @@ function Invoke-BootOnce([datetime]$t0) {
                 if (-not (Test-Path $TargetFile)) { return New-Result $false 'menu' 'no_secrets_file' $p $t0 }
                 if ($joinTries -ge 2) { return New-Result $false 'menu' 'join_timeout' $p $t0 }
                 $joinTries++
-                if ($script:joinTarget.name -eq $ClientDefaultTarget) { [void](Run-Cmd 'join_server.lua') }
+                # the static join_server.lua reads server.txt = SHOCKBYTE; any other target gets its own generated
+                # command. Compare with the literal name, never the (configurable) default (live bug 2026-10-25 22:24).
+                if ($script:joinTarget.name -eq 'shockbyte') { [void](Run-Cmd 'join_server.lua') }
                 else { [void](Run-Cmd 'join_server.lua' 20 $(if ($DryRun) { '' } else { New-JoinCmd }) " (target $($script:joinTarget.name))") }
                 if ($DryRun) { return New-Result $false 'menu' 'not_joined' $p $t0 }
                 $joinSent = Get-Date
@@ -205,6 +207,14 @@ function Invoke-BootOnce([datetime]$t0) {
         Start-Sleep 3
         $p = Get-ClientProbe 12
         if ($p) { $noAnswer = 0; BLog ("probe: " + (Summary $p)) }
+    }
+
+    # Safety net: never stay on a forbidden server (GOAL.md), whatever path got us there
+    $onNow = Get-JoinedServer
+    if (-not $DryRun -and (Test-JoinedForbidden $onNow)) {
+        BLog "JOINED A FORBIDDEN SERVER ($onNow): leaving at once"
+        [void](Run-Cmd 'disconnect.lua' 20 '' ' (forbidden server)')
+        return New-Result $false 'menu' "forbidden_server_left: $onNow" $p $t0
     }
 
     # 5. Teardown pause: join_server.lua / disconnect.lua set _G.DW_PAUSE; clear it now the pawn exists

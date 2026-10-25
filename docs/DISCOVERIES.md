@@ -13,6 +13,10 @@ See `docs/ARCHITECTURE.md`.
 
 ## Environment
 
+### Client vs server version check (2026-10-25 22:25 UTC)
+- Steam build ids are per app, so they never match. The client (app 1374490) is on **26162923** and the dedicated server (app 4019830) on **26161880**. Both logs report `LogInit: Build: ++dominion+hotfix-CL-254097` and `Net CL: 254097`, so it is the same game version.
+- **Compare `Net CL` from the client and server logs, not Steam build ids**, to tell whether a patch needs a server update. `update_server.ps1` reported 26161880 -> 26161880, with nothing to update.
+
 ### Dedicated server install (verified 2026-10-25, build 26161880)
 - **Install:** `winget install Valve.SteamCMD --source winget`, then `steamcmd +force_install_dir C:\GameServers\Dragonwilds +login anonymous +app_update 4019830 validate +quit`.
   - SteamCMD exits with code 7 after its first self-update without installing; run it again. About 5 GB.

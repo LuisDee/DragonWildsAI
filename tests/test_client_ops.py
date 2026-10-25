@@ -267,6 +267,48 @@ def test_boot_lease_picks_target_until_it_expires(rig):
     assert "target=shockbyte [default]" in p.stdout and "disconnect" not in p.stdout, p.stdout
 
 
+def _switch_rig(rig, joined_after_join):
+    runner = rig.start(in_world())
+    orig = runner.handle
+
+    def handle(name):
+        if name == "boot_disconnect":
+            runner.state.update(map="L_FrontEnd", screen=2, pawn=None, pos_m=None)
+            return {"ok": True, "result": {"sent": True}}
+        if name == "boot_join_server":
+            with open(rig.game_log, "a", encoding="utf-8") as f:
+                f.write(loadmap(joined_after_join))
+            runner.state.update(map="L_World", screen=0, pawn="P", pos_m=[0, 0, 0])
+        return orig(name)
+    runner.handle = handle
+    return runner
+
+
+def test_default_target_dev_joins_with_the_dev_file_not_server_txt(rig):
+    # live bug 2026-10-25 22:24: with default=dev the boot ran the static join_server.lua (server.txt =
+    # Shockbyte) because it compared the target with the configurable default instead of 'shockbyte'
+    dev_target(rig)
+    with open(rig.game_log, "a", encoding="utf-8") as f:
+        f.write(loadmap("1.2.3.4:7777"))
+    (rig.tmp / "state" / "client_default_target.txt").write_text("dev" + "\n", encoding="utf-8")
+    runner = _switch_rig(rig, "5.6.7.8:7777")
+    p = rig.ps("client_boot.ps1", "-NoLaunch", "-Quiet")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert runner.texts["boot_join_server"].startswith('local SECRETS_FILE = "server_dev.txt"'), runner.texts["boot_join_server"][:80]
+
+
+def test_boot_leaves_a_forbidden_server_it_landed_on(rig):
+    dev_target(rig)
+    (rig.tmp / "state" / "client_forbid_targets.txt").write_text("shockbyte" + "\n", encoding="utf-8")
+    runner = _switch_rig(rig, "1.2.3.4:7777")   # the join "lands" on server.txt's address (Shockbyte)
+    with open(rig.game_log, "a", encoding="utf-8") as f:
+        f.write(loadmap("9.9.9.9:7777"))
+    p = rig.ps("client_boot.ps1", "-NoLaunch", "-Quiet", "-Target", "dev", "-Attempts", "1")
+    assert p.returncode != 0
+    assert runner.calls.count("boot_disconnect") >= 2, runner.calls   # left the start server, then the forbidden one
+    assert "JOINED A FORBIDDEN SERVER" in (rig.tmp / "boot.log").read_text(encoding="utf-8-sig")
+
+
 def test_boot_refuses_a_forbidden_target_even_as_default(rig):
     # GOAL.md: during /goal shockbyte is forbidden; a boot (or a watchdog rejoin) must never join it
     rig.start(in_world())
