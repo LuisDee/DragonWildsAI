@@ -517,3 +517,8 @@ Modules: `mod/experiments/gather_probe.lua` (discovery), services `mod/body/sens
   - The tree WAS felled. It used only Overhead Chop.
   - It ignored the felled trunk and logs and went to a new tree; it did chop the stump; then it idled far away.
   - All forwarded to the gather agent.
+
+## On-demand speech v2: safe but not delivered (2026-10-25, about 15:35 UTC, Luis via GFN)
+- `speech_direct prove` PASSED: the pre-hook patch of the net ids into the live `Server_SendChatMessage` call is read by native code (`patched=Zezima == control`).
+- `send` returned ok and the server stayed healthy; **Luis's client did not freeze** (unlike the hand-built Client_* RPC case), but **no chat line appeared**.
+- Prime suspect: `FChatPlayerFilterData.ReceiverIds` was empty (routing to nobody). The presence agent is capturing a genuine filter from a real message next.

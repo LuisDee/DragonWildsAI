@@ -61,14 +61,14 @@ local function tree(species, item_id, min_tier, aliases, verified)
     return {
         item = WOOD .. item_id .. "." .. item_id, aliases = aliases, tool = "axe", min_tier = min_tier, foliage = true,
         root = { class = "FellableTree", match = "Tree_" .. species, exclude = "Sapling", filter = "standing",
-                 attack = "primary", reach_cm = 170 },
+                 attack = "primary", reach_cm = 160 },
         settle = { class = "FelledTree", match = "FelledTree_" .. species, max_ms = 10000 },
         children = {
             { name = "splittable", class = "SplittableTreeLog", match = "SplittableLog_" .. species, filter = "alive",
               attack = "special", reach_cm = 200 },
             { name = "log", class = "TreeLog", match = "^BP_Log_" .. species, filter = "alive", attack = "special", reach_cm = 200 },
             { name = "stump", class = "FellableTree", match = "Tree_" .. species, exclude = "Sapling", filter = "stump",
-              attack = "special", reach_cm = 170, bonus = true, at_root = true },
+              attack = "special", reach_cm = 160, bonus = true, at_root = true },
         },
         site_radius_cm = 1000, collect_radius_cm = 1200, verified = verified,
     }

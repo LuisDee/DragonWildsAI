@@ -119,7 +119,12 @@ function M._on_chat(ctx, msg_param, filter_param)
         secondary = idstr(U.try(function() return msg.SenderData.SecondaryNetId end)),
         filter_sender = idstr(U.try(function() return f.SenderId end)),
         receivers = U.try(function() return f.ReceiverIds:GetArrayNum() end),
+        receiver_ids = {},
+        component = U.fullname(U.try(function() return ctx:get() end)),
     }
+    pcall(function()
+        f.ReceiverIds:ForEach(function(_, e) rec.receiver_ids[#rec.receiver_ids + 1] = idstr(e:get()) end)
+    end)
     s.captures[#s.captures + 1] = rec
     U.event(nil, "speech_direct_capture", rec)
 end

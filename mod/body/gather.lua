@@ -57,9 +57,12 @@ M.STUCK_MOVE_CM = 50
 M.MAX_REISSUE = 3
 M.STUCK_SWING_SLACK_CM = 90     -- stuck but this close beyond reach: try swinging anyway
 M.APPROACH_ANGLES = { 0, 72, -72, 144, -144 } -- stand points tried around the target (degrees)
-M.REPOSITION_MS = 1500          -- after a swing with no contact, walk to another side for this long
+M.REPOSITION_MS = 1500          -- after swings with no contact, walk to another side for this long
+M.LEFTOVER_MAX_CM = 3000        -- logs left lying around within this radius are finished first
+M.APPROACH_MAX_MS = 25000       -- give a target up if we cannot reach it in this long
+M.STATUS_MIN_MS = 3000          -- gather_status events at most this often per phase
 M.DMG_SLACK_MS = 150            -- check the HP this long after the swing's damage point
-M.NO_EFFECT_SWINGS = 4          -- swings in a row with no HP change -> target is bad
+M.NO_EFFECT_SWINGS = 6          -- swings in a row with no HP change -> target is bad
 M.BAD_STREAK = 3                -- bad targets in a row -> fail (path_blocked)
 M.TOOL_RECHECK_MS = 3000
 M.PROGRESS_MIN_MS = 2000
@@ -186,6 +189,15 @@ function M.tree(deps)
     local function now() return deps.now() end
     local function lg(name, data) if deps.log then deps.log(name, data) end end
 
+    -- Visible state for the brain/logs: gather_status {task_id, phase, ...} on phase changes.
+    local function status(a, phase, extra)
+        if a.phase == phase and a.phase_at and now() - a.phase_at < M.STATUS_MIN_MS then return end
+        a.phase, a.phase_at = phase, now()
+        local d = { task_id = a.id, resource = a.key, phase = phase, have = a.have, want = a.want }
+        for k, v in pairs(extra or {}) do d[k] = v end
+        deps.emit("gather_status", d)
+    end
+
     local function fail(a, reason, extra)
         deps.finish(a, false, reason, result_data(a, extra)); return S_
     end
@@ -240,7 +252,12 @@ function M.tree(deps)
         end
         t.no_effect = (t.no_effect or 0) + 1
         t.last_verdict = verdict
-        if verdict == "no_contact" or verdict == nil then t.reposition = true end
+        if verdict == "no_contact" or verdict == nil then
+            t.no_contact = (t.no_contact or 0) + 1
+            if t.no_contact % 2 == 0 then t.reposition = true end -- the first swing may still be turning
+        else
+            t.no_contact = 0
+        end
         lg("gather_hit", { target = t.id, mode = "none", verdict = verdict, before = sw.hp, after = hp_now, dist_cm = sw.dist })
     end
 
@@ -276,6 +293,7 @@ function M.tree(deps)
         end
         a.target, a.move = nil, nil
         a.bad_streak = a.bad_streak + 1
+        status(a, "gave_up_target", { target = t and t.id, stage = t and t.stage, why = why })
         if a.bad_streak >= M.BAD_STREAK then
             return fail(a, "path_blocked", { detail = why, bad_targets = a.bad_streak })
         end
@@ -296,6 +314,8 @@ function M.tree(deps)
             end
         end
         lg("gather_target", { target = entry.id, stage = stage, dist_m = U.cm_to_m(entry.dist), hp = entry.state and entry.state.hp })
+        status(a, stage == "drop" and "collecting" or (stage == "root" and "walking_to_resource" or "working_" .. stage),
+               { target = entry.id, distance_m = U.cm_to_m(entry.dist) })
         return true
     end
 
@@ -323,8 +343,10 @@ function M.tree(deps)
         local p = a.p
         local here = U.loc(p)
         if a.site then
+            -- 1. the pieces (splittable logs, logs), 2. wait while the felled tree turns into pieces,
+            -- 3. the drops, 4. bonus stages (the stump), 5. its drops (the loop comes back to 3)
             for _, spec in ipairs(a.profile.children or {}) do
-                if not (spec.bonus and not a.bonus) then
+                if not spec.bonus then
                     local e = site_spec_entry(a, spec)
                     if e then return set_target(a, e, spec, spec.name) and S_ or S_ end
                 end
@@ -332,6 +354,7 @@ function M.tree(deps)
             local st = a.profile.settle
             if st and now() - (a.site.last_break or a.site.started) < (st.max_ms or 10000)
                 and sense.nearest({ class = st.class, match = st.match }, { origin = a.site.loc, radius_cm = a.profile.site_radius_cm or 1000 }) then
+                status(a, "waiting", { detail = "felled tree settling" })
                 return S_ -- the felled tree is still turning into logs
             end
             local drops = drops_near(a, a.site.loc, a.profile.collect_radius_cm or 1200)
@@ -343,6 +366,14 @@ function M.tree(deps)
                 end
             end
             if a.site.last_break and now() - a.site.last_break < M.DROP_SETTLE_MS then return S_ end
+            if a.bonus then
+                for _, spec in ipairs(a.profile.children or {}) do
+                    if spec.bonus then
+                        local e = site_spec_entry(a, spec)
+                        if e then return set_target(a, e, spec, spec.name) and S_ or S_ end
+                    end
+                end
+            end
             lg("gather_site_done", { site = a.site.id, seconds = U.round((now() - a.site.started) / 1000, 1) })
             a.site = nil
             return S_
@@ -359,7 +390,7 @@ function M.tree(deps)
             if not spec.at_root and not (spec.bonus and not a.bonus) then
                 local skip = {}
                 for k in pairs(a.bad) do local pos, stage = k:match("^(.-)/(.*)$"); if stage == spec.name then skip[pos] = true end end
-                local e = sense.nearest(spec, { origin = here, radius_cm = a.profile.collect_radius_cm or 1200, skip = skip })
+                local e = sense.nearest(spec, { origin = here, radius_cm = math.min(a.radius_cm, M.LEFTOVER_MAX_CM), skip = skip })
                 if e then
                     a.site = { loc = e.loc, id = e.id, started = now(), leftover = true }
                     a.sites = a.sites + 1
@@ -419,7 +450,8 @@ function M.tree(deps)
     local function move_state(a, t, here)
         local m = a.move
         if not m or m.key ~= t.key then
-            m = { key = t.key, reissues = 0, angle_i = 0, last_pos = here, last_progress = now(), issued = nil }
+            m = { key = t.key, reissues = 0, angle_i = 0, best = math.huge, last_progress = now(), issued = nil,
+                  since = now(), base_angle = nil }
             a.move = m
         end
         return m
@@ -431,11 +463,15 @@ function M.tree(deps)
     local function approach(a, t, aim, reach)
         local here = U.loc(a.p)
         local m = move_state(a, t, here)
-        if not m.last_pos or U.dist(here, m.last_pos) > M.STUCK_MOVE_CM then
-            m.last_pos, m.last_progress = here, now()
+        if now() - m.since >= M.APPROACH_MAX_MS then return mark_bad(a, "path_blocked") end
+        local d = U.dist2d(here, aim)
+        if d < m.best - M.STUCK_MOVE_CM then
+            m.best, m.last_progress = d, now()   -- progress = getting closer, not just moving
         elseif now() - m.last_progress >= M.STUCK_MS then
             m.reissues, m.angle_i, m.last_progress, m.issued = m.reissues + 1, m.angle_i + 1, now(), nil
+            m.best = d
             if m.reissues > M.MAX_REISSUE then return mark_bad(a, "path_blocked") end
+            status(a, "repositioning", { target = t.id, distance_m = U.cm_to_m(d) })
         end
         if not m.issued or now() - m.issued >= M.APPROACH_REISSUE_MS then
             m.issued = now()
@@ -444,8 +480,12 @@ function M.tree(deps)
             if c and m.angle_i == 0 and not t.use_aim then
                 r = deps.move_to_actor(c, t.actor, M.ACCEPT_CM)
             elseif c then
-                local ang = M.APPROACH_ANGLES[(m.angle_i % #M.APPROACH_ANGLES) + 1]
-                r = deps.move_to_location(c, sense.ring_point(aim, here, math.max(80, reach - 60), ang), 30)
+                -- the base angle is fixed once per target (else the stand point flips sides every reissue)
+                m.base_angle = m.base_angle or math.deg(math.atan(here.Y - aim.Y, here.X - aim.X))
+                local ang = m.base_angle + M.APPROACH_ANGLES[(m.angle_i % #M.APPROACH_ANGLES) + 1]
+                local r_cm = math.max(80, reach - 50)
+                local stand = { X = aim.X + math.cos(math.rad(ang)) * r_cm, Y = aim.Y + math.sin(math.rad(ang)) * r_cm, Z = aim.Z }
+                r = deps.move_to_location(c, stand, 30)
             end
             if r == 0 then
                 m.reissues, m.angle_i = m.reissues + 1, m.angle_i + 1
@@ -511,11 +551,12 @@ function M.tree(deps)
             end
             return mark_bad(a, "swing_no_effect:" .. tostring(t.last_verdict))
         end
-        if t.reposition then -- the last swing made no contact: try another side
+        if t.reposition then -- two swings in a row made no contact: try another side
             t.reposition = false
             local m = move_state(a, t, here)
             m.angle_i, m.issued = m.angle_i + 1, nil
-            m.last_pos, m.last_progress = here, now()
+            m.best, m.last_progress, m.since = math.huge, now(), now()
+            status(a, "repositioning", { target = t.id, detail = "no contact" })
             approach(a, t, aim, reach)
             a.ready_at = now() + M.REPOSITION_MS
             return S_
