@@ -704,3 +704,13 @@ Luis's direction change (binding, `docs/design/real-player-remediation.md`): no 
   - After sign-in, `KismetSystemLibrary:ExecuteConsoleCommand(pc, "open 127.0.0.1:7777?p=<base64 WorldPassword>?pf=PC?cpx=1")`. These are the same URL options a real client sends (seen in the server's `Login request` lines).
   - The client loads `L_World`. The server logs `Join succeeded`, then **`PlayerChar entered world [Account[PP:76561199797634942] Character Name[Claude] Guid[DCG:6CBB5130467171BAD741B5B4CD00286E]]`**.
   - So Claude is a genuine player: real login, real PlayerController, real character save.
+- **Joined the Shockbyte world as Claude's own account (2026-10-25, 17:17 UTC).** bootymaxer (SteamID 76561198614193617) joined 203.16.163.204:20921 headless from this VM. The full client sequence is in client_mod/commands:
+  1. `create_char` (first run only).
+  2. `consent`.
+  3. Sign in: `pick_char` → Landing (2), `CharacterSelectorWidget:OnSelectionUpdatedUpdatePlayerCharacter(0)` + `OnLoginTriggered()`.
+  4. `join_server`: `open <addr>?p=<b64 pw>?pf=PC?cpx=1`, with the address and password in gitignored `client_io/secrets/server.txt`.
+  5. `skip_intro`.
+  6. The pawn spawns.
+- **PlayerGuid = the Steam profile (persona) name** (`SetNameAndPlayerIdFromLocalUsername` → `Server_SetPlayerGuid [<persona>]`). Two accounts with the same persona collide: the server rejects the second with `Connection Failed for reason [DuplicateChar]`. bootymaxer had persona "luisdeburnaybastos"; it is now "Claude".
+- **A new character plays the narrative intro first** (input mode `DIM_NarrativeIntro`, a Bink video that never ends under NullRHI). The pawn only spawns after it. `WBP_NarrativeIntro_C:OnOutAnimationFinished()` completes it, and the `BP_PlayerCharacter_C` pawn appears within seconds.
+- Before the intro: `Remote Character load complete slot[Claude]` → `Started player profile stream` → `Connection to server has completed [success]`.
