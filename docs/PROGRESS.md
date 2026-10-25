@@ -21,3 +21,7 @@
 - Windows Update: active hours 08–02, no auto-reboot while a user is logged on.
 - **PHASE 1 GATE PASSED (2026-10-25 12:18 UTC):** Luis joined `CompanionDev` from GeForce Now. Server log: `Login request ... Name=luisdeburnaybastos userId: RedpointEOS:...`, then `Join succeeded: luisdeburnaybastos`. GFN can reach a self-hosted server.
   - The `PlayerController:ClientRestart` hook did not fire on join; Dragonwilds' spawn and possession path differs, so hooks will be based on the dump.
+- **PHASE 2 GATE PASSED (12:23 UTC):** the mod logs at start, the dump is generated and searchable, and the item-pickup hooks logged functions with parameters while Luis picked up sticks.
+  - **Text chat exists and is readable.** `!ping hello` arrived in Python as a `command_received` event over the bridge.
+  - The other half of the `!ping` gate, the reply appearing in game, needs a "say" implementation (task P5.3).
+  - Tree felling and inventory adds aren't hookable (task P2.6); they will be verified by polling state.

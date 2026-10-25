@@ -53,15 +53,15 @@
       "id": "P2.4",
       "phase": 2,
       "title": "RegisterHook logs item pickup when Luis picks up an item",
-      "status": "in_progress",
-      "passes_test": false
+      "status": "done",
+      "passes_test": true
     },
     {
       "id": "P2.5",
       "phase": 2,
       "title": "Determine whether text chat exists and whether the mod can receive it",
-      "status": "in_progress",
-      "passes_test": false
+      "status": "done",
+      "passes_test": true
     },
     {
       "id": "P4.1",
@@ -181,6 +181,20 @@
       "title": "GATE: section 8 mock scenarios pass",
       "status": "done",
       "passes_test": true
+    },
+    {
+      "id": "P2.6",
+      "phase": 2,
+      "title": "Find hookable signal for tree felling / harvest hits and inventory adds (OnHealthChanged, InventoryComponent:Add*, OnNewInventoryChangedLogEvent did not fire)",
+      "status": "todo",
+      "passes_test": false
+    },
+    {
+      "id": "P5.3",
+      "phase": 5,
+      "title": "Companion say: server-side chat output (Server_SendChatMessage / Client_ReceiveChatMessage / Client_DisplayTextNotification) to finish the !ping gate",
+      "status": "todo",
+      "passes_test": false
     }
   ]
 }

@@ -18,5 +18,9 @@ log.event("mod_loaded", { mod = MOD_NAME, lua = _VERSION, mod_root = mod_root, s
 print(string.format("[%s] loaded; logging to %s\n", MOD_NAME, log.path()))
 
 require("dumper").maybe_dump(mod_root, log)
-require("hooks").register(log)
-require("bridge").start(log)
+local bridge = require("bridge")
+bridge.start(log)
+require("hooks").register(log, {
+    -- Every chat line goes to the brain; the Controller decides whether it's a command.
+    chat = function(f) bridge.emit_event("command_received", { player = tostring(f.player_id), text = f.text }) end,
+})

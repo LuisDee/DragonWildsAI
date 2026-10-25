@@ -245,7 +245,7 @@ Removal / transfer (for `give` from the companion later): `RemoveItemByData(Item
 
 ## 7. What was put in hooks.lua (M.PENDING)
 
-Tags: `chat` (2), `chat_event` (1), `interact` (2), `item_pickup` (4), `inventory_add` (4), `harvest_hit` (1).
+Tags: `chat` (1), `chat_event` (1), `interact` (2), `item_pickup` (4), `inventory_add` (4), `harvest_hit` (1).
 None are tick or movement functions. All are per-user-action RPCs, delegate handlers, or authority helpers.
 `Client_ReceiveChatMessage` was **not** hooked because it would not run on the server. It belongs to the "say" experiment.
 
