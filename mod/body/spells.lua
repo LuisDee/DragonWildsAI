@@ -86,6 +86,7 @@ M.META = {
         effect = "/Game/Gameplay/UtilityMagic/PerkSpells/TempestShield/GE_TempestShield.GE_TempestShield_C",
         upgraded_effect = "/Game/Gameplay/UtilityMagic/PerkSpells/TempestShield/GE_TempestShield_Upgraded.GE_TempestShield_Upgraded_C",
         runes = { Air = 15 }, cooldown_s = 45, wiki = W("Attack", 11), aliases = { "shield", "tempest" },
+        needs_own_test = "its shield health reads the caster's Attack level from a PlayerController (null for the puppet)",
         preconditions = { "in combat or a fight is about to start", "incoming big telegraph, or own HP below ~50%" },
         use_when = "Block all damage for about a minute; cast before a big hit lands or when HP is low. Save it for bosses if Luis asks." },
     USD_Windstep = { name = "Windstep", role = "combat_cc", route = "wind_stomp",
@@ -372,6 +373,12 @@ function M.route_verified(route)
     return (r and r.verified) == true, r and r.note
 end
 
+-- A spell the catalog records as verified in game by itself (spells[asset].verified_in_game).
+function M.spell_verified(asset)
+    local g = game_rec(asset)
+    return type(g) == "table" and g.verified_in_game == true
+end
+
 -- ------------------------------------------------------------------ cost policies
 local function rune_item(rune) return "ITEM_Rune_" .. rune end
 
@@ -454,6 +461,11 @@ function M.can_cast(name)
     local verified, note = M.route_verified(route)
     if not (verified or S.allow_unverified) then
         data.detail = "route not verified in game (" .. tostring(note) .. ")"
+        return false, "not_implemented", data
+    end
+    local own = (M.META[asset] or {}).needs_own_test
+    if own and not (M.spell_verified(asset) or S.allow_unverified) then
+        data.detail = "this spell needs its own in-game test: " .. own
         return false, "not_implemented", data
     end
     local left = M.remaining_s(asset)
@@ -660,18 +672,24 @@ function ROUTE_FN.wind_stomp(p, asset, target, opts)
                                nearest_player_m = U.cm_to_m(pd), trigger = opts.trigger or "begin_play", verified = false })
 end
 
+-- Both instance arrays: an effect may live in either (the X1 puppet had 4 non-replicated ones).
 local function effect_instances(gec)
     local out = {}
-    local arr = U.try(function() return gec.ReplicatedInstances end)
-    if not arr then return out end
-    pcall(function()
-        arr:ForEach(function(_, e)
-            local g = U.try(function() return e:get() end) or e
-            out[#out + 1] = (U.fullname(g) or ""):match("^(%S+)") or "?"
-        end)
-    end)
+    for _, field in ipairs({ "ReplicatedInstances", "NonReplicatedInstances" }) do
+        local arr = U.try(function() return gec[field] end)
+        if arr then
+            pcall(function()
+                arr:ForEach(function(_, e)
+                    local g = U.try(function() return e:get() end) or e
+                    out[#out + 1] = (U.fullname(g) or ""):match("^(%S+)") or "?"
+                end)
+            end)
+        end
+    end
     return out
 end
+
+function M.catalog() return S.catalog end
 
 -- Self gameplay effect (X4): Tempest Shield and other self-targeted GEs.
 function ROUTE_FN.self_effect(p, asset, _target, opts)
@@ -913,9 +931,15 @@ function M.reflex_status()
     for asset in pairs(M.SCORERS) do
         local route = M.route(asset)
         local verified, note = M.route_verified(route)
-        local on = route ~= "none" and (verified or S.allow_unverified)
-        out[asset] = { route = route, verified = verified, on = on,
-                       why = (not on) and ("route " .. route .. " not verified in game: " .. tostring(note)) or nil }
+        local own = (M.META[asset] or {}).needs_own_test
+        local spell_ok = not own or M.spell_verified(asset)
+        local on = route ~= "none" and ((verified and spell_ok) or S.allow_unverified)
+        local why
+        if not on then
+            why = (not verified) and ("route " .. route .. " not verified in game: " .. tostring(note))
+                  or ("needs its own in-game test: " .. tostring(own))
+        end
+        out[asset] = { route = route, verified = verified, on = on, why = why }
     end
     return out
 end
@@ -945,6 +969,80 @@ function M.install_combat_hooks(combat)
     local remover = combat.add_hook("on_tick", "spells", M.combat_tick)
     log("spells_reflexes_installed", { routes = M.reflex_status(), allow_unverified = S.allow_unverified })
     return remover
+end
+
+-- ------------------------------------------------------------------ woodcutting assists (for body/gather.lua)
+-- The gather agent owns the loop; it calls M.woodcutting_assist(p, sit) from its work leaf and treats a
+-- returned spell id as "this tick was taken". Spells owns the decision and the cast (gates included).
+-- sit = {felled = {{X,Y,Z}...} felled trunks / splittable pieces, trees = {{X,Y,Z}...} standing trees
+--        of the target kind, axe = true when an axe is held}
+-- Order: Trunk Totem (3+ felled pieces spread beyond Splinter's reach), Splinter (pieces within its
+-- 2.3 m radius of one point), Axtral Projection (2+ trees in a 20 m line from the bot).
+-- UNVERIFIED: all three only run through the spell module graph (route none/modular), so today this
+-- answers nil, "not_implemented" until a route is proven; the decision part is unit-tested.
+M.SPLINTER_RADIUS_CM = 230
+M.AXTRAL_RANGE_CM = 2000
+M.AXTRAL_CORRIDOR_CM = 150
+M.TOTEM_MIN_PIECES = 3
+
+-- pure: the direction from origin hitting the most points within range and corridor.
+-- -> {dir = {X,Y}, count, aim = {X,Y,Z} (the farthest point hit)} or nil
+function M.pick_tree_line(origin, trees, range_cm, corridor_cm)
+    range_cm, corridor_cm = range_cm or M.AXTRAL_RANGE_CM, corridor_cm or M.AXTRAL_CORRIDOR_CM
+    local best
+    for _, t in ipairs(trees or {}) do
+        local dx, dy = t.X - origin.X, t.Y - origin.Y
+        local len = math.sqrt(dx * dx + dy * dy)
+        if len > 1 and len <= range_cm then
+            local ux, uy = dx / len, dy / len
+            local n, far, aim = 0, 0, nil
+            for _, q in ipairs(trees) do
+                local qx, qy = q.X - origin.X, q.Y - origin.Y
+                local along = qx * ux + qy * uy
+                local off = math.abs(qx * uy - qy * ux)
+                if along > 0 and along <= range_cm and off <= corridor_cm then
+                    n = n + 1
+                    if along > far then far, aim = along, q end
+                end
+            end
+            if not best or n > best.count then best = { dir = { X = ux, Y = uy }, count = n, aim = aim } end
+        end
+    end
+    return best
+end
+
+-- pure: -> spell asset, target point, why  (or nil, nil, why)
+function M.woodcutting_choice(origin, sit)
+    sit = sit or {}
+    if sit.axe == false then return nil, nil, "no axe held" end
+    local felled = sit.felled or {}
+    if #felled >= M.TOTEM_MIN_PIECES then
+        local _, n = M.pick_cluster(felled, M.SPLINTER_RADIUS_CM, 1)
+        if n < #felled then
+            local c = M.pick_cluster(felled, math.huge, 1)
+            return "USD_PileEmUp", c, "felled pieces spread out: gather them into a totem"
+        end
+    end
+    if #felled >= 1 then
+        local c, n = M.pick_cluster(felled, M.SPLINTER_RADIUS_CM, 1)
+        return "USD_Splinter", c, ("splinter %d felled piece(s)"):format(n)
+    end
+    local line = origin and M.pick_tree_line(origin, sit.trees)
+    if line and line.count >= 2 then return "USD_AxtralProjection", line.aim, ("%d trees in a line"):format(line.count) end
+    return nil, nil, "nothing worth a spell"
+end
+
+-- -> cast spell id (truthy: gather should skip its swing this tick) or nil, reason
+function M.woodcutting_assist(p, sit)
+    if not U.valid(p) then return nil, "companion_down" end
+    local spell, target, why = M.woodcutting_choice(U.loc(p), sit)
+    if not spell then return nil, why end
+    local ok, reason = M.can_cast(spell)
+    if not ok then return nil, reason end
+    local r = M.cast(p, spell, target, {})
+    log("woodcutting_assist", { spell = spell, why = why, ok = r.ok, reason = r.reason })
+    if r.ok then return spell end
+    return nil, r.reason
 end
 
 -- ------------------------------------------------------------------ bridge

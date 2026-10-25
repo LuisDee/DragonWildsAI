@@ -7,7 +7,7 @@ OpenAI-style function definitions, which LiteLLM forwards to any provider.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Annotated, Any, Literal, TypedDict, Union
+from typing import Annotated, Any, Callable, Literal, TypedDict, Union
 
 from pydantic import BaseModel, Field, TypeAdapter
 
@@ -63,6 +63,10 @@ class Reason:
     # gather (body/gather.lua)
     WRONG_TOOL = "wrong_tool"  # no held tool of the right category/tier: equip one (or fetch it) first
     INVENTORY_FULL = "inventory_full"  # the bot's store refused more items: deliver/drop first
+    # perception and interaction (body look/inspect/interact; research 2026-10-25 section 6)
+    NOT_PERCEIVED = "not_perceived"  # brain-side grounding refusal: the named thing is not in what was perceived
+    AMBIGUOUS_TARGET = "ambiguous_target"  # several perceived things match; data.candidates
+    NOT_INTERACTABLE = "not_interactable"  # the target affords no interaction
 
     # A player command or an attack pre-empted the action: not the skill's fault.
     INTERRUPTS: frozenset[str] = frozenset({INTERRUPTED, ATTACKED})
@@ -71,6 +75,7 @@ class Reason:
         NOTHING_IN_RANGE, NOT_ENOUGH, MISSING_MATERIALS, UNKNOWN_TARGET, UNKNOWN_RECIPE, TOO_FAR,
         INVALID_ARGS, UNKNOWN_TOOL, NOT_IMPLEMENTED, COMPANION_DOWN, UNKNOWN_SKILL, STATE_UNAVAILABLE,
         NOT_UNLOCKED, UNSAFE, CANT_SENSE, NOT_IN_INVENTORY, WRONG_TOOL, INVENTORY_FULL,
+        NOT_PERCEIVED, AMBIGUOUS_TARGET, NOT_INTERACTABLE,
     })
     # The companion simply cannot do this yet (skill missing on the body or in the registry).
     CANT_YET: frozenset[str] = frozenset({NOT_IMPLEMENTED, UNKNOWN_TOOL, UNKNOWN_SKILL})
@@ -136,6 +141,29 @@ class DropArgs(BaseModel):
     item: str = Field(description="Carried item: an id from state inventory, or a name like 'oak logs'.")
     count: int = Field(ge=1, description="How many to drop.")
     at: Literal["feet", "luis"] = Field("feet", description="At the companion's feet, or at Luis's feet when he is close.")
+
+
+class LookArgs(BaseModel):
+    about: str | None = Field(None, description=(
+        "What the player named, in their words (e.g. 'sticks'). If nothing matches, the answer says "
+        "matched=false and lists what IS around instead."))
+    radius_m: float = Field(30.0, gt=0, le=120, description="Search radius in metres.")
+    kinds: list[str] | None = Field(None, description="Only these kinds, e.g. ['gatherable', 'item', 'creature'].")
+    max: int = Field(12, ge=1, le=30, description="At most this many entries.")
+
+
+class InspectArgs(BaseModel):
+    target: str = Field(description="An id from a look result.")
+
+
+class InteractArgs(BaseModel):
+    target: str = Field(description="An id from a look result whose actions include interact.")
+    secondary: bool = Field(False, description="Use the thing's secondary interaction instead.")
+
+
+class RunSkillArgs(BaseModel):
+    name: str = Field(description="Name of a learned skill listed in learned_skills.")
+    params: dict[str, Any] = Field(default_factory=dict, description="Values for the skill's params.")
 
 
 class SayArgs(BaseModel):
@@ -242,14 +270,26 @@ TOOLS: dict[str, tuple[type[BaseModel], str]] = {
                         "Only for triggers in the trigger list; same enemy + trigger replaces the old rule."),
     "list_rules": (ListRulesArgs, "List the standing orders (reflex rules)."),
     "clear_rule": (ClearRuleArgs, "Forget a standing order by id, every order for an enemy kind, or all."),
+    "look": (LookArgs, "Look around: every gatherable, world item, creature, player and station nearby, by its "
+                       "in-game name, with distance and what you can do with it. Read-only: does not interrupt."),
+    "inspect": (InspectArgs, "Details of one thing from a look result: what it is, what it gives, what it needs, "
+                             "which actions work. Read-only."),
+    "interact": (InteractArgs, "Use a thing you looked at, like a player pressing E (gather sticks, open, pick)."),
+    "run_skill": (RunSkillArgs, "Run a skill you learned earlier (listed in learned_skills) with its params."),
 }
 
 # Brain-side tools that talk to the body directly, not through the executor (no game state to verify
 # beyond the body's own read-back of the stored rule).
 RULE_TOOLS = ("set_reflex_rule", "list_rules", "clear_rule")
 
-# Tools the body implements (remember is brain-side, in the state store).
-BODY_TOOLS = [name for name in TOOLS if name != "remember"]
+# Read-only perception tools: they never interrupt the current job and never end a Controller turn.
+READ_TOOLS = ("look", "inspect")
+
+# Brain-side tools (the state store / skill library), never sent to the body.
+BRAIN_TOOLS = ("remember", "run_skill")
+
+# Tools the body implements.
+BODY_TOOLS = [name for name in TOOLS if name not in BRAIN_TOOLS]
 
 
 def tool_schema(name: str, description: str | None = None) -> dict:
@@ -309,6 +349,18 @@ class GatherProgress(BaseModel):
     want: int
 
 
+class TaskProgress(BaseModel):
+    """Generic progress of a long body action (milestones of any skill); ``text`` is a short label."""
+    type: Literal["task_progress"] = "task_progress"
+    task_id: str | None = None
+    text: str | None = None
+    have: int | None = None
+    want: int | None = None
+
+
+PROGRESS_EVENTS = (GatherProgress, TaskProgress)
+
+
 class PlayerNearbyActivity(BaseModel):
     type: Literal["player_nearby_activity"] = "player_nearby_activity"
     player: str
@@ -316,7 +368,7 @@ class PlayerNearbyActivity(BaseModel):
 
 
 Event = Annotated[
-    Union[CommandReceived, TaskDone, TaskFailed, Attacked, PlayerNearbyActivity, GatherProgress],
+    Union[CommandReceived, TaskDone, TaskFailed, Attacked, PlayerNearbyActivity, GatherProgress, TaskProgress],
     Field(discriminator="type"),
 ]
 _event_adapter: TypeAdapter[Event] = TypeAdapter(Event)
@@ -381,6 +433,26 @@ class GameInterface(ABC):
 
     def wake(self) -> ActionResult:
         return fail(Reason.NOT_IMPLEMENTED, tool="wake")
+
+    # Perception (body/perception.lua, owned by the gather agent). Bodies without it answer
+    # not_implemented, and the Controller then works from the get_state situation digest only.
+    def look(self, about: str | None = None, radius_m: float = 30.0, kinds: list[str] | None = None,
+             max: int = 12) -> ActionResult:
+        return fail(Reason.NOT_IMPLEMENTED, tool="look")
+
+    def inspect(self, target: str) -> ActionResult:
+        return fail(Reason.NOT_IMPLEMENTED, tool="inspect")
+
+    def interact(self, target: str, secondary: bool = False) -> ActionResult:
+        return fail(Reason.NOT_IMPLEMENTED, tool="interact")
+
+    def world_info(self) -> ActionResult:
+        """``data.world_guid`` (the save's WorldSaveGuid) and optionally ``data.name``."""
+        return fail(Reason.NOT_IMPLEMENTED, tool="world_info")
+
+    def set_progress_listener(self, listener: "Callable[[Event], None] | None") -> None:
+        """Called with progress events as soon as the body emits them, even while an action is still
+        running (the bridge waits inside the action call). Default: no live delivery."""
 
     def spells(self) -> ActionResult:
         """Compact spell list ``data.spells`` [{id, name, role, use_when, castable, reason, remaining_s}]."""

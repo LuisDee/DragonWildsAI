@@ -413,8 +413,12 @@ test("hook order in body/combat.lua: rules first, then spells; the spells reflex
     local r = combat._run_hooks("on_tick", ctx_for(p, t, 0))
     eq(r, nil, "no rule, shield route off: nothing")
     eq(count_calls("InstantiateGameplayEffect"), 0)
-    -- the catalog records the route as verified in game -> the reflex turns on
+    -- the catalog records the route as verified in game (e.g. with Fire Spirit): Tempest Shield still
+    -- needs its own test (null-PC Attack level); once that is recorded too, the reflex turns on
     spells.configure({ catalog = { spells = {}, routes = { self_effect = { verified = true, note = "test" } } } })
+    eq(spells.reflex_status().USD_TempestShield.on, false, "route alone is not enough for the shield")
+    spells.configure({ catalog = { spells = { USD_TempestShield = { verified_in_game = true } },
+                                   routes = { self_effect = { verified = true, note = "test" } } } })
     eq(spells.reflex_status().USD_TempestShield.on, true)
     eq(spells.reflex_status().USD_Windstep.on, false, "wind_stomp still unverified")
     local name

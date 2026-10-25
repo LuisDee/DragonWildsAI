@@ -114,6 +114,17 @@ Body: `mod/body/spells.lua` and `mod/body/rules.lua`, registered in `main.lua`. 
 - Casting routes that are not verified in game (catalog `routes[r].verified`) answer
   `not_implemented` unless the server runs with `DW_SPELLS_UNVERIFIED=1`.
 
+### Sleep (protocol v1 addition)
+
+| Tool | Args | Success `data` |
+|---|---|---|
+| `sleep` | `target?` (`nearest` or a bed id), `mode?` (`auto` \| `bed` \| `flag`) | `{mode, bed?, sleeping: true}`; async when the bot walks to a bed |
+| `wake` | none | `{was, sleeping: false}` |
+| `sleep_status` | none | `{night, luis_sleeping, bot_sleeping, how, beds, reflex, night_skip}` |
+| `night_skip` (debug) | `mode` (`spectator` \| `flag` \| `off`) | the status |
+
+`get_state` gains `sleeping` and `luis_sleeping`. The bot never uses a bed claimed by someone else. `mode=bed` with no free bed answers `nothing_in_range`.
+
 ### `result` (body to brain)
 
 ```json

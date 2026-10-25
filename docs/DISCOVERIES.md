@@ -542,3 +542,28 @@ Modules: `mod/experiments/gather_probe.lua` (discovery), services `mod/body/sens
 - **Route:** `Server_SendChatMessage` on a connected player's PlayerChatComponent with scalar-only tables (bot GUID, PlayerId, colour, text). A one-shot pre-hook copies the live net ids (PrimaryNetId/SecondaryNetId from the host PS, SenderId) and fills **ReceiverIds with every connected player's PlayerState.UniqueID** (array-element assignment = safe property copy; not R15).
 - The name resolves to "Claude" via the (host account, bot GUID) registry entry.
 - Made the default: `start_server.ps1` sets `DW_SAY_MODE=direct` (relay remains the fallback). Effective at the next restart.
+
+## Night skip and sleep (build 26161880, 2026-10-25, about 16:30-16:45 UTC+1, Luis online; no crash, dumps stayed at 10)
+- **Luis confirmed in game that the bot blocks "all players sleeping".** It has a `DominionPlayerState` in `GameState.PlayerArray` (`bIsABot = true`). So `bIsABot` does **not** exclude it.
+- **How the game decides (dump, read-only):** the skip is native.
+  - `UPlayerSleepSubsystem` (a `UTickableWorldSubsystem` with no reflected members) and `ADominionGameMode.OnAllPlayersSleeping` (delegate).
+  - Per player: `ADominionPlayerCharacter.PlayerRestComponent` (`UPlayerRestComponent`, BP `BP_Components_Rest_C`, held in the character property `BP_Components_Sleep`). It has `IsSleeping` (replicated, `OnRep_IsSleeping`), `CurrentRestingAreaActor/Component`, `IsInTimeframeForSleep()`, `IsWaitingForSleep()`, `StartSleeping()`, and `GetWaitingToSleepText(InstigatorName, bIsInstigator, NumPlayersInBeds, NumTotalPlayers)`. So the UI counts "players in beds / total players".
+  - Beds: `UBedComponent : URestingAreaComponent` with `CanSleep / Sleep / StopSleeping / Claim (ADominionPlayerCharacter*)`, `IsClaimedByAnyPlayer`, `IsClaimedByPlayer`, `GetClaimingCharacterName`, and `bRequiresClaimingToSleepIn`. `URestingAreaComponent` adds `Rest / StopResting / CanRest`.
+  - Time: `/Script/Dominion.Default__InGameTimeFunctionLibrary:IsNighttime(ctx)` and `GetInGameTime(ctx)` (FTimespan; `Ticks / 3.6e10` gives hours) both read fine live. `GetTimeOfDusk/Dawn` return nothing readable.
+- **Live reads (`experiments/sleep_probe`):** in-game 07:11, then 11:18 in the next run. No `BedComponent` or `RestingAreaComponent` was loaded near Luis (his beds are elsewhere and unloaded). Both rest components were readable (`IsSleeping = false`). PlayerArray: Zezima (`bIsABot = false`) and Claude (`bIsABot = true`); `bIsSpectator`/`bOnlySpectator` are false on both.
+- **Which per-bot flag lets Luis pass the night: NOT YET KNOWN.** It needs a night with Luis in bed. Candidates are built (`body/sleep.lua`, armed at startup since the 16:32 restart):
+  1. Rest flag: the puppet's `PlayerRestComponent.IsSleeping = true` (property write, no OnRep). The sleep reflex does this automatically when Luis starts sleeping and no free bed is within 25 m.
+  2. `night_skip {mode=spectator}`: the bot PlayerState's `bIsSpectator` and `bOnlySpectator` set to true.
+  3. A real bed: `BedComponent:CanSleep(puppet)`, then `Sleep(puppet)`. It never takes a bed someone else claimed.
+  - Record the result here.
+- Summon Shelter (`USD_SummonShelter`): a Placed spell whose `SpellModule_UtilityMagic` spawns `BP_Magic_SummonShelter_C` (`AUtilitySpell`, caster from `GetCaster()`). It only runs through the module graph, so there is no safe route yet and the sleep skill's no-bed fallback is the rest flag.
+
+## Cast route canary: self_effect with Fire Spirit (build 26161880, 2026-10-25 about 16:44 UTC+1; no crash)
+- **Choice:**
+  - `USD_FireSpirit` (`GE_FireSpirit_C` on SpellOwner, instance `UFireSpiritGameplayEffectInstance`, which drives an `AFireSpirit` light bound to `TargetCharacter`; 3 h in-game, no damage, nothing on others).
+  - Cast through `GameplayEffectsComponent:InstantiateGameplayEffect(class, nil, false)`, the `self_effect` route. It takes plain args, skips the spell module graph (no `SpellModule_CostItems` null-PC inventory read, R8), and avoids Tempest Shield (MaxHealth reads the Attack level from a PlayerController the puppet lacks).
+  - Tempest Shield now carries `needs_own_test` in `spells.lua`, so proving the route does not enable it.
+- **Run (`experiments/cast_test cast`):** the puppet was walked about 14 m from Luis first. A `FireSpiritGameplayEffectInstance` appeared in the puppet's `ReplicatedInstances` (4 to 5 instances); the server stayed up and `ping` was fine.
+  - No `AFireSpirit` actor was visible server-side after 5 s (it is probably a client-side cosmetic, spawned from the replicated instance).
+  - **Pending: Luis's eyes**, whether a fire-spirit light is floating by Claude. Only after a "yes" set `routes.self_effect.verified = true` in `data/spells_26161880.json` (and `spells.USD_FireSpirit.verified_in_game = true`).
+  - To remove it: `cast_test {action=remove, confirm=true}`.

@@ -2,19 +2,26 @@
 
 Each action sends ``{"type": "cmd", "id", "tool", "args"}`` and blocks until a
 ``result`` with the same id arrives or the per-tool timeout expires. Events that
-arrive meanwhile are buffered for ``poll_events``. See BRIDGE_PROTOCOL.md.
+arrive meanwhile are buffered for ``poll_events``; progress events are also handed
+to the progress listener at once, so the brain can speak a progress line while a
+long action (gather) is still running. Requests are re-entrant: a ``say`` sent from
+the listener may read the long action's result off the wire, so results for any
+in-flight id are parked until their own request picks them up. See BRIDGE_PROTOCOL.md.
 """
 from __future__ import annotations
 
 import time
 import uuid
+from typing import Callable
 
 from pydantic import ValidationError
 
 from . import protocol
-from .interface import ActionResult, Coords, Event, GameInterface, Reason, fail, from_wire, parse_event
+from .interface import (PROGRESS_EVENTS, ActionResult, Coords, Event, GameInterface, Reason, fail, from_wire,
+                        parse_event)
 from .jsonl_log import JsonlLogger
 from .transport import Transport
+
 
 def _drop_none(v):
     """Remove None values recursively (optional args are simply absent on the wire)."""
@@ -28,7 +35,8 @@ def _drop_none(v):
 # Long actions need longer timeouts. Seconds of wall-clock time.
 DEFAULT_TIMEOUTS = {"gather": 1800.0,  # body/gather.lua caps itself at 1700 s
                     "craft": 60.0, "attack": 60.0, "go_to": 120.0, "place": 60.0,
-                    "pickup": 120.0, "give": 70.0}  # the body's give walks to the player first
+                    "pickup": 120.0, "give": 70.0,  # the body's give walks to the player first
+                    "interact": 120.0, "look": 15.0}  # interact walks there; look converts foliage first
 
 
 class BridgeClient(GameInterface):
@@ -39,24 +47,54 @@ class BridgeClient(GameInterface):
         self.default_timeout = default_timeout
         self.timeouts = {**DEFAULT_TIMEOUTS, **(timeouts or {})}
         self._events: list[Event] = []
+        self._inflight: set[str] = set()  # request ids still waiting for their result
+        self._parked: dict[str, dict] = {}  # results that arrived while some request was reading
+        self._progress: list[Event] = []  # progress events not yet handed to the listener
+        self._listener: Callable[[Event], None] | None = None
+        self._notifying = False
 
     # ---------------------------------------------------------------- plumbing
 
-    def _dispatch(self, msg: dict, waiting_for: str | None) -> dict | None:
-        """Route one incoming message; return it if it answers ``waiting_for``."""
+    def set_progress_listener(self, listener: Callable[[Event], None] | None) -> None:
+        self._listener = listener
+
+    def _dispatch(self, msg: dict) -> None:
+        """Route one incoming message: events are buffered, results parked for their request."""
         kind = msg.get("type")
         if kind == "event":
             try:
-                self._events.append(parse_event(msg.get("event") or {}))
+                ev = parse_event(msg.get("event") or {})
             except ValidationError as exc:
                 self.log.log("bridge_bad_event", msg=msg, error=str(exc))
-        elif kind in ("result", "error") and msg.get("id") == waiting_for and waiting_for:
-            return msg
+                return
+            self._events.append(ev)
+            if isinstance(ev, PROGRESS_EVENTS):
+                self._progress.append(ev)
+        elif kind in ("result", "error") and msg.get("id") in self._inflight:
+            self._parked[msg["id"]] = msg
         elif kind in ("result", "error"):
             self.log.log("bridge_unmatched", msg=msg)  # late reply to a timed-out call, or body error
         else:
             self.log.log("bridge_unknown", msg=msg)
-        return None
+
+    def _notify_progress(self) -> None:
+        """Hand progress events to the listener, outside the receive loop and never recursively
+        (the listener's own ``say`` request also reads the wire)."""
+        if self._listener is None:
+            self._progress.clear()
+            return
+        if self._notifying:
+            return
+        self._notifying = True
+        try:
+            while self._progress:
+                ev = self._progress.pop(0)
+                try:
+                    self._listener(ev)
+                except Exception as exc:  # speech is best effort; never break the waiting action
+                    self.log.log("progress_listener_error", error=repr(exc))
+        finally:
+            self._notifying = False
 
     def _drain_malformed(self) -> None:
         bad = getattr(self.transport, "malformed", None)
@@ -69,18 +107,29 @@ class BridgeClient(GameInterface):
         msg = protocol.cmd(req_id, tool, args, probe=probe)
         timeout = timeout if timeout is not None else self.timeouts.get(tool, self.default_timeout)
         self.log.log("bridge_send", msg=msg)
-        self.transport.send(msg)
-        deadline = time.monotonic() + timeout
-        while (remaining := deadline - time.monotonic()) > 0:
-            for incoming in self.transport.receive(remaining):
-                reply = self._dispatch(incoming, req_id)
+        self._inflight.add(req_id)
+        try:
+            self.transport.send(msg)
+            deadline = time.monotonic() + timeout
+            while True:
+                reply = self._parked.pop(req_id, None)
                 if reply is not None:
                     self._drain_malformed()
                     self.log.log("bridge_recv", msg=reply)
                     if reply["type"] == "error":
                         return fail(reply.get("reason") or Reason.BODY_ERROR, detail=reply.get("detail"))
                     return from_wire(reply)
-            self._drain_malformed()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                for incoming in self.transport.receive(remaining):
+                    self._dispatch(incoming)
+                self._drain_malformed()
+                if req_id not in self._parked:
+                    self._notify_progress()
+        finally:
+            self._inflight.discard(req_id)
+            self._parked.pop(req_id, None)
         self.log.log("bridge_timeout", id=req_id, tool=tool, timeout=timeout)
         return fail(Reason.TIMEOUT, tool=tool, id=req_id)
 
@@ -165,9 +214,24 @@ class BridgeClient(GameInterface):
     def clear_rule(self, id: str | None = None, enemy: str | None = None, all: bool = False) -> ActionResult:
         return self.request("clear_rule", _drop_none({"id": id, "enemy": enemy, "all": all or None}))
 
+    # perception (body/perception.lua) and the world id (per-world memory)
+    def look(self, about: str | None = None, radius_m: float = 30.0, kinds: list[str] | None = None,
+             max: int = 12) -> ActionResult:
+        return self.request("look", _drop_none({"about": about, "radius_m": radius_m, "kinds": kinds, "max": max}))
+
+    def inspect(self, target: str) -> ActionResult:
+        return self._tool("inspect", target=target)
+
+    def interact(self, target: str, secondary: bool = False) -> ActionResult:
+        return self._tool("interact", target=target, secondary=secondary)
+
+    def world_info(self) -> ActionResult:
+        return self.request("world_info", {}, 5.0)
+
     def poll_events(self) -> list[Event]:
         for msg in self.transport.receive(0.0):
-            self._dispatch(msg, None)
+            self._dispatch(msg)
         self._drain_malformed()
+        self._progress.clear()  # the agent sees these in the returned list
         events, self._events = self._events, []
         return events

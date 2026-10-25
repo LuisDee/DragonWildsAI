@@ -91,3 +91,13 @@
 - **Tests:** `mod/tests/test_rules.lua` (13), `test_spells.lua` (36), `tests/test_spells_rules_brain.py` (20). Full pytest: 113 passed. Lua: body 30/30, core 16/16, bridge 14/14.
 - **Live (no restart needed, already loaded at the 15:45 restart):** the handlers and persistence work. The telegraph sensor read is still unverified (nobody online).
 - **Next:** Luis tests `!c every time the kalphite raises its claws, windstep away`, then a Kalphite fight. Run `rules_probe watch` during the fight to verify the attack-state poll.
+
+### 2026-10-25: sleep skill, night-skip valve, first cast canary (tasks P7.Z1, P7.S1, P7.S2)
+- **Sleep:** `mod/body/sleep.lua`, wired in `main.lua` and live since the 16:32 restart.
+  - Handlers: `sleep`, `wake`, `sleep_status`, `night_skip`.
+  - Reflex: when Luis sleeps, the bot sleeps (in a free bed within 25 m, else via the rest flag); when he wakes, the bot wakes and follows him again.
+  - The brain has `sleep`/`wake` tools.
+  - Which flag lets the night pass is pending a night test with Luis.
+- **Cast canary:** Fire Spirit was cast on the puppet through `self_effect`, 14 m from Luis. The GE instance replicated with no crash. Waiting on Luis's visual check before setting the verified flag. Tempest Shield is gated by its own test (`needs_own_test`).
+- **Woodcutting:** `spells.woodcutting_assist(p, sit)` decides Trunk Totem / Splinter / Axtral Projection for gather.lua to call. It is not castable yet (module-graph spells, no route).
+- **Tests:** `test_sleep.lua` (9), `test_spells.lua` (38), `test_rules.lua` (13), and brain sleep tests.

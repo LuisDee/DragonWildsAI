@@ -595,6 +595,36 @@ test("register: catalog, policy, inventory, unverified flag, compact spells, cas
     eq(r.ok, true, tostring(r.reason)); eq(F.calls[1][3].X, 0, "stomp at the companion"); eq(bag.ITEM_Rune_Air, 45)
 end)
 
+test("a verified self_effect route (Fire Spirit) does not unlock Tempest Shield's own test", function()
+    setup({ allow_unverified = false })
+    spells.configure({ catalog = { routes = { self_effect = { verified = true } }, spells = {
+        USD_FireSpirit = { modules = { { kind = "SpellModule_GameplayEffect", target = "SpellOwner",
+                                         effect = "/Game/Gameplay/UtilityMagic/PerkSpells/FireSpirit/GE_FireSpirit.GE_FireSpirit_C" } } } } } })
+    eq(spells.route("USD_FireSpirit"), "self_effect")
+    eq(spells.can_cast("fire spirit"), true)
+    local ok, reason, data = spells.can_cast("shield")
+    eq(ok, false); eq(reason, "not_implemented"); truthy(data.detail:find("own in%-game test"))
+    spells.configure({ catalog = { routes = { self_effect = { verified = true } },
+                                   spells = { USD_TempestShield = { verified_in_game = true } } } })
+    eq(spells.can_cast("shield"), true)
+end)
+
+test("woodcutting choice: totem, splinter, axtral line; assist refuses while the routes are none", function()
+    setup({ allow_unverified = false })
+    local o = { X = 0, Y = 0, Z = 0 }
+    local s1, t1 = spells.woodcutting_choice(o, { felled = { { X = 100, Y = 0, Z = 0 }, { X = 150, Y = 50, Z = 0 } } })
+    eq(s1, "USD_Splinter"); truthy(t1.X > 100 and t1.X < 150)
+    local s2 = spells.woodcutting_choice(o, { felled = { { X = 0, Y = 0, Z = 0 }, { X = 1000, Y = 0, Z = 0 }, { X = 0, Y = 1000, Z = 0 } } })
+    eq(s2, "USD_PileEmUp")
+    local s3, t3 = spells.woodcutting_choice(o, { trees = { { X = 500, Y = 20, Z = 0 }, { X = 1200, Y = -40, Z = 0 }, { X = 0, Y = 900, Z = 0 } } })
+    eq(s3, "USD_AxtralProjection"); eq(t3.X, 1200, "aim at the farthest tree in the line")
+    eq(spells.woodcutting_choice(o, { trees = { { X = 500, Y = 0, Z = 0 } } }), nil, "one tree: just chop")
+    eq(spells.woodcutting_choice(o, { axe = false, felled = { o } }), nil)
+    local p = puppet(0, 0, 0)
+    local spell, reason = spells.woodcutting_assist(p, { felled = { { X = 100, Y = 0, Z = 0 } } })
+    eq(spell, nil); eq(reason, "not_implemented"); eq(#F.calls, 0)
+end)
+
 -- =============================================================================== report
 print(("test_spells: %d passed, %d failed"):format(passed, #failed))
 for _, f in ipairs(failed) do print("FAIL " .. f) end
