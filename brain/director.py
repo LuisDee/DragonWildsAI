@@ -44,6 +44,7 @@ from .knowledge_memory import Efficiency, KnowledgeMemory, matches_unknown, reca
 from .llm_json import BudgetStop, DecisionError, extract_json, json_decision
 
 MAX_REPLANS = 6
+GAP_KINDS = ("action", "perception", "knowledge")
 RESEARCH_ROUNDS = 2  # wave 5: real Sonnet used every round it was given and batched 2-4 calls per round
 MAX_REQUESTS = 5  # per decision: the research rounds + the answer + 2 repairs
 MAX_STEPS = 12
@@ -95,9 +96,9 @@ BOARD_TOOL_NAMES = tuple(t["function"]["name"] for t in BOARD_TOOLS)
 _SCHEMAS = {t["function"]["name"]: t["function"]["parameters"] for t in BOARD_TOOLS}
 
 PERSONA_LINES = """Your task board (board in your context; the board tools):
-- While your board is on, a longer job (several tools in a row, research, crafting chains, trips, or a long
-  time) goes on your board with add_task, where the rules above say start_goal; you then plan and work it
-  yourself. A single quick action is still one tool call. "board" tells you what you are doing and why.
+- A longer job (several tools in a row, research, crafting chains, trips, or a long time) goes on your board
+  with add_task; you then plan and work it yourself. A single quick action is still one tool call. "board"
+  tells you what you are doing and why.
 - body_event board_step: a step of your OWN current board job, not a player's request. Work it with your tools.
   The board checks in the game when it is done. If you are blocked, call report_step(blocked, the specific reason).
   If resumed is true and the player had told you to stop, wait or stay, call pause_board instead of working.
@@ -134,8 +135,9 @@ Rules:
   since the job began. So compare gear with "start" in the job's done test, and test a step that equips
   something with "equipped".
 - Repeated trips: give the steps a group and a loop with an "until" test; code repeats the group by itself.
-- A step that needs something no body tool can do: name the missing primitive in capability_gaps (with a
-  workaround if there is one) instead of pretending.
+- A step that needs something no body tool can do: name it in capability_gaps (with a workaround if there is
+  one) instead of pretending, with its kind: "action" (his body can't do it), "perception" (he can't see or
+  sense it in the game), or "knowledge" (a fact you couldn't find or confirm: also list it in facts as unknown).
 - If he is under-prepared for a risky step (a hard fight, a long trip), mark it risk and plan preparation;
   an abort_if test and escape hints say when and how to back off.
 - The work of THIS job goes in its steps (gathering, crafting, travelling for it). add_tasks is only for a separate
@@ -151,7 +153,7 @@ OUTPUT_DOC = """{"description": str, "explanation": str|null,
  "steps": [{"title": str, "why": str, "hints": str, "success": <test>, "risk": "fight"|"trip"|null,
             "abort_if": <test>|null, "escape": str|null, "needs": [primitive]|[], "group": str|null}],
  "loops": {"<group>": {"until": <test>}},
- "add_tasks": [{"text": str, "because": str}], "capability_gaps": [{"primitive": str, "why": str, "workaround": str|null}],
+ "add_tasks": [{"text": str, "because": str}], "capability_gaps": [{"primitive": str, "kind": "action"|"perception"|"knowledge", "why": str, "workaround": str|null}],
  "ask_help": str|null, "done": bool (open-ended jobs only: true when you choose to end it)}"""
 
 KIND_NOTES = {
@@ -564,6 +566,9 @@ class Validator:
         out["loops"] = loops
         out["add_tasks"] = [t for t in raw.get("add_tasks") or [] if isinstance(t, dict) and t.get("text")][:3]
         out["capability_gaps"] = [g for g in raw.get("capability_gaps") or [] if isinstance(g, dict) and g.get("primitive")]
+        for i, g in enumerate(out["capability_gaps"]):
+            if g.get("kind") not in GAP_KINDS:  # the model says what kind of gap it is; code never guesses from words
+                errs.append(f"capability_gaps[{i}] '{g['primitive']}': kind must be one of {', '.join(GAP_KINDS)}")
         if self.kind in ("plan", "help_answer") and self.task.get("kind") == "specific" and not self.task.get("success") \
                 and out["task_success"] is None and not out["ask_help"]:
             errs.append("task_success is required for the first plan of a specific job")
@@ -1014,8 +1019,12 @@ class Director:
             except BoardError as exc:
                 task.history.append({"title": f"prerequisite '{t['text']}'", "outcome": "refused", "reason": str(exc)})
         for g in v.get("capability_gaps", []):
-            rec = self.gaps.record(str(g["primitive"]), source="director", task=task.text, why=g.get("why"),
-                                   workaround=g.get("workaround"))
+            rec = self.gaps.record(str(g["primitive"]), kind=g["kind"], source="director", task=task.text,
+                                   why=g.get("why"), workaround=g.get("workaround"))
+            if g["kind"] == "knowledge":  # not a body gap: an open fact (the next plans see it as unknown)
+                self.memory.put(f"unknown: {g['primitive']}", {"why": g.get("why"), "status": "unknown"}, "memory",
+                                confidence="low")
+                continue
             if rec.get("tool_exists"):
                 task.history.append({"title": "note", "outcome": "claim",
                                      "reason": f"'{g['primitive']}' is one of your tools; use it"})

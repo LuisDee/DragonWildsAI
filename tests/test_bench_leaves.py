@@ -176,10 +176,10 @@ def test_required_evidence_is_derived_from_the_predicates():
 
 def test_gained_at_counts_only_gains_at_the_place():
     o_far = Observation(1, "interact", {}, 0, 1, 0, 1, {"t": 0, "inventory": {}}, {"t": 1, "inventory": {"W": 5}, "position": [500, 0, 0]}, {"ok": True})
-    o_at = Observation(2, "interact", {}, 1, 2, 1, 2, {"t": 1, "inventory": {"W": 5}}, {"t": 2, "inventory": {"W": 10}, "position": [2, 2, 0]}, {"ok": True})
+    o_at = Observation(2, "interact", {}, 1, 2, 1, 2, {"t": 1, "inventory": {"ITEM_Resources_Weed_Desert": 5}}, {"t": 2, "inventory": {"ITEM_Resources_Weed_Desert": 10}, "position": [2, 2, 0]}, {"ok": True})
     ctx = ctx_of(observations=[o_far, o_at])
     ctx["places"] = {"our farm": [0, 0, 0]}
-    r = ev({"gained_at": {"item": "W", "at_least": 6, "place": "our farm", "within_m": 15}}, ctx)
+    r = ev({"gained_at": {"item": "ITEM_Resources_Weed_Desert", "at_least": 6, "place": "our farm", "within_m": 15}}, ctx)
     assert r.passed is False and r.detail.startswith("5/6")
 
 

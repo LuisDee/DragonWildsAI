@@ -524,3 +524,44 @@ Cassettes are in `tests/fixtures/director_cassettes/` (better_pickaxe, coal_mult
   - knowledge.py game cards are cut by whole fields (recipe quantities kept, "N more way(s)"), with tests in `tests/test_knowledge_cards.py`;
   - GearWorld rock gates come from `data/wiki/derived/rock_gates.json`: the wiki node infoboxes resolved to catalog tool tiers (`tools/build_rock_gates.py`; gitignored with the mirror; the live gate wins in game);
   - decisions use 2 research rounds.
+
+## 14. Dev live smoke plan: DW_DIRECTOR=1 (not run yet)
+**When:** once the client is free, after the L24 A/B and the eval T0 smoke. **Where:** the dev world only (GOAL §1b). Nothing touches Shockbyte.
+
+**Budget:** ≤ 10 Sonnet requests, hard-held by `DW_DIRECTOR_CALLS_PER_HOUR=10`. Plus the Haiku turns of the Controller runs (expected 10–20 small calls, priced as live_controller). State both before starting. Check `tools.obs spend --today` first: at least $1 must be left under the cap.
+
+**Job:** "chop 5 logs and bring them to me". It needs several tools (gather → go_to → drop), so it exercises the board. (A plain "chop me 5 logs" is one `gather` and rightly not a board job.) Two entry paths, both checked:
+- (a) chat from the dev test player, so Haiku decides whether it goes to add_task;
+- (b) `tools/board.py add "..." --world <dev world>`, the board path whatever Haiku chooses.
+
+**Preconditions (all must hold):**
+1. The client is on dev: `client_boot.ps1 -Target dev` or a scenario lease. `Get-JoinedServer` shows the dev address. The watchdog is quiet.
+2. The body manifest lists gather, go_to and drop as `llm: true`. equip is `llm: false` (a seeded gap).
+3. **World id:** `start_brain.ps1` copies the user-level DW_WORLD_GUID (=shockbyte) into the process. On dev, start the brain directly so the board is keyed to the dev world: `$env:DW_BODY="client"; $env:DW_WORLD_GUID="dev_director"; .venv\Scripts\python.exe -m brain.run_live --body client`, with the API key and models loaded from the user env as start_brain does. Then confirm `session_start world=` in the brain log is NOT shockbyte. Abort if it is.
+4. `$env:DW_DIRECTOR="1"; $env:DW_DIRECTOR_CALLS_PER_HOUR="10"`. `session_start director=true`. The board file `logs/state/worlds/<dev>/goals.json` is absent or holds no live tasks.
+5. Ash trees within 30 m of the spawn, or the test player stands near some. Claude carries an axe (the gather gate).
+
+**Steps and what to see:**
+1. Start the brain (precondition 3). Check `session_start` (director=true, world=dev…) and that persona_lines and the board tools are in the first prompt.
+2. **(a)** The test player says the line in chat. Record whether the Controller called `add_task` (expected, per the wave 5b eval) or went straight to gather. Either way the line is answered at once.
+3. A `director_dispatch` decision is made (≤ 4 requests) and `director_decision` sets steps whose tests are core predicates (gained logs, near the player, lost + on_ground near the player).
+4. Board runs: `board_run` rows. gather is verified by the executor. The segments' gains and the tally show the logs.
+5. Delivery: `on_ground` near the test player (or magnet_target while he takes them) → step done → task done → a `task_report` notice voiced by the Controller (one line).
+6. **(b)** `tools/board.py add "chop 5 logs and bring them to me" --world <dev>` → ingested on the next tick (`tools/board.py list` shows it) → the same flow.
+7. Optional (1–2 more Sonnet requests): during a board run the player says "stop" → `preempted`; after 30 s the resume run should call `pause_board`. Then `resume_board` via chat.
+
+**Pass:**
+- both tasks done by predicates, with no `director_error`;
+- Sonnet requests ≤ 10 (count `llm_response` component=director in the brain log);
+- every line said matches a verified state;
+- no hang or crash; spend delta noted.
+
+**Abort at once:**
+- any `director_error` or `board_quarantined`;
+- a step re-running with no change for more than 3 runs;
+- the client hung or off dev;
+- the board writing to the shockbyte world folder.
+
+To abort: `tools/board.py cancel <id>` and pause the board through chat. If needed, stop the brain and restart it without DW_DIRECTOR. The board file is kept as evidence.
+
+**Evidence:** the brain log path, the goals.json snapshot, `tools/board.py list --json`, `tools/board.py gaps`, `tools/timeline.py` over the window, and the spend delta. File the results in DISCOVERIES ("Director live smoke (dev)") and PROGRESS.

@@ -8,8 +8,10 @@ Sources:
                  not a body gap, review M4)
   uncheckable    a predicate that evaluates null: the fields it needed (``missing``) are perception gaps
   seed           caps.missing and the manifest's llm=false tools at start-up, and gaps known from design
-  director       the Director's own claim that a plan needs a primitive. Cross-checked against the body's tool
-                 list: a tool that exists is recorded as ``tool_exists: true`` (a claim, not a gap; review M4)
+  director       the Director's own claim that a plan needs something, with the kind the MODEL gives it:
+                 action | perception | knowledge. An action claim for a tool that exists is recorded as
+                 ``tool_exists: true`` (a claim, not a gap; review M4). A knowledge gap (a fact it couldn't find)
+                 is never a capability gap: ``backlog()`` leaves it out and it is never voiced as "I can't ... yet"
 Records: {primitive, kind: action|perception, count, first_seen, last_seen, sources, tool_exists?,
           examples: [{task, step, why, workaround}] (newest 5)}
 The agent loop is the only writer (atomic writes); readers (the CLI) only read.
@@ -71,7 +73,8 @@ class GapLog:
         if g is None:
             g = self.gaps[primitive] = {"primitive": primitive, "kind": kind, "count": 0, "first_seen": now,
                                         "sources": [], "examples": []}
-        exists = source == "director" and primitive in self.tools
+        g["kind"] = kind
+        exists = source == "director" and kind == "action" and primitive in self.tools
         if exists:
             g["tool_exists"] = True  # a claim about a tool the body has (review M4): not counted
         else:
@@ -83,7 +86,8 @@ class GapLog:
             g["examples"] = (g["examples"] + [{"task": task, "step": step, "why": why, "workaround": workaround,
                                                "at": now}])[-MAX_EXAMPLES:]
         key = (task or "", primitive)
-        out = {**g, "new_for_task": (not exists) and key not in self._told, "tool_exists": exists}
+        out = {**g, "new_for_task": (not exists) and kind != "knowledge" and key not in self._told,
+               "tool_exists": exists}
         if out["new_for_task"]:
             self._told.add(key)
         if save:
@@ -121,5 +125,13 @@ class GapLog:
             g["sources"].append("seed")
             g["examples"] = (g["examples"] + [{"why": why, "at": self.clock()}])[-MAX_EXAMPLES:]
 
-    def rows(self) -> list[dict[str, Any]]:
-        return sorted(self.gaps.values(), key=lambda g: (-int(g.get("count") or 0), g["primitive"]))
+    def rows(self, kinds: Iterable[str] | None = None) -> list[dict[str, Any]]:
+        """By count; ``kinds`` filters (the build backlog is action + perception; knowledge gaps are open facts,
+        not missing primitives)."""
+        rows = [g for g in self.gaps.values() if kinds is None or g.get("kind", "action") in set(kinds)]
+        return sorted(rows, key=lambda g: (-int(g.get("count") or 0), g["primitive"]))
+
+    def backlog(self) -> list[dict[str, Any]]:
+        """What the body lacks: actions and perception, never knowledge, never claims about tools it has."""
+        return [g for g in self.rows(("action", "perception")) if int(g.get("count") or 0) > 0
+                or "seed" in (g.get("sources") or [])]
