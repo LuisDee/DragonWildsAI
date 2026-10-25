@@ -431,6 +431,7 @@ end
 
 -- Damage multicast: who hit whom. Read-only param reads (same reads as sense.lua's vitals watcher).
 function M.on_damage(ctx, ev)
+    if _G.DW_PAUSE then return end
     local c = C()
     local comp = ctx:get()
     local victim = U.try(function() return comp:GetOwner() end)
@@ -472,6 +473,7 @@ function M.on_damage(ctx, ev)
 end
 
 function M.on_ai_attack(ctx)
+    if _G.DW_PAUSE then return end
     local c = C()
     local comp = ctx:get()
     local a = U.try(function() return comp:GetOwner() end)
@@ -861,9 +863,24 @@ local function step_restore(F, pawn)
     end
 end
 
+-- World teardown (main's crash convention): end the fight WITHOUT touching any game object.
+local function abort_paused(F)
+    if F.done then return end
+    F.done = true
+    local c = C()
+    if F.handle then pcall(CancelDelayedAction, F.handle) end
+    F.handle = nil
+    F.result = result_of(F, false, "interrupted", { detail = "world teardown (DW_PAUSE)" })
+    c.last = { result = F.result, mode = F.mode, ended = os.date("!%Y-%m-%dT%H:%M:%SZ") }
+    if c.fight == F then c.fight = nil end
+    local arb = mod("arbiter")
+    if arb and F.token then pcall(arb.release, nil, F.token, "paused") end -- pause-aware: no move calls
+end
+
 local function frame(F)
     local c = C()
     if F.gen ~= c.gen or F.done then return end
+    if _G.DW_PAUSE then return abort_paused(F) end
     local pc = F.pc
     local pawn = pc and U.valid(pc) and U.try(function() return pc.Pawn end)
     if not U.valid(pawn) then return finish(F, result_of(F, false, "companion_down")) end
@@ -977,6 +994,7 @@ M._frame = frame
 -- Start a fight. opts = {mode="attack"|"reflex", level, force, why, react=true}. -> {ok, ...}
 local function start_fight(log, actor, opts)
     opts = opts or {}
+    if _G.DW_PAUSE then return { ok = false, reason = "companion_down", data = { detail = "paused (world loading)" } } end
     local c = C()
     if not (c.hooks_started and c.handlers) then c.hooks_started = true; M.hooks_start(log) end
     local pc = local_pc()
@@ -1052,6 +1070,7 @@ end
 
 -- ------------------------------------------------------------------ the reflex (guard)
 local function guard_tick(log)
+    if _G.DW_PAUSE then return end
     local c = C()
     local cfg = M.cfg
     local pc = local_pc()
@@ -1085,6 +1104,7 @@ function M.guard_start(log, opts)
     if not c.guard then
         c.guard = LoopInGameThreadWithDelay(M.cfg.guard_period_ms, function()
             local cc = _G.DWCombat
+            if _G.DW_PAUSE then return end
             if cc and cc.guard_fn then
                 local ok, err = pcall(cc.guard_fn)
                 if not ok then cc.guard_err = tostring(err) end

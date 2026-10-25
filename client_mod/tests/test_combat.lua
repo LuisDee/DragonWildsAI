@@ -444,5 +444,38 @@ do
     check("orders", Cm.HANDLERS.combat_orders(nil, { stance = "passive", avoid = { "Kebbit" } }).orders.avoid.kebbit == true)
 end
 
+-- ================================================================ 8. world teardown (_G.DW_PAUSE): no game calls
+reset_world()
+do
+    Cm.orders.stance, Cm.orders.avoid = "defensive", {}
+    local task = A.request(nil, { name = "gather", level = "task", uses_move = true })
+    fake_move.go_to(nil, { 20, 20, 0 })
+    new_creature("BP_AI_Kebbit_Character_02_C_8", "Kebbit", { X = 900, Y = 0, Z = 0 }, { hp = 100, pl = 1 })
+    check("pause test: fight starts", Cm.attack(nil, "Kebbit").ok)
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "approach" end, 3)
+    local ncalls = #MV.calls
+    local gets = 0
+    local real_find = FindAllOf
+    _G.DW_PAUSE = true
+    FindAllOf = function(...) gets = gets + 1; return real_find(...) end
+    step(5)
+    FindAllOf = real_find
+    local res = Cm._state().last and Cm._state().last.result
+    check("pause ends the fight as interrupted", Cm._state().fight == nil and res and res.reason == "interrupted", res and res.reason)
+    check("pause: no move calls and no object scans", #MV.calls == ncalls and gets == 0, (#MV.calls - ncalls) .. " " .. gets)
+    check("pause: suspended stack dropped, nothing resumed", A.owner() == nil and #A.status().suspended == 0)
+    check("pause: new requests refused", A.request(nil, { name = "x", level = "task" }).reason == "paused")
+    check("pause: attack refused", Cm.attack(nil, "Kebbit").reason == "companion_down")
+    Cm.guard_start(nil)
+    gets = 0
+    FindAllOf = function(...) gets = gets + 1; return real_find(...) end
+    step(100)
+    FindAllOf = real_find
+    check("pause: guard loop idle", gets == 0, gets)
+    Cm.guard_stop(nil)
+    _G.DW_PAUSE = nil
+    local _ = task
+end
+
 print(string.format("combat/arbiter tests: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

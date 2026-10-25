@@ -32,6 +32,9 @@ return function(log)
         local n = w:GetFullName()
         if not n:find("Default__", 1, true) and not n:find("WidgetTree", 1, true) then out.intro_widgets = out.intro_widgets + 1 end
     end
+    -- join_server/disconnect set _G.DW_PAUSE (every game-thread loop idles through world teardown);
+    -- something must clear it once the new pawn exists (unpause.lua, or the bridge when it learns to).
+    out.paused = rawget(_G, "DW_PAUSE") == true
     local inst = rawget(_G, "__dwc_bridge")
     if inst then
         local st = try(inst.status)

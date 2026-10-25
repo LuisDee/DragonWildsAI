@@ -16,7 +16,7 @@ from brain.bridge_client import BridgeClient
 from brain.capabilities import discover
 from brain.dry_run_llm import DryRunController, DryRunPlanner
 from brain.fake_body import FakeBody
-from brain.interface import CommandReceived
+from brain.interface import ChatHeard, CommandReceived  # noqa: F401
 from brain.jsonl_log import JsonlLogger
 from brain.mock import MockGame
 from brain.run_live import LiveOptions, LiveSession
@@ -173,16 +173,15 @@ def test_state_follow_say_and_chat(lua_client):
     assert said["ok"] and said["data"]["verified"] is True, said  # the server echo arrived
     assert "hello from the client" in body.echoes()
     body.player_says("claude, come here")
-    body.player_says("nice weather")  # not addressed: stays off the wire
+    body.player_says("nice weather")  # not addressed: heard too, the brain decides
     deadline = time.monotonic() + 3
     events = []
-    while not events:
-        assert time.monotonic() < deadline, "no command_received"
-        events = [e for e in client.poll_events() if isinstance(e, CommandReceived)]
+    while len(events) < 2:
+        assert time.monotonic() < deadline, f"chat_heard missing, got {events}"
+        events += [e for e in client.poll_events() if isinstance(e, ChatHeard)]
         time.sleep(0.02)
-    time.sleep(0.2)
-    events += [e for e in client.poll_events() if isinstance(e, CommandReceived)]
-    assert events == [CommandReceived(player="Luis", text="claude, come here")]
+    assert [(e.player, e.text, e.mentions_me) for e in events] == [("Luis", "claude, come here", True),
+                                                                   ("Luis", "nice weather", False)]
     dropped = client.drop("oak", 2)  # waits for the (fake) server to confirm: the inventory shrinks
     assert dropped["ok"] and dropped["data"]["item"] == "ITEM_Resources_Wood_Oak", dropped
     assert client.get_state()["data"]["inventory"] == {"ITEM_Resources_Wood_Oak": 6}

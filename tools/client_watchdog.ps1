@@ -9,7 +9,7 @@
 #   hang        process alive but the DWClient runner does not answer: either game log and client.log
 #               both stale > HangStaleS with CPU ~0 (confirmed by one probe), or ProbeFails probes in
 #               a row -> read-only cdb stack (cdb -pv, like the server watchdog), kill, boot
-#   disconnect  runner answers but not in L_World or no pawn for > DisconnectS -> boot_and_join
+#   disconnect  runner answers but not in L_World, no pawn, or still DW_PAUSEd for > DisconnectS -> boot_and_join
 #               (no kill); two failed rejoins in a row -> kill, boot
 #   low memory  free RAM < WarnFreeMB -> warn event; < CritFreeMB -> critical event with the top
 #               processes. Nothing is killed for memory (report only); boot refuses to LAUNCH below
@@ -234,8 +234,8 @@ while ($true) {
                     } elseif ($script:p -and $script:p.probe_error) {
                         $state = 'probe_error'; Ev 'probe_error' @{ error = $script:p.probe_error }
                     } elseif ($script:p) {
-                        $inWorld = $script:p.map -eq 'L_World' -and $script:p.pawn
-                        $state = if ($inWorld) { 'in_world' } elseif ($script:p.map -eq 'L_World') { 'no_pawn' } else { 'menu' }
+                        $inWorld = $script:p.map -eq 'L_World' -and $script:p.pawn -and -not $script:p.paused
+                        $state = if ($inWorld) { 'in_world' } elseif ($script:p.map -eq 'L_World' -and $script:p.pawn) { 'paused' } elseif ($script:p.map -eq 'L_World') { 'no_pawn' } else { 'menu' }
                         if ($inWorld) { $script:notWorldSince = $null }
                         elseif (-not $script:notWorldSince) { $script:notWorldSince = Get-Date }
                         elseif (((Get-Date) - $script:notWorldSince).TotalSeconds -gt $DisconnectS -and $ageProc -gt $GraceS -and -not $held) {

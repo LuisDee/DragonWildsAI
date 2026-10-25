@@ -66,7 +66,7 @@ function Services-Ok($p) {
 
 function Summary($p) {
     if (-not $p) { return 'no answer' }
-    "map=$($p.map) screen=$($p.screen) logged_in=$($p.logged_in) pawn=$([bool]$p.pawn) intro=$($p.intro_widgets) bridge=$($p.bridge.running)"
+    "map=$($p.map) screen=$($p.screen) logged_in=$($p.logged_in) pawn=$([bool]$p.pawn) intro=$($p.intro_widgets) paused=$($p.paused) bridge=$($p.bridge.running)"
 }
 
 function New-Result([bool]$ok, [string]$state, [string]$reason, $p, [datetime]$t0) {
@@ -173,7 +173,14 @@ function Invoke-BootOnce([datetime]$t0) {
         if ($p) { $noAnswer = 0; BLog ("probe: " + (Summary $p)) }
     }
 
-    # 5. Background services (chat hooks, vitals watcher, stay-fed reflex)
+    # 5. Teardown pause: join_server.lua / disconnect.lua set _G.DW_PAUSE; clear it now the pawn exists
+    if ($p.paused) {
+        [void](Run-Cmd 'unpause.lua')
+        if (-not $DryRun) { $q = Get-ClientProbe 12; if ($q) { $p = $q } }
+        if (-not $DryRun -and $p.paused) { return New-Result $false 'in_world' 'still_paused' $p $t0 }
+    }
+
+    # 6. Background services (chat hooks, vitals watcher, stay-fed reflex)
     if (-not (Services-Ok $p)) {
         BLog ("services not all running yet: " + ($p.bridge | ConvertTo-Json -Compress -Depth 4))
         if (-not $p.bridge.running) {

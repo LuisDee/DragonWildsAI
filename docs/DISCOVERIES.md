@@ -854,6 +854,10 @@ Service: `client_mod/scripts/move.lua` (go_to / follow / stop / status). Command
 - **World-teardown crash rule (client, 18:08:42 UTC):** an access violation came from a Lua UFunction call in a game-thread loop 2 s after `disconnect.lua`. My `move_plandry.lua` LineTraceSingle loop had started 2 s earlier in the same batch, a likely source.
   - Convention: `_G.DW_PAUSE = true` is set by disconnect/join and cleared by the bridge 3 s after a new pawn is stable.
   - `move.lua` (loop, prefetch, traces, planner, Unstuck callback) and `move_plandry.lua` make no engine calls while it is set, or while the controller/pawn is invalid. Any per-frame Lua loop must do the same.
+- **Slopes vs steps in the local planner (18:34):**
+  - Cells 1 m apart on a walkable slope (up to 45.5°) differ by more than the 45 cm step. Before, they became jump edges, so Claude jumped up a 30° ramp five times.
+  - Now |dz| ≤ 0.9 × run is a provisional walk. The lazy check takes ONE downward trace at the edge midpoint: a profile within 30 % of linear is a slope; otherwise it is a step, and that edge is re-planned as a jump/drop.
+  - Offline: the 30° ramp is walked and a 90 cm step is jumped (`test_localplan.lua`, 13 checks).
 
 ## Client perception + inventory (R2) (2026-10-25, 17:30-18:00 UTC, client build 26162923, Shockbyte world)
 Modules: `client_mod/scripts/sense.lua` (census + me), `client_mod/scripts/inventory.lua` (list, collect, equip, unequip, drop). Commands: `client_mod/commands/sense_*.lua`, `inv_*.lua`. Both reuse the dependency-free `mod/body/util.lua` via `loadfile` (works unchanged on the client).
@@ -1048,3 +1052,25 @@ Modules: `client_mod/scripts/arbiter.lua` (pawn ownership), `client_mod/scripts/
     - An access violation in game code, called from a **Lua UFunction call inside a game-thread callback**: the same UE4SS hook site `+0x65a` → `Lua::call_function` → `process_lua_function` → game native → AV.
     - It came 2 s after `disconnect.lua` (18:08:40). The likely cause is a game-thread loop (vitals poll, reflex, move or bridge) touching objects during world teardown.
     - Mitigation: the vitals poll and the reflex tick return immediately while `_G.DW_PAUSE` is set. Disconnect and travel commands should set it, or stop the loops, first, and clear it after the pawn exists again.
+
+## Client ops: boot_and_join, watchdog, smoke test (R2.15, R2.16) (2026-10-25, client build 26162923)
+Files: `tools/client_lib.ps1` (shared), `tools/client_boot.ps1`, `tools/client_watchdog.ps1` + `tools/start_client_watchdog.ps1`, `tools/stop_client.ps1`, `tools/client_smoke.ps1`, probe `client_mod/commands/boot_probe.lua`, `smoke_*.lua`; offline tests `tests/test_client_ops.py` (fake client: copied PING.EXE + a Python thread that plays the command runner). Runbook: RUNBOOK-patch.md §10.
+- **Read-only probe (verified live, 1.9 s round trip):** the map comes from the local PlayerController's path (`... /Game/Maps/World/L_World.L_World:PersistentLevel.BP_PlayerController_C_...`). The probe also reads `MainMenuUIAPI:GetCurrentScreenType()` (0 in the world), `DomMatchmakerSubsystem:IsUserLoggedIn()`, `pc.Pawn`, the count of live `NarrativeIntroWidget`s, and `_G.__dwc_bridge.status().services`, where chat, vitals and fed_reflex report `running`.
+- **`boot_and_join` against the running client (verified 19:21 local):** it detected "in world, services running" and did nothing (0 actions, 1.7 s). It wrote `logs/state/client_status.json`. The menu, sign-in, join and intro paths have been exercised only against the fake runner; **live cold boot UNVERIFIED** (main has the client on hold).
+- **Steam state is readable without the UI:** `HKCU\Software\Valve\Steam\ActiveProcess.ActiveUser` is the logged-in account's 32-bit id. It reads 653927889 = 76561198614193617 − 76561197960265728 (bootymaxer), and 0 when nobody is logged in.
+- **The client game log contains the world password, base64-encoded:** the `Browse:` and `LoadMap:` lines carry `?p=<b64>`. The tools redact `?p=...` and the plain password from everything they log, and never copy those lines.
+- **Join failures that the log names:** `Connection Failed for reason [DuplicateChar]`, which a fast rejoin after a crash can hit while the server still holds the old connection (so boot retries with a 30/60/120 s backoff), and `PendingConnectionFailure ... Missing user ID` (not signed in).
+- **Hang signals:**
+  - The client's game log is chatty in the world: EOS lobby websocket lines every ~30 s.
+  - The UE async log writer buffers, so after a game-thread stop the game log ends a few seconds *before* the Lua runner's last line. That happened at 17:53 (log 17:53:34, mod 17:53:54) and again at 18:27 UTC (game log 18:27:37, runner's last `inv_list` 18:27:42; then `inv_equip` and `disconnect` timed out). The 18:27 instance had no stack taken: the client was closed on purpose.
+  - The only stack we have (`logs/client/stack_6400_175704.txt`) shows the GameThread in `NtWaitForSingleObject` beneath a UE4SS hook frame (frame 10). Its symbols are export-only.
+  - `RemoveInvalidLockers ... invalid locks` precedes both hangs but appears 5–10 times per session, so it is not diagnostic.
+  - The watchdog therefore treats as a hang: no runner answer while game log and client.log are both stale for 60 s with CPU < 0.05 core, or 3 probes in a row unanswered (about 90 s). It takes a `cdb -pv` stack before killing.
+  - The UE4SS crash handler writes `ue4ss\crash_*.dmp` beside the client exe, then blocks. One was written at 19:08:42 local. The watchdog treats a new dump as a crash.
+- **Search (search-before-building):**
+  - Supervisors: NSSM and WinSW run programs as Windows services in session 0. Steam and the game client must run in the logged-on user's session, so a service can't drive them. Task Scheduler "at logon, interactive" is the idiomatic way to start a per-user supervisor (alternativeto.net/software/winsw, forum.syncthing.net/t/21512, discourse.nodered.org/t/10149). `start_client_watchdog.ps1 -Register` creates that task; it was not registered.
+  - Steam `-applaunch <id> <args>` forwards the arguments to the game (developer.valvesoftware.com/wiki/Command_line_options_(Steam)). Nothing documents a second `-applaunch` while the game runs, so boot only launches when the process is absent.
+  - Hang detection: the usual pattern is a heartbeat plus a sustained-CPU threshold with a grace period (thwack.solarwinds.com/discussion/32093, administrator.de/forum/161071). `Process.Responding` doesn't help: the client's only window is the `-log` console.
+  - No game-client or bot watchdog fitting a UE4SS client was found.
+  - Decision: **adapt** `tools/watchdog.ps1` (dump/heartbeat/cdb pattern), use the DWClient runner itself as the game-thread heartbeat, and **build** the thin boot state machine over the existing command files.
+- **Teardown pause:** `join_server.lua` and `disconnect.lua` set `_G.DW_PAUSE` (commit 78ac755), and so far nothing clears it automatically. So boot runs `unpause.lua` once the pawn exists, the probe reports `paused`, the watchdog treats a pause that lingers more than 30 s in the world as degraded (it reruns boot_and_join), and the smoke test's `services` step fails while it is set.

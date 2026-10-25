@@ -54,6 +54,7 @@ function LP.new(o)
     self.nodes = {}                            -- key -> { {z=,i=,j=}, ... } (1-2 layers)
     self.blocked = {}                          -- edge key -> true (lazy wall checks)
     self.edge_ok = {}
+    self.steep = {}                            -- edge key -> true: a "slope" walk that is really a step
     self.queue = {}
     -- spiral order from the centre outwards, so a partial grid is still useful
     for ring = 0, self.r do
@@ -135,10 +136,17 @@ function LP:step(budget)
 end
 
 -- Edge type between two floor nodes (adjacent cells), or nil if impassable by floor data.
+-- Edge type between two floor nodes (adjacent cells). Between `step` and the walkable SLOPE
+-- (tan of WalkableFloorAngle minus a margin, times the horizontal distance) the edge is a
+-- provisional "walk" (a slope), unless verify() found the profile to be a step (self.steep[ek]).
+local function ekey(a, b) return tostring(a) .. ">" .. tostring(b) end
+
 function LP:edge(a, b)
     local dz = b.z - a.z
     local e = self.env
     if dz <= e.step and dz >= -e.step then return "walk", 0 end
+    local run = math.sqrt(((b.i - a.i) * self.cell) ^ 2 + ((b.j - a.j) * self.cell) ^ 2)
+    if math.abs(dz) <= (e.slope_k or 0.9) * run and not self.steep[ekey(a, b)] then return "walk", 0.3 end
     if dz > 0 then
         if dz <= e.jump then return "jump", 2 end
         if dz <= e.djump then return "djump", 4 end
@@ -147,8 +155,6 @@ function LP:edge(a, b)
     if -dz <= e.drop then return "drop", 1 end
     return nil
 end
-
-local function ekey(a, b) return tostring(a) .. ">" .. tostring(b) end
 
 -- A* over the sampled nodes from the node nearest to the centre at our level, toward `goal`
 -- (cm). If the goal is off-grid, the target is the reachable node closest to it.
@@ -237,6 +243,18 @@ function LP:verify(pts, budget)
         local ek = ekey(a.node, b.node)
         if not self.edge_ok[ek] then
             if used >= budget then return "verifying" end
+            -- a provisional slope walk: one downward trace at the midpoint tells slope from step
+            if b.act == "walk" and math.abs(b.Z - a.Z) > self.env.step then
+                local mx, my = (a.X + b.X) / 2, (a.Y + b.Y) / 2
+                local mz = self.trace({ X = mx, Y = my, Z = math.max(a.Z, b.Z) + 100 }, { X = mx, Y = my, Z = math.min(a.Z, b.Z) - 100 })
+                used, self.traces = used + 1, self.traces + 1
+                local lin = (a.Z + b.Z) / 2
+                if not mz or math.abs(mz - lin) > 0.3 * math.abs(b.Z - a.Z) then
+                    self.steep[ek] = true
+                    self.steeps = (self.steeps or 0) + 1
+                    return "blocked" -- re-plan: edge() now treats it as a jump/drop
+                end
+            end
             local z = (b.act == "jump" or b.act == "djump") and (math.max(a.Z, b.Z) + 60) or (math.max(a.Z, b.Z) + 50)
             local hit = self.trace({ X = a.X, Y = a.Y, Z = z }, { X = b.X, Y = b.Y, Z = z }, true)
             used, self.traces = used + 1, self.traces + 1

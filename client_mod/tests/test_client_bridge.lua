@@ -603,6 +603,34 @@ return C
     uninstall("combat")
 end)
 
+test("DW_PAUSE: no game work, actions end companion_down, get_state paused; cleared after 3 s in L_World, services re-armed", function()
+    B._supervise(true)
+    local before = B._state().services.chat.starts
+    local _, _, gid = rpc("go_to", { target = { 10, 0, 0 } })
+    FAKE.move.calls = {}
+    _G.DW_PAUSE = true
+    FAKE.frontend = true
+    step()
+    local out = drain()
+    local g = results(out, gid)[1]
+    assert(g and g.reason == "companion_down", "the running action ends: " .. json.encode(g))
+    assert(#FAKE.move.calls == 0, "no cancel call into the game while paused")
+    local s = rpc("get_state")
+    assert(s.ok == false and s.reason == "companion_down" and s.data.paused == true)
+    assert(rpc("ping").ok and rpc("follow", { player = "Luis" }).reason == "companion_down")
+    T = T + B.PAUSE_SETTLE_S + 1
+    step(); T = T + 5; step()
+    assert(_G.DW_PAUSE == true, "front end: stays paused")
+    FAKE.frontend = nil
+    T = T + 1; step()
+    assert(_G.DW_PAUSE == true, "pawn seen, but not yet for 3 s")
+    T = T + B.PAUSE_CLEAR_S; step()
+    assert(_G.DW_PAUSE == nil, "cleared")
+    step()
+    assert(B._state().services.chat.starts == before + 1, "services re-armed after the pause")
+    assert(rpc("get_state").ok)
+end)
+
 test("module-declared HANDLERS dispatch", function()
     local r = rpc("inv_debug", { x = 7 })
     assert(r.ok and r.data.echo == 7)

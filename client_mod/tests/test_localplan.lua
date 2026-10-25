@@ -2,7 +2,7 @@
 -- an overhang (the Shockbyte lodestone-pad trap), a step-up exit and a thin wall.
 -- Usage: lua test_localplan.lua
 local here = (debug.getinfo(1, "S").source:match("^@(.*)[/\\][^/\\]*$")) or "."
-local LP = dofile(here .. "/../scripts/localplan.lua")
+local LP = dofile(os.getenv("LP_FILE") or (here .. "/../scripts/localplan.lua"))
 
 -- World: pit floor z=0 in |x|,|y| < 300; upper ground z=340 elsewhere; an intermediate shelf z=200
 -- at x in [-600,-300) (the exit: 2 jumps); an overhang roof slab z in [400,520] over x in [-100,300]
@@ -92,5 +92,43 @@ local P3 = LP.new({ trace = trace, center = { X = 0, Y = 0, Z = 90 }, radius_m =
     env = { step = 45, jump = 250, djump = 300, drop = 600 } })
 while P3:step(50) ~= "ready" do end
 check("stale cache entries are re-sampled", P3.traces > 100, P3.traces)
+-- slopes vs steps: a 30 deg ramp (0.58 cm per cm, > the 45 cm step per 1 m cell) must be WALKED;
+-- a 90 cm vertical step must be a JUMP (the midpoint trace tells them apart)
+local function g2(x, y)
+    if x < 0 then return 0 end
+    if x < 500 then return 0.58 * x end           -- ramp up to 290 cm
+    if x < 900 then return 290 end
+    return 380                                    -- 90 cm step at x = 900
+end
+local function trace2(a, b, horizontal)
+    if horizontal then
+        for k = 0, 20 do
+            local t = k / 20
+            if g2(a.X + (b.X - a.X) * t, 0) > a.Z then return true end
+        end
+        return nil
+    end
+    local gz = g2(a.X, a.Y)
+    if a.Z < gz then return gz, true end
+    return gz, false
+end
+local Ps = LP.new({ trace = trace2, center = { X = -300, Y = 0, Z = 90 }, radius_m = 14, env = { step = 45, jump = 165, djump = 165, drop = 600 } })
+while Ps:step(50) ~= "ready" do end
+local sp = Ps:plan({ X = 1300, Y = 0, Z = 380 })
+local r2 = 0
+local res2 = "blocked"
+while res2 ~= "ok" and r2 < 30 do
+    res2 = Ps:verify(sp, 100)
+    if res2 == "blocked" then sp = Ps:plan({ X = 1300, Y = 0, Z = 380 }); r2 = r2 + 1 end
+end
+local ramp_jumps, step_jump = 0, false
+for k = 2, #(sp or {}) do
+    local p0, p1 = sp[k - 1], sp[k]
+    if p1.act == "jump" and p1.X <= 500 then ramp_jumps = ramp_jumps + 1 end
+    if p1.act == "jump" and p0.X < 900 and p1.X >= 900 then step_jump = true end
+end
+check("30 deg ramp is walked, not jumped", sp and ramp_jumps == 0, ramp_jumps)
+check("90 cm step is a jump", step_jump, "replans=" .. r2)
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

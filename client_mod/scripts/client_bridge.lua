@@ -1119,7 +1119,7 @@ local function supervise(force)
         else
             local okh, healthy = pcall(svc.healthy, mod)
             healthy = okh and healthy == true
-            local reloaded = st.loads ~= nil and st.loads ~= loads
+            local reloaded = (st.loads ~= nil and st.loads ~= loads) or S.rearm == true
             -- a start that keeps failing (e.g. a hook path missing in this build) backs off to once a minute
             local backoff = not healthy and not reloaded and st.starts >= 3 and st.last_try and t - st.last_try < 60
             if healthy and not reloaded then
@@ -1140,6 +1140,7 @@ local function supervise(force)
         end
         ::continue::
     end
+    S.rearm = nil
 end
 M._supervise = supervise
 
@@ -1149,7 +1150,65 @@ local function mkdir(p)
     else os.execute('mkdir -p "' .. p .. '"') end
 end
 
+-- ------------------------------------------------------------------ pause (disconnect / join)
+-- crash_2026_10_25_19_08_42: a Lua UFunction call from a game-thread loop while the world was torn
+-- down. Convention: disconnect.lua / join_server.lua set _G.DW_PAUSE = true first, and every loop does
+-- no game work while it is set. The bridge still reads commands, but every tool that would touch the
+-- game answers companion_down (ping / capabilities / bridge_status still work) and the running
+-- action and waiters end with companion_down (without calling their cancel: no game calls). The
+-- bridge clears the pause itself once a valid local pawn has existed for PAUSE_CLEAR_S in the game
+-- world (not the front end), checking at most once a second and not before PAUSE_SETTLE_S, then
+-- re-arms the services (chat, vitals, combat guard, stay-fed reflex).
+M.PAUSE_SETTLE_S, M.PAUSE_CLEAR_S = 5, 3
+M.PAUSE_SAFE_TOOLS = { ping = true, capabilities = true, bridge_status = true }
+local function paused() return rawget(_G, "DW_PAUSE") == true end
+M._paused = paused
+
+local function on_pause_start()
+    S.pause = { since = now_s() }
+    ev("client_paused", {})
+    local a = S.action
+    if a then
+        a.cancel = nil
+        finish(a, fail("companion_down", { detail = "client paused (disconnect or join in progress)" }))
+    end
+    for _, w in ipairs(S.waiters) do
+        (w.chan or S.bridge).reply(w.id, fail("companion_down", { detail = "client paused" }))
+    end
+    S.waiters = {}
+end
+
+local function check_unpause()
+    local t = now_s()
+    local P = S.pause
+    if t - P.since < M.PAUSE_SETTLE_S or (P.checked and t - P.checked < 1) then return end
+    P.checked = t
+    local sense = M.module("sense")
+    local pawn = sense and type(sense.local_pawn) == "function" and select(2, pcall(sense.local_pawn)) or nil
+    local name = pawn and select(2, pcall(function() return pawn:GetFullName() end)) or nil
+    local in_world = type(name) == "string" and name:find("L_World", 1, true) ~= nil and not name:find("FrontEnd", 1, true)
+    if not in_world then P.pawn_since = nil; return end
+    P.pawn_since = P.pawn_since or t
+    if t - P.pawn_since >= M.PAUSE_CLEAR_S then
+        _G.DW_PAUSE = nil
+        S.pause, S.rearm = nil, true
+        ev("client_unpaused", { pawn = name })
+        text_log("bridge: pause cleared (pawn in world for " .. M.PAUSE_CLEAR_S .. " s); re-arming services")
+    end
+end
+
 function M.step()
+    if paused() then
+        if not S.pause then on_pause_start() end
+        local ok, err = pcall(S.bridge.poll) -- commands still answered (companion_down, see dispatch)
+        if not ok then ev("client_bridge_poll_error", { err = tostring(err) }) end
+        if S.debug then pcall(S.debug.poll) end
+        ok, err = pcall(check_unpause)
+        if not ok then ev("client_unpause_error", { err = tostring(err) }) end
+        if paused() then return end
+    elseif S.pause then
+        S.pause, S.rearm = nil, true -- cleared by someone else: re-arm too
+    end
     local ok, err = pcall(S.bridge.poll)
     if not ok then ev("client_bridge_poll_error", { err = tostring(err) }) end
     if S.debug then
@@ -1168,7 +1227,7 @@ function M.step()
     if not ok then ev("client_vitals_check_error", { err = tostring(err) }) end
     ok, err = pcall(forward_moves)
     if not ok then ev("client_moves_forward_error", { err = tostring(err) }) end
-    ok, err = pcall(supervise)
+    ok, err = pcall(supervise, S.rearm == true)
     if not ok then ev("client_supervise_error", { err = tostring(err) }) end
 end
 
@@ -1178,7 +1237,8 @@ function M.status()
     return { dir = S.dir, paths = S.bridge.paths(), stats = S.bridge.stats, chat = S.stats, modules = mods,
              action = S.action and { kind = S.action.kind, id = S.action.id } or S.bridge.null,
              waiting = #S.waiters, tools = implemented_tools(), chat_events = S.chat_path, vitals_events = S.vitals_path,
-             services = S.services_on and S.services or "off (start_modules=false)", started = S.started }
+             services = S.services_on and S.services or "off (start_modules=false)", started = S.started,
+             paused = paused(), pause = S.pause }
 end
 
 -- opts: root (default $DW_CLIENT_ROOT or C:/gameserver), dir (bridge dir), log (fn(msg) text logger),
@@ -1221,6 +1281,13 @@ function M.start(opts)
         local function wrap(tool)
             return function(args, ctx)
                 ctx.chan = ch
+                if paused() and not M.PAUSE_SAFE_TOOLS[tool] then
+                    if tool == "get_state" then
+                        return { ok = false, reason = "companion_down", data = { body = "client", paused = true,
+                                 not_implemented = {}, detail = "client paused (disconnect or join in progress)" } }
+                    end
+                    return fail("companion_down", { tool = tool, detail = "client paused (disconnect or join in progress)" })
+                end
                 if tool == "get_state" then
                     if args.probe == true then
                         return fn_of("sense", "me") and { ok = true, data = { probe = true, tool = tool } }

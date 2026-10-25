@@ -52,6 +52,10 @@ end
 M.U = U
 
 local PAWN = { id = "BP_PlayerCharacter_C_1", class = "BP_PlayerCharacter_C" }
+function PAWN:GetFullName()
+    return F.frontend and "BP_PlayerCharacter_C /Game/Maps/L_FrontEnd.L_FrontEnd:PersistentLevel.BP_PlayerCharacter_C_1"
+        or "BP_PlayerCharacter_C /Game/Maps/World/L_World.L_World:PersistentLevel.BP_PlayerCharacter_C_1"
+end
 local PC = {}
 function PC:SetControlRotation(r) F.aims = (F.aims or 0) + 1; F.last_aim = r end
 function M.local_pc() return PC end

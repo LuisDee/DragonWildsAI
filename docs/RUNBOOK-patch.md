@@ -162,6 +162,39 @@ Do not let Luis play on a world with a failed smoke test; his real world is on S
 2. Work the **Needs review** list: add role tags for new spells, a combat profile for new weapon categories, check changed attack chains and stats in `data/items_<NEW>.json`.
 3. Update `docs/DISCOVERIES.md`, `docs/PROGRESS.md`, `docs/tasks.json`; run `.venv\Scripts\python.exe -m pytest tests -q`; commit `data/`, `docs/patches/` and the fixes (`dumps\` is gitignored).
 
+## 10. Claude's game client (route R2)
+
+Claude plays through a real headless client on this VM (Steam account bootymaxer, app 1374490, UE4SS + `DWClient`), joined to the Shockbyte world. That server is updated by Shockbyte, not by us. The client must match its build, or the join fails. Steps 1 to 9 above are for the dev server. Do these for the client:
+
+1. **Stop the client and hold it**, so the client watchdog does not relaunch it mid-update:
+   ```powershell
+   tools\stop_client.ps1 -Hold          # kills the client, writes logs\client.stopped; Steam keeps running
+   ```
+   (`logs\client.hold`, created by hand, works the same way.)
+2. **Update through the Steam client.** The VM's Steam is logged in as bootymaxer, and the app has `AutoUpdateBehavior` 0 ("always keep updated"), so Steam downloads the patch by itself once the game is closed. SteamCMD can't do this: it would need bootymaxer's password and Steam Guard. Watch the manifest until the build changes and `StateFlags` is back to 4 (fully installed):
+   ```powershell
+   Select-String 'C:\Program Files (x86)\Steam\steamapps\appmanifest_1374490.acf' -Pattern '"buildid"|"StateFlags"|"TargetBuildID"'
+   ```
+   If Steam has not noticed the patch after a few minutes, restart Steam so it checks again: `& 'C:\Program Files (x86)\Steam\steam.exe' -shutdown`, wait for it to exit, then `& 'C:\Program Files (x86)\Steam\steam.exe' -silent`. **[UNVERIFIED: no client patch has been applied this way yet.]** Record the new client build in `docs/DISCOVERIES.md` and `docs/PROGRESS.md`.
+3. **Check that UE4SS survived.** An update can replace or remove files the game does not ship. Look for `version.dll`, `version.ini` and `ue4ss\UE4SS.dll` in `C:\Program Files (x86)\Steam\steamapps\common\RSDragonwilds\RSDragonwilds\Binaries\Win64`, and `ue4ss\Mods\DWClient`. If any is missing, run `tools\install_client_ue4ss.ps1` (the client must be closed).
+4. **Boot, join and smoke-test:**
+   ```powershell
+   tools\client_smoke.ps1 -Release                      # -Release clears the hold; boot_and_join, then read-only checks
+   tools\client_smoke.ps1 -NoBoot -AllowMove -Chat      # walk 2 m, one jump, one chat line (clear with main/Luis first)
+   ```
+   Each step reports pass, fail or skip, and the report goes to `logs\client_smoke_<ts>.json`. Exit code 0 means everything that ran passed.
+   - The default run makes no movement and no chat.
+   - `-AllowMove` moves the pawn, so the locomotion owner must agree.
+   - `-Chat` writes one line in Luis's world chat.
+   - If `boot` fails, `logs\client\boot.log` has the reason, for example `join_failed: ... [DuplicateChar]`, `sign_in_failed`, `no_pawn` or `runner_timeout`.
+   - If the runner never answers, UE4SS or DWClient did not load: read `ue4ss\UE4SS.log` beside the client exe.
+5. **Restart supervision:** `tools\start_client_watchdog.ps1`. It is a no-op if it is already running.
+
+Day-to-day client operations (not only after patches):
+- `tools\client_boot.ps1` is the idempotent boot_and_join. It is a no-op when Claude is in the world with services up. `-DryRun` only reports what it would do. Status goes to `logs\state\client_status.json`.
+- `tools\client_watchdog.ps1` (start it with `tools\start_client_watchdog.ps1`) recovers the client from crash, hang and disconnect, and keeps the nav oracle and the nav-only dev server alive. Events go to `logs\client_watchdog.jsonl`. Hang stacks go to `logs\client\hang_<pid>_<ts>.txt`.
+- Offline tests against a fake client: `.venv\Scripts\python.exe -m pytest tests\test_client_ops.py`.
+
 ## Notes
 
 - The pipeline never talks to the live server except `smoke_test` (read-only unless `--active`). `snapshot`, `deps`, `diff`, `catalog-diff` and `report` work from files and are safe while Luis plays.

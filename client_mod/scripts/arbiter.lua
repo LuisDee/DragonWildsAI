@@ -70,7 +70,13 @@ local function mv()
     if ok then A._move = m end
     return A._move
 end
+-- World teardown guard (main's crash convention): while _G.DW_PAUSE is true (set by disconnect /
+-- join, cleared by the bridge once a new pawn has been stable for 3 s) nothing here touches the game:
+-- no move calls, no resumes (the suspended stack is dropped; the world it belonged to is gone).
+local function paused() return _G.DW_PAUSE == true end
+A.paused = paused
 local function move_call(fn, ...)
+    if paused() then return nil end
     local m = mv()
     if not (m and m[fn]) then return nil end
     local ok, r = pcall(m[fn], ...)
@@ -149,6 +155,12 @@ end
 
 -- Hand the pawn to the newest suspended entry that is still fresh.
 local function resume_next(log, s)
+    if paused() then
+        for _, r in ipairs(s.stack) do r.state = "dropped_paused" end
+        if #s.stack > 0 then history(s, { ev = "drop_paused", n = #s.stack }) end
+        s.stack = {}
+        return nil
+    end
     while #s.stack > 0 do
         local rec = table.remove(s.stack)
         if now() - (rec.suspended_at or 0) > A.MAX_SUSPEND_S then
@@ -202,6 +214,7 @@ function A.request(log, spec)
     local s = S()
     housekeep(log, s)
     local lvl = level_of(spec.level)
+    if paused() then return { ok = false, reason = "paused" } end
     local cur = s.owner
     -- adopt unregistered movement (e.g. the bridge's follow) so it can be suspended and resumed
     if not cur and lvl > A.LEVELS.command - 1 and spec.adopt ~= false and not move_is_idle() then
