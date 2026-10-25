@@ -733,17 +733,23 @@ M.VITALS_HOOKS = {
     { path = "/Script/Dominion.DamageComponent:OnRep_FatalDamageInfo", handler = "on_fatal" },
 }
 
-local function register(h, log)
-    if V.hooks[h.path] then return true end
-    local ok, pre, post = pcall(RegisterHook, h.path, function() end, function(...)
-        local fn = V[h.handler]
-        if fn then
-            local ok2, err = pcall(fn, ...)
-            if not ok2 and log then pcall(log, "vitals hook " .. h.handler .. " error: " .. tostring(err)) end
-        end
-    end)
-    if ok then V.hooks[h.path] = { pre = pre, post = post } end
-    if log then pcall(log, "vitals hook " .. h.path .. " ok=" .. tostring(ok) .. (ok and "" or (" " .. tostring(pre)))) end
+-- the shared hook hub (BUGS L24): one native hook per UFunction per process, never unregistered
+local HUB
+local function hub()
+    if not HUB then
+        local dir = (debug.getinfo(1, "S").source:match("^@(.*)[/\\]")) or (ROOT .. "/client_mod/scripts")
+        HUB = assert(loadfile(dir .. "/hookhub.lua"))()
+    end
+    return HUB
+end
+
+-- subscribe the handler; the hub registers the native hook once, in the world, and never unregisters it
+local function register(h, log, in_world)
+    local ok = hub().on(h.path, "sense:" .. h.handler, function(...)
+        local fn = _G.DWVitals and _G.DWVitals[h.handler]
+        if fn then fn(...) end
+    end, { defer = not in_world, log = log })
+    if ok then V.hooks[h.path] = true end
     return ok
 end
 
@@ -783,17 +789,13 @@ function M.vitals_start(log)
     -- another pawn (or none) are dropped and registered again; the bridge's supervisor calls this again
     -- when vitals_status().hooked_pawn differs from the current pawn. (Re-registering is the fix being
     -- tried; UNVERIFIED until a damage row appears after a boot.)
+    -- BUGS L24: no UnregisterHook ever (the 22:31 crash followed an unregister/re-register cycle); a new
+    -- pawn just re-subscribes (no native call). The native hooks are made once, with a pawn in the world.
     local me = p and U.short(p) or nil
-    if me and V.hooked_pawn ~= me and next(V.hooks) then
-        for path, ids in pairs(V.hooks) do
-            if UnregisterHook then pcall(UnregisterHook, path, ids.pre, ids.post) end
-            V.hooks[path] = nil
-        end
-        if log then pcall(log, "vitals: hooks re-registered for pawn " .. me .. " (were for " .. tostring(V.hooked_pawn) .. ")") end
-    end
+    local in_world = not hub().not_in_world(p)
     local hooks = {}
-    for _, h in ipairs(M.VITALS_HOOKS) do hooks[h.path:match(":(.+)$")] = register(h, log) end
-    if me then V.hooked_pawn = me end
+    for _, h in ipairs(M.VITALS_HOOKS) do hooks[h.path:match(":(.+)$")] = register(h, log, in_world) end
+    if me and in_world then V.hooked_pawn = me end
     if not V.loop then
         V.loop = LoopInGameThreadWithDelay(1000, function()
             local f = _G.DWVitals and _G.DWVitals.poll
@@ -807,10 +809,8 @@ end
 function M.vitals_stop(log)
     if V.loop and CancelDelayedAction then pcall(CancelDelayedAction, V.loop) end
     V.loop = nil
-    for path, ids in pairs(V.hooks) do
-        if UnregisterHook then pcall(UnregisterHook, path, ids.pre, ids.post) end
-        V.hooks[path] = nil
-    end
+    for _, h in ipairs(M.VITALS_HOOKS) do hub().off(h.path, "sense:" .. h.handler) end -- native hooks stay (L24)
+    V.hooks = {}
     return { ok = true }
 end
 

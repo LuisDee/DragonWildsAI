@@ -134,17 +134,33 @@ function S.on_ui_error(_, text_param)
     emit({ type = "chat_error", text = text })
 end
 
+local HUB
+local function hub()
+    if not HUB then
+        local dir = (debug.getinfo(1, "S").source:match("^@(.*)[/\\]")) or (ROOT .. "/client_mod/scripts")
+        HUB = assert(loadfile(dir .. "/hookhub.lua"))()
+    end
+    return HUB
+end
+
+-- BUGS L24: one native hook per path per process via the hub (never unregistered; the callback is
+-- skipped while DW_PAUSE); registered only with a pawn in the game world
+local function local_pawn()
+    local ok, p = pcall(function()
+        local pc = FindFirstOf("PlayerController")
+        return pc and pc:IsValid() and pc.Pawn and pc.Pawn:IsValid() and pc.Pawn or nil
+    end)
+    return ok and p or nil
+end
 local function register(path, handler_name, log)
     if S.hooks[path] then return true end
-    local ok, pre, post = pcall(RegisterHook, path, function() end, function(...)
-        local h = S[handler_name]
-        if h then
-            local ok2, err = pcall(h, ...)
-            if not ok2 and log then pcall(log, "chat hook " .. handler_name .. " error: " .. tostring(err)) end
-        end
-    end)
-    if ok then S.hooks[path] = { pre = pre, post = post } end
-    if log then log("chat hook " .. path .. " ok=" .. tostring(ok) .. (ok and "" or (" " .. tostring(pre)))) end
+    local ok = hub().on(path, "chat:" .. handler_name, function(...)
+        local st = rawget(_G, "DWChat") or S
+        local h = st[handler_name] or S[handler_name]
+        if h then h(...) end
+    end, { defer = hub().not_in_world(local_pawn()), log = log })
+    if ok then S.hooks[path] = true end
+    if log then log("chat hook " .. path .. " native=" .. tostring(ok)) end
     return ok
 end
 
@@ -154,8 +170,8 @@ function M.start(log)
     local results = {
         receive = register(F_RECV, "on_receive", log),
         player_event = register(F_EVENT, "on_event", log),
-        ui_display = register(F_UI, "on_ui", log),
-        ui_error = register(F_UIERR, "on_ui_error", log),
+        -- (the ChatWidget UI hooks F_UI / F_UIERR are no longer registered: widgets are torn down first on
+        --  a disconnect, and they only counted; BUGS L24)
     }
     return { ok = results.receive, reason = (not results.receive) and "receive hook failed" or nil,
              data = { hooks = results, counts = S.counts, events = EVENTS_PATH } }

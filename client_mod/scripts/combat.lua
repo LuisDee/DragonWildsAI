@@ -658,17 +658,23 @@ function M.hooks_start(log)
     for _, h in ipairs(M.HOOKS) do
         if c.hooks[h.path] then res[h.handler .. ":" .. h.path:match(":(.+)$")] = "kept"
         else
-            local ok, pre, post = pcall(RegisterHook, h.path, function() end, function(...)
+            -- BUGS L24: through the shared hook hub (one native hook per path, shared with sense.lua's
+            -- vitals watcher on the same Multicast_* functions; never unregistered; skipped under DW_PAUSE)
+            local hubm = (function()
+                local dir = (debug.getinfo(1, "S").source:match("^@(.*)[/\\]")) or ((os.getenv("DW_CLIENT_ROOT") or "C:/gameserver") .. "/client_mod/scripts")
+                return assert(loadfile(dir .. "/hookhub.lua"))()
+            end)()
+            local ok = hubm.on(h.path, "combat:" .. h.handler .. ":" .. h.path, function(...)
                 local cc = _G.DWCombat
                 local fn = cc and cc.handlers and cc.handlers[h.handler]
                 if fn then
                     local ok2, err = pcall(fn, ...)
                     if not ok2 then cc.hook_err = tostring(err) end
                 end
-            end)
-            if ok then c.hooks[h.path] = { pre = pre, post = post } end
-            res[h.path:match("%.([%w_]+:[%w_]+)$")] = ok and "ok" or tostring(pre)
-            say(log, "hook " .. h.path .. " ok=" .. tostring(ok))
+            end, { defer = hubm.not_in_world(p), log = log })
+            if ok then c.hooks[h.path] = true end
+            res[h.path:match("%.([%w_]+:[%w_]+)$")] = ok and "ok" or "pending"
+            say(log, "hook " .. h.path .. " native=" .. tostring(ok))
         end
     end
     return { ok = true, hooks = res }

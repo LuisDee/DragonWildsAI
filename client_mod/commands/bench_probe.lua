@@ -46,7 +46,8 @@ return function(log)
     local gst = U.find_object("/Script/Engine.Default__GameplayStatics")
     p.t = gst and U.try(function() return gst:GetTimeSeconds(pawn) end) or p.wall
     p.position = m(U.try(function() return pawn:K2_GetActorLocation() end))
-    p.health, p.max_health = U.health(pawn), U.max_health(pawn)
+    p.health = U.health(pawn)
+    p.max_health = U.try(function() return pawn.HealthComponent:GetMaxHealth() end) or U.max_health(pawn)
     for key, spec in pairs({ sustenance = { "SustenanceComponent", "GetCurrentSustenance" },
                              hydration = { "HydrationComponent", "GetCurrentHydration" } }) do
         local c = U.try(function() return pawn[spec[1]] end)

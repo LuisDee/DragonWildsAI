@@ -684,7 +684,12 @@ function W.arm_result_hook(api)
     local st = state()
     if st.hooked then return true end
     if type(RegisterHook) ~= "function" then return false end
-    local ok, err = pcall(RegisterHook, M.RESULT_HOOK, function() end, function(_, result, recipe, count)
+    -- BUGS L24: the shared hook hub (one native hook per path, never unregistered, skipped under DW_PAUSE)
+    local hubm = (function()
+                local dir = (debug.getinfo(1, "S").source:match("^@(.*)[/\\]")) or ((os.getenv("DW_CLIENT_ROOT") or "C:/gameserver") .. "/client_mod/scripts")
+                return assert(loadfile(dir .. "/hookhub.lua"))()
+            end)()
+    local ok, err = hubm.on(M.RESULT_HOOK, "crafting:result", function(_, result, recipe, count)
         local s = rawget(_G, "DWCraft")
         if not s then return end
         local function g(p) local okg, v = pcall(function() return p:get() end); return okg and v or nil end
@@ -695,7 +700,7 @@ function W.arm_result_hook(api)
         s.results[#s.results + 1] = { seq = s.seq, result = tonumber(g(result)), recipe = asset(path and path:match("(%S+)$")),
                                       count = tonumber(g(count)), at = os.time() }
         while #s.results > 20 do table.remove(s.results, 1) end
-    end)
+    end, {})
     st.hooked = ok
     if not ok then api.log("crafting: RegisterHook result: " .. tostring(err)) end
     return ok

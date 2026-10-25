@@ -364,6 +364,7 @@ check("classify: blip", c4.why == "blip")
 
 -- hooks that fail at start (main menu) are retried from the tick once in the world
 _G.DW_LEARN = nil
+_G.DWHookHub = nil -- a fresh client process: hooks are natively registered once per process (hookhub, BUGS L24)
 local real_rh = RegisterHook
 RegisterHook = function() error("class not loaded") end
 local L3 = dofile(FILE)

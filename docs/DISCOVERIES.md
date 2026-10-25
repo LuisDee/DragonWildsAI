@@ -1579,3 +1579,36 @@ Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probe
   - GE instances, gameplay tags, `LastCastTimeBySpellData` and UtilitySpell actors: empty (nothing cast yet). An empty Lua table JSON-encodes as `[]`: the Python side normalises `cooldowns` to a dict.
 - **Not read by probe v1 (they evaluate null, never pass):** held-item effects, ground items, creatures, other players' inventories. Those come from the dev referee (server side) once it is verified.
 - **Build note:** the client and dev server report build **26162923**, while the data catalogs (`data/*_26161880.json`) were generated at 26161880. RUNBOOK-patch says to regenerate the catalogs after a patch. The benchmark's `game_build` is read from the catalogs, so a regeneration re-opens validity (by design).
+
+## Benchmark referee + fixtures on the dev server (2026-10-25 22:50-23:00 UTC, server build 26161880 / Net CL 254097, DW_SERVER_ROLE=dev, ClaudeDev; Eval agent)
+- **Entry:** `debug_run {"module":"bench","args":{"part":"referee"|"fixtures",...}}` (`mod/scripts/bench.lua` loads `mod/bench/*.lua` from the deployed mod root). Both parts refuse unless `DW_SERVER_ROLE=dev`.
+- **Referee probe (read-only):** players from `FindAllOf("BP_PlayerCharacter_C")` with `PlayerState:GetPlayerName()` = "ClaudeDev", health 100, server `pc.InventoryComponent.ItemSlots` readable. Character GUID read as `U.guid_hex(ps.OwnerGuid.CharacterGuid.InnerGuid)` = `E71C5DC146F0A55B69FF52A881255DEF`. **Creature base class `BP_DominionAICharacter_C`** (`FindAllOf` returns subclasses): 8 `BP_AI_Kebbit_Character_02_C` (30 HP) and 4 `BP_AI_Magpie_Character_C` near the start area.
+- **Referee polling (250 ms, LoopInGameThreadWithDelay, verified):**
+  - `item_change` from the server inventory: torch drop -1 (client `drop`), pick-up +1 (client `interact` "Collect"), Coarse Animal Fur +1 (kebbit loot).
+  - `damage` from creature health deltas: 8, 8, 8, 6 = 30 HP.
+  - `death` with `kind_id = BP_AI_Kebbit_Character_02_C`.
+  - Not covered by polling: damage type and attacker (polling can't see either), parry/dodge, projectiles, teleport (untested).
+- **Fixture spawn (verified):** `World:SpawnActor(<class of a live BP_AI_Kebbit_Character_02_C instance via GetClass()>, pawn location + 4 m)` spawned a working kebbit on the server. It replicated to the client (`look` saw it at 4.03 m, 30 HP, alive), and Claude killed it with the real client attack path. No crash.
+- **UDominionCheatManager (the game's dom* cheats) is reflected but INERT in this shipping build:**
+  - The class is loaded (`/Script/Dominion.Default__DominionCheatManager`).
+  - The PC has no `CheatManager`, and `pc:EnableCheats()` is a no-op.
+  - `StaticConstructObject(DominionCheatManager, pc)` assigned to `pc.CheatManager` works.
+  - But `domAddItem("ITEM_Resources_Stone", 3, 100)` added nothing, and `domModifySustenance(20)` left sustenance at 9.0. The cheat bodies are compiled out, so fixtures can't use them.
+- **ClaudeDev survival:** server reads hydration **0.0**, sustenance 9.0 at 22:59 UTC (fresh character, no drinks).
+
+## Client crash 2026-10-25 22:31:35 UTC after a disconnect (BUGS L24) + the game log that stopped at 22:04 (client build 26162923; read-only cdb)
+- **Dump** `ue4ss\crash_2026_10_25_23_31_35.6102217.dmp`, `.ecxr; kn`: access violation `mov rax,[rcx]` with rcx = 0x250 (a null object + 0x250) in game code. Below it, two nested `UE4SS!...+0xcc7` frames separated by game frames, then the game-thread tick and the ProcessEvent path (`UE4SS+0x675`). No Lua frames.
+  - "StartCallbackGarbageCollector" is only the nearest exported symbol. The installed UE4SS v3.0.1 release has no PDB, and the zDEV v3.0.1 build is a different binary (hash differs), so its PDB doesn't apply.
+  - The +0xcc7 frames are UE4SS's native-hook trampolines: one for each RegisterHook'd UFunction in the call chain, calling the original.
+- **What preceded it (logs/client/client.log, UE4SS.log):**
+  - join_server 22:31:22, then disconnect 22:31:34;
+  - two pause→re-arm cycles (22:25:03, 22:29:33). The vitals re-arm called UnregisterHook and then RegisterHook again on Multicast_ApplyDamage* / OnRep_*. In the UE4SS log only ONE of the four unregisters actually logged.
+  - combat.lua hooked the same Multicast_* functions a second time.
+  - UE4SS issue #484 reports UnregisterHook crashing games, depending on the hooked function, in v3.0.1 builds.
+- **Decision (hookhub.lua):** one native post-hook per UFunction per process, never unregistered. Handlers are swapped in Lua; callbacks return before touching anything while DW_PAUSE is set; registration waits until a pawn is out of the front end. The ChatWidget UI hooks are dropped: they only counted, and widgets are the first thing torn down.
+  - This fix is a reasoned inference, UNVERIFIED until repeated join/disconnect cycles on the dev world stay up.
+- **The vitals re-arm (2026-10-25 evening) did deliver damage rows:** vitals.jsonl has 486 damage rows through 22:16. So hooks registered once in the world work. The hub keeps that property without re-registering.
+- **The game log (RSDragonwilds.log) stopped at 22:04:11 UTC** in a session that ran until the 22:31 crash. Its backup file (`RSDragonwilds-backup-2026.10.25-22.04.11.log`, 2.9 MB) holds **27,162 lines of `LogPhysics: Warning: COLLISION PROFILE [Custom] is not found`** from 21:33 on.
+  - Source: `move.lua` `raw_trace` traces with `LineTraceSingleByProfile(capsule:GetCollisionProfileName())`. On Claude's capsule the name is "Custom" (per-component collision, not a named profile), so EVERY trace warns and returns no hit.
+  - Why the file stopped is UNPROVEN: the engine kept running (client.log continues), and the trace spam is the obvious anomaly.
+  - Suggested fix for move.lua's owner: treat "Custom" (or any name the profile table lacks) as invalid, and trace by the capsule's object channel (ECC_Pawn) or fall back to the Visibility trace.

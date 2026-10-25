@@ -562,13 +562,17 @@ local function register_hooks(log)
     for _, h in ipairs(M.HOOKS) do
         if s.hooks[h.path] then res[h.kind] = true
         else
-            local ok, pre, post = pcall(RegisterHook, h.path, function() end, function(ctx, a1)
+            -- BUGS L24: the shared hook hub (one native hook per path, never unregistered, skipped under DW_PAUSE)
+            local hubm = (function()
+                local dir = (debug.getinfo(1, "S").source:match("^@(.*)[/\\]")) or ((os.getenv("DW_CLIENT_ROOT") or "C:/gameserver") .. "/client_mod/scripts")
+                return assert(loadfile(dir .. "/hookhub.lua"))()
+            end)()
+            local ok = hubm.on(h.path, "learn:" .. h.kind, function(ctx, a1)
                 local f = rawget(_G, "DW_LEARN") and _G.DW_LEARN.on_hook
-                if f then pcall(f, h.kind, ctx, a1) end
-            end)
-            if ok then s.hooks[h.path] = { pre = pre, post = post } end
+                if f then f(h.kind, ctx, a1) end
+            end, { log = log })
+            if ok then s.hooks[h.path] = true end
             res[h.kind] = ok
-            if log then pcall(log, "learn: hook " .. h.path .. " ok=" .. tostring(ok) .. (ok and "" or (" " .. tostring(pre)))) end
         end
     end
     return res

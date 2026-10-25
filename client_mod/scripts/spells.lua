@@ -687,9 +687,15 @@ M.HOOKS = {
 function W.hooks_start()
     local m = mem()
     for _, h in ipairs(M.HOOKS) do
-        if not m.hooks[h.path] and type(RegisterHook) == "function" then
-            local ok = pcall(RegisterHook, h.path, function() local mm = mem(); mm.events[#mm.events + 1] = { ev = h.ev, t = os.clock() } end)
-            m.hooks[h.path] = ok and "ok" or "failed"
+        if m.hooks[h.path] ~= "ok" and type(RegisterHook) == "function" then
+            -- BUGS L24: the shared hook hub (one native hook per path, never unregistered, skipped under DW_PAUSE)
+            local hubm = (function()
+                local dir = (debug.getinfo(1, "S").source:match("^@(.*)[/\\]")) or ((os.getenv("DW_CLIENT_ROOT") or "C:/gameserver") .. "/client_mod/scripts")
+                return assert(loadfile(dir .. "/hookhub.lua"))()
+            end)()
+            local ok = hubm.on(h.path, "spells:" .. h.ev, function() local mm = mem(); mm.events[#mm.events + 1] = { ev = h.ev, t = os.clock() } end,
+                               {})
+            m.hooks[h.path] = ok and "ok" or "pending"
         end
     end
 end
