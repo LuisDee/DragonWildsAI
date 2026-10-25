@@ -56,3 +56,14 @@
   - Smoke test: 1 Haiku call via LiteLLM, 19 tokens in / 5 out, 3.1 s including cold connection setup.
   - Luis pasted the key in chat and accepted the risk. Recommended: rotate it in the Anthropic console and set a monthly spend cap.
 - Brain live loop done (`python -m brain.run_live [--dry-run]`, `python -m brain.tail_logs`). 51 tests pass.
+- **PHASE 6 GATE PASSED (2026-10-25, about 13:52 UTC, Luis via GFN):** `!c follow me`, `!c stop` / `wait here`, `!c come here` and `!c kill that kebbit` all worked from chat. Claude Haiku 5.5 was the Controller; the server-driven player puppet was the body.
+  - The kill was verified from game state: `killed: true`, 4 swings.
+  - Fixes on the way:
+    - installed `mcp`, which litellm needs when tools are passed;
+    - dropped `temperature`, which the API has rejected since 2026-10-21;
+    - raised `max_tokens` to leave room for thinking;
+    - set `parallel_tool_calls=False` plus a one-action rule, because the model was pairing follow with stop.
+  - Gaps Luis noticed:
+    - Attacks only use the first swing of a combo, and use the sword set while holding a mace. Next: real combo chains from the catalog, plus specials.
+    - The overhead name still reads "Character Name Here".
+    - Speech works only via the relay.

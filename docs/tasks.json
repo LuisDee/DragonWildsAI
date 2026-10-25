@@ -109,8 +109,8 @@
       "id": "P6.GATE",
       "phase": 6,
       "title": "GATE: follow me / wait here / come here / kill that wolf / stop work in game",
-      "status": "todo",
-      "passes_test": false
+      "status": "done",
+      "passes_test": true
     },
     {
       "id": "P7.1",
@@ -235,6 +235,20 @@
       "id": "P4.H4",
       "phase": 4,
       "title": "Route 1: puppet inventory (game components) + persistent bot state server-side",
+      "status": "todo",
+      "passes_test": false
+    },
+    {
+      "id": "P7.C1",
+      "phase": 7,
+      "title": "Combat: full combo chains per held weapon (NextAttackClass), specials/sprint/visceral, correct attack set for held weapon",
+      "status": "in_progress",
+      "passes_test": false
+    },
+    {
+      "id": "P5.3b",
+      "phase": 5,
+      "title": "On-demand speech as Claude (outside the relay hook); overhead nameplate shows Claude",
       "status": "todo",
       "passes_test": false
     }
