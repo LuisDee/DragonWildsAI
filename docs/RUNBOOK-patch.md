@@ -194,6 +194,43 @@ Day-to-day client operations (not only after patches):
 - `tools\client_boot.ps1` is the idempotent boot_and_join. It is a no-op when Claude is in the world with services up. `-DryRun` only reports what it would do. Status goes to `logs\state\client_status.json`.
 - `tools\client_watchdog.ps1` (start it with `tools\start_client_watchdog.ps1`) recovers the client from crash, hang and disconnect, and keeps the nav oracle and the nav-only dev server alive. Events go to `logs\client_watchdog.jsonl`. Hang stacks go to `logs\client\hang_<pid>_<ts>.txt`.
 - Offline tests against a fake client: `.venv\Scripts\python.exe -m pytest tests\test_client_ops.py`.
+- **Which server Claude joins:** `tools\client_boot.ps1 -Target dev` joins `client_io\secrets\server_dev.txt` (the nav-only dev server, 127.0.0.1:7777; the password is copied from the dev server's `DedicatedServer.ini` and is never printed). Without `-Target`, an unexpired `logs\state\client_target.json` lease wins, otherwise Shockbyte (`server.txt`). In the world on the wrong server, boot disconnects and rejoins. The client watchdog does the same after 60 s (`wrong_server` event), but only once it has been restarted after 2026-10-25 20:50. See ARCHITECTURE section 8.6.
+
+### Before every live session: the dev-server scenario suite (streamline plan step 6)
+
+It moves Claude off Luis's world for a few minutes, so main must OK the slot and the live brain must be stopped.
+```powershell
+.venv\Scripts\python.exe -m tools.scenario_run                     # dry run: read-only, any server, no switch
+.venv\Scripts\python.exe -m tools.scenario_run --live              # Shockbyte -> dev -> scenarios -> Shockbyte
+.venv\Scripts\python.exe -m tools.scenario_run --live --only pit_escape,ledge_jump
+.venv\Scripts\python.exe -m tools.scenario_run --here              # already on dev: run there (refused on Shockbyte)
+```
+- **Scenarios** (`tools\scenarios\dev_suite.json`, each with its own `pass` text):
+  - `pit_escape`, `pit_to_grave_area`: the start-area respawn trap;
+  - `waypoint_course`: a go_to chain standing in for follow;
+  - `ledge_jump`: a 0.6-1.4 m ledge found by traces;
+  - `fetch_consume`: what lies around on dev;
+  - `combat_weak`: a weak creature, if one is near;
+  - `grave_recovery`: only after a natural death.
+  - Each answers pass, fail, skip or error.
+- **Preflight aborts** before anything moves when any of these holds: the client is not in the world, a hold file exists, `run_live` is running, the client is not on Shockbyte, the dev server is down, or the dev target file is missing.
+- **Report:** `logs\scenarios\scn_<ts>_<mode>.{json,md}` plus `_timeline.txt` for the run window. The JSON holds per-scenario evidence, the switch results and the Shockbyte before/after diff. Exit code 0 = pass (or dry run).
+- **If it dies mid-run:** the lease expires (45 min at most, renewed per scenario), and the next boot or watchdog check brings Claude back to Shockbyte. To do it now: delete `logs\state\client_target.json`, then run `tools\client_boot.ps1`.
+
+### Diagnosis: one timeline
+```powershell
+.venv\Scripts\python.exe -m tools.timeline --since 19:20 --until 19:30            # UTC; --local for local time
+.venv\Scripts\python.exe -m tools.timeline --around 19:22:21 --window 90 --src chat,brain,move
+.venv\Scripts\python.exe -m tools.timeline --since 30m --grep "unreach|stuck|thirst" --all
+.venv\Scripts\python.exe -m tools.timeline --since 19:20 --html logs\timeline.html --jsonl logs\timeline.jsonl
+```
+- **What it merges:**
+  - `chat.jsonl`, the brain-live logs that overlap the window, `move`, `vitals` and the other `client_io\events` files;
+  - `client_watchdog.jsonl`, `boot.log`, `client.log` and `mod_*.jsonl`;
+  - the client game log (joins, travel, failures and `FlushAsyncLoading` only);
+  - scenario reports.
+- **Noise:** pings, probes, raw bridge traffic and module loads are hidden unless `--all`. Runs of identical lines collapse to `(xN)`.
+- **Interactive browsing:** lnav (installed with `winget install tstack.lnav`; the format is installed once with `lnav -i tools\lnav\dw_timeline.json`), then `lnav logs\timeline.jsonl`. It gives filters (`:filter-in`), a histogram and SQL, e.g. `;SELECT src, count(*) FROM dw_timeline GROUP BY src`.
 
 ## Notes
 

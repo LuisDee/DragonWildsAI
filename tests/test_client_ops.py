@@ -32,6 +32,7 @@ class FakeRunner(threading.Thread):
     def __init__(self, io: Path, state: dict):
         super().__init__(daemon=True)
         self.io, self.state, self.calls, self.stop_flag, self.answer = io, state, [], False, True
+        self.texts = {}  # name -> the command file's text (as the runner saw it)
 
     def handle(self, name: str) -> dict:
         s = self.state
@@ -66,6 +67,7 @@ class FakeRunner(threading.Thread):
             for f in list(cmd.glob("*.lua")) if self.answer else []:
                 name = f.stem
                 try:
+                    self.texts[name] = f.read_text(encoding="utf-8-sig")
                     f.unlink()
                 except OSError:
                     continue
@@ -200,6 +202,69 @@ def test_boot_dry_run_acts_on_nothing(rig):
     assert rig.runner.calls == ["wd_boot_probe"]
 
 
+# ------------------------------------------------------------------ join targets (-Target, lease)
+PW_DEV = "devpass-secret"
+
+
+def loadmap(addr):
+    t = time.gmtime()
+    return time.strftime("[%Y.%m.%d-%H.%M.%S:000][  1]", t) + f"LogLoad: LoadMap: {addr}/Game/Maps/World/L_World?p=eHh4?pf=PC?cpx=1\n"
+
+
+def dev_target(rig):
+    (rig.io / "secrets" / "server_dev.txt").write_text(f"5.6.7.8:7777\n{PW_DEV}\n", encoding="utf-8")
+
+
+def test_boot_target_switches_server(rig):
+    dev_target(rig)
+    with open(rig.game_log, "a", encoding="utf-8") as f:
+        f.write(loadmap("1.2.3.4:7777"))
+    runner = rig.start(in_world())
+    orig = runner.handle
+
+    def handle(name):
+        if name == "boot_disconnect":
+            runner.state.update(map="L_FrontEnd", screen=2, pawn=None, pos_m=None)
+            return {"ok": True, "result": {"sent": True}}
+        if name == "boot_join_server":
+            with open(rig.game_log, "a", encoding="utf-8") as f:
+                f.write(loadmap("5.6.7.8:7777"))
+        return orig(name)
+    runner.handle = handle
+    p = rig.ps("client_boot.ps1", "-NoLaunch", "-Quiet", "-Target", "dev")
+    assert p.returncode == 0, p.stdout + p.stderr
+    acting = [c for c in runner.calls if c != "wd_boot_probe"]
+    assert acting[:2] == ["boot_disconnect", "boot_join_server"], acting
+    assert runner.texts["boot_join_server"].startswith('local SECRETS_FILE = "server_dev.txt"')
+    st = status(rig)["last_boot"]
+    assert st["target"] == "dev" and st["joined"] == "5.6.7.8:7777"
+    log = (rig.tmp / "boot.log").read_text(encoding="utf-8-sig")
+    assert PW_DEV not in log and PW not in log
+
+
+def test_boot_default_target_never_leaves_unknown_server(rig):
+    rig.start(in_world())   # no LoadMap line: the joined server is unknown -> left alone
+    p = rig.ps("client_boot.ps1", "-NoLaunch", "-Quiet")
+    assert p.returncode == 0 and rig.runner.calls == ["wd_boot_probe"]
+    assert status(rig)["last_boot"]["target"] == "shockbyte"
+
+
+def test_boot_lease_picks_target_until_it_expires(rig):
+    dev_target(rig)
+    with open(rig.game_log, "a", encoding="utf-8") as f:
+        f.write(loadmap("1.2.3.4:7777"))
+    rig.start(in_world())
+    lease = rig.tmp / "state" / "client_target.json"
+    future = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 600))
+    lease.write_text(json.dumps({"target": "dev", "until": future, "by": "test"}), encoding="utf-8")
+    p = rig.ps("client_boot.ps1", "-NoLaunch", "-DryRun")
+    assert "target=dev [lease" in p.stdout and "would: disconnect.lua" in p.stdout, p.stdout
+    past = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 5))
+    lease.write_text(json.dumps({"target": "dev", "until": past, "by": "test"}), encoding="utf-8")
+    p = rig.ps("client_boot.ps1", "-NoLaunch", "-DryRun")
+    assert "target=shockbyte [default]" in p.stdout and "disconnect" not in p.stdout, p.stdout
+
+
 # ------------------------------------------------------------------ watchdog (always -DryRun)
 WD = ("-DryRun", "-NoDevServer", "-NoNavOracle", "-PollS", "1", "-ProbeEveryS", "0", "-GraceS", "0")
 
@@ -299,3 +364,26 @@ def test_watchdog_treats_lingering_teardown_pause_as_degraded(rig):
     rig.start(s)
     rig.ps("client_watchdog.ps1", *WD, "-Loops", "4", "-DisconnectS", "1")
     assert "boot_start" in names(rig.events())
+
+
+def test_watchdog_rejoins_target_when_on_wrong_server(rig):
+    dev_target(rig)   # no lease: the target is shockbyte (1.2.3.4:7777), but the client sits on dev
+    with open(rig.game_log, "a", encoding="utf-8") as f:
+        f.write(loadmap("5.6.7.8:7777"))
+    rig.start(in_world())
+    p = rig.ps("client_watchdog.ps1", *WD, "-Loops", "2", "-WrongServerS", "0")
+    assert p.returncode == 0, p.stdout + p.stderr
+    evs = rig.events()
+    wrong = [e for e in evs if e["event"] == "wrong_server"]
+    assert wrong and wrong[0]["on"] == "5.6.7.8:7777" and wrong[0]["target"] == "shockbyte", names(evs)
+    assert any(e["event"] == "boot_start" and e["why"] == "wrong_server" for e in evs)
+    assert PW_DEV not in json.dumps(evs)
+
+
+def test_watchdog_leaves_client_alone_on_target(rig):
+    with open(rig.game_log, "a", encoding="utf-8") as f:
+        f.write(loadmap("1.2.3.4:7777"))
+    rig.start(in_world())
+    p = rig.ps("client_watchdog.ps1", *WD, "-Loops", "2", "-WrongServerS", "0")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert "wrong_server" not in names(rig.events())

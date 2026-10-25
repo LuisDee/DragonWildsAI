@@ -1186,12 +1186,12 @@ Module: `client_mod/scripts/traverse_learn.lua` (task R2.12; design `docs/resear
   - It honours `_G.DW_PAUSE` and an invalid controller/pawn: verified offline, no UObject reads while paused.
 - **Proxy reads VERIFIED live.** On Luis's simulated proxy, `CharacterMovement.MovementMode` reads 3 in the air and 1 on the ground, and `ReplicatedJumpCurrentCount` reads 1 then 2 within the jump.
   - Luis's double jump: the count went 1→2 at **0.31-0.33 s** after take-off, with vz 201→670 cm/s (second impulse). That matches move.lua's 0.35 s second Jump.
-  - Measured double-jump rise **3.11 m** (dz 3.03 m onto a ledge, air 0.64 s) and **2.69 m** (dz 2.53 m, air 0.51 s), both sprinting (6.0-6.8 m/s).
-  - So a rise of 2.5-3.1 m is a double jump, not Windstep. The recorder calls it Windstep only on a Windstep cast since the last landing, a rise > 2.5 m on a single jump, or a rise > 4.5 m.
+  - Measured double-jump rise (take-off to the dash at the apex) **2.7-3.3 m**, sprinting at 6.0-6.8 m/s. These are NOT ledges: the "landing" was the dash entry (MOVE_Custom, below).
+  - So a rise of 2.5-3.3 m is a double jump, not Windstep. The recorder calls it Windstep only on a Windstep cast since the last landing, a rise > 2.5 m on a single jump, or a rise > 4.5 m.
 - **`ReplicatedJumpCurrentCount` is STALE on proxies after landing.** It stayed 2 through Luis's walk-off drop 1 s after a double jump (19:40:48), so that drop was first misclassified as double_jump. It reads 0 again at other times.
   - **Rule:** only a *change* from the grounded baseline is a jump signal, never the absolute value.
-  - Fixed, with the fake leader in the test now keeping a stale count. L2 and its raw event were corrected by hand.
-- **Take-off speed on walk-off drops reads 9-12 m/s** (last grounded `Velocity` of the proxy). That is implausible for running (sprint 6.8), possibly proxy smoothing at the edge. It is only used for the sprint_jump label on jumps; on jumps the values look right (6.0-6.8). Open.
+  - Fixed, with the fake leader in the test now keeping a stale count.
+- **The 9-12 m/s "walk-off take-off speeds" were the air dash** (MOVE_Custom, mis-read as ground), not proxy smoothing. Explained below.
 - **MOVE_Custom (6) is the AIR DASH. VERIFIED live (19:44:14).** Dominion's `ECustomMovementMode` has a single value, `CMOVE_Dash = 1` (dump `Dominion_enums.hpp:1055`).
   - Luis's proxy went mode 3 → **6** at the apex of his double jump (vz ~0, Z flat), the dash carried him ~5 m in mode 6, then mode 3 again until landing.
   - He travels this way constantly: a double jump (second jump at 0.31-0.33 s) plus a dash every ~12 m.

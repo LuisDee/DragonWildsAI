@@ -372,3 +372,25 @@ Every function takes the DWClient text logger `log(msg)` first and returns a tab
 | Traversal recorder (kinematic fake leader on a heightmap: jump-up, gap, double jump, Windstep, drop, air dash, hop, teleport; clustering, self-verify, pause, per-world store, API, rebuild) | `"C:\Program Files\WinGet\Links\lua.exe" client_mod/tests/test_traverse_learn.lua <empty_dir>` |
 | Gather (fake world: oak chain, tools, failures, suspend/resume, pickups, foliage maths) | `"C:\Program Files\WinGet\Links\lua.exe" client_mod/tests/test_gather.lua` |
 | Client bridge ⇄ brain (BridgeClient, capabilities, run_live dry run end to end) | `.venv\Scripts\python.exe -m pytest tests/test_client_bridge.py` |
+| Scenario runner (fake body + ops: dry run read-only, live switch/run/switch back, failed leg, crash, preflight abort, Lua prefix compiles) | `.venv\Scripts\python.exe -m pytest tests/test_scenario_run.py` |
+| Timeline (synthetic logs: zones, window, noise, collapse, redaction, CLI/HTML/JSONL) | `.venv\Scripts\python.exe -m pytest tests/test_timeline.py` |
+| Join targets + lease + wrong-server watchdog (fake client) | `.venv\Scripts\python.exe -m pytest tests/test_client_ops.py -k "target or lease or wrong_server"` |
+
+### 8.6 Process: dev-server scenario suite and the timeline (streamline plan step 6)
+
+**Join targets.** A target is a gitignored file in `client_io/secrets/`: `server.txt` = `shockbyte` (Luis's world, the default) and `server_<name>.txt` = `<name>` (`server_dev.txt` = the nav-only dev server, 127.0.0.1:7777). Line 1 is the address, line 2 the password. Which target applies is decided in one place, `Resolve-ClientTarget` in `tools/client_lib.ps1`:
+1. `client_boot.ps1 -Target <name>`;
+2. else an unexpired **lease** `logs/state/client_target.json` `{target, until, by}`, written and renewed by `tools/scenario_run.py`;
+3. else `shockbyte`. An expired or missing lease always means Shockbyte.
+- "Which server is the client on" = the client game log's last `LoadMap: <host:port>/Game/Maps/World/L_World` (`Get-JoinedServer`; the `?p=` part is never returned). When it is unknown, nothing switches.
+- `client_boot.ps1` in the world on a different server than the target: `disconnect.lua`, then the normal menu → join path. The join runs `join_server.lua` with `local SECRETS_FILE = "server_<name>.txt"` prefixed (a chunk local, so nothing persists into the next join).
+- The client watchdog (`WrongServerS`, 60 s) reruns boot when the client sits on a server other than the target. So the lease keeps a scenario run's rejoins on dev, and when a runner dies the lease expires and the watchdog brings Claude back to Shockbyte.
+- `Protect-Secret` redacts the password of every target file.
+
+**Scenario suite** (`tools/scenario_run.py`, data in `tools/scenarios/dev_suite.json`):
+- Dry run (default) is read-only on any server. `--live` = preflight → Shockbyte baseline snapshot → Claude.json backup → lease → boot `-Target dev` → scenarios → lease cleared → boot `-Target shockbyte` → snapshot diff (in a `finally`). `--here` runs on the current server without switching (refused on Shockbyte).
+- It talks to the bridge's **debug channel** (the same tools as the brain). Read-only probes and fallbacks go through the command runner with `local ARGS = {...}` prefixed (`run_client_cmd`): `client_mod/commands/scn_find_ledge.lua` (traces only) and `scn_consume.lua` (one hotbar use; used only while there is no `consume` tool).
+- Every outcome comes from a fresh `get_state`/`look` read: position within tol in 2D and 1.5 m in height, inventory deltas, the stat rising, the target gone or dead.
+- **Add a scenario** = one entry in `dev_suite.json` of an existing kind (`go_to_chain`, `ledge_jump`, `fetch_consume`, `combat`, `grave_recovery`), with its places and pass text. A new kind = one `k_<kind>` method in `Runner` plus `KINDS`, returning an `Outcome` (pass/fail/skip/error/dry + evidence) and acting only when `self.live`. Then add a fake to `tests/test_scenario_run.py`.
+
+**Timeline** (`tools/timeline.py`): one reader per source (chat, brain-live, move, vitals, other events, client watchdog, boot.log, client.log, mod_*.jsonl, the client game log filtered to joins/travel/failures, scenario reports) → `Row(ts, src, kind, text, level, noise, key)` → merged by time, noise hidden unless `--all`, adjacent identical keys collapsed into one `(xN)` line, passwords redacted. Every source's own zone is honoured (event files UTC, brain-live names local, boot.log `+01:00`). **Add a source** = a reader function plus one line in `discover()`. `--jsonl` writes normalised rows for lnav (`tools/lnav/dw_timeline.json`); `--html` writes a self-contained filterable page. The scenario runner writes the run's timeline beside its report.
