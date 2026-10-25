@@ -56,7 +56,8 @@ class LiteLLMClient:
 
         params = dict(self.kwargs)
         if tools:
-            params.update(tools=tools, tool_choice="auto")
+            # One decision = one action: parallel calls let the model pair follow with stop.
+            params.update(tools=tools, tool_choice="auto", parallel_tool_calls=False)
         resp = litellm.completion(model=self.model, messages=messages, **params)
         msg = resp.choices[0].message
         calls = []

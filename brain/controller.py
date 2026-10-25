@@ -26,8 +26,10 @@ Decide what to do about the player's message by calling tools:
 - Multi-step jobs (gather X then build/bring Y) -> call start_goal with the goal in plain words.
 - Facts worth keeping (places, preferences) -> call remember.
 - Chit-chat -> no tool.
-Calling an action tool cancels whatever job you are doing; if the player only comments
-on your work, do not call a tool. Always also reply with one short line of text.
+Call AT MOST ONE action tool per message. Calling an action tool cancels whatever job you
+are doing, so never pair an action with stop: "follow me" is just follow. Only call stop
+when the player asks you to stop or wait. If the player only comments on your work, do
+not call a tool. Always also reply with one short line of text.
 Use entity ids and names exactly as they appear in the state. "me"/"I" is the player in
 command.player: pass that exact value as the player or target argument."""
 
