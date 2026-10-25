@@ -233,25 +233,20 @@ function M.assess(me, enemies, orders, current, cfg)
     local r = { decision = "fight", u_fight = 1 }
     local hp_frac = (me.max_hp and me.max_hp > 0) and (me.hp or 0) / me.max_hp or 1
     r.hp_frac = hp_frac
-    local function veto(why) r.decision, r.u_fight, r.why = "flee", 0, why; return r end
-    if orders.stance == "flee" then return veto("orders") end
+    local function veto(why) r.decision, r.why = "flee", why; return r end
     if #enemies == 0 then r.decision, r.why = "none", "no_enemies"; return r end
+    -- the numbers first: always reported (information for the model), whatever decides
     local my_pl = me.pl or 1
-    local worst_gap, total_hp, their_dps = -99, 0, 0
+    local worst_gap, total_hp, their_dps, boss = -99, 0, 0, false
     for _, e in ipairs(enemies) do
-        if e.boss and not orders.force then return veto("boss") end
+        if e.boss then boss = true end
         local gap = (e.pl or 1) - my_pl
         if gap > worst_gap then worst_gap = gap end
         total_hp = total_hp + math.max(e.hp or e.max_hp or 50, 1)
         local d = e.dps_obs or M.enemy_dps_prior(e.pl)
         their_dps = their_dps + d * (1.25 ^ gap)
     end
-    r.pl_gap = worst_gap
-    if not orders.force then
-        if worst_gap >= cfg.pl_gap_flee then return veto("too_strong") end
-        if #enemies > cfg.max_hostiles then return veto("outnumbered") end
-        if hp_frac < (orders.flee_hp or cfg.flee_hp) then return veto("low_hp") end
-    end
+    r.pl_gap, r.boss, r.enemies = worst_gap, boss or nil, #enemies
     local my_dps = math.max((me.dps or 5) * (1.25 ^ (-worst_gap)), 0.1)
     r.my_ttk = total_hp / my_dps
     r.their_ttk = (me.hp or 1) / math.max(their_dps, 0.1)
@@ -259,7 +254,23 @@ function M.assess(me, enemies, orders, current, cfg)
     local u_ratio = ratio / (ratio + 1)                         -- 0.5 when even
     local u_hp = math.sqrt(math.max(0, math.min(1, (hp_frac - cfg.flee_hp) / (1 - cfg.flee_hp))))
     r.u_fight = u_ratio * (0.6 + 0.4 * u_hp)
+    r.verdict = (boss and "boss") or (worst_gap >= cfg.pl_gap_flee and "too_strong")
+        or (#enemies > cfg.max_hostiles and "outnumbered") or (r.u_fight >= cfg.fight_enter and "likely_win") or "likely_lose"
     if orders.force then r.decision, r.why = "fight", "forced"; return r end
+    local flee_hp = orders.flee_hp or cfg.flee_hp
+    if orders.commanded then
+        -- a commanded fight is the model's decision (North Star review): no strength vetoes; only the
+        -- model's own flee_hp policy (combat_orders) can turn it into flight
+        if hp_frac < flee_hp then return veto("low_hp") end
+        r.decision, r.why = "fight", "commanded"
+        return r
+    end
+    -- the reflex (policy from combat_orders: stance, flee_hp)
+    if orders.stance == "flee" then return veto("orders") end
+    if boss then return veto("boss") end
+    if worst_gap >= cfg.pl_gap_flee then return veto("too_strong") end
+    if #enemies > cfg.max_hostiles then return veto("outnumbered") end
+    if hp_frac < flee_hp then return veto("low_hp") end
     local need = current == "fight" and cfg.fight_stay or cfg.fight_enter
     r.decision = r.u_fight >= need and "fight" or "flee"
     r.why = r.decision == "fight" and "winnable" or "losing"
@@ -1398,7 +1409,7 @@ local function frame(F)
         F.assess_t = F.t
         local profile = F.profile
         local a = M.assess({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = M.dps(profile) }, enemies_for_assess(F, me.pos),
-            F.mode == "attack" and { stance = "defensive", force = F.force, avoid = {}, flee_hp = M.orders.flee_hp } or M.orders, F.decision, M.cfg)
+            F.mode == "attack" and { commanded = true, force = F.force, avoid = {}, flee_hp = M.orders.flee_hp } or M.orders, F.decision, M.cfg)
         F.assessment = a
         if a.decision == "flee" then return begin_flee(F, a.why) end
         F.decision = "fight"
@@ -1488,13 +1499,9 @@ local function start_fight(log, actor, opts)
     local tgt = read_creature(actor, me.pos)
     if tgt.dead then return { ok = false, reason = "unknown_target", data = { detail = "already dead" } } end
     if tgt.follower then return { ok = false, reason = "unsafe", data = { why = "a player's follower" } } end
-    -- veto strong enemies up front for commanded attacks (Claude is level 1)
-    if opts.mode == "attack" and not opts.force then
-        local a = M.assess({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = 12 }, { tgt }, { stance = "defensive", avoid = {} }, nil, M.cfg)
-        if a.decision == "flee" then
-            return { ok = false, reason = "unsafe", data = { why = a.why, enemy = tgt.name, enemy_pl = tgt.pl, my_pl = me.pl, u_fight = a.u_fight } }
-        end
-    end
+    -- a commanded fight is the model's call (North Star review): the fight-or-flight estimate is
+    -- returned as INFORMATION, never as a refusal; only "never attack players" is a hard gate
+    local estimate = M.assess({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = 12 }, { tgt }, { reflexonly = true }, nil, M.cfg)
     if c.fight then finish(c.fight, result_of(c.fight, false, "interrupted", { detail = "a new fight started" })) end
     local arb = mod("arbiter")
     local token
@@ -1531,7 +1538,10 @@ local function start_fight(log, actor, opts)
             if F.errors >= 5 then finish(F, result_of(F, false, "body_error", { detail = tostring(err) })) end
         end
     end)
-    return { ok = true, data = { target = tgt.name, target_id = tgt.id, distance_m = tgt.distance_m, enemy_pl = tgt.pl, my_pl = me.pl, hp = tgt.hp } }
+    return { ok = true, data = { target = tgt.name, target_id = tgt.id, distance_m = tgt.distance_m, enemy_pl = tgt.pl, my_pl = me.pl, hp = tgt.hp,
+             assessment = { verdict = estimate.verdict, u_fight = estimate.u_fight and math.floor(estimate.u_fight * 100) / 100,
+                            est_s_to_kill = estimate.my_ttk and math.floor(estimate.my_ttk), est_s_to_die = estimate.their_ttk and math.floor(estimate.their_ttk),
+                            pl_gap = estimate.pl_gap } } }
 end
 M._start_fight = start_fight
 
@@ -1877,12 +1887,13 @@ do
             detail_is_speech = true,
             description = "Fight a creature until it is dead, the way a player does: picks the best weapon you carry, attacks with "
                 .. "real button presses, answers its attacks (parry/block/dodge/jump per your combat_orders), backs off to eat when "
-                .. "hurt, loots, then re-equips your tool. Refuses unsafe fights (too strong, a boss, outnumbered, low health) "
-                .. "unless force; never players.",
+                .. "hurt (heal_hp), flees only below your flee_hp, loots, then re-equips your tool. It never refuses a creature: "
+                .. "the reply carries data.assessment (verdict likely_win|likely_lose|too_strong|boss|outnumbered, est_s_to_kill, "
+                .. "est_s_to_die) so you can warn the player or call it off with stop. Never players.",
             args = { type = "object", required = { "target" }, properties = obj({
                 target = { type = "string", description = "Creature id from situation or look (or its name: the nearest one)." },
                 style = STYLE,
-                force = { type = "boolean", default = false, description = "Fight even if it looks unsafe (only when the player insists)." } }) },
+                force = { type = "boolean", default = false, description = "Also ignore your flee_hp for this fight (fight to the end)." } }) },
             ground = obj({ target = "creature" }),
             reasons = { "unsafe", "unknown_target", "too_far", "interrupted", "timeout", "not_unlocked", "invalid_args", "companion_down", "body_error" } },
         use_action = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 2, timeout_s = 8,
