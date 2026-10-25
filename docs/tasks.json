@@ -221,8 +221,8 @@
       "id": "P4.H2",
       "phase": 4,
       "title": "Route 1: equip weapon + armour on puppet server-side, visible on GFN",
-      "status": "todo",
-      "passes_test": false
+      "status": "done",
+      "passes_test": true
     },
     {
       "id": "P4.H3",
