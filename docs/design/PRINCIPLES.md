@@ -12,6 +12,7 @@ These come from Luis's decisions (CLAUDE.md section 0). Breaking one needs Luis'
    - No phrase→skill tables or keyword rules.
    - The brain gets a truthful tool list (generated from the body's capabilities), honest perception and recent context, and decides.
    - Fix missing tools, perception or context; never add special cases.
+   - **Code never overrides the model's interpretation or decisions** (no vetoes, no "you said X so I refuse" checks). Code may only (a) give the model information (perception, context, candidate matches), (b) report outcomes truthfully, (c) enforce Luis's explicit safety rules (e.g. never attack players). If unsure, the model asks the player.
 3. **Generic, never hard-coded.**
    - No item, creature, place or recipe lists in code.
    - Use game data (reflection, data assets, catalogs) and data profiles. Learned facts (routes, traps, links, skills) are per-world data.
