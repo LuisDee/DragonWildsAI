@@ -49,6 +49,60 @@ local function stumbling(ai)
     return U.try(function() return hr:IsStumbling() end)
 end
 
+-- UAIDataAsset.HitReactionConfig (DOM:698): the force thresholds the stomp has to beat.
+local function thresholds(ai)
+    local d = U.try(function() return ai.LoadedData end)
+    local hr = d and U.try(function() return d.HitReactionConfig end)
+    if not hr then return nil end
+    local function n(k) local v = U.try(function() return hr[k] end); return type(v) == "number" and v or nil end
+    return { light = n("LightForceThreshold"), heavy = n("HeavyForceThreshold"), knockdown = n("KnockDownForceThreshold"),
+             can_stumble = U.try(function() return hr.bCanStumble end) }
+end
+
+-- Read-only: gameplay tag names on an AI (GE component container + replicated tag stacks).
+local function tag_names(ai)
+    local out = {}
+    local gec = U.try(function() return ai.GameplayEffectsComponent end)
+    local function add_arr(arr, field)
+        if not arr then return end
+        pcall(function()
+            arr:ForEach(function(_, e)
+                local v = U.try(function() return e:get() end) or e
+                local t = field and U.try(function() return v[field] end) or v
+                local n = U.str(U.try(function() return t.TagName end))
+                if n and n ~= "None" then out[n] = true end
+            end)
+        end)
+    end
+    if gec then
+        add_arr(U.try(function() return gec.GameplayTags.GameplayTags end))
+        local tc = U.try(function() return gec.GameplayTagsComponent end)
+        add_arr(tc and U.try(function() return tc.ReplicatedGameplayTagStackContainer.Stacks end), "Tag")
+    end
+    return out
+end
+
+-- Sample IsStumbling()/hp every 100 ms for 3 s on the game thread (the stagger is short).
+local function start_sampler(cands)
+    local n = 0
+    for _, c in ipairs(cands) do c.samples, c.max_stumble, c.min_hp, c.new_tags = 0, false, c.hp, {} end
+    LoopInGameThreadWithDelay(100, function()
+        n = n + 1
+        for _, c in ipairs(cands) do
+            if U.valid(c.ai) then
+                c.samples = c.samples + 1
+                if stumbling(c.ai) == true then c.max_stumble = true; c.first_stumble_ms = c.first_stumble_ms or n * 100 end
+                for t in pairs(tag_names(c.ai)) do
+                    if not c.tags_before[t] and not c.new_tags[t] then c.new_tags[t] = n * 100 end
+                end
+                local hp = U.health(c.ai)
+                if hp and (not c.min_hp or hp < c.min_hp) then c.min_hp = hp end
+            end
+        end
+        return n >= 30
+    end)
+end
+
 local function ais_near(point, r)
     local out = {}
     for _, ai in ipairs(U.try(FindAllOf, "DominionAICharacter") or {}) do
@@ -73,7 +127,8 @@ function M.run(log, args)
         for _, e in ipairs(ais_near(here, 6000)) do
             local at = U.loc(e.ai)
             out[#out + 1] = { id = U.short(e.ai), d_m = U.cm_to_m(e.d), hp = U.health(e.ai),
-                              player_m = U.cm_to_m(nearest_player(at)), stumbling = stumbling(e.ai) }
+                              player_m = U.cm_to_m(nearest_player(at)), stumbling = stumbling(e.ai),
+                              force_thresholds = thresholds(e.ai) }
         end
         return { ok = true, puppet = U.to_wire(here), targets = out }
     end
@@ -112,9 +167,11 @@ function M.run(log, args)
         local at = U.loc(target)
         local cands = {}
         for _, e in ipairs(ais_near(at, 700)) do
-            cands[#cands + 1] = { id = U.short(e.ai), hp = U.health(e.ai), stumbling = stumbling(e.ai), ai = e.ai }
+            cands[#cands + 1] = { id = U.short(e.ai), hp = U.health(e.ai), stumbling = stumbling(e.ai), ai = e.ai,
+                                  tags_before = tag_names(e.ai) }
         end
         local r = S.cast(p, "windstep", target, { trigger = args.force and "force" or nil })
+        if r.ok then pcall(start_sampler, cands) end
         LAST = { at = at, cands = cands, t = os.time(), result = r }
         rawset(_G, "__dw_spell_x3_last", LAST)
         local wire = {}
@@ -127,9 +184,17 @@ function M.run(log, args)
         local out = {}
         for _, c in ipairs(LAST.cands) do
             local alive = U.valid(c.ai)
-            out[#out + 1] = { id = c.id, valid = alive, hp_before = c.hp, hp_now = alive and U.health(c.ai) or nil,
-                              stumbling_now = alive and stumbling(c.ai) or nil,
-                              stunned = alive and select(1, S.is_target_stunned(c.ai)) or nil }
+            local rec = { id = c.id, valid = alive, hp_before = c.hp, samples = c.samples,
+                          stumbled = c.max_stumble, first_stumble_ms = c.first_stumble_ms, min_hp = c.min_hp,
+                          force_thresholds = alive and thresholds(c.ai) or nil,
+                          new_tags_ms = c.new_tags, tags_before = c.tags_before }
+            if alive then
+                rec.hp_now = U.health(c.ai)
+                rec.stumbling_now = stumbling(c.ai)
+                local st, det = S.is_target_stunned(c.ai)
+                rec.stunned_now, rec.stun_detail = st, det
+            end
+            out[#out + 1] = rec
         end
         return { ok = true, since_s = os.time() - LAST.t, candidates = out }
     end

@@ -69,6 +69,7 @@ NOISE_ASSET_TYPES = {"Texture2D", "SoundWave", "StaticMesh", "SkeletalMesh", "Ma
                      "WorldPartitionLevelStreamingDynamic", "MovieSceneBuiltInEasingFunction", "PhysicsAsset",
                      "BlendSpace", "CurveFloat", "CurveLinearColor", "Font", "FontFace", "PhysicalMaterial"}
 REPORT_LIST_CAP = 40
+MIN_HPP = 50  # a finished GenerateSDK writes thousands of headers; fewer means it is still running
 
 
 # ------------------------------------------------------------------------------ context / paths
@@ -1436,7 +1437,7 @@ def snapshot(ctx: Ctx, build: str | None, src: Path | None, force: bool, dry_run
     problems = []
     if not obj.exists():
         problems.append(f"{obj} missing")
-    if not cxx.is_dir() or len(list(cxx.glob("*.hpp"))) < 50:
+    if not cxx.is_dir() or len(list(cxx.glob("*.hpp"))) < MIN_HPP:
         problems.append(f"{cxx} missing or incomplete (GenerateSDK may still be running)")
     exe = server_root() / "RSDragonwilds" / "Binaries" / "Win64" / "RSDragonwildsServer-Win64-Shipping.exe"
     if obj.exists() and exe.exists() and obj.stat().st_mtime < exe.stat().st_mtime and not force:

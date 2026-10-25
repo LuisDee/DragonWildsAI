@@ -132,3 +132,7 @@ Luis relies on spells: **a shield spell**, and **wind jump**, whose landing stun
 - **Catalog rebuild and diff** (items / spells / enemies). New weapons, bosses and items are mostly auto-supported via the catalogs; new spells get LLM-drafted role tags for review.
 - **Smoke tests**, then a delta report listing what is auto-supported, what needs review and what is broken.
 - Built by the patch-pipeline agent: `tools/patch_pipeline.py` and `docs/RUNBOOK-patch.md`.
+
+## 12. Equip rule (Luis, 2026-10-25): the bot equips only what is in its inventory, like a normal player
+- `equip` must check the bot inventory store and refuse items the bot doesn't own (`reason: not_in_inventory`). Gear enters the inventory only through pickup, Luis giving it, or crafting. A debug override requires an explicit flag and is never used by the brain.
+- **There is no generic fallback** (removed 2026-10-25): if the item's exact held-actor class can't be resolved (data-asset soft pointer via LoadAsset, then the catalog `held_class`), equip fails instead of spawning `BP_HeldEquipmentBase_C`, which rendered a blank placeholder sword.

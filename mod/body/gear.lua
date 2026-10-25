@@ -55,7 +55,7 @@ function M.category(path)
 end
 
 -- Resolve the held actor class to spawn: explicit path, the data asset's own class (soft pointer),
--- a real player's held class if it holds the same item, else the generic base.
+-- a real player's held class if it holds the same item, the catalog; never a generic base.
 local function soft_path(sp)
     if sp == nil then return nil end
     local s = U.str(sp)
@@ -72,10 +72,18 @@ local function held_class(data, item_path, opts)
         local c = find_asset(opts.actor_class)
         if c then return c, "explicit" end
     end
+    -- The weapon's own class may not be loaded yet (e.g. right after a restart): find_asset
+    -- loads it. Without this the generic base class renders a blank sword (2026-10-25).
     local sp = soft_path(U.try(function() return data.HeldEquipmentActorClass end))
     if sp then
-        local c = U.try(StaticFindObject, sp)
-        if U.valid(c) then return c, "data_asset" end
+        local c = find_asset(sp)
+        if c then return c, "data_asset" end
+    end
+    local ok_cat, cat = pcall(require, "body.attack_data")
+    local entry = ok_cat and type(cat) == "table" and cat.items and cat.items[item_path]
+    if entry and entry.held_class then
+        local c = find_asset(entry.held_class)
+        if c then return c, "catalog" end
     end
     for _, pl in ipairs((U.split_pawns())) do
         for _, side in ipairs({ "Right", "Left" }) do
@@ -86,8 +94,8 @@ local function held_class(data, item_path, opts)
             end
         end
     end
-    local base = U.try(StaticFindObject, M.HELD_BASE)
-    if U.valid(base) then return base, "base" end
+    -- No generic fallback: BP_HeldEquipmentBase_C renders a blank placeholder weapon, and the bot
+    -- must never hold something other than what was asked for. Unresolved -> equip fails.
     return nil, nil
 end
 

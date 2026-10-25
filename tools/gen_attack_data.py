@@ -86,7 +86,8 @@ def build(cat: dict) -> dict:
         if not prim:
             continue
         spec = add_set(sets_in.get((a.get("special") or {}).get("action")) or a.get("special"))
-        items[it["path"]] = {"id": iid, "category": it.get("category"), "primary": prim, "special": spec}
+        items[it["path"]] = {"id": iid, "category": it.get("category"), "primary": prim, "special": spec,
+                             "held_class": it.get("held_actor_class")}
         if it.get("category"):
             by_cat.setdefault(it["category"], {}).setdefault(prim, 0)
             by_cat[it["category"]][prim] += 1

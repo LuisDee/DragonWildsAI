@@ -349,3 +349,30 @@ Investigated 2026-10-25, about 13:50–14:10 UTC, with nobody connected (the wor
   - Whether `BP_PerformAttack` with combo steps 2–5 and with the special plays and damages like step 1 did.
   - Whether issuing step k+1 at step k's input-window end chains visibly.
   - Whether the server enforces the extend-combo perk, stamina or special charge on these direct calls.
+
+### Nameplate attempt 1: NEGATIVE (Luis via GFN, after a full restart)
+- Setup: `body/puppet.lua` ran `identity.ensure` at spawn. The log showed `puppet_identity linked=true ps=DominionPlayerState_... name=Claude registered=true`, so the client created the pawn with the PlayerState already linked.
+- **Result:** the nameplate **still read "Character Name Here"**.
+- **Conclusion:** none of these is enough to fill the nameplate:
+  - a linked `DominionPlayerState`
+  - `PlayerNamePrivate` / `GetPlayerName()` = "Claude" (via `GameMode:ChangeName`)
+  - `OwnerGuid.CharacterGuid` = bot GUID, with matching registry entries (`","` + bot GUID, and Luis's account + bot GUID)
+- The pawn and its components carry no name or GUID properties. In the dump, only `ADominionPlayerState` holds identity (`OwnerGuid`, `PlayerColor`, `PlatformData`). The character info set by `SetPlayerCharacterInfo()` (`FPlayerCharacterInfo`, unreflected beyond `DisplaySlotName`) lives on the PlayerController, which is never replicated to other clients, so it cannot be the nameplate's source.
+- Luis's PlayerState vs the bot's, side by side:
+
+| Field | Luis | Bot |
+|---|---|---|
+| PlayerId | 256 | 0 |
+| PlatformData.DisplayName | "luisdeburnaybastos" | "" |
+| PlatformName | "WIN" | "" |
+| PlatformType | 2 | 0 |
+| PlayerColor | {R .658, G .168, B .063}, "D47247FF", PlayerId 256 | defaults, PlayerId -1 |
+| UniqueId (FUniqueNetIdRepl) | valid | empty (not writable from Lua) |
+| AccountGuid | RedpointEOS + STEAM | empty |
+
+### Nameplate attempt 2 (applied live 2026-10-25, Luis connected; `mod/scripts/identity_platform.lua {action=apply, player_id=999}`)
+- Wrote `PlatformData.DisplayName="Claude"`, `PlatformName="WIN"`, `PlatformType=2`, `PlayerColor.Color` (Claude orange) / `HexString="D97757FF"` / `PlayerId=999`, and `PlayerId=999`, then ForceNetUpdate.
+- All writes read back, and no crash. FString property writes from a Lua string work in this UE4SS.
+- The server-side OnRep calls were not made (opt-in `onrep=true`), because native OnReps may touch client-only UI.
+- Result: pending Luis.
+- `{action=recycle}` sets the puppet's `NetCullDistanceSquared` to 1 for 9 s, then restores it, so clients drop and re-create the pawn as on a rejoin. Prepared, not run yet.
