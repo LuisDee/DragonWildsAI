@@ -959,3 +959,21 @@ Research and design: `docs/research/2026-10-25-traversal.md`.
   - the edit needing other fields (SaveCount/Backup checksum);
   - `sense.me` total_level reading stale data.
   Parked at Luis's request ("ignore that for now").
+
+## R2 client perception for the brain: look / inspect / get_state digest live (2026-10-25, about 18:11-18:20 UTC, Shockbyte world, read-only)
+- **Setup:** `client_bridge.lua` was hot-reloaded live (`bridge_start.lua`), with no client restart. Capabilities now add `look`, `inspect` and `interact`, so the brain's planner skills become `go_to, follow, stop, drop, interact` once the brain restarts.
+- **`get_state`** (262 ms) now carries:
+  - `hydration` 48.7/100, `sustenance` 63.5/100;
+  - `held` "Mithril Logging Axe";
+  - an `interactables` list.
+- **The brain's digest from it, live:**
+  - `You: HP 100%, water 49%, food 64%, holding Mithril Logging Axe`
+  - `Creatures: Kebbit x5 (19 m, ..., HP 60/60)`
+  - `Around: Stone x16 (9 m); Ash Log x3 (9 m, chop, needs Hatchet T1, HP 80/80); ...`
+  - `Usable: Crafting Starting Bench x2; Base Building Crate x3; Doric (NPC, prompt "Talk"); Loot ...`
+- **`look`:** about 200 ms for 52 things within 30 m.
+  - `about="tree"` matched only "Ash Tree Seed". **Standing trees are foliage instances, not actors, so the client census does not see them.** Felled ash logs, stones and saplings are seen. A foliage census on the client is the open item (the server body converted foliage).
+  - `about="grave"` found none: the grave had already been taken.
+- **`inspect`** of a stone returned `{kind: gatherable, verb: gather, prompt: "Collect", item: ITEM_Resources_Stone, available: true}`.
+- **Not exercised live:** `interact` (offline tests only: approach, aim, wait for the detector to target the actor, one IA_Interact press, then verify the target is gone or the inventory grew), `attacked` and `vitals_low`. Gravestone Take All by one press at 0.6-1.2 m was verified by the inventory agent; see its entry above.
+- **Background services:** `bridge_status.services` reports chat, vitals and fed_reflex as `running`. Main had started them by hand at 19:13 local; the bridge now supervises them, so a client boot starts them (offline-tested; first live boot pending).

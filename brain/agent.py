@@ -21,13 +21,18 @@ from typing import Literal
 from . import situation as sit
 from .controller import LONG_ACTIONS, Controller, describe_rule
 from .executor import Executor, StateUnavailable
-from .interface import RULE_TOOLS, Attacked, CommandReceived, Event, GameInterface, Reason
+from .interface import RULE_TOOLS, Attacked, CommandReceived, Event, GameInterface, Reason, VitalsLow
 from .jsonl_log import JsonlLogger
 from .planner import Planner, PlanError
 from .skill_library import SkillError, SkillLibrary, check_preconditions
 from .state_store import StateStore, Task
 
 GoalResult = Literal["done", "stuck", "interrupted"]
+
+# Help lines the companion says by itself (no model call) when it can't handle something alone.
+# At most one per key per HELP_REPEAT_S seconds, so a fight or a long thirst doesn't spam chat.
+HELP_REPEAT_S = 60.0
+NEED_WORDS = {"hydration": ("thirsty", "something to drink"), "sustenance": ("hungry", "something to eat")}
 
 LEARNED_RE = re.compile(r"^\s*(what (have|did) you (learn|learned|learnt)|what do you know how to do|"
                         r"(list|show) (me )?(your )?(skills|what you('ve| have)? learn(ed|t)?))\b", re.I)
@@ -61,6 +66,8 @@ class Agent:
         self.pending_skill: str | None = None
         self._cancelled = False
         self._last_reason: str | None = None
+        self._help_said: dict[str, float] = {}  # help key -> monotonic time last said
+        self.clock = time.monotonic
         game.set_progress_listener(self._on_progress)
 
     # ---------------------------------------------------------------- events
@@ -87,11 +94,28 @@ class Agent:
         self.log.log("event", event=event.model_dump())
         self.controller.note_event(event)
         if isinstance(event, Attacked):
-            # Self-defence is a reflex: no model call needed.
-            self.executor.run_task(Task(skill="attack", args={"target": event.by}))
+            if "attack" in self.store.skills:
+                # Self-defence is a reflex: no model call needed.
+                self.executor.run_task(Task(skill="attack", args={"target": event.by}))
+            else:  # a body that can't fight yet (the client body today): say so and ask for help
+                who = event.name or sit.pretty_id(event.by)
+                self._help("attacked", f"Help! {who} is attacking me and I can't fight back yet.")
+        elif isinstance(event, VitalsLow):
+            feel, need = NEED_WORDS.get(event.stat, (f"low on {event.stat}", "something for it"))
+            self._help(f"vitals_{event.stat}", f"I'm really {feel} and have nothing left. Could you bring me {need}?")
         elif isinstance(event, CommandReceived):
             self._command(event)
         # Progress events are narrated live through the progress listener (_on_progress).
+
+    def _help(self, key: str, line: str) -> None:
+        now = self.clock()
+        last = self._help_said.get(key)
+        if last is not None and now - last < HELP_REPEAT_S:
+            self.log.log("help_suppressed", key=key)
+            return
+        self._help_said[key] = now
+        self.log.log("help", key=key, text=line)
+        self.controller.say(line)
 
     def _on_progress(self, event: Event) -> None:
         # Progress events only come while a long body action runs (a goal's task or a direct gather).

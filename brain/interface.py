@@ -335,7 +335,21 @@ class TaskFailed(BaseModel):
 
 class Attacked(BaseModel):
     type: Literal["attacked"] = "attacked"
-    by: str
+    by: str  # attacker entity id (as in get_state.nearby_entities)
+    name: str | None = None  # the attacker's in-game name, when the body knows it (client body)
+    amount: float | None = None  # damage of the hit that raised the event
+    hp: float | None = None  # own health after it
+
+
+class VitalsLow(BaseModel):
+    """Hydration or sustenance is low and the companion carries nothing to fix it (client body):
+    the brain asks the player for help instead of starving silently."""
+    type: Literal["vitals_low"] = "vitals_low"
+    stat: str  # hydration | sustenance
+    value: float
+    max: float | None = None
+    has_food: bool | None = None
+    has_drink: bool | None = None
 
 
 class GatherProgress(BaseModel):
@@ -367,12 +381,12 @@ class PlayerNearbyActivity(BaseModel):
 
 
 Event = Annotated[
-    Union[CommandReceived, TaskDone, TaskFailed, Attacked, PlayerNearbyActivity, GatherProgress, TaskProgress],
+    Union[CommandReceived, TaskDone, TaskFailed, Attacked, VitalsLow, PlayerNearbyActivity, GatherProgress, TaskProgress],
     Field(discriminator="type"),
 ]
 _event_adapter: TypeAdapter[Event] = TypeAdapter(Event)
 EVENT_TYPES: frozenset[str] = frozenset(m.model_fields["type"].default for m in (
-    CommandReceived, TaskDone, TaskFailed, Attacked, PlayerNearbyActivity, GatherProgress, TaskProgress))
+    CommandReceived, TaskDone, TaskFailed, Attacked, VitalsLow, PlayerNearbyActivity, GatherProgress, TaskProgress))
 
 
 def parse_event(raw: dict) -> Event:

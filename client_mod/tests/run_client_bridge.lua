@@ -26,7 +26,7 @@ local touch = assert(io.open(chat, "ab")); touch:close()
 _G.FAKE = { chat_path = chat, auto_arrive = true }
 
 local B = assert(loadfile(REPO .. "/client_mod/scripts/client_bridge.lua"))()
-B.start({ root = REPO, dir = base .. "/bridge", scripts = scripts, chat_events = chat, jlog = H.log, poll_ms = 20,
+B.start({ root = REPO, dir = base .. "/bridge", scripts = scripts, chat_events = chat, vitals_events = base .. "/vitals.jsonl", jlog = H.log, poll_ms = 20,
           start_modules = true })
 print("ready")
 io.stdout:flush()

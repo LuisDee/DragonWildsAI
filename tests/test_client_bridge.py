@@ -154,7 +154,8 @@ def test_capabilities_and_registry(lua_client, tmp_path):
     assert caps.source == "capabilities"
     for tool in ("get_state", "say", "follow", "stop", "go_to", "drop"):
         assert caps.has(tool), tool
-    assert caps.skills() == ["go_to", "follow", "stop", "drop"]
+    assert caps.skills() == ["go_to", "follow", "stop", "drop", "interact"]
+    assert caps.has("look") and caps.has("inspect")
     assert not caps.has("gather") and not caps.has("attack") and not caps.has("craft")
 
 
@@ -197,7 +198,7 @@ def test_live_session_end_to_end_on_lua_client(lua_client, tmp_path):
     session = LiveSession(LiveOptions(body="client", bridge_dir=body.bridge, state_dir=tmp_path / "state",
                                       log_dir=tmp_path / "logs", dry_run=True, wait=5.0, probe_timeout=1.0),
                           DryRunController(), DryRunPlanner(), out=lambda s: None)
-    assert session.store.skills.names() == ["go_to", "follow", "stop", "drop"]
+    assert session.store.skills.names() == ["go_to", "follow", "stop", "drop", "interact"]
 
     def run_until(pred, what):
         deadline = time.monotonic() + 8
@@ -217,3 +218,100 @@ def test_live_session_end_to_end_on_lua_client(lua_client, tmp_path):
     results = [r for r in session.log.read_all() if r["kind"] == "tool_result"]
     by_tool = {r["tool"]: r for r in results}
     assert by_tool["follow"]["result"]["ok"] and by_tool["go_to"]["result"]["ok"], by_tool
+
+
+# --------------------------------------------------------------------------- perception (look/inspect/interact, digest, events)
+
+
+CLIENT_STATE = {  # the shape client_bridge.get_state returns (fakes/sense.lua + fakes/inventory.lua world)
+    "health": 90, "max_health": 100, "hydration": 9, "hydration_max": 100, "sustenance": 80, "sustenance_max": 100,
+    "held": "Bronze Hatchet", "held_item": "ITEM_Tool_Axe_Bronze", "position": [1, 2, 3], "following": None,
+    "action": None, "inventory": {"ITEM_Resources_Wood_Oak": 8}, "places": [], "structures": [],
+    "not_implemented": ["places", "structures"],
+    "players": [{"id": "BP_PlayerCharacter_C_2", "name": "Zezima", "distance": 2.8}],
+    "nearby_entities": [
+        {"id": "deer_1", "kind": "Deer", "name": "Deer", "distance": 19, "hp": 30, "max_hp": 60, "alive": True,
+         "hostile": False},
+        {"id": "wolf_3", "kind": "Wolf", "name": "Wolf", "distance": 25, "hp": 40, "max_hp": 60, "alive": True,
+         "hostile": True}],
+    "nearby_resources": [
+        {"id": "oak_1", "name": "Oak Tree", "kind": "destructible", "verb": "chop", "tool": "Hatchet", "tool_tier": 1,
+         "health": 220, "max_health": 220, "drops": "Oak Logs", "distance": 5}],
+    "nearby_items": [{"id": "wi_1", "name": "Oak Logs", "item": "ITEM_Resources_Wood_Oak", "count": 2, "distance": 0}],
+    "interactables": [{"id": "grave_1", "name": "Gravestone", "kind": "interactable", "prompt": "Take All",
+                       "distance": 4}],
+}
+
+
+def test_digest_from_client_state():
+    from brain.situation import MAX_LINES, perceived, summary
+    lines = summary(CLIENT_STATE)
+    text = "\n".join(lines)
+    assert len(lines) <= MAX_LINES
+    assert lines[0] == "You: HP 90%, water 9% (LOW), food 80%, holding Bronze Hatchet"
+    assert "Creatures: hostile Wolf (25 m, id wolf_3, HP 40/60); Deer (19 m, id deer_1, HP 30/60)" in text
+    assert "Around: Oak Tree (5 m, id oak_1, chop, needs Hatchet T1, HP 220/220)" in text
+    assert "Usable: Gravestone (4 m, id grave_1, Take All)" in text
+    assert "On the ground: Oak Logs x2 (0 m, id wi_1)" in text
+    grave = next(t for t in perceived(CLIENT_STATE) if t.id == "grave_1")
+    assert "interact" in grave.actions  # grounding lets interact act on it
+
+
+def _session_without_attack(tmp_path):
+    d = tmp_path / "client_bridge"
+    _, body_t = file_transport_pair(d, "client")
+    game = MockGame.default_world()
+    body = FakeBody(game, body_t, capabilities=["ping", "capabilities", "get_state", "say", "follow", "stop"]).start()
+    session = LiveSession(LiveOptions(body="client", bridge_dir=d, state_dir=tmp_path / "state",
+                                      log_dir=tmp_path / "logs", dry_run=True, wait=5.0, probe_timeout=1.0),
+                          DryRunController(), DryRunPlanner(), out=lambda s: None)
+    return game, body, session
+
+
+def test_attacked_without_attack_skill_asks_for_help(tmp_path):
+    from brain.interface import Attacked, VitalsLow, parse_event
+    game, body, session = _session_without_attack(tmp_path)
+    try:
+        said = lambda: [t for who, t in game.chat if who == "companion"]  # noqa: E731
+        ev = parse_event({"type": "attacked", "by": "wolf_3", "name": "Wolf", "amount": 7, "hp": 83})
+        assert isinstance(ev, Attacked) and ev.name == "Wolf"
+        session.agent.handle_event(ev)
+        assert said() == ["Help! Wolf is attacking me and I can't fight back yet."]
+        session.agent.handle_event(ev)  # a second hit within a minute: no repeat
+        assert len(said()) == 1
+        assert "attack" not in [n for n, _ in game.calls]  # no reflex attack on a body without it
+        low = parse_event({"type": "vitals_low", "stat": "hydration", "value": 9, "max": 100,
+                           "has_food": True, "has_drink": False})
+        assert isinstance(low, VitalsLow)
+        session.agent.handle_event(low)
+        assert said()[-1] == "I'm really thirsty and have nothing left. Could you bring me something to drink?"
+        session.agent.clock = lambda: 1e12  # a minute later the help line may be said again
+        session.agent.handle_event(low)
+        assert len(said()) == 3
+    finally:
+        body.stop()
+
+
+@needs_lua
+def test_look_inspect_interact_and_attacked_on_lua_client(lua_client):
+    client, body, _ = lua_client
+    look = client.look(about="sticks")
+    assert look["ok"] and look["data"]["matched"] is True, look
+    assert look["data"]["things"][0]["id"] == "stick_1" and look["data"]["things"][0]["match"] == 1
+    grave = client.inspect("grave_1")
+    assert grave["ok"] and grave["data"]["contents"][0]["item"] == "ITEM_Pickaxe_Mithril", grave
+    took = client.interact("wi_1")
+    assert took["ok"] and took["data"]["item"] == "ITEM_Resources_Wood_Oak" and took["data"]["count"] == 2, took
+    assert client.get_state()["data"]["inventory"]["ITEM_Resources_Wood_Oak"] == 10  # 8 carried + 2 taken
+    assert client.interact("deer_1")["reason"] == "not_interactable"
+    with (body.base / "vitals.jsonl").open("a", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps({"type": "damage", "amount": 5, "hp": 85,
+                            "instigator": {"id": "wolf_3", "name": "Wolf"}}) + "\n")
+    deadline = time.monotonic() + 3
+    from brain.interface import Attacked
+    hits = []
+    while not hits:
+        assert time.monotonic() < deadline, "no attacked event"
+        hits = [e for e in client.poll_events() if isinstance(e, Attacked)]
+        time.sleep(0.02)
+    assert hits[0].by == "wolf_3" and hits[0].name == "Wolf"

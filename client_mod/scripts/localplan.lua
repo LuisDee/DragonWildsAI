@@ -20,6 +20,12 @@
 --   P:step(budget) -> "sampling" | "ready"       (budget = traces this call)
 --   P:plan(goal) -> points {X,Y,Z,act="walk"|"jump"|"djump"|"drop"} | nil, reason
 --   P:verify(points, budget) -> "ok" | "blocked" (re-plan) | "verifying"
+--   LP.prefetch(cache, trace, x, y, feet_z, opts) -> traces used (0 if cached): sample one
+--                                   world cell into the cache while moving (no standstill later)
+-- CACHE (opts.cache = { cells = {}, ttl = 30 }, opts.now = clock function): the grid is snapped to a
+-- world-aligned lattice, so cells sampled by earlier plans or by prefetch are reused while fresh
+-- (within ttl s, and sampled from a reference height within 60 cm of ours). Builds can change, so
+-- the ttl stays short.
 local LP = {}
 LP.__index = LP
 
@@ -28,8 +34,13 @@ local function key(i, j) return i * 4096 + j end
 function LP.new(o)
     local self = setmetatable({}, LP)
     self.trace = assert(o.trace)
-    self.c = { X = o.center.X, Y = o.center.Y, Z = o.center.Z }
     self.cell = o.cell_cm or 100
+    -- snap to the world lattice so cached cells line up between plans
+    self.c = { X = math.floor(o.center.X / self.cell + 0.5) * self.cell,
+               Y = math.floor(o.center.Y / self.cell + 0.5) * self.cell, Z = o.center.Z }
+    self.cache = o.cache
+    self.now = o.now or os.clock
+    self.cache_hits = 0
     self.r = math.floor((o.radius_m or 12) * 100 / self.cell)
     self.env = o.env or {}
     self.env.step = self.env.step or 45
@@ -61,32 +72,64 @@ end
 function LP:pos(i, j) return self.c.X + i * self.cell, self.c.Y + j * self.cell end
 
 -- Sample one cell (2 traces). Layers with < head clearance between them collapse to one.
+-- Floor heights (cm) of one world cell: up to two layers, from a trace starting just above our
+-- level and one from high above (a ledge over an alcove is a separate layer). Layers closer than
+-- head clearance collapse to one (a roof that low is part of the same surface for us).
+local function cell_floors(trace, x, y, feet, lo_off, hi_off, depth, head)
+    local lo, lo_pen = trace({ X = x, Y = y, Z = feet + lo_off }, { X = x, Y = y, Z = feet - depth })
+    local hi, hi_pen = trace({ X = x, Y = y, Z = feet + hi_off }, { X = x, Y = y, Z = feet - depth })
+    local zs = {}
+    if lo and not lo_pen then zs[#zs + 1] = lo end
+    if hi and not hi_pen and (not lo or lo_pen or hi > lo + head) then zs[#zs + 1] = hi end
+    return zs
+end
+
+local function ckey(x, y, cell) return math.floor(x / cell + 0.5) .. ":" .. math.floor(y / cell + 0.5) end
+
+local function cache_get(cache, k, feet, now)
+    local e = cache and cache.cells[k]
+    if e and now - e.t <= (cache.ttl or 30) and math.abs(e.feet - feet) <= 60 then return e.zs end
+end
+
+function LP.prefetch(cache, trace, x, y, feet, o)
+    o = o or {}
+    local cell = o.cell_cm or 100
+    local now = (o.now or os.clock)()
+    local k = ckey(x, y, cell)
+    if cache_get(cache, k, feet, now) then return 0 end
+    local env = o.env or {}
+    local zs = cell_floors(trace, math.floor(x / cell + 0.5) * cell, math.floor(y / cell + 0.5) * cell, feet,
+        o.lo_off or 100, o.hi_off or 700, o.depth or 900, env.head or 190)
+    cache.cells[k] = { t = now, feet = feet, zs = zs }
+    return 2
+end
+
 function LP:sample(i, j)
     local x, y = self:pos(i, j)
-    local base = self.feet
-    local lo, lo_pen = self.trace({ X = x, Y = y, Z = base + self.lo_off }, { X = x, Y = y, Z = base - self.depth })
-    local hi, hi_pen = self.trace({ X = x, Y = y, Z = base + self.hi_off }, { X = x, Y = y, Z = base - self.depth })
-    self.traces = self.traces + 2
-    local layers = {}
-    if lo and not lo_pen then layers[#layers + 1] = { z = lo, i = i, j = j } end
-    if hi and not hi_pen then
-        if not lo or lo_pen or hi > lo + self.env.head then
-            layers[#layers + 1] = { z = hi, i = i, j = j }
-        end
+    local k = ckey(x, y, self.cell)
+    local now = self.now()
+    local zs = cache_get(self.cache, k, self.feet, now)
+    if zs then
+        self.cache_hits = self.cache_hits + 1
+    else
+        zs = cell_floors(self.trace, x, y, self.feet, self.lo_off, self.hi_off, self.depth, self.env.head)
+        self.traces = self.traces + 2
+        if self.cache then self.cache.cells[k] = { t = now, feet = self.feet, zs = zs } end
     end
-    -- a low floor needs headroom: if the high trace hit something just above it, that's a roof
-    -- low enough to block us only when it's within head clearance, which the hi>lo+head test
-    -- already filters (a roof < head above the low floor is treated as the same surface).
+    local layers = {}
+    for _, z in ipairs(zs) do layers[#layers + 1] = { z = z, i = i, j = j } end
     self.nodes[key(i, j)] = layers
+    return zs and 2 or 0
 end
 
 function LP:step(budget)
     local used = 0
     while self.qi <= #self.queue and used + 2 <= budget do
         local q = self.queue[self.qi]
+        local t0 = self.traces
         self:sample(q[1], q[2])
         self.qi = self.qi + 1
-        used = used + 2
+        used = used + (self.traces - t0) -- cached cells are free
     end
     return self.qi > #self.queue and "ready" or "sampling"
 end

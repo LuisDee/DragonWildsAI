@@ -76,13 +76,17 @@ player-built area.
   - `UKismetSystemLibrary:LineTraceSingle / SphereTraceSingle / CapsuleTraceSingle` (bool return plus `out FHitResult`).
   - `UGameplayStatics:Blueprint_PredictProjectilePath_Advanced` (arc check; struct params, so R15 risk).
   - On the dev server: `NavigationSystemV1:NavigationRaycast(ctx, start, end, out HitLocation, …)`, which finds where the navmesh ends along a ray (flat `FVector` out, the same pattern as the proven `K2_ProjectPointToNavigation`).
-- **No search result showed UE4SS Lua calling a trace and reading `FHitResult`.** That must be tested offline first (section 3.9, T1).
+- **No search result showed UE4SS Lua calling a trace and reading `FHitResult`.** The locomotion agent then **verified it (T1 passed)**:
+  - `LineTraceSingle` works from Lua on the dev server and on the client, about 1 ms per trace.
+  - The out table fills **nested**: `out.ImpactPoint.Z`, `out.ImpactNormal.Z`, `out.Distance`, `out.Time`.
+  - `out.bStartPenetrating` is junk: it shares bitfield byte 0xAD with `bBlockingHit` and reads true on clean hits. Use `Distance == 0` for "started inside geometry".
+  - `K2_ComputeFloorDist` works on the dev server (`bWalkableFloor`, `FloorDist`).
 
 ### 1.5 Capability envelopes (jump physics)
 - UE: `GetMaxJumpHeight()` = JumpZ² / (2·|GravityZ|), ignoring hold time. `GetMaxJumpHeightWithJumpTime()` includes `JumpMaxHoldTime`. Both are reflected.
   https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UCharacterMovementComponent/GetMaxJumpHeight ; https://answers.unrealengine.com/questions/100965/view.html
 - Flat-ground airtime is t = 2·JumpZ/|g| and distance is d = v_h · t. That is first-order only: air control, hold time, `FallingLateralFriction` and Dominion's custom double-jump/dash curves all change it. **So the envelope is measured, not computed** (section 3.3). The formulas are only for sanity checks.
-- Example: with Claude's measured `JumpZVelocity` 808 and GravityScale 1, h = 3.33 m and d_sprint = 11 m. That is implausible for this game, which means Dominion's GravityScale or gravity attribute is probably above 1. **Read `GetGravityZ()` live.**
+- **Measured live (locomotion agent, 2026-10-25, Claude's client):** JumpZ 807.9, GravityScale 1.85 (`GetGravityZ` −1813), `JumpMaxHoldTime` 0. So h = 807.9² / (2·1813) = **1.80 m**, which matches `GetMaxJumpHeight()` = 180 cm. Flat airtime is 2·807.9/1813 = 0.89 s, so the first-order sprint-jump distance is 0.89 × 6.8 ≈ **6.1 m** and the walk jump 0.89 × 4.5 ≈ 4.0 m. These are upper bounds; E2/E5 measure the real values.
 
 ### 1.6 Learning traversal from demonstrations
 - **No source was found that turns recorded human jumps into navmesh links.** Searches for imitation/demonstration plus navmesh/off-mesh links came up empty.
@@ -148,7 +152,9 @@ There are **no mantle, ledge-grab, climb, vault or glide** classes or actions in
 
 Agility levels are from the BisectHosting guide (https://www.bisecthosting.com/blog/runescape-dragonwilds-agility-skill-guide-how-to-level-all-courses-locations-rewards-more). Update 0.12.1 (29 July 2026) added the horizontal dash on the double jump, the secondary dash and Breakfall (https://www.gamedeveloper.com/press-release/runescape-dragonwilds-update-0-12-1-expands-agility-skill-and-more-now-available-to-play). Tower Climb uses Air Dash (https://dragonwilds.runescape.wiki/w/Tower_Climb).
 
-**Consequence:** today Claude (Agility 1) probably has **jump plus sprint only**: no Windstep (5), no Double Jump (10), no Air Dash (32). The envelope must come from his perks, and learned links must record which moves they need (section 3.5).
+**Measured (locomotion agent):** `IsPerkUnlocked(DoubleJumpSkillPerk)` = **false**. Claude's limits today: step 0.45 m, jump apex 1.80 m (planning value jump_up 1.65 m), fall damage starts at 15 m (`MinFallDamageHeight` 1500, `MaxFallDamageHeight` 2860; planning drop ≤ 10 m), walkable slope 45.5°, capsule half-height 88 cm.
+
+**Consequence:** today Claude (Agility 1) has **jump plus sprint only**: no Windstep (5), no Double Jump (10), no Air Dash (32). The envelope must come from his perks, and learned links must record which moves they need (section 3.5).
 
 ### 2.3 What the client can read about its own movement
 - `pawn.CharacterMovement` (DominionMovementComponent): `MovementMode` / `IsFalling()` / `IsMovingOnGround()` / `IsSwimming()`, `Velocity` / `GetLastUpdateVelocity()`, `CurrentFloor` (FFindFloorResult: bWalkableFloor, FloorDist), `GetMaxJumpHeight*()`, `GetGravityZ()`, `MaxStepHeight`, `WalkableFloorAngle`, `LedgeCheckThreshold`, `PerchRadiusThreshold`, `GetSprintingMaxSpeed()`, `IsJumpEnabled()`, `IsCharacterFrozen()`.
@@ -286,6 +292,12 @@ Probes run every 0.1 s while moving (not every frame, to save cost) and on deman
 - Store:
   - **links:** `data/skills/<world_guid>/traversal_links.json`. Git-tracked, next to the learned skills (design section 19), so Luis can see "what Claude learned". It is listed by the existing "what have you learned?" command, and "forget the jump by the lake" disables a link.
   - **raw demos:** `logs/state/worlds/<world_guid>/traversal_events.jsonl` (gitignored, bulky). Use `brain/worlds.py prepare_state_dir` / `prepare_skills_dir`, so links never leak between worlds.
+
+**Writers and readers (agreed with the locomotion agent):**
+- **One writer per file.** The client never writes the links file. Both `observe.lua` (Luis's demos; owned by the traversal work, not move.lua) and move.lua/localplan (successful non-walk grid edges, `{"type":"self_edge", move, from, to, heading_deg, ...}`) append events to `client_io/events/traversal.jsonl`.
+- `brain/traversal.py` is the only writer of `data/skills/<world_guid>/traversal_links.json`, because only the brain resolves the world guid (worlds.py).
+- After each update it also writes the current world's links to **`client_io/nav/links.json`**. move.lua/localplan reads that copy, with dkjson, as extra A* edges.
+- Status: move.lua already keeps airborne leader crumbs (`air=true`; reaching the first one of an airborne run triggers a jump) and advances breadcrumbs in 3D (fix (a), done by the locomotion agent).
 
 **Link record:**
 ```json

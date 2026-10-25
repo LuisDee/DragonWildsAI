@@ -27,6 +27,9 @@
 --   * WAITERS (say, drop) wait for the game's confirmation without touching the slot: say for the
 --     server's echo of the line (a self=true chat event), drop for the inventory to shrink (the server
 --     confirms drops asynchronously). The brain speaks while a long action runs, so say never pre-empts.
+-- Perception: look / inspect / interact over sense.census (generic categories), get_state with vitals,
+-- held item and interactables; events attacked (vitals watcher damage rows) and vitals_low.
+-- Services: chat hooks, vitals watcher and stay-fed reflex are started and supervised here (SERVICES).
 -- Probe (cmd.probe=true): ok {probe=true} without acting. Pure Lua 5.4 + UE4SS
 -- LoopInGameThreadWithDelay/CancelDelayedAction; nothing Windows-specific except the mkdir helper.
 local M = {}
@@ -48,6 +51,8 @@ M.DEFAULT_PREFIXES = { "!c ", "claude,", "claude:", "@claude ", "claude ", "comp
 M.PING = "!ping"
 M.IN_NAME = "brain_to_client.jsonl"
 M.OUT_NAME = "client_to_brain.jsonl"
+M.DEBUG_IN_NAME = "debug_to_client.jsonl"
+M.DEBUG_OUT_NAME = "client_to_debug.jsonl"
 
 local S -- per-start state; the previous instance is stopped on start (hot reload)
 
@@ -188,13 +193,14 @@ local function finish(a, res)
     a.done = true
     if S.action == a then S.action = nil end
     ev("client_action_end", { kind = a.kind, id = a.id, ok = res.ok, reason = res.reason })
+    local ch = a.chan or S.bridge -- answer on the channel the request came from (main or debug)
     if not a.replied then
         a.replied = true
-        S.bridge.reply(a.id, res)
+        ch.reply(a.id, res)
     end
     if a.quiet then return end
-    if res.ok then S.bridge.emit_event("task_done", { task_id = a.id, data = S.bridge.object(res.data or {}) })
-    else S.bridge.emit_event("task_failed", { task_id = a.id, reason = res.reason or "body_error" }) end
+    if res.ok then ch.emit_event("task_done", { task_id = a.id, data = ch.object(res.data or {}) })
+    else ch.emit_event("task_failed", { task_id = a.id, reason = res.reason or "body_error" }) end
 end
 
 local function preempt(by)
@@ -231,7 +237,7 @@ end
 -- ------------------------------------------------------------------ waiters (say, drop)
 -- w = {id, kind, deadline, poll = fn(w) -> nil | result, expire = fn(w) -> result}
 local function add_waiter(w, ctx, wait_s)
-    w.id, w.deadline = ctx.id, now_s() + wait_s
+    w.id, w.deadline, w.chan = ctx.id, now_s() + wait_s, ctx.chan
     S.waiters[#S.waiters + 1] = w
 end
 
@@ -241,7 +247,7 @@ local function tick_waiters()
         local ok, res = pcall(w.poll, w)
         if not ok then res = fail("body_error", { detail = tostring(res) }) end
         if not res and t >= w.deadline then res = w.expire(w) end
-        if res then S.bridge.reply(w.id, res) else keep[#keep + 1] = w end
+        if res then (w.chan or S.bridge).reply(w.id, res) else keep[#keep + 1] = w end
     end
     S.waiters = keep
 end
@@ -613,8 +619,10 @@ R.look = { needs = { { "sense", "census" } }, fn = function(args)
         t._score = nil
         out[#out + 1] = t
     end
+    local m = S.bridge.null -- a boolean only when about was given (an and/or chain would turn false into null)
+    if about then m = matched end
     return { ok = true, data = { origin = r.data.origin, radius_m = radius, about = about or S.bridge.null, total = #things,
-                                 things = out, matched = about and matched or S.bridge.null } }
+                                 things = out, matched = m } }
 end }
 
 -- The live actor behind a thing (class word from the census row; alive only).
@@ -830,14 +838,14 @@ local function dispatch(tool, args, ctx)
     end
     if type(res) == "table" and res.pending then
         local a = res.pending
-        a.id, a.kind, a.started = ctx.id, a.kind or tool, now_s()
+        a.id, a.kind, a.started, a.chan = ctx.id, a.kind or tool, now_s(), ctx.chan
         S.action = a
         ev("client_action_start", { kind = a.kind, id = a.id })
         return nil -- replied by finish()
     end
     if type(res) == "table" and res.hold then
         local a = res.hold
-        a.id, a.kind, a.started, a.replied = ctx.id, a.kind or tool, now_s(), true
+        a.id, a.kind, a.started, a.replied, a.chan = ctx.id, a.kind or tool, now_s(), true, ctx.chan
         S.action = a
         ev("client_action_start", { kind = a.kind, id = a.id, held = true })
         return norm(res.result)
@@ -858,14 +866,18 @@ local function prefixes()
 end
 
 -- Is this chat text addressed to the companion (or !ping)? Mirrors brain/run_live.py chat_route.
-function M.addressed(text, pfx)
+-- Also addressed: the companion's name as a whole word ANYWHERE ("hello claude what are you wearing",
+-- "thanks Claude", "@claude ..."; not "claudette"). The brain strips the name and greeting
+-- (brain/run_live.py chat_route), so the line is forwarded unchanged.
+function M.addressed(text, pfx, name)
     local low = tostring(text or ""):match("^%s*(.-)%s*$"):lower()
     if low == M.PING or low:sub(1, #M.PING + 1) == M.PING .. " " then return true end
     for _, p in ipairs(pfx or prefixes()) do
         local lp = p:lower()
         if low:sub(1, #lp) == lp and low:sub(#lp + 1):match("%S") then return true end
     end
-    return false
+    name = tostring(name or (S and S.name) or "Claude"):lower():gsub("%p", "%%%0")
+    return low:find("%f[%w]" .. name .. "%f[%W]") ~= nil
 end
 
 -- The writer (chat.lua) only appends, so the file would grow forever. We are its only reader and
@@ -962,7 +974,7 @@ local function forward_chat()
                 for _, w in ipairs(S.waiters) do -- FIFO: the oldest say still waiting gets this echo
                     if w.kind == "say" and w.echo == nil then w.echo = m.text; break end
                 end
-            elseif S.chat_all or M.addressed(m.text, S.prefixes) then
+            elseif S.chat_all or M.addressed(m.text, S.prefixes, S.name) then
                 S.bridge.emit_event("command_received", { player = tostring(m.from or m.player_id or "?"), text = m.text })
                 S.stats.chat_forwarded = S.stats.chat_forwarded + 1
             else
@@ -973,6 +985,71 @@ local function forward_chat()
     rotate(S.chat_tail)
 end
 
+-- ------------------------------------------------------------------ background services (supervisor)
+-- The client modules' own always-on loops/hooks: chat receive hooks, the vitals watcher, the
+-- stay-fed reflex. Each start is idempotent. At boot (main menu) the world classes are not loaded
+-- yet, so hook registration can fail; the bridge therefore re-checks every SERVICE_CHECK_S and
+-- (re)starts a service that is not healthy, and re-arms it when its module file hot-reloads (the
+-- start call is what swaps in the newest handler code). Only with start_modules (main.lua's boot
+-- and bridge_start.lua; tests leave it off).
+M.SERVICE_CHECK_S = 10
+M.SERVICES = {
+    { name = "chat", module = "chat", start = "start",
+      healthy = function(mod)
+          local st = type(mod.state) == "table" and mod.state or rawget(_G, "DWChat")
+          return type(st) == "table" and type(st.hooks) == "table"
+              and st.hooks["/Script/JagexChatBackend.PlayerChatComponent:Client_ReceiveChatMessage"] ~= nil
+      end },
+    { name = "vitals", module = "sense", start = "vitals_start",
+      healthy = function(mod)
+          local st = type(mod.vitals_status) == "function" and mod.vitals_status() or {}
+          return st.running == true and (st.hooks or 0) >= #(mod.VITALS_HOOKS or {})
+      end },
+    { name = "fed_reflex", module = "inventory", start = "reflex_start",
+      healthy = function(mod)
+          local st = type(mod.reflex_status) == "function" and mod.reflex_status() or {}
+          return st.running == true
+      end },
+}
+
+local function supervise(force)
+    if not S.services_on then return end
+    local t = now_s()
+    if not force and S.services_checked and t - S.services_checked < M.SERVICE_CHECK_S then return end
+    S.services_checked = t
+    for _, svc in ipairs(M.SERVICES) do
+        local st = S.services[svc.name] or { starts = 0 }
+        S.services[svc.name] = st
+        local mod, err = M.module(svc.module)
+        local loads = S.mods[svc.module] and S.mods[svc.module].loads or 0
+        if not mod or type(mod[svc.start]) ~= "function" then
+            st.state, st.detail = "missing", err or ("no " .. svc.module .. "." .. svc.start)
+        else
+            local okh, healthy = pcall(svc.healthy, mod)
+            healthy = okh and healthy == true
+            local reloaded = st.loads ~= nil and st.loads ~= loads
+            -- a start that keeps failing (e.g. a hook path missing in this build) backs off to once a minute
+            local backoff = not healthy and not reloaded and st.starts >= 3 and st.last_try and t - st.last_try < 60
+            if healthy and not reloaded then
+                st.state = "running"
+            elseif backoff then
+                st.state = "starting"
+            else
+                st.last_try = t
+                local ok, r = pcall(mod[svc.start], S.text_log)
+                st.starts, st.loads, st.last_start = st.starts + 1, loads, os.date("!%H:%M:%SZ")
+                okh, healthy = pcall(svc.healthy, mod)
+                st.state = (okh and healthy == true) and "running" or "starting"
+                st.detail = (not ok) and tostring(r) or (type(r) == "table" and r.reason) or nil
+                ev("client_service_start", { name = svc.name, ok = ok, state = st.state, reloaded = reloaded,
+                                             detail = st.detail, starts = st.starts })
+            end
+            st.loads = loads
+        end
+    end
+end
+M._supervise = supervise
+
 -- ------------------------------------------------------------------ lifecycle
 local function mkdir(p)
     if package.config:sub(1, 1) == "\\" then os.execute('mkdir "' .. p:gsub("/", "\\") .. '" 2>nul')
@@ -982,6 +1059,10 @@ end
 function M.step()
     local ok, err = pcall(S.bridge.poll)
     if not ok then ev("client_bridge_poll_error", { err = tostring(err) }) end
+    if S.debug then
+        ok, err = pcall(S.debug.poll)
+        if not ok then ev("client_debug_poll_error", { err = tostring(err) }) end
+    end
     ok, err = pcall(tick_action)
     if not ok then ev("client_action_tick_error", { err = tostring(err) }) end
     ok, err = pcall(forward_chat) -- before the waiters, so an echo read now resolves its say now
@@ -992,6 +1073,8 @@ function M.step()
     if not ok then ev("client_vitals_forward_error", { err = tostring(err) }) end
     ok, err = pcall(check_vitals)
     if not ok then ev("client_vitals_check_error", { err = tostring(err) }) end
+    ok, err = pcall(supervise)
+    if not ok then ev("client_supervise_error", { err = tostring(err) }) end
 end
 
 function M.status()
@@ -999,7 +1082,8 @@ function M.status()
     for name, c in pairs(S.mods) do mods[name] = { ok = c.mod ~= nil, err = c.err, loads = c.loads } end
     return { dir = S.dir, paths = S.bridge.paths(), stats = S.bridge.stats, chat = S.stats, modules = mods,
              action = S.action and { kind = S.action.kind, id = S.action.id } or S.bridge.null,
-             waiting = #S.waiters, tools = implemented_tools(), chat_events = S.chat_path, started = S.started }
+             waiting = #S.waiters, tools = implemented_tools(), chat_events = S.chat_path, vitals_events = S.vitals_path,
+             services = S.services_on and S.services or "off (start_modules=false)", started = S.started }
 end
 
 -- opts: root (default $DW_CLIENT_ROOT or C:/gameserver), dir (bridge dir), log (fn(msg) text logger),
@@ -1035,45 +1119,54 @@ function M.start(opts)
           chat_all = os.getenv("DW_CLIENT_CHAT_ALL") == "1",
           name = opts.name or os.getenv("DW_COMPANION_NAME") or "Claude" }
     assert(bridge.init({ dir = dir, log = jlog, in_name = M.IN_NAME, out_name = M.OUT_NAME, from_start = opts.from_start }))
-    -- every tool goes through dispatch, so modules can appear (or break) while the bridge runs
-    local function wrap(tool)
-        return function(args, ctx)
-            if tool == "get_state" then
-                if args.probe == true then
-                    return fn_of("sense", "me") and { ok = true, data = { probe = true, tool = tool } }
-                           or fail("not_implemented", { tool = tool })
+    -- every tool goes through dispatch, so modules can appear (or break) while the bridge runs.
+    -- install(ch) registers the handlers on one channel; ctx.chan tells async replies where to go.
+    local function install(ch)
+        local function wrap(tool)
+            return function(args, ctx)
+                ctx.chan = ch
+                if tool == "get_state" then
+                    if args.probe == true then
+                        return fn_of("sense", "me") and { ok = true, data = { probe = true, tool = tool } }
+                               or fail("not_implemented", { tool = tool })
+                    end
+                    return M.get_state()
                 end
-                return M.get_state()
+                return dispatch(tool, args, ctx)
             end
-            return dispatch(tool, args, ctx)
         end
+        for _, t in ipairs(ch.TOOLS) do ch.handlers[t] = wrap(t) end
+        for t in pairs(R) do ch.handlers[t] = wrap(t) end
+        for _, t in ipairs({ "look", "inspect", "interact", "travel", "where", "world_info", "spells" }) do ch.handlers[t] = wrap(t) end
+        ch.handlers.ping = function()
+            return { ok = true, data = { pong = true, body = "client", server_clock = os.clock(), server_time = os.time() } }
+        end
+        ch.handlers.capabilities = function() return { ok = true, data = { tools = implemented_tools(), body = "client" } } end
+        ch.handlers.bridge_status = function() return { ok = true, data = M.status() } end
+        -- other names may be module HANDLERS: route them too
+        setmetatable(ch.handlers, { __index = function(_, tool)
+            if type(tool) == "string" and module_handler(tool) then return wrap(tool) end
+            return nil
+        end })
     end
-    for _, t in ipairs(bridge.TOOLS) do bridge.handlers[t] = wrap(t) end
-    for t in pairs(R) do bridge.handlers[t] = wrap(t) end
-    for _, t in ipairs({ "look", "inspect", "interact", "travel", "where", "world_info", "spells" }) do bridge.handlers[t] = wrap(t) end
-    bridge.handlers.ping = function()
-        return { ok = true, data = { pong = true, body = "client", server_clock = os.clock(), server_time = os.time() } }
+    install(bridge)
+    -- The DEBUG channel: the same tools on a second file pair (debug_to_client.jsonl ->
+    -- client_to_debug.jsonl), for people and tools testing live (tools/bridge_cmd --channel debug), so
+    -- their replies never land in the live brain's file. Events (chat, attacked, ...) go only to the
+    -- main channel; task_done/task_failed of an action started here are answered here.
+    if opts.debug_channel ~= false then
+        S.debug = assert(loadfile(shared .. "/bridge.lua"))()
+        assert(S.debug.init({ dir = dir, log = jlog, in_name = M.DEBUG_IN_NAME, out_name = M.DEBUG_OUT_NAME }))
+        install(S.debug)
     end
-    bridge.handlers.capabilities = function() return { ok = true, data = { tools = implemented_tools(), body = "client" } } end
-    bridge.handlers.bridge_status = function() return { ok = true, data = M.status() } end
-    -- other names may be module HANDLERS: route them too
-    setmetatable(bridge.handlers, { __index = function(_, tool)
-        if type(tool) == "string" and module_handler(tool) then return wrap(tool) end
-        return nil
-    end })
     -- chat events (client_mod/scripts/chat.lua writes them); start at the end: no history replay
     S.chat_path = opts.chat_events or (root .. "/client_io/events/chat.jsonl")
     S.chat_tail = bridge.new_tail(S.chat_path)
     -- vitals events (sense.lua's watcher writes them): damage -> attacked
     S.vitals_path = opts.vitals_events or (root .. "/client_io/events/vitals.jsonl")
     S.vitals_tail = bridge.new_tail(S.vitals_path)
-    if opts.start_modules then
-        local f = fn_of("chat", "start")
-        if f then
-            local ok, r = pcall(f, S.text_log)
-            ev("client_chat_start", { ok = ok and type(r) == "table" and r.ok == true, err = (not ok) and tostring(r) or nil })
-        end
-    end
+    S.services, S.services_on = {}, opts.start_modules == true
+    if S.services_on then pcall(supervise, true) end -- now, then every SERVICE_CHECK_S from step()
     if not opts.no_loop then
         S.loop = LoopInGameThreadWithDelay(opts.poll_ms or M.POLL_MS, function() M.step() end)
     end

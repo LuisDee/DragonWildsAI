@@ -172,7 +172,7 @@ def test_situation_from_real_state_uses_game_names_and_no_internals():
     assert len(lines) <= MAX_LINES
     assert lines[0] == "You: HP 50%, holding Adamant Logging Axe"
     assert "Carrying: Oak Logs x8" in text and "Players: Zezima 8 m" in text
-    assert "Kebbit x2 (37 m, id BP_AI_Kebbit_Character_02_C_2147479901)" in text
+    assert "Kebbit x2 (37 m, id BP_AI_Kebbit_Character_02_C_2147479901, HP 39)" in text  # nearest one's health
     assert "AIController" not in text and "not_implemented" not in text
     assert "cannot perceive trees" in text  # this body has no look and no surroundings yet
 

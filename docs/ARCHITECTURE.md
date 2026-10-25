@@ -300,6 +300,14 @@ Route R2 (`docs/design/real-player-remediation.md`): Claude plays through a real
   - uses dkjson for runner output.
 - Everything below `main.lua` reloads without a restart. `client_mod/commands/bridge_start.lua` restarts the bridge from the newest file: it stops the old loop and keeps the chat hooks. `bridge_status.lua` and `bridge_stop.lua` complete the set.
 - Bridge events go to `logs/client/mod_<ts>.jsonl` (dwlog); module text logs go to `logs/client/client.log`.
+- **Background services are supervised by the bridge** (`client_bridge.SERVICES`):
+  - `chat.start` (receive hooks), `sense.vitals_start` (vitals watcher) and `inventory.reflex_start` (stay fed);
+  - started at bridge start (`start_modules`, so at client boot from `main.lua`, and by `bridge_start.lua`);
+  - re-checked every 10 s and restarted while not healthy. At the main menu the hooked classes may not be loaded yet;
+  - re-armed when their module file hot-reloads (their start swaps in the new handlers);
+  - backoff to once a minute after 3 failed starts;
+  - state in `bridge_status.services` (`running` / `starting` / `missing`, `starts`).
+  - Nobody needs to start them by hand after a client restart any more.
 
 ### 8.2 Module API, as the bridge uses it
 
@@ -309,8 +317,8 @@ Every function takes the DWClient text logger `log(msg)` first and returns a tab
 |---|---|---|
 | `chat.lua` | `start(log)` (idempotent hooks, called at bridge start); `say(log, text)`; it writes `client_io/events/chat.jsonl` `{type:"chat", from, text, self, player_id, guid}` | `say`; chat lines → `command_received` |
 | `move.lua` | `go_to(log, [x,y,z] \| name, {tolerance_m})`, `follow(log, name, distance_m)`, `stop(log)`, `status()` → `{mode, status, result={status=arrived\|failed\|stopped, reason, dist_m}}` | `go_to`, `follow`, `stop`, `move_status` |
-| `sense.lua` | `me(log)` → `{name, position, health, max_health, stamina, skills, ...}`; `census(log, {radius_m, max})` → `{players, creatures, items, resources, interactables, players_online}` | `get_state`, `me`, `census` (`look` once `sense.look` exists) |
-| `inventory.lua` | `list(log)` → `{hotbar, bag, loadout, personal, held}`; `drop(log, what, count)`; `equip(log, what)`; `unequip(log, slot)` | `get_state.inventory/inventory_items/gear`, `drop`, `equip`, `unequip`, `inventory` |
+| `sense.lua` | `me(log)` → `{name, position, health, max_health, stamina, survival = {stat = {cur, max}}, skills, ...}`; `census(log, {radius_m, max})` → `{players, creatures, items, resources, interactables, players_online}`; `U` (mod/body/util), `local_pc()`, `local_pawn()`; writes `client_io/events/vitals.jsonl` (`damage`, `survival`, ...) | `get_state`, `me`, `census`, `look`, `inspect`, `interact` (target lookup, aim), events `attacked`, `vitals_low` |
+| `inventory.lua` | `list(log)` → `{hotbar, bag, loadout, personal, held}` (rows carry `consumable`); `drop(log, what, count)`; `equip(log, what)`; `unequip(log, slot)`; `interact_target(pawn)`; `press_interact(log)`; `describe_item(item)` | `get_state.inventory/inventory_items/gear/held`, `drop`, `equip`, `unequip`, `inventory`, `interact` (detector + press), `inspect` (container contents), `vitals_low` (has food/drink) |
 
 ### 8.3 Rules (client side)
 
@@ -319,11 +327,12 @@ Every function takes the DWClient text logger `log(msg)` first and returns a tab
    - A tool answers `ok` only once fresh game state confirms it: `go_to` re-reads the position, `drop` waits for the count to fall, `say` waits for the server's echo.
    - The brain verifies again (`executor.VERIFIERS`).
 3. **Two speeds.** Per-frame loops (steering, combat reflexes) live in the modules. The bridge ticks every 100 ms: it polls, steps the action, tails chat and resolves waiters. The LLM only picks tools.
-4. **One action slot.**
+4. **Perception is generic.** `look`, `inspect`, `interact` and the digest work on `sense.census` categories and the census row fields (`kind`, `verb`, `prompt`, `tool`, `health`), never on hand lists of things. A new kind of thing shows up as soon as sense describes its class family.
+5. **One action slot.**
    - Tools that move the body (`ACTION_TOOLS`) pre-empt the current action, which answers `interrupted`.
    - Waiters (`say`, `drop`) never pre-empt.
    - Probes never act. Missing required args answer `invalid_args`.
-5. **The client is Luis's shared world.** Experiments that move the pawn or chat belong to that module's owner. The bridge itself is read-only until the brain sends an action.
+6. **The client is Luis's shared world.** Experiments that move the pawn or chat belong to that module's owner. The bridge itself is read-only until the brain sends an action.
 
 ### 8.4 How to add a skill on the client (e.g. `gather`)
 

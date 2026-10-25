@@ -29,6 +29,7 @@ from brain.transport import file_transport_pair
 NAV_DIR = Path(os.environ.get("DW_CLIENT_ROOT", str(paths.REPO_ROOT))) / "client_io" / "nav"
 REQ = NAV_DIR / "req.json"
 RESP = NAV_DIR / "resp.lua"
+ALIVE = NAV_DIR / "alive.lua"  # heartbeat: the mover only uses the oracle while this is fresh
 LOADING_RETRY_S = 1.0
 LOADING_MAX_S = 15.0
 
@@ -81,8 +82,15 @@ def write_resp(req_id, res: dict) -> None:
 def serve(client: BridgeClient) -> None:
     NAV_DIR.mkdir(parents=True, exist_ok=True)
     last_id = None
+    last_beat = 0.0
     print(f"nav_oracle serving {REQ}", flush=True)
     while True:
+        if time.time() - last_beat >= 1.0:
+            last_beat = time.time()
+            try:  # "return <unix time>"; a stale or missing file means "no oracle", so no waiting
+                ALIVE.write_text(f"return {int(last_beat)}\n", encoding="utf-8")
+            except OSError:
+                pass
         try:
             req = json.loads(REQ.read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError, OSError):

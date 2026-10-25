@@ -91,7 +91,7 @@ test("start: stale brain lines and chat history are ignored; bare capabilities",
     B.RELOAD_CHECK_S = 0
     T = 1000
     B.clock = function() return T end
-    local st = B.start({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = CHAT, jlog = H.log, no_loop = true,
+    local st = B.start({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = CHAT, vitals_events = base .. "/vitals.jsonl", jlog = H.log, no_loop = true,
                          start_modules = true })
     assert(st.dir == DIR:gsub("\\", "/"), "dir " .. tostring(st.dir))
     step()
@@ -126,7 +126,32 @@ test("modules appear while running: capabilities grow (hot load)", function()
         assert(has(tools, t), "missing " .. t .. " in " .. table.concat(tools, ","))
     end
     assert(not has(tools, "equip"), "equip needs inventory.equip, which the fake lacks")
-    assert(not has(tools, "gather") and not has(tools, "attack") and not has(tools, "look"), "no such module functions")
+    assert(not has(tools, "gather") and not has(tools, "attack"), "no such module functions")
+    for _, t in ipairs({ "look", "inspect", "interact" }) do assert(has(tools, t), "perception tool " .. t) end
+end)
+
+test("services: chat hooks, vitals watcher, stay-fed reflex started, retried until healthy, re-armed on reload", function()
+    FAKE.hooks_fail = true -- at the main menu the hooked classes are not loaded yet
+    B._supervise(true)
+    local sv = B._state().services
+    assert(sv.chat.state == "starting" and sv.vitals.state == "starting" and sv.fed_reflex.state == "running",
+           json.encode(sv))
+    FAKE.hooks_fail = nil
+    T = T + B.SERVICE_CHECK_S
+    step()
+    sv = B._state().services
+    assert(sv.chat.state == "running" and sv.vitals.state == "running", "retried once the world is up")
+    assert(sv.chat.starts == 2 and sv.vitals.starts == 2 and sv.fed_reflex.starts == 1)
+    T = T + B.SERVICE_CHECK_S
+    step()
+    assert(B._state().services.chat.starts == 2, "healthy services are not restarted")
+    install("inventory", FAKES.inventory .. "\n-- edited\n")
+    T = T + B.SERVICE_CHECK_S
+    step()
+    assert(B._state().services.fed_reflex.starts == 2, "re-armed after a hot reload")
+    install("inventory")
+    local st = rpc("bridge_status").data.services
+    assert(st.chat.state == "running" and st.fed_reflex.state == "running", json.encode(st))
 end)
 
 test("unit and reason helpers", function()
@@ -153,7 +178,11 @@ test("get_state from the real module shapes: buckets, inventory, gear, extras", 
     local wolf, deer = d.nearby_entities[1], d.nearby_entities[2]
     assert(wolf.id == "wolf_2" and wolf.kind == "Wolf" and wolf.alive == false and wolf.hostile == true and wolf.hp == 0)
     assert(deer.alive == true and deer.hostile == false)
-    assert(#d.nearby_resources == 2 and d.nearby_resources[1].id == "oak_1" and d.nearby_resources[2].id == "bench_1")
+    assert(#d.nearby_resources == 2 and d.nearby_resources[1].id == "stick_1" and d.nearby_resources[2].id == "oak_1")
+    assert(d.nearby_resources[2].tool == "Hatchet" and d.nearby_resources[2].health == 220, "HP and tool gate kept")
+    assert(#d.interactables == 2 and d.interactables[1].id == "bench_1" and d.interactables[1].prompt == "Craft")
+    assert(d.hydration == 70 and d.hydration_max == 100 and d.sustenance == 80 and d.endurance == 40, "flat vitals")
+    assert(d.held == "Bronze Hatchet" and d.held_item == "ITEM_Tool_Axe_Bronze")
     assert(#d.nearby_items == 1 and d.nearby_items[1].collecting == nil)
     assert(d.inventory.ITEM_Resources_Wood_Oak == 8 and d.inventory.ITEM_Tool_Axe_Bronze == nil, json.encode(d.inventory))
     assert(#d.inventory_items == 3 and d.inventory_items[3].equipped == true and d.inventory_items[1].id == "QuickAction:0")
@@ -324,6 +353,122 @@ test("drop waits for the inventory to shrink; resolved item id; never-confirmed 
     assert(rpc("drop", { item = "oak", count = 1, at = "luis" }).reason == "not_implemented")
 end)
 
+test("look: every census category as things, ranked by match, matched flag, radius cap", function()
+    FAKE.move.position = nil -- the go_to tests left him elsewhere
+    local r = rpc("look", { about = "sticks" })
+    assert(r.ok, tostring(r.reason))
+    local d = r.data
+    assert(d.radius_m == 20 and d.about == "sticks" and d.matched == true and d.total >= 6, json.encode(d))
+    local first = d.things[1]
+    assert(first.id == "stick_1" and first.match == 1 and first.kind == "gatherable" and first.actions[1] == "interact")
+    assert(d.things[2].match == 0, "the rest do not match")
+    local by = {}
+    for _, t in ipairs(d.things) do by[t.id] = t end
+    assert(by.wolf_2.category == "creatures" and by.wolf_2.alive == false and by.wolf_2.hostile == true and by.wolf_2.actions[1] == "attack")
+    assert(by.oak_1.verb == "chop" and by.oak_1.actions[1] == "chop" and by.oak_1.tool_tier == 1)
+    assert(by.bench_1.verb == "interact" and by.wi_1.actions[1] == "interact" and by["BP_PlayerCharacter_C_2"].kind == "player")
+    assert(by.grave_1 == nil, "28 m away: outside the 20 m default")
+    r = rpc("look", { about = "dragon", radius = 500, max = 3 })
+    assert(r.data.radius_m == 80 and #r.data.things == 3 and r.data.matched == false and r.data.things[1].match == 0)
+    assert(r.data.total >= 8, "the grave is inside 80 m")
+    r = rpc("look", {})
+    assert(r.ok and r.data.matched == nil and r.data.things[1].match == nil, "no about: no match scores")
+    assert(B.match_score({ name = "Ash Branches" }, "branch") == 1 and B.match_score({ name = "Oak" }, "an oak tree") == 0.5)
+end)
+
+test("inspect: one thing with gives/requires, container contents; unknown id", function()
+    local r = rpc("inspect", { target = "oak_1" })
+    assert(r.ok and r.data.id == "oak_1" and r.data.requires.tool == "Hatchet" and r.data.gives[1] == "Oak Logs")
+    r = rpc("inspect", { target = "grave_1" })
+    assert(r.ok and r.data.contents and r.data.contents[1].item == "ITEM_Pickaxe_Mithril", json.encode(r.data))
+    assert(rpc("inspect", { target = "nope" }).reason == "unknown_target")
+    assert(rpc("inspect", {}).reason == "invalid_args")
+end)
+
+test("interact: a world item in reach -> aim, press, verified by the inventory gain and the item gone", function()
+    FAKE.aims, FAKE.presses = 0, 0
+    local first, _, id = rpc("interact", { target = "wi_1" })
+    assert(first == nil, "async")
+    for _ = 1, 4 do step() end
+    local out = drain()
+    local r = results(out, id)[1]
+    assert(r and r.ok, "interact ok: " .. json.encode(r))
+    assert(r.data.item == "ITEM_Resources_Wood_Oak" and r.data.count == 2 and r.data.target_gone == true)
+    assert(FAKE.aims >= 1 and FAKE.presses == 1, "aimed and pressed once")
+    assert(#events(out, "task_done") == 1)
+    assert(rpc("get_state").data.nearby_items[1] == nil, "gone from the world")
+end)
+
+test("interact: a grave out of reach -> walk there first, Take All, the grave disappears", function()
+    FAKE.presses = 0
+    FAKE.auto_arrive = true
+    local _, _, id = rpc("interact", { target = "grave_1" })
+    for _ = 1, 8 do step() end
+    FAKE.auto_arrive = nil
+    local r = results(drain(), id)[1]
+    assert(r and r.ok, json.encode(r))
+    assert(r.data.item == "ITEM_Pickaxe_Mithril" and r.data.target_gone == true and FAKE.presses == 1)
+    assert(FAKE.move.calls[#FAKE.move.calls] == "go_to", "approached with move.go_to")
+    FAKE.move.position = nil -- back to the default spot
+end)
+
+test("interact refusals: creature, detector on something else, nothing happens", function()
+    assert(rpc("interact", { target = "deer_1" }).reason == "not_interactable")
+    assert(rpc("interact", { target = "ghost" }).reason == "unknown_target")
+    assert(rpc("interact", { target = "stick_1", secondary = true }).reason == "not_implemented")
+    FAKE.detector_override = { actor = "bench_1", prompt = "Craft" }
+    local _, _, id = rpc("interact", { target = "stick_1" })
+    T = T + B.INTERACT_AIM_S
+    step(); step()
+    local r = results(drain(), id)[1]
+    FAKE.detector_override = nil
+    assert(r and r.reason == "not_interactable" and r.data.detail:find("bench_1"), json.encode(r))
+    FAKE.press_noop = true
+    _, _, id = rpc("interact", { target = "stick_1" })
+    step(); step()
+    T = T + B.INTERACT_VERIFY_S
+    step()
+    r = results(drain(), id)[1]
+    FAKE.press_noop = nil
+    assert(r and r.reason == "verification_failed", json.encode(r))
+end)
+
+test("events: damage from someone else -> attacked (debounced); own damage ignored", function()
+    local V = base .. "/vitals.jsonl"
+    write(V, json.encode({ type = "damage", amount = 7, hp = 83, instigator = { id = "wolf_9", name = "Wolf", class = "BP_AI_Wolf_C" } }) .. "\n")
+    write(V, json.encode({ type = "damage", amount = 7, hp = 76, instigator = { id = "wolf_9", name = "Wolf" } }) .. "\n")
+    write(V, json.encode({ type = "damage", amount = 2, instigator = { id = "me", self = true } }) .. "\n")
+    write(V, json.encode({ type = "survival", hydration = { 50, 100 } }) .. "\n")
+    step()
+    local at = events(drain(), "attacked")
+    assert(#at == 1 and at[1].by == "wolf_9" and at[1].name == "Wolf" and at[1].amount == 7, json.encode(at))
+    T = T + B.ATTACKED_REPEAT_S
+    write(V, json.encode({ type = "damage", amount = 7, instigator = { id = "wolf_9" } }) .. "\n")
+    step()
+    assert(#events(drain(), "attacked") == 1, "again after the debounce window")
+end)
+
+test("events: vitals_low only when low AND nothing to eat/drink; re-armed above 25", function()
+    FAKE.survival = { hydration = { 10, 100 }, sustenance = { 12, 100 } }
+    FAKE.has_food = true
+    T = T + B.VITALS_CHECK_S
+    step()
+    local vl = events(drain(), "vitals_low")
+    assert(#vl == 1 and vl[1].stat == "hydration" and vl[1].value == 10 and vl[1].has_food == true and vl[1].has_drink == false,
+           json.encode(vl))
+    T = T + B.VITALS_CHECK_S
+    step()
+    assert(#events(drain(), "vitals_low") == 0, "not repeated within VITALS_REPEAT_S")
+    T = T + B.VITALS_REPEAT_S
+    step()
+    assert(#events(drain(), "vitals_low") == 1, "repeated while still low")
+    FAKE.has_drink = true
+    T = T + B.VITALS_REPEAT_S
+    step()
+    assert(#events(drain(), "vitals_low") == 0, "the reflex can drink: no event")
+    FAKE.survival, FAKE.has_food, FAKE.has_drink = nil, nil, nil
+end)
+
 test("chat: addressed lines -> command_received, others ignored, !ping forwarded", function()
     for _, line in ipairs({
         { type = "chat", from = "Luis", text = "Claude, follow me", self = false },
@@ -390,7 +535,7 @@ test("restart via start(): old loop cancelled, new instance answers", function()
     local B2 = assert(loadfile(REPO .. "/client_mod/scripts/client_bridge.lua"))()
     B2.RELOAD_CHECK_S = 0
     B2.clock = function() return T end
-    B2.start({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = CHAT, jlog = H.log, poll_ms = 50 })
+    B2.start({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = CHAT, vitals_events = base .. "/vitals.jsonl", jlog = H.log, poll_ms = 50 })
     local handle, loop = nil, nil
     for h, l in pairs(H.loops) do handle, loop = h, l end
     assert(loop and loop.delay_ms == 50, "loop registered")

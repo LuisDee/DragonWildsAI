@@ -55,7 +55,7 @@ The same protocol, served by the client mod instead of the server puppet:
   - `python -m brain.fake_body <dir> client`
 - **Capabilities are dynamic.** A tool is listed only while the client module functions it needs exist (`client_mod/scripts/{chat,move,sense,inventory}.lua`, hot-reloaded).
   - Missing or broken module → `not_implemented`, and the tool is not listed.
-  - So the brain hides everything else: today `attack, gather, craft, place, give, pickup, cast, sleep, wake, look, interact` and the rule tools.
+  - So the brain hides everything else: today `attack, gather, craft, place, give, pickup, cast, sleep, wake` and the rule tools.
   - `ping` and `capabilities` answers carry `body: "client"`.
 - **Chat:**
   - The client tails `client_io/events/chat.jsonl`, written by `chat.lua`'s `Client_ReceiveChatMessage` hook.
@@ -71,8 +71,11 @@ The same protocol, served by the client mod instead of the server puppet:
 | `follow` | Sync `ok {following, distance}`, then holds the action slot. If the movement ends by itself (pawn lost, stopped elsewhere), it emits `task_failed` with no second reply. |
 | `go_to` | Async. `target` is `[x,y,z]` metres or a player name. It replies when `move.status()` says the move ended. Arrival is re-checked against a fresh position, within `arrive_tolerance` (3 m) × 1.5. Otherwise it answers `verification_failed`. A coordinate target includes `target_position`. A player target has `target` and `dist_m`. Body cap 110 s. |
 | `drop` | The inventory UI's drop (`at` = `feet` only; anything else answers `not_implemented`). The server confirms asynchronously, so the reply waits up to 5 s for the carried count to fall by `count`. It then answers `ok {item: <resolved id>, count, at, inventory_left}`, or else `verification_failed`. |
-| `get_state` | Built from `sense.me` + `sense.census` + `inventory.list`. **`inventory` = hotbar + bag** (loadout excluded; an item equipped from the hotbar keeps its hotbar slot in the game, so it shows in both `inventory` and `gear`). `gear` = `{loadout slot: item}` plus `held_right` / `held_left`. Extras: `skills`, `total_level`, `stamina`, `players_online`, `body: "client"`. Answers `companion_down` while there is no pawn (menu, loading). |
-| debug (not planner tools) | `bridge_status`, `me`, `census`, `inventory`, `move_status`, `equip {item}`, `unequip {slot}` |
+| `get_state` | Built from `sense.me` + `sense.census` + `inventory.list`. **`inventory` = hotbar + bag** (loadout excluded; an item equipped from the hotbar keeps its hotbar slot in the game, so it shows in both `inventory` and `gear`). `gear` = `{loadout slot: item}` plus `held_right` / `held_left`. Extras: `skills`, `total_level`, `stamina`, `players_online`, `body: "client"`; survival as flat numbers `hydration`, `sustenance`, `endurance` (+ `<stat>_max`); `held` (display name) and `held_item`; `interactables` (census rows with `prompt`) next to `nearby_resources` (rows keep `health`, `tool`, `tool_tier`, `drops`, `stump`). The brain's situation digest shows these (`You: HP 100%, water 49%, food 64%, holding ...`, hostiles first with HP, `Around: ... chop, needs Hatchet T1, HP 80/80`, `Usable: ...`). Answers `companion_down` while there is no pawn (menu, loading). |
+| `look` | `{about?, radius=20 (cap 80), max=15 (cap 40)}`, built on `sense.census`. Every category is flattened into `things`: players, creatures, world items, resources, interactables (stations, chests, beds, graves, NPCs). Each thing is a census row plus `category, kind, verb, actions` (what the client can do now: `interact` for world items, ground gatherables and interactables; `chop`/`mine` for gated destructibles; `attack` for creatures). Ranked by `match` (a port of the server's `match_score`), then distance. `data.matched` is a boolean when `about` is set. About 200 ms live. **Standing trees are foliage instances, not actors, so they are not seen yet** (felled logs, stumps, rocks and saplings are). |
+| `inspect` | `{target}` (an id from look): the thing, plus `gives`, `requires {tool, tier}`, `description` when the actor has one, and `contents [{name, item, count}]` for containers (graves, chests). Read-only. |
+| `interact` | `{target, secondary=false}`. Async, like a player pressing E. If the target is further than 2 m, walk to within 1 m (`move.go_to`). Then aim the camera at it (`SetControlRotation`, as move.lua steers), wait up to 2 s until the game's own detector (`inventory.interact_target`) targets that actor, and press IA_Interact once (`inventory.press_interact`). **Verified** within 4 s by the target disappearing or the inventory growing: `ok {target, item, count, gained {item: n}, target_gone, prompt}`. Reasons: `unknown_target`, `not_interactable` (a creature or player, or the detector targets something else: `detail` names it), `too_far`, `path_blocked`, `verification_failed` (pressed, nothing changed: e.g. a station whose use is a UI), `timeout` (100 s). `secondary` is `not_implemented`. A grave's "Take All" is one press: every item comes back and the grave disappears. |
+| debug (not planner tools) | `bridge_status` (stats, modules, action, and `services`: chat / vitals / fed_reflex, `running` / `starting` / `missing`), `me`, `census`, `inventory`, `move_status`, `equip {item}`, `unequip {slot}` |
 
 ## Messages
 
@@ -332,6 +335,13 @@ The `event` object types (`brain/interface.py`) are:
 - `gather_progress{task_id,resource,item,have,want}`
 - `task_progress{task_id?,text?,have?,want?}`: milestones of any long skill (`text` is a short label,
   e.g. `"Smelting"`); optional
+- `attacked{by, name?, amount?, hp?}`: the client body sends it for a `damage` row of the vitals watcher
+  (`client_io/events/vitals.jsonl`) whose instigator is not Claude, at most once per 5 s per attacker. A
+  brain whose registry has no `attack` says a help line instead of running the reflex attack.
+- `vitals_low{stat, value, max?, has_food?, has_drink?}` (client body): hydration or sustenance below 15
+  and nothing in the inventory to fix it (the stay-fed reflex covers the rest). Checked every 15 s from
+  `sense.me`, repeated every 180 s while it stays low, re-armed above 25. The brain asks the player for
+  food or drink (at most once a minute per stat).
 
 When an action is interrupted, the body sends the event that caused the interrupt
 **before** the `result` with `reason: interrupted` or `attacked`.

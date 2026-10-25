@@ -75,5 +75,22 @@ end
 check("final route goes around the thin wall", not crosses and rounds >= 1, "rounds=" .. rounds)
 check("trace count bounded", traces < 2500, traces)
 print(string.format("traces=%d expanded=%s replans=%d points=%d", traces, tostring(P.expanded), rounds, #(pts or {})))
+
+-- cache: a second plan from (almost) the same spot reuses the cells, and prefetch fills new ones
+local clock = 0
+local cache = { cells = {}, ttl = 30 }
+local P1 = LP.new({ trace = trace, center = { X = 0, Y = 0, Z = 90 }, radius_m = 6, cache = cache, now = function() return clock end,
+    env = { step = 45, jump = 250, djump = 300, drop = 600 } })
+while P1:step(50) ~= "ready" do end
+local P2 = LP.new({ trace = trace, center = { X = 30, Y = -20, Z = 90 }, radius_m = 6, cache = cache, now = function() return clock end,
+    env = { step = 45, jump = 250, djump = 300, drop = 600 } })
+while P2:step(50) ~= "ready" do end
+check("second plan reuses cached cells", P2.traces == 0 and P2.cache_hits > 100, P2.traces .. " hits=" .. P2.cache_hits)
+check("prefetch skips cached, samples new", LP.prefetch(cache, trace, 0, 0, 0) == 0 and LP.prefetch(cache, trace, 5000, 5000, 0) == 2)
+clock = 100
+local P3 = LP.new({ trace = trace, center = { X = 0, Y = 0, Z = 90 }, radius_m = 6, cache = cache, now = function() return clock end,
+    env = { step = 45, jump = 250, djump = 300, drop = 600 } })
+while P3:step(50) ~= "ready" do end
+check("stale cache entries are re-sampled", P3.traces > 100, P3.traces)
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

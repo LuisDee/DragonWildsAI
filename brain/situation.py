@@ -102,6 +102,8 @@ class Thing:
     actions: list[str] = field(default_factory=list)
     hostile: bool | None = None
     extra: set[str] = field(default_factory=set)  # more words that identify it (item id, class word)
+    note: str | None = None  # short facts for the digest: "HP 40/60", "chop, needs Hatchet T1", "Craft"
+    group: str = "thing"  # digest line: creature | item | player | around | usable
 
     def words(self) -> set[str]:
         return tokens(self.name) | tokens(self.kind) | {w for g in self.gives for w in tokens(g)} | \
@@ -110,12 +112,32 @@ class Thing:
     def label(self) -> str:
         d = f"{self.distance:.0f} m" if isinstance(self.distance, (int, float)) else ""
         n = f"{self.name} x{self.count}" if self.count > 1 else self.name
-        bits = [b for b in (d, f"id {self.id}" if self.id else "") if b]
+        bits = [b for b in (d, f"id {self.id}" if self.id else "", self.note or "") if b]
         return f"{n} ({', '.join(bits)})" if bits else n
 
 
 def _num(v) -> float | None:
     return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _hp(row: dict) -> str | None:
+    hp, mx = _num(row.get("hp", row.get("health"))), _num(row.get("max_hp", row.get("max_health")))
+    if hp is None:
+        return None
+    return f"HP {hp:g}/{mx:g}" if mx else f"HP {hp:g}"
+
+
+def _resource_note(row: dict) -> str | None:
+    """'chop, needs Hatchet T1, HP 220/220' for a gated destructible; None for plain things."""
+    bits = []
+    if row.get("tool"):
+        tier = row.get("tool_tier")
+        bits.append(f"{row.get('verb') or 'hit'}, needs {row['tool']}" + (f" T{tier}" if tier is not None else ""))
+    if row.get("kind") == "destructible" and (hp := _hp(row)):
+        bits.append(hp)
+    if row.get("stump"):
+        bits.append("stump")
+    return ", ".join(bits) or None
 
 
 def perceived(state: dict, looks: Iterable[dict] = ()) -> list[Thing]:
@@ -125,27 +147,36 @@ def perceived(state: dict, looks: Iterable[dict] = ()) -> list[Thing]:
     names = item_names(state)
     for e in state.get("nearby_entities") or []:
         if isinstance(e, dict) and e.get("alive", True):
-            out.append(Thing(pretty_id(e.get("kind") or e.get("id")), "creature", e.get("id"), _num(e.get("distance")),
-                             actions=["attack"], hostile=e.get("hostile"), extra={str(e.get("kind") or "")}))
+            out.append(Thing(e.get("name") or pretty_id(e.get("kind") or e.get("id")), "creature", e.get("id"),
+                             _num(e.get("distance")), actions=["attack"], hostile=e.get("hostile"),
+                             extra={str(e.get("kind") or "")}, note=_hp(e), group="creature"))
     for g in state.get("nearby_items") or []:
         if isinstance(g, dict):
             item = str(g.get("item") or g.get("id") or "")
             out.append(Thing(g.get("name") or name_of_item(item, names), "item", g.get("id"), _num(g.get("distance")),
                              count=int(g.get("count") or 1), gives=[g.get("name") or name_of_item(item, names)],
-                             actions=["pickup"], extra={item}))
+                             actions=["pickup", "interact"], extra={item}, group="item"))
     for p in state.get("players") or []:
         if isinstance(p, dict) and p.get("name"):
-            out.append(Thing(str(p["name"]), "player", str(p["name"]), _num(p.get("distance")), actions=["follow", "give"]))
+            out.append(Thing(str(p["name"]), "player", str(p["name"]), _num(p.get("distance")), actions=["follow", "give"],
+                             group="player"))
     for r in state.get("nearby_resources") or []:
         if not isinstance(r, dict):
             continue
-        if r.get("name"):  # the real body (body/gather.lua extender, from sense.look)
-            out.append(_look_thing(r))
+        if r.get("name"):  # the real body (body/gather.lua extender, from sense.look; client sense.census)
+            t = _look_thing(r)
+            t.note, t.group = _resource_note(r), "around"
+            out.append(t)
         else:  # the mock's trees and rocks
             res = str(r.get("resource") or "")
             kind = {"log": "tree", "stone": "rock"}.get(res, "resource")
             out.append(Thing(f"{kind} ({res})", kind, r.get("id"), _num(r.get("distance")), gives=[res],
                              actions=["gather"], extra={res}))
+    for r in state.get("interactables") or []:  # stations, chests, beds, graves (client body)
+        if isinstance(r, dict) and r.get("name"):
+            t = _look_thing({"verb": "interact", **r})
+            t.note, t.group = (str(r["prompt"]) if r.get("prompt") else None), "usable"
+            out.append(t)
     for s in state.get("surroundings") or []:  # body digest groups (no ids)
         if isinstance(s, dict) and s.get("name"):
             out.append(Thing(str(s["name"]), str(s.get("kind") or "thing"), s.get("id"),
@@ -221,7 +252,8 @@ def _group(things: list[Thing]) -> list[Thing]:
     for t in sorted(things, key=lambda t: t.distance if t.distance is not None else 1e9):
         g = groups.get(t.name)
         if g is None:
-            groups[t.name] = Thing(t.name, t.kind, t.id, t.distance, t.count, list(t.gives), list(t.actions), t.hostile)
+            groups[t.name] = Thing(t.name, t.kind, t.id, t.distance, t.count, list(t.gives), list(t.actions), t.hostile,
+                                   note=t.note, group=t.group)
         else:
             g.count += t.count
     return list(groups.values())
@@ -254,8 +286,15 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     lines: list[str | None] = []
 
     me = [b for b in (_health(state),) if b]
-    held = (state.get("gear") or {}).get("right") if isinstance(state.get("gear"), dict) else None
-    if held:
+    for stat, word in (("hydration", "water"), ("sustenance", "food")):  # survival needs (client body)
+        cur, mx = _num(state.get(stat)), _num(state.get(f"{stat}_max"))
+        if cur is not None:
+            pct = round(100 * cur / mx) if mx else round(cur)
+            me.append(f"{word} {pct}%" + (" (LOW)" if pct < 15 else ""))
+    gear = state.get("gear") if isinstance(state.get("gear"), dict) else {}
+    if state.get("held"):  # the client body names it already
+        me.append(f"holding {state['held']}")
+    elif held := gear.get("right") or gear.get("held_right"):
         item = str(held).rsplit("/", 1)[-1].rsplit(".", 1)[-1]  # /Root/.../ITEM_X.ITEM_X -> ITEM_X
         me.append(f"holding {name_of_item(item, names)}")
     if state.get("following"):
@@ -273,14 +312,18 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     pl = [t for t in things if t.kind == "player"]
     lines.append(_line("Players", [f"{t.name} {t.distance:.0f} m" if t.distance is not None else t.name for t in pl]))
 
-    creatures = _group([t for t in things if t.kind == "creature"])
+    # hostiles first, then by distance (the nearest threat leads the line)
+    creatures = sorted(_group([t for t in things if t.kind == "creature"]),
+                       key=lambda g: (not g.hostile, g.distance if g.distance is not None else 1e9))
     lines.append(_line("Creatures", [("hostile " if g.hostile else "") + g.label() for g in creatures]))
 
     ground = _group([t for t in things if t.kind == "item"])
     lines.append(_line("On the ground", [g.label() for g in ground]))
 
-    around = _group([t for t in things if t.kind not in ("player", "creature", "item")])
+    around = _group([t for t in things if t.kind not in ("player", "creature", "item") and t.group != "usable"])
     lines.append(_line("Around", [g.label() for g in around]))
+    usable = _group([t for t in things if t.group == "usable"])
+    lines.append(_line("Usable", [g.label() for g in usable]))
     if not looks_supported and not state.get("surroundings") and \
             "nearby_resources" in (state.get("not_implemented") or []):
         lines.append("You cannot perceive trees, rocks, plants or ground gatherables (sticks, stones) yet: "

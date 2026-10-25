@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import threading
 import time
@@ -55,8 +56,26 @@ PING = "!ping"
 PONG = "pong"
 
 
-def chat_route(text: str, prefixes: list[str]) -> tuple[str, str | None]:
-    """("ping", None), ("command", text without the prefix) or ("ignore", None)."""
+GREETINGS = {"hello", "hi", "hey", "hiya", "heya", "yo", "oi", "ok", "okay", "dear", "howdy"}
+
+
+def _strip_name(text: str, name: str) -> str:
+    """'hello claude, what are you wearing?' -> 'what are you wearing?'; 'thanks Claude' -> 'thanks';
+    'hey claude' -> 'hey'. Removes the name (and @name) with its comma/colon, then leading greetings
+    when something is left after them."""
+    t = re.sub(rf"@?\b{re.escape(name)}\b[\s]*[,:;!.?]*", " ", text, flags=re.I)
+    t = re.sub(r"\s+", " ", t).strip(" ,:;-")
+    words = t.split(" ")
+    while len(words) > 1 and words[0].lower().strip(",.!:;") in GREETINGS:
+        words = words[1:]
+    t = " ".join(words).strip(" ,:;-")
+    return t or text.strip()
+
+
+def chat_route(text: str, prefixes: list[str], name: str | None = "Claude") -> tuple[str, str | None]:
+    """("ping", None), ("command", the text for the Controller) or ("ignore", None).
+    Addressed = a prefix at the start, or the companion's name as a whole word anywhere
+    ("hello claude ...", "thanks Claude", "@claude ..."; not "claudette")."""
     t = text.strip()
     low = t.lower()
     if low == PING or low.startswith(PING + " "):
@@ -64,7 +83,11 @@ def chat_route(text: str, prefixes: list[str]) -> tuple[str, str | None]:
     for p in prefixes:
         if low.startswith(p.lower()):
             rest = t[len(p):].strip()
+            if name:
+                rest = _strip_name(rest, name) if rest else rest
             return ("command", rest) if rest else ("ignore", None)
+    if name and re.search(rf"\b{re.escape(name)}\b", t, flags=re.I):
+        return "command", _strip_name(t, name)
     return "ignore", None
 
 
@@ -78,7 +101,7 @@ class LiveAgent(Agent):
     def handle_event(self, event: Event) -> None:
         if not isinstance(event, CommandReceived):
             return super().handle_event(event)
-        route, text = chat_route(event.text, self.prefixes)
+        route, text = chat_route(event.text, self.prefixes, self.controller.name)
         self.log.log("event", event=event.model_dump(), route=route)
         if route == "ping":
             start = time.perf_counter()
