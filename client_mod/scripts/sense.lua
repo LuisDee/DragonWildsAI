@@ -193,6 +193,8 @@ local function gate(a)
     return g
 end
 
+M.gate = gate -- {tool = "Hatchet"|"Pickaxe", tool_tag, tier} of a resource actor (or a class default object)
+
 local function first_drop(comp)
     if not U.valid(comp) then return nil end
     local name, id
@@ -305,6 +307,100 @@ local function describe_interactable(a, ic, kind, origin)
     return d
 end
 
+-- ------------------------------------------------------------------ foliage (standing trees, bushes, pickups)
+-- Why the census could not see STANDING trees (gather agent, live probe 2026-10-25): trees, saplings,
+-- bushes, branches and stones are instances of UInteractableFoliageISMComponent (198 components
+-- on Claude's client: BP_InteractableFoliageISMC_Tree_C / _PickUps_C / _Sapling_C). The SERVER turns
+-- an instance into a real actor only on demand: the player pawn's NearbyFoliageConverterComponent
+-- (Range 300 cm, damageable + interactable) and the swing's own trace (ConvertTracedFoliage). So a
+-- tree further than ~3 m from every player is foliage, not an actor, and FindAllOf can't see it.
+-- Read-only scan, no struct out-params:
+--   GetInstancesOverlappingSphere(center, r, true) -> instance indices (UE4SS: a Lua table of
+--   RemoteUnrealParam ints, :get()); position = component location + rotation * (scale *
+--   PerInstanceSMData[i].Transform.WPlane) (the reflected FMatrix's translation row).
+-- Row: {id = "fol:<component>:<index>", kind = "foliage", foliage = "tree"|"pickup"|"sapling"|...,
+--       class = the actor class an instance converts into (ActorClass, e.g. BP_BM_Tree_Oak_01_C),
+--       name, position, distance, damageable, interactable, verb, tool, tool_tier, health, max_health}
+-- The class facts (DisplayName, tool gate, HP) come from the actor class's default object, cached.
+local FOLIAGE_KIND = { Tree = "tree", PickUps = "pickup", Sapling = "sapling" }
+local class_facts = {}
+local function facts_of(cls)
+    local key = U.short(cls)
+    if not key then return {} end
+    if class_facts[key] then return class_facts[key] end
+    local f = { class = key }
+    local cdo = U.try(function() return cls:GetCDO() end)
+    if U.valid(cdo) then
+        f.name = text(U.try(function() return cdo.DisplayName end))
+        local g = gate(cdo)
+        if g then f.tool, f.tool_tier = g.tool, g.tier end
+        f.max_health = num(U.try(function() return cdo.HealthComponent.MaxHealth end))
+        if f.max_health and f.max_health <= 0 then f.max_health = nil end
+    end
+    f.name = f.name or clean_class(key)
+    class_facts[key] = f
+    return f
+end
+M.foliage_facts = facts_of
+
+local function rotate_yaw(v, deg)
+    if not deg or deg == 0 then return v end
+    local r = math.rad(deg)
+    local c, s = math.cos(r), math.sin(r)
+    return { X = v.X * c - v.Y * s, Y = v.X * s + v.Y * c, Z = v.Z }
+end
+
+-- foliage(origin_cm, radius_cm, {match = pattern on the class, exclude = pattern|{patterns},
+--   kinds = {tree=true,...}, max = n}) -> rows nearest first (positions in cm under _pos).
+function M.foliage(origin, radius_cm, opts)
+    opts = opts or {}
+    local out = {}
+    if not origin then return out end
+    local excl = opts.exclude
+    if type(excl) == "string" then excl = { excl } end
+    for _, c in ipairs(U.find_all("InteractableFoliageISMComponent", { skip_defaults = true })) do
+        local cls = U.try(function() return c.ActorClass end)
+        local cname = U.short(cls) or "?"
+        local fk = FOLIAGE_KIND[((U.class_word(c) or ""):match("ISMC_([%w]+)_C$")) or ""] or "foliage"
+        local ok_cls = (not opts.match or cname:find(opts.match)) and (not opts.kinds or opts.kinds[fk])
+        for _, e in ipairs(excl or {}) do if cname:find(e) then ok_cls = false end end
+        if ok_cls then
+            local idxs = U.try(function() return c:GetInstancesOverlappingSphere({ X = origin.X, Y = origin.Y, Z = origin.Z }, radius_cm, true) end)
+            if type(idxs) == "table" and #idxs > 0 then
+                local cl = U.try(function() local v = c:K2_GetComponentLocation(); return { X = v.X, Y = v.Y, Z = v.Z } end)
+                local yaw = num(U.try(function() return c:K2_GetComponentRotation().Yaw end)) or 0
+                local sc = U.try(function() local s = c:K2_GetComponentScale(); return { X = s.X, Y = s.Y, Z = s.Z } end) or { X = 1, Y = 1, Z = 1 }
+                local facts
+                for _, e in ipairs(idxs) do
+                    local i = (type(e) == "userdata" and U.try(function() return e:get() end)) or e
+                    local w = type(i) == "number" and cl and U.try(function()
+                        local m = c.PerInstanceSMData[i + 1].Transform
+                        local t, x = m.WPlane, m.XPlane
+                        return { X = t.X, Y = t.Y, Z = t.Z, s = math.sqrt(x.X * x.X + x.Y * x.Y + x.Z * x.Z) }
+                    end)
+                    if w and w.s > 0.01 then -- a zero-scale instance is hidden (converted / felled)
+                        local p = rotate_yaw({ X = w.X * sc.X, Y = w.Y * sc.Y, Z = w.Z * sc.Z }, yaw)
+                        p = { X = cl.X + p.X, Y = cl.Y + p.Y, Z = cl.Z + p.Z }
+                        local d = U.dist2d(origin, p)
+                        if d <= radius_cm then
+                            facts = facts or facts_of(cls)
+                            out[#out + 1] = { id = "fol:" .. (U.short(c) or "?") .. ":" .. i, kind = "foliage", foliage = fk,
+                                class = cname, name = facts.name, position = U.to_wire(p), distance = U.cm_to_m(d), _pos = p,
+                                _comp = c, _index = i, damageable = U.try(function() return c.bDamageable end) == true or nil,
+                                interactable = U.try(function() return c.bInteractable end) == true or nil,
+                                tool = facts.tool, tool_tier = facts.tool_tier, health = facts.max_health, max_health = facts.max_health,
+                                verb = (facts.tool == "Hatchet" and "chop") or (facts.tool == "Pickaxe" and "mine") or (fk == "pickup" and "gather") or "hit" }
+                        end
+                    end
+                end
+            end
+        end
+    end
+    table.sort(out, function(a, b) return (a.distance or 0) < (b.distance or 0) end)
+    if opts.max then for i = #out, opts.max + 1, -1 do out[i] = nil end end
+    return out
+end
+
 -- ------------------------------------------------------------------ census
 local function owner_of(c) local o = U.try(function() return c:GetOwner() end); return U.alive(o) and o or nil end
 
@@ -358,6 +454,16 @@ function M.census(log, opts)
     pass("creatures", { "DominionAICharacter" }, describe_creature)
     pass("items", { "WorldItem" }, describe_item)
     pass("resources", { "DestructibleWorldActor", "OreNode", "BaseInteractableResource" }, describe_resource)
+    -- standing trees / bushes / pickups still drawn as foliage (see M.foliage); opts.foliage=false skips
+    if (not want or want.resources) and opts.foliage ~= false then
+        local ok, rows = pcall(M.foliage, origin, r_cm, { max = max, kinds = { tree = true, pickup = true } })
+        if ok then
+            for _, r in ipairs(rows) do
+                r._comp, r._index, r._pos = nil, nil, nil
+                add("resources", r)
+            end
+        elseif log then log("sense: foliage " .. tostring(rows)) end
+    end
 
     local kind_of = {}
     for _, f in ipairs(M.ACTOR_FAMILIES) do

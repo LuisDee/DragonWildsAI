@@ -381,7 +381,14 @@ local function read_me(pawn, pc)
     if U.valid(st) then d.stamina = num(U.try(function() return st:GetStamina() end)); d.max_stamina = num(U.try(function() return st:GetMaxStamina() end)) end
     local sc = U.try(function() return pawn.SpecialChargeComponent end)
     if U.valid(sc) then d.special = num(U.try(function() return sc:GetSpecialCharge() end)) end
-    d.pl = num(U.try(function() return pawn:BP_GetPowerLevel() end)) or 1
+    -- BP_GetPowerLevel is a Blueprint event (it may touch gear data): read it at most every 10 s
+    local c = C()
+    local t = os.time()
+    if not c.pl_t or t - c.pl_t >= 10 or c.pl_pawn ~= U.short(pawn) then
+        c.pl = num(U.try(function() return pawn:BP_GetPowerLevel() end)) or c.pl or 1
+        c.pl_t, c.pl_pawn = t, U.short(pawn)
+    end
+    d.pl = c.pl
     d.dead = U.try(function() return pawn.HealthComponent:IsDead() end) == true
     d.pos = U.loc(pawn)
     return d
@@ -513,6 +520,14 @@ end
 -- decisions every DECIDE_S. Phases: react -> equip -> approach/engage <-> defend -> loot -> restore,
 -- and flee from any phase.
 M.DECIDE_S = 0.1
+
+function M.set_reach(F, actor)
+    local rad = num(U.try(function() return actor.CapsuleComponent:GetScaledCapsuleRadius() end)) or 40
+    local extra = math.max(0, rad - 40) / 100
+    F.target_radius_cm = rad
+    F.reach = M.cfg.reach_m + extra
+    F.follow = M.cfg.follow_m + extra
+end
 
 local function result_of(F, ok, reason, data)
     data = data or {}
@@ -742,7 +757,7 @@ local function step_engage(F, pawn, me, acts, tgt)
     local cfg = M.cfg
     local d_m = F.dist_m
     -- keep in range: follow the creature (move.lua faces it when near)
-    if d_m > cfg.reach_m + 0.3 and not F.following then follow_target(F, cfg.follow_m, d_m > 8) end
+    if d_m > F.reach + 0.3 and not F.following then follow_target(F, F.follow, d_m > 8) end
     -- telegraph from the target or an attacker right next to us -> defend after a human delay
     local c = C()
     for id, tt in pairs(c.telegraphs) do
@@ -763,7 +778,7 @@ local function step_engage(F, pawn, me, acts, tgt)
             end
         end
     end
-    if d_m > cfg.reach_m then return end
+    if d_m > F.reach then return end
     -- lock on once (one frame of the toggle; InputTriggerPressed)
     if cfg.lock_on and not F.locked and acts.lock then
         F.locked = true
@@ -948,6 +963,7 @@ local function frame(F)
         if nxt and nxt.id ~= F.target_id and F.mode == "reflex" then
             say(F.log, "retarget " .. nxt.id)
             F.target, F.target_id, F.target_name, F.dead_seen, F.locked, F.following = nxt.actor, nxt.id, nxt.name, false, false, false
+            M.set_reach(F, nxt.actor)
             return set_phase(F, "approach", "next attacker")
         end
         mcall("move", "stop", F.log)
@@ -974,11 +990,11 @@ local function frame(F)
             F.far_since = F.far_since or F.t
             if F.t - F.far_since > M.cfg.lost_s then return finish(F, result_of(F, false, "too_far", { dist_m = tgt.distance_m })) end
         else F.far_since = nil end
-        if not F.following then follow_target(F, M.cfg.follow_m, (F.dist_m or 0) > 8) end
-        if F.dist_m and F.dist_m <= M.cfg.reach_m then set_phase(F, "engage") end
+        if not F.following then follow_target(F, F.follow, (F.dist_m or 0) > 8) end
+        if F.dist_m and F.dist_m <= F.reach then set_phase(F, "engage") end
     elseif F.phase == "engage" then
         step_engage(F, pawn, me, acts, tgt)
-        if F.dist_m and F.dist_m > M.cfg.reach_m * 3 then set_phase(F, "approach", "target moved away") end
+        if F.dist_m and F.dist_m > F.reach * 3 then set_phase(F, "approach", "target moved away") end
     elseif F.phase == "defend" then
         step_defend(F, pawn, me, acts)
     elseif F.phase == "flee" then
@@ -1001,7 +1017,9 @@ local function start_fight(log, actor, opts)
     local pawn = pc and U.try(function() return pc.Pawn end)
     if not U.valid(pawn) then return { ok = false, reason = "companion_down" } end
     if not U.alive(actor) then return { ok = false, reason = "unknown_target" } end
-    if U.try(function() return actor.PlayerState end) ~= nil or (U.class_word(actor) or ""):find("PlayerCharacter", 1, true) then
+    -- never players: a pawn with a valid PlayerState, or any player-character class (AI pawns also
+    -- have a PlayerState property, but it is an invalid/null object)
+    if U.valid(U.try(function() return actor.PlayerState end)) or (U.class_word(actor) or ""):find("PlayerCharacter", 1, true) then
         return { ok = false, reason = "unsafe", data = { why = "never attack players" } }
     end
     c.me_id = U.short(pawn)
@@ -1035,6 +1053,9 @@ local function start_fight(log, actor, opts)
                 t0 = t, t = t, phase_t = t, inputs = {}, presses = 0, hits = 0, kills = 0, verified = 0, unverified_run = 0,
                 hit_seq = c.counts.hits, phase_log = {}, items_before = {}, loot_skip = {}, why = opts.why }
     for _, w in ipairs(U.find_all("WorldItem", { skip_defaults = true })) do F.items_before[U.short(w) or "?"] = true end
+    -- distances are centre to centre: a big creature (a cow's capsule) keeps us farther away, so
+    -- reach and follow distance grow with its capsule radius beyond a Kebbit-sized one
+    M.set_reach(F, actor)
     F.react_until = t + ((opts.react ~= false) and M.react_delay() or 0)
     c.fight = F
     set_phase(F, "react", opts.why)
@@ -1137,7 +1158,7 @@ function M.status()
     local f = c.fight
     local fs
     if f then
-        fs = { mode = f.mode, phase = f.phase, target = f.target_name, target_id = f.target_id, dist_m = f.dist_m and math.floor(f.dist_m * 10) / 10,
+        fs = { mode = f.mode, phase = f.phase, reach = f.reach, radius_cm = f.target_radius_cm, target = f.target_name, target_id = f.target_id, dist_m = f.dist_m and math.floor(f.dist_m * 10) / 10,
                target_hp = f.target_hp, presses = f.presses, verified = f.verified, hits = f.hits, dmg = f.dmg, face_err = f.face_err and math.floor(f.face_err),
                weapon = f.equip_plan and f.equip_plan.weapon, assessment = f.assessment, injected = f.injected, phase_log = f.phase_log,
                age_s = f.t and f.t0 and math.floor((f.t - f.t0) * 10) / 10 }

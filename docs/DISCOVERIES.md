@@ -992,14 +992,60 @@ Research and design: `docs/research/2026-10-25-traversal.md`.
   - `bStartPenetrating` reads junk (it shares bitfield byte 0xAD with `bBlockingHit`); use `Distance == 0`.
   - `K2_ComputeFloorDist` works on the dev server.
 
-## Raising Claude's stats via Claude.json: UNRESOLVED (2026-10-25 19:10, client build 26162923)
-- Tried to raise Claude's stats by merging Zezima's Skills, Spellcasting and Progress unlocks into the local `SaveCharacters/Claude.json`, with the client closed (backup at `C:\GameServers\backups\claude_char_20261025-190851.json`).
-- After rejoining Shockbyte, the client logs `Remote Character load complete … slot[Claude]` and `sense.me` reports total_level 12: all skills still 1.
-- My first conclusion ("server-authoritative") is **disputed by Luis**: player stats live in the local character JSON, synced via Steam Cloud. Likely causes to check later:
-  - Steam Cloud re-syncing at launch;
-  - the edit needing other fields (SaveCount/Backup checksum);
-  - `sense.me` total_level reading stale data.
-  Parked at Luis's request ("ignore that for now").
+## Raising Claude's stats via Claude.json: RESOLVED, the edit is NOT active (investigated 2026-10-25 19:15-19:26 UTC, client build 26162923, Shockbyte world "The Goochlands" GUID 78BEF9BB90BD45109AB14AC58AE159BE; read-only)
+History:
+- 19:10: a local merge of Zezima's skills into `Claude.json` had no effect (backup `C:\GameServers\backups\claude_char_20261025-190851.json`).
+- 20:07 local: Luis's edited copy came down from Steam Cloud: SaveCount 17, 12 642 bytes, XP 1 000 000 in six skills. A pre-launch copy is at `C:\GameServers\backups\claude_local_before_cloud_200726.json`.
+- After that, Claude joined at 19:08 UTC, the watchdog restarted the client, and it rejoined at 19:18 UTC.
+
+**Actual live levels** (`client_mod/commands/stats_skills.lua`, read-only, `pc.SkillComponent`, 19:19 UTC):
+- **Every skill is level 1 with 0 XP, except Agility, which is level 3 with 70 XP.** Total level 14.
+- Power level `BP_GetPowerLevel()` is 2. There are 0 perk runtime states, and `IsPerkUnlocked(DoubleJump)` is false.
+- `sense.me`'s total_level is correct: it is `GetTotalSkillLevel()`, which equals the sum of the per-skill `GetSkillLevel` (11 × 1 + 3 = 14).
+
+**The XP curve** (`GetTotalXPNeededForLevel`):
+
+| Level | 2 | 3 | 5 | 10 | 20 | 30 | 40 | 50 | 60 | 70 | 80 | 90 | 99 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| XP | 33 | 70 | 156 | 463 | 1 798 | 5 367 | 14 929 | 40 594 | 86 998 | 147 842 | 223 122 | 312 838 | 1 000 000 |
+
+- `MaxLevel` is 99, so the edited XP values were valid: 1 000 000 = 99, 40 594 = exactly 50, and the rest are about 73-91.
+- Skill ids in the JSON are each `USkillData.PersistenceID`, for example `4zYUGF5u_0KbMLkWJmmBbQ` = skill_woodcutting and `pJggvotwOkuoc98igUn7xA` = skill_agility.
+
+**Where the live character comes from: the Shockbyte server's own copy, not Claude.json.**
+1. **The client does send the edited file.**
+   - Client log at 19:08:22: `Remote Character load complete … slot[Claude]`, then `Data Buffer compressed [LZ4] was[12642]Bytes`, then `Started player profile stream. Handle[242] Size[12642]`.
+   - 12 642 bytes is exactly the size of the edited SaveCount-17 file.
+   - On the dev server the receiving side is visible: `PLAYER - CLIENT SAVE`, `Player profile stream completed`, then `LoadStateFromJson`. Examples: Zezima at 13:35-15:54 and the dev-account Claude at 16:51:54.
+2. **The live state matches neither stream.**
+   - Join 1 streamed 1M XP and an empty inventory (the edited copy was taken after the 18:21 death, with the items in the grave). The result was 0 XP and a 13-item inventory.
+   - Join 2 streamed the game's own 19:11 save, which had Agility 83 XP. The result was **Agility 70**. XP only goes up, so the live state is an older server-held snapshot.
+   - The live position and playtime also continue from neither file. So the server replaced the client's JSON with a state it kept itself.
+3. **The server writes the local file, not the other way round.**
+   - `ADominionPlayerControllerBase::Client_SaveToDisk(FDomClientDiskSave)` is a server→client RPC. `FDomClientDiskSave` has no reflected fields.
+   - A read-only post-hook (`client_mod/commands/stats_savehook.lua`, output in `client_io/events/savehook.jsonl`) fired at **19:25:39Z, the same second `Claude.json` was rewritten** (SaveCount 25, XP still 0 / Agility 70, `worlds_playtime[78BEF9BB…]` = 1792956339 = 19:25:39 UTC).
+   - The siblings are `Client_LoadFromDisk(Handle, FPlayerCharacterInfo)` and `Client_SetHasEditedProfile(bool)`.
+   - The game therefore **overwrote the edited Claude.json** (SaveCount 18-25, every few minutes), and Steam Cloud re-uploaded it (`steam_autocloud.vdf` at 20:17).
+   - `Claude.json.backup` rotated at 19:20 UTC. The only surviving copy of the 1M edit on this VM is `C:\GameServers\backups\claude_local_before_cloud_200726.json`.
+4. **The server-side copy mechanism** (from the dump, plus Jagex's notes):
+   - The world has a SPUD-persisted `ACachedCharacterStates` actor. Its field is `TArray<FCachedCharacterState{FDomCharacterGuid CharacterGuid; FString State; float LastUpdated}>`, with the `SaveGame` flag. `UWorldSaveUpgradeHelper` also carries `CachedCharacterStates`.
+   - On Claude's client this actor is a non-replicated level actor with 0 entries (`stats_cache.lua`). On the dev server it is also empty right now, with no players connected (`mod/experiments/charcache_probe.lua`). So the **Shockbyte server's** contents could not be read; that file is the group's world, so it was not touched.
+   - Jagex's 1.0.0.7 patch note (2 Oct 2026): progress was "not carrying over between worlds"; "Your most frequently visited world will override on login"; "The save data will pull the world that you have spent the most time in (specifically the world with the most save states logged in it)".
+   - Jagex's 0.11.0.8 note (7 Apr 2026): "Players connecting to a dedicated server should not experience rollbacks on progress from previous sessions".
+   - Together these mean that a world keeps per-character states, and on login they override the client's file.
+   - In `meta_data.worlds_playtime`, the value is the Unix time of the last save in that world, not a playtime. In the edited file it was 18:23:40 UTC, older than the server's copy.
+5. **Ruled out:**
+   - Steam Cloud re-sync: the 19:08 stream was the edited file itself.
+   - A different slot or the `.backup`: the slot is Claude, and the size matches.
+   - A different XP-to-level conversion: the curve tops out at 1M = 99.
+   - `sense.me` reading stale data: the live read agrees.
+   - The client log has no cheat/invalid/sanitise lines. The only flags are `SetPawn: bHasLoadedCharacterState [false], bCharacterSaveDataIsValid [false]`, and those print false on every client join; on the server they become true.
+   - Validation that clamps XP is not excluded, but it cannot explain the inventory or the Agility 83 → 70 change.
+
+**What would make an edit take effect (not done, needs Luis):**
+- (a) Edit or remove Claude's `CachedCharacterStates` entry in the Shockbyte world save, with the server stopped. Claude's character GUID is `D06CFBE34D95AB743CE28EBE2C0DBBC7`. **That is the group's real world**, so it is Luis's call, with a backup first.
+- (b) Untested: an edited Claude.json whose `worlds_playtime[78BEF9BB…]` timestamp (and maybe SaveCount) is newer than the server's copy, uploaded while the client is closed. This applies only if the override is "newest wins"; the 83 → 70 rollback suggests the server copy may win regardless.
+- (c) Prove the mechanism on the dev server first. Join a character there with a 1M-XP file (a fresh world has no cached state, so `LoadStateFromJson` should apply it), read `GetSkillLevel` on the server, then rejoin with a lower file and check which one wins.
 
 ## R2 client perception for the brain: look / inspect / get_state digest live (2026-10-25, about 18:11-18:20 UTC, Shockbyte world, read-only)
 - **Setup:** `client_bridge.lua` was hot-reloaded live (`bridge_start.lua`), with no client restart. Capabilities now add `look`, `inspect` and `interact`, so the brain's planner skills become `go_to, follow, stop, drop, interact` once the brain restarts.
@@ -1074,3 +1120,10 @@ Files: `tools/client_lib.ps1` (shared), `tools/client_boot.ps1`, `tools/client_w
   - No game-client or bot watchdog fitting a UE4SS client was found.
   - Decision: **adapt** `tools/watchdog.ps1` (dump/heartbeat/cdb pattern), use the DWClient runner itself as the game-thread heartbeat, and **build** the thin boot state machine over the existing command files.
 - **Teardown pause:** `join_server.lua` and `disconnect.lua` set `_G.DW_PAUSE` (commit 78ac755), and so far nothing clears it automatically. So boot runs `unpause.lua` once the pawn exists, the probe reports `paused`, the watchdog treats a pause that lingers more than 30 s in the world as degraded (it reruns boot_and_join), and the smoke test's `services` step fails while it is set.
+- **First live fight (19:13:40-19:14:19 UTC, Shockbyte, commanded, force=true, lock-on off): INCOMPLETE, the client hung.**
+  - Live state before it: Luis's stats edit had NOT reached the game: `BP_GetPowerLevel` 2, every skill level 1 (Agility 3), total 14. The only Kebbit nearby (73 m south) was inside a goblin camp (6 Goblin Runts, Aggressive, PL1, 120 HP; 2 Giant Rats, Aggressive, PL2, 200 HP), so the target was a lone Cow (NeutralUntilAttacked, PL2, 240 HP shown, 312 HP when read in the fight) 63 m north.
+  - Worked: the arbiter suspended a stand-in task (`test_task`) for `combat:attack`; weapon choice from his own inventory (Bone Dagger, score 15.0, plus the Bronze Shield because the dagger is one-handed); equip by hotbar keys 6 and 8; `move.follow` of a creature by entity id (sprint, local planner) closed 63 m to 2.9-3.0 m; phase engage; one IA_PrimaryAction tap injected (3 frames).
+  - Not verified: whether that swing played or hit (no stamina-spent or damage check had run yet), the Kebbit/Cow HP drop, loot, re-equip, resume.
+  - **Bug found and fixed offline:** the cow's capsule keeps him about 3.0 m away centre to centre, beyond the fixed 2.2 m reach, so he stopped pressing. Reach and follow distance now grow with the target's `CapsuleComponent:GetScaledCapsuleRadius()` beyond 40 cm.
+  - **Hang:** the game thread stopped about 19:14:19 (0 CPU, process alive). The game log's last line was `FlushAsyncLoading(9245): 1 QueuedPackages` at 19:14:11, after the first-ever dagger and shield equip and the first dagger swing. The cdb stack shows the GameThread waiting (`WaitForSingleObjectEx`) under a UE4SS hook frame (`logs/client/stack_8452_201705.txt`), identical to the 17:53 hang. Prime suspect (main): a synchronous asset load under NullRHI. Owned by the hang-investigation agent; combat retries wait for it. `BP_GetPowerLevel` (a Blueprint event) is now read at most every 10 s, as a precaution.
+  - Also fixed: AI pawns have a `PlayerState` property that is a null object, so the never-attack-players check now requires a *valid* PlayerState.

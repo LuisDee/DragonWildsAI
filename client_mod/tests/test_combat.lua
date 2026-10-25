@@ -444,6 +444,22 @@ do
     check("orders", Cm.HANDLERS.combat_orders(nil, { stance = "passive", avoid = { "Kebbit" } }).orders.avoid.kebbit == true)
 end
 
+-- ================================================================ 7b. big target: reach scales with its capsule (a cow stands ~3 m away)
+reset_world()
+do
+    local cow = new_creature("BP_AI_Cow_Character_C_1", "Cow", { X = 800, Y = 0, Z = 0 }, { hp = 60, pl = 1 })
+    cow.CapsuleComponent = obj({ GetScaledCapsuleRadius = function() return 120 end }, "C /x")
+    -- the fake move cannot get closer than 3.0 m to it (like the live cow)
+    local real_follow = fake_move.follow
+    fake_move.follow = function(log, goal, dist, opts) return real_follow(log, goal, math.max(dist, 3.0), opts) end
+    check("big target: fight starts", Cm.attack(nil, "Cow").ok)
+    check("big target: reach grows with capsule", math.abs(Cm._state().fight.reach - 3.0) < 1e-6, Cm._state().fight.reach)
+    run_until(function() return Cm._state().fight == nil end, 40)
+    fake_move.follow = real_follow
+    local res = Cm._state().last.result
+    check("big target: killed from 3 m", res.ok and res.data.killed and res.data.presses >= 3, res.reason)
+end
+
 -- ================================================================ 8. world teardown (_G.DW_PAUSE): no game calls
 reset_world()
 do
