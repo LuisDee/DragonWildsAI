@@ -50,7 +50,7 @@ M.cfg = {
     grave_radius_m = 80,
     lease_s = 15,
     busy_wait_s = 20,       -- the pawn held by an equal/higher owner this long (not a fight): fail "busy" naming it
-    timeout_s = { fetch = 110, consume = 115, come_to = 105, recover_grave = 110, give = 100, interact = 100 },
+    timeout_s = { fetch = 110, consume = 115, come_to = 105, recover_grave = 110, give = 100, interact = 100, explore = 290 },
 }
 
 local W = {}
@@ -815,7 +815,7 @@ local function start_recover_grave(api, args, ctx)
         if not r.ok then return r end
         local d = r.data
         d.grave, d.items = mine.id, d.gained
-        M.death_recovered("recover_grave")
+        M.death_recovered("recover_grave", mine.position, mine.id)
         local n = 0
         for _, v in pairs(d.gained or {}) do n = n + v end
         d.count = n
@@ -930,7 +930,7 @@ local function start_interact(api, args, ctx)
         job.verify_final = function(res)
             local n = 0
             for _, v in pairs(res.data and res.data.gained or {}) do n = n + (tonumber(v) or 0) end
-            if n > 0 then M.death_recovered("interact") end
+            if n > 0 then M.death_recovered("interact", t.position, t.id) end
             return res
         end
     end
@@ -939,50 +939,85 @@ local function start_interact(api, args, ctx)
     return job
 end
 
--- ------------------------------------------------------------------ death memory (BUGS L19), persisted
--- {ts, iso, position, lost = [{item, name, count}], recovered}: written when the vitals watcher reports
--- a death, from the last inventory he was seen carrying; kept in client_io/state/last_death.json so a
--- client restart does not forget it; cleared (recovered = true) once his grave is emptied.
+-- ------------------------------------------------------------------ grave memory (BUGS L19 + L22), persisted
+-- EVERY unrecovered death: {ts, iso, position, lost = [{item, name, count}], grave_id?, recovered}. Written
+-- when the vitals watcher reports a death (from the last inventory he was seen carrying), kept in
+-- client_io/state/last_death.json ({deaths = [...]}; an old single-record file is migrated) so a client
+-- restart does not forget it. A death is "recovered" once ITS grave (matched by id, or the nearest death
+-- within GRAVE_MATCH_M of the grave) is emptied, or its grave is seen gone at the spot.
 local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
 M.DEATH_FILE = ROOT .. "/client_io/state/last_death.json"
+M.GRAVE_MATCH_M, M.MAX_DEATHS = 15, 12
 local function json_mod()
     local ok, j = pcall(require, "jsonutil")
     return ok and j or nil
 end
-function M.death_memory()
+local function deaths()
     local mem = memory()
-    if mem.death == nil then
+    if mem.deaths == nil then
+        mem.deaths = {}
         local j = json_mod()
         local f = io.open(M.DEATH_FILE, "rb")
         if f and j then
             local s = f:read("a"); f:close()
-            mem.death = j.decode(s) or false
-        else
-            if f then f:close() end
-            mem.death = false
-        end
+            local d = j.decode(s)
+            if type(d) == "table" and type(d.deaths) == "table" then mem.deaths = d.deaths
+            elseif type(d) == "table" and d.ts then mem.deaths = { d } end -- the L19 single-record file
+        elseif f then f:close() end
     end
-    return mem.death or nil
+    return mem.deaths
 end
-local function save_death(d)
-    local mem = memory()
-    mem.death = d
+local function save_deaths()
     local j = json_mod()
     if not j then return end
     os.execute('mkdir "' .. (ROOT .. "/client_io/state"):gsub("/", "\\") .. '" 2>nul')
     local f = io.open(M.DEATH_FILE, "wb")
-    if f then f:write(j.encode(d)); f:close() end
+    if f then f:write(j.encode({ deaths = deaths() })); f:close() end
+end
+-- unrecovered deaths, newest first
+function M.graves_remembered()
+    local out = {}
+    for _, d in ipairs(deaths()) do if not d.recovered then out[#out + 1] = d end end
+    table.sort(out, function(a, b) return (a.ts or 0) > (b.ts or 0) end)
+    return out
+end
+-- the newest unrecovered death (go_to "my_grave"), or the one with that ts ("my_grave:<ts>")
+function M.death_memory(ts)
+    for _, d in ipairs(M.graves_remembered()) do
+        if not ts or tostring(d.ts) == tostring(ts) then return d end
+    end
+    return nil
 end
 function M.record_death(api, ts)
     local mem = memory()
     local lost = {}
     for _, r in ipairs(mem.last_items or {}) do lost[#lost + 1] = r end
     local here = api.my_position() or (mem.last_pos)
-    save_death({ ts = ts, iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ts), position = here, lost = lost, recovered = false })
+    local list = deaths()
+    list[#list + 1] = { ts = ts, iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ts), position = here, lost = lost, recovered = false }
+    while #list > M.MAX_DEATHS do table.remove(list, 1) end
+    save_deaths()
 end
-function M.death_recovered(how)
-    local d = M.death_memory()
-    if d and not d.recovered then d.recovered, d.recovered_how = true, how; save_death(d) end
+local function nearest_death(pos, grave_id)
+    local best, bd
+    for _, d in ipairs(M.graves_remembered()) do
+        if grave_id and d.grave_id == grave_id then return d end
+        local dd = pos and type(d.position) == "table" and dist2d(pos, d.position) or nil
+        if dd and dd <= M.GRAVE_MATCH_M and (not bd or dd < bd) then best, bd = d, dd end
+    end
+    return best
+end
+-- a grave emptied (pos = the grave's position, id = its actor id): mark THAT death recovered
+function M.death_recovered(how, pos, grave_id)
+    local d = (pos or grave_id) and nearest_death(pos, grave_id) or M.death_memory()
+    if d then d.recovered, d.recovered_how, d.recovered_at = true, how, os.time(); save_deaths() end
+end
+-- census sight of his own grave: bind it to its death (id, live contents); at a death spot with no grave
+-- of his in sight for long, the grave is gone (despawned or taken)
+function M.grave_seen(grave)
+    local d = nearest_death(grave.position, grave.id)
+    if d and d.grave_id ~= grave.id then d.grave_id = grave.id; save_deaths() end
+    return d
 end
 
 -- ------------------------------------------------------------------ get_state extras (honest perception)
@@ -1009,7 +1044,13 @@ function M.state_extras(api, data)
         end
         mem.last_items = rows
     end
-    if type(data.position) == "table" then mem.last_pos = data.position end
+    if type(data.position) == "table" then
+        mem.last_pos = data.position
+        mem.visited = mem.visited or {} -- his trail as 10 m cells (explore goes where he has been least)
+        local c = M.cfg.explore.cell_m
+        local ck = math.floor(data.position[1] / c) .. ":" .. math.floor(data.position[2] / c)
+        if mem.last_cell ~= ck then mem.visited[ck] = (mem.visited[ck] or 0) + 1; mem.last_cell = ck end
+    end
     -- vitals drain rates (points per real minute), from samples >= 20 s apart over the last ~10 min
     local function num(v) return type(v) == "number" and v or nil end
     local t = api.now()
@@ -1084,19 +1125,22 @@ function M.state_extras(api, data)
             end
         end
     end
-    local dm = M.death_memory()
-    if dm and not dm.recovered then
-        local here = data.position
+    -- every unrecovered grave (BUGS L22), with distance and what he lost there; the newest is death_memory
+    if out.my_grave then M.grave_seen(out.my_grave) end
+    local here = data.position
+    local list = {}
+    for _, dm in ipairs(M.graves_remembered()) do
         local dist = (type(here) == "table" and type(dm.position) == "table") and dist2d(here, dm.position) or nil
         local n, names = 0, {}
         for _, r in ipairs(dm.lost or {}) do
             n = n + (tonumber(r.count) or 1)
-            if #names < 8 then names[#names + 1] = tostring(r.name or r.item) .. " x" .. tostring(r.count or 1) end
+            if #names < 10 then names[#names + 1] = tostring(r.name or r.item) .. " x" .. tostring(r.count or 1) end
         end
-        out.death_memory = { iso = dm.iso, ago_s = dm.ts and math.max(0, math.floor(os.time() - dm.ts)) or nil,
-                             position = dm.position, distance = dist and math.floor(dist + 0.5) or nil,
-                             lost_items = n, lost = names }
+        list[#list + 1] = { ts = dm.ts, iso = dm.iso, ago_s = dm.ts and math.max(0, math.floor(os.time() - dm.ts)) or nil,
+                            position = dm.position, distance = dist and math.floor(dist + 0.5) or nil, lost_items = n,
+                            lost = names, lost_ids = dm.lost, grave_id = dm.grave_id, go_to = "my_grave:" .. tostring(dm.ts) }
     end
+    if #list > 0 then out.graves_remembered, out.death_memory = list, list[1] end
     local inv = api.module("inventory")
     if inv and type(inv.vitals_policy) == "function" then
         local okp, pol = pcall(inv.vitals_policy)
@@ -1172,13 +1216,108 @@ M.NEEDS = {
     give = { { "sense", "census" }, { "inventory", "list" }, { "inventory", "drop" }, { "move", "follow" }, { "move", "status" },
              { "move", "stop" } },
     move_item = { { "inventory", "list" }, { "inventory", "move" } },
+    explore = { { "sense", "census" }, { "move", "go_to" }, { "move", "status" }, { "move", "stop" } },
     set_vitals_policy = { { "inventory", "set_vitals_policy" } },
     equip = { { "inventory", "list" }, { "inventory", "equip" } },
 }
 
+-- ------------------------------------------------------------------ explore (BUGS L21)
+-- explore {about, max_legs = 6, leg_m = 30, radius = 40}: walk outward in legs, each toward the LEAST
+-- VISITED direction (his own trail: 10 m cells he has stood in, kept in memory), looking around while
+-- walking and after every leg; stop the moment something matching `about` (the model's words, matched
+-- like look's about) is perceived. Generic: no places, no item lists. Reports what it found, or how far.
+M.cfg.explore = { legs = 6, leg_m = 30, radius_m = 40, cell_m = 10 }
+local DIRS = {}
+for i = 0, 7 do local r = math.rad(i * 45); DIRS[#DIRS + 1] = { math.cos(r), math.sin(r), i * 45 } end
+local function visits_near(mem, p)
+    local c, n = M.cfg.explore.cell_m, 0
+    for dx = -1, 1 do for dy = -1, 1 do
+        n = n + ((mem.visited or {})[(math.floor(p[1] / c) + dx) .. ":" .. (math.floor(p[2] / c) + dy)] or 0)
+    end end
+    return n
+end
+M._visits_near = visits_near
+
+local function matching(api, about, radius)
+    local best, bs
+    for _, t in ipairs(api.census_things(radius, 40) or {}) do
+        if t.category ~= "players" then
+            local sc = api.match_score(t, about)
+            if sc > 0 and (not best or sc > bs or (sc == bs and (t.distance or 1e9) < (best.distance or 1e9))) then best, bs = t, sc end
+        end
+    end
+    return best
+end
+
+local function start_explore(api, args, ctx)
+    if not need_str(args.about) then return api.fail("invalid_args", { detail = "about is required (what to look for)" }) end
+    local cfg = M.cfg.explore
+    local legs = math.max(1, math.floor(tonumber(args.max_legs) or cfg.legs))
+    local leg_m = math.max(8, tonumber(args.leg_m) or cfg.leg_m)
+    local radius = math.min(80, tonumber(args.radius) or cfg.radius_m)
+    local start = api.my_position()
+    if not start then return api.fail("companion_down", { detail = "no position" }) end
+    local hit = matching(api, args.about, radius)
+    if hit then
+        return api.fail("already_in_sight", { found = hit, detail = tostring(hit.name) .. " is already in sight ("
+            .. tostring(hit.distance) .. " m, id " .. tostring(hit.id) .. ")" })
+    end
+    local mem = memory()
+    local job = { kind = "explore", legs_done = 0, failed = {}, trail = { start }, travelled = 0 }
+    local function pick()
+        local here = api.my_position() or start
+        local best, bscore
+        for _, d in ipairs(DIRS) do
+            if not job.failed[d[3]] then
+                local goal = { here[1] + d[1] * leg_m, here[2] + d[2] * leg_m, here[3] }
+                local away = dist2d(goal, start) or 0
+                local score = visits_near(mem, goal) * 10 - away -- least visited, then farther from where he began
+                if not best or score < bscore then best, bscore = { goal = goal, deg = d[3] }, score end
+            end
+        end
+        return best
+    end
+    local function next_leg()
+        while job.legs_done < legs do
+            local p = pick()
+            if not p then return false end
+            local mr = api.call("move", "go_to", p.goal, { tolerance_m = 3, timeout_s = 40, allow_unstuck = false })
+            if mr.ok then job.leg, job.legs_done = p, job.legs_done + 1; return true end
+            job.failed[p.deg] = true
+        end
+        return false
+    end
+    if not next_leg() then return api.fail("path_blocked", { detail = "no direction to explore from here" }) end
+    job.on_resume = function() next_leg() end
+    job.step = function(t)
+        local st = api.move_status()
+        local h = matching(api, args.about, radius)
+        if st.mode == "go_to" and not h then return nil end
+        if h and st.mode == "go_to" then api.call("move", "stop") end
+        local here = api.my_position()
+        if here then
+            job.travelled = job.travelled + (dist2d(here, job.trail[#job.trail]) or 0)
+            job.trail[#job.trail + 1] = here
+        end
+        if h then
+            return { ok = true, data = { found = h, legs = job.legs_done, travelled_m = math.floor(job.travelled + 0.5),
+                                         from = start, position = here } }
+        end
+        local res = type(st.result) == "table" and st.result or {}
+        if res.status == "failed" and job.leg then job.failed[job.leg.deg] = true end
+        if not next_leg() then
+            return api.fail("nothing_in_range", { about = args.about, legs = job.legs_done, travelled_m = math.floor(job.travelled + 0.5),
+                trail = job.trail, detail = "explored " .. job.legs_done .. " legs (about " .. math.floor(job.travelled + 0.5)
+                    .. " m) and saw nothing matching '" .. args.about .. "'" })
+        end
+        return nil
+    end
+    return job
+end
+
 -- ------------------------------------------------------------------ handlers
 local STARTERS ={ fetch = start_fetch, consume = start_consume, come_to = start_come_to, recover_grave = start_recover_grave,
-                   give = start_give, interact = start_interact }
+                   give = start_give, interact = start_interact, explore = start_explore }
 M.STARTERS = STARTERS
 
 local function handler(name)
@@ -1327,6 +1466,15 @@ M.MANIFEST = {
             heal_below_pct = { type = "number", minimum = 0, maximum = 95, description = "Eat healing food below this % HP (0 = off)." },
             reserve_warn = { type = "integer", minimum = 0, maximum = 20, description = "Warn below this many usable items." } }) },
         reasons = { "invalid_args" } },
+    explore = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 60, timeout_s = 300,
+        detail_is_speech = SPEAKS,
+        description = "Search outward, least-visited directions first, until something matching 'about' comes into view; "
+            .. "reports what was found or how far you searched.",
+        args = { type = "object", required = { "about" }, properties = obj({
+            about = str("What to look for, in words (e.g. water, berries, a tree)."),
+            max_legs = { type = "integer", minimum = 1, maximum = 12, default = 6, description = "How many legs." },
+            leg_m = { type = "number", minimum = 8, maximum = 80, default = 30, description = "Metres per leg." } }) },
+        reasons = { "already_in_sight", "nothing_in_range", "path_blocked", "interrupted", "timeout" } },
     fetch = { kind = "action", llm = false, moves = true, priority = "command", duration_s = 8, timeout_s = 120,
         detail_is_speech = SPEAKS,
         description = "Pick up items lying on the ground by name or id (find, walk, face, use, verify; repeats for count)." .. COMPOUND,

@@ -45,7 +45,7 @@ M.NEARBY_MAX = 20
 M.CHAT_ROTATE_BYTES = 1024 * 1024
 M.ACTION_TOOLS = { follow = true, go_to = true, stop = true, attack = true, gather = true, pickup = true,
                    give = true, interact = true, travel = true, sleep = true, craft = true, place = true,
-                   fetch = true, consume = true, come_to = true, recover_grave = true } -- composite skills (skills.lua)
+                   fetch = true, consume = true, come_to = true, recover_grave = true, explore = true } -- composite skills (skills.lua)
 -- Chat lines addressed to the companion (same defaults as brain/run_live.py DEFAULT_PREFIXES; the
 -- brain routes again, so this only keeps players' own conversation off the wire).
 M.DEFAULT_PREFIXES = { "!c ", "claude,", "claude:", "@claude ", "claude ", "companion,", "companion:", "@companion " }
@@ -474,10 +474,11 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
     local rf = resting_failure()
     if rf then return rf end
     local coords = type(target) == "table" and to_m(target) or nil
-    if target == "my_grave" then -- BUGS L19: where he last died (persisted), at any distance
+    local gts = type(target) == "string" and (target == "my_grave" and "" or target:match("^my_grave:(.+)$"))
+    if gts then -- BUGS L19/L22: a remembered death spot (newest, or my_grave:<ts>), at any distance
         local sk = M.module("skills")
-        local d = sk and type(sk.death_memory) == "function" and sk.death_memory() or nil
-        if not (d and d.position) then return fail("unknown_target", { target = target, detail = "no remembered death spot" }) end
+        local d = sk and type(sk.death_memory) == "function" and sk.death_memory(gts ~= "" and gts or nil) or nil
+        if not (d and d.position) then return fail("unknown_target", { target = target, detail = "no remembered grave like that" }) end
         coords = to_m(d.position)
     end
     -- every id that look / get_state return resolves (BUGS L8): a perceived thing's position, except
@@ -1553,6 +1554,9 @@ end
 function M.start(opts)
     opts = opts or {}
     local prev = rawget(_G, "__dwc_bridge")
+    -- read positions to take over from the running instance (BUGS L20: nothing written meanwhile is lost)
+    local handover = prev and type(prev.offsets) == "function" and select(2, pcall(prev.offsets)) or nil
+    if type(handover) ~= "table" then handover = nil end
     if prev and prev.stop then pcall(prev.stop) end
     local root = (opts.root or os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/"):gsub("/+$", "")
     local scripts = opts.scripts or (root .. "/client_mod/scripts")
@@ -1580,7 +1584,8 @@ function M.start(opts)
           -- DW_CLIENT_CHAT=heard (default): every other player's line -> chat_heard; =addressed: legacy filter
           chat_mode = (os.getenv("DW_CLIENT_CHAT") or "heard"):lower(),
           name = opts.name or os.getenv("DW_COMPANION_NAME") or "Claude" }
-    assert(bridge.init({ dir = dir, log = jlog, in_name = M.IN_NAME, out_name = M.OUT_NAME, from_start = opts.from_start }))
+    assert(bridge.init({ dir = dir, log = jlog, in_name = M.IN_NAME, out_name = M.OUT_NAME, from_start = opts.from_start,
+                         offset = handover and handover.main }))
     -- every tool goes through dispatch, so modules can appear (or break) while the bridge runs.
     -- install(ch) registers the handlers on one channel; ctx.chan tells async replies where to go.
     local function install(ch)
@@ -1637,7 +1642,8 @@ function M.start(opts)
     -- main channel; task_done/task_failed of an action started here are answered here.
     if opts.debug_channel ~= false then
         S.debug = assert(loadfile(shared .. "/bridge.lua"))()
-        assert(S.debug.init({ dir = dir, log = jlog, in_name = M.DEBUG_IN_NAME, out_name = M.DEBUG_OUT_NAME }))
+        assert(S.debug.init({ dir = dir, log = jlog, in_name = M.DEBUG_IN_NAME, out_name = M.DEBUG_OUT_NAME,
+                              offset = handover and handover.debug }))
         install(S.debug)
     end
     -- chat events (client_mod/scripts/chat.lua writes them); start at the end: no history replay
@@ -1657,11 +1663,86 @@ function M.start(opts)
     if not opts.no_loop then
         S.loop = LoopInGameThreadWithDelay(opts.poll_ms or M.POLL_MS, function() M.step() end)
     end
-    _G.__dwc_bridge = { stop = M.stop, status = M.status, module = M }
+    _G.__dwc_bridge = { stop = M.stop, status = M.status, module = M, busy = M.busy, offsets = M.offsets }
     ev("client_bridge_started", { dir = dir, poll_ms = opts.poll_ms or M.POLL_MS, offset = bridge.paths().offset,
                                   chat = S.chat_path })
     text_log("bridge: started on " .. dir .. " tools=" .. table.concat(implemented_tools(), ","))
     return M.status()
+end
+
+-- ------------------------------------------------------------------ safe restart (BUGS L20)
+-- Why a restart now would drop work, or nil when idle: an action in the slot (follow/go_to/interact...),
+-- waiters (say/drop confirmations), or brain/debug lines written but not read yet.
+function M.busy()
+    if not S then return nil end
+    local why = {}
+    if S.action then why[#why + 1] = "action " .. tostring(S.action.kind) .. " (" .. tostring(S.action.id) .. ")" end
+    if #S.waiters > 0 then why[#why + 1] = #S.waiters .. " waiting confirmation(s)" end
+    local function unread(ch)
+        if not ch then return 0 end
+        local p = ch.paths()
+        local f = io.open(p.input, "rb")
+        if not f then return 0 end
+        local size = f:seek("end") or 0
+        f:close()
+        return math.max(0, size - (p.offset or 0))
+    end
+    local u = unread(S.bridge) + unread(S.debug)
+    if u > 0 then why[#why + 1] = u .. " unread command bytes" end
+    return #why > 0 and table.concat(why, ", ") or nil
+end
+
+function M.offsets()
+    if not S then return nil end
+    return { main = S.bridge and S.bridge.paths().offset, debug = S.debug and S.debug.paths().offset }
+end
+
+-- Restart only when the running bridge is idle: now if idle, else re-check every 250 ms for up to
+-- opts.wait_s (5) and start the moment it is; refuse (with the reason, logged and returned) when it
+-- stays busy; opts.force = true restarts at once (emergency). The new instance takes over the old read
+-- positions either way. Returns {ok, started | deferred | refused, why}.
+M.RESTART_WAIT_S, M.RESTART_POLL_MS = 5, 250
+function M.restart_when_idle(opts)
+    opts = opts or {}
+    local prev = rawget(_G, "__dwc_bridge")
+    local why = prev and type(prev.busy) == "function" and select(2, pcall(prev.busy)) or nil
+    if type(why) ~= "string" then why = nil end
+    if not why or opts.force then
+        local st = M.start(opts)
+        return { ok = true, started = true, forced = (why and opts.force) and why or nil, status = st }
+    end
+    local wait_s = tonumber(opts.wait_s) or M.RESTART_WAIT_S
+    local clock = M.clock or os.clock
+    local t0 = clock()
+    local log = opts.log or function() end
+    local handle
+    local function try()
+        local w = select(2, pcall(prev.busy))
+        if type(w) ~= "string" then
+            if handle and CancelDelayedAction then pcall(CancelDelayedAction, handle) end
+            handle = nil
+            pcall(M.start, opts)
+            pcall(log, "bridge: restarted once idle (waited for: " .. why .. ")")
+            return true
+        end
+        if clock() - t0 >= wait_s then
+            if handle and CancelDelayedAction then pcall(CancelDelayedAction, handle) end
+            handle = nil
+            pcall(log, "bridge: restart REFUSED, still busy after " .. wait_s .. " s: " .. w .. " (force=true overrides)")
+            local okj, jl = pcall(function() return opts.jlog end)
+            if okj and jl and jl.event then pcall(jl.event, "client_bridge_restart_refused", { why = w }) end
+            M.last_restart = { refused = true, why = w }
+            return true
+        end
+        return false
+    end
+    if opts.no_loop then -- tests drive it: M.restart_poll() steps once
+        M.restart_poll = try
+    else
+        handle = LoopInGameThreadWithDelay(M.RESTART_POLL_MS, function() try() end)
+    end
+    M.last_restart = { deferred = true, why = why }
+    return { ok = true, deferred = true, why = why, wait_s = wait_s }
 end
 
 function M.stop()

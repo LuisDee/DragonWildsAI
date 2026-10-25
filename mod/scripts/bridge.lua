@@ -259,6 +259,9 @@ function M.init(opts)
     cfg.out_path = dir .. "/" .. (opts.out_name or M.BODY_TO_BRAIN)
     -- Start at the current end so stale commands from an earlier run are ignored.
     cfg.tail = M.new_tail(cfg.in_path, { from_start = opts.from_start })
+    -- a restarted instance takes over the previous one's read position, so a command written while it
+    -- swapped is still read (client BUGS L20); only when that offset fits the file
+    if type(opts.offset) == "number" and opts.offset >= 0 and opts.offset <= cfg.tail.offset then cfg.tail.offset = opts.offset end
     return true
 end
 

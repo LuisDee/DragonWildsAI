@@ -245,7 +245,8 @@ def lines(state: dict, cat: dict | None = None) -> list[str]:
                                       if n.get("pct") is not None else "")
         parts = []
         if n["need"] == "rest":
-            parts.append("rest: " + ("; ".join(_rest(state)) or "no bed or shelter near"))
+            from .map_memory import lines_for
+            parts.append("rest: " + ("; ".join(_rest(state) + lines_for(state, ["bed"])[:1]) or "no bed or shelter near"))
         elif n["need"] == "tool":
             parts.extend(_tool(state, n["tool"], cat))
         else:
@@ -254,6 +255,10 @@ def lines(state: dict, cat: dict | None = None) -> list[str]:
             near = _nearby(state, n["kinds"], cat)
             if near:
                 parts.append("nearby: " + "; ".join(near))
+            from .map_memory import lines_for
+            rem = lines_for(state, [k for k in n["kinds"] if k != "food" or not n.get("heal")])
+            if rem:  # remembered beyond sight (per-world map memory, BUGS L21)
+                parts.append("remembered: " + "; ".join(rem[:2]))
         if people:
             parts.append("players who could help: " + ", ".join(people))
         if n["need"] not in ("rest", "tool"):

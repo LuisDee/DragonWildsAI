@@ -36,27 +36,23 @@ local M = { VERSION = 1, obj = obj, NOARGS = NOARGS }
 M.TOOLS = {
     -- ------------------------------------------------------------------ actions
     follow = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 0, timeout_s = 10,
-        description = "Follow a player and keep following (persistent: if he goes somewhere you can't reach, you wait, "
-            .. "keep watching and resume) until stopped or given another job.",
+        description = "Follow a player until stopped or given another job (waits and resumes if he is out of reach).",
         args = { type = "object", required = { "player" }, properties = obj({
-            player = str("The player's exact name as in command.player or players."),
+            player = str("The player's exact name."),
             distance = { type = "number", minimum = 1, default = 3, description = "Distance to keep, metres." } }) },
         preconditions = { "the player is in the world" }, ground = obj({ player = "player" }),
         reasons = { "unknown_target", "companion_down", "invalid_args" } },
     stop = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 0, timeout_s = 10,
-        description = "Stop whatever you are doing (following, walking, using something, a commanded fight) and stand "
-            .. "still where you are until told otherwise.",
+        description = "Stop the current action and stand still.",
         args = NOARGS, reasons = {} },
     go_to = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 20, timeout_s = 120,
-        description = "Walk to a player (his name: stops within about 3 m of him), a thing's id from situation/look, a "
-            .. "named place from notes, or [x, y, z] metres. Answers when you arrive or with why you can't get there.",
+        description = "Walk to a player, a perceived thing, a remembered place or a point; answers on arrival or says why not.",
         args = { type = "object", required = { "target" }, properties = obj({
-            target = { description = "A player name, an id from situation/look, a place name, or [x, y, z] metres.",
+            target = { description = "A player name, a perceived id, a place, 'my_grave' / 'my_grave:<ts>' (a remembered grave), or [x,y,z].",
                        anyOf = { { type = "string" }, { type = "array", items = { type = "number" }, minItems = 2, maxItems = 3 } } } }) },
         reasons = { "path_blocked", "verification_failed", "interrupted", "timeout", "companion_down" } },
     drop = { kind = "waiter", llm = true, moves = false, duration_s = 1, timeout_s = 10,
-        description = "Drop carried items on the ground at your own feet (the inventory's drop). To hand items to a player "
-            .. "use give.",
+        description = "Drop carried items at your feet (to give: go_to the player first).",
         args = { type = "object", required = { "item", "count" }, properties = obj({
             item = str("A carried item: its name (e.g. 'Oak Logs') or item id from inventory."),
             count = { type = "integer", minimum = 1, description = "How many." },
@@ -103,19 +99,17 @@ M.TOOLS = {
         args = { type = "object", required = { "text" }, properties = obj({ text = str("The chat line.") }) } },
     -- ------------------------------------------------------------------ reads
     look = { kind = "read", llm = true, moves = false, duration_s = 0.3, timeout_s = 15,
-        description = "Look around: every world item, ground plant, resource, creature, player and usable thing nearby, by "
-            .. "in-game name, with ids, distance and what you can do with it. Read-only: does not interrupt.",
+        description = "List things nearby (items, plants, resources, creatures, players, usables) with ids. Read-only.",
         args = { type = "object", properties = obj({
-            about = str("What the player named, in their words (e.g. 'sticks'); ranks matches first."),
+            about = str("The player's words for what to find; ranks matches first."),
             radius = { type = "number", minimum = 1, maximum = 80, default = 20, description = "Metres." },
             max = { type = "integer", minimum = 1, maximum = 40, default = 15, description = "At most this many things." } }) } },
     inspect = { kind = "read", llm = true, moves = false, duration_s = 0.3, timeout_s = 15,
-        description = "Details of one thing from look: what it gives, what it needs, its contents (graves, chests). Read-only.",
+        description = "Details of one thing: what it gives, needs, contains. Read-only.",
         args = { type = "object", required = { "target" }, properties = obj({ target = str("An id from look.") }) },
         ground = obj({ target = "thing" }) },
     inventory = { kind = "read", llm = true, moves = false, duration_s = 0.2, timeout_s = 10,
-        description = "Your full inventory: worn (by slot), held, hotbar (with durability and use: food/drink) and bag. "
-            .. "Only hotbar food/drink can be consumed. Read-only.",
+        description = "Your full inventory with item stats vs what you wear. Read-only.",
         args = { type = "object", properties = obj({ raw = { type = "boolean", default = false, description = "Debug: raw listing." } }) } },
     get_state = { kind = "probe", llm = false, moves = false, timeout_s = 10, args = NOARGS,
         description = "Position, health, vitals, inventory, nearby players/creatures/resources/items (the brain's state)." },

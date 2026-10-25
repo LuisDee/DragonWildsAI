@@ -509,6 +509,12 @@ Root cause R2 of the 19:22–19:26 episode was that the brain's tool list was ha
   - item stats from `data/items_<build>.json` (`brain/item_stats.py`: PL, weight, slot, tool tier, armour class, attack names, and numeric deltas to what is equipped; no verdict).
   - Events: `items_dropped` (once per burst), `activity` (from `client_io/events/activity.jsonl` and the reflex's own acts), and `vitals_low` (below the model's policy, nothing usable on the HOTBAR, `in_bag`/`unusable` lists).
 - **Vitals policy** (review H2/M8): `set_vitals_policy {drink_below_pct, eat_below_pct, heal_below_pct, reserve_warn}` is the model's call. `inventory.lua` keeps only a 10 % safety floor.
+- **Needs, memory, safe reload (2026-10-25 late; BUGS L16–L22):**
+  - `brain/needs.py` turns state into one line per pressing need (food, drink, health, rest, a missing tool): options carried, nearby, remembered, craft/cook (an estimate; `craft_plan` confirms), players who could help, time to empty. An `Activity` line lists the skill's spells and rate vs best.
+  - `brain/map_memory.py` is the ONE per-world map/resource memory (`logs/state/worlds/<w>/map_memory.json`). Every get_state feeds it through `BridgeClient.state_hooks`. The Director reads it through `load`/`query`.
+  - `explore {about}` searches outward along least-visited legs (skills.lua).
+  - Every unrecovered grave is kept in `client_io/state/last_death.json` (`go_to 'my_grave:<ts>'`).
+  - `bridge_start.lua` waits for the bridge to be idle, refuses after 5 s with the reason, and hands over the read offsets. `bridge_start_force.lua` is for emergencies only.
 - **How to add a tool now:** a module handler plus its `MANIFEST` entry (plus `NEEDS`). The brain needs no edit unless the result needs a verifier (`executor.VERIFIERS`).
 
 ### 8.5 Tests

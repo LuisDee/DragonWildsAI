@@ -64,6 +64,8 @@ class BridgeClient(GameInterface):
         self._listener: Callable[[Event], None] | None = None
         self._notifying = False
         self._unknown_events: dict[str | None, int] = {}  # event type -> count (logged once each)
+        # called with every successful get_state's data (map memory: observe + annotate remembered options)
+        self.state_hooks: list[Callable[[dict], None]] = []
 
     # ---------------------------------------------------------------- plumbing
 
@@ -229,7 +231,14 @@ class BridgeClient(GameInterface):
         return self.request(name, args)
 
     def get_state(self) -> ActionResult:
-        return self._tool("get_state")
+        res = self._tool("get_state")
+        if res.get("ok") and isinstance(res.get("data"), dict):
+            for hook in self.state_hooks:
+                try:
+                    hook(res["data"])
+                except Exception as exc:  # memory is best effort; never break a state read
+                    self.log.log("state_hook_error", error=repr(exc))
+        return res
 
     def follow(self, player: str, distance: float = 3.0) -> ActionResult:
         return self._tool("follow", player=player, distance=distance)

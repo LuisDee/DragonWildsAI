@@ -1441,47 +1441,42 @@ local function str(desc) return { type = "string", description = desc } end
 M.MANIFEST = {
     craft = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 15, timeout_s = 300,
         detail_is_speech = true,
-        description = "Craft ONE recipe at a real station from what you carry: walks to the nearest station of the right "
-            .. "type (bench, forge, furnace, campfire, ...), opens it and makes it there (processing stations: loads the "
-            .. "inputs and fuel, starts it, waits and picks up the result). Never gathers or crafts the ingredients itself: "
-            .. "use craft_plan to see what a goal needs and do those steps first.",
+        description = "Make one recipe at a nearby station from carried items (walks there, uses it, collects the "
+            .. "result). Does not gather or craft ingredients: see craft_plan.",
         args = { type = "object", properties = obj({
-            item = str("What to make, by name or item id (e.g. 'Bronze Bar')."),
-            recipe = str("A recipe id from recipes/craft_plan, to pick one when an item has several recipes."),
-            count = { type = "integer", minimum = 1, maximum = M.cfg.max_count, default = 1,
-                      description = "With item: how many items; with recipe: how many crafts." },
-            station = str("Optional: a station id from stations (else the nearest of the right type)."),
-            fuel = str("Optional, processing stations: which carried fuel to burn (name or id). Without it the station's own "
-                .. "fuel is used if it has enough, else the one fuel you carry.") }) },
+            item = str("Item to make (name or id)."),
+            recipe = str("Recipe id, to pick one of several."),
+            count = { type = "integer", minimum = 1, maximum = M.cfg.max_count, default = 1, description = "Items (crafts with recipe)." },
+            station = str("Station id (default nearest)."),
+            fuel = str("Fuel to burn (processing).") }) },
         preconditions = { "the recipe is unlocked", "you carry all inputs", "a station of its type is within 60 m" },
         ground = obj({ item = "item", station = "thing" }),
         reasons = { "missing_materials", "not_unlocked", "nothing_in_range", "ambiguous_target", "unknown_recipe", "station_busy",
                     "inventory_full", "not_interactable", "path_blocked", "too_far", "verification_failed", "timeout",
                     "craft_failed", "not_implemented", "interrupted" } },
     recipes = { kind = "read", llm = true, moves = false, duration_s = 0.5, timeout_s = 15,
-        description = "Recipes: what you can craft right now (default), every recipe for an item (with item: each one's "
-            .. "status, missing inputs, station and how it unlocks), or what a station type makes (with station).",
+        description = "List recipes: craftable now (default), every recipe for an item with its status and missing "
+            .. "inputs, or what a station makes.",
         args = { type = "object", properties = obj({
-            item = str("An item name or id: list every recipe that makes it."),
-            station = str("A station type or name (e.g. 'Furnace') or a station id: list what it makes."),
-            count = { type = "integer", minimum = 1, default = 1, description = "With item: how many you want." },
-            near_only = { type = "boolean", default = false, description = "Craftable-now list: only stations near you." },
+            item = str("Item name or id."),
+            station = str("Station type, name or id."),
+            count = { type = "integer", minimum = 1, default = 1, description = "How many wanted." },
+            near_only = { type = "boolean", default = false, description = "Only stations near you." },
             limit = { type = "integer", minimum = 1, maximum = 50, default = 25 } }) },
         reasons = { "unknown_recipe", "ambiguous_target", "unknown_target", "state_unavailable" } },
     craft_plan = { kind = "read", llm = true, moves = false, duration_s = 0.5, timeout_s = 15,
-        description = "Plan how to make something: a tree from the game's recipes over what you carry, with the steps in "
-            .. "order (gather X, craft Y at station Z, unlock, find a station, obtain) and every alternative recipe. Read "
-            .. "only: it does nothing; you decide which steps to do.",
+        description = "Plan a goal item from carried items: ordered steps (gather, craft at station, unlock, find "
+            .. "station) and alternative recipes. Read only.",
         args = { type = "object", properties = obj({
-            item = str("The goal item, by name or id."),
+            item = str("Goal item name or id."),
             recipe = str("Or a recipe id."),
-            count = { type = "integer", minimum = 1, default = 1, description = "How many of the goal item." } }) },
+            count = { type = "integer", minimum = 1, default = 1, description = "How many." } }) },
         reasons = { "unknown_recipe", "ambiguous_target", "invalid_args", "state_unavailable" } },
     stations = { kind = "read", llm = true, moves = false, duration_s = 0.5, timeout_s = 15,
-        description = "Crafting and processing stations near you: type, distance, how many recipes you've unlocked there, "
-            .. "what you can make there now, and a furnace/kiln/campfire's state (running, contents, fuel, output).",
+        description = "Stations near you: type, distance, unlocked recipes, what you can make now, and a furnace's "
+            .. "state (running, contents, fuel, output).",
         args = { type = "object", properties = obj({
-            radius = { type = "number", minimum = 5, maximum = 120, default = 60, description = "Search radius, metres." } }) },
+            radius = { type = "number", minimum = 5, maximum = 120, default = 60, description = "Metres." } }) },
         reasons = { "state_unavailable" } },
 }
 

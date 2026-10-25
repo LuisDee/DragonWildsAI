@@ -782,6 +782,104 @@ test("activity: XP/min per skill and item gains/min over the window, with the be
     assert(a.items[1].item == "ITEM_Resources_Wood_Oak" and a.items[1].per_min == 3, json.encode(a.items))
 end)
 
+test("BUGS L20: bridge restart waits for idle, refuses with the reason, force overrides, unread commands survive", function()
+    reset()
+    local opts = { root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = base .. "/chat.jsonl", vitals_events = base .. "/vitals.jsonl",
+                   move_events = base .. "/move.jsonl", gather_events = base .. "/gather.jsonl", activity_events = base .. "/activity.jsonl",
+                   jlog = H.log, no_loop = true }
+    local function fresh()
+        local b = assert(loadfile(REPO .. "/client_mod/scripts/client_bridge.lua"))()
+        b.RELOAD_CHECK_S, b.clock = 0, function() return T end
+        return b
+    end
+    -- 1. an action in the slot: deferred, then refused after wait_s with the reason
+    rpc("follow", { player = "Luis" })
+    local B2 = fresh()
+    local r = B2.restart_when_idle(opts)
+    assert(r.deferred and r.why:find("action follow"), json.encode(r))
+    T = T + 6
+    assert(B2.restart_poll() == true and B2.last_restart.refused and B2.last_restart.why:find("follow"), "refused after 5 s")
+    assert(B._state().action and B._state().action.kind == "follow", "the running bridge (and its follow) untouched")
+    -- 2. it becomes idle within the wait: started then
+    local B3 = fresh()
+    r = B3.restart_when_idle(opts)
+    assert(r.deferred)
+    rpc("stop")
+    assert(B3.restart_poll() == true and not B3.last_restart.refused, "started once idle")
+    B = B3
+    assert(rpc("ping").ok, "the new instance answers")
+    -- 3. force while busy: at once; a command written before the swap is still read by the new instance
+    rpc("follow", { player = "Luis" })
+    local id = send("ping") -- unread by the old instance
+    local B4 = fresh()
+    r = B4.restart_when_idle({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = base .. "/chat.jsonl", jlog = H.log,
+                               no_loop = true, force = true, vitals_events = base .. "/vitals.jsonl", move_events = base .. "/move.jsonl",
+                               gather_events = base .. "/gather.jsonl", activity_events = base .. "/activity.jsonl" })
+    assert(r.started and r.forced and r.forced:find("follow"), json.encode(r))
+    B = B4
+    B.step()
+    assert(result_of(drain(), id), "the command written during the swap was answered (read position handed over)")
+end)
+
+test("BUGS L22: every unrecovered grave is kept (newest is not the only one); recovering one leaves the other", function()
+    reset()
+    -- death 1 at (1, 25): he carried logs
+    F.move.position = { 1, 25, 3 }
+    rpc("get_state")
+    write(base .. "/vitals.jsonl", json.encode({ type = "death", ts = T, hp = 0 }) .. string.char(10))
+    B.step()
+    local ts1 = T
+    -- death 2 far away, 100 s later, with less on him
+    T = T + 100
+    F.inv = { oak_bag = 1, oak_bar = 0 }
+    F.move.position = { 80, 80, 3 }
+    rpc("get_state")
+    write(base .. "/vitals.jsonl", json.encode({ type = "death", ts = T, hp = 0 }) .. string.char(10))
+    B.step()
+    local s = rpc("get_state")
+    local g = s.data.graves_remembered
+    assert(g and #g == 2 and g[1].position[1] == 80 and g[2].position[2] == 25, json.encode(g))
+    assert(g[2].go_to == "my_grave:" .. tostring(ts1) and g[2].lost_items == 8, json.encode(g[2]))
+    -- go_to the OLDER grave by its key
+    local r0, id = rpc("go_to", { target = "my_grave:" .. tostring(ts1) })
+    local r = r0 or run(id, 10)
+    assert(r and r.ok and F.move.target[2] == 25, json.encode(F.move.target))
+    -- Take All at the grave by death 1 (grave_1 sits at (1,30), within 15 m): only death 1 is cleared
+    F.move.position = { 1, 29, 3 }
+    local _, gid = rpc("interact", { target = "grave_1" })
+    assert(run(gid, 30).ok)
+    s = rpc("get_state")
+    g = s.data.graves_remembered
+    assert(g and #g == 1 and g[1].position[1] == 80, "the other grave stays remembered: " .. json.encode(g))
+end)
+
+test("BUGS L21: explore walks least-visited legs and stops when something matching 'about' appears", function()
+    reset()
+    F.me_pos = nil
+    F.move.position = { 0, 0, 3 }
+    F.world.interactables = {}
+    rpc("get_state")
+    -- he came from the north-east (his trail): explore must head elsewhere first; water lies east, beyond sight
+    local mem = _G.DWSkills
+    mem.visited = mem.visited or {}
+    for i = 0, 6 do mem.visited[i .. ":" .. i] = 5 end -- 10 m cells along +X+Y
+    table.insert(F.world.interactables, { id = "water_1", class = "BP_WaterVolume_C", name = "Water Volume", kind = "interactable",
+                                          prompt = "Collect Water", position = { 100, -10, 3 } })
+    local r0, id = rpc("explore", { about = "water", max_legs = 6, leg_m = 30 })
+    assert(r0 == nil, "async: " .. json.encode(r0))
+    local r = run(id, 60)
+    assert(r and r.ok and r.data.found.id == "water_1" and r.data.legs >= 1, json.encode(r))
+    assert(not (r.data.position[1] > 0 and r.data.position[2] > 0), "did not go back the way he came (NE)")
+    -- already in sight: says so at once
+    local a = rpc("explore", { about = "water" })
+    assert(a.reason == "already_in_sight" and a.data.found.id == "water_1", json.encode(a))
+    -- nothing anywhere: a bounded search, then nothing_in_range with how far
+    F.world.interactables = {}
+    local _, id2 = rpc("explore", { about = "lava", max_legs = 2, leg_m = 10 })
+    local n = run(id2, 40)
+    assert(n and n.reason == "nothing_in_range" and n.data.legs == 2 and n.data.detail:find("lava"), json.encode(n))
+end)
+
 -- ------------------------------------------------------------------ run
 for _, t in ipairs(tests) do
     local ok, err = pcall(t[2])

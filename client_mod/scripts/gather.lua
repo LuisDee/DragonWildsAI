@@ -1099,17 +1099,13 @@ do
     M.MANIFEST = {
         gather = { kind = "action", llm = true, moves = true, priority = "task", duration_s = 120, timeout_s = 1800,
             detail_is_speech = true,
-            description = "Harvest a resource kind (resource = a profile key, e.g. oak, ash, stone) until you have `count` MORE "
-                .. "of it in your inventory. It finds standing trees, felled trunks, logs, stumps (only with stumps=true), rocks and "
-                .. "ground resources itself, nearest first, equips the right tool you carry, and fails naming the tool it needs. "
-                .. "style picks one of the held tool's own actions (see held_actions, e.g. an axe's Chop or Overhead Chop).",
+            description = "Harvest a resource (a profile key, e.g. oak, ash, stone) until you have count MORE; finds targets and equips your tool.",
             args = { type = "object", required = { "resource", "count" }, properties = obj({
-                resource = { type = "string", description = "Resource kind, e.g. 'oak', 'ash', 'stone', 'log'." },
-                count = { type = "integer", minimum = 1, description = "How many more to gather." },
-                radius = { type = "number", minimum = 1, maximum = 120, description = "Search radius in metres (default 30)." },
-                stumps = { type = "boolean", description = "Also chop stumps (only when asked)." },
-                style = { type = "string", description = "One of the tool's actions by style (primary, special) or name (e.g. "
-                    .. "\"Overhead Chop\"); omit for the default." } }) },
+                resource = { type = "string", description = "Resource kind, e.g. oak, ash, stone, log." },
+                count = { type = "integer", minimum = 1, description = "How many more." },
+                radius = { type = "number", minimum = 1, maximum = 120, description = "Search radius, m (default 30)." },
+                stumps = { type = "boolean", description = "Also chop stumps." },
+                style = { type = "string", description = "One of the tool's actions (see held_actions), e.g. Overhead Chop." } }) },
             preconditions = { "a tool of the right kind in your inventory (axe for trees, pickaxe for rocks)" },
             reasons = { "nothing_in_range", "wrong_tool", "path_blocked", "inventory_full", "interrupted", "timeout", "unknown_target",
                         "invalid_args", "not_unlocked" } },
