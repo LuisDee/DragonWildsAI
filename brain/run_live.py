@@ -44,7 +44,8 @@ from .planner import Planner
 from .state_store import StateStore
 from .transport import BODY_TO_BRAIN, BRAIN_TO_BODY, JsonlFileTransport
 
-DEFAULT_PREFIXES = ["!c ", "companion,", "companion:", "@companion "]
+# Matched case-insensitively. "claude," before "claude " so the comma is stripped too.
+DEFAULT_PREFIXES = ["!c ", "claude,", "claude:", "@claude ", "claude ", "companion,", "companion:", "@companion "]
 PREFIX_ENV = "DW_CHAT_PREFIXES"
 PING = "!ping"
 PONG = "pong"
@@ -108,7 +109,7 @@ class LiveOptions:
     log_dir: Path = field(default_factory=paths.log_dir)
     prefixes: list[str] = field(default_factory=lambda: list(DEFAULT_PREFIXES))
     dry_run: bool = False
-    name: str = "Companion"
+    name: str = "Claude"
     player: str = "Luis"
     poll_interval: float = 0.25  # bridge-file poll only; no model is ever called on this timer
     wait: float = 0.0  # seconds to wait for the body at startup; 0 = forever
@@ -240,7 +241,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--bridge-dir", type=Path, default=None, help="default: DW_BRIDGE_DIR or <repo>/bridge_io")
     ap.add_argument("--prefix", action="append", default=None,
                     help=f"chat prefix addressing the companion (repeatable). Default {DEFAULT_PREFIXES}")
-    ap.add_argument("--name", default=os.environ.get("DW_COMPANION_NAME", "Companion"))
+    ap.add_argument("--name", default=os.environ.get("DW_COMPANION_NAME", "Claude"))
     ap.add_argument("--player", default=os.environ.get("DW_PLAYER_NAME", "Luis"),
                     help="name the persona uses for the human player")
     ap.add_argument("--wait", type=float, default=0.0, help="seconds to wait for the body; 0 = forever")

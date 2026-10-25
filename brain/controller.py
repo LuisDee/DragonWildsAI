@@ -58,7 +58,7 @@ class Decision:
 
 class Controller:
     def __init__(self, llm: LLMClient, game: GameInterface, store: StateStore, logger: JsonlLogger,
-                 name: str = "Companion", player: str = "Luis", recent_events: int = 10):
+                 name: str = "Claude", player: str = "Luis", recent_events: int = 10):
         self.llm = llm
         self.game = game
         self.store = store
