@@ -179,3 +179,9 @@ Luis relies on spells: **a shield spell**, and **wind jump**, whose landing stun
 - **Brain `look(radius, about)` tool:** the Controller searches the real surroundings and matches the player's words against the game's names. Act only on what was actually perceived; otherwise say "I can't see any X" (section 12 / DISCOVERIES item-substitution bug).
 - **Generic `interact(target)`:** the same server-side interaction as a player's E-press (PlayerInteractionManager path), with item grants routed into the bot inventory.
 - Gather, pickup, chests, stations and farming plots all build on look + interact.
+
+## 18. Knowledge (game data + wiki) and crafting planning (Luis, 2026-10-25)
+- **Game data is primary:** extract recipes (URecipeData), crafting stations and unlocks into `data/recipes_<build>.json` (patch-synced, like items and spells).
+- **Wiki is secondary** (how-to, locations, drop sources, strategy): a local mirror via the official MediaWiki API (licence and rate limits respected), parsed into a searchable knowledge base behind a `lookup` / `how_to` tool. No live browsing mid-game.
+- **Crafting is planning over a recipe graph:** the Planner back-chains from the target item: inventory → nearby resources → gather → sub-craft at the required station, choosing the cheapest path when an item has several recipes. Each step is an existing verified skill (gather / pickup / go_to station / craft), verified by inventory deltas. Successful plans are saved to the skill library.
+- Research and recommendation: `docs/research/2026-10-25-scalable-agent-frameworks.md` (in progress).
