@@ -45,9 +45,11 @@ class LLMClient(Protocol):
 class LiteLLMClient:
     """Real model client. Importing litellm is deferred so tests stay fast and offline."""
 
-    def __init__(self, model: str, temperature: float = 0.2, max_tokens: int = 1024, **kwargs: Any):
+    # No temperature/top_p/top_k: the Claude API rejects sampling params on every model since
+    # 2026-10-21. max_tokens must leave room for the model's (default-on) thinking plus tool args.
+    def __init__(self, model: str, max_tokens: int = 8192, **kwargs: Any):
         self.model = model
-        self.kwargs = {"temperature": temperature, "max_tokens": max_tokens, **kwargs}
+        self.kwargs = {"max_tokens": max_tokens, **kwargs}
 
     def complete(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
         import litellm
@@ -83,11 +85,11 @@ def missing_keys(model: str) -> list[str]:
 
 
 def controller_llm() -> LiteLLMClient:
-    return LiteLLMClient(_model_from_env(CONTROLLER_MODEL_ENV), max_tokens=512)
+    return LiteLLMClient(_model_from_env(CONTROLLER_MODEL_ENV), max_tokens=4096)
 
 
 def planner_llm() -> LiteLLMClient:
-    return LiteLLMClient(_model_from_env(PLANNER_MODEL_ENV), max_tokens=2048)
+    return LiteLLMClient(_model_from_env(PLANNER_MODEL_ENV), max_tokens=16000)
 
 
 # --------------------------------------------------------------------------- fake

@@ -5,3 +5,4 @@
 litellm==1.106.4   # provider-agnostic LLM calls (Anthropic, xAI, OpenAI, ...) via model strings
 pydantic==2.14.1   # tool-argument, event and plan schemas + JSON Schema generation
 pytest==9.1.1      # tests
+mcp==2.3.0  # litellm imports it when tools are passed
