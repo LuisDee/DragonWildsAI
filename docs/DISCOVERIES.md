@@ -828,3 +828,89 @@ Modules: `client_mod/scripts/sense.lua` (census + me), `client_mod/scripts/inven
   - On this world Luis's chat sender name is his character name `Zezima`, so `command_received.player` is `Zezima`.
   - An equipped item that came from the hotbar stays in its hotbar slot (see the equip entry above), so it appears in both `inventory` and `gear`.
 - **Not yet exercised live:** say, follow, go_to, stop and drop through the bridge. Their owners' modules are being tested separately, and the brain was not started. **UNVERIFIED** until a supervised run.
+- **Death and the gravestone (verified 17:43-17:50 UTC):** Claude died while standing still after a follow test. On death the hotbar and bag go into a **`BP_PlayerGravestone_C`** (`AGravestone : AWorldActor`). Its contents are a `BP_Components_WorldItemInventory_C` (`GetInventory()`; read from the client: Torch, Bronze Shield, Mithril Pickaxe, Mithril Logging Axe, Adventurer's Tunic, Bone Dagger). The **worn armour stays on**. The grave was placed at the death spot, 28 m from the respawn point at the start-area lodestone. `CanPlayerAccessGravestone(pc)` returned false on the client, but that did not matter. Recovery: walk within 1.2 m (move.lua go_to). The game's detector then targets the grave with prompt **"Take All"**, and **one plain IA_Interact press** puts every item back in its original hotbar slot, durability unchanged. The grave actor then disappears. No hold and no UI were needed. Respawn re-uses the same pawn object.
+- **Cause of death = dehydration (verified):** the pawn's `BP_Components_PlayerDamage` (`DamageComponent`) `FatalDamageInfo` held `KilledBy` = his own pawn, `KilledByPowerLevel` -1 and `KilledByStatusEffectFlags` = 64. The flags are a bitmask with bit n = `EStatusEffectType` n (5 Starvation, 6 Dehydration), so 64 = dehydration. The vitals watcher then recorded it live: once hydration reached 0 (about 17:52:58), the server multicast **1.0 damage per second**, class None, `TypeDamages[].StatusEffect` = Dehydration, `Instigator` = himself. He went from 100 to 45 HP in 55 s. **The wiki's "0 hydration cannot kill" does not hold in this build:** he died of it twice (Luis saw the second death). Survival data (live, pawn components):
+  - `HydrationComponent`: Start 50, `DecayRatePerHour` 5.5 (in-game hours: about 1.4 points per real minute), `HydrationRemovedOnDeath` 10, `LastQuarterDecayRateMultiplier` 0.5. `HydrationEffectLevels` at 0/25/50/75/100 apply `GE_Hydration_Damage` (at 0 only) plus the stamina-regen scale and delay GEs.
+  - `SustenanceComponent`: Start 50, decay 4.15/h, RemovedOnDeath 10. Levels at 0 apply `GE_Sustenance_Damage` plus health-regen GEs.
+  - `EnduranceComponent` (rest): its levels at 0/25/50 scale max stamina, carry weight and max sustenance/hydration.
+  - Getters: `GetCurrent{Hydration,Sustenance,Endurance}()` / `GetMax*()`.
+  - A fresh character starts at 50/50 and is dry in about 35 real minutes.
+- **Max health:** `HealthComponent.MaxHealth` reads 0 on players (`BP_Components_Health_C`, a `UPlayerHealthComponent : UHealthFromAttributeComponent`, max comes from an attribute). Use `GetMaxHealth()` (100 for Claude, 250 for Zezima).
+- **Vitals watcher (`sense.vitals_start`, verified):**
+  - A post-hook on `/Script/Dominion.DamageComponent:Multicast_ApplyDamageFromGameplayEffect` **fires on the client** for each damage event the server multicasts. Read-only param reads of `FDominionDamageEvent` work: `Amount`, `AmountAbsorbedByShield`, `DamageClass`, `TypeDamagesArray.TypeDamages[].StatusEffect` / `.Types`, `Instigator`, `Source`, `bIsFatalHit`.
+  - The point-damage variant and `OnRep_FatalDamageInfo` are hooked too, but no event has been seen on them yet.
+  - **`HealthComponent:OnRep_AuthoritativeHealth` never fired** for these changes (it may not be routed through ProcessEvent, or health is predicted locally). A 1 s poll of `GetAuthoritativeHealth()` catches every change.
+  - Output: `client_io/events/vitals.jsonl`.
+- **Food and drink in item data:** `UFoodItemData` (`StatSustenance`, `StatSoulScourge`, `AmountToHealOnConsume`, `SustenanceRowHandle`) and `UDrinkItemData` (`StatHydration`, `StatSoulScourge`, `bAllowConsumptionWhenHydrationFull`, `HydrationRowHandle`), both `UBuffItemData : UConsumableItemData` (`UseVerb`, `ItemUsageDelay`, `GameplayEffectsToApply`). Drinks in the dump: `ITEM_Consumable_Water_{Clean,Dirty,Cactus,Wither}`. `inventory.describe_item` now tags `consumable = food | drink | potion` from the data class.
+- **Water from a source (RESEARCH, not yet tried):**
+  - The wiki and guides say interacting (E, repeatedly) with a pond, lake or river adds **Dirty Water** to the inventory with no container needed. Dirty Water gives +10 hydration and +20 Soulscourge (toxicity: damage over time at 100). A Campfire turns Dirty Water plus fuel into **Clean Water** (+25 hydration).
+  - In the dump, the PlayerController's `UFluidController` has `Server_TryTakingInstantly`, `Server_TryStartTaking`, `Server_TryFillingInstantly`, `Server_OnTransferPanelOpen(FluidContainer)` and `TakeSpeed` / `FillSpeed` curves. That is probably what the water interaction drives.
+  - No water-source actor class was found in the server dump (water bodies are probably streamed level actors).
+  - Plan: near water, the census lists the `InteractionComponent` with the water prompt; press interact once per Dirty Water; drink only when needed; boil at a campfire when one is built.
+  - Sources: dragonwilds.runescape.wiki/w/Hydration, /w/Dirty_Water, /w/Clean_Water; primagames.com/tips/how-to-get-clean-water-in-runescape-dragonwilds.
+- **Client hang (17:53:54 UTC):** the game thread stopped (game log ends 17:53:34, mod log 17:53:54, 0.03 s of CPU in 3 s, process alive at 1.98 GB) with **478 MB of free RAM** on the VM. A RAM-pressure stall is the likely cause; it is reported to main and was not restarted by this agent.
+
+## Traversal (R2) (2026-10-25, from the reflection dump of server build 26161880 + the client UE4SS.log; client build 26162923 not dumped; no live calls made)
+Research and design: `docs/research/2026-10-25-traversal.md`.
+- **There is no mantle, ledge-grab, climb, vault or glide.** The dump has 0 classes or actions for Mantle, Climb or Glide; the "Vault" hits are the Vault Core item. Traversal is jump-based: jump, coyote time, double jump, Air Dash, Phase Dash, Windstep, Breakfall, swim, kebbit burrows.
+- **Input actions** (`/Game/Gameplay/Inputs/Actions/`):
+  - `Basic/IA_Player_Jump`, `IA_Player_Sprint`, `IA_Player_Evade`, `IA_Movement`, `IA_VerticalMovementUp/Down` (purpose UNVERIFIED), `IA_Mount`;
+  - `Spellcasting/IA_Spellcasting_QuickAccess0..7` (the cast route for Windstep and Phase Dash);
+  - `UI/IA_UnstuckCharacter_Held` (the game's own unstuck; the pause menu `UPauseMenuScreen` has `ProgressButton_Unstuck`, `TeleportToStart()`, `RestartAgilityCourse()`);
+  - `Agility/IA_AgilityCourse_Banner_*`.
+- **`UDominionMovementComponent` (Dominion.hpp:20581):**
+  - Dash: `DashDistance`, `DashStaminaCost`, `DashCooldownDuration`, `MaxFallDistanceForDash`, `DashDistanceToVelocityCurve`, `DashPerkData`, `DashBlockingTags`, `DashMontage`, `bWantsToDash`, delegate `OnDash(bool bWasPhaseDash)`.
+  - Phase Dash: `MaxPhaseDashCharges`, `PhaseDashEffectDuration`, `MaxPhaseDashesMidAir`, `EnablePhaseDashes()`, delegates `OnPhaseDashActivated/Deactivated`.
+  - Double jump: `GravityToDoubleJumpVelocityCurve`, `DoubleJumpBlockingTags`, `MaxFallDistanceForDoubleJump`, `MinimumAccelerationForDirectionalDoubleJumpAndDash`, `DoubleJumpMaxHorizontalSpeedDuringDash`.
+  - Falls: `MinFallDamageHeight`, `MaxFallDamageHeight`, `FallDamageBlockingTags`, `BreakfallMontage`, `BreakfallPerkData`, NetMulticast `Multicast_ApplyFallDamage(float, bool bShouldPlayRollAnim)`, `SetFallDamageImmune`.
+  - Jump gating: `bJumpBlocked` (Replicated), `JumpInhibitors`, `JumpBlockingTagQuery`, `IsJumpEnabled()`.
+  - Windstep: `OnLandedWindstepEvent`.
+  - Attribute classes (GE-modified, e.g. by Windstep): `JumpHeightAttributeClass`, `GravityScaleAttributeClass`, `AirControlAttributeClass`, `RunSpeedAttributeClass`.
+- **`ADominionPlayerCharacter` (Dominion.hpp:9779; UHT DominionPlayerCharacter.h):**
+  - Perk and curve fields: `DoubleJumpSkillPerk`, `GravityToMaxUpwardsVelocityForDoubleJumpCurve`.
+  - Coyote time: `LedgeForgivenessTime`, `IsInLedgeForgivenessTimeWindow()`.
+  - Jump events: `PlayerCharacterJumpedEventDynamic`, `OnDoubleJump()` (BlueprintImplementableEvent).
+  - **`ReplicatedJumpCurrentCount` (int8, `ReplicatedUsing=OnRep_ReplicatedJumpCurrentCount(int8 PreviousJumpCount)`)**: the per-jump signal other clients receive.
+  - `bIsRunningAgilityCourse` (ReplicatedUsing); `DoDash()` (BlueprintCallable, **Exec**); `WindstepTag`, `WindstepXPEvent`, `JumpXPEvent`.
+- **ACharacter (engine, reflected):**
+  - `ReplicatedMovementMode`, `bProxyIsJumpForceApplied`, `ProxyJumpForceStartedTime`, `JumpMaxHoldTime`, `JumpMaxCount`, `JumpCurrentCount`;
+  - `OnJumped`, `OnLanded(FHitResult)`, `K2_OnMovementModeChanged`, `OnWalkingOffLedge`, `LaunchCharacter`, `CanJump`.
+- **UCharacterMovementComponent (engine, reflected):**
+  - `K2_FindFloor(FVector CapsuleLocation, FFindFloorResult& out)` and `K2_ComputeFloorDist(...)`: the CMC's own capsule floor sweep at any location.
+  - `GetMaxJumpHeight()`, `GetMaxJumpHeightWithJumpTime()`, `GetGravityZ()`, `IsFalling/IsMovingOnGround/IsSwimming`;
+  - `CurrentFloor` (FFindFloorResult {bBlockingHit, bWalkableFloor, bLineTrace, FloorDist, LineDist, FHitResult}), `MaxStepHeight`, `WalkableFloorAngle`, `LedgeCheckThreshold`, `PerchRadiusThreshold`, `AirControl`, `GravityScale`.
+- **Traces:**
+  - `KismetSystemLibrary:LineTraceSingle/SphereTraceSingle/CapsuleTraceSingle` (bool return + `FHitResult&` out). `FHitResult` nests `FVector_NetQuantize`, `TWeakObjectPtr` and `FActorInstanceHandle`, so **out-param marshalling from UE4SS is UNTESTED** (risk register R15 class).
+  - `GameplayStatics:Blueprint_PredictProjectilePath_Advanced` (struct params: avoid).
+  - Dev server: `NavigationSystemV1:NavigationRaycast(ctx, start, end, FVector& HitLocation, filter, querier)` (flat FVector out, the same pattern as K2_ProjectPointToNavigation).
+- **Navmesh link machinery in this build:**
+  - `ARecastNavMesh.bGenerateNavLinks` + `FNavLinkGenerationJumpDownConfig` {bEnabled, JumpLength, JumpDistanceFromEdge, JumpMaxDepth, JumpHeight, JumpEndsHeightTolerance, SamplingSeparationFactor, FilterDistanceThreshold, LinkBuilderFlags, Down/UpDirectionAreaClass, LinkProxyClass} (UE 5.5+ experimental auto links); `K2_ReplaceAreaInTileBounds`.
+  - `ANavLinkProxy` {PointLinks `TArray<FNavigationLink>`, SegmentLinks, SmartLinkComp, OnSmartLinkReached, ResumePathFollowing}.
+  - `UNavigationPath` exposes only `PathPoints` (FVector), so link segments can't be identified from a path.
+- **Perks** (`/Agility/Gameplay/Character/Player/PerksV2/`): `PerkV2_Agility_DoubleJump`, `_AirDash`, `_Spell_PhaseDash`, `_Breakfall`, `_GreaterBreakfall`, `_Hopper`, `_Spell_Windstep_Upgrade` (Wind Stomp), `_KebbitBurrows_{Common,Wild,Dark,Desert,Razorbacked}`, `_Spell_Recall(_Upgrade)`; `PerkV2_Attack_JumpAttack`, `PerkV2_Attack_SprintAttack`.
+  - `USkillPerkData.InputActionDisplay` (`FPerkUnlockInputActionDisplay` {InputAction, InputActionMappingContext, ActionDescription}) names the input that triggers a perk. Read it for Air Dash.
+  - Query: `pc.SkillPerkComponent:IsPerkUnlocked(USkillPerkData)`.
+  - Levels (BisectHosting guide, not the game): Windstep 5, Double Jump 10, Hopper 22, Common Burrower 27, Air Dash 32, Breakfall 35, Wind Stomp 40, Phase Dash 44.
+- **Windstep is a super-jump, not a dash** (data/spells_26161880.json): Instant cast, `allow_while_falling=false`, 5 Air, 3 s cooldown.
+  - It applies `GE_Windstep` (jump height, gravity scale, air control and fall-damage modifiers), which is removed on landing; module `InhibitJumpOnLanding`.
+  - Wiki: "jump up to 16 m, slow fall, 7 s to use".
+- **Observing other players on the client (simulated proxy), from the dump:**
+  - `ReplicatedJumpCurrentCount` (OnRep) and `ReplicatedMovementMode` (→ `IsFalling`).
+  - `UPlayerEvadeComponent:Multicast_StartEvade(int32 MontageIndex, bool bSurge, FRotator)` (NetMulticast).
+  - `Multicast_ApplyFallDamage`; `GameplayTagsComponent.ReplicatedGameplayTagStackContainer` (Replicated).
+  - `USprintComponent` replicates only `bMovementBlocked`, so infer sprint from speed.
+  - None of these has been read live on the client yet.
+- **Caution: `JumpMaxCount = 2` on Claude is not proof of double jump.** Claude's character is Agility 1, and Double Jump is Agility 10 (`DoubleJumpSkillPerk`). Verify with `IsPerkUnlocked` and the Z velocity after the second `Jump()`.
+- **Stuck-in-gap evidence (client UE4SS.log, 2026-10-25 18:52-18:54 UTC, follow test on Shockbyte):**
+  - Claude's capsule was fixed at about (71.6, 1862.0, -34.6) m for over 90 s. The nav path was partial, ending at Z -35.2 m beside him.
+  - The goal and the breadcrumbs he aimed at were at Z about -31.3 m, 3.3 m above him.
+  - The trail index jumped 2 → 21 in about 2 s because breadcrumb advance is 2D.
+  - The jump/double-jump ladder repeated every ~6 s with 0-7 cm progress.
+- **Fed and watered, then recovered the grave again (verified 18:00-18:05 UTC, after the client restart):**
+  - Luis dropped Forager's Sandwich x49 and Pumpkin Spice Infusion x49. Claude walked 8.7 m to them (move.lua go_to) and collected both with 2 interact presses, landing in hotbar 1 and 2.
+  - **Drink:** hotbar key 2 (`UseItemInSlot(1)`) took hydration from 18.6 to 95.8.
+  - **Eat:** the stay-fed reflex (`inventory.reflex_start`, a game-thread loop) fired by itself at 18:01:46 and used hotbar key 1. Sustenance went from 18.5 to 98.0.
+  - **Item data classes:** the live classes are Blueprint subclasses (`/Game/Gameplay/Items/Consumables/BP_Consumables_Drink.BP_Consumables_Drink_C`), so food and drink are recognised by the presence of the `StatSustenance` / `StatHydration` properties, not by class name. Their categories are `Item.Food` and `ItemFilter.Type.Consumable.Drink`.
+  - **Second grave:** `BP_PlayerGravestone_C` at (71.63, 1862.03, -35.48) m, straight-line go_to arrived at 0.6 m, and one "Take All" press returned all 6 items. They went to the first free hotbar slots: the Torch and Shield moved to slots 7-8 because food and drink now occupy 1-2.
+  - Re-equipped the axe with hotbar key 4.
+  - **The grave spot is a dead end toward the open ground east:** two straight go_to attempts to Zezima from there failed "stuck" after about 1 m. Backtracking to the lodestone (straight, 0.98 m) and then go_to Zezima reached 2.98 m from him at (89.48, 1851.2, -31.42) m.
