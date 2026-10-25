@@ -20,7 +20,7 @@ $env:DW_BOT_STATE   = Join-Path $stateDir 'bot_state.json'
 $env:DW_HEARTBEAT_FILE = Join-Path $stateDir 'heartbeat.txt'
 # Speech: hand-built Client_ReceiveChatMessage / Client_DisplayTextNotification froze Luis's client
 # (2026-10-25). Default to log-only until a speech path is proven safe; override with DW_SAY_MODE.
-if (-not $env:DW_SAY_MODE) { $env:DW_SAY_MODE = 'log' }
+if (-not $env:DW_SAY_MODE) { $env:DW_SAY_MODE = 'direct' }
 
 $p = Start-Process -FilePath $ServerExe -WorkingDirectory $ServerWin64 -WindowStyle Hidden -PassThru
 Write-Host "Started server pid $($p.Id) (build $(Get-ServerBuildId)). Log: $ServerLog"

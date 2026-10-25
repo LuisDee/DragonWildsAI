@@ -536,3 +536,9 @@ Modules: `mod/experiments/gather_probe.lua` (discovery), services `mod/body/sens
 ## Speech: genuine filter captured (2026-10-25, about 15:55 UTC)
 - A genuine `Server_SendChatMessage` from Luis carries `FChatPlayerFilterData` {SenderId = his RedpointEOS id, **ReceiverIds = [his RedpointEOS id] (1 entry)**}, and SenderData {Primary = RedpointEOS id, Secondary = STEAM id, PlayerId 256, CharacterGuid, Color}.
 - The first direct send had **0 ReceiverIds**, so the server routed it to nobody. Second send: `receivers=true` (each connected player's PlayerState.UniqueID copied by array-element assignment in the pre-hook). No crash; awaiting Luis's visual result.
+
+## ON-DEMAND SPEECH WORKS (2026-10-25, about 15:56 UTC, Luis via GFN)
+- `speech_direct send` with `receivers=true` showed **"Claude: Claude here - can you hear me now?"** in Luis's chat with **no triggering message**. Luis: "Yes could see his message." No crash, no freeze.
+- **Route:** `Server_SendChatMessage` on a connected player's PlayerChatComponent with scalar-only tables (bot GUID, PlayerId, colour, text). A one-shot pre-hook copies the live net ids (PrimaryNetId/SecondaryNetId from the host PS, SenderId) and fills **ReceiverIds with every connected player's PlayerState.UniqueID** (array-element assignment = safe property copy; not R15).
+- The name resolves to "Claude" via the (host account, bot GUID) registry entry.
+- Made the default: `start_server.ps1` sets `DW_SAY_MODE=direct` (relay remains the fallback). Effective at the next restart.
