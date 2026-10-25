@@ -35,6 +35,13 @@ The companion ("Claude") is a **humanoid that is basically another player**.
 - Restarts while Luis is connected are fine, **announced first**. Agents may test live freely, but must never touch Luis's own character, inventory or saves.
 - Model API spend is approved for live play (key in the user env var `ANTHROPIC_API_KEY`, never in files). Still state the call counts before batch eval runs.
 
+### Route R2 decisions (Luis, 2026-10-25 evening) — override older text below
+- **Claude is a real game client**: headless Dragonwilds client on this VM, Steam account `bootymaxer` (persona "Claude"), UE4SS + `client_mod/` (DWClient). No emulation of player systems; use the game's own client paths (UI handlers, Enhanced Input actions, character input calls). Design: `docs/design/real-player-remediation.md`; research: `docs/research/2026-10-25-client-side-botting.md`; architecture section 8.
+- **Target world is the group's Shockbyte server** (Luis's explicit choice; overrides "throwaway world only" for the client). The server stays vanilla: nothing is installed server-side. Keep risky experiments short; never touch other players' characters.
+- **The local dev server is retired** (stopped with `stop_server.ps1 -Hold`; watchdog and nav oracle stopped). The server-side puppet mod (`mod/`) is legacy, to be deleted skill by skill as client replacements are verified.
+- Boot sequence for Claude's client: `tools/client_headless_test.ps1` → `client_mod/commands/pick_char.lua` → `join_server.lua` (address/password in gitignored `client_io/secrets/server.txt`) → (new character only) `skip_intro.lua`; the bridge autostarts; then `chat_start.lua`, `sense_vitals_start.lua`. Brain: `tools/start_brain.ps1 -Body client` with `DW_PLAYER_NAME=Zezima`, `DW_WORLD_GUID=shockbyte`.
+- Claude has real survival needs (hydration/sustenance kill at 0); the stay-fed reflex must be running.
+
 ### Building principles (Luis's, binding)
 1. **Don't hand-roll** what an open-source or managed tool already does, and **web-search before building**. That includes ops plumbing (e.g. service supervision: NSSM/WinSW). Follow the project skill **`search-before-building`** (`.claude/skills/search-before-building/SKILL.md`), and paste its subagent-brief paragraph into every build brief.
 2. **Every capability leaves reusable foundations:**
