@@ -209,7 +209,8 @@ local function chat_world()
                       SenderData = { CharacterGuid = { A = 1, B = 2, C = 3, D = 4 }, PlayerId = 256 } }
         for _, h in ipairs(hooks) do h.post(param(chat), param(msg), param({ filter = true })) end
     end
-    return { hooks = hooks, owner = owner, registered = registered, sent = sent, player_says = player_says }
+    return { hooks = hooks, owner = owner, registered = registered, sent = sent, player_says = player_says,
+             ps = ps, pc = pc, chat = chat }
 end
 
 test("speech: default mode is log and makes no native call", function()
@@ -268,6 +269,36 @@ test("speech relay: !as / !echo triggers, TTL drop, queue cap", function()
     assert(#s.queue == speech.QUEUE_MAX)
 end)
 
+test("speech direct: say() sends now as the bot, net ids are the host PS's live structs; falls back to relay", function()
+    local w = chat_world()
+    speech.DEFAULT_MODE = "direct"
+    if os.getenv("DW_SAY_MODE") then return end
+    local prim, sec, uid = { id = "eos" }, { id = "steam" }, { id = "uid" }
+    w.owner.AccountGuid = { NetIdPrimary = prim, NetIdSecondary = sec }
+    w.ps.UniqueID = uid
+    w.chat.IsValid = function() return true end
+    w.pc.PlayerChat = w.chat
+    local captured
+    local orig = w.chat.Server_SendChatMessage
+    function w.chat:Server_SendChatMessage(msg, filter) captured = { msg = msg, filter = filter }; return orig(self, msg, filter) end
+    local r = speech.say(H.log, "Right behind you.")
+    assert(r.ok and r.data.method == "direct" and r.data.on_demand == true, json.encode(r))
+    assert(#w.sent == 1 and w.sent[1].body == "Right behind you." and U.guid_eq(w.sent[1].guid, speech.GUID))
+    -- the network fields are the very objects read from the PlayerState (UE4SS engine-copies them)
+    assert(captured.msg.SenderData.PrimaryNetId == prim and captured.msg.SenderData.SecondaryNetId == sec)
+    assert(captured.filter.SenderId == uid and captured.filter.ReceiverIds == nil)
+    assert(captured.msg.SenderData.PlayerId == 256)
+    assert(#w.registered == 1, "names registered once")
+    assert(not speech.is_relaying())
+    assert(#w.hooks == 0, "no relay hook needed when direct works")
+    -- no PlayerChat -> queued for the relay instead of failing
+    w.pc.PlayerChat = nil
+    local r2 = speech.say(H.log, "queued one")
+    assert(r2.ok and r2.data.method == "relay" and r2.data.queued and r2.data.direct_err, json.encode(r2))
+    assert(#w.hooks == 1)
+    assert(speech.status().capabilities.on_demand == true)
+end)
+
 test("speech: bot lines are recognisable (main.lua drops them from command_received)", function()
     chat_world()
     assert(speech.is_bot_guid({ A = speech.GUID.A, B = speech.GUID.B, C = speech.GUID.C, D = speech.GUID.D }))
@@ -311,7 +342,10 @@ test("experiments: all load by name via debug_run and fail safe in an empty worl
         { "puppet_test", {} }, { "puppet_gear", {} }, { "puppet_combat", {} }, { "follower_test", {} },
         { "body_probe", { nav_query = false } }, { "names_probe", {} }, { "perf_probe", {} },
         { "name_register", {} }, { "chat_relay", {} }, { "chat_as", {} }, { "puppet_safe", {} },
-        { "companion", {} }, { "say_test", { variant = "a" } },
+        { "companion", {} }, { "say_test", { variant = "a" } }, { "speech_direct", {} },
+        { "presence_probe", {} }, { "presence_test", {} },
+        { "rules_probe", {} }, { "rules_probe", { action = "sense" } },
+        { "item_probe", {} }, { "item_probe", { action = "gone", target = "x" } },
     }
     for _, c in ipairs(cases) do
         local r = run({ module = c[1], args = c[2] })
@@ -319,10 +353,44 @@ test("experiments: all load by name via debug_run and fail safe in an empty worl
     end
     -- known crash paths refuse without an explicit override
     for _, c in ipairs({ { "puppet_test", { action = "destroy" } }, { "puppet_test", { action = "unpossess" } },
-                         { "puppet_combat", { action = "hit" } }, { "say_test", {} } }) do
+                         { "puppet_combat", { action = "hit" } }, { "say_test", {} },
+                         { "speech_direct", { action = "send" } }, { "presence_test", { action = "add" } },
+                         { "item_probe", { action = "drop" } }, { "item_probe", { action = "take", target = "x" } } }) do
         local r = run({ module = c[1], args = c[2] })
         assert(r.ok and r.data.result.ok == false and r.data.result.error:find("refused"), c[1] .. " " .. json.encode(r))
     end
+end)
+
+-- ------------------------------------------------------------------ presence (map/compass)
+test("presence: appends one bot entry (live UniqueID object, bot ident), updates it by Identifier, never twice", function()
+    reset()
+    local presence = require("body.presence")
+    presence._reset()
+    local items = { { Identifier = { A = 9, B = 9, C = 9, D = 9 }, Location = { X = 1, Y = 1, Z = 1 }, RotationByte = 0 } }
+    local arr = setmetatable({}, { __newindex = function(_, k, v) items[k] = v end })
+    rawset(arr, "ForEach", function(_, fn) for i, e in ipairs(items) do fn(i, { get = function() return e end }) end end)
+    local reg = obj("GameplayObjectRegistry " .. LEVEL .. "GOR", { PlayerCharacters = arr, ForceNetUpdate = function() end })
+    W.first.GameplayObjectSubsystem = obj("GameplayObjectSubsystem /Engine/Transient.GOS", { ObjectRegistry = reg })
+    local uid = { live = true }
+    local ps = obj("DominionPlayerState " .. LEVEL .. "BotPS", { UniqueID = uid, PlayerColor = { Color = { R = 0, G = 0, B = 0, A = 1 } } })
+    local p = pawn("BP_PlayerCharacter_C_bot", LEVEL .. "AIController_1")
+    p.PlayerState = ps
+    p.loc = { X = 100, Y = 200, Z = 300 }
+    p.K2_GetActorRotation = function() return { Yaw = 90 } end
+    local r = presence.ensure(H.log, p)
+    assert(r.ok and r.data.index == 2 and #items == 2, json.encode(r))
+    local e = items[2]
+    assert(e.OwningPlayerUniqueID == uid, "UniqueID is the live struct, not a built one")
+    assert(e.OwningPlayerName == presence.NAME and U.guid_eq(e.Identifier, presence.IDENT))
+    assert(U.guid_eq(e.OwningCharacterGuid.InnerGuid, presence.CHAR_GUID) and e.RotationByte == 64)
+    assert(e.Color.R == presence.COLOR.R, "falls back to Claude orange for an unset PlayerColor")
+    assert(presence.ensure(H.log, p).reason == "already" and #items == 2)
+    -- a native removal ahead of ours shifts the index: update still finds it by Identifier
+    table.remove(items, 1)
+    p.loc = { X = 5, Y = 6, Z = 7 }
+    assert(presence.update(H.log, p))
+    assert(items[1].Location.X == 5 and items[1].Location.Z == 7)
+    assert(presence.ensure(H.log, nil).reason == "no_puppet")
 end)
 
 test("bridge: a top-level probe flag reaches the handler as args.probe", function()

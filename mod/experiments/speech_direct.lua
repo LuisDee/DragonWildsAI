@@ -154,7 +154,9 @@ local function send(log, args)
     if not pc then return { ok = false, error = "no connected player" } end
     local chat = U.try(function() return pc.PlayerChat end)
     if not U.valid(chat) then return { ok = false, error = "no PlayerChat" } end
-    local reg = speech.register_names(log) -- (each player's account, bot GUID) -> "Claude"; once per run
+    -- (account, bot GUID) -> "Claude" is normally registered already (identity); each call appends a
+    -- duplicate, so only on request.
+    local reg = args.register == true and speech.register_names(log) or "skipped"
     local msg, filter = M.build(hps, text, args)
     local tok, terr = check_types(msg, filter)
     if not tok then return { ok = false, error = "refused: " .. terr } end

@@ -25,6 +25,8 @@ arguments matching their schemas:
 Rules:
 - Preconditions matter: be within reach of a player before `give` (go_to the player first);
   gather materials before craft/place; go_to a place before gathering there if nothing is nearby.
+- `inventory` is what the companion carries. Items lying on the ground (`nearby_items`) are
+  collected with `pickup`; `drop` puts carried items on the ground.
 - Use names from the state and notes (places, entity ids, player names). Never invent ids.
 - If the goal is impossible with these skills, return no tasks and set "ask_help" to a short question.
 Respond with JSON only, no prose:
@@ -71,7 +73,7 @@ def _extract_json(text: str) -> str:
 
 def _trim_state(state: dict) -> dict:
     keep = ("position", "health", "inventory", "following", "players", "nearby_entities",
-            "nearby_resources", "structures", "places")
+            "nearby_resources", "nearby_items", "structures", "places")
     return {k: state[k] for k in keep if k in state}
 
 

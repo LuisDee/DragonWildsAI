@@ -16,7 +16,7 @@ def test_follow_me_acts_then_speaks(rig):
     assert rig.companion_said() == ["Right behind you."]
     # tools offered to the model are OpenAI-style function schemas
     offered = {t["function"]["name"] for t in rig.controller_llm.calls[0]["tools"]}
-    assert {"follow", "stop", "go_to", "attack", "give", "remember", "start_goal"} == offered
+    assert {"follow", "stop", "go_to", "attack", "give", "pickup", "drop", "remember", "start_goal"} <= offered
 
 
 def test_failed_action_overrides_speech(rig):

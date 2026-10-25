@@ -21,8 +21,8 @@ from .state_store import StateStore
 PERSONA = """You are {name}, an AI companion playing RuneScape: Dragonwilds with {player}.
 You talk like a friendly fellow player: short, casual lines (one sentence, no emojis).
 Decide what to do about the player's message by calling tools:
-- Simple, immediate requests (follow me, wait here, come here, attack that, stop, give me X)
-  -> call the matching tool directly. "wait here" = stop. "come here" = go_to the player.
+- Simple, immediate requests (follow me, wait here, come here, attack that, stop, give me X,
+  pick that up, drop the logs) -> call the matching tool directly. "wait here" = stop. "come here" = go_to the player.
 - Multi-step jobs (gather X then build/bring Y) -> call start_goal with the goal in plain words.
 - Facts worth keeping (places, preferences) -> call remember.
 - Chit-chat -> no tool.
@@ -41,10 +41,11 @@ START_GOAL = {
         "parameters": {"type": "object", "properties": {"goal": {"type": "string"}}, "required": ["goal"]},
     },
 }
-ACTION_TOOLS = ["follow", "stop", "go_to", "attack", "give"]
+ACTION_TOOLS = ["follow", "stop", "go_to", "attack", "give", "pickup", "drop"]
 # How to name a skill in "I can't ... yet".
 SKILL_PHRASES = {"follow": "follow you", "stop": "stop", "go_to": "walk somewhere", "attack": "fight",
-                 "give": "hand items over", "gather": "gather", "craft": "craft", "place": "build"}
+                 "give": "hand items over", "gather": "gather", "craft": "craft", "place": "build",
+                 "pickup": "pick things up", "drop": "drop things"}
 CONTROLLER_TOOLS = [tool_schema(n) for n in ACTION_TOOLS] + [tool_schema("remember"), START_GOAL]
 
 

@@ -44,6 +44,24 @@ BLUEPRINTS: dict[str, dict[str, int]] = {
     "campfire_ring": {"stone": 5},
 }
 
+# A few spells, shaped like the body's compact spell rows (body/spells.lua list({compact=true})).
+SPELLS: dict[str, dict] = {
+    "USD_TempestShield": {"name": "Tempest Shield", "role": "combat_defence", "cooldown_s": 45.0, "self": True,
+                          "aliases": ["shield", "tempest"],
+                          "use_when": "Block all damage for about a minute; cast before a big hit lands or when HP is low."},
+    "USD_Windstep": {"name": "Windstep", "role": "combat_cc", "cooldown_s": 3.0, "aoe_m": 7.0,
+                     "aliases": ["wind stomp", "stomp"],
+                     "use_when": "Wind Stomp: a 7 m AoE stagger at the landing point; use on groups (great vs Kalphites)."},
+    "USD_EnchantWeapon_Fire": {"name": "Enchant Weapon: Fire", "role": "weapon_buff", "cooldown_s": 300.0, "self": True,
+                               "aliases": ["fire enchant"], "use_when": "Adds Fire to melee hits; use against Fire-weak enemies."},
+}
+SAFE_PLAYER_M = 10.5  # an area spell never lands this close to a player (body/spells.lua)
+MAX_RULES_PER_ENEMY = 8
+
+
+def _norm(name: str) -> str:
+    return "".join(ch for ch in name.lower() if ch.isalnum()).removeprefix("usd")
+
 
 def _scriptable(action):
     """Record the call, and if a scripted failure rule fires, apply it instead of acting."""
@@ -89,6 +107,14 @@ class Player:
 
 
 @dataclass
+class GroundItem:
+    id: str
+    item: str
+    count: int
+    pos: list[float]
+
+
+@dataclass
 class FailureRule:
     tool: str
     reason: str
@@ -110,11 +136,19 @@ class MockGame(GameInterface):
         self.entities: dict[str, Entity] = {}
         self.nodes: dict[str, ResourceNode] = {}
         self.structures: list[dict] = []
+        self.ground: dict[str, GroundItem] = {}  # items lying in the world (pickup / drop)
         self.chat: list[tuple[str, str]] = []  # (speaker, text)
         self.calls: list[tuple[str, dict]] = []  # every tool call, for test assertions
         self._rules: list[FailureRule] = []
         self._events: list[Event] = []
         self._ids = Counter()
+        # spells: what Luis has unlocked (the bot mirrors him), per-spell ready time, casts made
+        self.unlocked: set[str] = {"USD_TempestShield", "USD_Windstep"}
+        self.spell_ready_at: dict[str, float] = {}
+        self.casts: list[dict] = []
+        # reflex rules per enemy kind, like body/rules.lua: {enemy: [rule]}
+        self.reflex_rules: dict[str, list[dict]] = {}
+        self._rule_ids = 0
 
     # ------------------------------------------------------------------ world setup
 
@@ -144,6 +178,11 @@ class MockGame(GameInterface):
         eid = self._new_id(kind)
         self.entities[eid] = Entity(eid, kind, [float(c) for c in pos], hp, hostile, damage)
         return eid
+
+    def add_ground_item(self, item: str, count: int, pos) -> str:
+        gid = self._new_id("world_item")
+        self.ground[gid] = GroundItem(gid, item, count, [float(c) for c in pos])
+        return gid
 
     def remove_nodes(self, resource: str, within: float | None = None) -> None:
         """Delete resource nodes (optionally only those within ``within`` of the companion)."""
@@ -263,8 +302,14 @@ class MockGame(GameInterface):
                  "distance": round(math.dist(n.pos, self.pos), 1)}
                 for n in self.nodes.values() if n.remaining > 0 and near(n.pos)
             ],
+            nearby_items=[
+                {"id": g.id, "item": g.item, "count": g.count, "position": g.pos,
+                 "distance": round(math.dist(g.pos, self.pos), 1)}
+                for g in self.ground.values() if near(g.pos)
+            ],
             structures=list(self.structures),
             places=sorted(self.places),
+            spell_cooldowns={k: round(t - self.time, 1) for k, t in self.spell_ready_at.items() if t > self.time},
         )
 
     @_scriptable
@@ -385,10 +430,174 @@ class MockGame(GameInterface):
         p.inventory[item] += count
         return ok(player=player, item=item, count=count)
 
+    @_scriptable
+    def pickup(self, target: str, item: str | None = None, limit: int = 1) -> ActionResult:
+        def fits(g: GroundItem) -> bool:
+            return item is None or item.lower() in g.item.lower()
+
+        if target == "nearest":
+            cands = sorted((g for g in self.ground.values()
+                            if fits(g) and math.dist(g.pos, self.pos) <= GATHER_RANGE),
+                           key=lambda g: math.dist(g.pos, self.pos))[:limit]
+            if not cands:
+                return fail(Reason.NOTHING_IN_RANGE, item=item)
+        else:
+            g = self.ground.get(target)
+            if g is None or not fits(g):
+                return fail(Reason.UNKNOWN_TARGET, target=target)
+            cands = [g]
+        self.following = None
+        picked = []
+        for g in cands:
+            self._walk(g.pos, 0.5)
+            del self.ground[g.id]
+            self.inventory[g.item] += g.count
+            picked.append({"world_item": g.id, "item": g.item, "count": g.count})
+        first = picked[0]["item"]
+        return ok(item=first, count=sum(p["count"] for p in picked if p["item"] == first), picked=picked,
+                  inventory=dict(+self.inventory))
+
+    @_scriptable
+    def drop(self, item: str, count: int, at: str = "feet") -> ActionResult:
+        if self.inventory[item] <= 0:
+            return fail(Reason.NOT_IN_INVENTORY, item=item)
+        if self.inventory[item] < count:
+            return fail(Reason.NOT_ENOUGH, item=item, have=self.inventory[item])
+        spot = list(self.pos)
+        if at == "luis":
+            luis = next(iter(self.players.values()), None)
+            if luis is None or math.dist(luis.pos, self.pos) > REACH:
+                return fail(Reason.TOO_FAR)
+            spot = list(luis.pos)
+        self.inventory[item] -= count
+        gid = self.add_ground_item(item, count, spot)
+        return ok(item=item, count=count, at=at, world_items=[gid], position=spot,
+                  inventory_left=self.inventory[item])
+
     def say(self, text: str) -> ActionResult:
         self._begin("say", text=text)  # likewise for say
         self.chat.append(("companion", text))
         return ok()
+
+    # ------------------------------------------------------------------ spells
+
+    @staticmethod
+    def resolve_spell(name: str) -> str | None:
+        want = _norm(name)
+        for sid, sp in SPELLS.items():
+            if want in (_norm(sid), _norm(sp["name"])) or want in {_norm(a) for a in sp["aliases"]}:
+                return sid
+        return None
+
+    def _spell_block(self, sid: str) -> tuple[str | None, dict]:
+        if sid not in self.unlocked:
+            return Reason.NOT_UNLOCKED, {"spell": sid}
+        left = self.spell_ready_at.get(sid, 0.0) - self.time
+        if left > 0:
+            return Reason.ON_COOLDOWN, {"spell": sid, "remaining_s": round(left, 1)}
+        return None, {}
+
+    @_scriptable
+    def cast(self, spell: str, target: str | Coords | None = None) -> ActionResult:
+        sid = self.resolve_spell(spell)
+        if sid is None:
+            return fail(Reason.UNKNOWN_SKILL, spell=spell)
+        reason, data = self._spell_block(sid)
+        if reason:
+            return fail(reason, **data)
+        sp = SPELLS[sid]
+        point = list(self.pos) if target in (None, "self") or sp.get("self") else self._resolve(target)
+        if point is None:
+            return fail(Reason.UNKNOWN_TARGET, target=target)
+        if sp.get("aoe_m"):
+            near = min((math.dist(p.pos, point) for p in self.players.values()), default=math.inf)
+            if near < SAFE_PLAYER_M:
+                return fail(Reason.UNSAFE, spell=sid, player_m=round(near, 1), safe_m=SAFE_PLAYER_M)
+        self.spell_ready_at[sid] = self.time + sp["cooldown_s"]
+        self.casts.append({"spell": sid, "at": list(point), "time": self.time})
+        self._advance(1.0)
+        return ok(spell=sid, cooldown_s=sp["cooldown_s"], verified=True)
+
+    def spells(self) -> ActionResult:
+        """Not recorded in ``calls``: the Controller reads it for context."""
+        rows = []
+        for sid, sp in SPELLS.items():
+            reason, data = self._spell_block(sid)
+            if reason == Reason.NOT_UNLOCKED:
+                continue
+            rows.append({"id": sid, "name": sp["name"], "role": sp["role"], "use_when": sp["use_when"],
+                         "castable": reason is None, "reason": reason, "remaining_s": data.get("remaining_s", 0)})
+        return ok(spells=rows)
+
+    # ------------------------------------------------------------------ reflex rules (body/rules.lua shape)
+
+    @staticmethod
+    def _enemy_key(enemy: str | None) -> str:
+        k = "".join(ch for ch in (enemy or "*").lower() if ch.isalnum() or ch == "*")
+        if k in ("", "any", "all"):
+            return "*"
+        return k[:-1] if len(k) > 3 and k.endswith("s") and not k.endswith("ss") else k
+
+    def _all_rules(self) -> list[dict]:
+        out = [r for rules in self.reflex_rules.values() for r in rules]
+        return sorted(out, key=lambda r: int(r["id"][1:]))
+
+    @_scriptable
+    def set_reflex_rule(self, enemy: str = "*", trigger: dict | None = None, actions: list | None = None,
+                        cooldown_s: float = 3.0, note: str | None = None) -> ActionResult:
+        if not trigger or not actions:
+            return fail(Reason.INVALID_ARGS, detail="trigger and actions are required")
+        key = self._enemy_key(enemy)
+        trig = {k: v for k, v in trigger.items() if v is not None}
+        acts = [{k: v for k, v in a.items() if v is not None} for a in actions]
+        warnings = []
+        for a in acts:
+            if a.get("kind") == "cast":
+                sid = self.resolve_spell(a.get("spell") or "")
+                if sid is None:
+                    return fail(Reason.INVALID_ARGS, detail=f"unknown spell {a.get('spell')}")
+                a["spell"] = sid
+                if sid not in self.unlocked:
+                    warnings.append({"action": "cast", "spell": sid, "reason": Reason.NOT_UNLOCKED})
+        rules = self.reflex_rules.setdefault(key, [])
+        rule = {"enemy": key, "trigger": trig, "actions": acts, "cooldown_s": cooldown_s, "note": note}
+        for i, old in enumerate(rules):
+            if old["trigger"] == trig:
+                rule["id"] = old["id"]
+                rules[i] = rule
+                return ok(rule=rule, replaced=True, warnings=warnings, count=len(self._all_rules()))
+        if len(rules) >= MAX_RULES_PER_ENEMY:
+            return fail(Reason.INVALID_ARGS, detail=f"too many rules for {key}")
+        self._rule_ids += 1
+        rule["id"] = f"r{self._rule_ids}"
+        rules.append(rule)
+        return ok(rule=rule, replaced=False, warnings=warnings, count=len(self._all_rules()))
+
+    def list_rules(self, enemy: str | None = None) -> ActionResult:
+        """Not recorded in ``calls``: the Controller reads it for context."""
+        want = self._enemy_key(enemy) if enemy else None
+        rules = [r for r in self._all_rules() if want is None or r["enemy"] == "*" or r["enemy"] in want]
+        return ok(rules=rules)
+
+    @_scriptable
+    def clear_rule(self, id: str | None = None, enemy: str | None = None, all: bool = False) -> ActionResult:
+        removed: list[str] = []
+        if all:
+            removed = [r["id"] for r in self._all_rules()]
+            self.reflex_rules.clear()
+        elif id:
+            for rules in self.reflex_rules.values():
+                for r in list(rules):
+                    if r["id"] == id:
+                        rules.remove(r)
+                        removed.append(id)
+            if not removed:
+                return fail(Reason.UNKNOWN_TARGET, id=id)
+        elif enemy:
+            removed = [r["id"] for r in self.reflex_rules.pop(self._enemy_key(enemy), [])]
+        else:
+            return fail(Reason.INVALID_ARGS, detail="id, enemy or all is required")
+        return ok(removed=removed, count=len(self._all_rules()))
 
     def poll_events(self) -> list[Event]:
         events, self._events = self._events, []

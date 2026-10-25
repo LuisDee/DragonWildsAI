@@ -488,6 +488,113 @@ test("merge_catalog adds usage and reports META gaps both ways", function()
     truthy(#doc.meta_not_in_game > 10)
 end)
 
+test("route_verified: the catalog's routes[r].verified wins over the code default", function()
+    setup({ allow_unverified = false })
+    eq(spells.route_verified("wind_stomp"), false)
+    spells.configure({ catalog = { spells = {}, routes = { wind_stomp = { verified = true, note = "Kalphite test" } } } })
+    local v, note = spells.route_verified("wind_stomp")
+    eq(v, true); eq(note, "Kalphite test")
+    eq(spells.can_cast("windstep"), true, "verified in the catalog -> castable without the unverified flag")
+    eq(spells.route_verified("self_effect"), false, "no catalog entry -> code default")
+    eq(spells.route_verified("bogus"), false)
+    eq(spells.usage("USD_Windstep").route_verified, true)
+end)
+
+test("merge_catalog keeps a verified route the catalog already records", function()
+    local doc = { spells = {}, routes = { held_effect = { verified = true, note = "X7 seen" } } }
+    spells.merge_catalog(doc)
+    eq(doc.routes.held_effect.verified, true); eq(doc.routes.wind_stomp.verified, false)
+end)
+
+test("reflex_status gates each scorer by its route", function()
+    setup({ allow_unverified = false })
+    local st = spells.reflex_status()
+    eq(st.USD_TempestShield.on, false); eq(st.USD_Windstep.on, false)
+    truthy(st.USD_Windstep.why:find("not verified"))
+    spells.configure({ allow_unverified = true })
+    st = spells.reflex_status()
+    eq(st.USD_TempestShield.on, true); eq(st.USD_Windstep.on, true)
+end)
+
+test("combat_tick casts nothing on unverified routes (no native call)", function()
+    setup({ allow_unverified = false })
+    local p = puppet(0, 0, 0)
+    player(-9000, 0, 0)
+    local t = ai("KalphiteWorker", 3000, 0, 0)
+    ai("KalphiteWorker", 3200, 0, 0); ai("KalphiteWorker", 3000, 200, 0)
+    p.hp = 10
+    eq(spells.combat_tick({ a = {}, p = p, t = t, now = 0 }), nil)
+    eq(#F.calls, 0)
+end)
+
+test("mirror: catalog snapshot, live read of Luis's unlocks, cached", function()
+    setup({ cost_policy = "mirror" })
+    local m = spells.mirror_from_snapshot({ name = "Zezima", spells_unlocked = { "USD_Windstep" },
+                                            active_perks = { "PerkV2_Agility_Spell_Windstep_Upgrade" } })
+    truthy(m.unlocked.USD_Windstep and m.perks.PerkV2_Agility_Spell_Windstep_Upgrade)
+    eq(spells.mirror_from_snapshot(nil), nil)
+    -- live: Luis's PC ProgressComponent.SpellsUnlocked (TSet) + SkillPerkComponent
+    local luis = player(-5000, 0, 0)
+    local reads = 0
+    local function set_of(list)
+        return { ForEach = function(_, fn) reads = reads + 1; for _, s in ipairs(list) do fn({ get = function() return s end }) end end }
+    end
+    local pc = luis.GetController()
+    pc.ProgressComponent = obj("ProgressComponent", { SpellsUnlocked = set_of({ obj("UtilitySpellData /Game/X/USD_TempestShield.USD_TempestShield") }) })
+    pc.SkillPerkComponent = obj("SkillPerkComponent", { SkillPerkRuntimeStates = { ForEach = function(_, fn)
+        fn(1, { get = function() return { ActivePerkDatas = set_of({ obj("SkillPerkData /Game/P/PerkV2_Attack_TempestShield.PerkV2_Attack_TempestShield") }) } end })
+    end } })
+    local mirror = spells.live_mirror()
+    spells.configure({ mirror = mirror, catalog = { spells = {}, players = { { spells_unlocked = { "USD_Windstep" } } } } })
+    eq(spells.can_cast("shield"), true, "live unlock")
+    local ok, reason = spells.can_cast("windstep")
+    eq(ok, false); eq(reason, "not_unlocked", "live read wins over the snapshot")
+    local n = reads
+    spells.can_cast("shield")
+    eq(reads, n, "cached within MIRROR_TTL_S")
+    -- nobody online -> the catalog snapshot
+    F.players = {}
+    clock_t = clock_t + spells.MIRROR_TTL_S + 1
+    eq(spells.can_cast("windstep"), true, "snapshot fallback")
+end)
+
+test("list({compact}) keeps only castable or transiently blocked spells", function()
+    setup({ cost_policy = "mirror", mirror = { unlocked = { USD_TempestShield = true, USD_Windstep = true, USD_EnchantWeapon_Fire = true } } })
+    local p = puppet(0, 0, 0)
+    spells.cast(p, "shield")
+    clock_t = clock_t + 2
+    local rows = spells.list({ compact = true })
+    local by = {}
+    for _, r in ipairs(rows) do by[r.id] = r end
+    truthy(by.USD_Windstep and by.USD_Windstep.castable, "unlocked + route ok")
+    eq(by.USD_TempestShield.reason, "on_cooldown"); truthy(by.USD_TempestShield.remaining_s > 0)
+    eq(by.USD_MagicalMending, nil, "route none: never listed")
+    eq(by.USD_Confuse, nil, "not unlocked by Luis")
+    truthy(by.USD_Windstep.use_when ~= "" and by.USD_Windstep.role == "combat_cc")
+    eq(by.USD_Windstep.preconditions, nil, "compact rows are short")
+end)
+
+test("register: catalog, policy, inventory, unverified flag, compact spells, cast at self", function()
+    reset_world(); clock_t = 1000
+    spells.configure({ clock = clock })
+    local p = puppet(0, 0, 0)
+    player(-9000, 0, 0)
+    F.objects[spells.PATHS.explosion_windstep] = obj("BlueprintGeneratedClass " .. spells.PATHS.explosion_windstep)
+    local bridge = { handlers = {} }
+    local bag = { ITEM_Rune_Air = 50 }
+    local store = { count = function(i) return bag[i] or 0 end, take = function(i, n) bag[i] = bag[i] - n; return true end }
+    spells.register(bridge, nil, { puppet = { get = function() return p end }, cost_policy = "mirror_budget",
+                                   inventory = store, allow_unverified = true,
+                                   mirror = { unlocked = { USD_Windstep = true } },
+                                   catalog_path = here .. "/../../data/spells_26161880.json" })
+    local cfg = spells.config()
+    eq(cfg.cost_policy, "mirror_budget"); eq(cfg.has_inventory, true); eq(cfg.allow_unverified, true)
+    local l = bridge.handlers.spells({ compact = true }).data.spells
+    eq(#l, 1); eq(l[1].id, "USD_Windstep")
+    local r = bridge.handlers.cast({ spell = "windstep", target = "self" })
+    eq(r.ok, true, tostring(r.reason)); eq(F.calls[1][3].X, 0, "stomp at the companion"); eq(bag.ITEM_Rune_Air, 45)
+end)
+
 -- =============================================================================== report
 print(("test_spells: %d passed, %d failed"):format(passed, #failed))
 for _, f in ipairs(failed) do print("FAIL " .. f) end

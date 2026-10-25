@@ -138,18 +138,23 @@ function M.start(log, get_puppet)
     if s.looping then return { started = false, already = true } end
     if type(LoopInGameThreadWithDelay) ~= "function" then return { started = false, err = "no LoopInGameThreadWithDelay" } end
     s.looping = true
-    LoopInGameThreadWithDelay(M.INTERVAL_MS, function()
+    s.handle = LoopInGameThreadWithDelay(M.INTERVAL_MS, function()
         local st = state()
-        if st.stop then st.looping = false; return true end -- returning true ends the loop
+        if st.stop then return end
         local get = rawget(_G, "__dw_presence_get")
         local p = get and U.try(get)
         if p then M.update(nil, p) end
-        return false
     end)
     return { started = true }
 end
 
-function M.stop() state().stop = true end
+-- Returning true does NOT end a LoopInGameThreadWithDelay loop (DISCOVERIES Spells); cancel it.
+function M.stop()
+    local s = state()
+    s.stop = true
+    if s.handle and CancelDelayedAction then pcall(CancelDelayedAction, s.handle) end
+    s.handle, s.looping = nil, false
+end
 
 function M.status()
     local s = state()

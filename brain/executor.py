@@ -9,6 +9,7 @@ range, missing materials, ...) go straight back to the planner; interrupts
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -30,7 +31,9 @@ class Outcome:
 
 
 def _inv(state: dict, item: str) -> int:
-    return int(state.get("inventory", {}).get(item, 0))
+    # Exact keys only. Item skills (give/drop/pickup) verify against the id the body resolved and
+    # reports in data["item"] ("oak" -> "ITEM_Resources_Wood_Oak"), never a fuzzy match.
+    return int((state.get("inventory") or {}).get(item, 0))
 
 
 # Count-based skills: skill -> (arg naming the item, +1 if it enters the inventory, -1 if it leaves).
@@ -78,13 +81,51 @@ def _v_gain(skill):
 
 
 def _v_give(args, base, post, data):
-    given = _delta("give", args, base, post)
-    return None if given >= args["count"] else f"only {given} {args['item']} left inventory"
+    # The body reports the item id it resolved ("oak" -> ITEM_Resources_Wood_Oak); count that key.
+    item = data.get("item") or args["item"]
+    given = _inv(base, item) - _inv(post, item)
+    return None if given >= args["count"] else f"only {given} {item} left inventory"
+
+
+def _v_drop(args, base, post, data):
+    problem = _v_give(args, base, post, data)
+    if problem:
+        return problem
+    nearby = post.get("nearby_items")
+    if nearby is None:  # a body without nearby_items: the store change is all we can check
+        return None
+    ids = {i.get("id") for i in nearby}
+    missing = [w for w in data.get("world_items", []) if w not in ids]
+    return f"dropped items not on the ground: {missing}" if missing else None
+
+
+def _v_pickup(args, base, post, data):
+    item, count = data.get("item"), int(data.get("count") or 0)
+    if not item or count < 1:
+        return "nothing picked up"
+    gained = _inv(post, item) - _inv(base, item)
+    if gained < count:
+        return f"inventory {item} +{gained}, body said +{count}"
+    still = {i.get("id") for i in post.get("nearby_items", [])}
+    left = [p.get("world_item") for p in data.get("picked", []) if p.get("world_item") in still]
+    return f"world items still on the ground: {left}" if left else None
 
 
 def _v_place(args, base, post, data):
     ids = {s["id"] for s in post.get("structures", [])}
     return None if data.get("structure_id") in ids else "structure not found"
+
+
+def _v_cast(args, base, post, data):
+    # The body verifies the effect from game state where it can (a new gameplay-effect instance for
+    # self effects, the held actor's effect read back for enchants) and otherwise answers
+    # verification_failed itself; a retry would double-cast, so nothing more is demanded here
+    # except, when the state exposes spell cooldowns (the mock does), that the cooldown started.
+    cds = post.get("spell_cooldowns")
+    spell = data.get("spell")
+    if isinstance(cds, dict) and spell and data.get("cooldown_s", 0) > 1 and not cds.get(spell):
+        return f"{spell} cooldown did not start"
+    return None
 
 
 VERIFIERS: dict[str, Callable] = {
@@ -95,16 +136,25 @@ VERIFIERS: dict[str, Callable] = {
     "gather": _v_gain("gather"),
     "craft": _v_gain("craft"),
     "give": _v_give,
+    "drop": _v_drop,
+    "pickup": _v_pickup,
     "place": _v_place,
+    "cast": _v_cast,
 }
 
 
 class Executor:
-    def __init__(self, game: GameInterface, store: StateStore, logger: JsonlLogger, max_attempts: int = 3):
+    """``sleep`` waits out a short spell cooldown (on_cooldown with data.remaining_s up to
+    ``max_cooldown_wait`` seconds) before the retry; longer cooldowns fail at once."""
+
+    def __init__(self, game: GameInterface, store: StateStore, logger: JsonlLogger, max_attempts: int = 3,
+                 sleep: Callable[[float], None] = time.sleep, max_cooldown_wait: float = 5.0):
         self.game = game
         self.store = store
         self.log = logger
         self.max_attempts = max_attempts
+        self.sleep = sleep
+        self.max_cooldown_wait = max_cooldown_wait
         self._baselines: dict[str, dict] = {}  # task id -> state when the task first started
 
     def state(self) -> dict:
@@ -132,6 +182,7 @@ class Executor:
     def _run(self, task: Task) -> Outcome:
         base = self._baselines.setdefault(task.id, self.state())
         reason = None
+        last_data: dict = {}
         while task.attempts < self.max_attempts:
             args = self._remaining_args(task, base, self.state())
             if args is None:
@@ -145,6 +196,7 @@ class Executor:
 
             if not result["ok"]:
                 reason = result["reason"]
+                last_data = result["data"]
                 if reason in Reason.INTERRUPTS:
                     task.attempts -= 1  # an interrupt is not the skill's fault
                     task.status = "pending"
@@ -152,6 +204,12 @@ class Executor:
                     return Outcome(False, reason, task.attempts, result["data"], interrupt=True)
                 if reason in Reason.DETERMINISTIC:
                     break
+                if reason == Reason.ON_COOLDOWN:
+                    wait = float(result["data"].get("remaining_s") or 0)
+                    if not 0 < wait <= self.max_cooldown_wait:
+                        break  # a long cooldown: report it rather than block the agent
+                    self.log.log("cooldown_wait", task_id=task.id, tool=task.skill, seconds=wait)
+                    self.sleep(wait + 0.1)
                 continue
 
             verifier = VERIFIERS.get(task.skill)
@@ -159,9 +217,10 @@ class Executor:
             if problem is None:
                 return self._finish(task, Outcome(True, attempts=task.attempts, data=result["data"]))
             reason = f"{Reason.VERIFICATION_FAILED}: {problem}"
+            last_data = result["data"]
             self.log.log("verification_failed", task_id=task.id, tool=task.skill, problem=problem)
 
-        return self._finish(task, Outcome(False, reason, task.attempts))
+        return self._finish(task, Outcome(False, reason, task.attempts, last_data))
 
     def _finish(self, task: Task, outcome: Outcome) -> Outcome:
         task.status = "done" if outcome.ok else "failed"

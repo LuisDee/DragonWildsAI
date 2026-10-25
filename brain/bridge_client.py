@@ -16,8 +16,18 @@ from .interface import ActionResult, Coords, Event, GameInterface, Reason, fail,
 from .jsonl_log import JsonlLogger
 from .transport import Transport
 
+def _drop_none(v):
+    """Remove None values recursively (optional args are simply absent on the wire)."""
+    if isinstance(v, dict):
+        return {k: _drop_none(x) for k, x in v.items() if x is not None}
+    if isinstance(v, list):
+        return [_drop_none(x) for x in v]
+    return v
+
+
 # Long actions need longer timeouts. Seconds of wall-clock time.
-DEFAULT_TIMEOUTS = {"gather": 180.0, "craft": 60.0, "attack": 60.0, "go_to": 120.0, "place": 60.0}
+DEFAULT_TIMEOUTS = {"gather": 180.0, "craft": 60.0, "attack": 60.0, "go_to": 120.0, "place": 60.0,
+                    "pickup": 120.0, "give": 70.0}  # the body's give walks to the player first
 
 
 class BridgeClient(GameInterface):
@@ -115,8 +125,35 @@ class BridgeClient(GameInterface):
     def give(self, player: str, item: str, count: int) -> ActionResult:
         return self._tool("give", player=player, item=item, count=count)
 
+    def pickup(self, target: str, item: str | None = None, limit: int = 1) -> ActionResult:
+        args = {"target": target, "limit": limit}
+        if item is not None:
+            args["item"] = item
+        return self._tool("pickup", **args)
+
+    def drop(self, item: str, count: int, at: str = "feet") -> ActionResult:
+        return self._tool("drop", item=item, count=count, at=at)
+
     def say(self, text: str) -> ActionResult:
         return self._tool("say", text=text)
+
+    # spells (body/spells.lua) and reflex rules (body/rules.lua)
+    def cast(self, spell: str, target: str | Coords | None = None) -> ActionResult:
+        return self.request("cast", _drop_none({"spell": spell, "target": target}))
+
+    def spells(self) -> ActionResult:
+        return self.request("spells", {"compact": True})
+
+    def set_reflex_rule(self, enemy: str = "*", trigger: dict | None = None, actions: list | None = None,
+                        cooldown_s: float = 3.0, note: str | None = None) -> ActionResult:
+        return self.request("set_reflex_rule", _drop_none(
+            {"enemy": enemy, "trigger": trigger, "actions": actions, "cooldown_s": cooldown_s, "note": note}))
+
+    def list_rules(self, enemy: str | None = None) -> ActionResult:
+        return self.request("list_rules", _drop_none({"enemy": enemy}))
+
+    def clear_rule(self, id: str | None = None, enemy: str | None = None, all: bool = False) -> ActionResult:
+        return self.request("clear_rule", _drop_none({"id": id, "enemy": enemy, "all": all or None}))
 
     def poll_events(self) -> list[Event]:
         for msg in self.transport.receive(0.0):

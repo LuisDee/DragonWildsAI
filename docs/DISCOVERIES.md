@@ -425,3 +425,8 @@ Modules: `mod/experiments/spell_dump.lua` (X1), `spell_x3.lua` (X3), `spell_x4.l
 - Built into `mod/body/identity.lua` (`copy_account` on spawn and on adopt; `is_registered` now requires an account with a platform id). Takes effect at the next restart; live puppet fixed via `mod/experiments/owner_account.lua`.
 - Side effects to watch: the game may treat Claude as owned by Luis's account (claims, permissions). None observed yet.
 - **Push model is now OFF** (`Saved/Config/WindowsServer/Engine.ini [ConsoleVariables] net.IsPushModelEnabled=0`, backup at `Engine.ini.bak-pushmodel`). It was not the nameplate fix, but it makes Lua property writes replicate. Keep it unless perf telemetry shows a cost.
+
+## "This server might be modded" warning (2026-10-25)
+- The server advertises the EOS session attribute **`ModDetection = 1`** (`LogNetSessionSettings: Setting ["ModDetection"] … value[1]`), alongside `BuildId=254097`, `ServerType=1`, `BetaHash=77`, `JoinCode`, `Vip_ServerName` and others. The client shows the warning when the attribute is set.
+- **It is set by the game itself:** there is no ini key, and no reflected symbol in the dump, so the check is native. It most likely detects foreign code in the process (UE4SS via `version.dll`) or modified content. Pre-UE4SS logs have rotated away, so the 0 → 1 change is unconfirmed.
+- **Policy:** leave it. The label is accurate and part of Jagex's vanilla-vs-moddable signalling. Don't try to hide it. If the companion ever runs on the group's real server, friends will see the warning.

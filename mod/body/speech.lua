@@ -13,6 +13,14 @@
 --            displayed and is the suspected cause of the client freeze. Kept only so the old API
 --            still answers; do not enable it with a player connected.
 --   notify : LEGACY, DANGEROUS. Client_DisplayTextNotification HUD toast (same incident).
+--   direct : ON-DEMAND (experiments/speech_direct; status in DISCOVERIES "On-demand speech").
+--            Server_SendChatMessage on a connected player's PlayerChat with an FChatMessageData
+--            given as a Lua table whose network fields are userdata of LIVE engine structs, copied
+--            by UE4SS with FStructProperty::CopyCompleteValue (never built):
+--              SenderData.PrimaryNetId/SecondaryNetId <- host PS OwnerGuid.AccountGuid.NetIdPrimary/
+--              NetIdSecondary; Filter.SenderId <- host PS UniqueID; ReceiverIds empty; CharacterGuid
+--              = M.GUID, PlayerId = host PS PlayerId (scalars). The server builds and sends the
+--              Client_ReceiveChatMessage itself. Any failure falls back to the relay queue.
 --
 -- THE GAP (honest): relay needs a triggering chat line. say() in relay mode QUEUES the text, and
 -- it is delivered the next time any player sends a chat message (using that message as the
@@ -38,7 +46,7 @@ M.GUID = { A = 0x0C0FFEE1, B = 0x00C0DE00, C = 0x0BADF00D, D = 0x00000001 } -- t
 M.PLAYER_ID = 9001 -- legacy chat mode only (not used by real players; Luis's was 256)
 M.COLOR = { R = 80, G = 200, B = 255, A = 255 }
 M.CHAT_FN = "/Script/JagexChatBackend.PlayerChatComponent:Server_SendChatMessage"
-M.MODES = { log = true, relay = true, chat = true, notify = true }
+M.MODES = { log = true, relay = true, chat = true, notify = true, direct = true }
 local LOG_DEFAULT = "log"
 M.DEFAULT_MODE = LOG_DEFAULT
 M.ECHO_PREFIX = "[Claude] "
@@ -197,6 +205,61 @@ local function enqueue(s, text)
     while #s.queue > M.QUEUE_MAX do table.remove(s.queue, 1); s.dropped = s.dropped + 1 end
 end
 
+-- ------------------------------------------------------------------ direct (on-demand)
+-- The first connected player that is not the bot: its PlayerChat sends, its PlayerState supplies
+-- the copied net ids (the bot's PS carries the same AccountGuid, see body/identity.lua).
+local function direct_host()
+    for _, pc in ipairs(U.player_controllers()) do
+        local ps = U.try(function() return pc.PlayerState end)
+        local chat = U.try(function() return pc.PlayerChat end)
+        if U.alive(ps) and U.valid(chat) and not U.try(function() return ps.bIsABot end) then return pc, ps, chat end
+    end
+end
+
+-- A struct field passed as userdata is only engine-copied when it IS a UScriptStruct userdata.
+local function struct_ud(v)
+    if v == nil then return false end
+    local ok, t = pcall(function() return v:type() end)
+    return (not ok) or t == "UScriptStruct" -- fakes in tests have no :type()
+end
+
+-- Build (msg, filter) tables. Network fields are live userdata; everything else is scalar.
+function M.direct_message(host_ps, text)
+    local acct = host_ps.OwnerGuid.AccountGuid
+    local msg = {
+        SenderData = {
+            PrimaryNetId = acct.NetIdPrimary,
+            SecondaryNetId = acct.NetIdSecondary,
+            CharacterGuid = { A = M.GUID.A, B = M.GUID.B, C = M.GUID.C, D = M.GUID.D },
+            PlayerId = U.try(function() return host_ps.PlayerId end) or 0,
+            Color = { R = M.COLOR.R, G = M.COLOR.G, B = M.COLOR.B, A = M.COLOR.A },
+        },
+        MessageBody = text:sub(1, M.MAX_LEN),
+    }
+    local filter = { SenderId = host_ps.UniqueID }
+    return msg, filter
+end
+
+local function say_direct(log, text)
+    local s = state()
+    local pc, ps, chat = direct_host()
+    if not pc then return false, "no connected player" end
+    M.register_names(log)
+    local okb, msg, filter = pcall(M.direct_message, ps, text)
+    if not okb then return false, "build: " .. tostring(msg) end
+    if not (struct_ud(msg.SenderData.PrimaryNetId) and struct_ud(msg.SenderData.SecondaryNetId) and struct_ud(filter.SenderId)) then
+        return false, "net id source is not a live struct"
+    end
+    s.relaying = true -- our send passes through every chat hook: never a template or a command
+    local ok, err = U.call(log, "speech.direct_Server_SendChatMessage", { pc = U.short(pc), len = #text }, function()
+        chat:Server_SendChatMessage(msg, filter)
+    end)
+    s.relaying = false
+    if ok then s.sent = s.sent + 1 end
+    U.event(log, "speech_direct", { ok = ok, err = (not ok) and tostring(err) or nil, text = text })
+    return ok, (not ok) and tostring(err) or nil
+end
+
 -- ------------------------------------------------------------------ legacy Client_* modes
 local function legacy_message(text)
     return { SenderData = { CharacterGuid = M.GUID, PlayerId = M.PLAYER_ID, Color = M.COLOR }, MessageBody = text }
@@ -259,14 +322,21 @@ function M.say(log, text)
     local mode = M.mode()
     U.event(log, "say", { text = text, mode = mode })
     if mode == "log" then return U.ok({ method = "log", recipients = 0, verified = false }) end
-    if mode == "relay" then
+    local direct_err
+    if mode == "direct" then
+        local ok, err = say_direct(log, text)
+        if ok then return U.ok({ method = "direct", queued = false, verified = false, on_demand = true }) end
+        direct_err = err -- fall back to the relay queue below
+    end
+    if mode == "relay" or mode == "direct" then
         local s = state()
         local armed = M.arm_relay(log)
         if not armed.armed then return U.fail("body_error", { method = "relay", detail = armed.err }) end
         M.register_names(log)
         enqueue(s, text)
         return U.ok({ method = "relay", queued = true, pending = #s.queue, verified = false, on_demand = false,
-                      detail = "delivered with the next player chat line (on-demand speech is not solved)" })
+                      direct_err = direct_err,
+                      detail = "delivered with the next player chat line" })
     end
     return say_legacy(log, mode, text)
 end
@@ -276,10 +346,11 @@ function M.status()
     local s = state()
     return {
         mode = M.mode(), name = M.NAME, bot_guid = U.guid_hex(M.GUID),
-        capabilities = { log = true, relay = s.armed, on_demand = false },
+        capabilities = { log = true, relay = s.armed, on_demand = M.mode() == "direct" },
         relay_armed = s.armed, relay_err = s.arm_err, triggers = s.triggers,
         pending = #s.queue, sent = s.sent, dropped = s.dropped,
-        gap = "relay needs a player's chat line to piggy-back on; on-demand speech is unsolved",
+        gap = M.mode() == "direct" and "direct: on-demand; failures fall back to the relay queue"
+            or "relay needs a player's chat line to piggy-back on (DW_SAY_MODE=direct speaks on demand)",
     }
 end
 

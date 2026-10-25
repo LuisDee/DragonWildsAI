@@ -54,6 +54,12 @@ class Reason:
     UNKNOWN_SKILL = "unknown_skill"  # the task names a skill the registry doesn't have
     BODY_ERROR = "body_error"  # the Lua body's handler crashed; transient (retryable)
     STATE_UNAVAILABLE = "state_unavailable"  # get_state failed, so nothing can be verified
+    NOT_IN_INVENTORY = "not_in_inventory"  # the companion does not carry that item (drop/give/equip)
+    # Spells (body/spells.lua) and reflex rules (body/rules.lua)
+    ON_COOLDOWN = "on_cooldown"  # retryable: data.remaining_s says when (the executor waits short ones)
+    NOT_UNLOCKED = "not_unlocked"  # Luis hasn't unlocked that spell (or its perk): the bot mirrors him
+    UNSAFE = "unsafe"  # an area spell would land too close to a player
+    CANT_SENSE = "cant_sense"  # a reflex rule trigger the body cannot sense
 
     # A player command or an attack pre-empted the action: not the skill's fault.
     INTERRUPTS: frozenset[str] = frozenset({INTERRUPTED, ATTACKED})
@@ -61,6 +67,7 @@ class Reason:
     DETERMINISTIC: frozenset[str] = frozenset({
         NOTHING_IN_RANGE, NOT_ENOUGH, MISSING_MATERIALS, UNKNOWN_TARGET, UNKNOWN_RECIPE, TOO_FAR,
         INVALID_ARGS, UNKNOWN_TOOL, NOT_IMPLEMENTED, COMPANION_DOWN, UNKNOWN_SKILL, STATE_UNAVAILABLE,
+        NOT_UNLOCKED, UNSAFE, CANT_SENSE, NOT_IN_INVENTORY,
     })
     # The companion simply cannot do this yet (skill missing on the body or in the registry).
     CANT_YET: frozenset[str] = frozenset({NOT_IMPLEMENTED, UNKNOWN_TOOL, UNKNOWN_SKILL})
@@ -111,6 +118,18 @@ class GiveArgs(BaseModel):
     count: int = Field(ge=1)
 
 
+class PickupArgs(BaseModel):
+    target: str = Field(description="World item id from state nearby_items, or 'nearest'.")
+    item: str | None = Field(None, description="Only items whose id or name contains this, e.g. 'oak'.")
+    limit: int = Field(1, ge=1, le=20, description="Pick up this many world items (nearest matching first).")
+
+
+class DropArgs(BaseModel):
+    item: str = Field(description="Carried item: an id from state inventory, or a name like 'oak logs'.")
+    count: int = Field(ge=1, description="How many to drop.")
+    at: Literal["feet", "luis"] = Field("feet", description="At the companion's feet, or at Luis's feet when he is close.")
+
+
 class SayArgs(BaseModel):
     text: str
 
@@ -118,6 +137,72 @@ class SayArgs(BaseModel):
 class RememberArgs(BaseModel):
     key: str = Field(description="Short key, e.g. 'place:lake_hut' or 'pref:luis_axe'.")
     value: str
+
+
+class CastArgs(BaseModel):
+    spell: str = Field(description="Spell name as listed in castable_spells, e.g. 'Tempest Shield' or 'Windstep'.")
+    target: str | Coords | None = Field(
+        None, description="Omit or 'self' for self spells; an entity id for a targeted spell; or [x, y, z]."
+    )
+
+
+# Reflex rules (body/rules.lua): standing orders the body runs at game speed, no model in the loop.
+# Only what the body can sense; the Controller must refuse anything else ("I can't sense that").
+SENSABLE_TRIGGERS: dict[str, str] = {
+    "telegraph": "an enemy of that kind starts an attack (raises claws, winds up); optional attack name filter",
+    "enemy_hp_below": "the current target's health is below value percent",
+    "cluster_at_least": "value or more enemies are bunched together around the target",
+    "own_hp_below": "the companion's own health is below value percent",
+    "luis_hp_below": "Luis's health is below value percent",
+    "enemy_stunned": "the target is staggered or knocked down",
+    "spell_ready": "the named spell is off cooldown and castable",
+}
+REFLEX_ACTIONS: dict[str, str] = {
+    "cast": "cast a spell (spell, target self|enemy|cluster)",
+    "evade": "step away from the enemy (distance_m, default 4)",
+    "switch_weapon": "equip an owned weapon (item id)",
+    "retreat": "run back to Luis (duration_s, default 4)",
+    "focus_target": "switch the attack to the triggering enemy",
+}
+
+
+class ReflexTrigger(BaseModel):
+    kind: Literal["telegraph", "enemy_hp_below", "cluster_at_least", "own_hp_below", "luis_hp_below",
+                  "enemy_stunned", "spell_ready"] = Field(
+        description="What to react to. " + "; ".join(f"{k}: {v}" for k, v in SENSABLE_TRIGGERS.items()))
+    value: float | None = Field(None, description="Percent for *_hp_below, enemy count for cluster_at_least.")
+    attack: str | None = Field(None, description="telegraph only: part of the enemy attack name, if Luis named one.")
+    spell: str | None = Field(None, description="spell_ready only: the spell.")
+    near_m: float | None = Field(None, description="telegraph only: how close the enemy must be (default 8 m).")
+
+
+class ReflexAction(BaseModel):
+    kind: Literal["cast", "evade", "switch_weapon", "retreat", "focus_target"] = Field(
+        description="; ".join(f"{k}: {v}" for k, v in REFLEX_ACTIONS.items()))
+    spell: str | None = Field(None, description="cast: the spell.")
+    target: Literal["self", "enemy", "cluster"] | None = Field(None, description="cast: where to aim it.")
+    item: str | None = Field(None, description="switch_weapon: item id, e.g. 'ITEM_Club_Wood'.")
+    distance_m: float | None = Field(None, description="evade: metres to step away.")
+    duration_s: float | None = Field(None, description="retreat: seconds to stay by Luis.")
+
+
+class SetReflexRuleArgs(BaseModel):
+    enemy: str = Field("*", description="Enemy kind it applies to, e.g. 'kalphite' (matches every Kalphite type), "
+                                        "or '*' for any enemy. Rules are remembered per enemy kind.")
+    trigger: ReflexTrigger
+    actions: list[ReflexAction] = Field(min_length=1, max_length=3, description="Done in order when it fires.")
+    cooldown_s: float = Field(3.0, ge=0.5, le=600, description="Minimum seconds between two firings.")
+    note: str | None = Field(None, description="Luis's words, for the record.")
+
+
+class ListRulesArgs(BaseModel):
+    enemy: str | None = Field(None, description="Only rules that apply to this enemy kind.")
+
+
+class ClearRuleArgs(BaseModel):
+    id: str | None = Field(None, description="Rule id from reflex_rules, e.g. 'r2'.")
+    enemy: str | None = Field(None, description="Clear every rule for this enemy kind.")
+    all: bool = Field(False, description="Clear every rule.")
 
 
 # name -> (args model, description). Order matters only for prompt readability.
@@ -130,10 +215,22 @@ TOOLS: dict[str, tuple[type[BaseModel], str]] = {
     "gather": (GatherArgs, "Harvest a resource nearby until count is reached or it fails."),
     "craft": (CraftArgs, "Craft an item from carried materials."),
     "place": (PlaceArgs, "Build a saved blueprint at a location (later phase)."),
-    "give": (GiveArgs, "Hand items to a player who is within reach."),
+    "give": (GiveArgs, "Hand carried items to a player (walks to them, drops at their feet)."),
+    "pickup": (PickupArgs, "Pick up an item lying on the ground into the companion's inventory."),
+    "drop": (DropArgs, "Drop carried items on the ground (at the companion's or Luis's feet)."),
     "say": (SayArgs, "Chat output. Only the Controller speaks."),
     "remember": (RememberArgs, "Store a long-term fact in notes.json."),
+    "cast": (CastArgs, "Cast one of the spells in castable_spells now (self, an enemy id, or a point)."),
+    "set_reflex_rule": (SetReflexRuleArgs,
+                        "Store a standing order ('every time X, do Y') that the body runs instantly during fights. "
+                        "Only for triggers in the trigger list; same enemy + trigger replaces the old rule."),
+    "list_rules": (ListRulesArgs, "List the standing orders (reflex rules)."),
+    "clear_rule": (ClearRuleArgs, "Forget a standing order by id, every order for an enemy kind, or all."),
 }
+
+# Brain-side tools that talk to the body directly, not through the executor (no game state to verify
+# beyond the body's own read-back of the stored rule).
+RULE_TOOLS = ("set_reflex_rule", "list_rules", "clear_rule")
 
 # Tools the body implements (remember is brain-side, in the state store).
 BODY_TOOLS = [name for name in TOOLS if name != "remember"]
@@ -237,11 +334,35 @@ class GameInterface(ABC):
     def give(self, player: str, item: str, count: int) -> ActionResult: ...
 
     @abstractmethod
+    def pickup(self, target: str, item: str | None = None, limit: int = 1) -> ActionResult: ...
+
+    @abstractmethod
+    def drop(self, item: str, count: int, at: str = "feet") -> ActionResult: ...
+
+    @abstractmethod
     def say(self, text: str) -> ActionResult: ...
 
     @abstractmethod
     def poll_events(self) -> list[Event]:
         """Return (and clear) events the body emitted since the last poll."""
+
+    # Spells and reflex rules: optional, so older bodies (and test fakes) need not implement them.
+    def cast(self, spell: str, target: str | Coords | None = None) -> ActionResult:
+        return fail(Reason.NOT_IMPLEMENTED, tool="cast")
+
+    def spells(self) -> ActionResult:
+        """Compact spell list ``data.spells`` [{id, name, role, use_when, castable, reason, remaining_s}]."""
+        return fail(Reason.NOT_IMPLEMENTED, tool="spells")
+
+    def set_reflex_rule(self, enemy: str = "*", trigger: dict | None = None, actions: list | None = None,
+                        cooldown_s: float = 3.0, note: str | None = None) -> ActionResult:
+        return fail(Reason.NOT_IMPLEMENTED, tool="set_reflex_rule")
+
+    def list_rules(self, enemy: str | None = None) -> ActionResult:
+        return fail(Reason.NOT_IMPLEMENTED, tool="list_rules")
+
+    def clear_rule(self, id: str | None = None, enemy: str | None = None, all: bool = False) -> ActionResult:
+        return fail(Reason.NOT_IMPLEMENTED, tool="clear_rule")
 
     def call(self, tool: str, args: dict) -> ActionResult:
         """Dispatch a tool by name after validating its arguments."""
