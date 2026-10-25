@@ -79,6 +79,7 @@ function M.start(log, args)
         finish = function(a, ok, reason, data)
             if a.done then return end
             a.done, a.ok, a.reason = true, ok, reason
+            pcall(gather.cleanup, a)
             G.result = { ok = ok, reason = reason, data = data }
             log.event("gather_test_end", G.result)
             if bridge then pcall(bridge.emit_event, ok and "task_done" or "task_failed",

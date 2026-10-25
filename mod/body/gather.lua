@@ -60,6 +60,8 @@ M.APPROACH_ANGLES = { 0, 72, -72, 144, -144 } -- stand points tried around the t
 M.REPOSITION_MS = 1500          -- after swings with no contact, walk to another side for this long
 M.OFFSPRING_CM = 1500           -- new pieces within this of a felled tree belong to it
 M.LEFTOVER_MAX_CM = 3000        -- logs left lying around within this radius are finished first
+M.STAND_INSET_CM = 80           -- stand points this far inside the reach ...
+M.STAND_MIN_CM = 60             -- ... but never closer than this to the aim point
 M.APPROACH_MAX_MS = 25000       -- give a target up if we cannot reach it in this long
 M.STATUS_MIN_MS = 3000          -- gather_status events at most this often per phase
 M.DMG_SLACK_MS = 150            -- check the HP this long after the swing's damage point
@@ -271,7 +273,7 @@ function M.tree(deps)
         t.last_verdict = verdict
         if verdict == "no_contact" or verdict == nil then
             t.no_contact = (t.no_contact or 0) + 1
-            if t.no_contact % 2 == 0 then t.reposition = true end -- the first swing may still be turning
+            t.reposition = true -- a whiff: re-approach closer and re-aim before the next swing
         else
             t.no_contact = 0
         end
@@ -534,7 +536,8 @@ function M.tree(deps)
                 -- the base angle is fixed once per target (else the stand point flips sides every reissue)
                 m.base_angle = m.base_angle or math.deg(math.atan(here.Y - aim.Y, here.X - aim.X))
                 local ang = m.base_angle + M.APPROACH_ANGLES[(m.angle_i % #M.APPROACH_ANGLES) + 1]
-                local r_cm = math.max(80, reach - 50)
+                -- closer on every retry: whiffs come from standing too far (Luis, 2026-10-25)
+                local r_cm = math.max(M.STAND_MIN_CM, reach - M.STAND_INSET_CM - 20 * m.angle_i)
                 local stand = { X = aim.X + math.cos(math.rad(ang)) * r_cm, Y = aim.Y + math.sin(math.rad(ang)) * r_cm, Z = aim.Z }
                 r = deps.move_to_location(c, stand, 30)
             end
@@ -549,9 +552,15 @@ function M.tree(deps)
     local function swing(a, t, d)
         local sw = M.swing_for(a.held, t.spec.attack or "primary")
         if not sw then return fail(a, "wrong_tool", { detail = "attack set not loaded", held = a.held and profiles.item_id(a.held) or jsonutil.null }) end
-        deps.face(a.p, t.aim or U.loc(t.actor))
+        -- re-read the target right before the swing (felled logs roll), face that point
+        local aim = sense.aim(t.actor, U.loc(a.p)) or U.loc(t.actor)
+        t.aim = aim
+        local yaw_err = deps.face(a.p, aim)
         local seq = hitcheck.seq()
         local hp0 = U.health(t.actor) -- before the swing: native damage may land at once
+        d = U.dist2d(U.loc(a.p), aim)
+        lg("gather_swing", { target = t.id, stage = t.stage, label = sw.label, dist_cm = U.round(d, 0),
+                             yaw_err_deg = yaw_err and U.round(yaw_err, 1) or nil, hp_before = hp0 })
         local ok = deps.perform(a.p, sw, t.actor, { target = t.id, stage = t.stage, n = a.swings + 1, label = sw.label })
         a.swings = a.swings + 1
         a.swing = { at = now(), dmg_ms = sw.dmg_ms, damage = sw.damage, hp = hp0, seq = seq, dist = d, resolved = not ok }
@@ -625,13 +634,24 @@ function M.tree(deps)
 end
 
 -- ------------------------------------------------------------------ live deps and the handler
+-- Turn the pawn to face `tl` (K2_SetActorRotation, which the verified tree hit used) and point the
+-- AI controller's focus there too (else the controller may turn the pawn back). Returns the yaw error
+-- (degrees) between the pawn's forward and the target after turning, when readable.
 local function face(log, p, tl)
     local pl = U.loc(p)
-    if not (pl and tl) then return end
+    if not (pl and tl) then return nil end
     local yaw = math.deg(math.atan(tl.Y - pl.Y, tl.X - pl.X))
     U.call(log, "gather.K2_SetActorRotation", { yaw = U.round(yaw, 1) }, function()
         p:K2_SetActorRotation({ Pitch = 0, Yaw = yaw, Roll = 0 }, false)
     end)
+    local c = U.controller_of(p)
+    if c then
+        U.call(log, "gather.K2_SetFocalPoint", { at = U.to_wire(tl) }, function() c:K2_SetFocalPoint({ X = tl.X, Y = tl.Y, Z = tl.Z }) end)
+    end
+    local f = U.forward(p)
+    local fy = math.deg(math.atan(f.Y, f.X))
+    local err = (yaw - fy + 540) % 360 - 180
+    return math.abs(err)
 end
 
 local function decrease_health(log, actor, amount)
@@ -673,6 +693,13 @@ function M.live_deps(opts)
         decrease_health = function(actor, amount) return decrease_health(log_mod, actor, amount) end,
         convert = function(p, at, r) return sense.convert_foliage(log_mod, p, at, r) end,
     }
+end
+
+-- End of an action: drop the focal point set by face() so follow/attack steer normally again.
+function M.cleanup(a)
+    local p = a and a.p
+    local c = p and U.controller_of(p)
+    if c then U.call(nil, "gather.K2_ClearFocus", {}, function() c:K2_ClearFocus() end) end
 end
 
 -- Validate args and build {key, profile} or an error result.
@@ -717,6 +744,7 @@ function M.start(args, ctx, opts)
     a.id, a.async = ctx and ctx.id, true
     a.tree = M.tree(deps)
     a.step = function(self) self.tree(self) end
+    a.cleanup = M.cleanup
     if M.WATCH then
         a.watch = watch.new({ log = opts.log_mod, tag = "gather_watch", radius_cm = 2500, period_ms = 1000,
                               center = function() return (a.site and a.site.loc) or U.loc(a.p or p) end })

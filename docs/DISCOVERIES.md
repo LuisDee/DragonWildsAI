@@ -522,3 +522,9 @@ Modules: `mod/experiments/gather_probe.lua` (discovery), services `mod/body/sens
 - `speech_direct prove` PASSED: the pre-hook patch of the net ids into the live `Server_SendChatMessage` call is read by native code (`patched=Zezima == control`).
 - `send` returned ok and the server stayed healthy; **Luis's client did not freeze** (unlike the hand-built Client_* RPC case), but **no chat line appeared**.
 - Prime suspect: `FChatPlayerFilterData.ReceiverIds` was empty (routing to nobody). The presence agent is capturing a genuine filter from a real message next.
+
+## Melee hitboxes: why swings whiffed (2026-10-25, read live via `mod/experiments/hitbox_probe.lua`)
+- Hits come from `UPlayerAttackData.TimedDamageShapes`: an array of {TimeOffset (s into the attack), DamageShape}. The shape is a `UDominionShape_{Arc,Box,Capsule,Sphere,Wedge}` with Offset/Pivot/Scale/RotationOffset plus shape fields, relative to the attacker. The melee component also has **camera-based aim assist** (`MaximumAngleAimAssist`, `ScreenSpaceRadius`), which the puppet lacks (no camera).
+- **Axe Chop** (`BP_Player_Axe_Woodcut1_C`, primary): Wedge **Depth 115 cm**, TopAngle 80°, **AngleOffset 35°** (skewed to one side), ZHeight 200; hits at **0.55 s**; 10 dmg.
+- **Axe Overhead Chop** (`BP_Player_Axe_Woodcut2_C`, special): Wedge Depth 170 cm, **TopAngle 15° (±7.5°)**, AngleOffset 0, Offset Z −40; hits at **0.84 s**; 10 dmg.
+- Luis saw the bot "overhead chopping thin air". The target was outside the narrow wedge. **Fix (generic):** before each swing, read the chosen attack CDO's shapes, then rotate and step so the target's position (re-read each swing; logs roll) lies inside the shape at its TimeOffset. Verify the HP change afterwards (hitcheck). Applies to every weapon and tool.
