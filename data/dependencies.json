@@ -1,6 +1,6 @@
 {
  "schema": "dw_deps/1",
- "generated_at": "2026-10-25T14:12:31Z",
+ "generated_at": "2026-10-25T14:19:01Z",
  "baseline_build": "26161880",
  "files_scanned": [
   "body/attack_data.lua",
@@ -26,7 +26,11 @@
   "experiments/puppet_safe.lua",
   "experiments/puppet_test.lua",
   "experiments/say_test.lua",
+  "experiments/spell_dump.lua",
   "experiments/spell_merge.lua",
+  "experiments/spell_x3.lua",
+  "experiments/spell_x4.lua",
+  "experiments/tree_watch.lua",
   "scripts/bridge.lua",
   "scripts/catalog.lua",
   "scripts/debug_cmds.lua",
@@ -34,13 +38,11 @@
   "scripts/dwlog.lua",
   "scripts/hooks.lua",
   "scripts/identity_attach.lua",
+  "scripts/identity_platform.lua",
   "scripts/identity_probe.lua",
   "scripts/jsonutil.lua",
   "scripts/main.lua",
   "scripts/perf_sampler.lua",
-  "scripts/spell_dump.lua",
-  "scripts/spell_x3.lua",
-  "scripts/spell_x4.lua",
   "tools/build_catalog.py",
   "tools/gen_attack_data.py"
  ],
@@ -2196,6 +2198,83 @@
    "tier": "debug"
   },
   {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Dagger/BP_Dagger_Bone.BP_Dagger_Bone_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 38
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Dagger/BP_Dagger_Bronze.BP_Dagger_Bronze_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 39
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Dagger/BP_Dagger_Dragonbone.BP_Dagger_Dragonbone_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 40
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Dagger/BP_Dagger_Iron.BP_Dagger_Iron_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 41
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Dagger/BP_Dagger_Steel.BP_Dagger_Steel_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 42
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Dagger/BP_Dagger_Stone.BP_Dagger_Stone_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 43
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Dagger/BP_Dagger_Wolfbane.BP_Dagger_Wolfbane_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 44
+    }
+   ],
+   "tier": "core"
+  },
+  {
    "path": "/Game/Gameplay/Character/Player/Equipment/Held/Dagger/ITEM_Dagger_Bone.ITEM_Dagger_Bone",
    "kind": "asset",
    "uses": [
@@ -2273,6 +2352,39 @@
    "tier": "core"
   },
   {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/GreatAxe/BP_GreatAxe_Iron.BP_GreatAxe_Iron_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 45
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/GreatAxe/BP_GreatAxe_Steel.BP_GreatAxe_Steel_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 46
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/GreatAxe/BP_GreatAxe_Thane.BP_GreatAxe_Thane_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 47
+    }
+   ],
+   "tier": "core"
+  },
+  {
    "path": "/Game/Gameplay/Character/Player/Equipment/Held/GreatAxe/ITEM_GreatAxe_Iron.ITEM_GreatAxe_Iron",
    "kind": "asset",
    "uses": [
@@ -2301,6 +2413,54 @@
     {
      "file": "body/attack_data.lua",
      "line": 47
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/GreatSword/BP_GreatSword_Bronze.BP_GreatSword_Bronze_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 48
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/GreatSword/BP_GreatSword_Iron.BP_GreatSword_Iron_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 49
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/GreatSword/BP_GreatSword_Shadow.BP_GreatSword_Shadow_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 37
+    },
+    {
+     "file": "body/attack_data.lua",
+     "line": 50
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/GreatSword/BP_GreatSword_Steel.BP_GreatSword_Steel_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 51
     }
    ],
    "tier": "core"
@@ -2354,6 +2514,39 @@
    "tier": "core"
   },
   {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Hammer/BP_Hammer_Bronze.BP_Hammer_Bronze_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 52
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Hammer/BP_Hammer_Iron.BP_Hammer_Iron_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 53
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Hammer/BP_Hammer_Steel.BP_Hammer_Steel_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 54
+    }
+   ],
+   "tier": "core"
+  },
+  {
    "path": "/Game/Gameplay/Character/Player/Equipment/Held/Hammer/ITEM_Hammer_Bronze.ITEM_Hammer_Bronze",
    "kind": "asset",
    "uses": [
@@ -2382,6 +2575,50 @@
     {
      "file": "body/attack_data.lua",
      "line": 54
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Hatchet/BP_Logging_Axe_Bronze.BP_Logging_Axe_Bronze_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 55
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Hatchet/BP_Logging_Axe_Iron.BP_Logging_Axe_Iron_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 56
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Hatchet/BP_Logging_Axe_Steel.BP_Logging_Axe_Steel_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 57
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Hatchet/BP_Logging_Axe_Stone.BP_Logging_Axe_Stone_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 58
     }
    ],
    "tier": "core"
@@ -2430,6 +2667,105 @@
     {
      "file": "body/attack_data.lua",
      "line": 58
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Mace/BP_Club_Bone.BP_Club_Bone_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 59
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Mace/BP_Club_Stone.BP_Club_Stone_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 60
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Mace/BP_Club_SwingSlash.BP_Club_SwingSlash_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 61
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Mace/BP_Club_Wood.BP_Club_Wood_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 62
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Mace/BP_Club_ZombieAxe.BP_Club_ZombieAxe_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 63
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Mace/BP_Mace_Bronze.BP_Mace_Bronze_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 64
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Mace/BP_Mace_Iron.BP_Mace_Iron_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 65
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Mace/BP_Mace_Skullsplitter.BP_Mace_Skullsplitter_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 66
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Mace/BP_Mace_Steel.BP_Mace_Steel_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 67
     }
    ],
    "tier": "core"
@@ -2538,6 +2874,61 @@
    "tier": "core"
   },
   {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Pickaxe/BP_Pickaxe.BP_Pickaxe_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 70
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Pickaxe/BP_Pickaxe_Bone.BP_Pickaxe_Bone_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 68
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Pickaxe/BP_Pickaxe_Bronze.BP_Pickaxe_Bronze_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 69
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Pickaxe/BP_Pickaxe_Steel.BP_Pickaxe_Steel_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 71
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Pickaxe/BP_Pickaxe_Stone.BP_Pickaxe_Stone_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 72
+    }
+   ],
+   "tier": "core"
+  },
+  {
    "path": "/Game/Gameplay/Character/Player/Equipment/Held/Pickaxe/ITEM_Pickaxe_Bone.ITEM_Pickaxe_Bone",
    "kind": "asset",
    "uses": [
@@ -2593,6 +2984,28 @@
    "tier": "core"
   },
   {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Scimitar/BP_Scimitar_Imaru.BP_Scimitar_Imaru_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 73
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Scimitar/BP_Scimitar_Steel.BP_Scimitar_Steel_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 74
+    }
+   ],
+   "tier": "core"
+  },
+  {
    "path": "/Game/Gameplay/Character/Player/Equipment/Held/Scimitar/ITEM_Scimitar_Imaru.ITEM_Scimitar_Imaru",
    "kind": "asset",
    "uses": [
@@ -2610,6 +3023,61 @@
     {
      "file": "body/attack_data.lua",
      "line": 74
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Sword/BP_Sword_Bronze.BP_Sword_Bronze_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 75
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Sword/BP_Sword_Chieftans.BP_Sword_Chieftans_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 76
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Sword/BP_Sword_Iron.BP_Sword_Iron_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 77
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Sword/BP_Sword_Steel.BP_Sword_Steel_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 78
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/Sword/BP_Sword_Training.BP_Sword_Training_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 79
     }
    ],
    "tier": "core"
@@ -2670,6 +3138,28 @@
    "tier": "core"
   },
   {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/UniqueWeapons/Club/AbyssalWhip/BP_Club_AbyssalWhip.BP_Club_AbyssalWhip_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 81
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/UniqueWeapons/Club/AbyssalWhip/BP_Club_AbyssalWhip1_Vestige.BP_Club_AbyssalWhip1_Vestige_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 80
+    }
+   ],
+   "tier": "core"
+  },
+  {
    "path": "/Game/Gameplay/Character/Player/Equipment/Held/UniqueWeapons/Club/AbyssalWhip/ITEM_Club_AbyssalWhip.ITEM_Club_AbyssalWhip",
    "kind": "asset",
    "uses": [
@@ -2687,6 +3177,17 @@
     {
      "file": "body/attack_data.lua",
      "line": 81
+    }
+   ],
+   "tier": "core"
+  },
+  {
+   "path": "/Game/Gameplay/Character/Player/Equipment/Held/UniqueWeapons/Hammer/GraniteMaul/BP_Hammer_GraniteMaul.BP_Hammer_GraniteMaul_C",
+   "kind": "asset",
+   "uses": [
+    {
+     "file": "body/attack_data.lua",
+     "line": 82
     }
    ],
    "tier": "core"
@@ -2729,11 +3230,11 @@
    "kind": "asset",
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 35
     }
    ],
-   "tier": "tooling"
+   "tier": "debug"
   },
   {
    "path": "/Game/Gameplay/UtilityMagic/PerkSpells/TempestShield/GE_TempestShield.GE_TempestShield_C",
@@ -2741,10 +3242,10 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 73
+     "line": 77
     },
     {
-     "file": "scripts/spell_x4.lua",
+     "file": "experiments/spell_x4.lua",
      "line": 14
     }
    ],
@@ -2756,10 +3257,10 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 74
+     "line": 78
     },
     {
-     "file": "scripts/spell_x4.lua",
+     "file": "experiments/spell_x4.lua",
      "line": 15
     }
    ],
@@ -2771,10 +3272,10 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 50
+     "line": 54
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 34
     }
    ],
@@ -2955,7 +3456,7 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 51
+     "line": 55
     }
    ],
    "tier": "core"
@@ -3160,16 +3661,20 @@
    "name": "BP_PlayerCharacter_C",
    "uses": [
     {
+     "file": "experiments/spell_dump.lua",
+     "line": 348
+    },
+    {
      "file": "scripts/identity_attach.lua",
      "line": 25
     },
     {
-     "file": "scripts/identity_probe.lua",
-     "line": 36
+     "file": "scripts/identity_platform.lua",
+     "line": 18
     },
     {
-     "file": "scripts/spell_dump.lua",
-     "line": 348
+     "file": "scripts/identity_probe.lua",
+     "line": 36
     }
    ],
    "tier": "core",
@@ -3228,11 +3733,11 @@
    "name": "DominionSpellData",
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 491
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "resolves_in_baseline": true
   },
   {
@@ -3250,22 +3755,22 @@
    "name": "SkillPerkModule_Spell",
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 479
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "resolves_in_baseline": true
   },
   {
    "name": "UtilitySpellData",
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 465
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "resolves_in_baseline": true
   },
   {
@@ -3329,6 +3834,10 @@
     {
      "file": "scripts/identity_attach.lua",
      "line": 28
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 23
     }
    ],
    "tier": "core",
@@ -3452,11 +3961,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 397
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "FSkillPerkRuntimeState"
@@ -3472,11 +3981,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 245
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 11,
    "baseline_owners": [
     "FAiAttackSpawnData",
@@ -3501,11 +4010,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 148
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UTempestShieldGameplayEffectData"
@@ -3521,11 +4030,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 142
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 2,
    "baseline_owners": [
     "FAnimaGameplayEffectTypeData",
@@ -3562,11 +4071,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 177
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 2,
    "baseline_owners": [
     "FProjectileData",
@@ -3603,11 +4112,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 178
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UHeldEquipmentEffectData"
@@ -3623,11 +4132,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 173
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UHeldEquipmentEffectData"
@@ -3643,11 +4152,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 175
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UHeldEquipmentEffectData"
@@ -3749,10 +4258,10 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 654
+     "line": 668
     },
     {
-     "file": "scripts/spell_x3.lua",
+     "file": "experiments/spell_x3.lua",
      "line": 47
     }
    ],
@@ -3788,15 +4297,20 @@
   {
    "name": "Amount",
    "via": [
+    "dot",
     "literal"
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 215
+    },
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 98
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 23,
    "baseline_owners": [
     "FAIDamageEvent",
@@ -3821,11 +4335,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 258
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 2,
    "baseline_owners": [
     "FSpellAnimNotifyEvent",
@@ -3982,12 +4496,12 @@
    ],
    "uses": [
     {
-     "file": "scripts/catalog.lua",
-     "line": 274
+     "file": "experiments/spell_dump.lua",
+     "line": 192
     },
     {
-     "file": "scripts/spell_dump.lua",
-     "line": 192
+     "file": "scripts/catalog.lua",
+     "line": 274
     }
    ],
    "tier": "tooling",
@@ -4072,12 +4586,12 @@
    ],
    "uses": [
     {
-     "file": "scripts/catalog.lua",
-     "line": 169
+     "file": "experiments/spell_dump.lua",
+     "line": 327
     },
     {
-     "file": "scripts/spell_dump.lua",
-     "line": 327
+     "file": "scripts/catalog.lua",
+     "line": 169
     }
    ],
    "tier": "tooling",
@@ -4104,11 +4618,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 143
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UDominionGameplayEffectData"
@@ -4194,7 +4708,7 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_x4.lua",
+     "file": "experiments/spell_x4.lua",
      "line": 63
     }
    ],
@@ -4294,11 +4808,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 147
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UTempestShieldGameplayEffectData"
@@ -4314,11 +4828,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 285
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UUtilitySpellData"
@@ -4334,11 +4848,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 250
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 4,
    "baseline_owners": [
     "UGraphNodeContextMenuContext",
@@ -4357,11 +4871,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 251
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "USpellModule_BlueprintRuntime"
@@ -4391,17 +4905,37 @@
    ]
   },
   {
+   "name": "CachedDamageShouldHitReact",
+   "via": [
+    "dot"
+   ],
+   "uses": [
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 103
+    }
+   ],
+   "tier": "debug",
+   "owner_count": 1,
+   "baseline_owners": [
+    "FDominionDamageEvent"
+   ],
+   "kinds": [
+    "prop"
+   ]
+  },
+  {
    "name": "CastType",
    "via": [
     "literal"
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 276
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UUtilitySpellData"
@@ -4611,11 +5145,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 155
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UDominionGameplayEffectData"
@@ -4693,6 +5227,40 @@
    ]
   },
   {
+   "name": "Color",
+   "via": [
+    "dot"
+   ],
+   "uses": [
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 31
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 73
+    }
+   ],
+   "tier": "core",
+   "owner_count": 101,
+   "baseline_owners": [
+    "UBP_Ambience_SkyEnergy_C",
+    "ABP_GroundFog_v03_C",
+    "FChaosVDDebugDrawShapeBase",
+    "UCommonTextStyle",
+    "FRigSocketState",
+    "FRigUnit_DebugArc",
+    "FRigUnit_DebugArcItemSpace",
+    "FRigUnit_DebugBezier",
+    "FRigUnit_DebugBezierItemSpace",
+    "FRigUnit_DebugHierarchy"
+   ],
+   "kinds": [
+    "func",
+    "prop"
+   ]
+  },
+  {
    "name": "CompressedPing",
    "via": [
     "dot"
@@ -4721,7 +5289,7 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 107
+     "line": 111
     },
     {
      "file": "experiments/companion.lua",
@@ -4809,11 +5377,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 270
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 5,
    "baseline_owners": [
     "UBTDecorator_SetTagCooldown",
@@ -4833,11 +5401,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 271
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UUtilitySpellData"
@@ -4853,15 +5421,15 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 272
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 273
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "FUtilitySpellCooldownModifierPerk"
@@ -4898,11 +5466,11 @@
    "uses": [
     {
      "file": "body/gear.lua",
-     "line": 100
+     "line": 108
     },
     {
      "file": "body/gear.lua",
-     "line": 114
+     "line": 122
     },
     {
      "file": "experiments/puppet_gear.lua",
@@ -4962,11 +5530,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 388
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 3,
    "baseline_owners": [
     "FSkill",
@@ -5036,15 +5604,15 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 232
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 319
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 8,
    "baseline_owners": [
     "FAiAttackDamageDataTableRow",
@@ -5067,12 +5635,12 @@
    ],
    "uses": [
     {
-     "file": "scripts/catalog.lua",
-     "line": 162
+     "file": "experiments/spell_dump.lua",
+     "line": 233
     },
     {
-     "file": "scripts/spell_dump.lua",
-     "line": 233
+     "file": "scripts/catalog.lua",
+     "line": 162
     }
    ],
    "tier": "tooling",
@@ -5097,11 +5665,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 324
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UDelayedDamageInflictionComponent"
@@ -5117,16 +5685,16 @@
    ],
    "uses": [
     {
-     "file": "scripts/catalog.lua",
-     "line": 163
-    },
-    {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 235
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 317
+    },
+    {
+     "file": "scripts/catalog.lua",
+     "line": 163
     }
    ],
    "tier": "tooling",
@@ -5154,15 +5722,15 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 329
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 330
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 6,
    "baseline_owners": [
     "FAiAttackDamageData",
@@ -5205,11 +5773,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 241
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "USpellModule_Damage"
@@ -5225,16 +5793,16 @@
    ],
    "uses": [
     {
-     "file": "scripts/catalog.lua",
-     "line": 293
-    },
-    {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 234
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 321
+    },
+    {
+     "file": "scripts/catalog.lua",
+     "line": 293
     }
    ],
    "tier": "tooling",
@@ -5262,11 +5830,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 156
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 3,
    "baseline_owners": [
     "UPerformAIRangedAttackAsyncActionBase",
@@ -5309,12 +5877,12 @@
      "line": 72
     },
     {
-     "file": "scripts/catalog.lua",
-     "line": 106
+     "file": "experiments/spell_dump.lua",
+     "line": 330
     },
     {
-     "file": "scripts/spell_dump.lua",
-     "line": 330
+     "file": "scripts/catalog.lua",
+     "line": 106
     }
    ],
    "tier": "tooling",
@@ -5410,11 +5978,15 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 526
+     "line": 540
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 314
+    },
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 88
     }
    ],
    "tier": "core",
@@ -5462,11 +6034,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 139
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 3,
    "baseline_owners": [
     "UAnimaVentData",
@@ -5505,11 +6077,19 @@
    ],
    "uses": [
     {
+     "file": "scripts/identity_platform.lua",
+     "line": 35
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 67
+    },
+    {
      "file": "scripts/identity_probe.lua",
      "line": 28
     }
    ],
-   "tier": "debug",
+   "tier": "core",
    "owner_count": 56,
    "baseline_owners": [
     "ULensDistortionModelHandlerBase",
@@ -5577,11 +6157,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 231
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 36,
    "baseline_owners": [
     "UBP_Ambience_FogCards_Target_C",
@@ -5628,16 +6208,16 @@
    ],
    "uses": [
     {
-     "file": "scripts/catalog.lua",
-     "line": 146
-    },
-    {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 229
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 238
+    },
+    {
+     "file": "scripts/catalog.lua",
+     "line": 146
     }
    ],
    "tier": "tooling",
@@ -5665,11 +6245,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 170
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UHeldEquipmentEffectData"
@@ -5686,7 +6266,7 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 593
+     "line": 607
     }
    ],
    "tier": "core",
@@ -5706,11 +6286,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 149
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 2,
    "baseline_owners": [
     "UFireSpiritGameplayEffectData",
@@ -5727,11 +6307,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 145
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UTempestShieldGameplayEffectData"
@@ -5747,11 +6327,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 146
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UTempestShieldGameplayEffectData"
@@ -6097,17 +6677,46 @@
    ]
   },
   {
+   "name": "Force",
+   "via": [
+    "dot"
+   ],
+   "uses": [
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 99
+    }
+   ],
+   "tier": "debug",
+   "owner_count": 16,
+   "baseline_owners": [
+    "FChaosVDGTJointStateDataWrapper",
+    "FRigUnit_SpringInterpV2",
+    "FRigUnit_SpringInterpVectorV2",
+    "FAICollisionShape",
+    "FAiAttackDamageData",
+    "FDominionDamageEvent",
+    "FGroundDamageConfig",
+    "AGroundedExplodingProjectile",
+    "ASnapshotable",
+    "UDamageEmitterSphere"
+   ],
+   "kinds": [
+    "prop"
+   ]
+  },
+  {
    "name": "ForceMultiplier",
    "via": [
     "literal"
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 174
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UHeldEquipmentEffectData"
@@ -6125,15 +6734,15 @@
    "uses": [
     {
      "file": "body/gear.lua",
-     "line": 116
+     "line": 124
     },
     {
      "file": "body/gear.lua",
-     "line": 144
+     "line": 152
     },
     {
      "file": "body/gear.lua",
-     "line": 145
+     "line": 153
     },
     {
      "file": "body/identity.lua",
@@ -6207,7 +6816,7 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 583
+     "line": 597
     },
     {
      "file": "experiments/body_probe.lua",
@@ -6232,15 +6841,15 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 218
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 219
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 5,
    "baseline_owners": [
     "FSkillGameplayEffect",
@@ -6260,11 +6869,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 225
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "USpellModule_GameplayEffect"
@@ -6280,11 +6889,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 222
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "USpellModule_GameplayEffect"
@@ -6300,11 +6909,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 156
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 5,
    "baseline_owners": [
     "FGroundDamageConfig",
@@ -6326,18 +6935,22 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 557
+     "line": 571
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 431
     },
     {
-     "file": "scripts/spell_x4.lua",
+     "file": "experiments/spell_x3.lua",
+     "line": 65
+    },
+    {
+     "file": "experiments/spell_x4.lua",
      "line": 22
     },
     {
-     "file": "scripts/spell_x4.lua",
+     "file": "experiments/spell_x4.lua",
      "line": 57
     }
    ],
@@ -6362,20 +6975,25 @@
   {
    "name": "GameplayTags",
    "via": [
+    "dot",
     "literal"
    ],
    "uses": [
     {
-     "file": "scripts/catalog.lua",
-     "line": 100
-    },
-    {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 105
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 439
+    },
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 78
+    },
+    {
+     "file": "scripts/catalog.lua",
+     "line": 100
     }
    ],
    "tier": "tooling",
@@ -6389,6 +7007,33 @@
     "UCameraRigAsset",
     "FGameplayTagContainer",
     "FGameplayTagContainerNetSerializerSerializationHelper"
+   ],
+   "kinds": [
+    "prop"
+   ]
+  },
+  {
+   "name": "GameplayTagsComponent",
+   "via": [
+    "dot"
+   ],
+   "uses": [
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 79
+    }
+   ],
+   "tier": "debug",
+   "owner_count": 8,
+   "baseline_owners": [
+    "ADominionCharacterBase",
+    "UDominionGameplayEffectsComponent",
+    "UDominionMountComponent",
+    "UDominionPlayerCameraController",
+    "UInteractableDetectorComponent",
+    "UPlayerMagicComponent",
+    "USprintComponent",
+    "UTrackedStatusEffectsComponent"
    ],
    "kinds": [
     "prop"
@@ -6580,6 +7225,10 @@
     {
      "file": "body/util.lua",
      "line": 206
+    },
+    {
+     "file": "experiments/tree_watch.lua",
+     "line": 11
     }
    ],
    "tier": "core",
@@ -6599,7 +7248,7 @@
    "uses": [
     {
      "file": "body/gear.lua",
-     "line": 84
+     "line": 92
     },
     {
      "file": "body/util.lua",
@@ -6648,20 +7297,20 @@
      "line": 69
     },
     {
+     "file": "experiments/spell_dump.lua",
+     "line": 350
+    },
+    {
+     "file": "experiments/spell_dump.lua",
+     "line": 358
+    },
+    {
      "file": "scripts/identity_attach.lua",
      "line": 27
     },
     {
-     "file": "scripts/identity_probe.lua",
-     "line": 38
-    },
-    {
-     "file": "scripts/spell_dump.lua",
-     "line": 350
-    },
-    {
-     "file": "scripts/spell_dump.lua",
-     "line": 358
+     "file": "scripts/identity_platform.lua",
+     "line": 20
     }
    ],
    "tier": "core",
@@ -6737,6 +7386,10 @@
      "line": 86
     },
     {
+     "file": "experiments/spell_dump.lua",
+     "line": 42
+    },
+    {
      "file": "scripts/catalog.lua",
      "line": 66
     },
@@ -6747,10 +7400,6 @@
     {
      "file": "scripts/identity_attach.lua",
      "line": 22
-    },
-    {
-     "file": "scripts/identity_probe.lua",
-     "line": 10
     }
    ],
    "tier": "core",
@@ -6901,8 +7550,8 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_x3.lua",
-     "line": 86
+     "file": "experiments/spell_x3.lua",
+     "line": 179
     }
    ],
    "tier": "debug",
@@ -6973,16 +7622,20 @@
      "line": 217
     },
     {
+     "file": "experiments/spell_dump.lua",
+     "line": 361
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 41
+    },
+    {
      "file": "scripts/identity_probe.lua",
      "line": 20
     },
     {
      "file": "scripts/perf_sampler.lua",
      "line": 95
-    },
-    {
-     "file": "scripts/spell_dump.lua",
-     "line": 361
     }
    ],
    "tier": "core",
@@ -7031,7 +7684,7 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 584
+     "line": 598
     }
    ],
    "tier": "core",
@@ -7062,6 +7715,27 @@
    "owner_count": 1,
    "baseline_owners": [
     "USpecialChargeComponent"
+   ],
+   "kinds": [
+    "func"
+   ]
+  },
+  {
+   "name": "GetStackSize",
+   "via": [
+    "colon"
+   ],
+   "uses": [
+    {
+     "file": "experiments/tree_watch.lua",
+     "line": 26
+    }
+   ],
+   "tier": "debug",
+   "owner_count": 2,
+   "baseline_owners": [
+    "AWorldItem",
+    "UItem"
    ],
    "kinds": [
     "func"
@@ -7233,6 +7907,10 @@
     {
      "file": "experiments/puppet_combat.lua",
      "line": 117
+    },
+    {
+     "file": "experiments/tree_watch.lua",
+     "line": 11
     }
    ],
    "tier": "core",
@@ -7252,6 +7930,27 @@
    ]
   },
   {
+   "name": "HeavyForceThreshold",
+   "via": [
+    "literal"
+   ],
+   "uses": [
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 58
+    }
+   ],
+   "tier": "debug",
+   "owner_count": 2,
+   "baseline_owners": [
+    "FAiHitReactionConfig",
+    "UHitReactionsComponent"
+   ],
+   "kinds": [
+    "prop"
+   ]
+  },
+  {
    "name": "HeldEquipmentActor",
    "via": [
     "literal"
@@ -7259,19 +7958,19 @@
    "uses": [
     {
      "file": "body/gear.lua",
-     "line": 104
+     "line": 112
     },
     {
      "file": "body/gear.lua",
-     "line": 125
+     "line": 133
     },
     {
      "file": "body/gear.lua",
-     "line": 128
+     "line": 136
     },
     {
      "file": "body/gear.lua",
-     "line": 142
+     "line": 150
     }
    ],
    "tier": "core",
@@ -7292,7 +7991,7 @@
    "uses": [
     {
      "file": "body/gear.lua",
-     "line": 75
+     "line": 77
     },
     {
      "file": "scripts/catalog.lua",
@@ -7362,7 +8061,7 @@
     },
     {
      "file": "body/spells.lua",
-     "line": 581
+     "line": 595
     },
     {
      "file": "experiments/puppet_gear.lua",
@@ -7395,15 +8094,15 @@
    "uses": [
     {
      "file": "body/gear.lua",
-     "line": 83
+     "line": 91
     },
     {
      "file": "body/gear.lua",
-     "line": 105
+     "line": 113
     },
     {
      "file": "body/gear.lua",
-     "line": 140
+     "line": 148
     },
     {
      "file": "experiments/puppet_gear.lua",
@@ -7434,11 +8133,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 227
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 3,
    "baseline_owners": [
     "UApplyEffectGameplayEffectData",
@@ -7500,14 +8199,63 @@
    ],
    "uses": [
     {
+     "file": "scripts/identity_platform.lua",
+     "line": 39
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 76
+    },
+    {
      "file": "scripts/identity_probe.lua",
      "line": 26
+    }
+   ],
+   "tier": "core",
+   "owner_count": 1,
+   "baseline_owners": [
+    "FPlayerColor"
+   ],
+   "kinds": [
+    "prop"
+   ]
+  },
+  {
+   "name": "HitReaction",
+   "via": [
+    "dot"
+   ],
+   "uses": [
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 102
+    }
+   ],
+   "tier": "debug",
+   "owner_count": 2,
+   "baseline_owners": [
+    "FApplyDamageInfo",
+    "FDominionDamageEvent"
+   ],
+   "kinds": [
+    "prop"
+   ]
+  },
+  {
+   "name": "HitReactionConfig",
+   "via": [
+    "dot"
+   ],
+   "uses": [
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 55
     }
    ],
    "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
-    "FPlayerColor"
+    "UAIDataAsset"
    ],
    "kinds": [
     "prop"
@@ -7601,11 +8349,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 140
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 3,
    "baseline_owners": [
     "UDominionAttributeData",
@@ -7624,7 +8372,7 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 561
+     "line": 575
     }
    ],
    "tier": "core",
@@ -7637,17 +8385,46 @@
    ]
   },
   {
+   "name": "Instigator",
+   "via": [
+    "dot"
+   ],
+   "uses": [
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 100
+    }
+   ],
+   "tier": "debug",
+   "owner_count": 15,
+   "baseline_owners": [
+    "FAIDamageEvent",
+    "FAINoiseEvent",
+    "FAISpawnRequest",
+    "FDominionDamageEvent",
+    "FDominionPredictPointDamageParams",
+    "FHealthComponentIncomingDamageInfo",
+    "FHitInfo",
+    "FSpellCollisionEvent",
+    "FTrampleParams",
+    "UDominionGameplayEffect"
+   ],
+   "kinds": [
+    "prop"
+   ]
+  },
+  {
    "name": "Interval",
    "via": [
     "literal"
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 239
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 8,
    "baseline_owners": [
     "FIntervalCountdown",
@@ -7670,11 +8447,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 403
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 9,
    "baseline_owners": [
     "FLinkableInventory",
@@ -7764,7 +8541,7 @@
     },
     {
      "file": "body/spells.lua",
-     "line": 720
+     "line": 734
     },
     {
      "file": "experiments/body_probe.lua",
@@ -7858,10 +8635,10 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 655
+     "line": 669
     },
     {
-     "file": "scripts/spell_x3.lua",
+     "file": "experiments/spell_x3.lua",
      "line": 49
     }
    ],
@@ -7885,6 +8662,10 @@
      "line": 48
     },
     {
+     "file": "experiments/spell_dump.lua",
+     "line": 41
+    },
+    {
      "file": "scripts/catalog.lua",
      "line": 65
     },
@@ -7893,16 +8674,12 @@
      "line": 20
     },
     {
-     "file": "scripts/identity_probe.lua",
+     "file": "scripts/identity_platform.lua",
      "line": 11
     },
     {
-     "file": "scripts/perf_sampler.lua",
-     "line": 23
-    },
-    {
-     "file": "scripts/spell_dump.lua",
-     "line": 41
+     "file": "scripts/identity_probe.lua",
+     "line": 11
     }
    ],
    "tier": "core",
@@ -7931,11 +8708,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 213
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "USpellModule_CostItems"
@@ -7947,19 +8724,24 @@
   {
    "name": "ItemData",
    "via": [
+    "dot",
     "literal"
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 208
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 409
+    },
+    {
+     "file": "experiments/tree_watch.lua",
+     "line": 25
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 27,
    "baseline_owners": [
     "FCatchableJunkInfo",
@@ -8005,11 +8787,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 406
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UInventoryComponent"
@@ -8045,11 +8827,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 207
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "USpellModule_CostItems"
@@ -8066,7 +8848,7 @@
    "uses": [
     {
      "file": "body/gear.lua",
-     "line": 141
+     "line": 149
     },
     {
      "file": "experiments/puppet_gear.lua",
@@ -8136,7 +8918,7 @@
    "uses": [
     {
      "file": "body/gear.lua",
-     "line": 135
+     "line": 143
     },
     {
      "file": "body/util.lua",
@@ -8326,17 +9108,38 @@
    ]
   },
   {
+   "name": "KnockDownForceThreshold",
+   "via": [
+    "literal"
+   ],
+   "uses": [
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 58
+    }
+   ],
+   "tier": "debug",
+   "owner_count": 2,
+   "baseline_owners": [
+    "FAiHitReactionConfig",
+    "UHitReactionsComponent"
+   ],
+   "kinds": [
+    "prop"
+   ]
+  },
+  {
    "name": "LastCastTimeBySpellData",
    "via": [
     "literal"
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 419
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UPlayerUtilityMagicComponent"
@@ -8352,11 +9155,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 247
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "ACharacter"
@@ -8372,14 +9175,35 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 248
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "USpellModule_LaunchCharacter"
+   ],
+   "kinds": [
+    "prop"
+   ]
+  },
+  {
+   "name": "LightForceThreshold",
+   "via": [
+    "literal"
+   ],
+   "uses": [
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 58
+    }
+   ],
+   "tier": "debug",
+   "owner_count": 2,
+   "baseline_owners": [
+    "FAiHitReactionConfig",
+    "UHitReactionsComponent"
    ],
    "kinds": [
     "prop"
@@ -8400,6 +9224,26 @@
    "owner_count": 1,
    "baseline_owners": [
     "FAnimLinkableElement"
+   ],
+   "kinds": [
+    "prop"
+   ]
+  },
+  {
+   "name": "LoadedData",
+   "via": [
+    "dot"
+   ],
+   "uses": [
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 54
+    }
+   ],
+   "tier": "debug",
+   "owner_count": 1,
+   "baseline_owners": [
+    "ADominionAICharacter"
    ],
    "kinds": [
     "prop"
@@ -8512,11 +9356,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 231
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 18,
    "baseline_owners": [
     "FGenericFXEventTableRow",
@@ -8545,7 +9389,7 @@
      "line": 210
     },
     {
-     "file": "scripts/spell_x4.lua",
+     "file": "experiments/spell_x4.lua",
      "line": 31
     }
    ],
@@ -8675,7 +9519,7 @@
    "uses": [
     {
      "file": "body/gear.lua",
-     "line": 141
+     "line": 149
     },
     {
      "file": "experiments/puppet_gear.lua",
@@ -8735,11 +9579,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 152
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 3,
    "baseline_owners": [
     "FTimecode",
@@ -8757,11 +9601,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 274
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "FUtilitySpellCooldownModifierPerk"
@@ -8777,15 +9621,15 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 291
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 497
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 7,
    "baseline_owners": [
     "FRigUnit_GetItemModuleName",
@@ -8807,11 +9651,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 203
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 3,
    "baseline_owners": [
     "FRigModuleExecutionElement",
@@ -8829,23 +9673,23 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 289
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 290
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 495
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 496
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 6,
    "baseline_owners": [
     "FModularRigModel",
@@ -8866,16 +9710,16 @@
    ],
    "uses": [
     {
+     "file": "experiments/spell_dump.lua",
+     "line": 258
+    },
+    {
      "file": "scripts/catalog.lua",
      "line": 176
     },
     {
      "file": "scripts/catalog.lua",
      "line": 177
-    },
-    {
-     "file": "scripts/spell_dump.lua",
-     "line": 258
     }
    ],
    "tier": "tooling",
@@ -8924,11 +9768,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 258
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 3,
    "baseline_owners": [
     "UAsyncAction_DomAiPlayMontage",
@@ -9030,15 +9874,24 @@
   {
    "name": "NetCullDistanceSquared",
    "via": [
+    "dot",
     "literal"
    ],
    "uses": [
     {
      "file": "experiments/body_probe.lua",
      "line": 97
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 99
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 108
     }
    ],
-   "tier": "debug",
+   "tier": "core",
    "owner_count": 1,
    "baseline_owners": [
     "AActor"
@@ -9114,11 +9967,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 328
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 2,
    "baseline_owners": [
     "UDelayedDamageInflictionComponent",
@@ -9135,11 +9988,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 437
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 2,
    "baseline_owners": [
     "UDominionGameplayEffectsComponent",
@@ -9244,11 +10097,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 369
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "USpellcastingComponent"
@@ -9264,11 +10117,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 370
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "USpellcastingComponent"
@@ -9284,11 +10137,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 339
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 3,
    "baseline_owners": [
     "ALaser",
@@ -9324,6 +10177,26 @@
    ]
   },
   {
+   "name": "OnRep_OwnerGuidUpdated",
+   "via": [
+    "colon"
+   ],
+   "uses": [
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 84
+    }
+   ],
+   "tier": "core",
+   "owner_count": 1,
+   "baseline_owners": [
+    "ADominionPlayerState"
+   ],
+   "kinds": [
+    "func"
+   ]
+  },
+  {
    "name": "OnRep_PhysicalHeldEquipmentEffectInfo",
    "via": [
     "colon"
@@ -9331,13 +10204,53 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 589
+     "line": 603
     }
    ],
    "tier": "core",
    "owner_count": 1,
    "baseline_owners": [
     "AHeldEquipmentActor"
+   ],
+   "kinds": [
+    "func"
+   ]
+  },
+  {
+   "name": "OnRep_PlatformDataUpdated",
+   "via": [
+    "colon"
+   ],
+   "uses": [
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 82
+    }
+   ],
+   "tier": "core",
+   "owner_count": 1,
+   "baseline_owners": [
+    "ADominionPlayerState"
+   ],
+   "kinds": [
+    "func"
+   ]
+  },
+  {
+   "name": "OnRep_PlayerColorUpdated",
+   "via": [
+    "colon"
+   ],
+   "uses": [
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 83
+    }
+   ],
+   "tier": "core",
+   "owner_count": 1,
+   "baseline_owners": [
+    "ADominionPlayerState"
    ],
    "kinds": [
     "func"
@@ -9411,11 +10324,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 332
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 3,
    "baseline_owners": [
     "FEnvOverlapData",
@@ -9493,11 +10406,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 286
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UUtilitySpellData"
@@ -9587,17 +10500,39 @@
    ]
   },
   {
+   "name": "PendingDamage",
+   "via": [
+    "dot"
+   ],
+   "uses": [
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 89
+    }
+   ],
+   "tier": "debug",
+   "owner_count": 3,
+   "baseline_owners": [
+    "AGroundedExplodingProjectile",
+    "ALaser",
+    "UDelayedDamageInflictionComponent"
+   ],
+   "kinds": [
+    "prop"
+   ]
+  },
+  {
    "name": "PerkForUpgradedGameplayEffect",
    "via": [
     "literal"
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 221
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "USpellModule_GameplayEffect"
@@ -9613,11 +10548,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 189
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 3,
    "baseline_owners": [
     "UListedPerkWidget",
@@ -9635,11 +10570,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 190
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "USkillPerkData"
@@ -9656,11 +10591,11 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 588
+     "line": 602
     },
     {
      "file": "body/spells.lua",
-     "line": 593
+     "line": 607
     }
    ],
    "tier": "core",
@@ -9679,15 +10614,31 @@
    ],
    "uses": [
     {
-     "file": "scripts/identity_probe.lua",
-     "line": 28
+     "file": "scripts/identity_platform.lua",
+     "line": 35
     },
     {
-     "file": "scripts/identity_probe.lua",
-     "line": 29
+     "file": "scripts/identity_platform.lua",
+     "line": 36
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 37
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 67
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 68
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 69
     }
    ],
-   "tier": "debug",
+   "tier": "core",
    "owner_count": 1,
    "baseline_owners": [
     "ADominionPlayerState"
@@ -9703,17 +10654,50 @@
    ],
    "uses": [
     {
+     "file": "scripts/identity_platform.lua",
+     "line": 36
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 68
+    },
+    {
      "file": "scripts/identity_probe.lua",
      "line": 29
     }
    ],
-   "tier": "debug",
+   "tier": "core",
    "owner_count": 4,
    "baseline_owners": [
     "FDomPlatformData",
     "FDominionAssetManagerCookingRule",
     "FPartyBeaconCrossplayPlatformMapping",
     "FSessionServicePong"
+   ],
+   "kinds": [
+    "prop"
+   ]
+  },
+  {
+   "name": "PlatformType",
+   "via": [
+    "dot"
+   ],
+   "uses": [
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 37
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 69
+    }
+   ],
+   "tier": "core",
+   "owner_count": 2,
+   "baseline_owners": [
+    "FDomPlatformData",
+    "FPartyBeaconCrossplayPlatformMapping"
    ],
    "kinds": [
     "prop"
@@ -9791,15 +10775,31 @@
    ],
    "uses": [
     {
-     "file": "scripts/identity_probe.lua",
-     "line": 26
+     "file": "scripts/identity_platform.lua",
+     "line": 31
     },
     {
-     "file": "scripts/identity_probe.lua",
-     "line": 27
+     "file": "scripts/identity_platform.lua",
+     "line": 39
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 40
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 73
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 76
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 77
     }
    ],
-   "tier": "debug",
+   "tier": "core",
    "owner_count": 1,
    "baseline_owners": [
     "ADominionPlayerState"
@@ -9823,12 +10823,16 @@
      "line": 281
     },
     {
-     "file": "scripts/perf_sampler.lua",
-     "line": 91
+     "file": "experiments/spell_dump.lua",
+     "line": 351
     },
     {
-     "file": "scripts/spell_dump.lua",
-     "line": 351
+     "file": "scripts/identity_platform.lua",
+     "line": 22
+    },
+    {
+     "file": "scripts/perf_sampler.lua",
+     "line": 91
     }
    ],
    "tier": "core",
@@ -9895,15 +10899,15 @@
    "uses": [
     {
      "file": "body/gear.lua",
-     "line": 82
+     "line": 90
     },
     {
      "file": "body/gear.lua",
-     "line": 97
+     "line": 105
     },
     {
      "file": "body/gear.lua",
-     "line": 161
+     "line": 169
     },
     {
      "file": "body/removal.lua",
@@ -9911,7 +10915,7 @@
     },
     {
      "file": "body/spells.lua",
-     "line": 580
+     "line": 594
     },
     {
      "file": "experiments/puppet_gear.lua",
@@ -9946,12 +10950,16 @@
      "line": 43
     },
     {
-     "file": "scripts/identity_probe.lua",
-     "line": 22
+     "file": "scripts/identity_platform.lua",
+     "line": 34
     },
     {
-     "file": "scripts/identity_probe.lua",
-     "line": 27
+     "file": "scripts/identity_platform.lua",
+     "line": 40
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 77
     }
    ],
    "tier": "core",
@@ -10134,14 +11142,34 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 416
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "ADominionPlayerCharacter"
+   ],
+   "kinds": [
+    "prop"
+   ]
+  },
+  {
+   "name": "PointDamageEvent",
+   "via": [
+    "dot"
+   ],
+   "uses": [
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 95
+    }
+   ],
+   "tier": "debug",
+   "owner_count": 1,
+   "baseline_owners": [
+    "FDamagedActor"
    ],
    "kinds": [
     "prop"
@@ -10231,11 +11259,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 326
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UDelayedDamageInflictionComponent"
@@ -10351,11 +11379,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 373
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 7,
    "baseline_owners": [
     "ADominionPlayerController",
@@ -10440,15 +11468,15 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 256
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 335
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 80,
    "baseline_owners": [
     "FRBFParams",
@@ -10549,6 +11577,26 @@
    ]
   },
   {
+   "name": "ReplicatedGameplayTagStackContainer",
+   "via": [
+    "dot"
+   ],
+   "uses": [
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 80
+    }
+   ],
+   "tier": "debug",
+   "owner_count": 1,
+   "baseline_owners": [
+    "UGameplayTagsComponent"
+   ],
+   "kinds": [
+    "prop"
+   ]
+  },
+  {
    "name": "ReplicatedInstances",
    "via": [
     "dot",
@@ -10557,14 +11605,14 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 537
+     "line": 551
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 434
     },
     {
-     "file": "scripts/spell_x4.lua",
+     "file": "experiments/spell_x4.lua",
      "line": 24
     }
    ],
@@ -10647,11 +11695,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 194
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 2,
    "baseline_owners": [
     "FPerkUnlockInfo",
@@ -10717,12 +11765,12 @@
      "line": 72
     },
     {
-     "file": "scripts/catalog.lua",
-     "line": 105
+     "file": "experiments/spell_dump.lua",
+     "line": 329
     },
     {
-     "file": "scripts/spell_dump.lua",
-     "line": 329
+     "file": "scripts/catalog.lua",
+     "line": 105
     }
    ],
    "tier": "tooling",
@@ -10831,15 +11879,15 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 150
     },
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 152
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 7,
    "baseline_owners": [
     "FTimecode",
@@ -10881,11 +11929,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 367
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "USpellcastingComponent"
@@ -10950,8 +11998,8 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_x3.lua",
-     "line": 87
+     "file": "experiments/spell_x3.lua",
+     "line": 180
     }
    ],
    "tier": "debug",
@@ -11098,11 +12146,11 @@
    "uses": [
     {
      "file": "body/gear.lua",
-     "line": 130
+     "line": 138
     },
     {
      "file": "body/gear.lua",
-     "line": 148
+     "line": 156
     },
     {
      "file": "body/removal.lua",
@@ -11151,6 +12199,30 @@
    ]
   },
   {
+   "name": "SetNetCullDistanceSquared",
+   "via": [
+    "colon"
+   ],
+   "uses": [
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 103
+    },
+    {
+     "file": "scripts/identity_platform.lua",
+     "line": 106
+    }
+   ],
+   "tier": "core",
+   "owner_count": 1,
+   "baseline_owners": [
+    "AActor"
+   ],
+   "kinds": [
+    "func"
+   ]
+  },
+  {
    "name": "SetOwner",
    "via": [
     "colon"
@@ -11162,7 +12234,7 @@
     },
     {
      "file": "body/spells.lua",
-     "line": 524
+     "line": 538
     },
     {
      "file": "scripts/identity_attach.lua",
@@ -11205,11 +12277,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 382
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "ADominionPlayerControllerBase"
@@ -11225,11 +12297,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 386
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 3,
    "baseline_owners": [
     "FSkill",
@@ -11247,11 +12319,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 393
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 2,
    "baseline_owners": [
     "ADominionPlayerController",
@@ -11268,11 +12340,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 261
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "USpellModule_PlayMontage"
@@ -11288,11 +12360,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 287
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UUtilitySpellData"
@@ -11328,11 +12400,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 396
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "USkillPerkComponent"
@@ -11348,11 +12420,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 387
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 2,
    "baseline_owners": [
     "FSkillListItemData",
@@ -11389,11 +12461,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 385
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "USkillComponent"
@@ -11430,7 +12502,7 @@
    "uses": [
     {
      "file": "body/gear.lua",
-     "line": 138
+     "line": 146
     }
    ],
    "tier": "core",
@@ -11452,6 +12524,35 @@
    ]
   },
   {
+   "name": "Source",
+   "via": [
+    "dot"
+   ],
+   "uses": [
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 101
+    }
+   ],
+   "tier": "debug",
+   "owner_count": 35,
+   "baseline_owners": [
+    "FAnimNode_CallFunction",
+    "FAnimNode_MirrorBase",
+    "FAnimNode_Slot",
+    "FAnimNode_Sync",
+    "FRotationRetargetingInfo",
+    "FAnimNode_ControlRigBase",
+    "FControlRigComponentMappedBone",
+    "FControlRigComponentMappedCurve",
+    "FRigInfluenceEntry",
+    "FRigUnit_BlendTransform"
+   ],
+   "kinds": [
+    "prop"
+   ]
+  },
+  {
    "name": "SpawnActor",
    "via": [
     "colon",
@@ -11460,7 +12561,7 @@
    "uses": [
     {
      "file": "body/gear.lua",
-     "line": 135
+     "line": 143
     },
     {
      "file": "body/identity.lua",
@@ -11476,7 +12577,7 @@
     },
     {
      "file": "body/spells.lua",
-     "line": 521
+     "line": 535
     },
     {
      "file": "experiments/puppet_gear.lua",
@@ -11502,11 +12603,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 246
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "USpellModule_SpawnActorAsync"
@@ -11631,12 +12732,12 @@
    ],
    "uses": [
     {
-     "file": "scripts/catalog.lua",
-     "line": 168
+     "file": "experiments/spell_dump.lua",
+     "line": 215
     },
     {
-     "file": "scripts/spell_dump.lua",
-     "line": 215
+     "file": "scripts/catalog.lua",
+     "line": 168
     }
    ],
    "tier": "tooling",
@@ -11655,11 +12756,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 284
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UDominionSpellData"
@@ -11675,11 +12776,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 269
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UUtilitySpellData"
@@ -11695,11 +12796,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 423
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UPlayerUtilityMagicComponent"
@@ -11715,11 +12816,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 424
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "FReplicatedSpellData"
@@ -11735,11 +12836,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 483
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 9,
    "baseline_owners": [
     "FSpellBookListItemData",
@@ -11763,11 +12864,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 268
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UUtilitySpellData"
@@ -11783,11 +12884,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 283
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UUtilitySpellData"
@@ -11803,11 +12904,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 364
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "ADominionPlayerController"
@@ -11823,11 +12924,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 376
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UProgressComponent"
@@ -11857,18 +12958,39 @@
    ]
   },
   {
+   "name": "Stacks",
+   "via": [
+    "dot"
+   ],
+   "uses": [
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 80
+    }
+   ],
+   "tier": "debug",
+   "owner_count": 2,
+   "baseline_owners": [
+    "FDominionGameplayTagStackContainer",
+    "FPCGStackContext"
+   ],
+   "kinds": [
+    "prop"
+   ]
+  },
+  {
    "name": "StaminaCost",
    "via": [
     "literal"
    ],
    "uses": [
     {
-     "file": "scripts/catalog.lua",
-     "line": 167
+     "file": "experiments/spell_dump.lua",
+     "line": 215
     },
     {
-     "file": "scripts/spell_dump.lua",
-     "line": 215
+     "file": "scripts/catalog.lua",
+     "line": 167
     }
    ],
    "tier": "tooling",
@@ -11911,7 +13033,7 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 526
+     "line": 540
     }
    ],
    "tier": "core",
@@ -11956,7 +13078,7 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 171
+     "line": 175
     }
    ],
    "tier": "core",
@@ -11971,16 +13093,21 @@
   {
    "name": "TagName",
    "via": [
+    "dot",
     "literal"
    ],
    "uses": [
     {
-     "file": "scripts/catalog.lua",
-     "line": 97
+     "file": "experiments/spell_dump.lua",
+     "line": 102
     },
     {
-     "file": "scripts/spell_dump.lua",
-     "line": 102
+     "file": "experiments/spell_x3.lua",
+     "line": 72
+    },
+    {
+     "file": "scripts/catalog.lua",
+     "line": 97
     }
    ],
    "tier": "tooling",
@@ -11999,7 +13126,7 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_x4.lua",
+     "file": "experiments/spell_x4.lua",
      "line": 32
     }
    ],
@@ -12020,11 +13147,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 172
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "UHeldEquipmentEffectData"
@@ -12143,7 +13270,7 @@
    "uses": [
     {
      "file": "body/spells.lua",
-     "line": 609
+     "line": 623
     }
    ],
    "tier": "core",
@@ -12186,11 +13313,11 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 220
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "USpellModule_GameplayEffect"
@@ -12206,14 +13333,34 @@
    ],
    "uses": [
     {
-     "file": "scripts/spell_dump.lua",
+     "file": "experiments/spell_dump.lua",
      "line": 243
     }
    ],
-   "tier": "tooling",
+   "tier": "debug",
    "owner_count": 1,
    "baseline_owners": [
     "USpellModule_UtilityMagic"
+   ],
+   "kinds": [
+    "prop"
+   ]
+  },
+  {
+   "name": "VictimLocation",
+   "via": [
+    "dot"
+   ],
+   "uses": [
+    {
+     "file": "experiments/spell_x3.lua",
+     "line": 104
+    }
+   ],
+   "tier": "debug",
+   "owner_count": 1,
+   "baseline_owners": [
+    "FDominionDamageEvent"
    ],
    "kinds": [
     "prop"
@@ -12335,17 +13482,17 @@
   ]
  },
  "counts": {
-  "paths": 227,
-  "paths_asset": 201,
+  "paths": 272,
+  "paths_asset": 246,
   "paths_asset_member": 1,
   "paths_script_class": 11,
   "paths_script_member": 13,
   "paths_script_module": 1,
   "class_names": 9,
-  "members": 375,
+  "members": 398,
   "enums": 0,
   "enum_values": 16,
   "bridge_tools": 14,
-  "total": 625
+  "total": 693
  }
 }

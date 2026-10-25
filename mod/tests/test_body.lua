@@ -39,6 +39,7 @@ local PATHS = {
     sword_atk = "/Game/Gameplay/Character/Player/Attacks/Sword/BP_Player_Sword_Attack1.BP_Player_Sword_Attack1_C",
     sword_act = "/Game/Gameplay/Character/Player/Attacks/Sword/PA_Attack_Sword.Default__PA_Attack_Sword_C",
     sword = "/DowdunReach/Gameplay/Character/Player/Equipment/Held/Sword/ITEM_Sword_Mithril.ITEM_Sword_Mithril",
+    sword_class = "/DowdunReach/Gameplay/Character/Player/Equipment/Held/Sword/BP_Sword_Mithril.BP_Sword_Mithril_C",
     iron_body = "/Game/Gameplay/Character/Player/Equipment/Body/ITEM_Armour_T4_Body_Iron.ITEM_Armour_T4_Body_Iron",
 }
 
@@ -162,7 +163,9 @@ local function reset_world()
     F.assets[PATHS.held_base] = obj("BlueprintGeneratedClass " .. PATHS.held_base)
     F.assets[PATHS.sword_atk] = obj("BlueprintGeneratedClass " .. PATHS.sword_atk)
     F.assets[PATHS.sword_act] = obj("PA_Attack_Sword_C " .. PATHS.sword_act)
-    F.assets[PATHS.sword] = obj("HeldEquipmentData " .. PATHS.sword)
+    -- The data asset names its own held-actor class (gear.lua has no generic fallback).
+    F.assets[PATHS.sword_class] = obj("BlueprintGeneratedClass " .. PATHS.sword_class)
+    F.assets[PATHS.sword] = obj("HeldEquipmentData " .. PATHS.sword, { HeldEquipmentActorClass = PATHS.sword_class })
     F.assets[PATHS.iron_body] = obj("WearableEquipmentData " .. PATHS.iron_body)
 end
 

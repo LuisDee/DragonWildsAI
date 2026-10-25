@@ -409,3 +409,8 @@ Modules: `mod/experiments/spell_dump.lua` (X1), `spell_x3.lua` (X3), `spell_x4.l
 - UE4SS gotcha: **returning true does not stop `LoopInGameThreadWithDelay`.** Cancel with `CancelDelayedAction(handle)`. One 10 Hz sampler (polls one Kebbit) leaked from the second stomp and runs until the next server restart; it is harmless.
 
 **X4, Tempest Shield via `InstantiateGameplayEffect` on the puppet: NOT RUN (judged risky).** MaxHealth needs the Attack skill level, which lives on a PlayerController the puppet lacks (the null-PC crash class), and the instance replicates FX to clients (the client-freeze lesson). `spell_x4 apply` refuses unless `confirm="offline_canary"` and no player is connected. Run it only with nobody online and Luis's OK.
+
+## Combos verified in game (2026-10-25, about 14:30 UTC, Luis via GFN)
+- With `ITEM_Club_Wood` (held class `BP_Club_Wood_C`, equipped with an explicit actor_class), the `attack` handler (`body/combat.lua` BT, Club set `PA_Attack_Club_C`) killed a Kebbit (39 HP) in 4 swings. **Luis saw the combo chain** (different swings in sequence), where before only Attack1 repeated.
+- The full 5-step chain and the special (Block Breaker) are not seen yet: the Kebbit died first. Next: a tougher or immortal target.
+- The live Skullsplitter fix (`equip` with actor_class) is applied. The default-path fix (LoadAsset + catalog `held_class`, no generic fallback) is in `gear.lua` and takes effect at the next restart.

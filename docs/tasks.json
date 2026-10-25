@@ -305,8 +305,8 @@
       "id": "OPS.P1",
       "phase": "ops",
       "title": "Patch delta pipeline: dump diff, catalog diff, smoke tests, report",
-      "status": "todo",
-      "passes_test": false
+      "status": "done",
+      "passes_test": true
     }
   ]
 }
