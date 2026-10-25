@@ -102,3 +102,9 @@ Luis relies on spells: **a shield spell**, and **wind jump**, whose landing stun
 - **Drop items:** spawn a `RuntimeSpawnedWorldItem` from the item data at the bot's feet (and support "give" by dropping near Luis or magnetising, `BP_MagnetizeToPlayer`).
 - **Lodestone teleport:** a travel skill that teleports to lodestones (lodestone actors and positions; Luis's unlocked lodestones; TeleportationSubsystem / K2_TeleportTo).
 - **Sequencing:** these go after the combat and architecture agents land (they share mod/body files). The services are mod/body/inventory.lua and mod/body/travel.lua, registered via the ARCHITECTURE.md conventions.
+
+## 8. Phase 8 target task (Luis, 2026-10-25): "chop trees until you have 4 stacks of oak logs, then drop them at my feet"
+- Steps: find oak trees (nearest first, skip stumps), chop (axe swing), the tree falls, chop the felled trunk into logs, pick up the dropped logs into the bot inventory store, count against 4 × the stack size (verified from the store), repeat (widen the search radius), walk to Luis, drop the logs.
+- Brain: the Planner decomposes and replans; the Executor verifies each step against game state; the agent asks for help when stuck (no trees, path blocked).
+- Body skills required: inventory store, pick up, drop, gather/woodcutting. Research: `docs/research/2026-10-25-woodcutting-loop.md`.
+- This is the **Phase 8 gate** candidate, including a deliberate failure (no trees in range) to check that it replans or asks for help.

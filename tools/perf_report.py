@@ -88,6 +88,38 @@ def load_mod(path: Path, t0: datetime, t1: datetime) -> list[dict]:
     return out
 
 
+def load_debug_runs(mod_log_dir: Path, t0: datetime, t1: datetime) -> list[tuple[datetime, str]]:
+    """debug_run events from the mod's own log: experiments run on the game thread and can hitch it."""
+    out = []
+    for p in mod_log_dir.glob("mod_*.jsonl"):
+        if datetime.fromtimestamp(p.stat().st_mtime, timezone.utc) < t0:
+            continue
+        with p.open(encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if '"debug_run"' not in line:
+                    continue
+                try:
+                    r = json.loads(line)
+                    ts = utc(datetime.strptime(r["ts"], "%Y-%m-%dT%H:%M:%SZ"))
+                except (json.JSONDecodeError, KeyError, ValueError):
+                    continue
+                if r.get("event") == "debug_run" and t0 - timedelta(seconds=30) <= ts <= t1:
+                    out.append((ts, str((r.get("data") or {}).get("module"))))
+    return sorted(out)
+
+
+def attribute(t: datetime, debug_runs, saves) -> str | None:
+    """Best-effort cause of a hitch at t (second resolution, logged at the end of the long frame)."""
+    for dur, start in saves:
+        if start - timedelta(seconds=3) <= t <= start + timedelta(seconds=dur + 3):
+            return "autosave"
+    for ts, mod in debug_runs:
+        # perf_sampler's own arm/status calls are a few ms; ignore them as causes.
+        if mod != "perf_sampler" and ts - timedelta(seconds=1) <= t <= ts + timedelta(seconds=5):
+            return f"debug_run:{mod}"
+    return None
+
+
 # ------------------------------------------------------------------ host CSV (logman)
 HOST_COLS = {
     "cpu": r"\\Processor\(_Total\)\\% Processor Time$",
@@ -280,6 +312,7 @@ def main() -> None:
     ap.add_argument("--until", help="UTC end (default now)")
     ap.add_argument("--perf-dir", type=Path, default=PERF_DIR)
     ap.add_argument("--log-dir", type=Path, default=SERVER_LOG_DIR)
+    ap.add_argument("--mod-log-dir", type=Path, default=REPO / "logs" / "mod")
     ap.add_argument("--no-timeline", action="store_true")
     a = ap.parse_args()
 
@@ -289,6 +322,7 @@ def main() -> None:
     mod = load_mod(a.perf_dir / "mod_perf.jsonl", t0, t1)
     host = load_host(a.perf_dir, t0, t1)
     lg = load_log(a.log_dir, t0, t1)
+    debug_runs = load_debug_runs(a.mod_log_dir, t0, t1)
 
     # ---- per-minute buckets
     mins = sorted({minute(r["_ts"]) for r in mod} | {minute(r["_ts"]) for r in host} | set(lg.per_min))
@@ -365,9 +399,23 @@ def main() -> None:
               f"worst p95 {vmax([r.get('ms_p95') for r in mod]):.1f}, worst p99 {vmax([r.get('ms_p99') for r in mod]):.1f}, "
               f"max {worst.get('ms_max')} (at {worst['_ts']:%H:%M:%S})")
         print(f"    frames >50 ms: {o50} ({slow_pct:.2f}%)   >100 ms: {o100} ({hitch_pm:.2f}/min)   >250 ms: {o250}")
-        if hz < TICK_MIN_HZ or slow_pct > SLOW_PCT_BAD or hitch_pm > HITCH_PER_MIN_BAD:
+        hitches = [(datetime.fromtimestamp(h["t"], timezone.utc), h["ms"]) for r in mod for h in r.get("hitches", [])]
+        causes = [(t, ms, attribute(t, debug_runs, lg.save_durations)) for t, ms in hitches]
+        if causes:
+            print("    hitches > 100 ms: " + ", ".join(f"{t:%H:%M:%S} {ms:.0f}ms" + (f" [{c}]" if c else "")
+                                                     for t, ms, c in causes[:15]) + (" ..." if len(causes) > 15 else ""))
+        by_cause = Counter(c or "unexplained" for _, _, c in causes)
+        if by_cause:
+            print("    hitch causes: " + ", ".join(f"{k} {v}" for k, v in by_cause.most_common()))
+        # Judge the server on hitches we did not cause ourselves (debug_run experiments). Autosaves count:
+        # they are the game's own work and players feel them.
+        self_inflicted = sum(v for k, v in by_cause.items() if k.startswith("debug_run:"))
+        organic_pm = max(o100 - self_inflicted, 0) / (tot_span / 60.0)
+        if self_inflicted:
+            print(f"    excluding {self_inflicted} hitches caused by our own debug_run experiments: {organic_pm:.2f}/min")
+        if hz < TICK_MIN_HZ or slow_pct > SLOW_PCT_BAD or organic_pm > HITCH_PER_MIN_BAD:
             tick_state = "BAD"
-        elif slow_pct > SLOW_PCT_WARN or hitch_pm > HITCH_PER_MIN_WARN:
+        elif slow_pct > SLOW_PCT_WARN or organic_pm > HITCH_PER_MIN_WARN:
             tick_state = "DEGRADED"
         else:
             tick_state = "OK"
@@ -377,10 +425,6 @@ def main() -> None:
         errs = vmax([r.get("errors") for r in mod])
         if errs:
             print(f"    note: sampler reported {errs} callback errors")
-        hitches = [(datetime.fromtimestamp(h["t"], timezone.utc), h["ms"]) for r in mod for h in r.get("hitches", [])]
-        if hitches:
-            print("    hitches > 100 ms: " + ", ".join(f"{t:%H:%M:%S} {ms:.0f}ms" for t, ms in hitches[:15])
-                  + (" ..." if len(hitches) > 15 else ""))
     else:
         print("    no mod samples in the window (arm: debug_run {module=perf_sampler})")
     if lg.tick_secs:
