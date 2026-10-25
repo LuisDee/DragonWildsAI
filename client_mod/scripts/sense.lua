@@ -103,7 +103,50 @@ local function skills(pc)
     return out
 end
 
--- Own state: position, health, stamina, skills (levels + xp), total level.
+-- Survival stats on the pawn: {sustenance={cur,max}, hydration=..., endurance=...}.
+M.SURVIVAL = {
+    { key = "sustenance", comp = "SustenanceComponent", cur = "GetCurrentSustenance", max = "GetMaxSustenance" },
+    { key = "hydration", comp = "HydrationComponent", cur = "GetCurrentHydration", max = "GetMaxHydration" },
+    { key = "endurance", comp = "EnduranceComponent", cur = "GetCurrentEndurance", max = "GetMaxEndurance" },
+}
+function M.survival(p)
+    local out = {}
+    for _, s in ipairs(M.SURVIVAL) do
+        local c = U.try(function() return p[s.comp] end)
+        if U.valid(c) then
+            out[s.key] = { r1(num(U.try(function() return c[s.cur](c) end))), r1(num(U.try(function() return c[s.max](c) end))) }
+        end
+    end
+    return out
+end
+
+-- The effect thresholds of each survival stat: {key = {{value, effects = {GE names}}, ...}}.
+function M.survival_levels(p)
+    p = p or M.local_pawn()
+    local out = {}
+    for _, s in ipairs(M.SURVIVAL) do
+        local c = p and U.try(function() return p[s.comp] end)
+        local field = s.key:sub(1, 1):upper() .. s.key:sub(2) .. "EffectLevels"
+        local levels = {}
+        pcall(function()
+            c[field]:ForEach(function(_, e)
+                local lv = e:get()
+                local l = { value = num(U.try(function() return lv.Value end)), effects = {} }
+                pcall(function()
+                    lv.GameplayEffectsToApply:ForEach(function(_, g)
+                        local spec = g:get()
+                        l.effects[#l.effects + 1] = U.short(U.try(function() return spec.Effect end)) or "?"
+                    end)
+                end)
+                levels[#levels + 1] = l
+            end)
+        end)
+        out[s.key] = levels
+    end
+    return out
+end
+
+-- Own state: position, health, stamina, survival, skills (levels + xp), total level.
 function M.me(log)
     local pc = M.local_pc()
     if not pc then return { ok = false, reason = "no local player controller" } end
@@ -122,6 +165,7 @@ function M.me(log)
         d.dead = U.try(function() return p.HealthComponent:IsDead() end)
         local rot = U.try(function() return p:K2_GetActorRotation() end)
         d.yaw = rot and r1(rot.Yaw) or nil
+        d.survival = M.survival(p)
     end
     d.skills = skills(pc)
     d.total_level = num(U.try(function() return pc.SkillComponent:GetTotalSkillLevel() end))
@@ -369,6 +413,206 @@ function M.census(log, opts)
     out.totals = totals
     out.ms = math.floor((os.clock() - t0) * 1000)
     return out
+end
+
+-- ------------------------------------------------------------------ vitals watcher
+-- Logs to <ROOT>/client_io/events/vitals.jsonl:
+--   {"type":"health", hp, prev, delta, max, source="rep"|"poll"}   every change of his health
+--     (post-hook HealthComponent:OnRep_AuthoritativeHealth = the replicated value arriving, plus a
+--     1 s poll as a fallback);
+--   {"type":"damage", amount, absorbed, class, fatal, status, types, instigator, source}  each
+--     damage event the server multicasts for his pawn (DamageComponent:Multicast_Apply[Point]DamageFromGameplayEffect);
+--   {"type":"fatal", killed_by, text, power_level, status_flags, status}  (DamageComponent:OnRep_FatalDamageInfo);
+--   {"type":"death"} / {"type":"revive"} on IsDead transitions;
+--   {"type":"survival", sustenance, hydration, endurance, hp}  every M.VITALS_SURVIVAL_S seconds.
+-- Read-only (hooks read params, nothing is written). Hot-reload safe: state in _G.DWVitals,
+-- hooks registered once and dispatching to the newest handlers.
+M.VITALS_PATH = ROOT .. "/client_io/events/vitals.jsonl"
+M.VITALS_SURVIVAL_S = 30
+local DAMAGE_CLASS = { [0] = "none", "melee", "magical", "ranged" }
+local STATUS = { [0] = "none", "poison", "burning", "bleeding", "shock", "starvation", "dehydration", "toxicity", "scorch" }
+M.STATUS = STATUS
+
+local V = _G.DWVitals or { hooks = {}, counts = { health = 0, damage = 0, fatal = 0, survival = 0 } }
+_G.DWVitals = V
+
+local json_mod
+local function emit(ev)
+    json_mod = json_mod or assert(loadfile(ROOT .. "/client_mod/scripts/dkjson.lua"))()
+    ev.ts = os.time()
+    ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts)
+    local line = U.try(function() return json_mod.encode(ev) end)
+    if not line then return end
+    local f = io.open(M.VITALS_PATH, "a")
+    if f then f:write(line, "\n"); f:close() end
+end
+M.vitals_emit = emit
+
+-- KilledByStatusEffectFlags is a bitmask over EStatusEffectType (bit n = type n): 64 = dehydration.
+local function status_names(flags)
+    if not flags or flags == 0 then return nil end
+    local out = {}
+    for i = 1, 8 do if (flags >> i) & 1 == 1 then out[#out + 1] = STATUS[i] end end
+    return out
+end
+M.status_names = status_names
+
+local function who(a)
+    if not U.valid(a) then return nil end
+    local d = { id = U.short(a), class = U.class_word(a) }
+    if U.short(a) == V.me_id then d.self = true end
+    local ps = U.try(function() return a.PlayerState end)
+    if U.valid(ps) then d.player = U.str(U.try(function() return ps:GetPlayerName() end)) end
+    local data = U.try(function() return a.LoadedData end)
+    if U.valid(data) then d.name = text(U.try(function() return data.AIName end)) end
+    return d
+end
+
+local function is_mine(comp)
+    local o = U.try(function() return comp:GetOwner() end)
+    return o ~= nil and U.short(o) == V.me_id
+end
+
+local function read_damage(e)
+    local d = {
+        amount = r1(num(U.try(function() return e.Amount end))),
+        absorbed = r1(num(U.try(function() return e.AmountAbsorbedByShield end))),
+        fatal = U.try(function() return e.bIsFatalHit end) == true or nil,
+        instigator = who(U.try(function() return e.Instigator end)),
+    }
+    local cls = num(U.try(function() return e.DamageClass end))
+    d.class = cls and DAMAGE_CLASS[cls] or nil
+    local src = U.try(function() return e.Source end)
+    if U.valid(src) then d.source = { id = U.short(src), class = U.class_word(src) } end
+    local types, status = {}, {}
+    pcall(function()
+        e.TypeDamagesArray.TypeDamages:ForEach(function(_, t)
+            local td = t:get()
+            local se = num(U.try(function() return td.StatusEffect end))
+            if se and se > 0 then status[#status + 1] = STATUS[se] end
+            pcall(function()
+                td.Types.GameplayTags:ForEach(function(_, g)
+                    local n = U.str(U.try(function() return g:get().TagName end))
+                    if n then types[#types + 1] = n end
+                end)
+            end)
+        end)
+    end)
+    if #types > 0 then d.types = types end
+    if #status > 0 then d.status = status end
+    return d
+end
+
+function V.on_health(ctx, prev)
+    local c = ctx:get()
+    if not is_mine(c) then return end
+    local hp = num(U.try(function() return c:GetAuthoritativeHealth() end))
+    local pv = num(U.try(function() return prev:get() end))
+    if hp == nil or hp == V.last_hp then return end
+    local before = pv or V.last_hp or hp
+    emit({ type = "health", source = "rep", hp = r1(hp), prev = r1(before), delta = r1(hp - before),
+           max = r1(num(U.try(function() return c:GetMaxHealth() end))) })
+    V.last_hp = hp
+    V.counts.health = V.counts.health + 1
+end
+
+function V.on_damage(ctx, ev)
+    local c = ctx:get()
+    if not is_mine(c) then return end
+    local d = read_damage(ev:get())
+    d.type = "damage"
+    d.hp = r1(num(U.health(M.local_pawn())))
+    emit(d)
+    V.counts.damage = V.counts.damage + 1
+end
+
+function V.on_fatal(ctx)
+    local c = ctx:get()
+    if not is_mine(c) then return end
+    local f = U.try(function() return c.FatalDamageInfo end)
+    local flags = num(U.try(function() return f.KilledByStatusEffectFlags end))
+    emit({ type = "fatal", set = U.try(function() return f.bIsSet end), killed_by = who(U.try(function() return f.KilledBy:Get() end)),
+           text = text(U.try(function() return f.KilledByText end)), power_level = num(U.try(function() return f.KilledByPowerLevel end)),
+           status_flags = flags, status = status_names(flags) })
+    V.counts.fatal = V.counts.fatal + 1
+end
+
+M.VITALS_HOOKS = {
+    { path = "/Script/Dominion.HealthComponent:OnRep_AuthoritativeHealth", handler = "on_health" },
+    { path = "/Script/Dominion.DamageComponent:Multicast_ApplyDamageFromGameplayEffect", handler = "on_damage" },
+    { path = "/Script/Dominion.DamageComponent:Multicast_ApplyPointDamageFromGameplayEffect", handler = "on_damage" },
+    { path = "/Script/Dominion.DamageComponent:OnRep_FatalDamageInfo", handler = "on_fatal" },
+}
+
+local function register(h, log)
+    if V.hooks[h.path] then return true end
+    local ok, pre, post = pcall(RegisterHook, h.path, function() end, function(...)
+        local fn = V[h.handler]
+        if fn then
+            local ok2, err = pcall(fn, ...)
+            if not ok2 and log then pcall(log, "vitals hook " .. h.handler .. " error: " .. tostring(err)) end
+        end
+    end)
+    if ok then V.hooks[h.path] = { pre = pre, post = post } end
+    if log then pcall(log, "vitals hook " .. h.path .. " ok=" .. tostring(ok) .. (ok and "" or (" " .. tostring(pre)))) end
+    return ok
+end
+
+local function poll()
+    local p = M.local_pawn()
+    if not p then return end
+    V.me_id = U.short(p)
+    local hp = num(U.health(p))
+    if hp and V.last_hp and hp ~= V.last_hp then
+        emit({ type = "health", source = "poll", hp = r1(hp), prev = r1(V.last_hp), delta = r1(hp - V.last_hp), max = r1(max_hp(p)) })
+        V.counts.health = V.counts.health + 1
+    end
+    if hp then V.last_hp = hp end
+    local dead = U.try(function() return p.HealthComponent:IsDead() end) == true
+    if V.dead ~= nil and dead ~= V.dead then emit({ type = dead and "death" or "revive", hp = r1(hp), survival = M.survival(p) }) end
+    V.dead = dead
+    local t = os.time()
+    if not V.last_survival or t - V.last_survival >= M.VITALS_SURVIVAL_S then
+        V.last_survival = t
+        local s = M.survival(p)
+        emit({ type = "survival", hp = r1(hp), max_hp = r1(max_hp(p)), sustenance = s.sustenance, hydration = s.hydration, endurance = s.endurance })
+        V.counts.survival = V.counts.survival + 1
+    end
+end
+V.poll = poll
+
+-- Start (idempotent): hooks + a 1 s game-thread poll. Returns {ok, data}.
+function M.vitals_start(log)
+    os.execute('mkdir "' .. (ROOT .. "/client_io/events"):gsub("/", "\\") .. '" 2>nul')
+    local p = M.local_pawn()
+    V.me_id = p and U.short(p) or V.me_id
+    V.last_hp = p and num(U.health(p)) or V.last_hp
+    local hooks = {}
+    for _, h in ipairs(M.VITALS_HOOKS) do hooks[h.path:match(":(.+)$")] = register(h, log) end
+    if not V.loop then
+        V.loop = LoopInGameThreadWithDelay(1000, function()
+            local f = _G.DWVitals and _G.DWVitals.poll
+            if f then pcall(f) end
+        end)
+    end
+    emit({ type = "start", hp = r1(V.last_hp), survival = p and M.survival(p) or nil })
+    return { ok = true, data = { hooks = hooks, path = M.VITALS_PATH, counts = V.counts } }
+end
+
+function M.vitals_stop(log)
+    if V.loop and CancelDelayedAction then pcall(CancelDelayedAction, V.loop) end
+    V.loop = nil
+    for path, ids in pairs(V.hooks) do
+        if UnregisterHook then pcall(UnregisterHook, path, ids.pre, ids.post) end
+        V.hooks[path] = nil
+    end
+    return { ok = true }
+end
+
+function M.vitals_status()
+    local n = 0
+    for _ in pairs(V.hooks) do n = n + 1 end
+    return { running = V.loop ~= nil, hooks = n, counts = V.counts, last_hp = V.last_hp, me = V.me_id, dead = V.dead }
 end
 
 return M

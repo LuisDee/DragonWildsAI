@@ -153,6 +153,7 @@ run(300)
 s = M.status()
 check("gives up stuck", s.result and s.result.reason == "stuck", s.result and s.result.reason)
 check("gives up within 5-9 s of no progress", s.result and (T - t_start) > 5, T - t_start)
+check("backtracked along own trail before giving up", (s.backtracks or 0) >= 1, s.backtracks)
 local stuck_logged = false
 for _, l in ipairs(logs) do if l:find("move: stuck n=") and l:find("aim=") then stuck_logged = true end end
 check("stuck events log me/aim/goal/waypoints", stuck_logged)

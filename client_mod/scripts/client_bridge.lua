@@ -281,9 +281,9 @@ local function bucket_census(c)
         end
         out.nearby_entities[#out.nearby_entities + 1] = e
     end
-    for _, key in ipairs({ "resources", "interactables" }) do
-        for _, r in ipairs(c[key] or {}) do out.nearby_resources[#out.nearby_resources + 1] = copy(r) end
-    end
+    for _, r in ipairs(c.resources or {}) do out.nearby_resources[#out.nearby_resources + 1] = copy(r) end
+    out.interactables = {}
+    for _, r in ipairs(c.interactables or {}) do out.interactables[#out.interactables + 1] = copy(r) end
     for _, it in ipairs(c.items or {}) do
         local i = copy(it)
         if i.collecting == nil then i.collecting = i.magnet_target or S.bridge.null end
@@ -337,11 +337,15 @@ function M.get_state()
     else
         for k, v in pairs(mine) do if data[k] == nil or data[k] == b.null then data[k] = v end end
         data.following = M.following() or b.null
+        -- own vitals, flat: hydration / sustenance / endurance = current value, *_max = maximum
+        for stat, v in pairs(type(mine.survival) == "table" and mine.survival or {}) do
+            if type(v) == "table" then data[stat], data[stat .. "_max"] = v[1], v[2] end
+        end
         local cr = call("sense", "census", { radius_m = M.NEARBY_M, max = M.NEARBY_MAX })
         if cr.ok then
             local bk = bucket_census(cr.data)
             data.players, data.nearby_entities, data.nearby_resources = bk.players, bk.nearby_entities, bk.nearby_resources
-            data.nearby_items, data.players_online = bk.nearby_items, cr.data.players_online
+            data.nearby_items, data.interactables, data.players_online = bk.nearby_items, bk.interactables, cr.data.players_online
         else
             missing.players, missing.nearby_entities, missing.nearby_resources = true, true, true
         end
@@ -349,6 +353,9 @@ function M.get_state()
         if ir.ok then
             local inv, items, gear = inventory_view(ir.data)
             data.inventory, data.inventory_items, data.gear = b.object(inv), items, b.object(gear)
+            local held = type(ir.data.held) == "table" and ir.data.held or {}
+            data.held = held.right or held.left or b.null -- display name of what is in his hands
+            data.held_item = held.right_item or held.left_item or b.null
         else
             missing.inventory = true
         end
@@ -512,7 +519,248 @@ R.inventory = { needs = { { "inventory", "list" } }, fn = function() return call
 R.census = { needs = { { "sense", "census" } }, fn = function(args) return call("sense", "census", args) end }
 R.me = { needs = { { "sense", "me" } }, fn = function() return call("sense", "me") end }
 R.move_status = { needs = { { "move", "status" } }, fn = function() return call("move", "status") end }
-R.look = { needs = { { "sense", "look" } }, fn = function(args) return call("sense", "look", args) end }
+-- ------------------------------------------------------------------ perception: look / inspect / interact
+-- Built on sense.census (generic: every category the client can see; no hand lists). One "thing" =
+-- a census row plus category, kind, verb and the actions the CLIENT can do on it now.
+M.LOOK_RADIUS_M, M.LOOK_MAX_RADIUS_M, M.LOOK_MAX = 20, 80, 15
+M.INTERACT_REACH_M = 2.0     -- walk closer than this before pressing interact (the detector traces 6 m)
+M.INTERACT_APPROACH_M = 1.0  -- move.go_to tolerance for the approach (graves: 0.6-1.2 m works)
+M.INTERACT_AIM_S = 2         -- re-aim until the game's detector targets the thing
+M.INTERACT_VERIFY_S = 4      -- then wait this long for the outcome (target gone or inventory grew)
+M.INTERACT_TIMEOUT_S = 100   -- whole action (brain waits 120 s)
+local CATS = {
+    { key = "players", kind = "player", verb = "follow", actions = { "follow", "go_to" } },
+    { key = "creatures", kind = "creature", verb = "attack", actions = { "attack" } },
+    { key = "items", kind = "item", verb = "pickup", actions = { "interact" } },
+    { key = "resources" }, -- gatherable (interact = collect) or destructible (chop/mine/hit)
+    { key = "interactables", verb = "interact", actions = { "interact" } },
+}
+M.CATS = CATS
+
+local function thing_of(cat, row)
+    local t = copy(row)
+    t.category = cat.key
+    t.kind = t.kind or cat.kind
+    t.verb = t.verb or cat.verb
+    if cat.key == "resources" then
+        t.actions = t.kind == "gatherable" and { "interact" } or { t.verb or "hit" }
+    else
+        t.actions = cat.actions
+    end
+    if cat.key == "creatures" then
+        t.hp, t.max_hp = t.health, t.max_health
+        t.alive = not (t.dead == true or (tonumber(t.health) or 1) <= 0)
+        if t.attitude ~= nil then t.hostile = t.attitude == "hostile" end
+    end
+    return t
+end
+
+-- Port of mod/body/sense.lua M.match_score (pure): the share of the player's words found in the
+-- thing's name, class, prompt, drops, item id, kind and verb, with simple plural forms.
+local function words(s)
+    local out = {}
+    for w in tostring(s or ""):lower():gmatch("[%a]+") do if #w > 2 then out[#out + 1] = w end end
+    return out
+end
+function M.match_score(t, about)
+    local q = words(about)
+    if #q == 0 then return 0 end
+    local hay = table.concat({ t.name or "", t.class or "", t.prompt or "", t.drops or "", t.drop_item or "",
+                               t.item or "", t.kind or "", t.verb or "" }, " "):lower()
+    local score = 0
+    for _, w in ipairs(q) do
+        for _, f in ipairs({ w, (w:gsub("ies$", "y")), (w:gsub("es$", "")), (w:gsub("s$", "")) }) do
+            if #f > 2 and hay:find(f, 1, true) then score = score + 1; break end
+        end
+    end
+    return score / #q
+end
+
+-- Every thing within radius_m (census, nearest first per category), flattened.
+local function census_things(radius_m, max_per_cat)
+    local r = call("sense", "census", { radius_m = radius_m, max = max_per_cat or 40 })
+    if not r.ok then return nil, r end
+    local out = {}
+    for _, cat in ipairs(CATS) do
+        for _, row in ipairs(r.data[cat.key] or {}) do out[#out + 1] = thing_of(cat, row) end
+    end
+    return out, r
+end
+
+local function find_thing(id, radius_m)
+    local things, r = census_things(radius_m or M.LOOK_MAX_RADIUS_M, 100)
+    if not things then return nil, r end
+    for _, t in ipairs(things) do if t.id == id then return t end end
+    return nil, fail("unknown_target", { target = id, detail = "not perceived within " .. (radius_m or M.LOOK_MAX_RADIUS_M) .. " m" })
+end
+
+R.look = { needs = { { "sense", "census" } }, fn = function(args)
+    local radius = math.min(tonumber(args.radius) or M.LOOK_RADIUS_M, M.LOOK_MAX_RADIUS_M)
+    local max = math.max(1, math.min(tonumber(args.max) or M.LOOK_MAX, 40))
+    local about = need_str(args.about) and args.about or nil
+    local things, r = census_things(radius)
+    if not things then return r end
+    for _, t in ipairs(things) do t._score = about and M.match_score(t, about) or 0 end
+    table.sort(things, function(x, y)
+        if x._score ~= y._score then return x._score > y._score end
+        return (x.distance or 0) < (y.distance or 0)
+    end)
+    local out, matched = {}, false
+    for i = 1, math.min(#things, max) do
+        local t = things[i]
+        if about then t.match = math.floor(t._score * 100 + 0.5) / 100 end
+        if t._score > 0 then matched = true end
+        t._score = nil
+        out[#out + 1] = t
+    end
+    return { ok = true, data = { origin = r.data.origin, radius_m = radius, about = about or S.bridge.null, total = #things,
+                                 things = out, matched = about and matched or S.bridge.null } }
+end }
+
+-- The live actor behind a thing (class word from the census row; alive only).
+local function actor_of(t)
+    local s = M.module("sense")
+    local U = s and s.U
+    if not (U and t and t.class) then return nil end
+    for _, a in ipairs(U.find_all(t.class, { skip_defaults = true }) or {}) do
+        if U.short(a) == t.id then return a, U end
+    end
+    return nil, U
+end
+
+R.inspect = { needs = { { "sense", "census" } }, fn = function(args)
+    local id = args.target or args.id
+    if not need_str(id) then return fail("invalid_args", { detail = "target is required (an id from look)" }) end
+    local t, r = find_thing(id)
+    if not t then return r end
+    local d = copy(t)
+    d.gives = {}
+    for _, g in ipairs({ t.drops, t.name and t.category == "items" and t.name or nil }) do d.gives[#d.gives + 1] = g end
+    if t.tool then d.requires = { tool = t.tool, tier = t.tool_tier } end
+    local a, U = actor_of(t)
+    if a and U then
+        for _, prop in ipairs({ "Description", "DisplayDescription", "DescriptionText" }) do
+            local s = U.str(U.try(function() return a[prop] end))
+            if s and s ~= "" then d.description = s; break end
+        end
+        -- containers (graves, chests, storage): what is inside, read-only
+        local inv = U.try(function() return a:GetInventory() end) or U.try(function() return a.InventoryComponent end)
+        local desc = fn_of("inventory", "describe_item")
+        if U.valid(inv) and desc then
+            d.contents = {}
+            pcall(function()
+                local arr = inv.ItemSlots
+                for i = 1, arr:GetArrayNum() do
+                    local it = arr[i]
+                    if U.valid(it) then
+                        local e = desc(it)
+                        if e then d.contents[#d.contents + 1] = { name = e.name, item = e.item, count = e.count } end
+                    end
+                end
+            end)
+        end
+    end
+    return { ok = true, data = d }
+end }
+
+local function counts()
+    local lr = call("inventory", "list")
+    return lr.ok and (inventory_view(lr.data)) or nil
+end
+
+-- Aim the camera at a point, as the mouse does (the same call move.lua steers with).
+local function aim_at(pos)
+    local s = M.module("sense")
+    if not s then return false end
+    local pc, pawn = s.local_pc(), s.local_pawn()
+    local U = s.U
+    local here = pawn and to_m(U.loc(pawn))
+    if not (pc and here and pos) then return false end
+    local dx, dy, dz = pos[1] - here[1], pos[2] - here[2], (pos[3] or here[3]) - here[3]
+    local yaw = math.deg(math.atan(dy, dx))
+    local pitch = math.deg(math.atan(dz, math.sqrt(dx * dx + dy * dy)))
+    return pcall(function() pc:SetControlRotation({ Pitch = pitch, Yaw = yaw, Roll = 0 }) end)
+end
+
+R.interact = { needs = { { "sense", "census" }, { "inventory", "interact_target" }, { "inventory", "press_interact" },
+                         { "inventory", "list" } }, fn = function(args, ctx)
+    local id = args.target or args.id
+    if not need_str(id) then return fail("invalid_args", { detail = "target is required (an id from look)" }) end
+    if args.secondary == true then return fail("not_implemented", { detail = "secondary interactions are not wired yet" }) end
+    local t, r = find_thing(id)
+    if not t then return r end
+    local can = false
+    for _, act in ipairs(t.actions or {}) do if act == "interact" then can = true end end
+    if not can then return fail("not_interactable", { target = id, kind = t.kind, actions = t.actions }) end
+    local a = { kind = "interact", id = ctx.id, target = id, thing = t, timeout_s = M.INTERACT_TIMEOUT_S, phase = "approach",
+                before = counts() or {} }
+    a.cancel = function() call("move", "stop") end
+    local function gained(now)
+        local best, n, all = nil, 0, {}
+        for k, v in pairs(now or {}) do
+            local d = v - (a.before[k] or 0)
+            if d > 0 then all[k] = d; if d > n then best, n = k, d end end
+        end
+        return best, n, all
+    end
+    a.poll = function(self)
+        local tnow = now_s()
+        if self.phase == "approach" then
+            local here = my_position()
+            local d = here and self.thing.position and dist2d(here, self.thing.position)
+            if d and d <= M.INTERACT_REACH_M then
+                self.phase, self.aim_until = "aim", tnow + M.INTERACT_AIM_S
+            elseif not self.moving then
+                if not fn_of("move", "go_to") then return fail("too_far", { target = id, distance = d }) end
+                local mr = call("move", "go_to", self.thing.position, { tolerance_m = M.INTERACT_APPROACH_M, timeout_s = 60 })
+                if not mr.ok then return mr end
+                self.moving = true
+            else
+                local st = move_status()
+                if st.mode ~= "go_to" then
+                    local res = type(st.result) == "table" and st.result or {}
+                    if res.status ~= "arrived" then
+                        return fail(reason_code(res.reason or "path_blocked"), { target = id, detail = res.detail or res.reason })
+                    end
+                    self.moving = false -- arrived: next tick re-checks the distance
+                    self.approaches = (self.approaches or 0) + 1
+                    if self.approaches > 2 then return fail("too_far", { target = id, distance = d }) end
+                end
+            end
+            return nil
+        elseif self.phase == "aim" then
+            aim_at(self.thing.position)
+            local s = M.module("sense")
+            local it_fn = fn_of("inventory", "interact_target") -- (pawn), no log argument
+            local okd, cur = pcall(it_fn, s and s.local_pawn() or nil)
+            self.detector = okd and type(cur) == "table" and cur or nil
+            if self.detector and self.detector.actor == id then
+                local pr = call("inventory", "press_interact")
+                if not pr.ok then return pr end
+                self.phase, self.verify_until = "verify", tnow + M.INTERACT_VERIFY_S
+                return nil
+            end
+            if tnow >= self.aim_until then
+                return fail("not_interactable", { target = id, detail = "the game's interact target is "
+                    .. tostring(self.detector and (self.detector.actor or (self.detector.none and "nothing")) or "unknown") })
+            end
+            return nil
+        else -- verify
+            local item, n, all = gained(counts())
+            local gone = actor_of(self.thing) == nil
+            if item or gone then
+                return { ok = true, data = { target = id, item = item or S.bridge.null, count = n, gained = S.bridge.object(all),
+                                             target_gone = gone, prompt = self.detector and self.detector.prompt or S.bridge.null } }
+            end
+            if tnow >= self.verify_until then
+                return fail("verification_failed", { target = id, detail = "pressed interact, but the target is still there "
+                    .. "and nothing new is in the inventory", prompt = self.detector and self.detector.prompt })
+            end
+            return nil
+        end
+    end
+    return { pending = a }
+end }
 
 -- Is a route usable right now (every needed module function present)?
 local function route_ready(route)
@@ -623,9 +871,8 @@ end
 -- The writer (chat.lua) only appends, so the file would grow forever. We are its only reader and
 -- run on the same game thread as its hook, so once everything is consumed and the file is past
 -- CHAT_ROTATE_BYTES it is emptied here (no line can land between the size check and the truncate).
-local function rotate_chat()
-    local t = S.chat_tail
-    if t.offset < M.CHAT_ROTATE_BYTES or t.partial ~= "" then return end
+local function rotate(t)
+    if not t or t.offset < M.CHAT_ROTATE_BYTES or t.partial ~= "" then return end
     local f = io.open(t.path, "rb")
     if not f then return end
     local size = f:seek("end") or 0
@@ -636,7 +883,72 @@ local function rotate_chat()
         w:close()
         t.offset = 0
         S.stats.chat_rotations = S.stats.chat_rotations + 1
-        ev("client_chat_rotated", { bytes = size })
+        ev("client_events_rotated", { path = t.path, bytes = size })
+    end
+end
+
+-- ------------------------------------------------------------------ vitals -> attacked / vitals_low
+-- attacked{by, name, amount, hp}: a "damage" row of sense.lua's vitals watcher (client_io/events/
+-- vitals.jsonl, its Multicast_Apply*DamageFromGameplayEffect hooks) whose instigator is not Claude
+-- himself; at most once per ATTACKED_REPEAT_S per attacker. `by` = the attacker's actor id, the
+-- same id as in get_state.nearby_entities.
+M.ATTACKED_REPEAT_S = 5
+-- vitals_low{stat, value, max, has_food, has_drink}: hydration or sustenance below VITALS_LOW and
+-- nothing to eat/drink for it in the inventory (the stay-fed reflex would handle it otherwise).
+-- Checked every VITALS_CHECK_S from sense.me (so it works without the watcher); re-armed once the
+-- stat is back above VITALS_REARM, repeated every VITALS_REPEAT_S while it stays low.
+M.VITALS_LOW, M.VITALS_REARM, M.VITALS_CHECK_S, M.VITALS_REPEAT_S = 15, 25, 15, 180
+M.VITAL_NEEDS = { hydration = "drink", sustenance = "food" }
+
+local function forward_vitals()
+    if not S.vitals_tail then return end
+    for _, raw in ipairs(S.vitals_tail:read()) do
+        local ok, m = pcall(S.jsonutil.decode, raw)
+        if ok and type(m) == "table" and m.type == "damage" and type(m.instigator) == "table" and not m.instigator.self then
+            local by = m.instigator.id or m.instigator.name or m.instigator.player or "?"
+            local t = now_s()
+            if not S.attacked_at[by] or t - S.attacked_at[by] >= M.ATTACKED_REPEAT_S then
+                S.attacked_at[by] = t
+                S.bridge.emit_event("attacked", { by = tostring(by), name = m.instigator.name or m.instigator.player,
+                                                  amount = m.amount, hp = m.hp, class = m.class })
+                S.stats.attacked = S.stats.attacked + 1
+            end
+        end
+    end
+    rotate(S.vitals_tail)
+end
+
+local function check_vitals()
+    local t = now_s()
+    if S.vitals_checked and t - S.vitals_checked < M.VITALS_CHECK_S then return end
+    S.vitals_checked = t
+    local mine = me()
+    local surv = mine and type(mine.survival) == "table" and mine.survival
+    if not surv then return end
+    local lowstats = {}
+    for stat in pairs(M.VITAL_NEEDS) do
+        local v = type(surv[stat]) == "table" and tonumber(surv[stat][1])
+        if v then
+            if v > M.VITALS_REARM then S.vitals_low[stat] = nil
+            elseif v < M.VITALS_LOW then lowstats[#lowstats + 1] = { stat, v, surv[stat][2] } end
+        end
+    end
+    if #lowstats == 0 then return end
+    local lr = call("inventory", "list")
+    if not lr.ok then return end
+    local have = {}
+    for _, where in ipairs({ "hotbar", "bag" }) do
+        for _, it in ipairs(lr.data[where] or {}) do if it.consumable then have[it.consumable] = true end end
+    end
+    for _, l in ipairs(lowstats) do
+        local stat, v, mx = l[1], l[2], l[3]
+        local last = S.vitals_low[stat]
+        if not have[M.VITAL_NEEDS[stat]] and (not last or t - last >= M.VITALS_REPEAT_S) then
+            S.vitals_low[stat] = t
+            S.bridge.emit_event("vitals_low", { stat = stat, value = v, max = mx, has_food = have.food == true,
+                                                has_drink = have.drink == true })
+            S.stats.vitals_low = S.stats.vitals_low + 1
+        end
     end
 end
 
@@ -658,7 +970,7 @@ local function forward_chat()
             end
         end
     end
-    rotate_chat()
+    rotate(S.chat_tail)
 end
 
 -- ------------------------------------------------------------------ lifecycle
@@ -676,6 +988,10 @@ function M.step()
     if not ok then ev("client_chat_forward_error", { err = tostring(err) }) end
     ok, err = pcall(tick_waiters)
     if not ok then ev("client_waiters_error", { err = tostring(err) }) end
+    ok, err = pcall(forward_vitals)
+    if not ok then ev("client_vitals_forward_error", { err = tostring(err) }) end
+    ok, err = pcall(check_vitals)
+    if not ok then ev("client_vitals_check_error", { err = tostring(err) }) end
 end
 
 function M.status()
@@ -714,7 +1030,8 @@ function M.start(opts)
     S = { root = root, scripts = scripts, dir = dir, bridge = bridge, jsonutil = jsonutil, jlog = jlog,
           text_log = opts.log or function() end, mods = {}, action = nil, waiters = {},
           started = os.date("!%Y-%m-%dT%H:%M:%SZ"),
-          stats = { chat_forwarded = 0, chat_ignored = 0, chat_rotations = 0 }, prefixes = prefixes(),
+          stats = { chat_forwarded = 0, chat_ignored = 0, chat_rotations = 0, attacked = 0, vitals_low = 0 },
+          attacked_at = {}, vitals_low = {}, prefixes = prefixes(),
           chat_all = os.getenv("DW_CLIENT_CHAT_ALL") == "1",
           name = opts.name or os.getenv("DW_COMPANION_NAME") or "Claude" }
     assert(bridge.init({ dir = dir, log = jlog, in_name = M.IN_NAME, out_name = M.OUT_NAME, from_start = opts.from_start }))
@@ -747,6 +1064,9 @@ function M.start(opts)
     -- chat events (client_mod/scripts/chat.lua writes them); start at the end: no history replay
     S.chat_path = opts.chat_events or (root .. "/client_io/events/chat.jsonl")
     S.chat_tail = bridge.new_tail(S.chat_path)
+    -- vitals events (sense.lua's watcher writes them): damage -> attacked
+    S.vitals_path = opts.vitals_events or (root .. "/client_io/events/vitals.jsonl")
+    S.vitals_tail = bridge.new_tail(S.vitals_path)
     if opts.start_modules then
         local f = fn_of("chat", "start")
         if f then

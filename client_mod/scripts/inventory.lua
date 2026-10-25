@@ -100,6 +100,24 @@ function M.describe_item(it)
         category = text(U.try(function() return data.Category.TagName end)),
     }
     if d.max_durability and d.max_durability <= 0 then d.max_durability, d.durability = nil, nil end
+    -- Food / drink, from the item data class (UFoodItemData / UDrinkItemData) and its stat texts.
+    -- (The live classes are Blueprint subclasses, e.g. BP_Consumables_Drink_C, so test for the
+    -- UFoodItemData / UDrinkItemData properties rather than the class name.)
+    local function has(f) return U.try(function() return data[f] ~= nil end) == true end
+    if has("StatSustenance") then
+        d.consumable = "food"
+        d.sustenance = text(U.try(function() return data.StatSustenance end))
+        d.heal = num(U.try(function() return data.AmountToHealOnConsume end))
+    elseif has("StatHydration") then
+        d.consumable = "drink"
+        d.hydration = text(U.try(function() return data.StatHydration end))
+    elseif (U.class_word(data) or ""):find("Potion", 1, true) then
+        d.consumable = "potion"
+    end
+    if d.consumable then
+        d.soulscourge = text(U.try(function() return data.StatSoulScourge end))
+        d.use_verb = text(U.try(function() return data.UseVerb end))
+    end
     local mw = num(U.try(function() return it.NumMasterworkUpgradesApplied end))
     if mw and mw > 0 then d.masterwork = mw end
     if U.try(function() return it:IsEnchanted() end) == true then d.enchanted = true end
@@ -271,6 +289,27 @@ function M.equip(log, what)
     return { ok = ok, reason = (not ok) and tostring(err) or nil, via = "inventory use", item = d, held_before = before }
 end
 
+-- Use (eat, drink, read...) `what` the way a player does: its hotbar number key if it is on the
+-- hotbar, else the inventory UI's use. Unlike equip, no "already equipped" check.
+function M.use(log, what)
+    local l = M.list(log)
+    if not l.ok then return l end
+    local d, where = M.find(l, what)
+    if not d or where == "loadout" then return { ok = false, reason = "not in hotbar/bag: " .. tostring(what) } end
+    if where == "hotbar" then
+        local bar = M.hotbar()
+        if not bar then return { ok = false, reason = "no hotbar widget" } end
+        say(log, "use: hotbar UseItemInSlot(" .. d.slot .. ") " .. tostring(d.item))
+        local ok, err = pcall(function() bar:UseItemInSlot(d.slot) end)
+        return { ok = ok, reason = (not ok) and tostring(err) or nil, via = "hotbar key " .. (d.slot + 1), item = d }
+    end
+    local api = M.ui_api()
+    if not api then return { ok = false, reason = "no InventoryUIAPI" } end
+    say(log, "use: HandleInternalUseItem(" .. d.slot .. ", " .. tostring(d.slot_type) .. ") " .. tostring(d.item))
+    local ok, err = pcall(function() api:HandleInternalUseItem(d.slot, SLOT_TYPE[d.slot_type]) end)
+    return { ok = ok, reason = (not ok) and tostring(err) or nil, via = "inventory use", item = d }
+end
+
 -- First empty slot of a page type in the main inventory (UI slot number), or nil.
 function M.free_slot(type_name)
     local pc = M.pc()
@@ -329,6 +368,117 @@ function M.drop(log, what, count)
     say(log, string.format("HandleDropItem(%d, %s, %d) %s", d.slot, tostring(M.SLOT_TYPES[t]), amount, tostring(d.item)))
     local ok, err = pcall(function() api:HandleDropItem(d.slot, t, amount) end)
     return { ok = ok, reason = (not ok) and tostring(err) or nil, item = d, amount = amount }
+end
+
+-- ------------------------------------------------------------------ stay fed and watered (reflex)
+-- A game-thread loop (LoopInGameThreadWithDelay, started by a short command; never blocks the
+-- command runner). Every cfg.period_ms it reads hydration / sustenance from the pawn and:
+--   * below cfg.drink_below / cfg.eat_below: uses the best drink / food he carries (item data class
+--     UDrinkItemData / UFoodItemData; clean first, i.e. no Soulscourge stat), via M.use (the hotbar
+--     key or the inventory UI's use), at most once per cfg.cooldown_s per kind;
+--   * when hungry/thirsty and the game's detector targets a dropped food/drink world item: presses
+--     interact to collect it (cfg.collect).
+-- Events go to client_io/events/vitals.jsonl as {"type":"reflex", action, item, stat}.
+M.REFLEX_CFG = { period_ms = 2000, drink_below = 30, eat_below = 30, cooldown_s = 6, collect = true }
+
+local R = _G.DWFedReflex or {}
+_G.DWFedReflex = R
+
+local function stat(p, comp, getter)
+    local c = U.try(function() return p[comp] end)
+    return U.valid(c) and num(U.try(function() return c[getter](c) end)) or nil
+end
+
+local function best(list, kind)
+    local pick
+    for _, where in ipairs({ "hotbar", "bag" }) do
+        for _, d in ipairs(list[where] or {}) do
+            if d.consumable == kind then
+                local clean = not d.soulscourge
+                if not pick or (clean and pick.soulscourge) then pick = d end
+            end
+        end
+    end
+    return pick
+end
+M.best_consumable = best
+
+local json_mod
+local function reflex_emit(ev)
+    json_mod = json_mod or assert(loadfile(ROOT .. "/client_mod/scripts/dkjson.lua"))()
+    ev.type, ev.ts = "reflex", os.time()
+    ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts)
+    local line = U.try(function() return json_mod.encode(ev) end)
+    local f = line and io.open(ROOT .. "/client_io/events/vitals.jsonl", "a")
+    if f then f:write(line, "\n"); f:close() end
+end
+
+function R.tick(log)
+    local cfg = M.REFLEX_CFG
+    local p = M.pawn()
+    if not p or U.try(function() return p.HealthComponent:IsDead() end) == true then return end
+    local hyd = stat(p, "HydrationComponent", "GetCurrentHydration")
+    local sus = stat(p, "SustenanceComponent", "GetCurrentSustenance")
+    local thirsty = hyd and hyd < cfg.drink_below
+    local hungry = sus and sus < cfg.eat_below
+    if not (thirsty or hungry) then return end
+    local t = os.time()
+    R.last = R.last or {}
+    local l = M.list(log)
+    for _, need in ipairs({ { thirsty, "drink", hyd }, { hungry, "food", sus } }) do
+        if need[1] and (not R.last[need[2]] or t - R.last[need[2]] >= cfg.cooldown_s) then
+            local d = best(l, need[2])
+            if d then
+                R.last[need[2]] = t
+                local r = M.use(log, d.item)
+                reflex_emit({ action = "use", kind = need[2], item = d.item, name = d.name, stat = need[3], ok = r.ok, via = r.via })
+            end
+        end
+    end
+    if cfg.collect then
+        local tg = M.interact_target(p)
+        if tg and tg.item and (not R.last.collect or t - R.last.collect >= 2) then
+            -- only consumables: read the targeted world item's data class
+            local data
+            for _, w in ipairs(U.find_all("WorldItem", { skip_defaults = true })) do
+                if U.short(w) == tg.actor then data = U.try(function() return w.ItemData end) end
+            end
+            local is_drink = U.try(function() return data.StatHydration ~= nil end) == true
+            local is_food = U.try(function() return data.StatSustenance ~= nil end) == true
+            if (thirsty and is_drink) or (hungry and is_food) then
+                R.last.collect = t
+                local r = M.press_interact(log)
+                reflex_emit({ action = "collect", item = tg.item, name = tg.name, ok = r.ok })
+            end
+        end
+    end
+end
+
+-- Start (idempotent) / stop / status. opts override M.REFLEX_CFG fields.
+function M.reflex_start(log, opts)
+    for k, v in pairs(opts or {}) do M.REFLEX_CFG[k] = v end
+    R.cfg = M.REFLEX_CFG
+    R.tick_fn = R.tick
+    if not R.loop then
+        R.loop = LoopInGameThreadWithDelay(M.REFLEX_CFG.period_ms, function()
+            local r = _G.DWFedReflex
+            if r and r.tick_fn then
+                local ok, err = pcall(r.tick_fn, nil)
+                if not ok then r.err = tostring(err) end
+            end
+        end)
+    end
+    return { ok = true, cfg = M.REFLEX_CFG }
+end
+
+function M.reflex_stop()
+    if R.loop and CancelDelayedAction then pcall(CancelDelayedAction, R.loop) end
+    R.loop = nil
+    return { ok = true }
+end
+
+function M.reflex_status()
+    return { running = R.loop ~= nil, last = R.last, err = R.err, cfg = R.cfg }
 end
 
 return M
