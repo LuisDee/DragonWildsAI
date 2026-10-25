@@ -299,7 +299,7 @@ local function h_drop(args)
     end
     local spot = drop_spot(p, at, player)
     if not spot then return fail("body_error", { detail = "no drop location" }) end
-    S.skills._preempt("drop") -- a drop interrupts whatever the bot was doing, like any command
+    -- Instant, like a player dropping while walking: the current action (e.g. follow) keeps going.
     return do_drop(p, item, math.floor(count), spot, at, args.route)
 end
 

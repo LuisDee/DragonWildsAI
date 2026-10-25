@@ -188,6 +188,7 @@ local function find_ai(want, origin, max_cm)
     end
     return best, best_d
 end
+M.find_ai = find_ai -- shared resolver (body/spells.lua cast targets; wired in main.lua)
 
 local function attitude_hostile(ai, p)
     if os.getenv("DW_STATE_ATTITUDE") ~= "1" or not p then return nil end

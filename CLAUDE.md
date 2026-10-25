@@ -1,6 +1,53 @@
 # Dragonwilds AI Companion — Project Brief
 
-Read this whole file before doing anything. It is the single source of truth for goal, constraints, architecture, phase gates and prior research. Items marked **[UNVERIFIED]** are assumptions from research that you must confirm before relying on them.
+Read this whole file before doing anything. It is the single source of truth for goal, constraints, architecture, phase gates and prior research. Items marked **[UNVERIFIED]** are assumptions from research that you must confirm before relying on them. **Section 0 overrides anything older below it.**
+
+---
+
+## 0. Current state and standing decisions (updated 2026-10-25, end of session 1)
+
+**Read next:**
+- `docs/ARCHITECTURE.md`: layers, module APIs, rules, the "how to add X" recipes and the crash risk register.
+- `docs/DISCOVERIES.md`: everything verified, with build ID and evidence.
+- `docs/design/robustness-and-item-catalog.md`: the design decisions and Luis's requirements, sections 1–14.
+- `docs/PROGRESS.md`, `docs/tasks.json`.
+- `docs/research/*`.
+
+### The goal, clarified by Luis
+The companion ("Claude") is a **humanoid that is basically another player**.
+- It equips armour and weapons, uses combos, specials and **all spells**, kills enemies, loots, gathers (woodcutting, mining …), picks up, drops and gives items, teleports via lodestones, and talks in chat.
+- It **only equips what is in its own inventory**, and items are **instances** (level, ascension, enchants), not bare types.
+- A following creature is not the goal.
+- Voice via Discord comes later (`docs/research/2026-10-25-voice-discord.md`).
+
+### What is proven (build 26161880; details in DISCOVERIES)
+- **Server and loader:** the dedicated server on this VM; Luis joins from GFN; UE4SS loads via **Ultimate ASI Loader** (`version.dll` plus `version.ini`). UE4SS's own dwmapi proxy hangs the server.
+- **Mod and brain link:** a hot-reload `debug_run` trigger; a JSONL bridge (about 170 ms round trip); in-game chat is readable.
+- **Body = route 1:** a server-spawned `BP_PlayerCharacter_C` possessed by an AIController. It walks via navmesh, wears and holds real gear (exact held-actor class required, with no generic fallback), chains each weapon's own combo, kills creatures, and is immortal. It has a `DominionPlayerState` whose `OwnerGuid.AccountGuid` is copied from the host, so the **nameplate reads "Claude"**.
+- **Speech:** works as "Claude" by relaying a genuine chat message; on-demand speech is in progress.
+- **Brain:** live on Claude Haiku 5.5 (Controller) and Sonnet 5.5 (Planner) via LiteLLM. Phase gates 1, 2 and 6 passed, and Phase 4 by its original wording.
+- **Ops and diagnostics:** watchdog (crash dump or stale heartbeat → restart); perf telemetry (the server is healthy: 29.8 Hz, about 45 ms ping); patch delta pipeline (`docs/RUNBOOK-patch.md`).
+- **Server setting:** push-model replication is OFF (`Engine.ini`), so Lua property writes replicate.
+
+### Overrides of the rules below (Luis's explicit decisions)
+- **Subagents and parallel work are approved and expected.** This overrides section 2's "one session" rule. Give each agent its own files, and keep commits in the main session.
+- **Native diagnostics are approved:** ProcDump/cdb stacks and dump analysis. Still ask before patching binaries or memory.
+- Restarts while Luis is connected are fine, **announced first**. Agents may test live freely, but must never touch Luis's own character, inventory or saves.
+- Model API spend is approved for live play (key in the user env var `ANTHROPIC_API_KEY`, never in files). Still state the call counts before batch eval runs.
+
+### Building principles (Luis's, binding)
+1. **Don't hand-roll** what an open-source or managed tool already does, and **web-search before building**. That includes ops plumbing (e.g. service supervision: NSSM/WinSW).
+2. **Every capability leaves reusable foundations:**
+   - shared services: `sense` (census), `watch` (state watcher), `hitcheck`, tool/weapon chains, collect+verify;
+   - **data profiles**: items, spells, enemies, resources.
+   - So the next capability is faster. "Add mining" should be mostly a profile.
+   - Run `/simplify` after each wave and keep the ARCHITECTURE.md recipes current. The end state is that the brain can draft a profile for an unknown thing from watch data.
+3. **Persist everything learned** (DISCOVERIES, design doc, research) so nothing is lost to context compaction.
+4. **Safety rules learned the hard way** (see the ARCHITECTURE.md risk register):
+   - `pcall` can't catch native crashes, so test risky calls offline first.
+   - **Never send hand-built structs in Client_* RPCs** (that froze Luis's client).
+   - Removing the puppet requires stripping `PlayerRangedAttackComponent` first (otherwise the unpossess crash).
+   - Prefer property reads and copies of live engine structs over building structs in Lua.
 
 ---
 
