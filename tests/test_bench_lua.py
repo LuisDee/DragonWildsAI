@@ -14,8 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "client_mod" / "commands" / "bench_probe.lua"
 REFEREE = ROOT / "mod" / "bench" / "referee.lua"
 FIXTURES = ROOT / "mod" / "bench" / "fixtures.lua"
-FROZEN_VERBS = ["grant", "grant_runes", "unlock", "set_time", "spawn", "reset_skills", "teleport", "clear_area"]
-WRITES = re.compile(r"Server_|Client_|Multicast_|Inject|SetActorLocation|K2_Set|K2_Destroy|DestroyActor|SpawnActor|"
+FROZEN_VERBS = ["grant", "grant_runes", "unlock", "set_time", "spawn", "reset_skills", "teleport", "clear_area",
+                "set_health", "raise_skills", "grant_to_ground", "spawn_tester"]
+# Calls only (`:Name(`): hook paths that NAME an RPC (read-only post-hooks, e.g. the referee's) are fine.
+WRITES = re.compile(r"[:.](Server_|Client_|Multicast_)\w*\s*\(|Inject|SetActorLocation|K2_Set|K2_Destroy|DestroyActor|SpawnActor|"
                     r"SetLifeSpan|:Set[A-Z]\w*\(|AddItem|RemoveItem")
 
 

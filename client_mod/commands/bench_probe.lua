@@ -42,7 +42,7 @@ return function(log)
     local pawn = pc and U.try(function() return pc.Pawn end)
     if not (U.valid(pc) and U.alive(pawn)) then return { ok = false, error = "no_local_pawn" } end
     local p = { wall = os.time(), inventory = {}, tags = {}, ge = {}, cooldowns = {}, skills = {}, actors = {}, vitals = {},
-                gaps = { "held_effects", "ground", "creatures", "players_inventory" } }
+                gaps = { "players_inventory" }, v = 2 }
     local gst = U.find_object("/Script/Engine.Default__GameplayStatics")
     p.t = gst and U.try(function() return gst:GetTimeSeconds(pawn) end) or p.wall
     p.position = m(U.try(function() return pawn:K2_GetActorLocation() end))
@@ -87,5 +87,71 @@ return function(log)
             p.actors[#p.actors + 1] = { id = U.short(a), class = U.class_word(a), position = m(q) }
         end
     end
-    return { ok = true, probe = p, v = 1 }
+    -- v2 (goal-cases review C2): gear, held item + held effects, quests, creatures, other players (all read-only)
+    local eq = U.try(function() return pawn.PlayerEquipmentComponent end)
+    if U.valid(eq) then
+        p.gear = {}
+        for slot, field in pairs({ head = "CurrentHeadWearable", body = "CurrentBodyWearable", legs = "CurrentLegsWearable",
+                                   cape = "CurrentCapeWearable" }) do
+            local d = U.try(function() return eq[field] end)
+            p.gear[slot] = U.valid(d) and U.short(d) or nil
+        end
+        local r = U.try(function() return eq:GetHeldEquipmentDataRight() end)
+        local l = U.try(function() return eq:GetHeldEquipmentDataLeft() end)
+        p.gear.right = U.valid(r) and U.short(r) or nil
+        p.gear.left = U.valid(l) and U.short(l) or nil
+        local actor = U.try(function() return eq.HeldEquipmentActorRight end)
+        p.held = { item = p.gear.right, effects = {} }
+        if U.valid(actor) then
+            for _, f in ipairs({ "MagicalHeldEquipmentEffectInfo", "PhysicalHeldEquipmentEffectInfo" }) do
+                local d = U.try(function() return actor[f].EffectData end)
+                if U.valid(d) then p.held.effects[#p.held.effects + 1] = U.short(d) end
+            end
+        end
+    else
+        p.gaps[#p.gaps + 1] = "gear"
+        p.gaps[#p.gaps + 1] = "held_effects"
+    end
+    local qc = U.try(function() return pc.QuestProgressComponent end)
+    if U.valid(qc) then
+        p.quests = {}
+        each(U.try(function() return qc.Quests end), function(q)
+            local d = U.try(function() return q.Data end)
+            if U.valid(d) then
+                local title
+                for _, f in ipairs({ "QuestName", "Title", "DisplayName", "Name" }) do
+                    title = title or U.str(U.try(function() return d[f] end))
+                end
+                p.quests[#p.quests + 1] = { asset = U.short(d), name = title, state = U.try(function() return q.State end),
+                                            objective = U.str(U.try(function() return q.CurrentObjective end)) }
+            end
+        end, 128)
+    else
+        p.gaps[#p.gaps + 1] = "quests"
+    end
+    p.creatures = {}
+    for _, a in ipairs(U.find_all("BP_DominionAICharacter_C", { skip_defaults = true })) do
+        local q = U.loc(a)
+        if q and here and U.dist(q, here) < r_cm then
+            local hp = U.health(a)
+            p.creatures[#p.creatures + 1] = { id = U.short(a), kind_id = U.class_word(a), position = m(q), hp = hp,
+                                              alive = (hp or 0) > 0 }
+        end
+    end
+    p.ground = {}  -- world items (DISCOVERIES: BP_RuntimeSpawnedWorldItem_C .ItemData, :GetStackSize())
+    for _, w in ipairs(U.find_all("BP_RuntimeSpawnedWorldItem_C", { skip_defaults = true })) do
+        local q = U.loc(w)
+        if q and here and U.dist(q, here) < r_cm and #p.ground < 200 then
+            p.ground[#p.ground + 1] = { id = U.short(w), item = U.short(U.try(function() return w.ItemData end)),
+                                        count = U.try(function() return w:GetStackSize() end) or 1, position = m(q) }
+        end
+    end
+    p.players = {}
+    for _, o in ipairs(U.find_all("BP_PlayerCharacter_C", { skip_defaults = true })) do
+        if o ~= pawn then
+            local q = U.loc(o)
+            p.players[#p.players + 1] = { name = U.player_name(o), position = q and m(q) }
+        end
+    end
+    return { ok = true, probe = p, v = 2 }
 end

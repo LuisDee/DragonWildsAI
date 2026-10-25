@@ -172,3 +172,33 @@ def test_required_evidence_is_derived_from_the_predicates():
     p = P.validate({"all": [{"delivered": {"to": "Tester", "item": COAL, "at_least": 1}},
                             {"no_event": {"kind": "death", "who": "self"}}]})
     assert leaves.required_evidence(p) == ["referee:item_change(receiver)", "referee:death"]
+
+
+def test_gained_at_counts_only_gains_at_the_place():
+    o_far = Observation(1, "interact", {}, 0, 1, 0, 1, {"t": 0, "inventory": {}}, {"t": 1, "inventory": {"W": 5}, "position": [500, 0, 0]}, {"ok": True})
+    o_at = Observation(2, "interact", {}, 1, 2, 1, 2, {"t": 1, "inventory": {"W": 5}}, {"t": 2, "inventory": {"W": 10}, "position": [2, 2, 0]}, {"ok": True})
+    ctx = ctx_of(observations=[o_far, o_at])
+    ctx["places"] = {"our farm": [0, 0, 0]}
+    r = ev({"gained_at": {"item": "W", "at_least": 6, "place": "our farm", "within_m": 15}}, ctx)
+    assert r.passed is False and r.detail.startswith("5/6")
+
+
+def test_xp_top_needs_the_target_skill_to_lead():
+    p0 = {"skills": {"Mining": {"level": 1, "xp": 0}, "Agility": {"level": 1, "xp": 0}}}
+    walk = {"skills": {"Mining": {"level": 1, "xp": 5}, "Agility": {"level": 1, "xp": 40}}}
+    mine = {"skills": {"Mining": {"level": 1, "xp": 90}, "Agility": {"level": 1, "xp": 40}}}
+    assert ev({"xp_top": {"skill": "Mining"}}, ctx_of(probe0=p0, probe1=walk)).passed is False
+    assert ev({"xp_top": {"skill": "Mining"}}, ctx_of(probe0=p0, probe1=mine)).passed is True
+
+
+def test_solo_fails_when_anyone_else_hit_the_target():
+    hits = [{"kind": "damage", "t": 1, "kind_id": "V", "by": "self", "amount": 50},
+            {"kind": "damage", "t": 2, "kind_id": "V", "by": "BP_PlayerCharacter_C_9", "amount": 50}]
+    assert ev({"solo": {"target_kind_id": "V"}}, ctx_of(hits)).passed is False
+    assert ev({"solo": {"target_kind_id": "V"}}, ctx_of(hits[:1])).passed is True
+
+
+def test_avoided_attacks_without_how_are_a_gap():
+    r = ev({"defended": {"kind": "dodge", "against": "telegraph", "at_least": 1}},
+           ctx_of([{"kind": "defended", "t": 1, "outcome": "avoided", "telegraphed": True}]))
+    assert r.passed is None and r.missing == ["referee:defended.how"]

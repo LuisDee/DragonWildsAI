@@ -54,5 +54,13 @@ check("not_in_world: no pawn / front end", hub2.not_in_world(nil) and
     hub2.not_in_world({ GetFullName = function() return "BP_PlayerCharacter_C /Game/Maps/L_FrontEnd.L_FrontEnd:X" end }) and
     not hub2.not_in_world({ GetFullName = function() return "BP_PlayerCharacter_C /Game/Maps/World/L_World.L_World:X" end }))
 
+-- the A/B switch: no native registration at all
+_G.DWHookHub = nil
+local hub3 = dofile(FILE)
+hub3.status(); _G.DWHookHub.off = true
+local before = natives["/Script/X.Y:Z"]
+local ok4 = hub3.on("/Script/X.Y:Z", "k", function() end)
+check("hooks-off switch: nothing registered", ok4 == false and natives["/Script/X.Y:Z"] == before and hub3.status().hooks_off)
+
 print(string.format("%d passed, %d failed", passes, fails))
 os.exit(fails == 0 and 0 or 1)

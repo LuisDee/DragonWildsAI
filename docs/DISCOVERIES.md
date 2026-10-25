@@ -1627,3 +1627,12 @@ Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probe
   - Claude's real `cast` (wheel: menu, quick0, place) spent Air 20 → 15 and set `LastCastTimeBySpellData` `USD_Windstep = 699.29`.
   - The tag `Player.Spell.WindStep` appeared on the pawn; GEs `DominionStatusEffect` and `HydrationDamageGameplayEffect` (the second is thirst, not the spell).
   - The cast reply agrees with the probe (no `sensor_mismatch`), so `spell_effect` passes on the specific tag. The base GE class is rejected as generic evidence.
+- **A/B result (2026-10-25 23:16–23:30 UTC, dev world; driver `ab_cycles.ps1`: disconnect.lua → 12 s → client_boot -Target dev → 25 s):** every arm crashed on the **3rd** disconnect, right after `LoadMap(/Game/Maps/L_FrontEnd)` completed, with the identical AV (null + 0x250 in game code).
+  - **hooks ON:** main's run at 23:04.
+  - **hooks OFF:** the hookhub flag `client_io/state/hooks_off.flag` was set, and hookhub_status showed 0 native hooks. Crash dump crash_2026_10_26_00_19_49.
+  - **UE4SS engine hooks OFF:** HookProcessInternal, HookProcessLocalScriptFunction, HookInitGameState, HookLoadMap, HookCallFunctionByNameWithArguments, HookBeginPlay, HookEndPlay, HookLocalPlayerExec, HookAActorTick, HookGameViewportClientTick and HookProcessConsoleExec were set to 0. Crash dump crash_2026_10_26_00_29_48.
+    - In this arm the two `UE4SS+0xcc7` frames vanished from the stack. They were UE4SS's ProcessInternal/ProcessLocalScriptFunction detours: blueprint execution passing through, not a cause.
+    - The ini was restored from `UE4SS-settings.ini.bak-20261026-L24` afterwards.
+  - So it is a **game-side crash on the 3rd front-end return within one client process**: blueprint UI code dereferences a null object.
+  - Each front-end load also logs `UMainMenuUIAPI::MainMenuWidget Called but a MainMenuWidget is already registered!`, so a menu widget is apparently re-registered every visit.
+  - The 19:08 and 21:49 crashes are different: both are Lua-side (a UFunction call and a TArray read during teardown).

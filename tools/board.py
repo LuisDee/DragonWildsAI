@@ -62,6 +62,7 @@ def cmd_list(d: Path, as_json: bool) -> int:
 def cmd_gaps(as_json: bool) -> int:
     p = gaps_path()
     rows = json.loads(p.read_text(encoding="utf-8")).get("gaps", []) if p.exists() else []
+    rows = sorted(rows, key=lambda g: (g.get("kind") == "knowledge", -int(g.get("count") or 0)))  # backlog first
     if as_json:
         print(json.dumps(rows, indent=1, ensure_ascii=False))
         return 0

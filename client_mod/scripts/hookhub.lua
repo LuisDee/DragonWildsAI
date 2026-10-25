@@ -42,12 +42,28 @@ function M.not_in_world(pawn)
     return ok and type(name) == "string" and name:find("FrontEnd", 1, true) ~= nil
 end
 
+-- A/B switch (BUGS L24): with the env DW_HOOKS_OFF=1 or the file client_io/state/hooks_off.flag present
+-- (read once per process, at the first registration), NO native hook is ever registered: every module
+-- then runs without its hooks (no chat receive, no damage rows, no telegraph detection).
+local function hooks_off()
+    local h = H()
+    if h.off == nil then
+        local root = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
+        local f = io.open(root .. "/client_io/state/hooks_off.flag", "rb")
+        if f then f:close() end
+        h.off = os.getenv("DW_HOOKS_OFF") == "1" or f ~= nil
+    end
+    return h.off
+end
+M.hooks_off = hooks_off
+
 -- One native post-hook for `path`, dispatching to the path's subscribers.
 local function native(path, log)
     local h = H()
     local rec = h.paths[path]
     if rec.native then return true end
     if type(RegisterHook) ~= "function" then return false end
+    if hooks_off() then rec.error = "hooks off (A/B switch)"; return false end
     local ok, pre, post = pcall(RegisterHook, path, function() end, function(...)
         local hub = rawget(_G, "DWHookHub")
         if not hub then return end
@@ -117,7 +133,7 @@ function M.status()
         table.sort(keys)
         paths[p] = { native = r.native == true, pending = r.pending == true, subs = keys, error = r.error, last_error = r.last_error }
     end
-    return { ok = true, counts = h.counts, paths = paths }
+    return { ok = true, counts = h.counts, paths = paths, hooks_off = h.off == true }
 end
 
 M.HANDLERS = { hookhub_status = function() return M.status() end }

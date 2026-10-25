@@ -459,8 +459,8 @@ def test_unknown_facts_get_one_nudge_and_lookups_are_cached_and_scored(tmp_path)
 def test_gap_claims_are_cross_checked_and_new_gaps_are_told_once(tmp_path):
     d, port, world, llm, clock = make(tmp_path, mine(COPPER, 1), [
         decision(task_success=have(COPPER, 9), steps=[step("mine", gained(COPPER, 9))],
-                 capability_gaps=[{"primitive": "deposit", "why": "to store the ore", "workaround": "drop at base"},
-                                  {"primitive": "gather", "why": "to mine"}])])
+                 capability_gaps=[{"primitive": "deposit", "kind": "action", "why": "to store the ore", "workaround": "drop at base"},
+                                  {"primitive": "gather", "kind": "action", "why": "to mine"}])])
     d.handle_tool("add_task", {"text": "copper"}, "Zezima")
     ticks(d, 2)
     assert d.gaps.gaps["deposit"]["count"] == 1 and d.gaps.gaps["gather"]["count"] == 0
@@ -737,3 +737,22 @@ def test_a_job_test_that_can_never_be_checked_goes_back_for_repair(tmp_path):
         llm.calls[1]["messages"][-1]["content"]
     t = d.ops.b.tasks[0]
     assert t.success is None and t.status == "waiting_help"
+
+
+def test_a_knowledge_gap_is_never_a_capability_gap(tmp_path):
+    d, port, world, llm, clock = make(tmp_path, mine(COPPER, 1), [
+        decision(task_success=have(COPPER, 9), steps=[step("mine", gained(COPPER, 9))],
+                 capability_gaps=[{"primitive": "read drop tables", "why": "the wiki lists no source"}]),
+        decision(task_success=have(COPPER, 9), steps=[step("mine", gained(COPPER, 9))],
+                 capability_gaps=[{"primitive": "read drop tables", "kind": "knowledge", "why": "no source found"},
+                                  {"primitive": "deposit", "kind": "action", "why": "to store it"},
+                                  {"primitive": "perceive:quests", "kind": "perception", "why": "no quest state"}])])
+    d.handle_tool("add_task", {"text": "copper"}, "Zezima")
+    ticks(d, 2)
+    assert "kind must be one of action, perception, knowledge" in llm.calls[1]["messages"][-1]["content"]
+    backlog = [g["primitive"] for g in d.gaps.backlog()]
+    assert "read drop tables" not in backlog and set(backlog) >= {"deposit", "perceive:quests"}
+    assert d.gaps.gaps["read drop tables"]["kind"] == "knowledge"
+    told = [line for e in port.events if e.get("tell_player") for line in e["tell_player"]]
+    assert not any("drop tables" in line for line in told) and any("deposit" in line for line in told)
+    assert d.memory.recall("drop tables")[0]["value"]["status"] == "unknown"

@@ -28,6 +28,10 @@ def recorded_responses(cassette: dict) -> list[LLMResponse]:
 # repair round must carry. The rest must replay to the same plan.
 REJECTED_SINCE = {
     "quest": "task_success can't be checked from what the body reports (missing: quests)",
+    # recorded before gaps carried a kind (action | perception | knowledge): re-record to refresh
+    "better_pickaxe": "kind must be one of action, perception, knowledge",
+    "coal_multitrip": "kind must be one of action, perception, knowledge",
+    "farm_mob_drop": "kind must be one of action, perception, knowledge",
 }
 
 
@@ -46,7 +50,8 @@ def test_recorded_first_decision_replays_through_the_validator_and_board(tmp_pat
     if cas["job"] in REJECTED_SINCE:
         repairs = [m["content"] for c in rig.director_llm.calls for m in c["messages"][-1:]
                    if m["role"] == "user" and "not usable" in m["content"]]
-        assert any(REJECTED_SINCE[cas["job"]] in r for r in repairs), repairs
+        failed = [str(r.get("why")) for r in rig.log_rows("director_decision_failed")]  # the last repair's reason
+        assert any(REJECTED_SINCE[cas["job"]] in r for r in repairs + failed), (repairs, failed)
         return
     decided = rig.log_rows("director_decision")
     assert decided, rig.trace()

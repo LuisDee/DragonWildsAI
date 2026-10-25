@@ -78,7 +78,7 @@ def test_t3_coal_with_no_known_spot_researches_then_asks_once_to_be_shown(tmp_pa
         LLMResponse(tool_calls=[ToolCall("lookup", {"query": "where is coal mined"}, "l1"),
                                 ToolCall("map_memory", {"name": "coal"}, "l2")]),
         plan(facts=[{"fact": "where coal nodes are", "status": "known", "source": "wiki"}],
-             capability_gaps=[{"primitive": "travel:long_distance", "why": "no position for that region",
+             capability_gaps=[{"primitive": "travel:long_distance", "kind": "action", "why": "no position for that region",
                                "workaround": "follow a player there"}],
              ask_help="The wiki says coal is in Coalridge Pass, but I have no position for it. Can you show me a spot?")],
         knowledge=k)
@@ -100,7 +100,7 @@ def test_t3_coal_multitrip_tallies_verified_deliveries_and_logs_the_deposit_gap(
     spot, base = [80.0, 0.0, 0.0], [0.0, 0.0, 0.0]
     rig = JobRig(tmp_path, [plan(
         task_success=until,
-        capability_gaps=[{"primitive": "deposit", "why": "to put the coal in storage",
+        capability_gaps=[{"primitive": "deposit", "kind": "action", "why": "to put the coal in storage",
                           "workaround": "drop it at the base"}],
         steps=[st("walk to the coal spot", {"near": {"place": "coal spot", "within_m": 8}},
                   [call("go_to", target="coal spot")], group="trip"),
@@ -177,8 +177,8 @@ def test_t3_quest_is_never_faked_the_gap_is_logged_and_he_asks(tmp_path):
     rig = JobRig(tmp_path, [
         plan(task_success={"quest": {"name": "Goblin Diplomacy", "completed": True}},
              steps=[st("talk to the quest giver", {"quest": {"name": "Goblin Diplomacy", "stage": 1}})]),
-        plan(capability_gaps=[{"primitive": "perceive:quests", "why": "I can't see quest progress"},
-                              {"primitive": "quest_dialogue", "why": "I can't talk to quest characters"}],
+        plan(capability_gaps=[{"primitive": "perceive:quests", "kind": "perception", "why": "I can't see quest progress"},
+                              {"primitive": "quest_dialogue", "kind": "action", "why": "I can't talk to quest characters"}],
              ask_help="I can't see or talk through quests yet. Want me to do something else meanwhile?")])
     rig.say("let's do Goblin Diplomacy")
     rig.steps(4)
@@ -230,7 +230,7 @@ def test_t3_open_task_upgrades_gear_on_his_own_then_ends_by_choice(tmp_path):
 def test_t3_desert_weed_goes_to_the_remembered_farm_and_says_what_it_cant_do(tmp_path):
     rig = JobRig(tmp_path, [
         plan(task_success={"gained": {"item": "Desert Weed", "at_least": 20}},
-             capability_gaps=[{"primitive": "plant", "why": "to sow the seeds in the plots", "workaround": None}],
+             capability_gaps=[{"primitive": "plant", "kind": "action", "why": "to sow the seeds in the plots", "workaround": None}],
              steps=[st("go to our farm", {"near": {"place": "our farm", "within_m": 5}}, [call("go_to", target="our farm")])]),
         plan(ask_help="I'm at the farm, but I can't plant seeds yet. Could you sow them, and I'll look after the rest?")])
     rig.store.remember_place("our farm", [30.0, 0.0, 0.0])
