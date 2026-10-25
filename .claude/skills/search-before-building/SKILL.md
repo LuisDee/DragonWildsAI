@@ -95,3 +95,10 @@ Subagents don't see this conversation, so put the rule in the brief explicitly:
 - **Missed:**
   - The watchdog keep-alive was hand-written before checking **NSSM / WinSW** (standard Windows service supervisors).
   - An early JSON encoder was hand-rolled before the library search.
+
+## Generality check and design note (added 2026-10-25, after a phrase-mapping near-miss)
+Before writing code, write a half-page design note using the template in `docs/design/PRINCIPLES.md` and check it against the North Star there. Ask in particular:
+- **Generality:** would the next item, phrase, area or enemy need special-casing? If yes, you are at the wrong layer. Redesign so the model infers (tools + perception + context), or so the code reads game data or learned per-world data.
+- **Real player path:** does this act through the game's own client paths, without emulating outcomes?
+- **Who thinks:** if the logic interprets language or chooses between options, it belongs to the LLM with truthful tools and context, not to keyword rules.
+In subagent briefs, add: "Write the design note first (PRINCIPLES.md template) and get it reviewed before implementing; never add phrase tables or hard-coded entity lists."
