@@ -188,3 +188,20 @@
 - aae572… crafting, a1a836… broker, aaebdf… knowledge, ae688f… scenarios, af4712… hang: finished.
 
 **Binding principles:** docs/design/PRINCIPLES.md; CLAUDE.md section 0. Roadmap: docs/tasks.json (R2.*, S.*). Streamline plan: docs/design/streamline-plan.md. Review: docs/reviews/2026-10-25-north-star-review.md.
+
+
+## 2026-10-25 22:00–22:45 UTC: /goal started (GOAL.md, milestones M1–M6, dev world only)
+- **Done:**
+  - Claude moved to the DEV world as the dedicated character **ClaudeDev** (`client_io/state/character_name.txt`).
+  - `logs/state/client_default_target.txt` = dev; `client_forbid_targets.txt` = shockbyte.
+  - The boot and watchdog refuse forbidden targets and leave a forbidden server they land on.
+  - The joined-server check survives a stalled game log.
+  - The judge-guard hook is installed but inactive until Luis tags the judge baseline.
+- **Incident L23:** ClaudeDev was on Shockbyte for about 40 s (main's default-target bug); fixed, with real-boot regression tests.
+- **False patch alarm:** client build 26162923 vs server 26161880 is the same version (Net CL 254097).
+- **Committed:** Director waves 1–3, benchmark v1 + goal_check v2, observability, spend guard, needs/map memory/explore, the spell 'for' field, defence pre-casting (offline).
+- **Next:**
+  - the eval agent verifies bench_probe → referee → fixtures on dev, then fills the goal cases (for Luis's approval and judge tag);
+  - Director wave 4;
+  - the broker applies the Director hooks;
+  - first T0 benchmark run on dev.
