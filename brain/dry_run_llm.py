@@ -48,6 +48,39 @@ class DryRunController:
         def act(line: str, name: str, **args) -> LLMResponse:
             return LLMResponse(content=f"(dry run) {line}", tool_calls=[ToolCall(name, args)])
 
+        # A tool result came back this turn (a read tool such as inventory): answer from it.
+        last = messages[-1] if messages else {}
+        if last.get("role") == "tool":
+            try:
+                res = json.loads(last.get("content") or "{}")
+            except json.JSONDecodeError:
+                res = {}
+            data = res.get("data") or {}
+            if "bag" in data or "worn" in data:
+                bits = [str(i.get("name")) + (f" x{i['count']}" if (i.get("count") or 1) > 1 else "")
+                        for i in (data.get("hotbar") or []) + (data.get("bag") or []) if isinstance(i, dict)]
+                return LLMResponse(content="(dry run) I've got " + (", ".join(bits) or "nothing") + ".")
+
+        # Reading chat: nobody named him. Speak only when the line is meant for him.
+        if cmd.get("addressed") is False:
+            chat = [c for c in ctx.get("chat") or [] if isinstance(c, dict)]
+            if m := re.search(r"\b(?:anyone|anybody|someone|who)\b.*\b(?:got|have|has)\b\s+(?:an?\s+|any\s+|some\s+)?(\w+)", low):
+                want = m.group(1).lower().rstrip("s")
+                kit = " ".join(x for x in situation if x.startswith(("You:", "Wearing:", "Carrying:"))).lower()
+                return LLMResponse(content=f"(dry run) I've got a {want}." if want in kit else "")
+            talking = any(c.get("ago_s", 999) <= 90 and (c.get("you") or (c.get("who") == player and "claude" in
+                          str(c.get("text", "")).lower())) for c in chat)
+            if not talking:
+                return LLMResponse(content="")  # friends talking among themselves: stay out of it
+
+        if re.search(r"\b(wear|wearing|equipment|gear|equipped|holding)\b", low):
+            worn = next((x.split(":", 1)[1].strip() for x in situation if x.startswith("Wearing:")), "nothing special")
+            held = re.search(r"holding ([^,]+)", " ".join(x for x in situation if x.startswith("You:")))
+            return LLMResponse(content=f"(dry run) I'm wearing {worn}" + (f", holding {held.group(1)}." if held else "."))
+        if re.search(r"\b(bag|carrying|inventory|backpack)\b", low) and any(
+                t.get("function", {}).get("name") == "inventory" for t in tools or []):
+            return LLMResponse(content="", tool_calls=[ToolCall("inventory", {})])
+
         if "follow" in low:
             return act("Right behind you.", "follow", player=player)
         if re.search(r"\b(stop|wait|stay)\b", low):

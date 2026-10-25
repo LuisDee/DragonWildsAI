@@ -30,6 +30,7 @@ import sys
 import threading
 import time
 import traceback
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -41,7 +42,7 @@ from .capabilities import Capabilities, discover
 from .controller import Controller
 from .dry_run_llm import DryRunController, DryRunPlanner
 from .executor import Executor
-from .interface import CommandReceived, Event
+from .interface import ChatHeard, CommandReceived, Event
 from .jsonl_log import JsonlLogger
 from .llm import CONTROLLER_MODEL_ENV, PLANNER_MODEL_ENV, LLMClient, LiteLLMClient, missing_keys
 from .planner import Planner
@@ -63,7 +64,8 @@ def _strip_name(text: str, name: str) -> str:
     """'hello claude, what are you wearing?' -> 'what are you wearing?'; 'thanks Claude' -> 'thanks';
     'hey claude' -> 'hey'. Removes the name (and @name) with its comma/colon, then leading greetings
     when something is left after them."""
-    t = re.sub(rf"@?\b{re.escape(name)}\b[\s]*[,:;!.?]*", " ", text, flags=re.I)
+    # the name with the punctuation after it; a possessive ("claude's hat") is part of the question
+    t = re.sub(rf"@?\b{re.escape(name)}\b(?!['’]s\b)\s*[,:;!.?]*", " ", text, flags=re.I)
     t = re.sub(r"\s+", " ", t).strip(" ,:;-")
     words = t.split(" ")
     while len(words) > 1 and words[0].lower().strip(",.!:;") in GREETINGS:
@@ -91,34 +93,119 @@ def chat_route(text: str, prefixes: list[str], name: str | None = "Claude") -> t
     return "ignore", None
 
 
-class LiveAgent(Agent):
-    """Agent that only answers chat addressed to it, and answers !ping without a model."""
+class ChatMemory:
+    """The rolling chat the Controller sees (Luis, 2026-10-25: Claude reads all chat and works out
+    what is meant for him): the last ``max_lines`` lines of the last ``max_age_s`` seconds, his own
+    lines included (``you``)."""
 
-    def __init__(self, *args, prefixes: list[str], **kwargs):
+    def __init__(self, name: str, max_lines: int = 20, max_age_s: float = 300.0,
+                 clock: Callable[[], float] = time.monotonic):
+        self.name = name
+        self.max_lines, self.max_age_s, self.clock = max_lines, max_age_s, clock
+        self._lines: deque[tuple[float, str, str, bool]] = deque(maxlen=max_lines)
+
+    def add(self, who: str, text: str, you: bool = False) -> None:
+        self._lines.append((self.clock(), who, text, you))
+
+    def lines(self) -> list[dict]:
+        now = self.clock()
+        return [{"who": who, "text": text, "you": you, "ago_s": round(now - t)}
+                for t, who, text, you in self._lines if now - t <= self.max_age_s]
+
+
+class LiveAgent(Agent):
+    """Agent for live chat. With a client body every chat line arrives (``chat_heard``):
+    - "!ping" -> "pong" at once, no model;
+    - a line that names the companion (or starts with a prefix) -> the Controller, addressed;
+    - any other line -> after a short quiet time (bursts are merged: the earlier lines are in the
+      chat context), the Controller with addressed=false decides whether it is meant for him and
+      stays silent if not. Capped at ``calls_per_min`` model calls per minute for such lines.
+    Every line gets a ``chat_decision`` log record with the reason. A body that pre-filters chat
+    (``command_received``) is still handled the old way."""
+
+    def __init__(self, *args, prefixes: list[str], calls_per_min: int = 20, debounce_s: float = 1.5,
+                 clock: Callable[[], float] = time.monotonic, **kwargs):
         super().__init__(*args, **kwargs)
         self.prefixes = prefixes
+        self.calls_per_min, self.debounce_s, self.clock = calls_per_min, debounce_s, clock
+        self.chat = ChatMemory(self.controller.name, clock=clock)
+        self.controller.chat_provider = self.chat.lines
+        self.controller.on_say = lambda text: self.chat.add(self.controller.name, text, you=True)
+        self._pending: list[tuple[float, ChatHeard]] = []
+        self._calls: deque[float] = deque()
+
+    # ---------------------------------------------------------------- chat
+    def _decision(self, player: str, text: str, decision: str, reason: str, **extra) -> None:
+        self.log.log("chat_decision", player=player, text=text, decision=decision, reason=reason, **extra)
+
+    def _ping(self, player: str) -> None:
+        start = time.perf_counter()
+        res = self.controller.say(PONG)
+        self.log.log("ping_reply", player=player, ok=bool(res and res.get("ok")), reason=res.get("reason") if res else None,
+                     say_round_trip_ms=round((time.perf_counter() - start) * 1000, 1))
+
+    def _run(self, player: str, text: str, addressed: bool) -> None:
+        self._calls.append(self.clock())
+        command = CommandReceived(player=player, text=text)
+        self.controller.note_event(command)
+        try:
+            self._command(command, addressed=addressed)
+        except Exception as exc:  # a model/provider error must not kill the session
+            self.log.log("command_error", error=repr(exc), traceback=traceback.format_exc())
+            if addressed:
+                self.controller.say("Sorry, my head glitched on that one. Try again?")
+
+    def _rate_capped(self) -> bool:
+        now = self.clock()
+        while self._calls and now - self._calls[0] > 60.0:
+            self._calls.popleft()
+        return len(self._calls) >= self.calls_per_min
+
+    def heard(self, event: ChatHeard) -> None:
+        self.log.log("event", event=event.model_dump())
+        self.chat.add(event.player, event.text)
+        route, text = chat_route(event.text, self.prefixes, self.controller.name)
+        if route == "ping":
+            self._decision(event.player, event.text, "ping", "!ping (no model)")
+            return self._ping(event.player)
+        if route == "command":
+            self._decision(event.player, event.text, "addressed", "named or prefixed", command=text)
+            return self._run(event.player, text, addressed=True)
+        self._pending.append((self.clock(), event))
+        self._decision(event.player, event.text, "pending", "not named: the model decides after the burst")
+
+    def flush_chat(self) -> None:
+        """Decide on unaddressed lines once the chat has been quiet for ``debounce_s``."""
+        if not self._pending:
+            return
+        if self.clock() - self._pending[-1][0] < self.debounce_s and len(self._pending) < 4:
+            return
+        batch, self._pending = self._pending, []
+        last = batch[-1][1]
+        for _, ev in batch[:-1]:
+            self._decision(ev.player, ev.text, "merged", "burst: decided together with the last line")
+        if self._rate_capped():
+            self._decision(last.player, last.text, "ignored", f"rate cap ({self.calls_per_min} model calls/min)")
+            return
+        self._run(last.player, last.text, addressed=False)
+
+    def step(self) -> GoalResult | None:
+        self.pump()
+        self.flush_chat()
+        return super().step()
 
     def handle_event(self, event: Event) -> None:
+        if isinstance(event, ChatHeard):
+            return self.heard(event)
         if not isinstance(event, CommandReceived):
             return super().handle_event(event)
         route, text = chat_route(event.text, self.prefixes, self.controller.name)
         self.log.log("event", event=event.model_dump(), route=route)
         if route == "ping":
-            start = time.perf_counter()
-            res = self.controller.say(PONG)
-            self.log.log("ping_reply", player=event.player, ok=bool(res and res.get("ok")),
-                         reason=res.get("reason") if res else None,
-                         say_round_trip_ms=round((time.perf_counter() - start) * 1000, 1))
-            return
+            return self._ping(event.player)
         if route == "ignore":
             return
-        command = CommandReceived(player=event.player, text=text)
-        self.controller.note_event(command)
-        try:
-            self._command(command)
-        except Exception as exc:  # a model/provider error must not kill the session
-            self.log.log("command_error", error=repr(exc), traceback=traceback.format_exc())
-            self.controller.say("Sorry, my head glitched on that one. Try again?")
+        self._run(event.player, text, addressed=True)
 
     def run_goal(self, goal: str, **kwargs) -> GoalResult:
         try:
@@ -146,6 +233,10 @@ class LiveOptions:
     poll_interval: float = 0.25  # bridge-file poll only; no model is ever called on this timer
     wait: float = 0.0  # seconds to wait for the body at startup; 0 = forever
     probe_timeout: float = 3.0
+    # chat reading (client body): model calls per minute for lines nobody addressed to him, and the
+    # quiet time that ends a burst of lines (DW_CHAT_CALLS_PER_MIN, DW_CHAT_DEBOUNCE_S)
+    chat_calls_per_min: int = field(default_factory=lambda: int(os.environ.get("DW_CHAT_CALLS_PER_MIN", "20")))
+    chat_debounce_s: float = field(default_factory=lambda: float(os.environ.get("DW_CHAT_DEBOUNCE_S", "1.5")))
 
 
 class BodyUnavailable(RuntimeError):
@@ -180,7 +271,9 @@ class LiveSession:
                                      name=opts.name, player=opts.player, available_tools=self.caps.tools,
                                      skills=self.skills)
         self.agent = LiveAgent(self.client, self.controller, self.planner, self.executor, self.store,
-                               self.log, prefixes=opts.prefixes, skills=self.skills)
+                               self.log, prefixes=opts.prefixes, skills=self.skills,
+                               calls_per_min=opts.chat_calls_per_min, debounce_s=opts.chat_debounce_s)
+        self.agent.body_self_defends = "combat_status" in self.caps.extras
         self.log.log("session_start", dry_run=opts.dry_run, controller_model=controller_llm.model,
                      planner_model=planner_llm.model, body=opts.body, bridge_dir=str(d), prefixes=opts.prefixes,
                      ping_ms=round(self.rtt * 1000, 1), skills=self.store.skills.names(),

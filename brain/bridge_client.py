@@ -232,6 +232,9 @@ class BridgeClient(GameInterface):
     def inspect(self, target: str) -> ActionResult:
         return self._tool("inspect", target=target)
 
+    def inventory(self) -> ActionResult:
+        return self.request("inventory", {}, 10.0)
+
     def interact(self, target: str, secondary: bool = False) -> ActionResult:
         return self._tool("interact", target=target, secondary=secondary)
 

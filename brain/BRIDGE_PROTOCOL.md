@@ -57,7 +57,29 @@ The same protocol, served by the client mod instead of the server puppet:
   - Missing or broken module → `not_implemented`, and the tool is not listed.
   - So the brain hides everything else: today `attack, gather, craft, place, give, pickup, cast, sleep, wake` and the rule tools.
   - `ping` and `capabilities` answers carry `body: "client"`.
-- **Chat:**
+- **Debug channel:** the client also serves the same tools on `debug_to_client.jsonl` -> `client_to_debug.jsonl`
+  (same dir). Use it for live tests (`python -m tools.bridge_cmd --body client <tool>` picks it by default;
+  `--channel main` to override), so replies never reach the live brain's file (it logs them as
+  `bridge_unmatched`). Events go only to the main channel.
+- **Pause:** while `_G.DW_PAUSE` is true (set by `disconnect.lua` / `join_server.lua`), the client makes no
+  game calls. Every tool except `ping`, `capabilities` and `bridge_status` answers `companion_down`
+  (`get_state` with `data.paused: true`). The running action and waiters end with `companion_down`. The
+  bridge clears the pause once a valid local pawn has been in `L_World` for 3 s (checked from 5 s after the
+  pause started), then re-arms its services.
+- **Chat (since 2026-10-25 evening, Luis: "just read the chat and decipher when a message is for him"):**
+  - Every chat line from another player is sent as `chat_heard{from, player, text, ts, mentions_me}`.
+    `mentions_me` = a prefix or the companion's name as a whole word anywhere ("hello claude ...",
+    "thanks Claude", "@claude"; not "claudette"). Claude's own lines are not sent. `DW_CLIENT_CHAT=addressed`
+    restores the old filter (`command_received` for addressed lines only).
+  - The brain (`run_live.LiveAgent`) keeps the last 20 lines / 5 min (his own included) as `chat` in the
+    Controller context. `!ping` -> pong without a model. A named line -> the Controller (`command.addressed:
+    true`, name and greeting stripped: "hello claude what are you wearing" -> "what are you wearing"). Any
+    other line -> after 1.5 s of quiet (bursts merged; at most 4 lines wait) the Controller with
+    `addressed: false` decides whether it is meant for him (a follow-up, an instruction while he is clearly
+    the one addressed, a group question he can help with) and stays silent if not. Capped at
+    `DW_CHAT_CALLS_PER_MIN` (20) such calls a minute (`DW_CHAT_DEBOUNCE_S` 1.5). Every line gets a
+    `chat_decision` log record (`ping` / `addressed` / `pending` / `merged` / `ignored`, with the reason).
+- **Chat (legacy wording below):**
   - The client tails `client_io/events/chat.jsonl`, written by `chat.lua`'s `Client_ReceiveChatMessage` hook.
   - It forwards a line as `command_received{player, text}` only when the line is addressed to the companion: `!ping`, or the `brain/run_live.py` prefixes (`DW_CHAT_PREFIXES`). `DW_CLIENT_CHAT_ALL=1` forwards every line.
   - `player` is the sender's **character name** (on Luis's Shockbyte world he is `Zezima`). It is passed through to `follow`/`go_to` unchanged.
@@ -73,6 +95,8 @@ The same protocol, served by the client mod instead of the server puppet:
 | `drop` | The inventory UI's drop (`at` = `feet` only; anything else answers `not_implemented`). The server confirms asynchronously, so the reply waits up to 5 s for the carried count to fall by `count`. It then answers `ok {item: <resolved id>, count, at, inventory_left}`, or else `verification_failed`. |
 | `get_state` | Built from `sense.me` + `sense.census` + `inventory.list`. **`inventory` = hotbar + bag** (loadout excluded; an item equipped from the hotbar keeps its hotbar slot in the game, so it shows in both `inventory` and `gear`). `gear` = `{loadout slot: item}` plus `held_right` / `held_left`. Extras: `skills`, `total_level`, `stamina`, `players_online`, `body: "client"`; survival as flat numbers `hydration`, `sustenance`, `endurance` (+ `<stat>_max`); `held` (display name) and `held_item`; `interactables` (census rows with `prompt`) next to `nearby_resources` (rows keep `health`, `tool`, `tool_tier`, `drops`, `stump`). The brain's situation digest shows these (`You: HP 100%, water 49%, food 64%, holding ...`, hostiles first with HP, `Around: ... chop, needs Hatchet T1, HP 80/80`, `Usable: ...`). Answers `companion_down` while there is no pawn (menu, loading). |
 | `look` | `{about?, radius=20 (cap 80), max=15 (cap 40)}`, built on `sense.census`. Every category is flattened into `things`: players, creatures, world items, resources, interactables (stations, chests, beds, graves, NPCs). Each thing is a census row plus `category, kind, verb, actions` (what the client can do now: `interact` for world items, ground gatherables and interactables; `chop`/`mine` for gated destructibles; `attack` for creatures). Ranked by `match` (a port of the server's `match_score`), then distance. `data.matched` is a boolean when `about` is set. About 200 ms live. **Standing trees are foliage instances, not actors, so they are not seen yet** (felled logs, stumps, rocks and saplings are). |
+| `inventory` | `{raw?}`, read-only (a brain READ tool, like look). Compact: `{worn: {slot: name}, held: {right, left}, hotbar: [{slot, name, item, count, durability_pct, use?}], bag: [...], weight, empty_slots}`; `raw: true` gives `inventory.list` as is. |
+| `attack` | From `combat.lua`'s `HANDLERS` (combat/arbiter agent): async, `{target, force?}`, results `{target, target_id, killed, hits, presses, looted}` or `unsafe` (`data.why`: too_strong / boss / outnumbered / low_hp / never attack players), `unknown_target`, `too_far`, `interrupted`, `timeout`. `stop` also ends a commanded fight; the self-defence reflex (`combat.guard_start`, a supervised service, `DW_COMBAT_REFLEX=0` turns it off) keeps running. While the reflex owns the pawn (`arbiter.owner().level == "reflex"`), `follow` / `go_to` / `interact` wait instead of failing. `get_state.fight` = the current fight (mode, phase, target, target_hp, weapon). |
 | `inspect` | `{target}` (an id from look): the thing, plus `gives`, `requires {tool, tier}`, `description` when the actor has one, and `contents [{name, item, count}]` for containers (graves, chests). Read-only. |
 | `interact` | `{target, secondary=false}`. Async, like a player pressing E. If the target is further than 2 m, walk to within 1 m (`move.go_to`). Then aim the camera at it (`SetControlRotation`, as move.lua steers), wait up to 2 s until the game's own detector (`inventory.interact_target`) targets that actor, and press IA_Interact once (`inventory.press_interact`). **Verified** within 4 s by the target disappearing or the inventory growing: `ok {target, item, count, gained {item: n}, target_gone, prompt}`. Reasons: `unknown_target`, `not_interactable` (a creature or player, or the detector targets something else: `detail` names it), `too_far`, `path_blocked`, `verification_failed` (pressed, nothing changed: e.g. a station whose use is a UI), `timeout` (100 s). `secondary` is `not_implemented`. A grave's "Take All" is one press: every item comes back and the grave disappears. |
 | debug (not planner tools) | `bridge_status` (stats, modules, action, and `services`: chat / vitals / fed_reflex, `running` / `starting` / `missing`), `me`, `census`, `inventory`, `move_status`, `equip {item}`, `unequip {slot}` |
@@ -338,6 +362,13 @@ The `event` object types (`brain/interface.py`) are:
 - `attacked{by, name?, amount?, hp?}`: the client body sends it for a `damage` row of the vitals watcher
   (`client_io/events/vitals.jsonl`) whose instigator is not Claude, at most once per 5 s per attacker. A
   brain whose registry has no `attack` says a help line instead of running the reflex attack.
+- `chat_heard{from, text, ts?, mentions_me?}` (client body): every chat line from another player; see
+  "Client endpoint".
+- `unreachable{reason, detail?, leader_pos?, my_pos?, mode?}` (client body, from move.lua's
+  `client_io/events/move.jsonl`, once per episode): reasons `leader_windstepped`, `leader_double_jumped`,
+  `leader_above_jump_height`, `no_route`, `stuck` (`detail` "unstuck requested"). The brain says one line for
+  that exact reason (`agent.UNREACHABLE_LINES`; an unknown reason quotes `detail`), at most once a minute per
+  reason. `resumed{}` ("reachable_again"): "Found you." only if it complained in the last 5 min.
 - `vitals_low{stat, value, max?, has_food?, has_drink?}` (client body): hydration or sustenance below 15
   and nothing in the inventory to fix it (the stay-fed reflex covers the rest). Checked every 15 s from
   `sense.me`, repeated every 180 s while it stays low, re-armed above 25. The brain asks the player for

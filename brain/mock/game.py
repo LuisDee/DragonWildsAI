@@ -694,6 +694,11 @@ class MockGame(GameInterface):
         return ok(origin=list(self.pos), radius_m=radius, about=about, total=total, things=things[:max])
 
     @_scriptable
+    def inventory(self) -> ActionResult:
+        """Read-only, not recorded in ``calls`` (like look): the same compact shape as the client body."""
+        bag = [{"name": item, "item": item, "count": n} for item, n in sorted(self.inventory.items()) if n > 0]
+        return ok(worn={}, held={}, hotbar=[], bag=bag, weight=None)
+
     def inspect(self, target: str) -> ActionResult:
         t = next((x for x in self._things(NEARBY_RANGE) if x["id"] == target), None)
         if t is None:

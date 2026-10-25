@@ -9,7 +9,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Annotated, Any, Callable, Literal, TypedDict, Union
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import AliasChoices, ConfigDict, BaseModel, Field, TypeAdapter
 
 # --------------------------------------------------------------------------- results
 
@@ -269,6 +269,8 @@ TOOLS: dict[str, tuple[type[BaseModel], str]] = {
                         "Only for triggers in the trigger list; same enemy + trigger replaces the old rule."),
     "list_rules": (ListRulesArgs, "List the standing orders (reflex rules)."),
     "clear_rule": (ClearRuleArgs, "Forget a standing order by id, every order for an enemy kind, or all."),
+    "inventory": (NoArgs, "Your full inventory: what you wear (by slot), hold, carry on the hotbar (with durability) "
+                           "and in your bag, plus weight. Read-only: does not interrupt."),
     "look": (LookArgs, "Look around: every gatherable, world item, creature, player and station nearby, by its "
                        "in-game name, with distance and what you can do with it. Read-only: does not interrupt."),
     "inspect": (InspectArgs, "Details of one thing from a look result: what it is, what it gives, what it needs, "
@@ -282,7 +284,7 @@ TOOLS: dict[str, tuple[type[BaseModel], str]] = {
 RULE_TOOLS = ("set_reflex_rule", "list_rules", "clear_rule")
 
 # Read-only perception tools: they never interrupt the current job and never end a Controller turn.
-READ_TOOLS = ("look", "inspect")
+READ_TOOLS = ("look", "inspect", "inventory")
 
 # Brain-side tools (the state store / skill library), never sent to the body.
 BRAIN_TOOLS = ("remember", "run_skill")
@@ -333,12 +335,39 @@ class TaskFailed(BaseModel):
     reason: str
 
 
+class ChatHeard(BaseModel):
+    """One chat line from another player (client body: every line, not only addressed ones). The brain
+    decides whether it is meant for the companion (run_live.LiveAgent). ``from`` on the wire."""
+    model_config = ConfigDict(populate_by_name=True)
+    type: Literal["chat_heard"] = "chat_heard"
+    player: str = Field(validation_alias=AliasChoices("player", "from"))
+    text: str
+    ts: float | None = None
+    mentions_me: bool | None = None  # body hint: a prefix or the companion's name as a whole word
+
+
 class Attacked(BaseModel):
     type: Literal["attacked"] = "attacked"
     by: str  # attacker entity id (as in get_state.nearby_entities)
     name: str | None = None  # the attacker's in-game name, when the body knows it (client body)
     amount: float | None = None  # damage of the hit that raised the event
     hp: float | None = None  # own health after it
+
+
+class Unreachable(BaseModel):
+    """The body can't follow/reach the player (client move.lua), once per episode. ``reason`` is the
+    body's verdict: no_route | too_high | gap_too_wide | leader_windstepped | ... (never guessed)."""
+    type: Literal["unreachable"] = "unreachable"
+    reason: str
+    detail: str | None = None
+    leader_pos: list[float] | None = None
+    my_pos: list[float] | None = None
+
+
+class Resumed(BaseModel):
+    """Following works again after an ``unreachable`` episode."""
+    type: Literal["resumed"] = "resumed"
+    reason: str | None = None
 
 
 class VitalsLow(BaseModel):
@@ -381,12 +410,14 @@ class PlayerNearbyActivity(BaseModel):
 
 
 Event = Annotated[
-    Union[CommandReceived, TaskDone, TaskFailed, Attacked, VitalsLow, PlayerNearbyActivity, GatherProgress, TaskProgress],
+    Union[CommandReceived, ChatHeard, TaskDone, TaskFailed, Attacked, VitalsLow, Unreachable, Resumed,
+          PlayerNearbyActivity, GatherProgress, TaskProgress],
     Field(discriminator="type"),
 ]
 _event_adapter: TypeAdapter[Event] = TypeAdapter(Event)
 EVENT_TYPES: frozenset[str] = frozenset(m.model_fields["type"].default for m in (
-    CommandReceived, TaskDone, TaskFailed, Attacked, VitalsLow, PlayerNearbyActivity, GatherProgress, TaskProgress))
+    CommandReceived, ChatHeard, TaskDone, TaskFailed, Attacked, VitalsLow, Unreachable, Resumed, PlayerNearbyActivity,
+    GatherProgress, TaskProgress))
 
 
 def parse_event(raw: dict) -> Event:
@@ -457,6 +488,11 @@ class GameInterface(ABC):
     def inspect(self, target: str) -> ActionResult:
         return fail(Reason.NOT_IMPLEMENTED, tool="inspect")
 
+    def inventory(self) -> ActionResult:
+        """Compact listing: ``{worn: {slot: name}, held: {right, left}, hotbar: [{slot, name, count,
+        durability_pct}], bag: [...], weight}``. Read-only."""
+        return fail(Reason.NOT_IMPLEMENTED, tool="inventory")
+
     def interact(self, target: str, secondary: bool = False) -> ActionResult:
         return fail(Reason.NOT_IMPLEMENTED, tool="interact")
 
@@ -490,4 +526,6 @@ class GameInterface(ABC):
             clean = validate_args(tool, args)
         except Exception as exc:  # pydantic.ValidationError
             return fail(Reason.INVALID_ARGS, error=str(exc))
-        return getattr(self, tool)(**clean)
+        # Look the tool up on the class: an instance attribute of the same name (the mock's
+        # ``inventory`` Counter) must not shadow the tool method.
+        return getattr(type(self), tool)(self, **clean)

@@ -302,7 +302,8 @@ Route R2 (`docs/design/real-player-remediation.md`): Claude plays through a real
 - Everything below `main.lua` reloads without a restart. `client_mod/commands/bridge_start.lua` restarts the bridge from the newest file: it stops the old loop and keeps the chat hooks. `bridge_status.lua` and `bridge_stop.lua` complete the set.
 - Bridge events go to `logs/client/mod_<ts>.jsonl` (dwlog); module text logs go to `logs/client/client.log`.
 - **Background services are supervised by the bridge** (`client_bridge.SERVICES`):
-  - `chat.start` (receive hooks), `sense.vitals_start` (vitals watcher) and `inventory.reflex_start` (stay fed);
+  - `chat.start` (receive hooks), `sense.vitals_start` (vitals watcher), `combat.guard_start` (self-defence; `DW_COMBAT_REFLEX=0` off) and `inventory.reflex_start` (stay fed);
+  - re-armed after a pause (`DW_PAUSE`) clears;
   - started at bridge start (`start_modules`, so at client boot from `main.lua`, and by `bridge_start.lua`);
   - re-checked every 10 s and restarted while not healthy. At the main menu the hooked classes may not be loaded yet;
   - re-armed when their module file hot-reloads (their start swaps in the new handlers);
@@ -319,6 +320,8 @@ Every function takes the DWClient text logger `log(msg)` first and returns a tab
 | `chat.lua` | `start(log)` (idempotent hooks, called at bridge start); `say(log, text)`; it writes `client_io/events/chat.jsonl` `{type:"chat", from, text, self, player_id, guid}` | `say`; chat lines → `command_received` |
 | `move.lua` | `go_to(log, [x,y,z] \| name, {tolerance_m})`, `follow(log, name, distance_m)`, `stop(log)`, `status()` → `{mode, status, result={status=arrived\|failed\|stopped, reason, dist_m}}` | `go_to`, `follow`, `stop`, `move_status` |
 | `sense.lua` | `me(log)` → `{name, position, health, max_health, stamina, survival = {stat = {cur, max}}, skills, ...}`; `census(log, {radius_m, max})` → `{players, creatures, items, resources, interactables, players_online}`; `U` (mod/body/util), `local_pc()`, `local_pawn()`; writes `client_io/events/vitals.jsonl` (`damage`, `survival`, ...) | `get_state`, `me`, `census`, `look`, `inspect`, `interact` (target lookup, aim), events `attacked`, `vitals_low` |
+| `combat.lua` + `arbiter.lua` (combat/arbiter agent) | `combat.HANDLERS.attack` (async), `combat.status()` (`fight`, `guard`), `combat.stop(log, why)`, `combat.guard_start(log)`; `arbiter.owner()` / `status()` (who owns the pawn: reflex > command > task > idle) | `attack`, `stop` (commanded fights), `get_state.fight`, service `combat_guard`; follow/go_to/interact wait while a reflex owns the pawn |
+| `move.lua` events | `client_io/events/move.jsonl`: `unreachable` (once per episode), `reachable_again`, `stuck` | events `unreachable`, `resumed` |
 | `inventory.lua` | `list(log)` → `{hotbar, bag, loadout, personal, held}` (rows carry `consumable`); `drop(log, what, count)`; `equip(log, what)`; `unequip(log, slot)`; `interact_target(pawn)`; `press_interact(log)`; `describe_item(item)` | `get_state.inventory/inventory_items/gear/held`, `drop`, `equip`, `unequip`, `inventory`, `interact` (detector + press), `inspect` (container contents), `vitals_low` (has food/drink) |
 | `arbiter.lua` | `request(log, {name, level=reflex\|command\|task\|idle, uses_move, lease_s, on_suspend, on_resume, on_stop})` → `{ok, token, preempted}` or `{ok=false, reason="busy", owner}`; `release(log, token)` (resumes the newest suspended owner, replaying its move via `move.snapshot/restore`); `renew`, `holds`, `is_suspended`, `owner`, `status`; HANDLERS `arbiter_status` | which module owns the pawn; reflex fights suspend and later resume commands and tasks |
 | `combat.lua` | `attack(log, target, {force})`; `guard_start(log)` / `guard_stop` (the reflex); `stop`; `status`; `set_orders({stance, avoid, force})`; HANDLERS `attack` (async `{pending}`), `combat_status`, `combat_orders`. Pure: `assess`, `best_weapon`, `score_weapon`, `pick_threats`, `learn_outcome` | `attack`; `attacked` → reflex fight or flee |
@@ -330,12 +333,13 @@ Every function takes the DWClient text logger `log(msg)` first and returns a tab
    - A tool answers `ok` only once fresh game state confirms it: `go_to` re-reads the position, `drop` waits for the count to fall, `say` waits for the server's echo.
    - The brain verifies again (`executor.VERIFIERS`).
 3. **Two speeds.** Per-frame loops (steering, combat reflexes) live in the modules. The bridge ticks every 100 ms: it polls, steps the action, tails chat and resolves waiters. The LLM only picks tools.
-4. **Perception is generic.** `look`, `inspect`, `interact` and the digest work on `sense.census` categories and the census row fields (`kind`, `verb`, `prompt`, `tool`, `health`), never on hand lists of things. A new kind of thing shows up as soon as sense describes its class family.
-5. **One action slot.**
+4. **Pause means no game calls.** While `_G.DW_PAUSE` is true (disconnect, join), every loop returns at once and the bridge answers only ping/capabilities/bridge_status (crash_2026_10_25_19_08_42: a UFunction call during world teardown). The bridge clears it after 3 s with a pawn in `L_World` and re-arms the services.
+5. **Perception is generic.** `look`, `inspect`, `interact` and the digest work on `sense.census` categories and the census row fields (`kind`, `verb`, `prompt`, `tool`, `health`), never on hand lists of things. A new kind of thing shows up as soon as sense describes its class family.
+6. **One action slot.**
    - Tools that move the body (`ACTION_TOOLS`) pre-empt the current action, which answers `interrupted`.
    - Waiters (`say`, `drop`) never pre-empt.
    - Probes never act. Missing required args answer `invalid_args`.
-6. **The client is Luis's shared world.** Experiments that move the pawn or chat belong to that module's owner. The bridge itself is read-only until the brain sends an action.
+7. **The client is Luis's shared world.** Experiments that move the pawn or chat belong to that module's owner. The bridge itself is read-only until the brain sends an action.
 
 6. **Owning the pawn.** A module that moves the body or presses gameplay keys first calls `arbiter.request` at its level (a skill = `task`, a brain command = `command`, a reflex = `reflex`), renews its lease in its loop, and calls `arbiter.release` when done. It moves only through move.lua's public API. If it can be resumed after a fight, pass `on_resume` (or rely on the move snapshot the arbiter takes).
 

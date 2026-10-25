@@ -39,7 +39,16 @@ MAX_SAY = 200  # one chat line (DW_SAY_MODE=direct sends real chat)
 
 PERSONA = """You are {name}, an AI companion playing RuneScape: Dragonwilds with {player}.
 You talk like a friendly fellow player: one short casual sentence, no emojis, under 150 characters.
-ALWAYS reply to the player with one short line of text, also when you call a tool.
+ALWAYS reply to the player with one short line of text, also when you call a tool (unless the line
+is not meant for you, see "Reading chat").
+
+Reading chat: you hear EVERY chat line; chat lists the recent ones, oldest first, yours marked you=true.
+- command.addressed=true: the player named you. Answer as usual.
+- command.addressed=false: nobody named you. First decide whether the line is meant for you: a
+  follow-up to a conversation you are in, an instruction while you are clearly the one being
+  addressed, or a question to everyone that you can help with ("anyone got an axe?" when you
+  carry one). If it is NOT for you (friends talking to each other, banter, anything else), reply
+  with an EMPTY message and call no tool. Never butt into other players' conversations.
 
 How to decide:
 - Simple, immediate requests (follow me, wait here, come here, attack that, stop, give me X,
@@ -53,7 +62,9 @@ How to decide:
   params are clear, call run_skill; otherwise call start_goal with the goal in plain words.
 - Facts worth keeping -> remember. A place: key "place:<name>", value "here" (where you stand),
   "{player}" (where the player stands) or a description.
-- Chit-chat, praise, questions about what you see or carry -> no tool, just answer from the situation.
+- Chit-chat, praise, questions about what you see -> no tool, just answer from the situation.
+- What you wear, hold or carry -> situation has "You: ... holding X", "Wearing:" and "Carrying:"; call
+  inventory (read-only) for the full list with slots, counts and durability, then answer from it.
 Call AT MOST ONE action tool per message. Calling an action tool cancels whatever job you are
 doing, so never pair an action with stop: "follow me" is just follow. Only call stop when the
 player asks you to stop or wait. If the player only comments on your work, do not call a tool.
@@ -181,6 +192,7 @@ class Decision:
     refusals: list[tuple[str, str, dict]] = field(default_factory=list)
     model_calls: int = 0
     looks: list[dict] = field(default_factory=list)  # look results this turn (data)
+    inventory: dict | None = None  # an inventory read this turn (data)
 
 
 class Controller:
@@ -209,6 +221,8 @@ class Controller:
         self._progress_at: float | None = None
         self._progress_last: str | None = None
         self.tools = self._tool_list()
+        self.chat_provider: Callable[[], list[dict]] | None = None  # recent chat lines (run_live.ChatMemory)
+        self.on_say: Callable[[str], None] | None = None  # told about every line the companion says
 
     # ---------------------------------------------------------------- tools offered (fixed per session)
 
@@ -278,11 +292,11 @@ class Controller:
             notes = dict(list(notes.items())[-20:])
         return notes
 
-    def context(self, player: str, text: str, state: dict, active_goal: str | None) -> dict:
+    def context(self, player: str, text: str, state: dict, active_goal: str | None, addressed: bool = True) -> dict:
         tree = self.store.tree
         tasks = [t.model_dump(include={"skill", "args", "status"}) for t in tree.tasks] if tree and active_goal else []
-        return {
-            "command": {"player": player, "text": text},
+        ctx = {
+            "command": {"player": player, "text": text, "addressed": addressed},
             "situation": sit.summary(state, active_goal=active_goal, tasks=tasks, places=self.store.places(),
                                      looks_supported=self.can_look),
             "active_goal": active_goal,
@@ -293,6 +307,12 @@ class Controller:
             "reflex_rules": self.reflex_rules(),
             "recent_events": list(self.events),
         }
+        if self.chat_provider:
+            try:
+                ctx["chat"] = self.chat_provider()
+            except Exception as exc:  # context is best effort
+                self.log.log("chat_context_error", error=repr(exc))
+        return ctx
 
     def persona(self) -> str:
         return PERSONA.format(name=self.name, player=self.player, triggers=", ".join(SENSABLE_TRIGGERS),
@@ -300,11 +320,11 @@ class Controller:
 
     # ---------------------------------------------------------------- the bounded loop
 
-    def decide(self, player: str, text: str, state: dict, active_goal: str | None) -> Decision:
+    def decide(self, player: str, text: str, state: dict, active_goal: str | None, addressed: bool = True) -> Decision:
         # What the player named, for grounding pickup/interact against the words they used.
         self._named = sit.tokens(text) - VERB_WORDS - sit.tokens(player) - sit.tokens(self.name)
         self._named_words = [w for w in re.findall(r"[A-Za-z']+", text) if sit.tokens(w) & self._named]
-        context = self.context(player, text, state, active_goal)
+        context = self.context(player, text, state, active_goal, addressed)
         messages = [{"role": "system", "content": self.persona()},
                     {"role": "user", "content": json.dumps(context, default=str, ensure_ascii=False)}]
         offered = self.offered()
@@ -347,6 +367,8 @@ class Controller:
         self.log.log("tool_call", tool=call.name, args=args, read_only=True)
         res = self.game.call(call.name, args)
         self.log.log("tool_result", tool=call.name, result=res, read_only=True)
+        if call.name == "inventory" and res.get("ok"):
+            d.inventory = res["data"]
         if call.name == "look" and res.get("ok"):
             look = {**res["data"], "_about": args.get("about")}
             d.looks.append(look)
@@ -488,6 +510,11 @@ class Controller:
         if not text:
             return None
         self.log.log("say", text=text)
+        if self.on_say:
+            try:
+                self.on_say(text)
+            except Exception as exc:
+                self.log.log("on_say_error", error=repr(exc))
         res = self.game.say(text)
         if isinstance(res, dict):
             self.log.log("say_result", ok=res.get("ok"), reason=res.get("reason"), data=res.get("data"))

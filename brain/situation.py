@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Iterable
 
 REPO = Path(__file__).resolve().parents[1]
-MAX_LINES = 10
+MAX_LINES = 12
 MAX_GROUPS = 6  # per line
 LINE_CHARS = 240
 
@@ -276,6 +276,25 @@ def _health(state: dict) -> str | None:
     return f"HP {round(100 * hp)}%" if hp <= 1 else f"HP {hp:g}"
 
 
+HELD_SLOTS = {"right", "left", "held_right", "held_left", "heldright", "heldleft"}
+
+
+def wearing(state: dict, names: dict[str, str] | None = None) -> list[str]:
+    """What the companion wears, by in-game name ('Hard Leather Cowl'), from ``gear`` (slot -> item id
+    or path; held slots excluded) and the names in ``inventory_items``."""
+    gear = state.get("gear") if isinstance(state.get("gear"), dict) else {}
+    names = names if names is not None else item_names(state)
+    out: list[str] = []
+    for slot, item in gear.items():
+        if not item or str(slot).lower() in HELD_SLOTS:
+            continue
+        key = str(item).rsplit("/", 1)[-1].rsplit(".", 1)[-1]
+        name = name_of_item(key, names)
+        if name not in out:
+            out.append(name)
+    return out
+
+
 def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | None = None,
             places: Iterable[str] = (), looks_supported: bool = False) -> list[str]:
     """At most 10 short lines describing the companion's situation, by in-game names."""
@@ -305,6 +324,9 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
         me.append("asleep")
     lines.append("You: " + (", ".join(me) or "ok"))
 
+    worn = wearing(state, names)
+    if worn:
+        lines.append(_line("Wearing", worn))
     inv = state.get("inventory") or {}
     carry = [f"{name_of_item(k, names)} x{v}" for k, v in sorted(inv.items(), key=lambda kv: -kv[1]) if v]
     lines.append(_line("Carrying", carry) or "Carrying: nothing")

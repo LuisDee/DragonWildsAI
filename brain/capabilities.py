@@ -26,6 +26,7 @@ class Capabilities:
     tools: list[str]  # body tools that are implemented (protocol tool names only)
     source: str  # "capabilities" (the body said so) or "probe" (fallback)
     missing: dict[str, str] = field(default_factory=dict)  # body tool -> why it is not usable
+    extras: list[str] = field(default_factory=list)  # other names the body listed (debug tools, combat_status)
 
     def skills(self) -> list[str]:
         return [s for s in PLANNER_SKILLS if s in self.tools]
@@ -44,6 +45,7 @@ def discover(client: BridgeClient, log: JsonlLogger | None = None, timeout: floa
         names = {t for t in reported if isinstance(t, str)}
         caps = Capabilities([t for t in BODY_TOOLS if t in names], "capabilities")
         caps.missing = {t: "not listed" for t in BODY_TOOLS if t not in names}
+        caps.extras = sorted(n for n in names if n not in BODY_TOOLS)
     else:
         caps = probe(client, timeout)
         caps.missing.setdefault(protocol.CAPABILITIES, str(res["reason"]))

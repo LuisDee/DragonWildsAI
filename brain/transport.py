@@ -26,11 +26,19 @@ BODY_TO_BRAIN = "body_to_brain.jsonl"
 BRAIN_TO_CLIENT = "brain_to_client.jsonl"
 CLIENT_TO_BRAIN = "client_to_brain.jsonl"
 ENDPOINT_FILES = {"server": (BRAIN_TO_BODY, BODY_TO_BRAIN), "client": (BRAIN_TO_CLIENT, CLIENT_TO_BRAIN)}
+# The client body also serves a DEBUG channel with the same tools, for people and tools testing live,
+# so their replies never land in the live brain's file (it would log them as bridge_unmatched).
+DEBUG_FILES = ("debug_to_client.jsonl", "client_to_debug.jsonl")
 
 
-def endpoint_files(body: str | None = None) -> tuple[str, str]:
-    """(brain_to_body, body_to_brain) file names for a body kind (paths.body_kind)."""
-    return ENDPOINT_FILES[paths.body_kind(body)]
+def endpoint_files(body: str | None = None, channel: str = "main") -> tuple[str, str]:
+    """(brain_to_body, body_to_brain) file names for a body kind (paths.body_kind) and channel."""
+    kind = paths.body_kind(body)
+    if channel == "debug":
+        if kind != "client":
+            raise ValueError("only the client body has a debug channel")
+        return DEBUG_FILES
+    return ENDPOINT_FILES[kind]
 
 
 class Transport(ABC):
@@ -104,12 +112,13 @@ class JsonlFileTransport(Transport):
             time.sleep(self.poll_interval)
 
 
-def file_transport_pair(directory: Path | None = None, body: str | None = None,
+def file_transport_pair(directory: Path | None = None, body: str | None = None, channel: str = "main",
                         ) -> tuple[JsonlFileTransport, JsonlFileTransport]:
     """(brain_side, body_side) transports sharing one bridge directory. ``body``: "server" (default,
-    or DW_BODY) or "client"; it picks the default directory and the file names."""
+    or DW_BODY) or "client"; it picks the default directory and the file names. ``channel="debug"``:
+    the client's debug pair (tools/bridge_cmd --channel debug)."""
     d = Path(directory) if directory else paths.bridge_dir(body)
-    to_body, to_brain = endpoint_files(body)
+    to_body, to_brain = endpoint_files(body, channel)
     body_side = JsonlFileTransport(d / to_brain, d / to_body)
     brain_side = JsonlFileTransport(d / to_body, d / to_brain)
     return brain_side, body_side

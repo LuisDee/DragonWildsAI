@@ -21,7 +21,7 @@ from typing import Literal
 from . import situation as sit
 from .controller import LONG_ACTIONS, Controller, describe_rule
 from .executor import Executor, StateUnavailable
-from .interface import RULE_TOOLS, Attacked, CommandReceived, Event, GameInterface, Reason, VitalsLow
+from .interface import RULE_TOOLS, Attacked, CommandReceived, Event, GameInterface, Reason, Resumed, Unreachable, VitalsLow
 from .jsonl_log import JsonlLogger
 from .planner import Planner, PlanError
 from .skill_library import SkillError, SkillLibrary, check_preconditions
@@ -33,6 +33,18 @@ GoalResult = Literal["done", "stuck", "interrupted"]
 # At most one per key per HELP_REPEAT_S seconds, so a fight or a long thirst doesn't spam chat.
 HELP_REPEAT_S = 60.0
 NEED_WORDS = {"hydration": ("thirsty", "something to drink"), "sustenance": ("hungry", "something to eat")}
+# What to say when the body reports it can't reach the player: one line per body reason, so the
+# words always match what the body found (no guessing). Unknown reasons quote the body's detail.
+UNREACHABLE_LINES = {
+    "leader_windstepped": "I can't follow you there, you Windstepped across and I can't do that yet.",
+    "too_high": "I can't get up there, it's too high for me. Can you come back down?",
+    "gap_too_wide": "That gap is too wide for me to jump. Can you come back over?",
+    "no_route": "I can't find a way to you from here. Can you come back towards me?",
+    "too_far": "You're too far away for me to catch up. Can you wait for me?",
+    "stuck": "I got stuck and can't get to you. Can you come and get me?",
+    "leader_double_jumped": "You double-jumped up there and I can't do that yet. Can you come back down?",
+    "leader_above_jump_height": "You're higher up than I can jump. Can you come back down?",
+}
 
 LEARNED_RE = re.compile(r"^\s*(what (have|did) you (learn|learned|learnt)|what do you know how to do|"
                         r"(list|show) (me )?(your )?(skills|what you('ve| have)? learn(ed|t)?))\b", re.I)
@@ -67,6 +79,10 @@ class Agent:
         self._cancelled = False
         self._last_reason: str | None = None
         self._help_said: dict[str, float] = {}  # help key -> monotonic time last said
+        self._unreachable_at: float | None = None  # when we last said we can't reach the player
+        # True when the body runs its own self-defence reflex (client combat.lua guard): an attacked
+        # event then needs no brain-side attack (it would fight the body's reflex for the pawn).
+        self.body_self_defends = False
         self.clock = time.monotonic
         game.set_progress_listener(self._on_progress)
 
@@ -94,12 +110,24 @@ class Agent:
         self.log.log("event", event=event.model_dump())
         self.controller.note_event(event)
         if isinstance(event, Attacked):
-            if "attack" in self.store.skills:
+            if self.body_self_defends:
+                self.log.log("attacked_body_reflex", by=event.by)  # the body's own guard fights back
+            elif "attack" in self.store.skills:
                 # Self-defence is a reflex: no model call needed.
                 self.executor.run_task(Task(skill="attack", args={"target": event.by}))
             else:  # a body that can't fight yet (the client body today): say so and ask for help
                 who = event.name or sit.pretty_id(event.by)
                 self._help("attacked", f"Help! {who} is attacking me and I can't fight back yet.")
+        elif isinstance(event, Unreachable):
+            line = UNREACHABLE_LINES.get(event.reason) or (
+                f"I can't reach you: {event.detail or event.reason.replace('_', ' ')}.")
+            self._help(f"unreachable_{event.reason}", line)
+            self._unreachable_at = self.clock()
+        elif isinstance(event, Resumed):
+            # at most a short line, and only right after we complained
+            if self._unreachable_at is not None and self.clock() - self._unreachable_at < 300:
+                self._help("resumed", "Found you.")
+            self._unreachable_at = None
         elif isinstance(event, VitalsLow):
             feel, need = NEED_WORDS.get(event.stat, (f"low on {event.stat}", "something for it"))
             self._help(f"vitals_{event.stat}", f"I'm really {feel} and have nothing left. Could you bring me {need}?")
@@ -123,14 +151,23 @@ class Agent:
 
     # ---------------------------------------------------------------- commands
 
-    def _command(self, event: CommandReceived) -> None:
-        if self._skill_command(event.text):
+    def _command(self, event: CommandReceived, addressed: bool = True) -> None:
+        """``addressed=False``: a chat line nobody addressed to the companion (LiveAgent's chat
+        reading); the model may decide it is not for him, and then nothing is said or done."""
+        if addressed and self._skill_command(event.text):
             return
         try:
             state = self.executor.state()
         except StateUnavailable as exc:  # still let the Controller answer; actions will refuse
             state = {"unavailable": str(exc)}
-        d = self.controller.decide(event.player, event.text, state, self.active_goal)
+        d = self.controller.decide(event.player, event.text, state, self.active_goal, addressed=addressed)
+        if not addressed and not (d.actions or d.goal or d.skill or d.refusals or d.speech):
+            self.log.log("chat_decision", player=event.player, text=event.text, decision="ignored",
+                         reason="model: not meant for me")
+            return
+        if not addressed:
+            self.log.log("chat_decision", player=event.player, text=event.text, decision="addressed",
+                         reason="model: meant for me", actions=[c.name for c in d.actions], speech=d.speech)
         if d.interrupts and self.active_goal:
             self._cancelled = True
         failure = d.refusals[0] if d.refusals else None
@@ -163,7 +200,7 @@ class Agent:
                 self.controller.say(" ".join(extra))
         elif d.speech or extra:
             self.controller.say(" ".join(s for s in [d.speech, *extra] if s))
-        else:  # reply to every command, even when the model said nothing
+        elif addressed:  # reply to every command, even when the model said nothing
             self.controller.say(self._default_reply(d))
         if d.goal and not d.skill:
             self.pending_goal = d.goal
