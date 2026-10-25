@@ -148,3 +148,43 @@
   - the client can hang under memory pressure (needs 16 GB).
 - Running agents: locomotion v2 (local trace planner), bridge (look/inspect/interact and events), combat and arbiter.
 - Roadmap: docs/tasks.json, ids R2.1–R2.25 (append-only). Design docs: real-player-remediation.md, research/2026-10-25-client-side-botting.md, research/2026-10-25-traversal.md.
+
+## 2026-10-25 ~21:45 local — state snapshot before context compaction
+**Live now:**
+- Claude's headless client is on Shockbyte as the real player "Claude".
+- The character was re-IDed with Luis's edited stats: total level 1076, Agility/Attack 99. GUID A8642C53…; the old GUID's server copy overrides on rejoin.
+- The client watchdog is running.
+- The freeze fix is in: tickguard plus the 30 fps cap.
+- The brain was restarted with the new batch: manifest-driven primitives, event broker, single voice, information-only grounding, activity memory, lookup/knowledge.
+- The nav-only dev server and the nav_oracle helper are running.
+
+**Verified live today (real player paths):**
+- join; walk, follow and jump;
+- chat both ways;
+- collecting items, recovering the grave, equipping;
+- the stay-fed reflex;
+- woodcutting (5 ash) and mining (8 stone);
+- combat: Goblin Runt killed, blocks, 0 damage;
+- crafting: Community Cape crafted and worn;
+- the church-exit route learned.
+
+**Pending/next:**
+- Luis to ask in chat: "cast a shelter on flat ground and sleep" (autonomy test; the spells agent is watching).
+- Combat round 2 ("go defence": parry/dodge/disengage-heal, overhead chop): needs the sword and shield equipped (he now has a Wooden Training Sword + Anti-dragon Shield).
+- Double-jump calibration (move_calib).
+- Item stats + comparison in perception.
+- Dropped-by perception.
+- The scenario suite live run (needs Luis's break).
+- Processing-station crafting.
+- Windstep via wheel slots 9-12 (gamepad path).
+
+**Agents still active (resume via SendMessage):**
+- ad944… capability contract/skills/perception;
+- a1c1aa… locomotion (water cost, low-obstacle jumps, calibration);
+- a0b192… combat (defence round);
+- ae9335… spells (shelter/sleep);
+- aabcc7… traversal learning;
+- aa990d… reviewer (design notes);
+- aae572… crafting, a1a836… broker, aaebdf… knowledge, ae688f… scenarios, af4712… hang: finished.
+
+**Binding principles:** docs/design/PRINCIPLES.md; CLAUDE.md section 0. Roadmap: docs/tasks.json (R2.*, S.*). Streamline plan: docs/design/streamline-plan.md. Review: docs/reviews/2026-10-25-north-star-review.md.
