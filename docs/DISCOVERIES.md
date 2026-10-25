@@ -46,3 +46,19 @@ Research notes with full source lists: `docs/research/2026-10-25-ue4ss-chat-brid
 
 ## Chat
 - Research says Dragonwilds has public text chat (256 characters, with a spam throttle). No class or function names are published and no mod reads it yet. Hook candidates come from the dump (below).
+
+## Observed in the server log during Luis's first session (build 26161880, 2026-10-25)
+- **Join sequence** (default log, no hooks needed):
+  1. `LogNet: Login request: ?...Name=<epic name> userId: RedpointEOS:<id>`
+  2. `Join succeeded: <name>`
+  3. `Server_SetPlayerGuid_Implementation()`
+  4. `SetPlayerCharacterInfo() ... Character Name[Zezima] Guid[DCG:<OwnerId>]`
+  5. `LogDominionPlayerControllerBase: PlayerChar entered world`
+  These lines are a reliable "player joined" signal that can be tailed from the log.
+- **The character profile is client-owned.** Each client streams its character save to the server on join: `Remote Character load starting`, `Player profile stream completed ... Size[205758]`, `LoadStateFromJson`. Inventory and character persistence are tied to the client save. This matters for give and inventory skills.
+- **Classes:** the player pawn is `BP_PlayerCharacter_C`. NPC example: `BP_NPC_Saradomin_Statue_C`.
+- **Equipment:** `DominionPlayerEquipment` logs `HandleHeldBunchedRepd() : CurrentHoldable: <item id>` when the held item changes. Item IDs seen: `weap_mace_skullsplitter`, `tool_logging_axe_adamant`.
+- **Woodcutting:** after a tree was cut, the log shows `DominionLog: DropItems() : No ItemDataClass specified; no items will be dropped`.
+- **Actions are server-authoritative:** `DomNetActIntIds: AUTH : Action Validated ... Accepted : START : Evade`.
+- **Chat:** typing `!ping hello` produced **no** line in the default server log. Chat must be hooked, using candidates from the dump.
+- **Noise:** `LogNetPlayerMovement: Warning: ServerMove: TimeStamp expired` repeats constantly while a GFN player moves. Filter it when tailing.
