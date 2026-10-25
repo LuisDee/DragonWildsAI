@@ -788,6 +788,35 @@ Service: `client_mod/scripts/move.lua` (go_to / follow / stop / status). Command
   - Mineflayer-pathfinder (GoalFollow) and the Bloog bot (repath every update) were followed for the repath policy. Waypoint advance-by-one with a radius smaller than the waypoint spacing follows bugnet.io's "patrol waypoint skipping".
   - Epic docs: InjectInputForAction / InjectInputVectorForAction, the World Partition streaming-source component, and the World Partitioned Navigation Mesh guide (chunk actors stream with cells).
   - Decision: **adapt** (repath-on-goal-move from mineflayer and Bloog bot; server-side pathfinding with client steering, the usual UE pattern) and **build** the thin Lua loop and file glue. A `watchdog` file watcher was not needed for one polled file.
+- **Follow test 1 (Shockbyte, 17:42:51-17:43:38, follow Zezima at 3 m):**
+  - Sprint worked: 498-582 cm/s in the clear (walk 450), and 6.79 m/s in a later go_to.
+  - The 45-66 cm/s "sprinting" windows were the stuck windows, not a sprint slowdown.
+  - The stuck spot is an alcove under an overhang by the start-area lodestone, at (71.6, 1862.0, -34.7) m. Every oracle path from there was partial with length 0.06-1.9 m. Luis's breadcrumbs were 3.4 m above him. After the path ran out, straight-line steering went into the gap.
+  - Luis: "he was following me correctly but there was an undercover, I ran out, he tried to get to me as the crow flies and got stuck in a gap."
+- **Give-up bug (fixed):** per-window movement reset the stuck counter (jump/strafe wobble of about 52 cm, and 3-4 cm jitters), so a stuck go_to ran 110 s.
+  - Progress is now **net displacement toward the goal ≥ 1.5 m, or a waypoint/crumb reached**, within 5 s (planning time excluded). Otherwise it stops with `{status:"failed", reason:"stuck", at_m}`.
+- **Client hang (17:53:54, client PID 6400):** the GameThread sat in `NtWaitForSingleObject` under engine frames called from a UE4SS hook frame (export-only symbols). Render, async-loading and IO threads were idle. Stack: `logs/client/stack_6400_175704.txt`, taken with a non-invasive `cdb -pv`. Cause not identified.
+- **IA_Player_Sprint:** ValueType Boolean (0), one trigger `InputTriggerDown`, `bConsumeInput` true.
+- **Claude's measured jump envelope (live client, read-only):**
+  - `JumpZVelocity` 807.9, `GravityScale` **1.85** (`GetGravityZ` -1813).
+  - `GetMaxJumpHeight()` = `GetMaxJumpHeightWithJumpTime()` = **180 cm**; `JumpMaxHoldTime` 0.
+  - `MaxStepHeight` 45, `WalkableFloorAngle` 45.5, `MinFallDamageHeight` 1500, `MaxFallDamageHeight` 2860, capsule half-height 88.
+  - `SkillPerkComponent:IsPerkUnlocked(pawn.DoubleJumpSkillPerk)` = false. JumpMaxCount 2 does NOT mean double jump; that is Agility 10 (traversal research).
+- **Physics traces from UE4SS Lua work (dev server, then the client):**
+  - Call: `Default__KismetSystemLibrary:LineTraceSingle(ctx, a, b, 0 (TraceTypeQuery1), false, {}, 0, out, true, {R,G,B,A}, {R,G,B,A}, 0.0)` returns a bool.
+  - An empty `out` table is filled as **nested** tables: `out.ImpactPoint.Z`, `out.ImpactNormal.Z`, `out.Distance`, `out.Time`.
+  - Cost: about **1 ms per trace** from Lua on both (FHitResult marshalling).
+  - **`out.bStartPenetrating` is unreliable.** It is a bitfield sharing byte 0xAD with `bBlockingHit` and reads true on clean floor hits. Use `Distance == 0` for "started inside geometry".
+  - `CharacterMovement:K2_ComputeFloorDist(loc, 2000, 2000, 30, out)` also works on the dev server (`bWalkableFloor`, `FloorDist`, nested `HitResult`).
+  - A trace started 5 m above the alcove spot begins inside rock, which confirms the overhang.
+- **Local planner** (`client_mod/scripts/localplan.lua`; offline test `client_mod/tests/test_localplan.lua`):
+  - A 1 m grid within 9 m of Claude. Two downward traces per cell (from feet + 1 m and from feet + 7 m) give up to two floor layers.
+  - Edges: walk (≤ step), jump (≤ 1.65 m), drop (≤ 10 m). A* toward the far goal; an off-grid goal gives a segment to the closest reachable node.
+  - Walls are checked lazily: horizontal traces on the chosen path only, re-planning on a blocked edge.
+  - Patterns adapted: A* Pathfinding Project GridGraph/LayerGridGraph scan (arongranberg.com/astar docs), mineflayer-pathfinder move types, Lazy PRM (Bohlin & Kavraki 2000), Baritone-style segmented planning.
+  - `move.lua` triggers it from a forward knee-height wall probe (hit normal Z < 0.7) or when stuck.
+- **Nav oracle heartbeat:** `tools/nav_oracle.py serve` writes `client_io/nav/alive.lua` (`return <unix time>`) every second. The mover uses the oracle only while that is under 5 s old, so a stopped dev server costs nothing.
+- **Windows file-lock race:** `os.replace(resp.tmp, resp.lua)` raises PermissionError while the client has resp.lua open, which crashed the helper once. Fixed by retrying.
 
 ## Client perception + inventory (R2) (2026-10-25, 17:30-18:00 UTC, client build 26162923, Shockbyte world)
 Modules: `client_mod/scripts/sense.lua` (census + me), `client_mod/scripts/inventory.lua` (list, collect, equip, unequip, drop). Commands: `client_mod/commands/sense_*.lua`, `inv_*.lua`. Both reuse the dependency-free `mod/body/util.lua` via `loadfile` (works unchanged on the client).
@@ -914,3 +943,16 @@ Research and design: `docs/research/2026-10-25-traversal.md`.
   - **Second grave:** `BP_PlayerGravestone_C` at (71.63, 1862.03, -35.48) m, straight-line go_to arrived at 0.6 m, and one "Take All" press returned all 6 items. They went to the first free hotbar slots: the Torch and Shield moved to slots 7-8 because food and drink now occupy 1-2.
   - Re-equipped the axe with hotbar key 4.
   - **The grave spot is a dead end toward the open ground east:** two straight go_to attempts to Zezima from there failed "stuck" after about 1 m. Backtracking to the lodestone (straight, 0.98 m) and then go_to Zezima reached 2.98 m from him at (89.48, 1851.2, -31.42) m.
+- **Measured live by the locomotion agent (Claude's client, 2026-10-25):**
+  - Physics: JumpZVelocity 807.9, GravityScale 1.85 (`GetGravityZ` −1813), `GetMaxJumpHeight` = `GetMaxJumpHeightWithJumpTime` = 180 cm, `JumpMaxHoldTime` 0.
+  - Limits: `MaxStepHeight` 45, `WalkableFloorAngle` 45.5, `MinFallDamageHeight` 1500 / `MaxFallDamageHeight` 2860 cm, capsule half-height 88.
+  - **`IsPerkUnlocked(DoubleJumpSkillPerk)` = false**, so the caution above is confirmed: no double jump at Agility 1.
+  - `LineTraceSingle` from Lua works on the dev server and the client (about 1 ms). The out table fills nested (`ImpactPoint.Z`, `ImpactNormal.Z`, `Distance`, `Time`).
+  - `bStartPenetrating` reads junk (it shares bitfield byte 0xAD with `bBlockingHit`); use `Distance == 0`.
+  - `K2_ComputeFloorDist` works on the dev server.
+
+## Character data on a dedicated server is SERVER-side (2026-10-25 19:10, client build 26162923)
+- Tried to raise Claude's stats by merging Zezima's Skills, Spellcasting and Progress unlocks into the local `SaveCharacters/Claude.json`, with the client closed (backup at `C:\GameServers\backups\claude_char_20261025-190851.json`).
+- After rejoining Shockbyte, the client logs `Remote Character load complete … slot[Claude]` and `sense.me` reports total_level 12: all skills still 1.
+- **Conclusion: on a dedicated server the world's server holds the authoritative copy of each player's character.** The local JSON is not what the server uses. This matches the dev server's own logs ("RequestGameExit: Server saving World and Player state for Account…").
+- Raising stats therefore means editing the server's saved player data, which on Shockbyte is Luis's file manager, or levelling normally.
