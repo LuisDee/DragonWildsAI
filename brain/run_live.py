@@ -13,8 +13,11 @@ Chat routing (every line is logged; only these reach the brain):
                         configurable (--prefix, or DW_CHAT_PREFIXES separated by "|").
   anything else      -> ignored (players talking to each other).
 
+Body: --body server (the server puppet mod, bridge_io/) or --body client (Claude's own game
+client, client_mod/, client_io/bridge/; BRIDGE_PROTOCOL.md "Client endpoint"); default DW_BODY or server.
+
 Env vars: DW_CONTROLLER_MODEL, DW_PLANNER_MODEL (LiteLLM model strings) plus the
-provider key LiteLLM wants (ANTHROPIC_API_KEY, XAI_API_KEY, ...); DW_BRIDGE_DIR,
+provider key LiteLLM wants (ANTHROPIC_API_KEY, XAI_API_KEY, ...); DW_BODY, DW_BRIDGE_DIR,
 DW_LOG_DIR, DW_STATE_DIR (see paths.py); DW_CHAT_PREFIXES, DW_COMPANION_NAME,
 DW_PLAYER_NAME.
 """
@@ -43,7 +46,7 @@ from .llm import CONTROLLER_MODEL_ENV, PLANNER_MODEL_ENV, LLMClient, LiteLLMClie
 from .planner import Planner
 from .skill_library import SkillLibrary
 from .state_store import StateStore
-from .transport import BODY_TO_BRAIN, BRAIN_TO_BODY, JsonlFileTransport
+from .transport import JsonlFileTransport, endpoint_files
 
 # Matched case-insensitively. "claude," before "claude " so the comma is stripped too.
 DEFAULT_PREFIXES = ["!c ", "claude,", "claude:", "@claude ", "claude ", "companion,", "companion:", "@companion "]
@@ -103,9 +106,13 @@ class LiveAgent(Agent):
             return "stuck"
 
 
+BODY_LABELS = {"server": "server puppet mod, mod/", "client": "Claude's own game client, client_mod/"}
+
+
 @dataclass
 class LiveOptions:
-    bridge_dir: Path = field(default_factory=paths.bridge_dir)
+    body: str = field(default_factory=paths.body_kind)  # "server" | "client" (file names; see transport)
+    bridge_dir: Path | None = None  # default: DW_BRIDGE_DIR, else the body's default directory
     state_dir: Path = field(default_factory=paths.state_dir)
     skills_dir: Path | None = None  # default: data/skills (or <state_dir>/skills for a non-default state dir)
     log_dir: Path = field(default_factory=paths.log_dir)
@@ -128,8 +135,12 @@ class LiveSession:
         self.opts = opts
         self.out = out
         self.log = JsonlLogger.session(directory=opts.log_dir)
+        opts.body = paths.body_kind(opts.body)
+        if opts.bridge_dir is None:
+            opts.bridge_dir = paths.bridge_dir(opts.body)
         d = Path(opts.bridge_dir)
-        self.client = BridgeClient(JsonlFileTransport(d / BRAIN_TO_BODY, d / BODY_TO_BRAIN), self.log)
+        to_body, to_brain = endpoint_files(opts.body)
+        self.client = BridgeClient(JsonlFileTransport(d / to_body, d / to_brain), self.log)
         self.rtt = self._connect()
         self.caps: Capabilities = discover(self.client, self.log, opts.probe_timeout)
         # Per-world memory (design 15): notes, places, rule snapshot, task tree and learned skills
@@ -148,7 +159,7 @@ class LiveSession:
         self.agent = LiveAgent(self.client, self.controller, self.planner, self.executor, self.store,
                                self.log, prefixes=opts.prefixes, skills=self.skills)
         self.log.log("session_start", dry_run=opts.dry_run, controller_model=controller_llm.model,
-                     planner_model=planner_llm.model, bridge_dir=str(d), prefixes=opts.prefixes,
+                     planner_model=planner_llm.model, body=opts.body, bridge_dir=str(d), prefixes=opts.prefixes,
                      ping_ms=round(self.rtt * 1000, 1), skills=self.store.skills.names(),
                      capabilities_source=self.caps.source, missing=self.caps.missing,
                      world=self.world, world_source=self.world_source, state_dir=str(state_dir),
@@ -178,6 +189,7 @@ class LiveSession:
             f" mode         : {mode}",
             f" controller   : {controller_model}",
             f" planner      : {planner_model}",
+            f" body         : {self.opts.body}  ({BODY_LABELS[self.opts.body]})",
             f" bridge       : {self.opts.bridge_dir}  (ping {self.rtt * 1000:.0f} ms)",
             f" skills       : {', '.join(self.store.skills.names()) or 'none'}  (from {self.caps.source})",
             f" world        : {self.world}  (from {self.world_source}; memory {self.store.dir})",
@@ -255,7 +267,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(prog="python -m brain.run_live", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dry-run", action="store_true", help="rule-based fake models; no API key, no spend")
-    ap.add_argument("--bridge-dir", type=Path, default=None, help="default: DW_BRIDGE_DIR or <repo>/bridge_io")
+    ap.add_argument("--body", choices=paths.BODIES, default=None,
+                    help="which body to drive: server (puppet mod) or client (Claude's game client). "
+                         "Default DW_BODY or server")
+    ap.add_argument("--bridge-dir", type=Path, default=None,
+                    help="default: DW_BRIDGE_DIR, else <repo>/bridge_io (server) or <repo>/client_io/bridge (client)")
     ap.add_argument("--prefix", action="append", default=None,
                     help=f"chat prefix addressing the companion (repeatable). Default {DEFAULT_PREFIXES}")
     ap.add_argument("--name", default=os.environ.get("DW_COMPANION_NAME", "Claude"))
@@ -273,6 +289,7 @@ def main(argv: list[str] | None = None, stop: threading.Event | None = None) -> 
             print("  - " + p, file=sys.stderr)
         return 2
     opts = LiveOptions(dry_run=a.dry_run, name=a.name, player=a.player, wait=a.wait,
+                       body=paths.body_kind(a.body),
                        prefixes=a.prefix or _env_prefixes() or list(DEFAULT_PREFIXES))
     if a.bridge_dir:
         opts.bridge_dir = a.bridge_dir

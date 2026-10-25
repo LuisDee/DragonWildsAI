@@ -1,0 +1,411 @@
+-- Offline unit tests for client_mod/scripts/client_bridge.lua (the client body's brain bridge).
+-- Usage: lua test_client_bridge.lua <empty_dir>   (tests/test_client_bridge.py runs it with a pytest tmp dir)
+-- Fake client modules (chat, move, sense, inventory) are written into <dir>/scripts and hot-loaded
+-- exactly as the real ones are. UE4SS globals come from mod/tests/bridge_harness.lua.
+local here = (debug.getinfo(1, "S").source:match("^@(.*)[/\\][^/\\]*$")) or "."
+local REPO = here .. "/../.."
+local H = dofile(REPO .. "/mod/tests/bridge_harness.lua")
+local json = require("dkjson")
+
+local base = assert(arg[1], "usage: lua test_client_bridge.lua <empty_dir>")
+local function mkdir(p)
+    if package.config:sub(1, 1) == "\\" then os.execute('mkdir "' .. p:gsub("/", "\\") .. '" 2>nul')
+    else os.execute('mkdir -p "' .. p .. '"') end
+end
+local DIR, SCRIPTS = base .. "/bridge", base .. "/scripts"
+local CHAT = base .. "/chat.jsonl"
+mkdir(DIR); mkdir(SCRIPTS)
+local IN, OUT = DIR .. "/brain_to_client.jsonl", DIR .. "/client_to_brain.jsonl"
+
+local function write(path, s, mode)
+    local f = assert(io.open(path, mode or "ab"))
+    f:write(s)
+    f:close()
+end
+
+-- ------------------------------------------------------------------ fake client modules
+-- The fakes live in client_mod/tests/fakes/ (shared with run_client_bridge.lua).
+local FAKES = {}
+for _, n in ipairs({ "chat", "move", "sense", "inventory" }) do
+    local fh = assert(io.open(here .. "/fakes/" .. n .. ".lua", "rb"))
+    FAKES[n] = fh:read("a")
+    fh:close()
+end
+
+local function install(name, text) write(SCRIPTS .. "/" .. name .. ".lua", text or FAKES[name], "wb") end
+local function uninstall(name) os.remove(SCRIPTS .. "/" .. name .. ".lua") end
+
+-- ------------------------------------------------------------------ wire helpers
+local out_offset = 0
+local function drain()
+    local f = io.open(OUT, "rb")
+    if not f then return {} end
+    f:seek("set", out_offset)
+    local s = f:read("a")
+    f:close()
+    out_offset = out_offset + #s
+    local out = {}
+    for line in s:gmatch("([^\n]*)\n") do out[#out + 1] = json.decode(line) end
+    return out
+end
+
+local seq = 0
+local B, T
+local function step() B.step() end
+local function send(tool, args, extra)
+    seq = seq + 1
+    local id = "c" .. seq
+    local msg = { v = 1, type = "cmd", id = id, tool = tool, args = args or json.null }
+    if args == nil then msg.args = setmetatable({}, { __jsontype = "object" }) end
+    for k, v in pairs(extra or {}) do msg[k] = v end
+    write(IN, json.encode(msg) .. "\n")
+    return id
+end
+local function results(msgs, id)
+    local r = {}
+    for _, m in ipairs(msgs) do if m.type == "result" and (id == nil or m.id == id) then r[#r + 1] = m end end
+    return r
+end
+local function events(msgs, kind)
+    local r = {}
+    for _, m in ipairs(msgs) do if m.type == "event" and (kind == nil or m.event.type == kind) then r[#r + 1] = m.event end end
+    return r
+end
+-- send + one step, return the single result for that id (nil if none yet) and all messages
+local function rpc(tool, args, extra)
+    local id = send(tool, args, extra)
+    step()
+    local msgs = drain()
+    return results(msgs, id)[1], msgs, id
+end
+local function has(list, x) for _, v in ipairs(list) do if v == x then return true end end return false end
+
+local tests, failures = {}, 0
+local function test(name, fn) tests[#tests + 1] = { name, fn } end
+
+-- ------------------------------------------------------------------ tests
+test("start: stale brain lines and chat history are ignored; bare capabilities", function()
+    write(IN, '{"v":1,"type":"cmd","id":"stale","tool":"ping","args":{}}\n')
+    write(CHAT, '{"type":"chat","from":"Luis","text":"claude follow me","self":false}\n')
+    B = assert(loadfile(REPO .. "/client_mod/scripts/client_bridge.lua"))()
+    B.RELOAD_CHECK_S = 0
+    T = 1000
+    B.clock = function() return T end
+    local st = B.start({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = CHAT, jlog = H.log, no_loop = true,
+                         start_modules = true })
+    assert(st.dir == DIR:gsub("\\", "/"), "dir " .. tostring(st.dir))
+    step()
+    assert(#drain() == 0, "stale cmd or chat history must not produce output")
+    local r = rpc("capabilities")
+    assert(r.ok and r.data.body == "client")
+    local tools = r.data.tools
+    assert(#tools == 3 and has(tools, "ping") and has(tools, "capabilities") and has(tools, "bridge_status"),
+           "only builtins without modules: " .. table.concat(tools, ","))
+end)
+
+test("ping answers pong with body=client", function()
+    local r = rpc("ping")
+    assert(r.ok and r.data.pong == true and r.data.body == "client" and r.reason == nil)
+end)
+
+test("missing modules: not_implemented; unknown tool: unknown_tool; get_state stub", function()
+    assert(rpc("follow", { player = "Luis" }).reason == "not_implemented")
+    assert(rpc("gather", { resource = "log", count = 1 }).reason == "not_implemented")
+    assert(rpc("fly").reason == "unknown_tool")
+    local s = rpc("get_state")
+    assert(s.ok == false and s.reason == "not_implemented", tostring(s.reason))
+    assert(has(s.data.not_implemented, "position") and s.data.body == "client")
+    assert(rpc("get_state", nil, { probe = true }).reason == "not_implemented", "get_state probe without sense")
+end)
+
+test("modules appear while running: capabilities grow (hot load)", function()
+    for _, n in ipairs({ "chat", "move", "sense", "inventory" }) do install(n) end
+    local tools = rpc("capabilities").data.tools
+    for _, t in ipairs({ "get_state", "say", "follow", "go_to", "stop", "drop", "inventory", "census", "me",
+                         "move_status", "inv_debug" }) do
+        assert(has(tools, t), "missing " .. t .. " in " .. table.concat(tools, ","))
+    end
+    assert(not has(tools, "equip"), "equip needs inventory.equip, which the fake lacks")
+    assert(not has(tools, "gather") and not has(tools, "attack") and not has(tools, "look"), "no such module functions")
+end)
+
+test("unit and reason helpers", function()
+    local m = B._to_m({ X = 150, Y = -250, Z = 1000 })
+    assert(m[1] == 1.5 and m[2] == -2.5 and m[3] == 10, "cm -> m")
+    assert(B._reason_code("no_pawn") == "companion_down" and B._reason_code("stuck") == "path_blocked")
+    assert(B._reason_code("not in inventory: Oak") == "not_in_inventory" and B._reason_code("timeout") == "timeout")
+    assert(B._reason_code("rate limited (4 lines in 10 s)") == "body_error")
+    local n = B._norm({ ok = false, error = "no pawn" })
+    assert(n.reason == "companion_down" and n.data.detail == "no pawn")
+    n = B._norm({ ok = true, was = "follow" })
+    assert(n.ok and n.data.was == "follow", "flat fields become data")
+end)
+
+test("get_state from the real module shapes: buckets, inventory, gear, extras", function()
+    local r = rpc("get_state")
+    assert(r.ok, tostring(r.reason))
+    local d = r.data
+    assert(d.position[1] == 1 and d.position[3] == 3 and d.health == 90 and d.max_health == 100 and d.name == "Claude")
+    assert(d.total_level == 12 and d.skills[1].skill == "Woodcutting" and d.stamina == 50, "sense.me extras kept")
+    assert(d.following == nil, "following is JSON null")
+    assert(#d.players == 1 and d.players[1].name == "Luis" and d.players[1].distance == 2.8)
+    assert(#d.nearby_entities == 2)
+    local wolf, deer = d.nearby_entities[1], d.nearby_entities[2]
+    assert(wolf.id == "wolf_2" and wolf.kind == "Wolf" and wolf.alive == false and wolf.hostile == true and wolf.hp == 0)
+    assert(deer.alive == true and deer.hostile == false)
+    assert(#d.nearby_resources == 2 and d.nearby_resources[1].id == "oak_1" and d.nearby_resources[2].id == "bench_1")
+    assert(#d.nearby_items == 1 and d.nearby_items[1].collecting == nil)
+    assert(d.inventory.ITEM_Resources_Wood_Oak == 8 and d.inventory.ITEM_Tool_Axe_Bronze == nil, json.encode(d.inventory))
+    assert(#d.inventory_items == 3 and d.inventory_items[3].equipped == true and d.inventory_items[1].id == "QuickAction:0")
+    assert(d.gear.HeldRight == "ITEM_Tool_Axe_Bronze" and d.gear.held_right == "ITEM_Tool_Axe_Bronze")
+    assert(d.players_online[2] == "Luis")
+    assert(has(d.not_implemented, "structures") and has(d.not_implemented, "places") and not has(d.not_implemented, "position"))
+end)
+
+test("get_state: controller but no pawn -> companion_down", function()
+    FAKE.no_pawn = true
+    local r = rpc("get_state")
+    FAKE.no_pawn = nil
+    assert(r.ok == false and r.reason == "companion_down", tostring(r.reason))
+end)
+
+test("probe never acts; invalid args never act", function()
+    FAKE.move.calls = {}
+    assert(rpc("follow", {}, { probe = true }).data.probe == true)
+    assert(rpc("stop", {}, { probe = true }).data.probe == true)
+    assert(rpc("drop", {}, { probe = true }).data.probe == true)
+    assert(rpc("follow", {}).reason == "invalid_args")
+    assert(rpc("go_to", {}).reason == "invalid_args")
+    assert(rpc("say", {}).reason == "invalid_args")
+    assert(rpc("drop", { item = "oak" }).reason == "invalid_args")
+    assert(#FAKE.move.calls == 0 and FAKE.dropped == nil, "nothing acted: " .. table.concat(FAKE.move.calls, ","))
+end)
+
+test("follow: sync ok, held in the slot, get_state.following echoes the player", function()
+    local r = rpc("follow", { player = "Luis", distance = 4 })
+    assert(r.ok and r.data.following == "Luis" and r.data.distance == 4)
+    assert(FAKE.move.calls[#FAKE.move.calls] == "follow:Luis")
+    local s = rpc("get_state").data
+    assert(s.following == "Luis" and s.action == "follow")
+end)
+
+test("follow ending on its own (move stopped elsewhere) emits task_failed, no second reply", function()
+    local r, _, id = rpc("follow", { player = "Luis" })
+    assert(r.ok)
+    FAKE.move.mode, FAKE.move.result = "idle", { status = "failed", reason = "no_pawn" }
+    step()
+    local out = drain()
+    assert(#results(out, id) == 0, "follow already answered")
+    local tf = events(out, "task_failed")
+    assert(#tf == 1 and tf[1].task_id == id and tf[1].reason == "companion_down", json.encode(tf))
+    assert(rpc("get_state").data.following == nil)
+end)
+
+test("go_to pre-empts follow silently, replies when move.status says arrived (verified)", function()
+    rpc("follow", { player = "Luis" })
+    FAKE.move.calls = {}
+    local first, msgs, id = rpc("go_to", { target = { 10, 0, 0 } })
+    assert(first == nil, "async: no reply at start")
+    assert(#events(msgs, "task_failed") == 0, "pre-empted follow ends silently")
+    assert(FAKE.move.calls[1] == "stop" and FAKE.move.calls[2] == "go_to", table.concat(FAKE.move.calls, ","))
+    step(); step()
+    assert(#results(drain(), id) == 0, "still moving")
+    FAKE.move.mode, FAKE.move.result, FAKE.move.position = "idle", { status = "arrived", dist_m = 1.4 }, { 9, 1, 0 }
+    step()
+    local out = drain()
+    local r = results(out, id)[1]
+    assert(r and r.ok, "arrived reply")
+    assert(r.data.target_position[1] == 10 and r.data.position[1] == 9 and r.data.arrive_tolerance == 3 and r.data.dist_m == 1.4)
+    local done = events(out, "task_done")
+    assert(#done == 1 and done[1].task_id == id)
+    assert(rpc("get_state").data.following == nil, "follow ended")
+end)
+
+test("go_to: arrival claim far from the target -> verification_failed", function()
+    local _, _, id = rpc("go_to", { target = { 10, 0, 0 } })
+    FAKE.move.mode, FAKE.move.result, FAKE.move.position = "idle", { status = "arrived" }, { 50, 0, 0 }
+    step()
+    local r = results(drain(), id)[1]
+    assert(r and r.ok == false and r.reason == "verification_failed", r and r.reason)
+end)
+
+test("go_to a player: no target_position, module reasons mapped", function()
+    local _, _, id = rpc("go_to", { target = "Luis" })
+    FAKE.move.mode, FAKE.move.result = "idle", { status = "arrived", dist_m = 1.0 }
+    step()
+    local r = results(drain(), id)[1]
+    assert(r.ok and r.data.target_position == nil and r.data.target == "Luis")
+    for reason, want in pairs({ stuck = "path_blocked", target_not_visible = "unknown_target", timeout = "timeout",
+                                error = "body_error" }) do
+        _, _, id = rpc("go_to", { target = "Luis" })
+        FAKE.move.mode, FAKE.move.result = "idle", { status = "failed", reason = reason }
+        step()
+        r = results(drain(), id)[1]
+        assert(r.reason == want, reason .. " -> " .. tostring(r.reason))
+    end
+end)
+
+test("go_to: a move stopped from elsewhere -> interrupted", function()
+    local _, _, id = rpc("go_to", { target = "Luis" })
+    FAKE.move.mode, FAKE.move.result = "idle", { status = "stopped" }
+    step()
+    assert(results(drain(), id)[1].reason == "interrupted")
+end)
+
+test("go_to: timeout stops the move", function()
+    local _, _, id = rpc("go_to", { target = { 10, 0, 0 } })
+    T = T + B.GOTO_TIMEOUT_S + 1
+    step()
+    assert(results(drain(), id)[1].reason == "timeout")
+    assert(FAKE.move.mode == "idle", "timeout stops the move")
+end)
+
+test("stop interrupts go_to: interrupted reply + task_failed, stop says what it stopped", function()
+    local _, _, gid = rpc("go_to", { target = { 10, 0, 0 } })
+    local sid = send("stop")
+    step()
+    local out = drain()
+    local g, s = results(out, gid)[1], results(out, sid)[1]
+    assert(g and g.reason == "interrupted" and g.data.by == "stop")
+    assert(s and s.ok and s.data.stopped == "go_to")
+    local tf = events(out, "task_failed")
+    assert(#tf == 1 and tf[1].task_id == gid and tf[1].reason == "interrupted")
+    assert(rpc("stop").data.stopped == nil, "nothing to stop (JSON null)")
+end)
+
+test("say waits for the server echo (self line), FIFO; no echo -> ok verified=false", function()
+    local _, _, id = rpc("say", { text = "hello Luis" })
+    assert(FAKE.said[#FAKE.said] == "hello Luis")
+    step()
+    assert(#results(drain(), id) == 0, "waiting for echo")
+    write(CHAT, json.encode({ type = "chat", from = "Claude", text = "hello Luis", self = true }) .. "\n")
+    step()
+    local out = drain()
+    local r = results(out, id)[1]
+    assert(r and r.ok and r.data.verified == true and r.data.echo_exact == true)
+    assert(#events(out, "command_received") == 0, "own echo is never a command")
+    _, _, id = rpc("say", { text = "anyone?" })
+    T = T + B.SAY_ECHO_S
+    step()
+    r = results(drain(), id)[1]
+    assert(r and r.ok and r.data.verified == false)
+    FAKE.say_fail = true
+    r = rpc("say", { text = "spam" })
+    FAKE.say_fail = nil
+    assert(r.ok == false and r.reason == "body_error" and r.data.detail:find("rate limited"), "free-text reason -> detail")
+end)
+
+test("say during an async action does not pre-empt it", function()
+    local _, _, gid = rpc("go_to", { target = { 10, 0, 0 } })
+    local _, _, sid = rpc("say", { text = "on my way" })
+    write(CHAT, json.encode({ type = "chat", from = "Claude", text = "on my way", self = true }) .. "\n")
+    step()
+    local out = drain()
+    assert(#results(out, gid) == 0, "go_to still running")
+    assert(results(out, sid)[1].data.verified == true)
+    assert(rpc("get_state").data.action == "go_to")
+    rpc("stop")
+end)
+
+test("drop waits for the inventory to shrink; resolved item id; never-confirmed -> verification_failed", function()
+    local r = rpc("drop", { item = "oak", count = 2 })
+    assert(r and r.ok, "confirmed by the next list(): " .. tostring(r and r.reason))
+    assert(r.data.item == "ITEM_Resources_Wood_Oak" and r.data.count == 2 and r.data.inventory_left == 6, json.encode(r.data))
+    assert(FAKE.dropped[1] == "oak" and FAKE.dropped[2] == 2)
+    assert(rpc("get_state").data.inventory.ITEM_Resources_Wood_Oak == 6)
+    FAKE.drop_never = true
+    local _, _, id = rpc("drop", { item = "oak", count = 1 })
+    T = T + B.DROP_WAIT_S
+    step()
+    r = results(drain(), id)[1]
+    FAKE.drop_never = nil
+    assert(r and r.reason == "verification_failed", r and r.reason)
+    assert(rpc("drop", { item = "stone", count = 1 }).reason == "not_in_inventory")
+    assert(rpc("drop", { item = "oak", count = 1, at = "luis" }).reason == "not_implemented")
+end)
+
+test("chat: addressed lines -> command_received, others ignored, !ping forwarded", function()
+    for _, line in ipairs({
+        { type = "chat", from = "Luis", text = "Claude, follow me", self = false },
+        { type = "chat", from = "Bob", text = "nice house", self = false },
+        { type = "chat", from = "Luis", text = "!ping", self = false },
+        { type = "chat", from = "Luis", text = "!c", self = false },
+        { type = "chat_event", from = "Bob", tag = "Joined" },
+        { type = "chat", from = "Claude", text = "claude here", self = true },
+    }) do write(CHAT, json.encode(line) .. "\n") end
+    write(CHAT, "not json\n")
+    step()
+    local cr = events(drain(), "command_received")
+    assert(#cr == 2, "two forwarded, got " .. #cr)
+    assert(cr[1].player == "Luis" and cr[1].text == "Claude, follow me")
+    assert(cr[2].text == "!ping")
+    assert(B.addressed("@Companion come") and not B.addressed("claude") and B.addressed("  !PING x"))
+end)
+
+test("chat file rotation: emptied once consumed past the threshold, reading continues", function()
+    B.CHAT_ROTATE_BYTES = 10
+    write(CHAT, json.encode({ type = "chat", from = "Luis", text = "claude one", self = false }) .. "\n")
+    step()
+    assert(#events(drain(), "command_received") == 1)
+    local f = io.open(CHAT, "rb"); local size = f:seek("end"); f:close()
+    assert(size == 0, "rotated, size " .. size)
+    write(CHAT, json.encode({ type = "chat", from = "Luis", text = "claude two", self = false }) .. "\n")
+    step()
+    local cr = events(drain(), "command_received")
+    assert(#cr == 1 and cr[1].text == "claude two")
+    B.CHAT_ROTATE_BYTES = 1024 * 1024
+end)
+
+test("module-declared HANDLERS dispatch", function()
+    local r = rpc("inv_debug", { x = 7 })
+    assert(r.ok and r.data.echo == 7)
+end)
+
+test("hot reload: an edited module is reloaded; a broken one answers not_implemented, a crash body_error", function()
+    install("move", FAKES.move:gsub("M.VERSION = 1", "M.VERSION = 2"))
+    rpc("capabilities")
+    local st = B._state().mods.move
+    assert(st.loads == 2 and st.mod.VERSION == 2, "reloaded")
+    install("move", "return {")
+    local r = rpc("follow", { player = "Luis" })
+    assert(r.reason == "not_implemented" and r.data.detail:find("load"), tostring(r.data.detail))
+    assert(not has(rpc("capabilities").data.tools, "follow"))
+    install("move", (FAKES.move:gsub("function M.stop%(log%)", "function M.stop(log) error('boom')")))
+    r = rpc("stop")
+    assert(r.reason == "body_error" and r.data.detail:find("boom"))
+    install("move")
+    uninstall("inventory")
+    assert(rpc("drop", { item = "oak", count = 1 }).reason == "not_implemented")
+    install("inventory")
+end)
+
+test("bridge_status reports modules, stats and chat counters", function()
+    local r = rpc("bridge_status")
+    assert(r.ok and r.data.modules.move.ok and r.data.chat.chat_forwarded >= 3 and r.data.stats.received > 10)
+    assert(r.data.chat.chat_rotations >= 1 and r.data.waiting == 0)
+end)
+
+test("restart via start(): old loop cancelled, new instance answers", function()
+    B.stop()
+    local B2 = assert(loadfile(REPO .. "/client_mod/scripts/client_bridge.lua"))()
+    B2.RELOAD_CHECK_S = 0
+    B2.clock = function() return T end
+    B2.start({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = CHAT, jlog = H.log, poll_ms = 50 })
+    local handle, loop = nil, nil
+    for h, l in pairs(H.loops) do handle, loop = h, l end
+    assert(loop and loop.delay_ms == 50, "loop registered")
+    B = B2
+    local id = send("ping")
+    H.tick()
+    assert(results(drain(), id)[1].ok)
+    B2.stop()
+    assert(H.loops[handle] == nil, "stop cancels the loop")
+end)
+
+-- ------------------------------------------------------------------ run
+for _, t in ipairs(tests) do
+    local ok, err = pcall(t[2])
+    if ok then print("PASS " .. t[1]) else failures = failures + 1; print("FAIL " .. t[1] .. ": " .. tostring(err)) end
+end
+print(string.format("%d/%d passed", #tests - failures, #tests))
+os.exit(failures == 0 and 0 or 1)

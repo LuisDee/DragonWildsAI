@@ -21,6 +21,16 @@ from . import paths
 
 BRAIN_TO_BODY = "brain_to_body.jsonl"
 BODY_TO_BRAIN = "body_to_brain.jsonl"
+# The client body (client_mod/scripts/client_bridge.lua) uses its own pair, so a brain pointed at
+# the wrong directory can never talk to the other body.
+BRAIN_TO_CLIENT = "brain_to_client.jsonl"
+CLIENT_TO_BRAIN = "client_to_brain.jsonl"
+ENDPOINT_FILES = {"server": (BRAIN_TO_BODY, BODY_TO_BRAIN), "client": (BRAIN_TO_CLIENT, CLIENT_TO_BRAIN)}
+
+
+def endpoint_files(body: str | None = None) -> tuple[str, str]:
+    """(brain_to_body, body_to_brain) file names for a body kind (paths.body_kind)."""
+    return ENDPOINT_FILES[paths.body_kind(body)]
 
 
 class Transport(ABC):
@@ -94,9 +104,12 @@ class JsonlFileTransport(Transport):
             time.sleep(self.poll_interval)
 
 
-def file_transport_pair(directory: Path | None = None) -> tuple[JsonlFileTransport, JsonlFileTransport]:
-    """(brain_side, body_side) transports sharing one bridge directory."""
-    d = Path(directory) if directory else paths.bridge_dir()
-    body = JsonlFileTransport(d / BODY_TO_BRAIN, d / BRAIN_TO_BODY)
-    brain = JsonlFileTransport(d / BRAIN_TO_BODY, d / BODY_TO_BRAIN)
-    return brain, body
+def file_transport_pair(directory: Path | None = None, body: str | None = None,
+                        ) -> tuple[JsonlFileTransport, JsonlFileTransport]:
+    """(brain_side, body_side) transports sharing one bridge directory. ``body``: "server" (default,
+    or DW_BODY) or "client"; it picks the default directory and the file names."""
+    d = Path(directory) if directory else paths.bridge_dir(body)
+    to_body, to_brain = endpoint_files(body)
+    body_side = JsonlFileTransport(d / to_brain, d / to_body)
+    brain_side = JsonlFileTransport(d / to_body, d / to_brain)
+    return brain_side, body_side

@@ -42,7 +42,7 @@ M.object = jsonutil.object
 M.encode = jsonutil.encode
 
 -- --------------------------------------------------------------------- state
-local cfg = { dir = nil, in_path = nil, out_path = nil, offset = 0, partial = "", log = nil, handle = nil }
+local cfg = { dir = nil, in_path = nil, out_path = nil, tail = nil, log = nil, handle = nil }
 M.stats = { received = 0, malformed = 0, sent = 0, errors = 0 }
 
 local function log(name, data)
@@ -180,36 +180,48 @@ local function parse(text)
 end
 
 -- --------------------------------------------------------------------- tail + poll
--- Read new complete lines since the saved offset. Returns a list of raw line strings.
-local function read_new_lines()
-    local f = io.open(cfg.in_path, "rb")
-    if not f then
-        if cfg.offset > 0 then cfg.offset, cfg.partial = 0, "" end -- file removed: treat as truncated
-        return {}
-    end
-    local size = f:seek("end") or 0
-    if size < cfg.offset then -- truncated or rotated: start over
-        log("bridge_truncated", { size = size, offset = cfg.offset })
-        cfg.offset, cfg.partial = 0, ""
-    end
-    if size == cfg.offset then
+-- A byte-offset tail of one JSONL file (BRIDGE_PROTOCOL.md "Files"): read [offset, EOF), keep the
+-- trailing partial line, reset to 0 when the file shrinks or disappears. Exported so other readers
+-- (the client body's chat events, client_mod/scripts/client_bridge.lua) reuse it.
+-- M.new_tail(path, {from_start = bool}) -> t; t:read() -> list of raw line strings; t.offset.
+function M.new_tail(path, opts)
+    local t = { path = path, offset = (opts and opts.from_start) and 0 or file_size(path), partial = "" }
+    function t:read()
+        local f = io.open(self.path, "rb")
+        if not f then
+            if self.offset > 0 then self.offset, self.partial = 0, "" end -- file removed: treat as truncated
+            return {}
+        end
+        local size = f:seek("end") or 0
+        if size < self.offset then -- truncated or rotated: start over
+            log("bridge_truncated", { path = self.path, size = size, offset = self.offset })
+            self.offset, self.partial = 0, ""
+        end
+        if size == self.offset then
+            f:close()
+            return {}
+        end
+        f:seek("set", self.offset)
+        local chunk = f:read(size - self.offset) or ""
         f:close()
-        return {}
+        self.offset = self.offset + #chunk
+        local buf = self.partial .. chunk
+        local lines, start = {}, 1
+        while true do
+            local nl = buf:find("\n", start, true)
+            if not nl then break end
+            lines[#lines + 1] = buf:sub(start, nl - 1)
+            start = nl + 1
+        end
+        self.partial = buf:sub(start) -- trailing partial line waits for the rest
+        return lines
     end
-    f:seek("set", cfg.offset)
-    local chunk = f:read(size - cfg.offset) or ""
-    f:close()
-    cfg.offset = cfg.offset + #chunk
-    local buf = cfg.partial .. chunk
-    local lines, start = {}, 1
-    while true do
-        local nl = buf:find("\n", start, true)
-        if not nl then break end
-        lines[#lines + 1] = buf:sub(start, nl - 1)
-        start = nl + 1
-    end
-    cfg.partial = buf:sub(start) -- trailing partial line waits for the rest
-    return lines
+    return t
+end
+
+-- Read new complete lines of the brain's file since the saved offset.
+local function read_new_lines()
+    return cfg.tail and cfg.tail:read() or {}
 end
 
 -- One poll step: handle every complete line that arrived. Returns the number of lines seen.
@@ -234,22 +246,23 @@ function M.poll()
 end
 
 -- Set paths and start offset without scheduling the loop (tests call this, then poll()).
--- opts: dir (default $DW_BRIDGE_DIR), log (dwlog-like module), from_start (bool).
+-- opts: dir (default $DW_BRIDGE_DIR), log (dwlog-like module), from_start (bool),
+-- in_name / out_name (file names; default M.BRAIN_TO_BODY / M.BODY_TO_BRAIN).
 function M.init(opts)
     opts = opts or {}
     local dir = opts.dir or os.getenv("DW_BRIDGE_DIR")
     if not dir or dir == "" then return nil, "DW_BRIDGE_DIR not set" end
     dir = dir:gsub("[/\\]+$", "")
     cfg.dir, cfg.log = dir, opts.log
-    cfg.in_path = dir .. "/" .. M.BRAIN_TO_BODY
-    cfg.out_path = dir .. "/" .. M.BODY_TO_BRAIN
+    -- File names are overridable per instance (the client body uses its own pair).
+    cfg.in_path = dir .. "/" .. (opts.in_name or M.BRAIN_TO_BODY)
+    cfg.out_path = dir .. "/" .. (opts.out_name or M.BODY_TO_BRAIN)
     -- Start at the current end so stale commands from an earlier run are ignored.
-    cfg.offset = opts.from_start and 0 or file_size(cfg.in_path)
-    cfg.partial = ""
+    cfg.tail = M.new_tail(cfg.in_path, { from_start = opts.from_start })
     return true
 end
 
-function M.paths() return { dir = cfg.dir, input = cfg.in_path, output = cfg.out_path, offset = cfg.offset } end
+function M.paths() return { dir = cfg.dir, input = cfg.in_path, output = cfg.out_path, offset = cfg.tail and cfg.tail.offset or 0 } end
 
 -- Init from the environment and poll on the game thread every POLL_MS.
 function M.start(log_mod, opts)
@@ -265,7 +278,7 @@ function M.start(log_mod, opts)
         local pok, perr = pcall(M.poll)
         if not pok then log("bridge_poll_error", { err = tostring(perr) }) end
     end)
-    log("bridge_started", { dir = cfg.dir, poll_ms = poll_ms, offset = cfg.offset })
+    log("bridge_started", { dir = cfg.dir, poll_ms = poll_ms, offset = M.paths().offset })
     return true
 end
 

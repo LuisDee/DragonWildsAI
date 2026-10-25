@@ -14,7 +14,7 @@ from pathlib import Path
 from . import paths, protocol
 from .interface import BODY_TOOLS, PROGRESS_EVENTS, GameInterface, Reason, fail, ok
 from .mock import MockGame
-from .transport import BODY_TO_BRAIN, BRAIN_TO_BODY, JsonlFileTransport, Transport
+from .transport import Transport, file_transport_pair
 
 
 class FakeBody:
@@ -99,9 +99,12 @@ class FakeBody:
 
 
 def main() -> None:
-    d = Path(sys.argv[1]) if len(sys.argv) > 1 else paths.bridge_dir()
-    body = FakeBody(MockGame.default_world(), JsonlFileTransport(d / BODY_TO_BRAIN, d / BRAIN_TO_BODY))
-    print(f"fake body serving {d} (Ctrl+C to stop)")
+    """python -m brain.fake_body [bridge_dir] [server|client] (default DW_BODY or server)."""
+    kind = paths.body_kind(sys.argv[2] if len(sys.argv) > 2 else None)
+    d = Path(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1] else paths.bridge_dir(kind)
+    _, transport = file_transport_pair(d, kind)
+    body = FakeBody(MockGame.default_world(), transport)
+    print(f"fake {kind} body serving {d} (Ctrl+C to stop)")
     try:
         while True:
             body.step(0.25)

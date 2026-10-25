@@ -1,15 +1,18 @@
 # Run the live brain (python -m brain.run_live) with the model env vars loaded from the user
 # environment (ANTHROPIC_API_KEY, DW_CONTROLLER_MODEL, DW_PLANNER_MODEL are stored there, never in files).
-# Extra args pass through, e.g. -DryRun for no API spend.
-param([switch]$DryRun)
+#   -Body server  the server puppet mod (bridge_io\), the default
+#   -Body client  Claude's own game client (client_mod\, client_io\bridge\; route R2)
+#   -DryRun       rule-based fake models, no API spend
+param([switch]$DryRun, [ValidateSet('server', 'client')][string]$Body = $(if ($env:DW_BODY) { $env:DW_BODY } else { 'server' }))
 . "$PSScriptRoot\config.ps1"
-foreach ($name in 'ANTHROPIC_API_KEY', 'DW_CONTROLLER_MODEL', 'DW_PLANNER_MODEL', 'DW_CHAT_PREFIXES') {
+foreach ($name in 'ANTHROPIC_API_KEY', 'DW_CONTROLLER_MODEL', 'DW_PLANNER_MODEL', 'DW_CHAT_PREFIXES', 'DW_WORLD_GUID') {
     $v = [Environment]::GetEnvironmentVariable($name, 'User')
     if ($v) { Set-Item "env:$name" $v }
 }
-$env:DW_BRIDGE_DIR = $BridgeDir
+$env:DW_BODY = $Body
+$env:DW_BRIDGE_DIR = if ($Body -eq 'client') { $ClientBridgeDir } else { $BridgeDir }
 $py = Join-Path $RepoRoot '.venv\Scripts\python.exe'
-$runArgs = @('-m', 'brain.run_live')
+$runArgs = @('-m', 'brain.run_live', '--body', $Body)
 if ($DryRun) { $runArgs += '--dry-run' }
 Set-Location $RepoRoot
 & $py @runArgs

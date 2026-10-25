@@ -10,6 +10,8 @@ $ModName       = 'DWCompanion'
 $ModDeployDir  = Join-Path $ServerWin64 "ue4ss\Mods\$ModName"
 $ModLogDir     = if ($env:DW_MOD_LOG_DIR) { $env:DW_MOD_LOG_DIR } else { Join-Path $RepoRoot 'logs\mod' }
 $BridgeDir     = if ($env:DW_BRIDGE_DIR) { $env:DW_BRIDGE_DIR } else { Join-Path $RepoRoot 'bridge_io' }
+# Claude's own game client (route R2): client_mod/scripts/client_bridge.lua serves this dir.
+$ClientBridgeDir = if ($env:DW_CLIENT_BRIDGE_DIR) { $env:DW_CLIENT_BRIDGE_DIR } else { Join-Path $RepoRoot 'client_io/bridge' }
 $AppId         = 4019830
 
 function Get-SteamCmd {
