@@ -53,3 +53,15 @@ The LLM is never in the per-frame loop: model latency is 0.3–1 s and combat wi
   - It sets the reflex parameters (focus target, weapon, stance, retreat threshold).
 - **Plans** (Planner, Sonnet): minutes-scale goals.
 - **Rate limit:** coalesce events, at most one Controller call every ~2 s. Worst case about 1,800 calls/h, roughly $1.25/h on Haiku 5.5 ($0.10/$0.50 per M tokens). A realistic mixed session costs $0.50–2/h including the Planner.
+
+## 4. Spells and weakness-aware weapon choice (Luis's examples, 2026-10-25)
+Luis relies on spells: **a shield spell**, and **wind jump**, whose landing stuns enemies and works well against Kalphites. He wants the bot to switch to the best weapon in its slots for the enemy, exploiting weaknesses.
+- **Spells are player actions** (e.g. `PA_Spell_Sword_JumpAttack`, magic collections on staves, `BP_SMBG_*` spell modules). Cast them through the same server-side action path as melee (`BP_PerformAttack`-style), to be confirmed by research.
+  - Catalog each spell: cost, cooldown, effect (stun, shield), area, timing.
+  - **Reflex rules:**
+    - Shield on an incoming big telegraph or low HP.
+    - Wind-jump into clusters (3+ enemies in radius, especially Kalphites), then swing during the stun.
+  - The Controller sets spell tactics and honours Luis's instructions ("save shield for the boss").
+- **Enemy table** `data/enemies_<build>.json`, generated like the item catalog: per enemy class, its damage-type resistances and weaknesses, HP, notable attacks and telegraph timings.
+  - **Weapon choice:** for each weapon in the bot's slots, score = expected damage × the target's multiplier for the weapon's damage types. Swap on target change when the gain beats a threshold, which avoids flip-flopping.
+  - The Controller sees the same table, so it can explain choices in chat and override them.

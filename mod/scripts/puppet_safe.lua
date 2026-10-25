@@ -67,12 +67,20 @@ function M.safe_remove(puppet, opts)
 
     -- SetLifeSpan, not K2_DestroyActor: the engine destroys the actor on its next tick, outside
     -- our callback (immediate destroys from a UE4SS callback are avoided; see DISCOVERIES).
+    -- Held weapons spawned by puppet_gear are separate actors attached to the mesh; they would
+    -- be left behind (detached) when the pawn goes.
+    local held = {}
+    local eq = try(function() return puppet.PlayerEquipmentComponent end)
+    for _, slot in ipairs({ "HeldEquipmentActorRight", "HeldEquipmentActorLeft" }) do
+        local h = eq and try(function() return eq[slot] end)
+        if alive(h) and pcall(function() h:SetLifeSpan(0.1) end) then held[#held + 1] = fullname(h) end
+    end
     local ok_p = pcall(function() puppet:SetLifeSpan(0.1) end)
     local ok_c = (not has_ctrl) or pcall(function() ctrl:SetLifeSpan(0.1) end)
     local ok = ok_p and ok_c
     local reason = nil
     if not ok then reason = "destroy_error" end
-    return result(ok, reason, { puppet = name, controller = has_ctrl and fullname(ctrl) or nil })
+    return result(ok, reason, { puppet = name, controller = has_ctrl and fullname(ctrl) or nil, held = held })
 end
 
 function M.run(log, args)

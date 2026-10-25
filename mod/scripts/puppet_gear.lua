@@ -29,7 +29,9 @@ local function str(v) return v and try(function() return v:ToString() end) or ni
 local function pawns()
     local players, puppets = {}, {}
     for _, p in ipairs(FindAllOf("BP_PlayerCharacter_C") or {}) do
-        if valid(p) then
+        -- Skip destroyed actors awaiting GC: UE4SS IsValid() is still true for them; only the
+        -- internal Garbage|Unreachable flags tell them apart (see puppet_safe.lua).
+        if valid(p) and try(function() return p:HasAnyInternalFlags(0x10200000) end) ~= true then
             local c = try(function() return p:GetController() end)
             local is_player = (fullname(c) or ""):find("PlayerController", 1, true) ~= nil
             table.insert(is_player and players or puppets, p)

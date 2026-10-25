@@ -115,25 +115,51 @@ function U.player_name(p)
 end
 
 -- PlayerState PlayerId: the chat hook reports this as command_received.player (e.g. "256").
-function U.player_id(p)
+-- The pawn's PlayerState, else its controller's (the chat PlayerId lives on the PlayerState).
+local function player_state(p)
     local ps = U.try(function() return p.PlayerState end)
-    if not U.valid(ps) then return nil end
-    return U.try(function() return ps:GetPlayerId() end) or U.try(function() return ps.PlayerId end)
+    if U.valid(ps) then return ps end
+    local c = U.controller_of(p)
+    ps = c and U.try(function() return c.PlayerState end)
+    return U.valid(ps) and ps or nil
 end
 
--- Find a connected player by display name, PlayerId (as a string or number) or, case-insensitively,
--- by name. With exactly one player connected, an empty/"me"/nil name means that player.
-function U.find_player(who)
+function U.player_id(p)
+    local ps = player_state(p)
+    if not ps then return nil end
+    return U.try(function() return ps.PlayerId end) or U.try(function() return ps:GetPlayerId() end)
+end
+
+-- Aliases for "the first connected player" (the brain's Controller may say "me"; Luis is the owner).
+U.PLAYER_ALIASES = { [""] = true, me = true, luis = true, player = true }
+
+-- Find a connected player. `who` may be:
+--   * the chat PlayerId as a string or number ("256", from FChatMessageData.SenderData.PlayerId;
+--     this is what command_received.player carries) -> PlayerState.PlayerId match;
+--   * a display name (exact, then case-insensitive);
+--   * an alias in U.PLAYER_ALIASES (or nil) -> the first connected player.
+-- If nothing matches and exactly one player is connected, a numeric id falls back to that player
+-- (its PlayerState may be unreadable); with loose=true any unmatched name does (follow only
+-- targets players, so "follow Zezima" with one player online means that player).
+function U.find_player(who, loose)
     local players = U.split_pawns()
+    if #players == 0 then return nil end
     local w = who ~= nil and tostring(who) or ""
     local lw = w:lower()
-    if (lw == "" or lw == "me" or lw == "player") and #players == 1 then return players[1] end
+    if U.PLAYER_ALIASES[lw] then return players[1] end
+    local num = tonumber(w)
+    if num then
+        for _, p in ipairs(players) do
+            if tonumber(U.player_id(p)) == num then return p end
+        end
+    end
     for _, p in ipairs(players) do
-        if U.player_name(p) == w or tostring(U.player_id(p)) == w then return p end
+        if U.player_name(p) == w then return p end
     end
     for _, p in ipairs(players) do
         if (U.player_name(p) or ""):lower() == lw then return p end
     end
+    if #players == 1 and (num or loose) then return players[1] end
     return nil
 end
 
