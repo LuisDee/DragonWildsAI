@@ -93,3 +93,4 @@ Luis relies on spells: **a shield spell**, and **wind jump**, whose landing stun
 - **Melee weapon enchants:** change or boost the weapon's damage type (pair with the enemy weakness table).
 - **Spectral Arrows:** ranged.
 - **Requirement:** the bot mirrors Luis's stats and unlocks, so it has the same spells. Research is in `docs/research/2026-10-25-spells-and-weaknesses.md` section 5.
+- **Correction (Luis):** those were only examples. The bot should have **all spells**, including utility ones such as **Magical Mending**: Luis drops damaged gear on the floor and the bot repairs it. The spell catalog must cover every spell; skills are added and verified one at a time.
