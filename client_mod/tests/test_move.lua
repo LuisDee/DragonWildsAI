@@ -305,6 +305,23 @@ check("nav link: jumped up the step and arrived", s.result and s.result.status =
     tostring(s.result and s.result.status) .. " link_jumps=" .. tostring(s.link_jumps))
 raised = {}; oracle = nil
 
+-- 11. world-teardown guard: while _G.DW_PAUSE is set, the loop makes no engine calls at all
+walls = {}; oracle = nil
+pawn.loc = { X = 0, Y = 0, Z = 0 }
+M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1 })
+_G.DW_PAUSE = true
+local calls = 0
+local real_add = pawn.AddMovementInput
+pawn.AddMovementInput = function(self, d, sc) calls = calls + 1; return real_add(self, d, sc) end
+run(30)
+check("paused: no movement input / no engine calls", calls == 0 and pawn.loc.X == 0, calls)
+check("paused: start() refuses", not M.go_to(log, { 1, 1, 0 }, {}).ok)
+_G.DW_PAUSE = nil
+M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1 })
+run(100)
+check("unpaused: moves again", M.status().result and M.status().result.status == "arrived", M.status().status)
+pawn.AddMovementInput = real_add
+
 -- 7. arbiter hooks: actor target ({actor=obj}), snapshot/restore, face_when_near
 walls = {}; pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 1500, Y = 0, Z = 0 }; oracle = nil
 M.follow(log, { actor = luis }, 2, { sprint = true, face_when_near = true })

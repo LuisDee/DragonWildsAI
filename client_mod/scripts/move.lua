@@ -459,11 +459,18 @@ local function finish(st, result, log)
     if log then log("move: " .. tostring(result.status) .. " " .. tostring(result.reason or "")) end
 end
 
+-- World teardown guard: disconnect/join set _G.DW_PAUSE = true (cleared by the bridge once a new
+-- pawn has been stable for 3 s). A UFunction call during teardown crashed the client (18:08:42
+-- access violation), so while paused, or with an invalid controller/pawn, the loop does NOTHING.
+local function paused() return rawget(_G, "DW_PAUSE") == true end
+
 local function tick(st, gen, log)
     if st.gen ~= gen then return "stale" end
+    if paused() then st.status = "paused"; return end
     local pc, pawn = st.pc, nil
-    if pc and pc:IsValid() then pawn = pc.Pawn end
-    if not (pawn and pawn:IsValid()) then return finish(st, { status = "failed", reason = "no_pawn" }, log) end
+    if not (pc and pc:IsValid()) then st.status = "paused"; return end
+    pawn = pc.Pawn
+    if not (pawn and pawn:IsValid()) then st.status = "paused"; return end
     local t = now(pawn)
     local dt = st.last_t and (t - st.last_t) or 0
     st.last_t = t
@@ -924,6 +931,7 @@ local function tick(st, gen, log)
 end
 
 local function start(log, mode, opts)
+    if paused() then return { ok = false, error = "paused (world changing)" } end
     local st = S()
     if st.handle then pcall(CancelDelayedAction, st.handle) end
     local pc = local_pc()
@@ -962,6 +970,7 @@ local function start(log, mode, opts)
     st.args = { mode = mode, goal = st.goal and { g[1], g[2], g[3] } or st.target_spec,
                 distance_m = mode == "follow" and opts.tolerance_m or nil, opts = oc }
     st.handle = LoopInGameThreadWithDelay(1, function()
+        if paused() then return end
         local ok, err = pcall(tick, st, gen, log)
         if not ok then
             if log then log("move: tick error " .. tostring(err)) end
@@ -1007,6 +1016,7 @@ function M.unstuck(log)
     if log then log("move: unstuck requested (pause menu)") end
     ExecuteWithDelay(700, function()
         ExecuteInGameThread(function()
+            if paused() then return end
             local r = _G.DW_UNSTUCK
             local scr
             for _, w in ipairs(FindAllOf("PauseMenuScreen") or {}) do

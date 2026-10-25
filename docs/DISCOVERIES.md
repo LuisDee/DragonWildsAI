@@ -851,6 +851,9 @@ Service: `client_mod/scripts/move.lua` (go_to / follow / stop / status). Command
   - The 3.4 m alcove ledge stays unlinked (JumpMaxDepth 1.5 m), which is correct for Claude's 1.8 m apex.
   - `nav_oracle.lua` now does the rebuild automatically, once per anchor placement after it has settled (`links_rebuilt: true` in the reply).
   - `move.lua` v5 marks oracle segments rising more than 60 cm over less than 3 m as link endpoints. It walks to the take-off point and jumps there; link endpoints need strict 3D arrival, while ordinary points get a slope-aware tolerance of 65 cm + 0.9 × horizontal distance.
+- **World-teardown crash rule (client, 18:08:42 UTC):** an access violation came from a Lua UFunction call in a game-thread loop 2 s after `disconnect.lua`. My `move_plandry.lua` LineTraceSingle loop had started 2 s earlier in the same batch, a likely source.
+  - Convention: `_G.DW_PAUSE = true` is set by disconnect/join and cleared by the bridge 3 s after a new pawn is stable.
+  - `move.lua` (loop, prefetch, traces, planner, Unstuck callback) and `move_plandry.lua` make no engine calls while it is set, or while the controller/pawn is invalid. Any per-frame Lua loop must do the same.
 
 ## Client perception + inventory (R2) (2026-10-25, 17:30-18:00 UTC, client build 26162923, Shockbyte world)
 Modules: `client_mod/scripts/sense.lua` (census + me), `client_mod/scripts/inventory.lua` (list, collect, equip, unequip, drop). Commands: `client_mod/commands/sense_*.lua`, `inv_*.lua`. Both reuse the dependency-free `mod/body/util.lua` via `loadfile` (works unchanged on the client).
