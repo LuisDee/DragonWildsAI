@@ -37,8 +37,10 @@ M.cfg = {
     verify_s = 4.0,         -- after the cast input: runes / cooldown must change within this ...
     cast_max_s = 12,
     late_watch_s = 15,
-    cooldown_grace_s = 2,   -- after the server's cooldown notice: wait this long for a success signal
-    aim_heights_m = { 1.2, 0.8, 1.6, 0.5 }, -- aimed spells at a thing: aim at its body, not its base
+    cooldown_grace_s = 2,
+    finish_s = 3,           -- after a verified cast: wait this long for the game to leave its spell mode   -- after the server's cooldown notice: wait this long for a success signal
+    aim_heights_m = { 1.2, 0.8, 1.6, 0.5 }, -- a standing tree / plant (foliage, position = its base): aim at the trunk
+    actor_aim_heights_m = { 0.3, 0.0, 0.8, 1.2 }, -- an actor (a log on the ground, a rock; position = its origin)
     aim_match_m = 3,        -- an aimed preview must sit this close (2D) to the target
     preview_checks = 2,     -- re-aim + re-read the preview this many times per candidate
     place_budget_s = 5,     -- the whole aim/placement search; then cancel (never cast it badly)      -- after a failed answer: keep checking this long for a late success        -- ... or, while the game is still casting it (spell input mode / casting state), this
@@ -494,6 +496,32 @@ function W.highlight(api, slot)
     return nil
 end
 
+-- The game's own centre of a thing when its actor origin is not where it lies: ATreeLog (felled logs,
+-- splittable logs) -> GetMidPointWorldLocation (FVector out param; gather.lua reads it the same way).
+-- -> [x, y, z] metres | nil
+function W.thing_center(api, t)
+    local u = U()
+    local a = api.actor_of and api.actor_of(t)
+    if not u.valid(a) then return nil end
+    local cls = u.find_object("/Script/Dominion.TreeLog")
+    if not (cls and u.try(function() return a:IsA(cls) end) == true) then return nil end
+    local mid = {}
+    local ok = pcall(function() a:GetMidPointWorldLocation(mid) end)
+    if ok and type(mid.X) == "number" and (mid.X ~= 0 or mid.Y ~= 0) then return { mid.X / 100, mid.Y / 100, (mid.Z or 0) / 100 } end
+    return nil
+end
+
+-- This client's world clock in seconds (UGameplayStatics::GetTimeSeconds), or nil.
+local GST
+function W.clock(api)
+    local u = U()
+    if not (GST and u.valid(GST)) then GST = u.find_object("/Script/Engine.Default__GameplayStatics") end
+    local pawn = W.pawn(api)
+    if not (GST and pawn) then return nil end
+    local v = u.try(function() return GST:GetTimeSeconds(pawn) end)
+    return type(v) == "number" and v or nil
+end
+
 -- One frame of an Enhanced Input action (the shared helper combat.lua verified live).
 function W.inject(api, action)
     local u = U()
@@ -731,7 +759,13 @@ local function target_of(api, target, snap)
             or ("I can't see " .. target .. " to aim at.")
         return nil, api.fail("unknown_target", d)
     end
-    return { kind = "thing", position = t.position, name = t.name, id = t.id }
+    -- where the thing really is: felled logs roll away from their stale actor origin (DISCOVERIES:
+    -- aim at the game's own ATreeLog::GetMidPointWorldLocation; L15 live: the preview fell 1-3.5 m
+    -- past the origin with "requires log")
+    local pos, where = t.position, nil
+    local c = W.thing_center(api, t)
+    if c then pos, where = c, "midpoint" end
+    return { kind = "thing", position = pos, name = t.name, id = t.id, foliage = target:sub(1, 4) == "fol:" or nil, aim_from = where }
 end
 
 local function arbiter(api) local A = api.module("arbiter"); return A and type(A.request) == "function" and A or nil end
@@ -882,7 +916,7 @@ function M.target_candidates(target, cfg)
     if not p then return { { here = true } } end
     if target.kind == "point" then return { { position = { p[1], p[2], p[3] or 0 }, exact = true } } end
     local out = {}
-    for _, h in ipairs(cfg.aim_heights_m) do
+    for _, h in ipairs(target.foliage and cfg.aim_heights_m or cfg.actor_aim_heights_m) do
         out[#out + 1] = { position = { p[1], p[2], (p[3] or 0) + h }, aim = true, height_m = h }
     end
     return out
@@ -945,9 +979,11 @@ function M.own_actor(job, df)
     return best
 end
 
-local function verified_result(job, df)
+local function verified_result(job, df, snap)
     local d = job.d
     d.verified = true
+    -- how far the cast moved me (dash / leap spells), from fresh positions
+    if snap and snap.position and job.before.position then d.moved_m = math.floor(d3(snap.position, job.before.position) * 100 + 0.5) / 100 end
     d.runes_spent, d.cooldown_started = df.runes_spent, df.cooldown_started == true
     d.effects = { ge = df.ge_added, tags = df.tags_added }
     d.effect_verified = (#df.ge_added + #df.tags_added + #df.actors_added) > 0
@@ -986,7 +1022,9 @@ end
 
 -- One step of the cast state machine; nil = carry on, else the result.
 local function step(job)
-    local api, cfg, t = job.api, M.cfg, job.api.now()
+    -- sub-second clock: the bridge's api.now() is os.time (1 s steps), too coarse for 0.35 s preview waits
+    local api, cfg = job.api, M.cfg
+    local t = W.clock(api) or api.now()
     if paused() then return failed(job, "companion_down", "paused", "I'm not in the world right now.") end
     if job.phase == "settle" then
         -- a wheel / placement left open by an earlier attempt: wait until it has closed, then open ours
@@ -1033,7 +1071,15 @@ local function step(job)
         if evs[i].ev == "on_cooldown" and not job.cd_seen then job.cd_seen = t end
     end
     local df = M.diff(job.before, snap, job.st)
-    if df.spent or df.cooldown_started or M.own_actor(job, df) then return verified_result(job, df) end
+    if df.spent or df.cooldown_started or M.own_actor(job, df) then
+        -- it went off. Don't press Esc into the cast animation: let the game leave its spell mode first
+        -- (live 21:2x Splinter: the spell actor appeared while still in DIM_SpellcastingMode), up to
+        -- finish_s; then answer with the full evidence (the rune spend may land a moment later)
+        job.finish_until = job.finish_until or (t + cfg.finish_s)
+        if in_spell_mode(snap.input_mode) and t < job.finish_until then return nil end
+        job.succeeded = true
+        return verified_result(job, df, snap)
+    end
     -- the server said "on cooldown": give a just-cast spell a moment to show its rune spend / cooldown
     -- (L13: a retry got server_cooldown right after a cast that DID go off) before believing it
     if job.cd_seen and t >= job.cd_seen + cfg.cooldown_grace_s then

@@ -80,6 +80,8 @@ local function effect(s, landed)
 end
 
 W.pc = function() return {} end
+W.clock = function() return nil end
+W.thing_center = function(_, t) return G and G.centers and G.centers[t.id] or nil end
 W.pawn = function() return {} end
 W.static = function(o) return o end
 W.all_spells = function() return G.all end
@@ -167,6 +169,10 @@ W.inject = function(_, a)
             if G.slow_cast then
                 G.mode = "DIM_SpellcastingMode" -- the cast animation (live: runes spent after > 4 s)
                 at(G.slow_cast, function() G.mode = "DIM_Gameplay"; effect(s, { aim[1] + off, aim[2], aim[3] or 0 }) end)
+            elseif G.cast_mode_after then
+                G.mode = "DIM_SpellcastingMode" -- the actor appears, the mode lingers a moment (live Splinter)
+                at(0.5, function() effect(s, { aim[1] + off, aim[2], aim[3] or 0 }) end)
+                at(G.cast_mode_after, function() G.mode = "DIM_Gameplay" end)
             else
                 G.mode = "DIM_Gameplay"
                 at(0.5, function() effect(s, { aim[1] + off, aim[2], aim[3] or 0 }) end)
@@ -507,8 +513,14 @@ reset({ unlocked = { SPLINTER }, wheel = { "USD_TestSplinter" }, aim_valid_after
         foliage = {} })
 do
     local res = run_cast({ spell = "Wood Splitter", target = "BP_Log_1" })
-    check("L15: placed spell on a log: aims at the log, valid, LMB", res.ok and presses() == "menu,quick0,place" and res.data.aim_height_m == 1.2,
+    check("L15: placed spell on a log: aims low at the log (an actor), valid, LMB", res.ok and presses() == "menu,quick0,place" and res.data.aim_height_m == 0.3,
         tostring(res.reason) .. " " .. presses())
+end
+reset({ unlocked = { SPLINTER }, wheel = { "USD_TestSplinter" }, aim_valid_after = 1 })
+do
+    G.centers = { BP_Log_1 = { 7.5, 1, 0 } }
+    local res = run_cast({ spell = "Wood Splitter", target = "BP_Log_1" })
+    check("L15: a log is aimed at its real centre (game midpoint), not the stale origin", res.ok and G.aimed[1] == 7.5 and G.aimed[2] == 1, presses())
 end
 reset({ unlocked = { SPLINTER }, wheel = { "USD_TestSplinter" }, aim_valid_after = 99 })
 do
@@ -519,6 +531,14 @@ do
     check("L15: fails fast (about 6 s, not 22)", T - t0 <= 7, T - t0)
     check("L15: says it cancelled, with the game's words", (res.data.detail or ""):find("cancelled the spell", 1, true)
         and (res.data.detail or ""):find("no target", 1, true), res.data.detail)
+end
+-- success while the game is still in its cast mode: no Esc into the animation, full evidence after
+reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" } })
+do
+    G.cast_mode_after = 1.5
+    local res = run_cast({ spell = "Summon Shelter" })
+    check("success in cast mode: waits for the game to leave it, no Esc", res.ok and not presses():find("cancel", 1, true)
+        and res.data.cancelled_mode == nil, presses() .. " " .. tostring(res.data.cancelled_mode))
 end
 -- the game's "not flat" verdict teaches the spread limit: equally uneven spots are skipped
 reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" }, invalid_spots = { ["3,0"] = true, ["4,0"] = true }, not_flat = true })

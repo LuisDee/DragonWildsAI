@@ -1514,3 +1514,28 @@ Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probe
   - Fail (38 % HP after a fight): it asked "want me to eat some meat to heal?" instead of acting.
   - Both are judgement calls, left to the model and the vitals policy.
   - Speech was null on every action response: the model returned tool calls without text.
+- **Spell special requirements (L1, live read 20:05 UTC+1):**
+  - `UDominionSpellData.SpecialRequirementsStrategy` (TSubclassOf) → its default object (`cls:GetCDO()`) → `AreSpecialRequirementsMet(local PC)` (BlueprintNativeEvent, const) returns an FGameplayTag read as a Lua table with `TagName`, "None" when met. It was safe on all 14 classes Claude has.
+  - Live tags: `UI.ConsumeItem.RequiresHeldMeleeWeapon` (enchants), `Item.Requirement.50uWater` (Humidify), `Item.Requirement.Compost` (Mucksplosion), `UI.ConsumeItem.RequiresHeldRangedWeapon` (Spectral Arrows), `UI.ConsumeItem.RequiresClaimedBed` (Home Teleport), `Item.Requirement.HeldFishingRod` (Infernal Rod).
+  - The texts come from `SpecialRequirementsText`.
+- **Keyless wheel slots (9–12):**
+  - Injecting `IA_SpellsMenu_SelectSlot` (the Axis2D stick) does nothing to the radial: CachedSectionId stayed 0 in 12 directions.
+  - The radial's own BlueprintCallable `HighlightSlice(9)` does set CachedSectionId 9 and SpellName "Enchant Weapon: Air", and it holds over later frames. The radial's `OffsetDegree` is 15 and `RadialMenuStickinessType` is 1.
+  - So `cast` highlights the slot, checks that the name equals the requested spell, then presses `IA_SpellsMenu_AcceptSelection`.
+- **Placement preview, live tags:** `UI.Notification.SpellPlacement.NoTarget.RequiresLog` (Splinter aimed off the log), `…GroundNotFlatEnough`, `…Blocked`.
+  - **A splittable log's actor origin is stale.** Aim at `ATreeLog::GetMidPointWorldLocation` (here 7 m from the origin), and the preview turns valid at once.
+  - **Splinter on a log, verified live:** `BP_Magic_Splinter_C` spawns at the preview, Earth −10 and Nature −5 are spent, and the log splits into "Ash Logs" world items.
+  - After a placed cast the game may stay in `DIM_SpellcastingMode` for a moment. Don't press Esc then.
+- **The bridge clock `api.now()` is `os.time`, in 1 s steps.** Sub-second waits in `spells.lua` use `UGameplayStatics::GetTimeSeconds`.
+- **Spell demo, live (21:27–21:35 UTC, debug channel, arbiter idle before each cast):**
+  - **Windstep** (index 35 = page 3, slot 12, keyless):
+    - Presses: menu, next_page ×2, highlight + **accept**, place.
+    - Air −5, cooldown started, `DominionStatusEffect` and tag `Player.Spell.WindStep` on the pawn.
+    - **Jump apex 1.80 m → 7.38 m** (`smoke_jump.lua` before and after).
+    - So the HighlightSlice + name check + Accept path is verified live.
+  - **Tempest Shield** (page 1, key 8; the wheel opened on page 3 and wrapped round): Air −15, cooldown started, `BP_TempestShieldGameplayEffectInstance_C` replicated instance and tag `Player.Status.TempestShield`.
+  - **Phase Dash** (page 4, key 1; the wheel remembers its last page): Astral −10, Air −20, cooldown started, no GE or tag (a Blueprint module plus ExpireAfterDuration).
+    - Effect measured with `client_mod/commands/air_dash_test.lua` (jump, then one `IA_Player_Evade` press while falling).
+    - Without the spell: 3.2 m peak horizontal, then the server **snapped him back to the start** (0 m net).
+    - Right after casting: **8.4 m dash, kept**.
+  - **Runes survive death.** Claude starved at 21:25:56. The hotbar and bag went to the gravestone, but the rune page stayed (Air 6589 …).

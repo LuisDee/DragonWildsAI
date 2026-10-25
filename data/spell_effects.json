@@ -1,0 +1,1815 @@
+{
+ "version": 1,
+ "build": "26161880",
+ "generated_at": "2026-10-25T21:31:57Z",
+ "source": [
+  "data/spells_26161880.json",
+  "tools/gen_spell_effects.py LIVE (DISCOVERIES 'Client spells (R2)')"
+ ],
+ "how_to_prove": "ALL of proof.required, then at least one of proof.effect (prefer confidence=live entries). The cast reply carries runes_spent, cooldown_started, effects.{ge,tags}, spell_actor, landed_at, moved_m, target_after, target_health; jump/air-dash proofs need their probe.",
+ "signal_kinds": {
+  "runes_spent": "carried rune counts fall by `cost` (cast reply: data.runes_spent)",
+  "cooldown_started": "PlayerUtilityMagicComponent.LastCastTimeBySpellData gains/changes the spell (data.cooldown_started)",
+  "tag_added": "gameplay tag `tag` appears on the pawn's GameplayEffectsComponent (data.effects.tags)",
+  "ge_added": "a GameplayEffect instance whose class contains `class_contains` appears on the pawn (data.effects.ge)",
+  "spell_actor": "a new UtilitySpell/actor of class `class` appears `near` the preview point or the target (data.spell_actor, data.landed_at)",
+  "jump_apex_gain_m": "jump apex after the cast exceeds the apex before by at least `min` metres (probe: client_mod/commands/smoke_jump.lua)",
+  "air_dash_m": "jump + one IA_Player_Evade press while falling ends at least `min` m away horizontally, kept by the server (probe: client_mod/commands/air_dash_test.lua; without the spell the server snaps him back)",
+  "moved_m": "the cast itself moves the caster at least `min` metres (data.moved_m)",
+  "target_gone": "the targeted thing is gone/converted after the cast (data.target_after == 'gone')",
+  "target_health_drop": "the targeted thing's health falls by at least `min` (data.target_health vs before)",
+  "drops_spawned": "world items whose item id contains `item_contains` appear near the target (look/census)",
+  "held_item_effect": "the held weapon gains the enchant: its damage types include `damage_types` for `time_limit_s` (pawn PlayerEquipmentComponent held effect; to be read)",
+  "world_module": "the spell changes the world through game module `module` (crop growth, water, compost ...); the proof needs a module-specific read (TBD)"
+ },
+ "spells": {
+  "USD_AccessPersonalChest": {
+   "name": "Personal Chest",
+   "cast_type": "instant",
+   "cost": {
+    "Law": 20,
+    "Astral": 15
+   },
+   "cooldown_s": 5.0,
+   "unlock": {
+    "skill": "Construction",
+    "level": 40
+   },
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "ge_added",
+      "class_contains": "DominionGameplayEffect"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "GameplayEffect",
+    "PlayMontage"
+   ]
+  },
+  "USD_AxtralProjection": {
+   "name": "Axtral Projection",
+   "cast_type": "aimed",
+   "cost": {
+    "Air": 10,
+    "Astral": 5
+   },
+   "cooldown_s": 45.0,
+   "unlock": {
+    "skill": "Woodcutting",
+    "level": 11
+   },
+   "requirement": {
+    "strategy": "BP_USSRS_RequiresLoggingAxe_C",
+    "text": "Logging Axe"
+   },
+   "target": "thing",
+   "harmful": true,
+   "setup": [
+    "the game's special requirement: Logging Axe",
+    "a valid target thing within reach (the game's preview tag names what it needs)"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "spell_actor",
+      "class": "BP_Spell_AxtralProjection_C",
+      "near": "self"
+     },
+     {
+      "kind": "spell_actor",
+      "class": "BP_Spell_AxtralProjection_C",
+      "near": "self"
+     },
+     {
+      "kind": "spell_actor",
+      "class": "BP_Spell_AxtralProjection_C",
+      "near": "self"
+     },
+     {
+      "kind": "target_health_drop",
+      "min": 1
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "Collision",
+    "CostItems",
+    "DamageByEquipment",
+    "DestroyActor",
+    "ExpireAfterDistance",
+    "ExpireAfterDuration",
+    "Movement",
+    "PlayMontage",
+    "Shape",
+    "SpawnActor",
+    "SpawnVFX",
+    "TrackDamageForAchievement",
+    "Transform"
+   ]
+  },
+  "USD_BonesToPeaches": {
+   "name": "Bones to Peaches",
+   "cast_type": "placed",
+   "cost": {
+    "Earth": 5,
+    "Nature": 10
+   },
+   "cooldown_s": 3.0,
+   "unlock": {
+    "skill": "Cooking",
+    "level": 28
+   },
+   "requirement": null,
+   "target": "ground",
+   "harmful": false,
+   "setup": [
+    "open ground the game's placement preview accepts, within about 9 m"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "spell_actor",
+      "class": "BP_PerkSpell_BonesToPeaches_C",
+      "near": "preview"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "PlayMontage",
+    "UtilityMagic"
+   ]
+  },
+  "USD_Confuse": {
+   "name": "Confuse",
+   "cast_type": "aimed",
+   "cost": {
+    "Astral": 25
+   },
+   "cooldown_s": 120.0,
+   "unlock": {
+    "skill": "Magic",
+    "level": 30
+   },
+   "requirement": {
+    "strategy": "BP_USSRS_NotRunningAgilityCourse_C",
+    "text": null
+   },
+   "target": "aim",
+   "harmful": false,
+   "setup": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": []
+   },
+   "confidence": "data_weak",
+   "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
+   "modules": [
+    "Blueprint",
+    "Cast",
+    "CostItems",
+    "PlayMontage"
+   ]
+  },
+  "USD_CorruptionArrows": {
+   "name": "Spectral Arrows",
+   "cast_type": "instant",
+   "cost": {
+    "Air": 5,
+    "Astral": 15
+   },
+   "cooldown_s": 300.0,
+   "unlock": {
+    "skill": "Ranged",
+    "level": 25
+   },
+   "requirement": {
+    "strategy": "BP_USSRS_RequiresHeldRangedWeapon_C",
+    "text": "2-Handed Bow."
+   },
+   "target": "self",
+   "harmful": false,
+   "setup": [
+    "the game's special requirement: 2-Handed Bow."
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "held_item_effect",
+      "damage_types": [],
+      "time_limit_s": 300.0,
+      "effect": "HEED_CorruptionArrows"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "HeldEquipmentEffect",
+    "PlayMontage"
+   ]
+  },
+  "USD_DetectAnimaVents": {
+   "name": "Summon Elemental Spirits",
+   "cast_type": "instant",
+   "cost": {
+    "Earth": 5,
+    "Astral": 5
+   },
+   "cooldown_s": 10.0,
+   "unlock": {
+    "skill": "Runecrafting",
+    "level": 19
+   },
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": []
+   },
+   "confidence": "data_weak",
+   "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
+   "modules": [
+    "Blueprint",
+    "Cast",
+    "CostItems",
+    "PlayMontage"
+   ]
+  },
+  "USD_DetectOre": {
+   "name": "Summon Stone Spirits",
+   "cast_type": "instant",
+   "cost": {
+    "Earth": 5,
+    "Astral": 5
+   },
+   "cooldown_s": 10.0,
+   "unlock": {
+    "skill": "Mining",
+    "level": 24
+   },
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": []
+   },
+   "confidence": "data_weak",
+   "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
+   "modules": [
+    "Blueprint",
+    "Cast",
+    "CostItems",
+    "PlayMontage"
+   ]
+  },
+  "USD_DivineRock": {
+   "name": "Divine Rock",
+   "cast_type": "placed",
+   "cost": {
+    "Earth": 100,
+    "Nature": 100
+   },
+   "cooldown_s": 1800.0,
+   "unlock": {
+    "skill": "Mining",
+    "level": 80
+   },
+   "requirement": null,
+   "target": "ground",
+   "harmful": false,
+   "setup": [
+    "open ground the game's placement preview accepts, within about 9 m"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": []
+   },
+   "confidence": "data_weak",
+   "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
+   "modules": [
+    "Blueprint",
+    "Cast",
+    "CostItems",
+    "PlayMontage"
+   ]
+  },
+  "USD_EnchantWeapon_Air": {
+   "name": "Enchant Weapon: Air",
+   "cast_type": "instant",
+   "cost": {
+    "Astral": 5,
+    "Air": 15
+   },
+   "cooldown_s": 300.0,
+   "unlock": {
+    "skill": "Attack",
+    "level": 30
+   },
+   "requirement": {
+    "strategy": "BP_USSRS_RequiresHeldEnchantableMeleeWeapon_C",
+    "text": "A held melee weapon"
+   },
+   "target": "self",
+   "harmful": false,
+   "setup": [
+    "the game's special requirement: A held melee weapon"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "held_item_effect",
+      "damage_types": [
+       "DamageType.Magical.Air"
+      ],
+      "time_limit_s": 300.0,
+      "effect": "HEED_EnchantWeaponAir"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "ExpireAfterDuration",
+    "HeldEquipmentEffect",
+    "PlayMontage"
+   ]
+  },
+  "USD_EnchantWeapon_Fire": {
+   "name": "Enchant Weapon: Fire",
+   "cast_type": "instant",
+   "cost": {
+    "Fire": 15,
+    "Astral": 5
+   },
+   "cooldown_s": 300.0,
+   "unlock": {
+    "skill": "Attack",
+    "level": 20
+   },
+   "requirement": {
+    "strategy": "BP_USSRS_RequiresHeldEnchantableMeleeWeapon_C",
+    "text": "A held melee weapon"
+   },
+   "target": "self",
+   "harmful": false,
+   "setup": [
+    "the game's special requirement: A held melee weapon"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "held_item_effect",
+      "damage_types": [
+       "DamageType.Magical.Fire"
+      ],
+      "time_limit_s": 300.0,
+      "effect": "HEED_EnchantWeaponFire"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "ExpireAfterDuration",
+    "HeldEquipmentEffect",
+    "PlayMontage"
+   ]
+  },
+  "USD_EnchantWeapon_Water": {
+   "name": "Enchant Weapon: Water",
+   "cast_type": "instant",
+   "cost": {
+    "Water": 15,
+    "Astral": 5
+   },
+   "cooldown_s": 300.0,
+   "unlock": {
+    "skill": "Attack",
+    "level": 50
+   },
+   "requirement": {
+    "strategy": "BP_USSRS_RequiresHeldEnchantableMeleeWeapon_C",
+    "text": "A held melee weapon"
+   },
+   "target": "self",
+   "harmful": false,
+   "setup": [
+    "the game's special requirement: A held melee weapon"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "held_item_effect",
+      "damage_types": [
+       "DamageType.Magical.Water"
+      ],
+      "time_limit_s": 300.0,
+      "effect": "HEED_EnchantWeaponWater"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "ExpireAfterDuration",
+    "HeldEquipmentEffect",
+    "PlayMontage"
+   ]
+  },
+  "USD_Enfeeble": {
+   "name": "Enfeeble",
+   "cast_type": "aimed",
+   "cost": {
+    "Water": 20,
+    "Astral": 20
+   },
+   "cooldown_s": 75.0,
+   "unlock": {
+    "skill": "Magic",
+    "level": 61
+   },
+   "requirement": {
+    "strategy": "BP_USSRS_NotRunningAgilityCourse_C",
+    "text": null
+   },
+   "target": "aim",
+   "harmful": false,
+   "setup": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": []
+   },
+   "confidence": "data_weak",
+   "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
+   "modules": [
+    "Blueprint",
+    "Cast",
+    "CostItems",
+    "PlayMontage"
+   ]
+  },
+  "USD_EyeOfOculus": {
+   "name": "Eye Of Oculus",
+   "cast_type": "instant",
+   "cost": {
+    "Astral": 3
+   },
+   "cooldown_s": 3.0,
+   "unlock": {
+    "skill": "Construction",
+    "level": 11
+   },
+   "requirement": {
+    "strategy": "BP_USSRS_RequiresNotSoulRifted_C",
+    "text": null
+   },
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "ge_added",
+      "class_contains": "DominionGameplayEffect"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "GameplayEffect",
+    "PlayMontage"
+   ]
+  },
+  "USD_Farming_Compost": {
+   "name": "Mucksplosion",
+   "cast_type": "placed",
+   "cost": {
+    "Earth": 20,
+    "Astral": 15
+   },
+   "cooldown_s": 45.0,
+   "unlock": {
+    "skill": "Farming",
+    "level": 80
+   },
+   "requirement": {
+    "strategy": "BP_USSRS_RequiresCompostAmount_Compost_C",
+    "text": "150 units of compost"
+   },
+   "target": "ground",
+   "harmful": false,
+   "setup": [
+    "the game's special requirement: 150 units of compost",
+    "open ground the game's placement preview accepts, within about 9 m"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "spell_actor",
+      "class": "BP_Magic_Compost_C",
+      "near": "preview"
+     },
+     {
+      "kind": "world_module",
+      "module": "Compost"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "Collision",
+    "Compost",
+    "CostItems",
+    "PlayMontage",
+    "RemoveCombinedContentAmount",
+    "Shape",
+    "UtilityMagic"
+   ]
+  },
+  "USD_Farming_RapidGrowth": {
+   "name": "Rapid Growth",
+   "cast_type": "placed",
+   "cost": {
+    "Earth": 30,
+    "Nature": 30
+   },
+   "cooldown_s": 1500.0,
+   "unlock": {
+    "skill": "Farming",
+    "level": 74
+   },
+   "requirement": null,
+   "target": "ground",
+   "harmful": false,
+   "setup": [
+    "open ground the game's placement preview accepts, within about 9 m"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "world_module",
+      "module": "Grow"
+     },
+     {
+      "kind": "spell_actor",
+      "class": "BP_Magic_RapidGrowth_C",
+      "near": "preview"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "Collision",
+    "CostItems",
+    "Grow",
+    "PlayMontage",
+    "Shape",
+    "UtilityMagic"
+   ]
+  },
+  "USD_FerociousFurnace": {
+   "name": "Superheat",
+   "cast_type": "placed",
+   "cost": {
+    "Fire": 15,
+    "Air": 5
+   },
+   "cooldown_s": 10.0,
+   "unlock": {
+    "skill": "Artisan",
+    "level": 20
+   },
+   "requirement": null,
+   "target": "ground",
+   "harmful": false,
+   "setup": [
+    "open ground the game's placement preview accepts, within about 9 m"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "spell_actor",
+      "class": "BP_Magic_FerociousFurnace_C",
+      "near": "preview"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "PlayMontage",
+    "UtilityMagic"
+   ]
+  },
+  "USD_FireSpirit": {
+   "name": "Fire Spirit",
+   "cast_type": "instant",
+   "cost": {
+    "Fire": 10
+   },
+   "cooldown_s": 3.0,
+   "unlock": {
+    "skill": "Runecrafting",
+    "level": 42
+   },
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "tag_added",
+      "tag": "Player.Status.FireSpirit"
+     },
+     {
+      "kind": "ge_added",
+      "class_contains": "FireSpiritGameplayEffectInstance"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "GameplayEffect",
+    "PlayMontage"
+   ]
+  },
+  "USD_FishCyclone": {
+   "name": "Fishnado",
+   "cast_type": "placed",
+   "cost": {
+    "Nature": 5,
+    "Air": 15
+   },
+   "cooldown_s": 300.0,
+   "unlock": {
+    "skill": "Fishing",
+    "level": 55
+   },
+   "requirement": {
+    "strategy": "BP_USSRS_RequiresFishingRod_C",
+    "text": "Fishing Rod"
+   },
+   "target": "ground",
+   "harmful": false,
+   "setup": [
+    "the game's special requirement: Fishing Rod",
+    "open ground the game's placement preview accepts, within about 9 m"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "spell_actor",
+      "class": "BP_Spell_FishCyclone_C",
+      "near": "preview"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "PlayMontage",
+    "UtilityMagic"
+   ]
+  },
+  "USD_FishingFrenzy": {
+   "name": "Fishing Frenzy",
+   "cast_type": "placed",
+   "cost": {
+    "Water": 15,
+    "Astral": 5
+   },
+   "cooldown_s": 300.0,
+   "unlock": {
+    "skill": "Fishing",
+    "level": 10
+   },
+   "requirement": null,
+   "target": "ground",
+   "harmful": false,
+   "setup": [
+    "open ground the game's placement preview accepts, within about 9 m"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "spell_actor",
+      "class": "BP_Spell_FishingFrenzy_C",
+      "near": "preview"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "PlayMontage",
+    "UtilityMagic"
+   ]
+  },
+  "USD_Harvest": {
+   "name": "Uproot",
+   "cast_type": "instant",
+   "cost": {
+    "Earth": 10,
+    "Astral": 10
+   },
+   "cooldown_s": 5.0,
+   "unlock": {
+    "skill": "Farming",
+    "level": 15
+   },
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "world_module",
+      "module": "Harvest"
+     },
+     {
+      "kind": "spell_actor",
+      "class": "BP_Magic_LiftAndSummonItems_C",
+      "near": "self"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "Collision",
+    "CostItems",
+    "Harvest",
+    "PlayMontage",
+    "Shape",
+    "UtilityMagic"
+   ]
+  },
+  "USD_HomeTeleport": {
+   "name": "Home Teleport",
+   "cast_type": "instant",
+   "cost": {
+    "Law": 15
+   },
+   "cooldown_s": 900.0,
+   "unlock": {
+    "skill": "Runecrafting",
+    "level": 27
+   },
+   "requirement": {
+    "strategy": "BP_USSRS_RequiresClaimedBed_C",
+    "text": "Claimed Bed"
+   },
+   "target": "self",
+   "harmful": false,
+   "setup": [
+    "the game's special requirement: Claimed Bed"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": []
+   },
+   "confidence": "data_weak",
+   "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
+   "modules": [
+    "Blueprint",
+    "Cast",
+    "CostItems",
+    "PlayMontage"
+   ]
+  },
+  "USD_Humidify": {
+   "name": "Humidify",
+   "cast_type": "aimed",
+   "cost": {
+    "Water": 15,
+    "Astral": 10
+   },
+   "cooldown_s": 45.0,
+   "unlock": {
+    "skill": "Farming",
+    "level": 28
+   },
+   "requirement": {
+    "strategy": "BP_USSRS_RequiresWaterAmount_Humidify_C",
+    "text": "50 units of water (clean or dirty)"
+   },
+   "target": "aim",
+   "harmful": false,
+   "setup": [
+    "the game's special requirement: 50 units of water (clean or dirty)"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "spell_actor",
+      "class": "BP_Spell_HumidifyCloud_C",
+      "near": "self"
+     },
+     {
+      "kind": "world_module",
+      "module": "Humidify"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "Collision",
+    "CostItems",
+    "DestroyActor",
+    "ExpireAfterDistance",
+    "Humidify",
+    "Movement",
+    "PlayMontage",
+    "RemoveCombinedContentAmount",
+    "Shape",
+    "SpawnActor",
+    "SpawnVFX"
+   ]
+  },
+  "USD_InfernalRod": {
+   "name": "Infernal Rod",
+   "cast_type": "instant",
+   "cost": {
+    "Fire": 50
+   },
+   "cooldown_s": 180.0,
+   "unlock": {
+    "skill": "Fishing",
+    "level": 30
+   },
+   "requirement": {
+    "strategy": "BP_USSRS_RequiresFishingRodEquipped_C",
+    "text": "Fishing Rod Equipped"
+   },
+   "target": "self",
+   "harmful": false,
+   "setup": [
+    "the game's special requirement: Fishing Rod Equipped"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "held_item_effect",
+      "damage_types": [],
+      "time_limit_s": 120.0,
+      "effect": "HEED_EnchantedRod"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "ExpireAfterDuration",
+    "HeldEquipmentEffect",
+    "PlayMontage"
+   ]
+  },
+  "USD_InternalAlchemy": {
+   "name": "Internal Alchemy",
+   "cast_type": "instant",
+   "cost": {
+    "Nature": 10
+   },
+   "cooldown_s": 210.0,
+   "unlock": {
+    "skill": "Cooking",
+    "level": 20
+   },
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "world_module",
+      "module": "Uneat"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "PlayMontage",
+    "Uneat"
+   ]
+  },
+  "USD_MagicalMending": {
+   "name": "Magical Mending",
+   "cast_type": "placed",
+   "cost": {
+    "Earth": 20,
+    "Nature": 10
+   },
+   "cooldown_s": 60.0,
+   "unlock": {
+    "skill": "Artisan",
+    "level": 56
+   },
+   "requirement": null,
+   "target": "ground",
+   "harmful": false,
+   "setup": [
+    "open ground the game's placement preview accepts, within about 9 m"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "spell_actor",
+      "class": "BP_Magic_MagicalMending_C",
+      "near": "preview"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "PlayMontage",
+    "UtilityMagic"
+   ]
+  },
+  "USD_PhaseDash": {
+   "name": "Phase Dash",
+   "cast_type": "instant",
+   "cost": {
+    "Astral": 10,
+    "Air": 20
+   },
+   "cooldown_s": 45.0,
+   "unlock": {
+    "skill": "Agility",
+    "level": 44
+   },
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "air_dash_m",
+      "min": 6.0,
+      "probe": "client_mod/commands/air_dash_test.lua"
+     }
+    ]
+   },
+   "confidence": "live",
+   "evidence": "21:33Z page 4 key 1: Astral -10, Air -20, cooldown; no GE/tag. Air evade without it: 3.2 m peak, snapped back to 0 m; right after the cast: 8.4 m kept",
+   "modules": [
+    "Blueprint",
+    "Cast",
+    "CostItems",
+    "ExpireAfterDuration",
+    "PlayMontage"
+   ]
+  },
+  "USD_PileEmUp": {
+   "name": "Trunk Totem",
+   "cast_type": "placed",
+   "cost": {
+    "Law": 10,
+    "Nature": 30
+   },
+   "cooldown_s": 180.0,
+   "unlock": {
+    "skill": "Woodcutting",
+    "level": 50
+   },
+   "requirement": null,
+   "target": "ground",
+   "harmful": false,
+   "setup": [
+    "open ground the game's placement preview accepts, within about 9 m"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": []
+   },
+   "confidence": "data_weak",
+   "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
+   "modules": [
+    "Blueprint",
+    "Cast",
+    "CostItems",
+    "PlayMontage"
+   ]
+  },
+  "USD_Recall": {
+   "name": "Recall",
+   "cast_type": "instant_after_move",
+   "cost": {
+    "Law": 15,
+    "Air": 30
+   },
+   "cooldown_s": 75.0,
+   "unlock": {
+    "skill": "Agility",
+    "level": 57
+   },
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": []
+   },
+   "confidence": "data_weak",
+   "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
+   "modules": [
+    "Blueprint",
+    "Cast",
+    "CostItems",
+    "ExpireAfterDuration",
+    "PlayMontage"
+   ]
+  },
+  "USD_Rocksplosion": {
+   "name": "Rocksplosion",
+   "cast_type": "placed",
+   "cost": {
+    "Earth": 30,
+    "Fire": 15
+   },
+   "cooldown_s": 60.0,
+   "unlock": {
+    "skill": "Mining",
+    "level": 11
+   },
+   "requirement": {
+    "strategy": "BP_USSRS_RequiresPickaxe_C",
+    "text": "Pickaxe"
+   },
+   "target": "ground",
+   "harmful": false,
+   "setup": [
+    "the game's special requirement: Pickaxe",
+    "open ground the game's placement preview accepts, within about 9 m"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "spell_actor",
+      "class": "BP_Magic_Rocksplosion_C",
+      "near": "preview"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "PlayMontage",
+    "UtilityMagic"
+   ]
+  },
+  "USD_RunesToRuneEssence": {
+   "name": "Runes To Rune Essence",
+   "cast_type": "placed",
+   "cost": {
+    "Water": 5,
+    "Astral": 5
+   },
+   "cooldown_s": 3.0,
+   "unlock": {
+    "skill": "Runecrafting",
+    "level": 61
+   },
+   "requirement": null,
+   "target": "ground",
+   "harmful": false,
+   "setup": [
+    "open ground the game's placement preview accepts, within about 9 m"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "spell_actor",
+      "class": "BP_PerkSpell_RunesToRuneEssence_C",
+      "near": "preview"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "PlayMontage",
+    "UtilityMagic"
+   ]
+  },
+  "USD_SnareTrap": {
+   "name": "Snare",
+   "cast_type": "instant",
+   "cost": {
+    "Earth": 15,
+    "Nature": 10
+   },
+   "cooldown_s": 45.0,
+   "unlock": {
+    "skill": "Ranged",
+    "level": 12
+   },
+   "requirement": {
+    "strategy": "BP_USSRS_NotRunningAgilityCourse_C",
+    "text": null
+   },
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "spell_actor",
+      "class": "BP_Magic_SnareTrap_C",
+      "near": "self"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "PlayMontage",
+    "UtilityMagic"
+   ]
+  },
+  "USD_SpeedupStation": {
+   "name": "Overdrive",
+   "cast_type": "placed",
+   "cost": {
+    "Water": 5,
+    "Air": 15
+   },
+   "cooldown_s": 10.0,
+   "unlock": {
+    "skill": "Artisan",
+    "level": 48
+   },
+   "requirement": null,
+   "target": "ground",
+   "harmful": false,
+   "setup": [
+    "open ground the game's placement preview accepts, within about 9 m"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "spell_actor",
+      "class": "BP_Magic_SpeedupStation_C",
+      "near": "preview"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "PlayMontage",
+    "UtilityMagic"
+   ]
+  },
+  "USD_Splinter": {
+   "name": "Splinter",
+   "cast_type": "placed",
+   "cost": {
+    "Earth": 10,
+    "Nature": 5
+   },
+   "cooldown_s": 45.0,
+   "unlock": {
+    "skill": "Woodcutting",
+    "level": 27
+   },
+   "requirement": null,
+   "target": "thing",
+   "harmful": true,
+   "setup": [
+    "a felled or splittable log (ATreeLog) within about 8 m; aim at its GetMidPointWorldLocation (the actor origin is stale)"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "spell_actor",
+      "class": "BP_Magic_Splinter_C",
+      "near": "preview"
+     },
+     {
+      "kind": "target_gone"
+     },
+     {
+      "kind": "drops_spawned",
+      "item_contains": "Wood"
+     },
+     {
+      "kind": "target_health_drop",
+      "min": 1
+     }
+    ]
+   },
+   "confidence": "live",
+   "evidence": "21:3xZ on BP_SplittableLog_Ash_C_2147462658: preview valid first time at the midpoint; BP_Magic_Splinter_C at the preview; Earth -10 Nature -5; the log split into 'Ash Logs' world items. Off the log the preview says UI.Notification.SpellPlacement.NoTarget.RequiresLog",
+   "modules": [
+    "Cast",
+    "Collision",
+    "CostItems",
+    "DamageByEquipment",
+    "PlayMontage",
+    "Shape",
+    "UtilityMagic"
+   ]
+  },
+  "USD_SummonShelter": {
+   "name": "Summon Shelter",
+   "cast_type": "placed",
+   "cost": {
+    "Earth": 10,
+    "Astral": 10
+   },
+   "cooldown_s": 15.0,
+   "unlock": {
+    "skill": "Construction",
+    "level": 20
+   },
+   "requirement": null,
+   "target": "ground",
+   "harmful": false,
+   "setup": [
+    "flat open ground within about 9 m (the game's preview rejects UI.Notification.SpellPlacement.GroundNotFlatEnough / .Blocked)"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "spell_actor",
+      "class": "BP_Magic_SummonShelter_C",
+      "near": "preview"
+     }
+    ]
+   },
+   "confidence": "live",
+   "evidence": "20:44Z: preview green, runes Earth -10 Astral -10 after the >4 s cast animation; BP_Magic_SummonShelter_C_2147450308 (Luis saw it). OurSpellActors reads empty on the client: match the new UtilitySpell near the preview",
+   "modules": [
+    "Cast",
+    "CostItems",
+    "PlayMontage",
+    "UtilityMagic"
+   ]
+  },
+  "USD_Surge": {
+   "name": "Surge",
+   "cast_type": "instant",
+   "cost": {
+    "Law": 10,
+    "Astral": 10
+   },
+   "cooldown_s": 45.0,
+   "unlock": {
+    "skill": "Magic",
+    "level": 11
+   },
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": []
+   },
+   "confidence": "data_weak",
+   "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
+   "modules": [
+    "Blueprint",
+    "Cast",
+    "CostItems",
+    "ExpireAfterDuration",
+    "PlayMontage"
+   ]
+  },
+  "USD_TempestShield": {
+   "name": "Tempest Shield",
+   "cast_type": "instant",
+   "cost": {
+    "Air": 15
+   },
+   "cooldown_s": 45.0,
+   "unlock": {
+    "skill": "Attack",
+    "level": 11
+   },
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "tag_added",
+      "tag": "Player.Status.TempestShield"
+     },
+     {
+      "kind": "ge_added",
+      "class_contains": "TempestShieldGameplayEffectInstance"
+     }
+    ]
+   },
+   "confidence": "live",
+   "evidence": "21:30Z page 1 key 8: Air -15, cooldown; BP_TempestShieldGameplayEffectInstance_C + tag Player.Status.TempestShield",
+   "modules": [
+    "Cast",
+    "CostItems",
+    "GameplayEffect",
+    "PlayMontage"
+   ]
+  },
+  "USD_Treequipment": {
+   "name": "Bark to Bones",
+   "cast_type": "placed",
+   "cost": {
+    "Earth": 10,
+    "Nature": 10
+   },
+   "cooldown_s": 300.0,
+   "unlock": {
+    "skill": "Artisan",
+    "level": 11
+   },
+   "requirement": {
+    "strategy": null,
+    "text": "Cast on a Tree"
+   },
+   "target": "ground",
+   "harmful": false,
+   "setup": [
+    "the game's special requirement: Cast on a Tree",
+    "open ground the game's placement preview accepts, within about 9 m"
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "spell_actor",
+      "class": "BP_Magic_Treequipment_C",
+      "near": "preview"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "PlayMontage",
+    "UtilityMagic"
+   ]
+  },
+  "USD_Vengeance": {
+   "name": "Vengeance",
+   "cast_type": "instant",
+   "cost": {
+    "Earth": 10,
+    "Astral": 20
+   },
+   "cooldown_s": 60.0,
+   "unlock": {
+    "skill": "Magic",
+    "level": 80
+   },
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "tag_added",
+      "tag": "Player.Status.Vengeance"
+     },
+     {
+      "kind": "ge_added",
+      "class_contains": "BP_Vengeance_GEInstance_C"
+     },
+     {
+      "kind": "spell_actor",
+      "class": "BP_VengeanceSkullFX_C",
+      "near": "self"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "ExpireAfterDuration",
+    "GameplayEffect",
+    "PlayMontage",
+    "SpawnActor",
+    "Transform"
+   ]
+  },
+  "USD_Windstep": {
+   "name": "Windstep",
+   "cast_type": "instant",
+   "cost": {
+    "Air": 5
+   },
+   "cooldown_s": 3.0,
+   "unlock": {
+    "skill": "Agility",
+    "level": 5
+   },
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent"
+     },
+     {
+      "kind": "cooldown_started"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "tag_added",
+      "tag": "Player.Spell.WindStep"
+     },
+     {
+      "kind": "ge_added",
+      "class_contains": "DominionStatusEffect"
+     },
+     {
+      "kind": "jump_apex_gain_m",
+      "min": 3.0,
+      "probe": "client_mod/commands/smoke_jump.lua"
+     }
+    ]
+   },
+   "confidence": "live",
+   "evidence": "21:27Z keyless slot (highlight+accept): Air -5, cooldown; tag Player.Spell.WindStep + DominionStatusEffect; jump apex 1.80 -> 7.38 m",
+   "modules": [
+    "Blueprint",
+    "Cast",
+    "CostItems",
+    "GameplayEffect",
+    "PlayMontage"
+   ]
+  }
+ }
+}
