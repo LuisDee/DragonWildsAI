@@ -41,7 +41,7 @@ M.PATHS = {
     helper = "/Script/Dominion.Default__ItemHelperLibrary",
 }
 M.ROUTES = {
-    spawn_sync = { verified = false },   -- flip after the offline canary + Luis sees/picks up the item
+    spawn_sync = { verified = true },    -- VERIFIED 2026-10-25: offline canary + Luis saw and picked up the dropped oak log
     spawn_actor = { verified = false },
 }
 M.DEFAULT_ROUTE = "spawn_sync"

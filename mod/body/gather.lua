@@ -327,7 +327,7 @@ function M.tree(deps)
                 end
             end
             local st = a.profile.settle
-            if st and now() - a.site.started < (st.max_ms or 10000)
+            if st and now() - (a.site.last_break or a.site.started) < (st.max_ms or 10000)
                 and sense.nearest({ class = st.class, match = st.match }, { origin = a.site.loc, radius_cm = a.profile.site_radius_cm or 1000 }) then
                 return S_ -- the felled tree is still turning into logs
             end
