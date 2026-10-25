@@ -172,3 +172,10 @@ Luis relies on spells: **a shield spell**, and **wind jump**, whose landing stun
   - primitives: interact, plant, cast on plot, harvest, collect
   - the Planner composes "farm X at the farm".
 - Expect most of it to be reuse by then (section 14).
+
+## 17. Generic perception and interaction, no per-item lists (Luis, 2026-10-25)
+- "Why couldn't he read the message, understand what's being asked, scan his surroundings, think and arrive at what needs to be done?" Requirement: no hand-maintained item or class lists.
+- **sense / look:** census every actor in a radius that has the game's InteractionComponent (or a common interactable or destructible base), described by **game data** (display name, category tags, state, distance). Patches are auto-supported.
+- **Brain `look(radius, about)` tool:** the Controller searches the real surroundings and matches the player's words against the game's names. Act only on what was actually perceived; otherwise say "I can't see any X" (section 12 / DISCOVERIES item-substitution bug).
+- **Generic `interact(target)`:** the same server-side interaction as a player's E-press (PlayerInteractionManager path), with item grants routed into the bot inventory.
+- Gather, pickup, chests, stations and farming plots all build on look + interact.
