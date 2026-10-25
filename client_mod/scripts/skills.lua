@@ -323,7 +323,8 @@ end
 M._find_pickup = find_pickup
 
 -- A carried row for `what` (name, id, or kind food/drink/potion), preferring the hotbar and clean items.
-local KINDS = { food = "food", eat = "food", meal = "food", drink = "drink", water = "drink", potion = "potion" }
+-- item = "food" | "drink" | "potion" names the consumable DATA CLASS (inventory.consumable_kind), not words
+local KINDS = { food = "food", drink = "drink", potion = "potion" }
 local function inv_rows(d)
     local rows = {}
     for _, where in ipairs({ "hotbar", "bag" }) do

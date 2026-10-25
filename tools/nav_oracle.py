@@ -31,7 +31,7 @@ REQ = NAV_DIR / "req.json"
 RESP = NAV_DIR / "resp.lua"
 ALIVE = NAV_DIR / "alive.lua"  # heartbeat: the mover only uses the oracle while this is fresh
 LOADING_RETRY_S = 1.0
-LOADING_MAX_S = 15.0
+LOADING_MAX_S = 25.0  # corridor streaming for long trips needs ~10-20 s
 
 
 def query(client: BridgeClient, frm: list[float], to: list[float]) -> dict:

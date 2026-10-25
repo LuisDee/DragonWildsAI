@@ -1,0 +1,40 @@
+{
+    "$schema": "https://lnav.org/schemas/format-v1.schema.json",
+    "dw_timeline": {
+        "title": "Dragonwilds companion timeline",
+        "description": "Normalised rows written by tools/timeline.py --jsonl (chat, brain, move, vitals, watchdog, client, mod, game, scenario).",
+        "url": "https://github.com/tstack/lnav",
+        "file-pattern": "timeline.*\\.jsonl$",
+        "file-type": "json",
+        "timestamp-field": "ts",
+        "level-field": "level",
+        "level": {
+            "error": "^error$",
+            "warning": "^warn$",
+            "info": "^info$"
+        },
+        "opid-field": "src",
+        "line-format": [
+            { "field": "__timestamp__", "timestamp-format": "%H:%M:%S.%L" },
+            " ",
+            { "field": "src", "min-width": 8 },
+            " ",
+            { "field": "kind", "min-width": 18 },
+            " ",
+            { "field": "text" },
+            { "prefix": "  (x", "field": "count", "suffix": ")", "default-value": "" }
+        ],
+        "value": {
+            "src": { "kind": "string", "identifier": true },
+            "kind": { "kind": "string", "identifier": true },
+            "text": { "kind": "string" },
+            "level": { "kind": "string", "hidden": true },
+            "noise": { "kind": "boolean", "hidden": true },
+            "count": { "kind": "integer" },
+            "end_ts": { "kind": "string", "hidden": true }
+        },
+        "sample": [
+            { "line": "{\"ts\": \"2026-10-25T19:22:21.000Z\", \"src\": \"move\", \"kind\": \"unreachable\", \"text\": \"go_to reason=no_route\", \"level\": \"warn\", \"noise\": false, \"count\": 1, \"end_ts\": null}" }
+        ]
+    }
+}

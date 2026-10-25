@@ -11,6 +11,9 @@
 #               a row -> read-only cdb stack (cdb -pv, like the server watchdog), kill, boot
 #   disconnect  runner answers but not in L_World, no pawn, or still DW_PAUSEd for > DisconnectS -> boot_and_join
 #               (no kill); two failed rejoins in a row -> kill, boot
+#   wrong server in the world on a server other than the join target (client_lib.ps1 "join targets": a
+#               scenario-run lease, else shockbyte) for > WrongServerS -> boot_and_join, which leaves and
+#               joins the target. An unknown joined server (no LoadMap line) is never acted on.
 #   low memory  free RAM < WarnFreeMB -> warn event; < CritFreeMB -> critical event with the top
 #               processes. Nothing is killed for memory (report only); boot refuses to LAUNCH below
 #               its own MinLaunchFreeMB.
@@ -24,6 +27,7 @@ param(
     [double]$HangCpuCores = 0.05,
     [int]$ProbeFails = 3,
     [int]$DisconnectS = 30,
+    [int]$WrongServerS = 60,
     [int]$GraceS = 240,           # a client younger than this is still booting (someone else may be driving it)
     [int]$MaxRestarts = 3,
     [int]$RestartWindowMin = 30,
@@ -240,7 +244,18 @@ while ($true) {
                     } elseif ($script:p) {
                         $inWorld = $script:p.map -eq 'L_World' -and $script:p.pawn -and -not $script:p.paused
                         $state = if ($inWorld) { 'in_world' } elseif ($script:p.map -eq 'L_World' -and $script:p.pawn) { 'paused' } elseif ($script:p.map -eq 'L_World') { 'no_pawn' } else { 'menu' }
-                        if ($inWorld) { $script:notWorldSince = $null; $script:inWorldPid = $proc.Id }
+                        if ($inWorld) {
+                            $script:notWorldSince = $null; $script:inWorldPid = $proc.Id
+                            $want = Resolve-ClientTarget ''; $wantAddr = Get-TargetAddress $want.name; $on = Get-JoinedServer
+                            if ($on -and $wantAddr -and $on -ne $wantAddr) {
+                                if (-not $script:wrongSince) { $script:wrongSince = Get-Date }
+                                if (((Get-Date) - $script:wrongSince).TotalSeconds -ge $WrongServerS -and -not $held) {
+                                    Ev 'wrong_server' @{ on = $on; target = $want.name; target_source = $want.source }
+                                    $script:wrongSince = $null
+                                    Recover-Client 'wrong_server' $proc
+                                }
+                            } else { $script:wrongSince = $null }
+                        }
                         elseif (-not $script:notWorldSince) { $script:notWorldSince = Get-Date }
                         elseif (((Get-Date) - $script:notWorldSince).TotalSeconds -gt $DisconnectS -and $ageProc -gt $GraceS -and -not $held) {
                             Ev 'client_disconnected' @{ map = $script:p.map; screen = $script:p.screen; pawn = $script:p.pawn;

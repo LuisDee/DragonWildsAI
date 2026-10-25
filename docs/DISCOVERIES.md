@@ -1178,7 +1178,7 @@ Modules: `client_mod/scripts/gather.lua` (the job), `client_mod/scripts/gather_p
   - Still **UNVERIFIED live**: a swing's hit on a tree, the felled chain on the client, magnet or interact collection, and the inventory delta.
 
 ## Traversal learning (R2) (2026-10-25, 19:24-19:45 UTC, client build 26162923, Shockbyte world, read-only)
-Module: `client_mod/scripts/traverse_learn.lua` (task R2.12; design `docs/research/2026-10-25-traversal.md` 3.5). Commands: `client_mod/commands/learn_start.lua`, `learn_status.lua`, `learn_stop.lua`. Offline test: `lua client_mod/tests/test_traverse_learn.lua <empty_dir>` (36 checks).
+Module: `client_mod/scripts/traverse_learn.lua` (task R2.12; design `docs/research/2026-10-25-traversal.md` 3.5). Commands: `client_mod/commands/learn_start.lua`, `learn_status.lua`, `learn_stop.lua`, `learn_rebuild.lua`. Offline test: `lua client_mod/tests/test_traverse_learn.lua <empty_dir>` (39 checks).
 - **What it is.** A read-only recorder: one `LoopInGameThreadWithDelay(1)` loop, about 120 Hz live.
   - It never moves the pawn or presses input.
   - Per frame and per tracked pawn (every other player via PlayerState `PawnPrivate`, plus Claude himself), it reads `CharacterMovement.MovementMode`, `.Velocity`, `ReplicatedJumpCurrentCount` (and `JumpCurrentCount` on the local pawn) and `K2_GetActorLocation`.
@@ -1192,17 +1192,27 @@ Module: `client_mod/scripts/traverse_learn.lua` (task R2.12; design `docs/resear
   - **Rule:** only a *change* from the grounded baseline is a jump signal, never the absolute value.
   - Fixed, with the fake leader in the test now keeping a stale count. L2 and its raw event were corrected by hand.
 - **Take-off speed on walk-off drops reads 9-12 m/s** (last grounded `Velocity` of the proxy). That is implausible for running (sprint 6.8), possibly proxy smoothing at the edge. It is only used for the sprint_jump label on jumps; on jumps the values look right (6.0-6.8). Open.
-- **Multicast hooks** `PlayerEvadeComponent:Multicast_StartEvade`, `PlayerMagicComponent:Multicast_SendPayloadForSpellCasting` and `DominionMovementComponent:Multicast_ApplyFallDamage` register on the client (`ok=true`). No hit was seen yet (hook_hits 0: Luis did not evade or cast in range). So **Windstep and Air Dash detection on live data is UNVERIFIED**; it is offline-tested only. If hooks fail at the main menu, they are retried from the tick every 10 s.
-- **First live links** (data/skills/shockbyte/traversal_links.json; feet-level endpoints, metres):
-  - L1 double_jump up 3.03 m (51.7,1889.3,-36.0)→(55.2,1885.9,-33.0);
-  - L2 drop 3.37 m; L3 drop 3.05 m;
-  - L4 double_jump up 2.53 m (117.4,1836.7,-32.1)→(121.0,1835.0,-29.6);
-  - L5 drop 1.87 m.
-  - All are `demonstrated` (Claude lacks Double Jump, so L1/L4 are `usable=false`, reason `needs:DoubleJump`).
-  - Claude's own local-planner step-ups (dz 0.61-0.63 m) were seen and correctly not turned into links (below the 1.0 m self threshold); they still verify a matching link.
+- **MOVE_Custom (6) is the AIR DASH. VERIFIED live (19:44:14).** Dominion's `ECustomMovementMode` has a single value, `CMOVE_Dash = 1` (dump `Dominion_enums.hpp:1055`).
+  - Luis's proxy went mode 3 → **6** at the apex of his double jump (vz ~0, Z flat), the dash carried him ~5 m in mode 6, then mode 3 again until landing.
+  - He travels this way constantly: a double jump (second jump at 0.31-0.33 s) plus a dash every ~12 m.
+  - The first recorder version treated mode 6 as grounded and split each flight into "double_jump up" + "drop down". The 9-12 m/s "walk-off speeds" were the dash velocity.
+  - **Rule:** modes 3, 5 and 6 are airborne. Entering mode 6 is recorded as a dash (`custom[]`, `dashes[]`), and the event's move becomes `air_dash`.
+  - The live raw events were repaired: 16 split pairs merged, marked `repaired: split_by_custom_mode`; backup `traversal_events.jsonl.bak_before_custom_fix`. The store was rebuilt.
+  - The evade multicast is **not** how the air dash replicates. Whether it fires for a ground evade is still unseen.
+- **Multicast hooks** `PlayerEvadeComponent:Multicast_StartEvade`, `PlayerMagicComponent:Multicast_SendPayloadForSpellCasting` and `DominionMovementComponent:Multicast_ApplyFallDamage` register on the client (`ok=true`). No hit was seen yet (hook_hits 0). **Windstep detection on live data is UNVERIFIED** (offline only). Hooks that fail at the main menu are retried from the tick every 10 s.
+- **Walkable-terrain filter (after the dash finding):** every flight ≥ 1.5 m within **80 m of Claude** gets downward probes under its line, every ~0.5 m, max 12, none within 0.7 m of the landing.
+  - With no gap and every segment |dz| ≤ 45 cm + 0.3 × its length, the flight was over walkable ground. It stays a raw event (`why: walkable_terrain`), not a link. This drops Luis's dash-hops over rolling ground.
+  - Flights farther than 80 m from Claude are not probed (client collision streams around Claude, so "no floor" there may just be unloaded). A far flat flight stays a hop, and a far up/down flight is kept with `gap_probe.unprobed`.
+- **Live store after the repair** (data/skills/shockbyte/traversal_links.json, 10 links; feet-level endpoints, metres):
+  - Luis's drops L1 (3.05 m at (114.4,1838.2)) and L4 (5.7 m at (223.8,1797.9)).
+  - 7 Luis `air_dash` links (dz -3.1..+1.3 m over 11.8-14.8 m). They predate the walkable filter and are `usable=false` for Claude (`needs:AirDash`).
+  - **L10 = Claude's own sprint_jump up 1.54 m, `verified`, source self** (local-planner crossing at (442.7,1800.3)→(444.3,1804.5)).
+  - The first double-jump demos (3.03 m and 2.53 m ledges) turned out to be double jump + dash flights that the repair merged.
+  - Claude's own step-ups of 0.61-0.63 m were seen and correctly not made links (self threshold 1.0 m).
+- **Live cost:** about 120 Hz loop. A trace count of 59 over ~60 events (traces happen only after a landing). No `last_error` after the `try()` fix (an early `tonumber()` of a failed read raised once per tick until then).
 - **Classification:**
   - shape: up (dz ≥ 0.6 m), down (dz ≤ -1.5 m), gap (a flat flight ≥ 1.5 m with downward traces under it finding no floor within 1 m below the lower end), else flat (a hop: raw event only, no link);
-  - move: drop | jump | sprint_jump (take-off > 5.2 m/s) | double_jump | air_dash (an evade multicast mid-air, or a horizontal speed rise > 3 m/s in 0.2 s) | windstep. The easiest move seen to cross a link is what it needs.
+  - move: drop | jump | sprint_jump (take-off > 5.2 m/s) | double_jump | air_dash (MOVE_Custom mid-air, an evade multicast mid-air, or a horizontal speed rise > 3 m/s in 0.2 s) | windstep. The easiest move seen to cross a link is what it needs.
 - **Clustering:** leader clustering. A new event merges into a link when from is within 1.5 m, to within 2.0 m and the heading is within 25°. Endpoints are a member-weighted running mean, and `n_seen++`. Self crossings within 2 m of both endpoints mark the link **verified** (`n_ok++`) and never move it. `record_attempt` failures 3 times in a row → `disabled`.
 - **Traces hit attached gear:** `LineTraceSingle`'s bIgnoreSelf skips only the context pawn, not its attached armour or held actors (locomotion agent). Gap probes therefore skip points within 1 m of the landing, where the jumper stands.
 - **Files:**
