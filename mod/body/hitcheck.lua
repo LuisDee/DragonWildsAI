@@ -69,8 +69,54 @@ local function on_call(fn, a1, a2)
     end
 end
 
+-- The server's own record of what a swing damaged (authoritative, per the coordinator's plan):
+-- PlayerMeleeAttackComponent:Multicast_SendDamageCacheData(TArray<FTimedDamageInfo>) (DOM:30186).
+-- FTimedDamageInfo {TimeOffset, DamageInfo = FDamageInfo {DamagedActors = TArray<FDamagedActor
+-- {PointDamageEvent = FDominionPointDamageEvent {Amount, Instigator, Source, InstigatorLocation,
+-- VictimLocation, HitLocation, ...}, Actor = facade handle}}, AttackId, Location, Shape, ...}}.
+-- READ ONLY (nested struct reads, never pushed: R15). The victim is identified by VictimLocation.
+M.CACHE_FN = "/Script/Dominion.PlayerMeleeAttackComponent:Multicast_SendDamageCacheData"
+
+local function v3(v) return v and { X = U.try(function() return v.X end), Y = U.try(function() return v.Y end), Z = U.try(function() return v.Z end) } or nil end
+
+local function on_cache(comp, arr)
+    local owner = U.try(function() return comp:GetOwner() end)
+    local ev = { fn = "DamageCache", who = U.short(owner), swings = {}, hits = 0 }
+    local list = pval(arr)
+    pcall(function()
+        list:ForEach(function(_, elem)
+            local td = U.try(function() return elem:get() end) or elem
+            local di = U.try(function() return td.DamageInfo end)
+            local sw = { t = U.try(function() return td.TimeOffset end), at = v3(U.try(function() return di.Location end)),
+                         attack_id = U.try(function() return di.AttackId end),
+                         shape = U.class_word(U.try(function() return di.Shape end)), victims = {} }
+            pcall(function()
+                di.DamagedActors:ForEach(function(_, de)
+                    local d = U.try(function() return de:get() end) or de
+                    local pe = U.try(function() return d.PointDamageEvent end)
+                    sw.victims[#sw.victims + 1] = {
+                        amount = U.try(function() return pe.Amount end),
+                        victim_at = v3(U.try(function() return pe.VictimLocation end)),
+                        hit_at = v3(U.try(function() return pe.HitLocation end)),
+                        from = v3(U.try(function() return pe.InstigatorLocation end)),
+                    }
+                    ev.hits = ev.hits + 1
+                end)
+            end)
+            ev.swings[#ev.swings + 1] = sw
+        end)
+    end)
+    record(ev)
+    U.event(nil, "hitcheck_damage_cache", ev)
+end
+
 -- Register the hooks once per server run. Returns {armed, registered = {fn = true|err}}.
 function M.arm(log)
+    if not G.cache_armed then
+        local ok, err = pcall(RegisterHook, M.CACHE_FN, function(ctx, a1) pcall(on_cache, pval(ctx), a1) end)
+        G.cache_armed = ok
+        G.registered.DamageCache = ok and true or tostring(err)
+    end
     if G.armed then return { armed = true, registered = G.registered } end
     local any = false
     for _, fn in ipairs(M.FNS) do
@@ -87,6 +133,18 @@ function M.arm(log)
 end
 
 function M.armed() return G.armed end
+function M.cache_armed() return G.cache_armed == true end
+
+-- Damage-cache hits recorded for `who` since seq: list of {amount, victim_at, hit_at, from}.
+function M.cache_hits(who, seq)
+    local out = {}
+    for _, ev in ipairs(G.events) do
+        if ev.seq > (seq or 0) and ev.fn == "DamageCache" and (who == nil or ev.who == who) then
+            for _, sw in ipairs(ev.swings or {}) do for _, v in ipairs(sw.victims or {}) do out[#out + 1] = v end end
+        end
+    end
+    return out
+end
 function M.seq() return G.seq end
 
 -- Events for `who` (actor short name) recorded after seq.
@@ -126,7 +184,7 @@ function M.check(who, seq, hp_before, hp_now)
 end
 
 function M._reset()
-    G.armed, G.registered, G.seq, G.events, G.current = false, {}, 0, {}, nil
+    G.armed, G.registered, G.seq, G.events, G.current, G.cache_armed = false, {}, 0, {}, nil, nil
 end
 
 return M

@@ -528,3 +528,7 @@ Modules: `mod/experiments/gather_probe.lua` (discovery), services `mod/body/sens
 - **Axe Chop** (`BP_Player_Axe_Woodcut1_C`, primary): Wedge **Depth 115 cm**, TopAngle 80°, **AngleOffset 35°** (skewed to one side), ZHeight 200; hits at **0.55 s**; 10 dmg.
 - **Axe Overhead Chop** (`BP_Player_Axe_Woodcut2_C`, special): Wedge Depth 170 cm, **TopAngle 15° (±7.5°)**, AngleOffset 0, Offset Z −40; hits at **0.84 s**; 10 dmg.
 - Luis saw the bot "overhead chopping thin air". The target was outside the narrow wedge. **Fix (generic):** before each swing, read the chosen attack CDO's shapes, then rotate and step so the target's position (re-read each swing; logs roll) lies inside the shape at its TimeOffset. Verify the HP change afterwards (hitcheck). Applies to every weapon and tool.
+
+## The bot counts as a player for the night skip (2026-10-25, Luis via GFN)
+- Since the bot got a `DominionPlayerState` (in `GameState.PlayerArray`, nameplate "Claude"), **Luis confirms it counts as a character/player**, so it blocks "all players sleeping" from passing the night.
+- Needed: a `sleep` skill (nearest bed via sense → go_to → `Claim/Sleep(puppet)`; else cast Summon Shelter on flat ground), plus a reflex to sleep when Luis sleeps, plus an interim debug flag so the bot doesn't count. Spells agent assigned.
