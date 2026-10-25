@@ -45,7 +45,8 @@ Each milestone has its own targets in goal_targets.json. The full goal = all fou
   - held-out tasks are never shown to the implementer.
 - **The eval of the eval (predicate validity):** before a case counts, it must pass a positive control (a scripted or human run on the dev world achieves it) and a negative control (a do-nothing agent and a claims-only fake agent both fail it). Predicates read game state and events only, never the model's words. Weak proxies are banned (e.g. "runes spent" alone for a spell).
 - **Live safety:** Shockbyte cases are short and low risk. Luis's character and other players are never touched. Announce restarts. Never reload the bridge with a command in flight. One live tester at a time.
-- **Budget:** state model-call counts before each benchmark run; a daily cap (set by Luis); the Director's Sonnet budget per hour.
+- **Budget (Luis, 2026-10-25):** **$10/day hard cap** on model API spend (ANTHROPIC_API_KEY: the live brain, the Director, evals, generators). Spend is measured from logged token usage × list prices. At 80% → warn in PROGRESS and the scoreboard; at 100% → evals, generators and the Director stop, and the live Controller says he's out of thinking budget for today. State call counts before each benchmark run.
+- **Dev world (Luis, 2026-10-25):** the local dev server is the autonomous test world. Anything goes there: fixtures, item/rune grants, spawns, time of day, resets, server mods, by the TEST HARNESS. Claude's own play still uses only real client paths, so the capability being measured is real. Never on Shockbyte.
 
 ## 4. Where this can go wrong (watch-list)
 1. Goodharting a weak predicate → the eval of the eval, and spot audits of traces.
@@ -60,7 +61,6 @@ Each milestone has its own targets in goal_targets.json. The full goal = all fou
 
 ## 5. When to stop and ask Luis
 - Binary or memory patching.
-- Server-side test fixtures on the dev world (pending his OK).
 - Spending beyond the daily cap.
 - Anything affecting other players or the Shockbyte world beyond Claude's own character.
 - A dead end after re-research.

@@ -81,5 +81,6 @@
       "heldout_gap_max_points"
     ]
   },
-  "no_starvation_deaths": 0
+  "no_starvation_deaths": 0,
+  "daily_api_cap_usd": 10
 }
