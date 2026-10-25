@@ -3,6 +3,7 @@
 -- the capsule's rise per jump each frame (take-off = first airborne frame, landing = first grounded
 -- frame after it). Writes data/envelopes/Claude.json (traversal design format; metres, p10 minus a
 -- 0.15 m margin) which scripts/move.lua prefers over its estimates. Result also in _G.DW_CALIB.
+local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
 return function(log)
     if rawget(_G, "DW_PAUSE") then return { ok = false, error = "paused" } end
     if _G.DW_MOVE and _G.DW_MOVE.mode ~= "idle" then return { ok = false, error = "a move is running; stop it first" } end
@@ -35,13 +36,14 @@ return function(log)
     end
     local o3 = {}
     local roof = ksl:LineTraceSingle(pawn, { X = me.X + 70, Y = me.Y, Z = feet + 200 }, { X = me.X + 70, Y = me.Y, Z = feet + 500 }, 0, false, {}, 0, o3, true, c0, c0, 0.0)
-    local zmin, zmax = math.huge, -math.huge
-    for _, z in ipairs(zs) do zmin, zmax = math.min(zmin, z), math.max(zmax, z) end
-    if #zs < 12 or zmax - zmin > 30 or #blocked > 0 or roof then
-        return { ok = false, error = "spot not flat/open: step a few metres", floor_range_cm = math.floor(zmax - zmin), n = #zs, blocked = blocked, roof = roof }
+    local fz_min, fz_max = math.huge, -math.huge
+    for _, z in ipairs(zs) do fz_min, fz_max = math.min(fz_min, z), math.max(fz_max, z) end
+    local frange = (#zs > 0) and math.floor(fz_max - fz_min) or nil
+    if #zs < 12 or (frange or 999) > 30 or #blocked > 0 or roof then
+        return { ok = false, error = "spot not flat/open: step a few metres", floor_range_cm = frange, n = #zs, blocked = blocked, roof = roof }
     end
     -- take the pawn properly (a brain follow is suspended and resumed afterwards)
-    local A = assert(loadfile("C:/gameserver/client_mod/scripts/arbiter.lua"))()
+    local A = assert(loadfile(ROOT .. "/client_mod/scripts/arbiter.lua"))()
     local grant = A.request(log, { name = "calibration", level = "command", resumable = false, uses_move = true, lease_s = 10 })
     if not grant.ok then return { ok = false, error = "arbiter: " .. tostring(grant.reason), owner = grant.owner } end
     local token = grant.token
@@ -105,7 +107,7 @@ return function(log)
                     if not best_dj or list[1] > best_dj then best_dj, best_delay = list[1], d end
                 end
                 res.jump_rise_min_cm, res.dj_rise_min_cm, res.dj_delay_s = jump, best_dj, best_delay
-                local f = io.open("C:/gameserver/data/envelopes/Claude.json", "w")
+                local f = io.open(ROOT .. "/data/envelopes/Claude.json", "w")
                 if f and jump then
                     f:write(string.format('{"character":"Claude","measured":"%s","step_m":0.45,"jump_up_m":{"stand":%.2f},' ..
                         '"dj_up_m":%s,"dj_delay_s":%s,"safe_drop_m":14.5,"source":"client_mod/commands/move_calib.lua (p10/min of trials minus 0.15 m)"}',
@@ -127,5 +129,5 @@ return function(log)
             pcall(CancelDelayedAction, _G.DW_CALIB_H); _G.DW_CALIB_H = nil
         end
     end)
-    return { started = true, trials = #plan, floor_range_cm = math.floor(zmax - zmin) }
+    return { started = true, trials = #plan, floor_range_cm = frange }
 end

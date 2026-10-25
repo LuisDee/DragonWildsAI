@@ -32,6 +32,7 @@ local raised = {}          -- {x0,x1,y0,y1, h0, h1}: floor raised by h0..h1 cm (
 local lakes = {}           -- {x0,x1,y0,y1}: shallow water (EnvironmentComponent depth 0.6, slow walking)
 local function in_lake(x, y) for _, l in ipairs(lakes) do if x > l[1] and x < l[2] and y > l[3] and y < l[4] then return true end end end
 local portals = {}         -- {x,y}: airborne within 1.5 m of one may rise up to 7 m (a learned link's take-off)
+HAS_DJ = false             -- the double-jump perk: a 2nd Jump() while airborne allows a 2.6 m rise
 local function wall_top(x, y)
     for _, r in ipairs(raised) do
         if x > r[1] and x < r[2] and y > r[3] and y < r[4] then
@@ -104,7 +105,11 @@ end
 pawn = obj({ loc = { X = 0, Y = 0, Z = 0 }, input = nil, jumps = 0 })
 function pawn:K2_GetActorLocation() return { X = self.loc.X, Y = self.loc.Y, Z = self.loc.Z } end
 function pawn:AddMovementInput(d, s) self.input = d end
-function pawn:Jump() self.jumps = self.jumps + 1; air = 0.6; self.jump_origin = { X = self.loc.X, Y = self.loc.Y } end
+function pawn:Jump()
+    self.jumps = self.jumps + 1
+    if air > 0 then self.dbl = true else self.dbl = false; self.jump_origin = { X = self.loc.X, Y = self.loc.Y } end
+    air = 0.6
+end
 function pawn:StopJumping() end
 pawn.CharacterMovement = obj({ MaxStepHeight = 45, GetMaxJumpHeightWithJumpTime = function() return 120 end,
     IsMovingOnGround = function() return air <= 0 end, MinFallDamageHeight = 500 })
@@ -114,6 +119,8 @@ pawn.EnvironmentComponent = obj({ GetNormalizedWaterDepth = function() return in
 local water_frames = 0
 pawn.SprintComponent = obj({ SprintInputAction = obj({}), IsSprinting = function() return sprinting end })
 pc = obj({ Pawn = pawn, IsLocalController = function() return true end, SetControlRotation = function() end, GetFullName = function() return "PC /Game/pc" end })
+pc.SkillPerkComponent = obj({ IsPerkUnlocked = function(self, perk) return HAS_DJ end })
+pawn.DoubleJumpSkillPerk = obj({})
 luis = obj({ loc = { X = 3000, Y = 0, Z = 0 } })
 luis.K2_GetActorLocation = pawn.K2_GetActorLocation
 local ps_luis = obj({ GetPlayerName = function() return { ToString = function() return "Zezima" end } end, PawnPrivate = luis, GetFullName = function() return "PS /Game/ps" end })
@@ -151,7 +158,7 @@ local function step(n)
             for _, pt in ipairs(portals) do
                 if jo and math.sqrt((jo.X - pt[1]) ^ 2 + (jo.Y - pt[2]) ^ 2) < 60 then near_portal = true end
             end
-            if rise <= 45 or (air > 0 and rise <= 120) or (air > 0 and near_portal and rise <= 700) then
+            if rise <= 45 or (air > 0 and rise <= 120) or (air > 0 and pawn.dbl and HAS_DJ and rise <= 260) or (air > 0 and near_portal and rise <= 700) then
                 pawn.loc.X, pawn.loc.Y, pawn.loc.Z = nx, ny, there_top + 90
             end
         else sprinting = false end
@@ -663,6 +670,48 @@ local rr = MM.go_to(log, { 5, 0, 0 }, {})
 check("menu: refuses to drive a non-character pawn", rr.ok == false, rr.error)
 pawn.CharacterMovement = real_cm
 
+-- 22. DOUBLE JUMP: a 2.3 m ledge (above the 1.05 m single jump) across the whole way.
+--     (a) with the perk but NO measured envelope: no double-jump edges -> the go_to reports unreachable
+--     (b) with data/envelopes/Claude.json (dj_up_m 2.6, delay 0.33): a planned double jump gets up
+local envf = dir .. "/data/envelopes/Claude.json"
+os.execute('mkdir "' .. (dir .. "/data/envelopes"):gsub("/", "\\") .. '" 2>nul')
+os.remove(envf)
+HAS_DJ = true
+walls = {}; oracle = nil; lakes = {}
+raised = { { 800, 4000, -5000, 5000, 230, 230 } }
+luis.loc = { X = 90000, Y = 90000, Z = 0 }
+pawn.loc = { X = 0, Y = 0, Z = 0 }
+local MD = dofile(MOVE)
+local nlog22 = #logs
+MD.go_to(log, { 15, 0, 2.3 }, { tolerance_m = 1.5, timeout_s = 90 })
+run(900)
+s = MD.status()
+local planned_d = false
+for i = nlog22 + 1, #logs do
+    local acts = logs[i]:match("local path %d+ pts %[(%a*)%]")
+    if acts and acts:find("d") then planned_d = true end
+end
+-- (the stuck ladder may still TRY a double jump with the perk; only PLANNED edges wait for a measurement)
+check("dj (a): unmeasured -> the planner never plans a double-jump edge", not planned_d)
+MD.stop(log)
+do local f = io.open(envf, "w"); f:write('{"character":"Claude","measured":"test","jump_up_m":{"stand":1.05},"dj_up_m":2.6,"dj_delay_s":0.33}'); f:close() end
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+pawn.loc = { X = 0, Y = 0, Z = 0 }
+local MD2 = dofile(MOVE)
+MD2.go_to(log, { 15, 0, 2.3 }, { tolerance_m = 1.5, timeout_s = 90 })
+run(600)
+s = MD2.status()
+local planned_d2 = false
+for i = math.max(1, #logs - 60), #logs do
+    local acts = logs[i]:match("local path %d+ pts %[(%a*)%]")
+    if acts and acts:find("d") then planned_d2 = true end
+end
+check("dj (b): measured envelope -> planned double jump up the ledge", s.result and s.result.status == "arrived" and planned_d2,
+    tostring(s.result and s.result.status) .. " dj=" .. tostring(s.double_jumps) .. " env=" .. tostring(s.env and s.env.source))
+MD2.stop(log)
+os.remove(envf); HAS_DJ = false; raised = {}
+
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
 -- 7. arbiter hooks: actor target ({actor=obj}), snapshot/restore, face_when_near
 walls = {}; pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 1500, Y = 0, Z = 0 }; oracle = nil
 M.follow(log, { actor = luis }, 2, { sprint = true, face_when_near = true })
