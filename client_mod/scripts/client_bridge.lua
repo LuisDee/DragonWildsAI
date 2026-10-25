@@ -1245,6 +1245,45 @@ local function check_vitals()
     end
 end
 
+-- items_dropped{by, items = [{id, name, item, count, consumable, distance}]}: another player dropped
+-- items near Claude (sense: world item rows with dropped_by), once per drop burst (DROP_QUIET_S after
+-- the last new item). Perception for the model ("Luis dropped food by me"), not a rule to pick up.
+M.DROP_CHECK_S, M.DROP_RADIUS_M, M.DROP_QUIET_S = 2, 8, 2
+local function check_drops()
+    local t = now_s()
+    if S.drops_checked and t - S.drops_checked < M.DROP_CHECK_S then return end
+    S.drops_checked = t
+    local r = call("sense", "census", { radius_m = M.DROP_RADIUS_M, max = 20, kinds = { items = true } })
+    if not r.ok then return end
+    if not S.drops_seen then -- first look after a (re)start: what already lies around is not news
+        S.drops_seen = {}
+        for _, it in ipairs(r.data.items or {}) do if it.id then S.drops_seen[it.id] = t end end
+        return
+    end
+    for _, it in ipairs(r.data.items or {}) do
+        if it.id and not S.drops_seen[it.id] then
+            S.drops_seen[it.id] = t
+            local by = it.dropped_by
+            if by and by ~= S.name then
+                local b = S.drop_burst or { items = {}, by = {} }
+                S.drop_burst = b
+                b.last = t
+                b.by[by] = true
+                b.items[#b.items + 1] = { id = it.id, name = it.name, item = it.item, count = it.count,
+                                          consumable = it.consumable, distance = it.distance, dropped_by = by }
+            end
+        end
+    end
+    local b = S.drop_burst
+    if b and t - b.last >= M.DROP_QUIET_S then
+        local who = {}
+        for n in pairs(b.by) do who[#who + 1] = n end
+        table.sort(who)
+        S.bridge.emit_event("items_dropped", { by = who[1], players = who, items = b.items })
+        S.drop_burst = nil
+    end
+end
+
 local function forward_chat()
     if not S.chat_tail then return end
     for _, raw in ipairs(S.chat_tail:read()) do
@@ -1436,6 +1475,8 @@ function M.step()
     if not ok then ev("client_vitals_forward_error", { err = tostring(err) }) end
     ok, err = pcall(check_vitals)
     if not ok then ev("client_vitals_check_error", { err = tostring(err) }) end
+    ok, err = pcall(check_drops)
+    if not ok then ev("client_drops_check_error", { err = tostring(err) }) end
     ok, err = pcall(forward_moves)
     if not ok then ev("client_moves_forward_error", { err = tostring(err) }) end
     ok, err = pcall(forward_gather)

@@ -55,6 +55,7 @@ M.cfg = {
     special_gap_s = 6,
     telegraph_m = 6, telegraph_fresh_s = 1.0,
     disengage_m = 10,        -- back off this far to eat (orders.disengage)
+    move_axes = "xy",        -- IA_Movement axes: "xy" = X right, Y forward (UE template); "yx" swaps them
     disengage_s = 25,        -- give the heal this long before re-assessing
     lock_on = true,
     nudge = true,            -- turn the body toward the target with a short movement nudge when standing
@@ -422,7 +423,8 @@ local function actions(pawn)
     local function get(k) local a = acts and U.try(function() return acts[k] end); return U.valid(a) and a or nil end
     local lo = U.try(function() return pawn.LockOnTargetingComponent end)
     c.actions = { pawn = id, primary = get("PrimaryAction"), secondary = get("SecondaryAction"), special = get("SpecialAction"),
-                  evade = get("EvadeAction"), lock = U.valid(lo) and U.try(function() return lo.ToggleLockOnInput end) or nil }
+                  evade = get("EvadeAction"), movement = get("MovementAction"),
+                  lock = U.valid(lo) and U.try(function() return lo.ToggleLockOnInput end) or nil }
     return c.actions
 end
 M.actions = actions
@@ -433,10 +435,11 @@ local function eis()
     return c.eis
 end
 
-local function inject(action)
+local function inject(action, vec)
     local s = eis()
     if not (s and U.valid(action)) then return false end
-    local ok = pcall(function() s:InjectInputVectorForAction(action, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end)
+    local v = vec or { X = 1.0, Y = 0.0, Z = 0.0 }
+    local ok = pcall(function() s:InjectInputVectorForAction(action, { X = v.X or 0, Y = v.Y or 0, Z = v.Z or 0 }, {}, {}) end)
     return ok
 end
 M._inject = inject
@@ -1004,6 +1007,13 @@ local function finish_defend(F)
     else outcome = "whiff" end
     if d.impact_t and D then D.observe(d.key, d.impact_t - d.tel_t) end
     if D then D.feedback(d.key, act, outcome) end
+    if act == "dodge" and d.pos0 and d.apos0 and F.me_pos then
+        local fx, fy = d.apos0.X - d.pos0.X, d.apos0.Y - d.pos0.Y
+        local l = math.max(math.sqrt(fx * fx + fy * fy), 1)
+        fx, fy = fx / l, fy / l
+        local mx, my = F.me_pos.X - d.pos0.X, F.me_pos.Y - d.pos0.Y
+        d.moved = { toward_cm = math.floor(mx * fx + my * fy), right_cm = math.floor(mx * fy - my * fx), dir = d.plan.dir }
+    end
     if outcome == "parried" then F.n_parried = (F.n_parried or 0) + 1
     elseif outcome == "blocked" then F.n_blocked = (F.n_blocked or 0) + 1
     elseif outcome == "hit" then F.n_hit = (F.n_hit or 0) + 1
@@ -1013,8 +1023,9 @@ local function finish_defend(F)
     say(F.log, string.format("defence %s -> %s (key %s, impact %s, dmg %s, evaded %s, montage %s)", act, outcome, tostring(d.key),
         d.impact_t and string.format("%.2fs", d.impact_t - d.tel_t) or "-", tostring(d.hit_amt or 0), tostring(d.evaded), tostring(d.montage)))
     F.last_defence = { action = act, outcome = outcome, key = d.key, impact_s = d.impact_t and (d.impact_t - d.tel_t) or nil,
-                       plan_at = d.plan.at_s, why = d.plan.why }
-    F.def, F.hold, F.evade_dir, F.evade_until = nil, nil, nil, nil
+                       plan_at = d.plan.at_s, why = d.plan.why, moved = d.moved }
+    if d.moved then say(F.log, string.format("dodge %s moved toward %+dcm right %+dcm", tostring(d.moved.dir), d.moved.toward_cm, d.moved.right_cm)) end
+    F.def, F.hold, F.evade_dir, F.evade_until, F.move_inject = nil, nil, nil, nil, nil
     set_phase(F, "engage", "defended " .. outcome)
 end
 
@@ -1045,8 +1056,24 @@ local function defend_act(F, pawn, acts)
         F.hold, F.hold_until = acts.secondary, F.t + (plan.hold_s or 0.9)
         inject(acts.secondary) -- this very frame
     elseif a == "dodge" and acts.evade then
-        F.evade_dir = away_dir(me.pos, d.apos or F.target_pos, plan.dir)
+        -- a player's directional dodge: movement keys held (IA_Movement, Axis2D, camera-relative:
+        -- X = right, Y = forward; cfg.move_axes can swap them) plus the evade key. The camera faces the
+        -- attacker first, so "left"/"right" are sideways to it and "back" is away from it.
+        local tp = d.apos or F.target_pos
+        if tp and me.pos then
+            pcall(function() F.pc:SetControlRotation({ Pitch = 0, Yaw = math.deg(math.atan(tp.Y - me.pos.Y, tp.X - me.pos.X)), Roll = 0 }) end)
+        end
+        if acts.movement then
+            local sx = (plan.dir == "left" and -1) or (plan.dir == "right" and 1) or 0
+            local sy = (plan.dir == "back" and -1) or 0
+            local v = M.cfg.move_axes == "yx" and { X = sy, Y = sx } or { X = sx, Y = sy }
+            F.move_inject, F.move_until = v, F.t + (plan.hold_s or 0.35)
+        else
+            F.evade_dir = away_dir(me.pos, tp, plan.dir) -- fallback: the movement handler's own call
+        end
         F.evade_until = F.t + (plan.hold_s or 0.35)
+        d.pos0 = me.pos and { X = me.pos.X, Y = me.pos.Y, Z = me.pos.Z }
+        d.apos0 = tp and { X = tp.X, Y = tp.Y, Z = tp.Z }
         tap(F, acts.evade, 4, "evade")
         F.n_dodges = (F.n_dodges or 0) + 1
         d.st_dodge = me.stamina
@@ -1327,7 +1354,13 @@ local function frame(F)
     if not U.valid(pawn) then return finish(F, result_of(F, false, "companion_down")) end
     F.t = now(pawn)
     if F.def and not F.def.started then defend_act(F, pawn, actions(pawn)) end
-    -- per frame: inputs + nudge/evade direction
+    -- per frame: held movement keys first (a directional evade samples them), then the queued taps
+    if F.move_inject then
+        if F.t < (F.move_until or 0) then
+            local am = actions(pawn).movement
+            if am then inject(am, F.move_inject) end
+        else F.move_inject = nil end
+    end
     local keep = {}
     for _, inp in ipairs(F.inputs) do
         if inject(inp.act) then F.injected = (F.injected or 0) + 1 end

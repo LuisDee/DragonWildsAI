@@ -29,6 +29,8 @@ local function blocked(x, y, airborne)
 end
 local frame_hook = nil
 local raised = {}          -- {x0,x1,y0,y1, h0, h1}: floor raised by h0..h1 cm (linear along x) = plateau / ramp
+local lakes = {}           -- {x0,x1,y0,y1}: shallow water (EnvironmentComponent depth 0.6, slow walking)
+local function in_lake(x, y) for _, l in ipairs(lakes) do if x > l[1] and x < l[2] and y > l[3] and y < l[4] then return true end end end
 local portals = {}         -- {x,y}: airborne within 1.5 m of one may rise up to 7 m (a learned link's take-off)
 local function wall_top(x, y)
     for _, r in ipairs(raised) do
@@ -83,6 +85,8 @@ function pawn:StopJumping() end
 pawn.CharacterMovement = obj({ MaxStepHeight = 45, GetMaxJumpHeightWithJumpTime = function() return 120 end,
     IsMovingOnGround = function() return air <= 0 end, MinFallDamageHeight = 500 })
 pawn.CapsuleComponent = obj({ GetScaledCapsuleHalfHeight = function() return 90 end })
+pawn.EnvironmentComponent = obj({ GetNormalizedWaterDepth = function() return in_lake(pawn.loc.X, pawn.loc.Y) and 0.6 or 0 end })
+local water_frames = 0
 pawn.SprintComponent = obj({ SprintInputAction = obj({}), IsSprinting = function() return sprinting end })
 pc = obj({ Pawn = pawn, IsLocalController = function() return true end, SetControlRotation = function() end, GetFullName = function() return "PC /Game/pc" end })
 luis = obj({ loc = { X = 3000, Y = 0, Z = 0 } })
@@ -110,6 +114,7 @@ local function step(n)
         for _, fn in pairs(loops) do fn() end
         if pawn.input then
             local sp = (sprinting and 680 or 450) * DT
+            if in_lake(pawn.loc.X, pawn.loc.Y) then sp = 150 * DT; water_frames = water_frames + 1 end
             local nx, ny = pawn.loc.X + pawn.input.X * sp, pawn.loc.Y + pawn.input.Y * sp
             -- heights: a rise above a step needs a jump within jump height; tall walls never pass
             local here_top = wall_top(pawn.loc.X, pawn.loc.Y) or FLOOR
@@ -547,6 +552,50 @@ check("help: led out, then the same go_to arrives", s.result and s.result.status
     tostring(s.result and s.result.status) .. " " .. tostring(s.status))
 MH.stop(log)
 walls = {}; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(memf)
+
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+-- 18. FELLED LOG: a 50 cm log across the whole way (no way round): hop it, don't plan around it
+walls = { { 900, 960, -5000, 5000 } } -- short wall = jumpable (fake: 80 cm)
+raised = {}; oracle = nil; lakes = {}
+luis.loc = { X = 90000, Y = 90000, Z = 0 }
+pawn.loc = { X = 0, Y = 0, Z = 0 }
+local ML = dofile(MOVE)
+local t_log = T
+ML.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 60 })
+run(300)
+s = ML.status()
+check("log: hops the felled log and arrives quickly", s.result and s.result.status == "arrived" and (T - t_log) < 30,
+    tostring(s.result and s.result.status) .. string.format(" t=%.0f", T - t_log))
+ML.stop(log)
+walls = {}
+
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+-- 19. WATER: a lake straight across the way; the first crossing learns the water cells (persisted),
+--     the second trip goes round (less time in water)
+lakes = { { 500, 1500, -500, 500 } }
+walls = {}; raised = {}; oracle = nil
+pawn.loc = { X = 0, Y = 0, Z = 0 }
+local MW = dofile(MOVE)
+water_frames = 0
+MW.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 120 })
+run(600)
+local w1 = water_frames
+s = MW.status()
+check("water: first trip arrives (wading) and learns the lake", s.result and s.result.status == "arrived" and (s.water_entries or 0) >= 1,
+    tostring(s.result and s.result.status) .. " entries=" .. tostring(s.water_entries))
+MW.stop(log)
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil -- reload memory from disk
+pawn.loc = { X = 0, Y = 0, Z = 0 }
+local MW2 = dofile(MOVE)
+water_frames = 0
+MW2.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 120 })
+run(600)
+local w2 = water_frames
+s = MW2.status()
+check("water: second trip goes round (less wading)", s.result and s.result.status == "arrived" and w2 < w1 * 0.5,
+    string.format("w1=%d w2=%d %s", w1, w2, tostring(s.result and s.result.status)))
+MW2.stop(log)
+lakes = {}
 
 _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
 -- 7. arbiter hooks: actor target ({actor=obj}), snapshot/restore, face_when_near

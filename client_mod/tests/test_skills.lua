@@ -511,6 +511,40 @@ test("vitals service: hooks registered at the menu (no pawn) are re-armed once a
     sense.vitals_status, sense.vitals_start, S.services_on = st0, start0, false
 end)
 
+test("items_dropped: a player's drop near Claude -> one event per burst, with who and what (existing ones ignored)", function()
+    reset()
+    B._state().drops_seen, B._state().drop_burst = nil, nil
+    T = T + 5; B.step() -- first look: seeds what already lies around
+    drain()
+    table.insert(F.world.items, { id = "wi_sand", class = "BP_WorldItem_C", name = "Forager's Sandwich", item = "ITEM_Food_Sandwich",
+        count = 3, position = { 2, 3, 3 }, consumable = "food", dropped_by = "Luis" })
+    table.insert(F.world.items, { id = "wi_tea", class = "BP_WorldItem_C", name = "Pumpkin Spice Infusion", item = "ITEM_Tea",
+        count = 2, position = { 2, 2.5, 3 }, consumable = "drink", dropped_by = "Luis" })
+    T = T + 2; B.step()
+    local function dropped() local o = {}; for _, m in ipairs(drain()) do if m.type == "event" and m.event.type == "items_dropped" then o[#o + 1] = m.event end end; return o end
+    assert(#dropped() == 0, "waits for the burst to end")
+    T = T + 3; B.step()
+    local evs = dropped()
+    assert(#evs == 1 and evs[1].by == "Luis" and #evs[1].items == 2 and evs[1].items[1].consumable, json.encode(evs))
+    T = T + 5; B.step()
+    assert(#dropped() == 0, "once per burst")
+    local s = rpc("get_state")
+    local row
+    for _, it in ipairs(s.data.nearby_items) do if it.id == "wi_sand" then row = it end end
+    assert(row and row.dropped_by == "Luis", json.encode(row))
+end)
+
+test("a pawn held by a non-fight owner: the skill fails 'busy' naming the real owner (never a guess)", function()
+    reset()
+    local A = B.module("arbiter")
+    local stale = A.request(nil, { name = "debug:stale_lock", level = 3.5, uses_move = false })
+    assert(stale.ok)
+    local _, id = rpc("interact", { target = "wi_1" })
+    local r = run(id, 60, 1.0)
+    A.release(nil, stale.token)
+    assert(r and r.reason == "busy" and r.data.owner == "debug:stale_lock", json.encode(r))
+end)
+
 -- ------------------------------------------------------------------ run
 for _, t in ipairs(tests) do
     local ok, err = pcall(t[2])

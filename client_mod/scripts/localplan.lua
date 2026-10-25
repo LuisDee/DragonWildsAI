@@ -62,6 +62,8 @@ function LP.new(o)
     self.edge_ok = {}
     self.steep = {}                            -- edge key -> true: a "slope" walk that is really a step
     self.wall_pts = {}                         -- horizontal-check hit points: edges passing near one are walls
+    self.hop = {}                              -- edge key -> true: a LOW obstacle (clear at jump height): jump it
+    self.cell_cost = o.cell_cost               -- optional fn(x, y) -> extra cost in cells (e.g. known water)
     self.queue = {}
     -- spiral order from the centre outwards, so a partial grid is still useful
     for ring = 0, self.r do
@@ -161,6 +163,7 @@ end
 local function ekey(a, b) return tostring(a) .. ">" .. tostring(b) end
 
 function LP:edge(a, b)
+    if self.hop[ekey(a, b)] then return "jump", 2 end
     local dz = b.z - a.z
     local e = self.env
     if dz <= e.step and dz >= -e.step then return "walk", 0 end
@@ -179,21 +182,24 @@ end
 local function seg_dist(px, py, ax, ay, bx, by)
     local vx, vy = bx - ax, by - ay
     local l2 = vx * vx + vy * vy
-    local t = l2 > 0 and math.max(0, math.min(1, ((px - ax) * vx + (py - ay) * vy) / l2)) or 0
+    local traw = l2 > 0 and ((px - ax) * vx + (py - ay) * vy) / l2 or 0
+    local t = math.max(0, math.min(1, traw))
     local qx, qy = ax + vx * t, ay + vy * t
-    return math.sqrt((px - qx) ^ 2 + (py - qy) ^ 2)
+    return math.sqrt((px - qx) ^ 2 + (py - qy) ^ 2), traw
 end
 
 -- Does the edge between two nodes pass a known wall hit (from an earlier lazy check)? One hit then
 -- rules out every edge across that wall nearby, instead of one re-plan per crossing edge (a thin
 -- wall spanning many cells exhausted the 12-round budget: "walls everywhere").
 function LP:crosses_wall(a, b)
-    if #self.wall_pts == 0 then return false end
+    if #self.wall_pts == 0 or self.hop[ekey(a, b)] then return false end
     local ax, ay = self:pos(a.i, a.j)
     local bx, by = self:pos(b.i, b.j)
     local top = math.max(a.z, b.z)
     for _, w in ipairs(self.wall_pts) do
-        if w.Z > top and w.Z < top + 150 and seg_dist(w.X, w.Y, ax, ay, bx, by) < 45 then return true end
+        local dd, tt = seg_dist(w.X, w.Y, ax, ay, bx, by)
+        -- only a wall AHEAD along the edge blocks it (a hit at our own cell must not block moving away)
+        if w.Z > top and w.Z < top + 150 and dd < 45 and tt > 0.1 and tt <= 1.0 then return true end
     end
     return false
 end
@@ -224,6 +230,7 @@ function LP:plan(goal)
     local g, came, act = { [start] = 0 }, {}, {}
     local open, closed = { start }, {}
     local best_n, best_h = start, h(start)
+    local best_dry, best_dry_h = nil, math.huge   -- with a cell cost (water): the best DRY target
     local expanded = 0
     while #open > 0 and expanded < 4000 do
         local bi, bf = 1, math.huge
@@ -237,6 +244,10 @@ function LP:plan(goal)
             expanded = expanded + 1
             local hc = h(cur)
             if hc < best_h then best_h, best_n = hc, cur end
+            if self.cell_cost then
+                local cx, cy = self:pos(cur.i, cur.j)
+                if (self.cell_cost(cx, cy) or 0) == 0 and hc < best_dry_h then best_dry_h, best_dry = hc, cur end
+            end
             if hc < cell then break end
             for di = -1, 1 do
                 for dj = -1, 1 do
@@ -244,6 +255,10 @@ function LP:plan(goal)
                         for _, nb in ipairs(self.nodes[key(cur.i + di, cur.j + dj)] or {}) do
                             if not closed[nb] and not self.blocked[ekey(cur, nb)] and not self:crosses_wall(cur, nb) then
                                 local kind, extra = self:edge(cur, nb)
+                                if kind and self.cell_cost then
+                                    local nx, ny = self:pos(nb.i, nb.j)
+                                    extra = extra + (self.cell_cost(nx, ny) or 0)
+                                end
                                 if kind then
                                     local step = ((di ~= 0 and dj ~= 0) and 1.414 or 1) * cell + extra * cell
                                     local ng = g[cur] + step
@@ -258,6 +273,9 @@ function LP:plan(goal)
                 end
             end
         end
+    end
+    if self.cell_cost and best_dry and best_n ~= best_dry and best_dry_h <= best_h + 300 then
+        best_n, best_h = best_dry, best_dry_h -- don't aim the segment into water when dry ground is about as close
     end
     if best_n == start then return nil, "no_progress_possible" end
     -- the goal is out of reach inside this window (e.g. on a ledge above jump height): say so instead
@@ -295,6 +313,7 @@ function LP:verify(pts, budget)
             if hit then
                 if type(hp) == "table" and hp.X then self.wall_pts[#self.wall_pts + 1] = { X = hp.X, Y = hp.Y, Z = z } end
                 self.blocked[ekey(pts[1].node, pts[2].node)] = true
+                self.first_blocks = (self.first_blocks or 0) + 1
                 return "blocked"
             end
         end
@@ -331,6 +350,17 @@ function LP:verify(pts, budget)
             local hit, hp = false, nil
             if math.sqrt((bx - ax) ^ 2 + (by - ay) ^ 2) > 10 then
                 hit, hp = self.trace({ X = ax, Y = ay, Z = z }, { X = bx, Y = by, Z = z }, true)
+            end
+            if hit and b.act ~= "jump" and b.act ~= "djump" then
+                -- a LOW obstacle (felled log, fence) is clear at jump height: hop it instead of a wall
+                local zh = math.max(a.Z, b.Z) + (self.env.jump or 165) - 30
+                local hh = self.trace({ X = ax, Y = ay, Z = zh }, { X = bx, Y = by, Z = zh }, true)
+                used, self.traces = used + 1, self.traces + 1
+                if not hh then
+                    self.hop[ek] = true
+                    self.hops = (self.hops or 0) + 1
+                    return "blocked" -- re-plan: edge() now gives a jump for it
+                end
             end
             if hit and type(hp) == "table" and hp.X then self.wall_pts[#self.wall_pts + 1] = { X = hp.X, Y = hp.Y, Z = z } end
             used, self.traces = used + 1, self.traces + 1

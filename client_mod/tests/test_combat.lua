@@ -46,6 +46,7 @@ local function new_pawn()
         SecondaryAction = obj({}, "InputAction /Game/IA_SecondaryAction.IA_SecondaryAction"),
         SpecialAction = obj({}, "InputAction /Game/IA_SpecialAction.IA_SpecialAction"),
         EvadeAction = obj({}, "InputAction /Game/IA_Player_Evade.IA_Player_Evade"),
+        MovementAction = obj({}, "InputAction /Game/IA_Movement.IA_Movement"),
     }
     pawn.LockOnTargetingComponent = obj({ ToggleLockOnInput = obj({}, "InputAction /Game/IA_ToggleLockOnTargeting.IA_ToggleLockOnTargeting") }, "C /x")
     pc = obj({ Pawn = pawn, IsLocalController = function() return true end }, "BP_PlayerController_C /Game/L.L:PersistentLevel.BP_PlayerController_C_1")
@@ -82,6 +83,8 @@ local pending_hits = {}
 function eis:InjectInputVectorForAction(action, v)
     local name = action:GetFullName():match("%.([%w_]+)$")
     world.injected[name] = (world.injected[name] or 0) + 1
+    world.last_vec = world.last_vec or {}
+    world.last_vec[name] = { X = v.X, Y = v.Y }
     local rising = last_inject[name] ~= frame_n - 1
     last_inject[name] = frame_n
     if rising and name == "IA_Player_Evade" then world.evading_until = T + 0.5; world.evade_start = T end
@@ -396,12 +399,18 @@ do
     A.reset(nil)
 end
 
--- ================================================================ 4. strong target refused; never players
+-- ================================================================ 4. strong target: fought with an assessment; never players
 reset_world()
 do
     new_creature("BP_AI_Troll_C_1", "Troll", { X = 500, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0 })
     local r = Cm.attack(nil, "Troll")
-    check("strong target refused", not r.ok and r.reason == "unsafe" and r.data.why == "too_strong", r.reason)
+    check("strong target NOT refused: the model decides (North Star)", r.ok, r.reason)
+    check("strong target: assessment returned as information", r.ok and r.data.assessment.verdict == "too_strong" and r.data.assessment.est_s_to_die ~= nil,
+          r.data and r.data.assessment and r.data.assessment.verdict)
+    run_until(function() local f = Cm._state().fight; return f and (f.phase == "approach" or f.phase == "engage") end, 3)
+    check("commanded fight vs a strong enemy keeps fighting (no strength veto)", Cm._state().fight and Cm._state().fight.phase ~= "flee")
+    Cm.stop(nil, "test")
+    A.reset(nil)
     local p2 = obj({ PlayerState = obj({}, "PS /x") }, "BP_PlayerCharacter_C /Game/L.L:PersistentLevel.BP_PlayerCharacter_C_2")
     function p2:K2_GetActorLocation() return { X = 100, Y = 0, Z = 0 } end
     local r2 = Cm._start_fight(nil, p2, { mode = "attack" })
@@ -626,6 +635,11 @@ for _, case in ipairs({
     local want_outcome = case.want == "dodged" and "avoided" or case.want
     check(case.name .. ": verified outcome " .. want_outcome, ld.outcome == want_outcome, ld.outcome)
     check(case.name .. ": no damage taken", pawn.hp == 100, pawn.hp)
+    if case.want == "dodged" then
+        local mv = world.last_vec and world.last_vec.IA_Movement
+        check("dodge: directional via IA_Movement (sideways) + IA_Player_Evade", mv and math.abs(mv.X) == 1 and mv.Y == 0 and (world.injected.IA_Player_Evade or 0) > 0,
+              mv and (mv.X .. "," .. mv.Y))
+    end
     if case.want == "parried" then
         local r = Dm.rec("Goblin Runt:ATK_Goblin_Slash")
         check("parry: impact time learned from the verdict", r.n == 1 and math.abs(r.impact_s - 0.8) < 0.05, r.impact_s)

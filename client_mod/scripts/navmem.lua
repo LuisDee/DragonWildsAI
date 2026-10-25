@@ -26,6 +26,8 @@ NM.cfg = {
     taboo_from_cm = 1000,  -- ... and starting within this of the taboo's origin is penalised
     taboo_cost = 10,
     min_route_cm = 1000,   -- don't store trips shorter than this
+    water_cell_cm = 200,   -- learned water map resolution
+    water_cost = 8,        -- extra cost (in metres per metre) of a remembered route point in water
 }
 
 local function d3(a, b) return math.sqrt((a.X - b.X) ^ 2 + (a.Y - b.Y) ^ 2 + (a.Z - b.Z) ^ 2) end
@@ -61,7 +63,12 @@ end
 -- mem = { v, world, routes = {{id, pts={{x,y,z}..} m, ts, n_used, n_ok, n_fail, src}},
 --         traps = {{id, center={x,y,z}, radius_m, z_max, z_min, exit={{x,y,z[,act]}..}, src, status, n_ok}},
 --         taboos = {{at={x,y,z}, toward={x,y,z}, n, ts, note}} }
-function NM.new_mem(world) return { v = 1, world = world, routes = {}, traps = {}, taboos = {}, next_id = 1 } end
+function NM.new_mem(world) return { v = 1, world = world, routes = {}, traps = {}, taboos = {}, water = {}, next_id = 1 } end
+
+-- ------------------------------------------------------------------ water (learned from wading/swimming)
+local function wkey(p) return math.floor(p.X / NM.cfg.water_cell_cm) .. ":" .. math.floor(p.Y / NM.cfg.water_cell_cm) end
+function NM.mark_water(mem, p) mem.water = mem.water or {}; if not mem.water[wkey(p)] then mem.water[wkey(p)] = true; return true end end
+function NM.is_water(mem, p) return mem.water ~= nil and mem.water[wkey(p)] == true end
 
 function NM.load(root, world, map)
     local P = NM.paths(root, world, map)
@@ -71,6 +78,9 @@ function NM.load(root, world, map)
     if s and J then local ok, t = pcall(J.decode, s); if ok and type(t) == "table" then mem = t end end
     mem = mem or NM.new_mem(world)
     mem.routes, mem.traps, mem.taboos = mem.routes or {}, mem.traps or {}, mem.taboos or {}
+    local wl = mem.water_cells or {}
+    mem.water, mem.water_cells = {}, nil
+    for _, k in ipairs(wl) do mem.water[k] = true end
     mem.next_id = mem.next_id or (#mem.routes + #mem.traps + 1)
     -- map seeds are merged in (read-only; a learned trap with the same id wins)
     local ss = read(P.seeds)
@@ -91,7 +101,8 @@ end
 function NM.save(mem)
     local J = json(mem._root)
     if not J then return false end
-    local out = { v = 1, world = mem.world, next_id = mem.next_id, routes = {}, traps = {}, taboos = {} }
+    local out = { v = 1, world = mem.world, next_id = mem.next_id, routes = {}, traps = {}, taboos = {}, water_cells = {} }
+    for k in pairs(mem.water or {}) do out.water_cells[#out.water_cells + 1] = k end
     for _, r in ipairs(mem.routes) do if not r.seed then out.routes[#out.routes + 1] = r end end
     for _, t in ipairs(mem.traps) do if not t.seed then out.traps[#out.traps + 1] = t end end
     for _, t in ipairs(mem.taboos) do if not t.seed then out.taboos[#out.taboos + 1] = t end end
@@ -220,6 +231,7 @@ function NM.plan(mem, from, to, opts)
     local function cost(a, b, base)
         local c = base or d3(a, b)
         if NM.is_taboo(mem, a, b) then c = c * NM.cfg.taboo_cost end
+        if NM.is_water(mem, b) then c = c * NM.cfg.water_cost end
         return c
     end
     -- route polylines (both directions; jump points only upward along the recorded direction)

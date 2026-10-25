@@ -31,14 +31,22 @@ M.cfg = {
     lease_s = 5,
     open_wait_s = 1.2,      -- after Q: wait for the radial input mode
     open_tries = 2,
-    page_wait_s = 0.3,      -- after switching the wheel page: let the slices refresh
+    page_wait_s = 0.4,      -- after switching the wheel page: let the slices refresh (live: updated within 0.4 s)
+    page_max_s = 1.5,       -- ... and wait up to this long for the slice icons to change
     select_wait_s = 1.0,    -- after the quick key: wait for a spell mode or the cast to start
     verify_s = 4.0,         -- after the cast input: runes / cooldown must change within this
-    wait_s = 14,            -- waiter deadline (the bridge answers expire() after it)
+    wait_s = 22,           -- waiter deadline (the bridge answers expire() after it)
     typo_cutoff = 0.8,      -- fuzzy name match only above this similarity, and only if unique
     default_radius_m = 5,   -- harm radius when a harmful spell has no Shape module
     place_max_m = 15,       -- fallback camera-to-target limit (SpellcastingComponent.MaxDistanceFromCameraToPlaceSpell)
     landed_tolerance_m = 3, -- a targeted spell that lands farther than max(this, its radius) is reported as a miss
+    preview_wait_s = 0.45,  -- after aiming at a spot: let the game's placement preview follow the camera
+    preview_match_m = 2.5,  -- the preview must sit this close to the spot aimed at
+    max_spots = 8,
+    spot_rings_m = { 4, 6 }, -- automatic spots around me (around a named target: itself, then 2 and 3.5 m rings)
+    spot_player_clear_m = 3, -- automatic spots keep this far from players
+    spot_max_spread_m = 0.6, -- 3x3 ground heights over 3 m must differ less than this
+    spot_min_normal_z = 0.95,
     quick_keys = 8,         -- IA_Spellcasting_QuickAccess0..7
     gameplay_mode = "DIM_Gameplay",
     radial_mode = "DIM_RadialMenu",
@@ -463,6 +471,94 @@ function W.selected(api)
     return u.valid(sc) and u.short(u.try(function() return sc:GetCurrentlySelectedSpellData() end)) or nil
 end
 
+-- The game's own placement preview for OUR cast (AUtilitySpellPlacementVisualizer): the green/red
+-- check a player sees. -> {valid, tag, position} | nil
+function W.preview(api)
+    local u = U()
+    local pawn = W.pawn(api)
+    local me = pawn and u.short(pawn)
+    for _, v in ipairs(u.find_all("UtilitySpellPlacementVisualizer", { skip_defaults = true })) do
+        local c = u.try(function() return v:GetCastingPlayerCharacter() end)
+        local mine = (u.valid(c) and u.short(c) == me) or (u.try(function() return v:IsLocallyControlled() end) == true)
+        if mine then
+            local tag = u.str(u.try(function() return v.CurrentAdditionalValidationInfo.TagName end))
+            return { valid = u.try(function() return v.bCurrentPlacementValid end) == true,
+                     tag = (tag and tag ~= "" and tag ~= "None") and tag or nil,
+                     position = to_m(u.try(function() return v:K2_GetActorLocation() end)), id = u.short(v) }
+        end
+    end
+    return nil
+end
+
+-- Candidate spots for a placed spell, best first: around `center` (a target, metres; the target
+-- itself first) or around me. Each: 3x3 downward traces 1.5 m apart (height spread, centre normal), a
+-- 3 m clearance trace up and line of sight from my chest (the trace call move.lua uses).
+-- -> {{position, spread_m, normal_z, exact}}
+function W.spots(api, center)
+    local u = U()
+    local pawn = W.pawn(api)
+    if not u.valid(pawn) then return {} end
+    local cfg = M.cfg
+    local KSL = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+    local C0 = { R = 0, G = 0, B = 0, A = 0 }
+    local function trace(a, b)
+        local out = {}
+        local ok, hit = pcall(function() return KSL:LineTraceSingle(pawn, a, b, 0, false, {}, 0, out, true, C0, C0, 0.0) end)
+        return ok and hit == true, out
+    end
+    local me = u.loc(pawn)
+    local players = W.players(api)
+    local pts = {}
+    if center then
+        local cz = (center[3] or me.Z / 100) * 100
+        pts[1] = { center[1] * 100, center[2] * 100, cz, exact = true }
+        for _, r in ipairs({ 2, 3.5 }) do for i = 0, 7 do
+            local a = math.rad(i * 45)
+            pts[#pts + 1] = { center[1] * 100 + r * 100 * math.cos(a), center[2] * 100 + r * 100 * math.sin(a), cz }
+        end end
+    else
+        for _, r in ipairs(cfg.spot_rings_m) do for i = 0, 11 do
+            local a = math.rad(i * 30)
+            pts[#pts + 1] = { me.X + r * 100 * math.cos(a), me.Y + r * 100 * math.sin(a), me.Z }
+        end end
+    end
+    local out = {}
+    for _, p in ipairs(pts) do
+        local clear = true
+        if not center then
+            for _, pl in ipairs(players) do
+                local pp = pl.position
+                if pp and math.sqrt((pp[1] * 100 - p[1]) ^ 2 + (pp[2] * 100 - p[2]) ^ 2) < cfg.spot_player_clear_m * 100 then clear = false end
+            end
+        end
+        if clear then
+            local zs, zc, nz = {}, nil, nil
+            for dx = -1, 1 do for dy = -1, 1 do
+                local hit, o = trace({ X = p[1] + dx * 150, Y = p[2] + dy * 150, Z = p[3] + 400 }, { X = p[1] + dx * 150, Y = p[2] + dy * 150, Z = p[3] - 600 })
+                local z = hit and o.ImpactPoint and o.ImpactPoint.Z or nil
+                if z then zs[#zs + 1] = z end
+                if dx == 0 and dy == 0 then zc, nz = z, hit and o.ImpactNormal and o.ImpactNormal.Z or nil end
+            end end
+            if zc and #zs == 9 then
+                local lo, hi = math.huge, -math.huge
+                for _, z in ipairs(zs) do lo = math.min(lo, z); hi = math.max(hi, z) end
+                local spread = (hi - lo) / 100
+                local up = trace({ X = p[1], Y = p[2], Z = zc + 50 }, { X = p[1], Y = p[2], Z = zc + 350 })
+                local los = trace({ X = me.X, Y = me.Y, Z = me.Z + 50 }, { X = p[1], Y = p[2], Z = zc + 80 })
+                if not up and not los and spread <= cfg.spot_max_spread_m and (nz or 0) >= cfg.spot_min_normal_z then
+                    out[#out + 1] = { position = { p[1] / 100, p[2] / 100, zc / 100 }, spread_m = math.floor(spread * 100) / 100,
+                                      normal_z = nz and math.floor(nz * 1000) / 1000, exact = p.exact }
+                end
+            end
+        end
+    end
+    table.sort(out, function(a, b)
+        if (a.exact == true) ~= (b.exact == true) then return a.exact == true end
+        return a.spread_m < b.spread_m
+    end)
+    return out
+end
+
 -- Players around: {{name, id, position}} (census, metres).
 function W.players(api)
     local things = api.census_things(40, 20) or {}
@@ -508,8 +604,12 @@ local function rows_of(api, snap, all)
             end
         end
     end
+    -- castable first (consumers like brain/spells.py keep only the first rows), then what a little
+    -- time or a few runes would fix, then what needs the wheel, then locked; by name within each
+    local rank = { on_cooldown = 1, busy = 1, not_enough_resources = 2, not_on_wheel = 3, not_unlocked = 4 }
     table.sort(out, function(a, b)
-        if a.unlocked ~= b.unlocked then return a.unlocked end
+        local ra, rb = a.castable and 0 or (rank[a.reason] or 3), b.castable and 0 or (rank[b.reason] or 3)
+        if ra ~= rb then return ra < rb end
         return tostring(a.name) < tostring(b.name)
     end)
     return out, locked_n
@@ -740,6 +840,10 @@ local function step(job)
             -- press the key only when the open page shows THIS spell in that slot (never cast another)
             local icons = W.shown_icons(api)
             if not icons then return failed(job, "verification_failed", "wheel_unreadable", "I can't read my spell wheel right now.") end
+            local sig = table.concat((function() local o = {}; for i = 1, #icons do o[i] = tostring(icons[i]) end; return o end)(), "|")
+            -- after a page turn, wait (up to page_max_s) until the slices actually show the new page
+            if job.page_sig and sig == job.page_sig and t < (job.page_deadline or 0) then return nil end
+            job.page_sig = sig
             if icons[job.slot + 1] == job.st.icon then
                 job.phase, job.until_t = "select", t + cfg.select_wait_s
                 press(job, "quick" .. job.slot, job.acts.quick[job.slot + 1])
@@ -750,7 +854,8 @@ local function step(job)
                 return failed(job, "verification_failed", "page_not_found", "I couldn't find " .. job.row.name .. " on my spell wheel's pages.")
             end
             press(job, "next_page", job.acts.next_page)
-            job.page_wait, job.until_t = t + cfg.page_wait_s, t + cfg.open_wait_s + cfg.page_wait_s
+            job.page_wait, job.page_deadline = t + cfg.page_wait_s, t + cfg.page_max_s
+            job.until_t = t + cfg.open_wait_s + cfg.page_max_s
             return nil
         end
         if t >= job.until_t then
@@ -770,6 +875,17 @@ local function step(job)
             if sel and sel ~= job.row.id then
                 return failed(job, "verification_failed", "wrong_spell", "My wheel picked a different spell than " .. job.row.name .. ", so I cancelled.")
             end
+            if job.row.cast_type == "placed" then
+                -- choose the spot: candidates (the target, then flat clear points near it / near me),
+                -- each confirmed by the GAME's own placement preview (green/red) before LMB
+                job.spots = W.spots(api, job.target.kind ~= "self" and job.target.position or nil, snap)
+                if #job.spots == 0 then
+                    return failed(job, "nothing_in_range", "no_spot", "I can't find flat, open ground near " ..
+                        (job.target.kind ~= "self" and "there" or "me") .. " to place " .. job.row.name .. ".")
+                end
+                job.spot_i, job.rejects, job.phase, job.next_spot = 0, {}, "place_check", true
+                return nil
+            end
             if job.target.kind ~= "self" and job.target.position then
                 local dist = W.aim(api, job.target.position)
                 local lim = (snap.place_max_m and snap.place_max_m > 0) and snap.place_max_m or cfg.place_max_m
@@ -788,6 +904,52 @@ local function step(job)
         if t >= job.until_t then
             return failed(job, "verification_failed", "not_selected", "I opened the spell wheel but " .. job.row.name .. " didn't get selected.")
         end
+        return nil
+    end
+    if job.phase == "place_check" then
+        if not in_spell_mode(mode) then
+            return failed(job, "verification_failed", "placement_closed", "The placement preview for " .. job.row.name .. " closed before I could place it.")
+        end
+        local lim = (snap.place_max_m and snap.place_max_m > 0) and snap.place_max_m or cfg.place_max_m
+        if job.next_spot then
+            job.next_spot = nil
+            while true do -- the next spot within the camera's reach
+                job.spot_i = job.spot_i + 1
+                local sp = job.spots[job.spot_i]
+                if not sp or job.spot_i > cfg.max_spots then
+                    local why = job.rejects[1] and job.rejects[1].game or nil
+                    job.d.rejected = job.rejects
+                    return failed(job, "nothing_in_range", "no_valid_spot", "I couldn't find a spot the game accepts for " .. job.row.name ..
+                        " near " .. (job.target.kind ~= "self" and "there" or "me") .. (why and (" (" .. why .. ")") or "") .. "; it needs flat, open ground.")
+                end
+                local dist = W.aim(api, sp.position)
+                if not dist or dist <= lim + 0.5 then break end
+                job.rejects[#job.rejects + 1] = { spot = sp.position, why = "too_far" }
+            end
+            job.spot_t = t + cfg.preview_wait_s
+            return nil
+        end
+        if t < job.spot_t then return nil end
+        local sp = job.spots[job.spot_i]
+        local vis = W.preview(api)
+        local near = vis and vis.position and d3(vis.position, sp.position)
+        if vis and vis.valid == true and (not near or near <= cfg.preview_match_m) then
+            job.d.spot, job.d.spot_flatness, job.d.preview_at = sp.position, sp.spread_m, vis.position
+            if #job.rejects > 0 then job.d.rejected = job.rejects end
+            job.phase, job.until_t = "verify", t + cfg.verify_s
+            press(job, "place", job.acts.place)
+            return nil
+        end
+        if not vis then
+            -- no readable preview: place on our own flattest spot once (the cast is still verified)
+            job.d.spot, job.d.preview = sp.position, "unreadable"
+            job.phase, job.until_t = "verify", t + cfg.verify_s
+            press(job, "place", job.acts.place)
+            return nil
+        end
+        job.rejects[#job.rejects + 1] = { spot = sp.position, valid = vis.valid, game = vis.tag, preview_at = vis.position,
+                                          off_m = near and math.floor(near * 10 + 0.5) / 10 or nil }
+        job.next_spot = true
         return nil
     end
     -- verify
@@ -835,15 +997,17 @@ M.HANDLERS = {
 local OBJ = { __jsontype = "object" }
 local function obj(t) return setmetatable(t or {}, OBJ) end
 M.MANIFEST = {
-    cast = { kind = "waiter", llm = true, moves = false, priority = "command", duration_s = 3, timeout_s = 20,
+    cast = { kind = "waiter", llm = true, moves = false, priority = "command", duration_s = 3, timeout_s = 30,
         detail_is_speech = true,
         description = "Cast one of your spells like a player (spell wheel, then cast); checks runes were used and it went "
             .. "on cooldown. Use a spell from castable_spells/spells, chosen by what its description says it does. Instant "
-            .. "spells affect you. Placed/aimed spells go at target, or in front of you if no target. Never at players. "
+            .. "spells affect you. Placed spells need flat, open ground: give no target and you pick a spot nearby "
+            .. "yourself (flat, clear, accepted by the game's own placement preview), or give a target and you place it there or "
+            .. "just beside it. Aimed spells fly toward target (or straight ahead). Never at players. "
             .. "Runs alongside following.",
         args = { type = "object", required = { "spell" }, properties = obj({
             spell = { type = "string", description = "The spell's exact name as listed by spells (e.g. from castable_spells)." },
-            target = { description = "Placed/aimed spells only: an id from look, or [x, y, z] metres. Omit for yourself / in front of you.",
+            target = { description = "Placed/aimed spells only: an id from look, or [x, y, z] metres. Omit: instant spells hit yourself; placed spells go on a valid spot you find nearby.",
                        anyOf = { { type = "string" }, { type = "array", items = { type = "number" }, minItems = 2, maxItems = 3 } } } }) },
         preconditions = { "the spell is unlocked and on your spell wheel", "you carry its runes", "it is not on cooldown" },
         ground = obj({ target = "thing" }),

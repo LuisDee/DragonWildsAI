@@ -117,8 +117,10 @@ M.cfg = {
     unreachable_check_s = 1.5, -- while unreachable: re-check this often
     unreachable_moved_cm = 300,-- ... and resume at once when the leader moved this far
     self_stuck_cm = 100,       -- moved less than this in total over give_up_s = WE are stuck (not the route)
-    superjump_cm = 250,        -- leader rise above this on a SINGLE jump = Windstep (normal apex 180 cm) ...
-    superjump_any_cm = 450,    -- ... or above this whatever the jump count (a double jump rises ~3 m)
+    superjump_cm = 450,        -- leader rise above this = Windstep (a double jump rises ~2.6-3 m: live
+    superjump_any_cm = 450,    --  20:25 his double jumps were misread at 250 cm and cut his trail)
+    leader_far_cm = 30000,     -- leader further than this (teleported / lodestone): hold + "leader_far"
+    target_jump_cm = 5000,     -- target moved this much in one step = teleport: reset path/trail
     link_max_tries = 2,        -- learned-link attempts per unreachable episode before reporting
     link_approach_s = 15,
     log_every_s = 2.0,
@@ -290,8 +292,24 @@ local function envelope(pawn, pc)
     local dj = false
     pcall(function() dj = pc.SkillPerkComponent:IsPerkUnlocked(pawn.DoubleJumpSkillPerk) == true end)
     local safe_drop = num(function() return mc.MinFallDamageHeight end) or 500
-    return { step = step, jump = apex - 15, djump = dj and (apex * 1.6 - 15) or (apex - 15),
-             drop = math.min(1000, math.max(150, safe_drop - 50)), apex = apex, double_jump = dj }
+    local env = { step = step, jump = apex - 15, djump = apex - 15, -- double-jump edges only once MEASURED
+                  drop = math.min(1000, math.max(150, safe_drop - 50)), apex = apex, double_jump = dj, source = "engine" }
+    -- MEASURED values win (client_mod/commands/move_calib.lua -> data/envelopes/Claude.json)
+    local okj, J = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/dkjson.lua"))() end)
+    local f = io.open(ROOT .. "/data/envelopes/Claude.json", "rb")
+    if okj and f then
+        local txt = f:read("a"); f:close()
+        local okd, m = pcall(J.decode, txt)
+        if okd and type(m) == "table" then
+            local ju = type(m.jump_up_m) == "table" and m.jump_up_m.stand or m.jump_up_m
+            if tonumber(ju) then env.jump = tonumber(ju) * 100 end
+            if dj and tonumber(m.dj_up_m) then env.djump = tonumber(m.dj_up_m) * 100 end
+            if not dj then env.djump = env.jump end
+            if tonumber(m.dj_delay_s) then env.dj_delay_s = tonumber(m.dj_delay_s) end
+            env.source = "measured " .. tostring(m.measured)
+        end
+    elseif f then f:close() end
+    return env
 end
 
 -- ------------------------------------------------------------------ nav oracle client (optional)
@@ -627,6 +645,22 @@ local function tick(st, gen, log)
             return
         end
         goal = st.target:K2_GetActorLocation()
+        -- a relevancy-culled / teleporting proxy reads as the world origin (live 20:25: Claude sprinted
+        -- toward (0,0,0), 1.8 km away): treat as not visible
+        if math.abs(goal.X) < 100 and math.abs(goal.Y) < 100 then
+            st.status = "target_not_visible"
+            if st.mode == "go_to" and t - st.t0 > 10 then return finish(st, { status = "failed", reason = "target_not_visible" }, log) end
+            st.prog_t = nil
+            return
+        end
+        -- teleport: drop the old route and trail
+        if st.last_goal and d2(goal, st.last_goal) > M.cfg.target_jump_cm then
+            if log then log(string.format("move: target jumped %.0f m (teleport?); resetting route and trail", d2(goal, st.last_goal) / 100)) end
+            st.path, st.lpath, st.mpath, st.trail_i, st.bug = nil, nil, nil, nil, nil
+            st.crumbs, st.crumb_mark = {}, 0
+            st.nav_force = true
+        end
+        st.last_goal = v(goal)
         if st.target_kind ~= "actor" then
             record_crumb(st, goal)
             -- leader moves Claude may lack: airborne rise > superjump_cm = Windstep; jump count 2 = double jump
@@ -637,7 +671,7 @@ local function tick(st, gen, log)
                 if okj0 and tonumber(jc0) then st.l_air.jc = math.max(st.l_air.jc or 0, tonumber(jc0)) end
             elseif okg and st.l_air then
                 local rise = st.l_air.zmax - st.l_air.z0
-                if rise > M.cfg.superjump_any_cm or (rise > M.cfg.superjump_cm and (st.l_air.jc or 0) <= 1) then
+                if rise > M.cfg.superjump_any_cm then
                     -- Windstep: his airborne crumbs are not a path for us; the trail ends at his take-off
                     st.leader_superjump_t = t
                     for k = #st.crumbs, st.l_air.n0 + 1, -1 do table.remove(st.crumbs, k) end
@@ -659,6 +693,21 @@ local function tick(st, gen, log)
     end
     local dist = d2(me, goal)
     st.dist_cm = dist
+    if st.mode == "follow" and dist > M.cfg.leader_far_cm then
+        if not st.far then
+            st.far = true
+            pcall(emit_move_event, "unreachable", { reason = "leader_far", leader_pos = goal, my_pos = me,
+                detail = string.format("leader %.0f m away (teleported?)", dist / 100), mode = "follow" })
+            if log then log(string.format("move: leader is %.0f m away; holding (lodestone catch-up needed)", dist / 100)) end
+        end
+        st.status = "leader_far"
+        st.prog_t, st.win_t, st.win_pos = nil, t, v(me)
+        return
+    elseif st.far then
+        st.far = nil
+        pcall(emit_move_event, "reachable_again", { leader_pos = goal, my_pos = me })
+        st.nav_force = true
+    end
 
     -- arrival / follow idle
     if st.mode == "go_to" then
@@ -1211,7 +1260,7 @@ local function tick(st, gen, log)
     -- jump sequencing: release after 0.25 s; double jump 0.35 s after the first
     if st.jump_t then
         if st.jump_release and t - st.jump_t > 0.25 then pcall(function() pawn:StopJumping() end); st.jump_release = false end
-        if st.jump_double and t - st.jump_t > 0.35 then
+        if st.jump_double and t - st.jump_t > ((st.env and st.env.dj_delay_s) or 0.33) then
             pcall(function() pawn:Jump() end); st.jump_double = false; st.jump_t2 = t; st.double_jumps = (st.double_jumps or 0) + 1
         end
         if st.jump_t2 and t - st.jump_t2 > 0.25 then pcall(function() pawn:StopJumping() end); st.jump_t2 = nil end

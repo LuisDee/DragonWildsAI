@@ -56,7 +56,7 @@ local function reset(o)
           skills = { SKILL_Agility = 5, SKILL_Construction = 1, SKILL_Mining = 3, SKILL_Attack = 5 },
           presses = {}, sched = {}, pos = { 0, 0, 0 }, players = o.players or {}, falling = false, server_time = 1000,
           wheel_broken = o.wheel_broken, quick_no_select = o.quick_no_select, no_effect = o.no_effect, land_offset = o.land_offset,
-          server_cooldown = o.server_cooldown, all = o.all or { WINDSTEP, SHELTER }, page = o.page or 0, no_icons = o.no_icons }
+          server_cooldown = o.server_cooldown, invalid_spots = o.invalid_spots, no_preview = o.no_preview, no_spots = o.no_spots, all = o.all or { WINDSTEP, SHELTER }, page = o.page or 0, shown_page = o.page or 0, no_icons = o.no_icons, slow_pages = o.slow_pages }
 end
 local function at(dt, fn) G.sched[#G.sched + 1] = { t = T + dt, fn = fn } end
 local function tick()
@@ -97,19 +97,35 @@ W.actions = function() return ACTS end
 W.shown_icons = function()
     if G.no_icons then return nil end
     local out = {}
-    for i = 1, 12 do local s = spell_by(G.wheel[G.page * 12 + i]); out[i] = s and s.icon or false end
+    for i = 1, 12 do local s = spell_by(G.wheel[G.shown_page * 12 + i]); out[i] = s and s.icon or false end
     return out
 end
 W.selected = function() return G.selected end
 W.aim = function(_, pos) G.aimed = pos; return math.sqrt(pos[1] ^ 2 + pos[2] ^ 2 + 9) end
 W.players = function() return G.players end
+local function key2(p) return string.format("%d,%d", math.floor(p[1] + 0.5), math.floor(p[2] + 0.5)) end
+W.spots = function(_, center)
+    if G.no_spots then return {} end
+    if center then return { { position = center, spread_m = 0.1, exact = true }, { position = { center[1] + 2, center[2], center[3] or 0 }, spread_m = 0.2 } } end
+    return { { position = { 4, 0, 0 }, spread_m = 0.1 }, { position = { 0, 4, 0 }, spread_m = 0.2 }, { position = { -4, 0, 0 }, spread_m = 0.3 } }
+end
+W.preview = function()
+    if G.no_preview or G.mode ~= "DIM_SpellPlacementMode" then return nil end
+    local a = G.aimed or { 3, 0, 0 }
+    local bad = G.invalid_spots and (G.invalid_spots[key2(a)] or G.invalid_spots.all)
+    return { valid = not bad, tag = bad and "Spell.Placement.Invalid.Slope" or nil, position = { a[1], a[2], a[3] or 0 } }
+end
 W.inject = function(_, a)
     G.presses[#G.presses + 1] = a.n
     if a.n == "menu" then
         if G.mode == "DIM_RadialMenu" then G.mode = "DIM_Gameplay"
         elseif G.mode == "DIM_Gameplay" and not G.wheel_broken then at(0.15, function() G.mode = "DIM_RadialMenu" end) end
     elseif a.n == "next_page" then
-        if G.mode == "DIM_RadialMenu" then G.page = (G.page + 1) % 4 end
+        if G.mode == "DIM_RadialMenu" then
+            G.page = (G.page + 1) % 4
+            local p = G.page
+            if G.slow_pages then at(G.slow_pages, function() G.shown_page = p end) else G.shown_page = p end
+        end
     elseif a.n:match("^quick") then
         if G.mode ~= "DIM_RadialMenu" then return true end
         if G.quick_no_select then return true end
@@ -296,6 +312,11 @@ do
     local r = SP.HANDLERS.spells(nil, {}, ctx)
     check("row carries page and key", r.data.spells[1].wheel_page == 3 and r.data.spells[1].wheel_key == 4)
 end
+reset({ wheel = page3, slow_pages = 0.8 })
+do
+    local res = run_cast({ spell = "Windstep" })
+    check("slow slice refresh (0.8 s, live was ~0.4 s): waits for each page, no overshoot", res.ok and presses() == "menu,next_page,next_page,quick3", presses())
+end
 reset({ page = 2 })
 do
     local res = run_cast({ spell = "Windstep" })
@@ -342,6 +363,37 @@ reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" } })
 do
     local res = run_cast({ spell = "Summon Shelter" })
     check("placed without target casts in front", res.ok and res.data.target == nil and res.data.landed_dist_m == nil, res.reason)
+end
+
+-- ---------------------------------------------------------------- cast: placed, spot chosen by Claude + the game's preview
+reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" }, invalid_spots = { ["4,0"] = true } })
+do
+    local res = run_cast({ spell = "Summon Shelter" })
+    check("auto spot: first spot red, second green -> placed there", res.ok and res.data.spot[2] == 4 and presses() == "menu,quick0,place", presses())
+    check("auto spot: the game's reason for the rejected spot is kept", res.data.rejected and res.data.rejected[1].game == "Spell.Placement.Invalid.Slope")
+    check("auto spot: landed_at reported", res.data.landed_at ~= nil)
+end
+reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" }, invalid_spots = { all = true } })
+do
+    local res = run_cast({ spell = "Summon Shelter" })
+    check("no spot accepted -> nothing_in_range no_valid_spot + cancel", res.reason == "nothing_in_range" and res.data.why == "no_valid_spot"
+        and presses() == "menu,quick0,cancel" and #res.data.rejected == 3 and (res.data.detail or ""):find("flat, open ground", 1, true), presses())
+    check("no runes spent when nothing placed", G.items[EARTH] == 500)
+end
+reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" }, no_spots = true })
+do
+    local res = run_cast({ spell = "Summon Shelter" })
+    check("no flat ground at all -> nothing_in_range no_spot", res.reason == "nothing_in_range" and res.data.why == "no_spot", res.reason)
+end
+reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" }, no_preview = true })
+do
+    local res = run_cast({ spell = "Summon Shelter" })
+    check("preview unreadable -> places on our flattest spot, says so", res.ok and res.data.preview == "unreadable" and res.data.spot[1] == 4, res.reason)
+end
+reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" }, invalid_spots = { ["6,2"] = true } })
+do
+    local res = run_cast({ spell = "Summon Shelter", target = { 6, 2, 0 } })
+    check("named target red -> placed just beside it (within tolerance, ok)", res.ok and res.data.spot[1] == 8 and res.data.landed_dist_m == 2, res.reason)
 end
 
 -- ---------------------------------------------------------------- cast: safety floor

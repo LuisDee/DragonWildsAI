@@ -275,6 +275,16 @@ local function describe_item(a, origin)
     local data = U.try(function() return a.ItemData end)
     d.name, d.item = item_name(data) or clean_class(d.class), item_id(data)
     d.consumable = consumable_kind(data) -- perception: "Pumpkin Spice Infusion (drink)"
+    -- who dropped it (AWorldItem.NameOfPlayerCharacterThatDroppedItem, an FString; empty for loot) and how
+    -- long it has been seen lying there (first sight per actor, kept in _G across reloads)
+    local by = text(U.try(function() return a.NameOfPlayerCharacterThatDroppedItem end))
+    if by then d.dropped_by = by end
+    local seen = rawget(_G, "DWSeenItems") or {}
+    _G.DWSeenItems = seen
+    if d.id then
+        seen[d.id] = seen[d.id] or os.time()
+        d.seen_s = os.time() - seen[d.id]
+    end
     d.count = num(U.try(function() return a:GetStackSize() end))
     local mag = U.try(function() return a.MagneticComponentGrantItem end)
     if U.valid(mag) then

@@ -49,6 +49,7 @@ M.cfg = {
     give_m = 2.0, give_wait_s = 6,
     grave_radius_m = 80,
     lease_s = 15,
+    busy_wait_s = 20,       -- the pawn held by an equal/higher owner this long (not a fight): fail "busy" naming it
     timeout_s = { fetch = 110, consume = 115, come_to = 105, recover_grave = 110, give = 100, interact = 100 },
 }
 
@@ -141,6 +142,7 @@ local function acquire(api, job)
                                    on_stop = function(_, _, why) if job.own ~= "released" then job.stopped = why or "stopped" end end })
     if type(r) == "table" and r.ok then job.own, job.token = "owner", r.token; return true end
     job.own = "waiting"
+    job.refused = type(r) == "table" and r or { reason = "busy" } -- the real owner, for the model (never a guess)
     return false
 end
 
@@ -158,9 +160,19 @@ local function hold(api, job, a)
     if job.stopped then return api.fail("interrupted", { why = job.stopped,
         detail = "Something else took over (" .. tostring(job.stopped) .. "), so I stopped." }) end
     if not acquire(api, job) or job.own == "suspended" or api.reflex_owns_pawn() then
-        a.started = api.now() -- fighting back (or waiting for the fight to end): the job's clock stops
+        -- fighting back (or waiting for the fight to end): the job's clock stops. A pawn that stays
+        -- busy for BUSY_WAIT_S is reported with its real owner (who, level, since) instead of waiting on.
+        job.wait_since = job.wait_since or api.now()
+        local o = job.refused and job.refused.owner or {}
+        if job.own == "waiting" and o.level ~= "reflex" and api.now() - job.wait_since >= M.cfg.busy_wait_s then
+            return api.fail("busy", { owner = o.name, owner_level = o.level, owner_since = o.since,
+                owner_age_s = o.since and math.floor(api.now() - o.since) or nil, reason_detail = job.refused and job.refused.reason,
+                detail = "the pawn is held by " .. tostring(o.name or "another module") .. " (" .. tostring(o.level or "?") .. ")" })
+        end
+        a.started = api.now()
         return false
     end
+    job.wait_since = nil
     if job.token then local A = arbiter(api); if A and A.renew then pcall(A.renew, job.token) end end
     if job.resumed then job.resumed = nil; return "resumed" end
     return nil

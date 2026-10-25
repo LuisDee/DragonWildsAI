@@ -19,7 +19,7 @@ from .interface import GameInterface, Reason
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_CATALOG = REPO / "data" / "spells_26161880.json"
 USE_WHEN_CHARS = 140
-MAX_ROWS = 12
+MAX_ROWS = 40  # rows are short; the model needs every castable spell (spells agent, 2026-10-25)
 
 
 def compact_row(row: dict) -> dict:
