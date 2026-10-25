@@ -19,11 +19,21 @@ def test_follow_me_acts_then_speaks(rig):
     assert {"follow", "stop", "go_to", "attack", "give", "pickup", "drop", "remember", "start_goal"} <= offered
 
 
-def test_failed_action_overrides_speech(rig):
+def test_unperceived_target_is_refused_before_the_body(rig):
     rig.game.player_say("kill that bear")
     rig.controller_llm.push(FakeLLM.say("On it!", FakeLLM.call("attack", target="bear_9")))
     rig.agent.step()
-    assert rig.companion_said() == ["I couldn't attack: unknown_target."]
+    assert rig.companion_said() == ["I can't see any bear around here."]
+    assert rig.calls("attack") == []  # grounding refused it in code
+
+
+def test_failed_action_overrides_speech(rig):
+    wolf = rig.game.add_entity("wolf", [6, 0, 0], hp=30, hostile=True)
+    rig.game.script_failure("attack", "path_blocked", times=None)
+    rig.game.player_say("kill that wolf")
+    rig.controller_llm.push(FakeLLM.say("On it!", FakeLLM.call("attack", target=wolf)))
+    rig.agent.step()
+    assert rig.companion_said() == ["I couldn't attack: I can't find a way there."]
 
 
 def test_remember_and_start_goal(rig):

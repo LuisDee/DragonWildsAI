@@ -113,6 +113,18 @@ def _v_pickup(args, base, post, data):
     return f"world items still on the ground: {left}" if left else None
 
 
+def _v_interact(args, base, post, data):
+    # A grant (sticks, berries, a chest item) must show up in the bot's inventory under the item id
+    # the body reports (data.item, data.count). An interaction that grants nothing (a door, a
+    # station) is verified by the body from game state (research 2026-10-25 section 7.1 step 6).
+    item = data.get("item")
+    if not item:
+        return None
+    want = max(1, int(data.get("count") or 1))
+    gained = _inv(post, item) - _inv(base, item)
+    return None if gained >= want else f"inventory {item} +{gained}, body said +{want}"
+
+
 def _v_place(args, base, post, data):
     ids = {s["id"] for s in post.get("structures", [])}
     return None if data.get("structure_id") in ids else "structure not found"
@@ -145,6 +157,7 @@ VERIFIERS: dict[str, Callable] = {
     "drop": _v_drop,
     "pickup": _v_pickup,
     "place": _v_place,
+    "interact": _v_interact,
     "cast": _v_cast,
     "sleep": lambda args, base, post, data: None if post.get("sleeping") is not False else "not sleeping",
     "wake": lambda args, base, post, data: None if not post.get("sleeping") else "still sleeping",
@@ -183,6 +196,21 @@ class Executor:
         remaining = task.args["count"] - _delta(task.skill, args, base, now)
         return {**task.args, "count": remaining} if remaining > 0 else None
 
+    def _resolve_place(self, skill: str, args: dict, now: dict) -> dict:
+        """go_to(<a place Luis named>) -> its stored coordinates, unless the body knows that place
+        itself (state places) or the name is a player or entity (per-world places, design 15)."""
+        target = args.get("target")
+        if skill != "go_to" or not isinstance(target, str) or target in (now.get("places") or []):
+            return args
+        if any(p.get("name") == target for p in now.get("players") or []):
+            return args
+        places = getattr(self.store, "place_position", None)
+        pos = places(target) if places else None
+        if pos is None:
+            return args
+        self.log.log("place_resolved", place=target, position=pos)
+        return {**args, "target": pos}
+
     def run_task(self, task: Task) -> Outcome:
         if task.skill not in self.store.skills:
             return self._finish(task, Outcome(False, Reason.UNKNOWN_SKILL))
@@ -197,9 +225,11 @@ class Executor:
         reason = None
         last_data: dict = {}
         while task.attempts < self.max_attempts:
-            args = self._remaining_args(task, base, self.state())
+            now = self.state()
+            args = self._remaining_args(task, base, now)
             if args is None:
                 return self._finish(task, Outcome(True, attempts=task.attempts))
+            args = self._resolve_place(task.skill, args, now)
             task.attempts += 1
             task.status = "running"
             self.store.save_tree()

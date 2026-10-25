@@ -376,7 +376,7 @@ function M.held(log, args)
     local function one(p)
         local eq = U.try(function() return p.PlayerEquipmentComponent end)
         local h = U.try(function() return eq.HeldEquipmentActorRight end)
-        return {
+        local r = {
             pawn = U.short(p),
             prop_data = U.short(U.try(function() return h.HeldEquipmentData end)),
             prop_item = U.fullname(U.try(function() return h.HeldEquipmentItem end)),
@@ -385,7 +385,19 @@ function M.held(log, args)
             comp_get_data_right = U.short(U.try(function() return eq:GetHeldEquipmentDataRight() end)),
             comp_category_right = U.str(U.try(function() return eq:GetRightHandEquipmentCategory().TagName end)),
             actor_id = U.try(function() return h.HeldEquipmentActorID end),
+            right_socket = U.str(U.try(function() return h:GetAttachParentSocketName() end)),
+            right_class = U.class_word(h),
         }
+        local l = U.try(function() return eq.HeldEquipmentActorLeft end)
+        r.left_data = U.short(U.try(function() return l.HeldEquipmentData end))
+        r.left_class = U.valid(l) and U.class_word(l) or nil
+        r.left_socket = U.valid(l) and U.str(U.try(function() return l:GetAttachParentSocketName() end)) or nil
+        r.left_same_actor = U.valid(l) and U.valid(h) and U.fullname(l) == U.fullname(h) or false
+        r.comp_category_left = U.str(U.try(function() return eq:GetLeftHandEquipmentCategory().TagName end))
+        local data = U.try(function() return h.HeldEquipmentData end)
+        r.slot_strategy = U.try(function() return data.Slot end)
+        r.hand_preference = U.try(function() return data.HandPreference end)
+        return r
     end
     for _, p in ipairs(puppets) do out[#out + 1] = one(p) end
     for _, p in ipairs(players) do out[#out + 1] = one(p) end

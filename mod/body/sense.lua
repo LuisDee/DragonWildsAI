@@ -99,27 +99,18 @@ function M.nearest(spec, opts)
     return M.census(spec, o)[1]
 end
 
--- Where to stand/aim at an actor: a tree log's pivot is at one END (verified live 2026-10-25:
--- BP_SplittableLog_Oak_C origin 6.5 m from GetMidPointWorldLocation; a swing at the pivot end
--- never touched the trunk), so logs use their midpoint (out-param struct, read OK). Else the origin.
--- With `from` (the puppet's position) a log's aim is the point of its axis nearest to `from`: the
--- axis runs from the pivot (origin) through the midpoint to the far end (2 x mid - origin). A log
--- lies on the ground ~13 m long; walking to its middle is often blocked by the log itself.
+-- Where to aim at an actor. Fallen tree logs: the trunk meshes are physics-simulated and roll away
+-- from the actor's origin, which stays where the piece spawned (verified live 2026-10-25: a
+-- BP_Log_Oak_C origin 11 m from its GetMidPointWorldLocation; every swing aimed by the origin
+-- whiffed). So logs aim at GetMidPointWorldLocation (out-param struct, read OK); others at the origin.
+-- `from` is accepted for callers that pass the puppet position (unused).
 function M.aim(a, from)
     local origin = U.loc(a)
     if U.try(function() return a.GetMidPointWorldLocation ~= nil end) then
         local mid = {}
         local ok = pcall(function() a:GetMidPointWorldLocation(mid) end)
         if ok and type(mid.X) == "number" and (mid.X ~= 0 or mid.Y ~= 0) then
-            mid = { X = mid.X, Y = mid.Y, Z = mid.Z or (origin and origin.Z) or 0 }
-            if not (from and origin) then return mid end
-            local b = { X = 2 * mid.X - origin.X, Y = 2 * mid.Y - origin.Y, Z = 2 * mid.Z - origin.Z }
-            local vx, vy = b.X - origin.X, b.Y - origin.Y
-            local len2 = vx * vx + vy * vy
-            if len2 < 1 then return mid end
-            local k = ((from.X - origin.X) * vx + (from.Y - origin.Y) * vy) / len2
-            k = math.max(0.05, math.min(0.95, k)) -- not the very tips
-            return { X = origin.X + vx * k, Y = origin.Y + vy * k, Z = origin.Z + (b.Z - origin.Z) * k }
+            return { X = mid.X, Y = mid.Y, Z = mid.Z or (origin and origin.Z) or 0 }
         end
     end
     return origin

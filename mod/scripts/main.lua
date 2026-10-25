@@ -161,6 +161,21 @@ if os.getenv("DW_NO_BODY") ~= "1" and os.getenv("DW_NO_SLEEP") ~= "1" then
     log.event("sleep_started", { ok = ok_sleep, err = (not ok_sleep) and tostring(err_sleep) or nil })
 end
 -- =================== end SLEEP =====================================================================
+-- ===================== TRAVEL (body/travel.lua) ====================================================
+-- Lodestone travel like a player: `travel {to: lodestone | region | [x,y,z]}` (async: teleport the
+-- PUPPET via K2_TeleportTo to the best lodestone Luis can use, settle check, then walk on), plus the
+-- read-only `where {position?}` (region + nearest lodestone) and `lodestones {}`. Teleports only into
+-- streamed-in areas (server streams around players). DW_TRAVEL_UNLOCK=luis|registry,
+-- DW_TRAVEL_COST=free|budget (law runes from the bot inventory). DW_NO_TRAVEL=1 switches it off.
+if os.getenv("DW_NO_BODY") ~= "1" and os.getenv("DW_NO_TRAVEL") ~= "1" then
+    local ok_tr, err_tr = pcall(function()
+        local ok_inv, inv = pcall(require, "body.inventory")
+        require("body.travel").register(bridge, log, { skills = require("body.skills"), puppet = require("body.puppet"),
+                                                       store = ok_inv and type(inv) == "table" and inv or nil })
+    end)
+    log.event("travel_started", { ok = ok_tr, err = (not ok_tr) and tostring(err_tr) or nil })
+end
+-- =================== end TRAVEL ====================================================================
 -- Frame-time sampler -> logs/perf/mod_perf.jsonl (scripts/perf_sampler.lua). DW_PERF=0 disables it.
 -- Armed 60 s after start so the game world exists for its clock; debug_run can also arm it.
 if os.getenv("DW_PERF") ~= "0" and mod_root then

@@ -187,6 +187,7 @@ local function deps()
         store = store(),
         held = function() return F.held end,
         face = function() return 0 end,
+        stop_movement = function() F.stops = (F.stops or 0) + 1 end,
         shape_of = function() return reach.window_of({ kind = "DominionShape_Wedge", Depth = 150, TopAngle = 80, AngleOffset = 0 }) end,
         convert = function() F.converts = (F.converts or 0) + 1 end,
         perform = function(p, sw, actor)
@@ -347,14 +348,14 @@ test("oak: fells, chops the logs and the stump, collects, goal verified from the
     truthy(stump_at and stump_at > last_piece, "stump after every piece: " .. table.concat(order, ","))
 end)
 
-test("logs are worked from the nearest point of their axis, not the pivot end", function()
+test("logs are worked from their midpoint (the rolled mesh), not the stale pivot", function()
     reset()
     local lg = spawn.log(1000, 0)
     F.puppet.loc = { X = 1700, Y = 900, Z = 0 } -- beside the middle of the 12 m log
     local res = run("oak", 6, { bonus = false })
     eq(res.ok, true, tostring(res.reason))
     eq(lg._valid, false, "log chopped")
-    truthy((F.loc_moves or 0) > 0, "walked to a stand point on the axis")
+    truthy((F.loc_moves or 0) > 0, "walked to a stand point by the midpoint")
 end)
 
 test("no contact: the bot repositions around the target before giving up", function()

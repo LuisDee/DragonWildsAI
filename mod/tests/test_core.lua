@@ -373,6 +373,7 @@ test("experiments: all load by name via debug_run and fail safe in an empty worl
         { "rules_probe", {} }, { "rules_probe", { action = "sense" } }, { "sleep_probe", {} }, { "sleep_arm", { action = "status" } },
         { "item_probe", {} }, { "item_probe", { action = "gone", target = "x" } },
         { "gather_probe", {} }, { "gather_test", {} },
+        { "travel_probe", {} }, { "travel_probe", { action = "luis" } },
     }
     for _, c in ipairs(cases) do
         local r = run({ module = c[1], args = c[2] })
@@ -382,7 +383,8 @@ test("experiments: all load by name via debug_run and fail safe in an empty worl
     for _, c in ipairs({ { "puppet_test", { action = "destroy" } }, { "puppet_test", { action = "unpossess" } },
                          { "puppet_combat", { action = "hit" } }, { "say_test", {} },
                          { "speech_direct", { action = "send" } }, { "presence_test", { action = "add" } },
-                         { "item_probe", { action = "drop" } }, { "item_probe", { action = "take", target = "x" } } }) do
+                         { "item_probe", { action = "drop" } }, { "item_probe", { action = "take", target = "x" } },
+                         { "travel_probe", { action = "tp", to = "x" } } }) do
         local r = run({ module = c[1], args = c[2] })
         assert(r.ok and r.data.result.ok == false and r.data.result.error:find("refused"), c[1] .. " " .. json.encode(r))
     end

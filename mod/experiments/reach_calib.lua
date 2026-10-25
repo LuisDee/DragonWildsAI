@@ -64,7 +64,7 @@ function M.start(log, args)
     if not (atk and act) then return { ok = false, err = "attack set not loaded" } end
     local spec = { class = args.target_class or "FellableTree", match = args.match or "Tree_", filter = args.filter or "standing" }
     local here = U.loc(p)
-    if spec.class == "FellableTree" then sense.convert_foliage(log, p, here, 1500) end
+    if spec.class == "FellableTree" then sense.convert_foliage(log, p, here, (args.radius_m or 15) * 100) end
     local e
     if args.target then
         for _, x in ipairs(sense.census(spec, { origin = here, radius_cm = 5000 })) do if x.id == args.target then e = x end end

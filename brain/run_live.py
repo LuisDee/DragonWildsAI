@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from . import paths
+from . import paths, worlds
 from .agent import Agent, GoalResult
 from .bridge_client import BridgeClient
 from .capabilities import Capabilities, discover
@@ -41,6 +41,7 @@ from .interface import CommandReceived, Event
 from .jsonl_log import JsonlLogger
 from .llm import CONTROLLER_MODEL_ENV, PLANNER_MODEL_ENV, LLMClient, LiteLLMClient, missing_keys
 from .planner import Planner
+from .skill_library import SkillLibrary
 from .state_store import StateStore
 from .transport import BODY_TO_BRAIN, BRAIN_TO_BODY, JsonlFileTransport
 
@@ -93,9 +94,9 @@ class LiveAgent(Agent):
             self.log.log("command_error", error=repr(exc), traceback=traceback.format_exc())
             self.controller.say("Sorry, my head glitched on that one. Try again?")
 
-    def run_goal(self, goal: str) -> GoalResult:
+    def run_goal(self, goal: str, **kwargs) -> GoalResult:
         try:
-            return super().run_goal(goal)
+            return super().run_goal(goal, **kwargs)
         except Exception as exc:
             self.log.log("goal_error", goal=goal, error=repr(exc), traceback=traceback.format_exc())
             self.controller.say(f"Sorry, I lost track of '{goal}' (internal error).")
@@ -106,6 +107,7 @@ class LiveAgent(Agent):
 class LiveOptions:
     bridge_dir: Path = field(default_factory=paths.bridge_dir)
     state_dir: Path = field(default_factory=paths.state_dir)
+    skills_dir: Path | None = None  # default: data/skills (or <state_dir>/skills for a non-default state dir)
     log_dir: Path = field(default_factory=paths.log_dir)
     prefixes: list[str] = field(default_factory=lambda: list(DEFAULT_PREFIXES))
     dry_run: bool = False
@@ -130,17 +132,27 @@ class LiveSession:
         self.client = BridgeClient(JsonlFileTransport(d / BRAIN_TO_BODY, d / BODY_TO_BRAIN), self.log)
         self.rtt = self._connect()
         self.caps: Capabilities = discover(self.client, self.log, opts.probe_timeout)
-        self.store = StateStore(opts.state_dir, self.caps.registry())
+        # Per-world memory (design 15): notes, places, rule snapshot, task tree and learned skills
+        # are keyed by the save's WorldSaveGuid ("default" until the body can tell us).
+        self.world, self.world_source = worlds.resolve_world_guid(self.client)
+        state_dir, migrated = worlds.prepare_state_dir(opts.state_dir, self.world)
+        skills_root = opts.skills_dir or (paths.skills_dir() if Path(opts.state_dir) == paths.state_dir()
+                                          else Path(opts.state_dir) / "skills")
+        self.skills = SkillLibrary(worlds.prepare_skills_dir(skills_root, self.world), self.log)
+        self.store = StateStore(state_dir, self.caps.registry())
         self.executor = Executor(self.client, self.store, self.log)
         self.planner = Planner(planner_llm, self.store.skills, self.log)
         self.controller = Controller(controller_llm, self.client, self.store, self.log,
-                                     name=opts.name, player=opts.player)
+                                     name=opts.name, player=opts.player, available_tools=self.caps.tools,
+                                     skills=self.skills)
         self.agent = LiveAgent(self.client, self.controller, self.planner, self.executor, self.store,
-                               self.log, prefixes=opts.prefixes)
+                               self.log, prefixes=opts.prefixes, skills=self.skills)
         self.log.log("session_start", dry_run=opts.dry_run, controller_model=controller_llm.model,
                      planner_model=planner_llm.model, bridge_dir=str(d), prefixes=opts.prefixes,
                      ping_ms=round(self.rtt * 1000, 1), skills=self.store.skills.names(),
-                     capabilities_source=self.caps.source, missing=self.caps.missing)
+                     capabilities_source=self.caps.source, missing=self.caps.missing,
+                     world=self.world, world_source=self.world_source, state_dir=str(state_dir),
+                     migrated=migrated, learned_skills=self.skills.names(), skills_dir=str(self.skills.dir))
         self.out(self.banner(controller_llm.model, planner_llm.model))
 
     def _connect(self) -> float:
@@ -168,6 +180,10 @@ class LiveSession:
             f" planner      : {planner_model}",
             f" bridge       : {self.opts.bridge_dir}  (ping {self.rtt * 1000:.0f} ms)",
             f" skills       : {', '.join(self.store.skills.names()) or 'none'}  (from {self.caps.source})",
+            f" world        : {self.world}  (from {self.world_source}; memory {self.store.dir})",
+            f" learned      : {', '.join(self.skills.names()) or 'none yet'}  ({self.skills.dir})",
+            f" perception   : {'look/inspect' if self.caps.has('look') else 'situation digest only (no look)'}"
+            f"{', interact' if self.caps.has('interact') else ''}",
             f" unavailable  : {missing}",
             f" chat         : {PING!r} -> {PONG!r} (no model); prefixes {', '.join(map(repr, self.opts.prefixes))}",
             f" log          : {self.log.path}",
@@ -210,7 +226,8 @@ def _env_prefixes() -> list[str] | None:
 def make_llms(dry_run: bool) -> tuple[LLMClient, LLMClient]:
     if dry_run:
         return DryRunController(), DryRunPlanner()
-    return (LiteLLMClient(os.environ[CONTROLLER_MODEL_ENV], max_tokens=512),
+    # Controller: up to 3 short calls per command; room for default-on adaptive thinking + one tool call.
+    return (LiteLLMClient(os.environ[CONTROLLER_MODEL_ENV], max_tokens=1024),
             LiteLLMClient(os.environ[PLANNER_MODEL_ENV], max_tokens=2048))
 
 

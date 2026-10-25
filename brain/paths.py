@@ -22,5 +22,10 @@ def state_dir() -> Path:
     return _env_path("DW_STATE_DIR", REPO_ROOT / "logs" / "state")
 
 
+def skills_dir() -> Path:
+    # Learned skills, one readable JSON per skill under <dir>/<world_guid>/ (git-tracked, design 19).
+    return _env_path("DW_SKILLS_DIR", REPO_ROOT / "data" / "skills")
+
+
 def bridge_dir() -> Path:
     return _env_path("DW_BRIDGE_DIR", REPO_ROOT / "bridge_io")

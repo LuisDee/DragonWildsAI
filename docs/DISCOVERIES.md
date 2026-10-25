@@ -567,3 +567,51 @@ Modules: `mod/experiments/gather_probe.lua` (discovery), services `mod/body/sens
   - No `AFireSpirit` actor was visible server-side after 5 s (it is probably a client-side cosmetic, spawned from the replicated instance).
   - **Pending: Luis's eyes**, whether a fire-spirit light is floating by Claude. Only after a "yes" set `routes.self_effect.verified = true` in `data/spells_26161880.json` (and `spells.USD_FireSpirit.verified_in_game = true`).
   - To remove it: `cast_test {action=remove, confirm=true}`.
+
+## Lodestones, map regions and travel (build 26161880, 2026-10-25, about 15:35-15:50 UTC, read live via `mod/experiments/travel_probe.lua`; Luis connected; no crash, dumps stayed at 10)
+- **Lodestones are world objects, not per-player unlocks.**
+  - `AGameplayObjectRegistry.Lodestones` (`TArray<FLodestoneData>` {Location, RespawnLocation, Identifier}, OnRep, replicated for the map) lists every lodestone in the world.
+  - This dev world has exactly one: `5E74232B4126EDE0BAEFF9856FFD03C6` at `[50.65, 1890.26, -36.33]` m (Temple Woods). Its RespawnLocation is the same point plus 1.45 m (Z): this is where a teleporting player arrives.
+  - The loaded actor is `BP_WorldLodestone_C` (`AWorldActor.DisplayName` = "Lodestone", `InteractionComponent.InteractionPrompt` = "Teleport", `InteractionUnavailableAdditionalDescriptionText` = "Inactive"). It has the same `GameplayObjectRegistryIdentifier` and `TeleportLocationOffset` (0, 0, 145 cm).
+  - Its `ULodestoneComponent.GameplayObjectRegistryIdentifier` reads all zeros. The wiki says most lodestones are player-built (32 Stone, 20 Rune Essence, 1 Vault Core, Construction 80), and that the Temple Woods one turns active when the first one is built.
+- **Luis's side (READ ONLY):**
+  - Luis's `BP_PlayerController_C` has `LodestoneTeleportationComponent` (`BP_Components_LodestoneTeleportationComponent_C`) with `bEnableTeleportationCost=true`, cost item `/Game/Gameplay/Items/Resources/Magic/ITEM_Rune_Law`, `bHideMapAfterTeleportationStarted=false` and `bShouldTryDamageOnTeleportComplete=false`.
+  - The component's BlueprintPure `CanTeleport(FromId, ToId)`, `GetTeleportationCost` and `CanAffordTeleportationCost` all work from Lua with **scalar-only FGuid tables** {A,B,C,D} (R15-safe; verified).
+  - With a single lodestone, `CanTeleport(x, x)` = false, cost = 1, afford = true. So the per-player gate is the game's own `CanTeleport` rule, and travel.lua counts a lodestone as unlocked when another registered lodestone can reach it. **Proving a true `CanTeleport` needs a second (built) lodestone.**
+  - `CalculateTeleportationCost(Distance, Weight)` (const BlueprintNativeEvent) gives 8000 cm/400 → 2, 800000 cm/0 → 4, 800000/400 → 164, and is capped at 999. It is nonlinear and is not the wiki's formula.
+  - Luis's `RevealedMapFogComponent`: `CurrentMapRegion` = Temple Woods (RegionID 1), and `RevealedMapRegionsBitmap` = 268435455 (0x0FFFFFFF, 28 bits). The bit-to-RegionID mapping is UNVERIFIED. `RevealedMapIconsComponent.RevealedLandmarkNames` (TSet) read back empty, probably because UE4SS has no TSet ForEach.
+- **Map regions** come from `BP_MapRegion_C` actors in the persistent level, which are always loaded on the server. There are 31 of them, each with `RegionID`, `RegionName` (FText), `PowerLevel` and a closed `BoundarySpline` (6-90 points, read with `GetNumberOfSplinePoints`/`GetLocationAtSplinePoint(i, World=1)`/`GetLocationAtSplineInputKey`).
+  - By id: 1 Temple Woods, 2 Bramblemead Valley, 3 Whispering Swamp, 4 Fractured Plains, 5 Stormtouched Highlands, 6 Bloodblight Swamp, 7 Bleakfields Valley, 8 Hope's Fall, 9 Lake of Lost Souls, 10 Coalridge Pass, 11 Silverthorn Keep, 12 Dragons' Run, 13 Witchwillow Range, 14 Emberwood, 15 Forgotten Temple, 16-25 the Dowdun Reach areas (The Approach, Library, Courtyard, Menagerie, Garrison, Nexus, Pastures, Cathedral, Bastion, Grand Hall), 26 Alcarrid Oasis, 27 Dunes of Uzzer, 28 Manafem Plains, 29 The Burning Spire, 30 Rasthin's Rest, 31 Scorned Wilderness.
+  - **There is no "Fellhollow" region in this build.** It is named only in a wiki changelog, so it is probably a newer area or a sub-area name.
+  - The polygons overlap, so the smallest one containing the point wins (`travel.region_at`). Live: `[2100, 400]` → The Library, `[2200, 1850]` → Manafem Plains, `[-7000, 7000]` → Scorned Wilderness, `[5000, 5000]` → none.
+  - `BP_RegionLabelActor_C` (`MapRegionIconComponent.LabelText`) gives 33 map labels (with `\r\n`). Some of their positions are in map space and do not match the region polygons, so they are not used.
+  - `AGameplayObjectRegistry.Landmarks` has 558 entries (category 3 = NPC/lore 248, 5 = anima vents 239, 6 = shrines/urns, 8 = kebbit burrows, 11 = agility courses such as "Tower Climb", "Fractured Ruins", 1 = the boss altar). Mostly `InternalName` = None; the useful text is `UserVisibleDescription`.
+- **The server streams World Partition cells only around players.**
+  - Only 2 `LandscapeStreamingProxy` tiles with bounds were loaded (252 m squares; `GetActorBounds(false, out origin, out extent, false)` works from Lua with empty tables as out params). There were 5-9 `_Generated_` cells, and all 18 AI characters were within 107 m of Luis.
+  - A puppet teleported into an unloaded area would fall, and a fall death is the R1 unpossess path. So `travel` only teleports to loaded destinations, and a settle check rolls the teleport back on a fall.
+  - Far teleports would need a `UWorldPartitionStreamingSourceComponent` on the puppet (UE5 docs: it makes any actor a streaming source). Not built; it needs an offline canary.
+- **Puppet teleport, verified live (15:48:02 UTC):**
+  - `K2_TeleportTo({X,Y,Z}, {Pitch=0, Yaw, Roll=0})` (scalars only) moved the puppet 104 m from `[107.39, 1803.25, -30.04]` to exactly the arrival point `[50.65, 1890.26, -34.88]`.
+  - After 1 s it was standing at Z -35.05 (no fall). The nav probe `MoveToLocation` +1.5 m returned 2 (RequestSuccessful).
+  - A concurrent gather_test loop then walked it 25 m from the pad: **AI nav keeps working after a teleport.** Later 2 m moves returned 2.
+  - The puppet then stuck at `[65.8, 1870.3]` inside the Temple ruins (dense StaticMeshActors of the lodestone's own UAID family). `go_to` back to the open spot accepted the request but made only 6 m (path_blocked after 3 reissues). Some 10 m destinations there fail to project (0).
+  - So walking out of the Temple Woods lodestone pad is blocked by geometry or navmesh there. That is a navigation issue at that spot, not a teleport issue.
+  - Recovery: `travel_probe back` (puppet.teleport_near Luis). Separately, `MoveToActor(Luis)` fails (REQ 0) at Luis's own spot, so he is standing off-navmesh (on a structure?).
+  - **Pending Luis's eyes:** did Claude vanish and appear at the lodestone? (At 15:48 Luis was about 75 m away.)
+- **Route decision (search-before-building, 2026-10-25):**
+  - Need: teleport the puppet to a lodestone like a player does.
+  - Searched: the wiki (Lodestone page), Whisper of the House and Destructoid fast-travel guides, Nexus (no Dragonwilds teleport mod found), Epic K2_TeleportTo docs, UE World Partition streaming-source docs.
+  - Decision: **adapt**. `K2_TeleportTo` to the registry's RespawnLocation, plus a crowd offset of 150 cm when a player stands on the pad.
+  - `TeleportationSubsystem:TeleportWithParams` was rejected: it takes a delegate and drives a PlayerController's loading screen and client RPCs, which the puppet lacks (R1 class). `UBaseTeleportationComponent::Server_TryTeleport` was rejected too: it lives on a PlayerController.
+  - Sources: https://dragonwilds.runescape.wiki/w/Lodestone , https://www.whisperofthehouse.com/runescape-dragonwilds/fast-travel , https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/AActor/K2_TeleportTo , https://docs.unrealengine.com/5.1/en-US/PythonAPI/class/WorldPartitionStreamingSourceComponent.html
+- **Built:** `mod/body/travel.lua` (`travel`, `where`, `lodestones`; registered in main.lua's TRAVEL block, so it **needs a restart**). Tests are in `mod/tests/test_travel.lua` (22).
+
+## NIGHT SKIP WORKS: the bot summons a shelter and sleeps (verified 2026-10-25, 15:51 UTC, Luis via GFN)
+- The game counted the bot as a player ("waiting for players to sleep … waiting on Claude").
+- **Not enough:** the `bIsSpectator`/`bOnlySpectator` valve (the game still waited on Claude) and the PlayerRestComponent.IsSleeping flag alone.
+- **Works:**
+  1. SpawnActor of the Summon Shelter class `/Game/Gameplay/UtilityMagic/PerkSpells/SummonShelter/BP_Magic_SummonShelter.BP_Magic_SummonShelter_C` (class taken from a live shelter; the bot can't cast the spell itself) 3 m in front of the bot (`mod/experiments/shelter_spawn.lua`).
+  2. `BedComponent:Sleep(puppet)` directly from about 3 m, with no walking (`mod/experiments/bed_direct.lua`). Walking to the shelter fails with path_blocked because of the shelter's collision.
+  - `CanSleep(puppet)` returned false, but Sleep still took effect: CurrentRestingAreaActor = shelter, and the watcher showed bot `true|shelter` at 15:51:49.
+- **Night passed at 15:51:52** (3 s later), and both woke at 15:51:55. Luis: "Worked a treat."
+- Productise: the sleep skill's shelter fallback = spawn shelter + direct Sleep. The reflex fires when Luis's rest state goes sleeping. The spectator valve is useless and should be removed or relabelled.

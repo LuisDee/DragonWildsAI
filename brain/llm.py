@@ -34,12 +34,58 @@ class ToolCall:
 class LLMResponse:
     content: str | None = None
     tool_calls: list[ToolCall] = field(default_factory=list)
+    # The assistant message exactly as the provider returned it, for multi-turn tool loops. With
+    # Anthropic thinking on (default on Haiku 5.5 / Sonnet 5.5) the next request must carry this
+    # message's ``thinking_blocks`` unchanged, or it is rejected (LiteLLM "reasoning content" docs).
+    message: dict | None = None
+    usage: dict | None = None
 
 
 class LLMClient(Protocol):
     model: str
 
     def complete(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse: ...
+
+
+def assistant_message(resp: LLMResponse) -> dict:
+    """The assistant turn to append before tool results (OpenAI format, as LiteLLM expects)."""
+    if resp.message:
+        return resp.message
+    msg: dict[str, Any] = {"role": "assistant", "content": resp.content or ""}
+    if resp.tool_calls:
+        for i, c in enumerate(resp.tool_calls):
+            c.id = c.id or f"call_{i}_{c.name}"
+        msg["tool_calls"] = [{"id": c.id, "type": "function",
+                              "function": {"name": c.name, "arguments": json.dumps(c.arguments)}}
+                             for c in resp.tool_calls]
+    return msg
+
+
+def tool_result_message(call: ToolCall, result: Any) -> dict:
+    content = result if isinstance(result, str) else json.dumps(result, default=str, ensure_ascii=False)
+    return {"role": "tool", "tool_call_id": call.id or f"call_0_{call.name}", "name": call.name, "content": content}
+
+
+def with_cache_control(messages: list[dict]) -> list[dict]:
+    """Mark the (stable) system prompt as a cache breakpoint. Tools render before system, so the
+    cached prefix is tools + persona; volatile context lives in later messages. Haiku 5.5 and
+    Sonnet 5.5 cache prefixes from 512 tokens; shorter ones are silently not cached."""
+    out = []
+    for m in messages:
+        if m.get("role") == "system" and isinstance(m.get("content"), str) and not out:
+            m = {**m, "content": [{"type": "text", "text": m["content"], "cache_control": {"type": "ephemeral"}}]}
+        out.append(m)
+    return out
+
+
+def _usage(resp: Any) -> dict | None:
+    u = getattr(resp, "usage", None)
+    if u is None:
+        return None
+    details = getattr(u, "prompt_tokens_details", None)
+    return {"prompt": getattr(u, "prompt_tokens", None), "completion": getattr(u, "completion_tokens", None),
+            "cached": getattr(details, "cached_tokens", None) if details else None,
+            "cache_write": getattr(u, "cache_creation_input_tokens", None)}
 
 
 class LiteLLMClient:
@@ -58,16 +104,27 @@ class LiteLLMClient:
         if tools:
             # One decision = one action: parallel calls let the model pair follow with stop.
             params.update(tools=tools, tool_choice="auto", parallel_tool_calls=False)
+        if self.model.startswith("anthropic/"):
+            messages = with_cache_control(messages)
         resp = litellm.completion(model=self.model, messages=messages, **params)
         msg = resp.choices[0].message
         calls = []
+        raw_calls = []
         for tc in msg.tool_calls or []:
             try:
                 args = json.loads(tc.function.arguments or "{}")
             except json.JSONDecodeError:
                 args = {"_raw": tc.function.arguments}
             calls.append(ToolCall(tc.function.name, args, tc.id))
-        return LLMResponse(content=msg.content, tool_calls=calls)
+            raw_calls.append({"id": tc.id, "type": "function",
+                              "function": {"name": tc.function.name, "arguments": tc.function.arguments or "{}"}})
+        replay: dict[str, Any] = {"role": "assistant", "content": msg.content or ""}
+        if raw_calls:
+            replay["tool_calls"] = raw_calls
+        thinking = getattr(msg, "thinking_blocks", None)
+        if thinking:
+            replay["thinking_blocks"] = [dict(b) if not isinstance(b, dict) else b for b in thinking]
+        return LLMResponse(content=msg.content, tool_calls=calls, message=replay, usage=_usage(resp))
 
 
 def _model_from_env(var: str) -> str:

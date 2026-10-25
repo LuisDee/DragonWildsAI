@@ -197,6 +197,31 @@ it equips only what it owns, and items enter it only by pickup (later: being giv
   failures, so a retry asks only for the remainder). Profiles: `mod/body/resource_profiles.lua`.
 - The body caps itself at 90 s + 20 s per unit (max 1700 s); the brain waits 1800 s.
 
+### Travel: lodestones, regions, where (protocol v1 addition)
+
+| Tool | Args | Success `data` | Failure reasons |
+|---|---|---|---|
+| `travel` | `to`: a lodestone (`id` = 32-hex registry GUID, or its name such as `"Temple Woods Lodestone"`), a map region name (`"Bramblemead Valley"`), or `[x,y,z]` metres; `teleport?` = `auto` (default) \| `never` \| `require` | `{to, kind: lodestone\|region\|coords, teleported, lodestone, lodestone_name, region, position, saved_m, cost, nav_ok?, already_there?}` | `not_unlocked` (Luis can't use that lodestone yet), `no_lodestone` (unknown lodestone, or `teleport=require` with no usable one), `too_far` (`data.detail = destination_unloaded`: the area isn't streamed in on the server), `path_blocked`, `timeout`, `verification_failed` (teleport didn't land, or the bot fell and was rolled back), `not_enough_resources` (`DW_TRAVEL_COST=budget` and too few law runes), `unknown_target` (`data.regions`, `data.lodestones` list the names), `invalid_args`, `companion_down`, `interrupted` |
+| `where` | `position?` (`[x,y,z]` m; default the bot, else Luis) | `{position, region, region_id, parent_region, power_level, loaded, nearest_lodestone: {id, name, distance, unlocked_by_luis}}` | `invalid_args` |
+| `lodestones` | none | `{lodestones: [{id, name, region, region_id, position, arrival, unlocked_by_luis, loaded, distance}], unlock_mode, cost_mode}` | |
+
+- `travel` is async. It teleports **the bot only** (never a player) to the unlocked, loaded lodestone
+  that saves the most walking (at least 150 m), checks after 1 s that it is standing there (and
+  rolls back on a fall), then walks to the target. A region counts as reached once the bot is inside its
+  polygon, and coordinates once it is within 2 m (Z ±2.5 m).
+  - The body caps itself at 280 s, so the brain should wait 300 s.
+  - Name resolution order: exact lodestone, exact region, then partial matches. So `"Temple Woods"`
+    means the region, and `"Temple Woods Lodestone"` means the lodestone.
+- `unlocked_by_luis` mirrors the game's own rule: `CanTeleport(from, to)` on Luis's lodestone
+  component, true when some other registered lodestone can reach it. Lodestones are world objects
+  (mostly player-built), so a world with a single lodestone has none unlocked.
+  `DW_TRAVEL_UNLOCK=registry` counts every registered lodestone as unlocked.
+- `where` is what `remember_place` stores: a region name from game data, plus the nearest lodestone.
+- The server streams the world only around players, so teleports far from every player answer
+  `too_far` / `destination_unloaded` for now.
+- `reason` codes new to `interface.Reason`: `no_lodestone`. Also used: `not_unlocked`, `too_far` and
+  `not_enough_resources` (all existing).
+
 ### `event` (body to brain, unsolicited)
 
 ```json
@@ -228,7 +253,7 @@ null, the brain only logs it.
 ## Timeouts
 
 The brain gives up on a request after a per-tool timeout and returns `reason: timeout`.
-Defaults are 10 s, with gather 1800 s, go_to and pickup 120 s, give 70 s, and craft, attack and
+Defaults are 10 s, with gather 1800 s, travel 300 s (proposed; the brain agent sets it), go_to and pickup 120 s, give 70 s, and craft, attack and
 place 60 s (see
 `DEFAULT_TIMEOUTS` in `bridge_client.py`). If a `result` arrives late, the brain logs it as
 unmatched and discards it.

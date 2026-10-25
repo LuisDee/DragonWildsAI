@@ -47,7 +47,10 @@ def test_events_cross_the_bridge(bridge):
     res = client.gather("log", 4)
     assert res["reason"] == "attacked"
     events = client.poll_events()
-    assert len(events) == 1 and isinstance(events[0], Attacked) and events[0].by == res["data"]["by"]
+    progress = [e for e in events if e.type == "gather_progress"]
+    others = [e for e in events if e.type != "gather_progress"]
+    assert [(p.have, p.want) for p in progress] == [(2, 4)]  # sent live, before the result
+    assert len(others) == 1 and isinstance(others[0], Attacked) and others[0].by == res["data"]["by"]
 
 
 def test_unsolicited_chat_event(bridge):

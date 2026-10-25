@@ -20,11 +20,14 @@ def _context(messages: list[dict]) -> dict:
     return ctx if isinstance(ctx, dict) else {}
 
 
-def _target(word: str, state: dict) -> str:
-    """Match a spoken creature name against nearby entity ids/kinds; else use the word."""
-    for e in state.get("nearby_entities") or []:
-        if isinstance(e, dict) and e.get("alive", True) and word in (str(e.get("id")), str(e.get("kind"))):
-            return str(e["id"])
+def _target(word: str, situation: list[str]) -> str:
+    """Match a spoken creature name against the ids in the situation digest; else use the word."""
+    for line in situation:
+        if line.startswith("Creatures:"):
+            for chunk in line.split(";"):
+                m = re.search(r"id ([^),]+)", chunk)
+                if m and word.lower() in chunk.lower():
+                    return m.group(1).strip()
     return word
 
 
@@ -40,7 +43,7 @@ class DryRunController:
         cmd = ctx.get("command") or {}
         player, text = str(cmd.get("player", "")), str(cmd.get("text", "")).strip()
         low = text.lower()
-        state = ctx.get("state") or {}
+        situation = [str(x) for x in ctx.get("situation") or []]
 
         def act(line: str, name: str, **args) -> LLMResponse:
             return LLMResponse(content=f"(dry run) {line}", tool_calls=[ToolCall(name, args)])
@@ -52,7 +55,7 @@ class DryRunController:
         if re.search(r"\bcome( here| back)?\b", low):
             return act("On my way.", "go_to", target=player)
         if m := re.search(r"\b(?:kill|attack|fight)\s+(?:that\s+|the\s+)?(\w+)", low):
-            return act("Going for it.", "attack", target=_target(m.group(1), state))
+            return act("Going for it.", "attack", target=_target(m.group(1), situation))
         if m := re.search(r"\bgive me (\d+) (\w+?)s?\b", low):
             return act("Here you go.", "give", player=player, item=m.group(2), count=int(m.group(1)))
         if re.search(r"\b(gather|collect|build|bring|chop|mine)\b", low):

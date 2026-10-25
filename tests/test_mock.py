@@ -46,7 +46,7 @@ def test_scripted_failures_and_events():
     g.script_failure("gather", "attacked")
     res = g.gather("log", 4)
     assert res["reason"] == "attacked" and res["data"]["gathered"] == 2
-    (ev,) = g.poll_events()
+    (ev,) = [e for e in g.poll_events() if e.type != "gather_progress"]
     assert isinstance(ev, Attacked)
     assert g.attack(ev.by)["ok"] and not g.entities[ev.by].alive
 

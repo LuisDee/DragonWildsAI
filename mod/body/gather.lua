@@ -63,6 +63,8 @@ M.OFFSPRING_CM = 1500           -- new pieces within this of a felled tree belon
 M.LEFTOVER_MAX_CM = 3000        -- logs left lying around within this radius are finished first
 M.STAND_MIN_CM = 60             -- stand points never closer than this to the aim point
 M.AIM_MARGIN_CM = 15            -- stay this far inside the attack shape's depth
+M.SETTLE_MS = 400               -- stand still this long (movement stopped) before a swing
+M.SETTLE_SLACK_CM = 60          -- once settled, swing unless the target is this far beyond the window
 M.APPROACH_MAX_MS = 25000       -- give a target up if we cannot reach it in this long
 M.STATUS_MIN_MS = 3000          -- gather_status events at most this often per phase
 M.DMG_SLACK_MS = 150            -- check the HP this long after the swing's damage point
@@ -249,6 +251,17 @@ function M.tree(deps)
         if not (actor and U.alive(actor)) then return end
         local hp_now = U.health(actor)
         local verdict = hitcheck.armed() and hitcheck.check(U.short(a.p), sw.seq, sw.hp, hp_now) or nil
+        if sw.want_yaw then -- where the pawn really faced at the damage point
+            local f = U.forward(a.p)
+            sw.yaw_at_hit = math.deg(math.atan(f.Y, f.X))
+            sw.yaw_drift = (sw.yaw_at_hit - sw.want_yaw + 540) % 360 - 180
+        end
+        if verdict == "no_contact" and hitcheck.cache_armed and hitcheck.cache_armed() then
+            -- the server's damage cache is authoritative: a victim near the aim point means contact
+            for _, v in ipairs(hitcheck.cache_hits(U.short(a.p), sw.seq)) do
+                if v.victim_at and sw.aim and U.dist(v.victim_at, sw.aim) < 800 then verdict = "modified_to_zero"; break end
+            end
+        end
         if sw.hp and hp_now and hp_now < sw.hp then
             a.native_hits = a.native_hits + 1
             t.no_effect, t.hits = 0, (t.hits or 0) + 1
@@ -278,7 +291,8 @@ function M.tree(deps)
         else
             t.no_contact = 0
         end
-        lg("gather_hit", { target = t.id, mode = "none", verdict = verdict, before = sw.hp, after = hp_now, dist_cm = sw.dist })
+        lg("gather_hit", { target = t.id, mode = "none", verdict = verdict, before = sw.hp, after = hp_now, dist_cm = sw.dist,
+                           yaw_drift_deg = sw.yaw_drift and U.round(sw.yaw_drift, 1) or nil })
     end
 
     local function recovering(a)
@@ -568,7 +582,7 @@ function M.tree(deps)
         local ok = deps.perform(a.p, sw, t.actor, { target = t.id, stage = t.stage, n = a.swings + 1, label = sw.label })
         a.swings = a.swings + 1
         a.swing = { at = now(), dmg_ms = sw.dmg_ms, damage = sw.damage, hp = hp0, seq = seq, dist = sol.dist,
-                    in_range = sol.in_range, resolved = not ok, aim = aim }
+                    in_range = sol.in_range, resolved = not ok, aim = aim, want_yaw = sol.yaw }
         a.ready_at = now() + sw.next_ms
         if not ok then t.no_effect = (t.no_effect or 0) + 1 end
         return S_
@@ -618,7 +632,7 @@ function M.tree(deps)
         t.aim, t.use_aim = aim, origin ~= nil and U.dist2d(aim, origin) > 100
         local sweet = math.max(sol.lo + 10, sol.hi - 30)
         if t.reposition then -- a whiff: walk to another side, at the sweet distance, then re-aim
-            t.reposition = false
+            t.reposition, t.settled_at = false, nil
             local m = move_state(a, t, here)
             m.angle_i, m.issued = m.angle_i + 1, nil
             m.best, m.last_progress, m.since = math.huge, now(), now()
@@ -627,11 +641,23 @@ function M.tree(deps)
             a.ready_at = now() + M.REPOSITION_MS
             return S_
         end
-        if not sol.in_range then
+        local settled_close = t.settled_at and sol.dist <= sol.hi + M.SETTLE_SLACK_CM and sol.dist >= sol.lo
+        if not sol.in_range and not settled_close then
             local m = a.move
             local stuck_close = m and m.reissues > 0 and sol.dist <= sol.hi + M.STUCK_SWING_SLACK_CM and sol.dist >= sol.lo
-            if not stuck_close then return approach(a, t, aim, sweet) end
+            if not stuck_close then t.settled_at = nil; return approach(a, t, aim, sweet) end
         end
+        -- in range: stop walking first. A running MoveTo turns the pawn toward its path during the
+        -- swing (orient-to-movement), so the wedge points the wrong way (live 2026-10-25: 17 whiffs
+        -- at 1.2-2.0 m, while the same distances hit 6/6 standing still in reach_calib).
+        if not t.settled_at then
+            local c = U.controller_of(a.p)
+            if c then deps.stop_movement(c) end
+            a.move = nil
+            t.settled_at = now()
+            return S_
+        end
+        if now() - t.settled_at < M.SETTLE_MS then return S_ end
         return swing(a, t, sw, aim, sol, win)
     end
 
@@ -699,6 +725,9 @@ function M.live_deps(opts)
             return ok and (tonumber(r) or 2) or 0
         end,
         decrease_health = function(actor, amount) return decrease_health(log_mod, actor, amount) end,
+        stop_movement = opts.stop_movement or (skills and skills._stop_movement) or function(c)
+            U.call(log_mod, "StopMovement", {}, function() c:StopMovement() end)
+        end,
         convert = function(p, at, r) return sense.convert_foliage(log_mod, p, at, r) end,
     }
 end

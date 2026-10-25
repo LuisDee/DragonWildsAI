@@ -9,8 +9,12 @@
 --                                 region, RevealedMapRegionsBitmap), revealed icons; READ ONLY
 --   {"action":"can","from":"<hex>","to":"<hex>"}   CanTeleport / GetTeleportationCost / CanAfford on
 --                                 Luis's teleport component (BlueprintPure, scalar-only FGuid tables)
+--   {"action":"list"}             body/travel.lua lodestones() (fresh loadfile)
 --   {"action":"where","at":[x,y,z]}   body/travel.lua region + nearest lodestone (fresh loadfile)
---   {"action":"tp","to":"<hex>","confirm":true}    body/travel.lua teleport of the PUPPET (fresh loadfile)
+--   {"action":"spread","class":"WorldActor"} / {"action":"landscape","bounds":true}   streaming reads
+--   {"action":"calc","cases":[[cm,weight],...]}   CalculateTeleportationCost on Luis's component (pure)
+--   {"action":"tp","to":"<hex>","confirm":true[,"allow_locked":true]}   body/travel.lua teleport of the
+--                                 PUPPET (fresh loadfile); allow_locked is a debug override
 local U = require("body.util")
 
 local M = {}
@@ -178,7 +182,10 @@ end
 local function fresh_travel()
     local root = (debug.getinfo(1, "S").source:match("^@(.*)[/\\]experiments[/\\][^/\\]*$"))
     local chunk = root and loadfile(root .. "/body/travel.lua")
-    return chunk and chunk() or require("body.travel")
+    local t = chunk and chunk() or require("body.travel")
+    local ok_inv, inv = pcall(require, "body.inventory")
+    return t.configure({ log = U.get_log(), puppet = require("body.puppet"), skills = require("body.skills"),
+                         store = ok_inv and inv or nil })
 end
 
 function M.run(log, args)
@@ -190,6 +197,96 @@ function M.run(log, args)
     if a == "landmarks" then return { landmarks = M.landmarks() } end
     if a == "luis" then return M.luis() end
     if a == "can" then return M.can(args) end
+    if a == "spread" then
+        -- Is the server streaming World Partition cells? count actors of a class, their distance
+        -- spread from Luis and how many distinct _Generated_ cells they live in (read-only).
+        local _, pawn = luis_pc()
+        local at = pawn and U.loc(pawn)
+        local cells, n, maxd = {}, 0, 0
+        for _, o in ipairs(U.find_all(args.class or "WorldActor", { skip_defaults = true })) do
+            n = n + 1
+            local cell = (U.fullname(o) or ""):match("_Generated_/([%w]+)%.")
+            if cell then cells[cell] = true end
+            local d = U.dist(at, U.loc(o))
+            if d < math.huge and d > maxd then maxd = d end
+        end
+        local nc = 0
+        for _ in pairs(cells) do nc = nc + 1 end
+        return { class = args.class or "WorldActor", count = n, cells = nc, max_dist_m = U.cm_to_m(maxd) }
+    end
+    if a == "calc" then
+        -- CalculateTeleportationCost(Distance, Weight) on Luis's component (const BlueprintNativeEvent).
+        local pc = luis_pc()
+        local tc = pc and teleport_comp(pc)
+        if not tc then return { error = "no teleport component" } end
+        local out = {}
+        for _, c in ipairs(args.cases or { { 800000, 400 }, { 8000, 400 }, { 800000, 0 }, { 100000, 50 } }) do
+            out[#out + 1] = { d = c[1], w = c[2], cost = U.try(function() return tc:CalculateTeleportationCost(c[1], c[2]) end) }
+        end
+        return { cases = out }
+    end
+    if a == "landscape" then
+        -- Loaded LandscapeStreamingProxy tiles: location and (optionally) GetActorBounds (out FVectors).
+        local out = {}
+        for _, o in ipairs(U.find_all(args.class or "LandscapeStreamingProxy", { skip_defaults = true })) do
+            local e = { id = U.short(o), pos = U.to_wire(U.loc(o)) }
+            if args.bounds then
+                local origin, ext = {}, {}
+                U.try(function() o:GetActorBounds(false, origin, ext, false) end)
+                e.origin = origin.X and U.to_wire(origin) or nil
+                e.extent = ext.X and U.to_wire(ext) or nil
+            end
+            out[#out + 1] = e
+        end
+        return { count = #out, tiles = args.list and out or { out[1], out[2] } }
+    end
+    if a == "puppet" then
+        -- read-only movement state of the puppet (+ optional one MoveToLocation of dx/dy metres: move=true)
+        local _, puppets = U.split_pawns()
+        local p = puppets[1]
+        if not p then return { error = "no puppet" } end
+        local cm = U.try(function() return p.CharacterMovement end)
+        local c = U.controller_of(p)
+        local out = {
+            pos = U.to_wire(U.loc(p)), mode = cm and U.try(function() return cm.MovementMode end),
+            falling = cm and U.try(function() return cm:IsFalling() end),
+            on_ground = cm and U.try(function() return cm:IsMovingOnGround() end),
+            vel = cm and vec(U.try(function() return cm.Velocity end)),
+            move_status = c and U.try(function() return c:GetMoveStatus() end),
+            hidden = U.try(function() return p.bHidden end),
+        }
+        if args.move and c then
+            local at = U.loc(p)
+            local dest = { X = at.X + (args.dx or 2) * 100, Y = at.Y + (args.dy or 0) * 100, Z = at.Z }
+            local ok, r = U.call(log, "travel_probe.MoveToLocation", { dest = dest }, function()
+                return c:MoveToLocation(dest, 50, true, true, true, false, nil, true)
+            end)
+            out.move = { ok = ok, result = ok and r or tostring(r) }
+        end
+        return out
+    end
+    if a == "near" then
+        -- read-only: actors of a class within radius (m) of the puppet, nearest first
+        local _, puppets = U.split_pawns()
+        local at = puppets[1] and U.loc(puppets[1])
+        local out = {}
+        for _, o in ipairs(U.find_all(args.class or "BaseBuildingActor", { skip_defaults = true })) do
+            local d = U.dist(at, U.loc(o))
+            if d <= (args.radius or 20) * 100 then out[#out + 1] = { id = U.short(o), d = U.cm_to_m(d), pos = U.to_wire(U.loc(o)) } end
+        end
+        table.sort(out, function(x, y) return x.d < y.d end)
+        for i = #out, 16, -1 do out[i] = nil end
+        return { at = U.to_wire(at), near = out }
+    end
+    if a == "back" then
+        -- PUPPET only: catch-up teleport 3 m behind the first player (puppet.teleport_near)
+        if args.confirm ~= true then return { ok = false, error = "refused: back moves the puppet; pass confirm=true" } end
+        local players = U.split_pawns()
+        local ok = require("body.puppet").teleport_near(players[1], args.behind_cm or 300)
+        local _, puppets = U.split_pawns()
+        return { ok = ok, pos = puppets[1] and U.to_wire(U.loc(puppets[1])), player = players[1] and U.to_wire(U.loc(players[1])) }
+    end
+    if a == "list" then return { lodestones = fresh_travel().lodestones() } end
     if a == "where" then
         local t = fresh_travel()
         return t.where({ position = args.at }, { log = log })
@@ -197,7 +294,7 @@ function M.run(log, args)
     if a == "tp" then
         if args.confirm ~= true then return { ok = false, error = "refused: tp moves the puppet; pass confirm=true" } end
         local t = fresh_travel()
-        return t.teleport_to_lodestone(args.to, { log = log })
+        return t.teleport_to_lodestone(args.to, { log = log, allow_locked = args.allow_locked == true })
     end
     local l = M.lodestones()
     return { lodestone_actors = #l.actors, lodestone_components = #l.components, registry_lodestones = #l.registry,

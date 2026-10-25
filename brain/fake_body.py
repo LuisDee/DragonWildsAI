@@ -11,7 +11,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from . import paths, protocol
-from .interface import BODY_TOOLS, GameInterface, Reason, fail, ok
+from .interface import BODY_TOOLS, PROGRESS_EVENTS, GameInterface, Reason, fail, ok
 from .mock import MockGame
 from .transport import BODY_TO_BRAIN, BRAIN_TO_BODY, JsonlFileTransport, Transport
 
@@ -32,10 +32,13 @@ class FakeBody:
         self.capabilities = capabilities
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        # Progress goes out live, while the action is still running (like body/gather.lua).
+        game.set_progress_listener(lambda ev: self.transport.send(protocol.event(ev.model_dump())))
 
     def _send_events(self) -> None:
         for ev in self.game.poll_events():
-            self.transport.send(protocol.event(ev.model_dump()))
+            if not isinstance(ev, PROGRESS_EVENTS):  # already sent live
+                self.transport.send(protocol.event(ev.model_dump()))
 
     def handle(self, msg: dict) -> None:
         req_id = msg.get("id")
@@ -52,6 +55,8 @@ class FakeBody:
             res = fail(Reason.NOT_IMPLEMENTED, tool=tool)
         elif tool == "spells":  # the Controller's spell list (not a GameInterface tool)
             res = self.game.spells()
+        elif tool == "world_info":  # the world id probe (per-world memory)
+            res = self.game.world_info()
         elif msg.get("probe") and tool in BODY_TOOLS:
             res = ok(probe=True)  # implemented; a probe never acts
         else:

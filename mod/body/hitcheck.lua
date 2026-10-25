@@ -76,8 +76,23 @@ end
 -- VictimLocation, HitLocation, ...}, Actor = facade handle}}, AttackId, Location, Shape, ...}}.
 -- READ ONLY (nested struct reads, never pushed: R15). The victim is identified by VictimLocation.
 M.CACHE_FN = "/Script/Dominion.PlayerMeleeAttackComponent:Multicast_SendDamageCacheData"
+M.CACHE_V = 2
 
 local function v3(v) return v and { X = U.try(function() return v.X end), Y = U.try(function() return v.Y end), Z = U.try(function() return v.Z end) } or nil end
+
+M.VICTIM_CLASSES = { "FellableTree", "TreeLog", "FelledTree", "DestructibleMiningRock", "OreNode", "DominionAICharacter", "BP_PlayerCharacter_C" }
+-- The alive actor whose origin is nearest to `at` (within 150 cm), as "<short name>".
+function M.nearest_actor(at)
+    if not (at and at.X) then return nil end
+    local best, bd
+    for _, cls in ipairs(M.VICTIM_CLASSES) do
+        for _, a in ipairs(U.find_all(cls, { skip_defaults = true })) do
+            local d = U.dist(at, U.loc(a))
+            if d < 150 and (not bd or d < bd) then best, bd = a, d end
+        end
+    end
+    return best and U.short(best) or nil
+end
 
 local function on_cache(comp, arr)
     local owner = U.try(function() return comp:GetOwner() end)
@@ -94,7 +109,9 @@ local function on_cache(comp, arr)
                 di.DamagedActors:ForEach(function(_, de)
                     local d = U.try(function() return de:get() end) or de
                     local pe = U.try(function() return d.PointDamageEvent end)
+                    local vat = v3(U.try(function() return pe.VictimLocation end))
                     sw.victims[#sw.victims + 1] = {
+                        victim = M.nearest_actor(vat), -- identity by VictimLocation (actor origin: stale for rolled logs)
                         amount = U.try(function() return pe.Amount end),
                         victim_at = v3(U.try(function() return pe.VictimLocation end)),
                         hit_at = v3(U.try(function() return pe.HitLocation end)),
@@ -112,9 +129,15 @@ end
 
 -- Register the hooks once per server run. Returns {armed, registered = {fn = true|err}}.
 function M.arm(log)
-    if not G.cache_armed then
-        local ok, err = pcall(RegisterHook, M.CACHE_FN, function(ctx, a1) pcall(on_cache, pval(ctx), a1) end)
-        G.cache_armed = ok
+    -- The hook calls G.cache_fn, so a reloaded hitcheck (experiments) swaps the reader without a
+    -- second registration. CACHE_V bumps re-register once when an older reader is installed.
+    G.cache_fn = on_cache
+    if G.cache_v ~= M.CACHE_V then
+        local ok, err = pcall(RegisterHook, M.CACHE_FN, function(ctx, a1)
+            if G.cache_v_live == M.CACHE_V then pcall(G.cache_fn, pval(ctx), a1) end
+        end)
+        if ok then G.cache_v, G.cache_v_live = M.CACHE_V, M.CACHE_V end
+        G.cache_armed = ok or G.cache_armed
         G.registered.DamageCache = ok and true or tostring(err)
     end
     if G.armed then return { armed = true, registered = G.registered } end

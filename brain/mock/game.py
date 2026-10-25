@@ -19,10 +19,12 @@ from ..interface import (
     Coords,
     Event,
     GameInterface,
+    GatherProgress,
     Reason,
     fail,
     ok,
 )
+from ..situation import tokens
 
 SPEED = 5.0  # metres per simulated second
 HARVEST_TIME = 2.0  # seconds per unit gathered
@@ -115,6 +117,18 @@ class GroundItem:
 
 
 @dataclass
+class Gatherable:
+    """A ground gatherable (sticks, stones, plants). Like the real game's foliage, it is NOT in
+    get_state: only look() reveals it, and interact() collects it into the inventory."""
+    id: str
+    name: str
+    gives: str  # inventory item id
+    pos: list[float]
+    count: int = 1
+    prompt: str = "Gather"
+
+
+@dataclass
 class FailureRule:
     tool: str
     reason: str
@@ -138,6 +152,7 @@ class MockGame(GameInterface):
         self.structures: list[dict] = []
         self.ground: dict[str, GroundItem] = {}  # items lying in the world (pickup / drop)
         self.chat: list[tuple[str, str]] = []  # (speaker, text)
+        self.chat_times: list[float] = []  # simulated time of each companion line
         self.calls: list[tuple[str, dict]] = []  # every tool call, for test assertions
         self._rules: list[FailureRule] = []
         self._events: list[Event] = []
@@ -151,6 +166,9 @@ class MockGame(GameInterface):
         self._rule_ids = 0
         self.sleeping = False
         self.beds: dict[str, list[float]] = {}  # bed id -> position (free beds only)
+        self.gatherables: dict[str, Gatherable] = {}
+        self.world_guid: str | None = None  # world_info() answers not_implemented while None
+        self._progress_listener = None
 
     # ------------------------------------------------------------------ world setup
 
@@ -184,6 +202,11 @@ class MockGame(GameInterface):
     def add_ground_item(self, item: str, count: int, pos) -> str:
         gid = self._new_id("world_item")
         self.ground[gid] = GroundItem(gid, item, count, [float(c) for c in pos])
+        return gid
+
+    def add_gatherable(self, name: str, gives: str, pos, count: int = 1) -> str:
+        gid = self._new_id("gatherable")
+        self.gatherables[gid] = Gatherable(gid, name, gives, [float(c) for c in pos], count)
         return gid
 
     def remove_nodes(self, resource: str, within: float | None = None) -> None:
@@ -380,6 +403,7 @@ class MockGame(GameInterface):
             self.inventory[resource] += take
             got += take
             self._advance(take * HARVEST_TIME)
+            self._progress(GatherProgress(resource=resource, item=resource, have=got, want=count))
             if got >= need:
                 break
         if attacked:
@@ -481,6 +505,7 @@ class MockGame(GameInterface):
     def say(self, text: str) -> ActionResult:
         self._begin("say", text=text)  # likewise for say
         self.chat.append(("companion", text))
+        self.chat_times.append(self.time)
         return ok()
 
     # ------------------------------------------------------------------ spells
@@ -621,6 +646,93 @@ class MockGame(GameInterface):
         else:
             return fail(Reason.INVALID_ARGS, detail="id, enemy or all is required")
         return ok(removed=removed, count=len(self._all_rules()))
+
+    # ------------------------------------------------------------------ progress (live, like the bridge)
+
+    def set_progress_listener(self, listener) -> None:
+        self._progress_listener = listener
+
+    def _progress(self, ev: Event) -> None:
+        self._events.append(ev)
+        if self._progress_listener:
+            self._progress_listener(ev)
+
+    # ------------------------------------------------------------------ perception (body/perception.lua shape)
+
+    def _things(self, radius: float) -> list[dict]:
+        def entry(id_, name, kind, pos, actions, gives=(), state="available", count=1):
+            d = math.dist(pos, self.pos)
+            return {"id": id_, "name": name, "kind": kind, "gives": list(gives), "state": state, "count": count,
+                    "distance_m": round(d, 1), "actions": [{"a": a} for a in actions], "_d": d}
+        out = []
+        for g in self.gatherables.values():
+            out.append(entry(g.id, g.name, "gatherable", g.pos, ["interact"], [g.gives], count=g.count))
+        for g in self.ground.values():
+            out.append(entry(g.id, g.item, "item", g.pos, ["pickup", "interact"], [g.item], count=g.count))
+        for e in self.entities.values():
+            if e.alive:
+                out.append(entry(e.id, e.kind, "creature", e.pos, ["attack"], state="alive"))
+        for n in self.nodes.values():
+            if n.remaining > 0:
+                kind = {"log": "tree", "stone": "rock"}.get(n.resource, "resource")
+                out.append(entry(n.id, f"{kind} ({n.resource})", kind, n.pos, ["gather"], [n.resource]))
+        for p in self.players.values():
+            out.append(entry(p.name, p.name, "player", p.pos, ["follow", "give"]))
+        return sorted((t for t in out if t["_d"] <= radius), key=lambda t: t["_d"])
+
+    @_scriptable
+    def look(self, about: str | None = None, radius_m: float = 30.0, kinds: list[str] | None = None,
+             max: int = 12) -> ActionResult:
+        things = self._things(radius_m)
+        if kinds:
+            things = [t for t in things if t["kind"] in kinds]
+        matched = None
+        if about:
+            want = tokens(about)
+            hits = [t for t in things if want & (tokens(t["name"]) | {w for g in t["gives"] for w in tokens(g)}
+                                                  | tokens(t["kind"]))]
+            matched = bool(hits)
+            things = hits or things
+        for t in things:
+            t.pop("_d", None)
+        data = {"things": things[:max], "radius_m": radius_m}
+        if about:
+            data["matched"] = matched
+        if len(things) > max:
+            data.update(more=len(things) - max, hint="narrow with about= or radius_m=")
+        return ok(**data)
+
+    @_scriptable
+    def inspect(self, target: str) -> ActionResult:
+        t = next((x for x in self._things(NEARBY_RANGE) if x["id"] == target), None)
+        if t is None:
+            return fail(Reason.UNKNOWN_TARGET, target=target)
+        t.pop("_d", None)
+        return ok(**t, description=f"A {t['name']}.")
+
+    @_scriptable
+    def interact(self, target: str, secondary: bool = False) -> ActionResult:
+        g = self.gatherables.get(target)
+        if g is not None:
+            if math.dist(g.pos, self.pos) > GATHER_RANGE:
+                return fail(Reason.TOO_FAR, target=target)
+            self.following = None
+            self._walk(g.pos, 0.5)
+            del self.gatherables[target]
+            self.inventory[g.gives] += g.count
+            self._advance(1.0)
+            return ok(target=target, item=g.gives, count=g.count, prompt=g.prompt)
+        if target in self.ground:
+            res = self.pickup(target)
+            return ok(target=target, item=res["data"]["item"], count=res["data"]["count"]) if res["ok"] else res
+        if target in self.entities or target in self.nodes or target in self.players:
+            return fail(Reason.NOT_INTERACTABLE, target=target)
+        return fail(Reason.UNKNOWN_TARGET, target=target)
+
+    def world_info(self) -> ActionResult:
+        if not self.world_guid:
+            return fail(Reason.NOT_IMPLEMENTED, tool="world_info")
+        return ok(world_guid=self.world_guid, name="MockWorld")
 
     def poll_events(self) -> list[Event]:
         events, self._events = self._events, []

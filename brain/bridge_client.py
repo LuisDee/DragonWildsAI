@@ -130,6 +130,8 @@ class BridgeClient(GameInterface):
         finally:
             self._inflight.discard(req_id)
             self._parked.pop(req_id, None)
+            if not self._inflight:
+                self._progress.clear()  # progress that arrived with the final result is stale
         self.log.log("bridge_timeout", id=req_id, tool=tool, timeout=timeout)
         return fail(Reason.TIMEOUT, tool=tool, id=req_id)
 
