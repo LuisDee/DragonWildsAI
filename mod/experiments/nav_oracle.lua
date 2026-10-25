@@ -21,7 +21,12 @@
 --   * K2_ProjectPointToNavigation fills a FLAT {X,Y,Z} table passed as the out param in place
 --     (not out.ProjectedLocation). Start/end must be projected first: a pawn's capsule-centre Z
 --     is ~0.8 m above the navmesh and the raw query then fails.
--- Writes: only the anchor actor (spawn/destroy), and only on the dev server.
+--   * auto-generated nav LINKS (UE 5.5 experimental, ini bGenerateNavLinks=True on the dev server)
+--     exist only in tiles generated at runtime; the cooked chunk tiles have none. So after a fresh
+--     anchor has settled, the oracle dirties the tile columns around it once (a flat movable cube
+--     30 m above the anchor, destroyed after 3 s); Dynamic generation rebuilds them WITH links.
+--     Verified: the start-area lodestone pad got a +1.85 m link up to the upper level (18:30 UTC).
+-- Writes: only the anchor actor and the temporary cube (spawn/destroy), and only on the dev server.
 local U = require("body.util")
 
 local M = {}
@@ -63,10 +68,43 @@ end
 -- TargetPoint's root is static, so the anchor is relocated by destroy + respawn.
 local SRC_CLASS = "/Script/Engine.WorldPartitionStreamingSourceComponent"
 
+M.LINK_REBUILD_M = 160      -- cube side: covers the anchor reuse radius (+-80 m)
+
+local function navlinks_enabled()
+    for _, r in ipairs(U.find_all("RecastNavMesh", { skip_defaults = true })) do
+        if U.try(function() return r.bGenerateNavLinks end) then return true end
+    end
+    return false
+end
+
+-- Dirty the tile columns around `at` (cm) so they are regenerated (with links). Async cleanup.
+local function rebuild_links_around(log, at)
+    local ctx = world_ctx()
+    local world = U.try(function() return ctx:GetWorld() end)
+    local cls = U.try(function() return StaticFindObject("/Script/Engine.StaticMeshActor") end)
+    local mesh = U.try(function() return StaticFindObject("/Engine/BasicShapes/Cube.Cube") end)
+    if not (world and cls and mesh) then return false end
+    local ok, a = U.call(log, "nav_oracle.SpawnActor_linkcube", { at = wire(at) }, function()
+        return world:SpawnActor(cls, { X = at.X, Y = at.Y, Z = at.Z + 3000 }, { Pitch = 0, Yaw = 0, Roll = 0 })
+    end)
+    if not (ok and U.valid(a)) then return false end
+    local comp = a.StaticMeshComponent
+    U.call(log, "nav_oracle.linkcube_setup", nil, function()
+        comp:SetMobility(2)
+        comp:SetStaticMesh(mesh)
+        a:SetActorScale3D({ X = M.LINK_REBUILD_M, Y = M.LINK_REBUILD_M, Z = 0.2 })
+    end)
+    ExecuteWithDelay(3000, function()
+        ExecuteInGameThread(function() pcall(function() a:K2_DestroyActor() end) end)
+    end)
+    U.event(log, "nav_oracle_links_rebuild", { at = wire(at) })
+    return true
+end
+
 function M.anchor_clear(log)
     local a = rawget(_G, "DW_NAV_ANCHOR")
     if U.valid(a) then U.call(log, "nav_oracle.anchor_destroy", nil, function() a:K2_DestroyActor() end) end
-    _G.DW_NAV_ANCHOR, _G.DW_NAV_ANCHOR_COMP, _G.DW_NAV_ANCHOR_T = nil, nil, nil
+    _G.DW_NAV_ANCHOR, _G.DW_NAV_ANCHOR_COMP, _G.DW_NAV_ANCHOR_T, _G.DW_NAV_LINKS_DONE = nil, nil, nil, nil
     return { ok = true }
 end
 
@@ -119,6 +157,12 @@ function M.run(log, args)
     if not (U.valid(nav) and U.valid(ctx)) then return { ok = false, reason = "no_navsys" } end
     local anc = ensure_anchor(log, a)
     if not anc.ok then return { ok = false, reason = "anchor_" .. tostring(anc.reason), detail = anc.detail } end
+    -- once per anchor placement, after it has settled: regenerate the local tiles with nav links
+    local links_rebuilt = nil
+    if not rawget(_G, "DW_NAV_LINKS_DONE") and (anc.age_s or 0) >= M.ANCHOR_SETTLE_S and navlinks_enabled() then
+        _G.DW_NAV_LINKS_DONE = true
+        links_rebuilt = rebuild_links_around(log, U.loc(rawget(_G, "DW_NAV_ANCHOR")) or a)
+    end
     local pa, pb = project(nav, ctx, a), project(nav, ctx, b)
     if not pa then
         local loading = (anc.age_s or 0) < M.ANCHOR_SETTLE_S
@@ -138,7 +182,7 @@ function M.run(log, args)
     local res = {
         ok = ok, reason = (not ok) and ((anc.age_s or 0) < M.ANCHOR_SETTLE_S and "loading" or "no_path") or nil,
         retry = (not ok) and (anc.age_s or 0) < M.ANCHOR_SETTLE_S or nil,
-        points = pts, n = #pts, partial = partial, goal_projected = pb ~= nil,
+        points = pts, n = #pts, partial = partial, goal_projected = pb ~= nil, links_rebuilt = links_rebuilt,
         length_m = len and len > 0 and r2(len / 100) or nil, ms = math.floor((os.clock() - t0) * 1000),
     }
     U.event(log, "nav_oracle", { from = args.from, to = args.to, n = res.n, partial = partial, length_m = res.length_m, ms = res.ms, reason = res.reason })
