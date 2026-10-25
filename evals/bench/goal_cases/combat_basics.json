@@ -1,0 +1,229 @@
+{
+ "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code",
+ "cases": [
+  {
+   "id": "goal_basic_dodge_directional",
+   "version": 1,
+   "tier": "T1",
+   "family": "combat_basic",
+   "basic": "dodge_directional",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "watch out for its big swings",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "spawn",
+      "as": "foe",
+      "class": "<a creature with a telegraphed attack>",
+      "offset_m": [
+       6,
+       0,
+       0
+      ]
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "defended": {
+     "kind": "dodge",
+     "against": "telegraph",
+     "at_least": 3
+    }
+   },
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 60.0,
+    "repeat": 3
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "note": "referee: telegraphed attacks resolved as dodged (needs the referee defence events)"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "goal_basic_parry",
+   "version": 1,
+   "tier": "T1",
+   "family": "combat_basic",
+   "basic": "parry",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "block its hits, don't just tank them",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "spawn",
+      "as": "foe",
+      "class": "<a melee creature>",
+      "offset_m": [
+       6,
+       0,
+       0
+      ]
+     },
+     {
+      "verb": "grant",
+      "item": "<a shield>",
+      "count": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "defended": {
+     "kind": "parry",
+     "at_least": 3
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 60.0,
+    "repeat": 3
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {},
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "goal_basic_disengage_heal",
+   "version": 1,
+   "tier": "T1",
+   "family": "combat_basic",
+   "basic": "disengage_heal",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "you're getting hammered, sort yourself out",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "spawn",
+      "as": "foe",
+      "class": "<a creature stronger than him>",
+      "offset_m": [
+       4,
+       0,
+       0
+      ]
+     },
+     {
+      "verb": "grant",
+      "item": "<food>",
+      "count": 5
+     },
+     {
+      "verb": "set_health_pct",
+      "pct": 35
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "disengaged": {
+     "target": "$foe.id",
+     "aggro_m": 15,
+     "reengaged": true
+    }
+   },
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 60.0,
+    "repeat": 3
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {},
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  }
+ ]
+}

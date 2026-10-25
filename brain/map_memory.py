@@ -25,6 +25,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+# STABLE record fields (the Director reads them): kind, name, item, position, last_seen, extra.power_level.
+# Renaming any of them is a schema change: bump SCHEMA and tell the Director's owner first.
 SCHEMA = "dw_map_memory/1"
 DEBOUNCE_S = 30.0
 CELL_M = 2.0

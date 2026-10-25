@@ -130,6 +130,7 @@ def rig(tmp_path):
     if r.runner:
         r.runner.stop_flag = True
     proc.kill()
+    proc.wait(timeout=15)   # a fake client still dying would look like a hung one to the next test
 
 
 def status(r):

@@ -83,6 +83,7 @@ class Step(BaseModel):
     abort_if: dict | None = None
     escape: str | None = None
     risk: str | None = None
+    prepared: bool = False  # a prepare decision covered this risky step (section 2.9)
     needs: list[str] = []
     group: str | None = None
     loop_iter: int = 0  # which pass of its loop group this copy belongs to

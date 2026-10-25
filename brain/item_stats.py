@@ -128,6 +128,21 @@ def describe_carried(state: dict, cat: dict | None = None) -> list[str]:
     return out
 
 
+def grave_value(g: dict, cat: dict | None = None) -> float:
+    """A grave's worth from item data: the summed power level of the equipment in it, then the item count."""
+    pl = 0.0
+    for r in g.get("lost_ids") or []:
+        st = stats((r or {}).get("item"), cat)
+        if st and isinstance(st.get("power_level"), (int, float)) and st["power_level"] > 0:
+            pl += st["power_level"]
+    return pl * 1000 + float(g.get("lost_items") or 0)
+
+
+def rank_graves(graves: list[dict], cat: dict | None = None) -> list[dict]:
+    """Remembered graves, most valuable first (numbers from item data; the model decides what to fetch)."""
+    return sorted([g for g in graves if isinstance(g, dict)], key=lambda g: -grave_value(g, cat))
+
+
 def enrich_inventory(data: dict, state: dict | None = None, cat: dict | None = None) -> dict:
     """Add ``stats`` (and ``vs_equipped`` deltas) to the rows of the body's compact inventory answer."""
     cat = cat if cat is not None else catalog()

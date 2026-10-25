@@ -1,0 +1,460 @@
+{
+ "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code",
+ "cases": [
+  {
+   "id": "goal_gather_coal_multitrip",
+   "version": 1,
+   "tier": "T3",
+   "family": "long_task",
+   "long_task": "gather_coal_multitrip",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {
+    "skills": [
+     "Mining"
+    ],
+    "uses": [
+     "wiki",
+     "lodestone",
+     "storage"
+    ]
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "can you get me 50 coal? check the wiki for where it is, and use the lodestones if it's far",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "need a load of coal for the blast furnace, fifty-ish, sort it out?",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "grant",
+      "item": "ITEM_Rune_Law",
+      "count": 30
+     },
+     {
+      "verb": "grant",
+      "item": "<pickaxe that mines coal (tier from data)>",
+      "count": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "fresh_dev_v1",
+    "player_body": true
+   },
+   "success": {
+    "all": [
+     {
+      "delivered": {
+       "to": "Tester",
+       "item": "Coal",
+       "at_least": 50
+      }
+     },
+     {
+      "trips": {
+       "deposits_at_least": 2
+      }
+     },
+     {
+      "teleports": {
+       "via": "lodestone",
+       "at_least": 1
+      }
+     }
+    ]
+   },
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
+   "needs_fact": {
+    "kind": "location",
+    "truth": "coal node regions from the wiki (Fellhollow, Dowdun Reach, Umbral Sands)"
+   },
+   "controls": {
+    "alt_means": [
+     {
+      "setup": "grant_to_ground",
+      "item": "ITEM_Resources_Coal",
+      "count": 50
+     }
+    ],
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 5400.0,
+    "model_calls": {},
+    "hints_max": 1,
+    "idle_s": 180.0,
+    "repeat": 3
+   },
+   "hints": {
+    "ladder": [
+     "any luck with the coal?",
+     "coal's in rocky places, the wiki lists the regions",
+     "Fellhollow has coal nodes; there's a lodestone near there"
+    ]
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "sources": [
+     "https://dragonwilds.runescape.wiki/w/Coal",
+     "https://dragonwilds.runescape.wiki/w/Coal_Node",
+     "https://dragonwilds.runescape.wiki/w/Lodestone"
+    ]
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "goal_farm_mob_drop",
+   "version": 1,
+   "tier": "T3",
+   "family": "long_task",
+   "long_task": "farm_mob_drop",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {
+    "uses": [
+     "wiki",
+     "weakness",
+     "trips"
+    ]
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "I need 20 <a drop only <creature> drops>, can you farm them for me? they're tough, gear up for them",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [],
+    "scene": {},
+    "state_snapshot": "fresh_dev_v1",
+    "player_body": true
+   },
+   "success": {
+    "all": [
+     {
+      "delivered": {
+       "to": "Tester",
+       "item": "<the drop item>",
+       "at_least": 20
+      }
+     },
+     {
+      "damage_type_dealt": {
+       "target_kind_id": "<creature class>",
+       "types": [
+        "<weakness damage type from the wiki>"
+       ]
+      }
+     },
+     {
+      "trips": {
+       "deposits_at_least": 2
+      }
+     }
+    ]
+   },
+   "guards": [
+    {
+     "no_event": {
+      "kind": "damage_to_player"
+     }
+    }
+   ],
+   "needs_fact": {
+    "kind": "weakness",
+    "truth": "<the creature's wiki infobox weakness>"
+   },
+   "controls": {
+    "alt_means": [
+     {
+      "setup": "grant_to_ground",
+      "item": "<the drop item>",
+      "count": 20
+     }
+    ],
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 5400.0,
+    "model_calls": {},
+    "hints_max": 1,
+    "idle_s": 180.0,
+    "repeat": 3
+   },
+   "hints": {
+    "ladder": [
+     "how's the farming going?",
+     "check what they're weak to",
+     "<the weakness> works on them"
+    ]
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "note": "pick a creature whose drop has a single source (wiki Drop sources) and a weakness",
+    "sources": [
+     "https://dragonwilds.runescape.wiki/w/Monsters"
+    ]
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "goal_gear_upgrade_self_initiated",
+   "version": 1,
+   "tier": "T3",
+   "family": "long_task",
+   "long_task": "gear_upgrade_self_initiated",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "go level up and sort yourself out, I'll be back in a bit",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_gear",
+      "tier": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "fresh_dev_v1",
+    "player_body": false
+   },
+   "success": {
+    "any": [
+     {
+      "gear_better": {
+       "slot": "body",
+       "stat": "power_level",
+       "where": "equipped",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "pickaxe",
+       "stat": "tool_tier",
+       "where": "equipped",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "sword",
+       "stat": "power_level",
+       "where": "equipped",
+       "than": "start"
+      }
+     }
+    ]
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 7200.0,
+    "model_calls": {},
+    "hints_max": 1,
+    "idle_s": 300.0,
+    "repeat": 3
+   },
+   "hints": {
+    "ladder": [
+     "how's it going?",
+     "your gear's pretty weak",
+     "a bronze pickaxe would help"
+    ]
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "note": "his own initiative: the chat never names gear; one tier up on any slot or tool counts"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "goal_brynmoor_quest_chain",
+   "version": 1,
+   "tier": "T3",
+   "family": "long_task",
+   "long_task": "brynmoor_quest_chain",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "let's do the Brynmoor quests, can you start on Goblin Diplomacy? the wiki has the steps",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [],
+    "scene": {},
+    "state_snapshot": "fresh_dev_v1",
+    "player_body": false
+   },
+   "success": {
+    "quest": {
+     "name": "Goblin Diplomacy",
+     "completed": true
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 7200.0,
+    "model_calls": {},
+    "hints_max": 1,
+    "idle_s": 300.0,
+    "repeat": 3
+   },
+   "hints": {
+    "ladder": [
+     "how far along are you?",
+     "Zanik starts it in Bramblemead Valley",
+     "<the next quest step>"
+    ]
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "note": "quest{} evaluates null until quest perception lands (a perception gap, never a pass)",
+    "sources": [
+     "https://dragonwilds.runescape.wiki/w/Goblin_Diplomacy",
+     "https://dragonwilds.runescape.wiki/w/Quests"
+    ]
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "goal_farm_desert_weed",
+   "version": 1,
+   "tier": "T3",
+   "family": "long_task",
+   "long_task": "farm_desert_weed",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "can you farm some desert weed at our farm? we need a stack of it",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "place",
+      "name": "our farm",
+      "at": "<farm plots position on dev>"
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "fresh_dev_v1",
+    "player_body": true
+   },
+   "success": {
+    "all": [
+     {
+      "gained": {
+       "item": "Desert Weed",
+       "at_least": 20
+      }
+     },
+     {
+      "near": {
+       "place": "our farm",
+       "within_m": 30
+      }
+     }
+    ]
+   },
+   "guards": [],
+   "controls": {
+    "alt_means": [
+     {
+      "setup": "grant_to_ground",
+      "item": "<Desert Weed item id>",
+      "count": 20
+     }
+    ],
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 7200.0,
+    "model_calls": {},
+    "hints_max": 1,
+    "idle_s": 300.0,
+    "repeat": 3
+   },
+   "hints": {
+    "ladder": [
+     "how's the farm?",
+     "you need desert weed seeds and a plot",
+     "<where seeds come from>"
+    ]
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "sources": [
+     "https://dragonwilds.runescape.wiki/w/Desert_Weed_(Farming)",
+     "https://dragonwilds.runescape.wiki/w/Desert_Weed_Seeds"
+    ]
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  }
+ ]
+}

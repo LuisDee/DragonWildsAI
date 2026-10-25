@@ -47,7 +47,7 @@ def test_unknown_item_gives_candidates():
 
 
 @pytest.mark.parametrize("bad", [
-    {}, {"have": {}, "gained": {}}, {"teleported": {}}, {"all": []}, {"have": "Copper Ore"},
+    {}, {"have": {}, "gained": {}}, {"zz_not_a_leaf": {}}, {"all": []}, {"have": "Copper Ore"},
     {"skill": {"name": "Mining"}}, {"gear_better": {"stat": "tool_tier"}},
     {"gear_better": {"category": "pickaxe", "stat": "shininess"}},
     {"gear_better": {"category": "pickaxe", "stat": "tool_tier", "where": "chest"}},
@@ -61,7 +61,7 @@ def test_invalid_predicates_are_rejected_with_a_reason(bad):
 
 
 def test_errors_lists_every_problem_with_its_path():
-    errs = P.errors({"all": [{"have": {"item": "Coper Ore"}}, {"skill": {"name": "Mining"}}, {"teleported": {}}]})
+    errs = P.errors({"all": [{"have": {"item": "Coper Ore"}}, {"skill": {"name": "Mining"}}, {"zz_not_a_leaf": {}}]})
     assert [e["path"] for e in errs] == ["$.all[0].have", "$.all[1].skill", "$.all[2]"]
     assert "Copper Ore" in errs[0]["candidates"]
     assert P.errors({"have": {"item": "Copper Ore"}}) == []

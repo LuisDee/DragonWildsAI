@@ -27,12 +27,24 @@ class JsonlLogger:
         self._lock = threading.Lock()
         # The episode every row belongs to (observability: exact traces instead of timing guesses). Set
         # with ``episode()``; every component that shares this logger (bridge, controller, executor)
-        # stamps it on its rows while the episode is open.
-        self.episode_id: str | None = None
+        # stamps it on its rows while the episode is open. Thread-local, so a worker thread's episode
+        # (the Director's) never stamps the main loop's rows.
+        self._episode = threading.local()  # per thread: the Director runs on a worker thread
         self._ids = itertools.count(1)
+        self._ids_lock = threading.Lock()
+
+    @property
+    def episode_id(self) -> str | None:
+        return getattr(self._episode, "id", None)
+
+    @episode_id.setter
+    def episode_id(self, value: str | None) -> None:
+        self._episode.id = value
 
     def new_episode_id(self, prefix: str) -> str:
-        return f"{prefix}-{next(self._ids):04d}-{uuid.uuid4().hex[:4]}"
+        with self._ids_lock:
+            n = next(self._ids)
+        return f"{prefix}-{n:04d}-{uuid.uuid4().hex[:4]}"
 
     @contextmanager
     def episode(self, episode_id: str | None) -> Iterator[str | None]:

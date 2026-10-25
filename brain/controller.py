@@ -262,6 +262,7 @@ class Controller:
         self.max_calls = max(1, max_calls)
         self.progress_interval = progress_interval
         self.clock = clock
+        self.director = None  # brain.director.Director | None: the task board's tools (attach_director)
         self._progress_at: float | None = None
         self._progress_last: str | None = None
         self.tools = self._tool_list()
@@ -285,18 +286,31 @@ class Controller:
         return self.has("look")
 
     def _tool_list(self) -> list[dict]:
-        brain = [tool_schema("remember"), tool_schema("run_skill"), START_GOAL] + \
+        hide_goal = self.director is not None and self.director.hides_start_goal
+        brain = [tool_schema("remember"), tool_schema("run_skill")] + ([] if hide_goal else [START_GOAL]) + \
             ([LIST_SKILLS, FORGET_SKILL] if self.skills is not None else [])
         if self.knowledge is not None:  # the kinds it can filter on come from the index itself
             kinds = ", ".join(self.knowledge.kinds())
             brain.insert(0, tool_schema("lookup", TOOLS["lookup"][1] + (f" kind values: {kinds}." if kinds else "")))
         rules = [tool_schema(n) for n in RULE_TOOLS if self.has(n)]
+        if self.director is not None:
+            brain = brain + list(self.director.tool_schemas())
         if self.caps is not None:  # the body's manifest: its own descriptions and schemas
             return [self.caps.function_schema(n) for n in self.caps.llm_tools()] + rules + brain
         # No manifest (mock, server puppet): the brain's own schemas, still only for tools the body has.
         acts = [n for n in ACTION_TOOLS if self.has(n)]
         reads = [n for n in READ_TOOLS if self.has(n) and n not in BRAIN_TOOLS]
         return [tool_schema(n) for n in reads + acts] + rules + brain
+
+    def attach_director(self, director) -> None:
+        """Offer the task board's tools (docs/design/director.md §8): board tools never interrupt a job,
+        board() is read-only, and start_goal is hidden when the director says it subsumes it."""
+        self.director = director
+        self.read_tools |= set(director.read_tool_names)
+        self.tools = self._tool_list()
+
+    def non_interrupting(self) -> set[str]:
+        return NON_INTERRUPTING | (set(self.director.tool_names) if self.director is not None else set())
 
     def offered(self) -> set[str]:
         return {t["function"]["name"] for t in self.tools}
@@ -381,9 +395,11 @@ class Controller:
             "situation": sit.summary(state, active_goal=active_goal, tasks=tasks, places=self.store.places(),
                                      looks_supported=self.can_look),
             "active_goal": active_goal,
+            "board": self.director.brief() if self.director is not None else None,
             "goal_tasks": tasks,
             "notes": self._notes(),
-            "learned_skills": self.learned_skills(text),
+            "learned_skills": self.learned_skills(text or (self.director.retrieval_text(body_event)
+                                                            if self.director is not None else "")),
             "castable_spells": self.spell_lines(),
             "reflex_rules": self.reflex_rules(),
             # chat lines are in "chat", body situations in body_status: only the rest, newest 5
@@ -433,6 +449,8 @@ class Controller:
                                       triggers=", ".join(SENSABLE_TRIGGERS),
                                       look_rule=LOOK_RULE if self.can_look else NO_LOOK_RULE,
                                       lookup_rule=LOOKUP_RULE if self.knowledge is not None else "")
+        if self.director is not None:
+            persona += "\n\n" + self.director.persona_lines()
         rules = self.house_rules()
         if rules:
             persona += (f"\n\nHouse rules from {self.player} (always follow them; they are his, not yours to "
@@ -454,7 +472,7 @@ class Controller:
         self._collect(resp.tool_calls, d, state)
         # A real action or a new goal pre-empts the current job; remember(), spells, standing
         # orders and chat do not.
-        d.interrupts = bool(d.goal or d.skill or any(a.name not in NON_INTERRUPTING for a in d.actions))
+        d.interrupts = bool(d.goal or d.skill or any(a.name not in self.non_interrupting() for a in d.actions))
         if not d.actions and not d.goal and not d.skill and not d.refusals:
             self._unseen_fallback(d)
         return d
@@ -522,7 +540,7 @@ class Controller:
         d2.speech = strip_markers(resp.content)
         d2.messages = msgs + [assistant_message(resp)]
         self._collect([c for c in resp.tool_calls if c.name not in self.read_tools], d2, state or {})
-        d2.interrupts = any(a.name not in NON_INTERRUPTING for a in d2.actions)
+        d2.interrupts = any(a.name not in self.non_interrupting() for a in d2.actions)
         return d2
 
     def _read(self, call: ToolCall, d: Decision) -> dict:
@@ -536,7 +554,9 @@ class Controller:
         except Exception as exc:
             return {"ok": False, "reason": Reason.INVALID_ARGS, "error": str(exc)[:300]}
         self.log.log("tool_call", tool=call.name, args=args, read_only=True)
-        if call.name in BRAIN_TOOLS:  # answered by the brain (knowledge index), never sent to the body
+        if self.director is not None and call.name in self.director.read_tool_names:
+            res = self.director.handle_tool(call.name, args, self.player)  # board(): the task board, read-only
+        elif call.name in BRAIN_TOOLS:  # answered by the brain (knowledge index), never sent to the body
             res = self._brain_read(call.name, args)
         else:
             res = self.game.call(call.name, args)
@@ -618,6 +638,8 @@ class Controller:
 
     def _validate(self, name: str, args: dict) -> dict:
         """The body's published schema when it has one for this tool, else the brain's own model."""
+        if self.director is not None and name in self.director.tool_names:
+            return self.director.validate_tool(name, args)
         if self.caps is not None and name in self.caps.manifest:
             return self.caps.validate(name, args)
         return validate_args(name, args)

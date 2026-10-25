@@ -295,6 +295,8 @@ class LiveOptions:
     chat_debounce_s: float = field(default_factory=lambda: float(os.environ.get("DW_CHAT_DEBOUNCE_S", "0.8")))
     # game knowledge (brain/knowledge.py: game data + local wiki mirror) behind the lookup tool; DW_KNOWLEDGE=0 off
     knowledge: bool = field(default_factory=lambda: os.environ.get("DW_KNOWLEDGE", "1") != "0")
+    # the task board + Sonnet Director (brain/director.py); DW_DIRECTOR=1 on, DW_DIRECTOR_CALLS_PER_HOUR its window
+    director: bool = field(default_factory=lambda: os.environ.get("DW_DIRECTOR", "0") == "1")
 
 
 class BodyUnavailable(RuntimeError):
@@ -340,13 +342,22 @@ class LiveSession:
         self.agent.body_self_defends = "combat_status" in self.caps.extras
         self.agent.budget = Budget(None if opts.dry_run else default_spend_fn(), cap_usd=default_cap_usd(),
                                    log=self.log)  # Luis's daily $ cap (shared with tools/spend.py)
+        self.director = None
+        if opts.director:
+            from .director import Director  # docs/design/director.md
+            self.director = Director.for_session(self.agent, planner_llm, store=self.store, skills=self.skills,
+                                                 knowledge=self.knowledge, caps=self.caps, budget=self.agent.budget,
+                                                 log=self.log, player=opts.player)
+            self.agent.director = self.director
+            self.controller.attach_director(self.director)
         self.log.log("session_start", dry_run=opts.dry_run, controller_model=controller_llm.model,
                      planner_model=planner_llm.model, body=opts.body, bridge_dir=str(d), prefixes=opts.prefixes,
                      ping_ms=round(self.rtt * 1000, 1), skills=self.store.skills.names(),
                      capabilities_source=self.caps.source, missing=self.caps.missing,
                      world=self.world, world_source=self.world_source, state_dir=str(state_dir),
                      migrated=migrated, learned_skills=self.skills.names(), skills_dir=str(self.skills.dir),
-                     knowledge=self.knowledge.stats() if self.knowledge else None)
+                     knowledge=self.knowledge.stats() if self.knowledge else None,
+                     director=self.director is not None)
         self.out(self.banner(controller_llm.model, planner_llm.model))
 
     def _connect(self) -> float:

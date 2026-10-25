@@ -1,46 +1,38 @@
-"""Is the long-running goal met? (docs/GOAL.md §1/§1b, docs/goal_targets.json). Built for Claude Code's /goal, whose
-evaluator only reads the transcript: completion has to be provable from this command's output.
+"""Is the long-running goal met? (docs/GOAL.md §1, §1b, §1c; docs/goal_targets.json; design eval-benchmark.md §9).
+Built for Claude Code's /goal, whose evaluator only reads the transcript: completion is proven by this command's output.
 
-  .venv\\Scripts\\python.exe -m tools.goal_check --all           # a table per milestone M1-M4 (also the default)
-  .venv\\Scripts\\python.exe -m tools.goal_check --milestone M1  # one milestone
-  .venv\\Scripts\\python.exe -m tools.goal_check --json          # results as JSON (the last line stays the verdict)
+  .venv\\Scripts\\python.exe -m tools.goal_check --all            # a table per milestone M1-M6 (the default)
+  .venv\\Scripts\\python.exe -m tools.goal_check --milestone M3   # one milestone
+  .venv\\Scripts\\python.exe -m tools.goal_check --json           # results as JSON (the last line stays the verdict)
 
-One row per target: MET | NOT MET | NO DATA, the measured value, the run id and its age. The LAST line is exactly:
-- --milestone Mn: "MILESTONE Mn MET" or "MILESTONE Mn NOT MET (x/y)" (x targets met of y);
-- --all:          "GOAL MET" (all four milestones met) or "GOAL NOT MET (M1 x/y, M2 x/y, M3 x/y, M4 x/y, focus=Mn)",
-                  focus = the first milestone not met.
-Exit 0 only for MET.
+The LAST line is exactly one of:
+  GOAL MET sha=<HEAD> judge=<judge hash> runs=<run ids> at=<UTC>   (--all; only when everything below holds)
+  GOAL MET (TEST)                                                  (the same, with DW_GOAL_CHECK_TEST=1: tests only)
+  GOAL NOT MET (M1 x/y, M2 x/y, ..., focus=<first milestone not met, or "gates">)
+  MILESTONE Mn MET | MILESTONE Mn NOT MET (x/y)                    (--milestone; never prints the words GOAL MET)
+Exit 0 only for MET. After GOAL MET, Luis's sign-off is the final gate (goal_targets.json final_gate).
 
-Confirmation re-run: a milestone counts as MET only when every target is met now AND the previous check of that
-milestone on DIFFERENT data (new benchmark runs or a new obs window: the fingerprint) was fresh and also all met, i.e.
-two consecutive fresh runs pass. Every check is appended to logs/evals/goal_checks.jsonl for this (--no-record: don't).
-
-Sources (all optional; missing = NO DATA = not met):
-- logs/evals/scoreboard.jsonl   one row per benchmark run (evals.bench runner; schema dw_scoreboard/1, below) and
-                                 per voice-eval ingest (kind "voice")
-- logs/evals/validity.json      the eval of the eval: per case hash, the positive control (oracle) and the two
-                                 negative controls (do_nothing, claims_only)
-- tools/obs.py metrics --json   latency, anomalies, stability, deaths (observability agent; dw_obs_metrics/1)
-
-Strictness (GOAL.md §3, §4.3), every one of these makes a target NOT MET:
-- data older than --max-age-h (24 h);
-- benchmark results measured only on the mock (a target counts dev or live runs only);
-- no live confirmation: a benchmark-family target also needs >= 1 valid passing case of that family in a LIVE run
-  inside the window; long tasks need a live pass (live_confirmed_required) and a dev pass within the hint limit;
-- a case whose predicate is not valid: it counts only if its positive control passed on the dev world or live and
-  BOTH negative controls failed (a negative control that passes, or evaluates null, invalidates the case).
-
-Scoreboard row (dw_scoreboard/1, kind "bench"):
-  {schema, kind, run_id, at (UTC ISO), target: mock|dev|live, agent, git_sha, models, report,
-   cases: [{id, case_hash, family, tier, heldout, result: pass|fail|unverifiable|skip|error, hints,
-            long_task?: <goal_targets long_tasks id>, basic?: <combat_basics_live_proven id>}],
-   metrics: {<metric>: {value, n}, damage_taken_trend: {fights, slope, decreasing}, ...}, calls, cost_usd}
-Families: spell_cast, spell_use, craft, combat, combat_basic, tactics_prep, adversarial, knowledge, long_task, ...
+What counts (review findings 2, 3, 5, 6, 7, 15; Luis's decision rules, GOAL.md §1c):
+- Benchmark evidence is RE-DERIVED from raw run directories (cases.jsonl, run.json), whose sha256 must match the
+  scoreboard row. Precomputed metrics are never trusted.
+- Only full runs of a frozen suite manifest, on the scoring world (goal_targets scoring_world: dev), with real models,
+  at the CURRENT companion hash + judge hash + game build count. Mixed or dirty hashes = NOT MET.
+- A case counts only if its validity record (logs/evals/validity/<key>.json, key = case + scorer + body + build) shows
+  the positive control passed and every negative control failed, on the scoring world.
+- Percentage targets: the manifest denominator (only `pass` counts; unverifiable/skip/error count against),
+  n >= min_n and the Wilson 95% lower bound >= the target.
+- Long tasks: k repeats, all pass (pass^k), hints <= the limit. Pinned goal cases must match their pinned hashes.
+- Obs targets (tools/obs.py, filtered to the commits at the current companion hash): <= 24 h old and the exposure
+  minimum (active hours, tool calls per hour).
+- Gates for GOAL MET: a Luis-approved judge tag with no judge diff since; a clean tree; two consecutive checks on
+  different data per milestone (logs/evals/goal_checks.jsonl).
 """
 from __future__ import annotations
 
 import argparse
 import json
+import math
+import os
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
@@ -49,27 +41,26 @@ from pathlib import Path
 from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from evals.bench import hashes  # noqa: E402
+from evals.bench.report import wilson  # noqa: E402
+
 TARGETS = ROOT / "docs" / "goal_targets.json"
 SCOREBOARD = ROOT / "logs" / "evals" / "scoreboard.jsonl"
-VALIDITY = ROOT / "logs" / "evals" / "validity.json"
+VALIDITY_DIR = ROOT / "logs" / "evals" / "validity"
 HISTORY = ROOT / "logs" / "evals" / "goal_checks.jsonl"
 MAX_AGE_H = 24.0
 MET, NOT_MET, NO_DATA = "MET", "NOT MET", "NO DATA"
-COUNTED = ("pass", "fail", "unverifiable", "error")  # skip (precondition not met) is not counted
-BENCH_TARGETS = ("dev", "live")
+TEST_ENV = "DW_GOAL_CHECK_TEST"
+EXTRA_NEGATIVES = ("wrong_action", "alt_means", "partial")  # review finding 4 (unless the record says n/a)
 
-# target key in goal_targets.json -> the benchmark case family it is measured on
 FAMILY_TARGETS = {
     "spells_effect_coverage_pct": "spell_cast",
     "spell_use_cases_pct": "spell_use",
     "craft_from_scratch_pct": "craft",
     "combat_cases_pct": "combat",
     "adversarial_cases_pct": "adversarial",
-}
-# scoreboard metrics (value, n) with a minimum
-METRIC_TARGETS = {
-    "ranged_hit_rate_15m_moving_pct": "ranged_hit_rate_15m_moving_pct",
-    "efficiency_vs_baseline_pct": "efficiency_vs_baseline_pct",
 }
 
 
@@ -86,17 +77,32 @@ class Row:
     def line(self) -> str:
         age = f"{self.age_h:.1f}h" if self.age_h is not None else "-"
         note = f"  ({self.note})" if self.note else ""
-        return f"[{self.status:<7}] {self.target:<44} {self.value:<28} want {self.want:<14} {self.source}  age {age}{note}"
+        return f"[{self.status:<7}] {self.target:<46} {self.value:<30} want {self.want:<16} {self.source}  age {age}{note}"
+
+
+@dataclass
+class Current:
+    companion: str
+    judge: str
+    scorer: str
+    body: str
+    build: str | None
+    head: str | None
+    clean: bool
 
 
 @dataclass
 class Data:
     targets: dict
-    rows: list[dict]
-    validity: dict
+    rows: list[dict]  # scoreboard rows
+    validity: dict  # key -> record
     obs: dict | None
     now: datetime
+    cur: Current
     max_age_h: float = MAX_AGE_H
+    root: Path = ROOT
+    runs: list[dict] = field(default_factory=list)  # counted runs: {row, run, cases}
+    rejected: list[str] = field(default_factory=list)  # why rows did not count
     validity_summary: dict = field(default_factory=dict)
 
 
@@ -136,23 +142,40 @@ def read_json(path: Path) -> Any:
         return None
 
 
-def run_obs(since_h: float) -> dict | None:
-    if not (ROOT / "tools" / "obs.py").exists():
+def load_validity(d: Path) -> dict:
+    out = {}
+    for f in sorted(Path(d).glob("*.json")) if Path(d).exists() else []:
+        r = read_json(f)
+        if isinstance(r, dict) and r.get("key"):
+            out[r["key"]] = r
+    return out
+
+
+def current(root: Path = ROOT) -> Current:
+    return Current(hashes.companion_hash(root), hashes.judge_hash(root), hashes.scorer_hash(root), hashes.body_hash(root),
+                   hashes.game_build(root), hashes.head_sha(root), hashes.tree_clean(root))
+
+
+def companion_commits(root: Path = ROOT) -> list[str]:
+    """Commits whose companion tree equals HEAD's (since the last commit that touched the companion paths)."""
+    last = hashes.git("log", "-1", "--format=%H", "--", *hashes.COMPANION_PATHS, root=root)
+    if not last or not last.strip():
+        return []
+    out = hashes.git("rev-list", f"{last.strip()}^..HEAD", root=root) or hashes.git("rev-list", "HEAD", root=root) or ""
+    return [x.strip() for x in out.splitlines() if x.strip()]
+
+
+def run_obs(root: Path, since_h: float, shas: list[str]) -> dict | None:
+    if not (root / "tools" / "obs.py").exists():
         return None
+    cmd = [sys.executable, "-m", "tools.obs", "metrics", "--json", "--since", f"{since_h:g}h"]
+    if shas:
+        cmd += ["--companion-sha", ",".join(s[:12] for s in shas)]
     try:
-        p = subprocess.run([sys.executable, "-m", "tools.obs", "metrics", "--json", "--since", f"{since_h:g}h"],
-                           cwd=ROOT, capture_output=True, text=True, timeout=180, encoding="utf-8", errors="replace")
-    except (OSError, subprocess.TimeoutExpired):
+        p = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=300, encoding="utf-8", errors="replace")
+        return json.loads(p.stdout) if p.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired, ValueError):
         return None
-    if p.returncode != 0:
-        return None
-    try:
-        return json.loads(p.stdout.strip().splitlines()[-1] if "\n" in p.stdout.strip() else p.stdout)
-    except (ValueError, IndexError):
-        try:
-            return json.loads(p.stdout)
-        except ValueError:
-            return None
 
 
 def age_h(d: Data, ts: Any) -> float | None:
@@ -160,36 +183,67 @@ def age_h(d: Data, ts: Any) -> float | None:
     return None if t is None else max(0.0, (d.now - t).total_seconds() / 3600.0)
 
 
-def fresh(d: Data, ts: Any) -> bool:
-    a = age_h(d, ts)
-    return a is not None and a <= d.max_age_h
+# ------------------------------------------------------------------ counted runs (re-derived, finding 5)
 
 
-# ------------------------------------------------------------------ validity (the eval of the eval)
+def collect_runs(d: Data) -> None:
+    world = (d.targets.get("scoring_world") or {}).get("world", "dev")
+    for row in d.rows:
+        if row.get("kind", "bench") != "bench":
+            continue
+        rid = row.get("run_id")
+        why = None
+        if row.get("target") != world:
+            why = f"target {row.get('target')} (scoring world is {world})"
+        elif not row.get("full"):
+            why = "partial run (--only)"
+        elif row.get("companion_hash") != d.cur.companion or "+dirty" in str(row.get("companion_hash")):
+            why = f"companion {row.get('companion_hash')} != current {d.cur.companion}"
+        elif row.get("judge_hash") != d.cur.judge:
+            why = f"judge {row.get('judge_hash')} != current {d.cur.judge}"
+        elif row.get("build") != d.cur.build:
+            why = f"build {row.get('build')} != {d.cur.build}"
+        if why is None:
+            rd = d.root / str(row.get("dir"))
+            if hashes.sha256_file(rd / "run.json") != row.get("run_sha256") or \
+                    hashes.sha256_file(rd / "cases.jsonl") != row.get("cases_sha256"):
+                why = "run files missing or changed since the scoreboard row (sha256 mismatch)"
+            else:
+                run = read_json(rd / "run.json") or {}
+                if run.get("llm") != "real":
+                    why = f"not a real-model run (llm={run.get('llm')})"
+                else:
+                    d.runs.append({"row": row, "run": run, "cases": read_jsonl(rd / "cases.jsonl"), "dir": rd})
+        if why:
+            d.rejected.append(f"{rid}: {why}")
+    d.runs.sort(key=lambda r: parse_ts(r["row"].get("at")) or d.now, reverse=True)
 
 
-def case_valid(d: Data, case: dict) -> tuple[bool, str]:
-    v = d.validity.get(str(case.get("case_hash"))) if isinstance(d.validity, dict) else None
+def case_valid(d: Data, c: dict) -> tuple[bool, str]:
+    key = hashes.validity_key(str(c.get("case_hash")), d.cur.scorer, d.cur.body, d.cur.build, str(c.get("entry_hash") or ""))
+    v = d.validity.get(key)
+    world = (d.targets.get("scoring_world") or {}).get("world", "dev")
     if not isinstance(v, dict):
-        return False, "no controls run"
-    pos = v.get("positive") or {}
-    if pos.get("result") != "pass":
+        return False, "no controls at the current scorer/body/build"
+    if v.get("target") != world:
+        return False, f"controls ran on {v.get('target')}, not the scoring world"
+    cs = v.get("controls") or {}
+    if (cs.get("oracle") or {}).get("result") != "pass":
         return False, "positive control did not pass"
-    if pos.get("target") not in BENCH_TARGETS:
-        return False, "positive control only on the mock"
-    for neg in d.targets.get("eval_validity", {}).get("negative_controls", ["do_nothing", "claims_only"]):
-        if (v.get(neg) or {}).get("result") != "fail":
+    na = v.get("na") or {}
+    for neg in list((d.targets.get("eval_validity") or {}).get("negative_controls") or []) + list(EXTRA_NEGATIVES):
+        if neg in na:
+            continue
+        if (cs.get(neg) or {}).get("result") != "fail":
             return False, f"negative control {neg} did not fail"
     return True, ""
 
 
 def validity_summary(d: Data) -> dict:
-    seen: dict[str, dict] = {}
-    for r in d.rows:
-        if r.get("kind", "bench") == "bench":
-            for c in r.get("cases") or []:
-                if isinstance(c, dict) and c.get("case_hash"):
-                    seen[str(c["case_hash"])] = c
+    seen = {}
+    for r in d.runs:
+        for c in r["cases"]:
+            seen[str(c.get("case_hash"))] = c
     why: dict[str, int] = {}
     valid = 0
     for c in seen.values():
@@ -201,176 +255,148 @@ def validity_summary(d: Data) -> dict:
     return {"cases": n, "valid": valid, "pct": round(100.0 * valid / n, 1) if n else None, "invalid_reasons": why}
 
 
-# ------------------------------------------------------------------ benchmark rows
+def manifest_of(d: Data, run: dict) -> dict | None:
+    m = run["run"].get("suite_manifest") or {}
+    path = d.root / str(m.get("path") or "")
+    if not m.get("path") or hashes.sha256_file(path) != m.get("sha256"):
+        return None
+    return read_json(path)
 
 
-def bench_rows(d: Data, targets: tuple[str, ...] = BENCH_TARGETS) -> list[dict]:
-    """Benchmark runs on the given targets inside the window, newest first."""
-    rows = [r for r in d.rows if r.get("kind", "bench") == "bench" and r.get("target") in targets and fresh(d, r.get("at"))]
-    return sorted(rows, key=lambda r: parse_ts(r.get("at")) or d.now, reverse=True)
+def latest_with(d: Data, pred: Callable[[dict], bool]) -> dict | None:
+    return next((r for r in d.runs if pred(r)), None)
 
 
-def family_cases(d: Data, row: dict, family: str) -> list[dict]:
-    return [c for c in row.get("cases") or [] if isinstance(c, dict) and c.get("family") == family
-            and c.get("result") in COUNTED and case_valid(d, c)[0]]
+def _no_runs_row(d: Data, name: str, want: str) -> Row:
+    if d.rejected:
+        return Row(name, NOT_MET, "-", want, "-", None, "no counted run: " + "; ".join(d.rejected[-2:]))
+    return Row(name, NO_DATA, "-", want, "-", None, "no benchmark run")
 
 
-def pct(cases: list[dict]) -> float | None:
-    return 100.0 * sum(c.get("result") == "pass" for c in cases) / len(cases) if cases else None
+def wilson_row(name: str, passed: int, n: int, target_pct: float, min_n: int, src: str, age: float | None, extra: str = "") -> Row:
+    lo, hi = wilson(passed, n)
+    value = f"{passed}/{n} ({100 * passed / n:.0f}%, LB {100 * lo:.0f}%)" if n else "0/0"
+    want = f"LB >= {target_pct:g}%, n >= {min_n}"
+    if n < min_n:
+        return Row(name, NOT_MET, value, want, src, age, f"n {n} < {min_n}{'; ' + extra if extra else ''}")
+    return Row(name, MET if 100 * lo >= target_pct else NOT_MET, value, want, src, age, extra)
 
 
-def live_confirmed(d: Data, pred: Callable[[dict], bool]) -> dict | None:
-    for r in bench_rows(d, ("live",)):
-        if any(isinstance(c, dict) and pred(c) and c.get("result") == "pass" and case_valid(d, c)[0]
-               for c in r.get("cases") or []):
-            return r
-    return None
-
-
-def stale_or_missing(d: Data, name: str, want: str, kind_targets=BENCH_TARGETS, has=lambda r: True) -> Row:
-    """The NO DATA / stale row for a benchmark target: says which (an old row exists, or only mock rows)."""
-    older = [r for r in d.rows if r.get("kind", "bench") == "bench" and has(r)]
-    if any(r.get("target") in kind_targets for r in older):
-        newest = max((r for r in older if r.get("target") in kind_targets), key=lambda r: parse_ts(r.get("at")) or d.now)
-        return Row(name, NOT_MET, "-", want, str(newest.get("run_id")), age_h(d, newest.get("at")),
-                   f"stale: older than {d.max_age_h:g} h")
-    if any(r.get("target") == "mock" for r in older):
-        return Row(name, NOT_MET, "-", want, "mock only", None, "measured only on the mock (needs dev or live)")
-    return Row(name, NO_DATA, "-", want, "-", None, "no valid case measured")
-
-
-def family_target(d: Data, name: str, family: str, want_v: float | None = None) -> Row:
-    want_v = float(d.targets[name] if want_v is None else want_v)
-    want = f">= {want_v:g}%"
-    for r in bench_rows(d):
-        cases = family_cases(d, r, family)
-        if not cases:
+def family_target(d: Data, name: str, family: str, target_pct: float) -> Row:
+    min_n = int((d.targets.get("decision_rule") or {}).get("min_n_percent_targets", 20))
+    for r in d.runs:
+        man = manifest_of(d, r)
+        if man is None or family not in (man.get("families") or {}):
             continue
-        v = pct(cases)
-        n_pass = sum(c["result"] == "pass" for c in cases)
-        value = f"{v:.1f}% ({n_pass}/{len(cases)})"
-        live = live_confirmed(d, lambda c: c.get("family") == family)
-        if live is None:
-            return Row(name, NOT_MET, value, want, str(r.get("run_id")), age_h(d, r.get("at")), "no live confirmation")
-        return Row(name, MET if v >= want_v else NOT_MET, value, want, str(r.get("run_id")), age_h(d, r.get("at")),
-                   f"live-confirmed by {live.get('run_id')}")
-    return stale_or_missing(d, name, want, has=lambda r: any(isinstance(c, dict) and c.get("family") == family
-                                                             for c in r.get("cases") or []))
+        ids = {x["id"]: x["hash"] for x in man["families"][family]}
+        by_id = {c.get("case_id"): c for c in r["cases"]}
+        passed = sum(1 for cid, h in ids.items() if (c := by_id.get(cid)) and c.get("case_hash") == h
+                     and c.get("result") == "pass" and case_valid(d, c)[0])
+        return wilson_row(name, passed, len(ids), target_pct, min_n, str(r["row"].get("run_id")), age_h(d, r["row"].get("at")),
+                          f"manifest v{man.get('version')}")
+    return _no_runs_row(d, name, f"LB >= {target_pct:g}%")
 
 
-def metric_value(d: Data, metric: str) -> tuple[dict, dict] | None:
-    """(row, {value, n}) of the newest fresh dev/live run that measured the metric (n > 0)."""
-    for r in bench_rows(d):
-        m = (r.get("metrics") or {}).get(metric)
-        if isinstance(m, dict) and isinstance(m.get("value"), (int, float)) and (m.get("n") or 0) > 0:
-            return r, m
-    return None
+def _cases(d: Data, pred: Callable[[dict], bool]) -> list[tuple[dict, dict]]:
+    return [(r, c) for r in d.runs for c in r["cases"] if pred(c)]
 
 
-def metric_target(d: Data, name: str, metric: str, want_v: float, at_most: bool = False, unit: str = "%") -> Row:
+def pinned_ok(d: Data, c: dict) -> bool:
+    pins = ((d.targets.get("goal_cases") or {}).get("pinned_by_hash") or {})
+    return c.get("case_id") not in pins or pins[c["case_id"]] == c.get("case_hash")
+
+
+def k_target(d: Data, name: str, pred: Callable[[dict], bool], k: int, max_hints: int | None = None) -> Row:
+    """k repeats, all pass (pass^k), valid, pinned, hints within the limit."""
+    want = f"pass^{k}" + (f", <= {max_hints} hint" if max_hints is not None else "")
+    rows = _cases(d, pred)
+    if not rows:
+        return _no_runs_row(d, name, want)
+    good = [(r, c) for r, c in rows if c.get("result") == "pass" and case_valid(d, c)[0] and pinned_ok(d, c)
+            and (max_hints is None or int(c.get("hints_used") or 0) <= max_hints)]
+    recent = rows[:k]
+    allpass = len(rows) >= k and all(c.get("result") == "pass" and case_valid(d, c)[0] and pinned_ok(d, c)
+                                     and (max_hints is None or int(c.get("hints_used") or 0) <= max_hints) for _, c in recent)
+    r0 = rows[0][0]
+    return Row(name, MET if allpass else NOT_MET, f"{len(good)}/{len(rows)} good runs", want, str(r0["row"].get("run_id")),
+               age_h(d, r0["row"].get("at")), "" if allpass else f"the last {k} must all pass (valid, pinned)")
+
+
+def metric_from_cases(d: Data, name: str, key: str, want_v: float, at_most: bool = False, ratio: tuple[str, str] | None = None,
+                      flag: str | None = None, unit: str = "%") -> Row:
+    """A process metric re-derived from cases.jsonl `process` fields of the newest counted run that has it."""
     want = f"{'<=' if at_most else '>='} {want_v:g}{unit}"
-    got = metric_value(d, metric)
-    if got is None:
-        return stale_or_missing(d, name, want, has=lambda r: metric in (r.get("metrics") or {}))
-    r, m = got
-    v = float(m["value"])
-    ok = v <= want_v if at_most else v >= want_v
-    return Row(name, MET if ok else NOT_MET, f"{v:.1f}{unit} (n={m['n']})", want, str(r.get("run_id")),
-               age_h(d, r.get("at")))
-
-
-def long_task(d: Data, tid: str) -> Row:
-    cfg = d.targets.get("long_tasks") or {}
-    max_hints = int(cfg.get("dev_world_max_hints", 1))
-    name = f"long_tasks:{tid}"
-    want = f"dev pass <= {max_hints} hint" + ("; live" if cfg.get("live_confirmed_required", True) else "")
-
-    def mine(c):
-        return isinstance(c, dict) and c.get("long_task") == tid and case_valid(d, c)[0]
-    dev = next(((r, c) for r in bench_rows(d, ("dev",)) for c in r.get("cases") or []
-                if mine(c) and c.get("result") == "pass" and int(c.get("hints") or 0) <= max_hints), None)
-    live = next(((r, c) for r in bench_rows(d, ("live",)) for c in r.get("cases") or []
-                 if mine(c) and c.get("result") == "pass"), None)
-    if dev is None and live is None:
-        last = next(((r, c) for r in bench_rows(d) for c in r.get("cases") or [] if mine(c)), None)
-        if last:
-            r, c = last
-            return Row(name, NOT_MET, f"{c.get('result')} ({c.get('hints', 0)} hints)", want, str(r.get("run_id")),
-                       age_h(d, r.get("at")))
-        return stale_or_missing(d, name, want, has=lambda r: any(isinstance(c, dict) and c.get("long_task") == tid
-                                                                 for c in r.get("cases") or []))
-    if dev is None:
-        r, c = live
-        return Row(name, NOT_MET, "live pass", want, str(r.get("run_id")), age_h(d, r.get("at")),
-                   f"no dev-world pass with <= {max_hints} hint")
-    r, c = dev
-    if cfg.get("live_confirmed_required", True) and live is None:
-        return Row(name, NOT_MET, f"dev pass ({c.get('hints', 0)} hints)", want, str(r.get("run_id")),
-                   age_h(d, r.get("at")), "no live confirmation")
-    note = f"live {live[0].get('run_id')}" if live else ""
-    return Row(name, MET, f"dev pass ({c.get('hints', 0)} hints)", want, str(r.get("run_id")), age_h(d, r.get("at")), note)
-
-
-def combat_basic(d: Data, basic: str) -> Row:
-    name = f"combat_basics_live_proven:{basic}"
-    r = live_confirmed(d, lambda c: c.get("basic") == basic)
-    if r is None:
-        return stale_or_missing(d, name, "live pass", ("live",),
-                                has=lambda r: any(isinstance(c, dict) and c.get("basic") == basic for c in r.get("cases") or []))
-    return Row(name, MET, "live pass", "live pass", str(r.get("run_id")), age_h(d, r.get("at")))
-
-
-def heldout_gap(d: Data, name: str) -> Row:
-    want_v = float(d.targets[name])
-    want = f"<= {want_v:g} pts"
-    for r in bench_rows(d):
-        cases = [c for c in r.get("cases") or [] if isinstance(c, dict) and c.get("result") in COUNTED
-                 and case_valid(d, c)[0]]
-        seen = [c for c in cases if not c.get("heldout")]
-        held = [c for c in cases if c.get("heldout")]
-        if seen and held:
-            gap = abs(pct(seen) - pct(held))
-            return Row(name, MET if gap <= want_v else NOT_MET,
-                       f"{gap:.1f} pts (seen {pct(seen):.0f}% n={len(seen)}, held {pct(held):.0f}% n={len(held)})",
-                       want, str(r.get("run_id")), age_h(d, r.get("at")))
-    return stale_or_missing(d, name, want, has=lambda r: any(isinstance(c, dict) and c.get("heldout")
-                                                             for c in r.get("cases") or []))
-
-
-def tactics(d: Data) -> list[Row]:
-    cfg = d.targets.get("combat_tactics") or {}
-    out = []
-    if "prep_before_hard_fight_pct" in cfg:
-        out.append(family_target(d, "combat_tactics:prep_before_hard_fight_pct", "tactics_prep",
-                                 float(cfg["prep_before_hard_fight_pct"])))
-    if "telegraph_dodge_success_pct" in cfg:
-        out.append(metric_target(d, "combat_tactics:telegraph_dodge_success_pct", "telegraph_dodge_success_pct",
-                                 float(cfg["telegraph_dodge_success_pct"])))
-    if "damage_taken_trend" in cfg:
-        name, want = "combat_tactics:damage_taken_trend", str(cfg["damage_taken_trend"])
-        need = next((int(w) for w in want.split() if w.isdigit()), 5)
-        got = next(((r, (r.get("metrics") or {}).get("damage_taken_trend")) for r in bench_rows(d)
-                    if isinstance((r.get("metrics") or {}).get("damage_taken_trend"), dict)), None)
-        if got is None:
-            out.append(stale_or_missing(d, name, f"falling over {need}",
-                                        has=lambda r: "damage_taken_trend" in (r.get("metrics") or {})))
+    for r in d.runs:
+        procs = [c.get("process") or {} for c in r["cases"] if case_valid(d, c)[0]]
+        if ratio:
+            num = sum(float(p.get(ratio[0], 0)) for p in procs)
+            den = sum(float(p.get(ratio[1], 0)) for p in procs)
+            if den <= 0:
+                continue
+            lo, _ = wilson(int(num), int(den))
+            v = 100 * lo
+            value = f"{int(num)}/{int(den)} (LB {v:.0f}%)"
+        elif flag:
+            xs = [bool(p[flag]) for p in procs if flag in p]
+            if not xs:
+                continue
+            lo, hi = wilson(sum(xs), len(xs))
+            v = 100 * (hi if at_most else lo)
+            value = f"{sum(xs)}/{len(xs)} ({'UB' if at_most else 'LB'} {v:.0f}%)"
         else:
-            r, m = got
-            fights, dec = int(m.get("fights") or 0), bool(m.get("decreasing"))
-            ok = fights >= need and dec
-            out.append(Row(name, MET if ok else NOT_MET, f"{fights} fights, slope {m.get('slope')}", f"falling over {need}",
-                           str(r.get("run_id")), age_h(d, r.get("at")), "" if fights >= need else f"needs {need} fights"))
-    return out
+            xs = sorted(float(p[key]) for p in procs if key in p)
+            if not xs:
+                continue
+            v = xs[len(xs) // 2]
+            value = f"median {v:.1f} (n={len(xs)})"
+        ok = v <= want_v if at_most else v >= want_v
+        return Row(name, MET if ok else NOT_MET, value, want, str(r["row"].get("run_id")), age_h(d, r["row"].get("at")))
+    return _no_runs_row(d, name, want)
 
 
-def knowledge(d: Data) -> list[Row]:
-    cfg = d.targets.get("knowledge_use") or {}
+def damage_trend(d: Data, name: str, spec: str) -> Row:
+    need = next((int(w) for w in str(spec).split() if w.isdigit()), 5)
+    series = [(c.get("repeat_i", 0), float((c.get("process") or {})["damage_taken"])) for _, c in
+              _cases(d, lambda c: c.get("family") == "tactics" and "damage_taken" in (c.get("process") or {}))]
+    if len(series) < need:
+        return _no_runs_row(d, name, f"falling over {need}") if not series else \
+            Row(name, NOT_MET, f"{len(series)} fights", f"falling over {need}", "-", None, f"needs {need} fights")
+    xs, ys = [i for i, _ in series], [y for _, y in series]
+    mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+    sxx = sum((x - mx) ** 2 for x in xs) or 1.0
+    slope = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx
+    return Row(name, MET if slope < 0 else NOT_MET, f"slope {slope:.2f}/fight over {len(series)}", f"falling over {need}")
+
+
+def every_skill(d: Data, cfg: dict) -> list[Row]:
+    """M3: per skill in the build's skill manifest, three modes (asked, initiative, plus5), each pass^1, valid."""
+    skills = skill_manifest(d.root)
+    modes = ("asked", "initiative", "plus5")
     out = []
-    for key, v in cfg.items():
-        at_most = key.endswith("_max")
-        metric = key[:-4] if at_most else key
-        out.append(metric_target(d, f"knowledge_use:{key}", f"knowledge_{metric}", float(v), at_most=at_most))
+    for m in modes:
+        good = [s for s in skills if any(c.get("result") == "pass" and case_valid(d, c)[0] and pinned_ok(d, c)
+                                         for _, c in _cases(d, lambda c, s=s, m=m: c.get("family") == "skill_train"
+                                                            and c.get("skill") == s and c.get("mode") == m))]
+        name = f"every_skill:{m}"
+        if not d.runs:
+            out.append(_no_runs_row(d, name, f"{len(skills)}/{len(skills)} skills"))
+            continue
+        missing = [s for s in skills if s not in good]
+        out.append(Row(name, MET if skills and not missing else NOT_MET, f"{len(good)}/{len(skills)} skills",
+                       f"{len(skills)}/{len(skills)}", str(d.runs[0]["row"].get("run_id")), age_h(d, d.runs[0]["row"].get("at")),
+                       ("missing: " + ", ".join(missing[:6]) + ("..." if len(missing) > 6 else "")) if missing else ""))
     return out
+
+
+def skill_manifest(root: Path = ROOT) -> list[str]:
+    """Every skill named in the build's game data (SKILL_* assets in perks and recipes)."""
+    import re
+    names: set[str] = set()
+    for f in sorted((root / "data").glob("*_*.json")):
+        if not re.fullmatch(r"(spells|recipes)_\d+\.json", f.name):
+            continue
+        names.update(re.findall(r"SKILL_([A-Za-z]+)", f.read_text(encoding="utf-8", errors="replace")))
+    return sorted(names)
 
 
 # ------------------------------------------------------------------ observability (tools/obs.py)
@@ -384,60 +410,103 @@ def obs_row(d: Data, name: str, value_of: Callable[[dict], Any], want_v: float, 
         return Row(name, NO_DATA, "-", want, "obs", None, "tools/obs.py metrics gave nothing")
     ts = (o.get("window") or {}).get("until") or o.get("generated_at")
     a = age_h(d, ts)
-    src = f"obs {o.get('source') or '?'}"
+    exp = o.get("exposure") or {}
+    src = f"obs {o.get('source') or '?'} {exp.get('active_hours', 0) or 0:.1f}h active"
     try:
         v = value_of(o)
     except (AttributeError, KeyError, TypeError):
         v = None
-    n = n_of(o) if n_of else o.get("hours_observed")
+    n = n_of(o) if n_of else exp.get("active_hours")
     if v is None or not isinstance(v, (int, float)) or not n:
-        return Row(name, NO_DATA, "-", want, src, a, "no data in the window")
+        return Row(name, NO_DATA, "-", want, src, a, "no data at the current companion hash")
     if a is None or a > d.max_age_h:
         return Row(name, NOT_MET, f"{v:g}{unit}", want, src, a, f"stale: older than {d.max_age_h:g} h")
     ok = v <= want_v if at_most else v >= want_v
     return Row(name, MET if ok else NOT_MET, f"{v:g}{unit}", want, src, a)
 
 
+def exposure_row(d: Data, cfg: dict) -> Row:
+    hours, cph = float(cfg.get("min_active_hours_at_current_hash", 2)), float(cfg.get("min_tool_calls_per_hour", 20))
+    want = f">= {hours:g} h, >= {cph:g} calls/h"
+    o = d.obs if isinstance(d.obs, dict) else None
+    if o is None:
+        return Row("obs_exposure", NO_DATA, "-", want, "obs", None, "tools/obs.py metrics gave nothing")
+    exp = o.get("exposure") or {}
+    ah, rate = float(exp.get("active_hours") or 0), float(exp.get("tool_calls_per_hour") or 0)
+    ok = ah >= hours and rate >= cph
+    return Row("obs_exposure", MET if ok else NOT_MET, f"{ah:.1f} h, {rate:.0f} calls/h", want, "obs",
+               age_h(d, (o.get("window") or {}).get("until") or o.get("generated_at")))
+
+
 def voice(d: Data, name: str) -> Row:
     want_v = float(d.targets[name])
-    want = f">= {want_v:g}"
     rows = sorted([r for r in d.rows if r.get("kind") == "voice" and isinstance(r.get("score"), (int, float))
-                   and (r.get("n") or 0) > 0], key=lambda r: parse_ts(r.get("at")) or d.now, reverse=True)
+                   and (r.get("n") or 0) > 0 and r.get("companion_hash") == d.cur.companion],
+                  key=lambda r: parse_ts(r.get("at")) or d.now, reverse=True)
     if not rows:
-        o = d.obs if isinstance(d.obs, dict) else {}
-        vs = (o.get("voice") or {}) if isinstance(o.get("voice"), dict) else {}
-        if isinstance(vs.get("score"), (int, float)) and (vs.get("n") or 0) > 0:
-            return obs_row(d, name, lambda o: o["voice"]["score"], want_v, False, "", lambda o: o["voice"]["n"])
-        return Row(name, NO_DATA, "-", want, "-", None, "no voice-eval score")
+        return Row(name, NO_DATA, "-", f">= {want_v:g}", "-", None, "no voice-eval score at the current companion hash")
     r = rows[0]
-    if not fresh(d, r.get("at")):
-        return Row(name, NOT_MET, f"{r['score']:.2f}", want, str(r.get("run_id")), age_h(d, r.get("at")),
-                   f"stale: older than {d.max_age_h:g} h")
-    return Row(name, MET if r["score"] >= want_v else NOT_MET, f"{r['score']:.2f} (n={r['n']})", want,
+    return Row(name, MET if r["score"] >= want_v else NOT_MET, f"{r['score']:.2f} (n={r['n']})", f">= {want_v:g}",
                str(r.get("run_id")), age_h(d, r.get("at")))
 
 
-# ------------------------------------------------------------------ the target registry
+# ------------------------------------------------------------------ registry
 
 
 def rows_for(d: Data, key: str) -> list[Row]:
     t = d.targets
+    rule = t.get("decision_rule") or {}
+    k = int(rule.get("long_tasks_repeats_k", 3))
     if key.startswith("long_tasks:"):
-        return [long_task(d, key.split(":", 1)[1])]
+        tid = key.split(":", 1)[1]
+        mh = (t.get("long_tasks") or {}).get("dev_world_max_hints", 1)
+        return [k_target(d, key, lambda c: c.get("long_task") == tid, k, int(mh))]
+    if key.startswith("capstone:"):
+        cid = key.split(":", 1)[1]
+        if cid == "brynmoor_progression":
+            stages = [c for _, c in _cases(d, lambda c: c.get("family") == "capstone_stage")]
+            ids = sorted({c.get("case_id") for c in stages})
+            if not ids:
+                return [_no_runs_row(d, key, "every stage passes")]
+            bad = [i for i in ids if not any(c.get("case_id") == i and c.get("result") == "pass" and case_valid(d, c)[0]
+                                            and pinned_ok(d, c) for c in stages)]
+            return [Row(key, MET if not bad and pinned_stage_count(t) <= len(ids) else NOT_MET,
+                        f"{len(ids) - len(bad)}/{max(len(ids), pinned_stage_count(t))} stages", "all stages",
+                        note=("open: " + ", ".join(bad[:5])) if bad else "")]
+        return [k_target(d, key, lambda c: c.get("capstone") == cid, 1, None)]
     if key in FAMILY_TARGETS:
-        return [family_target(d, key, FAMILY_TARGETS[key])]
-    if key in METRIC_TARGETS:
-        return [metric_target(d, key, METRIC_TARGETS[key], float(t[key]))]
-    if key == "long_tasks":
-        return [long_task(d, x) for x in (t.get("long_tasks") or {}).get("required", [])]
+        return [family_target(d, key, FAMILY_TARGETS[key], float(t[key]))]
+    if key == "every_skill":
+        return every_skill(d, t.get("every_skill") or {})
     if key == "combat_basics_live_proven":
-        return [combat_basic(d, b) for b in t.get(key) or []]
+        return [k_target(d, f"{key}:{b}", lambda c, b=b: c.get("basic") == b, 1, None) for b in t.get(key) or []]
     if key == "combat_tactics":
-        return tactics(d)
+        cfg = t.get(key) or {}
+        out = []
+        if "prep_before_hard_fight_pct" in cfg:
+            out.append(family_target(d, f"{key}:prep_before_hard_fight_pct", "tactics", float(cfg["prep_before_hard_fight_pct"])))
+        if "telegraph_dodge_success_pct" in cfg:
+            out.append(metric_from_cases(d, f"{key}:telegraph_dodge_success_pct", "", float(cfg["telegraph_dodge_success_pct"]),
+                                         ratio=("dodged", "telegraphs")))
+        if "damage_taken_trend" in cfg:
+            out.append(damage_trend(d, f"{key}:damage_taken_trend", cfg["damage_taken_trend"]))
+        return out
     if key == "knowledge_use":
-        return knowledge(d)
-    if key == "heldout_gap_max_points":
-        return [heldout_gap(d, key)]
+        cfg = t.get(key) or {}
+        out = []
+        for name, v in cfg.items():
+            at_most = name.endswith("_max")
+            flag = (name[:-4] if at_most else name).removesuffix("_pct")
+            out.append(metric_from_cases(d, f"{key}:{name}", "", float(v), at_most=at_most, flag=flag))
+        return out
+    if key == "ranged_hit_rate_15m_moving_pct":
+        return [metric_from_cases(d, key, "", float(t[key]), ratio=("hits", "shots"))]
+    if key == "efficiency_vs_baseline_pct":
+        return [metric_from_cases(d, key, "efficiency_pct", float(t[key]))]
+    if key == "heldout":
+        return [heldout(d, t.get("heldout") or {})]
+    if key == "obs_exposure":
+        return [exposure_row(d, t.get(key) or {})]
     if key == "latency_chat_to_action_p50_s":
         return [obs_row(d, key, lambda o: o["latency"]["chat_to_first_action_s"]["p50"], float(t[key]), True, " s",
                         lambda o: o["latency"]["chat_to_first_action_s"]["n"])]
@@ -456,15 +525,45 @@ def rows_for(d: Data, key: str) -> list[Row]:
     return [Row(key, NO_DATA, "-", str(t.get(key)), "-", None, "goal_check has no measurement for this target yet")]
 
 
+def pinned_stage_count(t: dict) -> int:
+    pins = ((t.get("goal_cases") or {}).get("pinned_by_hash") or {})
+    return sum(1 for k in pins if k.startswith("capstone_stage"))
+
+
+def heldout(d: Data, cfg: dict) -> Row:
+    min_n = int(cfg.get("min_n", 30))
+    want = f"held LB >= seen - 10, n >= {min_n}"
+    r = latest_with(d, lambda r: bool(r["run"].get("heldout_draw")))
+    if r is None:
+        return _no_runs_row(d, "heldout", want) if not d.runs else Row("heldout", NOT_MET, "-", want, "-", None,
+                                                                      "no fresh post-freeze held-out draw at this hash")
+    valid = [c for c in r["cases"] if case_valid(d, c)[0] and c.get("result") != "skip"]
+    held = [c for c in valid if c.get("heldout")]
+    seen_run = latest_with(d, lambda x: not x["run"].get("heldout_draw"))
+    seen = [c for c in (seen_run or {}).get("cases", []) if case_valid(d, c)[0] and c.get("result") != "skip"]
+    if not seen:
+        return Row("heldout", NOT_MET, "-", want, str(r["row"].get("run_id")), None, "no seen-suite run to compare with")
+    sp = sum(c.get("result") == "pass" for c in seen) / len(seen)
+    hp = sum(c.get("result") == "pass" for c in held)
+    lo, _ = wilson(hp, len(held))
+    ok = len(held) >= min_n and 100 * lo >= 100 * sp - 10
+    return Row("heldout", MET if ok else NOT_MET, f"held {hp}/{len(held)} LB {100 * lo:.0f}% vs seen {100 * sp:.0f}%", want,
+               str(r["row"].get("run_id")), age_h(d, r["row"].get("at")), "" if len(held) >= min_n else f"n {len(held)} < {min_n}")
+
+
+# ------------------------------------------------------------------ milestones, gates, confirmation
+
+
 def milestones(targets: dict) -> dict[str, list[str]]:
     return {k: list(v) for k, v in (targets.get("milestones") or {}).items()}
 
 
 def check(d: Data, milestone: str) -> tuple[list[Row], dict]:
-    """The rows of one milestone's targets (each target key may give several rows)."""
     ms = milestones(d.targets)
     if milestone not in ms:
         raise SystemExit(f"unknown milestone {milestone!r}; have {', '.join(ms) or 'none'}")
+    if not d.runs and not d.rejected:
+        collect_runs(d)
     d.validity_summary = validity_summary(d)
     rows: list[Row] = []
     for k in ms[milestone]:
@@ -476,29 +575,43 @@ def score(rows: list[Row]) -> tuple[int, int]:
     return sum(r.status == MET for r in rows), len(rows)
 
 
-# ------------------------------------------------------------------ confirmation re-run (two consecutive fresh runs)
+def gates(d: Data) -> list[Row]:
+    out = []
+    tag = d.targets.get("judge_tag")
+    if not tag:
+        out.append(Row("gate:judge_tag", NOT_MET, "none", "Luis's tag", note="Luis has not tagged the judge files yet"))
+    else:
+        diff = hashes.judge_diff_since(tag, d.root)
+        if diff is None:
+            out.append(Row("gate:judge_tag", NOT_MET, str(tag), "exists", note="the judge tag is unknown to git"))
+        else:
+            out.append(Row("gate:judge_tag", MET if not diff else NOT_MET, f"{len(diff)} judge files changed", "0",
+                           str(tag), note=("changed since Luis's approval: " + ", ".join(diff[:6])) if diff else ""))
+    out.append(Row("gate:clean_tree", MET if d.cur.clean else NOT_MET, "clean" if d.cur.clean else "dirty", "clean",
+                   str(d.cur.head)[:12] if d.cur.head else "-"))
+    world = (d.targets.get("scoring_world") or {}).get("world")
+    out.append(Row("gate:scoring_world", MET if world else NOT_MET, str(world), "set"))
+    return out
 
 
 def fingerprint(d: Data) -> str:
-    """What data this check saw: the fresh run ids plus the obs window end. A confirmation needs NEW data, not the
-    same results checked twice."""
-    ids = sorted(str(r.get("run_id")) for r in d.rows if fresh(d, r.get("at")))
+    ids = sorted(str(r["row"].get("run_id")) for r in d.runs)
     o = d.obs if isinstance(d.obs, dict) else {}
-    return json.dumps([ids, (o.get("window") or {}).get("until") or o.get("generated_at")])
+    return json.dumps([ids, (o.get("window") or {}).get("until") or o.get("generated_at"), d.cur.companion])
 
 
 def confirmed(d: Data, history: list[dict], milestone: str, fp: str) -> dict | None:
-    """The previous check of this milestone on different data, if it was fresh and all-met; else None.
-    Consecutive: the most recent earlier record with a different fingerprint decides."""
     prev = [h for h in history if h.get("milestone") == milestone and h.get("fingerprint") != fp
             and (parse_ts(h.get("at")) or d.now) < d.now]
     if not prev:
         return None
     last = max(prev, key=lambda h: parse_ts(h.get("at")) or d.now)
-    return last if last.get("all_met") and fresh(d, last.get("at")) else None
+    a = age_h(d, last.get("at"))
+    return last if last.get("all_met") and a is not None and a <= d.max_age_h else None
 
 
 def evaluate_milestones(d: Data, names: list[str], history: list[dict]) -> list[dict]:
+    collect_runs(d)
     fp = fingerprint(d)
     out = []
     for m in names:
@@ -517,12 +630,18 @@ def milestone_line(res: dict) -> str:
     return f"MILESTONE {m} MET" if res["milestone_met"] else f"MILESTONE {m} NOT MET ({res['met']}/{res['total']})"
 
 
-def goal_line(results: list[dict]) -> str:
-    if results and all(r["milestone_met"] for r in results):
-        return "GOAL MET"
+def goal_line(d: Data, results: list[dict], gate_rows: list[Row]) -> str:
     parts = ", ".join(f"{r['milestone']} {r['met']}/{r['total']}" for r in results)
-    focus = next((r["milestone"] for r in results if not r["milestone_met"]), "-")
-    return f"GOAL NOT MET ({parts}, focus={focus})"
+    focus = next((r["milestone"] for r in results if not r["milestone_met"]), None)
+    if focus is None and any(g.status != MET for g in gate_rows):
+        focus = "gates"
+    if focus is None and results:
+        if os.environ.get(TEST_ENV) == "1":
+            return "GOAL MET (TEST)"
+        runs = ",".join(sorted({str(r["row"].get("run_id")) for r in d.runs}))
+        return (f"GOAL MET sha={d.cur.head} judge={d.cur.judge} runs={runs} "
+                f"at={d.now.isoformat(timespec='seconds').replace('+00:00', 'Z')}")
+    return f"GOAL NOT MET ({parts}, focus={focus or '-'})"
 
 
 def print_milestone(res: dict) -> None:
@@ -530,28 +649,32 @@ def print_milestone(res: dict) -> None:
     for r in res["rows"]:
         print(r.line())
     if res["all_met"]:
-        print(f"   confirmation: {'by the fresh run at ' + res['confirmed_by'] if res['confirmed_by'] else 'PENDING - every target is met, but a milestone counts only after two consecutive fresh runs on new data pass; re-run the benchmark and check again'}")
+        print("   confirmation: " + (f"by the fresh check at {res['confirmed_by']}" if res["confirmed_by"] else
+                                     "PENDING - every target is met; a milestone counts after two consecutive checks on "
+                                     "new data pass: re-run the benchmark, then check again"))
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     g = ap.add_mutually_exclusive_group()
-    g.add_argument("--all", action="store_true", help="every milestone M1-M4 (the default)")
-    g.add_argument("--milestone", help="one milestone (goal_targets.json milestones: M1..M4)")
+    g.add_argument("--all", action="store_true", help="every milestone (the default)")
+    g.add_argument("--milestone", help="one milestone (goal_targets.json milestones)")
     ap.add_argument("--targets", default=str(TARGETS))
     ap.add_argument("--scoreboard", default=str(SCOREBOARD))
-    ap.add_argument("--validity", default=str(VALIDITY))
-    ap.add_argument("--history", default=str(HISTORY), help="goal_check's own record of its checks (confirmations)")
+    ap.add_argument("--validity", default=str(VALIDITY_DIR))
+    ap.add_argument("--history", default=str(HISTORY))
     ap.add_argument("--no-record", action="store_true", help="do not append this check to the history")
     ap.add_argument("--obs-json", help="read the obs metrics from this file instead of running tools/obs.py")
     ap.add_argument("--max-age-h", type=float, default=MAX_AGE_H)
+    ap.add_argument("--root", default=str(ROOT), help=argparse.SUPPRESS)  # tests: a temp repo
     ap.add_argument("--now", help=argparse.SUPPRESS)  # tests: a fixed clock (ISO)
-    ap.add_argument("--json", action="store_true", help="print the results as JSON before the verdict line")
+    ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except AttributeError:  # captured stdout in tests
+    except AttributeError:
         pass
+    root = Path(a.root)
     targets = read_json(Path(a.targets))
     ms = milestones(targets) if isinstance(targets, dict) else {}
     names = [a.milestone] if a.milestone else list(ms)
@@ -560,34 +683,42 @@ def main(argv: list[str] | None = None) -> int:
         print(f"MILESTONE {a.milestone} NOT MET (0/0)" if a.milestone else "GOAL NOT MET (no milestones, focus=-)")
         return 1
     now = parse_ts(a.now) if a.now else datetime.now(timezone.utc)
-    obs = read_json(Path(a.obs_json)) if a.obs_json else run_obs(a.max_age_h)
-    d = Data(targets, read_jsonl(Path(a.scoreboard)), read_json(Path(a.validity)) or {}, obs, now, a.max_age_h)
-    history = read_jsonl(Path(a.history))
-    results = evaluate_milestones(d, names, history)
-    print(f"GOAL CHECK {a.milestone or 'all milestones'}  at {now.isoformat(timespec='seconds')}  "
-          f"max age {a.max_age_h:g} h  scoreboard rows {len(d.rows)}")
+    cur = current(root)
+    obs = read_json(Path(a.obs_json)) if a.obs_json else run_obs(root, a.max_age_h, companion_commits(root))
+    d = Data(targets, read_jsonl(Path(a.scoreboard)), load_validity(Path(a.validity)), obs, now, cur, a.max_age_h, root)
+    results = evaluate_milestones(d, names, read_jsonl(Path(a.history)))
+    gate_rows = gates(d) if not a.milestone else []
+    print(f"GOAL CHECK {a.milestone or 'all milestones'}  at {now.isoformat(timespec='seconds')}  head {str(cur.head)[:12]}  "
+          f"companion {cur.companion}  judge {cur.judge}  build {cur.build}  counted runs {len(d.runs)}")
     if a.json:
-        print(json.dumps([{**r, "rows": [asdict(x) for x in r["rows"]]} for r in results], default=str))
+        print(json.dumps({"milestones": [{**r, "rows": [asdict(x) for x in r["rows"]]} for r in results],
+                          "gates": [asdict(g) for g in gate_rows], "rejected_runs": d.rejected}, default=str))
     else:
         for res in results:
             print_milestone(res)
+        if gate_rows:
+            print("== gates")
+            for gr in gate_rows:
+                print(gr.line())
+        for why in d.rejected[-8:]:
+            print(f"   (not counted) {why}")
     vs = d.validity_summary
     reasons = ", ".join(f"{k}: {v}" for k, v in sorted(vs.get("invalid_reasons", {}).items())) or "none"
     share = f" ({vs['pct']:.0f}%)" if vs.get("pct") is not None else ""
-    print(f"Predicate validity: {vs['valid']}/{vs['cases']} cases valid{share}; invalid: {reasons}")
+    print(f"Predicate validity: {vs.get('valid', 0)}/{vs.get('cases', 0)} counted cases valid{share}; invalid: {reasons}")
     if not a.no_record:
         try:
             Path(a.history).parent.mkdir(parents=True, exist_ok=True)
             with open(a.history, "a", encoding="utf-8") as f:
                 for r in results:
-                    f.write(json.dumps({"at": now.isoformat(timespec="seconds"), "milestone": r["milestone"],
-                                        "met": r["met"], "total": r["total"], "all_met": r["all_met"],
-                                        "milestone_met": r["milestone_met"], "fingerprint": r["fingerprint"]}) + "\n")
+                    f.write(json.dumps({"at": now.isoformat(timespec="seconds"), "milestone": r["milestone"], "met": r["met"],
+                                        "total": r["total"], "all_met": r["all_met"], "milestone_met": r["milestone_met"],
+                                        "fingerprint": r["fingerprint"]}) + "\n")
         except OSError as exc:
             print(f"(could not record this check: {exc})")
-    final = milestone_line(results[0]) if a.milestone else goal_line(results)
+    final = milestone_line(results[0]) if a.milestone else goal_line(d, results, gate_rows)
     print(final)
-    return 0 if final in ("GOAL MET", f"MILESTONE {a.milestone} MET") else 1
+    return 0 if final == f"MILESTONE {a.milestone} MET" or final.startswith("GOAL MET") else 1
 
 
 if __name__ == "__main__":

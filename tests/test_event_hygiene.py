@@ -1130,3 +1130,29 @@ def test_budget_reader_errors_fail_closed_for_autonomy_and_after_30_min_for_chat
     r.at(1900).step()  # past 30 min of reader errors
     assert len(r.model.calls) == n and r.body.said[-1] == BLIND_LINE
     assert not b.allows("chat")
+
+
+def test_director_is_off_unless_dw_director_is_1(tmp_path, monkeypatch):
+    """The Director hooks (brain/director.py, the Director agent's) are inert unless DW_DIRECTOR=1: no
+    director on the agent or controller, no board tools offered, no Director code imported."""
+    import sys
+    from brain.dry_run_llm import DryRunController, DryRunPlanner
+    from brain.fake_body import FakeBody
+    from brain.mock import MockGame
+    from brain.run_live import LiveOptions, LiveSession
+    from brain.transport import file_transport_pair
+    monkeypatch.delenv("DW_DIRECTOR", raising=False)
+    sys.modules.pop("brain.director", None)
+    d = tmp_path / "bridge"
+    _, body_t = file_transport_pair(d, "client")
+    body = FakeBody(MockGame.default_world(), body_t).start()
+    try:
+        s = LiveSession(LiveOptions(body="client", bridge_dir=d, state_dir=tmp_path / "state", log_dir=tmp_path / "logs",
+                                    dry_run=True, wait=5.0, probe_timeout=1.0),
+                        DryRunController(), DryRunPlanner(), out=lambda _: None)
+        assert s.director is None and s.agent.director is None and s.controller.director is None
+        assert "brain.director" not in sys.modules
+        assert next(r for r in s.log.read_all() if r["kind"] == "session_start")["director"] is False
+        s.step()  # pump with the hooks in place: no director, nothing breaks
+    finally:
+        body.stop()

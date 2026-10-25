@@ -27,6 +27,7 @@ import hashlib
 import json
 import re
 import statistics
+import subprocess
 import sys
 import time
 import urllib.request
@@ -48,6 +49,7 @@ NOISE_KINDS = {"bridge_unmatched", "bridge_malformed", "bridge_unknown_event", "
                "progress_skipped", "say_result", "capabilities", "skill_load_error", "situation_stale"}
 CRASH_EVENTS = {"client_crash_dump", "client_crash_reporter", "client_hang", "client_gone"}
 LIVE_WORLDS = {"shockbyte"}
+TRIVIAL_ACTIONS = {"stop", "say", "remember", "forget_skill"}   # not a "first action", not world-changing
 
 
 # ------------------------------------------------------------------ loading
@@ -77,21 +79,58 @@ class Corpus:
     goals: list[dict] = field(default_factory=list)       # progress.jsonl goal rows
     watchdog: list[dict] = field(default_factory=list)
     vitals: list[dict] = field(default_factory=list)      # vitals.jsonl death / fatal rows only
+    companion_sha: str | None = None                     # the --companion-sha filter, when given
     since: float | None = None
     until: float | None = None
 
 
-def load(root: Path, since: float | None, until: float | None, pad: float = 300.0) -> Corpus:
+_sha_cache: dict[tuple[str, int], str | None] = {}
+
+
+def _git_sha_at(root: Path, t: float) -> str | None:
+    """The commit HEAD had at time t (the last commit before it), or None without git history."""
+    key = (str(root), int(t))
+    if key not in _sha_cache:
+        try:
+            iso = datetime.fromtimestamp(t, timezone.utc).isoformat()
+            r = subprocess.run(["git", "-C", str(root), "log", "-1", f"--before={iso}", "--format=%H"],
+                               capture_output=True, text=True, timeout=10)
+            _sha_cache[key] = r.stdout.strip() or None if r.returncode == 0 else None
+        except (OSError, subprocess.SubprocessError):
+            _sha_cache[key] = None
+    return _sha_cache[key]
+
+
+def session_sha(root: Path, start_rec: dict | None, start: float) -> dict:
+    """{companion_sha, dirty, sha_source}: from session_start when the brain logs it (companion_sha / git_sha / sha,
+    dirty), else inferred as the last commit before the session started (dirty unknown: the working tree isn't logged)."""
+    rec = start_rec or {}
+    sha = rec.get("companion_sha") or rec.get("git_sha") or rec.get("sha")
+    if sha:
+        return {"companion_sha": str(sha), "dirty": rec.get("dirty", rec.get("git_dirty")), "sha_source": "session_start"}
+    sha = _git_sha_at(root, start)
+    return {"companion_sha": sha, "dirty": None, "sha_source": "git_log_before_start" if sha else None}
+
+
+def load(root: Path, since: float | None, until: float | None, pad: float = 300.0,
+         companion_sha: str | None = None) -> Corpus:
     """Everything that can touch [since, until]; brain records padded so an episode that started just before
-    the window still has its trigger."""
-    c = Corpus(since=since, until=until)
+    the window still has its trigger. ``companion_sha``: only brain sessions at that commit (prefix), and only the
+    chat/body/vitals/watchdog rows inside those sessions."""
+    c = Corpus(since=since, until=until, companion_sha=companion_sha)
     lo = since - pad if since is not None else None
     hi = until + pad if until is not None else None
     for f in _overlapping((root / "logs").glob("brain-live-*.jsonl"), lo, hi):
         recs = [d for d in jsonl(f) if isinstance(parse_ts(d.get("ts")), float)]
-        world = next((d.get("world") for d in recs if d.get("kind") == "session_start"), None)
-        if recs:
-            c.sessions.append({"file": f.name, "start": recs[0]["ts"], "end": recs[-1]["ts"], "world": world})
+        if not recs:
+            continue
+        start_rec = next((d for d in recs if d.get("kind") == "session_start"), None)
+        sess = {"file": f.name, "start": recs[0]["ts"], "end": recs[-1]["ts"], "world": (start_rec or {}).get("world"),
+                **session_sha(root, start_rec, recs[0]["ts"])}
+        prefixes = [x.strip() for x in str(companion_sha or "").split(",") if x.strip()]
+        if prefixes and not any(str(sess["companion_sha"] or "").startswith(x) for x in prefixes):
+            continue
+        c.sessions.append(sess)
         for d in recs:
             if (lo is None or d["ts"] >= lo) and (hi is None or d["ts"] <= hi):
                 d["_file"] = f.name
@@ -124,6 +163,12 @@ def load(root: Path, since: float | None, until: float | None, pad: float = 300.
         t = parse_ts(d.get("ts"))
         if t is not None and (since is None or t >= since) and (until is None or t <= until):
             c.watchdog.append({**d, "ts": t})
+    if companion_sha:  # only what happened while a brain at that commit ran
+        inside = lambda t: any(x["start"] - 5 <= t <= x["end"] + 30 for x in c.sessions)  # noqa: E731
+        c.chat = [d for d in c.chat if inside(d["ts"])]
+        c.body = [d for d in c.body if inside(d["ts"])]
+        c.vitals = [d for d in c.vitals if inside(d["ts"])]
+        c.watchdog = [d for d in c.watchdog if inside(d["ts"])]
     return c
 
 
@@ -875,11 +920,53 @@ def _observed(c: Corpus) -> list[tuple[float, float]]:
     return [(max(s["start"], lo), min(s["end"], hi)) for s in c.sessions if min(s["end"], hi) > max(s["start"], lo)]
 
 
+def first_world_action(e: Episode) -> float | None:
+    """When the first body action that changes something started (stop / say / remember don't count)."""
+    return next((r["ts"] for r in e.ran if r["tool"] not in TRIVIAL_ACTIONS), None)
+
+
+def first_action_of_passing_plan(e: Episode) -> float | None:
+    """The first action of the first model plan whose world-changing actions all succeeded. A plan is the action set
+    of one model call (its retries included: a task passes when its last attempt is ok). None when no plan passed."""
+    plans: dict[int, dict[str, list[dict]]] = {}
+    for r in e.ran:
+        if r["tool"] in TRIVIAL_ACTIONS:
+            continue
+        idx = max((i for i, m in enumerate(e.model_calls) if m["end"] <= r["ts"] + 0.1), default=-1)
+        plans.setdefault(idx, {}).setdefault(str(r.get("task_id") or r["ts"]), []).append(r)
+    for idx in sorted(plans):
+        tasks = plans[idx]
+        if tasks and all(rs[-1]["ok"] for rs in tasks.values()):
+            return min(rs[0]["ts"] for rs in tasks.values())
+    return None
+
+
+def exposure(c: Corpus, eps: list[Episode], obs: list[tuple[float, float]]) -> dict:
+    """How much real play the window holds. An hour (UTC clock hour, observed part only) is active when a brain ran,
+    at least one world-changing body action started and a real player chatted in it."""
+    acts = [r["ts"] for e in eps for r in e.ran if r["tool"] not in TRIVIAL_ACTIONS]
+    chat = [d["ts"] for d in c.chat if d.get("type") == "chat" and not d.get("self")
+            and (c.since is None or d["ts"] >= c.since) and (c.until is None or d["ts"] <= c.until)
+            and any(a - 5 <= d["ts"] <= b + 30 for a, b in obs)]
+    hours = sum(b - a for a, b in obs) / 3600
+    active = 0.0
+    for a, b in obs:
+        h = a - (a % 3600)
+        while h < b:
+            lo, hi = max(a, h), min(b, h + 3600)
+            if any(lo <= t < hi for t in acts) and any(lo <= t < hi for t in chat):
+                active += hi - lo
+            h += 3600
+    return {"active_hours": round(active / 3600, 3), "tool_calls_per_hour": round(len(acts) / hours, 2) if hours > 0 else None,
+            "world_changing_tool_calls": len(acts), "player_chat_lines": len(chat), "sessions": len(obs)}
+
+
 def metrics(c: Corpus, eps: list[Episode], anomalies: list[dict]) -> dict:
     chats = [e for e in eps if e.kind == "chat" and e.decision != "never decided"]
     answered = [e for e in chats if e.first_response is not None and not (e.decision or "").startswith("ignored")]
     first_resp = [e.first_response - e.start for e in answered]
-    first_act = [e.first_action - e.start for e in chats if e.first_action is not None]
+    first_act = [t - e.start for e in chats if (t := first_world_action(e)) is not None]
+    passing = [t - e.start for e in chats if (t := first_action_of_passing_plan(e)) is not None]
     heard = [p["heard"] - p["said"] for e in chats for p in e.lines]
     calls = [m for e in eps for m in e.model_calls]
     by_comp: dict[str, list[float]] = {}
@@ -924,6 +1011,7 @@ def metrics(c: Corpus, eps: list[Episode], anomalies: list[dict]) -> dict:
         "episodes": kinds,
         "chat_to_first_response_s": dist(first_resp),
         "chat_to_first_action_s": dist(first_act),
+        "chat_to_first_action_of_passing_plan_s": dist(passing),
         "chat_heard_lag_s": dist(heard),
         "model_latency_s": {k: dist(v) for k, v in sorted(by_comp.items())},
         "model_calls": len(calls),
@@ -958,6 +1046,8 @@ def goal_metrics(c: Corpus, eps: list[Episode], anomalies: list[dict], m: dict) 
             runs.append(sum(max(0.0, min(b, y) - max(a, x)) for x, y in obs))
         longest = round(max(runs) / 3600, 3) if runs else None
     lat = m["chat_to_first_action_s"]
+    pas = m["chat_to_first_action_of_passing_plan_s"]
+    in_window = [x for x in c.sessions if any(a <= x["end"] and x["start"] <= b for a, b in obs)]
     window_since = c.since if c.since is not None else (obs[0][0] if obs else None)
     window_until = c.until if c.until is not None else (obs[-1][1] if obs else None)
     iso = lambda t: datetime.fromtimestamp(t, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z") if t is not None else None  # noqa: E731
@@ -968,7 +1058,13 @@ def goal_metrics(c: Corpus, eps: list[Episode], anomalies: list[dict], m: dict) 
         "window": {"since": iso(window_since), "until": iso(min(window_until, time.time()) if window_until else None)},
         "source": source,
         "hours_observed": hours,
-        "latency": {"chat_to_first_action_s": {"p50": lat["p50"], "p90": lat["p90"], "n": lat["n"]}},
+        "latency": {"chat_to_first_action_s": {"p50": lat["p50"], "p90": lat["p90"], "n": lat["n"]},
+                    "chat_to_first_action_of_passing_plan_s": {"p50": pas["p50"], "p90": pas["p90"], "n": pas["n"]}},
+        "exposure": exposure(c, eps, obs),
+        "companion": {"filter": c.companion_sha, "shas": sorted({x["companion_sha"] for x in in_window if x["companion_sha"]}),
+                      "sessions": [{"file": x["file"], "start": iso(x["start"]), "end": iso(x["end"]), "world": x["world"],
+                                    "companion_sha": x["companion_sha"], "dirty": x["dirty"], "sha_source": x["sha_source"]}
+                                   for x in in_window]},
         "anomalies_per_hour": {"stat_narration": per_h(count("stat_narration")),
                                "talk_without_action": per_h(count("promise_without_action")),
                                "stall_over_30s": per_h(len(stalls30))},
@@ -1012,7 +1108,9 @@ def render_metrics(m: dict) -> str:
         return f"  {name:<28} n={d['n']:<4} p50={d['p50']}  p90={d['p90']}  max={d['max']}"
     out = ["episodes: " + ", ".join(f"{k}={v}" for k, v in m["episodes"].items()),
            "latency (s):", row("chat -> first response", m["chat_to_first_response_s"]),
-           row("chat -> first body action", m["chat_to_first_action_s"]), row("chat -> heard by brain", m["chat_heard_lag_s"])]
+           row("chat -> first body action", m["chat_to_first_action_s"]),
+           row("chat -> passing plan's 1st act", m["chat_to_first_action_of_passing_plan_s"]),
+           row("chat -> heard by brain", m["chat_heard_lag_s"])]
     for k, v in m["model_latency_s"].items():
         out.append(row("model " + k, v))
     pt = m["prompt_tokens"]
@@ -1144,8 +1242,9 @@ def spend_anomalies(root: Path, since: float | None, until: float | None, now: f
     return out
 
 
-def analyse(root: Path, since: float | None, until: float | None, now: float | None = None):
-    c = load(root, since, until)
+def analyse(root: Path, since: float | None, until: float | None, now: float | None = None,
+            companion_sha: str | None = None):
+    c = load(root, since, until, companion_sha=companion_sha)
     eps = build_episodes(c)
     anomalies = sorted(detect(c, eps, now=now) + spend_anomalies(root, since, until, now), key=lambda a: a["ts"])
     return c, eps, anomalies
@@ -1194,6 +1293,7 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--local", action="store_true")
         p.add_argument("--root", default=str(ROOT), help=argparse.SUPPRESS)
         p.add_argument("--now", type=float, help=argparse.SUPPRESS)
+        p.add_argument("--companion-sha", help="only brain sessions at these commits: comma-separated sha prefixes (any matches); see metrics --json companion")
         if name == "episode":
             p.add_argument("--last", type=int, help="only the last N episodes (default window: 6 h)")
             p.add_argument("--kind", help="comma list: chat,body,goal,ignored,ping")
@@ -1228,7 +1328,7 @@ def main(argv: list[str] | None = None) -> int:
             time.sleep(a.interval)
 
     since, until = _window(a, tz)
-    c, eps, anomalies = analyse(root, since, until, now=a.now)
+    c, eps, anomalies = analyse(root, since, until, now=a.now, companion_sha=a.companion_sha)
     if a.cmd == "episode":
         if a.kind:
             keep = {k.strip() for k in a.kind.split(",")}

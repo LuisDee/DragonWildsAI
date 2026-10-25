@@ -20,7 +20,7 @@ JUDGE_PATHS = (
     "evals/bench",
     "brain/predicates.py",
     "data/spell_effects.json", "data/spell_purposes.json",
-    "client_mod/commands/bench_probe.lua", "mod/bench",
+    "client_mod/commands/bench_probe.lua", "mod/bench", "mod/scripts/bench.lua", "tools/hooks/judge_guard.py",
 )
 # What is being judged: the brain, the client body and the data profiles (judge files excluded).
 COMPANION_PATHS = ("brain", "client_mod/scripts", "data")
@@ -74,6 +74,14 @@ def judge_hash(root: Path = ROOT) -> str:
     return tree_hash(JUDGE_PATHS, (), root)
 
 
+SCORER_PATHS = ("brain/predicates.py", "evals/bench/leaves.py", "evals/bench/observer.py")
+
+
+def scorer_hash(root: Path = ROOT) -> str:
+    """The code that turns evidence into pass/fail: part of the validity key (finding 3)."""
+    return tree_hash(SCORER_PATHS, (), root)
+
+
 def body_hash(root: Path = ROOT) -> str:
     return tree_hash(BODY_PATHS, (), root)
 
@@ -113,7 +121,7 @@ def sha256_file(path: Path) -> str | None:
         return None
 
 
-def validity_key(case_hash: str, judge: str, body: str, build: str | None, entry_hash: str = "") -> str:
+def validity_key(case_hash: str, scorer: str, body: str, build: str | None, entry_hash: str = "") -> str:
     """Validity is re-opened by any change to the case, the judge, the client body, the build, or the case's own
     spell_effects entry (review finding 3)."""
-    return hashlib.sha256("|".join([case_hash, judge, body, build or "", entry_hash]).encode()).hexdigest()[:20]
+    return hashlib.sha256("|".join([case_hash, scorer, body, build or "", entry_hash]).encode()).hexdigest()[:20]

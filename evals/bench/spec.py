@@ -21,7 +21,7 @@ RESULTS = ("pass", "fail", "unverifiable", "skip", "error", "invalid")
 TARGETS = ("mock", "dev", "live_confirm")
 # Families feed goal_targets.json metrics through the manifest's selector table (design §8.1).
 FAMILIES = ("spell_cast", "spell_use", "station", "craft", "combat", "combat_basic", "tactics", "adversarial",
-            "knowledge", "efficiency", "long_task", "gather", "misc")
+            "knowledge", "efficiency", "long_task", "gather", "skill_train", "capstone_stage", "capstone", "stress", "misc")
 ASSET_ID = re.compile(r"\b(?:USD|ITEM|BP|DA|RECIPE|PerkV2|GE|SKILL)_[A-Za-z0-9_]+")
 # A tool name the way code writes it: snake_case with an underscore (go_to, set_reflex_rule) or call syntax (cast(...)).
 # Plain English verbs that happen to be tool names ("follow me", "drop it") are allowed: players say them.
@@ -79,6 +79,9 @@ class Case(BaseModel):
     family: str
     long_task: str | None = None
     basic: str | None = None
+    skill: str | None = None  # every_skill (M3): the skill asset name, e.g. "Mining"
+    mode: str | None = None  # every_skill: asked | initiative | plus5
+    capstone: str | None = None  # M6: slay_velgar_solo | ...
     authored_by: Literal["generator", "human", "data"] = "data"
     status: Literal["draft", "candidate", "suite"] = "candidate"
     tags: dict[str, Any] = Field(default_factory=dict)
@@ -156,6 +159,8 @@ def lint(case: Case) -> list[str]:
         probs.append(f"hints_max {case.limits.hints_max} but only {len(case.hints.ladder)} ladder steps")
     if case.status == "suite" and not any(t in case.oracle for t in ("dev",)) and "dev" in case.targets:
         probs.append("a suite case scored on dev needs a dev oracle (positive control)")
+    if case.status == "suite" and re.search(r"<[^<>]+>", json.dumps(case.model_dump(by_alias=True, exclude={"provenance"}))):
+        probs.append("a suite case still has <...> placeholders (a dev fact is missing)")
     if case.canary != CANARY:
         probs.append("canary missing or changed")
     return probs

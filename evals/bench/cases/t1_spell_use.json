@@ -1,0 +1,3604 @@
+{
+ "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code",
+ "cases": [
+  {
+   "id": "t1_use_accesspersonalchest_reach_storage_anywhere",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_AccessPersonalChest",
+    "purpose": "reach_storage_anywhere",
+    "observable": "state",
+    "confidence": "data",
+    "unbound": [
+     "<item>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: he needs an item that sits in his personal storage, far away, or his bag is full>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Personal Chest",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_AccessPersonalChest",
+     "success": {
+      "have": {
+       "item": "<item>",
+       "at_least": 1
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "he needs an item that sits in his personal storage, far away, or his bag is full",
+    "gap": null
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_axtralprojection_fell_trees_in_line",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_AxtralProjection",
+    "purpose": "fell_trees_in_line",
+    "observable": "state",
+    "confidence": "data",
+    "unbound": [
+     "<the trees' log item>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: several standing trees roughly in a line ahead of him and they need lots of logs quickly>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Axtral Projection",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_AxtralProjection"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Air": 20,
+       "Astral": 10
+      }
+     },
+     {
+      "verb": "grant",
+      "item": "ITEM_Logging_Axe_Stone",
+      "count": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_AxtralProjection",
+     "success": {
+      "gained": {
+       "item": "<the trees' log item>",
+       "at_least": 2
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "several standing trees roughly in a line ahead of him and they need lots of logs quickly",
+    "gap": null
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_bonestopeaches_food_from_bones",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_BonesToPeaches",
+    "purpose": "food_from_bones",
+    "observable": "state",
+    "confidence": "data",
+    "unbound": [
+     "<peach item>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: he is hungry, has no food, and bones lie on the ground near him>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Bones to Peaches",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_BonesToPeaches"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Nature": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_BonesToPeaches",
+     "success": {
+      "gained": {
+       "item": "<peach item>",
+       "at_least": 1
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "he is hungry, has no food, and bones lie on the ground near him",
+    "gap": null
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_confuse_turn_enemies_on_each_other",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_Confuse",
+    "purpose": "turn_enemies_on_each_other",
+    "observable": false,
+    "confidence": "data",
+    "unbound": [
+     "<one of them>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: several weaker enemies are attacking him at once>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Confuse",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Confuse"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Astral": 50
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_Confuse",
+     "success": {
+      "killed": {
+       "kind": "<one of them>",
+       "at_least": 1
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "several weaker enemies are attacking him at once",
+    "gap": "no leaf for 'enemy hit by another enemy'"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_corruptionarrows_pierce_lined_enemies",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_CorruptionArrows",
+    "purpose": "pierce_lined_enemies",
+    "observable": "state",
+    "confidence": "data",
+    "unbound": [
+     "<the enemies>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: several enemies lined up in front of him while he holds a two-handed bow>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Spectral Arrows",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_CorruptionArrows"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Air": 10,
+       "Astral": 30
+      }
+     },
+     {
+      "verb": "grant",
+      "item": "ITEM_Shortbow_Wood",
+      "count": 1
+     },
+     {
+      "verb": "hold",
+      "category": "two_handed_bow",
+      "item": "ITEM_Shortbow_Wood"
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_CorruptionArrows",
+     "success": {
+      "killed": {
+       "kind": "<the enemies>",
+       "at_least": 2
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "several enemies lined up in front of him while he holds a two-handed bow",
+    "gap": null
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_detectanimavents_find_anima_vents",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_DetectAnimaVents",
+    "purpose": "find_anima_vents",
+    "observable": "state",
+    "confidence": "data",
+    "unbound": [
+     "<an anima vent>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: they need rune magic from anima vents but none are in sight>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Summon Elemental Spirits",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_DetectAnimaVents"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Astral": 10
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_DetectAnimaVents",
+     "success": {
+      "near": {
+       "thing": "<an anima vent>",
+       "within_m": 5
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "they need rune magic from anima vents but none are in sight",
+    "gap": null
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_detectore_find_rocks",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_DetectOre",
+    "purpose": "find_rocks",
+    "observable": "state",
+    "confidence": "data",
+    "unbound": [
+     "<an ore node>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: they need ore or stone but no rocks are in sight>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Summon Stone Spirits",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_DetectOre"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Astral": 10
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_DetectOre",
+     "success": {
+      "near": {
+       "thing": "<an ore node>",
+       "within_m": 5
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "they need ore or stone but no rocks are in sight",
+    "gap": null
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_divinerock_personal_ore_vein",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_DivineRock",
+    "purpose": "personal_ore_vein",
+    "observable": false,
+    "confidence": "data",
+    "unbound": [],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: he carries spare ore and they want to keep mining without travelling to a rock>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Divine Rock",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_DivineRock"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 200,
+       "Nature": 200
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_DivineRock",
+     "success": {
+      "spell_effect": {
+       "spell": "USD_DivineRock"
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "he carries spare ore and they want to keep mining without travelling to a rock",
+    "gap": "Blueprint-only spell; the vein actor is unknown"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_enchantweapon_air_enchant_for_fight",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_EnchantWeapon_Air",
+    "purpose": "enchant_for_fight",
+    "observable": "state",
+    "confidence": "data",
+    "unbound": [
+     "<the enemy>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: a fight is starting, he holds a melee weapon and needs to attack faster (or the enemies are weak to air)>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Enchant Weapon: Air",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_EnchantWeapon_Air"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Astral": 10,
+       "Air": 30
+      }
+     },
+     {
+      "verb": "grant",
+      "item": "ITEM_GreatSword_Bronze",
+      "count": 1
+     },
+     {
+      "verb": "hold",
+      "category": "melee_weapon",
+      "item": "ITEM_GreatSword_Bronze"
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_EnchantWeapon_Air",
+     "success": {
+      "killed": {
+       "kind": "<the enemy>",
+       "at_least": 1
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "a fight is starting, he holds a melee weapon and needs to attack faster (or the enemies are weak to air)",
+    "gap": "the enchant itself (held_item_effect) has no reader yet"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_enchantweapon_fire_enchant_for_fight",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_EnchantWeapon_Fire",
+    "purpose": "enchant_for_fight",
+    "observable": "state",
+    "confidence": "data",
+    "unbound": [
+     "<the enemy>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: a fight is starting, he holds a melee weapon and the enemies are weak to fire or simply tough>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Enchant Weapon: Fire",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_EnchantWeapon_Fire"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Fire": 30,
+       "Astral": 10
+      }
+     },
+     {
+      "verb": "grant",
+      "item": "ITEM_GreatSword_Bronze",
+      "count": 1
+     },
+     {
+      "verb": "hold",
+      "category": "melee_weapon",
+      "item": "ITEM_GreatSword_Bronze"
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_EnchantWeapon_Fire",
+     "success": {
+      "killed": {
+       "kind": "<the enemy>",
+       "at_least": 1
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "a fight is starting, he holds a melee weapon and the enemies are weak to fire or simply tough",
+    "gap": "the enchant itself (held_item_effect) has no reader yet"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_enchantweapon_water_enchant_for_fight",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_EnchantWeapon_Water",
+    "purpose": "enchant_for_fight",
+    "observable": "state",
+    "confidence": "data",
+    "unbound": [
+     "<the enemy>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: a long fight with a melee weapon where he will need healing (or the enemies are weak to water)>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Enchant Weapon: Water",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_EnchantWeapon_Water"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Water": 30,
+       "Astral": 10
+      }
+     },
+     {
+      "verb": "grant",
+      "item": "ITEM_GreatSword_Bronze",
+      "count": 1
+     },
+     {
+      "verb": "hold",
+      "category": "melee_weapon",
+      "item": "ITEM_GreatSword_Bronze"
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_EnchantWeapon_Water",
+     "success": {
+      "killed": {
+       "kind": "<the enemy>",
+       "at_least": 1
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "a long fight with a melee weapon where he will need healing (or the enemies are weak to water)",
+    "gap": "the enchant itself (held_item_effect) has no reader yet"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_enfeeble_weaken_strong_enemy",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_Enfeeble",
+    "purpose": "weaken_strong_enemy",
+    "observable": false,
+    "confidence": "data",
+    "unbound": [
+     "<the enemy>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: one strong enemy is hitting much harder than he can take>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Enfeeble",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Enfeeble"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Water": 40,
+       "Astral": 40
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_Enfeeble",
+     "success": {
+      "killed": {
+       "kind": "<the enemy>",
+       "at_least": 1
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "one strong enemy is hitting much harder than he can take",
+    "gap": "no leaf for 'enemy damage reduced'"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_eyeofoculus_building_overview",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_EyeOfOculus",
+    "purpose": "building_overview",
+    "observable": false,
+    "confidence": "data",
+    "unbound": [],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: they are building and need a better view of the structure>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Eye Of Oculus",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_EyeOfOculus"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Astral": 6
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_EyeOfOculus",
+     "success": {
+      "spell_effect": {
+       "spell": "USD_EyeOfOculus"
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "they are building and need a better view of the structure",
+    "gap": "Blueprint-only spell; no reader"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_farming_compost_fertilise_plots",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_Farming_Compost",
+    "purpose": "fertilise_plots",
+    "observable": false,
+    "confidence": "data",
+    "unbound": [],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: their farming plots need fertiliser and he carries compost>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Mucksplosion",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Farming_Compost"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_Farming_Compost",
+     "success": {
+      "spell_effect": {
+       "spell": "USD_Farming_Compost"
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "their farming plots need fertiliser and he carries compost",
+    "gap": "no reader for plot fertiliser state"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_farming_rapidgrowth_grow_crop_now",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_Farming_RapidGrowth",
+    "purpose": "grow_crop_now",
+    "observable": false,
+    "confidence": "data",
+    "unbound": [],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: a crop they need is still growing and they don't want to wait>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Rapid Growth",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Farming_RapidGrowth"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 60,
+       "Nature": 60
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_Farming_RapidGrowth",
+     "success": {
+      "spell_effect": {
+       "spell": "USD_Farming_RapidGrowth"
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "a crop they need is still growing and they don't want to wait",
+    "gap": "no reader for crop growth stage"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_ferociousfurnace_speed_up_station",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_FerociousFurnace",
+    "purpose": "speed_up_station",
+    "observable": false,
+    "confidence": "data",
+    "unbound": [],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: a fire-based station (furnace) is slowly working through a long job>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Superheat",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_FerociousFurnace"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Fire": 30,
+       "Air": 10
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_FerociousFurnace",
+     "success": {
+      "spell_effect": {
+       "spell": "USD_FerociousFurnace"
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "a fire-based station (furnace) is slowly working through a long job",
+    "gap": "no reader for station speed"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_firespirit_light_the_dark",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_FireSpirit",
+    "purpose": "light_the_dark",
+    "observable": "state",
+    "confidence": "data",
+    "unbound": [],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: it is night or he is in a dark cave and can hardly see>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Fire Spirit",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_FireSpirit"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Fire": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_FireSpirit",
+     "success": {
+      "spell_effect": {
+       "spell": "USD_FireSpirit"
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "it is night or he is in a dark cave and can hardly see",
+    "gap": null
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_fishingfrenzy_more_fish",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_FishingFrenzy",
+    "purpose": "more_fish",
+    "observable": "state",
+    "confidence": "data",
+    "unbound": [
+     "<the node's fish>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: they are fishing at a fishing spot and want as many fish as possible>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Fishing Frenzy",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_FishingFrenzy"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Water": 30,
+       "Astral": 10
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_FishingFrenzy",
+     "success": {
+      "tally": {
+       "item": "<the node's fish>",
+       "at_least": 2
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "they are fishing at a fishing spot and want as many fish as possible",
+    "gap": null
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_harvest_harvest_area",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_Harvest",
+    "purpose": "harvest_area",
+    "observable": "state",
+    "confidence": "data",
+    "unbound": [
+     "<a crop item>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: fully grown crops or wild plants are all around and they want them picked>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Uproot",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Harvest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 20,
+       "Astral": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_Harvest",
+     "success": {
+      "gained": {
+       "item": "<a crop item>",
+       "at_least": 2
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "fully grown crops or wild plants are all around and they want them picked",
+    "gap": null
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_hometeleport_travel_home",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_HomeTeleport",
+    "purpose": "travel_home",
+    "observable": "state",
+    "confidence": "data",
+    "unbound": [
+     "<his bed>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: it is late, they are far from home, and he has a claimed bed there>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Home Teleport",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_HomeTeleport"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_HomeTeleport",
+     "success": {
+      "near": {
+       "place": "<his bed>",
+       "within_m": 10
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "it is late, they are far from home, and he has a claimed bed there",
+    "gap": null
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_humidify_water_crops",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_Humidify",
+    "purpose": "water_crops",
+    "observable": false,
+    "confidence": "data",
+    "unbound": [],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: their farming plots are dry and he carries water>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Humidify",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Humidify"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Water": 30,
+       "Astral": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_Humidify",
+     "success": {
+      "spell_effect": {
+       "spell": "USD_Humidify"
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "their farming plots are dry and he carries water",
+    "gap": "no reader for plot water state"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_infernalrod_cooked_fish",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_InfernalRod",
+    "purpose": "cooked_fish",
+    "observable": "state",
+    "confidence": "data",
+    "unbound": [
+     "<a cooked fish>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: he is fishing, hungry, and there is no fire to cook on>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Infernal Rod",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_InfernalRod"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Fire": 100
+      }
+     },
+     {
+      "verb": "grant",
+      "item": "ITEM_FishingRod_Oak",
+      "count": 1
+     },
+     {
+      "verb": "hold",
+      "category": "fishing_rod",
+      "item": "ITEM_FishingRod_Oak"
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_InfernalRod",
+     "success": {
+      "gained": {
+       "item": "<a cooked fish>",
+       "at_least": 1
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "he is fishing, hungry, and there is no fire to cook on",
+    "gap": null
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_internalalchemy_refresh_food_buffs",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_InternalAlchemy",
+    "purpose": "refresh_food_buffs",
+    "observable": false,
+    "confidence": "data",
+    "unbound": [],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: his food and drink buffs are about to run out and there is no food to spare>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Internal Alchemy",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_InternalAlchemy"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Nature": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_InternalAlchemy",
+     "success": {
+      "spell_effect": {
+       "spell": "USD_InternalAlchemy"
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "his food and drink buffs are about to run out and there is no food to spare",
+    "gap": "no reader for food-buff time left"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_magicalmending_repair_gear",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_MagicalMending",
+    "purpose": "repair_gear",
+    "observable": false,
+    "confidence": "data",
+    "unbound": [],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: his tools and armour are badly worn and there is no repair bench nearby>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Magical Mending",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_MagicalMending"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 40,
+       "Nature": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_MagicalMending",
+     "success": {
+      "spell_effect": {
+       "spell": "USD_MagicalMending"
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "his tools and armour are badly worn and there is no repair bench nearby",
+    "gap": "no leaf for 'item durability rose'"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_phasedash_cross_gap_in_air",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_PhaseDash",
+    "purpose": "cross_gap_in_air",
+    "observable": "state",
+    "confidence": "live",
+    "unbound": [
+     "<far side>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: a gap too wide to jump across (about 4-8 m) with the player waiting on the far side>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Phase Dash",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_PhaseDash"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Astral": 20,
+       "Air": 40
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_PhaseDash",
+     "success": {
+      "near": {
+       "position": "<far side>",
+       "within_m": 1.5
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "a gap too wide to jump across (about 4-8 m) with the player waiting on the far side",
+    "gap": null
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_pileemup_gather_scattered_trunks",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_PileEmUp",
+    "purpose": "gather_scattered_trunks",
+    "observable": false,
+    "confidence": "data",
+    "unbound": [],
+    "mock_scene": true
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: many felled trunks lie scattered around after a big chop and they want the wood in one place>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Trunk Totem",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_PileEmUp"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 20,
+       "Nature": 60
+      }
+     },
+     {
+      "verb": "felled_log",
+      "as": "log",
+      "at": [
+       4.0,
+       0.0,
+       0.0
+      ],
+      "drops": "ITEM_Resources_Wood_Ash",
+      "count": 3
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_PileEmUp",
+     "success": {
+      "spell_effect": {
+       "spell": "USD_PileEmUp"
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "alt_means": [
+     {
+      "setup": "ground_item",
+      "item": "ITEM_Resources_Wood_Ash",
+      "count": 3,
+      "at": [
+       4.2,
+       0,
+       0
+      ]
+     },
+     {
+      "pickup_all": "ITEM_Resources_Wood_Ash"
+     }
+    ],
+    "partial": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Trunk Totem",
+       "target": "$log.id"
+      }
+     }
+    ],
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Trunk Totem",
+       "target": "$log.id"
+      }
+     },
+     {
+      "pickup_all": "ITEM_Resources_Wood_Ash"
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Trunk Totem",
+       "target": "$log.id"
+      }
+     },
+     {
+      "pickup_all": "ITEM_Resources_Wood_Ash"
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "many felled trunks lie scattered around after a big chop and they want the wood in one place",
+    "gap": "no proof the trunks were gathered; the totem actor class is unknown (Blueprint-only spell)"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_recall_return_to_spot",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_Recall",
+    "purpose": "return_to_spot",
+    "observable": "state",
+    "confidence": "data",
+    "unbound": [
+     "<the spot he left>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: he must leave this exact spot for a short errand and come straight back to it afterwards>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Recall",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Recall"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 30,
+       "Air": 60
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_Recall",
+     "success": {
+      "near": {
+       "position": "<the spot he left>",
+       "within_m": 3
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "he must leave this exact spot for a short errand and come straight back to it afterwards",
+    "gap": null
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_rocksplosion_area_mine",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_Rocksplosion",
+    "purpose": "area_mine",
+    "observable": "state",
+    "confidence": "data",
+    "unbound": [
+     "<the node's ore item>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: ore rocks or boulders are around him and they need ore or stone quickly>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Rocksplosion",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Rocksplosion"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 60,
+       "Fire": 30
+      }
+     },
+     {
+      "verb": "grant",
+      "item": "ITEM_Pickaxe_Stone",
+      "count": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_Rocksplosion",
+     "success": {
+      "gained": {
+       "item": "<the node's ore item>",
+       "at_least": 1
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "ore rocks or boulders are around him and they need ore or stone quickly",
+    "gap": null
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_runestoruneessence_runes_to_essence",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_RunesToRuneEssence",
+    "purpose": "runes_to_essence",
+    "observable": "state",
+    "confidence": "data",
+    "unbound": [],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: he has many runes of a type nobody needs and they are out of rune essence>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Runes To Rune Essence",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_RunesToRuneEssence"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Water": 10,
+       "Astral": 10
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_RunesToRuneEssence",
+     "success": {
+      "gained": {
+       "item": "Rune Essence",
+       "at_least": 1
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "he has many runes of a type nobody needs and they are out of rune essence",
+    "gap": null
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_snaretrap_root_chasers",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_SnareTrap",
+    "purpose": "root_chasers",
+    "observable": false,
+    "confidence": "data",
+    "unbound": [],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: enemies are chasing him while he needs to get away or keep his distance>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Snare",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_SnareTrap"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 30,
+       "Nature": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_SnareTrap",
+     "success": {
+      "moved": {
+       "min_m": 10
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "enemies are chasing him while he needs to get away or keep his distance",
+    "gap": "no leaf for 'enemy rooted'"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_speedupstation_speed_up_station",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_SpeedupStation",
+    "purpose": "speed_up_station",
+    "observable": false,
+    "confidence": "data",
+    "unbound": [],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: a mechanical processing station is slowly working through a long job>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Overdrive",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_SpeedupStation"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Water": 10,
+       "Air": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_SpeedupStation",
+     "success": {
+      "spell_effect": {
+       "spell": "USD_SpeedupStation"
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "a mechanical processing station is slowly working through a long job",
+    "gap": "no reader for station speed"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_splinter_split_felled_log",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_Splinter",
+    "purpose": "split_felled_log",
+    "observable": "state",
+    "confidence": "live",
+    "unbound": [],
+    "mock_scene": true
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "we need wood, there's a log right there",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Splinter",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Splinter"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 20,
+       "Nature": 10
+      }
+     },
+     {
+      "verb": "felled_log",
+      "as": "log",
+      "at": [
+       4.0,
+       0.0,
+       0.0
+      ],
+      "drops": "ITEM_Resources_Wood_Ash",
+      "count": 3
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_Splinter",
+     "success": {
+      "gained": {
+       "item": "ITEM_Resources_Wood_Ash",
+       "at_least": 1
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "alt_means": [
+     {
+      "setup": "ground_item",
+      "item": "ITEM_Resources_Wood_Ash",
+      "count": 3,
+      "at": [
+       4.2,
+       0,
+       0
+      ]
+     },
+     {
+      "pickup_all": "ITEM_Resources_Wood_Ash"
+     }
+    ],
+    "partial": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Splinter",
+       "target": "$log.id"
+      }
+     }
+    ],
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Splinter",
+       "target": "$log.id"
+      }
+     },
+     {
+      "pickup_all": "ITEM_Resources_Wood_Ash"
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Splinter",
+       "target": "$log.id"
+      }
+     },
+     {
+      "pickup_all": "ITEM_Resources_Wood_Ash"
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "a felled log lies near him and they need wood",
+    "gap": null
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_summonshelter_sleep_away_from_home",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_SummonShelter",
+    "purpose": "sleep_away_from_home",
+    "observable": false,
+    "confidence": "live",
+    "unbound": [],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: it is night, they are far from any bed and the player wants to sleep>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Summon Shelter",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_SummonShelter"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 20,
+       "Astral": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_SummonShelter",
+     "success": {
+      "spell_effect": {
+       "spell": "USD_SummonShelter"
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "it is night, they are far from any bed and the player wants to sleep",
+    "gap": "no leaf for the rest/sleep state (PlayerRestComponent / DIM_Resting); the shelter itself is observable"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_surge_dodge_clear",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_Surge",
+    "purpose": "dodge_clear",
+    "observable": false,
+    "confidence": "data",
+    "unbound": [],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: a big area attack is coming and a normal dodge is too short to get clear of it>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Surge",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Surge"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 20,
+       "Astral": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_Surge",
+     "success": {
+      "moved": {
+       "min_m": 4
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "a big area attack is coming and a normal dodge is too short to get clear of it",
+    "gap": "no damage-episode leaf for 'dodged/no damage taken'"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_tempestshield_shield_before_hard_fight",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_TempestShield",
+    "purpose": "shield_before_hard_fight",
+    "observable": false,
+    "confidence": "live",
+    "unbound": [],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: a strong enemy is about to fight him and he will have to block heavy hits>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Tempest Shield",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_TempestShield"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Air": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_TempestShield",
+     "success": {
+      "spell_effect": {
+       "spell": "USD_TempestShield"
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "a strong enemy is about to fight him and he will have to block heavy hits",
+    "gap": "no damage-episode leaf for 'hits fully absorbed while blocking'"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_treequipment_tree_to_bones",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_Treequipment",
+    "purpose": "tree_to_bones",
+    "observable": "state",
+    "confidence": "data",
+    "unbound": [
+     "<bones item>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: they need bones and there is a tree next to him>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Bark to Bones",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Treequipment"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 20,
+       "Nature": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_Treequipment",
+     "success": {
+      "gained": {
+       "item": "<bones item>",
+       "at_least": 1
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "they need bones and there is a tree next to him",
+    "gap": null
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_vengeance_reflect_damage",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "draft",
+   "tags": {
+    "spell": "USD_Vengeance",
+    "purpose": "reflect_damage",
+    "observable": false,
+    "confidence": "data",
+    "unbound": [
+     "<the enemy>"
+    ],
+    "mock_scene": false
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "<phrase the need: a tough enemy keeps hitting him hard in a long fight>",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Vengeance",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Vengeance"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 20,
+       "Astral": 40
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_Vengeance",
+     "success": {
+      "killed": {
+       "kind": "<the enemy>",
+       "at_least": 1
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "alt_means": "no mock means"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "a tough enemy keeps hitting him hard in a long fight",
+    "gap": "reflected damage is not attributed in combat episodes"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t1_use_windstep_reach_high_ledge",
+   "version": 1,
+   "tier": "T1",
+   "family": "spell_use",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_Windstep",
+    "purpose": "reach_high_ledge",
+    "observable": "state",
+    "confidence": "live",
+    "unbound": [],
+    "mock_scene": true
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "come up here, I'm on top of this rock",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "Windstep",
+    "cast",
+    "spell",
+    "spells"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Windstep"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Air": 10
+      }
+     },
+     {
+      "verb": "ledge",
+      "as": "ledge",
+      "top": [
+       6.0,
+       0.0,
+       4.2
+      ]
+     },
+     {
+      "verb": "player",
+      "name": "Tester",
+      "at": [
+       6.5,
+       0.0,
+       4.2
+      ]
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "purpose": {
+     "spell": "USD_Windstep",
+     "success": {
+      "near": {
+       "position": "$ledge.top",
+       "within_m": 1.5
+      }
+     }
+    }
+   },
+   "guards": [],
+   "controls": {
+    "alt_means": [
+     {
+      "setup": "teleport_self",
+      "to": "$ledge.top"
+     }
+    ],
+    "partial": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Windstep"
+      }
+     }
+    ],
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "sim_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 40.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Windstep"
+      }
+     },
+     {
+      "tool": "go_to",
+      "args": {
+       "target": "$ledge.id"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Windstep"
+      }
+     },
+     {
+      "tool": "go_to",
+      "args": {
+       "target": "$ledge.id"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.use_cases",
+    "situation": "a ledge or rock top 2.5-6 m above him that a normal jump cannot reach, and he needs to get up there (the player is on top)",
+    "gap": null
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  }
+ ]
+}

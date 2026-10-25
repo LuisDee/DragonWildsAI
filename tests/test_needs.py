@@ -125,7 +125,7 @@ def test_death_memory_is_always_in_the_digest_until_recovered():
     st["death_memory"] = {"iso": "2026-10-25T21:25:56Z", "ago_s": 120, "position": [400.0, 1745.0, -42.0], "distance": 95,
                           "lost_items": 12, "lost": ["Steel Logging Axe x1", "Iron Pickaxe x1", "Pumpkin Spice Infusion x3"]}
     digest = "\n".join(summary(st))
-    assert "your gravestone (not in sight) should be where you died, 95 m away (go_to target 'my_grave')" in digest
+    assert "Grave: an unrecovered grave of yours (not in sight) from 2026-10-25T21:25:56Z, 95 m away (go_to target 'my_grave')" in digest
     assert "Steel Logging Axe x1" in digest
 
 

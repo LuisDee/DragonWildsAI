@@ -309,20 +309,27 @@ def wearing(state: dict, names: dict[str, str] | None = None) -> list[str]:
     return out
 
 
-def recent_life(state: dict) -> str | None:
-    """Own gravestone and the last death, from the client body's get_state (my_grave, last_death)."""
-    bits = []
+def recent_life(state: dict) -> list[str]:
+    """Own gravestone(s) and the last death, from the client body's get_state: one "Recent:" line, then
+    one "Grave:" line per unrecovered grave not in sight, most valuable first (BUGS L19/L22)."""
+    bits, grave_lines = [], []
     d = state.get("last_death") if isinstance(state.get("last_death"), dict) else None
     if d and isinstance(d.get("ago_s"), (int, float)):
         ago = int(d["ago_s"])
         when = f"{ago // 60} min ago" if ago >= 120 else f"{ago} s ago"
         bits.append(f"you died {when}" + (" and respawned" if d.get("respawned") else ""))
-    dm = state.get("death_memory") if isinstance(state.get("death_memory"), dict) else None
-    if dm and not (isinstance(state.get("my_grave"), dict)):
-        dist = f"{dm['distance']} m away" if isinstance(dm.get("distance"), (int, float)) else "somewhere"
-        lost = ", ".join(str(x) for x in (dm.get("lost") or [])[:6])
-        bits.append(f"your gravestone (not in sight) should be where you died, {dist} (go_to target 'my_grave')"
-                    + (f", holding about {dm.get('lost_items')} items: {lost}" if lost else ""))
+    graves = state.get("graves_remembered") if isinstance(state.get("graves_remembered"), list) else None
+    if graves is None and isinstance(state.get("death_memory"), dict):
+        graves = [{**state["death_memory"], "go_to": "my_grave"}]
+    seen_id = (state.get("my_grave") or {}).get("id") if isinstance(state.get("my_grave"), dict) else None
+    for gv in item_stats.rank_graves(graves or []):  # most valuable first, from item data (BUGS L22)
+        if seen_id and gv.get("grave_id") == seen_id:
+            continue  # the one in sight is described below
+        dist = f"{gv['distance']} m away" if isinstance(gv.get("distance"), (int, float)) else "somewhere"
+        lost = ", ".join(str(x) for x in (gv.get("lost") or [])[:6])
+        grave_lines.append((f"Grave: an unrecovered grave of yours (not in sight) from {gv.get('iso') or '?'}, {dist} "
+                            f"(go_to target '{gv.get('go_to') or 'my_grave'}')"
+                            + (f", holding about {gv.get('lost_items')} items: {lost}" if lost else ""))[:LINE_CHARS])
     g = state.get("my_grave") if isinstance(state.get("my_grave"), dict) else None
     if g:
         dist = f"{g['distance']:.0f} m away" if isinstance(g.get("distance"), (int, float)) else "nearby"
@@ -331,9 +338,8 @@ def recent_life(state: dict) -> str | None:
                     + (f": {what}" if what else ""))
     if isinstance(state.get("other_graves"), int) and state["other_graves"] > 0:
         bits.append(f"{state['other_graves']} other gravestone(s) here are not yours")
-    if not bits:
-        return None
-    return ("Recent: " + "; ".join(bits))[:LINE_CHARS]
+    out = [("Recent: " + "; ".join(bits))[:LINE_CHARS]] if bits else []
+    return out + grave_lines[:3]
 
 
 def world_line(state: dict) -> str | None:
@@ -443,8 +449,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     lines.append("You: " + (", ".join(me) or "ok"))
     lines.extend(needs.lines(state))  # pressing needs -> the options the game offers (brain/needs.py)
     lines.extend(needs.activity_lines(state))  # current activity: spells/actions for it + rate vs best
-    if (rec := recent_life(state)):
-        lines.append(rec)
+    lines.extend(recent_life(state))
 
     worn = wearing(state, names)
     if worn:

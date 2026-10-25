@@ -51,7 +51,14 @@ Claude's client runs `-nullrhi`, so the logs are our only eyes. Until now, "read
 - **Tools:** per tool, n, failed, fail rate, reasons and p50/p90 duration; failures by reason; retries (attempt > 1).
 - **Model:** prompt tokens and cache share; state reads per action.
 - **Speech:** talk-only replies; promises without action.
-- **`--json`** gives the contract for the eval agent's `tools/goal_check.py`: `schema dw_obs_metrics/1`, window, source live|dev|mixed, hours_observed, latency.chat_to_first_action_s, anomalies_per_hour, stability, deaths, voice (always null here) and `detail`. A sample is in `tests/fixtures/obs_metrics_sample.json`. A null or n=0 value means no data.
+- **`--json`** gives the contract for the eval agent's `tools/goal_check.py`: `schema dw_obs_metrics/1`, window, source live|dev|mixed, hours_observed, latency, exposure, companion, anomalies_per_hour, stability, deaths, voice (always null here) and `detail`. A sample is in `tests/fixtures/obs_metrics_sample.json`. A null or n=0 value means no data.
+- **First action** (`chat_to_first_action_s`) is the first body action that changes something. `stop`, `say`, `remember` and `forget_skill` don't count.
+- **`chat_to_first_action_of_passing_plan_s`:** a plan is the action set of one model call. It passes when every task in it succeeded (by its last attempt). The figure is the time to the first action of the first passing plan; episodes with no passing plan are left out (n says how many).
+- **Exposure** (so an idle client can't score "0 anomalies/h"):
+  - `active_hours` is the observed time in UTC clock hours that hold both ≥ 1 world-changing action and ≥ 1 real player chat line;
+  - plus `tool_calls_per_hour`, `world_changing_tool_calls`, `player_chat_lines` and `sessions`.
+- **Companion sha** per brain session: taken from `session_start` (`companion_sha`/`git_sha`/`sha` + `dirty`) when the brain logs it. Otherwise it is **inferred** as the last commit before the session started (`sha_source: git_log_before_start`, `dirty: null`). The brain doesn't log it yet, and live sessions run uncommitted working trees, so the inferred sha is approximate.
+  - `--companion-sha <prefix>[,<prefix>...]` (every subcommand) keeps only sessions at any of those commits, plus the chat, body, vitals and watchdog rows inside them.
 - **Deaths:** classified from `client_io/events/vitals.jsonl`.
   - A death row with sustenance at 0 is starvation; hydration at 0 is dehydration.
   - Otherwise, a game `fatal` row within 5 s with a non-self killer is combat.
@@ -121,7 +128,7 @@ These detectors **only report**. Nothing feeds back into the brain, so there is 
 - None bent. Observability is read-only (PRINCIPLES #9: it owns only its own files) and never steers the model (#2).
 - Every live bug in the fixture window is now a regression test (#10).
 
-## Tests (`tests/test_obs.py`, 27 tests, offline)
+## Tests (`tests/test_obs.py`, 30 tests, offline)
 - **Fixture:** `tests/fixtures/obs_2026-10-25_2054/` is the real 20:50–21:19 UTC session, trimmed: prompts reduced to `command`/`body_event`, big tool payloads dropped. It is stored flat (`logs__client__mod_….jsonl`) because `.gitignore` ignores every `logs/` and `client_io/` directory. `make_fixture.py` rebuilds it and refuses to write if a server password or key-like string would land in it; `test_fixture_has_no_secrets` checks again.
 - **Coverage:**
   - segmentation (29 chat + 6 body);
@@ -170,6 +177,7 @@ Metrics for the window:
 - Decision: reuse the conventions, file format and viewers; build the segmentation and detectors. A heavy server (Langfuse) does not fit the VM's RAM. Phoenix is optional, off the VM.
 
 ## Open / next
+- The brain should log `companion_sha` (git rev-parse HEAD) and `dirty` in `session_start`. `obs` reads them as soon as they appear, so the inference above is only a fallback.
 - The brain could log one `episode_id` (and `task_id` on `bridge_send`). Segmentation would then be exact instead of reconstructed. Small change, broker agent's file. Ask main.
 - Voice-eval usage rows need `model` and every call (voice agent).
 - Verify the lnav format once lnav is on PATH. Verify a Phoenix push off-VM.

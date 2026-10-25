@@ -1,0 +1,690 @@
+{
+ "schema": "dw_bench_manifest/1",
+ "version": 1,
+ "build": "26161880",
+ "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code",
+ "families": {
+  "spell_cast": [
+   {
+    "id": "t0_cast_accesspersonalchest",
+    "hash": "a7f4cf1e6dd5e738"
+   },
+   {
+    "id": "t0_cast_axtralprojection",
+    "hash": "4c6c925d6bfb890c"
+   },
+   {
+    "id": "t0_cast_bonestopeaches",
+    "hash": "c81b1fb408fef049"
+   },
+   {
+    "id": "t0_cast_confuse",
+    "hash": "7742d92da3751538"
+   },
+   {
+    "id": "t0_cast_corruptionarrows",
+    "hash": "020bbc503001bbd2"
+   },
+   {
+    "id": "t0_cast_detectanimavents",
+    "hash": "a7f5f011f5292e09"
+   },
+   {
+    "id": "t0_cast_detectore",
+    "hash": "939b5ed544f66f05"
+   },
+   {
+    "id": "t0_cast_divinerock",
+    "hash": "f4ab78d3df211f1d"
+   },
+   {
+    "id": "t0_cast_enchantweapon_air",
+    "hash": "e7c1fc67764d49fe"
+   },
+   {
+    "id": "t0_cast_enchantweapon_fire",
+    "hash": "3c616400dcbcc0ff"
+   },
+   {
+    "id": "t0_cast_enchantweapon_water",
+    "hash": "60452deab9a403f5"
+   },
+   {
+    "id": "t0_cast_enfeeble",
+    "hash": "ba8a645577bd3603"
+   },
+   {
+    "id": "t0_cast_eyeofoculus",
+    "hash": "7fccd72902d6c116"
+   },
+   {
+    "id": "t0_cast_farming_compost",
+    "hash": "ac9908c11bf89448"
+   },
+   {
+    "id": "t0_cast_farming_rapidgrowth",
+    "hash": "598a991168c65af1"
+   },
+   {
+    "id": "t0_cast_ferociousfurnace",
+    "hash": "ab96de8c58f280fc"
+   },
+   {
+    "id": "t0_cast_firespirit",
+    "hash": "56b0cfa4b58a3fba"
+   },
+   {
+    "id": "t0_cast_fishcyclone",
+    "hash": "babba79428c67a0a"
+   },
+   {
+    "id": "t0_cast_fishingfrenzy",
+    "hash": "241dd9bda31d4892"
+   },
+   {
+    "id": "t0_cast_harvest",
+    "hash": "a86dbb9db423723e"
+   },
+   {
+    "id": "t0_cast_hometeleport",
+    "hash": "8eaf1d4539f54e3e"
+   },
+   {
+    "id": "t0_cast_humidify",
+    "hash": "c4fef3d8b234598f"
+   },
+   {
+    "id": "t0_cast_infernalrod",
+    "hash": "519314f24b3adec3"
+   },
+   {
+    "id": "t0_cast_internalalchemy",
+    "hash": "b8c14740ee816e59"
+   },
+   {
+    "id": "t0_cast_magicalmending",
+    "hash": "b650e33872d946ce"
+   },
+   {
+    "id": "t0_cast_phasedash",
+    "hash": "3289609a53573176"
+   },
+   {
+    "id": "t0_cast_pileemup",
+    "hash": "9e94f126d67b153f"
+   },
+   {
+    "id": "t0_cast_recall",
+    "hash": "2f2068efed80a34d"
+   },
+   {
+    "id": "t0_cast_rocksplosion",
+    "hash": "4065ae89e37e1055"
+   },
+   {
+    "id": "t0_cast_runestoruneessence",
+    "hash": "739b22e944e17dbb"
+   },
+   {
+    "id": "t0_cast_snaretrap",
+    "hash": "7b6be9122975fbd6"
+   },
+   {
+    "id": "t0_cast_speedupstation",
+    "hash": "e7528b389db70150"
+   },
+   {
+    "id": "t0_cast_splinter",
+    "hash": "1e9321cff143cf45"
+   },
+   {
+    "id": "t0_cast_summonshelter",
+    "hash": "61ca2e5af504f34e"
+   },
+   {
+    "id": "t0_cast_surge",
+    "hash": "3d19403bbc3c44b7"
+   },
+   {
+    "id": "t0_cast_tempestshield",
+    "hash": "c4308343be3475a3"
+   },
+   {
+    "id": "t0_cast_treequipment",
+    "hash": "ba2774f315d5e732"
+   },
+   {
+    "id": "t0_cast_vengeance",
+    "hash": "302be427245bca98"
+   },
+   {
+    "id": "t0_cast_windstep",
+    "hash": "f36384ebb7bcd5e5"
+   }
+  ],
+  "spell_use": [
+   {
+    "id": "t1_use_splinter_split_felled_log",
+    "hash": "07fadc4c4331ec49"
+   },
+   {
+    "id": "t1_use_windstep_reach_high_ledge",
+    "hash": "5b547fe0c257b987"
+   }
+  ],
+  "stress": [
+   {
+    "id": "stress_accesspersonalchest_combat",
+    "hash": "586b9c138c00e132"
+   },
+   {
+    "id": "stress_accesspersonalchest_cooldown_pressure",
+    "hash": "93f0861d50bf72de"
+   },
+   {
+    "id": "stress_accesspersonalchest_low_runes",
+    "hash": "db20364f8baaf57a"
+   },
+   {
+    "id": "stress_axtralprojection_combat",
+    "hash": "325308e9f8bd6a01"
+   },
+   {
+    "id": "stress_axtralprojection_cooldown_pressure",
+    "hash": "5f489f6a8445d589"
+   },
+   {
+    "id": "stress_axtralprojection_low_runes",
+    "hash": "bcc3bc6b54538944"
+   },
+   {
+    "id": "stress_axtralprojection_out_of_reach",
+    "hash": "cf43bb4a2b96c5ae"
+   },
+   {
+    "id": "stress_bonestopeaches_combat",
+    "hash": "a7e5c0294eb089f5"
+   },
+   {
+    "id": "stress_bonestopeaches_cooldown_pressure",
+    "hash": "427374e350549867"
+   },
+   {
+    "id": "stress_bonestopeaches_low_runes",
+    "hash": "ce44a8746152ac94"
+   },
+   {
+    "id": "stress_confuse_combat",
+    "hash": "c0f69ab5358b0f96"
+   },
+   {
+    "id": "stress_confuse_cooldown_pressure",
+    "hash": "96563119ce734aae"
+   },
+   {
+    "id": "stress_confuse_low_runes",
+    "hash": "130d590a732b4d9f"
+   },
+   {
+    "id": "stress_confuse_out_of_reach",
+    "hash": "738b147cd94f9897"
+   },
+   {
+    "id": "stress_corruptionarrows_combat",
+    "hash": "01b8afbb1db1acdb"
+   },
+   {
+    "id": "stress_corruptionarrows_cooldown_pressure",
+    "hash": "82ac61bc88f7804a"
+   },
+   {
+    "id": "stress_corruptionarrows_low_runes",
+    "hash": "f972be6d898a696a"
+   },
+   {
+    "id": "stress_detectanimavents_combat",
+    "hash": "96d6cff05dc3e30a"
+   },
+   {
+    "id": "stress_detectanimavents_cooldown_pressure",
+    "hash": "f1014f1bca250a96"
+   },
+   {
+    "id": "stress_detectanimavents_low_runes",
+    "hash": "76109b43998401fa"
+   },
+   {
+    "id": "stress_detectore_combat",
+    "hash": "0d50137fae2817af"
+   },
+   {
+    "id": "stress_detectore_cooldown_pressure",
+    "hash": "6d626acbd7ca5f9a"
+   },
+   {
+    "id": "stress_detectore_low_runes",
+    "hash": "f983571401725435"
+   },
+   {
+    "id": "stress_divinerock_combat",
+    "hash": "2cfdf74fccc8e6f9"
+   },
+   {
+    "id": "stress_divinerock_cooldown_pressure",
+    "hash": "ad5dd5135a59948e"
+   },
+   {
+    "id": "stress_divinerock_low_runes",
+    "hash": "c92db9115fb9567b"
+   },
+   {
+    "id": "stress_enchantweapon_air_combat",
+    "hash": "3b7e80160734146d"
+   },
+   {
+    "id": "stress_enchantweapon_air_cooldown_pressure",
+    "hash": "632b8a89025d6673"
+   },
+   {
+    "id": "stress_enchantweapon_air_low_runes",
+    "hash": "65f4360272bc1ba2"
+   },
+   {
+    "id": "stress_enchantweapon_fire_combat",
+    "hash": "73c03f0e852a3939"
+   },
+   {
+    "id": "stress_enchantweapon_fire_cooldown_pressure",
+    "hash": "ec8b1d88ad6c55d3"
+   },
+   {
+    "id": "stress_enchantweapon_fire_low_runes",
+    "hash": "329b28bbeed2ac22"
+   },
+   {
+    "id": "stress_enchantweapon_water_combat",
+    "hash": "97bfa65a9a361f03"
+   },
+   {
+    "id": "stress_enchantweapon_water_cooldown_pressure",
+    "hash": "3c961b18c9761263"
+   },
+   {
+    "id": "stress_enchantweapon_water_low_runes",
+    "hash": "359783902bd17b4d"
+   },
+   {
+    "id": "stress_enfeeble_combat",
+    "hash": "d0d2b2a2b4370739"
+   },
+   {
+    "id": "stress_enfeeble_cooldown_pressure",
+    "hash": "35b5d4edc298ac09"
+   },
+   {
+    "id": "stress_enfeeble_low_runes",
+    "hash": "dea49fdc5940d113"
+   },
+   {
+    "id": "stress_enfeeble_out_of_reach",
+    "hash": "60623dce77231ff8"
+   },
+   {
+    "id": "stress_eyeofoculus_combat",
+    "hash": "100cc6b344b0a1bb"
+   },
+   {
+    "id": "stress_eyeofoculus_cooldown_pressure",
+    "hash": "ceb4d6b1776c4ccc"
+   },
+   {
+    "id": "stress_eyeofoculus_low_runes",
+    "hash": "dab0b83cf2a4d943"
+   },
+   {
+    "id": "stress_farming_compost_combat",
+    "hash": "0baf8c64e727d051"
+   },
+   {
+    "id": "stress_farming_compost_cooldown_pressure",
+    "hash": "dcafd48742c67456"
+   },
+   {
+    "id": "stress_farming_compost_low_runes",
+    "hash": "7aab337c170f0d6e"
+   },
+   {
+    "id": "stress_farming_rapidgrowth_combat",
+    "hash": "f2fb8baa6f7c85a6"
+   },
+   {
+    "id": "stress_farming_rapidgrowth_cooldown_pressure",
+    "hash": "2565bfee474679b0"
+   },
+   {
+    "id": "stress_farming_rapidgrowth_low_runes",
+    "hash": "1415171499e79d51"
+   },
+   {
+    "id": "stress_ferociousfurnace_combat",
+    "hash": "d4a93823a283b3be"
+   },
+   {
+    "id": "stress_ferociousfurnace_cooldown_pressure",
+    "hash": "f347654bc0b9ca55"
+   },
+   {
+    "id": "stress_ferociousfurnace_low_runes",
+    "hash": "77c33897b7f5620d"
+   },
+   {
+    "id": "stress_firespirit_combat",
+    "hash": "75abcc69c50f338e"
+   },
+   {
+    "id": "stress_firespirit_cooldown_pressure",
+    "hash": "f0e70b4c60d7543e"
+   },
+   {
+    "id": "stress_firespirit_low_runes",
+    "hash": "1cf601d17c239464"
+   },
+   {
+    "id": "stress_fishcyclone_combat",
+    "hash": "5d79fe81cdfd5998"
+   },
+   {
+    "id": "stress_fishcyclone_cooldown_pressure",
+    "hash": "db01cb1cfbf4dfe1"
+   },
+   {
+    "id": "stress_fishcyclone_low_runes",
+    "hash": "38c25756531cd5d4"
+   },
+   {
+    "id": "stress_fishingfrenzy_combat",
+    "hash": "c01472f5e2a77aad"
+   },
+   {
+    "id": "stress_fishingfrenzy_cooldown_pressure",
+    "hash": "12c13397e4f1417f"
+   },
+   {
+    "id": "stress_fishingfrenzy_low_runes",
+    "hash": "1a78fc929459cb94"
+   },
+   {
+    "id": "stress_harvest_combat",
+    "hash": "0ba4b6259f6463cf"
+   },
+   {
+    "id": "stress_harvest_cooldown_pressure",
+    "hash": "00feaee208d522b2"
+   },
+   {
+    "id": "stress_harvest_low_runes",
+    "hash": "9befff16fad52abc"
+   },
+   {
+    "id": "stress_hometeleport_combat",
+    "hash": "dc9fe70511680330"
+   },
+   {
+    "id": "stress_hometeleport_cooldown_pressure",
+    "hash": "6d54701c9a855459"
+   },
+   {
+    "id": "stress_hometeleport_low_runes",
+    "hash": "1475dd1996409287"
+   },
+   {
+    "id": "stress_humidify_combat",
+    "hash": "350542fcdca107ce"
+   },
+   {
+    "id": "stress_humidify_cooldown_pressure",
+    "hash": "d05ab0c87d634d9e"
+   },
+   {
+    "id": "stress_humidify_low_runes",
+    "hash": "faf45eb3db15463d"
+   },
+   {
+    "id": "stress_humidify_out_of_reach",
+    "hash": "957f1e1f9c8e2dc4"
+   },
+   {
+    "id": "stress_infernalrod_combat",
+    "hash": "0fcd435f4f3cfa38"
+   },
+   {
+    "id": "stress_infernalrod_cooldown_pressure",
+    "hash": "0cf6d096ebdcaf9f"
+   },
+   {
+    "id": "stress_infernalrod_low_runes",
+    "hash": "1dd471f1974f5c81"
+   },
+   {
+    "id": "stress_internalalchemy_combat",
+    "hash": "b889328e0fb8fb81"
+   },
+   {
+    "id": "stress_internalalchemy_cooldown_pressure",
+    "hash": "eb06e51c849b18e7"
+   },
+   {
+    "id": "stress_internalalchemy_low_runes",
+    "hash": "afa52b3dc5c2cfd3"
+   },
+   {
+    "id": "stress_magicalmending_combat",
+    "hash": "9729b9b8247c1b91"
+   },
+   {
+    "id": "stress_magicalmending_cooldown_pressure",
+    "hash": "a5f9594de5521a51"
+   },
+   {
+    "id": "stress_magicalmending_low_runes",
+    "hash": "3c9c3a6293678dd0"
+   },
+   {
+    "id": "stress_phasedash_combat",
+    "hash": "f6cc96e35ecc947d"
+   },
+   {
+    "id": "stress_phasedash_cooldown_pressure",
+    "hash": "74e6e59b47f92a48"
+   },
+   {
+    "id": "stress_phasedash_low_runes",
+    "hash": "b4dbaa1ebd8b9271"
+   },
+   {
+    "id": "stress_pileemup_combat",
+    "hash": "ecf50f5acfb97d6d"
+   },
+   {
+    "id": "stress_pileemup_cooldown_pressure",
+    "hash": "d73ca16624fd9f91"
+   },
+   {
+    "id": "stress_pileemup_low_runes",
+    "hash": "ab0fb6e8e1b572c6"
+   },
+   {
+    "id": "stress_recall_combat",
+    "hash": "72691f305a21a3e6"
+   },
+   {
+    "id": "stress_recall_cooldown_pressure",
+    "hash": "ab7fe929ffbc42b7"
+   },
+   {
+    "id": "stress_recall_low_runes",
+    "hash": "59ccc176f4524c39"
+   },
+   {
+    "id": "stress_rocksplosion_combat",
+    "hash": "6aca6f99b579f9a3"
+   },
+   {
+    "id": "stress_rocksplosion_cooldown_pressure",
+    "hash": "46367b6fc119cd76"
+   },
+   {
+    "id": "stress_rocksplosion_low_runes",
+    "hash": "54e87ba914775653"
+   },
+   {
+    "id": "stress_runestoruneessence_combat",
+    "hash": "4d6a49b2b0a1a753"
+   },
+   {
+    "id": "stress_runestoruneessence_cooldown_pressure",
+    "hash": "e6550df1d44f807b"
+   },
+   {
+    "id": "stress_runestoruneessence_low_runes",
+    "hash": "979e98ccaeaf9a25"
+   },
+   {
+    "id": "stress_snaretrap_combat",
+    "hash": "f46103f435f39309"
+   },
+   {
+    "id": "stress_snaretrap_cooldown_pressure",
+    "hash": "ca85b8aff3292e57"
+   },
+   {
+    "id": "stress_snaretrap_low_runes",
+    "hash": "5a791c7b7db564cd"
+   },
+   {
+    "id": "stress_speedupstation_combat",
+    "hash": "69d0cb4349c726c9"
+   },
+   {
+    "id": "stress_speedupstation_cooldown_pressure",
+    "hash": "157f7e2fbc8902ed"
+   },
+   {
+    "id": "stress_speedupstation_low_runes",
+    "hash": "4af05420007263d9"
+   },
+   {
+    "id": "stress_splinter_combat",
+    "hash": "cd40867f52a88af1"
+   },
+   {
+    "id": "stress_splinter_cooldown_pressure",
+    "hash": "267b0a1c768202e0"
+   },
+   {
+    "id": "stress_splinter_low_runes",
+    "hash": "39c744949b70d8dc"
+   },
+   {
+    "id": "stress_splinter_out_of_reach",
+    "hash": "c5e1f1a0c056418d"
+   },
+   {
+    "id": "stress_summonshelter_combat",
+    "hash": "8ac236fc0f2349f8"
+   },
+   {
+    "id": "stress_summonshelter_cooldown_pressure",
+    "hash": "e039c358ff371b4c"
+   },
+   {
+    "id": "stress_summonshelter_low_runes",
+    "hash": "b700b047d44cb180"
+   },
+   {
+    "id": "stress_surge_combat",
+    "hash": "b0bdccf25b938956"
+   },
+   {
+    "id": "stress_surge_cooldown_pressure",
+    "hash": "3c7d9aafede6f511"
+   },
+   {
+    "id": "stress_surge_low_runes",
+    "hash": "bc0c4ec0439e98f3"
+   },
+   {
+    "id": "stress_tempestshield_combat",
+    "hash": "3565a05de969f8cd"
+   },
+   {
+    "id": "stress_tempestshield_cooldown_pressure",
+    "hash": "e2c7856acfde9475"
+   },
+   {
+    "id": "stress_tempestshield_low_runes",
+    "hash": "79cf1a6b8e0fa76f"
+   },
+   {
+    "id": "stress_treequipment_combat",
+    "hash": "5eb8e54254ea5224"
+   },
+   {
+    "id": "stress_treequipment_cooldown_pressure",
+    "hash": "cbbaaa49873f0313"
+   },
+   {
+    "id": "stress_treequipment_low_runes",
+    "hash": "7e385144ba3647cf"
+   },
+   {
+    "id": "stress_vengeance_combat",
+    "hash": "f827d35540c60c4d"
+   },
+   {
+    "id": "stress_vengeance_cooldown_pressure",
+    "hash": "45334f6b6669d478"
+   },
+   {
+    "id": "stress_vengeance_low_runes",
+    "hash": "cbeab0ab5ab6a590"
+   },
+   {
+    "id": "stress_windstep_combat",
+    "hash": "9b8fc70573289151"
+   },
+   {
+    "id": "stress_windstep_cooldown_pressure",
+    "hash": "c310fc720d3209f1"
+   },
+   {
+    "id": "stress_windstep_low_runes",
+    "hash": "97d75c34dcb49771"
+   }
+  ]
+ },
+ "denominators": {
+  "spell_cast": 39,
+  "spell_use": 2,
+  "stress": 122
+ },
+ "na": {
+  "spell_cast": {
+   "USD_CabbageRain": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "USD_DetectOreAlt": "no perk unlocks it (internal / unreleased / world-interaction asset)",
+   "USD_EnchantChefsTools": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "USD_EnchantWeapon_Earth": "no perk unlocks it (internal / unreleased / world-interaction asset)",
+   "USD_GetWaterFromWaterSource": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "USD_MagicFocus": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "USD_RapidGrowth": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "USD_ShadowVeil": "no perk unlocks it (internal / unreleased / world-interaction asset)",
+   "USD_SiphonAnimaCharge": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "USD_SiphonRunes": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "USD_WeaponBarbs": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "USD_WeaponPoison": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "USD_Whetstone": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)"
+  }
+ },
+ "approved_by": null,
+ "_note": "Luis approves this manifest and its n/a list per build"
+}

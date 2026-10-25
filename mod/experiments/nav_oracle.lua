@@ -57,11 +57,16 @@ end
 local function r2(v) return math.floor(v * 100 + 0.5) / 100 end
 local function wire(v) return { r2(v.X / 100), r2(v.Y / 100), r2(v.Z / 100) } end
 
--- Projected point (cm table) or nil.
+-- Projected point (cm table) or nil. A tight vertical box first (+-1.5 m around the capsule
+-- centre): with +-6 m a start UNDER a floor snapped onto the floor above it (live 19:22, church
+-- start area: waypoint 2.6 m straight above Claude). The wide box is only the fallback.
+M.PROJECT_TIGHT = { X = 150, Y = 150, Z = 150 }
 local function project(nav, ctx, p, ext)
-    local out = { X = p.X, Y = p.Y, Z = p.Z }
-    local hit = U.try(function() return nav:K2_ProjectPointToNavigation(ctx, p, out, nil, nil, ext or M.PROJECT_EXTENT) end)
-    if hit == true then return { X = out.X, Y = out.Y, Z = out.Z } end
+    for _, e in ipairs(ext and { ext } or { M.PROJECT_TIGHT, M.PROJECT_EXTENT }) do
+        local out = { X = p.X, Y = p.Y, Z = p.Z }
+        local hit = U.try(function() return nav:K2_ProjectPointToNavigation(ctx, p, out, nil, nil, e) end)
+        if hit == true then return { X = out.X, Y = out.Y, Z = out.Z } end
+    end
 end
 
 -- ---------------------------------------------------------------- nav anchor (dev server only)
@@ -69,6 +74,13 @@ end
 local SRC_CLASS = "/Script/Engine.WorldPartitionStreamingSourceComponent"
 
 M.LINK_REBUILD_M = 160      -- cube side: covers the anchor reuse radius (+-80 m)
+-- CORRIDOR streaming for long trips (live 19:22/19:39: no_path for a 357 m trip, the goal area was
+-- simply not loaded on the dev server): extra streaming-source anchors every CORRIDOR_STEP_CM
+-- along the straight line, up to CORRIDOR_MAX; "loading" while they settle.
+M.CORRIDOR_MIN_CM = 12000
+M.CORRIDOR_STEP_CM = 12000
+M.CORRIDOR_MAX = 5
+M.CORRIDOR_SETTLE_S = 10
 
 local function navlinks_enabled()
     for _, r in ipairs(U.find_all("RecastNavMesh", { skip_defaults = true })) do
@@ -101,10 +113,61 @@ local function rebuild_links_around(log, at)
     return true
 end
 
+-- A bare streaming source (TargetPoint + WorldPartitionStreamingSourceComponent) at `at` (cm).
+local function spawn_source(log, at)
+    local cls = U.try(function() return StaticFindObject("/Script/Engine.TargetPoint") end)
+    local ccls = U.try(function() return StaticFindObject(SRC_CLASS) end)
+    local ctx = world_ctx()
+    local world = U.try(function() return ctx:GetWorld() end)
+    if not (U.valid(cls) and U.valid(ccls) and world) then return nil end
+    local ok, actor = U.call(log, "nav_oracle.SpawnActor_corridor", { at = wire(at) }, function()
+        return world:SpawnActor(cls, at, { Pitch = 0, Yaw = 0, Roll = 0 })
+    end)
+    if not (ok and U.valid(actor)) then return nil end
+    U.call(log, "nav_oracle.AddComponentByClass_corridor", nil, function()
+        return actor:AddComponentByClass(ccls, false,
+            { Rotation = { X = 0, Y = 0, Z = 0, W = 1 }, Translation = { X = 0, Y = 0, Z = 0 }, Scale3D = { X = 1, Y = 1, Z = 1 } }, false)
+    end)
+    return actor
+end
+
+local function corridor_clear(log)
+    local c = rawget(_G, "DW_NAV_CORRIDOR")
+    if c then
+        for _, a in ipairs(c.anchors or {}) do
+            if U.valid(a) then U.call(log, "nav_oracle.corridor_destroy", nil, function() a:K2_DestroyActor() end) end
+        end
+    end
+    _G.DW_NAV_CORRIDOR = nil
+end
+
+-- Ensure corridor anchors from a to b (cm). Returns age_s of the corridor (0 if just placed), or nil
+-- when the trip is short (no corridor needed).
+local function ensure_corridor(log, a, b)
+    local D = math.sqrt((b.X - a.X) ^ 2 + (b.Y - a.Y) ^ 2)
+    if D < M.CORRIDOR_MIN_CM then return nil end
+    local key = string.format("%d:%d>%d:%d", math.floor(a.X / 5000), math.floor(a.Y / 5000), math.floor(b.X / 5000), math.floor(b.Y / 5000))
+    local c = rawget(_G, "DW_NAV_CORRIDOR")
+    if c and c.key == key then return os.time() - c.t end
+    corridor_clear(log)
+    local n = math.min(M.CORRIDOR_MAX, math.ceil(D / M.CORRIDOR_STEP_CM))
+    local anchors = {}
+    for k = 1, n do
+        local f = (k == n) and 1 or (k * M.CORRIDOR_STEP_CM / D)
+        local at = { X = a.X + (b.X - a.X) * f, Y = a.Y + (b.Y - a.Y) * f, Z = a.Z + (b.Z - a.Z) * f }
+        local act = spawn_source(log, at)
+        if act then anchors[#anchors + 1] = act end
+    end
+    _G.DW_NAV_CORRIDOR = { key = key, t = os.time(), anchors = anchors, goal = b, links_done = false }
+    U.event(log, "nav_oracle_corridor", { n = #anchors, from = wire(a), to = wire(b) })
+    return 0
+end
+
 function M.anchor_clear(log)
     local a = rawget(_G, "DW_NAV_ANCHOR")
     if U.valid(a) then U.call(log, "nav_oracle.anchor_destroy", nil, function() a:K2_DestroyActor() end) end
     _G.DW_NAV_ANCHOR, _G.DW_NAV_ANCHOR_COMP, _G.DW_NAV_ANCHOR_T, _G.DW_NAV_LINKS_DONE = nil, nil, nil, nil
+    corridor_clear(log)
     return { ok = true }
 end
 
@@ -163,6 +226,20 @@ function M.run(log, args)
         _G.DW_NAV_LINKS_DONE = true
         links_rebuilt = rebuild_links_around(log, U.loc(rawget(_G, "DW_NAV_ANCHOR")) or a)
     end
+    -- long trip: stream the corridor to the goal, then path over all of it
+    local cage = ensure_corridor(log, a, b)
+    local corridor = nil
+    if cage then
+        corridor = #(rawget(_G, "DW_NAV_CORRIDOR").anchors)
+        if cage < M.CORRIDOR_SETTLE_S then
+            return { ok = false, reason = "loading", retry = true, corridor = corridor, age_s = cage }
+        end
+        local c = rawget(_G, "DW_NAV_CORRIDOR")
+        if not c.links_done and navlinks_enabled() then
+            c.links_done = true
+            rebuild_links_around(log, c.goal) -- the goal area gets jump links too
+        end
+    end
     local pa, pb = project(nav, ctx, a), project(nav, ctx, b)
     if not pa then
         local loading = (anc.age_s or 0) < M.ANCHOR_SETTLE_S
@@ -183,6 +260,7 @@ function M.run(log, args)
         ok = ok, reason = (not ok) and ((anc.age_s or 0) < M.ANCHOR_SETTLE_S and "loading" or "no_path") or nil,
         retry = (not ok) and (anc.age_s or 0) < M.ANCHOR_SETTLE_S or nil,
         points = pts, n = #pts, partial = partial, goal_projected = pb ~= nil, links_rebuilt = links_rebuilt,
+        corridor = corridor,
         length_m = len and len > 0 and r2(len / 100) or nil, ms = math.floor((os.clock() - t0) * 1000),
     }
     U.event(log, "nav_oracle", { from = args.from, to = args.to, n = res.n, partial = partial, length_m = res.length_m, ms = res.ms, reason = res.reason })

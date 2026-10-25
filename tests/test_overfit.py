@@ -24,7 +24,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "fc6fe31"  # 2026-10-25T22:22:24+01:00, before the detector and before any benchmark case existed
 CODE_DIRS = ("brain", "client_mod/scripts")
-TASK_DIRS = (ROOT / "evals" / "bench" / "tasks", ROOT / "logs" / "evals" / "heldout")
+TASK_DIRS = (ROOT / "evals" / "bench" / "cases", ROOT / "evals" / "bench" / "goal_cases", ROOT / "evals" / "bench" / "tasks",
+             ROOT / "logs" / "evals" / "heldout")
 N = 4
 # Function words (English grammar, not game facts): a shingle made mostly of these carries no task identity.
 COMMON = frozenset("""a an and are as at be but by can could do does did for from get got go have has how i if in into
@@ -71,15 +72,21 @@ def task_texts(dirs: Iterable[Path] = TASK_DIRS) -> list[str]:
     out = []
     for d in dirs:
         for p in sorted(d.rglob("*.json")) if d.exists() else []:
-            try:
-                out.extend(_texts_in(json.loads(p.read_text(encoding="utf-8"))))
+            try:  # "<phrase the need: ...>" placeholders of draft cases are not player text
+                out.extend(t for t in _texts_in(json.loads(p.read_text(encoding="utf-8"))) if not t.lstrip().startswith("<"))
             except (OSError, ValueError):
                 continue
     return out
 
 
+def _h(x: str) -> str:
+    import hashlib
+    return hashlib.sha256(x.encode("utf-8")).hexdigest()[:10]
+
+
 def find_overlaps(added: Iterable[tuple[str, int, str]], texts: Iterable[str]) -> list[str]:
-    """added: (file, line_no, line). Returns 'file:line: "<shingle>" from task text "<text>"' per hit."""
+    """added: (file, line_no, line). Returns 'file:line: shingle #<hash> of a benchmark case text' per hit. Only
+    hashes are printed, never the text: a failure message must not leak held-out cases (review finding 8c)."""
     index: dict[tuple[str, ...], str] = {}
     for t in texts:
         for sh in shingles(t):
@@ -88,7 +95,7 @@ def find_overlaps(added: Iterable[tuple[str, int, str]], texts: Iterable[str]) -
     for f, n, line in added:
         for sh in shingles(line):
             if sh in index:
-                hits.append(f'{f}:{n}: "{" ".join(sh)}" from task text "{index[sh]}"')
+                hits.append(f"{f}:{n}: shingle #{_h(' '.join(sh))} of benchmark case text #{_h(index[sh])}")
                 break
     return hits
 
@@ -139,6 +146,18 @@ def test_no_benchmark_task_text_added_to_companion_code():
                       "perception or context instead:\n" + "\n".join(hits[:40]))
 
 
+def test_no_benchmark_canary_in_companion_code_or_data():
+    """Every case file carries the canary (evals/bench CANARY): it must never appear in what the companion reads."""
+    from evals.bench import CANARY
+    hits = []
+    for base in ("brain", "client_mod/scripts", "data"):
+        for p in (ROOT / base).rglob("*"):
+            if p.is_file() and p.suffix in (".py", ".lua", ".json", ".md", ".txt") and p.stat().st_size < 5_000_000:
+                if CANARY in p.read_text(encoding="utf-8", errors="ignore"):
+                    hits.append(str(p.relative_to(ROOT)))
+    assert not hits, "benchmark canary found in companion files: " + ", ".join(hits)
+
+
 # ------------------------------------------------------------------ the detector itself
 
 
@@ -149,6 +168,7 @@ def test_detects_a_copied_phrase_in_code_or_comment():
              ("brain/y.py", 7, "x = compute(state)")]
     hits = find_overlaps(added, texts)
     assert [h.split(":")[0] for h in hits] == ["brain/controller.py", "brain/x.py"]
+    assert not any("lodestone" in h or "coal" in h for h in hits)  # hashes only, no case text
 
 
 def test_function_word_shingles_and_short_overlaps_are_ignored():

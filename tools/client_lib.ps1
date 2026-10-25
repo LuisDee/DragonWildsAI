@@ -123,12 +123,39 @@ function Test-JoinedForbidden([string]$Joined) {
 }
 # The server the client last loaded L_World from: the game log's "LoadMap: <host:port>/Game/Maps/World/L_World"
 # line (the ?p= part is never returned). $null when unknown (menu, fresh log, no line).
+# Which server the client is on. Two sources; the NEWER wins:
+#   - the game log's last "LoadMap: <host:port>/Game/Maps/World/L_World" (its [YYYY.MM.DD-HH.MM.SS] stamp is UTC)
+#   - logs/state/last_join.json, written by client_boot when it SENDS a join (Set-JoinedServer)
+# The game log can stall (live 2026-10-25: it stopped at 22:04 UTC while the client kept running), and then
+# it named an old server; the boot's own record keeps this right.
+$ClientLastJoinFile = Join-Path $ClientStateDir 'last_join.json'
+function Set-JoinedServer([string]$Addr) {
+    if (-not $Addr) { return }
+    [pscustomobject]@{ addr = $Addr; ts = (Get-Date).ToUniversalTime().ToString('o') } | ConvertTo-Json -Compress |
+        Set-Content -Path $ClientLastJoinFile -Encoding utf8
+}
 function Get-JoinedServer {
-    if (-not (Test-Path $ClientGameLog)) { return $null }
-    $last = Select-String -Path $ClientGameLog -Pattern 'LoadMap: ' -ErrorAction SilentlyContinue | Select-Object -Last 1
-    if (-not $last) { return $null }
-    if ($last.Line -match 'LoadMap: ([0-9A-Za-z.\-]+:\d+)/Game/Maps/World/L_World') { return $Matches[1] }
-    $null
+    $logAddr, $logTs = $null, [datetime]::MinValue
+    if (Test-Path $ClientGameLog) {
+        $last = Select-String -Path $ClientGameLog -Pattern 'LoadMap: ' -ErrorAction SilentlyContinue | Select-Object -Last 1
+        if ($last -and $last.Line -match 'LoadMap: ([0-9A-Za-z.\-]+:\d+)/Game/Maps/World/L_World') {
+            $logAddr = $Matches[1]
+            if ($last.Line -match '^\[(\d{4})\.(\d{2})\.(\d{2})-(\d{2})\.(\d{2})\.(\d{2})') {
+                $logTs = [datetime]::new([int]$Matches[1], [int]$Matches[2], [int]$Matches[3], [int]$Matches[4], [int]$Matches[5], [int]$Matches[6], [DateTimeKind]::Utc)
+            }
+        }
+    }
+    $joinAddr, $joinTs = $null, [datetime]::MinValue
+    if (Test-Path $ClientLastJoinFile) {
+        try {
+            $j = Get-Content $ClientLastJoinFile -Raw | ConvertFrom-Json
+            $joinAddr = [string]$j.addr
+            $joinTs = [datetime]::Parse($j.ts, $null, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+        } catch { }
+    }
+    # the log's stamp has whole seconds only: a LoadMap within 2 s of the join counts as the answer to it
+    if ($joinAddr -and $joinTs -gt $logTs.AddSeconds(2)) { return $joinAddr }
+    $logAddr
 }
 
 # Run one client_mod command through the DWClient runner (client_mod/scripts/main.lua polls

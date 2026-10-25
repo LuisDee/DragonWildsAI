@@ -89,6 +89,12 @@ class Agent:
         # event then needs no brain-side attack (it would fight the body's reflex for the pawn).
         self.body_self_defends = False
         self.clock = time.monotonic
+        # Task board (brain/director.py, docs/design/director.md): attached by LiveSession when DW_DIRECTOR=1.
+        self.director = None
+        self._directed: list[dict] | None = None  # action records of the board run in progress (run_directed)
+        self._directed_end = "normal"
+        self._directed_origin = "board"  # "chat" while a chat command runs nested inside a board run (re-check 2)
+        self._quiet_goal = False  # run_goal(quiet=True) inside board runs: no goal situations, no Planner replans
         game.set_progress_listener(self._on_progress)
 
     # ---------------------------------------------------------------- events
@@ -126,6 +132,8 @@ class Agent:
             self._in_pump = False
         self.flush_situations()
         self._review_tick()
+        if self.director is not None:
+            self.director.tick()  # the board: decisions (worker) applied, the next step run started
 
     def _review_tick(self) -> None:
         """Proactive behaviour: read the state now and then (a bridge read, never a model call) and,
@@ -138,7 +146,8 @@ class Agent:
             self._fresh_state()
         ep = self.broker.episode
         busy = bool(self.active_goal or self.pending_goal or self._situations or self._chat_waiting()
-                    or (ep is not None and ep.ended is None and ep.tool != "follow"))
+                    or (ep is not None and ep.ended is None and ep.tool != "follow")
+                    or (self.director is not None and self.director.running))
         ev = self.broker.review_due(busy=busy)
         if ev:
             self._situations.append(ev)
@@ -247,6 +256,8 @@ class Agent:
     def _activity(self, event: Activity) -> None:
         """Episodic memory: every completed body episode, whoever started it."""
         self.broker.remember_activity(event)
+        if self.director is not None:
+            self.director.observe_activity(event)  # kills, pickups, drops for the board's counters
         line = self.broker.describe_activity(event)
         self.store.progress("activity", kind=event.kind, by=event.by, ts=event.ts, **event.fields())
         if self.broker.notable(event):
@@ -263,6 +274,10 @@ class Agent:
         self.broker.note_busy()
         outcome = self.executor.run_task(task)
         self.broker.action_finished(task.skill, task.args, outcome.ok, outcome.reason, outcome.data)
+        if self._directed is not None:
+            self._directed.append({"tool": task.skill, "args": dict(task.args), "ok": outcome.ok,
+                                   "reason": outcome.reason, "data": outcome.data, "interrupt": outcome.interrupt,
+                                   "origin": self._directed_origin})
         return outcome
 
     def _on_progress(self, event: Event) -> None:
@@ -272,6 +287,15 @@ class Agent:
     # ---------------------------------------------------------------- commands
 
     def _command(self, event: CommandReceived, addressed: bool = True, body_events: list[dict] | None = None) -> None:
+        if self._directed is None or not event.text:
+            return self._command_run(event, addressed, body_events)
+        prev, self._directed_origin = self._directed_origin, "chat"  # a chat command nested in a board run
+        try:
+            return self._command_run(event, addressed, body_events)
+        finally:
+            self._directed_origin = prev
+
+    def _command_run(self, event: CommandReceived, addressed: bool = True, body_events: list[dict] | None = None) -> None:
         """``addressed=False``: a chat line nobody addressed to the companion (LiveAgent's chat
         reading); the model may decide it is not for him, and then nothing is said or done.
         ``body_events``: body situations (broker) this run must also decide on; with an empty text it
@@ -304,6 +328,7 @@ class Agent:
             self.log.log("chat_decision", player=event.player, text=event.text, decision="addressed",
                          reason="model: meant for me", actions=[c.name for c in d.actions], speech=d.speech)
         kind = "notice" if body_events and not event.text else "reply"
+        ran_all: list[str] = []  # every tool this request ran (the board hears about player commands)
         said = False  # anything said for this request (single voice: at most one line per turn)
         lines: list[str] = []  # what the model's turns actually said (for previous_review.you_said)
         acted = False
@@ -313,6 +338,7 @@ class Agent:
                 self._cancelled = True
             t = self._run_turn(d, state, event)
             acted = acted or bool(t["ran"])
+            ran_all.extend(t["ran"])
             if t["failure"] and t["failed_call"] is None:  # refused before the body (safety, no such tool)
                 self.controller.report_failure(*t["failure"])
                 said = True
@@ -337,6 +363,8 @@ class Agent:
                 break
             if turn >= MAX_TURNS or self._player_spoke():
                 self.log.log("chain_stopped", turns=turn, why="budget" if turn >= MAX_TURNS else "the player spoke")
+                if self._directed is not None and turn < MAX_TURNS:
+                    self._directed_end = "chat"
                 if t["failure"]:
                     self.controller.report_failure(*t["failure"])
                     said = True
@@ -372,6 +400,8 @@ class Agent:
             self.controller.say("Sorry, I didn't catch that.")  # nothing ran, started, was said or refused
         if body_events and said:
             self.broker.voiced(body_events, text=" ".join(lines) or d.speech)
+        if self.director is not None and event.text and (ran_all or d.goal or d.skill):
+            self.director.on_player_command(event.player, ran_all + (["run_skill"] if d.skill else []))
         if d.goal and not d.skill:
             self.pending_goal = d.goal
         if self.pending_goal:
@@ -396,6 +426,13 @@ class Agent:
                 results[call.id or call.name] = res
                 if not res.get("ok", True):
                     failure, failed_call = (call.name, res["reason"], res["data"]), call
+                    break
+                continue
+            if self.director is not None and call.name in self.director.tool_names:
+                res = self.director.handle_tool(call.name, call.arguments, event.player)  # board tools
+                results[call.id or call.name] = res
+                if not res.get("ok", True):
+                    failure, failed_call = (call.name, res.get("reason"), res.get("data") or {}), call
                     break
                 continue
             if call.name in RULE_TOOLS:
@@ -425,6 +462,45 @@ class Agent:
             failure = self._queue_skill(*d.skill, state)
         return {"failure": failure, "failed_call": failed_call, "results": results, "extra": extra,
                 "spoken": spoken, "ran": ran}
+
+    def run_directed(self, event: dict, player: str) -> dict:
+        """One body-initiated Controller run for the board's current step (docs/design/director.md §2.4).
+
+        The event (type board_step) reaches the model as body_event. A run_skill the model queued runs here,
+        before returning, so the board checks the step's predicate after the run's actions really ran
+        (review H7b); start_goal is not offered while the board is on and is dropped if it comes anyway.
+        Returns {actions: [{tool, args, ok, reason, data, interrupt, origin: board|chat}],
+        ended: normal | chat | interrupted | error}. Activity events that arrived during the run are handled
+        before it returns, so the board's counters are current when it checks the step."""
+        self._directed, self._directed_end = [], "normal"
+        try:
+            self._command(CommandReceived(player=player, text=""), addressed=True, body_events=[event])
+            if self.pending_goal and self.pending_skill:
+                goal, tasks, skill = self.pending_goal, self.pending_tasks, self.pending_skill
+                self.pending_goal, self.pending_tasks, self.pending_skill = None, None, None
+                self.run_goal(goal, tasks=tasks, skill=skill, quiet=True)
+            elif self.pending_goal:
+                self.log.log("goal_dropped", goal=self.pending_goal, why="start_goal inside a board run")
+                self._directed.append({"tool": "start_goal", "args": {"goal": self.pending_goal}, "ok": False,
+                                       "reason": "not_offered", "data": {}, "interrupt": False})
+                self.pending_goal = None
+            if any(r.get("interrupt") for r in self._directed) and self._directed_end == "normal":
+                self._directed_end = "interrupted"
+            # re-check 6: activity that arrived during the run (kills, pickups) reaches the board before it
+            # checks the step; everything else stays stashed for the next pump, in order
+            batch, self._stash = self._stash + self.game.poll_events(), []
+            for ev in batch:
+                if isinstance(ev, Activity):
+                    self.handle_event(ev)
+                else:
+                    self._stash.append(ev)
+        except Exception as exc:  # the board records the error; the agent loop keeps running
+            self.log.log("directed_run_error", error=repr(exc))
+            self._directed_end = "error"
+        finally:
+            actions, ended = self._directed, self._directed_end
+            self._directed = None
+        return {"actions": actions, "ended": ended}
 
     def _player_spoke(self) -> bool:
         """Has a chat line arrived since this request started? (peeked, kept for the next pump)"""
@@ -558,6 +634,8 @@ class Agent:
             self.store.save_tree()
         self._last_reason = reason
         self.store.progress("stuck", goal=goal, reason=reason)
+        if self._quiet_goal:
+            return "stuck"  # the board hears it from run_directed's records and decides
         self._situations.append({"type": "stuck", "goal": goal, "failed": task.skill if task else None,
                                  "reason": reason, "question": question})
         self.flush_situations()
@@ -571,7 +649,11 @@ class Agent:
                     f" ({rec['note']})" if rec.get("note") else "")
         return notes
 
-    def run_goal(self, goal: str, tasks: list[Task] | None = None, skill: str | None = None) -> GoalResult:
+    def run_goal(self, goal: str, tasks: list[Task] | None = None, skill: str | None = None,
+                 quiet: bool = False) -> GoalResult:
+        """quiet=True (a run_skill inside a board run): no goal_done / stuck situations and no Planner replans;
+        the result goes back to the board (docs/design/director.md section 12 item 7)."""
+        self._quiet_goal = quiet
         self.active_goal, self._cancelled, self._last_reason = goal, False, None
         self.controller.job_started()
         start = time.monotonic()
@@ -582,6 +664,7 @@ class Agent:
             result = self._stuck(goal, None, Reason.STATE_UNAVAILABLE)
         finally:
             self.active_goal = None
+            self._quiet_goal = False
         elapsed = time.monotonic() - start
         if skill and self.skills and result != "interrupted":
             self.skills.record_run(skill, result == "done", elapsed, self._last_reason)
@@ -621,7 +704,7 @@ class Agent:
                 continue
             # Retries exhausted (or not retryable): DEPS replan, bounded.
             self._last_reason = outcome.reason
-            if tree.replans >= self.max_replans:
+            if tree.replans >= (0 if self._quiet_goal else self.max_replans):
                 return self._stuck(goal, task, outcome.reason)
             tree.replans += 1
             try:
@@ -642,6 +725,8 @@ class Agent:
         tree.status = "done"
         self.store.save_tree()
         self.store.progress("goal done", goal=goal)
+        if self._quiet_goal:
+            return "done"
         self._situations.append({"type": "goal_done", "goal": goal, "steps": len(tree.tasks)})
         self.flush_situations()
         return "done"

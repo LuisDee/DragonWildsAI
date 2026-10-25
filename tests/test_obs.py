@@ -408,3 +408,14 @@ def test_first_action_ignores_trivial_tools_and_passing_plan_latency(window):
     t = obs.first_action_of_passing_plan(e)
     assert t is not None and next(r for r in e.ran if r["ts"] == t)["tool"] == "gather"
     assert obs.first_action_of_passing_plan(ep_at(eps, "21:13:20")) is None   # Splinter never passed
+
+
+def test_companion_sha_filter_takes_a_comma_list(tmp_path):
+    r = tmp_path / "r"
+    t0 = at("10:00")
+    _session(r, "brain-live-a.jsonl", t0, "aaa111", chat=True, act=True)
+    _session(r, "brain-live-b.jsonl", t0 + 7200, "bbb222", chat=True, act=True)
+    _session(r, "brain-live-c.jsonl", t0 + 14400, "ccc333", chat=True, act=True)
+    c, eps, an = obs.analyse(r, t0 - 60, t0 + 6 * 3600, companion_sha="aaa, ccc333")
+    g = obs.goal_metrics(c, eps, an, obs.metrics(c, eps, an))
+    assert g["companion"]["shas"] == ["aaa111", "ccc333"] and g["exposure"]["sessions"] == 2

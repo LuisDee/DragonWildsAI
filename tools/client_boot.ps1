@@ -198,6 +198,7 @@ function Invoke-BootOnce([datetime]$t0) {
                 $joinTries++
                 # the static join_server.lua reads server.txt = SHOCKBYTE; any other target gets its own generated
                 # command. Compare with the literal name, never the (configurable) default (live bug 2026-10-25 22:24).
+                Set-JoinedServer $(if ($script:joinTarget.name -eq 'shockbyte') { Get-TargetAddress 'shockbyte' } else { $TargetAddr })
                 if ($script:joinTarget.name -eq 'shockbyte') { [void](Run-Cmd 'join_server.lua') }
                 else { [void](Run-Cmd 'join_server.lua' 20 $(if ($DryRun) { '' } else { New-JoinCmd }) " (target $($script:joinTarget.name))") }
                 if ($DryRun) { return New-Result $false 'menu' 'not_joined' $p $t0 }

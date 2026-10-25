@@ -1,0 +1,2273 @@
+{
+ "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code",
+ "cases": [
+  {
+   "id": "m3_agility_asked",
+   "version": 1,
+   "tier": "T1",
+   "family": "skill_train",
+   "skill": "Agility",
+   "mode": "asked",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "can you get some Agility levelling done?",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Agility",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Agility",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 1200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 120.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "source": "https://dragonwilds.runescape.wiki/w/Agility"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_agility_initiative",
+   "version": 1,
+   "tier": "T2",
+   "family": "skill_train",
+   "skill": "Agility",
+   "mode": "initiative",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "go level up whatever you think needs it, I'll check back later",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Agility",
+      "level": 1
+     },
+     {
+      "verb": "raise_other_skills",
+      "except": "Agility",
+      "level": 10
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Agility",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 2400.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "note": "Agility is reset to 1 and the others raised to 10: the open task should pick it by itself"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_agility_plus5",
+   "version": 1,
+   "tier": "T3",
+   "family": "skill_train",
+   "skill": "Agility",
+   "mode": "plus5",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "get your Agility up five levels, take your time",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Agility",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "skill_gain": {
+     "name": "Agility",
+     "levels": 5
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 7200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {},
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_artisan_asked",
+   "version": 1,
+   "tier": "T1",
+   "family": "skill_train",
+   "skill": "Artisan",
+   "mode": "asked",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "can you get some Artisan levelling done?",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Artisan",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Artisan",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 1200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 120.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "source": "https://dragonwilds.runescape.wiki/w/Artisan"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_artisan_initiative",
+   "version": 1,
+   "tier": "T2",
+   "family": "skill_train",
+   "skill": "Artisan",
+   "mode": "initiative",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "go level up whatever you think needs it, I'll check back later",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Artisan",
+      "level": 1
+     },
+     {
+      "verb": "raise_other_skills",
+      "except": "Artisan",
+      "level": 10
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Artisan",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 2400.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "note": "Artisan is reset to 1 and the others raised to 10: the open task should pick it by itself"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_artisan_plus5",
+   "version": 1,
+   "tier": "T3",
+   "family": "skill_train",
+   "skill": "Artisan",
+   "mode": "plus5",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "get your Artisan up five levels, take your time",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Artisan",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "skill_gain": {
+     "name": "Artisan",
+     "levels": 5
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 7200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {},
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_attack_asked",
+   "version": 1,
+   "tier": "T1",
+   "family": "skill_train",
+   "skill": "Attack",
+   "mode": "asked",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "can you get some Attack levelling done?",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Attack",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Attack",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 1200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 120.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "source": "https://dragonwilds.runescape.wiki/w/Attack"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_attack_initiative",
+   "version": 1,
+   "tier": "T2",
+   "family": "skill_train",
+   "skill": "Attack",
+   "mode": "initiative",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "go level up whatever you think needs it, I'll check back later",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Attack",
+      "level": 1
+     },
+     {
+      "verb": "raise_other_skills",
+      "except": "Attack",
+      "level": 10
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Attack",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 2400.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "note": "Attack is reset to 1 and the others raised to 10: the open task should pick it by itself"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_attack_plus5",
+   "version": 1,
+   "tier": "T3",
+   "family": "skill_train",
+   "skill": "Attack",
+   "mode": "plus5",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "get your Attack up five levels, take your time",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Attack",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "skill_gain": {
+     "name": "Attack",
+     "levels": 5
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 7200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {},
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_construction_asked",
+   "version": 1,
+   "tier": "T1",
+   "family": "skill_train",
+   "skill": "Construction",
+   "mode": "asked",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "can you get some Construction levelling done?",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Construction",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Construction",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 1200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 120.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "source": "https://dragonwilds.runescape.wiki/w/Construction"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_construction_initiative",
+   "version": 1,
+   "tier": "T2",
+   "family": "skill_train",
+   "skill": "Construction",
+   "mode": "initiative",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "go level up whatever you think needs it, I'll check back later",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Construction",
+      "level": 1
+     },
+     {
+      "verb": "raise_other_skills",
+      "except": "Construction",
+      "level": 10
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Construction",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 2400.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "note": "Construction is reset to 1 and the others raised to 10: the open task should pick it by itself"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_construction_plus5",
+   "version": 1,
+   "tier": "T3",
+   "family": "skill_train",
+   "skill": "Construction",
+   "mode": "plus5",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "get your Construction up five levels, take your time",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Construction",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "skill_gain": {
+     "name": "Construction",
+     "levels": 5
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 7200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {},
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_cooking_asked",
+   "version": 1,
+   "tier": "T1",
+   "family": "skill_train",
+   "skill": "Cooking",
+   "mode": "asked",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "can you get some Cooking levelling done?",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Cooking",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Cooking",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 1200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 120.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "source": "https://dragonwilds.runescape.wiki/w/Cooking"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_cooking_initiative",
+   "version": 1,
+   "tier": "T2",
+   "family": "skill_train",
+   "skill": "Cooking",
+   "mode": "initiative",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "go level up whatever you think needs it, I'll check back later",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Cooking",
+      "level": 1
+     },
+     {
+      "verb": "raise_other_skills",
+      "except": "Cooking",
+      "level": 10
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Cooking",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 2400.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "note": "Cooking is reset to 1 and the others raised to 10: the open task should pick it by itself"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_cooking_plus5",
+   "version": 1,
+   "tier": "T3",
+   "family": "skill_train",
+   "skill": "Cooking",
+   "mode": "plus5",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "get your Cooking up five levels, take your time",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Cooking",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "skill_gain": {
+     "name": "Cooking",
+     "levels": 5
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 7200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {},
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_farming_asked",
+   "version": 1,
+   "tier": "T1",
+   "family": "skill_train",
+   "skill": "Farming",
+   "mode": "asked",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "can you get some Farming levelling done?",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Farming",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Farming",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 1200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 120.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "source": "https://dragonwilds.runescape.wiki/w/Farming"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_farming_initiative",
+   "version": 1,
+   "tier": "T2",
+   "family": "skill_train",
+   "skill": "Farming",
+   "mode": "initiative",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "go level up whatever you think needs it, I'll check back later",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Farming",
+      "level": 1
+     },
+     {
+      "verb": "raise_other_skills",
+      "except": "Farming",
+      "level": 10
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Farming",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 2400.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "note": "Farming is reset to 1 and the others raised to 10: the open task should pick it by itself"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_farming_plus5",
+   "version": 1,
+   "tier": "T3",
+   "family": "skill_train",
+   "skill": "Farming",
+   "mode": "plus5",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "get your Farming up five levels, take your time",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Farming",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "skill_gain": {
+     "name": "Farming",
+     "levels": 5
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 7200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {},
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_fishing_asked",
+   "version": 1,
+   "tier": "T1",
+   "family": "skill_train",
+   "skill": "Fishing",
+   "mode": "asked",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "can you get some Fishing levelling done?",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Fishing",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Fishing",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 1200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 120.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "source": "https://dragonwilds.runescape.wiki/w/Fishing"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_fishing_initiative",
+   "version": 1,
+   "tier": "T2",
+   "family": "skill_train",
+   "skill": "Fishing",
+   "mode": "initiative",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "go level up whatever you think needs it, I'll check back later",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Fishing",
+      "level": 1
+     },
+     {
+      "verb": "raise_other_skills",
+      "except": "Fishing",
+      "level": 10
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Fishing",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 2400.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "note": "Fishing is reset to 1 and the others raised to 10: the open task should pick it by itself"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_fishing_plus5",
+   "version": 1,
+   "tier": "T3",
+   "family": "skill_train",
+   "skill": "Fishing",
+   "mode": "plus5",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "get your Fishing up five levels, take your time",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Fishing",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "skill_gain": {
+     "name": "Fishing",
+     "levels": 5
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 7200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {},
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_magic_asked",
+   "version": 1,
+   "tier": "T1",
+   "family": "skill_train",
+   "skill": "Magic",
+   "mode": "asked",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "can you get some Magic levelling done?",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Magic",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Magic",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 1200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 120.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "source": "https://dragonwilds.runescape.wiki/w/Magic"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_magic_initiative",
+   "version": 1,
+   "tier": "T2",
+   "family": "skill_train",
+   "skill": "Magic",
+   "mode": "initiative",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "go level up whatever you think needs it, I'll check back later",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Magic",
+      "level": 1
+     },
+     {
+      "verb": "raise_other_skills",
+      "except": "Magic",
+      "level": 10
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Magic",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 2400.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "note": "Magic is reset to 1 and the others raised to 10: the open task should pick it by itself"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_magic_plus5",
+   "version": 1,
+   "tier": "T3",
+   "family": "skill_train",
+   "skill": "Magic",
+   "mode": "plus5",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "get your Magic up five levels, take your time",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Magic",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "skill_gain": {
+     "name": "Magic",
+     "levels": 5
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 7200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {},
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_mining_asked",
+   "version": 1,
+   "tier": "T1",
+   "family": "skill_train",
+   "skill": "Mining",
+   "mode": "asked",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "can you get some Mining levelling done?",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Mining",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Mining",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 1200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 120.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "source": "https://dragonwilds.runescape.wiki/w/Mining"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_mining_initiative",
+   "version": 1,
+   "tier": "T2",
+   "family": "skill_train",
+   "skill": "Mining",
+   "mode": "initiative",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "go level up whatever you think needs it, I'll check back later",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Mining",
+      "level": 1
+     },
+     {
+      "verb": "raise_other_skills",
+      "except": "Mining",
+      "level": 10
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Mining",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 2400.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "note": "Mining is reset to 1 and the others raised to 10: the open task should pick it by itself"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_mining_plus5",
+   "version": 1,
+   "tier": "T3",
+   "family": "skill_train",
+   "skill": "Mining",
+   "mode": "plus5",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "get your Mining up five levels, take your time",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Mining",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "skill_gain": {
+     "name": "Mining",
+     "levels": 5
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 7200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {},
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_ranged_asked",
+   "version": 1,
+   "tier": "T1",
+   "family": "skill_train",
+   "skill": "Ranged",
+   "mode": "asked",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "can you get some Ranged levelling done?",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Ranged",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Ranged",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 1200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 120.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "source": "https://dragonwilds.runescape.wiki/w/Ranged"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_ranged_initiative",
+   "version": 1,
+   "tier": "T2",
+   "family": "skill_train",
+   "skill": "Ranged",
+   "mode": "initiative",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "go level up whatever you think needs it, I'll check back later",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Ranged",
+      "level": 1
+     },
+     {
+      "verb": "raise_other_skills",
+      "except": "Ranged",
+      "level": 10
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Ranged",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 2400.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "note": "Ranged is reset to 1 and the others raised to 10: the open task should pick it by itself"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_ranged_plus5",
+   "version": 1,
+   "tier": "T3",
+   "family": "skill_train",
+   "skill": "Ranged",
+   "mode": "plus5",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "get your Ranged up five levels, take your time",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Ranged",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "skill_gain": {
+     "name": "Ranged",
+     "levels": 5
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 7200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {},
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_runecrafting_asked",
+   "version": 1,
+   "tier": "T1",
+   "family": "skill_train",
+   "skill": "Runecrafting",
+   "mode": "asked",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "can you get some Runecrafting levelling done?",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Runecrafting",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Runecrafting",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 1200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 120.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "source": "https://dragonwilds.runescape.wiki/w/Runecrafting"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_runecrafting_initiative",
+   "version": 1,
+   "tier": "T2",
+   "family": "skill_train",
+   "skill": "Runecrafting",
+   "mode": "initiative",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "go level up whatever you think needs it, I'll check back later",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Runecrafting",
+      "level": 1
+     },
+     {
+      "verb": "raise_other_skills",
+      "except": "Runecrafting",
+      "level": 10
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Runecrafting",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 2400.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "note": "Runecrafting is reset to 1 and the others raised to 10: the open task should pick it by itself"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_runecrafting_plus5",
+   "version": 1,
+   "tier": "T3",
+   "family": "skill_train",
+   "skill": "Runecrafting",
+   "mode": "plus5",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "get your Runecrafting up five levels, take your time",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Runecrafting",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "skill_gain": {
+     "name": "Runecrafting",
+     "levels": 5
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 7200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {},
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_woodcutting_asked",
+   "version": 1,
+   "tier": "T1",
+   "family": "skill_train",
+   "skill": "Woodcutting",
+   "mode": "asked",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "can you get some Woodcutting levelling done?",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Woodcutting",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Woodcutting",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 1200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 120.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "source": "https://dragonwilds.runescape.wiki/w/Woodcutting"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_woodcutting_initiative",
+   "version": 1,
+   "tier": "T2",
+   "family": "skill_train",
+   "skill": "Woodcutting",
+   "mode": "initiative",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "go level up whatever you think needs it, I'll check back later",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Woodcutting",
+      "level": 1
+     },
+     {
+      "verb": "raise_other_skills",
+      "except": "Woodcutting",
+      "level": 10
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "xp_gained": {
+     "skill": "Woodcutting",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 2400.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "note": "Woodcutting is reset to 1 and the others raised to 10: the open task should pick it by itself"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "m3_woodcutting_plus5",
+   "version": 1,
+   "tier": "T3",
+   "family": "skill_train",
+   "skill": "Woodcutting",
+   "mode": "plus5",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "get your Woodcutting up five levels, take your time",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "reset_skills",
+      "skill": "Woodcutting",
+      "level": 1
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "skill_gain": {
+     "name": "Woodcutting",
+     "levels": 5
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 7200.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {},
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  }
+ ]
+}

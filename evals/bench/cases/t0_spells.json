@@ -1,0 +1,4461 @@
+{
+ "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code",
+ "cases": [
+  {
+   "id": "t0_cast_accesspersonalchest",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_AccessPersonalChest",
+    "cast_type": "instant",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Personal Chest for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Personal Chest",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_CorruptionArrows"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Air": 10,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_AccessPersonalChest"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Spectral Arrows"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Opens personal storage from anywhere (player UI)."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_axtralprojection",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_AxtralProjection",
+    "cast_type": "aimed",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Axtral Projection for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Axtral Projection",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_AxtralProjection"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Air": 20,
+       "Astral": 10
+      }
+     },
+     {
+      "verb": "grant",
+      "item": "ITEM_Logging_Axe_Stone",
+      "count": 1
+     },
+     {
+      "verb": "felled_log",
+      "as": "tgt",
+      "at": [
+       4,
+       0,
+       0
+      ],
+      "drops": "ITEM_Resources_Wood_Ash",
+      "count": 3
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_AxtralProjection"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "wrong_action": "no sibling spell with the same cast type and target",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Axtral Projection",
+       "target": "$tgt.id"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Axtral Projection",
+       "target": "$tgt.id"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Aimed: throws a conjured axe that flies up to 20 m and fells the trees in its path (damage from the held axe); use when several trees stand in a line. Cooldown 45 s."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_bonestopeaches",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_BonesToPeaches",
+    "cast_type": "placed",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Bones to Peaches for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Bones to Peaches",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_BonesToPeaches"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Nature": 20
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_DivineRock"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 200,
+       "Nature": 200
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_BonesToPeaches"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Divine Rock"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Bones to Peaches"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Bones to Peaches"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Turns dropped bones into peaches (food)."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_confuse",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_Confuse",
+    "cast_type": "aimed",
+    "confidence": "data_weak"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Confuse for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Confuse",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Confuse"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Astral": 50
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_Enfeeble"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Water": 40,
+       "Astral": 40
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_Confuse"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Enfeeble"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Confuse"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Confuse"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Lesser enemies can't tell friend from foe for a while; use when outnumbered by weak enemies."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_corruptionarrows",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_CorruptionArrows",
+    "cast_type": "instant",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Spectral Arrows for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Spectral Arrows",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_CorruptionArrows"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Air": 10,
+       "Astral": 30
+      }
+     },
+     {
+      "verb": "grant",
+      "item": "ITEM_Shortbow_Wood",
+      "count": 1
+     },
+     {
+      "verb": "hold",
+      "category": "two_handed_bow",
+      "item": "ITEM_Shortbow_Wood"
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_CorruptionArrows"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Spectral Arrows"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Spectral Arrows"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Arrows pierce several targets and bypass Ranged resistance for 5 minutes; use with a bow vs Ranged-resistant enemies."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_detectanimavents",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_DetectAnimaVents",
+    "cast_type": "instant",
+    "confidence": "data_weak"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Summon Elemental Spirits for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Summon Elemental Spirits",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_DetectAnimaVents"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Astral": 10
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_DetectAnimaVents"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Summon Elemental Spirits"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Summon Elemental Spirits"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Guides to nearby Anima Vents."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_detectore",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_DetectOre",
+    "cast_type": "instant",
+    "confidence": "data_weak"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Summon Stone Spirits for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Summon Stone Spirits",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_DetectOre"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Astral": 10
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_DetectOre"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Summon Stone Spirits"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Summon Stone Spirits"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Guides to the nearest minable rocks."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_divinerock",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_DivineRock",
+    "cast_type": "placed",
+    "confidence": "data_weak"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Divine Rock for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Divine Rock",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_DivineRock"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 200,
+       "Nature": 200
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_BonesToPeaches"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Nature": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_DivineRock"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Bones to Peaches"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Divine Rock"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Divine Rock"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Turns 5 dropped ore into a personal mining vein."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_enchantweapon_air",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_EnchantWeapon_Air",
+    "cast_type": "instant",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Enchant Weapon: Air for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Enchant Weapon: Air",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_EnchantWeapon_Air"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Astral": 10,
+       "Air": 30
+      }
+     },
+     {
+      "verb": "grant",
+      "item": "ITEM_GreatSword_Bronze",
+      "count": 1
+     },
+     {
+      "verb": "hold",
+      "category": "melee_weapon",
+      "item": "ITEM_GreatSword_Bronze"
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_EnchantWeapon_Air"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Enchant Weapon: Air"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Enchant Weapon: Air"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Faster melee attacks for a while; use at the start of a long fight. Kalphites resist Air damage."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_enchantweapon_fire",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_EnchantWeapon_Fire",
+    "cast_type": "instant",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Enchant Weapon: Fire for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Enchant Weapon: Fire",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_EnchantWeapon_Fire"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Fire": 30,
+       "Astral": 10
+      }
+     },
+     {
+      "verb": "grant",
+      "item": "ITEM_GreatSword_Bronze",
+      "count": 1
+     },
+     {
+      "verb": "hold",
+      "category": "melee_weapon",
+      "item": "ITEM_GreatSword_Bronze"
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_EnchantWeapon_Fire"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Enchant Weapon: Fire"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Enchant Weapon: Fire"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Adds Fire to melee hits (burn on crit); use against Fire-weak enemies such as goblins."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_enchantweapon_water",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_EnchantWeapon_Water",
+    "cast_type": "instant",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Enchant Weapon: Water for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Enchant Weapon: Water",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_EnchantWeapon_Water"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Water": 30,
+       "Astral": 10
+      }
+     },
+     {
+      "verb": "grant",
+      "item": "ITEM_GreatSword_Bronze",
+      "count": 1
+     },
+     {
+      "verb": "hold",
+      "category": "melee_weapon",
+      "item": "ITEM_GreatSword_Bronze"
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_EnchantWeapon_Water"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Enchant Weapon: Water"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Enchant Weapon: Water"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Adds Water damage and occasional healing orbs; good for sustained melee when not fighting Kalphites."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_enfeeble",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_Enfeeble",
+    "cast_type": "aimed",
+    "confidence": "data_weak"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Enfeeble for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Enfeeble",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Enfeeble"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Water": 40,
+       "Astral": 40
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_Confuse"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Astral": 50
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_Enfeeble"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Confuse"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Enfeeble"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Enfeeble"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Weakens the target's attacks; use on a boss or the hardest-hitting enemy."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_eyeofoculus",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_EyeOfOculus",
+    "cast_type": "instant",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Eye Of Oculus for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Eye Of Oculus",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_EyeOfOculus"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Astral": 6
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_CorruptionArrows"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Air": 10,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_EyeOfOculus"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Spectral Arrows"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Eye Of Oculus"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Eye Of Oculus"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "A building camera view; player-only."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_farming_compost",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_Farming_Compost",
+    "cast_type": "placed",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Mucksplosion for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Mucksplosion",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Farming_Compost"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 40,
+       "Astral": 30
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_BonesToPeaches"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Nature": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_Farming_Compost"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Bones to Peaches"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Mucksplosion"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Mucksplosion"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Showers plots with fertiliser."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_farming_rapidgrowth",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_Farming_RapidGrowth",
+    "cast_type": "placed",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Rapid Growth for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Rapid Growth",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Farming_RapidGrowth"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 60,
+       "Nature": 60
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_BonesToPeaches"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Nature": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_Farming_RapidGrowth"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Bones to Peaches"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Rapid Growth"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Rapid Growth"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Advances plant growth."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_ferociousfurnace",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_FerociousFurnace",
+    "cast_type": "placed",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Superheat for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Superheat",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_FerociousFurnace"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Fire": 30,
+       "Air": 10
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_BonesToPeaches"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Nature": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_FerociousFurnace"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Bones to Peaches"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Superheat"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Superheat"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Speeds up fire-based stations for a time."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_firespirit",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_FireSpirit",
+    "cast_type": "instant",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Fire Spirit for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Fire Spirit",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_FireSpirit"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Fire": 20
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_FireSpirit"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Fire Spirit"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Fire Spirit"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Summons a fire spirit that gives light."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_fishcyclone",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_FishCyclone",
+    "cast_type": "placed",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Fishnado for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Fishnado",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_FishCyclone"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Nature": 10,
+       "Air": 30
+      }
+     },
+     {
+      "verb": "grant",
+      "item": "ITEM_FishingRod_Oak",
+      "count": 1
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_BonesToPeaches"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Nature": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_FishCyclone"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Bones to Peaches"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Fishnado"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Fishnado"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "A tornado pulls up to 5 fish out of the water."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_fishingfrenzy",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_FishingFrenzy",
+    "cast_type": "placed",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Fishing Frenzy for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Fishing Frenzy",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_FishingFrenzy"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Water": 30,
+       "Astral": 10
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_BonesToPeaches"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Nature": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_FishingFrenzy"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Bones to Peaches"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Fishing Frenzy"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Fishing Frenzy"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Each catch yields an extra fish for a time."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_harvest",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_Harvest",
+    "cast_type": "instant",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Uproot for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Uproot",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Harvest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 20,
+       "Astral": 20
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_Harvest"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Uproot"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Uproot"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Instantly harvests ripe and wild plants in a small radius."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_hometeleport",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_HomeTeleport",
+    "cast_type": "instant",
+    "confidence": "data_weak"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Home Teleport for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Home Teleport",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_HomeTeleport"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 30
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_HomeTeleport"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Home Teleport"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Home Teleport"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Teleports to the caster's bed; the bot uses go_to/teleport instead."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_humidify",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_Humidify",
+    "cast_type": "aimed",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Humidify for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Humidify",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Humidify"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Water": 30,
+       "Astral": 20
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_Confuse"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Astral": 50
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_Humidify"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Confuse"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Humidify"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Humidify"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "A rain cloud waters the plots it passes."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_infernalrod",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_InfernalRod",
+    "cast_type": "instant",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Infernal Rod for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Infernal Rod",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_InfernalRod"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Fire": 100
+      }
+     },
+     {
+      "verb": "grant",
+      "item": "ITEM_FishingRod_Oak",
+      "count": 1
+     },
+     {
+      "verb": "hold",
+      "category": "fishing_rod",
+      "item": "ITEM_FishingRod_Oak"
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_InfernalRod"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Infernal Rod"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Infernal Rod"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Fish caught are cooked for 2 minutes."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_internalalchemy",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_InternalAlchemy",
+    "cast_type": "instant",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Internal Alchemy for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Internal Alchemy",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_InternalAlchemy"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Nature": 20
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_InternalAlchemy"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Internal Alchemy"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Internal Alchemy"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Refreshes active food and drink buffs."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_magicalmending",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_MagicalMending",
+    "cast_type": "placed",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Magical Mending for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Magical Mending",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_MagicalMending"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 40,
+       "Nature": 20
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_BonesToPeaches"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Nature": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_MagicalMending"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Bones to Peaches"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Magical Mending"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Magical Mending"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Repairs damaged gear that Luis drops on the floor next to the bot."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_phasedash",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_PhaseDash",
+    "cast_type": "instant",
+    "confidence": "live"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Phase Dash for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Phase Dash",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_PhaseDash"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Astral": 20,
+       "Air": 40
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_PhaseDash"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ],
+    "alt_means": [
+     {
+      "tool": "go_to",
+      "args": {
+       "target": [
+        12.0,
+        0.0,
+        0.0
+       ]
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Phase Dash"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Phase Dash"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "A second dash in mid-air; player movement, rarely useful for the bot."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_pileemup",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_PileEmUp",
+    "cast_type": "placed",
+    "confidence": "data_weak"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Trunk Totem for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Trunk Totem",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_PileEmUp"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 20,
+       "Nature": 60
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_BonesToPeaches"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Nature": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_PileEmUp"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Bones to Peaches"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Trunk Totem"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Trunk Totem"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Placed: gathers scattered felled trunks into one totem; then Splinter the totem for all the logs. Cooldown 180 s, so use it once per clearing."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_recall",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_Recall",
+    "cast_type": "instant_after_move",
+    "confidence": "data_weak"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Recall for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Recall",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Recall"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 30,
+       "Air": 60
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_Recall"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "wrong_action": "no sibling spell with the same cast type and target",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Recall"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Recall"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Places a beacon to return to within a time limit."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_rocksplosion",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_Rocksplosion",
+    "cast_type": "placed",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Rocksplosion for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Rocksplosion",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Rocksplosion"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 60,
+       "Fire": 30
+      }
+     },
+     {
+      "verb": "grant",
+      "item": "ITEM_Pickaxe_Stone",
+      "count": 1
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_BonesToPeaches"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Nature": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_Rocksplosion"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Bones to Peaches"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Rocksplosion"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Rocksplosion"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Breaks apart nearby boulders and ore; use while mining."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_runestoruneessence",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_RunesToRuneEssence",
+    "cast_type": "placed",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Runes To Rune Essence for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Runes To Rune Essence",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_RunesToRuneEssence"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Water": 10,
+       "Astral": 10
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_BonesToPeaches"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Nature": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_RunesToRuneEssence"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Bones to Peaches"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Runes To Rune Essence"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Runes To Rune Essence"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Converts dropped runes back into 40% of their essence."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_snaretrap",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_SnareTrap",
+    "cast_type": "instant",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Snare for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Snare",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_SnareTrap"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 30,
+       "Nature": 20
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_SnareTrap"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Snare"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Snare"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "A trap that roots enemies that walk into it; place it between enemies and Luis."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_speedupstation",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_SpeedupStation",
+    "cast_type": "placed",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Overdrive for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Overdrive",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_SpeedupStation"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Water": 10,
+       "Air": 30
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_BonesToPeaches"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Nature": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_SpeedupStation"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Bones to Peaches"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Overdrive"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Overdrive"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Speeds up a mechanical processing station."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_splinter",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_Splinter",
+    "cast_type": "placed",
+    "confidence": "live"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Splinter for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Splinter",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Splinter"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 20,
+       "Nature": 10
+      }
+     },
+     {
+      "verb": "felled_log",
+      "as": "tgt",
+      "at": [
+       4,
+       0,
+       0
+      ],
+      "drops": "ITEM_Resources_Wood_Ash",
+      "count": 3
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_Splinter"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "alt_means": [
+     {
+      "setup": "ground_item",
+      "item": "ITEM_Resources_Wood_Ash",
+      "count": 3,
+      "at": [
+       4.2,
+       0,
+       0
+      ]
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "wrong_action": "no sibling spell with the same cast type and target"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Splinter",
+       "target": "$tgt.id"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Splinter",
+       "target": "$tgt.id"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Placed: chops felled trunks within 2.3 m of the target point into logs at once (damage from the held axe); cast on a Trunk Totem or a felled trunk. Cooldown 45 s."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_summonshelter",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_SummonShelter",
+    "cast_type": "placed",
+    "confidence": "live"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Summon Shelter for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Summon Shelter",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_SummonShelter"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 20,
+       "Astral": 20
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_BonesToPeaches"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Nature": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_SummonShelter"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Bones to Peaches"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Summon Shelter"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Summon Shelter"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Builds a temporary shelter with a bed."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_surge",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_Surge",
+    "cast_type": "instant",
+    "confidence": "data_weak"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Surge for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Surge",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Surge"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 20,
+       "Astral": 20
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_Surge"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Surge"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Surge"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Dodges travel further and evade for longer; use before a fight full of big attacks."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_tempestshield",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_TempestShield",
+    "cast_type": "instant",
+    "confidence": "live"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Tempest Shield for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Tempest Shield",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_TempestShield"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Air": 30
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_TempestShield"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Tempest Shield"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Tempest Shield"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Block all damage for about a minute; cast before a big hit lands or when HP is low. Save it for bosses if Luis asks."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_treequipment",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_Treequipment",
+    "cast_type": "placed",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Bark to Bones for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Bark to Bones",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Treequipment"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 20,
+       "Nature": 20
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_BonesToPeaches"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 10,
+       "Nature": 20
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_Treequipment"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Bones to Peaches"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Bark to Bones"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Bark to Bones"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Turns a tree into a stack of bones; only when bones are needed (not for log gathering)."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_vengeance",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_Vengeance",
+    "cast_type": "instant",
+    "confidence": "data"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Vengeance for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Vengeance",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Vengeance"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Earth": 20,
+       "Astral": 40
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_Vengeance"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Vengeance"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Vengeance"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Reflects enemy damage back at them; use when tanking a hard hitter."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "t0_cast_windstep",
+   "version": 1,
+   "tier": "T0",
+   "family": "spell_cast",
+   "authored_by": "data",
+   "status": "suite",
+   "tags": {
+    "spell": "USD_Windstep",
+    "cast_type": "instant",
+    "confidence": "live"
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "hey, use Windstep for me",
+     "from": "player"
+    }
+   ],
+   "phrasing_heldout": "go on then, let's see Windstep",
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "unlock",
+      "spell": "USD_Windstep"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Air": 10
+      }
+     },
+     {
+      "verb": "unlock",
+      "spell": "USD_AccessPersonalChest"
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Law": 40,
+       "Astral": 30
+      }
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "spell_effect": {
+     "spell": "USD_Windstep"
+    }
+   },
+   "guards": [],
+   "controls": {
+    "wrong_action": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Personal Chest"
+      }
+     }
+    ],
+    "na": {
+     "partial": "a one-step oracle: cutting it short is do_nothing",
+     "alt_means": "no other means produces this spell's own tag/GE/actor/cooldown"
+    }
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "sim_s": 120.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 30.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Windstep"
+      }
+     }
+    ],
+    "dev": [
+     {
+      "tool": "cast",
+      "args": {
+       "spell": "Windstep"
+      }
+     }
+    ]
+   },
+   "provenance": {
+    "by": "generator.t0_cases",
+    "from": "data/spell_effects.json",
+    "description": "Wind Stomp: a 7 m AoE stagger (force 1000, no damage) at the landing point; use on groups (great vs Kalphites), then hit them while they stumble."
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  }
+ ]
+}

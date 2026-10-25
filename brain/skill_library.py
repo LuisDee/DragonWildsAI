@@ -402,11 +402,35 @@ class SkillLibrary:
     def learn(self, goal: str, tasks: list[Task], state: dict, llm: LLMClient, registry: SkillRegistry,
               seconds: float | None = None, build: str | None = None, max_repairs: int = 1) -> SkillRecord | None:
         """Generalise a verified task list into a skill and save it. None when it can't be done
-        faithfully (the record is never stored unverified)."""
-        done = [t for t in tasks if t.done]  # the verified sequence (failed, replanned-away steps are dropped)
-        if len(done) < 2:
+        faithfully (the record is never stored unverified). Same as ``propose`` then ``accept``."""
+        proposal = self.propose(goal, tasks, state, llm, registry, max_repairs=max_repairs)
+        if proposal is None:
             return None
-        actual = [(t.skill, registry.validate(t.skill, t.args)) for t in done]
+        return self.accept(proposal, goal, tasks, state, registry, seconds=seconds, build=build)
+
+    @staticmethod
+    def _verified(tasks: list[Task], registry: SkillRegistry) -> list[tuple[str, dict]]:
+        # the verified sequence (failed, replanned-away steps are dropped)
+        return [(t.skill, registry.validate(t.skill, t.args)) for t in tasks if t.done]
+
+    def _check(self, rec: SkillRecord, example: dict, actual: list[tuple[str, dict]], state: dict,
+               registry: SkillRegistry) -> None:
+        """The faithfulness gate (expanding with example_params reproduces the verified steps exactly) and the
+        postcondition on the given state. Raises SkillError."""
+        got = [(t.skill, t.args) for t in self.expand_record(rec, example, registry)]
+        if got != actual:
+            raise SkillError(f"expanding with example_params gives {got}, expected {actual}")
+        if _postcondition_holds(rec.postcondition, _coerce(rec, example), state) is False:
+            raise SkillError("the postcondition does not hold in the current game state")
+
+    def propose(self, goal: str, tasks: list[Task], state: dict, llm: LLMClient, registry: SkillRegistry,
+                max_repairs: int = 1) -> tuple[SkillRecord, dict] | None:
+        """The model part of learning: one call (plus repair rounds) that names and parameterises the verified
+        steps, checked on ``state``. Writes nothing, so it can run on a worker thread over its OWN library
+        instance (docs/design/director.md section 12 item 4); the agent loop then calls ``accept``."""
+        actual = self._verified(tasks, registry)
+        if len(actual) < 2:
+            return None
         prompt = LEARN_PROMPT.format(skills=json.dumps(registry.describe()), existing=self.names() or "none",
                                      kinds=json.dumps(PRECONDITION_KINDS))
         user = {"goal": goal, "verified_steps": [{"skill": s, "args": a} for s, a in actual]}
@@ -414,21 +438,29 @@ class SkillLibrary:
         for round_ in range(max_repairs + 1):
             self._log("prompt", component="skill_learner", model=llm.model, messages=messages)
             resp = llm.complete(messages)
-            self._log("llm_response", component="skill_learner", content=resp.content)
+            self._log("llm_response", component="skill_learner", content=resp.content, usage=resp.usage)
             try:
                 rec, example = self._parse(resp.content or "")
-                got = [(t.skill, t.args) for t in self.expand_record(rec, example, registry)]
-                if got != actual:
-                    raise SkillError(f"expanding with example_params gives {got}, expected {actual}")
-                if _postcondition_holds(rec.postcondition, _coerce(rec, example), state) is False:
-                    raise SkillError("the postcondition does not hold in the current game state")
+                self._check(rec, example, actual, state, registry)
             except (ValueError, ValidationError, SkillError) as exc:
                 self._log("skill_invalid", error=str(exc)[:500], round=round_)
                 messages = messages + [{"role": "assistant", "content": resp.content or ""},
                                        {"role": "user", "content": f"Invalid: {exc}\nReturn corrected JSON only."}]
                 continue
-            return self._store_learned(rec, goal, seconds, build)
+            return rec, example
         return None
+
+    def accept(self, proposal: tuple[SkillRecord, dict], goal: str, tasks: list[Task], state: dict,
+               registry: SkillRegistry, seconds: float | None = None, build: str | None = None) -> SkillRecord | None:
+        """The deterministic part, on the library that owns the files: re-check the proposal against THIS
+        library and fresh ``state``, then save it (or note it as a variant). None when it no longer holds."""
+        rec, example = proposal
+        try:
+            self._check(rec, example, self._verified(tasks, registry), state, registry)
+        except (ValueError, ValidationError, SkillError) as exc:
+            self._log("skill_invalid", error=str(exc)[:500], round="accept")
+            return None
+        return self._store_learned(rec, goal, seconds, build)
 
     def expand_record(self, rec: SkillRecord, params: dict, registry: SkillRegistry) -> list[Task]:
         """Expand a record that is not (yet) in the library."""

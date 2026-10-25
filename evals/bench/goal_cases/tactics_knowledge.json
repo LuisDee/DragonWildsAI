@@ -1,0 +1,400 @@
+{
+ "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code",
+ "cases": [
+  {
+   "id": "goal_tactics_prep_hard_fight",
+   "version": 1,
+   "tier": "T2",
+   "family": "tactics",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "that thing over there is nasty, take it out when you're ready",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "spawn",
+      "as": "boss",
+      "class": "<a creature 2+ PL above his gear>",
+      "offset_m": [
+       30,
+       0,
+       0
+      ]
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "prepared": {
+     "any": [
+      {
+       "tag": "<Tempest Shield tag>"
+      },
+      {
+       "enchant_type": "<the boss weakness damage type>"
+      },
+      {
+       "item": "<antipoison or food>",
+       "at_least": 1
+      }
+     ]
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 900.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 60.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "sources": [
+     "https://dragonwilds.runescape.wiki/w/Velgar/Strategies"
+    ]
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "goal_tactics_damage_trend",
+   "version": 1,
+   "tier": "T2",
+   "family": "tactics",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "keep fighting these until you've got them figured out",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "spawn",
+      "class": "<a mid creature with telegraphs>",
+      "offset_m": [
+       8,
+       0,
+       0
+      ]
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "killed": {
+     "kind": "<creature>",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 60.0,
+    "repeat": 5
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {
+    "note": "process metric damage_taken per repeat (referee), slope over 5 fights"
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "goal_knowledge_recipe",
+   "version": 1,
+   "tier": "T1",
+   "family": "knowledge",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "make yourself a bronze pickaxe",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "have": {
+     "item": "Bronze Pickaxe",
+     "at_least": 1
+    }
+   },
+   "guards": [],
+   "needs_fact": {
+    "kind": "recipe",
+    "truth": "Bronze Bar"
+   },
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 1800.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 60.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {},
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "goal_knowledge_weakness",
+   "version": 1,
+   "tier": "T1",
+   "family": "knowledge",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "kill that one, use whatever hurts it most",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "spawn",
+      "as": "foe",
+      "class": "<a creature with a wiki weakness>"
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "damage_type_dealt": {
+     "target_kind_id": "<class>",
+     "types": [
+      "<weakness type>"
+     ]
+    }
+   },
+   "guards": [],
+   "needs_fact": {
+    "kind": "weakness",
+    "truth": "<the creature's weakness from the wiki>"
+   },
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 60.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {},
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "goal_knowledge_location",
+   "version": 1,
+   "tier": "T1",
+   "family": "knowledge",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "find us some clay",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "gained": {
+     "item": "Clay",
+     "at_least": 5
+    }
+   },
+   "guards": [],
+   "needs_fact": {
+    "kind": "location",
+    "truth": "<clay node region>"
+   },
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 1800.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 60.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {},
+   "provenance": {},
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "goal_knowledge_no_lookup_needed",
+   "version": 1,
+   "tier": "T1",
+   "family": "knowledge",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "pick up those logs next to you",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "ground_item",
+      "item": "ITEM_Resources_Wood_Ash",
+      "count": 3,
+      "at": [
+       2,
+       0,
+       0
+      ]
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "gained": {
+     "item": "Ash Logs",
+     "at_least": 3
+    }
+   },
+   "guards": [],
+   "needs_fact": {
+    "kind": "none"
+   },
+   "controls": {
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 300.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 60.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "mock",
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "mock": [
+     {
+      "pickup_all": "ITEM_Resources_Wood_Ash"
+     }
+    ],
+    "dev": [
+     {
+      "pickup_all": "ITEM_Resources_Wood_Ash"
+     }
+    ]
+   },
+   "provenance": {},
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  }
+ ]
+}
