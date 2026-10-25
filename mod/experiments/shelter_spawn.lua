@@ -22,7 +22,12 @@ function M.run(log, args)
         return bot:GetWorld():SpawnActor(cls, at, { Pitch = 0, Yaw = yaw + 180, Roll = 0 })
     end)
     if not ok or not U.valid(shelter) then return { ok = false, error = tostring(shelter) } end
-    return { ok = true, shelter = U.short(shelter), class = U.fullname(cls), at = at }
+    -- The caster (shown as the shelter's owner in game) is the actor Owner/Instigator: a real cast sets
+    -- both to the casting character (verified on Luis's shelter), so mirror that for the bot.
+    U.call(log, "shelter_spawn.SetOwner", {}, function() shelter:SetOwner(bot) end)
+    U.call(log, "shelter_spawn.Instigator", {}, function() shelter.Instigator = bot end)
+    return { ok = true, shelter = U.short(shelter), class = U.fullname(cls), at = at,
+             caster = U.fullname(U.try(function() return shelter:GetCaster() end)) }
 end
 
 return M

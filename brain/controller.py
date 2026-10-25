@@ -45,6 +45,10 @@ How to decide:
 - Simple, immediate requests (follow me, wait here, come here, attack that, stop, give me X,
   pick that up, drop the logs) -> call the matching action tool directly. "wait here" = stop.
   "come here" = go_to the player.
+- Harvesting (chop / cut / fell a tree, chop that fallen log or stump, mine a rock) -> call gather
+  with the resource kind ("oak", "ash", "stone"...). gather finds standing trees, felled trees, logs
+  and stumps itself, nearest first, so you do NOT need to see them in situation first.
+  "chop it" = 1 more of that resource unless a count was given.
 - Multi-step jobs (gather X then build/bring Y) -> if a learned skill in learned_skills fits and its
   params are clear, call run_skill; otherwise call start_goal with the goal in plain words.
 - Facts worth keeping -> remember. A place: key "place:<name>", value "here" (where you stand),
@@ -77,8 +81,10 @@ set_reflex_rule: say you can't sense that. Map his words: "raises its claws", "w
 reflex_rules lists current orders: "what are your orders" -> list_rules; "stop doing that" /
 "forget that" -> clear_rule with the matching id."""
 
-LOOK_RULE = (", call look with about=<their words> first (read-only, it does not interrupt your job), "
-             "then act on an id from its result. inspect gives details of one thing.")
+LOOK_RULE = (": situation is only a short summary and misses many things (sticks, stones, plants, chests, "
+             "stations). ALWAYS call look with about=<their words> first, before acting or saying you can't see it "
+             "(read-only, it does not interrupt your job); then act on an id from its result. inspect gives "
+             "details of one thing.")
 NO_LOOK_RULE = ", you can't look around yet: say you can't see it."
 
 START_GOAL = {
@@ -105,6 +111,13 @@ ACKS = {"follow": "Right behind you.", "stop": "Okay, stopping.", "go_to": "On m
         "list_rules": "", "clear_rule": ""}
 # Actions that leave the current job running (a spell or a standing order is not a new job).
 NON_INTERRUPTING = {"remember", "cast", *RULE_TOOLS}
+# Command words that don't name a thing ("pick that up", "grab it all", "loot everything").
+VERB_WORDS = {"pick", "grab", "take", "collect", "fetch", "bring", "gather", "carry", "lift", "hold", "use", "open",
+              "press", "harvest", "loot", "everything", "lot", "can", "could", "would", "will", "go", "come",
+              "quick", "quickly", "now", "again", "too", "also", "just", "claude", "companion", "mate", "buddy",
+              "drop", "dropped", "stuff", "here", "over", "what", "which", "where", "who", "we", "us", "our", "his",
+              "her", "their", "mine", "yours", "left", "behind", "front", "next", "close", "one", "ones", "few",
+              "couple", "lying", "floor", "ground", "around", "nearby"}
 # Reasons in words, for "I couldn't X: <why>".
 REASON_PHRASES = {
     Reason.PATH_BLOCKED: "I can't find a way there",
@@ -284,6 +297,9 @@ class Controller:
     # ---------------------------------------------------------------- the bounded loop
 
     def decide(self, player: str, text: str, state: dict, active_goal: str | None) -> Decision:
+        # What the player named, for grounding pickup/interact against the words they used.
+        self._named = sit.tokens(text) - VERB_WORDS - sit.tokens(player) - sit.tokens(self.name)
+        self._named_words = [w for w in re.findall(r"[A-Za-z']+", text) if sit.tokens(w) & self._named]
         context = self.context(player, text, state, active_goal)
         messages = [{"role": "system", "content": self.persona()},
                     {"role": "user", "content": json.dumps(context, default=str, ensure_ascii=False)}]
@@ -328,7 +344,10 @@ class Controller:
         res = self.game.call(call.name, args)
         self.log.log("tool_result", tool=call.name, result=res, read_only=True)
         if call.name == "look" and res.get("ok"):
-            d.looks.append({**res["data"], "_about": args.get("about")})
+            look = {**res["data"], "_about": args.get("about")}
+            d.looks.append(look)
+            if args.get("about"):  # say it plainly to the model too (the body only ranks by match score)
+                res = {**res, "data": {**res["data"], "matched": bool(sit.look_matched(look))}}
         if not res.get("ok") and res.get("reason") in Reason.CANT_YET:
             return {"ok": False, "reason": res["reason"], "note": f"you can't {call.name} yet"}
         return res
@@ -383,11 +402,18 @@ class Controller:
             return None  # nothing to ground against; the executor refuses without state anyway
         args = call.arguments
         things = sit.perceived(state, looks)
-        unmatched = [lk.get("_about") for lk in looks if lk.get("matched") is False and lk.get("_about")]
+        unmatched = [lk.get("_about") for lk in looks if sit.look_matched(lk) is False and lk.get("_about")]
 
         def refuse(what: str, kinds: set[str] | None = None) -> tuple[str, str, dict]:
             return call.name, Reason.NOT_PERCEIVED, {"what": what, "seen": sit.describe_seen(things, kinds=kinds)}
 
+        named = getattr(self, "_named", set())
+
+        def off_topic(t: sit.Thing) -> bool:
+            """The player named something (e.g. 'sticks') and this target is not it (e.g. Oak Logs)."""
+            return bool(named) and not (named & t.words())
+
+        spoken = " ".join(getattr(self, "_named_words", [])) or " ".join(sorted(named))
         if call.name == "pickup":
             if args.get("target") not in (None, "nearest"):
                 t = sit.by_id(args["target"], things)
@@ -395,12 +421,19 @@ class Controller:
                     return refuse(args.get("item") or args["target"])
                 if args.get("item") and not sit.match(args["item"], [t]):
                     return refuse(args["item"])
+                if off_topic(t):
+                    return refuse(unmatched[-1] if unmatched else spoken)
             if args.get("item"):
                 ground = [t for t in things if t.kind == "item"]
-                if not sit.match(args["item"], ground):
+                hits = sit.match(args["item"], ground)
+                if not hits:
                     return refuse(args["item"])
+                if all(off_topic(t) for t in hits):
+                    return refuse(unmatched[-1] if unmatched else spoken)
             elif unmatched:
                 return refuse(unmatched[-1])
+            elif named and not any(not off_topic(t) for t in things if t.kind == "item"):
+                return refuse(spoken)
         elif call.name in ("attack", "interact"):
             target = str(args.get("target") or "")
             t = sit.by_id(target, things)
@@ -419,6 +452,8 @@ class Controller:
                                   {"creature"} if call.name == "attack" else None)
             if unmatched and call.name == "interact" and not sit.match(unmatched[-1], [t]):
                 return refuse(unmatched[-1])
+            if call.name == "interact" and off_topic(t):
+                return refuse(unmatched[-1] if unmatched else spoken)
         elif call.name in ("give", "drop"):
             if "inventory" in state and not self._carries(state, str(args.get("item") or "")):
                 return call.name, Reason.NOT_IN_INVENTORY, {"item": args.get("item")}
@@ -436,7 +471,7 @@ class Controller:
 
     def _unseen_fallback(self, d: Decision) -> None:
         """No action: if the turn looked for something and found nothing, make sure the reply says so."""
-        missed = [lk for lk in d.looks if lk.get("matched") is False and lk.get("_about")]
+        missed = [lk for lk in d.looks if sit.look_matched(lk) is False and lk.get("_about")]
         if missed and not d.speech:
             lk = missed[-1]
             seen = ", ".join(dict.fromkeys(str(t.get("name")) for t in lk.get("things") or [] if t.get("name")))

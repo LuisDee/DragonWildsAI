@@ -4,7 +4,9 @@
 --                                                                     PlayerArray flags, beds (BedComponent)
 --   {"action":"watch","seconds":120}                                  log rest-state / night changes every 500 ms
 --   {"action":"mark","asleep":true,"confirm":true}                    puppet PlayerRestComponent.IsSleeping (no OnRep)
+--        INEFFECTIVE for the night skip (verified 2026-10-25): the game still waited on Claude
 --   {"action":"ps_flag","flag":"bOnlySpectator","value":true,"confirm":true}   bot PlayerState flag
+--        INEFFECTIVE for the night skip (verified 2026-10-25). Kept as the historical record.
 --   {"action":"bed","confirm":true[,"bed":"<owner id>"]}              CanSleep(puppet) then Sleep(puppet) on the
 --                                                                     nearest bed within 4 m of the puppet
 --   {"action":"bed_stop","confirm":true}                              StopSleeping(puppet) on that bed
