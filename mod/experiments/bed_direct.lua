@@ -1,5 +1,5 @@
 -- Sleep the bot in a specific bed/shelter directly (no walking): find the BedComponent owned by the
--- target actor, CanSleep(puppet) -> Sleep(puppet). debug_run {module="bed_direct", args={target=<actor id>, action="sleep"|"stop"}}
+-- target actor, CanSleep(puppet) -> Sleep(puppet). debug_run {module="bed_direct", args={target=<actor id>, action="sleep"|"stop"|"claim"}}
 local U = require("body.util")
 local M = {}
 
@@ -13,6 +13,12 @@ function M.run(log, args)
         if U.valid(owner) and U.short(owner) == args.target then comp = b; break end
     end
     if not comp then return { ok = false, error = "no BedComponent on " .. tostring(args.target) } end
+    if args.action == "claim" then
+        local ok, err = U.call(log, "bed_direct.Claim", { target = args.target }, function() comp:Claim(p) end)
+        return { claimed = ok, err = err and tostring(err),
+                 claimed_by_bot = U.try(function() return comp:IsClaimedByPlayer(p) end),
+                 name = U.try(function() return comp:GetClaimingCharacterName():ToString() end) }
+    end
     if args.action == "stop" then
         local ok = U.call(log, "bed_direct.StopSleeping", {}, function() comp:StopSleeping(p) end)
         return { stopped = ok }
