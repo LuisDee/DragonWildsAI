@@ -1,7 +1,7 @@
 {
  "version": 1,
  "build": "26161880",
- "generated_at": "2026-10-25T21:46:16Z",
+ "generated_at": "2026-10-25T21:54:39Z",
  "source": [
   "data/spells_26161880.json",
   "tools/gen_spell_effects.py LIVE (DISCOVERIES 'Client spells (R2)')",
@@ -165,9 +165,12 @@
      },
      "observable": "state",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "his storage chest anywhere"
     }
-   ]
+   ],
+   "for": "his storage chest anywhere",
+   "needs": null
   },
   "USD_AxtralProjection": {
    "name": "Axtral Projection",
@@ -276,9 +279,12 @@
      "observable": "state",
      "confidence": "data",
      "source": "description",
-     "note": "felled trunks drop logs on the ground: he must pick them up (or chop/Splinter the trunks)"
+     "note": "felled trunks drop logs on the ground: he must pick them up (or chop/Splinter the trunks)",
+     "for": "felling trees in a line"
     }
-   ]
+   ],
+   "for": "felling trees in a line",
+   "needs": "Logging Axe"
   },
   "USD_BonesToPeaches": {
    "name": "Bones to Peaches",
@@ -359,9 +365,12 @@
      },
      "observable": "state",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "food from bones"
     }
-   ]
+   ],
+   "for": "food from bones",
+   "needs": null
   },
   "USD_CabbageRain": {
    "name": "Cabbage Rain",
@@ -406,7 +415,9 @@
    ],
    "status": "n/a",
    "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
-   "purposes": []
+   "purposes": [],
+   "for": null,
+   "needs": null
   },
   "USD_Confuse": {
    "name": "Confuse",
@@ -481,9 +492,12 @@
      "observable": false,
      "gap": "no leaf for 'enemy hit by another enemy'",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "turning weak foes on each other"
     }
-   ]
+   ],
+   "for": "turning weak foes on each other",
+   "needs": null
   },
   "USD_CorruptionArrows": {
    "name": "Spectral Arrows",
@@ -565,9 +579,12 @@
      },
      "observable": "state",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "arrows through several foes"
     }
-   ]
+   ],
+   "for": "arrows through several foes",
+   "needs": "2-Handed Bow."
   },
   "USD_DetectAnimaVents": {
    "name": "Summon Elemental Spirits",
@@ -633,9 +650,12 @@
      },
      "observable": "state",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "finding anima vents"
     }
-   ]
+   ],
+   "for": "finding anima vents",
+   "needs": null
   },
   "USD_DetectOre": {
    "name": "Summon Stone Spirits",
@@ -701,9 +721,12 @@
      },
      "observable": "state",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "finding rocks to mine"
     }
-   ]
+   ],
+   "for": "finding rocks to mine",
+   "needs": null
   },
   "USD_DetectOreAlt": {
    "name": "Detect Ore (Alt)",
@@ -747,7 +770,9 @@
    ],
    "status": "n/a",
    "na_reason": "no perk unlocks it (internal / unreleased / world-interaction asset)",
-   "purposes": []
+   "purposes": [],
+   "for": null,
+   "needs": null
   },
   "USD_DivineRock": {
    "name": "Divine Rock",
@@ -819,9 +844,12 @@
      "observable": false,
      "gap": "Blueprint-only spell; the vein actor is unknown",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "a personal ore vein"
     }
-   ]
+   ],
+   "for": "a personal ore vein",
+   "needs": null
   },
   "USD_EnchantChefsTools": {
    "name": "Enchant Chef's Tools",
@@ -872,7 +900,9 @@
    ],
    "status": "n/a",
    "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
-   "purposes": []
+   "purposes": [],
+   "for": null,
+   "needs": "Cast on Cooking Range"
   },
   "USD_EnchantWeapon_Air": {
    "name": "Enchant Weapon: Air",
@@ -958,9 +988,12 @@
      "observable": "state",
      "gap": "the enchant itself (held_item_effect) has no reader yet",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "stronger melee hits"
     }
-   ]
+   ],
+   "for": "stronger melee hits",
+   "needs": "A held melee weapon"
   },
   "USD_EnchantWeapon_Earth": {
    "name": "Enchant Weapon: Earth",
@@ -1019,7 +1052,9 @@
    ],
    "status": "n/a",
    "na_reason": "no perk unlocks it (internal / unreleased / world-interaction asset)",
-   "purposes": []
+   "purposes": [],
+   "for": null,
+   "needs": "A held melee weapon"
   },
   "USD_EnchantWeapon_Fire": {
    "name": "Enchant Weapon: Fire",
@@ -1105,9 +1140,12 @@
      "observable": "state",
      "gap": "the enchant itself (held_item_effect) has no reader yet",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "stronger melee hits"
     }
-   ]
+   ],
+   "for": "stronger melee hits",
+   "needs": "A held melee weapon"
   },
   "USD_EnchantWeapon_Water": {
    "name": "Enchant Weapon: Water",
@@ -1193,9 +1231,12 @@
      "observable": "state",
      "gap": "the enchant itself (held_item_effect) has no reader yet",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "stronger melee hits"
     }
-   ]
+   ],
+   "for": "stronger melee hits",
+   "needs": "A held melee weapon"
   },
   "USD_Enfeeble": {
    "name": "Enfeeble",
@@ -1270,9 +1311,12 @@
      "observable": false,
      "gap": "no leaf for 'enemy damage reduced'",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "weakening a strong foe"
     }
-   ]
+   ],
+   "for": "weakening a strong foe",
+   "needs": null
   },
   "USD_EyeOfOculus": {
    "name": "Eye Of Oculus",
@@ -1345,9 +1389,12 @@
      "observable": false,
      "gap": "Blueprint-only spell; no reader",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "a builder's view"
     }
-   ]
+   ],
+   "for": "a builder's view",
+   "needs": null
   },
   "USD_Farming_Compost": {
    "name": "Mucksplosion",
@@ -1446,9 +1493,12 @@
      "observable": false,
      "gap": "no reader for plot fertiliser state",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "fertilising plots"
     }
-   ]
+   ],
+   "for": "fertilising plots",
+   "needs": "150 units of compost"
   },
   "USD_Farming_RapidGrowth": {
    "name": "Rapid Growth",
@@ -1533,9 +1583,12 @@
      "observable": false,
      "gap": "no reader for crop growth stage",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "growing a crop a stage"
     }
-   ]
+   ],
+   "for": "growing a crop a stage",
+   "needs": null
   },
   "USD_FerociousFurnace": {
    "name": "Superheat",
@@ -1612,9 +1665,12 @@
      "observable": false,
      "gap": "no reader for station speed",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "faster stations"
     }
-   ]
+   ],
+   "for": "faster stations",
+   "needs": null
   },
   "USD_FireSpirit": {
    "name": "Fire Spirit",
@@ -1684,9 +1740,12 @@
      },
      "observable": "state",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "light in the dark"
     }
-   ]
+   ],
+   "for": "light in the dark",
+   "needs": null
   },
   "USD_FishCyclone": {
    "name": "Fishnado",
@@ -1748,7 +1807,9 @@
    ],
    "status": "locked",
    "na_reason": null,
-   "purposes": []
+   "purposes": [],
+   "for": null,
+   "needs": "Fishing Rod"
   },
   "USD_FishingFrenzy": {
    "name": "Fishing Frenzy",
@@ -1825,9 +1886,12 @@
      },
      "observable": "state",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "extra fish"
     }
-   ]
+   ],
+   "for": "extra fish",
+   "needs": null
   },
   "USD_GetWaterFromWaterSource": {
    "name": "USD_GetWaterFromWaterSource",
@@ -1863,7 +1927,9 @@
    ],
    "status": "n/a",
    "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
-   "purposes": []
+   "purposes": [],
+   "for": null,
+   "needs": null
   },
   "USD_Harvest": {
    "name": "Uproot",
@@ -1943,9 +2009,12 @@
      },
      "observable": "state",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "harvesting crops around"
     }
-   ]
+   ],
+   "for": "harvesting crops around",
+   "needs": null
   },
   "USD_HomeTeleport": {
    "name": "Home Teleport",
@@ -2022,9 +2091,12 @@
      },
      "observable": "state",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "teleporting to his bed"
     }
-   ]
+   ],
+   "for": "teleporting to his bed",
+   "needs": "Claimed Bed"
   },
   "USD_Humidify": {
    "name": "Humidify",
@@ -2120,9 +2192,12 @@
      "observable": false,
      "gap": "no reader for plot water state",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "watering crops"
     }
-   ]
+   ],
+   "for": "watering crops",
+   "needs": "50 units of water (clean or dirty)"
   },
   "USD_InfernalRod": {
    "name": "Infernal Rod",
@@ -2203,9 +2278,12 @@
      },
      "observable": "state",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "catching cooked fish"
     }
-   ]
+   ],
+   "for": "catching cooked fish",
+   "needs": "Fishing Rod Equipped"
   },
   "USD_InternalAlchemy": {
    "name": "Internal Alchemy",
@@ -2271,9 +2349,12 @@
      "observable": false,
      "gap": "no reader for food-buff time left",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "refreshing food buffs"
     }
-   ]
+   ],
+   "for": "refreshing food buffs",
+   "needs": null
   },
   "USD_MagicFocus": {
    "name": "Magic Focus",
@@ -2308,7 +2389,9 @@
    ],
    "status": "n/a",
    "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
-   "purposes": []
+   "purposes": [],
+   "for": null,
+   "needs": null
   },
   "USD_MagicalMending": {
    "name": "Magical Mending",
@@ -2382,9 +2465,12 @@
      "observable": false,
      "gap": "no leaf for 'item durability rose'",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "repairing worn gear"
     }
-   ]
+   ],
+   "for": "repairing worn gear",
+   "needs": null
   },
   "USD_PhaseDash": {
    "name": "Phase Dash",
@@ -2458,9 +2544,12 @@
      "observable": "state",
      "confidence": "live",
      "source": "live",
-     "evidence": "air evade 3.2 m snapped back without it; 8.4 m kept after the cast (21:33Z)"
+     "evidence": "air evade 3.2 m snapped back without it; 8.4 m kept after the cast (21:33Z)",
+     "for": "dashing across gaps mid-air"
     }
-   ]
+   ],
+   "for": "dashing across gaps mid-air",
+   "needs": null
   },
   "USD_PileEmUp": {
    "name": "Trunk Totem",
@@ -2537,9 +2626,12 @@
      "observable": false,
      "gap": "no proof the trunks were gathered; the totem actor class is unknown (Blueprint-only spell)",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "piling scattered trunks"
     }
-   ]
+   ],
+   "for": "piling scattered trunks",
+   "needs": null
   },
   "USD_RapidGrowth": {
    "name": "Rapid Growth",
@@ -2583,7 +2675,9 @@
    ],
    "status": "n/a",
    "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
-   "purposes": []
+   "purposes": [],
+   "for": null,
+   "needs": null
   },
   "USD_Recall": {
    "name": "Recall",
@@ -2653,9 +2747,12 @@
      },
      "observable": "state",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "returning to a marked spot"
     }
-   ]
+   ],
+   "for": "returning to a marked spot",
+   "needs": null
   },
   "USD_Rocksplosion": {
    "name": "Rocksplosion",
@@ -2742,9 +2839,12 @@
      },
      "observable": "state",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "blasting rocks and ore"
     }
-   ]
+   ],
+   "for": "blasting rocks and ore",
+   "needs": "Pickaxe"
   },
   "USD_RunesToRuneEssence": {
    "name": "Runes To Rune Essence",
@@ -2818,9 +2918,12 @@
      },
      "observable": "state",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "runes into essence"
     }
-   ]
+   ],
+   "for": "runes into essence",
+   "needs": null
   },
   "USD_ShadowVeil": {
    "name": "Shadow Veil",
@@ -2864,7 +2967,9 @@
    ],
    "status": "n/a",
    "na_reason": "no perk unlocks it (internal / unreleased / world-interaction asset)",
-   "purposes": []
+   "purposes": [],
+   "for": null,
+   "needs": null
   },
   "USD_SiphonAnimaCharge": {
    "name": "USD_SiphonAnimaCharge",
@@ -2901,7 +3006,9 @@
    ],
    "status": "n/a",
    "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
-   "purposes": []
+   "purposes": [],
+   "for": null,
+   "needs": null
   },
   "USD_SiphonRunes": {
    "name": "USD_SiphonRunes",
@@ -2938,7 +3045,9 @@
    ],
    "status": "n/a",
    "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
-   "purposes": []
+   "purposes": [],
+   "for": null,
+   "needs": null
   },
   "USD_SnareTrap": {
    "name": "Snare",
@@ -3014,9 +3123,12 @@
      "observable": false,
      "gap": "no leaf for 'enemy rooted'",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "rooting chasing foes"
     }
-   ]
+   ],
+   "for": "rooting chasing foes",
+   "needs": null
   },
   "USD_SpeedupStation": {
    "name": "Overdrive",
@@ -3093,9 +3205,12 @@
      "observable": false,
      "gap": "no reader for station speed",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "faster stations"
     }
-   ]
+   ],
+   "for": "faster stations",
+   "needs": null
   },
   "USD_Splinter": {
    "name": "Splinter",
@@ -3199,9 +3314,12 @@
      "confidence": "live",
      "source": "live",
      "evidence": "the log split into Ash Logs world items (21:3xZ)",
-     "note": "the logs land on the ground: he must pick them up"
+     "note": "the logs land on the ground: he must pick them up",
+     "for": "splitting felled logs"
     }
-   ]
+   ],
+   "for": "splitting felled logs",
+   "needs": null
   },
   "USD_SummonShelter": {
    "name": "Summon Shelter",
@@ -3282,9 +3400,12 @@
      "gap": "no leaf for the rest/sleep state (PlayerRestComponent / DIM_Resting); the shelter itself is observable",
      "confidence": "live",
      "source": "live",
-     "evidence": "shelter cast by the model's own choice (20:44Z); Claude slept in a shelter (L10, 20:59Z)"
+     "evidence": "shelter cast by the model's own choice (20:44Z); Claude slept in a shelter (L10, 20:59Z)",
+     "for": "a bed away from home"
     }
-   ]
+   ],
+   "for": "a bed away from home",
+   "needs": null
   },
   "USD_Surge": {
    "name": "Surge",
@@ -3351,9 +3472,12 @@
      "observable": false,
      "gap": "no damage-episode leaf for 'dodged/no damage taken'",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "longer dodges"
     }
-   ]
+   ],
+   "for": "longer dodges",
+   "needs": null
   },
   "USD_TempestShield": {
    "name": "Tempest Shield",
@@ -3426,9 +3550,12 @@
      "gap": "no damage-episode leaf for 'hits fully absorbed while blocking'",
      "confidence": "live",
      "source": "live+description",
-     "evidence": "shield GE + tag Player.Status.TempestShield seen live (21:30Z)"
+     "evidence": "shield GE + tag Player.Status.TempestShield seen live (21:30Z)",
+     "for": "blocking big hits"
     }
-   ]
+   ],
+   "for": "blocking big hits",
+   "needs": null
   },
   "USD_Treequipment": {
    "name": "Bark to Bones",
@@ -3512,9 +3639,12 @@
      },
      "observable": "state",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "bones from a tree"
     }
-   ]
+   ],
+   "for": "bones from a tree",
+   "needs": "Cast on a Tree"
   },
   "USD_Vengeance": {
    "name": "Vengeance",
@@ -3596,9 +3726,12 @@
      "observable": false,
      "gap": "reflected damage is not attributed in combat episodes",
      "confidence": "data",
-     "source": "description"
+     "source": "description",
+     "for": "reflecting damage"
     }
-   ]
+   ],
+   "for": "reflecting damage",
+   "needs": null
   },
   "USD_WeaponBarbs": {
    "name": "Weapon Barbs",
@@ -3633,7 +3766,9 @@
    ],
    "status": "n/a",
    "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
-   "purposes": []
+   "purposes": [],
+   "for": null,
+   "needs": null
   },
   "USD_WeaponPoison": {
    "name": "Weapon Poison",
@@ -3668,7 +3803,9 @@
    ],
    "status": "n/a",
    "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
-   "purposes": []
+   "purposes": [],
+   "for": null,
+   "needs": null
   },
   "USD_Whetstone": {
    "name": "Whetstone",
@@ -3703,7 +3840,9 @@
    ],
    "status": "n/a",
    "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
-   "purposes": []
+   "purposes": [],
+   "for": null,
+   "needs": null
   },
   "USD_Windstep": {
    "name": "Windstep",
@@ -3786,9 +3925,12 @@
      "observable": "state",
      "confidence": "live",
      "source": "live",
-     "evidence": "jump apex 1.80 m -> 7.38 m after the cast (21:27Z)"
+     "evidence": "jump apex 1.80 m -> 7.38 m after the cast (21:27Z)",
+     "for": "reaching high ledges"
     }
-   ]
+   ],
+   "for": "reaching high ledges",
+   "needs": null
   }
  }
 }

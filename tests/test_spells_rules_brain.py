@@ -294,3 +294,30 @@ def test_sleep_bed_mode_without_a_bed_fails_deterministically(rig):
     outcome = rig.executor.run_task(Task(skill="sleep", args={"target": None, "mode": "bed"}))
     assert not outcome.ok and outcome.reason == Reason.NOTHING_IN_RANGE and len(rig.calls("sleep")) == 1
     assert rig.executor.run_task(Task(skill="sleep", args={"target": None, "mode": "auto"})).ok  # lies down
+
+
+# --------------------------------------------------------------------------- what each spell is for (Luis)
+
+
+def test_castable_rows_say_what_each_spell_is_for_and_needs():
+    rows = from_body([
+        {"id": "USD_Windstep", "name": "Windstep", "role": "instant", "use_when": "Jump higher.", "castable": True},
+        {"id": "USD_AxtralProjection", "name": "Axtral Projection", "role": "aimed", "use_when": "Axe.", "castable": True},
+        {"id": "USD_Unknown", "name": "Mystery", "role": "instant", "use_when": "?", "castable": True}])
+    by = {r["name"]: r for r in rows}
+    assert by["Windstep"]["for"] == "reaching high ledges" and "needs" not in by["Windstep"]
+    assert by["Axtral Projection"]["for"] == "felling trees in a line" and by["Axtral Projection"]["needs"] == "Logging Axe"
+    assert "for" not in by["Mystery"] and "needs" not in by["Mystery"]  # unknown spell: nothing invented
+
+
+def test_for_and_needs_cost_at_most_1500_chars_for_all_unlocked_spells():
+    from brain import spells as S
+    eff = json.loads(S.EFFECTS.read_text(encoding="utf-8"))["spells"]
+    body = [{"id": sid, "name": s["name"], "role": s["cast_type"], "use_when": "x", "castable": True}
+            for sid, s in eff.items() if s["status"] == "unlocked"]
+    assert len(body) >= 38
+    rows = from_body(body)
+    added = sum(len(f", for: {r['for']}") for r in rows if r.get("for")) + \
+        sum(len(f", needs: {r['needs']}") for r in rows if r.get("needs"))
+    assert all(r.get("for") for r in rows)
+    assert added <= 1500, added

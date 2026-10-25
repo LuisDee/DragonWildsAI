@@ -252,6 +252,13 @@ def build(doc: dict, purposes: dict | None = None) -> dict:
             if e.get("probe"):
                 e["probe_moves_pawn"] = PROBES.get(e["probe"], {}).get("moves_pawn", True)
         sig["purposes"] = purposes.get(sid, [])
+        # compact words for the model's spell list (brain/spells.py): what it is for, what it needs
+        fors = []
+        for pu in sig["purposes"]:
+            if pu.get("for") and pu["for"] not in fors:
+                fors.append(pu["for"])
+        sig["for"] = "; ".join(fors) or None
+        sig["needs"] = ((sig.get("requirement") or {}).get("text") or None)
         spells[sid] = sig
     return {
         "version": 1,

@@ -1,0 +1,992 @@
+{
+ "_doc": "Hand-authored DATA (spells agent, 2026-10-25): what each spell is FOR, as situations that need it without naming it, for the Eval benchmark's T1 'use' cases. Merged into data/spell_effects.json by tools/gen_spell_effects.py. situation = words without spell or tool names; world.needs = machine facts the scene must have (setup_checks style); success = brain/predicates.py DSL (+ the bench's spell_effect leaf) proving the PURPOSE was achieved; '<...>' = a value the scene builder binds; observable false = the body cannot check the purpose yet (score unverifiable, list the gap in 'gap'). Sources: the game's own description (live spells read), role, live = seen today.",
+ "purposes": {
+  "USD_Windstep": [
+   {
+    "id": "reach_high_ledge",
+    "situation": "a ledge or rock top 2.5-6 m above him that a normal jump cannot reach, and he needs to get up there (the player is on top)",
+    "world": {
+     "needs": [
+      {
+       "ledge_rise_m": [
+        2.5,
+        6
+       ]
+      }
+     ]
+    },
+    "success": {
+     "near": {
+      "position": "<ledge top>",
+      "within_m": 1.5
+     }
+    },
+    "observable": "state",
+    "confidence": "live",
+    "source": "live",
+    "evidence": "jump apex 1.80 m -> 7.38 m after the cast (21:27Z)",
+    "for": "reaching high ledges"
+   }
+  ],
+  "USD_PhaseDash": [
+   {
+    "id": "cross_gap_in_air",
+    "situation": "a gap too wide to jump across (about 4-8 m) with the player waiting on the far side",
+    "world": {
+     "needs": [
+      {
+       "gap_width_m": [
+        4,
+        8
+       ]
+      }
+     ]
+    },
+    "success": {
+     "near": {
+      "position": "<far side>",
+      "within_m": 1.5
+     }
+    },
+    "observable": "state",
+    "confidence": "live",
+    "source": "live",
+    "evidence": "air evade 3.2 m snapped back without it; 8.4 m kept after the cast (21:33Z)",
+    "for": "dashing across gaps mid-air"
+   }
+  ],
+  "USD_Surge": [
+   {
+    "id": "dodge_clear",
+    "situation": "a big area attack is coming and a normal dodge is too short to get clear of it",
+    "world": {
+     "needs": [
+      {
+       "incoming_telegraph": true
+      }
+     ]
+    },
+    "success": {
+     "moved": {
+      "min_m": 4
+     }
+    },
+    "observable": false,
+    "gap": "no damage-episode leaf for 'dodged/no damage taken'",
+    "confidence": "data",
+    "source": "description",
+    "for": "longer dodges"
+   }
+  ],
+  "USD_TempestShield": [
+   {
+    "id": "shield_before_hard_fight",
+    "situation": "a strong enemy is about to fight him and he will have to block heavy hits",
+    "world": {
+     "needs": [
+      {
+       "hostile_within_m": 15,
+       "power_level_at_least": "<his power level>"
+      }
+     ]
+    },
+    "success": {
+     "spell_effect": {
+      "spell": "USD_TempestShield"
+     }
+    },
+    "observable": false,
+    "gap": "no damage-episode leaf for 'hits fully absorbed while blocking'",
+    "confidence": "live",
+    "source": "live+description",
+    "evidence": "shield GE + tag Player.Status.TempestShield seen live (21:30Z)",
+    "for": "blocking big hits"
+   }
+  ],
+  "USD_Vengeance": [
+   {
+    "id": "reflect_damage",
+    "situation": "a tough enemy keeps hitting him hard in a long fight",
+    "world": {
+     "needs": [
+      {
+       "hostile_within_m": 10
+      }
+     ]
+    },
+    "success": {
+     "killed": {
+      "kind": "<the enemy>",
+      "at_least": 1
+     }
+    },
+    "observable": false,
+    "gap": "reflected damage is not attributed in combat episodes",
+    "confidence": "data",
+    "source": "description",
+    "for": "reflecting damage"
+   }
+  ],
+  "USD_Confuse": [
+   {
+    "id": "turn_enemies_on_each_other",
+    "situation": "several weaker enemies are attacking him at once",
+    "world": {
+     "needs": [
+      {
+       "hostiles_within_m": 10,
+       "at_least": 3,
+       "power_level_at_most": "<his power level>"
+      }
+     ]
+    },
+    "success": {
+     "killed": {
+      "kind": "<one of them>",
+      "at_least": 1
+     }
+    },
+    "observable": false,
+    "gap": "no leaf for 'enemy hit by another enemy'",
+    "confidence": "data",
+    "source": "description",
+    "for": "turning weak foes on each other"
+   }
+  ],
+  "USD_Enfeeble": [
+   {
+    "id": "weaken_strong_enemy",
+    "situation": "one strong enemy is hitting much harder than he can take",
+    "world": {
+     "needs": [
+      {
+       "hostile_within_m": 15,
+       "power_level_at_least": "<his power level + 1>"
+      }
+     ]
+    },
+    "success": {
+     "killed": {
+      "kind": "<the enemy>",
+      "at_least": 1
+     }
+    },
+    "observable": false,
+    "gap": "no leaf for 'enemy damage reduced'",
+    "confidence": "data",
+    "source": "description",
+    "for": "weakening a strong foe"
+   }
+  ],
+  "USD_SnareTrap": [
+   {
+    "id": "root_chasers",
+    "situation": "enemies are chasing him while he needs to get away or keep his distance",
+    "world": {
+     "needs": [
+      {
+       "hostiles_within_m": 8,
+       "at_least": 1
+      }
+     ]
+    },
+    "success": {
+     "moved": {
+      "min_m": 10
+     }
+    },
+    "observable": false,
+    "gap": "no leaf for 'enemy rooted'",
+    "confidence": "data",
+    "source": "description",
+    "for": "rooting chasing foes"
+   }
+  ],
+  "USD_EnchantWeapon_Fire": [
+   {
+    "id": "enchant_for_fight",
+    "situation": "a fight is starting, he holds a melee weapon and the enemies are weak to fire or simply tough",
+    "world": {
+     "needs": [
+      {
+       "held_category": "melee_weapon"
+      },
+      {
+       "hostile_within_m": 20,
+       "weakness": "fire"
+      }
+     ]
+    },
+    "success": {
+     "killed": {
+      "kind": "<the enemy>",
+      "at_least": 1
+     }
+    },
+    "observable": "state",
+    "gap": "the enchant itself (held_item_effect) has no reader yet",
+    "confidence": "data",
+    "source": "description",
+    "for": "stronger melee hits"
+   }
+  ],
+  "USD_EnchantWeapon_Air": [
+   {
+    "id": "enchant_for_fight",
+    "situation": "a fight is starting, he holds a melee weapon and needs to attack faster (or the enemies are weak to air)",
+    "world": {
+     "needs": [
+      {
+       "held_category": "melee_weapon"
+      },
+      {
+       "hostile_within_m": 20,
+       "weakness": "air"
+      }
+     ]
+    },
+    "success": {
+     "killed": {
+      "kind": "<the enemy>",
+      "at_least": 1
+     }
+    },
+    "observable": "state",
+    "gap": "the enchant itself (held_item_effect) has no reader yet",
+    "confidence": "data",
+    "source": "description",
+    "for": "stronger melee hits"
+   }
+  ],
+  "USD_EnchantWeapon_Water": [
+   {
+    "id": "enchant_for_fight",
+    "situation": "a long fight with a melee weapon where he will need healing (or the enemies are weak to water)",
+    "world": {
+     "needs": [
+      {
+       "held_category": "melee_weapon"
+      },
+      {
+       "hostile_within_m": 20,
+       "weakness": "water"
+      }
+     ]
+    },
+    "success": {
+     "killed": {
+      "kind": "<the enemy>",
+      "at_least": 1
+     }
+    },
+    "observable": "state",
+    "gap": "the enchant itself (held_item_effect) has no reader yet",
+    "confidence": "data",
+    "source": "description",
+    "for": "stronger melee hits"
+   }
+  ],
+  "USD_CorruptionArrows": [
+   {
+    "id": "pierce_lined_enemies",
+    "situation": "several enemies lined up in front of him while he holds a two-handed bow",
+    "world": {
+     "needs": [
+      {
+       "held_category": "two_handed_bow"
+      },
+      {
+       "hostiles_within_m": 25,
+       "at_least": 2
+      }
+     ]
+    },
+    "success": {
+     "killed": {
+      "kind": "<the enemies>",
+      "at_least": 2
+     }
+    },
+    "observable": "state",
+    "confidence": "data",
+    "source": "description",
+    "for": "arrows through several foes"
+   }
+  ],
+  "USD_AxtralProjection": [
+   {
+    "id": "fell_trees_in_line",
+    "situation": "several standing trees roughly in a line ahead of him and they need lots of logs quickly",
+    "world": {
+     "needs": [
+      {
+       "carried_category": "logging_axe"
+      },
+      {
+       "trees_in_line_ahead": {
+        "at_least": 2,
+        "within_m": 15
+       }
+      }
+     ]
+    },
+    "success": {
+     "gained": {
+      "item": "<the trees' log item>",
+      "at_least": 2
+     }
+    },
+    "observable": "state",
+    "confidence": "data",
+    "source": "description",
+    "note": "felled trunks drop logs on the ground: he must pick them up (or chop/Splinter the trunks)",
+    "for": "felling trees in a line"
+   }
+  ],
+  "USD_Splinter": [
+   {
+    "id": "split_felled_log",
+    "situation": "a felled log lies near him and they need wood",
+    "world": {
+     "needs": [
+      {
+       "near": {
+        "kind": "felled_log",
+        "class_family": "TreeLog",
+        "within_m": 8
+       }
+      }
+     ]
+    },
+    "success": {
+     "gained": {
+      "item": "<the log's drop item>",
+      "at_least": 1
+     }
+    },
+    "observable": "state",
+    "confidence": "live",
+    "source": "live",
+    "evidence": "the log split into Ash Logs world items (21:3xZ)",
+    "note": "the logs land on the ground: he must pick them up",
+    "for": "splitting felled logs"
+   }
+  ],
+  "USD_PileEmUp": [
+   {
+    "id": "gather_scattered_trunks",
+    "situation": "many felled trunks lie scattered around after a big chop and they want the wood in one place",
+    "world": {
+     "needs": [
+      {
+       "near": {
+        "kind": "felled_log",
+        "class_family": "TreeLog",
+        "within_m": 12,
+        "at_least": 3
+       }
+      }
+     ]
+    },
+    "success": {
+     "spell_effect": {
+      "spell": "USD_PileEmUp"
+     }
+    },
+    "observable": false,
+    "gap": "no proof the trunks were gathered; the totem actor class is unknown (Blueprint-only spell)",
+    "confidence": "data",
+    "source": "description",
+    "for": "piling scattered trunks"
+   }
+  ],
+  "USD_Treequipment": [
+   {
+    "id": "tree_to_bones",
+    "situation": "they need bones and there is a tree next to him",
+    "world": {
+     "needs": [
+      {
+       "near": {
+        "kind": "standing_tree",
+        "within_m": 10
+       }
+      }
+     ]
+    },
+    "success": {
+     "gained": {
+      "item": "<bones item>",
+      "at_least": 1
+     }
+    },
+    "observable": "state",
+    "confidence": "data",
+    "source": "description",
+    "for": "bones from a tree"
+   }
+  ],
+  "USD_BonesToPeaches": [
+   {
+    "id": "food_from_bones",
+    "situation": "he is hungry, has no food, and bones lie on the ground near him",
+    "world": {
+     "needs": [
+      {
+       "sustenance_below_pct": 40
+      },
+      {
+       "near": {
+        "kind": "world_item",
+        "item_contains": "Bone",
+        "within_m": 8
+       }
+      }
+     ]
+    },
+    "success": {
+     "gained": {
+      "item": "<peach item>",
+      "at_least": 1
+     }
+    },
+    "observable": "state",
+    "confidence": "data",
+    "source": "description",
+    "for": "food from bones"
+   }
+  ],
+  "USD_InternalAlchemy": [
+   {
+    "id": "refresh_food_buffs",
+    "situation": "his food and drink buffs are about to run out and there is no food to spare",
+    "world": {
+     "needs": [
+      {
+       "food_buff_active": true
+      }
+     ]
+    },
+    "success": {
+     "spell_effect": {
+      "spell": "USD_InternalAlchemy"
+     }
+    },
+    "observable": false,
+    "gap": "no reader for food-buff time left",
+    "confidence": "data",
+    "source": "description",
+    "for": "refreshing food buffs"
+   }
+  ],
+  "USD_FireSpirit": [
+   {
+    "id": "light_the_dark",
+    "situation": "it is night or he is in a dark cave and can hardly see",
+    "world": {
+     "needs": [
+      {
+       "night_or_dark": true
+      }
+     ]
+    },
+    "success": {
+     "spell_effect": {
+      "spell": "USD_FireSpirit"
+     }
+    },
+    "observable": "state",
+    "confidence": "data",
+    "source": "description",
+    "for": "light in the dark"
+   }
+  ],
+  "USD_HomeTeleport": [
+   {
+    "id": "travel_home",
+    "situation": "it is late, they are far from home, and he has a claimed bed there",
+    "world": {
+     "needs": [
+      {
+       "claimed_bed": true
+      },
+      {
+       "far_from_bed_m": 100
+      }
+     ]
+    },
+    "success": {
+     "near": {
+      "place": "<his bed>",
+      "within_m": 10
+     }
+    },
+    "observable": "state",
+    "confidence": "data",
+    "source": "description",
+    "for": "teleporting to his bed"
+   }
+  ],
+  "USD_Recall": [
+   {
+    "id": "return_to_spot",
+    "situation": "he must leave this exact spot for a short errand and come straight back to it afterwards",
+    "world": {
+     "needs": [
+      {
+       "errand_target_m": [
+        30,
+        150
+       ]
+      }
+     ]
+    },
+    "success": {
+     "near": {
+      "position": "<the spot he left>",
+      "within_m": 3
+     }
+    },
+    "observable": "state",
+    "confidence": "data",
+    "source": "description",
+    "for": "returning to a marked spot"
+   }
+  ],
+  "USD_SummonShelter": [
+   {
+    "id": "sleep_away_from_home",
+    "situation": "it is night, they are far from any bed and the player wants to sleep",
+    "world": {
+     "needs": [
+      {
+       "night": true
+      },
+      {
+       "flat_ground_within_m": 9
+      },
+      {
+       "no_bed_within_m": 50
+      }
+     ]
+    },
+    "success": {
+     "spell_effect": {
+      "spell": "USD_SummonShelter"
+     }
+    },
+    "observable": false,
+    "gap": "no leaf for the rest/sleep state (PlayerRestComponent / DIM_Resting); the shelter itself is observable",
+    "confidence": "live",
+    "source": "live",
+    "evidence": "shelter cast by the model's own choice (20:44Z); Claude slept in a shelter (L10, 20:59Z)",
+    "for": "a bed away from home"
+   }
+  ],
+  "USD_MagicalMending": [
+   {
+    "id": "repair_gear",
+    "situation": "his tools and armour are badly worn and there is no repair bench nearby",
+    "world": {
+     "needs": [
+      {
+       "carried_item_durability_below_pct": 30
+      }
+     ]
+    },
+    "success": {
+     "spell_effect": {
+      "spell": "USD_MagicalMending"
+     }
+    },
+    "observable": false,
+    "gap": "no leaf for 'item durability rose'",
+    "confidence": "data",
+    "source": "description",
+    "for": "repairing worn gear"
+   }
+  ],
+  "USD_Rocksplosion": [
+   {
+    "id": "area_mine",
+    "situation": "ore rocks or boulders are around him and they need ore or stone quickly",
+    "world": {
+     "needs": [
+      {
+       "carried_category": "pickaxe"
+      },
+      {
+       "near": {
+        "kind": "ore_node",
+        "within_m": 10
+       }
+      }
+     ]
+    },
+    "success": {
+     "gained": {
+      "item": "<the node's ore item>",
+      "at_least": 1
+     }
+    },
+    "observable": "state",
+    "confidence": "data",
+    "source": "description",
+    "for": "blasting rocks and ore"
+   }
+  ],
+  "USD_DivineRock": [
+   {
+    "id": "personal_ore_vein",
+    "situation": "he carries spare ore and they want to keep mining without travelling to a rock",
+    "world": {
+     "needs": [
+      {
+       "carried_ore_at_least": 5
+      }
+     ]
+    },
+    "success": {
+     "spell_effect": {
+      "spell": "USD_DivineRock"
+     }
+    },
+    "observable": false,
+    "gap": "Blueprint-only spell; the vein actor is unknown",
+    "confidence": "data",
+    "source": "description",
+    "for": "a personal ore vein"
+   }
+  ],
+  "USD_DetectOre": [
+   {
+    "id": "find_rocks",
+    "situation": "they need ore or stone but no rocks are in sight",
+    "world": {
+     "needs": [
+      {
+       "no_ore_node_within_m": 40
+      }
+     ]
+    },
+    "success": {
+     "near": {
+      "thing": "<an ore node>",
+      "within_m": 5
+     }
+    },
+    "observable": "state",
+    "confidence": "data",
+    "source": "description",
+    "for": "finding rocks to mine"
+   }
+  ],
+  "USD_DetectAnimaVents": [
+   {
+    "id": "find_anima_vents",
+    "situation": "they need rune magic from anima vents but none are in sight",
+    "world": {
+     "needs": [
+      {
+       "no_anima_vent_within_m": 40
+      }
+     ]
+    },
+    "success": {
+     "near": {
+      "thing": "<an anima vent>",
+      "within_m": 5
+     }
+    },
+    "observable": "state",
+    "confidence": "data",
+    "source": "description",
+    "for": "finding anima vents"
+   }
+  ],
+  "USD_RunesToRuneEssence": [
+   {
+    "id": "runes_to_essence",
+    "situation": "he has many runes of a type nobody needs and they are out of rune essence",
+    "world": {
+     "needs": [
+      {
+       "carried_rune_at_least": 20
+      }
+     ]
+    },
+    "success": {
+     "gained": {
+      "item": "Rune Essence",
+      "at_least": 1
+     }
+    },
+    "observable": "state",
+    "confidence": "data",
+    "source": "description",
+    "for": "runes into essence"
+   }
+  ],
+  "USD_FishingFrenzy": [
+   {
+    "id": "more_fish",
+    "situation": "they are fishing at a fishing spot and want as many fish as possible",
+    "world": {
+     "needs": [
+      {
+       "near": {
+        "kind": "fishing_node",
+        "within_m": 8
+       }
+      }
+     ]
+    },
+    "success": {
+     "tally": {
+      "item": "<the node's fish>",
+      "at_least": 2
+     }
+    },
+    "observable": "state",
+    "confidence": "data",
+    "source": "description",
+    "for": "extra fish"
+   }
+  ],
+  "USD_InfernalRod": [
+   {
+    "id": "cooked_fish",
+    "situation": "he is fishing, hungry, and there is no fire to cook on",
+    "world": {
+     "needs": [
+      {
+       "held_category": "fishing_rod"
+      },
+      {
+       "sustenance_below_pct": 40
+      }
+     ]
+    },
+    "success": {
+     "gained": {
+      "item": "<a cooked fish>",
+      "at_least": 1
+     }
+    },
+    "observable": "state",
+    "confidence": "data",
+    "source": "description",
+    "for": "catching cooked fish"
+   }
+  ],
+  "USD_Humidify": [
+   {
+    "id": "water_crops",
+    "situation": "their farming plots are dry and he carries water",
+    "world": {
+     "needs": [
+      {
+       "carried_water_units": 50
+      },
+      {
+       "near": {
+        "kind": "farming_plot",
+        "within_m": 10
+       }
+      }
+     ]
+    },
+    "success": {
+     "spell_effect": {
+      "spell": "USD_Humidify"
+     }
+    },
+    "observable": false,
+    "gap": "no reader for plot water state",
+    "confidence": "data",
+    "source": "description",
+    "for": "watering crops"
+   }
+  ],
+  "USD_Farming_Compost": [
+   {
+    "id": "fertilise_plots",
+    "situation": "their farming plots need fertiliser and he carries compost",
+    "world": {
+     "needs": [
+      {
+       "carried_compost_units": 150
+      },
+      {
+       "near": {
+        "kind": "farming_plot",
+        "within_m": 10
+       }
+      }
+     ]
+    },
+    "success": {
+     "spell_effect": {
+      "spell": "USD_Farming_Compost"
+     }
+    },
+    "observable": false,
+    "gap": "no reader for plot fertiliser state",
+    "confidence": "data",
+    "source": "description",
+    "for": "fertilising plots"
+   }
+  ],
+  "USD_Farming_RapidGrowth": [
+   {
+    "id": "grow_crop_now",
+    "situation": "a crop they need is still growing and they don't want to wait",
+    "world": {
+     "needs": [
+      {
+       "near": {
+        "kind": "growing_crop",
+        "within_m": 8
+       }
+      }
+     ]
+    },
+    "success": {
+     "spell_effect": {
+      "spell": "USD_Farming_RapidGrowth"
+     }
+    },
+    "observable": false,
+    "gap": "no reader for crop growth stage",
+    "confidence": "data",
+    "source": "description",
+    "for": "growing a crop a stage"
+   }
+  ],
+  "USD_Harvest": [
+   {
+    "id": "harvest_area",
+    "situation": "fully grown crops or wild plants are all around and they want them picked",
+    "world": {
+     "needs": [
+      {
+       "near": {
+        "kind": "ripe_plant",
+        "within_m": 6,
+        "at_least": 2
+       }
+      }
+     ]
+    },
+    "success": {
+     "gained": {
+      "item": "<a crop item>",
+      "at_least": 2
+     }
+    },
+    "observable": "state",
+    "confidence": "data",
+    "source": "description",
+    "for": "harvesting crops around"
+   }
+  ],
+  "USD_SpeedupStation": [
+   {
+    "id": "speed_up_station",
+    "situation": "a mechanical processing station is slowly working through a long job",
+    "world": {
+     "needs": [
+      {
+       "near": {
+        "kind": "processing_station",
+        "within_m": 8
+       }
+      }
+     ]
+    },
+    "success": {
+     "spell_effect": {
+      "spell": "USD_SpeedupStation"
+     }
+    },
+    "observable": false,
+    "gap": "no reader for station speed",
+    "confidence": "data",
+    "source": "description",
+    "for": "faster stations"
+   }
+  ],
+  "USD_FerociousFurnace": [
+   {
+    "id": "speed_up_station",
+    "situation": "a fire-based station (furnace) is slowly working through a long job",
+    "world": {
+     "needs": [
+      {
+       "near": {
+        "kind": "fire_station",
+        "within_m": 8
+       }
+      }
+     ]
+    },
+    "success": {
+     "spell_effect": {
+      "spell": "USD_FerociousFurnace"
+     }
+    },
+    "observable": false,
+    "gap": "no reader for station speed",
+    "confidence": "data",
+    "source": "description",
+    "for": "faster stations"
+   }
+  ],
+  "USD_AccessPersonalChest": [
+   {
+    "id": "reach_storage_anywhere",
+    "situation": "he needs an item that sits in his personal storage, far away, or his bag is full",
+    "world": {
+     "needs": [
+      {
+       "item_in_personal_storage": "<item>"
+      }
+     ]
+    },
+    "success": {
+     "have": {
+      "item": "<item>",
+      "at_least": 1
+     }
+    },
+    "observable": "state",
+    "confidence": "data",
+    "source": "description",
+    "for": "his storage chest anywhere"
+   }
+  ],
+  "USD_EyeOfOculus": [
+   {
+    "id": "building_overview",
+    "situation": "they are building and need a better view of the structure",
+    "world": {
+     "needs": [
+      {
+       "building_in_progress": true
+      }
+     ]
+    },
+    "success": {
+     "spell_effect": {
+      "spell": "USD_EyeOfOculus"
+     }
+    },
+    "observable": false,
+    "gap": "Blueprint-only spell; no reader",
+    "confidence": "data",
+    "source": "description",
+    "for": "a builder's view"
+   }
+  ]
+ }
+}
