@@ -13,8 +13,11 @@
 --   valid" and the bot never gets an entry (verified: registry has Luis only, PlayerArray has both).
 --
 -- What this module does (UNVERIFIED on clients until Luis looks):
---   ensure(): append ONE entry for the bot (scalar fields; OwningPlayerUniqueID copied from the
---   bot PS's own live UniqueID via CopyCompleteValue, never built), Identifier = M.IDENT.
+--   ensure(): append ONE entry for the bot, SCALAR fields only, Identifier = M.IDENT.
+--   OwningPlayerUniqueID is left as UE4SS's AddZeroed leaves it = an empty net id, the same value
+--   as the bot PS's own (empty) UniqueID. It is NOT copied in via the table: a struct userdata
+--   nested in a Lua table crashes UE4SS (push_structproperty reads stack index 1; DISCOVERIES
+--   "On-demand speech", crash_2026_10_25_15_45_24).
 --   update(): rewrite that entry's Location/RotationByte from the puppet (found by Identifier
 --   every time, since native removals shift indices). Push model is OFF, so writes replicate.
 -- Limits: UE4SS TArray has no RemoveAt, so the entry can't be removed live; it is gone after a
@@ -82,15 +85,13 @@ function M.ensure(log, p)
     if not reg then return U.result(false, "no_registry") end
     local idx, n = M.find_entry(reg)
     if idx then return U.result(true, "already", { index = idx, num = n }) end
-    local uid = U.try(function() return ps.UniqueID end)
-    if uid == nil then return U.result(false, "no_unique_id") end
     local loc = U.loc(p) or { X = 0, Y = 0, Z = 0 }
     local c = bot_color(ps)
     local entry = {
         Location = { X = loc.X, Y = loc.Y, Z = loc.Z },
         RotationByte = rot_byte(p),
         OwningCharacterGuid = { InnerGuid = { A = M.CHAR_GUID.A, B = M.CHAR_GUID.B, C = M.CHAR_GUID.C, D = M.CHAR_GUID.D } },
-        OwningPlayerUniqueID = uid, -- live struct userdata -> CopyCompleteValue
+        -- OwningPlayerUniqueID: deliberately absent (zeroed = empty id); never a userdata in a table
         OwningPlayerName = M.NAME,
         Color = { R = c.R, G = c.G, B = c.B, A = c.A },
         Identifier = { A = M.IDENT.A, B = M.IDENT.B, C = M.IDENT.C, D = M.IDENT.D },

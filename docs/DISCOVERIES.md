@@ -430,3 +430,64 @@ Modules: `mod/experiments/spell_dump.lua` (X1), `spell_x3.lua` (X3), `spell_x4.l
 - The server advertises the EOS session attribute **`ModDetection = 1`** (`LogNetSessionSettings: Setting ["ModDetection"] … value[1]`), alongside `BuildId=254097`, `ServerType=1`, `BetaHash=77`, `JoinCode`, `Vip_ServerName` and others. The client shows the warning when the attribute is set.
 - **It is set by the game itself:** there is no ini key, and no reflected symbol in the dump, so the check is native. It most likely detects foreign code in the process (UE4SS via `version.dll`) or modified content. Pre-UE4SS logs have rotated away, so the 0 → 1 change is unconfirmed.
 - **Policy:** leave it. The label is accurate and part of Jagex's vanilla-vs-moddable signalling. Don't try to hide it. If the companion ever runs on the group's real server, friends will see the warning.
+
+## Item handling: world items, the puppet's magnet, spawning drops (build 26161880, 2026-10-25, 14:31–14:51 UTC)
+Modules: `mod/experiments/item_probe.lua` (probe/canaries), `mod/body/items.lua` (world items), `mod/body/inventory.lua` (bot store), `mod/body/item_skills.lua` (pickup/drop/give). Crash dumps stayed at 10 throughout; the one new dump this period (14:45:24) came from the `speech_direct` experiment, not these modules.
+- **World item reads (verified, census with Luis connected):** `BP_RuntimeSpawnedWorldItem_C` kebbit/tree loot: `w.ItemData` (e.g. `ITEM_Resources_Wood_Ash`, `ITEM_Resources_Coarse_Animal_Fur`, `ITEM_Resources_Weeds`), `w:GetStackSize()` = 1, `ItemData.MaxStackSize` = 99 for all three; `MagneticComponentGrantItem`: `bAllowAutoMagnetization=true`, `bAutoMagnetizationEnabled=true`, `AutoMagnetizationCategory=1` (Generic), `ContactRange=50`, `MinTimeBeforeMoving=1.0`, `bHasBeenGranted=false`, `Target=nil`; `SpawnedItem` (`UItem`): `Count`, `Durability=-1`, `GetMaxDurability()=-1`, `NumMasterworkUpgradesApplied=0`, `Guid`. `bCanExpire=true`, `bCacheInWorldItemRuntimeCache=false`.
+- **The puppet's `BP_Components_ItemMagnet` is inert (read-only observation):** `MagnetRange=350`, the same as Luis's. Kebbit loot dropped about 2.5 m from the puppet (the attack at 14:29:19–30 killed a Kebbit 1.5 m from it) still lay there with `Target=nil` and `bHasBeenGranted=false` at 14:31. So items are not pulled into the puppet's missing (null) inventory, and the bot must take them itself (the `items.take_world_item` route). `IsActive()` is false on both magnets, so the magnetisation subsystem works natively and evidently picks only real players.
+- **`UItemHelperLibrary:SpawnAndLaunchItem_Sync(world, FItemSpawnParameters, Out)` is SAFE to call (offline canary, 0 players, 4 calls, no crash):**
+  - The struct goes in as a Lua table with **every** field set (`items.spawn_params`). Null object fields use UE4SS `CreateInvalidObject()` (it exists in 3.0.1, and `IsValid()` is false).
+  - **UE4SS gotcha:** an `Out` parameter needs a Lua **table**. Passing `""` raises the Lua error "Tried storing reference to a Lua table for an 'Out' parameter ... no table on the stack" before the native call, so nothing happens. With `{}` the call works and writes `OutFailureReason` (empty) into the table.
+  - The call returned `BP_RuntimeSpawnedWorldItem_NoExpiry_C` with the right `ItemData` (Oak Logs), stack 1 and 99, at the requested spot.
+  - **With no player connected, the game destroys the spawned item within 50 ms**, in place and even with `bSkipFloorSafetyCheck=true`. It is Garbage-flagged at the first 50 ms sample and at the same location, and every other world item is gone too (`world_items_total=0`). So persistence and client view can only be tested with Luis online.
+- **Still to verify with Luis (needs his go-ahead, warned):**
+  - (1) `item_probe drop confirm="luis_ok"`: 1 oak log 3 m from him. Does he see it, can he pick it up, and is it +1 in his inventory?
+  - (2) The `pickup` handler on a real drop. Does the item vanish on his client with no ghost, and does `inventory` show +1?
+  - Flip `items.ROUTES.spawn_sync.verified` after (1).
+
+## On-demand speech and the UE4SS nested-userdata crash (build 26161880, 2026-10-25, 14:35–14:50 UTC)
+- **Net id sources (read-only, verified live, Luis connected):** `UDominionRuntimeBlueprintLibrary:ConvertUniqueNetIdToJsonString(FUniqueNetIdRepl)` on `/Script/Dominion.Default__DominionRuntimeBlueprintLibrary` turns a net id into a string. It is safe with a top-level struct userdata.
+  - Luis's `PlayerState.UniqueID` (APlayerState, 0x2D0) = `OwnerGuid.AccountGuid.NetIdPrimary` = `RedpointEOS:000286bf...`; `NetIdSecondary` = `STEAM:7656...`.
+  - The bot PS: `UniqueID` is empty, and its AccountGuid holds the copy of Luis's (identity).
+  - `FChatPlayerSenderData` = {PrimaryNetId, SecondaryNetId (FUniqueNetIdRepl), CharacterGuid, PlayerId, Color}. `FChatPlayerFilterData` = {SenderId, `TArray<FUniqueNetIdRepl>` ReceiverIds}.
+  - No reflected property anywhere holds an `FChatMessageData`/`FChatPlayerSenderData`, so there is no persistent template.
+  - Not yet captured: a genuine line's PrimaryNetId/SecondaryNetId/SenderId and the ReceiverIds count. `speech_direct capture` records them on the next player line (the hook is registered once per run).
+- **UE4SS marshalling (source read at the installed commit 83330635; main is identical):**
+  - The UFunction call buffer is `Memzero`'d, never `InitializeValue`'d nor `DestroyValue`'d.
+  - A table param goes through `convert_lua_table_to_struct`, which runs each field's pusher with `stored_at_index = -1`. Scalar pushers honour it.
+  - **BUG: `push_structproperty`'s userdata branch calls `get_userdata<UScriptStruct>()` with the default `force_index = 1`, ignoring `stored_at_index`.** For a top-level param, index 1 is that param, so it works (the relay passes a whole genuine `FChatMessageData`). Property assignment (`a.B = ud`, `__newindex`) is also fine: self and key are removed first, so the value is at index 1 (identity's AccountGuid copy).
+  - **A struct userdata nested inside a Lua table reads the wrong stack slot (the outer table) and dereferences garbage.** It is the only pusher with this bug (`LuaUObject.cpp:784`). UObject, FName, FString, FText, TArray and soft-pointer userdata use `stored_at_index` and are fine nested, which is why `BP_PerformAttack({Data=<UObject>, ...})` works.
+  - Also: UE4SS `TArray` `__index`/`__newindex` past `Num` calls `AddZeroed` (reads past the end grow the array), and there is no `RemoveAt`.
+- **CRASH (my test, 14:45:24 UTC, `crash_2026_10_25_15_45_24.3244819.dmp`):** `Server_SendChatMessage({SenderData={PrimaryNetId=<ps userdata>, ...}}, {SenderId=<ps userdata>})`.
+  - Stack: UFunction call → `push_structproperty` → (table) → `push_structproperty` → (table) → `push_structproperty+0x71f` AV. This happened before ProcessEvent, so no message was sent.
+  - Last breadcrumb: `speech_direct.Server_SendChatMessage`. The watchdog restarted the server at 14:45:39; Luis was disconnected and the puppet was gone (autospawn off).
+  - **R3 (PredictDamage `TArray<FTypeDamage>`) has the same frames and is very likely the same bug.**
+  - **Rule: never put a struct userdata inside a Lua table passed to UE4SS. Scalars-only tables are fine; copy structs only by property assignment or as a top-level param.**
+- **Route v2 (built, UNVERIFIED in game):** `body/speech.lua` `send_direct` / `DW_SAY_MODE=direct`.
+  - Call `Server_SendChatMessage` with SCALAR-ONLY tables.
+  - A one-shot PRE-hook on the same function then copies `NetIdPrimary`/`NetIdSecondary`/`UniqueID` into the live param buffer by property assignment.
+  - Evidence that pre-hooks fire for Lua-initiated calls and see the buffer: `hooks.lua`'s pre-callback logged the relay's re-sent text (`mod_20261025T133955Z.jsonl`, 13:41:42).
+  - Still unproven: that the native implementation reads the edited buffer. `speech_direct prove` checks this read-only (`GetCharacterDisplayName` with an empty account, patched by a pre-hook → must equal the host's own name), and `send` refuses until it passes.
+- **Map and compass presence (read-only, verified live):**
+  - Players come from `AGameplayObjectRegistry.PlayerCharacters` (`TArray<FPlayerCharacterData>`, ReplicatedUsing `OnRep_PlayerCharacters`, not SaveGame). The element is {Location, RotationByte, OwningCharacterGuid, OwningPlayerUniqueID, OwningPlayerName, Color, Identifier}.
+  - The registry is also `UGameplayObjectSubsystem.ObjectRegistry`. `UMapUIAPI` and `UCompassWidget` hold it, and compass icons are keyed by FGuid; `EMapIconType.OtherPlayerCharacter = 2`.
+  - Live: **the bot PS is in `GameState.PlayerArray`** ("Claude", `bIsABot`), but **the registry had only Luis** ("Zezima", location tracking his pawn). The puppet has the registry pointer (`ADominionPlayerCharacter.GameplayObjectRegistry`).
+  - Server log: the puppet's native `OnWorldLoadedAroundCharacter` runs at spawn (cells already loaded) and again in `PossessedBy`, both times before identity attaches the PS → `DominionPlayerState must be valid`. For Luis it runs about 5 s after possession, with no warning.
+  - Hypothesis (UNVERIFIED): that function adds the registry entry, so linking the PS to the AIController before `Possess` (APawn::PossessedBy copies `Controller->PlayerState`) would let the game register the bot itself. That needs a puppet respawn (puppet.lua), and the native path may touch PlayerController-only state.
+  - Built (UNVERIFIED): `body/presence.lua` appends one scalar-only entry (Identifier `0C0FFEE1-00C0DE00-0BADF00D-0000A11E`) and updates Location/RotationByte every second. Experiment: `presence_test add confirm=true`.
+
+## Spells wired live + reflex rules (build 26161880, 2026-10-25, about 15:45-16:10 UTC+1; no crash caused, dumps stayed at 10)
+- **Startup (run `mod_20261025T144539Z`):** `main.lua`'s SPELLS + REFLEX RULES block loaded. The catalog path came from `DW_MOD_LOG_DIR` (`C:\gameserver/data/spells_26161880.json`, 52 spells, because `DW_REPO_ROOT` is only set by `start_server.ps1` from now on). Policy `mirror_budget` (the inventory store was ready). Rules were installed as the first combat `on_tick` hook. Spells reflexes: Tempest Shield (`self_effect`) and Windstep (`wind_stomp`) are both **OFF**, because the catalog `routes[r].verified` is false.
+- **Bridge handlers verified live (nobody online):** `capabilities` lists `cast`, `spells`, `spell_tactics`, `set_reflex_rule`, `list_rules` and `clear_rule`.
+  - `spells {compact}` returns `[]`: all 52 spells answer `not_implemented` (route not verified).
+  - `cast` with no puppet answers `companion_down`.
+  - `set_reflex_rule` (kalphite, telegraph, evade + Windstep at self) returns the rule read back, `persisted=true`, and a warning that Windstep's route isn't verified. The bot state file kept `v`, `gear` and `inventory` and gained `reflex_rules {v, next_id, by_enemy}`.
+  - An unknown trigger answers `cant_sense`.
+  - `clear_rule {all}` emptied it again (`by_enemy` is `{}`, `next_id` is 2).
+- **Telegraph source:** the server log line `DominionAiAttackComponent: AUTH ATTACK : TELEGRAPH ... TimeUntilEvent` and `EvadeAttack: OnTelegraphDamage / PredictPointDamage` are **native**. Neither name is in the CXX dump, so there is nothing to `RegisterHook`.
+  - The reflected attack signals are `UAiAttackComponent:Multicast_PerformAttackOnSimulatedProxies(AttackClassId, AttackId, bFromCombo)` (NetMulticast, at attack start), `AiAttackTicketsManager:OnAiAttackStarted(AI)` (delegate handler), and the BP event `BP_AiAttackComponent_C:BP_PreemptParryWindowOpening(ParryWindowLength, AttackData)` (parry window, near the hit).
+  - `body/rules.lua` **polls** `ADominionAICharacter.AiAttackComponent.CurrentAttack.AttackData` (`FAiAttack`, DOM:14612) instead, as a property read with no hook. A nil-to-set change is one telegraph event.
+  - Kebbit log timing: `TryPerformAttack` at t, TELEGRAPH at t+1.335 s, damage at t+1.35 s. Attack start therefore gives about 1.3 s of warning.
+  - **UNVERIFIED:** that `CurrentAttack.AttackData` is set on the server during an attack. No AI was loaded to read (nobody online).
+  - Next: `debug_run rules_probe {action=watch, seconds=30}` while Luis fights. It logs `rules_probe_attack`.
+- The player dodge (`UPlayerEvadeComponent`) has no reflected start function, only `Multicast_StartEvade(int32, bool, FRotator)`, which is visual and takes a struct argument (rule 4). So the rule action `evade` is a 4 m `MoveToLocation` away from the attacker.

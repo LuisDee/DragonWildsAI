@@ -78,3 +78,16 @@
   - `skills.lua` keeps the handler contract.
 - **Tests:** 30/30 Lua body tests and 56 pytest pass.
 - **Next:** a server restart (skills.lua loads at startup), then Luis's in-game check: the mace chains and uses the special.
+
+### 2026-10-25: spells wired + reflex rules (tasks P7.S1, P7.R1, P7.R2, in progress)
+- **Body:** `main.lua` registers the spells service and the new `mod/body/rules.lua` in one block. Rules go first in the combat `on_tick` hooks, then the spells reflexes (shield on low HP or a telegraph, Windstep on 3+ clustered enemies).
+  - Each reflex is gated by the catalog's verified-in-game route status. Both are off today; `DW_SPELLS_UNVERIFIED=1` turns them on.
+  - Cost policy is `mirror_budget` (falls back to `mirror` if the inventory store isn't ready). Luis's unlocks are read live from his PC, with the catalog snapshot as the fallback.
+  - The rules engine is also new: it holds sensable triggers only, per-enemy persistence in the bot state, and the handlers `set_reflex_rule`, `list_rules` and `clear_rule`.
+- **Brain:**
+  - New `cast` tool and the reasons `on_cooldown` (the executor waits up to 5 s), `not_unlocked`, `unsafe` and `cant_sense`.
+  - The Controller's context carries `castable_spells` (`brain/spells.py`) and `reflex_rules`. The rule tools are offered to the Controller, with unsensable triggers refused before reaching the body.
+  - New mock spells/rules, plus BridgeClient methods and protocol docs.
+- **Tests:** `mod/tests/test_rules.lua` (13), `test_spells.lua` (36), `tests/test_spells_rules_brain.py` (20). Full pytest: 113 passed. Lua: body 30/30, core 16/16, bridge 14/14.
+- **Live (no restart needed, already loaded at the 15:45 restart):** the handlers and persistence work. The telegraph sensor read is still unverified (nobody online).
+- **Next:** Luis tests `!c every time the kalphite raises its claws, windstep away`, then a Kalphite fight. Run `rules_probe watch` during the fight to verify the attack-state poll.

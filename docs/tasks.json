@@ -291,14 +291,14 @@
       "id": "P7.R1",
       "phase": 7,
       "title": "Body: reflex rule engine + trigger sensors (telegraph, hp, cluster, stun)",
-      "status": "todo",
+      "status": "in_progress",
       "passes_test": false
     },
     {
       "id": "P7.R2",
       "phase": 7,
       "title": "Brain: set_reflex_rule/list_rules/clear_rule tools, per-enemy persistence",
-      "status": "todo",
+      "status": "in_progress",
       "passes_test": false
     },
     {
@@ -327,6 +327,13 @@
       "phase": 7,
       "title": "Farming: plot sense/watch, crop profiles, plant/tend/harvest primitives, planner composition",
       "status": "todo",
+      "passes_test": false
+    },
+    {
+      "id": "P7.S1",
+      "phase": 7,
+      "title": "Spells wired live: cast tool + reasons, castable list in Controller context, shield/Windstep combat reflexes gated by verified-in-game route status",
+      "status": "in_progress",
       "passes_test": false
     }
   ]

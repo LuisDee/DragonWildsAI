@@ -269,7 +269,7 @@ test("speech relay: !as / !echo triggers, TTL drop, queue cap", function()
     assert(#s.queue == speech.QUEUE_MAX)
 end)
 
-test("speech direct: say() sends now as the bot, net ids are the host PS's live structs; falls back to relay", function()
+test("speech direct: scalar-only call, net ids patched in by the pre-hook from the live PS; unpatched disables; relay fallback", function()
     local w = chat_world()
     speech.DEFAULT_MODE = "direct"
     if os.getenv("DW_SAY_MODE") then return end
@@ -278,25 +278,45 @@ test("speech direct: say() sends now as the bot, net ids are the host PS's live 
     w.ps.UniqueID = uid
     w.chat.IsValid = function() return true end
     w.pc.PlayerChat = w.chat
-    local captured
+    local function param(v) return { get = function() return v end } end
+    local captured, run_pre = {}, true
     local orig = w.chat.Server_SendChatMessage
-    function w.chat:Server_SendChatMessage(msg, filter) captured = { msg = msg, filter = filter }; return orig(self, msg, filter) end
+    function w.chat:Server_SendChatMessage(msg, filter)
+        -- what UE4SS receives from Lua: no userdata anywhere in the tables (the nested-userdata crash)
+        assert(msg.SenderData.PrimaryNetId == nil and msg.SenderData.SecondaryNetId == nil and filter.SenderId == nil)
+        if run_pre then for _, h in ipairs(w.hooks) do if h.pre then h.pre(param(self), param(msg), param(filter)) end end end
+        captured[#captured + 1] = { msg = msg, filter = filter }
+        return orig(self, msg, filter)
+    end
     local r = speech.say(H.log, "Right behind you.")
     assert(r.ok and r.data.method == "direct" and r.data.on_demand == true, json.encode(r))
     assert(#w.sent == 1 and w.sent[1].body == "Right behind you." and U.guid_eq(w.sent[1].guid, speech.GUID))
-    -- the network fields are the very objects read from the PlayerState (UE4SS engine-copies them)
-    assert(captured.msg.SenderData.PrimaryNetId == prim and captured.msg.SenderData.SecondaryNetId == sec)
-    assert(captured.filter.SenderId == uid and captured.filter.ReceiverIds == nil)
-    assert(captured.msg.SenderData.PlayerId == 256)
+    -- the pre-hook assigned the very objects read from the PlayerState (UE4SS engine-copies them)
+    local c = captured[1]
+    assert(c.msg.SenderData.PrimaryNetId == prim and c.msg.SenderData.SecondaryNetId == sec and c.filter.SenderId == uid)
+    assert(c.msg.SenderData.PlayerId == 256)
     assert(#w.registered == 1, "names registered once")
     assert(not speech.is_relaying())
-    assert(#w.hooks == 0, "no relay hook needed when direct works")
+    assert(#w.hooks == 1 and w.hooks[1].fn == speech.CHAT_FN and speech.status().direct_armed)
+    -- the pre-hook is one-shot: a player's own line is never patched
+    w.player_says("plain")
+    assert(rawget(_G, "__dw_speech").direct_job == nil)
     -- no PlayerChat -> queued for the relay instead of failing
     w.pc.PlayerChat = nil
     local r2 = speech.say(H.log, "queued one")
     assert(r2.ok and r2.data.method == "relay" and r2.data.queued and r2.data.direct_err, json.encode(r2))
-    assert(#w.hooks == 1)
+    assert(#w.hooks == 2, "relay post-hook armed for the fallback")
     assert(speech.status().capabilities.on_demand == true)
+    -- a pre-hook that does not patch disables direct for the run (and that line falls back to relay)
+    w.pc.PlayerChat = w.chat
+    run_pre = false
+    local r3 = speech.say(H.log, "unpatched")
+    assert(r3.ok and r3.data.method == "relay" and r3.data.direct_err:find("unpatched"), json.encode(r3))
+    assert(speech.status().direct_disabled)
+    run_pre = true
+    local n = #captured
+    local r4 = speech.say(H.log, "after disable")
+    assert(r4.data.method == "relay" and #captured == n, "no further direct sends once disabled")
 end)
 
 test("speech: bot lines are recognisable (main.lua drops them from command_received)", function()
@@ -346,6 +366,7 @@ test("experiments: all load by name via debug_run and fail safe in an empty worl
         { "presence_probe", {} }, { "presence_test", {} },
         { "rules_probe", {} }, { "rules_probe", { action = "sense" } },
         { "item_probe", {} }, { "item_probe", { action = "gone", target = "x" } },
+        { "gather_probe", {} }, { "gather_test", {} },
     }
     for _, c in ipairs(cases) do
         local r = run({ module = c[1], args = c[2] })
@@ -362,7 +383,7 @@ test("experiments: all load by name via debug_run and fail safe in an empty worl
 end)
 
 -- ------------------------------------------------------------------ presence (map/compass)
-test("presence: appends one bot entry (live UniqueID object, bot ident), updates it by Identifier, never twice", function()
+test("presence: appends one scalar-only bot entry (bot ident), updates it by Identifier, never twice", function()
     reset()
     local presence = require("body.presence")
     presence._reset()
@@ -380,7 +401,8 @@ test("presence: appends one bot entry (live UniqueID object, bot ident), updates
     local r = presence.ensure(H.log, p)
     assert(r.ok and r.data.index == 2 and #items == 2, json.encode(r))
     local e = items[2]
-    assert(e.OwningPlayerUniqueID == uid, "UniqueID is the live struct, not a built one")
+    assert(e.OwningPlayerUniqueID == nil, "never a struct userdata inside the table (UE4SS nested-userdata crash)")
+    for k, v in pairs(e) do assert(type(v) ~= "userdata", k) end
     assert(e.OwningPlayerName == presence.NAME and U.guid_eq(e.Identifier, presence.IDENT))
     assert(U.guid_eq(e.OwningCharacterGuid.InnerGuid, presence.CHAR_GUID) and e.RotationByte == 64)
     assert(e.Color.R == presence.COLOR.R, "falls back to Claude orange for an unset PlayerColor")

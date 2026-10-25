@@ -168,7 +168,7 @@ function M.new_action(key, profile, args, deps, base)
         want = math.floor(args.count), base = base or 0, have = 0, total = base or 0,
         radius_cm = math.min((tonumber(args.radius) or M.DEFAULT_RADIUS_CM / 100) * 100, M.MAX_RADIUS_CM),
         bonus = args.bonus ~= false, sites = 0, swings = 0, native_hits = 0, emulated_hits = 0, picked = 0,
-        bad = {}, bad_streak = 0, site = nil, target = nil, deps = deps,
+        bad = {}, taken = {}, bad_streak = 0, site = nil, target = nil, deps = deps,
         timeout_ms = math.min(M.TIMEOUT_BASE_MS + M.TIMEOUT_PER_UNIT_MS * math.floor(args.count), M.TIMEOUT_MAX_MS),
     }
     if deps.now then a.started = deps.now() end
@@ -281,7 +281,7 @@ function M.tree(deps)
 
     local function set_target(a, entry, spec, stage)
         a.target = { actor = entry.actor, id = entry.id, loc = entry.loc, key = sense.key(entry.loc) .. "/" .. stage,
-                     spec = spec, stage = stage, no_effect = 0, hits = 0 }
+                     spec = spec, stage = stage, no_effect = 0, hits = 0, info = entry }
         a.move = nil
         if stage ~= "drop" then
             a.need = M.gate_of(entry.actor, a.profile)
@@ -333,7 +333,7 @@ function M.tree(deps)
             end
             local drops = drops_near(a, a.site.loc, a.profile.collect_radius_cm or 1200)
             for _, d in ipairs(drops) do
-                if not a.bad[sense.key(d.loc) .. "/drop"] then
+                if not a.taken[d.id] and not a.bad[sense.key(d.loc) .. "/drop"] then
                     d.dist = U.dist(here, d.loc)
                     set_target(a, d, { name = "drop", reach_cm = M.PICKUP_CM }, "drop")
                     return S_
@@ -347,7 +347,7 @@ function M.tree(deps)
         -- loose drops of our item near us (e.g. from an earlier interrupted run) come first
         local loose = drops_near(a, here, a.profile.collect_radius_cm or 1200)
         for _, d in ipairs(loose) do
-            if not a.bad[sense.key(d.loc) .. "/drop"] then
+            if not a.taken[d.id] and not a.bad[sense.key(d.loc) .. "/drop"] then
                 set_target(a, d, { name = "drop", reach_cm = M.PICKUP_CM }, "drop"); return S_
             end
         end
@@ -426,17 +426,19 @@ function M.tree(deps)
         if not sw then return fail(a, "wrong_tool", { detail = "attack set not loaded", held = a.held and profiles.item_id(a.held) or jsonutil.null }) end
         deps.face(a.p, t.actor)
         local seq = hitcheck.seq()
+        local hp0 = U.health(t.actor) -- before the swing: native damage may land at once
         local ok = deps.perform(a.p, sw, t.actor, { target = t.id, stage = t.stage, n = a.swings + 1, label = sw.label })
         a.swings = a.swings + 1
-        a.swing = { at = now(), dmg_ms = sw.dmg_ms, damage = sw.damage, hp = U.health(t.actor), seq = seq, dist = d, resolved = not ok }
+        a.swing = { at = now(), dmg_ms = sw.dmg_ms, damage = sw.damage, hp = hp0, seq = seq, dist = d, resolved = not ok }
         a.ready_at = now() + sw.next_ms
         if not ok then t.no_effect = (t.no_effect or 0) + 1 end
         return S_
     end
 
     local function pickup(a, t)
-        local r = deps.store.pickup(deps.log_mod, t)
+        local r = deps.store.pickup(deps.log_mod, t.info or t)
         if r and r.ok then
+            if t.id then a.taken[t.id] = true end -- it lingers ~0.1 s (SetLifeSpan): never take it twice
             a.picked = a.picked + (tonumber(r.data and r.data.count) or 1)
             a.target = nil
             lg("gather_pickup", { item = a.item_id, count = r.data and r.data.count, world_item = t.id })

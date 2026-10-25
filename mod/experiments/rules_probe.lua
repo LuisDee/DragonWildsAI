@@ -89,9 +89,14 @@ end
 
 function M.sense(log, args)
     local o, nplayers = origin()
-    if not o then return { ok = false, err = "nobody online and no puppet" } end
+    local radius = (tonumber(args.radius_m) or 30) * 100
+    if not o then
+        -- nobody online: any=true reads every loaded AI (first 20) around the world origin
+        if args.any ~= true then return { ok = false, err = "nobody online and no puppet (pass any=true)" } end
+        o, radius = { X = 0, Y = 0, Z = 0 }, math.huge
+    end
     local out = {}
-    for _, e in ipairs(ais_near(o, (tonumber(args.radius_m) or 30) * 100)) do
+    for _, e in ipairs(ais_near(o, radius)) do
         local atk, why = attack_of(e.ai)
         out[#out + 1] = { id = U.short(e.ai), d_m = U.cm_to_m(e.d), attacking = atk or false, err = why }
         if #out >= 20 then break end
