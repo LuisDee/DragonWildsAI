@@ -1,5 +1,5 @@
 {
-  "_doc": "Machine-readable targets for docs/GOAL.md section 1. tools/goal_check.py compares the latest measured results against these. Missing data = NOT MET. Only Luis changes targets.",
+  "_doc": "Machine-readable targets for docs/GOAL.md. tools/goal_check.py compares the latest measured results against these. Missing data = NOT MET. Only Luis changes targets; the judge files are frozen at the Luis-approved tag in 'judge_tag'.",
   "spells_effect_coverage_pct": 95,
   "craft_from_scratch_pct": 90,
   "combat_cases_pct": 80,
@@ -16,7 +16,6 @@
     "dev_world_max_hints": 1,
     "live_confirmed_required": true
   },
-  "heldout_gap_max_points": 10,
   "latency_chat_to_action_p50_s": 2.5,
   "latency_chat_to_action_p90_s": 4.0,
   "voice_score_min": 0.8,
@@ -59,7 +58,8 @@
       "stability_hours_without_crash",
       "spells_effect_coverage_pct",
       "combat_basics_live_proven",
-      "no_starvation_deaths"
+      "no_starvation_deaths",
+      "obs_exposure"
     ],
     "M2": [
       "spell_use_cases_pct",
@@ -78,9 +78,34 @@
       "long_tasks:gear_upgrade_self_initiated",
       "long_tasks:brynmoor_quest_chain",
       "long_tasks:farm_desert_weed",
-      "heldout_gap_max_points"
+      "heldout"
     ]
   },
   "no_starvation_deaths": 0,
-  "daily_api_cap_usd": 10
+  "daily_api_cap_usd": 10,
+  "decision_rule": {
+    "percent_targets": "wilson_95_lower_bound >= target",
+    "min_n_percent_targets": 20,
+    "min_live_cases_per_family": 3,
+    "long_tasks_repeats_k": 3,
+    "long_tasks_rule": "pass^k (all k pass)",
+    "freshness": "measured at the current companion hash + game build; mixed hashes = NOT MET"
+  },
+  "spells_denominator": "all spells in the build manifest (data/spell_effects.json) minus a data-derived n/a list approved by Luis per build; every non-pass (unverifiable, skip, error) counts against",
+  "heldout": {
+    "rule": "heldout_wilson_lower_bound >= seen_rate - 10 points",
+    "min_n": 30,
+    "draw": "fresh post-freeze generation seeded from HEAD; stratified by tier/family"
+  },
+  "obs_exposure": {
+    "min_active_hours_at_current_hash": 2,
+    "min_tool_calls_per_hour": 20,
+    "requires_real_player_chat": true
+  },
+  "goal_cases": {
+    "pinned_by_hash": {},
+    "_note": "filled when Luis approves the drafted GOAL cases (evals/bench/goal_cases/)"
+  },
+  "judge_tag": null,
+  "final_gate": "Luis sign-off after goal_check prints GOAL MET"
 }

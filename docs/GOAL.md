@@ -5,7 +5,7 @@ Luis set this on 2026-10-25. It is the contract for unattended iteration: what "
 ## 1. Definition of done (all measured by the benchmark and the observability tools; no self-assessment)
 | Area | Target | Measured by |
 |---|---|---|
-| Spells: can cast | ≥ 95% of unlocked spells cast with the game-observed effect (not just runes spent) | T0 spell cases, auto-generated from spell data |
+| Spells: can cast | ≥ 95% of the spells in the build manifest (every non-pass counts against) cast with the game-observed effect (not just runes spent) | T0 spell cases, auto-generated from spell data |
 | Spells: can USE | each spell achieves its purpose in a situation that needs it, chosen by him without being told the spell name. Examples: Windstep up onto a ledge he can't jump; Phase Dash through an attack in combat; a Windstep landing that stuns low/medium mobs; Rocksplosion while mining; Splinter on felled logs; Axtral on trees; enchant the weapon with the type the enemy is weak to; Tempest Shield before a hard fight. ≥ 80% of the T1 "use" cases | T1 use cases generated from spell_effects.json purposes + situations |
 | Stations and crafting | ≥ 90% of recipes craftable from scratch at their station (gather → process → craft) | T0/T1 craft cases from the recipe graph |
 | Combat basics (proven live) | standard dodge (direction + evade) avoids a telegraphed hit; parry lands in the window; disengage, eat, re-engage; ranged hit rate ≥ 60% at 15 m on moving targets | T1 combat cases + server hit/parry/damage events |
@@ -14,7 +14,7 @@ Luis set this on 2026-10-25. It is the contract for unattended iteration: what "
 | Knowledge use | on cases that need a fact not in his perception (a recipe, where a resource is, a creature weakness, a quest step), he looks it up (game data first, then wiki), and the fact he acts on is correct | T1/T2 knowledge cases: lookup-needed vs not, judged by the trace |
 | Thinking on his feet | ≥ 80% on adversarial cases (failure injection, vague chat, interruptions) | T1/T2 adversarial cases |
 | Long tasks, unaided | each completes on the dev world with ≤ 1 player hint, then once live with Luis: (a) gather 50 coal (wiki + lodestones, multi-trip); (b) farm a mob drop with the right weapon; (c) upgrade gear one tier on his own initiative; (d) one Brynmoor quest chain from the wiki; (e) farm desert weed at "our farm" | T3 cases |
-| Generalisation | held-out generated tasks within 10 points of the seen-task pass rate | generator holds out 30% of each batch |
+| Generalisation | held-out lower bound ≥ seen rate − 10 points, n ≥ 30, from a fresh draw generated after the code freeze | generator, sealed held-out |
 | Speed | chat → first action p50 ≤ 2.5 s, p90 ≤ 4 s | `tools/obs.py metrics` |
 | Voice | voice-eval score ≥ target; 0 stat narration and 0 talk-without-action per hour of play | voice eval + anomaly detectors |
 | Stability | 2 h of play without a crash or a stall over 30 s | watchdog + anomalies |
@@ -25,6 +25,15 @@ Luis set this on 2026-10-25. It is the contract for unattended iteration: what "
 - **M3 Director:** the task board; T2 multi-trip jobs (coal with lodestones, farm a mob drop).
 - **M4 Long horizon:** gear progression on his own initiative, a quest chain, desert-weed farming, held-out generalisation, the live confirmations.
 Each milestone has its own targets in goal_targets.json. The full goal = all four met.
+
+
+## 1c. Decision rules (Luis approved, 2026-10-25)
+- Percentage targets pass on the **Wilson 95% lower bound**, with n ≥ 20 valid cases; each family needs ≥ 3 live cases.
+- Long tasks: k = 3 repeats, all must pass.
+- Fresh means measured at the current companion hash and game build, with no mixing.
+- Speed, voice and stability need ≥ 2 h of active play (≥ 20 tool calls/h, with real player chat) at the current hash.
+- The GOAL-required cases are pinned by hash. The judge files are frozen at a Luis-approved tag (`goal-judge-YYYYMMDD`); a diff since then = NOT MET.
+- **Final gate:** goal_check prints GOAL MET, then Luis signs off.
 
 ## 2. The iteration loop (every cycle, in this order)
 1. **Measure.** Run the benchmark (dev world first) and the observability metrics; append to `logs/evals/scoreboard.jsonl`.
@@ -61,6 +70,7 @@ Each milestone has its own targets in goal_targets.json. The full goal = all fou
 
 ## 5. When to stop and ask Luis
 - Binary or memory patching.
+- Any change to a judge file (targets, predicates, leaves, the runner/goal_check, spell proofs, goal cases): it's blocked by the judge-guard hook while /goal runs.
 - Spending beyond the daily cap.
 - Anything affecting other players or the Shockbyte world beyond Claude's own character.
 - A dead end after re-research.
