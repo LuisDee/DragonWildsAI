@@ -29,7 +29,10 @@ class JsonlLogger:
             f.write(line + "\n")
 
     def read_all(self) -> list[dict]:
-        if not self.path.exists():
-            return []
-        with self.path.open(encoding="utf-8") as f:
-            return [json.loads(line) for line in f if line.strip()]
+        return read_jsonl(self.path) if self.path.exists() else []
+
+
+def read_jsonl(path: Path) -> list[dict]:
+    """Parse every non-blank line of a JSONL file."""
+    with Path(path).open(encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]

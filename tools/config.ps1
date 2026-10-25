@@ -8,8 +8,8 @@ $ServerLog     = Join-Path $ServerSaved 'Logs\RSDragonwilds.log'
 $BackupRoot    = Join-Path (Split-Path $ServerRoot -Parent) 'backups'
 $ModName       = 'DWCompanion'
 $ModDeployDir  = Join-Path $ServerWin64 "ue4ss\Mods\$ModName"
-$ModLogDir     = Join-Path $RepoRoot 'logs\mod'
-$BridgeDir     = Join-Path $RepoRoot 'bridge_io'
+$ModLogDir     = if ($env:DW_MOD_LOG_DIR) { $env:DW_MOD_LOG_DIR } else { Join-Path $RepoRoot 'logs\mod' }
+$BridgeDir     = if ($env:DW_BRIDGE_DIR) { $env:DW_BRIDGE_DIR } else { Join-Path $RepoRoot 'bridge_io' }
 $AppId         = 4019830
 
 function Get-SteamCmd {

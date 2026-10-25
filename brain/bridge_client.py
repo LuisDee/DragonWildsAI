@@ -11,11 +11,10 @@ import uuid
 
 from pydantic import ValidationError
 
-from .interface import ActionResult, Coords, Event, GameInterface, Reason, fail, parse_event
+from . import protocol
+from .interface import ActionResult, Coords, Event, GameInterface, Reason, fail, from_wire, parse_event
 from .jsonl_log import JsonlLogger
 from .transport import Transport
-
-PROTOCOL_VERSION = 1
 
 # Long actions need longer timeouts. Seconds of wall-clock time.
 DEFAULT_TIMEOUTS = {"gather": 180.0, "craft": 60.0, "attack": 60.0, "go_to": 120.0, "place": 60.0}
@@ -55,8 +54,7 @@ class BridgeClient(GameInterface):
 
     def request(self, tool: str, args: dict | None = None, timeout: float | None = None) -> ActionResult:
         req_id = uuid.uuid4().hex[:12]
-        msg = {"v": PROTOCOL_VERSION, "type": "cmd", "id": req_id, "tool": tool, "args": args or {},
-               "ts": round(time.time(), 3)}
+        msg = protocol.cmd(req_id, tool, args)
         timeout = timeout if timeout is not None else self.timeouts.get(tool, self.default_timeout)
         self.log.log("bridge_send", msg=msg)
         self.transport.send(msg)
@@ -68,9 +66,8 @@ class BridgeClient(GameInterface):
                     self._drain_malformed()
                     self.log.log("bridge_recv", msg=reply)
                     if reply["type"] == "error":
-                        return fail(reply.get("reason") or "body_error", detail=reply.get("detail"))
-                    return {"ok": bool(reply.get("ok")), "reason": reply.get("reason"),
-                            "data": reply.get("data") or {}}
+                        return fail(reply.get("reason") or Reason.BODY_ERROR, detail=reply.get("detail"))
+                    return from_wire(reply)
             self._drain_malformed()
         self.log.log("bridge_timeout", id=req_id, tool=tool, timeout=timeout)
         return fail(Reason.TIMEOUT, tool=tool, id=req_id)
@@ -83,35 +80,38 @@ class BridgeClient(GameInterface):
 
     # ---------------------------------------------------------------- GameInterface
 
+    def _tool(self, name: str, **args) -> ActionResult:
+        return self.request(name, args)
+
     def get_state(self) -> ActionResult:
-        return self.request("get_state")
+        return self._tool("get_state")
 
     def follow(self, player: str, distance: float = 3.0) -> ActionResult:
-        return self.request("follow", {"player": player, "distance": distance})
+        return self._tool("follow", player=player, distance=distance)
 
     def stop(self) -> ActionResult:
-        return self.request("stop")
+        return self._tool("stop")
 
     def go_to(self, target: str | Coords) -> ActionResult:
-        return self.request("go_to", {"target": target})
+        return self._tool("go_to", target=target)
 
     def attack(self, target: str) -> ActionResult:
-        return self.request("attack", {"target": target})
+        return self._tool("attack", target=target)
 
     def gather(self, resource: str, count: int) -> ActionResult:
-        return self.request("gather", {"resource": resource, "count": count})
+        return self._tool("gather", resource=resource, count=count)
 
     def craft(self, item: str, count: int = 1) -> ActionResult:
-        return self.request("craft", {"item": item, "count": count})
+        return self._tool("craft", item=item, count=count)
 
     def place(self, blueprint: str, location: str | Coords) -> ActionResult:
-        return self.request("place", {"blueprint": blueprint, "location": location})
+        return self._tool("place", blueprint=blueprint, location=location)
 
     def give(self, player: str, item: str, count: int) -> ActionResult:
-        return self.request("give", {"player": player, "item": item, "count": count})
+        return self._tool("give", player=player, item=item, count=count)
 
     def say(self, text: str) -> ActionResult:
-        return self.request("say", {"text": text})
+        return self._tool("say", text=text)
 
     def poll_events(self) -> list[Event]:
         for msg in self.transport.receive(0.0):

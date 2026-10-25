@@ -1,7 +1,7 @@
 -- Offline unit tests for mod/scripts/bridge.lua. Usage: lua test_bridge.lua <empty_dir>
 -- (tests/test_lua_bridge.py runs this with a pytest tmp dir). Exits non-zero on failure.
 local H = dofile(((debug.getinfo(1, "S").source:match("^@(.*)[/\\][^/\\]*$")) or ".") .. "/bridge_harness.lua")
-local json = require("json")
+local json = require("dkjson")
 local bridge = require("bridge")
 
 local dir = arg[1] or os.getenv("DW_BRIDGE_DIR")

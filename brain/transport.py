@@ -100,8 +100,3 @@ def file_transport_pair(directory: Path | None = None) -> tuple[JsonlFileTranspo
     body = JsonlFileTransport(d / BODY_TO_BRAIN, d / BRAIN_TO_BODY)
     brain = JsonlFileTransport(d / BRAIN_TO_BODY, d / BODY_TO_BRAIN)
     return brain, body
-
-
-def brain_file_transport(directory: Path | None = None) -> JsonlFileTransport:
-    d = Path(directory) if directory else paths.bridge_dir()
-    return JsonlFileTransport(d / BRAIN_TO_BODY, d / BODY_TO_BRAIN)

@@ -14,13 +14,13 @@ if (Test-Path $ServerSaved) {
     Write-Host "Backed up Saved/ to $dest"
 }
 
-$args = @('+force_install_dir', $ServerRoot, '+login', 'anonymous', '+app_update', $AppId)
-if (-not $NoValidate) { $args += 'validate' }
-$args += '+quit'
+$steamArgs = @('+force_install_dir', $ServerRoot, '+login', 'anonymous', '+app_update', $AppId)
+if (-not $NoValidate) { $steamArgs += 'validate' }
+$steamArgs += '+quit'
 $steamcmd = Get-SteamCmd
-& $steamcmd @args
+& $steamcmd @steamArgs
 # SteamCMD exits 7 after self-updating without doing the app update; run once more if so.
-if ($LASTEXITCODE -eq 7) { & $steamcmd @args }
+if ($LASTEXITCODE -eq 7) { & $steamcmd @steamArgs }
 
 $new = Get-ServerBuildId
 Write-Host "Build: $old -> $new"

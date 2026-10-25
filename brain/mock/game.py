@@ -6,6 +6,8 @@ with ``script_failure`` to exercise the brain's retry/replan/ask-for-help paths.
 """
 from __future__ import annotations
 
+import functools
+import inspect
 import math
 from collections import Counter
 from dataclasses import dataclass, field
@@ -43,8 +45,21 @@ BLUEPRINTS: dict[str, dict[str, int]] = {
 }
 
 
-def dist(a: Coords, b: Coords) -> float:
-    return math.dist(a, b)
+def _scriptable(action):
+    """Record the call, and if a scripted failure rule fires, apply it instead of acting."""
+    sig = inspect.signature(action)
+
+    @functools.wraps(action)
+    def wrapper(self: "MockGame", *args, **kwargs) -> ActionResult:
+        bound = sig.bind(self, *args, **kwargs)
+        bound.apply_defaults()
+        call_args = dict(bound.arguments)
+        del call_args["self"]
+        if rule := self._begin(action.__name__, **call_args):
+            return self._apply_rule(rule)
+        return action(self, *args, **kwargs)
+
+    return wrapper
 
 
 @dataclass
@@ -133,7 +148,7 @@ class MockGame(GameInterface):
     def remove_nodes(self, resource: str, within: float | None = None) -> None:
         """Delete resource nodes (optionally only those within ``within`` of the companion)."""
         for nid, n in list(self.nodes.items()):
-            if n.resource == resource and (within is None or dist(n.pos, self.pos) <= within):
+            if n.resource == resource and (within is None or math.dist(n.pos, self.pos) <= within):
                 del self.nodes[nid]
 
     # ------------------------------------------------------------------ scripting
@@ -168,8 +183,8 @@ class MockGame(GameInterface):
         self.health -= 8
         return eid
 
-    def _apply_rule(self, rule: FailureRule) -> ActionResult | None:
-        """Handle a triggered rule. Returns a result, or None when the tool should do partial work."""
+    def _apply_rule(self, rule: FailureRule) -> ActionResult:
+        """Turn a triggered rule into the action's result (gather handles "attacked" itself)."""
         if rule.reason == "interrupted":
             self.player_say(rule.text)
             return fail(Reason.INTERRUPTED, by="Luis")
@@ -185,21 +200,21 @@ class MockGame(GameInterface):
         self.time += seconds
         if self.following and self.following in self.players:
             target = self.players[self.following].pos
-            if dist(self.pos, target) > self.follow_distance:
+            if math.dist(self.pos, target) > self.follow_distance:
                 self._step_towards(target, self.follow_distance)
 
     def tick(self, seconds: float = 1.0) -> None:
         self._advance(seconds)
 
     def _step_towards(self, target: Coords, stop_at: float = 0.0) -> None:
-        d = dist(self.pos, target)
+        d = math.dist(self.pos, target)
         if d <= stop_at:
             return
         frac = (d - stop_at) / d
         self.pos = [p + (t - p) * frac for p, t in zip(self.pos, target)]
 
     def _walk(self, target: Coords, stop_at: float = 0.0) -> None:
-        d = max(0.0, dist(self.pos, target) - stop_at)
+        d = max(0.0, math.dist(self.pos, target) - stop_at)
         self._step_towards(target, stop_at)
         self.time += d / SPEED
 
@@ -218,13 +233,14 @@ class MockGame(GameInterface):
 
     # ------------------------------------------------------------------ GameInterface
 
-    def _record(self, tool: str, **args) -> FailureRule | None:
+    def _begin(self, tool: str, **args) -> FailureRule | None:
+        """Log the call for test assertions and return the scripted failure rule it triggers, if any."""
         self.calls.append((tool, args))
         return self._take_rule(tool)
 
     def get_state(self) -> ActionResult:
         def near(p):
-            return dist(p, self.pos) <= NEARBY_RANGE
+            return math.dist(p, self.pos) <= NEARBY_RANGE
 
         return ok(
             time=self.time,
@@ -234,26 +250,25 @@ class MockGame(GameInterface):
             inventory=dict(+self.inventory),
             following=self.following,
             players=[
-                {"name": p.name, "position": p.pos, "distance": round(dist(p.pos, self.pos), 1)}
+                {"name": p.name, "position": p.pos, "distance": round(math.dist(p.pos, self.pos), 1)}
                 for p in self.players.values()
             ],
             nearby_entities=[
                 {"id": e.id, "kind": e.kind, "position": e.pos, "hp": e.hp, "hostile": e.hostile,
-                 "alive": e.alive, "distance": round(dist(e.pos, self.pos), 1)}
+                 "alive": e.alive, "distance": round(math.dist(e.pos, self.pos), 1)}
                 for e in self.entities.values() if near(e.pos)
             ],
             nearby_resources=[
                 {"id": n.id, "resource": n.resource, "position": n.pos, "remaining": n.remaining,
-                 "distance": round(dist(n.pos, self.pos), 1)}
+                 "distance": round(math.dist(n.pos, self.pos), 1)}
                 for n in self.nodes.values() if n.remaining > 0 and near(n.pos)
             ],
             structures=list(self.structures),
             places=sorted(self.places),
         )
 
+    @_scriptable
     def follow(self, player: str, distance: float = 3.0) -> ActionResult:
-        if rule := self._record("follow", player=player, distance=distance):
-            return self._apply_rule(rule)
         if player not in self.players:
             return fail(Reason.UNKNOWN_TARGET, target=player)
         self.following, self.follow_distance = player, distance
@@ -261,13 +276,12 @@ class MockGame(GameInterface):
         return ok(following=player)
 
     def stop(self) -> ActionResult:
-        self._record("stop")
+        self._begin("stop")  # a scripted rule is consumed but never fails stop
         self.following = None
         return ok()
 
+    @_scriptable
     def go_to(self, target: str | Coords) -> ActionResult:
-        if rule := self._record("go_to", target=target):
-            return self._apply_rule(rule)
         dest = self._resolve(target)
         if dest is None:
             return fail(Reason.UNKNOWN_TARGET, target=target)
@@ -277,9 +291,8 @@ class MockGame(GameInterface):
         self._walk(dest, stop_at)
         return ok(target_position=list(dest), position=list(self.pos), arrive_tolerance=ARRIVE + stop_at)
 
+    @_scriptable
     def attack(self, target: str) -> ActionResult:
-        if rule := self._record("attack", target=target):
-            return self._apply_rule(rule)
         e = self.entities.get(target)
         if e is None or not e.alive:
             return fail(Reason.UNKNOWN_TARGET, target=target)
@@ -296,14 +309,14 @@ class MockGame(GameInterface):
         return ok(target=target, killed=True)
 
     def gather(self, resource: str, count: int) -> ActionResult:
-        rule = self._record("gather", resource=resource, count=count)
+        rule = self._begin("gather", resource=resource, count=count)
         attacked = rule is not None and rule.reason == "attacked"
         if rule and not attacked:
             return self._apply_rule(rule)
         nodes = sorted(
             (n for n in self.nodes.values()
-             if n.resource == resource and n.remaining > 0 and dist(n.pos, self.pos) <= GATHER_RANGE),
-            key=lambda n: dist(n.pos, self.pos),
+             if n.resource == resource and n.remaining > 0 and math.dist(n.pos, self.pos) <= GATHER_RANGE),
+            key=lambda n: math.dist(n.pos, self.pos),
         )
         if not nodes:
             return fail(Reason.NOTHING_IN_RANGE, resource=resource)
@@ -326,9 +339,8 @@ class MockGame(GameInterface):
             return fail(Reason.NOT_ENOUGH, resource=resource, gathered=got)
         return ok(resource=resource, gathered=got)
 
+    @_scriptable
     def craft(self, item: str, count: int = 1) -> ActionResult:
-        if rule := self._record("craft", item=item, count=count):
-            return self._apply_rule(rule)
         recipe = RECIPES.get(item)
         if recipe is None:
             return fail(Reason.UNKNOWN_RECIPE, item=item)
@@ -343,15 +355,14 @@ class MockGame(GameInterface):
         self._advance(3.0 * batches)
         return ok(item=item, crafted=made)
 
+    @_scriptable
     def place(self, blueprint: str, location: str | Coords) -> ActionResult:
-        if rule := self._record("place", blueprint=blueprint, location=location):
-            return self._apply_rule(rule)
         cost = BLUEPRINTS.get(blueprint)
         dest = self._resolve(location)
         if cost is None or dest is None:
             return fail(Reason.UNKNOWN_TARGET, blueprint=blueprint, location=location)
-        if dist(dest, self.pos) > 10.0:
-            return fail(Reason.TOO_FAR, distance=round(dist(dest, self.pos), 1))
+        if math.dist(dest, self.pos) > 10.0:
+            return fail(Reason.TOO_FAR, distance=round(math.dist(dest, self.pos), 1))
         missing = {k: v - self.inventory[k] for k, v in cost.items() if self.inventory[k] < v}
         if missing:
             return fail(Reason.MISSING_MATERIALS, missing=missing)
@@ -361,14 +372,13 @@ class MockGame(GameInterface):
         self._advance(10.0)
         return ok(structure_id=sid)
 
+    @_scriptable
     def give(self, player: str, item: str, count: int) -> ActionResult:
-        if rule := self._record("give", player=player, item=item, count=count):
-            return self._apply_rule(rule)
         p = self.players.get(player)
         if p is None:
             return fail(Reason.UNKNOWN_TARGET, target=player)
-        if dist(p.pos, self.pos) > REACH:
-            return fail(Reason.TOO_FAR, distance=round(dist(p.pos, self.pos), 1))
+        if math.dist(p.pos, self.pos) > REACH:
+            return fail(Reason.TOO_FAR, distance=round(math.dist(p.pos, self.pos), 1))
         if self.inventory[item] < count:
             return fail(Reason.MISSING_MATERIALS, missing={item: count - self.inventory[item]})
         self.inventory[item] -= count
@@ -376,7 +386,7 @@ class MockGame(GameInterface):
         return ok(player=player, item=item, count=count)
 
     def say(self, text: str) -> ActionResult:
-        self._record("say", text=text)
+        self._begin("say", text=text)  # likewise for say
         self.chat.append(("companion", text))
         return ok()
 

@@ -9,46 +9,42 @@ import sys
 import threading
 from pathlib import Path
 
-from .interface import GameInterface
+from . import paths, protocol
+from .interface import GameInterface, ok
 from .mock import MockGame
 from .transport import BODY_TO_BRAIN, BRAIN_TO_BODY, JsonlFileTransport, Transport
-
-V = 1
 
 
 class FakeBody:
     def __init__(self, game: GameInterface, transport: Transport):
         self.game = game
         self.transport = transport
-        self.handled = 0
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def _send_events(self) -> None:
         for ev in self.game.poll_events():
-            self.transport.send({"v": V, "type": "event", "event": ev.model_dump()})
+            self.transport.send(protocol.event(ev.model_dump()))
 
     def handle(self, msg: dict) -> None:
         req_id = msg.get("id")
         if msg.get("type") != "cmd" or not isinstance(req_id, str) or not isinstance(msg.get("tool"), str):
-            self.transport.send({"v": V, "type": "error", "id": req_id if isinstance(req_id, str) else None,
-                                 "reason": "malformed", "detail": "expected type=cmd with string id and tool"})
+            self.transport.send(protocol.error(req_id if isinstance(req_id, str) else None, "malformed",
+                                               "expected type=cmd with string id and tool"))
             return
         if msg["tool"] == "ping":
-            result = {"ok": True, "reason": None, "data": {"pong": True}}
+            res = ok(pong=True)
         else:
             args = msg.get("args") if isinstance(msg.get("args"), dict) else {}
-            result = self.game.call(msg["tool"], args)
+            res = self.game.call(msg["tool"], args)
         self._send_events()  # events raised during the action go out before its result
-        self.transport.send({"v": V, "type": "result", "id": req_id, **result})
-        self.handled += 1
+        self.transport.send(protocol.result(req_id, res))
 
     def step(self, timeout: float = 0.05) -> None:
         msgs = self.transport.receive(timeout)
         bad = getattr(self.transport, "malformed", None)
         while bad:  # report malformed lines first, in arrival order
-            self.transport.send({"v": V, "type": "error", "id": None, "reason": "malformed",
-                                 "detail": bad.pop(0)[:200]})
+            self.transport.send(protocol.error(None, "malformed", bad.pop(0)[:200]))
         for msg in msgs:
             self.handle(msg)
         self._send_events()  # spontaneous events (e.g. a scripted chat line)
@@ -69,10 +65,7 @@ class FakeBody:
 
 
 def main() -> None:
-    d = Path(sys.argv[1]) if len(sys.argv) > 1 else None
-    from . import paths
-
-    d = d or paths.bridge_dir()
+    d = Path(sys.argv[1]) if len(sys.argv) > 1 else paths.bridge_dir()
     body = FakeBody(MockGame.default_world(), JsonlFileTransport(d / BODY_TO_BRAIN, d / BRAIN_TO_BODY))
     print(f"fake body serving {d} (Ctrl+C to stop)")
     try:

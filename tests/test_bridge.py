@@ -2,11 +2,13 @@
 import json
 
 import pytest
+from conftest import Rig
 
 from brain.bridge_client import BridgeClient
 from brain.fake_body import FakeBody
 from brain.interface import Attacked, CommandReceived
 from brain.jsonl_log import JsonlLogger
+from brain.llm import FakeLLM
 from brain.mock import MockGame
 from brain.transport import BRAIN_TO_BODY, BODY_TO_BRAIN, file_transport_pair
 
@@ -89,23 +91,15 @@ def test_partial_line_waits_for_completion(tmp_path):
     assert brain_t.receive() == [{"v": 1, "type": "event", "event": {"type": "attacked", "by": "wolf_1"}}]
 
 
-def test_agent_runs_over_bridge(bridge, rig):
+def test_agent_runs_over_bridge(bridge, tmp_path):
     """The same agent code drives the bridge client as drives the mock (principle 7)."""
-    from brain.agent import Agent
-    from brain.controller import Controller
-    from brain.executor import Executor
-    from brain.llm import FakeLLM
-    from brain.planner import Planner
-
     client, game, *_ = bridge
-    ex = Executor(client, rig.store, rig.log)
-    ctl = Controller(rig.controller_llm, client, rig.store, rig.log)
-    agent = Agent(client, ctl, Planner(rig.planner_llm, rig.store.skills, rig.log), ex, rig.store, rig.log)
+    rig = Rig(tmp_path, game=client)
     rig.planner_llm.push(FakeLLM.plan([
         {"skill": "gather", "args": {"resource": "log", "count": 2}},
         {"skill": "go_to", "args": {"target": "Luis"}},
         {"skill": "give", "args": {"player": "Luis", "item": "log", "count": 2}},
     ]))
-    assert agent.run_goal("bring Luis 2 logs") == "done"
+    assert rig.agent.run_goal("bring Luis 2 logs") == "done"
     assert game.players["Luis"].inventory["log"] == 2
     assert game.chat[-1][1].startswith("Done")

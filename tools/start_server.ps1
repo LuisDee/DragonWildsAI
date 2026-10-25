@@ -9,6 +9,7 @@ if (Get-ServerProcess) { Write-Host 'Server already running.'; exit 0 }
 New-Item -ItemType Directory -Force $ModLogDir, $BridgeDir | Out-Null
 $env:DW_MOD_LOG_DIR = $ModLogDir
 $env:DW_BRIDGE_DIR  = $BridgeDir
+$env:DW_MOD_ROOT    = $ModDeployDir
 
 $p = Start-Process -FilePath $ServerExe -WorkingDirectory $ServerWin64 -WindowStyle Hidden -PassThru
 Write-Host "Started server pid $($p.Id) (build $(Get-ServerBuildId)). Log: $ServerLog"

@@ -4,7 +4,6 @@ Runs under a standalone Lua 5.4 interpreter with the UE4SS globals stubbed
 (mod/tests/bridge_harness.lua). Skipped when no interpreter is on PATH; set DW_LUA
 to point at one explicitly.
 """
-import json
 import os
 import shutil
 import subprocess
@@ -14,7 +13,7 @@ import pytest
 
 from brain.bridge_client import BridgeClient
 from brain.interface import CommandReceived
-from brain.jsonl_log import JsonlLogger
+from brain.jsonl_log import JsonlLogger, read_jsonl
 from brain.transport import BODY_TO_BRAIN, BRAIN_TO_BODY, JsonlFileTransport
 
 MOD_TESTS = Path(__file__).resolve().parents[1] / "mod" / "tests"
@@ -26,7 +25,9 @@ def _find_lua() -> str | None:
     for name in ("lua", "lua5.4", "lua54"):
         if path := shutil.which(name):
             return path
-    return None
+    # winget's DEVCOM.Lua link, in case this shell's PATH predates the install.
+    winget = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "WinGet" / "Links" / "lua.exe"
+    return str(winget) if winget.exists() else None
 
 
 LUA = _find_lua()
@@ -95,6 +96,6 @@ def test_events_and_malformed_lines(lua_body):
     with (d / BRAIN_TO_BODY).open("a") as f:
         f.write("this is not json\n[1,2,3]\n")
     assert client.ping() is not None  # the body carries on
-    lines = [json.loads(x) for x in (d / BODY_TO_BRAIN).read_text().splitlines()]
+    lines = read_jsonl(d / BODY_TO_BRAIN)
     assert sum(1 for m in lines if m.get("type") == "error" and m["id"] is None) == 2
     assert "bridge_unmatched" in [r["kind"] for r in log.read_all()]  # id=null errors are logged

@@ -28,8 +28,13 @@ def fail(reason: str, **data: Any) -> ActionResult:
     return {"ok": False, "reason": reason, "data": data}
 
 
+def from_wire(reply: dict) -> ActionResult:
+    """Normalise a body ``result`` message into an ActionResult."""
+    return {"ok": bool(reply.get("ok")), "reason": reply.get("reason"), "data": reply.get("data") or {}}
+
+
 # Failure reasons shared by every body. Bodies may add others; the executor
-# treats unknown reasons as transient (retryable).
+# treats any reason outside INTERRUPTS and DETERMINISTIC as transient (retryable).
 class Reason:
     PATH_BLOCKED = "path_blocked"
     NOTHING_IN_RANGE = "nothing_in_range"
@@ -46,6 +51,16 @@ class Reason:
     UNKNOWN_TOOL = "unknown_tool"
     NOT_IMPLEMENTED = "not_implemented"  # the body doesn't have this skill yet
     VERIFICATION_FAILED = "verification_failed"
+    UNKNOWN_SKILL = "unknown_skill"  # the task names a skill the registry doesn't have
+    BODY_ERROR = "body_error"  # the Lua body's handler crashed; transient (retryable)
+
+    # A player command or an attack pre-empted the action: not the skill's fault.
+    INTERRUPTS: frozenset[str] = frozenset({INTERRUPTED, ATTACKED})
+    # Retrying these cannot help; the plan has to change.
+    DETERMINISTIC: frozenset[str] = frozenset({
+        NOTHING_IN_RANGE, NOT_ENOUGH, MISSING_MATERIALS, UNKNOWN_TARGET, UNKNOWN_RECIPE, TOO_FAR,
+        INVALID_ARGS, UNKNOWN_TOOL, NOT_IMPLEMENTED, COMPANION_DOWN, UNKNOWN_SKILL,
+    })
 
 
 # --------------------------------------------------------------------------- tool args

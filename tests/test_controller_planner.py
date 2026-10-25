@@ -1,8 +1,9 @@
 import pytest
+from conftest import Rig
 
 from brain.llm import FakeLLM
-from brain.planner import Planner, PlanError
-from brain.state_store import SkillRegistry, StateStore
+from brain.planner import PlanError
+from brain.state_store import SkillRegistry, StateStore, Task
 
 
 def test_follow_me_acts_then_speaks(rig):
@@ -53,44 +54,51 @@ def test_invalid_controller_calls_are_dropped(rig):
     assert [n for n, _ in rig.game.calls] == ["say"]  # no action reached the body
 
 
-def _planner(tmp_path, llm, skills=None):
-    store = StateStore(tmp_path / "s", skills)
-    from brain.jsonl_log import JsonlLogger
-    return Planner(llm, store.skills, JsonlLogger(tmp_path / "l.jsonl"))
+def _planner_rig(tmp_path, *responses, skills=None):
+    rig = Rig(tmp_path, skills=skills)
+    rig.planner_llm.push(*responses)
+    return rig
 
 
 def test_planner_repairs_unknown_skill(tmp_path):
-    llm = FakeLLM([
+    rig = _planner_rig(
+        tmp_path,
         FakeLLM.plan([{"skill": "chop_tree", "args": {}}]),
         "```json\n" + FakeLLM.plan([{"skill": "gather", "args": {"resource": "log", "count": 1}}]).content + "\n```",
-    ])
-    res = _planner(tmp_path, llm).plan("get a log", {}, {})
+    )
+    res = rig.planner.plan("get a log", {}, {})
     assert [t.skill for t in res.tasks] == ["gather"]
-    assert "unknown skill 'chop_tree'" in llm.calls[1]["messages"][-1]["content"]
+    assert "unknown skill 'chop_tree'" in rig.planner_llm.calls[1]["messages"][-1]["content"]
 
 
 def test_planner_gives_up_after_repair(tmp_path):
-    llm = FakeLLM(["not json at all", FakeLLM.plan([{"skill": "gather", "args": {"resource": "log"}}])])
+    rig = _planner_rig(tmp_path, "not json at all", FakeLLM.plan([{"skill": "gather", "args": {"resource": "log"}}]))
     with pytest.raises(PlanError):
-        _planner(tmp_path, llm).plan("get a log", {}, {})
+        rig.planner.plan("get a log", {}, {})
 
 
 def test_planner_only_uses_registered_skills(tmp_path):
-    skills = SkillRegistry()
-    skills.register("go_to")
-    skills.register("gather")
-    llm = FakeLLM([FakeLLM.plan([{"skill": "place", "args": {"blueprint": "storage_hut", "location": "lake"}}]),
-                   FakeLLM.plan([], ask_help="I don't know how to build yet.")])
-    res = _planner(tmp_path, llm, skills).plan("build a hut", {}, {})
+    rig = _planner_rig(tmp_path,
+                       FakeLLM.plan([{"skill": "place", "args": {"blueprint": "storage_hut", "location": "lake"}}]),
+                       FakeLLM.plan([], ask_help="I don't know how to build yet."),
+                       skills=SkillRegistry(["go_to", "gather"]))
+    res = rig.planner.plan("build a hut", {}, {})
     assert res.tasks == [] and res.ask_help
-    system = llm.calls[0]["messages"][0]["content"]
+    system = rig.planner_llm.calls[0]["messages"][0]["content"]
     assert '"gather"' in system and '"place"' not in system
 
 
-def test_task_tree_survives_restart(tmp_path, rig):
-    from brain.state_store import Task
+def test_task_tree_survives_restart(tmp_path):
     store = StateStore(tmp_path / "persist")
-    store.set_goal("g", [Task(skill="gather", args={"resource": "log", "count": 1}, done=True, status="done"),
+    store.set_goal("g", [Task(skill="gather", args={"resource": "log", "count": 1}, status="done"),
                          Task(skill="go_to", args={"target": "Luis"})])
     again = StateStore(tmp_path / "persist")
     assert again.tree.goal == "g" and again.tree.next_task().skill == "go_to"
+
+
+def test_old_task_tree_with_done_key_loads(tmp_path):
+    (tmp_path / "old").mkdir()
+    (tmp_path / "old" / "task_tree.json").write_text(
+        '{"goal": "g", "tasks": [{"skill": "stop", "done": true, "status": "done"}]}', encoding="utf-8")
+    task = StateStore(tmp_path / "old").tree.tasks[0]
+    assert task.done and task.status == "done"

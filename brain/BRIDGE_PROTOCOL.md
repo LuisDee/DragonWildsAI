@@ -62,10 +62,11 @@ Every message has `"v": 1` and a `"type"`.
 - `reason` is `null` on success. Otherwise it is a reason code; see `Reason` in
   `brain/interface.py`. The executor uses some codes to choose between retrying,
   replanning and handling an interrupt:
-  - Transient (retried): `path_blocked`, `timeout`, or any unknown code.
+  - Transient (retried): `path_blocked`, `timeout`, `body_error` (a body handler crashed), or any
+    unknown code.
   - Deterministic (replanned at once): `nothing_in_range`, `not_enough_resources`,
     `missing_materials`, `unknown_target`, `unknown_recipe`, `too_far`, `invalid_args`,
-    `unknown_tool`, `companion_down`.
+    `unknown_tool`, `not_implemented`, `companion_down`.
   - Interrupts (handled without using a retry): `interrupted` (a player command pre-empted the
     action) and `attacked` (`data.by` = attacker entity id).
 - The `data` for `get_state` must include `position` `[x,y,z]`, `health`, `inventory`

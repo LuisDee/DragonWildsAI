@@ -17,7 +17,7 @@
 --     (_read_new): read [offset, EOF), keep the trailing partial line, reset on truncation.
 --   * UE4SS delayed actions API: https://docs.ue4ss.com/dev/lua-api/global-functions/delayedactions.html
 -- No standalone pure-Lua "tail -f" library was found worth vendoring; the tail is ~25 lines.
-local json = require("json") -- rxi/json.lua v0.1.2 (vendored, MIT)
+local jsonutil = require("jsonutil") -- dkjson 2.8 (vendored, MIT) + shared encode/decode
 
 local M = {}
 
@@ -33,32 +33,12 @@ local KNOWN = {}
 for _, t in ipairs(M.TOOLS) do KNOWN[t] = true end
 
 -- --------------------------------------------------------------------- JSON helpers
--- rxi/json.lua drops nil and encodes {} as []. The protocol needs explicit nulls
--- ("reason":null, "id":null) and {} objects, so values are marked and patched.
-M.null = setmetatable({}, { __name = "bridge.null", __tostring = function() return "null" end })
-local OBJ = { __name = "bridge.object" }
-function M.object(t) return setmetatable(t or {}, OBJ) end -- encodes as {} when empty
-
-local NULL_TOK, EMPTY_TOK = "__dw_bridge_null__", "__dw_bridge_empty_object__"
-
-local function prep(v)
-    if v == M.null then return NULL_TOK end
-    local t = type(v)
-    if t == "table" then
-        if next(v) == nil then return getmetatable(v) == OBJ and EMPTY_TOK or v end
-        local out = {}
-        for k, x in pairs(v) do out[k] = prep(x) end
-        return out
-    elseif t == "string" or t == "number" or t == "boolean" then
-        return v
-    end
-    return tostring(v) -- userdata (UObjects), functions: never fatal
-end
-
-function M.encode(v)
-    local s = json.encode(prep(v))
-    return (s:gsub('"' .. NULL_TOK .. '"', "null"):gsub('"' .. EMPTY_TOK .. '"', "{}"))
-end
+-- The protocol needs explicit nulls ("reason":null, "id":null) and {} objects. Handlers use
+-- bridge.null for null and bridge.object(t) for a table that must encode as {} when empty.
+-- Userdata (UObjects) and functions encode as their tostring(): never fatal.
+M.null = jsonutil.null
+M.object = jsonutil.object
+M.encode = jsonutil.encode
 
 -- --------------------------------------------------------------------- state
 local cfg = { dir = nil, in_path = nil, out_path = nil, offset = 0, partial = "", log = nil, handle = nil }
@@ -91,8 +71,7 @@ function M.send(msg)
         return false
     end
     f:write(line .. "\n")
-    f:flush()
-    f:close()
+    f:close() -- close flushes
     M.stats.sent = M.stats.sent + 1
     return true
 end
@@ -136,21 +115,30 @@ M.handlers.ping = function()
     return { ok = true, data = { pong = true, server_clock = os.clock(), server_time = os.time() } }
 end
 
--- Stub until the state exporter exists. Carries every key BRIDGE_PROTOCOL.md requires
--- (with null/empty values) plus `not_implemented` listing the stubbed keys. ok=false so the
--- brain never treats placeholder values as verified state (principle 2). When some fields
--- become real, return ok=true and list only the still-missing keys.
+-- Every key BRIDGE_PROTOCOL.md requires in get_state data, with the shape of its empty value.
+local STATE_KEYS = {
+    { "position", "null" }, { "health", "null" }, { "inventory", "object" }, { "following", "null" },
+    { "players", "array" }, { "nearby_entities", "array" }, { "nearby_resources", "array" },
+    { "structures", "array" }, { "places", "array" },
+}
+local EMPTY = {
+    null = function() return M.null end,
+    object = function() return M.object() end,
+    array = function() return {} end,
+}
+
+-- Stub until the state exporter exists. Carries every STATE_KEYS key (with null/empty
+-- values) plus `not_implemented` listing the stubbed keys. ok=false so the brain never
+-- treats placeholder values as verified state (principle 2). When some fields become
+-- real, return ok=true and list only the still-missing keys.
 M.handlers.get_state = function()
-    return {
-        ok = false,
-        reason = "not_implemented",
-        data = {
-            position = M.null, health = M.null, inventory = M.object(), following = M.null,
-            players = {}, nearby_entities = {}, nearby_resources = {}, structures = {}, places = {},
-            not_implemented = { "position", "health", "inventory", "following", "players",
-                                "nearby_entities", "nearby_resources", "structures", "places" },
-        },
-    }
+    local data, missing = {}, {}
+    for i, k in ipairs(STATE_KEYS) do
+        data[k[1]] = EMPTY[k[2]]()
+        missing[i] = k[1]
+    end
+    data.not_implemented = missing
+    return { ok = false, reason = "not_implemented", data = data }
 end
 
 local function handle(msg)
@@ -182,7 +170,7 @@ end
 -- Parse one complete line: a table if it is a JSON object, else nil.
 local function parse(text)
     if text:sub(1, 1) ~= "{" then return nil end -- arrays, scalars and junk are not objects
-    local ok, v = pcall(json.decode, text)
+    local ok, v = pcall(jsonutil.decode, text)
     if ok and type(v) == "table" then return v end
     return nil
 end

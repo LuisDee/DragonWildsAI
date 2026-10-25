@@ -12,7 +12,6 @@ Results are appended to logs/evals-<timestamp>.jsonl.
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import os
 import sys
@@ -25,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from brain import paths  # noqa: E402
 from brain.controller import Controller  # noqa: E402
 from brain.executor import Executor  # noqa: E402
-from brain.jsonl_log import JsonlLogger  # noqa: E402
+from brain.jsonl_log import JsonlLogger, read_jsonl  # noqa: E402
 from brain.llm import CONTROLLER_MODEL_ENV, PLANNER_MODEL_ENV, LLMClient, LiteLLMClient  # noqa: E402
 from brain.mock import BLUEPRINTS, RECIPES, MockGame  # noqa: E402
 from brain.planner import Planner, PlanError  # noqa: E402
@@ -35,8 +34,7 @@ HERE = Path(__file__).resolve().parent
 
 
 def load_cases(name: str) -> list[dict]:
-    with (HERE / name).open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f if line.strip()]
+    return read_jsonl(HERE / name)
 
 
 def mock_notes() -> dict:
@@ -164,18 +162,17 @@ def main(argv: list[str] | None = None) -> int:
         print("Refusing: pass --yes to confirm the API calls above.")
         return 2
 
-    out_path = paths.log_dir() / f"evals-{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory() as tmp, out_path.open("a", encoding="utf-8") as out:
+    out = JsonlLogger(paths.log_dir() / f"evals-{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
+    with tempfile.TemporaryDirectory() as tmp:
         for name, cases, model, fn, _, _ in plan:
             llm = LiteLLMClient(model)
             results = [fn(c, llm, Path(tmp)) for c in cases]
             for r in results:
-                out.write(json.dumps({"suite": name, "model": model, **r}, default=str) + "\n")
+                out.log("eval_result", suite=name, model=model, **r)
                 print(f"  {'PASS' if r['passed'] else 'FAIL'} {r['id']}")
             passed = sum(r["passed"] for r in results)
             print(f"[{name}] pass rate {passed}/{len(results)}")
-    print(f"results: {out_path}")
+    print(f"results: {out.path}")
     return 0
 
 

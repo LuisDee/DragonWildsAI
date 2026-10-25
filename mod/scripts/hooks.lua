@@ -32,7 +32,12 @@ M.PENDING = {
     -- CHAT -------------------------------------------------------------------------------
     -- Client -> server chat RPC (Server, Reliable, WithValidation). Params: FChatMessageData
     -- {SenderData, MessageBody}, FChatPlayerFilterData. Fires once per message sent. OD:45120
-    { path = "/Script/JagexChatBackend.PlayerChatComponent:Server_SendChatMessage", tag = "chat", extract = "chat" },
+    { path = "/Script/JagexChatBackend.PlayerChatComponent:Server_SendChatMessage", tag = "chat",
+      -- FChatMessageData { SenderData: FChatPlayerSenderData { ..., PlayerId: int32 }, MessageBody: FString }
+      extract = function(params)
+          local msg = params[1]:get()
+          return { text = msg.MessageBody:ToString(), player_id = msg.SenderData.PlayerId }
+      end },
     -- Client -> server tag-based player event (FChatPlayerEventData). Rare (join/leave/death style). OD:45118
     { path = "/Script/JagexChatBackend.PlayerChatComponent:Server_SendPlayerEvent", tag = "chat_event" },
 
@@ -67,28 +72,31 @@ M.PENDING = {
     { path = "/Script/Dominion.DestructibleWorldActor:OnHealthChanged", tag = "harvest_hit" },
 }
 
--- Typed extractors for hooks whose params are structs (describe() would only give a name).
-local EXTRACT = {
-    -- FChatMessageData { SenderData: FChatPlayerSenderData { ..., PlayerId: int32 }, MessageBody: FString }
-    chat = function(params)
-        local msg = params[1]:get()
-        return { text = msg.MessageBody:ToString(), player_id = msg.SenderData.PlayerId }
-    end,
-}
+local function describe_all(raw)
+    local params = {}
+    for i, p in ipairs(raw) do params[i] = describe(p) end
+    return params
+end
 
+-- Entries with `extract = function(params) -> fields` (for struct params, where describe()
+-- would only give a name) log just the extracted fields, which is cheaper on the game thread;
+-- the raw params are described only if extraction fails. Entries without one log every param.
 local function register_one(h, log, handlers)
     local ok, pre_or_err = pcall(RegisterHook, h.path, function(ctx, ...)
         local raw = { ... }
-        local params = {}
-        for i, p in ipairs(raw) do params[i] = describe(p) end
-        local fields
-        if h.extract then
-            local ok_x, res = pcall(EXTRACT[h.extract], raw)
-            fields = ok_x and res or { extract_error = tostring(res) }
+        if not h.extract then
+            log.event("hook", { tag = h.tag, fn = h.path, self = describe(ctx), params = describe_all(raw) })
+            return
         end
-        log.event("hook", { tag = h.tag, fn = h.path, self = describe(ctx), params = params, fields = fields })
+        local ok_x, fields = pcall(h.extract, raw)
+        if not (ok_x and fields) then
+            log.event("hook", { tag = h.tag, fn = h.path, self = describe(ctx), params = describe_all(raw),
+                                fields = { extract_error = tostring(fields) } })
+            return
+        end
+        log.event("hook", { tag = h.tag, fn = h.path, self = describe(ctx), fields = fields })
         local handler = handlers[h.tag]
-        if handler and fields and not fields.extract_error then pcall(handler, fields, ctx) end
+        if handler then pcall(handler, fields, ctx) end
     end)
     log.event("hook_registered", { tag = h.tag, fn = h.path, ok = ok, err = (not ok) and tostring(pre_or_err) or nil })
 end

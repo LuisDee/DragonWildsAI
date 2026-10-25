@@ -16,15 +16,6 @@ from .interface import GameInterface, Reason
 from .jsonl_log import JsonlLogger
 from .state_store import StateStore, Task
 
-INTERRUPTS = {Reason.INTERRUPTED, Reason.ATTACKED}
-# Retrying these cannot help; the plan has to change.
-NO_RETRY = {
-    Reason.NOTHING_IN_RANGE, Reason.NOT_ENOUGH, Reason.MISSING_MATERIALS, Reason.UNKNOWN_TARGET,
-    Reason.UNKNOWN_RECIPE, Reason.TOO_FAR, Reason.INVALID_ARGS, Reason.UNKNOWN_TOOL, Reason.NOT_IMPLEMENTED,
-    Reason.COMPANION_DOWN, "unknown_skill",
-}
-
-
 @dataclass
 class Outcome:
     ok: bool
@@ -36,6 +27,16 @@ class Outcome:
 
 def _inv(state: dict, item: str) -> int:
     return int(state.get("inventory", {}).get(item, 0))
+
+
+# Count-based skills: skill -> (arg naming the item, +1 if it enters the inventory, -1 if it leaves).
+_COUNTED = {"gather": ("resource", 1), "craft": ("item", 1), "give": ("item", -1)}
+
+
+def _delta(skill: str, args: dict, base: dict, now: dict) -> int:
+    """How many of the skill's item it has moved so far, in the skill's direction."""
+    key, sign = _COUNTED[skill]
+    return sign * (_inv(now, args[key]) - _inv(base, args[key]))
 
 
 # ------------------------------------------------------------------ verifiers
@@ -63,15 +64,17 @@ def _v_attack(args, base, post, data):
     return "target still alive" if alive else None
 
 
-def _v_gain(key):
+def _v_gain(skill):
+    key = _COUNTED[skill][0]
+
     def check(args, base, post, data):
-        gained = _inv(post, args[key]) - _inv(base, args[key])
+        gained = _delta(skill, args, base, post)
         return None if gained >= args["count"] else f"inventory {args[key]} +{gained}, wanted +{args['count']}"
     return check
 
 
 def _v_give(args, base, post, data):
-    given = _inv(base, args["item"]) - _inv(post, args["item"])
+    given = _delta("give", args, base, post)
     return None if given >= args["count"] else f"only {given} {args['item']} left inventory"
 
 
@@ -85,8 +88,8 @@ VERIFIERS: dict[str, Callable] = {
     "follow": _v_follow,
     "stop": _v_stop,
     "attack": _v_attack,
-    "gather": _v_gain("resource"),
-    "craft": _v_gain("item"),
+    "gather": _v_gain("gather"),
+    "craft": _v_gain("craft"),
     "give": _v_give,
     "place": _v_place,
 }
@@ -108,19 +111,14 @@ class Executor:
 
     def _remaining_args(self, task: Task, base: dict, now: dict) -> dict | None:
         """Resume count-based skills where they left off; None means already satisfied."""
-        args = dict(task.args)
-        if task.skill in ("gather", "craft"):
-            key = "resource" if task.skill == "gather" else "item"
-            args["count"] = task.args["count"] - (_inv(now, args[key]) - _inv(base, args[key]))
-        elif task.skill == "give":
-            args["count"] = task.args["count"] - (_inv(base, args["item"]) - _inv(now, args["item"]))
-        else:
-            return args
-        return args if args["count"] > 0 else None
+        if task.skill not in _COUNTED:
+            return dict(task.args)
+        remaining = task.args["count"] - _delta(task.skill, task.args, base, now)
+        return {**task.args, "count": remaining} if remaining > 0 else None
 
     def run_task(self, task: Task) -> Outcome:
         if task.skill not in self.store.skills:
-            return self._finish(task, Outcome(False, "unknown_skill"))
+            return self._finish(task, Outcome(False, Reason.UNKNOWN_SKILL))
         base = self._baselines.setdefault(task.id, self.state())
         reason = None
         while task.attempts < self.max_attempts:
@@ -136,12 +134,12 @@ class Executor:
 
             if not result["ok"]:
                 reason = result["reason"]
-                if reason in INTERRUPTS:
+                if reason in Reason.INTERRUPTS:
                     task.attempts -= 1  # an interrupt is not the skill's fault
                     task.status = "pending"
                     self.store.save_tree()
                     return Outcome(False, reason, task.attempts, result["data"], interrupt=True)
-                if reason in NO_RETRY:
+                if reason in Reason.DETERMINISTIC:
                     break
                 continue
 
@@ -155,7 +153,6 @@ class Executor:
         return self._finish(task, Outcome(False, reason, task.attempts))
 
     def _finish(self, task: Task, outcome: Outcome) -> Outcome:
-        task.done = outcome.ok
         task.status = "done" if outcome.ok else "failed"
         task.last_reason = outcome.reason
         self._baselines.pop(task.id, None)
