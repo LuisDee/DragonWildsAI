@@ -355,3 +355,74 @@ The M items can land in the first build wave if the note names them.
 - Mindcraft self-prompter: https://github.com/kolbytn/mindcraft/blob/main/src/agent/self_prompter.js
 - pyrate-limiter storage backends: https://pyratelimiter.readthedocs.io/en/stable/modules/pyrate_limiter.limiter_factory.html
 - JsonLogic for Python: https://github.com/delta10/json-logic-py · https://pypi.org/project/python-jsonlogic
+
+---
+
+## Re-check (rev 2)
+
+- **Re-checked:** `docs/design/director.md` revision 2 (476 lines, §11 resolution table).
+- **Hooks diff:** `scratchpad/director_hooks.diff` (it applies cleanly to the working tree: `git apply --check` OK).
+- **Wave-1 code:** `brain/predicates.py` (846 lines) and `tests/test_predicates.py` (31 test functions, 50 tests with parametrisation, all passing).
+
+### Verdict: **go for wave 2 (board + store)**, with items 1–4 below built into it. The hooks diff needs items 5–8 before main applies it (wave 3).
+
+### (1) Is each finding resolved in the text?
+**Yes, all H/M/L items are resolved in the text**, with the exceptions below. All of §11's pointers land on real text:
+- H2, H8, L2 and M9 are fixed in code with named tests. I re-checked these:
+  - `_gear_better` takes the reference from held *or* carried at the baseline, and a pre-existing item is not "new".
+  - XP is reported as `measures` and checked by `grew()`.
+  - `_killed` matches whole words, or `target_id`.
+- H1, H3–H7 and H9–H12 are specified, with tests listed in §7.
+- M1–M8, M10 and L1, L3–L5 are covered.
+
+**Exceptions:**
+- **H3 is resolved in the text but undone by the hook timing** (item 1).
+- **H11 contradicts itself:** §2.3 says "the worker never writes files", but §2.4 runs `SkillLibrary.learn` on the worker with its own instance, and `learn` saves JSON files (item 4).
+- **L1 has small remnants:**
+  - §7.11 says "55 tests", while the suite has 50.
+  - The Search record says CEL has "no Python binding". cel-python (cloud-custodian) exists. The decision not to adopt it stands, but correct the sentence.
+
+### (2) Do the hooks diff and the wave-1 code match the text?
+**Mostly. The diff implements every listed hook:**
+- `tick` at the end of `pump`;
+- `run_directed`, which executes a queued `run_skill` before it returns and drops `start_goal`;
+- board-tool dispatch;
+- `observe_activity`;
+- `on_player_command`;
+- `NON_INTERRUPTING` via `non_interrupting()`;
+- `board` in `read_tools`;
+- `brief()` in the context;
+- step-title retrieval;
+- the `review_tick` busy flag;
+- the `run_live` construction.
+
+The code also matches §2.2. `lost`, `on_ground`, `vital`, `elapsed`, `station`, `measures` and `snapshot(t)` are all present.
+
+**Mismatches and defects:**
+- **The segment close fires too late.** `on_player_command` is called at the end of `_command`, after the player's actions ran. If the board closes the segment there, the command's own deltas (Luis hands him ore) are already inside it, which defeats H3 (item 1).
+- **`_directed` captures every `_run_task` during a board run**, including tasks from a chat command handled by the nested `pump()` inside `run_goal` (a `run_skill` expansion). Chat actions then count as the board's "successful actions", feed the no-progress rule and can be learned as the step's skill (item 2).
+
+### (3) New issues
+1. **High: segments must follow run boundaries** (board, wave 2).
+   - Open a segment immediately before each `run_directed` and close it immediately after, so nothing that happens between runs (chat commands, situation runs that eat or pick up) is ever counted.
+   - Treat an `on_player_command` that arrives *while* `running` (nested inside a run) as tainting that run: drop its delta, or only the delta of the items that command touched. Test this with a chat "give him ore" during a `run_skill` step.
+2. **High: tag the origin of each action record.** In `run_directed`, suspend `_directed` capture while a nested `_command` with `event.text` runs (or record `origin: chat`). Only board-origin records count for no-progress, `actions` and skill learning.
+3. **Medium: cap the uncounted runs.** Runs that ended because of `chat` or `interrupted` are excluded from no-progress and `max_runs` (H7c). On a busy server they can therefore repeat forever (Haiku spend, no help question). Add a separate cap, e.g. uncounted runs ≤ 3 × `max_runs` per attempt, or a wall-clock limit per step. When it trips, the step parks with a reason ("chat kept interrupting").
+4. **Medium: skill learning writes on the agent loop** (H11 contradiction). The worker runs only the LLM part, and returns the record and example params. The agent loop does the faithfulness check, the postcondition check and `save()` on its own `SkillLibrary`. That keeps one writer per skill file.
+5. **Medium: re-entrancy.** `run_directed` → `run_goal` → `pump()` → `director.tick()` re-enters the Director while it is running. `tick()` must be a no-op (apart from applying nothing and starting nothing) while `running`, and a test should pin it. Likewise, `tick()` must not start a run while `agent.active_goal` is set by a chat-started `run_skill`. That is "no brain action running" in §2.6, but `active_goal` isn't listed.
+6. **Medium: drain events before the post-run check.** Activity and kill events that arrive during a run are only *stashed* by `_player_spoke`, and `observe_activity` sees them at the next `pump()`, which is after StepRunner's post-run predicate check. So `killed` lags one run, and a farming step can be falsely "no progress". Fix: before evaluating, StepRunner drains the pending events (`agent._stash` plus `poll_events`, through `handle_event`), or `run_directed` does it before returning.
+7. **Medium: legacy `run_goal` templates speak inside board runs.** A `run_skill` executed by `run_directed` goes through `Agent.run_goal`, which says:
+   - `milestone` ("Step 1/3 done …"), the narration M10 removes;
+   - `goal_done` ("Done: …");
+   - on failure, `ask_for_help`, which duplicates the board's own DEPS/help path.
+
+   Fix: a `quiet` flag on `run_goal` for directed runs. Failures go back to the board, not to chat.
+8. **Medium: the delivery predicate can turn false when it succeeds.** Ground items carry `magnet_target` (sense.lua `describe_item`). When the player picks up the drop, or it flies to him, `on_ground` drops to 0, so `all[lost, on_ground near player]` fails after a *successful* delivery and the step retries (it would drop more). Fixes:
+   - count rows whose `magnet_target` is that player as delivered;
+   - or evaluate delivery once, right after the `drop` (its `world_items`), and latch it as a verified step outcome;
+   - add a test: drop → the player picks it up → still done.
+9. **Low: `grew()` on `have` counts a drop-and-pick-up as progress.** For no-progress, prefer the step's own `gained` / `tally` / XP / `killed` measures over `have:`.
+10. **Low: the 90 s decision timeout can't stop a hung request.** The worker thread can't be killed. Pass a request timeout to LiteLLM (`timeout=`), so a hung call doesn't block the single worker behind it.
+11. **Low: map-region data is a server read.** `BP_MapRegion_C` was read *on the server* (DISCOVERIES "Lodestones, map regions and travel"). The `data/regions_<build>.json` dump must come from a one-off server run or a client-side check, because the dev server is retired. Say which in §2.12.
+
+**Items 1–4 are board-side and belong in wave 2. Items 5–8 change the hooks diff and the board's run loop, and are needed before main applies the diff.** Nothing here reopens the design.

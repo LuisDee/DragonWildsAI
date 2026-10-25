@@ -381,3 +381,12 @@ def test_killed_by_exact_kind_id_or_target_id():
         P.validate({"killed": {"kind_id": "a", "target_id": "b"}})
     with pytest.raises(P.PredicateError):
         P.validate({"killed": {}})
+
+
+def test_recheck8_a_drop_the_player_is_collecting_still_counts():
+    p = {"on_ground": {"item": COPPER, "at_least": 5, "player": "Zezima", "within_m": 3}}
+    flying = {"players": [{"name": "Zezima", "position": [10, 0, 0]}],
+              "nearby_items": [{"id": "w1", "item": COPPER, "count": 5, "position": [30, 0, 0], "magnet_target": "Zezima"}]}
+    assert ev(p, flying).passed is True
+    to_me = {**flying, "nearby_items": [{**flying["nearby_items"][0], "magnet_target": "Claude"}]}
+    assert ev(p, to_me).passed is False

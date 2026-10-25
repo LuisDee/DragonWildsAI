@@ -29,7 +29,7 @@ The board and the Director are brain-side, and act only through the Controller's
 | `brain/board.py` | Task, step and segment models and `BoardStore` (`<state>/worlds/<w>/goals.json`). The agent loop is the only writer: atomic writes with a unique temp name, a Windows retry/backoff, and quarantine of a bad file. Also the CLI inbox (`board_inbox.jsonl`, an offset-tracked ingest) and tallies. |
 | `brain/capability_gaps.py` | `GapLog` (`logs/state/capability_gaps.json`, §2.7). |
 | `brain/knowledge_memory.py` | `KnowledgeMemory` (per world): facts with source, confidence, build and a refuted flag (§2.11). `Efficiency`: best rates plus the `efficiency.jsonl` trend log (§2.10). |
-| `brain/map_memory.py` | `MapMemory` (per world): what any `get_state` showed, including **negative evidence** (§2.12). Loads static map data (regions, lodestones) when a generated file exists. Writes are debounced. |
+| (shared) map/resource memory | **Owned by the capability agent** (live bug L21: water, food, stations, lodestones, graves). One per-world store: it writes from the census, the Director only reads it through a pure `query` / `snapshot` API, plus negative evidence (§2.12). No `brain/map_memory.py` of mine. |
 | `brain/llm_json.py` | `json_decision(llm, messages, validate, max_repairs, tools?, on_call)`: the validate-and-repair loop extracted from `Planner._ask` (review M7a). The Director uses it; main may switch the Planner to it. |
 | `brain/director.py` | `Director` (the decision worker: Sonnet, research tools, curriculum, DEPS, prep, reflection, caps), `StepRunner` (the executor bridge), the board tools for the Controller, and `HourlyWindow` (with the daily cap from `brain/budget.py`). |
 | `tools/board.py` | CLI: `add "<text>" [--first]`, `list`, `cancel <id>`, `gaps`. It appends to the inbox and only reads `goals.json` and the gap log. |
@@ -304,7 +304,7 @@ It does not decide by itself (H4). The resume run is a normal Controller run who
   - a wiki fact refuted in game (e.g. no coal where it said) is marked refuted (DECKARD).
 - **Lookup logging:** each lookup is logged `needed: true|false` (did it match a listed unknown fact?), so the benchmark can score needed vs needless lookups.
 
-### 2.12 Map memory and static map data (H9, L5, M2e)
+### 2.12 Map memory and static map data (H9, L5, M2e): the capability agent's shared store; the Director reads
 - **Sightings:** what a `get_state` showed (stations, resource nodes by item, creatures with PL, lodestones, chests, beds), each with position, count and last seen.
 - **Negative evidence:** `gather` results of `nothing_in_range` or depleted at a position, with the time. These spots rank lower, and the help question can cite them truthfully.
 - **Writes** are debounced: every 30 s, or on change.
@@ -313,7 +313,7 @@ It does not decide by itself (H4). The resume run is a normal Controller run who
   - `AGameplayObjectRegistry.Lodestones` (Location, Identifier);
   - 558 landmarks.
 
-  A generated `data/regions_<build>.json` (an item for the capability/skills agent: a read-only dump, like the recipe dump) would give region positions and PL for "go to Coalridge Pass". Map memory loads it when present. Until then "region positions" and "long-distance travel" are seeded gaps.
+  A generated `data/regions_<build>.json` (requested from the capability agent: a read-only dump, like the recipe dump) gives region positions and PL for "go to Coalridge Pass". `BP_MapRegion_C` was read **on the server**, so the dump comes from a one-off **dev-server** run (the dev world is the test and scoring world, GOAL §1b). A client-side read is the fallback if the regions turn out to be on the client too. Until then "region positions" and "long-distance travel" are seeded gaps.
 
 ## 3. Precedent
 | Need | Found | Decision |
@@ -321,7 +321,7 @@ It does not decide by itself (H4). The resume run is a normal Controller run who
 | Director/Controller split | [PIANO](https://arxiv.org/abs/2411.00114) concurrent modules; [GITM](https://github.com/OpenGVLab/GITM) goal → sub-goals → actions; [HiMAC](https://arxiv.org/abs/2603.00977); [Odyssey](https://arxiv.org/abs/2407.15325) planner-actor-critic | **adapt**: our Controller is the actor, the Director the planner |
 | Task tree + working memory | [ReAcTree](https://arxiv.org/abs/2511.02424): agent node per subgoal, control-flow nodes, working and episodic memory | **adapt**: board → steps with loop groups; map/knowledge memory = working memory; skill library = episodic memory |
 | Verified subgoals | [Voyager](https://arxiv.org/abs/2305.16291) self-verification; [StructAgent](https://arxiv.org/abs/2607.11388) verifier-backed transitions, (VERB, ITEM, n) inventory checks; [dual memory](https://arxiv.org/abs/2604.02734) symbolic checks; [MineDojo](https://docs.minedojo.org/sections/customization/task.html) programmatic tasks (all targets must hold); [Crafter](https://pypi.org/project/crafter) achievements | **build** the domain DSL: three-valued null, baselines/segments, tallies, catalog name resolution and measures have no counterpart in JsonLogic/CEL |
-| Rule evaluators | [JsonLogic](https://github.com/delta10/json-logic-py) (2017 port, two-valued), [python-jsonlogic](https://pypi.org/project/python-jsonlogic) (typed); CEL (search found no Python binding to evaluate) | **not adopted**: our leaves are domain functions, and the combinator layer is ~15 lines |
+| Rule evaluators | [JsonLogic](https://github.com/delta10/json-logic-py) (2017 port, two-valued), [python-jsonlogic](https://pypi.org/project/python-jsonlogic) (typed); CEL ([cel-python](https://github.com/cloud-custodian/cel-python), cloud-custodian) | **not adopted**: our leaves are domain functions, and the combinator layer is ~15 lines |
 | Curriculum | Voyager; [OMNI](https://arxiv.org/abs/2306.01711) | **adapt** Voyager's inputs; code gives facts, the model picks |
 | Replanning | [DEPS](https://arxiv.org/abs/2302.01560); [Metagent-P](https://preview.aclanthology.org/new-sigs/2025.findings-acl.1169/) | **reuse** the Planner's DEPS pattern through `json_decision`. The caps are ours (no source sets one) |
 | Self-directed loop | [Mindcraft self_prompter](https://github.com/kolbytn/mindcraft/blob/main/src/agent/self_prompter.js): ACTIVE/PAUSED/STOPPED, restart after 2 s idle; [MineCollab](https://arxiv.org/abs/2504.17950) | **adapt**, with a resume the model may decline (H4) |
@@ -341,7 +341,7 @@ Queries (2026-10-25):
 - "JsonLogic python json-logic-py evaluate rules CEL common expression language python"
 - "MineDojo programmatic tasks success criteria inventory check Crafter achievements success"
 
-Found nothing for: a persisted/resumable LLM goal-tree library; a published replan cap; a CEL evaluator for Python (not found by this search).
+Found nothing for: a persisted/resumable LLM goal-tree library; a published replan cap; (CEL does have a Python evaluator, cel-python; corrected in the re-check.)
 
 Sources:
 - https://arxiv.org/abs/2305.16291 · https://arxiv.org/abs/2302.01560 · https://github.com/OpenGVLab/GITM · https://arxiv.org/abs/2411.00114
@@ -401,7 +401,7 @@ Sources:
 8. **Budget:** the 21st request in an hour isn't made; the daily cap stops the Director; the player hears the wait once; usage is logged as `director`.
 9. **Prep, reflection, knowledge:** a prepare decision's prep steps run first; `abort_if` stops a run; a rate drop triggers reflect and a trend line; unknown facts get the one nudge; recalled facts need no lookup; lookups are logged needed/needless.
 10. **Thread safety:** the worker sees snapshots only; a hung decision times out; skill learning on the worker uses its own library instance.
-11. **Unit tests:** predicates (built, 55 tests), segments/tallies/my_drops, map memory with negative evidence, the gap cross-check against the manifest, the prerequisite caps.
+11. **Unit tests:** predicates (built: 34 test functions, 59 tests with parametrisation), segments/tallies/my_drops, map memory with negative evidence, the gap cross-check against the manifest, the prerequisite caps.
 12. **Cassettes** (H12c): real Sonnet decisions for the five T3 jobs, recorded once (≤ 15 calls, stated beforehand), then replayed in CI.
 
 ## 8. Hooks in files I don't own (approved by main: H7e, NON_INTERRUPTING/read_tools, M6, the tick in pump; exact diff sent to main)
@@ -474,3 +474,16 @@ Sources:
 | L3 instance stats | §2.2 gaps, §9 |
 | L4 search record | §3, Search record (JsonLogic, CEL, MineDojo, Crafter; pyrate-limiter corrected; links) |
 | L5 negative evidence | §2.12 |
+
+## 12. Re-check items (review "Re-check (rev 2)": go for wave 2)
+1. **Segments follow run boundaries (High).** A segment opens immediately before each `run_directed` and closes immediately after it, so nothing between runs (chat commands, situation runs that eat or pick up) ever counts. An `on_player_command` that arrives *while* a run is in progress (nested, e.g. inside a `run_skill` expansion) **taints** that segment: the items the command's actions touched are left out of its delta. Test: a chat "give him ore" during a `run_skill` step.
+2. **Action records carry their origin (High).** While a nested chat command runs inside a board run, `run_directed` records `origin: chat` (an `Agent._directed_origin` flag set by `_command` when `event.text`). Only `origin: board` records count for no-progress, `actions` and skill learning.
+3. **Uncounted runs are capped (Medium).** Runs ended by `chat` / `interrupted` don't count toward no-progress or `max_runs`, but they do count toward `max_uncounted = 3 × max_runs` per attempt, plus a wall-clock limit per step (default 30 min). When either trips, the step **parks** with the truthful reason ("chat kept interrupting me").
+4. **Skill learning: the worker only makes the model call (Medium).** It returns the raw record and example params. The agent loop runs the faithfulness and postcondition checks and `save()` on its own `SkillLibrary`, so there is one writer. This needs a small split of `SkillLibrary.learn` into `propose(...)` and `accept(...)` in `brain/skill_library.py` (main's file; listed in §8).
+5. **Re-entrancy (Medium).** `tick()` is a no-op while `running` (inside `run_directed` → `run_goal` → `pump()`), and it doesn't start a run while `agent.active_goal` or `agent.pending_goal` is set (a chat-started `run_skill`). Pinned by a test. Fixed in the hooks diff.
+6. **Drain events before the post-run check (Medium).** `run_directed` hands the stashed and pending events (`_stash` + `poll_events`) to `handle_event` before it returns, so the `killed` / pickup counters are current when StepRunner evaluates. Fixed in the hooks diff.
+7. **Quiet legacy `run_goal` in board runs (Medium).** `run_goal(..., quiet=True)` from `run_directed`: no `milestone`, `goal_done` or `ask_for_help` lines. Its result goes back to the board. Fixed in the hooks diff.
+8. **A delivery stays true after the player takes it (Medium).** `on_ground` gets `or_collected_by` (player): rows whose `magnet_target` is that player count. The board also **latches** a delivery verified right after the `drop` (its `world_items` within range of the player at that moment) as a recorded step outcome. Test: drop → the player picks it up → still done. (This is a predicates.py change; it is batched for the Eval agent before the judge tag.)
+9. **No-progress prefers the step's own measures (Low).** `gained` / `tally` / XP / `killed` / `lost` / `on_ground` keys first, so a drop and pick-up of the same `have:` count never reads as progress.
+10. **Request timeout (Low).** The Director passes `timeout=` to LiteLLM (`LiteLLMClient(..., timeout=60)`), so a hung request can't block the single worker. The 90 s decision timeout stays as the outer guard.
+11. **Regions dump source (Low):** a dev-server run (§2.12).

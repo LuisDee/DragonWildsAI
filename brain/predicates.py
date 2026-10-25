@@ -24,7 +24,8 @@ Format: a predicate is a dict with exactly ONE key, a leaf or a combinator.
   near        {place | player | position | thing, within_m=5}           state.position, players, nearby_*;
                                                                         ctx.places for place names
   lost        {item, at_least=1}         left the inventory since ctx.baseline (with on_ground: a delivery)
-  on_ground   {item, at_least=1, player | place | position (default: me), within_m=5}   state.nearby_items
+  on_ground   {item, at_least=1, player | place | position (default: me), within_m=5}   state.nearby_items;
+                                         with player, stacks flying to him (magnet_target) count too
   elapsed     {seconds}                  ctx.now - ctx.baseline.t
   station     {station, running?}        a station in sight by type, name or id: state.stations_nearby
   moved       {min_m}                    own position vs ctx.baseline.position
@@ -710,10 +711,12 @@ def _on_ground(a, state, ctx, cat):
     if anchor is None:
         return Result(None, f"can't see where {where} is", 0.0, [f"position:{where}"])
     n = 0
+    taker = spot.get("player", "").lower()  # re-check 8: a stack flying to that player is delivered too
     for r in rows:
         if isinstance(r, dict) and r.get("item") in a["ids"]:
             d = _dist(r.get("position"), anchor)
-            if d is not None and d <= a["within_m"]:
+            to = str(r.get("magnet_target") or r.get("collecting") or "").lower()
+            if (d is not None and d <= a["within_m"]) or (taker and to == taker):
                 n += int(r.get("count") or 1)
     return Result(n >= a["at_least"], f"{a['item']} on the ground near {where}: {n}/{a['at_least']:g}",
                   _ratio(n, a["at_least"]), measures={f"on_ground:{a['ids'][0]}": float(n)})
