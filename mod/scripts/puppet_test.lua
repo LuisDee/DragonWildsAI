@@ -5,7 +5,11 @@
 --   spawn   : SpawnActor(BP_PlayerCharacter_C) 3 m in front of Luis
 --   possess : give each unpossessed puppet a controller (SpawnDefaultController, else a plain AIController)
 --   move    : AIController:MoveToLocation(Luis) for each puppet
---   destroy : SetLifeSpan(0.1) on every puppet (and its AIController)
+--   destroy : SetLifeSpan(0.1) on every puppet (and its AIController). CRASHES if the puppet is
+--             AI-possessed; use puppet_safe.safe_remove instead.
+--   strip {components} : K2_DestroyComponent(owner) on the named pawn component properties
+--   unpossess : AIController:UnPossess() (logs addresses first, for dump matching)
+--   addrs / components / fname {indices} / gc : crash-dump and GC diagnostics
 local M = {}
 
 local PLAYER_CHAR = "/Game/Gameplay/Character/Player/BP_PlayerCharacter.BP_PlayerCharacter_C"
@@ -143,8 +147,7 @@ function actions.strip(log, args)
             -- so pass the pawn. The first strip run passed the component itself (likely a no-op).
             if valid(comp) then ok, err = pcall(function() comp:K2_DestroyComponent(p) end) end
             out[#out + 1] = { prop = prop, ok = ok, err = (not ok) and tostring(err) or nil,
-                              being_destroyed = valid(comp) and try(function() return comp:IsBeingDestroyed() end) or "invalid",
-                              still_valid = valid(comp) }
+                              destroyed = valid(comp) and not alive(comp) }
         end
     end
     log.event("puppet_strip", { results = out })
@@ -229,6 +232,15 @@ function actions.components(log, args)
         out[#out + 1] = { puppet = fullname(p), components = list }
     end
     return { results = out }
+end
+
+-- Force a GC (KismetSystemLibrary.CollectGarbage queues "obj gc" for the next tick). Used to check
+-- that removed puppets are purged without a dangling-reference crash.
+function actions.gc(log)
+    local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+    local ok, err = pcall(function() ksl:CollectGarbage() end)
+    log.event("force_gc", { ok = ok })
+    return { ok = ok, err = (not ok) and tostring(err) or nil }
 end
 
 function M.run(log, args)

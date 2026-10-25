@@ -65,3 +65,24 @@ Luis relies on spells: **a shield spell**, and **wind jump**, whose landing stun
 - **Enemy table** `data/enemies_<build>.json`, generated like the item catalog: per enemy class, its damage-type resistances and weaknesses, HP, notable attacks and telegraph timings.
   - **Weapon choice:** for each weapon in the bot's slots, score = expected damage × the target's multiplier for the weapon's damage types. Swap on target change when the gain beats a threshold, which avoids flip-flopping.
   - The Controller sees the same table, so it can explain choices in chat and override them.
+
+## 5. Prior art check (web, 2026-10-25), done after Luis asked "has this been done already?"
+- **Standard industry pattern:** a hybrid. A **behaviour tree (BT) orchestrates** execution and sequencing; **utility AI scores the options** (which weapon, which target, which spell), because BT selectors are poor at weighing options; GOAP is reserved for multi-step goals. ([UtilityAI repo](https://github.com/WarreVannTittelboom/UtilityAI), [gamedev.net thread](https://gamedev.net/forums/topic/674191-ai-for-an-active-time-based-combat-system), [Unity utility framework](https://discussions.unity.com/t/released-utility-intelligence-go-v3-utility-ai-framework/940124))
+- **LLM plus game AI:** the 2026 mapping review of hybrid BT–LLM architectures for latency-sensitive game agents finds designs keep **LLM deliberation separate from symbolic execution**, with BTs, utility systems or FSMs doing real-time control ([Zenodo review](https://zenodo.org/records/23222129)). This matches our two-speed design.
+  - PORTAL has LLMs generate BTs in a DSL for 3D games ([arXiv 2503.13356](https://arxiv.org/pdf/2503.13356)).
+  - Related: LLM-generated BTs for NPCs ([ACM](https://dl.acm.org/doi/10.1145/3696630.3728553)); LLM-guided RL for combat NPCs ([arXiv 2609.02931](https://arxiv.org/pdf/2609.02931)).
+- **Mineflayer (the Minecraft bot ecosystem Mindcraft builds on):**
+  - Combat is plugins, not LLM: [mineflayer-pvp](https://www.npmjs.com/package/mineflayer-pvp) (attack loop over a pathfinder).
+  - [mineflayer-custom-pvp](https://unpkg.com/@nxg-org/mineflayer-custom-pvp@1.7.16/README.md) adds criticals, strafing, shield handling, a bow module, and **switching to an axe when the opponent shields**: rule-based weapon switching.
+  - [mineflayer-tool](https://github.com/TheDudeFromCI/mineflayer-tool) does best-tool selection.
+  - So the LLM agents above them only pick goals.
+- **Don't hand-roll the BT:** pure-Lua BT libraries exist:
+  - [behaviour_tree on LuaRocks](https://luarocks.org/modules/timanema/behaviour_tree) (supports Lua 5.1–5.4)
+  - [behavior3lua](https://gittrend.io/repo/zhandouxiaojiji/behavior3lua), the most used, with a visual editor ecosystem
+  - [beehive.lua](https://github.com/drhayes/beehive.lua) (MIT, small)
+  - Pick one for the reflex layer instead of ad-hoc loops.
+- **Revised design:**
+  - The reflex layer = a vendored Lua BT (execution: approach, combo, evade-on-telegraph, cast).
+  - Utility scoring nodes choose the weapon (damage × the enemy weakness table), the target and the spell (wind jump when the cluster count is at least N).
+  - The LLM sets goals and weights ("focus archers", "save shield"), not actions.
+- Still to research: OSRS bot frameworks (RuneLite/DreamBot scripts do gear and prayer switching by monster weakness). Possibly reusable data on RuneScape monster weaknesses, though Dragonwilds' stats are its own.
