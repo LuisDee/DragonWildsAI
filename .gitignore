@@ -17,3 +17,4 @@ server-secrets.local.txt
 
 # world saves (never commit)
 *.sav
+client_io/

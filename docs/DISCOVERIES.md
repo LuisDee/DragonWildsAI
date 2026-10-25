@@ -680,3 +680,27 @@ Luis's direction change (binding, `docs/design/real-player-remediation.md`): no 
 - **Ground gatherables (read-only `interact_probe`, 15:58 UTC):** Luis's "sticks" are `BP_Spawner_AshBranch_0{1,2}_C` (`ABaseInteractableResource` <- `AGatherableResource`): `ItemData = ITEM_Resources_Wood_Ash` (display name "Ash Logs"), empty `ItemDropComponent.ItemsToDrop`, `IsResourceAvailable()` true, RespawnComponent 1/1, `InteractionComponent.InteractionPrompt` "Collect", InteractionType 0, InteractionDistance 1, `PlayerHookToTriggerWhenMadeUnavailableDueToInteraction` = `BP_FTUENotificationPlayerHook_C` (a player-only hook: a crash risk if fired for the puppet), foliage-depicted. Stones: `BP_Spawner_Stone_C`, `ITEM_Resources_Stone`, "Collect". Not interacted with: no grant route was tried (route-independent research only).
 - **Generic perception works live:** `sense.look` (census via `InteractionComponent`, `DestructibleWorldActor`, `OreNode`, `DominionAICharacter`) listed the branch gatherables ("Ash Logs", verb gather), the summoned shelter ("Rest", interact), trees and logs (name from the class + drop item, verb chop from the gate tag), ranked "branches" to the four branch spawners (match 1.0).
 - **Two-handed axe held one-handed:** the client anim proxy picks the pose from `LeftWeaponPoseType`/`RightWeaponPoseType` (`EAnimationPoseType` Unarmed/Default/Ranged) and `bIsLeftDefault`...; the axe's `UEquipmentData.Slot` = HeldTwoHanded and `HandPreference` = Left (catalog). Not fixed: we set only `HeldEquipmentActorRight`. `gather_probe held` now reads both hands, sockets, Slot and HandPreference, to compare with Luis holding a 2H tool (not yet run with him holding one).
+
+## REAL CLIENT ROUTE (R2): headless client joins the dev server (2026-10-25, client build 26162923, server 26161880)
+- **Headless works on this VM (no GPU):**
+  - Launch: `steam.exe -applaunch 1374490 -nullrhi -nosound -unattended -nosplash -log` (tools/client_headless_test.ps1, which kills the client if free RAM falls below 600 MB).
+  - The log shows `RHIAdapterName: Microsoft Basic Render Driver` and "This UE instance does not render". Steam SDK 1.57 and Redpoint EOS initialise, and it boots to `L_FrontEnd`.
+  - Measured beside the server, with the bot puppet loaded on the server:
+    - main menu: client about 1.0 GB, about 0.3 core;
+    - **in world: client 1.86 GB, 1.2 cores**; server 0.93 GB, 0.2 core;
+    - total CPU 64% of 4 vCPU, **1.2 GB RAM free of 8 GB**. Feasible but tight; 16 GB recommended.
+- **Client-side storage:**
+  - Characters are stored on the client: `%LOCALAPPDATA%\RSDragonwilds\Saved\SaveCharacters\<name>.json`, synced by Steam Cloud. Luis's were downloaded at login and backed up to `C:\GameServers\backups\luis_characters_20261025-173417`.
+  - The client log is `%LOCALAPPDATA%\RSDragonwilds\Saved\Logs\RSDragonwilds.log` (UTC timestamps).
+- **UE4SS on the client:** the same ASI-loader install as the server (tools/install_client_ue4ss.ps1). Mod `DWClient` (client_mod/) runs `client_io/cmd/*.lua` on the game thread and writes `client_io/out/*.json` (tools/client_cmd.sh).
+- **Menu driven through the game's own UI API**, with no rendering or input needed:
+  - `MainMenuUIAPI` (`FindFirstOf`) with `NavigateToScreen(EMainSubMenuType)` and `GetCurrentScreenType` / `GetCurrentScreenWidget`. Types: 2 Landing, 7 CharCreate, 8 CharSelect, 10 Worlds, 20 ConsentForm, 41 Eula.
+  - **Character create (verified, `Claude.json` written):** `NavigateToScreen(7)`, then `OnCharacterTypeSelected_Standard()`, then `EditableTextCharacterName.EditableText:SetText(FText)` and `OnCharacterNameInputChanged(FText)`, then `CheckNameAndCreate()`.
+  - **Consent:** `RefuseAll(<live WBP_GenericDialog3Buttons_C>)` (declines optional data sharing).
+  - **EULA screen:** `OnConfirmClicked` / ConfirmButton `HandleButtonClicked` / the BndEvt fired but did not advance. Under NullRHI the ScrollBox has no layout (`GetScrollOffsetOfEnd` = 0). Bypassed by navigating directly; not needed for joining.
+  - **Sign-in is required before joining:** Landing (2) `OnLoginTriggered()`, after which `DomMatchmakerSubsystem:IsUserLoggedIn()` is true. Without it the server rejects the connection with *"Missing user ID during connection"* (RedpointEOSNetworking).
+  - **Direct panel:** `WBP_MainMenu_Worlds_C.DirectPanel` with `IpAddress.EditableText`, `PasswordText.PasswordText` and `GoToNextScreen()`. It only selected an "Online Session" list item and did not travel. Not solved yet.
+- **JOIN VERIFIED:**
+  - After sign-in, `KismetSystemLibrary:ExecuteConsoleCommand(pc, "open 127.0.0.1:7777?p=<base64 WorldPassword>?pf=PC?cpx=1")`. These are the same URL options a real client sends (seen in the server's `Login request` lines).
+  - The client loads `L_World`. The server logs `Join succeeded`, then **`PlayerChar entered world [Account[PP:76561199797634942] Character Name[Claude] Guid[DCG:6CBB5130467171BAD741B5B4CD00286E]]`**.
+  - So Claude is a genuine player: real login, real PlayerController, real character save.

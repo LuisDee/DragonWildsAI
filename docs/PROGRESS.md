@@ -119,3 +119,18 @@
 - **Stopped (Luis, binding):** no emulation shortcuts; the route is likely a real second client. The emulated hit is now **off by default** (`DW_GATHER_HIT=native`; opt-in `auto`), effective at the next restart. The live server still runs the 15:32 gather.lua, where emulation is ON by default; a restart applies the new default. No UHeldEquipmentItem canary was run. Bot left idle.
 - **Unfinished:** log-swing drift hypothesis (run reach_calib on a log with `DesiredActionTarget` nil vs set); ground gatherable grant route (none tried); 2H axe pose (needs Luis holding a 2H tool + `gather_probe held`); metal ore rock classes (census near copper/tin); AOreNode veins (no HealthComponent).
 - **Tests:** `mod/tests/test_gather.lua` (23), `tests/test_lua_gather.py`, `tests/test_gather_data.py`; full pytest green.
+
+## 2026-10-25 evening: real-player route (R2) gate 1 passed
+- Luis decided: no emulation; Claude must use real player code paths (docs/design/real-player-remediation.md).
+- Installed Steam on the VM, logged into Luis's account (temporary, for feasibility), and installed the client (44 GB on disk).
+- The headless client (`-nullrhi`) runs beside the server. It needs 1.86 GB and 1.2 cores in world; the VM is left with 1.2 GB free, so 16 GB RAM is advised.
+- UE4SS and the DWClient command runner work on the client.
+- Through the menu's own API: created the character "Claude", signed in, joined the dev server. The server shows the player "Claude" entering the world.
+- Agents' emulation work stopped:
+  - crafting emulation removed;
+  - gather emulated hit off by default;
+  - the remaining puppet systems (inventory store, magnet, shelter spawn, speech relay) are still live until R2 replaces them.
+- Next:
+  - Gate 2: inject input (jump/move) and verify Luis sees it. This needs a second viewer: Luis's account is in use by the bot client, so he can't join from GFN at the same time.
+  - Buy and create Claude's own Steam account.
+  - Gate 3: real axe and chop.
