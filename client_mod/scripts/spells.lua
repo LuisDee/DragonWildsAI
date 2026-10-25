@@ -70,6 +70,9 @@ M.HOSTILE_ROLES = { combat_damage = true, combat_cc = true, gathering_aoe = true
 M.AREA_HARM_ROLES = { combat_damage = true, gathering_aoe = true }
 
 local function paused() return rawget(_G, "DW_PAUSE") == true end
+-- ONE wall clock for our own cast records (mem().cast_at), whichever api casts: the bridge's api.now()
+-- and combat's self-built api use different clocks (live: a 1.79e9 s "cooldown" came from mixing them)
+function M.wall() return os.time() end
 local function mem()
     local m = rawget(_G, "DWSpells")
     if not m then m = { static = {}, cast_at = {}, hooks = {}, events = {} }; _G.DWSpells = m end
@@ -694,7 +697,7 @@ end
 -- ------------------------------------------------------------------ listing
 local function rows_of(api, snap, all)
     local m = mem()
-    local now_local = api.now()
+    local now_local = M.wall()
     local out, seen = {}, {}
     snap.req = snap.req or {}
     for id, obj in pairs(snap.objects) do
@@ -836,6 +839,7 @@ local function new_cast(api, args)
 end
 
 local function release(job, why)
+    if job.borrowed then return end -- the caller (combat) owns the pawn and its token
     if job.token and not job.released then
         job.released = true
         local A = arbiter(job.api)
@@ -1004,7 +1008,7 @@ local function verified_result(job, df, snap)
         if tt and tt.health then d.target_health = tt.health end
     end
     d.presses = job.presses
-    mem().cast_at[job.row.id] = job.api.now()
+    mem().cast_at[job.row.id] = M.wall()
     -- it went off, but not where asked: say so (the brain voices failures, not ok results)
     local tol = math.max(job.st.radius_m or 0, M.cfg.landed_tolerance_m)
     if d.landed_dist_m and d.landed_dist_m > tol then
@@ -1035,7 +1039,7 @@ local function step(job)
         return nil
     end
     if job.phase == "own" then
-        local A = arbiter(api)
+        local A = (not job.borrowed) and arbiter(api) or nil
         if A then
             local r = A.request(api.log, { name = "spell:" .. job.row.id, level = cfg.level, uses_move = job.placed, lease_s = cfg.lease_s,
                                            resumable = false, on_stop = function(_, _, why) job.stopped = why or "stopped" end })
@@ -1299,7 +1303,7 @@ function M.watch_late(job)
                 M.emit_activity({ kind = "cast_late_success", by = "spells", spell = job.row.name, id = job.row.id,
                                   runes_spent = df.runes_spent, landed_at = a and a.position or nil, spell_actor = a and a.id or nil,
                                   earlier_reason = job.d.why, detail = "My " .. job.row.name .. " did go off after all." })
-                mem().cast_at[job.row.id] = job.api.now()
+                mem().cast_at[job.row.id] = M.wall()
                 done = true
             end
         end
@@ -1308,6 +1312,121 @@ function M.watch_late(job)
     end)
 end
 M.LATE_REASONS = { verification_failed = true, timeout = true, interrupted = true, body_error = true, on_cooldown = true, busy = true }
+
+-- ------------------------------------------------------------------ the combat contract
+-- docs/design/defense-abilities.md section 4. Combat (holding the pawn at reflex level) asks
+--   ability_status(asset) -> {available, why, detail, latency_s, cooldown_s, runes_ok, route}
+--   cast_now(log, asset, {owner_token}) -> job {poll() -> nil | {ok, cast_t, reason, data}, cancel()}
+-- cast_now drives the same real inputs as `cast` (wheel, page turns, key / highlight + accept, LMB),
+-- under the caller's arbiter token (no new request, no "while fighting" refusal, never released here).
+-- Combat loads this file itself (no bridge ctx), so a minimal api is built from the sense module.
+local DEFAULT_API
+function M.default_api()
+    if DEFAULT_API then return DEFAULT_API end
+    local root = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
+    local mods = {}
+    local function module(n)
+        if mods[n] == nil then
+            local ok, m = pcall(function() return assert(loadfile(root .. "/client_mod/scripts/" .. n .. ".lua"))() end)
+            mods[n] = ok and m or false
+        end
+        return mods[n] or nil
+    end
+    local api = {
+        module = module,
+        fail = function(reason, data) return { ok = false, reason = reason, data = data or {} } end,
+        now = function() return W.clock(DEFAULT_API) or os.time() end,
+        log = function() end,
+        my_position = function() local p = W.pawn(DEFAULT_API); return p and to_m(U().try(function() return p:K2_GetActorLocation() end)) end,
+        aim_at = function() return false end,
+        census_things = function(r, m)
+            local sense = module("sense")
+            local ok, res = pcall(sense.census, nil, { radius_m = r, max = m })
+            if not (ok and type(res) == "table") then return {} end
+            local data = res.data or res
+            local out = {}
+            for _, row in ipairs(data.players or {}) do row.kind = "player"; row.category = "players"; out[#out + 1] = row end
+            return out
+        end,
+        find_thing = function(id) return nil, { ok = false, reason = "unknown_target", data = { target = id } } end,
+        actor_of = function() return nil end,
+    }
+    DEFAULT_API = api
+    return api
+end
+
+-- Rough time from the first key to the cast taking effect, by route (measured values win).
+function M.route_latency(row, per)
+    per = per or 12
+    if not row or not row.wheel_slot then return nil end
+    local page = row.wheel_slot // per
+    local key = row.wheel_slot % per
+    -- open the wheel ~0.3 s, up to `page` page turns ~0.45 s each (it opens on the last used page),
+    -- the key (or highlight + accept) ~0.1-0.2 s, the cast itself ~0.3 s (instant spells may also
+    -- need the cast-mode release)
+    return 0.3 + page * 0.45 + (key < M.cfg.quick_keys and 0.1 or 0.2) + 0.3 + (row.cast_type ~= "instant" and 0.3 or 0)
+end
+
+function M.ability_status(asset, api)
+    api = api or M.default_api()
+    if paused() then return { available = false, why = "companion_down" } end
+    local snap = W.snapshot(api)
+    if not snap then return { available = false, why = "companion_down" } end
+    if not snap.objects[asset] then
+        return { available = false, why = "not_unlocked", detail = "I haven't unlocked that spell." }
+    end
+    local st = W.static(snap.objects[asset])
+    snap.req = { [asset] = W.requirement(api, st) }
+    local row = M.row(st, snap, mem().cast_at[asset], M.wall())
+    local measured = (mem().latency or {})[asset]
+    local runes_ok = row.reason ~= "not_enough_resources"
+    return { available = row.castable == true, why = row.reason, detail = row.detail, cooldown_s = row.remaining_s,
+             runes_ok = runes_ok, latency_s = measured or M.route_latency(row, snap.per_radial),
+             latency_measured = measured ~= nil, route = row.wheel_slot and { page = row.wheel_page, key = row.wheel_key,
+             keyless = (row.wheel_slot % (snap.per_radial or 12)) >= M.cfg.quick_keys } or nil }
+end
+
+function M.cast_now(log, asset, opts)
+    opts = opts or {}
+    local api = opts.api or M.default_api()
+    local job, f = new_cast(api, { spell = asset })
+    if not job then
+        return { done = true, poll = function() return { ok = false, reason = f and f.reason, data = f and f.data } end, cancel = function() end }
+    end
+    if job.d.precheck == "on_cooldown" then -- in a fight there is no time to try a spell still recharging
+        return { done = true, poll = function() return { ok = false, reason = "on_cooldown", data = job.d } end, cancel = function() end }
+    end
+    job.borrowed, job.token = true, opts.owner_token
+    job.d.borrowed_token = opts.owner_token
+    local t0 = W.clock(api) or api.now()
+    local h = { job = job }
+    h.poll = function()
+        if h.result then return h.result end
+        local ok, res = pcall(step, job)
+        if not ok then res = failed(job, "body_error", "error", tostring(res)) end
+        if not res then return nil end
+        cleanup(job)
+        local t = W.clock(api) or api.now()
+        res.cast_t = res.ok and t or nil
+        if res.ok then
+            local m = mem()
+            m.latency = m.latency or {}
+            m.latency[asset] = math.floor((t - t0) * 100 + 0.5) / 100
+            res.latency_s = m.latency[asset]
+        elseif M.LATE_REASONS[res.reason] and job.presses[1] then
+            pcall(M.watch_late, job)
+        end
+        h.result = res
+        return res
+    end
+    h.cancel = function()
+        if not h.result then
+            h.result = failed(job, "interrupted", "cancelled", "Casting " .. job.row.name .. " was cancelled.")
+            cleanup(job)
+        end
+    end
+    return h
+end
 
 local function cast(log, args, ctx)
     local api = ctx and ctx.api
@@ -1355,27 +1474,23 @@ local function obj(t) return setmetatable(t or {}, OBJ) end
 M.MANIFEST = {
     cast = { kind = "waiter", llm = true, moves = false, priority = "command", duration_s = 3, timeout_s = 30,
         detail_is_speech = true,
-        description = "Cast one of your spells like a player (spell wheel, then cast); checks runes were used and it went "
-            .. "on cooldown. Use a spell from castable_spells/spells, chosen by what its description says it does. Instant "
-            .. "spells affect you. Placed spells need flat, open ground: give no target and you pick a spot nearby "
-            .. "yourself (flat, clear, accepted by the game's own placement preview), or give a target and you place it there or "
-            .. "just beside it. Aimed spells fly toward target (or straight ahead). Never at players. "
-            .. "Runs alongside following.",
+        description = "Cast one of your spells (wheel, then cast); verified by runes and cooldown. Pick from castable_spells by "
+            .. "what it does. Instant: on you. Placed/aimed: at target, or omit it and you find a valid spot or aim yourself. "
+            .. "Never at players. Runs alongside following.",
         args = { type = "object", required = { "spell" }, properties = obj({
-            spell = { type = "string", description = "The spell's exact name as listed by spells (e.g. from castable_spells)." },
-            target = { description = "Placed/aimed spells only: an id from look, or [x, y, z] metres. Omit: instant spells hit yourself; placed spells go on a valid spot you find nearby.",
+            spell = { type = "string", description = "Exact name from castable_spells." },
+            target = { description = "Placed/aimed: look id or [x,y,z] m; omit to choose.",
                        anyOf = { { type = "string" }, { type = "array", items = { type = "number" }, minItems = 2, maxItems = 3 } } } }) },
         preconditions = { "the spell is unlocked and on your spell wheel", "you carry its runes", "it is not on cooldown" },
         ground = obj({ target = "thing" }),
         reasons = { "unknown_target", "ambiguous_target", "not_unlocked", "not_on_wheel", "not_enough_resources", "on_cooldown",
                     "busy", "unsafe", "too_far", "verification_failed", "interrupted", "timeout" } },
     spells = { kind = "read", llm = true, moves = false, duration_s = 0.2, timeout_s = 10,
-        description = "Your spells: each one's name, what it does (the game's description), cast type, rune cost vs what you "
-            .. "carry, cooldown left, and whether you can cast it now (and why not). all=true also lists locked spells with "
-            .. "the skill level that unlocks them. Read-only.",
+        description = "Your spells: what each does, rune cost vs carried, cooldown, castable now and why not. all=true adds "
+            .. "locked ones with their unlock level. Read-only.",
         args = { type = "object", properties = obj({
-            all = { type = "boolean", default = false, description = "Also list spells you haven't unlocked yet." },
-            compact = { type = "boolean", default = true, description = "Ignored (rows are already compact)." } }) } },
+            all = { type = "boolean", default = false, description = "Include locked spells." },
+            compact = { type = "boolean", default = true, description = "Ignored." } }) } },
 }
 
 return M

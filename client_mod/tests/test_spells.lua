@@ -24,6 +24,7 @@ A.set_move(fake_move)
 local SRC = os.getenv("DW_SPELLS_SRC") or (ROOT .. "/client_mod/scripts/spells.lua")
 local SP = assert(loadfile(SRC))()
 local W = SP.W
+SP.wall = function() return T end
 
 -- ---------------------------------------------------------------- fake game
 local G
@@ -594,6 +595,52 @@ _G.DW_PAUSE = true
 do
     local r = SP.HANDLERS.spells(nil, {}, ctx)
     check("spells while paused -> companion_down", r.reason == "companion_down")
+end
+
+-- ---------------------------------------------------------------- combat contract (defense-abilities.md section 4)
+reset()
+do
+    local st = SP.ability_status("USD_Windstep", api)
+    check("ability_status: available, route, latency estimate", st.available == true and st.runes_ok == true and st.route.page == 1
+        and st.route.key == 1 and type(st.latency_s) == "number" and st.latency_s > 0, st.why)
+    local st2 = SP.ability_status("USD_SummonShelter", api)
+    check("ability_status: not unlocked", st2.available == false and st2.why == "not_unlocked")
+end
+reset()
+do
+    -- live bug: cast records (wall clock) compared with another api's clock gave a 1.79e9 s cooldown
+    local wall = SP.wall
+    SP.wall = function() return 1.79e9 end
+    SP.mem().cast_at["USD_Windstep"] = 1.79e9 - 10
+    local other = setmetatable({ now = function() return 100 end }, { __index = api })
+    local st = SP.ability_status("USD_Windstep", other)
+    SP.wall = wall
+    check("cooldown uses one wall clock whatever the api's clock", st.available == true and st.cooldown_s == 0, tostring(st.cooldown_s))
+end
+reset({ items = { [AIR] = 2 } })
+do
+    local st = SP.ability_status("USD_Windstep", api)
+    check("ability_status: no runes -> runes_ok false", st.available == false and st.runes_ok == false and st.why == "not_enough_resources")
+end
+reset()
+do
+    local f = A.request(nil, { name = "combat:fight", level = "reflex", resumable = false, uses_move = true })
+    local job = SP.cast_now(nil, "USD_Windstep", { owner_token = f.token, api = api })
+    local res
+    for _ = 1, 100 do T = T + 0.1; tick(); res = job.poll(); if res then break end end
+    check("cast_now under combat's reflex token: cast, cast_t, no 'fighting' refusal", res and res.ok and res.cast_t ~= nil
+        and presses() == "menu,quick0", res and (tostring(res.reason) .. " " .. presses()))
+    check("cast_now never releases combat's token", A.owner() and A.owner().name == "combat:fight" and A.holds(f.token))
+    local st = SP.ability_status("USD_Windstep", api)
+    check("cast_now measures the latency for ability_status", st.latency_measured == true and st.latency_s == res.latency_s, tostring(st.latency_s))
+    check("a repeat poll returns the same result", job.poll() == res)
+end
+reset()
+do
+    SP.mem().cast_at["USD_Windstep"] = T -- just cast: still recharging
+    local job = SP.cast_now(nil, "USD_Windstep", { api = api })
+    local res = job.poll()
+    check("cast_now on cooldown: answered at once, no key pressed", res.ok == false and res.reason == "on_cooldown" and #G.presses == 0, res.reason)
 end
 
 -- ---------------------------------------------------------------- manifest / contract

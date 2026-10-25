@@ -1,10 +1,11 @@
 {
  "version": 1,
  "build": "26161880",
- "generated_at": "2026-10-25T21:31:57Z",
+ "generated_at": "2026-10-25T21:46:16Z",
  "source": [
   "data/spells_26161880.json",
-  "tools/gen_spell_effects.py LIVE (DISCOVERIES 'Client spells (R2)')"
+  "tools/gen_spell_effects.py LIVE (DISCOVERIES 'Client spells (R2)')",
+  "data/spell_purposes.json (T1 purposes)"
  ],
  "how_to_prove": "ALL of proof.required, then at least one of proof.effect (prefer confidence=live entries). The cast reply carries runes_spent, cooldown_started, effects.{ge,tags}, spell_actor, landed_at, moved_m, target_after, target_health; jump/air-dash proofs need their probe.",
  "signal_kinds": {
@@ -20,7 +21,83 @@
   "target_health_drop": "the targeted thing's health falls by at least `min` (data.target_health vs before)",
   "drops_spawned": "world items whose item id contains `item_contains` appear near the target (look/census)",
   "held_item_effect": "the held weapon gains the enchant: its damage types include `damage_types` for `time_limit_s` (pawn PlayerEquipmentComponent held effect; to be read)",
-  "world_module": "the spell changes the world through game module `module` (crop growth, water, compost ...); the proof needs a module-specific read (TBD)"
+  "world_module": "the spell changes the world through game module `module` (crop growth, water, compost ...); the proof needs a module-specific read (TBD)",
+  "needs_live_observation": "no observable module in the spell data (Blueprint-only): watch tags / GE / position / targets on a live cast, then add a LIVE entry"
+ },
+ "observable": {
+  "runes_spent": "cast_reply",
+  "cooldown_started": "cast_reply",
+  "tag_added": "cast_reply",
+  "ge_added": "cast_reply",
+  "spell_actor": "cast_reply",
+  "moved_m": "cast_reply",
+  "target_gone": "cast_reply",
+  "target_health_drop": "cast_reply",
+  "jump_apex_gain_m": "probe",
+  "air_dash_m": "probe",
+  "drops_spawned": "state",
+  "held_item_effect": false,
+  "world_module": false,
+  "needs_live_observation": false
+ },
+ "probes": {
+  "client_mod/commands/smoke_jump.lua": {
+   "moves_pawn": true,
+   "note": "one Jump()/StopJumping(); then smoke_jump_read.lua (read-only) gives max_dz_cm"
+  },
+  "client_mod/commands/air_dash_test.lua": {
+   "moves_pawn": true,
+   "note": "jump + one IA_Player_Evade press in the air; refuses while the arbiter has an owner; result in client_io/out/air_dash_async.json"
+  }
+ },
+ "unlocked_snapshot": {
+  "at": "2026-10-25T21:30Z",
+  "player": "Claude",
+  "ids": [
+   "USD_AccessPersonalChest",
+   "USD_AxtralProjection",
+   "USD_BonesToPeaches",
+   "USD_Confuse",
+   "USD_CorruptionArrows",
+   "USD_DetectAnimaVents",
+   "USD_DetectOre",
+   "USD_DivineRock",
+   "USD_EnchantWeapon_Air",
+   "USD_EnchantWeapon_Fire",
+   "USD_EnchantWeapon_Water",
+   "USD_Enfeeble",
+   "USD_EyeOfOculus",
+   "USD_Farming_Compost",
+   "USD_Farming_RapidGrowth",
+   "USD_FerociousFurnace",
+   "USD_FireSpirit",
+   "USD_FishingFrenzy",
+   "USD_Harvest",
+   "USD_HomeTeleport",
+   "USD_Humidify",
+   "USD_InfernalRod",
+   "USD_InternalAlchemy",
+   "USD_MagicalMending",
+   "USD_PhaseDash",
+   "USD_PileEmUp",
+   "USD_Recall",
+   "USD_Rocksplosion",
+   "USD_RunesToRuneEssence",
+   "USD_SnareTrap",
+   "USD_SpeedupStation",
+   "USD_Splinter",
+   "USD_SummonShelter",
+   "USD_Surge",
+   "USD_TempestShield",
+   "USD_Treequipment",
+   "USD_Vengeance",
+   "USD_Windstep"
+  ]
+ },
+ "counts": {
+  "unlocked": 38,
+  "locked": 1,
+  "n/a": 13
  },
  "spells": {
   "USD_AccessPersonalChest": {
@@ -39,19 +116,23 @@
    "target": "self",
    "harmful": false,
    "setup": [],
+   "setup_checks": [],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "ge_added",
-      "class_contains": "DominionGameplayEffect"
+      "class_contains": "DominionGameplayEffect",
+      "observable": "cast_reply"
      }
     ]
    },
@@ -62,6 +143,30 @@
     "CostItems",
     "GameplayEffect",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "reach_storage_anywhere",
+     "situation": "he needs an item that sits in his personal storage, far away, or his bag is full",
+     "world": {
+      "needs": [
+       {
+        "item_in_personal_storage": "<item>"
+       }
+      ]
+     },
+     "success": {
+      "have": {
+       "item": "<item>",
+       "at_least": 1
+      }
+     },
+     "observable": "state",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_AxtralProjection": {
@@ -86,34 +191,42 @@
     "the game's special requirement: Logging Axe",
     "a valid target thing within reach (the game's preview tag names what it needs)"
    ],
+   "setup_checks": [
+    {
+     "carried_category": "logging_axe"
+    },
+    {
+     "near": {
+      "kind": "target_thing",
+      "within_m": 12
+     }
+    },
+    {
+     "not_tag": "Player.Status.Mounted"
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "spell_actor",
       "class": "BP_Spell_AxtralProjection_C",
-      "near": "self"
-     },
-     {
-      "kind": "spell_actor",
-      "class": "BP_Spell_AxtralProjection_C",
-      "near": "self"
-     },
-     {
-      "kind": "spell_actor",
-      "class": "BP_Spell_AxtralProjection_C",
-      "near": "self"
+      "near": "self",
+      "observable": "cast_reply"
      },
      {
       "kind": "target_health_drop",
-      "min": 1
+      "min": 1,
+      "observable": "cast_reply"
      }
     ]
    },
@@ -134,6 +247,37 @@
     "SpawnVFX",
     "TrackDamageForAchievement",
     "Transform"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "fell_trees_in_line",
+     "situation": "several standing trees roughly in a line ahead of him and they need lots of logs quickly",
+     "world": {
+      "needs": [
+       {
+        "carried_category": "logging_axe"
+       },
+       {
+        "trees_in_line_ahead": {
+         "at_least": 2,
+         "within_m": 15
+        }
+       }
+      ]
+     },
+     "success": {
+      "gained": {
+       "item": "<the trees' log item>",
+       "at_least": 2
+      }
+     },
+     "observable": "state",
+     "confidence": "data",
+     "source": "description",
+     "note": "felled trunks drop logs on the ground: he must pick them up (or chop/Splinter the trunks)"
+    }
    ]
   },
   "USD_BonesToPeaches": {
@@ -154,20 +298,28 @@
    "setup": [
     "open ground the game's placement preview accepts, within about 9 m"
    ],
+   "setup_checks": [
+    {
+     "flat_ground_within_m": 9
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "spell_actor",
       "class": "BP_PerkSpell_BonesToPeaches_C",
-      "near": "preview"
+      "near": "preview",
+      "observable": "cast_reply"
      }
     ]
    },
@@ -178,7 +330,83 @@
     "CostItems",
     "PlayMontage",
     "UtilityMagic"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "food_from_bones",
+     "situation": "he is hungry, has no food, and bones lie on the ground near him",
+     "world": {
+      "needs": [
+       {
+        "sustenance_below_pct": 40
+       },
+       {
+        "near": {
+         "kind": "world_item",
+         "item_contains": "Bone",
+         "within_m": 8
+        }
+       }
+      ]
+     },
+     "success": {
+      "gained": {
+       "item": "<peach item>",
+       "at_least": 1
+      }
+     },
+     "observable": "state",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
+  },
+  "USD_CabbageRain": {
+   "name": "Cabbage Rain",
+   "cast_type": "placed",
+   "cost": {},
+   "cooldown_s": 180.0,
+   "unlock": null,
+   "requirement": null,
+   "target": "ground",
+   "harmful": false,
+   "setup": [
+    "open ground the game's placement preview accepts, within about 9 m"
+   ],
+   "setup_checks": [
+    {
+     "flat_ground_within_m": 9
+    }
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "spell_actor",
+      "class": "BP_Magic_CabbageRain_C",
+      "near": "preview",
+      "observable": "cast_reply"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "PlayMontage",
+    "UtilityMagic"
+   ],
+   "status": "n/a",
+   "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "purposes": []
   },
   "USD_Confuse": {
    "name": "Confuse",
@@ -198,16 +426,28 @@
    "target": "aim",
    "harmful": false,
    "setup": [],
+   "setup_checks": [
+    {
+     "not_on_agility_course": true
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
-    "effect": []
+    "effect": [
+     {
+      "kind": "needs_live_observation",
+      "observable": false
+     }
+    ]
    },
    "confidence": "data_weak",
    "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
@@ -216,6 +456,33 @@
     "Cast",
     "CostItems",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "turn_enemies_on_each_other",
+     "situation": "several weaker enemies are attacking him at once",
+     "world": {
+      "needs": [
+       {
+        "hostiles_within_m": 10,
+        "at_least": 3,
+        "power_level_at_most": "<his power level>"
+       }
+      ]
+     },
+     "success": {
+      "killed": {
+       "kind": "<one of them>",
+       "at_least": 1
+      }
+     },
+     "observable": false,
+     "gap": "no leaf for 'enemy hit by another enemy'",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_CorruptionArrows": {
@@ -239,13 +506,20 @@
    "setup": [
     "the game's special requirement: 2-Handed Bow."
    ],
+   "setup_checks": [
+    {
+     "held_category": "two_handed_bow"
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
@@ -253,7 +527,8 @@
       "kind": "held_item_effect",
       "damage_types": [],
       "time_limit_s": 300.0,
-      "effect": "HEED_CorruptionArrows"
+      "effect": "HEED_CorruptionArrows",
+      "observable": false
      }
     ]
    },
@@ -264,6 +539,34 @@
     "CostItems",
     "HeldEquipmentEffect",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "pierce_lined_enemies",
+     "situation": "several enemies lined up in front of him while he holds a two-handed bow",
+     "world": {
+      "needs": [
+       {
+        "held_category": "two_handed_bow"
+       },
+       {
+        "hostiles_within_m": 25,
+        "at_least": 2
+       }
+      ]
+     },
+     "success": {
+      "killed": {
+       "kind": "<the enemies>",
+       "at_least": 2
+      }
+     },
+     "observable": "state",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_DetectAnimaVents": {
@@ -282,16 +585,24 @@
    "target": "self",
    "harmful": false,
    "setup": [],
+   "setup_checks": [],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
-    "effect": []
+    "effect": [
+     {
+      "kind": "needs_live_observation",
+      "observable": false
+     }
+    ]
    },
    "confidence": "data_weak",
    "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
@@ -300,6 +611,30 @@
     "Cast",
     "CostItems",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "find_anima_vents",
+     "situation": "they need rune magic from anima vents but none are in sight",
+     "world": {
+      "needs": [
+       {
+        "no_anima_vent_within_m": 40
+       }
+      ]
+     },
+     "success": {
+      "near": {
+       "thing": "<an anima vent>",
+       "within_m": 5
+      }
+     },
+     "observable": "state",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_DetectOre": {
@@ -318,16 +653,24 @@
    "target": "self",
    "harmful": false,
    "setup": [],
+   "setup_checks": [],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
-    "effect": []
+    "effect": [
+     {
+      "kind": "needs_live_observation",
+      "observable": false
+     }
+    ]
    },
    "confidence": "data_weak",
    "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
@@ -336,7 +679,75 @@
     "Cast",
     "CostItems",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "find_rocks",
+     "situation": "they need ore or stone but no rocks are in sight",
+     "world": {
+      "needs": [
+       {
+        "no_ore_node_within_m": 40
+       }
+      ]
+     },
+     "success": {
+      "near": {
+       "thing": "<an ore node>",
+       "within_m": 5
+      }
+     },
+     "observable": "state",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
+  },
+  "USD_DetectOreAlt": {
+   "name": "Detect Ore (Alt)",
+   "cast_type": "instant",
+   "cost": {
+    "Fire": 5
+   },
+   "cooldown_s": 30.0,
+   "unlock": null,
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "setup_checks": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent",
+      "observable": "cast_reply"
+     },
+     {
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "ge_added",
+      "class_contains": "DetectOreGameplayEffectInstance",
+      "observable": "cast_reply"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "GameplayEffect",
+    "PlayMontage"
+   ],
+   "status": "n/a",
+   "na_reason": "no perk unlocks it (internal / unreleased / world-interaction asset)",
+   "purposes": []
   },
   "USD_DivineRock": {
    "name": "Divine Rock",
@@ -356,16 +767,28 @@
    "setup": [
     "open ground the game's placement preview accepts, within about 9 m"
    ],
+   "setup_checks": [
+    {
+     "flat_ground_within_m": 9
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
-    "effect": []
+    "effect": [
+     {
+      "kind": "needs_live_observation",
+      "observable": false
+     }
+    ]
    },
    "confidence": "data_weak",
    "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
@@ -374,7 +797,82 @@
     "Cast",
     "CostItems",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "personal_ore_vein",
+     "situation": "he carries spare ore and they want to keep mining without travelling to a rock",
+     "world": {
+      "needs": [
+       {
+        "carried_ore_at_least": 5
+       }
+      ]
+     },
+     "success": {
+      "spell_effect": {
+       "spell": "USD_DivineRock"
+      }
+     },
+     "observable": false,
+     "gap": "Blueprint-only spell; the vein actor is unknown",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
+  },
+  "USD_EnchantChefsTools": {
+   "name": "Enchant Chef's Tools",
+   "cast_type": "placed",
+   "cost": {},
+   "cooldown_s": 180.0,
+   "unlock": null,
+   "requirement": {
+    "strategy": null,
+    "text": "Cast on Cooking Range"
+   },
+   "target": "ground",
+   "harmful": false,
+   "setup": [
+    "the game's special requirement: Cast on Cooking Range",
+    "open ground the game's placement preview accepts, within about 9 m"
+   ],
+   "setup_checks": [
+    {
+     "unknown_requirement": null
+    },
+    {
+     "flat_ground_within_m": 9
+    }
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "spell_actor",
+      "class": "BP_PerkSpell_EnchantChefsTools_C",
+      "near": "preview",
+      "observable": "cast_reply"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "PlayMontage",
+    "UtilityMagic"
+   ],
+   "status": "n/a",
+   "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "purposes": []
   },
   "USD_EnchantWeapon_Air": {
    "name": "Enchant Weapon: Air",
@@ -397,13 +895,20 @@
    "setup": [
     "the game's special requirement: A held melee weapon"
    ],
+   "setup_checks": [
+    {
+     "held_category": "melee_weapon"
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
@@ -413,7 +918,8 @@
        "DamageType.Magical.Air"
       ],
       "time_limit_s": 300.0,
-      "effect": "HEED_EnchantWeaponAir"
+      "effect": "HEED_EnchantWeaponAir",
+      "observable": false
      }
     ]
    },
@@ -425,7 +931,95 @@
     "ExpireAfterDuration",
     "HeldEquipmentEffect",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "enchant_for_fight",
+     "situation": "a fight is starting, he holds a melee weapon and needs to attack faster (or the enemies are weak to air)",
+     "world": {
+      "needs": [
+       {
+        "held_category": "melee_weapon"
+       },
+       {
+        "hostile_within_m": 20,
+        "weakness": "air"
+       }
+      ]
+     },
+     "success": {
+      "killed": {
+       "kind": "<the enemy>",
+       "at_least": 1
+      }
+     },
+     "observable": "state",
+     "gap": "the enchant itself (held_item_effect) has no reader yet",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
+  },
+  "USD_EnchantWeapon_Earth": {
+   "name": "Enchant Weapon: Earth",
+   "cast_type": "instant",
+   "cost": {
+    "Earth": 15,
+    "Astral": 5
+   },
+   "cooldown_s": 300.0,
+   "unlock": null,
+   "requirement": {
+    "strategy": "BP_USSRS_RequiresHeldEnchantableMeleeWeapon_C",
+    "text": "A held melee weapon"
+   },
+   "target": "self",
+   "harmful": false,
+   "setup": [
+    "the game's special requirement: A held melee weapon"
+   ],
+   "setup_checks": [
+    {
+     "held_category": "melee_weapon"
+    }
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent",
+      "observable": "cast_reply"
+     },
+     {
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "held_item_effect",
+      "damage_types": [
+       "DamageType.Magical.Earth"
+      ],
+      "time_limit_s": 300.0,
+      "effect": "HEED_EnchantWeaponEarth",
+      "observable": false
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "ExpireAfterDuration",
+    "HeldEquipmentEffect",
+    "PlayMontage"
+   ],
+   "status": "n/a",
+   "na_reason": "no perk unlocks it (internal / unreleased / world-interaction asset)",
+   "purposes": []
   },
   "USD_EnchantWeapon_Fire": {
    "name": "Enchant Weapon: Fire",
@@ -448,13 +1042,20 @@
    "setup": [
     "the game's special requirement: A held melee weapon"
    ],
+   "setup_checks": [
+    {
+     "held_category": "melee_weapon"
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
@@ -464,7 +1065,8 @@
        "DamageType.Magical.Fire"
       ],
       "time_limit_s": 300.0,
-      "effect": "HEED_EnchantWeaponFire"
+      "effect": "HEED_EnchantWeaponFire",
+      "observable": false
      }
     ]
    },
@@ -476,6 +1078,35 @@
     "ExpireAfterDuration",
     "HeldEquipmentEffect",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "enchant_for_fight",
+     "situation": "a fight is starting, he holds a melee weapon and the enemies are weak to fire or simply tough",
+     "world": {
+      "needs": [
+       {
+        "held_category": "melee_weapon"
+       },
+       {
+        "hostile_within_m": 20,
+        "weakness": "fire"
+       }
+      ]
+     },
+     "success": {
+      "killed": {
+       "kind": "<the enemy>",
+       "at_least": 1
+      }
+     },
+     "observable": "state",
+     "gap": "the enchant itself (held_item_effect) has no reader yet",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_EnchantWeapon_Water": {
@@ -499,13 +1130,20 @@
    "setup": [
     "the game's special requirement: A held melee weapon"
    ],
+   "setup_checks": [
+    {
+     "held_category": "melee_weapon"
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
@@ -515,7 +1153,8 @@
        "DamageType.Magical.Water"
       ],
       "time_limit_s": 300.0,
-      "effect": "HEED_EnchantWeaponWater"
+      "effect": "HEED_EnchantWeaponWater",
+      "observable": false
      }
     ]
    },
@@ -527,6 +1166,35 @@
     "ExpireAfterDuration",
     "HeldEquipmentEffect",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "enchant_for_fight",
+     "situation": "a long fight with a melee weapon where he will need healing (or the enemies are weak to water)",
+     "world": {
+      "needs": [
+       {
+        "held_category": "melee_weapon"
+       },
+       {
+        "hostile_within_m": 20,
+        "weakness": "water"
+       }
+      ]
+     },
+     "success": {
+      "killed": {
+       "kind": "<the enemy>",
+       "at_least": 1
+      }
+     },
+     "observable": "state",
+     "gap": "the enchant itself (held_item_effect) has no reader yet",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_Enfeeble": {
@@ -548,16 +1216,28 @@
    "target": "aim",
    "harmful": false,
    "setup": [],
+   "setup_checks": [
+    {
+     "not_on_agility_course": true
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
-    "effect": []
+    "effect": [
+     {
+      "kind": "needs_live_observation",
+      "observable": false
+     }
+    ]
    },
    "confidence": "data_weak",
    "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
@@ -566,6 +1246,32 @@
     "Cast",
     "CostItems",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "weaken_strong_enemy",
+     "situation": "one strong enemy is hitting much harder than he can take",
+     "world": {
+      "needs": [
+       {
+        "hostile_within_m": 15,
+        "power_level_at_least": "<his power level + 1>"
+       }
+      ]
+     },
+     "success": {
+      "killed": {
+       "kind": "<the enemy>",
+       "at_least": 1
+      }
+     },
+     "observable": false,
+     "gap": "no leaf for 'enemy damage reduced'",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_EyeOfOculus": {
@@ -586,19 +1292,27 @@
    "target": "self",
    "harmful": false,
    "setup": [],
+   "setup_checks": [
+    {
+     "not_soul_rifted": true
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "ge_added",
-      "class_contains": "DominionGameplayEffect"
+      "class_contains": "DominionGameplayEffect",
+      "observable": "cast_reply"
      }
     ]
    },
@@ -609,6 +1323,30 @@
     "CostItems",
     "GameplayEffect",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "building_overview",
+     "situation": "they are building and need a better view of the structure",
+     "world": {
+      "needs": [
+       {
+        "building_in_progress": true
+       }
+      ]
+     },
+     "success": {
+      "spell_effect": {
+       "spell": "USD_EyeOfOculus"
+      }
+     },
+     "observable": false,
+     "gap": "Blueprint-only spell; no reader",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_Farming_Compost": {
@@ -633,24 +1371,39 @@
     "the game's special requirement: 150 units of compost",
     "open ground the game's placement preview accepts, within about 9 m"
    ],
+   "setup_checks": [
+    {
+     "carried_compost_units": 150
+    },
+    {
+     "flat_ground_within_m": 9
+    },
+    {
+     "not_tag": "Player.Status.Mounted"
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "spell_actor",
       "class": "BP_Magic_Compost_C",
-      "near": "preview"
+      "near": "preview",
+      "observable": "cast_reply"
      },
      {
       "kind": "world_module",
-      "module": "Compost"
+      "module": "Compost",
+      "observable": false
      }
     ]
    },
@@ -665,6 +1418,36 @@
     "RemoveCombinedContentAmount",
     "Shape",
     "UtilityMagic"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "fertilise_plots",
+     "situation": "their farming plots need fertiliser and he carries compost",
+     "world": {
+      "needs": [
+       {
+        "carried_compost_units": 150
+       },
+       {
+        "near": {
+         "kind": "farming_plot",
+         "within_m": 10
+        }
+       }
+      ]
+     },
+     "success": {
+      "spell_effect": {
+       "spell": "USD_Farming_Compost"
+      }
+     },
+     "observable": false,
+     "gap": "no reader for plot fertiliser state",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_Farming_RapidGrowth": {
@@ -685,24 +1468,33 @@
    "setup": [
     "open ground the game's placement preview accepts, within about 9 m"
    ],
+   "setup_checks": [
+    {
+     "flat_ground_within_m": 9
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "world_module",
-      "module": "Grow"
+      "module": "Grow",
+      "observable": false
      },
      {
       "kind": "spell_actor",
       "class": "BP_Magic_RapidGrowth_C",
-      "near": "preview"
+      "near": "preview",
+      "observable": "cast_reply"
      }
     ]
    },
@@ -716,6 +1508,33 @@
     "PlayMontage",
     "Shape",
     "UtilityMagic"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "grow_crop_now",
+     "situation": "a crop they need is still growing and they don't want to wait",
+     "world": {
+      "needs": [
+       {
+        "near": {
+         "kind": "growing_crop",
+         "within_m": 8
+        }
+       }
+      ]
+     },
+     "success": {
+      "spell_effect": {
+       "spell": "USD_Farming_RapidGrowth"
+      }
+     },
+     "observable": false,
+     "gap": "no reader for crop growth stage",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_FerociousFurnace": {
@@ -736,20 +1555,28 @@
    "setup": [
     "open ground the game's placement preview accepts, within about 9 m"
    ],
+   "setup_checks": [
+    {
+     "flat_ground_within_m": 9
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "spell_actor",
       "class": "BP_Magic_FerociousFurnace_C",
-      "near": "preview"
+      "near": "preview",
+      "observable": "cast_reply"
      }
     ]
    },
@@ -760,6 +1587,33 @@
     "CostItems",
     "PlayMontage",
     "UtilityMagic"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "speed_up_station",
+     "situation": "a fire-based station (furnace) is slowly working through a long job",
+     "world": {
+      "needs": [
+       {
+        "near": {
+         "kind": "fire_station",
+         "within_m": 8
+        }
+       }
+      ]
+     },
+     "success": {
+      "spell_effect": {
+       "spell": "USD_FerociousFurnace"
+      }
+     },
+     "observable": false,
+     "gap": "no reader for station speed",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_FireSpirit": {
@@ -777,23 +1631,28 @@
    "target": "self",
    "harmful": false,
    "setup": [],
+   "setup_checks": [],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "tag_added",
-      "tag": "Player.Status.FireSpirit"
+      "tag": "Player.Status.FireSpirit",
+      "observable": "cast_reply"
      },
      {
       "kind": "ge_added",
-      "class_contains": "FireSpiritGameplayEffectInstance"
+      "class_contains": "FireSpiritGameplayEffectInstance",
+      "observable": "cast_reply"
      }
     ]
    },
@@ -804,6 +1663,29 @@
     "CostItems",
     "GameplayEffect",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "light_the_dark",
+     "situation": "it is night or he is in a dark cave and can hardly see",
+     "world": {
+      "needs": [
+       {
+        "night_or_dark": true
+       }
+      ]
+     },
+     "success": {
+      "spell_effect": {
+       "spell": "USD_FireSpirit"
+      }
+     },
+     "observable": "state",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_FishCyclone": {
@@ -828,20 +1710,31 @@
     "the game's special requirement: Fishing Rod",
     "open ground the game's placement preview accepts, within about 9 m"
    ],
+   "setup_checks": [
+    {
+     "carried_category": "fishing_rod"
+    },
+    {
+     "flat_ground_within_m": 9
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "spell_actor",
       "class": "BP_Spell_FishCyclone_C",
-      "near": "preview"
+      "near": "preview",
+      "observable": "cast_reply"
      }
     ]
    },
@@ -852,7 +1745,10 @@
     "CostItems",
     "PlayMontage",
     "UtilityMagic"
-   ]
+   ],
+   "status": "locked",
+   "na_reason": null,
+   "purposes": []
   },
   "USD_FishingFrenzy": {
    "name": "Fishing Frenzy",
@@ -872,20 +1768,28 @@
    "setup": [
     "open ground the game's placement preview accepts, within about 9 m"
    ],
+   "setup_checks": [
+    {
+     "flat_ground_within_m": 9
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "spell_actor",
       "class": "BP_Spell_FishingFrenzy_C",
-      "near": "preview"
+      "near": "preview",
+      "observable": "cast_reply"
      }
     ]
    },
@@ -896,7 +1800,70 @@
     "CostItems",
     "PlayMontage",
     "UtilityMagic"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "more_fish",
+     "situation": "they are fishing at a fishing spot and want as many fish as possible",
+     "world": {
+      "needs": [
+       {
+        "near": {
+         "kind": "fishing_node",
+         "within_m": 8
+        }
+       }
+      ]
+     },
+     "success": {
+      "tally": {
+       "item": "<the node's fish>",
+       "at_least": 2
+      }
+     },
+     "observable": "state",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
+  },
+  "USD_GetWaterFromWaterSource": {
+   "name": "USD_GetWaterFromWaterSource",
+   "cast_type": "instant",
+   "cost": {},
+   "cooldown_s": 0.0,
+   "unlock": null,
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "setup_checks": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "needs_live_observation",
+      "observable": false
+     }
+    ]
+   },
+   "confidence": "data_weak",
+   "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
+   "modules": [
+    "Cast",
+    "ExpireAfterDuration",
+    "PlayMontage"
+   ],
+   "status": "n/a",
+   "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "purposes": []
   },
   "USD_Harvest": {
    "name": "Uproot",
@@ -914,24 +1881,29 @@
    "target": "self",
    "harmful": false,
    "setup": [],
+   "setup_checks": [],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "world_module",
-      "module": "Harvest"
+      "module": "Harvest",
+      "observable": false
      },
      {
       "kind": "spell_actor",
       "class": "BP_Magic_LiftAndSummonItems_C",
-      "near": "self"
+      "near": "self",
+      "observable": "cast_reply"
      }
     ]
    },
@@ -945,6 +1917,34 @@
     "PlayMontage",
     "Shape",
     "UtilityMagic"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "harvest_area",
+     "situation": "fully grown crops or wild plants are all around and they want them picked",
+     "world": {
+      "needs": [
+       {
+        "near": {
+         "kind": "ripe_plant",
+         "within_m": 6,
+         "at_least": 2
+        }
+       }
+      ]
+     },
+     "success": {
+      "gained": {
+       "item": "<a crop item>",
+       "at_least": 2
+      }
+     },
+     "observable": "state",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_HomeTeleport": {
@@ -967,16 +1967,28 @@
    "setup": [
     "the game's special requirement: Claimed Bed"
    ],
+   "setup_checks": [
+    {
+     "claimed_bed": true
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
-    "effect": []
+    "effect": [
+     {
+      "kind": "needs_live_observation",
+      "observable": false
+     }
+    ]
    },
    "confidence": "data_weak",
    "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
@@ -985,6 +1997,33 @@
     "Cast",
     "CostItems",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "travel_home",
+     "situation": "it is late, they are far from home, and he has a claimed bed there",
+     "world": {
+      "needs": [
+       {
+        "claimed_bed": true
+       },
+       {
+        "far_from_bed_m": 100
+       }
+      ]
+     },
+     "success": {
+      "near": {
+       "place": "<his bed>",
+       "within_m": 10
+      }
+     },
+     "observable": "state",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_Humidify": {
@@ -1008,24 +2047,33 @@
    "setup": [
     "the game's special requirement: 50 units of water (clean or dirty)"
    ],
+   "setup_checks": [
+    {
+     "carried_water_units": 50
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "spell_actor",
       "class": "BP_Spell_HumidifyCloud_C",
-      "near": "self"
+      "near": "self",
+      "observable": "cast_reply"
      },
      {
       "kind": "world_module",
-      "module": "Humidify"
+      "module": "Humidify",
+      "observable": false
      }
     ]
    },
@@ -1044,6 +2092,36 @@
     "Shape",
     "SpawnActor",
     "SpawnVFX"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "water_crops",
+     "situation": "their farming plots are dry and he carries water",
+     "world": {
+      "needs": [
+       {
+        "carried_water_units": 50
+       },
+       {
+        "near": {
+         "kind": "farming_plot",
+         "within_m": 10
+        }
+       }
+      ]
+     },
+     "success": {
+      "spell_effect": {
+       "spell": "USD_Humidify"
+      }
+     },
+     "observable": false,
+     "gap": "no reader for plot water state",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_InfernalRod": {
@@ -1066,13 +2144,20 @@
    "setup": [
     "the game's special requirement: Fishing Rod Equipped"
    ],
+   "setup_checks": [
+    {
+     "held_category": "fishing_rod"
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
@@ -1080,7 +2165,8 @@
       "kind": "held_item_effect",
       "damage_types": [],
       "time_limit_s": 120.0,
-      "effect": "HEED_EnchantedRod"
+      "effect": "HEED_EnchantedRod",
+      "observable": false
      }
     ]
    },
@@ -1092,6 +2178,33 @@
     "ExpireAfterDuration",
     "HeldEquipmentEffect",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "cooked_fish",
+     "situation": "he is fishing, hungry, and there is no fire to cook on",
+     "world": {
+      "needs": [
+       {
+        "held_category": "fishing_rod"
+       },
+       {
+        "sustenance_below_pct": 40
+       }
+      ]
+     },
+     "success": {
+      "gained": {
+       "item": "<a cooked fish>",
+       "at_least": 1
+      }
+     },
+     "observable": "state",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_InternalAlchemy": {
@@ -1109,19 +2222,23 @@
    "target": "self",
    "harmful": false,
    "setup": [],
+   "setup_checks": [],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "world_module",
-      "module": "Uneat"
+      "module": "Uneat",
+      "observable": false
      }
     ]
    },
@@ -1132,7 +2249,66 @@
     "CostItems",
     "PlayMontage",
     "Uneat"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "refresh_food_buffs",
+     "situation": "his food and drink buffs are about to run out and there is no food to spare",
+     "world": {
+      "needs": [
+       {
+        "food_buff_active": true
+       }
+      ]
+     },
+     "success": {
+      "spell_effect": {
+       "spell": "USD_InternalAlchemy"
+      }
+     },
+     "observable": false,
+     "gap": "no reader for food-buff time left",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
+  },
+  "USD_MagicFocus": {
+   "name": "Magic Focus",
+   "cast_type": "instant",
+   "cost": {},
+   "cooldown_s": 0.0,
+   "unlock": null,
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "setup_checks": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "needs_live_observation",
+      "observable": false
+     }
+    ]
+   },
+   "confidence": "data_weak",
+   "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
+   "modules": [
+    "Cast",
+    "PlayMontageForHeldEquipment"
+   ],
+   "status": "n/a",
+   "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "purposes": []
   },
   "USD_MagicalMending": {
    "name": "Magical Mending",
@@ -1152,20 +2328,28 @@
    "setup": [
     "open ground the game's placement preview accepts, within about 9 m"
    ],
+   "setup_checks": [
+    {
+     "flat_ground_within_m": 9
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "spell_actor",
       "class": "BP_Magic_MagicalMending_C",
-      "near": "preview"
+      "near": "preview",
+      "observable": "cast_reply"
      }
     ]
    },
@@ -1176,6 +2360,30 @@
     "CostItems",
     "PlayMontage",
     "UtilityMagic"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "repair_gear",
+     "situation": "his tools and armour are badly worn and there is no repair bench nearby",
+     "world": {
+      "needs": [
+       {
+        "carried_item_durability_below_pct": 30
+       }
+      ]
+     },
+     "success": {
+      "spell_effect": {
+       "spell": "USD_MagicalMending"
+      }
+     },
+     "observable": false,
+     "gap": "no leaf for 'item durability rose'",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_PhaseDash": {
@@ -1194,20 +2402,25 @@
    "target": "self",
    "harmful": false,
    "setup": [],
+   "setup_checks": [],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "air_dash_m",
       "min": 6.0,
-      "probe": "client_mod/commands/air_dash_test.lua"
+      "probe": "client_mod/commands/air_dash_test.lua",
+      "observable": "probe",
+      "probe_moves_pawn": true
      }
     ]
    },
@@ -1219,6 +2432,34 @@
     "CostItems",
     "ExpireAfterDuration",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "cross_gap_in_air",
+     "situation": "a gap too wide to jump across (about 4-8 m) with the player waiting on the far side",
+     "world": {
+      "needs": [
+       {
+        "gap_width_m": [
+         4,
+         8
+        ]
+       }
+      ]
+     },
+     "success": {
+      "near": {
+       "position": "<far side>",
+       "within_m": 1.5
+      }
+     },
+     "observable": "state",
+     "confidence": "live",
+     "source": "live",
+     "evidence": "air evade 3.2 m snapped back without it; 8.4 m kept after the cast (21:33Z)"
+    }
    ]
   },
   "USD_PileEmUp": {
@@ -1239,16 +2480,28 @@
    "setup": [
     "open ground the game's placement preview accepts, within about 9 m"
    ],
+   "setup_checks": [
+    {
+     "flat_ground_within_m": 9
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
-    "effect": []
+    "effect": [
+     {
+      "kind": "needs_live_observation",
+      "observable": false
+     }
+    ]
    },
    "confidence": "data_weak",
    "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
@@ -1257,7 +2510,80 @@
     "Cast",
     "CostItems",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "gather_scattered_trunks",
+     "situation": "many felled trunks lie scattered around after a big chop and they want the wood in one place",
+     "world": {
+      "needs": [
+       {
+        "near": {
+         "kind": "felled_log",
+         "class_family": "TreeLog",
+         "within_m": 12,
+         "at_least": 3
+        }
+       }
+      ]
+     },
+     "success": {
+      "spell_effect": {
+       "spell": "USD_PileEmUp"
+      }
+     },
+     "observable": false,
+     "gap": "no proof the trunks were gathered; the totem actor class is unknown (Blueprint-only spell)",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
+  },
+  "USD_RapidGrowth": {
+   "name": "Rapid Growth",
+   "cast_type": "placed",
+   "cost": {},
+   "cooldown_s": 60.0,
+   "unlock": null,
+   "requirement": null,
+   "target": "ground",
+   "harmful": false,
+   "setup": [
+    "open ground the game's placement preview accepts, within about 9 m"
+   ],
+   "setup_checks": [
+    {
+     "flat_ground_within_m": 9
+    }
+   ],
+   "proof": {
+    "required": [
+     {
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "spell_actor",
+      "class": "BP_PerkSpell_RapidGrowth_C",
+      "near": "preview",
+      "observable": "cast_reply"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "PlayMontage",
+    "UtilityMagic"
+   ],
+   "status": "n/a",
+   "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "purposes": []
   },
   "USD_Recall": {
    "name": "Recall",
@@ -1275,16 +2601,24 @@
    "target": "self",
    "harmful": false,
    "setup": [],
+   "setup_checks": [],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
-    "effect": []
+    "effect": [
+     {
+      "kind": "needs_live_observation",
+      "observable": false
+     }
+    ]
    },
    "confidence": "data_weak",
    "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
@@ -1294,6 +2628,33 @@
     "CostItems",
     "ExpireAfterDuration",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "return_to_spot",
+     "situation": "he must leave this exact spot for a short errand and come straight back to it afterwards",
+     "world": {
+      "needs": [
+       {
+        "errand_target_m": [
+         30,
+         150
+        ]
+       }
+      ]
+     },
+     "success": {
+      "near": {
+       "position": "<the spot he left>",
+       "within_m": 3
+      }
+     },
+     "observable": "state",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_Rocksplosion": {
@@ -1318,20 +2679,31 @@
     "the game's special requirement: Pickaxe",
     "open ground the game's placement preview accepts, within about 9 m"
    ],
+   "setup_checks": [
+    {
+     "carried_category": "pickaxe"
+    },
+    {
+     "flat_ground_within_m": 9
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "spell_actor",
       "class": "BP_Magic_Rocksplosion_C",
-      "near": "preview"
+      "near": "preview",
+      "observable": "cast_reply"
      }
     ]
    },
@@ -1342,6 +2714,36 @@
     "CostItems",
     "PlayMontage",
     "UtilityMagic"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "area_mine",
+     "situation": "ore rocks or boulders are around him and they need ore or stone quickly",
+     "world": {
+      "needs": [
+       {
+        "carried_category": "pickaxe"
+       },
+       {
+        "near": {
+         "kind": "ore_node",
+         "within_m": 10
+        }
+       }
+      ]
+     },
+     "success": {
+      "gained": {
+       "item": "<the node's ore item>",
+       "at_least": 1
+      }
+     },
+     "observable": "state",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_RunesToRuneEssence": {
@@ -1362,20 +2764,28 @@
    "setup": [
     "open ground the game's placement preview accepts, within about 9 m"
    ],
+   "setup_checks": [
+    {
+     "flat_ground_within_m": 9
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "spell_actor",
       "class": "BP_PerkSpell_RunesToRuneEssence_C",
-      "near": "preview"
+      "near": "preview",
+      "observable": "cast_reply"
      }
     ]
    },
@@ -1386,7 +2796,149 @@
     "CostItems",
     "PlayMontage",
     "UtilityMagic"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "runes_to_essence",
+     "situation": "he has many runes of a type nobody needs and they are out of rune essence",
+     "world": {
+      "needs": [
+       {
+        "carried_rune_at_least": 20
+       }
+      ]
+     },
+     "success": {
+      "gained": {
+       "item": "Rune Essence",
+       "at_least": 1
+      }
+     },
+     "observable": "state",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
+  },
+  "USD_ShadowVeil": {
+   "name": "Shadow Veil",
+   "cast_type": "instant",
+   "cost": {
+    "Astral": 20
+   },
+   "cooldown_s": 3.0,
+   "unlock": null,
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "setup_checks": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "runes_spent",
+      "observable": "cast_reply"
+     },
+     {
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "ge_added",
+      "class_contains": "ShadowVeilGameplayEffectInstance",
+      "observable": "cast_reply"
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "CostItems",
+    "GameplayEffect",
+    "PlayMontage"
+   ],
+   "status": "n/a",
+   "na_reason": "no perk unlocks it (internal / unreleased / world-interaction asset)",
+   "purposes": []
+  },
+  "USD_SiphonAnimaCharge": {
+   "name": "USD_SiphonAnimaCharge",
+   "cast_type": "instant",
+   "cost": {},
+   "cooldown_s": 0.0,
+   "unlock": null,
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "setup_checks": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "world_module",
+      "module": "SiphonAnimaCharge",
+      "observable": false
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "PlayMontage",
+    "SiphonAnimaCharge"
+   ],
+   "status": "n/a",
+   "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "purposes": []
+  },
+  "USD_SiphonRunes": {
+   "name": "USD_SiphonRunes",
+   "cast_type": "instant",
+   "cost": {},
+   "cooldown_s": 0.0,
+   "unlock": null,
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "setup_checks": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "world_module",
+      "module": "SiphonRunes",
+      "observable": false
+     }
+    ]
+   },
+   "confidence": "data",
+   "evidence": null,
+   "modules": [
+    "Cast",
+    "PlayMontage",
+    "SiphonRunes"
+   ],
+   "status": "n/a",
+   "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "purposes": []
   },
   "USD_SnareTrap": {
    "name": "Snare",
@@ -1407,20 +2959,28 @@
    "target": "self",
    "harmful": false,
    "setup": [],
+   "setup_checks": [
+    {
+     "not_on_agility_course": true
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "spell_actor",
       "class": "BP_Magic_SnareTrap_C",
-      "near": "self"
+      "near": "self",
+      "observable": "cast_reply"
      }
     ]
    },
@@ -1431,6 +2991,31 @@
     "CostItems",
     "PlayMontage",
     "UtilityMagic"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "root_chasers",
+     "situation": "enemies are chasing him while he needs to get away or keep his distance",
+     "world": {
+      "needs": [
+       {
+        "hostiles_within_m": 8,
+        "at_least": 1
+       }
+      ]
+     },
+     "success": {
+      "moved": {
+       "min_m": 10
+      }
+     },
+     "observable": false,
+     "gap": "no leaf for 'enemy rooted'",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_SpeedupStation": {
@@ -1451,20 +3036,28 @@
    "setup": [
     "open ground the game's placement preview accepts, within about 9 m"
    ],
+   "setup_checks": [
+    {
+     "flat_ground_within_m": 9
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "spell_actor",
       "class": "BP_Magic_SpeedupStation_C",
-      "near": "preview"
+      "near": "preview",
+      "observable": "cast_reply"
      }
     ]
    },
@@ -1475,6 +3068,33 @@
     "CostItems",
     "PlayMontage",
     "UtilityMagic"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "speed_up_station",
+     "situation": "a mechanical processing station is slowly working through a long job",
+     "world": {
+      "needs": [
+       {
+        "near": {
+         "kind": "processing_station",
+         "within_m": 8
+        }
+       }
+      ]
+     },
+     "success": {
+      "spell_effect": {
+       "spell": "USD_SpeedupStation"
+      }
+     },
+     "observable": false,
+     "gap": "no reader for station speed",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_Splinter": {
@@ -1495,31 +3115,49 @@
    "setup": [
     "a felled or splittable log (ATreeLog) within about 8 m; aim at its GetMidPointWorldLocation (the actor origin is stale)"
    ],
+   "setup_checks": [
+    {
+     "near": {
+      "kind": "felled_log",
+      "class_family": "TreeLog",
+      "within_m": 8
+     }
+    },
+    {
+     "not_tag": "Player.Status.Mounted"
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "spell_actor",
       "class": "BP_Magic_Splinter_C",
-      "near": "preview"
+      "near": "preview",
+      "observable": "cast_reply"
      },
      {
-      "kind": "target_gone"
+      "kind": "target_gone",
+      "observable": "cast_reply"
      },
      {
       "kind": "drops_spawned",
-      "item_contains": "Wood"
+      "item_contains": "Wood",
+      "observable": "state"
      },
      {
       "kind": "target_health_drop",
-      "min": 1
+      "min": 1,
+      "observable": "cast_reply"
      }
     ]
    },
@@ -1533,6 +3171,36 @@
     "PlayMontage",
     "Shape",
     "UtilityMagic"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "split_felled_log",
+     "situation": "a felled log lies near him and they need wood",
+     "world": {
+      "needs": [
+       {
+        "near": {
+         "kind": "felled_log",
+         "class_family": "TreeLog",
+         "within_m": 8
+        }
+       }
+      ]
+     },
+     "success": {
+      "gained": {
+       "item": "<the log's drop item>",
+       "at_least": 1
+      }
+     },
+     "observable": "state",
+     "confidence": "live",
+     "source": "live",
+     "evidence": "the log split into Ash Logs world items (21:3xZ)",
+     "note": "the logs land on the ground: he must pick them up"
+    }
    ]
   },
   "USD_SummonShelter": {
@@ -1553,20 +3221,28 @@
    "setup": [
     "flat open ground within about 9 m (the game's preview rejects UI.Notification.SpellPlacement.GroundNotFlatEnough / .Blocked)"
    ],
+   "setup_checks": [
+    {
+     "flat_ground_within_m": 9
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "spell_actor",
       "class": "BP_Magic_SummonShelter_C",
-      "near": "preview"
+      "near": "preview",
+      "observable": "cast_reply"
      }
     ]
    },
@@ -1577,6 +3253,37 @@
     "CostItems",
     "PlayMontage",
     "UtilityMagic"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "sleep_away_from_home",
+     "situation": "it is night, they are far from any bed and the player wants to sleep",
+     "world": {
+      "needs": [
+       {
+        "night": true
+       },
+       {
+        "flat_ground_within_m": 9
+       },
+       {
+        "no_bed_within_m": 50
+       }
+      ]
+     },
+     "success": {
+      "spell_effect": {
+       "spell": "USD_SummonShelter"
+      }
+     },
+     "observable": false,
+     "gap": "no leaf for the rest/sleep state (PlayerRestComponent / DIM_Resting); the shelter itself is observable",
+     "confidence": "live",
+     "source": "live",
+     "evidence": "shelter cast by the model's own choice (20:44Z); Claude slept in a shelter (L10, 20:59Z)"
+    }
    ]
   },
   "USD_Surge": {
@@ -1595,16 +3302,24 @@
    "target": "self",
    "harmful": false,
    "setup": [],
+   "setup_checks": [],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
-    "effect": []
+    "effect": [
+     {
+      "kind": "needs_live_observation",
+      "observable": false
+     }
+    ]
    },
    "confidence": "data_weak",
    "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
@@ -1614,6 +3329,30 @@
     "CostItems",
     "ExpireAfterDuration",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "dodge_clear",
+     "situation": "a big area attack is coming and a normal dodge is too short to get clear of it",
+     "world": {
+      "needs": [
+       {
+        "incoming_telegraph": true
+       }
+      ]
+     },
+     "success": {
+      "moved": {
+       "min_m": 4
+      }
+     },
+     "observable": false,
+     "gap": "no damage-episode leaf for 'dodged/no damage taken'",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_TempestShield": {
@@ -1631,23 +3370,28 @@
    "target": "self",
    "harmful": false,
    "setup": [],
+   "setup_checks": [],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "tag_added",
-      "tag": "Player.Status.TempestShield"
+      "tag": "Player.Status.TempestShield",
+      "observable": "cast_reply"
      },
      {
       "kind": "ge_added",
-      "class_contains": "TempestShieldGameplayEffectInstance"
+      "class_contains": "TempestShieldGameplayEffectInstance",
+      "observable": "cast_reply"
      }
     ]
    },
@@ -1658,6 +3402,32 @@
     "CostItems",
     "GameplayEffect",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "shield_before_hard_fight",
+     "situation": "a strong enemy is about to fight him and he will have to block heavy hits",
+     "world": {
+      "needs": [
+       {
+        "hostile_within_m": 15,
+        "power_level_at_least": "<his power level>"
+       }
+      ]
+     },
+     "success": {
+      "spell_effect": {
+       "spell": "USD_TempestShield"
+      }
+     },
+     "observable": false,
+     "gap": "no damage-episode leaf for 'hits fully absorbed while blocking'",
+     "confidence": "live",
+     "source": "live+description",
+     "evidence": "shield GE + tag Player.Status.TempestShield seen live (21:30Z)"
+    }
    ]
   },
   "USD_Treequipment": {
@@ -1682,20 +3452,31 @@
     "the game's special requirement: Cast on a Tree",
     "open ground the game's placement preview accepts, within about 9 m"
    ],
+   "setup_checks": [
+    {
+     "unknown_requirement": null
+    },
+    {
+     "flat_ground_within_m": 9
+    }
+   ],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "spell_actor",
       "class": "BP_Magic_Treequipment_C",
-      "near": "preview"
+      "near": "preview",
+      "observable": "cast_reply"
      }
     ]
    },
@@ -1706,6 +3487,33 @@
     "CostItems",
     "PlayMontage",
     "UtilityMagic"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "tree_to_bones",
+     "situation": "they need bones and there is a tree next to him",
+     "world": {
+      "needs": [
+       {
+        "near": {
+         "kind": "standing_tree",
+         "within_m": 10
+        }
+       }
+      ]
+     },
+     "success": {
+      "gained": {
+       "item": "<bones item>",
+       "at_least": 1
+      }
+     },
+     "observable": "state",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
   },
   "USD_Vengeance": {
@@ -1724,28 +3532,34 @@
    "target": "self",
    "harmful": false,
    "setup": [],
+   "setup_checks": [],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "tag_added",
-      "tag": "Player.Status.Vengeance"
+      "tag": "Player.Status.Vengeance",
+      "observable": "cast_reply"
      },
      {
       "kind": "ge_added",
-      "class_contains": "BP_Vengeance_GEInstance_C"
+      "class_contains": "BP_Vengeance_GEInstance_C",
+      "observable": "cast_reply"
      },
      {
       "kind": "spell_actor",
       "class": "BP_VengeanceSkullFX_C",
-      "near": "self"
+      "near": "self",
+      "observable": "cast_reply"
      }
     ]
    },
@@ -1759,7 +3573,137 @@
     "PlayMontage",
     "SpawnActor",
     "Transform"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "reflect_damage",
+     "situation": "a tough enemy keeps hitting him hard in a long fight",
+     "world": {
+      "needs": [
+       {
+        "hostile_within_m": 10
+       }
+      ]
+     },
+     "success": {
+      "killed": {
+       "kind": "<the enemy>",
+       "at_least": 1
+      }
+     },
+     "observable": false,
+     "gap": "reflected damage is not attributed in combat episodes",
+     "confidence": "data",
+     "source": "description"
+    }
    ]
+  },
+  "USD_WeaponBarbs": {
+   "name": "Weapon Barbs",
+   "cast_type": "instant",
+   "cost": {},
+   "cooldown_s": 0.0,
+   "unlock": null,
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "setup_checks": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "needs_live_observation",
+      "observable": false
+     }
+    ]
+   },
+   "confidence": "data_weak",
+   "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
+   "modules": [
+    "Cast",
+    "PlayMontageForHeldEquipment"
+   ],
+   "status": "n/a",
+   "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "purposes": []
+  },
+  "USD_WeaponPoison": {
+   "name": "Weapon Poison",
+   "cast_type": "instant",
+   "cost": {},
+   "cooldown_s": 0.0,
+   "unlock": null,
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "setup_checks": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "needs_live_observation",
+      "observable": false
+     }
+    ]
+   },
+   "confidence": "data_weak",
+   "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
+   "modules": [
+    "Cast",
+    "PlayMontageForHeldEquipment"
+   ],
+   "status": "n/a",
+   "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "purposes": []
+  },
+  "USD_Whetstone": {
+   "name": "Whetstone",
+   "cast_type": "instant",
+   "cost": {},
+   "cooldown_s": 0.0,
+   "unlock": null,
+   "requirement": null,
+   "target": "self",
+   "harmful": false,
+   "setup": [],
+   "setup_checks": [],
+   "proof": {
+    "required": [
+     {
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
+     }
+    ],
+    "effect": [
+     {
+      "kind": "needs_live_observation",
+      "observable": false
+     }
+    ]
+   },
+   "confidence": "data_weak",
+   "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
+   "modules": [
+    "Cast",
+    "PlayMontageForHeldEquipment"
+   ],
+   "status": "n/a",
+   "na_reason": "no perk unlocks it and no rune cost (internal / unreleased / world-interaction asset)",
+   "purposes": []
   },
   "USD_Windstep": {
    "name": "Windstep",
@@ -1776,28 +3720,35 @@
    "target": "self",
    "harmful": false,
    "setup": [],
+   "setup_checks": [],
    "proof": {
     "required": [
      {
-      "kind": "runes_spent"
+      "kind": "runes_spent",
+      "observable": "cast_reply"
      },
      {
-      "kind": "cooldown_started"
+      "kind": "cooldown_started",
+      "observable": "cast_reply"
      }
     ],
     "effect": [
      {
       "kind": "tag_added",
-      "tag": "Player.Spell.WindStep"
+      "tag": "Player.Spell.WindStep",
+      "observable": "cast_reply"
      },
      {
       "kind": "ge_added",
-      "class_contains": "DominionStatusEffect"
+      "class_contains": "DominionStatusEffect",
+      "observable": "cast_reply"
      },
      {
       "kind": "jump_apex_gain_m",
       "min": 3.0,
-      "probe": "client_mod/commands/smoke_jump.lua"
+      "probe": "client_mod/commands/smoke_jump.lua",
+      "observable": "probe",
+      "probe_moves_pawn": true
      }
     ]
    },
@@ -1809,6 +3760,34 @@
     "CostItems",
     "GameplayEffect",
     "PlayMontage"
+   ],
+   "status": "unlocked",
+   "na_reason": null,
+   "purposes": [
+    {
+     "id": "reach_high_ledge",
+     "situation": "a ledge or rock top 2.5-6 m above him that a normal jump cannot reach, and he needs to get up there (the player is on top)",
+     "world": {
+      "needs": [
+       {
+        "ledge_rise_m": [
+         2.5,
+         6
+        ]
+       }
+      ]
+     },
+     "success": {
+      "near": {
+       "position": "<ledge top>",
+       "within_m": 1.5
+      }
+     },
+     "observable": "state",
+     "confidence": "live",
+     "source": "live",
+     "evidence": "jump apex 1.80 m -> 7.38 m after the cast (21:27Z)"
+    }
    ]
   }
  }
