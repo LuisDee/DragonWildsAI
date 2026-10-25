@@ -537,17 +537,17 @@ Cassettes are in `tests/fixtures/director_cassettes/` (better_pickaxe, coal_mult
 **Preconditions (all must hold):**
 1. The client is on dev: `client_boot.ps1 -Target dev` or a scenario lease. `Get-JoinedServer` shows the dev address. The watchdog is quiet.
 2. The body manifest lists gather, go_to and drop as `llm: true`. equip is `llm: false` (a seeded gap).
-3. **World id:** `start_brain.ps1` copies the user-level DW_WORLD_GUID (=shockbyte) into the process. On dev, start the brain directly so the board is keyed to the dev world: `$env:DW_BODY="client"; $env:DW_WORLD_GUID="dev_director"; .venv\Scripts\python.exe -m brain.run_live --body client`, with the API key and models loaded from the user env as start_brain does. Then confirm `session_start world=` in the brain log is NOT shockbyte. Abort if it is.
+3. **World id:** start the brain with `$env:DW_DIRECTOR="1"; $env:DW_DIRECTOR_CALLS_PER_HOUR="10"; tools\start_brain.ps1 -Body client -World dev_director` (`-World` overrides the user-level DW_WORLD_GUID=shockbyte). Then confirm `session_start world=dev_director` in the brain log. Abort if it says shockbyte.
 4. `$env:DW_DIRECTOR="1"; $env:DW_DIRECTOR_CALLS_PER_HOUR="10"`. `session_start director=true`. The board file `logs/state/worlds/<dev>/goals.json` is absent or holds no live tasks.
 5. Ash trees within 30 m of the spawn, or the test player stands near some. Claude carries an axe (the gather gate).
 
 **Steps and what to see:**
-1. Start the brain (precondition 3). Check `session_start` (director=true, world=dev…) and that persona_lines and the board tools are in the first prompt.
+1. Start the brain: `tools\start_brain.ps1 -Body client -World dev_director` (precondition 3). Check `session_start` (director=true, world=dev…) and that persona_lines and the board tools are in the first prompt.
 2. **(a)** The test player says the line in chat. Record whether the Controller called `add_task` (expected, per the wave 5b eval) or went straight to gather. Either way the line is answered at once.
 3. A `director_dispatch` decision is made (≤ 4 requests) and `director_decision` sets steps whose tests are core predicates (gained logs, near the player, lost + on_ground near the player).
 4. Board runs: `board_run` rows. gather is verified by the executor. The segments' gains and the tally show the logs.
 5. Delivery: `on_ground` near the test player (or magnet_target while he takes them) → step done → task done → a `task_report` notice voiced by the Controller (one line).
-6. **(b)** `tools/board.py add "chop 5 logs and bring them to me" --world <dev>` → ingested on the next tick (`tools/board.py list` shows it) → the same flow.
+6. **(b)** `tools/board.py add "chop 5 logs and bring them to me" --world dev_director` → ingested on the next tick (`tools/board.py list` shows it) → the same flow.
 7. Optional (1–2 more Sonnet requests): during a board run the player says "stop" → `preempted`; after 30 s the resume run should call `pause_board`. Then `resume_board` via chat.
 
 **Pass:**
