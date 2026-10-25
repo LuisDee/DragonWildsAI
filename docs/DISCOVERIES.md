@@ -1218,3 +1218,64 @@ Module: `client_mod/scripts/traverse_learn.lua` (task R2.12; design `docs/resear
   - Phase segmentation in the flight-trajectory literature is rule- or HMM-based on altitude and vertical rate (arxiv.org/abs/2203.09033; TU Delft JOAS HMM flight phases). We adapt the rule-based form, since the engine gives us the movement mode directly.
   - Leader (threshold) clustering with member-weighted merges is the standard online pattern (arxiv.org/abs/1506.07208; arxiv.org/abs/2006.01117).
   - Decision: **adapt** (off-mesh link model, rule-based phase segmentation, leader clustering) and **build** the thin recorder. No library was needed.
+
+## Client hang (R2): GameThread deadlock in ULightFlickeringWorldSubSystem (2026-10-25, client build 26162923; diagnosed from cdb stacks + static reading of the shipped exe, read-only)
+- **Symptom:** six hangs between 17:53 and 19:38 UTC (17:53:54, 18:27:42, 19:14:19, 19:26:35, about 19:30:07, 19:37:01). The process stays alive at about 0 CPU; the GameThread sits in `NtWaitForSingleObject` and every worker is idle.
+  - All five GameThread stacks taken (`logs/client/stack_6400_175704.txt`, `stack_8452_201705.txt` + `stack_all_8452_201730.txt`, `stack_9064_202831.txt`, `hang_9712_20261025_203310.txt`, `hang_9728_20261025_203801.txt`) are identical return address for return address.
+  - The last game-log line varies (FlushAsyncLoading, EOS lobby, QuickAccessBar), so it is not the cause.
+- **Method:** the exe has export-only symbols and no PDB (Jagex and Epic publish none for a shipping game). Live module base 0x7ff710650000 vs preferred base 0x140000000.
+  - Frames were mapped by disassembling the on-disk image with `cdb -z <exe>` (`ub`/`uf` at the image addresses).
+  - Callee identities came from argument patterns (ENamedThreads values, vtable slots), string xrefs, and `.rdata` vtable/name neighbourhoods (scratch scripts: PE pointer search, lea/call xref scan).
+- **Mapped GameThread stack, outermost first:**
+  1. `FEngineLoop::Tick` → `GEngine->Tick` (vtable +0x2F0) → game engine Tick wrapper → `UGameEngine::Tick` (0x143fe4020, the function UE4SS's EngineTick detour wraps; UE4SS is only the pass-through frame) → `UWorld::Tick(LEVELTICK_All=2, dt)` (0x1441be850).
+  2. `RunTickGroup(TG_DuringPhysics=2, bBlock=false)` → `FTaskGraphInterface::ProcessThreadUntilIdle(GameThread=1)` → GameThread named-queue task → `FTickFunctionTask::DoTask` → `ExecuteTick` (vtable slot 3, tail call).
+  3. **`ULightFlickeringWorldSubSystem::Tick`** (0x1468f8ab0). Identity:
+     - its `this` fields start at 0x68 = sizeof(UJgxTickableWorldSubsystem); the class is 0x2D0;
+     - the adjacent `.rdata` holds the `LightFlickeringWorldSubSystem` name and its native function table (AddLightFlickering, RemoveLightFlickering, UpdateLightBaseIntensity).
+  4. 0x1468f9970: `if (PendingTask /*this+0x1A8*/) FTaskGraphInterface::Get().WaitUntilTasksComplete({PendingTask}, AnyThread)` (vtable +0x60) → task-system wait → `FEvent::Wait(MAX_uint32)`.
+- **What the subsystem does each frame:**
+  - It waits for last frame's task, swaps its three result sets (this+0x68/0x108/0x1A8 ↔ +0x1E0..) and reads the first local player's view location.
+  - It launches `FFunctionGraphTask::CreateAndDispatchWhenReady(lambda, ..., ENamedThreads 0x2FF = AnyBackgroundThreadNormalTask)` and stores it at this+0x1A8.
+  - The background body (0x1468f6660) accumulates time, computes flicker for the registered lights, then **dispatches a follow-up task to `ENamedThreads::GameThread` (1) and calls `MyCompletionGraphEvent->DontCompleteUntil(thatTask)`**.
+- **Root cause:** the background task's completion depends on a GameThread task. Next frame, the subsystem waits for it from inside a GameThread tick task.
+  - The GameThread is already "processing tasks" (inside ProcessThreadUntilIdle), so `WaitUntilTasksComplete` takes the stall-on-event branch instead of draining the GameThread queue.
+  - Whenever the background task plus its GameThread follow-up has not finished by the next frame's TG_DuringPhysics tick, the GameThread waits forever for work only it can run. That is a self-deadlock and a timing race.
+- **Why our client hits it** (a normal player probably never does):
+  - **about 115 fps** (GameFrameRateLimit=120, NullRHI makes frames cheap), so the window is about 8 ms;
+  - only **2 background workers** (4 vCPU) at below-normal priority, shared with item and asset streaming. This explains the correlation with equips, pickups, eats and new meshes;
+  - CPU contention from the dev server and brain on the same VM;
+  - heavy GameThread Lua bursts (hang 6: LineTrace bursts, no asset load).
+- **Ruled out:** a NullRHI render fence or flush (the render thread is idle in its task loop, and no RHI wait is on the stack); UE4SS (pass-through tick detour only; the wait is engine plus game code); the async-loading thread (idle).
+- **Fix (live 19:40 UTC, pid 4488): `client_mod/scripts/tickguard.lua`.**
+  - It writes the reflected `UJgxTickableWorldSubsystem.PrimarySubsystemTick.TickInterval` (FTickFunction at +0x30, float at +0x3C) = **3600 s** on every live `LightFlickeringWorldSubSystem`, then reads it back.
+  - The tick then runs about once an hour, so the wait always finds the previous task long done.
+  - Effect: client-local light-intensity animation only, which a -nullrhi client never draws. Server and players are unaffected. FTickTaskLevel re-reads TickInterval every frame, so no re-registration is needed.
+  - Supervised as `client_bridge.SERVICES` "tickguard" (healthy = every live instance has the interval; re-applied within 10 s on each new world, from the next bridge start).
+  - Commands: `tickguard_apply.lua`, `tickguard_status.lua`. Read-back verified: 0.0 → 3600.0.
+  - The guard table (`M.GUARDS`) is generic: add a row for any other tick function found to deadlock.
+- **Defence in depth: 30 fps cap.**
+  - `t.MaxFPS=30` in Engine.ini `[SystemSettings]` is **overridden** by the game: it applies `DominionUserSettings.GameFrameRateLimit` (t.MaxFPS read back 120 at runtime).
+  - Effective: `GameFrameRateLimit/FrontendFrameRateLimit/FrameRateLimit=30` in `Saved/Config/Windows/GameUserSettings.ini` (next boot), or at runtime `client_mod/commands/fps_cap.lua` (game settings object: SetFrameRateLimit + ApplyNonResolutionSettings).
+  - Measured: 28–29 fps (was 99–116); client CPU 0.53 cores (was about 1.2). `fps_probe.lua` reads the limiter state.
+  - Prefer the game's own user setting over `-ExecCmds` or an Engine.ini CVar, which the game's settings re-apply overwrites.
+- **Not chosen:** WARP/D3D12 software rendering (it costs CPU and RAM and doesn't remove the race); `-onethread` (changes all task semantics, slow); more workers (`-foregroundworkers=` exists; it only narrows the race); patching the wait (binary patching not approved).
+- **Watchdog:** the 5th hang was caught late because `GraceS=240` counts from process start. `tools/client_watchdog.ps1` now ends the grace once a probe has seen this pid in L_World (`$script:inWorldPid`).
+- **Search (search-before-building):**
+  - "UE5 WaitUntilTaskCompletes game thread deadlock DontCompleteUntil", "nullrhi client hang uncapped framerate", "UE4SS engine tick hook deadlock": nothing specific to this pattern.
+  - Epic's Tasks docs say waiting "should be avoided" and that busy-waiting "caused deadlocks regularly"; UE 5.5 oversubscription only wakes extra workers, so it cannot help a GameThread-only dependency (dev.epicgames.com/documentation/en-us/unreal-engine/tasks-systems-in-unreal-engine).
+  - The FTaskGraphInterface API docs: WaitUntilTaskCompletes "requests that a named thread, which must be this thread, run until a task is complete" (dev.epicgames.com/documentation/unreal-engine/API/Runtime/Core/FTaskGraphInterface).
+  - t.MaxFPS caps by sleeping the GameThread (dev.to/feed/adbhut).
+  - Decision: **reuse** the engine's own tick-interval mechanism and the game's frame limiter; build only the thin guard.
+- **Open:** an hour-long soak is needed to confirm no hang (the base rate was 1 per 5–40 min). An interval tick still fires once an hour; if a hang ever recurs with this stack, raise the interval or add a guard row.
+- **FIRST REAL FIGHT WON, VISUALLY VERIFIED (2026-10-25, 19:50:19-19:51:14 UTC, Shockbyte, after the hang fix; Luis watched from GFN: "he is blocking correctly and using some combos - proud of him").**
+  - Setup: no Kebbit or Cow within 80 m of the plateau, so the target was a lone **Goblin Runt** (`BP_AI_RuntGoblin_Character_C`, Aggressive, PL1, 156 HP), 34-42 m away; the next hostiles were 64 m or more away. Commanded `attack` **without force**: the fight-or-flight check rated it winnable (u_fight 0.79 at the start, rising to 0.98), Claude PL2, level-1 skills, 100 HP.
+  - Equip from his own inventory: Bone Dagger (hotbar key 6) + Bronze Shield (key 8), in under 1 s.
+  - Approach: `move.follow` of the creature by entity id, 26 s (sprint plus local planner up the slope), reach 2.2 m.
+  - Engage: **17 IA_PrimaryAction taps** injected; **10 of them verified by stamina spent** (the others fell during blocks, or the stamina had already regenerated). Luis saw **combos**: the 0.5 s input buffer turns a jittered cadence (the weapon's own input-window timing, 0.77 s + 40-200 ms) into chains.
+  - **Telegraph hook verified:** `AiAttackComponent:Multicast_PerformAttackOnSimulatedProxies` fires on Claude's client for every goblin attack (10 events in the fight). Each one triggered **a block** (IA_SecondaryAction held about 1.2 s, after a 150-300 ms reaction delay): 6 blocks, stamina 56 → 29 at its lowest, **Claude took 0 HP damage** (hp_frac 1.0 throughout).
+  - Goblin HP (replicated `GetAuthoritativeHealth`, read at about 2.5 s intervals): 156 → 142 → 112 → 98 → 68 → 10 → 0. Killed at +49 s.
+  - Loot: one IA_Interact press at the kill spot (19:51:09); the targeted world item vanished (looted 1); the bag afterwards held GoblinPack x2 and Bone Bolts x3 among others (the before/after delta was not captured).
+  - **Bugs found live, fixed offline (80 checks pass):**
+    - (1) **Our hits never matched**: 0 of the damage multicasts on the goblin named Claude's pawn as `Instigator`. Now the pawn or the PlayerController counts, and every damage event on the target is kept in `combat_status.on_target` (instigator and source class) to settle this on the next fight.
+    - (2) **Re-equip skipped**: a two-handed tool is reported in the LEFT hand only (`held.right` nil, `left` = Mithril Logging Axe), so `prev_right` was nil. Now the main held item (right, else left) is restored. The axe was re-equipped by hand afterwards (hotbar key 4; held left = axe).
+- **Reflex + arbiter verified live (19:43:49-19:44:04 UTC, while Luis led Claude up the hill):** the guard saw a **Giant Rat** (Aggressive, PL2, 260 HP) at 2.3 m (`hostile_near`). It suspended the bridge's unregistered `go_to` (adopted as `move:go_to`), rated the fight `losing` (equal power level, 260 HP), **fled toward Zezima**, ended safe after about 14 s, released, and the arbiter **resumed the go_to**.

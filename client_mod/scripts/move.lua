@@ -92,6 +92,8 @@ M.cfg = {
     probe_ahead_cm = 150,
     probe_wall_nz = 0.7,       -- hit normal Z below this = wall (WalkableFloorAngle ~45 deg)
     follow_hysteresis_cm = 100,
+    oracle_primary_cm = 1000,  -- beyond this (or above jump height) the oracle route leads; the local
+                               -- planner only handles the obstacle in front of the next waypoint
     unreachable_check_s = 1.5, -- while unreachable: re-check this often
     unreachable_moved_cm = 300,-- ... and resume at once when the leader moved this far
     self_stuck_cm = 100,       -- moved less than this in total over give_up_s = WE are stuck (not the route)
@@ -203,9 +205,24 @@ end
 -- bBlockingHit and reads true on clean floor hits), so "started inside geometry" = Distance 0.
 local KSL
 local C0 = { R = 0, G = 0, B = 0, A = 0 }
+-- Traces use the pawn capsule's OWN collision profile (LineTraceSingleByProfile, "Player" on
+-- Claude, read live), i.e. exactly what blocks his movement; the Visibility channel also hits
+-- decorative clutter he walks through. Falls back to Visibility if the profile call fails.
+local PROFILE
 local function raw_trace(ctx, a, b)
     KSL = KSL or StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
     local out = {}
+    if PROFILE == nil then
+        local okp, name = pcall(function() return ctx.CapsuleComponent:GetCollisionProfileName():ToString() end)
+        local okf, fn = pcall(function() return FName(okp and name ~= "" and name or "Pawn") end)
+        PROFILE = okf and fn or false
+    end
+    if PROFILE then
+        local ok, hit = pcall(function() return KSL:LineTraceSingleByProfile(ctx, a, b, PROFILE, false, {}, 0, out, true, C0, C0, 0.0) end)
+        if ok then return hit == true, out end
+        PROFILE = false
+        out = {}
+    end
     local hit = KSL:LineTraceSingle(ctx, a, b, 0, false, {}, 0, out, true, C0, C0, 0.0)
     return hit == true, out
 end
@@ -436,6 +453,7 @@ local function lp_work(st, t, log)
                 st.lp, st.lp_state, st.lp_fail_t, st.lp_fail = nil, nil, t, why
                 if log then log("move: local plan failed: " .. tostring(why)) end
                 st.want_trail = true
+                st.nav_force = true -- re-query the oracle on every local-plan failure
                 return false
             end
             st.lp_pts, st.lp_state, st.lp_rounds = pts, "verifying", 0
@@ -450,6 +468,7 @@ local function lp_work(st, t, log)
                 st.lp, st.lp_state, st.lp_fail_t, st.lp_fail = nil, nil, t, "verify_exhausted"
                 if log then log("move: local plan failed: walls everywhere (" .. table.concat(P.block_log or {}, " ") .. ")") end
                 st.want_trail = true
+                st.nav_force = true
                 return false
             end
             st.lp_pts = pts
@@ -634,7 +653,9 @@ local function tick(st, gen, log)
                 local since = t - (st.nav_t or -100)
                 local need = not st.nav_t or (not st.path and since > M.cfg.nav_retry_s)
                     or (st.path and st.path_goal and d2(st.path_goal, goal) > M.cfg.repath_goal_move_cm and since > M.cfg.repath_min_s)
-                if need and not st.trail_i and not st.lpath and nav_request(st, me, goal) then
+                local far = dist > M.cfg.oracle_primary_cm or (goal.Z - me.Z) > ((st.env and st.env.jump or 165) + 20)
+                if st.nav_force then need, st.nav_force = true, false end
+                if need and (far or (not st.trail_i and not st.lpath)) and nav_request(st, me, goal) then
                     st.nav_sent_t = t
                     st.nav_requests = (st.nav_requests or 0) + 1
                 end
@@ -809,6 +830,12 @@ local function tick(st, gen, log)
     local function far_goal()
         if st.trail_i then
             return st.crumbs[math.min(#st.crumbs, st.trail_i + M.cfg.trail_lookahead)]
+        end
+        if st.path and st.wp and st.wp <= #st.path then
+            -- the oracle knows the way round (cliffs, hills): plan locally only to its next waypoints
+            local k = st.wp
+            while k < #st.path and d2(me, st.path[k]) < 600 do k = k + 1 end
+            return st.path[k]
         end
         return goal
     end

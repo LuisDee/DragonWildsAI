@@ -37,6 +37,13 @@ local function floor_at(x, y)
     if math.abs(y - 6000) < 500 then return x >= 1000 and 280 or 0 end         -- D: 2.8 m ledge
     if math.abs(y - 8000) < 500 then return x >= 1000 and 800 or 0 end         -- E: 8 m cliff
     if math.abs(y - 10000) < 500 then return x < 1000 and 400 or 0 end         -- F: 4 m drop
+    if math.abs(y - 16000) < 500 then                                            -- I: gentle slope (+1 m over 12 m)
+        return math.max(0, math.min(100, (x - 500) * 100 / 1200))
+    end
+    if math.abs(y - 14000) < 500 then                                            -- H: 7 m pit (double jump + CMOVE_Dash)
+        if x >= 1000 and x < 1700 then return -800 end
+        return 0
+    end
     if math.abs(y - 12000) < 500 then                                            -- G: 2 m pit (air dash)
         if x >= 1000 and x < 1200 then return -800 end
         return 0
@@ -119,7 +126,13 @@ local function push(p, ...) for _, c in ipairs({ ... }) do p.q[#p.q + 1] = c end
 local function sim(p)
     local c = p.cmd
     if not c then c = table.remove(p.q, 1); p.cmd = c; if c then c.t = T end end
-    if p.mode == 3 then -- airborne
+    if p.mode == 6 then -- CMOVE_Dash (MOVE_Custom): flat and fast, then falling again
+        p.feet.X = p.feet.X + p.vel.X * DT
+        if T >= c.dash_until then p.mode = 3; p.vel = { X = 450, Y = 0, Z = 0 } end
+    elseif p.mode == 3 then -- airborne
+        if c and c[1] == "jump" and c[6] and not c.dashed and T - c.t >= c[6] then
+            c.dashed, c.dash_until, p.mode, p.vel = true, T + 0.3, 6, { X = 1200, Y = 0, Z = 0 }
+        end
         p.feet.X, p.feet.Y = p.feet.X + p.vel.X * DT, p.feet.Y + p.vel.Y * DT
         p.feet.Z = p.feet.Z + p.vel.Z * DT
         p.vel.Z = p.vel.Z - G * DT
@@ -156,6 +169,7 @@ local function sim(p)
         end
     end
     p.mc.MovementMode, p.mc.Velocity = p.mode, { X = p.vel.X, Y = p.vel.Y, Z = p.vel.Z }
+    p.mc.CustomMovementMode = p.mode == 6 and 1 or 0
     p.uo.ReplicatedJumpCurrentCount, p.uo.JumpCurrentCount = p.jc, p.jc
 end
 local function frame()
@@ -175,6 +189,7 @@ _G.DW_LEARN, _G.DW_PAUSE = nil, nil
 local logs = {}
 local function log(m) logs[#logs + 1] = m; if os.getenv("DBG") then print("  " .. m) end end
 local L = dofile(FILE)
+L.cfg.probe_max_m = 1000 -- the fake lanes span ~190 m; the far-guard has its own case below
 local r = L.start(log, { world = "testA" })
 check("start ok, world from opts", r.ok and r.world == "testA" and r.world_source == "opts", r.world)
 check("hooks registered (3)", hooks[CAST] and hooks[EVADE] and r.hooks.fall, r.hooks)
@@ -207,6 +222,17 @@ run_until_idle()
 -- G: jump + evade (air dash) over a 2 m pit
 lane(luis, 12000); push(luis, { "walk", 950, 450 }, { "jump", 808, 450, nil, 0.3 }, { "wait", 0.5 })
 run_until_idle()
+-- H: double jump + CMOVE_Dash (MOVE_Custom at the apex, like Luis live) over a 7 m pit: ONE event
+lane(luis, 14000); push(luis, { "walk", 950, 680 }, { "jump", 808, 680, 0.33, nil, 0.6 }, { "wait", 0.5 })
+run_until_idle()
+-- I: double jump + dash up a gentle slope (live 19:43 pattern): walkable terrain, raw event only
+lane(luis, 16000, 300); push(luis, { "walk", 450, 680 }, { "jump", 808, 680, 0.33, nil, 0.6 }, { "wait", 0.5 })
+run_until_idle()
+-- far from Claude: client collision may be unloaded there, so the gap probe is skipped (no false gaps)
+L.cfg.probe_max_m = 10
+lane(luis, 4000); push(luis, { "walk", 950, 680 }, { "jump", 808, 680 }, { "wait", 0.5 })
+run_until_idle()
+L.cfg.probe_max_m = 1000
 -- teleport mid-air: aborted, no link
 lane(luis, 2000); push(luis, { "walk", 300, 450 }, { "jump", 808, 450 })
 for _ = 1, 140 do frame() end
@@ -235,8 +261,17 @@ local dr = bymove["drop/down"]
 check("F: walk-off drop link, dz -4 m", dr and dr.dz_m < -3.5 and #dr.inputs == 0, dr and json.encode(dr))
 local ad = bymove["air_dash/gap"]
 check("G: air dash from the evade multicast", ad and ad.needs.perks[1] == "AirDash", ad and json.encode(ad))
-check("no link from the flat hop or the teleport (6 links)", #store.links == 6, #store.links)
+local hd
+for _, l in ipairs(store.links) do if math.abs(l.from[2] - 140) < 1 then hd = l end end
+check("H: double jump + MOVE_Custom dash = one air_dash gap link", hd and hd.move == "air_dash" and hd.shape == "gap" and hd.moves.air_dash == 1 and hd.to[1] > 17, hd and json.encode(hd))
+check("no link from the flat hop or the teleport (7 links)", #store.links == 7, #store.links)
 st = L.status()
+local walk_seen = false
+for line in io.lines(L.paths("testA").events) do local e = json.decode(line); if e.why == "walkable_terrain" and e.move == "air_dash" then walk_seen = true end end
+check("I: dash-hop up a gentle slope = walkable_terrain, no link", walk_seen)
+local far_seen = false
+for line in io.lines(L.paths("testA").events) do local e = json.decode(line); if e.gap_probe and e.gap_probe.unprobed == "far_from_claude" and e.why == "hop" then far_seen = true end end
+check("far flight: probe skipped, flat flight stays a hop", far_seen)
 check("counts: aborted >= 1, hop skipped", st.counts.aborted >= 1 and st.counts.events > st.counts.kept, json.encode(st.counts))
 
 -- raw events file: one line per event, samples present
@@ -256,7 +291,7 @@ run_until_idle()
 push(claude, { "tp", 0, -3000 }, { "wait", 1.2 }, { "jump", 808, 0 }, { "wait", 0.5 })
 run_until_idle()
 check("self crossing verifies link A", ja.status == "verified" and ja.n_ok == 1 and ja.n_try == 1 and ja.last_ok, json.encode(ja))
-check("self hop adds no link", #store.links == 6, #store.links)
+check("self hop adds no link", #store.links == 7, #store.links)
 
 -- move.lua API
 local near = L.links_near({ 9, 0.2, 0.9 }, 5)
@@ -287,12 +322,12 @@ check("resumes after pause", L.status().status == "recording" and #L.status().tr
 -- persistence: a fresh load (new _G state) sees the same links; another world sees none
 L.save(true)
 local saved = json.decode(assert(io.open(P.links)):read("a"))
-check("store file written, git-friendly JSON", saved and saved.world == "testA" and #saved.links == 6 and saved.next_id == 7, saved and #saved.links)
+check("store file written, git-friendly JSON", saved and saved.world == "testA" and #saved.links == 7 and saved.next_id == 8, saved and #saved.links)
 L.stop(log)
 _G.DW_LEARN = nil
 local L2 = dofile(FILE)
 L2.load_store("testA")
-check("reload: links persisted with status", #L2._state().store.links == 6 and L2.links_near({ 9, 0.2, 0.9 }, 5)[1].status == "verified")
+check("reload: links persisted with status", #L2._state().store.links == 7 and L2.links_near({ 9, 0.2, 0.9 }, 5)[1].status == "verified")
 L2.load_store("testB")
 check("per-world isolation (testB empty)", #L2._state().store.links == 0 and #L2.links_near({ 9, 0.2, 0.9 }, 50) == 0)
 
@@ -310,7 +345,7 @@ local rb = L2.rebuild(log, "testA")
 local s2 = L2._state().store
 local nd, forgotten = 0, false
 for _, l in ipairs(s2.links) do if l.move == "drop" then nd = nd + 1; forgotten = l.reason == "forgotten" end end
-check("rebuild from raw events -> 6 links, forget kept", rb.ok and rb.links == 6 and nd == 1 and forgotten, json.encode(rb))
+check("rebuild from raw events -> 7 links, forget kept", rb.ok and rb.links == 7 and nd == 1 and forgotten, json.encode(rb))
 
 -- classification unit cases (no engine)
 local function ev(t)

@@ -44,7 +44,8 @@ M.NEARBY_M = 50            -- census radius for get_state
 M.NEARBY_MAX = 20
 M.CHAT_ROTATE_BYTES = 1024 * 1024
 M.ACTION_TOOLS = { follow = true, go_to = true, stop = true, attack = true, gather = true, pickup = true,
-                   give = true, interact = true, travel = true, sleep = true, craft = true, place = true }
+                   give = true, interact = true, travel = true, sleep = true, craft = true, place = true,
+                   fetch = true, consume = true, come_to = true, recover_grave = true } -- composite skills (skills.lua)
 -- Chat lines addressed to the companion (same defaults as brain/run_live.py DEFAULT_PREFIXES; the
 -- brain routes again, so this only keeps players' own conversation off the wire).
 M.DEFAULT_PREFIXES = { "!c ", "claude,", "claude:", "@claude ", "claude ", "companion,", "companion:", "@companion " }
@@ -373,6 +374,14 @@ function M.get_state()
             data.fight = { mode = f.mode, phase = f.phase, target = f.target, target_id = f.target_id, target_hp = f.target_hp,
                            weapon = f.weapon }
         end
+        -- skills.lua extras: my_grave {id, distance, items, contents} (his own gravestone nearby) and
+        -- last_held (the tool he held last, re-equipped after a grave recovery)
+        local sk = M.module("skills")
+        if sk and type(sk.state_extras) == "function" then
+            local okx, ex = pcall(sk.state_extras, M.API, data)
+            if okx and type(ex) == "table" then for k, v in pairs(ex) do data[k] = v end
+            elseif not okx then ev("client_module_error", { module = "skills", fn = "state_extras", err = tostring(ex) }) end
+        end
     end
     local left = {}
     for k in pairs(missing) do left[#left + 1] = k end
@@ -693,6 +702,25 @@ local function actor_of(t)
     return nil, U
 end
 
+-- Containers (graves, chests, storage): what is inside, read-only; nil when not a container.
+local function contents_of(a, U)
+    local inv = U.try(function() return a:GetInventory() end) or U.try(function() return a.InventoryComponent end)
+    local desc = fn_of("inventory", "describe_item")
+    if not (U.valid(inv) and desc) then return nil end
+    local out = {}
+    pcall(function()
+        local arr = inv.ItemSlots
+        for i = 1, arr:GetArrayNum() do
+            local it = arr[i]
+            if U.valid(it) then
+                local e = desc(it)
+                if e then out[#out + 1] = { name = e.name, item = e.item, count = e.count } end
+            end
+        end
+    end)
+    return out
+end
+
 R.inspect = { needs = { { "sense", "census" } }, fn = function(args)
     local id = args.target or args.id
     if not need_str(id) then return fail("invalid_args", { detail = "target is required (an id from look)" }) end
@@ -708,22 +736,7 @@ R.inspect = { needs = { { "sense", "census" } }, fn = function(args)
             local s = U.str(U.try(function() return a[prop] end))
             if s and s ~= "" then d.description = s; break end
         end
-        -- containers (graves, chests, storage): what is inside, read-only
-        local inv = U.try(function() return a:GetInventory() end) or U.try(function() return a.InventoryComponent end)
-        local desc = fn_of("inventory", "describe_item")
-        if U.valid(inv) and desc then
-            d.contents = {}
-            pcall(function()
-                local arr = inv.ItemSlots
-                for i = 1, arr:GetArrayNum() do
-                    local it = arr[i]
-                    if U.valid(it) then
-                        local e = desc(it)
-                        if e then d.contents[#d.contents + 1] = { name = e.name, item = e.item, count = e.count } end
-                    end
-                end
-            end)
-        end
+        d.contents = contents_of(a, U)
     end
     return { ok = true, data = d }
 end }
@@ -749,6 +762,14 @@ end
 
 R.interact = { needs = { { "sense", "census" }, { "inventory", "interact_target" }, { "inventory", "press_interact" },
                          { "inventory", "list" } }, fn = function(args, ctx)
+    -- The composite-skill engine (skills.lua: arbiter ownership, approach, FACE + nudge until the
+    -- detector targets it, press, verify, speech-ready reasons) when present; the code below is the
+    -- fallback without it.
+    local sk = M.module("skills")
+    if sk and type(sk.HANDLERS) == "table" and type(sk.HANDLERS.interact) == "function" then
+        ctx.api = M.API
+        return sk.HANDLERS.interact(S.text_log, args, ctx)
+    end
     local id = args.target or args.id
     if not need_str(id) then return fail("invalid_args", { detail = "target is required (an id from look)" }) end
     if args.secondary == true then return fail("not_implemented", { detail = "secondary interactions are not wired yet" }) end
@@ -848,12 +869,17 @@ end
 
 -- Module-declared tools: a module listed in M.MODULES may export HANDLERS = {tool = fn(log, args, ctx)}
 -- returning what a route returns (see above). Routes win over HANDLERS.
-M.MODULES = { "chat", "move", "sense", "inventory", "combat", "arbiter", "gather" }
+-- A module may also export NEEDS = {tool = {{module, fn}, ...}}: the handler is listed (and run) only
+-- while those functions exist, exactly like a route's `needs` (skills.lua composes other modules).
+M.MODULES = { "chat", "move", "sense", "inventory", "combat", "arbiter", "gather", "skills" }
 local function module_handler(tool)
     for _, name in ipairs(M.MODULES) do
         local mod = M.module(name)
         local h = mod and type(mod.HANDLERS) == "table" and mod.HANDLERS[tool]
-        if type(h) == "function" then return h end
+        if type(h) == "function" then
+            local needs = type(mod.NEEDS) == "table" and mod.NEEDS[tool] or nil
+            return h, needs and { needs = needs } or nil, name
+        end
     end
     return nil
 end
@@ -870,7 +896,10 @@ local function implemented_tools()
         local mod = M.module(name)
         if mod and type(mod.HANDLERS) == "table" then
             for t, h in pairs(mod.HANDLERS) do
-                if type(h) == "function" and not seen[t] then tools[#tools + 1] = t; seen[t] = true end
+                local needs = type(mod.NEEDS) == "table" and mod.NEEDS[t] or nil
+                if type(h) == "function" and not seen[t] and (not needs or route_ready({ needs = needs })) then
+                    tools[#tools + 1] = t; seen[t] = true
+                end
             end
         end
     end
@@ -878,6 +907,66 @@ local function implemented_tools()
     return tools
 end
 M.implemented_tools = implemented_tools
+
+-- ------------------------------------------------------------------ capability manifest (the contract)
+-- One entry per IMPLEMENTED tool (client_mod/scripts/manifest.lua shape; a module's own MANIFEST[tool]
+-- wins), plus the legacy aliases whose new tool is implemented. The brain builds the LLM's tool list
+-- from this only (brain/capabilities.py), so it can never offer a tool the body lacks.
+local function manifest_data()
+    local mf = M.module("manifest")
+    if not mf then -- tests point scripts at a fakes dir: fall back to the real data file
+        local ok, m = pcall(function() return assert(loadfile(S.root .. "/client_mod/scripts/manifest.lua"))() end)
+        mf = ok and m or { TOOLS = {}, ALIASES = {} }
+    end
+    return mf
+end
+
+function M.manifest()
+    local mf = manifest_data()
+    local own = {}
+    for _, name in ipairs(M.MODULES) do
+        local mod = M.module(name)
+        if mod and type(mod.MANIFEST) == "table" then
+            for t, e in pairs(mod.MANIFEST) do if own[t] == nil then own[t] = e end end
+        end
+    end
+    local tools, list, have = implemented_tools(), {}, {}
+    for _, t in ipairs(tools) do
+        local e = own[t] or (mf.TOOLS or {})[t]
+        local entry = { name = t }
+        if type(e) == "table" then for k, v in pairs(e) do entry[k] = v end
+        else entry.kind, entry.llm, entry.description = "probe", false, "(no manifest entry)" end
+        entry.args = entry.args or { type = "object", properties = S.bridge.object() }
+        list[#list + 1] = entry
+        have[t] = true
+    end
+    local aliases = {}
+    for old, new in pairs(mf.ALIASES or {}) do if have[new] and not have[old] then aliases[old] = new end end
+    return list, S.bridge.object(aliases), mf.VERSION or 1
+end
+
+-- The bridge's services for module handlers (ctx.api): skills.lua composes these instead of copying them.
+M.API = {
+    call = function(...) return call(...) end,
+    module = function(n) return M.module(n) end,
+    fail = fail,
+    reason_code = function(r) return reason_code(r) end,
+    now = function() return now_s() end,
+    me = function() return me() end,
+    my_position = function() return my_position() end,
+    census_things = function(r, m) return census_things(r, m) end,
+    find_thing = function(id, r) return find_thing(id, r) end,
+    match_score = function(t, about) return M.match_score(t, about) end,
+    actor_of = function(t) return actor_of(t) end,
+    contents_of = function(t) local a, U = actor_of(t); if a and U then return contents_of(a, U) end end,
+    counts = function() return counts() end,
+    aim_at = function(p) return aim_at(p) end,
+    move_status = function() return move_status() end,
+    reflex_owns_pawn = function() return reflex_owns_pawn() end,
+    object = function(t) return S.bridge.object(t) end,
+    log = function(msg) text_log(msg) end,
+}
+setmetatable(M.API, { __index = function(_, k) if k == "null" then return S and S.bridge.null end end })
 
 -- Run one tool: routes, then module HANDLERS, else not_implemented / unknown_tool.
 local function dispatch(tool, args, ctx)
@@ -888,13 +977,17 @@ local function dispatch(tool, args, ctx)
         if not ready then return fail("not_implemented", { tool = tool, detail = why }) end
         h = route.fn
     else
-        local mh = module_handler(tool)
+        local mh, needs = module_handler(tool)
         if not mh then
             local known = false
             for _, t in ipairs(S.bridge.TOOLS) do if t == tool then known = true end end
             return fail(known and "not_implemented" or "unknown_tool", { tool = tool })
         end
-        h = function(a, c) return mh(S.text_log, a, c) end
+        if needs then
+            local ready, why = route_ready(needs)
+            if not ready then return fail("not_implemented", { tool = tool, detail = why }) end
+        end
+        h = function(a, c) c.api = M.API; return mh(S.text_log, a, c) end
     end
     if args.probe == true then return { ok = true, data = { probe = true, tool = tool } } end
     if M.ACTION_TOOLS[tool] and tool ~= "stop" then preempt(tool) end
@@ -983,6 +1076,13 @@ local function forward_vitals()
     if not S.vitals_tail then return end
     for _, raw in ipairs(S.vitals_tail:read()) do
         local ok, m = pcall(S.jsonutil.decode, raw)
+        if ok and type(m) == "table" and (m.type == "death" or m.type == "revive") then
+            -- recent context for the brain (get_state.last_death via skills.state_extras)
+            local life = rawget(_G, "DW_LIFE") or {}
+            _G.DW_LIFE = life
+            if m.type == "death" then life.died_at, life.respawned_at = tonumber(m.ts) or now_s(), nil
+            else life.respawned_at = tonumber(m.ts) or now_s() end
+        end
         if ok and type(m) == "table" and m.type == "damage" and type(m.instigator) == "table" and not m.instigator.self then
             local by = m.instigator.id or m.instigator.name or m.instigator.player or "?"
             local t = now_s()
@@ -1337,7 +1437,13 @@ function M.start(opts)
         ch.handlers.ping = function()
             return { ok = true, data = { pong = true, body = "client", server_clock = os.clock(), server_time = os.time() } }
         end
-        ch.handlers.capabilities = function() return { ok = true, data = { tools = implemented_tools(), body = "client" } } end
+        ch.handlers.capabilities = function()
+            local okm, list, aliases, ver = pcall(M.manifest)
+            local data = { tools = implemented_tools(), body = "client" }
+            if okm then data.manifest, data.aliases, data.manifest_version = list, aliases, ver
+            else ev("client_manifest_error", { err = tostring(list) }) end
+            return { ok = true, data = data }
+        end
         ch.handlers.bridge_status = function() return { ok = true, data = M.status() } end
         -- other names may be module HANDLERS: route them too
         setmetatable(ch.handlers, { __index = function(_, tool)

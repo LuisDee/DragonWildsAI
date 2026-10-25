@@ -46,6 +46,10 @@ M.cfg = {
     gap_depth_m = 1.0,        -- floor below the arc deeper than this under the lower end = gap
     gap_probe_step_m = 0.5,
     gap_probe_max = 12,       -- traces per event at most (~1 ms each)
+    probe_max_m = 80,         -- only probe flights this close to Claude (client collision streaming)
+    probe_clear_cm = 70,      -- no probe this close to the landing (the jumper and his gear stand there)
+    walk_step_cm = 45,        -- walkable-terrain test: per probe segment |dz| <= step + slope x length
+    walk_slope = 0.3,
     sprint_cms = 520,         -- take-off horizontal speed above this = sprinting (walk 450, sprint 680)
     impulse_vz = 350,         -- mid-air vertical velocity jump above this = second jump impulse
     dash_cms = 300,           -- mid-air horizontal speed rise above this within dash_window_s = dash
@@ -76,7 +80,10 @@ M.NEEDS = {
     air_dash = { perks = { "AirDash" } },
     windstep = { spells = { "Windstep" }, runes = { Air = 5 } },
 }
-local MODE_FALLING, MODE_SWIMMING = 3, 4
+-- EMovementMode: 1 Walking, 2 NavWalking, 3 Falling, 4 Swimming, 5 Flying, 6 Custom. Dominion has ONE
+-- custom mode, ECustomMovementMode CMOVE_Dash = 1 (dump Dominion_enums.hpp:1055): MOVE_Custom IS the
+-- Air Dash (live 19:44:14: Luis's proxy went 3 -> 6 at the apex of a double jump, then 3 again).
+local MODE_FALLING, MODE_SWIMMING, MODE_FLYING, MODE_CUSTOM = 3, 4, 5, 6
 
 -- ------------------------------------------------------------------ state (survives hot reload)
 local function S()
@@ -419,7 +426,8 @@ function M.classify(e)
     elseif air < c.min_air_s then why = "blip"
     elseif horiz > c.max_horiz_m then why = "too_long"
     elseif e.water then why = "water"
-    elseif shape == "flat" then why = "hop" end
+    elseif shape == "flat" then why = "hop"
+    elseif e.gap and e.gap.walkable then why = "walkable_terrain" end
     local inputs = {}
     for _, k in ipairs(e.casts or {}) do inputs[#inputs + 1] = { t = r2(-k.dt), a = "cast:" .. tostring(k.name or "spell") } end
     if jumped then inputs[#inputs + 1] = { t = 0, a = "jump" } end
@@ -428,7 +436,8 @@ function M.classify(e)
         inputs[#inputs + 1] = { t = r2(t2 or 0.35), a = "jump" }
     end
     for _, t in ipairs(e.evades or {}) do inputs[#inputs + 1] = { t = r2(t), a = "evade" } end
-    if #(e.evades or {}) == 0 then for _, t in ipairs(e.dashes or {}) do inputs[#inputs + 1] = { t = r2(t), a = "evade?" } end end
+    -- the dash itself (CMOVE_Dash or a speed spike); which input triggers it is UNVERIFIED (evade key?)
+    if #(e.evades or {}) == 0 then for _, t in ipairs(e.dashes or {}) do inputs[#inputs + 1] = { t = r2(t), a = "dash" } end end
     local hd = horiz >= 0.5 and heading(e.take, e.land) or (e.v0 and heading({ X = 0, Y = 0 }, e.v0)) or 0
     return {
         move = move, shape = shape, keep = why == nil, why = why,
@@ -480,21 +489,38 @@ function M.probe_gap(ctx, take, land, half_h, trace)
     local low = math.min(fa, fb)
     local z0, z1 = math.max(fa, fb) + 50, low - 500
     local gaps, deepest, valid_n = 0, 0, 0
+    -- floor profile take-off -> probes -> landing, for the walkable-terrain test (like localplan's
+    -- slope vs step check): every segment must rise/fall at most a step + 0.3 x its length
+    local prof = { { d = 0, z = fa } }
+    local complete = true
     for i = 1, n do
         local f = i / (n + 1)
         local x, y = take.X + (land.X - take.X) * f, take.Y + (land.Y - take.Y) * f
         -- the jumper stands at the landing point while we probe, and traces hit attached gear
-        -- (bIgnoreSelf skips only the context pawn): no probe within 1 m of the landing
+        -- (bIgnoreSelf skips only the context pawn): no probe within 0.7 m of the landing
         local z, inside
-        if horiz * (1 - f) >= 100 then z, inside = trace(ctx, x, y, z0, z1) else inside = true end
+        if horiz * (1 - f) >= c.probe_clear_cm then z, inside = trace(ctx, x, y, z0, z1) else inside = "skip" end
         if not inside then
             valid_n = valid_n + 1
             local depth = z and (low - z) or 500
             if depth > c.gap_depth_m * 100 then gaps = gaps + 1; deepest = math.max(deepest, depth) end
+            if z then prof[#prof + 1] = { d = horiz * f, z = z } else complete = false end
+        elseif inside ~= "skip" then
+            complete = false
         end
     end
+    prof[#prof + 1] = { d = horiz, z = fb }
+    local walkable = complete and gaps == 0 and #prof >= 3
+    local worst = 0
+    for i = 2, #prof do
+        local seg = prof[i].d - prof[i - 1].d
+        local dz = math.abs(prof[i].z - prof[i - 1].z)
+        worst = math.max(worst, dz)
+        if dz > c.walk_step_cm + c.walk_slope * seg then walkable = false end
+    end
     local width = gaps > 0 and math.min(horiz, (gaps + 1) * horiz / (n + 1)) or 0
-    return { gap = gaps > 0, probes = n, valid = valid_n, gaps = gaps, depth_cm = deepest, width_cm = width }
+    return { gap = gaps > 0, probes = n, valid = valid_n, gaps = gaps, depth_cm = deepest, width_cm = width,
+             walkable = walkable, worst_step_cm = math.floor(worst) }
 end
 
 -- ------------------------------------------------------------------ hooks (multicasts reach every client)
@@ -610,9 +636,18 @@ local function close_event(tr, t, land, why_abort, ctx, log)
     e.runup_cm = runup_cm(tr.ring_before or {}, e.take, hd)
     -- gap probe only for flat-ish flights long enough to span one (reads; skipped when aborted)
     local dz = (e.land.Z - e.take.Z) / 100
-    if not why_abort and ctx and d2(e.take, e.land) / 100 >= M.cfg.gap_min_m and dz > -M.cfg.down_m and dz < M.cfg.up_m then
-        local ok, g = pcall(M.probe_gap, ctx, e.take, e.land, tr.half_h or 88, M._trace)
-        e.gap = ok and g or { gap = false, err = tostring(g) }
+    -- probe every flight long enough: gaps under flat flights, and the walkable-terrain test (a dash-hop
+    -- over rolling ground, live 19:43, is not a link: the floor under it is continuous)
+    if not why_abort and ctx and d2(e.take, e.land) / 100 >= M.cfg.gap_min_m then
+        -- client collision streams around CLAUDE: far from him "no floor" may just be unloaded
+        local me = try(function() return ctx:K2_GetActorLocation() end)
+        local mid = { X = (e.take.X + e.land.X) / 2, Y = (e.take.Y + e.land.Y) / 2 }
+        if me and d2(me, mid) <= M.cfg.probe_max_m * 100 then
+            local ok, g = pcall(M.probe_gap, ctx, e.take, e.land, tr.half_h or 88, M._trace)
+            e.gap = ok and g or { gap = false, err = tostring(g) }
+        else
+            e.gap = { gap = false, unprobed = "far_from_claude" }
+        end
     end
     -- links are stored at FEET level (floor points), like nav waypoints; the actor location is the
     -- capsule centre (move.lua's landing check compares feet with link.to.Z)
@@ -627,6 +662,7 @@ local function close_event(tr, t, land, why_abort, ctx, log)
     ev.type, ev.who, ev.source, ev.leader = "traversal", tr.name, tr.self and "self" or "demo", tr.leader or nil
     ev.ts, ev.iso = os.time(), iso()
     ev.casts, ev.evades, ev.impulses, ev.dashes, ev.jc_times = e.casts, e.evades, e.impulses, e.dashes, e.jc_times
+    ev.custom = e.custom
     ev.gap_probe = e.gap
     ev.samples = e.samples
     local link, action = nil, nil
@@ -660,7 +696,7 @@ local function step_tracker(tr, t, ctx, log)
         tr.ring, tr.last, tr.last_jc = {}, nil, jc
         return
     end
-    local airborne = mode == MODE_FALLING
+    local airborne = mode == MODE_FALLING or mode == MODE_CUSTOM or mode == MODE_FLYING
     local swimming = mode == MODE_SWIMMING
     local e = tr.ev
     if not e then
@@ -706,6 +742,12 @@ local function step_tracker(tr, t, ctx, log)
             hs[#hs + 1] = { t = t, h = h }
             while #hs > 2 and t - hs[1].t > c.dash_window_s do table.remove(hs, 1) end
             if dt > 0.1 and h - hs[1].h > c.dash_cms and #e.dashes < 2 then e.dashes[#e.dashes + 1] = dt; e.hs = { { t = t, h = h } } end
+            if mode == MODE_CUSTOM and e.prev_mode ~= MODE_CUSTOM then -- entered CMOVE_Dash
+                e.custom = e.custom or {}
+                e.custom[#e.custom + 1] = { t = r2(dt), cmode = tonumber(try(function() return tr.mc.CustomMovementMode end)) }
+                if #e.dashes < 2 then e.dashes[#e.dashes + 1] = dt end
+            end
+            e.prev_mode = mode
         end
         if #e.samples < c.samples_max and (not e.sample_t or t - e.sample_t >= c.sample_every_s) then
             e.sample_t = t
@@ -853,7 +895,7 @@ function M.start(log, opts)
             end
         end)
     end
-    s.stopped = nil
+    s.stopped, s.errors, s.last_error = nil, nil, nil
     s.started = s.started or iso()
     if log then pcall(log, "learn: recorder started world=" .. world .. " (" .. src .. ") links=" .. #s.store.links) end
     return { ok = true, world = world, world_source = src, links = #s.store.links, hooks = hooks, paths = s.paths }

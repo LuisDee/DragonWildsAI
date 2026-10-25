@@ -449,14 +449,26 @@ function M.on_damage(ctx, ev)
     local t = now(victim)
     local me = c.me_id
     local amount = num(U.try(function() return e.Amount end)) or 0
-    if vid == me and iid and iid ~= me then
+    -- the instigator of a player's hit may be the pawn or its controller (first live fight: hits on the
+    -- target were never matched to the pawn); count both as "mine"
+    local mine_i = iid ~= nil and (iid == me or iid == c.pc_id)
+    local f = c.fight
+    if f and vid == f.target_id then
+        -- every damage event on the current target, whoever caused it (diagnostics + hit verification)
+        local src = U.try(function() return e.Source end)
+        c.on_target = c.on_target or {}
+        c.on_target[#c.on_target + 1] = { t = t, amount = amount, inst = iid, inst_class = U.valid(inst) and U.class_word(inst) or nil,
+                                          src_class = U.valid(src) and U.class_word(src) or nil, mine = mine_i }
+        if #c.on_target > 12 then table.remove(c.on_target, 1) end
+    end
+    if vid == me and iid and not mine_i then
         c.attackers[iid] = t
         local data = U.try(function() return inst.LoadedData end)
         local name = U.valid(data) and text(U.try(function() return data.AIName end)) or iid
         local tk = c.taken[name:lower()] or { sum = 0, t0 = t, n = 0 }
         tk.sum, tk.n, tk.t = tk.sum + amount, tk.n + 1, t
         c.taken[name:lower()] = tk
-    elseif iid == me and vid ~= me then
+    elseif mine_i and vid ~= me then
         local types, outcomes = {}, {}
         pcall(function()
             e.TypeDamagesArray.TypeDamages:ForEach(function(_, td)
@@ -494,6 +506,8 @@ function M.hooks_start(log)
     local c = C()
     local p = mcall("inventory", "pawn")
     if p then c.me_id = U.short(p) end
+    local pc0 = local_pc()
+    if pc0 then c.pc_id = U.short(pc0) end
     c.handlers = { on_damage = M.on_damage, on_ai_attack = M.on_ai_attack }
     local res = {}
     for _, h in ipairs(M.HOOKS) do
@@ -613,6 +627,9 @@ local function step_equip(F, pawn)
             if pick.shield and pick.weapon.profile.slot ~= "two_handed" then F.equip_plan.shield = pick.shield.entry.item end
         end
         F.prev_right, F.prev_left = held_items(pawn)
+        -- a two-handed tool (the Mithril Logging Axe) is reported in the LEFT hand only (DISCOVERIES R2):
+        -- restore whatever was the main held item
+        F.prev_main = F.prev_right or F.prev_left
         say(F.log, string.format("weapon %s (score %.1f) shield %s; held before %s / %s", tostring(F.equip_plan.weapon),
             F.weapon_score or 0, tostring(F.equip_plan.shield), tostring(F.prev_right), tostring(F.prev_left)))
     end
@@ -865,16 +882,18 @@ end
 local function step_restore(F, pawn)
     if not F.restore_sent then
         F.restore_sent = F.t
-        local right = held_items(pawn)
-        if F.prev_right and right ~= F.prev_right then
-            local r = mcall("inventory", "equip", F.log, F.prev_right)
-            say(F.log, "re-equip " .. tostring(F.prev_right) .. " -> " .. tostring(r and (r.via or r.reason)))
+        local right, left = held_items(pawn)
+        if F.prev_main and right ~= F.prev_main and left ~= F.prev_main then
+            local r = mcall("inventory", "equip", F.log, F.prev_main)
+            say(F.log, "re-equip " .. tostring(F.prev_main) .. " -> " .. tostring(r and (r.via or r.reason)))
         end
         return
     end
-    local right = held_items(pawn)
-    if not F.prev_right or right == F.prev_right or F.t - F.restore_sent > 2.5 then
-        return finish(F, result_of(F, true, nil, { killed = F.kills > 0, restored = right == F.prev_right or nil, fled = false }))
+    local right, left = held_items(pawn)
+    local back = F.prev_main == nil or right == F.prev_main or left == F.prev_main
+    if back or F.t - F.restore_sent > 2.5 then
+        return finish(F, result_of(F, true, nil, { killed = F.kills > 0, restored = (F.prev_main and back) or nil,
+                                                   restored_item = F.prev_main, fled = false }))
     end
 end
 
@@ -1022,7 +1041,8 @@ local function start_fight(log, actor, opts)
     if U.valid(U.try(function() return actor.PlayerState end)) or (U.class_word(actor) or ""):find("PlayerCharacter", 1, true) then
         return { ok = false, reason = "unsafe", data = { why = "never attack players" } }
     end
-    c.me_id = U.short(pawn)
+    c.me_id, c.pc_id = U.short(pawn), U.short(pc)
+    c.on_target = {}
     local me = read_me(pawn, pc)
     local tgt = read_creature(actor, me.pos)
     if tgt.dead then return { ok = false, reason = "unknown_target", data = { detail = "already dead" } } end
@@ -1166,7 +1186,7 @@ function M.status()
     local learned = {}
     for k, v in pairs(c.learned) do learned[k] = v end
     return { ok = true, fight = fs, last = c.last, guard = c.guard ~= nil, guard_last = c.guard_last, guard_err = c.guard_err,
-             hook_err = c.hook_err, counts = c.counts, orders = M.orders, learned = learned, lines = c.log_lines,
+             hook_err = c.hook_err, counts = c.counts, on_target = c.on_target, orders = M.orders, learned = learned, lines = c.log_lines,
              hooks = (function() local n = 0; for _ in pairs(c.hooks) do n = n + 1 end; return n end)() }
 end
 

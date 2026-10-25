@@ -302,7 +302,7 @@ Route R2 (`docs/design/real-player-remediation.md`): Claude plays through a real
 - Everything below `main.lua` reloads without a restart. `client_mod/commands/bridge_start.lua` restarts the bridge from the newest file: it stops the old loop and keeps the chat hooks. `bridge_status.lua` and `bridge_stop.lua` complete the set.
 - Bridge events go to `logs/client/mod_<ts>.jsonl` (dwlog); module text logs go to `logs/client/client.log`.
 - **Background services are supervised by the bridge** (`client_bridge.SERVICES`):
-  - `chat.start` (receive hooks), `sense.vitals_start` (vitals watcher), `combat.guard_start` (self-defence; `DW_COMBAT_REFLEX=0` off) and `inventory.reflex_start` (stay fed);
+  - `chat.start` (receive hooks), `sense.vitals_start` (vitals watcher), `combat.guard_start` (self-defence; `DW_COMBAT_REFLEX=0` off), `inventory.reflex_start` (stay fed) and `tickguard.start` (slows the deadlock-prone `LightFlickeringWorldSubSystem` tick; DISCOVERIES "Client hang (R2)");
   - re-armed after a pause (`DW_PAUSE`) clears;
   - started at bridge start (`start_modules`, so at client boot from `main.lua`, and by `bridge_start.lua`);
   - re-checked every 10 s and restarted while not healthy. At the main menu the hooked classes may not be loaded yet;

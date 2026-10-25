@@ -410,6 +410,22 @@ check("gear: no 'walls everywhere', few plans", not everywhere and plans <= 3, "
 GEAR = false
 walls = {}
 
+_G.DW_LP_CACHE = nil
+-- 14. cliff + far ramp, plain go_to (no leader trail): the ORACLE route around must lead; the local
+--     planner may only handle the obstacle in front of the next waypoint (live 19:44: it fought the cliff)
+walls = {}
+raised = { { 1000, 4000, -1000, 3000, 600, 600 }, { 100, 1000, 2200, 2600, 0, 600 } }
+pawn.loc = { X = 0, Y = 0, Z = 0 }
+oracle = function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{0,24,-0.9},{5,24,2.1},{10,24,5.1},{16,24,5.1},{15,0,5.1}}}"):format(id) end
+pump_oracle()
+M.go_to(log, { 15, 0, 6.0 }, { tolerance_m = 1.5, timeout_s = 120 })
+run(600)
+s = M.status()
+check("cliff: go_to reaches the plateau via the oracle route", s.result and s.result.status == "arrived",
+    tostring(s.result and s.result.status) .. " " .. tostring(s.result and s.result.reason))
+raised = {}; oracle = nil
+
+_G.DW_LP_CACHE = nil
 -- 7. arbiter hooks: actor target ({actor=obj}), snapshot/restore, face_when_near
 walls = {}; pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 1500, Y = 0, Z = 0 }; oracle = nil
 M.follow(log, { actor = luis }, 2, { sprint = true, face_when_near = true })

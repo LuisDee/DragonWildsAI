@@ -127,7 +127,7 @@ function fake_move.status() return { mode = MV.mode, target = type(MV.goal) == "
 function fake_move.snapshot() if MV.mode == "idle" then return nil end return { mode = MV.mode, goal = MV.goal, distance_m = MV.dist, opts = { tolerance_m = MV.dist } } end
 function fake_move.restore(log, s) MV.calls[#MV.calls + 1] = "restore:" .. tostring(s.goal); MV.mode, MV.goal, MV.dist = s.mode, s.goal, s.distance_m; return { ok = true } end
 
-local held = { right = "ITEM_Logging_Axe_Mithril", left = "ITEM_Logging_Axe_Mithril" }
+local held = { right = nil, left = "ITEM_Logging_Axe_Mithril" }
 local inv_list = {
     hotbar = {
         { item = "ITEM_Food_Sandwich", name = "Forager's Sandwich", consumable = "food", heal = 10, slot = 0 },
@@ -144,9 +144,9 @@ function fake_inv.held() return { right_item = held.right, left_item = held.left
 local slots = { ITEM_Dagger_Bone = "right", ITEM_Shield_Bronze = "left", ITEM_Torch = "left" }
 function fake_inv.equip(log, item)
     INV.equips[#INV.equips + 1] = item
-    if item == "ITEM_Logging_Axe_Mithril" or item == "ITEM_Pickaxe_Mithril" then held.right, held.left = item, item
+    if item == "ITEM_Logging_Axe_Mithril" or item == "ITEM_Pickaxe_Mithril" then held.right, held.left = nil, item -- live: 2H shows in LEFT only
     elseif slots[item] == "right" then
-        if held.left == held.right then held.left = nil end
+        if held.right == nil and (held.left == "ITEM_Logging_Axe_Mithril" or held.left == "ITEM_Pickaxe_Mithril") then held.left = nil end
         held.right = item
     else held.left = item end
     return { ok = true, via = "hotbar key" }
@@ -205,7 +205,7 @@ local function step(n)
                 local tgt = Cm._state().fight and Cm._state().fight.target
                 if tgt and tgt.hp > 0 then
                     tgt.hp = math.max(0, tgt.hp - h.amount)
-                    multicast(tgt, pawn, h.amount)
+                    multicast(tgt, world.instigator or pawn, h.amount)
                     if tgt.hp <= 0 and world.drop_on_death then new_item("BP_WorldItem_C_9" .. #world.items, { X = tgt.loc.X + 50, Y = tgt.loc.Y, Z = 0 }) end
                 end
             else keep[#keep + 1] = h end
@@ -224,11 +224,11 @@ local function run_until(cond, max_s)
     return false
 end
 local function reset_world()
-    world.creatures, world.items, world.injected, world.on_step, world.drop_on_death, world.inputs_dead = {}, {}, {}, nil, nil, nil
+    world.creatures, world.items, world.injected, world.on_step, world.drop_on_death, world.inputs_dead, world.instigator = {}, {}, {}, nil, nil, nil, nil
     pending_hits, loops = {}, {}
     MV.mode, MV.calls, MV.goal = "idle", {}, nil
     INV.equips, INV.uses, INV.interacts = {}, {}, 0
-    held.right, held.left = "ITEM_Logging_Axe_Mithril", "ITEM_Logging_Axe_Mithril"
+    held.right, held.left = nil, "ITEM_Logging_Axe_Mithril"
     pawn.loc, pawn.hp, stamina, special = { X = 0, Y = 0, Z = 0 }, 100, 80, 100
     _G.DWCombat, _G.DWArbiter = nil, nil
     Cm.orders.stance, Cm.orders.force, Cm.orders.avoid = "defensive", false, {}
@@ -340,6 +340,7 @@ reset_world()
 do
     local task = A.request(nil, { name = "gather", level = "task", uses_move = true })
     fake_move.go_to(nil, { 20, 20, 0 })
+    world.instigator = pc -- live: our hits may name the controller as instigator
     local keb = new_creature("BP_AI_Kebbit_Character_02_C_1", "Kebbit", { X = 600, Y = 0, Z = 0 }, { hp = 60, pl = 1 })
     world.drop_on_death = true
     local r = Cm.attack(nil, "Kebbit")
@@ -350,7 +351,7 @@ do
     check("fight finished", done)
     check("fight ok (killed)", res and res.ok and res.data.killed, res and (res.reason or "") .. " " .. table.concat(res.data.phase_log or {}, " | "))
     check("equipped dagger then shield", INV.equips[1] == "ITEM_Dagger_Bone" and INV.equips[2] == "ITEM_Shield_Bronze", table.concat(INV.equips, ","))
-    check("restored the axe", held.right == "ITEM_Logging_Axe_Mithril" and INV.equips[#INV.equips] == "ITEM_Logging_Axe_Mithril")
+    check("restored the axe", held.left == "ITEM_Logging_Axe_Mithril" and held.right == nil and INV.equips[#INV.equips] == "ITEM_Logging_Axe_Mithril")
     check("pressed primary", (world.injected.IA_PrimaryAction or 0) >= 3)
     check("used the special once (charge 100, Lacerate costs 25)", (world.injected.IA_SpecialAction or 0) >= 1)
     check("locked on", (world.injected.IA_ToggleLockOnTargeting or 0) == 1)
