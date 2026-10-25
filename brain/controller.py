@@ -13,7 +13,7 @@ import json
 from collections import deque
 from dataclasses import dataclass, field
 
-from .interface import Event, GameInterface, tool_schema, validate_args
+from .interface import Event, GameInterface, Reason, tool_schema, validate_args
 from .jsonl_log import JsonlLogger
 from .llm import LLMClient, ToolCall
 from .state_store import StateStore
@@ -28,7 +28,8 @@ Decide what to do about the player's message by calling tools:
 - Chit-chat -> no tool.
 Calling an action tool cancels whatever job you are doing; if the player only comments
 on your work, do not call a tool. Always also reply with one short line of text.
-Use entity ids and names exactly as they appear in the state."""
+Use entity ids and names exactly as they appear in the state. "me"/"I" is the player in
+command.player: pass that exact value as the player or target argument."""
 
 START_GOAL = {
     "type": "function",
@@ -39,6 +40,9 @@ START_GOAL = {
     },
 }
 ACTION_TOOLS = ["follow", "stop", "go_to", "attack", "give"]
+# How to name a skill in "I can't ... yet".
+SKILL_PHRASES = {"follow": "follow you", "stop": "stop", "go_to": "walk somewhere", "attack": "fight",
+                 "give": "hand items over", "gather": "gather", "craft": "craft", "place": "build"}
 CONTROLLER_TOOLS = [tool_schema(n) for n in ACTION_TOOLS] + [tool_schema("remember"), START_GOAL]
 
 
@@ -103,9 +107,21 @@ class Controller:
 
     # ---------------------------------------------------------------- speech (single voice)
 
-    def say(self, text: str) -> None:
+    def say(self, text: str) -> dict | None:
         self.log.log("say", text=text)
-        self.game.say(text)
+        res = self.game.say(text)
+        if isinstance(res, dict):
+            self.log.log("say_result", ok=res.get("ok"), reason=res.get("reason"), data=res.get("data"))
+        return res
+
+    def report_failure(self, tool: str, reason: str | None) -> None:
+        """Say why an immediate action failed, in words that match what happened."""
+        if reason in Reason.CANT_YET:
+            self.say(f"Sorry, I can't {SKILL_PHRASES.get(tool, tool.replace('_', ' '))} yet.")
+        elif reason == Reason.STATE_UNAVAILABLE:
+            self.say(f"I can't {SKILL_PHRASES.get(tool, tool.replace('_', ' '))} yet: I can't read the game state.")
+        else:
+            self.say(f"I couldn't {tool.replace('_', ' ')}: {reason}.")
 
     def ask_for_help(self, goal: str, failed: str | None, reason: str | None, question: str | None = None) -> None:
         what = f" {failed} keeps failing ({reason})." if failed else ""

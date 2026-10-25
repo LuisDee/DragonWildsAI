@@ -11,8 +11,8 @@ import time
 from typing import Literal
 
 from .controller import Controller
-from .executor import Executor
-from .interface import Attacked, CommandReceived, Event, GameInterface
+from .executor import Executor, StateUnavailable
+from .interface import Attacked, CommandReceived, Event, GameInterface, Reason
 from .jsonl_log import JsonlLogger
 from .planner import Planner, PlanError
 from .state_store import StateStore, Task
@@ -64,20 +64,24 @@ class Agent:
             self._command(event)
 
     def _command(self, event: CommandReceived) -> None:
-        state = self.executor.state()
+        try:
+            state = self.executor.state()
+        except StateUnavailable as exc:  # still let the Controller answer; actions will refuse
+            state = {"unavailable": str(exc)}
         d = self.controller.decide(event.player, event.text, state, self.active_goal)
         if d.interrupts and self.active_goal:
             self._cancelled = True
         failure = None
         for call in d.actions:
             if call.name == "remember":
-                self.store.remember(**call.arguments)
+                self.log.log("tool_call", tool="remember", args=call.arguments)
+                self.log.log("tool_result", tool="remember", result=self.store.remember(**call.arguments))
                 continue
             outcome = self.executor.run_task(Task(skill=call.name, args=call.arguments))
             if not outcome.ok and failure is None:
                 failure = (call.name, outcome.reason)
         if failure:
-            self.controller.say(f"I couldn't {failure[0].replace('_', ' ')}: {failure[1]}.")
+            self.controller.report_failure(*failure)
         elif d.speech:
             self.controller.say(d.speech)
         if d.goal:
@@ -97,6 +101,8 @@ class Agent:
         self.active_goal, self._cancelled = goal, False
         try:
             return self._run_goal(goal)
+        except StateUnavailable:  # the planner needs fresh state too
+            return self._stuck(goal, None, Reason.STATE_UNAVAILABLE)
         finally:
             self.active_goal = None
 

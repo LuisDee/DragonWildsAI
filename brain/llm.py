@@ -74,6 +74,14 @@ def _model_from_env(var: str) -> str:
     return model
 
 
+def missing_keys(model: str) -> list[str]:
+    """API-key env vars the model's provider needs but are unset (asks LiteLLM; slow first import)."""
+    import litellm
+
+    info = litellm.validate_environment(model=model)
+    return [] if info.get("keys_in_environment") else list(info.get("missing_keys") or [])
+
+
 def controller_llm() -> LiteLLMClient:
     return LiteLLMClient(_model_from_env(CONTROLLER_MODEL_ENV), max_tokens=512)
 

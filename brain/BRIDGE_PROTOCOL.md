@@ -47,9 +47,43 @@ Every message has `"v": 1` and a `"type"`.
 
 - `id`: an opaque string, unique per request. The reply must echo it.
 - `tool`: one of `get_state, follow, stop, go_to, attack, gather, craft, place, give, say,
-  ping`. `args` follow the schemas in `brain/interface.py` (`TOOLS`).
+  ping, capabilities`. `args` follow the schemas in `brain/interface.py` (`TOOLS`).
 - `ping` takes no args and must answer immediately with `data: {"pong": true}`. It is used for
   the Phase 5 latency gate.
+- `capabilities` takes no args; see [Capabilities](#capabilities-protocol-v1-addition) below.
+- `probe` (optional, boolean): `true` means the brain only wants to know whether the tool is
+  implemented. See below.
+
+### Capabilities (protocol v1 addition)
+
+The brain builds the Planner's skill registry from what the body says it can do
+(CLAUDE.md principle 3), once at startup (`brain/capabilities.py`, `brain/run_live.py`).
+
+```json
+{"v":1,"type":"cmd","id":"a1b2c3d4e5f6","tool":"capabilities","args":{},"ts":1767225600.1}
+{"v":1,"type":"result","id":"a1b2c3d4e5f6","ok":true,"reason":null,"data":{"tools":["ping","capabilities","get_state","say","follow","stop"]}}
+```
+
+- Answer immediately with `ok: true` and `data.tools`, a list of tool names that have a **real**
+  handler. Leave out tools whose handler is a stub that answers `not_implemented`.
+- `get_state` counts as implemented once it returns `ok: true`, even if `data.not_implemented`
+  still lists some missing keys.
+- Names that are not protocol tools (for example `debug_run`) are allowed. The brain ignores them.
+- The brain only lets the Planner use `go_to, follow, stop, attack, gather, craft, give, place`
+  from the list. It warns at startup if `say` or `get_state` are missing: without `say` the
+  companion cannot reply, and without `get_state` no action can be verified, so the executor
+  refuses to act (`reason: state_unavailable`).
+- Restart the brain after deploying a body with new skills. The list is read once per session.
+
+**Fallback for bodies without `capabilities`.** A body that answers `unknown_tool` (or anything
+other than an ok result with a `tools` list) is probed instead. The brain sends each body tool
+once, with `args: {}` and `"probe": true`. Any reply other than `not_implemented`,
+`unknown_tool` or a timeout (3 s) counts as implemented. So:
+
+- A body **may** honour `probe: true` by replying `ok: true` without acting.
+- A body that ignores `probe` must reject empty args with `invalid_args` rather than acting on
+  defaults. `stop` and `get_state` take no args, so a probe really runs them once; both are
+  harmless.
 
 ### `result` (body to brain)
 
@@ -117,3 +151,6 @@ unmatched and discards it.
 
 `python -m brain.fake_body [bridge_dir]` serves the protocol using the mock game.
 `tests/test_bridge.py` runs the round trip.
+`python -m brain.run_live --dry-run` runs the whole live loop (chat routing, `!ping`, capabilities,
+Controller, executor) with rule-based fake models; `tests/test_run_live.py` runs it against the
+fake body.

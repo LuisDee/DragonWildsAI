@@ -16,6 +16,10 @@ from .interface import GameInterface, Reason
 from .jsonl_log import JsonlLogger
 from .state_store import StateStore, Task
 
+class StateUnavailable(RuntimeError):
+    """get_state failed. Without fresh state no step can be verified (principle 2)."""
+
+
 @dataclass
 class Outcome:
     ok: bool
@@ -106,7 +110,7 @@ class Executor:
     def state(self) -> dict:
         res = self.game.get_state()
         if not res["ok"]:
-            raise RuntimeError(f"get_state failed: {res['reason']}")
+            raise StateUnavailable(f"get_state failed: {res['reason']}")
         return res["data"]
 
     def _remaining_args(self, task: Task, base: dict, now: dict) -> dict | None:
@@ -119,6 +123,13 @@ class Executor:
     def run_task(self, task: Task) -> Outcome:
         if task.skill not in self.store.skills:
             return self._finish(task, Outcome(False, Reason.UNKNOWN_SKILL))
+        try:
+            return self._run(task)
+        except StateUnavailable as exc:
+            self.log.log("state_unavailable", task_id=task.id, tool=task.skill, error=str(exc))
+            return self._finish(task, Outcome(False, Reason.STATE_UNAVAILABLE, task.attempts))
+
+    def _run(self, task: Task) -> Outcome:
         base = self._baselines.setdefault(task.id, self.state())
         reason = None
         while task.attempts < self.max_attempts:

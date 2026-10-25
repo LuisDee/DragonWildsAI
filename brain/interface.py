@@ -53,14 +53,17 @@ class Reason:
     VERIFICATION_FAILED = "verification_failed"
     UNKNOWN_SKILL = "unknown_skill"  # the task names a skill the registry doesn't have
     BODY_ERROR = "body_error"  # the Lua body's handler crashed; transient (retryable)
+    STATE_UNAVAILABLE = "state_unavailable"  # get_state failed, so nothing can be verified
 
     # A player command or an attack pre-empted the action: not the skill's fault.
     INTERRUPTS: frozenset[str] = frozenset({INTERRUPTED, ATTACKED})
     # Retrying these cannot help; the plan has to change.
     DETERMINISTIC: frozenset[str] = frozenset({
         NOTHING_IN_RANGE, NOT_ENOUGH, MISSING_MATERIALS, UNKNOWN_TARGET, UNKNOWN_RECIPE, TOO_FAR,
-        INVALID_ARGS, UNKNOWN_TOOL, NOT_IMPLEMENTED, COMPANION_DOWN, UNKNOWN_SKILL,
+        INVALID_ARGS, UNKNOWN_TOOL, NOT_IMPLEMENTED, COMPANION_DOWN, UNKNOWN_SKILL, STATE_UNAVAILABLE,
     })
+    # The companion simply cannot do this yet (skill missing on the body or in the registry).
+    CANT_YET: frozenset[str] = frozenset({NOT_IMPLEMENTED, UNKNOWN_TOOL, UNKNOWN_SKILL})
 
 
 # --------------------------------------------------------------------------- tool args

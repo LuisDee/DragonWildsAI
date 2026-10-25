@@ -1,0 +1,73 @@
+"""Rule-based stand-ins for the Controller and Planner models (``run_live --dry-run``).
+
+No network and no API spend: the live loop, the bridge and the body can be
+exercised end to end while the "model" is a handful of keyword rules. It speaks
+the same LLMClient interface as LiteLLMClient and records calls like FakeLLM.
+"""
+from __future__ import annotations
+
+import json
+import re
+
+from .llm import LLMResponse, ToolCall
+
+
+def _context(messages: list[dict]) -> dict:
+    try:
+        ctx = json.loads(messages[-1]["content"])
+    except (KeyError, IndexError, TypeError, json.JSONDecodeError):
+        return {}
+    return ctx if isinstance(ctx, dict) else {}
+
+
+def _target(word: str, state: dict) -> str:
+    """Match a spoken creature name against nearby entity ids/kinds; else use the word."""
+    for e in state.get("nearby_entities") or []:
+        if isinstance(e, dict) and e.get("alive", True) and word in (str(e.get("id")), str(e.get("kind"))):
+            return str(e["id"])
+    return word
+
+
+class DryRunController:
+    model = "dry-run/rules"
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def complete(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
+        self.calls.append({"messages": messages, "tools": tools})
+        ctx = _context(messages)
+        cmd = ctx.get("command") or {}
+        player, text = str(cmd.get("player", "")), str(cmd.get("text", "")).strip()
+        low = text.lower()
+        state = ctx.get("state") or {}
+
+        def act(line: str, name: str, **args) -> LLMResponse:
+            return LLMResponse(content=f"(dry run) {line}", tool_calls=[ToolCall(name, args)])
+
+        if "follow" in low:
+            return act("Right behind you.", "follow", player=player)
+        if re.search(r"\b(stop|wait|stay)\b", low):
+            return act("Okay, waiting here.", "stop")
+        if re.search(r"\bcome( here| back)?\b", low):
+            return act("On my way.", "go_to", target=player)
+        if m := re.search(r"\b(?:kill|attack|fight)\s+(?:that\s+|the\s+)?(\w+)", low):
+            return act("Going for it.", "attack", target=_target(m.group(1), state))
+        if m := re.search(r"\bgive me (\d+) (\w+?)s?\b", low):
+            return act("Here you go.", "give", player=player, item=m.group(2), count=int(m.group(1)))
+        if re.search(r"\b(gather|collect|build|bring|chop|mine)\b", low):
+            return act("I'll work on that.", "start_goal", goal=text)
+        return LLMResponse(content=f"(dry run) I heard: {text}")
+
+
+class DryRunPlanner:
+    model = "dry-run/planner"
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def complete(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
+        self.calls.append({"messages": messages, "tools": tools})
+        return LLMResponse(content=json.dumps({
+            "tasks": [], "ask_help": "I'm in dry-run mode, so I can't plan multi-step jobs.",
+        }))

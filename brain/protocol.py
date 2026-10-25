@@ -13,10 +13,16 @@ from .interface import ActionResult
 
 PROTOCOL_VERSION = 1
 
+# Body tool that lists the tools the body really implements (BRIDGE_PROTOCOL.md, "capabilities").
+CAPABILITIES = "capabilities"
 
-def cmd(req_id: str, tool: str, args: dict | None = None) -> dict:
-    return {"v": PROTOCOL_VERSION, "type": "cmd", "id": req_id, "tool": tool, "args": args or {},
-            "ts": round(time.time(), 3)}
+
+def cmd(req_id: str, tool: str, args: dict | None = None, probe: bool = False) -> dict:
+    msg = {"v": PROTOCOL_VERSION, "type": "cmd", "id": req_id, "tool": tool, "args": args or {},
+           "ts": round(time.time(), 3)}
+    if probe:  # "is this tool implemented?" A body may answer without acting.
+        msg["probe"] = True
+    return msg
 
 
 def result(req_id: str, res: ActionResult) -> dict:

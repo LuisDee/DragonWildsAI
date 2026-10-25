@@ -7,18 +7,29 @@ from __future__ import annotations
 
 import sys
 import threading
+from collections.abc import Iterable
 from pathlib import Path
 
 from . import paths, protocol
-from .interface import GameInterface, ok
+from .interface import BODY_TOOLS, GameInterface, Reason, fail, ok
 from .mock import MockGame
 from .transport import BODY_TO_BRAIN, BRAIN_TO_BODY, JsonlFileTransport, Transport
 
 
 class FakeBody:
-    def __init__(self, game: GameInterface, transport: Transport):
+    """``capabilities``: True answers the capabilities request truthfully, a list answers with
+    that list (to fake a body that over-reports), False answers unknown_tool like an older body.
+    ``not_implemented``: tools that answer not_implemented, like a stubbed Lua handler."""
+
+    def __init__(self, game: GameInterface, transport: Transport, capabilities: bool | list[str] = True,
+                 not_implemented: Iterable[str] = ()):
         self.game = game
         self.transport = transport
+        self.not_implemented = set(not_implemented)
+        if capabilities is True:
+            capabilities = [t for t in BODY_TOOLS if t not in self.not_implemented]
+            capabilities += ["ping", protocol.CAPABILITIES]
+        self.capabilities = capabilities
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -32,8 +43,15 @@ class FakeBody:
             self.transport.send(protocol.error(req_id if isinstance(req_id, str) else None, "malformed",
                                                "expected type=cmd with string id and tool"))
             return
-        if msg["tool"] == "ping":
+        tool = msg["tool"]
+        if tool == "ping":
             res = ok(pong=True)
+        elif tool == protocol.CAPABILITIES and self.capabilities is not False:
+            res = ok(tools=list(self.capabilities))
+        elif tool in self.not_implemented:
+            res = fail(Reason.NOT_IMPLEMENTED, tool=tool)
+        elif msg.get("probe") and tool in BODY_TOOLS:
+            res = ok(probe=True)  # implemented; a probe never acts
         else:
             args = msg.get("args") if isinstance(msg.get("args"), dict) else {}
             res = self.game.call(msg["tool"], args)

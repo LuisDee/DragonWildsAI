@@ -14,6 +14,16 @@ local AI_CONTROLLER = "/Script/AIModule.AIController"
 local function try(f) local ok, v = pcall(f); if ok then return v end end
 local function valid(o) return o ~= nil and try(function() return o:IsValid() end) == true end
 local function fullname(o) return o and try(function() return o:GetFullName() end) or nil end
+-- UE4SS IsValid(), IsActorBeingDestroyed() and KismetSystemLibrary:IsValid() all stay true/false
+-- for a destroyed actor awaiting GC (verified 2026-10-25: FindAllOf returned a puppet destroyed
+-- seconds earlier, at 0,0,0). Only the internal Garbage flag (1<<21) tells it apart; also
+-- reject Unreachable (1<<28).
+local GARBAGE_OR_UNREACHABLE = 0x200000 | 0x10000000
+local function alive(a)
+    if not valid(a) then return false end
+    if try(function() return a:HasAnyInternalFlags(GARBAGE_OR_UNREACHABLE) end) == true then return false end
+    return true
+end
 
 local function vec(a)
     local v = try(function() return a:K2_GetActorLocation() end)
@@ -24,7 +34,7 @@ end
 local function split_pawns()
     local players, puppets = {}, {}
     for _, p in ipairs(FindAllOf("BP_PlayerCharacter_C") or {}) do
-        if valid(p) then
+        if alive(p) then
             local c = try(function() return p:GetController() end)
             local is_player = valid(c) and (fullname(c) or ""):find("PlayerController", 1, true) ~= nil
             table.insert(is_player and players or puppets, p)
@@ -117,9 +127,52 @@ function actions.move(log)
     return { results = out }
 end
 
--- args.keep_controller=true destroys only the pawn.
+-- Unpossess-crash fix experiment: the crash reads PC->LoadoutComponent on a null PC, reached via
+-- the pawn's controller-changed delegate. Destroying the components bound to it first should stop
+-- the handlers from firing. args.components = list of pawn property names (default: all candidates).
+local STRIP_DEFAULT = { "PlayerActionPerformerComponent", "PlayerEquipmentComponent", "PlayerRangedAttackComponent",
+                        "PlayerMeleeAttackComponent", "SprintComponent" }
+function actions.strip(log, args)
+    local _, puppets = split_pawns()
+    local out = {}
+    for _, p in ipairs(puppets) do
+        for _, prop in ipairs(args.components or STRIP_DEFAULT) do
+            local comp = try(function() return p[prop] end)
+            local ok, err = false, "missing"
+            -- K2_DestroyComponent(Object) refuses unless Object is the owner (or the owner is null),
+            -- so pass the pawn. The first strip run passed the component itself (likely a no-op).
+            if valid(comp) then ok, err = pcall(function() comp:K2_DestroyComponent(p) end) end
+            out[#out + 1] = { prop = prop, ok = ok, err = (not ok) and tostring(err) or nil,
+                              being_destroyed = valid(comp) and try(function() return comp:IsBeingDestroyed() end) or "invalid",
+                              still_valid = valid(comp) }
+        end
+    end
+    log.event("puppet_strip", { results = out })
+    return { results = out }
+end
+
+-- Log the address of the puppet, its controller and every component, so the `this` register
+-- (rdi) of the crashing handler in a dump can be matched to an object.
+local function hex(o) local a = try(function() return o:GetAddress() end); return a and string.format("0x%x", a) or nil end
+function actions.addrs(log)
+    local _, puppets = split_pawns()
+    local out = {}
+    for _, p in ipairs(puppets) do
+        local r = { puppet = hex(p), controller = hex(try(function() return p:GetController() end)), comps = {} }
+        local comps = try(function() return p:K2_GetComponentsByClass(StaticFindObject("/Script/Engine.ActorComponent")) end)
+        for i = 1, (comps and #comps or 0) do
+            local c = comps[i]:get()
+            r.comps[#r.comps + 1] = { addr = hex(c), name = try(function() return c:GetFName():ToString() end) }
+        end
+        out[#out + 1] = r
+    end
+    log.event("puppet_addrs", { results = out })
+    return { results = out }
+end
+
 function actions.unpossess(log)
     local _, puppets = split_pawns()
+    actions.addrs(log)
     local out = {}
     for _, p in ipairs(puppets) do
         local c = try(function() return p:GetController() end)
@@ -142,6 +195,40 @@ function actions.destroy(log, args)
     end
     log.event("puppet_destroy", { count = n })
     return { destroyed = n }
+end
+
+-- Resolve FName ComparisonIndex values read from a crash dump (object header +0x18).
+-- args.indices = {number,...}. FName pool order is stable across runs for startup names; verify
+-- with a known index (the AIController class name) before trusting the others.
+function actions.fname(log, args)
+    local out = {}
+    for _, i in ipairs(args.indices or {}) do
+        local ok, s = pcall(function() return FName(i):ToString() end)
+        out[#out + 1] = { index = i, ok = ok, name = tostring(s) }
+    end
+    return { names = out }
+end
+
+-- List every component on each puppet: object name, class, FName index.
+function actions.components(log, args)
+    local _, puppets = split_pawns()
+    local out = {}
+    for _, p in ipairs(puppets) do
+        local list = {}
+        local comps = try(function() return p:K2_GetComponentsByClass(StaticFindObject("/Script/Engine.ActorComponent")) end)
+        if comps then
+            for i = 1, #comps do
+                local c = comps[i]:get()
+                list[#list + 1] = {
+                    name = try(function() return c:GetFName():ToString() end),
+                    index = try(function() return c:GetFName():GetComparisonIndex() end),
+                    class = try(function() return c:GetClass():GetFName():ToString() end),
+                }
+            end
+        end
+        out[#out + 1] = { puppet = fullname(p), components = list }
+    end
+    return { results = out }
 end
 
 function M.run(log, args)

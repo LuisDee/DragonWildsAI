@@ -52,9 +52,10 @@ class BridgeClient(GameInterface):
         while bad:
             self.log.log("bridge_malformed", line=bad.pop(0)[:500])
 
-    def request(self, tool: str, args: dict | None = None, timeout: float | None = None) -> ActionResult:
+    def request(self, tool: str, args: dict | None = None, timeout: float | None = None,
+                probe: bool = False) -> ActionResult:
         req_id = uuid.uuid4().hex[:12]
-        msg = protocol.cmd(req_id, tool, args)
+        msg = protocol.cmd(req_id, tool, args, probe=probe)
         timeout = timeout if timeout is not None else self.timeouts.get(tool, self.default_timeout)
         self.log.log("bridge_send", msg=msg)
         self.transport.send(msg)
@@ -77,6 +78,10 @@ class BridgeClient(GameInterface):
         start = time.perf_counter()
         res = self.request("ping", {}, timeout)
         return time.perf_counter() - start if res["ok"] else None
+
+    def capabilities(self, timeout: float = 5.0) -> ActionResult:
+        """Ask the body which tools it implements (``data.tools``). Older bodies answer unknown_tool."""
+        return self.request(protocol.CAPABILITIES, {}, timeout)
 
     # ---------------------------------------------------------------- GameInterface
 

@@ -6,6 +6,7 @@ so a session can be replayed or grepped later.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -21,6 +22,12 @@ class JsonlLogger:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+
+    @classmethod
+    def session(cls, prefix: str = "brain-live", directory: Path | None = None) -> "JsonlLogger":
+        """A fresh file per session: <log_dir>/<prefix>-YYYYMMDD-HHMMSS-<pid>.jsonl."""
+        d = Path(directory) if directory else paths.log_dir()
+        return cls(d / f"{prefix}-{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}.jsonl")
 
     def log(self, kind: str, **fields: Any) -> None:
         record = {"ts": round(time.time(), 3), "kind": kind, **fields}

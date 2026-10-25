@@ -39,3 +39,17 @@ Goal: the companion can equip any weapon or armour (picked up, given, or chosen)
 - **"Knows how to use it"** is a per-category combat profile, written once in code: melee approaches and swings with that category's attack set; bow keeps distance and fires; staff casts. The planner and controller choose a weapon by catalog stats (damage, range) for the situation.
 - Picking up loot: a world drop (`RuntimeSpawnedWorldItem`) carries its item data, so map it to the catalog, then `equip` or stash it in the bot's inventory (layer 7). No player inventory component is needed.
 - Preload the attack-set assets for the bot's current weapons at spawn, so the first swing has no load hitch. (Only sword attacks were loaded at idle; mace and other attack sets load on demand.)
+
+## 3. Combat: two speeds (Luis asked whether fast combat needs constant LLM calls)
+
+The LLM is never in the per-frame loop: model latency is 0.3–1 s and combat windows are shorter (CLAUDE.md principle 1; PUBG Ally, PIANO, GITM).
+
+- **Reflex layer** (Lua, game tick, no LLM):
+  - Swing on cooldown along the weapon's attack chain, which comes from the catalog (`attacks.*.chain`).
+  - **Evade on enemy telegraph.** The server already logs `DominionAiAttackComponent: AUTH ATTACK : TELEGRAPH ... TimeUntilEvent` and `EvadeAttack: PredictPointDamage ... will receive N damage`; hook the reflected source of these.
+  - Block; keep range with a bow; retarget when the target dies; drink a potion under an HP threshold; disengage when outnumbered beyond a set limit.
+- **Tactics** (Controller, Haiku): called only on meaningful change: fight start, a new enemy, low HP (own or Luis's), target down, tactic failed.
+  - Each call gets a fresh compact state snapshot plus the recent important events.
+  - It sets the reflex parameters (focus target, weapon, stance, retreat threshold).
+- **Plans** (Planner, Sonnet): minutes-scale goals.
+- **Rate limit:** coalesce events, at most one Controller call every ~2 s. Worst case about 1,800 calls/h, roughly $1.25/h on Haiku 5.5 ($0.10/$0.50 per M tokens). A realistic mixed session costs $0.50–2/h including the Planner.
