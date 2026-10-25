@@ -336,8 +336,12 @@ class Controller:
         out = []
         for s in self.castable_spells():
             bits = [str(s.get("role") or "")]
+            if s.get("for"):
+                bits.append(f"for: {s['for']}")
+            if s.get("needs"):
+                bits.append(f"needs: {s['needs']}")
             if s.get("castable") is False:
-                bits.append("NOT castable now: " + str(s.get("reason") or s.get("needs") or "?"))
+                bits.append("NOT castable now: " + str(s.get("reason") or "?"))
             elif s.get("remaining_s"):
                 bits.append(f"cooldown {float(s['remaining_s']):.0f}s")
             use = clip(str(s.get("use_when") or ""), 80)

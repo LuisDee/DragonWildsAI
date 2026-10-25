@@ -5,12 +5,15 @@ so a session can be replayed or grepped later.
 """
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import threading
 import time
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from . import paths
 
@@ -22,6 +25,23 @@ class JsonlLogger:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        # The episode every row belongs to (observability: exact traces instead of timing guesses). Set
+        # with ``episode()``; every component that shares this logger (bridge, controller, executor)
+        # stamps it on its rows while the episode is open.
+        self.episode_id: str | None = None
+        self._ids = itertools.count(1)
+
+    def new_episode_id(self, prefix: str) -> str:
+        return f"{prefix}-{next(self._ids):04d}-{uuid.uuid4().hex[:4]}"
+
+    @contextmanager
+    def episode(self, episode_id: str | None) -> Iterator[str | None]:
+        """Stamp ``episode_id`` on every row logged inside the block (nested blocks restore the outer id)."""
+        outer, self.episode_id = self.episode_id, episode_id or self.episode_id
+        try:
+            yield self.episode_id
+        finally:
+            self.episode_id = outer
 
     @classmethod
     def session(cls, prefix: str = "brain-live", directory: Path | None = None) -> "JsonlLogger":
@@ -31,6 +51,8 @@ class JsonlLogger:
 
     def log(self, kind: str, **fields: Any) -> None:
         record = {"ts": round(time.time(), 3), "kind": kind, **fields}
+        if self.episode_id and "episode_id" not in record:
+            record["episode_id"] = self.episode_id
         line = json.dumps(record, default=str, ensure_ascii=False)
         with self._lock, self.path.open("a", encoding="utf-8") as f:
             f.write(line + "\n")

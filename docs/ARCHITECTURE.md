@@ -219,6 +219,18 @@ No source was found for expiring queued NPC lines on state change; that part is 
       - A LiteLLM issue reports streamed tool arguments truncated by a premature stop.
       - Revisit if multi-tool turns become common.
     - **Replay** (`tests/test_latency_replay.py`; virtual clock, real 20:40–21:03 lines, Haiku 1.9 s/call, get_state 0.25 s): chat → first response p50/p90 went from 4.25/4.50 s before to 3.05/3.30 s after. With effort low the projection (model 1.2 s) is 2.35/2.60 s. Live before (tools/turn_latency.py): 5.0/7.8 s (p50/p95).
+14. **Voice, budget and traces (late 2026-10-25).**
+    - **Persona:** it lives in `brain/persona.md` (the voice workstream's file, loaded by `brain/persona.py`, re-read on change, `PERSONA` as the fallback). It is followed by `brain/house_rules.md`.
+    - **No canned speech** ("On it", "Done: …", "Gathering …", "Step x/y", "I'll remember …"):
+      - progress is a "Job progress" line in `body_status`;
+      - `goal_done` and `stuck` are body situations the model phrases (stuck keeps a template fallback);
+      - refusals before the body go back to the model through `next_turn`.
+    - **BUGS L18:** an empty text beside tool calls is replayed as `None`. `llm.strip_markers` removes `[System: …]` markers, and `Controller.say` never speaks one.
+    - **Daily $ cap (`brain/budget.py`):** spend comes from `tools.spend.spent_today_usd` and the cap from `tools.spend.cap_usd`, read every 30 s.
+      - 80 %: one `budget_warning` log line.
+      - 100 %: no model calls (no chat runs, situations or reviews, no new goals). One honest line at most every 10 min, and body situations still get their template line. Reflexes run in the body.
+      - The spend reader fails open (0.0 on error).
+    - **`episode_id` on every log row:** `JsonlLogger.episode()` stamps each row while an episode is open. Chat bursts share one id (`chat-…`); situations and reviews get their own (`situation-…`, `review-…`); a goal keeps the id of the command that started it.
 
 ---
 

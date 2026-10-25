@@ -1083,3 +1083,22 @@ def test_daily_budget_cap_warns_then_goes_reflex_only(tmp_path):
     assert len(r.model.calls) == n_calls  # still no model call
     assert any("Windstep" in s for s in r.body.said)  # the template told him anyway
     assert r.records("budget_blocked")
+
+
+def test_every_row_of_a_chat_burst_carries_one_episode_id(tmp_path):
+    """Observability: the chat line, decisions, prompt, model response, tool_call, say all share the
+    episode id of the burst; the next request gets a new one; a situation run gets its own."""
+    r = Replay(tmp_path, STATES[5])
+    r.body.act("go_to", ok(target="Zezima"))
+    r.model.replies["come here"] = FakeLLM.say("Coming.", FakeLLM.call("go_to", target="Zezima"))
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude come here"})
+    r.at(0).step()
+    rows = r.log.read_all()
+    kinds = {k: [x.get("episode_id") for x in rows if x["kind"] == k] for k in
+             ("event", "chat_decision", "prompt", "llm_response", "tool_call", "say")}
+    ids = {i for v in kinds.values() for i in v}
+    assert all(kinds.values()) and len(ids) == 1 and next(iter(ids)).startswith("chat-"), kinds
+    r.body.emit({"type": "vitals_low", "stat": "hydration", "value": 3.0, "max": 75.0})
+    r.at(10).step()
+    sit_ids = {x.get("episode_id") for x in r.log.read_all() if x["kind"] == "prompt"} - ids
+    assert len(sit_ids) == 1 and next(iter(sit_ids)).startswith("situation-")

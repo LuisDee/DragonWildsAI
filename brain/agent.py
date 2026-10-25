@@ -105,7 +105,9 @@ class Agent:
                 if self.budget.out_line_due():
                     self.controller.say(OUT_LINE)
                 return "stuck"
-            return self.run_goal(goal, tasks=tasks, skill=skill)
+            eid, self._goal_episode = getattr(self, "_goal_episode", None), None
+            with self.log.episode(eid or self.log.new_episode_id("goal")):
+                return self.run_goal(goal, tasks=tasks, skill=skill)
         return None
 
     def run_forever(self, poll_interval: float = 0.25) -> None:
@@ -234,7 +236,9 @@ class Agent:
                           key=lambda p: p.get("distance") if isinstance(p.get("distance"), (int, float)) else 1e9)
             player = str(near[0]["name"]) if near else self.controller.player
         try:
-            self._command(CommandReceived(player=player, text=""), addressed=True, body_events=events)
+            with self.log.episode(self.log.new_episode_id("review" if any(e.get("type") == "situation_review"
+                                                                           for e in events) else "situation")):
+                self._command(CommandReceived(player=player, text=""), addressed=True, body_events=events)
         except Exception as exc:  # the model call failed: the template line still tells him
             self.log.log("situation_error", error=repr(exc), events=events)
             if line := fallback_line(events):
@@ -371,6 +375,8 @@ class Agent:
             self.broker.voiced(body_events, text=" ".join(lines) or d.speech)
         if d.goal and not d.skill:
             self.pending_goal = d.goal
+        if self.pending_goal:
+            self._goal_episode = self.log.episode_id  # the goal's rows stay in the episode that asked for it
 
     def _run_turn(self, d, state: dict, event: CommandReceived) -> dict:
         """Run one model turn's calls in order; stop at the first failure. Every result is kept for the

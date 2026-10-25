@@ -120,7 +120,7 @@ class LiveAgent(Agent):
         self.calls_per_min, self.debounce_s, self.clock = calls_per_min, debounce_s, clock
         self.chat = ChatMemory(self.controller.name, clock=clock)
         self.controller.chat_provider = self.chat.lines
-        self._pending: list[tuple[float, ChatHeard, bool, str]] = []  # (heard at, event, addressed, text)
+        self._pending: list[tuple[float, ChatHeard, bool, str, str]] = []  # (heard at, event, addressed, text, episode)
         self._calls: deque[float] = deque()
         self._partner: tuple[str, float] | None = None  # the player he last answered, and when
         self._talking_to: str | None = None
@@ -186,6 +186,13 @@ class LiveAgent(Agent):
         return len(self._calls) >= self.calls_per_min
 
     def heard(self, event: ChatHeard) -> None:
+        # one episode per chat burst: the lines a run will take together share an id (observability)
+        eid = next((x[4] for x in self._pending if x[1].player == event.player), None) or \
+            self.log.new_episode_id("chat")
+        with self.log.episode(eid):
+            self._heard(event, eid)
+
+    def _heard(self, event: ChatHeard, eid: str) -> None:
         self.log.log("event", event=event.model_dump())
         self.chat.add(event.player, event.text)
         route, text = chat_route(event.text, self.prefixes, self.controller.name)
@@ -193,7 +200,7 @@ class LiveAgent(Agent):
             self._decision(event.player, event.text, "ping", "!ping (no model)")
             return self._ping(event.player)
         if route == "command":  # named: at once, taking his pending lines along
-            mine = [(ev, t) for _, ev, _, t in self._pending if ev.player == event.player]
+            mine = [(ev, t) for _, ev, _, t, _ in self._pending if ev.player == event.player]
             self._pending = [x for x in self._pending if x[1].player != event.player]
             for ev, _ in mine:
                 self._decision(ev.player, ev.text, "merged", "burst: decided together with his addressed line")
@@ -201,10 +208,10 @@ class LiveAgent(Agent):
             self._decision(event.player, event.text, "addressed", "named or prefixed", command=text)
             return self._run(event.player, text, addressed=True)
         if why := self._with(event.player):
-            self._pending.append((self.clock(), event, True, event.text))
+            self._pending.append((self.clock(), event, True, event.text, eid))
             self._decision(event.player, event.text, "addressed", why)
         else:
-            self._pending.append((self.clock(), event, False, event.text))
+            self._pending.append((self.clock(), event, False, event.text, eid))
             self._decision(event.player, event.text, "pending", "not named: the model decides after the burst")
         if self.debounce_s <= 0:
             self.flush_chat()
@@ -218,15 +225,17 @@ class LiveAgent(Agent):
             return
         batch, self._pending = self._pending, []
         last = batch[-1][1]
-        mine = [(ev, addr, text) for _, ev, addr, text in batch if ev.player == last.player]
-        for _, ev, _, _ in batch[:-1]:
-            self._decision(ev.player, ev.text, "merged", "burst: decided together with the last line")
-        addressed = any(addr for _, addr, _ in mine)
-        text = " / ".join(t.strip() for _, _, t in mine)
-        if not addressed and self._rate_capped():
-            self._decision(last.player, text, "ignored", f"rate cap ({self.calls_per_min} model calls/min)")
-            return
-        self._run(last.player, text, addressed=addressed)
+        eid = next(x[4] for x in batch if x[1].player == last.player)
+        with self.log.episode(eid):
+            mine = [(ev, addr, text) for _, ev, addr, text, _ in batch if ev.player == last.player]
+            for _, ev, _, _, _ in batch[:-1]:
+                self._decision(ev.player, ev.text, "merged", "burst: decided together with the last line")
+            addressed = any(addr for _, addr, _ in mine)
+            text = " / ".join(t.strip() for _, _, t in mine)
+            if not addressed and self._rate_capped():
+                self._decision(last.player, text, "ignored", f"rate cap ({self.calls_per_min} model calls/min)")
+                return
+            self._run(last.player, text, addressed=addressed)
 
     def _chat_waiting(self) -> bool:
         return bool(self._pending)
@@ -241,6 +250,10 @@ class LiveAgent(Agent):
             return self.heard(event)
         if not isinstance(event, CommandReceived):
             return super().handle_event(event)
+        with self.log.episode(self.log.new_episode_id("chat")):
+            return self._command_line(event)
+
+    def _command_line(self, event: CommandReceived) -> None:
         route, text = chat_route(event.text, self.prefixes, self.controller.name)
         self.log.log("event", event=event.model_dump(), route=route)
         if route == "ping":

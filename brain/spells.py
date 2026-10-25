@@ -5,12 +5,14 @@ filtered by Luis's unlocks, verified routes, cooldowns and runes), cached for ``
 chat line costs at most one extra bridge round trip a minute. A body without the ``spells`` handler
 falls back to the catalog file (data/spells_<build>.json): spells Luis had unlocked in the catalog's
 player snapshot whose route is verified in game. Rows are trimmed to what a prompt needs:
-``{name, role, use_when}`` plus ``note`` when something blocks it for now.
+``{name, role, use_when}`` plus ``note`` when something blocks it for now, and ``for`` / ``needs``
+(what the spell is for, what the game requires) from data/spell_effects.json.
 """
 from __future__ import annotations
 
 import json
 import time
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable
 
@@ -18,13 +20,35 @@ from .interface import GameInterface, Reason
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_CATALOG = REPO / "data" / "spells_26161880.json"
+# what each spell is FOR and what it NEEDS (tools/gen_spell_effects.py, from the spell data + purposes)
+EFFECTS = REPO / "data" / "spell_effects.json"
 USE_WHEN_CHARS = 140
 MAX_ROWS = 40  # rows are short; the model needs every castable spell (spells agent, 2026-10-25)
+
+
+@lru_cache(maxsize=1)
+def _effects() -> dict:
+    try:
+        return json.loads(EFFECTS.read_text(encoding="utf-8")).get("spells") or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def purpose_of(spell_id: str | None) -> dict:
+    """{"for", "needs"} for one spell id from data/spell_effects.json; {} when unknown (nothing invented)."""
+    e = _effects().get(spell_id or "") or {}
+    out = {}
+    if e.get("for"):
+        out["for"] = e["for"]
+    if e.get("needs"):
+        out["needs"] = e["needs"]
+    return out
 
 
 def compact_row(row: dict) -> dict:
     out = {"name": row.get("name") or row.get("id"), "role": row.get("role", "other"),
            "use_when": (row.get("use_when") or "")[:USE_WHEN_CHARS]}
+    out.update(purpose_of(row.get("id")))
     reason = row.get("reason")
     if reason == Reason.ON_COOLDOWN:
         out["note"] = f"on cooldown ({row.get('remaining_s', 0):.0f}s)"
