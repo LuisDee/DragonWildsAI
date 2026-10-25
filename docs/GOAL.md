@@ -19,19 +19,17 @@ Luis set this on 2026-10-25. It is the contract for unattended iteration: what "
 | Voice | voice-eval score ≥ target; 0 stat narration and 0 talk-without-action per hour of play | voice eval + anomaly detectors |
 | Stability | 2 h of play without a crash or a stall over 30 s | watchdog + anomalies |
 
-## 1b. Milestones (run /goal one milestone at a time: `tools/goal_check.py --milestone Mn`)
-- **M1 Foundation:** speed, voice, stability, no deadlocks, needs→options (no starving), T0 spells ≥ 95%, basic combat proven live.
-- **M2 Use and tactics:** spells-USE cases, combat tactics, knowledge use, efficiency baselines.
-- **M3 Director:** the task board; T2 multi-trip jobs (coal with lodestones, farm a mob drop).
-- **M4 Long horizon:** gear progression on his own initiative, a quest chain, desert-weed farming, held-out generalisation, the live confirmations.
-- **M5 Capstone (Luis, 2026-10-25):** work through Brynmoor's progression himself, from the wiki (quests, gear tiers, skill gates). Each stage is a pinned case and will expose gaps and bugs. The final checklist item: **slay Vel'gar** with Luis. That takes:
-  - wiki research on Vel'gar;
-  - preparation: anti-poison, upgraded and levelled weapons and armour, food, the right enchant;
-  - reading and answering Vel'gar's attacks in real time (telegraph dodges, Phase Dash, shield);
-  - surviving.
+## 1b. Milestones (Luis, 2026-10-25: everything runs and is scored on the DEV world)
+- **M1 Foundation:** speed, voice, stability, no deadlocks, no starving, T0 spells ≥ 95%, combat basics proven.
+- **M2 Use and tactics:** spells used to purpose (and the every-spell stress test), combat tactics, knowledge use, efficiency, crafting from scratch, ranged.
+- **M3 Every skill trains (key milestone):** for EVERY skill in the game data he gains XP when asked in chat (no tool or method named), gains XP on his own initiative under an open "level up" task, and reaches +5 levels (or the next gate) unaided. The harness observer verifies each.
+- **M4 Director jobs:** the task board, coal with lodestone hops, farming a mob drop.
+- **M5 Long horizon:** gear progression on his own initiative, a quest chain, farming, held-out generalisation.
+- **M6 Capstone:**
+  - Brynmoor's progression from the wiki, each stage a pinned case;
+  - **slay Vel'gar SOLO on the dev world**: research, prep (anti-poison, upgraded and levelled gear, food, enchant), reading and answering Vel'gar's attacks live, and surviving.
 
-Each milestone has its own targets in goal_targets.json. The full goal = all five met.
-
+Scoring world: the dev server (real game build, real client and server) with a dedicated dev character. Shockbyte confirmation is optional. Each milestone has its targets in goal_targets.json; the full goal = all six met + Luis's sign-off.
 
 ## 1c. Decision rules (Luis approved, 2026-10-25)
 - Percentage targets pass on the **Wilson 95% lower bound**, with n ≥ 20 valid cases; each family needs ≥ 3 live cases.

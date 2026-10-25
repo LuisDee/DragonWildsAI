@@ -14,7 +14,7 @@
       "farm_desert_weed"
     ],
     "dev_world_max_hints": 1,
-    "live_confirmed_required": true
+    "live_confirmed_required": false
   },
   "latency_chat_to_action_p50_s": 2.5,
   "latency_chat_to_action_p90_s": 4.0,
@@ -71,18 +71,21 @@
       "adversarial_cases_pct"
     ],
     "M3": [
+      "every_skill"
+    ],
+    "M4": [
       "long_tasks:gather_coal_multitrip",
       "long_tasks:farm_mob_drop"
     ],
-    "M4": [
+    "M5": [
       "long_tasks:gear_upgrade_self_initiated",
       "long_tasks:brynmoor_quest_chain",
       "long_tasks:farm_desert_weed",
       "heldout"
     ],
-    "M5": [
+    "M6": [
       "capstone:brynmoor_progression",
-      "capstone:slay_velgar"
+      "capstone:slay_velgar_solo"
     ]
   },
   "no_starvation_deaths": 0,
@@ -104,7 +107,8 @@
   "obs_exposure": {
     "min_active_hours_at_current_hash": 2,
     "min_tool_calls_per_hour": 20,
-    "requires_real_player_chat": true
+    "requires_real_player_chat": false,
+    "requires_player_chat": "harness test-player chat on dev counts"
   },
   "goal_cases": {
     "pinned_by_hash": {},
@@ -113,12 +117,26 @@
   "judge_tag": null,
   "final_gate": "Luis sign-off after goal_check prints GOAL MET",
   "capstone": {
-    "brynmoor_progression": "advance through Brynmoor's game progression on his own, guided by the wiki (quests, gear tiers, skill gates), with each stage a pinned case",
-    "slay_velgar": "defeat Vel'gar with Luis: wiki research, preparation (anti-poison, upgraded and levelled weapons and armour, food, enchant type), reading and answering Vel'gar's attacks live, and surviving",
+    "brynmoor_progression": "advance through Brynmoor's progression himself, guided by the wiki (quests, gear tiers, skill gates); each stage is a pinned case",
+    "slay_velgar_solo": "defeat Vel'gar SOLO on the dev world (no player help): wiki research, prep (anti-poison, upgraded and levelled gear, food, enchant), live reading and answering of Vel'gar's attacks, survival",
     "required": [
       "brynmoor_progression",
-      "slay_velgar"
+      "slay_velgar_solo"
     ],
-    "live_confirmed_required": true
+    "live_confirmed_required": false,
+    "world": "dev"
+  },
+  "scoring_world": {
+    "world": "dev",
+    "_note": "Luis 2026-10-25: the /goal runs and is scored on the local dev server (the real game build: real client, real server). Shockbyte live confirmation is optional and never required. A dedicated dev character must be used (no save leak to Shockbyte). Test-player chat on dev is sent by the harness."
+  },
+  "every_skill": {
+    "skills": "every skill in the game's skill data (build manifest)",
+    "per_skill": [
+      "gains XP when asked in chat to train it, with no tool or method named",
+      "gains XP on his own initiative under an open 'level up' task",
+      "reaches +N levels (N=5, or the next gate) per skill, unaided, on dev"
+    ],
+    "rule": "each skill passes all three; a skill counts only if its XP rise is observed by the harness observer"
   }
 }
