@@ -36,7 +36,9 @@ local function player_state(p)
 end
 M.player_state = player_state
 
--- Is (account without a platform id, bot GUID) -> name already in the sanitized registry?
+-- Is (an account WITH a platform id, bot GUID) -> name already in the sanitized registry?
+-- Clients resolve nameplates (and chat senders) by account + CharacterGuid; an empty-account entry
+-- (",") shows "Character Name Here" / "Unknown Character" (verified 2026-10-25).
 local function is_registered(dn, name)
     local found = false
     pcall(function()
@@ -44,12 +46,29 @@ local function is_registered(dn, name)
             local e = elem:get()
             local acct = U.try(function() return e.AccountGuidSaveStr:ToString() end) or ""
             local n = U.try(function() return e.CharacterName:ToString() end)
-            if not acct:find(":", 1, true) and n == name and U.guid_eq(U.try(function() return e.CharacterGuid.InnerGuid end), M.GUID) then
+            if acct:find(":", 1, true) and n == name and U.guid_eq(U.try(function() return e.CharacterGuid.InnerGuid end), M.GUID) then
                 found = true
             end
         end)
     end)
     return found
+end
+
+-- Give the bot PS the host player's account part of OwnerGuid (engine struct copy from a live
+-- struct, never built in Lua), keeping the bot's CharacterGuid. VERIFIED 2026-10-25: with this the
+-- nameplate reads "Claude" on Luis's client. Returns true when copied.
+local function copy_account(log, ps)
+    local host
+    for _, pc in ipairs(U.player_controllers()) do
+        local hps = U.try(function() return pc.PlayerState end)
+        if U.valid(hps) and hps ~= ps then host = hps; break end
+    end
+    if not host then return false end
+    local ok = U.call(log, "identity.copy_account", { host = U.fullname(host) }, function()
+        ps.OwnerGuid.AccountGuid = host.OwnerGuid.AccountGuid
+        U.guid_set(ps.OwnerGuid.CharacterGuid.InnerGuid, M.GUID)
+    end)
+    return ok
 end
 
 -- Register the puppet PS's own OwnerGuid under `name` once per run (Server_RegisterCharacter appends
@@ -77,6 +96,7 @@ function M.ensure(log, p, c, name)
     if U.is_player_controller(c) then return U.result(false, "is_real_player") end
     local have = player_state(p)
     if have then
+        copy_account(log, have)
         M.register(log, have, name)
         return U.result(true, "already", { ps = U.fullname(have) })
     end
@@ -90,6 +110,7 @@ function M.ensure(log, p, c, name)
     U.call(log, "identity.SetOwner", {}, function() ps:SetOwner(c) end)
     U.call(log, "identity.bIsABot", {}, function() ps.bIsABot = true end)
     U.call(log, "identity.OwnerGuid", {}, function() U.guid_set(ps.OwnerGuid.CharacterGuid.InnerGuid, M.GUID) end)
+    copy_account(log, ps)
     -- Register before linking, so the registry entry is there when clients first see the PS.
     local reg_ok, reg_err = M.register(log, ps, name)
     U.call(log, "identity.link", {}, function()

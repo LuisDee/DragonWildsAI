@@ -414,3 +414,14 @@ Modules: `mod/experiments/spell_dump.lua` (X1), `spell_x3.lua` (X3), `spell_x4.l
 - With `ITEM_Club_Wood` (held class `BP_Club_Wood_C`, equipped with an explicit actor_class), the `attack` handler (`body/combat.lua` BT, Club set `PA_Attack_Club_C`) killed a Kebbit (39 HP) in 4 swings. **Luis saw the combo chain** (different swings in sequence), where before only Attack1 repeated.
 - The full 5-step chain and the special (Block Breaker) are not seen yet: the Kebbit died first. Next: a tougher or immortal target.
 - The live Skullsplitter fix (`equip` with actor_class) is applied. The default-path fix (LoadAsset + catalog `held_class`, no generic fallback) is in `gear.lua` and takes effect at the next restart.
+
+## NAMEPLATE FIXED: the bot shows "Claude" (verified 2026-10-25, about 14:40 UTC, Luis via GFN)
+- **Cause:** clients resolve the nameplate (like chat senders) from the PlayerState's `OwnerGuid` = (AccountGuid, CharacterGuid), looked up in `GameState.DisplayNameComponent.SanitizedCharacterNames`.
+  - The bot PS had an **empty AccountGuid** (keyed ","), so the lookup missed and the widget showed its default "Character Name Here".
+  - Ruled out: PlayerState name (ChangeName), registry entries with an empty account, PlatformData/PlayerColor, push-model dirty marking, push model off, and client re-creation.
+- **Fix:** `bot_ps.OwnerGuid.AccountGuid = host_ps.OwnerGuid.AccountGuid` (UE4SS struct-to-struct assignment = engine copy; never built in Lua), keep the bot CharacterGuid (0C0FFEE1-00C0DE00-0BADF00D-00000001), then make the client re-create the pawn.
+  - "Claude" is registered under (Luis's account, bot GUID) (`name_register.lua` / `identity.register`).
+  - **Luis: "He spawned in as Claude."** It is effectively like a second character on Luis's account.
+- Built into `mod/body/identity.lua` (`copy_account` on spawn and on adopt; `is_registered` now requires an account with a platform id). Takes effect at the next restart; live puppet fixed via `mod/experiments/owner_account.lua`.
+- Side effects to watch: the game may treat Claude as owned by Luis's account (claims, permissions). None observed yet.
+- **Push model is now OFF** (`Saved/Config/WindowsServer/Engine.ini [ConsoleVariables] net.IsPushModelEnabled=0`, backup at `Engine.ini.bak-pushmodel`). It was not the nameplate fix, but it makes Lua property writes replicate. Keep it unless perf telemetry shows a cost.

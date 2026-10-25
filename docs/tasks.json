@@ -284,8 +284,8 @@
       "id": "P4.N1",
       "phase": 4,
       "title": "Overhead nameplate shows Claude",
-      "status": "todo",
-      "passes_test": false
+      "status": "done",
+      "passes_test": true
     },
     {
       "id": "P7.R1",
