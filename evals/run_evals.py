@@ -138,11 +138,44 @@ def eval_planner_case(case: dict, llm: LLMClient, workdir: Path) -> dict:
     return {"id": case["id"], "passed": _success(game, case["success"]), "tasks": tasks}
 
 
+# ------------------------------------------------------------------ knowledge (lookup)
+
+
+class _CountingKnowledge:
+    """The real index (data/ + data/wiki/), counting the model's lookups."""
+
+    def __init__(self, inner):
+        self.inner, self.queries = inner, []
+
+    def kinds(self):
+        return self.inner.kinds()
+
+    def lookup(self, query, kind=None):
+        self.queries.append({"query": query, "kind": kind})
+        return self.inner.lookup(query, kind)
+
+
+def eval_knowledge_case(case: dict, llm: LLMClient, workdir: Path) -> dict:
+    """A game-fact question: passes when the MODEL chose to call lookup, took no action, and its reply
+    states the fact (expect_speech regex). Held-out: no case text appears in the persona or tools."""
+    from brain.knowledge import Knowledge
+    know = _CountingKnowledge(Knowledge())
+    game = _setup_world(case)
+    ctl = Controller(llm, game, StateStore(workdir / case["id"]), JsonlLogger(workdir / "knowledge.jsonl"),
+                     knowledge=know)
+    d = ctl.decide("Luis", case["utterance"], game.get_state()["data"], None)
+    said = d.speech or ""
+    passed = bool(know.queries) and not d.actions and not d.goal and bool(re.search(case["expect_speech"], said, re.I | re.S))
+    return {"id": case["id"], "passed": passed, "lookups": know.queries, "speech": said,
+            "model_calls": d.model_calls, "actions": [a.name for a in d.actions]}
+
+
 # ------------------------------------------------------------------ main
 
 SUITES = {
     "controller": ("controller_cases.jsonl", CONTROLLER_MODEL_ENV, eval_controller_case, 3),  # bounded loop
     "planner": ("planner_cases.jsonl", PLANNER_MODEL_ENV, eval_planner_case, 2),  # 1 + one repair
+    "knowledge": ("knowledge_cases.jsonl", CONTROLLER_MODEL_ENV, eval_knowledge_case, 3),  # lookup + answer
 }
 
 
@@ -154,7 +187,8 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     plan = []
-    for name in SUITES if args.suite == "all" else [args.suite]:
+    # "all" = the original suites; knowledge needs the local wiki mirror (data/wiki/), so it runs on request
+    for name in [n for n in SUITES if n != "knowledge"] if args.suite == "all" else [args.suite]:
         file, env, fn, max_calls = SUITES[name]
         cases = load_cases(file)[: args.limit]
         model = os.environ.get(env)
@@ -180,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
     out = JsonlLogger(paths.log_dir() / f"evals-{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
     with tempfile.TemporaryDirectory() as tmp:
         for name, cases, model, fn, _, _ in plan:
-            llm = LiteLLMClient(model, max_tokens=1024 if name == "controller" else 16000)
+            llm = LiteLLMClient(model, max_tokens=1024 if name in ("controller", "knowledge") else 16000)
             results = [fn(c, llm, Path(tmp)) for c in cases]
             for r in results:
                 out.log("eval_result", suite=name, model=model, **r)

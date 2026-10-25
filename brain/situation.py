@@ -18,6 +18,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
+from . import item_stats
+
 REPO = Path(__file__).resolve().parents[1]
 MAX_LINES = 16
 MAX_GROUPS = 6  # per line
@@ -116,6 +118,17 @@ class Thing:
         return f"{n} ({', '.join(bits)})" if bits else n
 
 
+def _item_note(g: dict) -> str | None:
+    """A ground item's facts: its kind (food/drink, item data), who dropped it and how long ago."""
+    bits = []
+    if isinstance(g.get("consumable"), str):
+        bits.append(g["consumable"])
+    if g.get("dropped_by"):
+        age = g.get("seen_s")
+        bits.append(f"dropped by {g['dropped_by']}" + (f" {int(age)} s ago" if isinstance(age, (int, float)) and age < 600 else ""))
+    return ", ".join(bits) or None
+
+
 def _num(v) -> float | None:
     return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
@@ -156,7 +169,7 @@ def perceived(state: dict, looks: Iterable[dict] = ()) -> list[Thing]:
             out.append(Thing(g.get("name") or name_of_item(item, names), "item", g.get("id"), _num(g.get("distance")),
                              count=int(g.get("count") or 1), gives=[g.get("name") or name_of_item(item, names)],
                              actions=["pickup", "interact"], extra={item}, group="item",
-                             note=g.get("consumable") if isinstance(g.get("consumable"), str) else None))
+                             note=_item_note(g)))
     for p in state.get("players") or []:
         if isinstance(p, dict) and p.get("name"):
             out.append(Thing(str(p["name"]), "player", str(p["name"]), _num(p.get("distance")), actions=["follow", "give"],
@@ -410,6 +423,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     carry = [f"{name_of_item(k, names)} x{v}" for k, v in sorted(inv.items(), key=lambda kv: -kv[1]) if v]
     lines.append(_line("Carrying", carry) or "Carrying: nothing")
     lines.append(_line("Food/drink", consumables(state)))
+    lines.append(_line("Spare gear", item_stats.describe_carried(state)))
     lines.append(hands(state))
     lines.append(vitals_policy(state))
 

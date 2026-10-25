@@ -37,14 +37,14 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from .interface import (PROGRESS_EVENTS, Activity, Attacked, Event, Resumed, TaskDone, TaskFailed, Unreachable,
-                        VitalsLow)
+from .interface import (PROGRESS_EVENTS, Activity, Attacked, Event, ItemsDropped, Resumed, TaskDone, TaskFailed,
+                        Unreachable, VitalsLow)
 
 MOVE_TOOLS = {"follow", "go_to", "come_to"}
 # Tools that run alongside a move instead of replacing it in the body's action slot.
 NON_PREEMPTING = {"cast", "say", "look", "inspect", "inventory", "remember", "set_reflex_rule", "list_rules",
                   "clear_rule", "get_state"}
-BODY_SITUATIONS = (Unreachable, Resumed, VitalsLow)
+BODY_SITUATIONS = (Unreachable, Resumed, VitalsLow, ItemsDropped)
 HELD_TOOLS = {"follow"}  # answer at their start, then keep running in the body
 
 ARRIVED_M = 6.0  # within this of a player = "next to him": an "I can't reach you" is stale
@@ -57,6 +57,7 @@ VITALS_WORSE = 0.6  # at or below this fraction of the value last voiced: worse,
 # The body protocol's own pairing (client_bridge.VITAL_NEEDS): which consumable fixes which stat.
 VITAL_NEEDS = {"hydration": "drink", "sustenance": "food"}
 DIGEST_KEEP_S = 180.0
+MOVING_MPS = 0.3  # slower than this between two observations = standing still
 ACTIVITY_KEEP = 8  # recent_activity lines in every Controller context
 
 # Fallback lines, used only when the model call for a situation fails (main, 2026-10-25: the model
@@ -203,6 +204,9 @@ class EventBroker:
         self._vitals_said: dict[str, tuple[float, float]] = {}  # stat -> (when, value)
         self._reports: deque[tuple[float, str]] = deque(maxlen=4)  # informational lines for the digest
         self._activity: deque[tuple[float, Activity]] = deque(maxlen=ACTIVITY_KEEP)  # episodic memory
+        self._seen: dict | None = None  # the last observed state (where am I, who is in sight)
+        self._track: deque[tuple[float, list[float]]] = deque(maxlen=8)  # (t, position) observations
+        self._still_since: float | None = None
 
     def _log(self, kind: str, **f) -> None:
         if self.log is not None:
@@ -278,6 +282,8 @@ class EventBroker:
             v = self._resumed(ev)
         elif isinstance(ev, VitalsLow):
             v = self._vitals(ev, state)
+        elif isinstance(ev, ItemsDropped):
+            v = self._dropped(ev, state)
         else:
             v = Verdict("inform", "not a body situation")
         self._log("event_triage", event=ev.model_dump(), verdict=v.action, why=v.why)
@@ -361,6 +367,15 @@ class EventBroker:
                        {"type": "vitals_low", "stat": ev.stat, "value": value, "max": ev.max,
                         "fixed_by": need, "carrying_one": False})
 
+    def _dropped(self, ev: ItemsDropped, state: dict) -> Verdict:
+        """Someone dropped things by him: the model decides (pick up? thanks?). Stale once they are gone."""
+        here = {str(i.get("id")) for i in (state.get("nearby_items") or []) if isinstance(i, dict)} if state else set()
+        items = [i for i in ev.items if isinstance(i, dict) and (not here or str(i.get("id")) in here)]
+        if not items:
+            return Verdict("drop", "stale: the dropped items are gone (picked up already)")
+        return Verdict("decide", f"{ev.by or 'a player'} dropped items nearby",
+                       {"type": "items_dropped", "by": ev.by, "players": ev.players, "items": items})
+
     def voiced(self, events: list[dict]) -> None:
         """A situation's line was spoken: remember it for cooldowns and 'found you'."""
         now = self.clock()
@@ -384,6 +399,10 @@ class EventBroker:
         for e in events:
             if e.get("type") == "unreachable" and e.get("about") == "player" and f.get("near_player"):
                 continue
+            if e.get("type") == "items_dropped" and state and not state.get("unavailable"):
+                here = {str(i.get("id")) for i in state.get("nearby_items") or [] if isinstance(i, dict)}
+                if not any(str(i.get("id")) in here for i in e.get("items") or []):
+                    continue
             if e.get("type") == "vitals_low":
                 need = e.get("fixed_by")
                 if (need and f.get(f"has_{need}")) or f.get(f"{e.get('stat')}_low") is False:
@@ -422,11 +441,65 @@ class EventBroker:
         now = self.clock()
         return [f"{now - t:.0f}s ago: {self.describe_activity(ev)}" for t, ev in self._activity]
 
+    # ---------------------------------------------------------------- where am I (live 20:26:20)
+
+    def observe(self, state: dict) -> None:
+        """Every fresh get_state the brain reads: position track (moving or standing still) and who is
+        in sight. Live 20:26:20: "I'm right behind you" while 1.8 km away and stopped, because the
+        context said "following Zezima" and nothing about distance or motion."""
+        if not state or state.get("unavailable"):
+            return
+        now, pos = self.clock(), _pos(state.get("position"))
+        self._seen = state
+        if pos is None:
+            return
+        if self._track:
+            t0, p0 = self._track[-1]
+            moved = math.dist(p0, pos) / max(now - t0, 1e-6) >= MOVING_MPS if now > t0 else False
+            if moved:
+                self._still_since = None
+            elif self._still_since is None:
+                self._still_since = t0
+        self._track.append((now, pos))
+
+    def where_line(self) -> str | None:
+        st = self._seen
+        if not st:
+            return None
+        now = self.clock()
+        bits = []
+        if len(self._track) >= 2:
+            (t0, p0), (t1, p1) = self._track[-2], self._track[-1]
+            speed = math.dist(p0, p1) / max(t1 - t0, 1e-6)
+            if self._still_since is not None:
+                bits.append(f"you are standing still (for {now - self._still_since:.0f}s)")
+            elif speed >= MOVING_MPS:
+                bits.append(f"you are moving at {speed:.1f} m/s")
+        if st.get("following"):
+            bits.append(f"your body is set to follow {st['following']}")
+        me = _pos(st.get("position"))
+        seen = {}
+        for p in st.get("players") or []:
+            if isinstance(p, dict) and p.get("name"):
+                d = _num(p.get("distance"))
+                pp = _pos(p.get("position"))
+                dz = (pp[2] - me[2]) if pp and me and len(pp) > 2 and len(me) > 2 else None
+                h = f", {abs(dz):.0f} m {'higher' if dz > 0 else 'lower'}" if dz is not None and abs(dz) >= 2 else ""
+                seen[str(p["name"])] = f"{p['name']} is {d:.0f} m away{h}" if d is not None else f"{p['name']} is in sight"
+        bits += list(seen.values())
+        wanted = [n for n in (st.get("following"), self.episode.player if self.episode else None) if n]
+        for n in dict.fromkeys(wanted):
+            if n not in seen:
+                bits.append(f"{n} is NOT in sight (farther than you can see, distance unknown)")
+        return ("Where: " + "; ".join(bits)) if bits else None
+
     # ---------------------------------------------------------------- what the model sees
 
     def digest(self) -> list[str]:
         now = self.clock()
         out: list[str] = []
+        if where := self.where_line():
+            out.append(where)
         ep = self.episode
         if ep is not None:
             if ep.ended is None:
@@ -442,4 +515,4 @@ class EventBroker:
         for t, line in self._reports:
             if now - t <= DIGEST_KEEP_S:
                 out.append(f"Body report {now - t:.0f}s ago: {line}")
-        return out[-5:]
+        return out[:6]

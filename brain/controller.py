@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from . import grounding
+from . import item_stats
 from . import situation as sit
 from .interface import (BRAIN_TOOLS, PROGRESS_EVENTS, READ_TOOLS, RULE_TOOLS, SENSABLE_TRIGGERS, TOOLS, Event, GameInterface,
                         GatherProgress, Reason, tool_schema, validate_args)
@@ -43,6 +44,9 @@ PERSONA = """You are {name}, an AI companion playing RuneScape: Dragonwilds with
 You talk like a friendly fellow player: one short casual sentence, no emojis, under 150 characters.
 ALWAYS reply to the player with one short line of text, also when you call a tool (unless the line
 is not meant for you, see "Reading chat").
+Answer only what was asked, from the CURRENT state: where you are, whether you are moving and how far
+{player} is come from body_status "Where:", never from what you said earlier. Don't list what you
+carry unless asked.
 
 Reading chat: you hear EVERY chat line; chat lists the recent ones, oldest first, yours marked you=true.
 - command.addressed=true: the player named you. Answer as usual.
@@ -66,7 +70,7 @@ How to decide:
 - Facts worth keeping: remember. For a place use key "place:<name>" and at=self (where you stand)
   or at=player (where that player stands) so its position is stored.
 - Talk, praise, questions about what you see, wear, hold or carry: answer from situation and the
-  read-only tools; no action tool.
+  read-only tools; no action tool.{lookup_rule}
 
 Seeing things (grounding):
 - situation lists what you perceive right now, by in-game name, with ids for actions.
@@ -76,6 +80,7 @@ Seeing things (grounding):
 - If it is not there, say so plainly and mention what IS there.
 - If you can't do something, say what and why in one line: you lack the skill, you can't see it,
   you don't carry it, or it is unsafe. Don't pretend.
+- Never invent reasons. If you don't know why something happened, say so.
 - references (when present): the words in command.text that match things you perceive, typos
   corrected (read_as), with ids, nearest first. Use them to pick the right id.
 - When an action fails (or its arguments were invalid), the result comes back to you: say in one
@@ -91,7 +96,8 @@ Your body (body_status, body_event):
   reach its target (reason and detail = the body's measurement, about = player or place; a reason
   like leader_windstepped is the body's guess from how high he rose, so say it as a guess);
   resumed: it can reach it again; follow_ended: a follow stopped by itself; vitals_low: a survival
-  stat is low and you carry nothing for it. If one of your tools fixes it, use it. Otherwise tell
+  stat is low and you carry nothing for it; items_dropped: a player dropped those items near you
+  (decide yourself whether to pick them up, and whether to thank him). If one of your tools fixes it, use it. Otherwise tell
   {player} in ONE short truthful line what happened and why, in plain words, and what you need.
 - recent_activity: what your body did lately (fights and how they ended, flights, pickups, deaths,
   grave recoveries...), whoever started it (a reflex or a test command too). It is YOUR memory;
@@ -113,8 +119,9 @@ LOOK_RULE = (": situation is only a short summary and misses many things (sticks
              "details of one thing.")
 NO_LOOK_RULE = ", you can't look around yet: say you can't see it."
 # One line, only when the knowledge index exists (the lookup tool is offered then).
-LOOKUP_RULE = ("\n- Game facts you are not sure of (what an item does, recipes, where things are, creatures, "
-               "spells, mechanics) -> call lookup (read-only) and answer from it; game data beats the wiki.")
+LOOKUP_RULE = ("\n- Game facts you are not sure of (what an item does, how to make it, which regions of the world "
+               "something is found in, creatures, spells, mechanics) -> call lookup (read-only) and answer from "
+               "it; game data beats the wiki.")
 
 START_GOAL = {
     "type": "function",
@@ -388,6 +395,7 @@ class Controller:
 
     def decide(self, player: str, text: str, state: dict, active_goal: str | None, addressed: bool = True,
                body_event: dict | None = None) -> Decision:
+        self._state_for_reads = state
         context = self.context(player, text, state, active_goal, addressed, body_event)
         messages = [{"role": "system", "content": self.persona()},
                     {"role": "user", "content": json.dumps(context, default=str, ensure_ascii=False)}]
@@ -440,6 +448,8 @@ class Controller:
             res = self.game.call(call.name, args)
         self.log.log("tool_result", tool=call.name, result=res, read_only=True)
         if call.name == "inventory" and res.get("ok"):
+            # item stats from game data + numeric deltas to what is equipped (the model judges)
+            res = {**res, "data": item_stats.enrich_inventory(res["data"], getattr(self, "_state_for_reads", None) or {})}
             d.inventory = res["data"]
         if call.name == "look" and res.get("ok"):
             look = {**res["data"], "_about": args.get("about")}

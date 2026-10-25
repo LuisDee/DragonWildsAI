@@ -1,0 +1,3 @@
+{"id": "know_pumpkin_infusion", "utterance": "claude what does a pumpkin spice infusion do?", "expect_speech": "(heal|health|soul food)"}
+{"id": "know_iron_bar", "utterance": "claude how do I make an iron bar?", "expect_speech": "(?=.*iron ore)(?=.*furnace)"}
+{"id": "know_oak_trees", "utterance": "claude where do I find oak trees?", "expect_speech": "(brynmoor|ghornfell|fellhollow)"}

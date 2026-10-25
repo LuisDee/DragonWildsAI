@@ -19,6 +19,7 @@ Prior art: PUBG Ally's knowledge-lookup tool ("tool results are the only ground 
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import threading
@@ -333,7 +334,7 @@ class Knowledge:
         pages = self.wiki / "pages"
         sig = [[f.name, f.stat().st_size, f.stat().st_mtime_ns] for f in files]
         if pages.is_dir():
-            stats = [e.stat() for e in __import__("os").scandir(pages) if e.name.endswith(".json")]
+            stats = [e.stat() for e in os.scandir(pages) if e.name.endswith(".json")]
             sig.append(["pages", len(stats), max((s.st_mtime_ns for s in stats), default=0)])
         return json.dumps([SCHEMA, sig])
 

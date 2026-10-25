@@ -507,3 +507,86 @@ def test_multi_step_turn_runs_in_order_and_stops_at_the_first_failure(tmp_path):
     results = [json.loads(m["content"]) for m in follow if m["role"] == "tool"]
     assert [x.get("ok") for x in results] == [True, False, None]
     assert results[2]["note"] == "not run: an earlier step failed"
+
+
+# --------------------------------------------------------------------------- live 20:21:53 and 20:26:20
+
+HUNGRY = json.loads((Path(__file__).parent / "fixtures" / "episode_2026-10-25_2021_hungry.json").read_text(encoding="utf-8"))
+
+
+def test_replay_2021_model_fixed_hunger_so_no_nothing_left_line(tmp_path):
+    """Live 20:21:53: vitals_low sustenance; the model picked up 4 sandwiches (interact, no speech) and
+    the template "I'm really hungry and have nothing left" was said right after. Speak-time re-check:
+    the fix happened, so that line is never said."""
+    r = Replay(tmp_path, HUNGRY["before"], tools={"get_state", "say", "follow", "go_to", "stop", "interact"})
+    r.body.act("interact", HUNGRY["interact"]["result"], state_after=HUNGRY["after"])
+    r.model.body_reply = lambda ctx: FakeLLM.say("", FakeLLM.call("interact", target=HUNGRY["interact"]["target"]))
+    r.body.emit(HUNGRY["event"])
+    r.at(0).step()
+    assert r.body.calls == [("interact", {"target": HUNGRY["interact"]["target"]})]
+    assert not any("hungry" in s or "nothing left" in s for s in r.body.said), r.body.said
+    assert r.records("situation_unspoken")[0]["why"] == "fixed by the model's own action"
+
+
+def test_replay_2021_template_is_rechecked_at_speak_time(tmp_path):
+    """Same event, the model says nothing and does nothing, but meanwhile the stay-fed reflex / a pickup
+    put food in the bag: the template is re-checked on fresh state and not said."""
+    r = Replay(tmp_path, HUNGRY["before"])
+
+    def silent(ctx):
+        r.body.state = copy.deepcopy(HUNGRY["after"])  # food arrived while the model was thinking
+        return FakeLLM.say("")
+    r.model.body_reply = silent
+    r.body.emit(HUNGRY["event"])
+    r.at(0).step()
+    assert r.body.said == []
+
+
+def test_replay_2026_where_are_you_gets_distance_and_motion(tmp_path):
+    """Live 20:26:20: "where are you" -> "I'm right behind you, following your lead. I'm carrying 9 ..."
+    while 1.8 km away and stopped (Zezima was out of census range; the context only said "following
+    Zezima"). body_status now says where he is, that he is standing still and that Zezima is NOT in
+    sight; the persona says to answer only what was asked, from current state."""
+    far = {"position": [270.27, 1753.0, -39.82], "following": "Zezima", "action": "follow", "players": [],
+           "inventory": {"ITEM_Consumable_Tea_Pumpkin": 9, "ITEM_Consumable_Sandwich_Veggie": 3},
+           "health": 100, "max_health": 100}
+    r = Replay(tmp_path, far)
+    r.agent._fresh_state()  # an earlier observation, 10 s before: same spot
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "where are you"})
+    r.at(10).step()
+    r.at(13).step()
+    ctx = r.model.contexts[-1]
+    where = next(line for line in ctx["body_status"] if line.startswith("Where:"))
+    assert "standing still" in where and "Zezima is NOT in sight" in where and "follow Zezima" in where, where
+    persona = r.model.calls[-1]["messages"][0]["content"]
+    assert "Answer only what was asked, from the CURRENT state" in persona and "Don't list what you" in persona
+    assert "Never invent reasons" in persona
+
+
+def test_where_line_with_the_player_in_sight_and_moving():
+    clock = Clock()
+    b = EventBroker(clock=clock)
+    b.observe({"position": [0, 0, 0], "players": [{"name": "Zezima", "distance": 30, "position": [30, 0, 6]}]})
+    clock.t += 2
+    b.observe({"position": [8, 0, 0], "players": [{"name": "Zezima", "distance": 22, "position": [30, 0, 6]}]})
+    assert b.where_line() == "Where: you are moving at 4.0 m/s; Zezima is 22 m away, 6 m higher"
+
+
+def test_items_dropped_is_a_model_decision_and_goes_stale_when_gone(tmp_path):
+    """Another player dropped food by him: one controller run with the structured event; the model's
+    choice (pick it up) reaches the body; no code rule thanks or picks up by itself."""
+    r = Replay(tmp_path, STATES[3], tools={"get_state", "say", "follow", "go_to", "stop", "interact"})
+    sandwich = next(i for i in STATES[3]["nearby_items"] if i["name"] == "Forager's Sandwich")
+    r.body.act("interact", ok(target=sandwich["id"]))
+    r.model.body_reply = lambda ctx: FakeLLM.say("Thanks for the sandwiches!", FakeLLM.call("interact", target=sandwich["id"]))
+    ev = {"type": "items_dropped", "by": "Zezima", "players": ["Zezima"],
+          "items": [{"id": sandwich["id"], "name": "Forager's Sandwich", "count": 23, "consumable": "food",
+                     "dropped_by": "Zezima"}]}
+    r.body.emit(ev)
+    r.at(0).step()
+    assert r.model.contexts[-1]["body_event"]["type"] == "items_dropped"
+    assert r.body.calls == [("interact", {"target": sandwich["id"]})] and r.body.said == ["Thanks for the sandwiches!"]
+    gone = Replay(tmp_path / "gone", STATES[5])  # the sandwiches are no longer on the ground
+    gone.body.emit(ev)
+    gone.at(0).step()
+    assert gone.model.contexts == [] and gone.body.said == []

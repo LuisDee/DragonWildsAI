@@ -58,8 +58,10 @@ def test_grounding_cases_score_with_fake_models(tmp_path):
     assert res["passed"] and res["model_calls"] == 2
     sub = FakeLLM([FakeLLM.say("Got them!", FakeLLM.call("pickup", target="world_item_1"))])
     res = run_evals.eval_controller_case({**cases["sticks_absent"], "id": "s2"}, sub, tmp_path)
-    assert res["passed"]  # grounding refused the substitution in code: nothing reached the body
-    assert res["got"] == [] and res["refusals"][0][1] == "not_perceived"
+    # PRINCIPLES.md #2: code never vetoes the model, so a substituting model's call reaches the body and
+    # the EVAL (not the runtime) marks the model wrong
+    assert not res["passed"]
+    assert [c["tool"] if isinstance(c, dict) else c[0] for c in res["got"]] == ["pickup"] and not res["refusals"]
     # present: look then interact with the gatherable's id
     good = FakeLLM([FakeLLM.say("", FakeLLM.call("look", about="sticks")),
                     FakeLLM.say("Grabbing them.", FakeLLM.call("interact", target="gatherable_1"))])

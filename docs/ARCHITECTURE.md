@@ -134,6 +134,47 @@ Debug modules run only through `debug_run`. They hold unproven work and historic
 | `brain/executor.py` | Runs one task, verifies it against fresh `get_state` (`VERIFIERS[skill]`), retries with a cap |
 | `brain/state_store.py` | Task tree, notes, `MOCK_SKILLS` (planner skill order) |
 | `brain/mock/game.py`, `brain/fake_body.py` | Mock game (Track M) and the fake body used by tests |
+| `brain/broker.py` | **Event broker** between the bridge and the Controller (streamline step 3): `triage` (per batch), `assess` (per event, fresh state), movement episodes, `digest()` → `body_status`, episodic memory → `recent_activity`, `observe()` → the "Where:" line |
+| `brain/voice.py` | **Single voice**: `Controller.say` is the only speaker; `Voice.gate` blocks near-duplicate notices (30 s) and same-line reply bursts (2 s) |
+| `brain/grounding.py` | **Grounding as information** (streamline step 4): `read()` / `hints()` → `references` (typo-tolerant matches of the player's words to perceived things, with ids). It never vetoes |
+
+### 2.6 Event hygiene, single voice, grounding (decisions, 2026-10-25)
+
+Live evidence: the 19:21–19:25 episode (`tests/fixtures/episode_2026-10-25_1921.json`), plus 20:21:53 (`..._2021_hungry.json`) and 20:26:20. Precedents:
+- bubus event debouncing (merge by work key before expensive work; adapted, not adopted: our loop is synchronous and polls);
+- game bark managers (one gate, validate against current state at speak time, drop rather than backlog; bugnet.io / pulsegeek.com);
+- stdlib `difflib` for typos (rapidfuzz not needed at this size).
+No source was found for expiring queued NPC lines on state change; that part is ours.
+
+1. **Classify by event type and structured fields, never by phrases.** What happens to each event:
+   - `task_done` / `task_failed`: dropped, because the executor has the synchronous reply. Exception: `task_failed` of a **held** action (follow, via `BridgeClient.sent_tool(id)`) becomes a `follow_ended` situation.
+   - progress events: dropped (they are narrated live).
+   - `unreachable`, `resumed`, `vitals_low`, `items_dropped`: body situations, assessed against fresh state.
+   - `activity`: memory only.
+   - chat: the Controller.
+2. **Coalesce and supersede per batch.** An unreachable followed by a resumed is dropped. Only the newest unreachable is kept, the newest `vitals_low` per stat, and the newest `attacked` per attacker.
+3. **Stale = superseded by fresh state or by the brain's own episode.**
+   - an unreachable for a player he is now within 6 m of;
+   - an unreachable from a move that arrived, or that failed (its result was already reported);
+   - an unreachable to a spot that is not a player, from a move the brain didn't start. It is information only, a digest line "not a player, not a move you started".
+   - a vitals report when the stat rose 5 or more, or a matching consumable is carried (the body's `consumable` field);
+   - dropped items that are no longer on the ground.
+
+   Repeats are capped per episode and reason, the unreachable cooldown is 60 s, and vitals repeat every 150 s unless the value fell to 60 % or less.
+4. **Situations are model-voiced** (main's decision). The surviving events of a batch go to ONE Controller run (`body_event`), or ride along in the pending chat run. The `broker.fallback_line` templates are only used when the model call fails or says nothing, and only for what fresh state still shows as true. Nothing is said when the model's own action fixed it (live 20:21:53).
+5. **Speak-time checks.**
+   - A body situation is re-checked on fresh state before it is spoken.
+   - A pure-talk reply whose `facts()` changed while the model was thinking (near_player, low/has food/drink) is decided once more.
+   - `Voice.gate` never holds back a reply to a new command, except a 2 s same-line burst.
+6. **Chat bursts are one run.** The player's pending lines are joined with " / " into `command.text`, and an addressed line takes them along (debounce 2 s, `DW_CHAT_DEBOUNCE_S`). The text reaches the model verbatim (no greeting stripping).
+7. **Code never vetoes the model** (PRINCIPLES.md #2).
+   - The only gate is `Controller.safety`: never attack a player.
+   - Grounding only informs (`references`).
+   - Failed body actions, invalid args and unknown tools go back to the model once (`Controller.follow_up` with every step's real result). Multi-step turns run in order and stop at the first failure. The `report_failure` templates are the safety net.
+8. **What the model gets about its body** (instead of raw events):
+   - `body_status`: "Where:" (moving or still, who is in sight at what distance and height, who is NOT in sight), the current or last move and how it ended, open complaints, informational body reports;
+   - `recent_activity`: completed body episodes from any starter, generic `kind: field=value` rendering. Kills, deaths and anything with a place are promoted to notes; a death's `where` becomes place `grave`.
+9. **Learned-skill management is model-chosen** (`list_skills` read, `forget_skill` exact name). There are no regexes over player text. `remember` stores a place's position only from `at=self|player`.
 
 ---
 

@@ -77,3 +77,32 @@ Template: `docs/design/PRINCIPLES.md`. Earlier recommendation: `docs/research/20
     - 3 held-out questions → Haiku calls `lookup`, then answers with the right fact (Soul Food heal over time; 3 Iron Ore at a Furnace; Brynmoor/Ghornfell/Fellhollow).
     - About 5-6 calls.
   - Live: not needed, since this is a brain-only read tool. Main restarts the brain.
+
+## Status (2026-10-25, built)
+
+- **Files:**
+  - `tools/wiki_mirror.py`: refresh and conversion.
+  - `brain/knowledge.py`: the index plus `lookup`.
+  - `brain/interface.py`: `LookupArgs`; `lookup` added to READ_TOOLS and BRAIN_TOOLS.
+  - `brain/controller.py`: the `knowledge=` param, `LOOKUP_RULE`, `_brain_read`.
+  - `brain/run_live.py`: `open_knowledge`, `DW_KNOWLEDGE=0` disables it.
+  - `evals/run_evals.py --suite knowledge` with `evals/knowledge_cases.jsonl`.
+  - `tests/test_knowledge.py`.
+  - `.gitignore`: `data/wiki/`.
+- **Mirror:**
+  - The first run took 92 API requests for 3,802 articles and 5,728 redirects (about 21 MB, local only).
+  - A no-change refresh is 15 requests and fetches 0 pages.
+- **Index:**
+  - 1,207 game docs (items with all their recipes, stations, spells, perks) and 9,138 wiki section chunks.
+  - Build takes about 1.6 s; reopening the cached DB about 0.02 s; a lookup about 10 ms.
+- **Real-model eval (Haiku 5.5, 9 calls):**
+  - Pumpkin spice infusion: PASS. "80 hydration, plus the Soul Food perk, which restores 8 health every 5 seconds for 300 seconds".
+  - Iron bar: PASS. "Smelt 3 Iron Ore at a Furnace with fuel ... or 9 Iron Salvage Pile".
+  - Oak trees:
+    - First run: FAIL. The model only looked around.
+    - After clarifying "which regions of the world" in the persona line and the tool description: PASS. "Oak grows across Brynmoor, Ghornfell and parts of Fellhollow".
+- **Open:**
+  - The Planner has no `lookup` yet (the research suggests `lookup` + `plan_obtain`).
+  - There are no game-data creature docs, because no enemy catalog has been extracted; creatures come from the wiki only.
+  - Wiki-only facts (perk effects, locations) are not cross-checked against game data.
+  - Terms with no title match (e.g. "sticks") return weak wiki body matches.

@@ -148,9 +148,11 @@ class Agent:
 
     def _fresh_state(self) -> dict:
         try:
-            return self.executor.state()
+            state = self.executor.state()
         except StateUnavailable as exc:
             return {"unavailable": str(exc)}
+        self.broker.observe(state)  # where am I, am I moving, who is in sight (body_status "Where:")
+        return state
 
     def _body_situation(self, event: Event) -> None:
         v = self.broker.assess(event, self._fresh_state())
@@ -290,8 +292,16 @@ class Agent:
                 self.controller.say(" ".join(extra))
         elif d.speech or extra:
             res = self.controller.say(" ".join(s for s in [d.speech, *extra] if s), kind=kind)
-        elif body_events and not event.text:  # the model said nothing about a body situation: the template
-            res = self.controller.say(fallback_line(body_events) or self._default_reply(d), kind=kind)
+        elif body_events and not event.text:  # the model said nothing about a body situation
+            # Live 20:21:53: the model fixed it silently (picked up 4 sandwiches) and the template "I'm really
+            # hungry and have nothing left" was said anyway. Re-check on fresh state at speak time: only
+            # what is still true is said, and nothing at all when the model's own action fixed it.
+            still = self.broker.still_valid(body_events, self._fresh_state())
+            if still and not d.actions:
+                res = self.controller.say(fallback_line(still) or self._default_reply(d), kind=kind)
+            else:
+                self.log.log("situation_unspoken", events=body_events, still=still,
+                             why="fixed by the model's own action" if d.actions else "fixed before speaking")
         elif addressed:  # reply to every command, even when the model said nothing
             res = self.controller.say(self._default_reply(d))
         if body_events and (res is not None or failure or spoken):
