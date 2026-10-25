@@ -10,7 +10,7 @@ param([switch]$Stop, [switch]$Register, [string[]]$WatchdogArgs = @())
 . "$PSScriptRoot\config.ps1"
 
 $script = Join-Path $PSScriptRoot 'client_watchdog.ps1'
-$running = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*client_watchdog.ps1*' }
+$running = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*client_watchdog.ps1*' -and $_.CommandLine -notlike '*start_client_watchdog.ps1*' }
 if ($Stop) {
     if (-not $running) { Write-Host 'Client watchdog not running.'; exit 0 }
     $running | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
