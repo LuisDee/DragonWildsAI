@@ -29,7 +29,7 @@ Luis set this on 2026-10-25. It is the contract for unattended iteration: what "
   - Brynmoor's progression from the wiki, each stage a pinned case;
   - **slay Vel'gar SOLO on the dev world**: research, prep (anti-poison, upgraded and levelled gear, food, enchant), reading and answering Vel'gar's attacks live, and surviving.
 
-Scoring world: the dev server (real game build, real client and server) with a dedicated dev character. Shockbyte confirmation is optional. Each milestone has its targets in goal_targets.json; the full goal = all six met + Luis's sign-off.
+Scoring world: the dev server (real game build, real client and server) with a dedicated dev character. **Nothing on Shockbyte:** the goal never connects Claude's client to Shockbyte. Each milestone has its targets in goal_targets.json; the full goal = all six met + Luis's sign-off.
 
 ## 1c. Decision rules (Luis approved, 2026-10-25)
 - Percentage targets pass on the **Wilson 95% lower bound**, with n ≥ 20 valid cases; each family needs ≥ 3 live cases.

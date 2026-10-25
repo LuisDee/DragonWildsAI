@@ -128,7 +128,8 @@
   },
   "scoring_world": {
     "world": "dev",
-    "_note": "Luis 2026-10-25: the /goal runs and is scored on the local dev server (the real game build: real client, real server). Shockbyte live confirmation is optional and never required. A dedicated dev character must be used (no save leak to Shockbyte). Test-player chat on dev is sent by the harness."
+    "_note": "Luis 2026-10-25: the /goal runs and is scored ONLY on the local dev server (the real game build, real client and server). NOTHING on Shockbyte: the goal never connects Claude's client to Shockbyte. A dedicated dev character is still used, so dev grants can never reach the group's world via the save. Test-player chat on dev comes from the harness.",
+    "shockbyte": "forbidden during /goal"
   },
   "every_skill": {
     "skills": "every skill in the game's skill data (build manifest)",
