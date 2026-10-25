@@ -141,6 +141,12 @@ class BridgeClient(GameInterface):
     def say(self, text: str) -> ActionResult:
         return self._tool("say", text=text)
 
+    def sleep(self, target: str | None = None, mode: str = "auto") -> ActionResult:
+        return self.request("sleep", _drop_none({"target": target, "mode": mode}))
+
+    def wake(self) -> ActionResult:
+        return self._tool("wake")
+
     # spells (body/spells.lua) and reflex rules (body/rules.lua)
     def cast(self, spell: str, target: str | Coords | None = None) -> ActionResult:
         return self.request("cast", _drop_none({"spell": spell, "target": target}))

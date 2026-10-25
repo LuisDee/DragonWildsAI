@@ -147,6 +147,12 @@ class RememberArgs(BaseModel):
     value: str
 
 
+class SleepArgs(BaseModel):
+    target: str | None = Field(None, description="Omit for the nearest free bed; or a bed id.")
+    mode: Literal["auto", "bed", "flag"] = Field(
+        "auto", description="auto: a free bed if there is one, else just lie down on the spot.")
+
+
 class CastArgs(BaseModel):
     spell: str = Field(description="Spell name as listed in castable_spells, e.g. 'Tempest Shield' or 'Windstep'.")
     target: str | Coords | None = Field(
@@ -229,6 +235,8 @@ TOOLS: dict[str, tuple[type[BaseModel], str]] = {
     "say": (SayArgs, "Chat output. Only the Controller speaks."),
     "remember": (RememberArgs, "Store a long-term fact in notes.json."),
     "cast": (CastArgs, "Cast one of the spells in castable_spells now (self, an enemy id, or a point)."),
+    "sleep": (SleepArgs, "Go to sleep (nearest free bed, never someone else's) so the night can pass."),
+    "wake": (NoArgs, "Get up after sleeping."),
     "set_reflex_rule": (SetReflexRuleArgs,
                         "Store a standing order ('every time X, do Y') that the body runs instantly during fights. "
                         "Only for triggers in the trigger list; same enemy + trigger replaces the old rule."),
@@ -367,6 +375,12 @@ class GameInterface(ABC):
     # Spells and reflex rules: optional, so older bodies (and test fakes) need not implement them.
     def cast(self, spell: str, target: str | Coords | None = None) -> ActionResult:
         return fail(Reason.NOT_IMPLEMENTED, tool="cast")
+
+    def sleep(self, target: str | None = None, mode: str = "auto") -> ActionResult:
+        return fail(Reason.NOT_IMPLEMENTED, tool="sleep")
+
+    def wake(self) -> ActionResult:
+        return fail(Reason.NOT_IMPLEMENTED, tool="wake")
 
     def spells(self) -> ActionResult:
         """Compact spell list ``data.spells`` [{id, name, role, use_when, castable, reason, remaining_s}]."""

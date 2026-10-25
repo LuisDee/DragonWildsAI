@@ -185,3 +185,14 @@ Luis relies on spells: **a shield spell**, and **wind jump**, whose landing stun
 - **Wiki is secondary** (how-to, locations, drop sources, strategy): a local mirror via the official MediaWiki API (licence and rate limits respected), parsed into a searchable knowledge base behind a `lookup` / `how_to` tool. No live browsing mid-game.
 - **Crafting is planning over a recipe graph:** the Planner back-chains from the target item: inventory → nearby resources → gather → sub-craft at the required station, choosing the cheapest path when an item has several recipes. Each step is an existing verified skill (gather / pickup / go_to station / craft), verified by inventory deltas. Successful plans are saved to the skill library.
 - Research and recommendation: `docs/research/2026-10-25-scalable-agent-frameworks.md` (in progress).
+
+## 19. Luis's decisions on the agent-framework research (2026-10-25)
+- **Interaction and crafting are EMULATED server-side, with strict fidelity.**
+  - Craft only if the bot holds every input.
+  - Consume exactly the recipe's inputs from the bot inventory; produce exactly the recipe's output.
+  - Only when standing at the CORRECT station type.
+  - Recipes, stations and quantities come from game data (`URecipeData`, `UCraftingStationComponent.ValidRecipes`), never invented.
+  - **Drift check:** compare one real craft by Luis with the bot's emulation of the same recipe; re-run after patches (patch pipeline).
+- **Learned skills are used automatically**, persisted locally in readable files (`data/skills/<world_guid>/<skill>.json`, versioned in git so Luis can see what Claude learned), plus a "Claude, what have you learned?" command and "forget X".
+- **Wiki mirror** stays local, out of git (CC BY-NC-SA).
+- **Speech:** reply to every command, say "can't do it because…", ask for help when stuck, give progress updates on long jobs.

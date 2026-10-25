@@ -65,11 +65,17 @@ function M.start(log, args)
     local spec = { class = args.target_class or "FellableTree", match = args.match or "Tree_", filter = args.filter or "standing" }
     local here = U.loc(p)
     if spec.class == "FellableTree" then sense.convert_foliage(log, p, here, 1500) end
-    local e = sense.nearest(spec, { origin = here, radius_cm = (args.radius_m or 15) * 100 })
+    local e
+    if args.target then
+        for _, x in ipairs(sense.census(spec, { origin = here, radius_cm = 5000 })) do if x.id == args.target then e = x end end
+    else
+        e = sense.nearest(spec, { origin = here, radius_cm = (args.radius_m or 15) * 100 })
+    end
     if not e then return { ok = false, err = "no target" } end
     local c = U.controller_of(p)
     if c then U.call(log, "reach_calib.K2_ClearFocus", {}, function() c:K2_ClearFocus() end) end
     local tloc = e.loc
+    if args.aim then tloc = sense.aim(e.actor, here) or e.loc end -- logs: nearest point of the axis
     local base = math.deg(math.atan(here.Y - tloc.Y, here.X - tloc.X)) -- side of the target we test on
     local z = here.Z
     local grid = {}
@@ -127,7 +133,7 @@ function M.start(log, args)
             G.i, G.phase = G.i + 1, "place"
         end
     end)
-    return { ok = true, kind = kind, target = e.id, target_loc = U.to_wire(tloc), points = #grid,
+    return { ok = true, kind = kind, target = e.id, target_loc = U.to_wire(tloc), origin = U.to_wire(e.loc), points = #grid,
              cache_hook = hitcheck.cache_armed() }
 end
 

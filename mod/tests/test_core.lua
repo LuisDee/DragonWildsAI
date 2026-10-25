@@ -370,7 +370,7 @@ test("experiments: all load by name via debug_run and fail safe in an empty worl
         { "name_register", {} }, { "chat_relay", {} }, { "chat_as", {} }, { "puppet_safe", {} },
         { "companion", {} }, { "say_test", { variant = "a" } }, { "speech_direct", {} },
         { "presence_probe", {} }, { "presence_test", {} },
-        { "rules_probe", {} }, { "rules_probe", { action = "sense" } },
+        { "rules_probe", {} }, { "rules_probe", { action = "sense" } }, { "sleep_probe", {} }, { "sleep_arm", { action = "status" } },
         { "item_probe", {} }, { "item_probe", { action = "gone", target = "x" } },
         { "gather_probe", {} }, { "gather_test", {} },
     }

@@ -149,6 +149,8 @@ class MockGame(GameInterface):
         # reflex rules per enemy kind, like body/rules.lua: {enemy: [rule]}
         self.reflex_rules: dict[str, list[dict]] = {}
         self._rule_ids = 0
+        self.sleeping = False
+        self.beds: dict[str, list[float]] = {}  # bed id -> position (free beds only)
 
     # ------------------------------------------------------------------ world setup
 
@@ -310,6 +312,7 @@ class MockGame(GameInterface):
             structures=list(self.structures),
             places=sorted(self.places),
             spell_cooldowns={k: round(t - self.time, 1) for k, t in self.spell_ready_at.items() if t > self.time},
+            sleeping=self.sleeping,
         )
 
     @_scriptable
@@ -518,6 +521,25 @@ class MockGame(GameInterface):
         self.casts.append({"spell": sid, "at": list(point), "time": self.time})
         self._advance(1.0)
         return ok(spell=sid, cooldown_s=sp["cooldown_s"], verified=True)
+
+    @_scriptable
+    def sleep(self, target: str | None = None, mode: str = "auto") -> ActionResult:
+        bed = None
+        if mode != "flag" and self.beds:
+            bed = target if target in self.beds else min(self.beds, key=lambda b: math.dist(self.beds[b], self.pos))
+            if target and target not in self.beds:
+                return fail(Reason.UNKNOWN_TARGET, target=target)
+            self._walk(self.beds[bed], 0.5)
+        elif mode == "bed":
+            return fail(Reason.NOTHING_IN_RANGE, detail="no free bed")
+        self.following = None
+        self.sleeping = True
+        return ok(mode="bed" if bed else "flag", bed=bed, sleeping=True)
+
+    @_scriptable
+    def wake(self) -> ActionResult:
+        was, self.sleeping = self.sleeping, False
+        return ok(was=was, sleeping=False)
 
     def spells(self) -> ActionResult:
         """Not recorded in ``calls``: the Controller reads it for context."""

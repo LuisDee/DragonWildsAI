@@ -148,6 +148,19 @@ if os.getenv("DW_NO_BODY") ~= "1" and os.getenv("DW_NO_SPELLS") ~= "1" then
     log.event("spells_started", { ok = ok_spells, err = (not ok_spells) and tostring(err_spells) or nil })
 end
 -- =================== end SPELLS + REFLEX RULES =====================================================
+-- ===================== SLEEP (body/sleep.lua) ======================================================
+-- The bot counts as a player for the night skip, so it must sleep when Luis does. Handlers: sleep,
+-- wake, sleep_status, night_skip. Reflex loop (1 s): Luis starts sleeping -> the bot sleeps (a usable
+-- bed within 25 m, else the rest flag); Luis wakes -> the bot wakes and resumes following.
+-- DW_SLEEP_REFLEX=auto|bed|flag|off (default auto); DW_NIGHT_SKIP=off|flag|spectator (debug valve).
+-- DW_NO_SLEEP=1 switches this block off.
+if os.getenv("DW_NO_BODY") ~= "1" and os.getenv("DW_NO_SLEEP") ~= "1" then
+    local ok_sleep, err_sleep = pcall(function()
+        require("body.sleep").register(bridge, log, { skills = require("body.skills"), puppet = require("body.puppet") })
+    end)
+    log.event("sleep_started", { ok = ok_sleep, err = (not ok_sleep) and tostring(err_sleep) or nil })
+end
+-- =================== end SLEEP =====================================================================
 -- Frame-time sampler -> logs/perf/mod_perf.jsonl (scripts/perf_sampler.lua). DW_PERF=0 disables it.
 -- Armed 60 s after start so the game world exists for its clock; debug_run can also arm it.
 if os.getenv("DW_PERF") ~= "0" and mod_root then

@@ -56,13 +56,13 @@ START_GOAL = {
         "parameters": {"type": "object", "properties": {"goal": {"type": "string"}}, "required": ["goal"]},
     },
 }
-ACTION_TOOLS = ["follow", "stop", "go_to", "attack", "give", "pickup", "drop", "cast"]
+ACTION_TOOLS = ["follow", "stop", "go_to", "attack", "give", "pickup", "drop", "cast", "sleep", "wake"]
 # How to name a skill in "I can't ... yet".
 SKILL_PHRASES = {"follow": "follow you", "stop": "stop", "go_to": "walk somewhere", "attack": "fight",
                  "give": "hand items over", "gather": "gather", "craft": "craft", "place": "build",
                  "pickup": "pick things up", "drop": "drop things", "cast": "cast that spell",
                  "set_reflex_rule": "do that as a reflex", "list_rules": "list my orders",
-                 "clear_rule": "forget orders"}
+                 "clear_rule": "forget orders", "sleep": "sleep", "wake": "get up"}
 # Actions that leave the current job running (a spell or a standing order is not a new job).
 NON_INTERRUPTING = {"remember", "cast", *RULE_TOOLS}
 CONTROLLER_TOOLS = ([tool_schema(n) for n in ACTION_TOOLS] + [tool_schema(n) for n in RULE_TOOLS]

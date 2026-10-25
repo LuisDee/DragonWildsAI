@@ -146,6 +146,8 @@ VERIFIERS: dict[str, Callable] = {
     "pickup": _v_pickup,
     "place": _v_place,
     "cast": _v_cast,
+    "sleep": lambda args, base, post, data: None if post.get("sleeping") is not False else "not sleeping",
+    "wake": lambda args, base, post, data: None if not post.get("sleeping") else "still sleeping",
 }
 
 

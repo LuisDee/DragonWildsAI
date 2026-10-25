@@ -272,3 +272,25 @@ def test_rig_over_the_bridge_sets_a_rule(tmp_path):
         assert game.chat[-1] == ("companion", "Got it.")
     finally:
         body.stop()
+
+
+# --------------------------------------------------------------------------- sleep
+
+
+def test_sleep_and_wake_through_the_controller(rig):
+    rig.game.beds["bed_1"] = [5.0, 0.0, 0.0]
+    rig.game.player_say("go to bed")
+    rig.controller_llm.push(FakeLLM.say("Night night.", FakeLLM.call("sleep")))
+    rig.agent.step()
+    assert rig.game.sleeping and rig.game.get_state()["data"]["sleeping"] is True
+    assert rig.companion_said() == ["Night night."]
+    rig.game.player_say("wake up")
+    rig.controller_llm.push(FakeLLM.say("Morning!", FakeLLM.call("wake")))
+    rig.agent.step()
+    assert not rig.game.sleeping
+
+
+def test_sleep_bed_mode_without_a_bed_fails_deterministically(rig):
+    outcome = rig.executor.run_task(Task(skill="sleep", args={"target": None, "mode": "bed"}))
+    assert not outcome.ok and outcome.reason == Reason.NOTHING_IN_RANGE and len(rig.calls("sleep")) == 1
+    assert rig.executor.run_task(Task(skill="sleep", args={"target": None, "mode": "auto"})).ok  # lies down

@@ -54,7 +54,7 @@ class TaskTree(BaseModel):
 
 # Skills the mock supports. On the real body, pass only the verified ones.
 MOCK_SKILLS = ("go_to", "follow", "stop", "attack", "gather", "craft", "give", "place", "pickup", "drop",
-               "cast")
+               "cast", "sleep", "wake")
 
 
 class SkillRegistry:
