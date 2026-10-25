@@ -340,7 +340,7 @@ def main() -> None:
         print()
         hdr = (f"{'UTC':5} | {'Hz':>4} {'p50':>5} {'p95':>5} {'max':>5} {'>50':>3} {'>100':>4} {'ping':>8} | "
                f"{'cpu%':>4} {'core':>4} {'srv%':>4} {'freeMB':>6} {'dskms':>5} {'MsMp%':>5} {'netKB':>6} {'udpE':>4} | "
-               f"{'logHz':>5} {'TSexp':>5} {'net':>3} {'cls':>3} {'save':>4}")
+               f"{'logHz':>5} {'TSexp':>5} {'netW':>4} {'cls':>3} {'save':>4}")
         print(hdr)
         print("-" * len(hdr))
         for mk in mins:
@@ -363,13 +363,13 @@ def main() -> None:
                   f"{fmt(vmax([h.get('disk_lat') for h in hs]), '{:5.1f}'):>5} {fmt(vmax([h.get('def_cpu') for h in hs])):>5} "
                   f"{fmt(mean([h.get('net') for h in hs]) / 1024 if hs and mean([h.get('net') for h in hs]) is not None else None):>6} "
                   f"{fmt(sum(h.get('udp_err_d', 0) for h in hs) if hs else None):>4} | "
-                  f"{fmt(loghz, '{:5.1f}'):>5} {lc['ts_expired']:>5} {max(netw, 0) + lc['saturated'] + lc['client_adjust']:>3} "
+                  f"{fmt(loghz, '{:5.1f}'):>5} {lc['ts_expired']:>5} {max(netw, 0) + lc['saturated'] + lc['client_adjust']:>4} "
                   f"{lc['conn_close']:>3} {lc['save_start']:>4}")
         print("  Hz/p50/p95/max/>50/>100: game-thread frames (ms) from the mod.  ping: player ping range (ms).")
         print("  cpu%: VM total (max sample)  core: busiest vCPU  srv%: server process (% of ONE core; 400 = all 4)")
         print("  MsMp%: Defender (% of one core)  netKB: NIC KB/s  udpE: UDP receive errors (host drops)")
         print("  logHz: tick rate from the server log's frame counter  TSexp: 'ServerMove: TimeStamp expired'")
-        print("  net: other net warnings/saturation/ClientAdjust  cls: connection closes  save: autosaves started")
+        print("  netW: other net warnings/saturation/ClientAdjust  cls: connection closes  save: autosaves started")
 
     # ---- verdict
     print()
@@ -387,6 +387,8 @@ def main() -> None:
     o250 = sum(r.get("over_250", 0) for r in mod)
     print("\n[1] Server tick health (game thread)")
     tick_state = "UNKNOWN"
+    by_cause: Counter = Counter()
+    autosave_max = None
     if tot_frames:
         hz = tot_frames / tot_span
         slow_pct = 100.0 * o50 / tot_frames
@@ -407,12 +409,15 @@ def main() -> None:
         by_cause = Counter(c or "unexplained" for _, _, c in causes)
         if by_cause:
             print("    hitch causes: " + ", ".join(f"{k} {v}" for k, v in by_cause.most_common()))
-        # Judge the server on hitches we did not cause ourselves (debug_run experiments). Autosaves count:
-        # they are the game's own work and players feel them.
-        self_inflicted = sum(v for k, v in by_cause.items() if k.startswith("debug_run:"))
-        organic_pm = max(o100 - self_inflicted, 0) / (tot_span / 60.0)
-        if self_inflicted:
-            print(f"    excluding {self_inflicted} hitches caused by our own debug_run experiments: {organic_pm:.2f}/min")
+        # Judge the tick on hitches with no known cause. Known causes are reported on their own:
+        # debug_run = our experiments (not normal play); autosave = the game's own 5-minute save.
+        explained = sum(v for k, v in by_cause.items() if k != "unexplained")
+        organic_pm = max(o100 - explained, 0) / (tot_span / 60.0)
+        if explained:
+            print(f"    unexplained hitches > 100 ms: {max(o100 - explained, 0)} ({organic_pm:.2f}/min)")
+        saves_ms = [ms for _, ms, c in causes if c == "autosave"]
+        if saves_ms:
+            autosave_max = max(saves_ms)
         if hz < TICK_MIN_HZ or slow_pct > SLOW_PCT_BAD or organic_pm > HITCH_PER_MIN_BAD:
             tick_state = "BAD"
         elif slow_pct > SLOW_PCT_WARN or organic_pm > HITCH_PER_MIN_WARN:
@@ -534,6 +539,9 @@ def main() -> None:
         else:
             print("  No network-side anomalies either in this window; if lag was felt, note the exact time and re-run.")
         print("  Upgrading the VM is NOT indicated.")
+        if by_cause:
+            print("  Hitches seen: " + ", ".join(f"{k} {v}" for k, v in by_cause.most_common())
+                  + " (debug_run = our own experiments, not normal play).")
     elif host_res:
         print(f"  SERVER-BOUND: upgrade recommended -> {', '.join(host_res)}  (tick {tick_state}).")
         for r, t in findings_server:
@@ -541,6 +549,11 @@ def main() -> None:
     else:
         print(f"  SERVER-BOUND (tick {tick_state}) but the VM is NOT saturated: the cost is inside the game thread")
         print("  (AI, saves, mod work), so a bigger VM may not help. Compare hitch times with autosaves and mod events.")
+        if by_cause:
+            print("  Hitch causes: " + ", ".join(f"{k} {v}" for k, v in by_cause.most_common()))
+    if autosave_max:
+        print(f"  Known periodic hitch: the game's autosave (every 5 min) stalls the tick up to {autosave_max:.0f} ms.")
+        print("  It is felt as one short freeze/rubber-band every 5 min; it is not saturation (disk/CPU idle).")
     other = [(r, t) for r, t in findings_server if r not in ("CPU", "RAM", "disk")]
     for r, t in other:
         print(f"  Also: {r}: {t}" + ("  (fix with Defender exclusions, not an upgrade)" if r == "Defender" else ""))

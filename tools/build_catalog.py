@@ -59,7 +59,10 @@ CLASS_CATEGORY = {"FishingRodHeldEquipmentData": "fishing_rod", "HarvestToolEqui
                   "SeedHeldEquipmentData": "seed", "ShieldData": "shield", "SpadeToolEquipmentData": "spade",
                   "JewelleryData": "jewellery"}
 RANGED_CATS, MAGIC_CATS = {"bow", "shortbow", "longbow", "crossbow"}, {"staff", "wand"}
-TOOL_CATS = {"axe", "pickaxe", "torch", "fishing_rod", "harvest_tool", "spade", "seed", "container"}
+TOOL_CATS = {"axe", "pickaxe", "torch", "fishing_rod", "fishingnet", "harvest_tool", "spade", "seed", "container",
+             "farming"}
+# Tools whose primary action is a magic-kind UPlayerAction (planting, digging, netting): not magic weapons.
+NON_COMBAT_CATS = {"seed", "container", "spade", "fishingnet", "fishing_rod", "farming", "harvest_tool"}
 SLOT = {"Head": "head", "Body": "body", "Legs": "legs", "Cape": "cape", "Trinket": "trinket", "Necklace": "necklace",
         "Ammo": "ammo", "MagicAmmo": "magic_ammo", "CrossbowBolts": "crossbow_bolts", "FishingBait": "fishing_bait",
         "PlantSeed": "plant_seed", "JournalItem": "journal", "HeldAny": "hand_any", "HeldOnlyRight": "right_hand",
@@ -85,7 +88,8 @@ def run_live(a, raw_dir: Path) -> None:
 
     brain_side, _ = file_transport_pair()
     client = BridgeClient(brain_side)
-    common = {"build": a.build, "registry_mode": a.registry_mode, "kismet_soft": a.kismet_soft, "sample": 2}
+    common = {"build": a.build, "registry_mode": a.registry_mode, "kismet_soft": a.kismet_soft, "sample": 2,
+              "montage": a.montage or a.notifies, "notifies": a.notifies}
 
     print(f"[1] loaded items + registry -> {raw_dir}")
     first = debug_run(client, {**common, "loaded": True, "registry": True, "refresh": True,
@@ -171,6 +175,55 @@ def chain(attacks: dict, first: str | None, cap: int = 16) -> list[str]:
     return out
 
 
+# Notify classes in an attack montage (mod/scripts/catalog.lua describe_montage), times in seconds.
+INPUT_WINDOW, DAMAGE_POINT = "AnimNotifyState_AttackInputWindow_C", "AnimNotify_AttackDamagePoint_C"
+RESET_CHAIN, ALLOW_MOVE = "AnimNotify_AttackResetChain_C", "AnimNotify_AllowMovementInput_C"
+
+
+def timing(rec: dict) -> dict | None:
+    """Compact swing timing from an attack's montage notifies: montage length, the combo input
+    window [start, end], damage points, the chain-reset point and when movement is allowed again."""
+    mon = rec.get("montage_root_motion") or rec.get("montage")
+    if not mon:
+        return None
+    out = {"montage": mon.get("path"), "length": mon.get("length"), "rate": mon.get("rate")}
+    ns = mon.get("notifies") or []
+    win = [n for n in ns if n.get("class") == INPUT_WINDOW and n.get("t") is not None]
+    if win:
+        w = min(win, key=lambda n: n["t"])
+        out["input_window"] = [round(w["t"], 3), round(w["t"] + (w.get("dur") or 0.0), 3)]
+    dmg = sorted(round(n["t"], 3) for n in ns if n.get("class") == DAMAGE_POINT and n.get("t") is not None)
+    if dmg:
+        out["damage_points"] = dmg
+    for key, cls in (("reset_chain", RESET_CHAIN), ("allow_move", ALLOW_MOVE)):
+        ts = [n["t"] for n in ns if n.get("class") == cls and n.get("t") is not None]
+        if ts:
+            out[key] = round(min(ts), 3)
+    return {k: (round(v, 3) if isinstance(v, float) else v) for k, v in out.items() if v is not None}
+
+
+def attacks_out(attacks: dict) -> dict:
+    """Per-attack records for the catalog: raw montage notify lists replaced by `timing`."""
+    out = {}
+    for p, rec in attacks.items():
+        r = {k: v for k, v in rec.items() if k not in ("montage", "montage_root_motion")}
+        t = timing(rec)
+        if t:
+            r["timing"] = t
+        out[p] = r
+    return out
+
+
+def short_chain(attacks: dict, first: str | None, cap: int = 16) -> list[str]:
+    """The combo without perks: follow NextAttackClassNoRequiredPerk where an attack sets it."""
+    out, p = [], first
+    while p and p not in out and len(out) < cap:
+        out.append(p)
+        rec = attacks.get(p) or {}
+        p = rec.get("next_no_perk") or rec.get("next")
+    return out
+
+
 def attack_set(m: dict, action_path: str | None) -> dict | None:
     if not action_path:
         return None
@@ -179,8 +232,9 @@ def attack_set(m: dict, action_path: str | None) -> dict | None:
     combo_ends = sorted({m["attacks"][p]["next_no_perk"] for p in c
                          if (m["attacks"].get(p) or {}).get("next_no_perk")})
     dmg = [m["attacks"][p].get("damage") for p in c if (m["attacks"].get(p) or {}).get("damage") is not None]
+    sc = short_chain(m["attacks"], act.get("attack_data"))
     return {"action": action_path, "kind": act.get("kind"), "name": act.get("name"), "chain": c,
-            "combo_ends": combo_ends, "damage": dmg or None,
+            "short_chain": sc if sc != c else None, "combo_ends": combo_ends, "damage": dmg or None,
             "damage_class": (m["attacks"].get(c[0]) or {}).get("damage_class_name") if c else None}
 
 
@@ -189,6 +243,8 @@ def range_type(cat: str | None, held: dict, primary: dict | None) -> str:
     if kind == "ranged" or held.get("ranged_collection") or held.get("ammo_name") in ("Arrows", "CrossbowBolts") \
             or cat in RANGED_CATS:
         return "ranged"
+    if cat in NON_COMBAT_CATS and not held.get("magic_collection"):
+        return "none"
     if kind == "magic" or held.get("magic_collection") or held.get("ammo_name") == "Runes" or cat in MAGIC_CATS:
         return "magic"
     if kind == "melee":
@@ -279,7 +335,7 @@ def normalise(m: dict, build: str) -> dict:
         "schema": SCHEMA, "build": build, "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "source": {"raw_files": m["files"], "registry_count": len(registry), "described_count": len(raw_items),
                    "missing_from_catalog": missing, "errors": m["errors"][:200]},
-        "items": items, "attack_sets": sets, "attacks": m["attacks"], "ranged_collections": m["collections"],
+        "items": items, "attack_sets": sets, "attacks": attacks_out(m["attacks"]), "ranged_collections": m["collections"],
         "category_action_fallback": CATEGORY_ACTION_FALLBACK,
     }
 
@@ -310,6 +366,9 @@ def main() -> None:
     ap.add_argument("--registry-mode", choices=("class", "path"), default="class")
     ap.add_argument("--kismet-soft", action="store_true",
                     help="allow the Conv_SoftClassReferenceToString fallback for soft class paths")
+    ap.add_argument("--montage", action="store_true", help="read each attack's montage length (property reads)")
+    ap.add_argument("--notifies", action="store_true",
+                    help="also read montage notify windows (combo input window, damage point, chain reset)")
     ap.add_argument("--merge-only", metavar="RAW_DIR", help="skip the server; merge an existing raw directory")
     ap.add_argument("--out", help="default data/items_<build>.json")
     a = ap.parse_args()

@@ -108,3 +108,10 @@ Luis relies on spells: **a shield spell**, and **wind jump**, whose landing stun
 - Brain: the Planner decomposes and replans; the Executor verifies each step against game state; the agent asks for help when stuck (no trees, path blocked).
 - Body skills required: inventory store, pick up, drop, gather/woodcutting. Research: `docs/research/2026-10-25-woodcutting-loop.md`.
 - This is the **Phase 8 gate** candidate, including a deliberate failure (no trees in range) to check that it replans or asks for help.
+
+## 9. When to cast which spell (2026-10-25)
+- Gathering spells Luis wants used in the woodcutting task: **Astral Projection, Trunk Totem, Splinter**.
+- **The spell catalog** (`data/spells_<build>.json`) records per spell: role tag (combat_defence / combat_cc / combat_damage / weapon_buff / gathering_buff / gathering_aoe / scouting / repair / travel), preconditions, rune cost, cooldown, and a one-line "use when" text for the LLM.
+- **Reflex layer:** utility scoring. Each castable spell is scored against the situation (chopping with an axe, enemy cluster, incoming telegraph, damaged item); the best spell above a threshold is cast. No LLM involved.
+- **Controller:** sees the short list of castable spells; follows Luis's instructions; stores habits in notes via `remember`.
+- **Rune policy** (`spells.cost_policy`): free | budget (the bot's own runes in its inventory store) | mirror (only Luis's unlocked spells). Proposed default: mirror + budget, with free as a debug toggle. **Awaiting Luis's choice.**
