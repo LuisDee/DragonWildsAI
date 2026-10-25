@@ -61,6 +61,12 @@ Scoring world: the dev server (real game build, real client and server) with a d
 - **Budget (Luis, 2026-10-25):** **$10/day hard cap** on model API spend (ANTHROPIC_API_KEY: the live brain, the Director, evals, generators). Spend is measured from logged token usage × list prices. At 80% → warn in PROGRESS and the scoreboard; at 100% → evals, generators and the Director stop, and the live Controller says he's out of thinking budget for today. State call counts before each benchmark run.
 - **Dev world (Luis, 2026-10-25):** the local dev server is the autonomous test world. Anything goes there: fixtures, item/rune grants, spawns, time of day, resets, server mods, by the TEST HARNESS. Claude's own play still uses only real client paths, so the capability being measured is real. Never on Shockbyte.
 
+## 3b. Running on the 8 GB VM (Luis, 2026-10-25: "flying near the sun" until he looks at bigger options)
+- One client + one server only. Claude moves to the dev world for the goal, and nothing runs on Shockbyte.
+- At most ONE heavy process at a time (full pytest, benchmark batch, dev server world load). Agents run targeted tests; main runs check_all.
+- Watch commit charge (`tools/obs.py anomalies`, watchdog memory_low/critical). On memory_critical, pause new heavy work. If it repeats, print "BLOCKED: memory".
+- No Phoenix/Langfuse servers; obs stays offline.
+
 ## 4. Where this can go wrong (watch-list)
 1. Goodharting a weak predicate → the eval of the eval, and spot audits of traces.
 2. Overfitting to generated tasks → held-out sets, the overfit detector, the principle tests.
