@@ -13,3 +13,4 @@ __pycache__/
 
 # reflection dumps are large and regenerated per build
 dumps/
+server-secrets.local.txt

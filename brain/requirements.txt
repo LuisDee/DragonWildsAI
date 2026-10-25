@@ -1,0 +1,7 @@
+# Brain dependencies (pinned). Install into the repo venv:
+#   python -m venv .venv
+#   .venv/Scripts/python -m pip install -r brain/requirements.txt   (Windows)
+#   .venv/bin/python -m pip install -r brain/requirements.txt       (Linux)
+litellm==1.106.4   # provider-agnostic LLM calls (Anthropic, xAI, OpenAI, ...) via model strings
+pydantic==2.14.1   # tool-argument, event and plan schemas + JSON Schema generation
+pytest==9.1.1      # tests

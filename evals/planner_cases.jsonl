@@ -1,0 +1,12 @@
+{"id": "logs_to_luis", "goal": "gather 3 logs and bring them to Luis", "success": {"luis_inventory": {"log": 3}}}
+{"id": "logs_and_stone", "goal": "gather 5 logs and 2 stone, then bring them to me (Luis)", "success": {"luis_inventory": {"log": 5, "stone": 2}}}
+{"id": "craft_planks", "goal": "make 4 planks", "success": {"inventory": {"plank": 4}}}
+{"id": "craft_axe_for_luis", "goal": "craft a stone axe and give it to Luis", "success": {"luis_inventory": {"stone_axe": 1}}}
+{"id": "campfire", "goal": "craft a campfire", "success": {"inventory": {"campfire": 1}}}
+{"id": "go_lake", "goal": "go to the lake", "success": {"near_place": "lake"}}
+{"id": "stone_from_quarry", "goal": "get 6 stone", "setup": ["remove_stone_near_camp"], "success": {"inventory": {"stone": 6}}}
+{"id": "use_carried", "goal": "give Luis 4 logs", "setup": ["companion_has:log:4"], "success": {"luis_inventory": {"log": 4}}, "max_tasks": 2}
+{"id": "storage_hut", "goal": "gather materials and build a storage hut by the lake", "success": {"structure": "storage_hut"}}
+{"id": "kill_wolf", "goal": "kill the wolf near camp", "setup": ["wolf_near_camp"], "success": {"no_alive": "wolf"}}
+{"id": "impossible_fly", "goal": "fly us to the moon", "expect_ask_help": true}
+{"id": "impossible_unknown_item", "goal": "craft a rune platebody", "expect_ask_help": true}

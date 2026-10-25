@@ -1,0 +1,13 @@
+{"id": "follow_me", "utterance": "follow me", "expected": [{"tool": "follow", "args": {"player": "Luis"}}]}
+{"id": "wait_here", "utterance": "wait here", "expected": [{"tool": "stop", "args": {}}]}
+{"id": "come_here", "utterance": "come here", "expected": [{"tool": "go_to", "args": {"target": "Luis"}}]}
+{"id": "stop", "utterance": "stop", "active_goal": "gather 10 logs", "expected": [{"tool": "stop", "args": {}}]}
+{"id": "kill_wolf", "utterance": "kill that wolf", "state_patch": {"nearby_entities": [{"id": "wolf_1", "kind": "wolf", "position": [6, 2, 0], "hp": 30, "hostile": true, "alive": true, "distance": 6.3}]}, "expected": [{"tool": "attack", "args": {"target": "wolf_1"}}]}
+{"id": "kill_wolf_two_mobs", "utterance": "get the wolf!", "state_patch": {"nearby_entities": [{"id": "deer_1", "kind": "deer", "position": [3, 3, 0], "hp": 20, "hostile": false, "alive": true, "distance": 4.2}, {"id": "wolf_3", "kind": "wolf", "position": [9, 1, 0], "hp": 30, "hostile": true, "alive": true, "distance": 9.1}]}, "expected": [{"tool": "attack", "args": {"target": "wolf_3"}}]}
+{"id": "give_logs", "utterance": "give me 3 logs", "state_patch": {"inventory": {"log": 5}}, "expected": [{"tool": "give", "args": {"player": "Luis", "item": "log", "count": 3}}]}
+{"id": "multi_step", "utterance": "go chop 20 logs and bring them to me", "expected": [{"tool": "start_goal", "args": {}}]}
+{"id": "build_hut", "utterance": "can you build a storage hut by the lake?", "expected": [{"tool": "start_goal", "args": {}}]}
+{"id": "chitchat", "utterance": "haha nice one", "expected": []}
+{"id": "praise_during_goal", "utterance": "good job, keep it up", "active_goal": "gather 10 logs", "expected": []}
+{"id": "remember_place", "utterance": "remember the lake is our base", "expected": [{"tool": "remember", "args": {}}]}
+{"id": "go_to_quarry", "utterance": "head to the quarry", "expected": [{"tool": "go_to", "args": {"target": "quarry"}}]}
