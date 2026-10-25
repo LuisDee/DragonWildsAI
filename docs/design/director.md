@@ -2,7 +2,8 @@
 
 Status: **design, revision 2**, after the fresh-context review `docs/reviews/2026-10-25-director-review.md` (approve with changes). Author: the Director agent. Scope: autonomy-plan.md §4 and §5 steps 2–3; Luis's scope additions via main; GOAL.md milestone **M3**.
 - **Built:** wave 1, `brain/predicates.py` + `tests/test_predicates.py` (shared with the Eval agent). It includes the review's H2, H8 and L2 code fixes.
-- **Not built yet:** everything else. Build waves: (2) board + store → (3) worker + StepRunner (needs the §8 hooks) → (4) the five T3 offline scenarios + negative controls → (5) cassettes. Offline only (mock + fake models) until main wires §8.
+- **Built since:** wave 2 (board, store, gap log, CLI), wave 3 (Director worker, StepRunner, research, `llm_json`, knowledge memory; hooks applied by the event-hygiene agent), wave 4 (`brain/mock/gear_world.py` + `tests/test_director_jobs.py`: the five T3 jobs and the must-not-fake jobs end to end with the real Agent and Controller). Next: (5) cassettes of real Sonnet decisions (call count stated first). Live only after `DW_DIRECTOR=1` is turned on by main.
+- **Prompt risk seen in wave 4:** a step-level `gear_better than=start` compares with the step's own start (after crafting), so an "equip it" step written that way can never pass. Its detail says so ("Bronze 3 vs Bronze 3") and DEPS replans. The Director's rules now say what "start"/"gained"/"lost"/"elapsed" mean in a step vs the job's test. To check with the cassettes.
 - **Review resolution:** every H/M/L finding maps to a section in §11.
 
 ## 1. Goal (what Luis will see)

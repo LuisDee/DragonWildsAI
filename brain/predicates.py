@@ -729,7 +729,9 @@ def _elapsed(a, state, ctx, cat):
     if not isinstance(t0, (int, float)) or not isinstance(now, (int, float)):
         return Result(None, "no clock for this step", 0.0, ["clock"])
     s = now - t0
-    return Result(s >= a["seconds"], f"{s:.0f}/{a['seconds']:g} s", _ratio(s, a["seconds"]))
+    # for a step whose work is waiting, time passing is the progress (measures feed the no-progress rule)
+    return Result(s >= a["seconds"], f"{s:.0f}/{a['seconds']:g} s", _ratio(s, a["seconds"]),
+                  measures={"elapsed": float(max(0.0, s))})
 
 
 def _station(a, state, ctx, cat):

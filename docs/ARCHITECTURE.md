@@ -137,6 +137,12 @@ Debug modules run only through `debug_run`. They hold unproven work and historic
 | `brain/broker.py` | **Event broker** between the bridge and the Controller (streamline step 3): `triage` (per batch), `assess` (per event, fresh state), movement episodes, `digest()` → `body_status`, episodic memory → `recent_activity`, `observe()` → the "Where:" line |
 | `brain/voice.py` | **Single voice**: `Controller.say` is the only speaker; `Voice.gate` blocks near-duplicate notices (30 s) and same-line reply bursts (2 s) |
 | `brain/grounding.py` | **Grounding as information** (streamline step 4): `read()` / `hints()` → `references` (typo-tolerant matches of the player's words to perceived things, with ids). It never vetoes |
+| `brain/predicates.py` | **Success predicates** (shared with the benchmark): `validate` / `errors` / `evaluate` → `Result(passed True\|False\|None, detail, progress, missing, measures)`; null = can't be checked, never done; `register()` adds leaves (evals/bench/leaves.py). Judge file: batch changes before a judge tag |
+| `brain/board.py` | **Task board** (docs/design/director.md): tasks/steps/segments/loops in `<world>/goals.json` (agent loop = only writer; CLI inbox exactly once), `BoardOps` (order, caps, immutable task success, segments around runs, tallies, loops), `HourlyWindow` |
+| `brain/director.py` | **Director** (Sonnet, step boundaries only): `tick()` on the agent loop; one decision on a worker over a snapshot (versioned); research tools (recall, lookup, compare_gear, map_memory, skills_progress, proxied craft_plan/recipes/stations); `StepRunner` = `Agent.run_directed` per step, done only by the predicate; board tools for the Controller (`add_task`, `board`, `pause_board`, `resume_board`, `cancel_task`, `report_step`). `DW_DIRECTOR=1` |
+| `brain/capability_gaps.py` | **Gap log** `logs/state/capability_gaps.json`: what plans needed and the body lacks (tool results, uncheckable tests, cross-checked Director claims); `tools/board.py gaps` |
+| `brain/knowledge_memory.py`, `brain/llm_json.py` | Facts looked up or seen (source, confidence, refuted) + work rates and the efficiency trend log; the shared validate-and-repair JSON decision loop (tool rounds, budget gate per request) |
+| `brain/mock/gear_world.py` | Catalog-driven mock (real item/recipe/station ids, tool tiers, XP, bag slots, equip, creatures with drops, `craft_plan`) for the Director's job scenarios (`tests/test_director_jobs.py`) |
 
 ### 2.6 Event hygiene, single voice, grounding (decisions, 2026-10-25)
 

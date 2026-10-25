@@ -45,7 +45,7 @@ def full_suite() -> list[dict]:
                         "lookup_when_needed": True, "fact_correct": True, "needless_lookup": False,
                         **({"damage_taken": 100.0 - 10 * c["repeat_i"]} if c["family"] == "tactics" else {})}
     for k, c in enumerate(x for x in out if x["family"] == "tactics"):
-        c["repeat_i"] = k
+        c["process"]["fight_i"] = k
         c["process"]["damage_taken"] = 200.0 - 5 * k
     return out
 

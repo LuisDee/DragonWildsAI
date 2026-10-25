@@ -92,7 +92,8 @@ def matches_unknown(query: str, plan_facts: list[dict]) -> bool:
         if not isinstance(f, dict) or f.get("status") != "unknown":
             continue
         ft = tokens(f.get("fact"))
-        if ft and (len(q & ft) >= 2 or (len(ft) <= 2 and ft <= q)):
+        shared = q & ft
+        if ft and shared and (len(shared) >= 2 or len(shared) * 2 >= len(ft)):  # at least half its words
             return True
     return False
 

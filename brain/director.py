@@ -126,6 +126,9 @@ Rules:
   lookup (game data before the wiki; the wiki is community text, may be outdated). Don't look up what you know.
 - Steps are things his tools can do, in order, each with a test that measures the work. Tests already true now
   are trivial: choose ones that measure what the step changes. Prefer tests that can't be null.
+- "start", "gained", "lost" and "elapsed" in a STEP's test mean since that step began; in the job's done test,
+  since the job began. So compare gear with "start" in the job's done test, and test a step that equips
+  something with "equipped".
 - Repeated trips: give the steps a group and a loop with an "until" test; code repeats the group by itself.
 - A step that needs something no body tool can do: name the missing primitive in capability_gaps (with a
   workaround if there is one) instead of pretending.
@@ -477,8 +480,11 @@ class Validator:
     """Turns the model's JSON into a checked decision (predicates validated against the catalogs, trivial tests
     flagged as information on the first answer, unknown facts nudged once)."""
 
-    def __init__(self, kind: str, state: dict, task: dict, items: P.Items | None = None, research_left: bool = True):
+    def __init__(self, kind: str, state: dict, task: dict, items: P.Items | None = None, research_left: bool = True,
+                 places: dict | None = None):
         self.kind, self.state, self.task = kind, state, task
+        self.places = places or {}
+        self.unknown_seen: list[dict] = []  # facts listed as unknown in any round (lookups needed vs needless)
         self.items = items or P.Items()
         self.research_left = research_left
         self.nudged = False
@@ -502,7 +508,9 @@ class Validator:
         out: dict[str, Any] = {k: raw.get(k) for k in ("description", "explanation", "ask_help")}
         out["done"] = bool(raw.get("done"))
         out["facts"] = [f for f in raw.get("facts") or [] if isinstance(f, dict)]
-        fresh = {"baseline": P.snapshot(self.state), "tallies": {}, "episodes": [], "now": 0}
+        self.unknown_seen += [f for f in out["facts"] if f.get("status") == "unknown"]
+        fresh = {"baseline": P.snapshot(self.state, t=0), "tallies": {}, "episodes": [], "now": 0,
+                 "places": self.places}
         ts = raw.get("task_success")
         out["task_success"], out["task_success_trivial"] = None, False
         if ts is not None:
@@ -522,7 +530,9 @@ class Validator:
             if pred is None:
                 continue
             r = P.evaluate(pred, self.state, fresh)
-            trivial = r.passed is True
+            # only the first step can be judged now: later steps run in a later state ("walk home" is true
+            # at home now and not after the trip); a step already true when it activates is done at once
+            trivial = r.passed is True and not steps
             if trivial:
                 info.append(f"steps[{i}] '{s['title']}': its test is already true now ({r.detail})")
             if r.passed is None:
@@ -898,7 +908,7 @@ class Director:
                       content=(resp.content or "")[:4000], tool_calls=[c.name for c in resp.tool_calls],
                       usage=resp.usage)
 
-        validator = Validator(snap["kind"], snap["state"], snap["task"], self.items)
+        validator = Validator(snap["kind"], snap["state"], snap["task"], self.items, places=snap.get("places"))
         episode = getattr(self.log, "episode", None)
         new_id = getattr(self.log, "new_episode_id", None)
         ctx = episode(new_id("director")) if callable(episode) and callable(new_id) else _nullcontext()
@@ -918,7 +928,7 @@ class Director:
             except Exception as exc:  # provider errors etc.
                 dec.error = f"planning call failed: {exc!r}"[:300]
         dec.requests = count["n"]
-        facts = (dec.value or {}).get("facts") or []
+        facts = validator.unknown_seen + ((dec.value or {}).get("facts") or [])
         dec.lookups = [{"query": lk["query"], "needed": matches_unknown(lk["query"], facts),
                         "top": _top_result(lk["result"])} for lk in research.lookups]
         return dec
@@ -1061,6 +1071,10 @@ class Director:
             if r.passed is None:
                 self.gaps.from_uncheckable(r.missing, task=task.text, step=step.title)
                 self._fail_attempt(task, step, f"its test can't be checked ({', '.join(r.missing)})", r)
+                return
+            if r.passed is True:  # already true when it comes up (e.g. already standing there): no run needed
+                step.trivial = True
+                self._step_done(task, step, r, state)
                 return
         if task.status == "preempted":
             task.status = "active"

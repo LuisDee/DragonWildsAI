@@ -1,0 +1,398 @@
+"""GearWorld: a mock game driven by the build's catalogs, for the Director's T3 job scenarios (director.md wave 4).
+
+What it adds over MockGame, all from data/items_<build>.json and data/recipes_<build>.json (never per item name):
+- items are real item ids; names, slots, tool categories and tiers come from the item catalog;
+- resource nodes yield a catalog item, gated by a tool category and tier; gathering gives skill XP;
+- stations of real station types (recipes' ``stations``); ``craft`` uses the real recipe inputs/outputs/yields and
+  the recipe's own skill XP; a processing station shows ``running`` while it works;
+- ``equip`` (catalog slot), gear in ``gear``, a bag in slots (``inventory_full``), ``inventory_items`` rows;
+- creatures with a class, power level and drops (looted into the bag, as the body's loot reflex does);
+  ``attack`` emits a body-verified ``combat_end`` activity;
+- ``drop`` makes world items (ids) at his or a player's feet; ``player_collect`` makes a player take them (the
+  stack shows ``magnet_target`` first, then is gone);
+- ``craft_plan``: a small read-only tree over the same recipes (the client's crafting.lua plan_tree is the live one);
+- primitives can be switched off (``remove_tool``) to provoke capability gaps; there is no deposit, teleport,
+  plant or quest primitive and no quest perception (gaps the board must log, never fake).
+The Director and the benchmark only ever see get_state and tool results, like on the real body.
+"""
+from __future__ import annotations
+
+import json
+import math
+from collections import Counter
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+from .. import item_stats, paths
+from ..interface import Activity, ActionResult, Coords, GatherProgress, Reason, fail, ok
+from ..situation import tokens
+from .game import Entity, MockGame, ResourceNode
+
+STATION_REACH_M = 60.0
+DEFAULT_BAG_SLOTS = 24
+STACK = 99
+
+
+@lru_cache(maxsize=2)
+def recipes_data(path: str | None = None) -> dict:
+    files = sorted((paths.REPO_ROOT / "data").glob("recipes_*.json"))
+    p = Path(path) if path else (files[-1] if files else None)
+    return json.loads(p.read_text(encoding="utf-8")) if p else {}
+
+
+def manifest() -> dict[str, dict]:
+    """A capability manifest (client manifest.lua shape) for the tools this mock implements."""
+    def a(desc, props, req=(), kind="action", **kw):
+        return {"description": desc, "kind": kind, "llm": True, "moves": kind == "action",
+                "args": {"type": "object", "properties": props, "required": list(req)}, **kw}
+    s = {"type": "string"}
+    i = {"type": "integer", "minimum": 1}
+    return {
+        "go_to": a("Walk to a player, an id, a place or [x, y, z].",
+                   {"target": {"anyOf": [s, {"type": "array"}]}}, ["target"]),
+        "gather": a("Harvest a resource kind nearby until you have count MORE of it.", {"resource": s, "count": i},
+                    ["resource", "count"]),
+        "craft": a("Craft an item at a station of the right type within 60 m from what you carry.",
+                   {"item": s, "count": i}, ["item"]),
+        "equip": a("Equip a carried item.", {"item": s}, ["item"], kind="waiter"),
+        "drop": a("Drop carried items at your feet or a nearby player's feet.",
+                  {"item": s, "count": i, "at": {"type": "string", "enum": ["feet", "player"]}, "player": s},
+                  ["item", "count"], kind="waiter"),
+        "attack": a("Fight a creature by its id until it is dead.", {"target": s}, ["target"]),
+        "craft_plan": a("Plan how to make an item from the game's recipes over what you carry (read-only).",
+                        {"item": s, "count": i}, ["item"], kind="read"),
+    }
+
+
+class GearWorld(MockGame):
+    manifest_tools = frozenset({"equip", "craft_plan"})
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.cat = item_stats.catalog()
+        self.rec = recipes_data()
+        self.gear: dict[str, str] = {}
+        self.skills: dict[str, list[float]] = {}
+        self.bag_slots = DEFAULT_BAG_SLOTS
+        self.stations: dict[str, dict] = {}
+        self.node_meta: dict[str, dict] = {}
+        self.creature_meta: dict[str, dict] = {}
+        self.removed: set[str] = set()
+        self.collecting: dict[str, str] = {}  # ground id -> player taking it
+        self._names: dict[str, str] | None = None
+
+    # ------------------------------------------------------------------ catalog helpers
+
+    def names(self) -> dict[str, str]:
+        if self._names is None:
+            out = {k: (v or {}).get("name") or k for k, v in (self.rec.get("items") or {}).items()}
+            out.update({k: v.get("name") or k for k, v in self.cat.items()})
+            self._names = out
+        return self._names
+
+    def name_of(self, iid: str) -> str:
+        return self.names().get(iid, iid)
+
+    def resolve_item(self, q: str) -> str | None:
+        if q in self.names():
+            return q
+        low = str(q).strip().lower()
+        hit = [i for i, n in self.names().items() if str(n).lower() == low]
+        return hit[0] if hit else None
+
+    def _carried(self, iid: str) -> int:
+        return int(self.inventory.get(iid, 0))
+
+    def bag_used(self) -> int:
+        return sum(math.ceil(n / STACK) for n in self.inventory.values() if n > 0)
+
+    def _room_for(self, iid: str, n: int) -> bool:
+        have = self._carried(iid)
+        extra = math.ceil((have + n) / STACK) - math.ceil(have / STACK)
+        return self.bag_used() + extra <= self.bag_slots
+
+    # ------------------------------------------------------------------ world setup
+
+    def carry(self, iid: str, n: int = 1) -> None:
+        self.inventory[iid] += n
+
+    def set_skill(self, name: str, level: int, xp: float = 0.0) -> None:
+        self.skills[name] = [float(level), float(xp)]
+
+    def _xp(self, skill: str | None, xp: float) -> None:
+        if not skill or not xp:
+            return
+        key = skill[6:] if skill.startswith("SKILL_") else skill
+        lvl, cur = self.skills.setdefault(key, [1.0, 0.0])
+        cur += xp
+        self.skills[key] = [1.0 + cur // 100.0, cur]  # mock curve: a level per 100 xp
+
+    def add_resource(self, item: str, pos, remaining: int, tool: str | None = None, min_tier: int = 1,
+                     skill: str | None = None, xp: float = 10.0) -> str:
+        nid = self.add_node(item, pos, remaining)
+        self.node_meta[nid] = {"item": item, "tool": tool, "min_tier": min_tier, "skill": skill, "xp": xp}
+        return nid
+
+    def add_station(self, station_type: str, pos) -> str:
+        sid = self._new_id("station")
+        info = (self.rec.get("stations") or {}).get(station_type) or {}
+        self.stations[sid] = {"id": sid, "station": station_type, "name": info.get("display_name") or station_type,
+                              "kind": info.get("kind"), "position": list(map(float, pos)), "until": 0.0}
+        return sid
+
+    def add_creature(self, name: str, cls: str, pos, hp: int, power_level: int, drops: list[tuple[str, int]],
+                     damage: int = 4, hostile: bool = True) -> str:
+        eid = self.add_entity(name, pos, hp=hp, hostile=hostile, damage=damage)
+        self.creature_meta[eid] = {"name": name, "class": cls, "power_level": power_level, "drops": list(drops)}
+        return eid
+
+    def remove_tool(self, name: str) -> None:
+        self.removed.add(name)
+
+    def player_collect(self, player: str, ground_id: str) -> None:
+        """A player starts taking a stack (it flies to him: magnet_target), then it is gone."""
+        if ground_id in self.ground:
+            self.collecting[ground_id] = player
+
+    def finish_collect(self) -> None:
+        for gid in list(self.collecting):
+            self.ground.pop(gid, None)
+            self.collecting.pop(gid, None)
+
+    # ------------------------------------------------------------------ perception
+
+    def get_state(self) -> ActionResult:
+        res = super().get_state()
+        d = res["data"]
+        d["inventory"] = {k: v for k, v in self.inventory.items() if v > 0}
+        d["gear"] = dict(self.gear)
+        d["inventory_items"] = ([{"item": i, "name": self.name_of(i), "count": n, "where": "bag"}
+                                 for i, n in self.inventory.items() if n > 0]
+                                + [{"item": i, "name": self.name_of(i), "equipped": True, "where": "loadout"}
+                                   for i in self.gear.values()])
+        d["skills"] = [{"skill": k, "level": v[0], "xp": v[1]} for k, v in sorted(self.skills.items())]
+        d["bag"] = {"used": self.bag_used(), "capacity": self.bag_slots}
+        near = []
+        for st in self.stations.values():
+            dist = math.dist(st["position"], self.pos)
+            if dist <= STATION_REACH_M:
+                near.append({"id": st["id"], "name": st["name"], "station": st["station"], "distance": round(dist, 1),
+                             "running": self.time < st["until"]})
+        d["stations_nearby"] = sorted(near, key=lambda r: r["distance"])
+        for r in d["nearby_resources"]:
+            m = self.node_meta.get(r["id"])
+            if m:
+                r.update(item=m["item"], name=self.name_of(m["item"]))
+        for e in d["nearby_entities"]:
+            m = self.creature_meta.get(e["id"])
+            if m:
+                e.update(name=m["name"], power_level=m["power_level"], **{"class": m["class"]})
+        for g in d["nearby_items"]:
+            g["name"] = self.name_of(g["item"])
+            if g["id"] in self.collecting:
+                g["magnet_target"] = self.collecting[g["id"]]
+        return res
+
+    # ------------------------------------------------------------------ tools
+
+    def _tool_ok(self, category: str | None, min_tier: int) -> bool:
+        if not category:
+            return True
+        for iid in list(self.inventory) + list(self.gear.values()):
+            e = self.cat.get(iid) or {}
+            if (self.inventory.get(iid, 0) > 0 or iid in self.gear.values()) and e.get("category") == category \
+                    and int(e.get("tier") or 0) >= min_tier:
+                return True
+        return False
+
+    def gather(self, resource: str, count: int, radius: float | None = None) -> ActionResult:
+        if "gather" in self.removed:
+            return fail(Reason.NOT_IMPLEMENTED, tool="gather")
+        rule = self._begin("gather", resource=resource, count=count)
+        if rule:
+            return self._apply_rule(rule)
+        want = tokens(resource)
+        reach = max(float(radius or 0), 30.0)
+        cands = []
+        for n in self.nodes.values():
+            m = self.node_meta.get(n.id) or {"item": n.resource}
+            words = tokens(m["item"]) | tokens(self.name_of(m["item"]))
+            if n.remaining > 0 and (want <= words or resource in (m["item"], self.name_of(m["item"]))) \
+                    and math.dist(n.pos, self.pos) <= reach:
+                cands.append((math.dist(n.pos, self.pos), n, m))
+        if not cands:
+            return fail(Reason.NOTHING_IN_RANGE, resource=resource, detail=f"no {resource} within {reach:g} m")
+        cands.sort(key=lambda x: x[0])
+        got, item = 0, cands[0][2]["item"]
+        for _, n, m in cands:
+            if not self._tool_ok(m.get("tool"), int(m.get("min_tier") or 1)):
+                if got == 0:
+                    return fail(Reason.WRONG_TOOL, resource=resource, needs=m.get("tool"), tier=m.get("min_tier"))
+                break
+            self._walk(n.pos, 1.0)
+            while n.remaining > 0 and got < count:
+                if not self._room_for(m["item"], 1):
+                    return fail(Reason.INVENTORY_FULL, item=m["item"], gathered=got,
+                                detail="my bag is full")
+                n.remaining -= 1
+                self.inventory[m["item"]] += 1
+                got += 1
+                self._xp(m.get("skill"), m.get("xp") or 0)
+                self._advance(2.0)
+            self._progress(GatherProgress(resource=resource, item=m["item"], have=got, want=count))
+            if got >= count:
+                break
+        if got < count:
+            return fail(Reason.NOT_ENOUGH, resource=resource, item=item, gathered=got)
+        return ok(resource=resource, item=item, gathered=got)
+
+    def _recipes_for(self, iid: str) -> list[tuple[str, dict]]:
+        out = []
+        for rid, r in (self.rec.get("recipes") or {}).items():
+            if r.get("test") or not r.get("stations") or not r.get("inputs"):
+                continue
+            if any(o.get("item") == iid for o in r.get("outputs") or []):
+                out.append((rid, r))
+        return sorted(out)
+
+    def _near_station(self, types: list[str]) -> dict | None:
+        best = None
+        for st in self.stations.values():
+            d = math.dist(st["position"], self.pos)
+            if st["station"] in types and d <= STATION_REACH_M and (best is None or d < best[0]):
+                best = (d, st)
+        return best[1] if best else None
+
+    def craft(self, item: str, count: int = 1) -> ActionResult:
+        if "craft" in self.removed:
+            return fail(Reason.NOT_IMPLEMENTED, tool="craft")
+        iid = self.resolve_item(item)
+        if iid is None:
+            return fail(Reason.UNKNOWN_RECIPE, item=item)
+        recs = self._recipes_for(iid)
+        if not recs:
+            return fail(Reason.UNKNOWN_RECIPE, item=item, detail=f"no recipe makes {self.name_of(iid)}")
+        last_missing: dict = {}
+        for rid, r in recs:
+            st = self._near_station(r["stations"])
+            if st is None:
+                continue
+            per = sum(o.get("count", 1) for o in r["outputs"] if o.get("item") == iid) or 1
+            crafts = math.ceil(count / per)
+            need = {i["item"]: i["count"] * crafts for i in r["inputs"]}
+            missing = {self.name_of(k): v - self._carried(k) for k, v in need.items() if self._carried(k) < v}
+            if missing:
+                last_missing = missing
+                continue
+            self._walk(st["position"], 2.0)
+            self.inventory -= Counter(need)
+            self.inventory[iid] += crafts * per
+            self._xp(r.get("skill"), float(r.get("xp") or 0) * crafts)
+            t = float((r.get("processing_time") or [5, 5])[0]) if st.get("kind") == "processing" else 1.0
+            st["until"] = self.time + t * crafts + 1.0 if st.get("kind") == "processing" else 0.0
+            self._advance(min(t * crafts, 5.0))
+            return ok(item=iid, recipe=rid, crafted=crafts * per, station=st["id"])
+        if last_missing:
+            return fail(Reason.MISSING_MATERIALS, item=iid, missing=last_missing)
+        need_st = sorted({s for _, r in recs for s in r["stations"]})
+        return fail(Reason.NOTHING_IN_RANGE, item=iid, stations=need_st,
+                    detail=f"no {' or '.join(need_st)} within {STATION_REACH_M:g} m")
+
+    def call_raw(self, tool: str, args: dict) -> ActionResult:
+        if tool in self.removed:
+            return fail(Reason.NOT_IMPLEMENTED, tool=tool)
+        if tool == "equip":
+            return self.equip(**args)
+        if tool == "craft_plan":
+            return self.craft_plan(**args)
+        return fail(Reason.NOT_IMPLEMENTED, tool=tool)
+
+    def equip(self, item: str) -> ActionResult:
+        iid = self.resolve_item(item)
+        if iid is None or self._carried(iid) < 1:
+            return fail(Reason.NOT_IN_INVENTORY, item=item)
+        st = item_stats.stats(iid, self.cat) or {}
+        slot = item_stats._slot_key(st.get("slot")) or "held"
+        slot = "held_right" if slot == "held" else slot
+        old = self.gear.get(slot)
+        if old:
+            self.inventory[old] += 1
+        self.inventory[iid] -= 1
+        self.gear[slot] = iid
+        return ok(item=iid, slot=slot, replaced=old)
+
+    def craft_plan(self, item: str, count: int = 1) -> ActionResult:
+        iid = self.resolve_item(item)
+        if iid is None:
+            return fail(Reason.UNKNOWN_RECIPE, item=item)
+
+        def node(i: str, n: int, depth: int) -> dict:
+            have = self._carried(i)
+            out: dict[str, Any] = {"item": i, "name": self.name_of(i), "need": n, "have": have}
+            recs = self._recipes_for(i)
+            if have >= n or depth > 4 or not recs:
+                out["status"] = "have" if have >= n else ("gather" if not recs else "depth")
+                return out
+            rid, r = recs[0]
+            per = sum(o.get("count", 1) for o in r["outputs"] if o.get("item") == i) or 1
+            crafts = math.ceil((n - have) / per)
+            out.update(status="craft", recipe=rid, station=r["stations"], crafts=crafts,
+                       inputs=[node(x["item"], x["count"] * crafts, depth + 1) for x in r["inputs"]])
+            return out
+        return ok(root=node(iid, count, 0))
+
+    def drop(self, item: str, count: int, at: str = "feet", player: str | None = None) -> ActionResult:
+        iid = self.resolve_item(item) or item
+        if self._carried(iid) < count:
+            return fail(Reason.NOT_IN_INVENTORY, item=item, have=self._carried(iid))
+        pos = list(self.pos)
+        if at == "player":
+            p = self.players.get(player or next(iter(self.players), ""))
+            if p is None or math.dist(p.pos, self.pos) > 4.0:
+                return fail(Reason.TOO_FAR, player=player)
+            pos = list(p.pos)
+        self.inventory[iid] -= count
+        gid = self.add_ground_item(iid, count, pos)
+        return ok(item=iid, count=count, world_items=[gid])
+
+    def attack(self, target: str) -> ActionResult:
+        e = self.entities.get(target)
+        if e is None or not e.alive:
+            return fail(Reason.UNKNOWN_TARGET, target=target)
+        m = self.creature_meta.get(target, {"name": e.kind, "class": e.kind, "drops": []})
+        self._walk(e.pos, 1.5)
+        hp0 = self.health
+        while e.hp > 0:
+            e.hp -= 10
+            if e.hp <= 0:
+                break
+            self.health -= e.damage
+            self._advance(1.0)
+            if self.health <= 0:
+                self._events.append(Activity(kind="combat_end", by="brain", target=m["name"], target_id=target,
+                                             target_class=m["class"], outcome="died"))
+                return fail(Reason.COMPANION_DOWN)
+        e.hp, e.alive = 0, False
+        loot = []
+        for iid, n in m.get("drops") or []:  # the body's loot reflex picks drops up (or leaves them when full)
+            if self._room_for(iid, n):
+                self.inventory[iid] += n
+                loot.append({"item": iid, "name": self.name_of(iid), "count": n})
+            else:
+                self.add_ground_item(iid, n, list(e.pos))
+        self._events.append(Activity(kind="combat_end", by="brain", target=m["name"], target_id=target,
+                                     target_class=m["class"], outcome="killed", damage_taken=hp0 - self.health,
+                                     loot=loot))
+        return ok(target=target, killed=True, loot=loot)
+
+    def pickup(self, target: str, item: str | None = None, limit: int = 1) -> ActionResult:
+        g = self.ground.get(target)
+        if g is None:
+            return fail(Reason.UNKNOWN_TARGET, target=target)
+        if not self._room_for(g.item, g.count):
+            return fail(Reason.INVENTORY_FULL, item=g.item)
+        self._walk(g.pos, 1.0)
+        self.inventory[g.item] += g.count
+        del self.ground[target]
+        return ok(item=g.item, count=g.count, picked=[{"world_item": target, "item": g.item, "count": g.count}])
