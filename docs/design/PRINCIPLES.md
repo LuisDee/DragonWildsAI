@@ -30,6 +30,7 @@ These come from Luis's decisions (CLAUDE.md section 0). Breaking one needs Luis'
     - Every live bug becomes a regression test.
 
 ## Anti-patterns (the tests in tests/test_principles.py fail on these)
+- Code that vetoes or rewrites the model's chosen tool/args based on the player's wording ("grounding vetoes").
 - Phrase/keyword→tool tables in brain/ (e.g. dicts of utterances, `if "get your stuff" in text`).
 - Hard-coded item, creature or place names in client_mod/scripts movement, skills or brain logic. Data files and tests are exempt.
 - Client-mod calls to `Server_*` functions, or writes to Health/Inventory/Damage properties.
