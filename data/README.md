@@ -126,7 +126,7 @@ Build 26161880: 1232 recipes (954 with inputs; 926 with a station; the rest are 
 
 ### ../mod/body/recipe_data.lua: what the mod loads
 
-Generated together with the JSON (`--no-lua` skips it), so the mod never parses 2 MB of JSON. Schema `dw_recipe_data/1`: `recipes[id] = {path, inputs={{item_path, n}}, outputs, stations, t, tmax, qm, pt={min,max}, fuel?, extra?, rep?}`, `stations[id] = {kind, name, classes, range, rate, fuels={item_path}, vendor}`, `items[item_path] = {id, name, max_stack, durability, fuel}`, `interaction_ranges`, `unlocked_snapshot = {player, ids}`. Test recipes, test stations and stations without recipes are left out. Used by `mod/body/crafting.lua` and the drift check.
+Generated together with the JSON (`--no-lua` skips it; `--lua-only` regenerates only this file from the existing JSON), so the mod never parses 2 MB of JSON. Schema `dw_recipe_data/1`: `recipes[id] = {path, inputs={{item_path, n}}, outputs, stations, t, tmax, qm, pt={min,max}, fuel?, extra?, rep?, uq?}` (`uq` = the unlock query strings of the recipe's progression bundles, e.g. `ALL ITEMS[ Iron Ore ] AND ALL ACTORS[ BP_Station_Smelter_C ]`), `stations[id] = {kind, name, classes, range, rate, fuels={item_path}, vendor}`, `items[item_path] = {id, name, max_stack, durability, fuel}`, `interaction_ranges`, `unlocked_snapshot = {player, ids}`. Test recipes, test stations and stations without recipes are left out. Used by `mod/body/crafting.lua`, the drift check and the client's `client_mod/scripts/crafting.lua`.
 
 ## dependencies.json: what the mod and tools depend on
 
