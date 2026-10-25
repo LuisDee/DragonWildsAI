@@ -15,6 +15,8 @@
 --   offset=0, limit=10
 --   paths={...}      describe exactly these object paths (loads them only if load=true)
 --   attacks=true     resolve action classes, attack-data chains and ranged collections
+--   montage=false    opt-in: per attack, the montage path, SequenceLength and RateScale
+--   notifies=false   opt-in (implies montage): each montage's notify windows (class, start, duration)
 --   soft=true        read soft class/object paths (HeldEquipmentActorClass, Icon)
 --   kismet_soft=false opt-in fallback: KismetSystemLibrary:Conv_SoftClassReferenceToString
 --                    when the soft path could not be read directly (passes a struct to a UFunction)
@@ -126,6 +128,28 @@ end
 
 -- --------------------------------------------------------------------- actions and attacks
 
+-- Attack timing (opt-in, args.montage / args.notifies): property reads only.
+-- UAnimSequenceBase.SequenceLength / RateScale; with notifies, every FAnimNotifyEvent's state class
+-- name, LinkValue (start time, s) and Duration, e.g. AnimNotifyState_InputBufferWindow = the combo
+-- input window, AnimNotifyState_InputCancelWindow = when the next action may cut in.
+local function describe_montage(ctx, m)
+    if not valid(m) then return nil end
+    local r = { path = opath(m), length = num(get(m, "SequenceLength")), rate = num(get(m, "RateScale")) }
+    if ctx.notifies then
+        local ns = {}
+        each(get(m, "Notifies"), function(e)
+            local st, n = get(e, "NotifyStateClass"), get(e, "Notify")
+            local o = valid(st) and st or (valid(n) and n or nil)
+            local cname = o and str(try(function() return o:GetClass():GetFName() end)) or nil
+            ns[#ns + 1] = { class = cname, name = str(get(e, "NotifyName")), state = valid(st) or nil,
+                            t = num(get(e, "LinkValue")), seg = num(get(e, "SegmentBeginTime")),
+                            dur = num(get(e, "Duration")) }
+        end, 64)
+        r.notifies = ns
+    end
+    return r
+end
+
 local function describe_attack(ctx, cls, depth)
     if not valid(cls) then return nil end
     local path = opath(cls)
@@ -148,6 +172,10 @@ local function describe_attack(ctx, cls, depth)
     rec.damage_shapes = num(try(function() return cdo.TimedDamageShapes:GetArrayNum() end))
     if bool(get(cdo, "bHasOverrideWeaponDamageTypes")) then rec.override_damage_types = tags(get(cdo, "OverrideWeaponDamageTypes")) end
     rec.required_perk_for_next = opath(get(cdo, "RequiredPerkForNextAttack"))
+    if ctx.montage then
+        rec.montage = describe_montage(ctx, get(get(cdo, "InPlaceAttackData"), "Montage"))
+        rec.montage_root_motion = describe_montage(ctx, get(get(cdo, "RootMotionAttackData"), "Montage"))
+    end
     if depth < 16 and ctx.n_attacks < 4000 then
         rec.next = describe_attack(ctx, get(cdo, "NextAttackClass"), depth + 1)
         rec.next_no_perk = describe_attack(ctx, get(cdo, "NextAttackClassNoRequiredPerk"), depth + 1)
@@ -403,6 +431,7 @@ function M.run(log, args)
     local ctx = {
         log = log, soft = args.soft ~= false, kismet_soft = args.kismet_soft == true,
         attacks_on = args.attacks ~= false, bases = {},
+        montage = args.montage == true or args.notifies == true, notifies = args.notifies == true,
         actions = jsonutil.object(), attacks = jsonutil.object(), collections = jsonutil.object(), n_attacks = 0,
     }
     if ctx.kismet_soft then ctx.ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary") end

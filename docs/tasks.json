@@ -251,6 +251,41 @@
       "title": "On-demand speech as Claude (outside the relay hook); overhead nameplate shows Claude",
       "status": "todo",
       "passes_test": false
+    },
+    {
+      "id": "P7.I1",
+      "phase": 7,
+      "title": "Bot persistent inventory store (server-side, items+counts)",
+      "status": "todo",
+      "passes_test": false
+    },
+    {
+      "id": "P7.I2",
+      "phase": 7,
+      "title": "Skill: pick up world items into bot inventory",
+      "status": "todo",
+      "passes_test": false
+    },
+    {
+      "id": "P7.I3",
+      "phase": 7,
+      "title": "Skill: drop items / give to Luis",
+      "status": "todo",
+      "passes_test": false
+    },
+    {
+      "id": "P7.T1",
+      "phase": 7,
+      "title": "Skill: lodestone teleport (unlocked lodestones)",
+      "status": "todo",
+      "passes_test": false
+    },
+    {
+      "id": "P4.N1",
+      "phase": 4,
+      "title": "Overhead nameplate shows Claude",
+      "status": "todo",
+      "passes_test": false
     }
   ]
 }

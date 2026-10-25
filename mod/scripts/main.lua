@@ -69,6 +69,18 @@ if os.getenv("DW_NO_BODY") ~= "1" then
     log.event("body_started", { ok = ok_body, err = (not ok_body) and tostring(err_body) or nil,
                                 autospawn = os.getenv("DW_PUPPET_AUTOSPAWN") == "1" })
 end
+-- Frame-time sampler -> logs/perf/mod_perf.jsonl (scripts/perf_sampler.lua). DW_PERF=0 disables it.
+-- Armed 60 s after start so the game world exists for its clock; debug_run can also arm it.
+if os.getenv("DW_PERF") ~= "0" and mod_root then
+    ExecuteInGameThreadWithDelay(60000, function()
+        local ok, res = pcall(function()
+            local chunk = assert(loadfile(mod_root .. "/scripts/perf_sampler.lua"))
+            return chunk().run(log, {})
+        end)
+        log.event("perf_autostart", { ok = ok, err = (not ok) and tostring(res) or nil,
+                                      clock = ok and type(res) == "table" and res.clock or nil })
+    end)
+end
 if os.getenv("DW_NO_HOOKS") ~= "1" then
     require("hooks").register(log, {
         -- Every chat line goes to the brain; the Controller decides whether it's a command.

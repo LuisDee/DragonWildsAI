@@ -54,7 +54,7 @@ local function pick_clock(S)
     bench.world = world and try(function() return world:GetFullName() end) or nil
     if valid(ksl) then
         local fc = try(function() return ksl:GetFrameCount() end)
-        if type(fc) == "number" then S.ksl = ksl; bench.frame_count = fc end
+        if type(fc) == "number" then S.ksl = ksl; S.fc0 = fc; bench.frame_count = fc end
     end
     if valid(gs) and world then
         local v = try(function() return gs:GetRealTimeSeconds(world) end)

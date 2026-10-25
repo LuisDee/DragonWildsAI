@@ -7,7 +7,7 @@
 Remove-Item (Join-Path $RepoRoot 'logs\server.stopped') -ErrorAction SilentlyContinue
 if (Get-ServerProcess) { Write-Host 'Server already running.'; exit 0 }
 
-New-Item -ItemType Directory -Force $ModLogDir, $BridgeDir | Out-Null
+New-Item -ItemType Directory -Force $ModLogDir, $BridgeDir, (Join-Path $RepoRoot 'logs\perf') | Out-Null
 $env:DW_MOD_LOG_DIR = $ModLogDir
 $env:DW_BRIDGE_DIR  = $BridgeDir
 $env:DW_MOD_ROOT    = $ModDeployDir

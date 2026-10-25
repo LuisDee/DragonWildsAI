@@ -94,3 +94,11 @@ Luis relies on spells: **a shield spell**, and **wind jump**, whose landing stun
 - **Spectral Arrows:** ranged.
 - **Requirement:** the bot mirrors Luis's stats and unlocks, so it has the same spells. Research is in `docs/research/2026-10-25-spells-and-weaknesses.md` section 5.
 - **Correction (Luis):** those were only examples. The bot should have **all spells**, including utility ones such as **Magical Mending**: Luis drops damaged gear on the floor and the bot repairs it. The spell catalog must cover every spell; skills are added and verified one at a time.
+
+## 7. Luis's next requirements (2026-10-25)
+- **Overhead name "Claude":** the nameplate (`UPlayerNameplateWidget.PlayerNameTextBlock`, client-side) shows "Character Name Here" because the puppet has no PlayerState or character identity. Identity agent investigating: PlayerState via bWantsPlayerState, SetPlayerName, and linking the OwnerGuid to the registered "Claude" display-name entry.
+- **Persistent inventory:** today only worn and held gear persists (`logs/state/bot_state.json`). Needed: a server-side bot inventory store (items and counts, persisted), used by the pickup, drop, give, craft and loot skills.
+- **Pick up items:** walk to a `RuntimeSpawnedWorldItem` or gatherable, remove the world item, add it to the bot store (pickup hook path in DISCOVERIES "Phase 2 hooks").
+- **Drop items:** spawn a `RuntimeSpawnedWorldItem` from the item data at the bot's feet (and support "give" by dropping near Luis or magnetising, `BP_MagnetizeToPlayer`).
+- **Lodestone teleport:** a travel skill that teleports to lodestones (lodestone actors and positions; Luis's unlocked lodestones; TeleportationSubsystem / K2_TeleportTo).
+- **Sequencing:** these go after the combat and architecture agents land (they share mod/body files). The services are mod/body/inventory.lua and mod/body/travel.lua, registered via the ARCHITECTURE.md conventions.
