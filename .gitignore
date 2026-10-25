@@ -18,3 +18,8 @@ server-secrets.local.txt
 # world saves (never commit)
 *.sav
 client_io/
+
+# local wiki mirror + knowledge index (CC BY-NC-SA 3.0, Weird Gloop): never commit or publish
+data/wiki/
+edited.json
+edited_newguid.json

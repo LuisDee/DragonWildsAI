@@ -1335,3 +1335,32 @@ Module: `client_mod/scripts/traverse_learn.lua` (task R2.12; design `docs/resear
   - The offset adapts: blocked-not-parried means too early, so press later; hit means too late, so press earlier.
   - Too fast for a 150-300 ms reaction → plain block. Unblockable → dodge, or jump if the shape is low or a centred area attack. No stamina → retreat.
   - The policy comes from the model's `combat_orders`.
+
+## Client crafting (R2) (2026-10-25, client build 26162923; reflection dump 26161880; task R2.19, design `docs/design/r2-crafting.md`)
+Module `client_mod/scripts/crafting.lua`; offline tests `client_mod/tests/test_crafting.lua`; read-only probe `client_mod/commands/craft_probe.lua`; read-only capture of the UI call chain `client_mod/commands/craft_capture.lua` (writes `client_io/events/craft_capture.jsonl`).
+- **The crafting UI has its own API object, like the inventory** (dump, Dominion.hpp:18170), the real player path for a bench:
+  - `UCraftingUIAPI` {`CurrentStation` (UCraftingStationComponent), `StandbyStation`, `CurrentCraftRecipe`, `InventoryAPI`, `PlayerController`, `ProgressComponent`};
+  - its handlers: `ShowCraftingUI(Station, EWidgetType)`, `ToggleCraftingUIVisibility`, `HideCraftingUI(EWidgetType)`, `SelectRecipe(URecipeData*)`, `SelectCraftingAmount(int)`, **`SendCraftRequest(int Amount)`**, `SendRepairRequest`, `SelectRepairItem`.
+  - EWidgetType: Crafting 6, Processing 15, WorldInventory 26, Container 33.
+  - **[UNVERIFIED until craft_capture runs]:** `SendCraftRequest` → `InventoryController:CraftRecipe` → `Server_CraftRecipe` with the game's own BonusCount, XP multipliers and `GetLinkedInventories`.
+- **Processing stations have `UProcessingStationUIAPI`** (Dominion.hpp:31161):
+  - fields: `ProcessingStationComponent`, `StationIngredientsInventory`, `StationFuelInventory`, `ValidIngredients`;
+  - handlers: `ToggleProcessingStationStarted()` (the start button), `SetCurrentProcessingStation(Comp, IngredientsInv, FuelInv)`, `UnsetCurrentProcessingStation`, `ClearProcessingStation(PC)`.
+  - Items go in through the inventory UI's external-slot handlers (`UInventoryUIAPI`, Dominion.hpp:25045): `HandleSplitToExternalSlot(FromSlot, FromSlotType, Amount, ToSlot, OutsideTargetInventory)`, `HandleDragAndDropToExternal`, `HandleExternalQuickTransfer(Slot, OutsideSourceInventory)`, `HandleDragAndDropFromExternal`.
+- **`UProcessingStationComponent`** (Dominion.hpp:30943), live-readable state:
+  - `bStationRunning`, `bReadyToProcess`, `RemainingProcessingTime`, `RemainingFuelTime`, `CurrentRecipe`, `LastValidRecipe`;
+  - inventories `Resources`, `Fuel`, `OutputInventory`; `bStoreOutput`, `StorageType`;
+  - `AcceptedResources`, `RecipesCache`, `ProcessInstigator` (FDomCharacterGuid).
+  - `UCraftingStationComponent`: `ValidRecipes`, `DisplayName`, `bIsVendor`, `bHaveRepairOption`.
+- **Unlocks are item/actor discoveries, not skill levels.** `FProgressionBundleRow.UnlockQueryString` uses only `ITEMS[...]` (815 recipes), `ACTORS[...]` (252), `ALL [entitlement]` (10) and `GOLD[agility courses]` (1). So holding an item and being near a station unlocks most recipes. The catalog's Lua now carries them as `uq`, and the planner shows them with station names (e.g. `ALL ITEMS[ Iron Ore ] AND ALL ACTORS[ Furnace ]`).
+- **Claude's own unlocks** are read from `pc.ProgressComponent.RecipesUnlocked` (the TSet, as on the server). `UProgressComponent:IsRecipeUnlocked(URecipeData*)` exists too.
+- **Server verdict:** `InventoryController:Client_OnCraftingResultHandler(ECraftingResult, Recipe, Count)` is a Client RPC. A read-only post-hook on Claude's client gets the result code; the codes map to speech in `crafting.RESULTS`, and an unknown code becomes `craft_failed`.
+
+## Claude's stats raised (2026-10-25 21:19 local, client build 26162923)
+- Luis's edited character file (`edited.json`, max XP, 48 selected spells) **loaded unchanged on the dev server**, which had never seen Claude (total level 1076). So the file format and our login path are fine.
+- On Shockbyte the server keeps its own per-character copy (CachedCharacterStates), keyed by character GUID. That copy overrides the uploaded file for a character it has seen before (DISCOVERIES "Raising Claude's stats…").
+- **Fix that worked:** give the edited file a **fresh `meta_data.char_guid`** (`A8642C53AD2F422CA02FD23615387E10`, with worlds_playtime cleared), keeping the name "Claude".
+  - Shockbyte has no copy for the new GUID, so it took the file: **total level 1076 live on Shockbyte** (Woodcutting/Attack/Construction/Farming/Runecrafting/Agility 99, Magic 89, Mining 93, Ranged 93, Artisan 84, Cooking 73, Fishing 50).
+  - The old level-1 GUID `D06CFBE3…` stays unused in the world save.
+- Files: `edited.json` / `edited_newguid.json` are gitignored. Backups are in C:\GameServers\backups\claude_before_devtest_*, claude_after_devtest_*.
+- Power level read 2.0 right after join (a gear-based value?); recheck.
