@@ -719,3 +719,35 @@ Luis's direction change (binding, `docs/design/real-player-remediation.md`): no 
   - **`pawn:AddMovementInput(dir, 1.0)` called every frame** (`LoopInGameThreadWithDelay(1, …)`) plus `pc:SetControlRotation` walked 13 m to 2.9 m in about 3 s. Luis confirmed he "ran towards me".
   - A 50 ms cadence leaves most frames without input, and the character jitters on the spot.
   - `pawn:Jump()` + `StopJumping()` jump visibly (Luis confirmed). `IsLocallyControlled()` = true.
+
+## Client chat (R2): send and receive as a real player (2026-10-25, 17:30 UTC, client build 26162923, Shockbyte world)
+Module `client_mod/scripts/chat.lua` (`M.start(log)`, `M.say(log, text)`); commands `chat_start`, `chat_say`, `chat_status`, `chat_probe` (read-only).
+- **Live objects on the client (read-only probe):**
+  - HUD `WBP_Chat_C` (`UChatWidget`), owned by `BP_DominionGameInstance_C` under `/Engine/Transient`. Its `OpenedChatSubWidget` is a `WBP_OpenedChat_C` with `MessageSendBox` (`UEditableText`) and `PlayerChatComponent` = Claude's own `BP_PlayerController_C.PlayerChat`. A second `OpenedChatSubWidget` under `/Game/UI/Chat/WBP_Chat.WBP_Chat_C:WidgetTree` is the class archetype: skip it (it has no MessageSendBox).
+  - `HUDUISubsystem.ChatUIAPI` exists, but `UChatUIAPI` has no reflected functions.
+- **SEND (VERIFIED, Luis saw "Claude: Claude here - chat test"):**
+  1. `MessageSendBox:SetText(FText(text))`.
+  2. Call `/Script/Dominion.OpenedChatSubWidget:OnTextCommitted(const FText& Text, ETextCommit CommitMethod=1 /*OnEnter*/)`, the native handler bound to the chat EditableText's commit (what Enter in the chat box runs).
+  - Native code builds `FChatMessageData` from Claude's real identity and sends `Server_SendChatMessage`. **No struct is built in Lua.**
+  - Afterwards the box text is "" (consumed).
+  - It works with the chat box closed and invisible (`IsVisible` false, headless).
+- **RECEIVE (VERIFIED):** post-hook on `/Script/JagexChatBackend.PlayerChatComponent:Client_ReceiveChatMessage(FChatMessageData)`. It fires on the client for every line, **including the sender's own line echoed back by the server** (about 1 s round trip, 17:30:39 send → 17:30:40 echo).
+  - Read with `msg:get().MessageBody:ToString()`, `.SenderData.PlayerId` and `.SenderData.CharacterGuid` (an FGuid A..D). The nested struct reads in the hook are safe.
+  - Luis's "hey claude" arrived as PlayerId 258, guid AD09D558…, and resolved to "Zezima". Claude is PlayerId 262, guid D06CFBE3….
+  - `ChatWidget:OnChatMessageReceived` also fired once per line (counter `ui` = `rx` = 2), so the chat box displayed both.
+- **Sender name:** GameState/PlayerState `DisplayNameComponent.SanitizedCharacterNames`, matched on `CharacterGuid.InnerGuid` → `CharacterName` (what the chat box shows). Fallbacks: PlayerState `OwnerGuid.CharacterGuid.InnerGuid`, then `PlayerId`.
+- **`bIsChatEnabled` / `IsChatEnabled()` are FALSE on Claude's client, yet sending and receiving both work.**
+  - `bIsChatEnabled` is a plain local `UPROPERTY` (not replicated, UHT).
+  - `BP_PlayerController` gates the `IA_UI_OpenChat` input (opening the chat box) on `IsChatEnabled()`, so a human at this client couldn't open chat with Enter. The commit handler itself is not gated.
+  - The platform check passed: the log shows `DominionContentRestrictionSubsystem: Updating privilege CanCommunicateOnline ... Succeeded`. Claude's `PlayerState.PrivilegeComponent:HasPrivilege(8 /*Chat*/)` = true.
+  - Why it is false (headless HUD init?) is still open. It is **not** written by us.
+- **Limits:** `Default__ChatDeveloperSettings.MessageCharacterLimit` (fallback 256). `say` clamps to it, strips control characters, and rate-limits below `SpamDetectionMessageLimit` per `SpamDetectionDuration`.
+- **Events:** `client_io/events/chat.jsonl`, one JSON line each:
+  - `{"type":"chat","from","text","ts" (unix s),"iso","self","player_id","guid"}`
+  - also `chat_event` (`Client_ReceivePlayerEvent`, tag) and `chat_error` (`ChatWidget:OnChatErrorMessageReceived`).
+- **Hot reload:** hooks are registered once (state in `_G.DWChat`) and dispatch to the newest handler, so re-running `chat_start` is idempotent (verified: second run registered nothing).
+- **Search (search-before-building):**
+  - Found no existing Dragonwilds or UE4SS chat mod using these classes. The closest is the Subnautica 2 MultiplayerChat UE4SS mod (nexusmods.com/subnautica2/mods/153), which uses its own RPC transport, so it doesn't apply.
+  - UE4SS `FText()` docs: docs.ue4ss.com/lua-api/global-functions/ftext.html.
+  - The wiki confirms public chat with a 256-character limit: dragonwilds.runescape.wiki/w/Chat.
+  - Decision: **build a thin wrapper over the game's own UI handler**, reusing vendored dkjson (copied to `client_mod/scripts/dkjson.lua`).
