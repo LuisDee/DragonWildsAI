@@ -59,22 +59,27 @@ Status: **rev 2**, after review aa990d09b7e96fb65 (CHANGES-NEEDED: 5 items, all 
    - No expected effect in the catalog: verify on runes and cooldown only, with `effect_verified = false`.
 
 ## Approach (layers, files)
-- **New module `client_mod/scripts/spells.lua`** (owned by this agent). It is pure reads plus input injection through the shared `combat._inject` helper (EnhancedInput `InjectInputVectorForAction`, the same call as attack and interact).
-  - `list(log)`: one row per unlocked spell, built from game data only.
-    - Fields: name, the `DescriptionText` / perk description, cast type (instant, placed, aimed), rune cost vs carried, cooldown left, wheel slot.
-    - `castable` plus `why_not` codes: `no_runes{rune, have, need}`, `cooldown{s}`, `not_on_wheel`, `slot_beyond_quick_keys`, `falling`, `busy_casting`, `needs_level{skill, level}` from `PerkUnlockInfo`.
-    - `all = true` also lists locked spells with their unlock requirement, so Claude can say "I can't, I need X".
-  - `cast(log, {spell, target?})`: an async action through `arbiter.request` at level `command`.
-    1. Resolve the spell by name or asset among the unlocked spells, using fuzzy name matching against game data. This is not a phrase table.
-    2. Check `castable`. If it fails, return the reason and a sentence in `data.detail`.
-    3. If the spell's wheel radial is not the current one, inject F/G.
-    4. Tap **Q** (one frame, so Released fires). Wait for `DIM_RadialMenu`. Tap the quick key for its slot.
-    5. Instant spells: done. Placed or aimed spells: face the target with the move.lua facing nudge (as gather and interact do), wait for `DIM_SpellcastingMode` / `DIM_SpellPlacementMode`, then tap **LMB** (`IA_Spellcasting_PlaceSpell`). On any timeout, inject Esc (`IA_Spellcasting_Cancel`).
-    6. **Verify**: the rune count fell by the cost, `LastCastTimeBySpellData[spell]` changed, and, from the catalog modules, the expected effect appeared. Effects are a GE instance on the pawn (e.g. `GE_Windstep`), a new `OurSpellActors` entry (shelter) or the Windstep gameplay tag. The cooldown RPC and the no-ammo delegate become truthful failure reasons.
-  - Exports: `HANDLERS = {cast, spells}`, `MANIFEST`, `NEEDS`. Honours `_G.DW_PAUSE`. (rev 2: no `state_extras`.)
+- **New module `client_mod/scripts/spells.lua`** (owned by this agent). It is pure reads plus one-frame input injection through the shared `combat._inject` helper (EnhancedInput `InjectInputVectorForAction`, the same call as attack and interact).
+  - `spells {all?}` (read): one row per unlocked spell, in the SpellBook shape, built from game data only.
+    - Fields: `id` (asset), `name`, `use_when` = `description` (perk description), `role` = `cast_type`, `cost [{item, name, count, have}]`, `remaining_s`, `wheel_slot`, `castable`, `reason`, `detail`.
+    - `reason` codes: `not_unlocked` (+ `needs {skill, level, have}` from `PerkUnlockInfo`), `not_on_wheel` (not on the wheel, or beyond quick keys 1–8 of page 1), `not_enough_resources`, `on_cooldown`, `busy` (mid-air or already casting).
+    - `all = true` adds the locked spells a perk unlocks.
+  - `cast {spell, target?}` (**waiter**, arbiter level 3.5, a resumable pre-emption of follow/gather):
+    1. Resolve: exact name or asset, else a unique typo match (>= 0.8), else `unknown_target` / `ambiguous_target` + `candidates`. An exactly named locked spell gives `not_unlocked` + `needs`.
+    2. Hard, fresh gates block: unlock, wheel, runes, mid-air. Possibly stale ones (cooldown via the clock mapping, "already casting") do not block. The attempt goes ahead, the server's cooldown RPC and verification decide, and `data.precheck` reports the pre-check.
+    3. Safety floor (`unsafe`): see review change 2 and rev-2 point 2 below.
+    4. Take the pawn (`busy`, "I can't cast while I'm fighting yet." if a reflex owns it). Tap **Q** (one frame, so Released fires) and wait for `DIM_RadialMenu` (two tries). Tap the slot's quick key. If the wheel is still open after 1 s, confirm with `IA_SpellsMenu_AcceptSelection` once.
+    5. If a spell mode opens (placed or aimed): **aim the camera** at the target point (control rotation from `PlayerCameraManager` location; `too_far` beyond `MaxDistanceFromCameraToPlaceSpell`). Without a target, cast in front of me. Tap **LMB** (`IA_Spellcasting_PlaceSpell`).
+    6. **Verify** (within 4 s): runes fell or `LastCastTimeBySpellData[spell]` changed. Effects are reported (new GE instances, tags, own spell actor → `landed_at`, `landed_dist_m`), with `effect_verified` false when none is seen. A targeted spell landing farther than max(3 m, its radius) answers `verification_failed` "it landed N m from where you wanted".
+    7. Cleanup on every exit: if a radial or spell input mode is still open, tap cancel; release the arbiter (`data.preempted` / `data.resumed`). No game calls under `DW_PAUSE`.
+  - Exports: `HANDLERS = {cast, spells}`, `MANIFEST`, `NEEDS`. Honours `_G.DW_PAUSE`. No `state_extras`.
 - **`client_bridge.lua`**: `"spells"` is in `M.MODULES` (done by capability agent ad944baba20421147).
 - **Brain:** nothing. The tool list comes from the manifest; `SpellBook` reads `spells`.
-- **Data:** none new. Names, descriptions, costs and requirements are read live from `UtilitySpellData` / `SkillPerkData`. `data/spells_26161880.json` is used only for the "expected effect" kind (GE class, utility actor class) to verify against, and is optional.
+- **Data:** none new. Names, descriptions, costs, requirements and the Damage/Shape modules are read live from `UtilitySpellData` / `SkillPerkData`. `data/spells_26161880.json` `usage.role` is an optional data profile for the safety floor (hostile and area-harm roles).
+- **Rev 2 point 2 (safety floor, final):**
+  - A hostile spell (a Damage module, or role `combat_damage`, `combat_cc` or `gathering_aoe`) is never cast at a player.
+  - The proximity check applies only to spells that hurt at the landing point: placed or aimed spells that are harmful or have an area-harm role, and instant spells with both a Damage and a Shape module. The radius is the Shape radius, or 5 m only for placed or aimed spells without one.
+  - Self buffs without an area (a weapon enchant) are never refused for Luis standing nearby.
 
 ## Precedent
 - Same shape as our own verified paths:

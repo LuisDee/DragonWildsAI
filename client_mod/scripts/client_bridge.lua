@@ -880,7 +880,7 @@ end
 -- returning what a route returns (see above). Routes win over HANDLERS.
 -- A module may also export NEEDS = {tool = {{module, fn}, ...}}: the handler is listed (and run) only
 -- while those functions exist, exactly like a route's `needs` (skills.lua composes other modules).
-M.MODULES = { "chat", "move", "sense", "inventory", "combat", "arbiter", "gather", "skills", "spells" }
+M.MODULES = { "chat", "move", "sense", "inventory", "combat", "arbiter", "gather", "skills", "spells", "crafting" }
 local function module_handler(tool)
     for _, name in ipairs(M.MODULES) do
         local mod = M.module(name)
@@ -1085,6 +1085,15 @@ local function forward_vitals()
     if not S.vitals_tail then return end
     for _, raw in ipairs(S.vitals_tail:read()) do
         local ok, m = pcall(S.jsonutil.decode, raw)
+        if ok and type(m) == "table" and m.type == "reflex" and type(m.action) == "string" and m.action ~= "verify" then
+            -- the stay-fed reflex's own acts, as episodic memory (activity); failures too (verify ok=false
+            -- marks an item unusable; no_hotbar_* = food/drink only in the bag)
+            S.bridge.emit_event("activity", { kind = "reflex_" .. m.action, by = "reflex", item = m.item, name = m.name,
+                                              stat = m.stat, ok = m.ok, reason = m.reason, ts = m.ts })
+        elseif ok and type(m) == "table" and m.type == "reflex" and m.action == "verify" and m.ok == false then
+            S.bridge.emit_event("activity", { kind = "reflex_use_failed", by = "reflex", item = m.item, before = m.before,
+                                              after = m.after, ts = m.ts })
+        end
         if ok and type(m) == "table" and (m.type == "death" or m.type == "revive") then
             -- recent context for the brain (get_state.last_death via skills.state_extras)
             local life = rawget(_G, "DW_LIFE") or {}
@@ -1189,28 +1198,48 @@ local function check_vitals()
     local mine = me()
     local surv = mine and type(mine.survival) == "table" and mine.survival
     if not surv then return end
+    -- review H2: "low" = below the MODEL's policy (inventory.vitals_policy), and "has food" = what the
+    -- stay-fed reflex can really use (hotbar, not marked bad). Food only in the bag is reported (in_bag)
+    -- so the model can move_item it, instead of silent starvation.
+    local inv = M.module("inventory")
+    local pol = inv and type(inv.vitals_policy) == "function" and inv.vitals_policy() or {}
+    local bad = {}
+    if inv and type(inv.reflex_status) == "function" then
+        local okr, rs = pcall(inv.reflex_status)
+        if okr and type(rs) == "table" and type(rs.bad) == "table" then bad = rs.bad end
+    end
+    local pct_of = { hydration = pol.drink_below_pct, sustenance = pol.eat_below_pct }
     local lowstats = {}
     for stat in pairs(M.VITAL_NEEDS) do
-        local v = type(surv[stat]) == "table" and tonumber(surv[stat][1])
+        local v, mx = type(surv[stat]) == "table" and tonumber(surv[stat][1]), type(surv[stat]) == "table" and tonumber(surv[stat][2])
         if v then
-            if v > M.VITALS_REARM then S.vitals_low[stat] = nil
-            elseif v < M.VITALS_LOW then lowstats[#lowstats + 1] = { stat, v, surv[stat][2] } end
+            local lim = (mx or 100) * (tonumber(pct_of[stat]) or M.VITALS_LOW) / 100
+            if v > lim + (mx or 100) * 0.1 then S.vitals_low[stat] = nil
+            elseif v < lim then lowstats[#lowstats + 1] = { stat, v, mx } end
         end
     end
     if #lowstats == 0 then return end
     local lr = call("inventory", "list")
     if not lr.ok then return end
-    local have = {}
-    for _, where in ipairs({ "hotbar", "bag" }) do
-        for _, it in ipairs(lr.data[where] or {}) do if it.consumable then have[it.consumable] = true end end
+    local have, in_bag, unusable = {}, {}, {}
+    for _, it in ipairs(lr.data.hotbar or {}) do
+        if it.consumable then
+            if bad[it.item] then unusable[it.consumable] = unusable[it.consumable] or {}; table.insert(unusable[it.consumable], it.name or it.item)
+            else have[it.consumable] = true end
+        end
+    end
+    for _, it in ipairs(lr.data.bag or {}) do
+        if it.consumable then in_bag[it.consumable] = in_bag[it.consumable] or {}; table.insert(in_bag[it.consumable], it.name or it.item) end
     end
     for _, l in ipairs(lowstats) do
         local stat, v, mx = l[1], l[2], l[3]
+        local need = M.VITAL_NEEDS[stat]
         local last = S.vitals_low[stat]
-        if not have[M.VITAL_NEEDS[stat]] and (not last or t - last >= M.VITALS_REPEAT_S) then
+        if not have[need] and (not last or t - last >= M.VITALS_REPEAT_S) then
             S.vitals_low[stat] = t
             S.bridge.emit_event("vitals_low", { stat = stat, value = v, max = mx, has_food = have.food == true,
-                                                has_drink = have.drink == true })
+                                                has_drink = have.drink == true, in_bag = in_bag[need], unusable = unusable[need],
+                                                policy_pct = pct_of[stat] })
             S.stats.vitals_low = S.stats.vitals_low + 1
         end
     end

@@ -154,7 +154,7 @@ def test_capabilities_and_registry(lua_client, tmp_path):
     assert caps.source == "capabilities"
     for tool in ("get_state", "say", "follow", "stop", "go_to", "drop"):
         assert caps.has(tool), tool
-    assert caps.skills() == ["go_to", "follow", "stop", "drop", "interact"]
+    assert set(caps.skills()) == {"go_to", "follow", "stop", "drop", "interact"}  # from the manifest (manifest.lua)
     assert caps.has("look") and caps.has("inspect")
     assert not caps.has("gather") and not caps.has("attack") and not caps.has("craft")
 
@@ -197,7 +197,7 @@ def test_live_session_end_to_end_on_lua_client(lua_client, tmp_path):
     session = LiveSession(LiveOptions(body="client", bridge_dir=body.bridge, state_dir=tmp_path / "state",
                                       log_dir=tmp_path / "logs", dry_run=True, wait=5.0, probe_timeout=1.0),
                           DryRunController(), DryRunPlanner(), out=lambda s: None)
-    assert session.store.skills.names() == ["go_to", "follow", "stop", "drop", "interact"]
+    assert set(session.store.skills.names()) == {"go_to", "follow", "stop", "drop", "interact"}
 
     def run_until(pred, what):
         deadline = time.monotonic() + 8

@@ -121,6 +121,9 @@ class FakeClientBody(GameInterface):
             return ok(item=args["item"], to=args["to"])
         return fail("not_implemented", tool=tool)
 
+    def interact(self, target, secondary=False):
+        return self.call_raw("interact", {"target": target, **({"secondary": True} if secondary else {})})
+
     def follow(self, player, distance=3.0): return self.call_raw("follow", {"player": player})
     def stop(self): self.calls.append(("stop", {})); return ok()
 

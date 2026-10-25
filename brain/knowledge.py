@@ -27,9 +27,10 @@ from typing import Any, Iterable
 
 from .paths import REPO_ROOT, _env_path
 
-SCHEMA = 3  # bump when the doc format changes (forces a rebuild)
+SCHEMA = 5  # bump when the doc format changes (forces a rebuild)
 GAME_K, WIKI_K = 3, 2  # results per tier
-SNIPPET = {0: 420, 1: 520}  # characters per snippet, by tier
+POOL = 200  # BM25 candidates per tier for the title re-rank
+SNIPPET = {0: 500, 1: 520}  # characters per snippet, by tier
 NOTE = ("Game data (authoritative=true) is read from this game build and wins over the wiki. Wiki text is "
         "community-written and may be outdated; say so if it matters. Answer only from these results.")
 # Function words only (English, not game facts): they carry no meaning for BM25 over names.
@@ -55,8 +56,10 @@ def words(text: str) -> list[str]:
 
 def _stem(w: str) -> str:
     """Crude plural folding for the title re-rank (FTS5's porter does the real stemming)."""
-    for suf, rep in (("ies", "y"), ("ves", "f"), ("es", ""), ("s", "")):
-        if len(w) > 3 and w.endswith(suf) and not w.endswith("ss"):
+    if len(w) <= 3 or w.endswith("ss"):
+        return w
+    for suf, rep in (("ies", "y"), ("ves", "f"), ("xes", "x"), ("ches", "ch"), ("shes", "sh"), ("s", "")):
+        if w.endswith(suf):
             return w[: -len(suf)] + rep
     return w
 
@@ -126,25 +129,41 @@ def game_docs(data: Path) -> tuple[list[dict], str | None]:
             outs = [o.get("name") or o.get("item") for o in r.get("outputs") or []]
             used_in.setdefault(i.get("item"), []).extend(outs)
 
+    # Internal class names in unlock conditions -> the station's in-game name (from the same data).
+    class_names = {c: st.get("display_name") for st in stations.values() for c in st.get("class_names") or []
+                   if st.get("display_name")}
+    item_names = {iid: it.get("name") for src in (recipes.get("items") or {}, items.get("items") or {})
+                  for iid, it in src.items() if it.get("name")}
+
+    def is_vendor(sid: str) -> bool:
+        st = stations.get(sid) or {}
+        # is_vendor from the station table; Umbral Sands traders carry it only in their asset name
+        return bool(st.get("is_vendor")) or "merchant" in sid.lower()
+
+    def unlock_text(q: str) -> str:
+        q = re.sub(r"\b(BP_\w+?_C)\b", lambda m: class_names.get(m.group(1)) or _humanize(m.group(1)[3:-2]), q)
+        return " ".join(q.split())
+
     def recipe_line(r: dict) -> str:
-        sts = [stations.get(x) or {} for x in r.get("stations") or []]
-        where = " or ".join(dict.fromkeys(station_name(x) for x in r.get("stations") or [])) or "no station"
+        sids = r.get("stations") or []
+        where = " or ".join(dict.fromkeys(station_name(x) for x in sids)) or "no station"
         outs, ins = _count_list(r.get("outputs") or []), _count_list(r.get("inputs") or [])
-        if sts and all(st.get("is_vendor") for st in sts):
-            line = f"buy {outs} from {where} (vendor) for {ins}"
+        if sids and all(is_vendor(x) for x in sids):
+            line = f"buy {outs} from {where} (trader) for {ins}"
         else:
             line = f"{outs} from {ins} at {where}"
             if "processing" in set(r.get("station_kinds") or []):
                 lo, hi = ((r.get("processing_time") or []) + [None, None])[:2]
-                line += f" (processing: load ingredients + fuel, {lo:g}-{hi:g}s, collect)" if hi else " (processing)"
+                span = f"{lo:g}s" if hi is None or lo == hi else f"{lo:g}-{hi:g}s"
+                line += f" (processing: load ingredients + fuel, {span}, collect)" if lo is not None else " (processing)"
             if r.get("skill"):
                 line += f", {_humanize(r['skill'])} skill"
         if r.get("alternative"):
             alt = r["alternative"]
-            line += f", sometimes {alt.get('count', 1)} {alt.get('item')} instead"
+            line += f", sometimes {alt.get('count', 1)} {item_names.get(alt.get('item')) or alt.get('item')} instead"
         unlock = [x.get("query") for x in (r.get("unlock") or {}).get("bundles") or [] if x.get("query")]
         if unlock:
-            line += f"; unlock: {' '.join(unlock[0].split())}"
+            line += f"; unlock: {unlock_text(unlock[0])}"
         return line
 
     # ---- items: the full equipment catalog merged with every item recipes/stations reference
@@ -170,10 +189,11 @@ def game_docs(data: Path) -> tuple[list[dict], str | None]:
             if flav:
                 parts.append(f"Description: {flav.rstrip('.')}")
         recs = made_by.get(iid) or []
+        crafted = [r for r in recs if not all(is_vendor(x) for x in r.get("stations") or [])]
         if recs:
-            parts.append("How to get: " + " | OR | ".join(recipe_line(r) for r in recs[:4]))
-        else:
-            parts.append("No recipe makes it (gathered, dropped or found)")
+            parts.append("How to get: " + " | OR | ".join(recipe_line(r) for r in (crafted + [r for r in recs if r not in crafted])[:4]))
+        if not crafted:
+            parts.append("No crafting recipe makes it (gathered, dropped or found in the world)")
         stats = [f"{s.get('name')} {s.get('value')}" for s in it.get("custom_stats") or [] if s.get("name")]
         if stats:
             parts.append("Stats: " + "; ".join(stats))
@@ -190,7 +210,7 @@ def game_docs(data: Path) -> tuple[list[dict], str | None]:
         uses = list(dict.fromkeys(used_in.get(iid) or []))
         if uses:
             parts.append(f"Used in {len(uses)} recipe(s): " + ", ".join(uses[:8]) + ("…" if len(uses) > 8 else ""))
-        tags = f"item {cat} {it.get('category') or ''}" + (" recipe craft make" if recs else "")
+        tags = f"item {cat} {it.get('category') or ''}" + (" recipe craft make" if crafted else "")
         docs.append({"tier": 0, "kind": "item", "title": it["name"], "tags": tags,
                      "body": ". ".join(parts), "ref": iid})
 
@@ -403,12 +423,12 @@ class Knowledge:
         kind = (kind or "").strip().lower() or None
         qterms = {_stem(t) for t in terms}
         out: list[dict] = []
-        kind_ignored = False
+        found = {tier: self._search(tier, terms, kind, POOL) for tier in (0, 1)}
+        kind_ignored = bool(kind) and not any(found.values())
+        if kind_ignored:  # nothing of that kind: the filter was a guess, search everything
+            found = {tier: self._search(tier, terms, None, POOL) for tier in (0, 1)}
         for tier, k in ((0, k_game), (1, k_wiki)):
-            rows = self._search(tier, terms, kind, 60)
-            if kind and not rows:
-                rows, kind_ignored = self._search(tier, terms, None, 60), True
-            ranked = self._rerank(rows, qterms)
+            ranked = self._rerank(found[tier], qterms)
             if tier == 0:  # game data only when it is about the thing named, never loosely related items
                 ranked = [r for r in ranked if r["cov"] >= 0.5]
             if tier == 1:  # one snippet per page section, at most two sections per page

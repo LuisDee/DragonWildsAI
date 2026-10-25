@@ -147,5 +147,38 @@ check(r.ok == false and r.reason == "equipment, not usable", "use() refuses equi
 r = I.use(nil, "Pumpkin Spice Infusion", { require = "food" })
 check(r.ok == false and r.reason == "not food", "use() enforces the required class")
 
+-- 6. vitals policy (the model's call) + the safety floor; eat to heal only when the policy asks
+I.reflex_start(nil, { verify_s = 0 })
+S.effect[DATA.tea:GetFullName()] = { "hyd", 30 }
+hotbar_items = { item(DATA.tea, 3) }; bag_items = {}; refresh()
+local pr = I.set_vitals_policy(nil, { drink_below_pct = 20 })
+check(pr.ok and pr.policy.drink_below_pct == 20 and pr.policy.safety_floor_pct == 10, "policy set and read back")
+S.presses, S.hyd, R.last = {}, 30, {}
+R.tick_fn(nil)
+check(#S.presses == 0, "hydration 30% above the model's 20%: no drink")
+S.hyd = 15; R.last = {}
+R.tick_fn(nil)
+check(#S.presses == 1, "below 20%: drinks")
+check(I.set_vitals_policy(nil, { drink_below_pct = 2 }).policy.drink_below_pct == 10, "clamped to the safety floor")
+S.presses, S.hyd, R.last, R.pending = {}, 5, {}, nil
+R.tick_fn(nil)
+check(#S.presses == 1, "below the floor: drinks whatever the policy")
+-- heal: food that heals is eaten only below heal_below_pct
+local heal_food = item_data("ITEM_Consumable_Stew", "Stew", { FoodItemData = true })
+heal_food.AmountToHealOnConsume = 20
+S.hp = 40
+pawn.HealthComponent = obj("Health", { IsDead = function() return false end, GetAuthoritativeHealth = function() return S.hp end,
+                                       GetMaxHealth = function() return 100 end })
+S.effect[heal_food:GetFullName()] = { "hp", 20 }
+hotbar_items = { item(heal_food, 2) }; refresh()
+S.presses, S.hyd, S.sus, R.last, R.pending = {}, 80, 80, {}, nil
+I.set_vitals_policy(nil, { heal_below_pct = 0 })
+R.tick_fn(nil)
+check(#S.presses == 0, "heal off: hurt but fed, no eating")
+I.set_vitals_policy(nil, { heal_below_pct = 50 })
+R.tick_fn(nil)
+check(#S.presses == 1 and S.presses[1] == "Stew", "hurt below 50%: eats healing food (got " .. table.concat(S.presses, ",") .. ")")
+I.set_vitals_policy(nil, { drink_below_pct = 40, eat_below_pct = 40, heal_below_pct = 0 })
+
 print(fails == 0 and "ALL PASS" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

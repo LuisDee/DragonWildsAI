@@ -44,6 +44,7 @@ from .dry_run_llm import DryRunController, DryRunPlanner
 from .executor import Executor
 from .interface import ChatHeard, CommandReceived, Event
 from .jsonl_log import JsonlLogger
+from .knowledge import open_knowledge
 from .llm import CONTROLLER_MODEL_ENV, PLANNER_MODEL_ENV, LLMClient, LiteLLMClient, missing_keys
 from .planner import Planner
 from .skill_library import SkillLibrary
@@ -57,27 +58,11 @@ PING = "!ping"
 PONG = "pong"
 
 
-GREETINGS = {"hello", "hi", "hey", "hiya", "heya", "yo", "oi", "ok", "okay", "dear", "howdy"}
-
-
-def _strip_name(text: str, name: str) -> str:
-    """'hello claude, what are you wearing?' -> 'what are you wearing?'; 'thanks Claude' -> 'thanks';
-    'hey claude' -> 'hey'. Removes the name (and @name) with its comma/colon, then leading greetings
-    when something is left after them."""
-    # the name with the punctuation after it; a possessive ("claude's hat") is part of the question
-    t = re.sub(rf"@?\b{re.escape(name)}\b(?!['’]s\b)\s*[,:;!.?]*", " ", text, flags=re.I)
-    t = re.sub(r"\s+", " ", t).strip(" ,:;-")
-    words = t.split(" ")
-    while len(words) > 1 and words[0].lower().strip(",.!:;") in GREETINGS:
-        words = words[1:]
-    t = " ".join(words).strip(" ,:;-")
-    return t or text.strip()
-
-
 def chat_route(text: str, prefixes: list[str], name: str | None = "Claude") -> tuple[str, str | None]:
     """("ping", None), ("command", the text for the Controller) or ("ignore", None).
     Addressed = a prefix at the start, or the companion's name as a whole word anywhere
-    ("hello claude ...", "thanks Claude", "@claude ..."; not "claudette")."""
+    ("hello claude ...", "thanks Claude", "@claude ..."; not "claudette"). The text goes to the
+    model VERBATIM (review L12: no greeting stripping); only a command prefix like "!c " is cut."""
     t = text.strip()
     low = t.lower()
     if low == PING or low.startswith(PING + " "):
@@ -85,11 +70,11 @@ def chat_route(text: str, prefixes: list[str], name: str | None = "Claude") -> t
     for p in prefixes:
         if low.startswith(p.lower()):
             rest = t[len(p):].strip()
-            if name:
-                rest = _strip_name(rest, name) if rest else rest
-            return ("command", rest) if rest else ("ignore", None)
+            if not rest:
+                return "ignore", None
+            return "command", (t if re.match(rf"@?{re.escape(name)}\b", t, flags=re.I) else rest) if name else rest
     if name and re.search(rf"\b{re.escape(name)}\b", t, flags=re.I):
-        return "command", _strip_name(t, name)
+        return "command", t
     return "ignore", None
 
 
@@ -249,6 +234,8 @@ class LiveOptions:
     # quiet time that ends a burst of lines (DW_CHAT_CALLS_PER_MIN, DW_CHAT_DEBOUNCE_S)
     chat_calls_per_min: int = field(default_factory=lambda: int(os.environ.get("DW_CHAT_CALLS_PER_MIN", "20")))
     chat_debounce_s: float = field(default_factory=lambda: float(os.environ.get("DW_CHAT_DEBOUNCE_S", "2.0")))
+    # game knowledge (brain/knowledge.py: game data + local wiki mirror) behind the lookup tool; DW_KNOWLEDGE=0 off
+    knowledge: bool = field(default_factory=lambda: os.environ.get("DW_KNOWLEDGE", "1") != "0")
 
 
 class BodyUnavailable(RuntimeError):
@@ -279,9 +266,10 @@ class LiveSession:
         self.store = StateStore(state_dir, self.caps.registry())
         self.executor = Executor(self.client, self.store, self.log)
         self.planner = Planner(planner_llm, self.store.skills, self.log)
+        self.knowledge = open_knowledge(self.log) if opts.knowledge else None
         self.controller = Controller(controller_llm, self.client, self.store, self.log,
                                      name=opts.name, player=opts.player, available_tools=self.caps.tools,
-                                     skills=self.skills, caps=self.caps)
+                                     skills=self.skills, caps=self.caps, knowledge=self.knowledge)
         self.agent = LiveAgent(self.client, self.controller, self.planner, self.executor, self.store,
                                self.log, prefixes=opts.prefixes, skills=self.skills,
                                calls_per_min=opts.chat_calls_per_min, debounce_s=opts.chat_debounce_s)
@@ -291,7 +279,8 @@ class LiveSession:
                      ping_ms=round(self.rtt * 1000, 1), skills=self.store.skills.names(),
                      capabilities_source=self.caps.source, missing=self.caps.missing,
                      world=self.world, world_source=self.world_source, state_dir=str(state_dir),
-                     migrated=migrated, learned_skills=self.skills.names(), skills_dir=str(self.skills.dir))
+                     migrated=migrated, learned_skills=self.skills.names(), skills_dir=str(self.skills.dir),
+                     knowledge=self.knowledge.stats() if self.knowledge else None)
         self.out(self.banner(controller_llm.model, planner_llm.model))
 
     def _connect(self) -> float:

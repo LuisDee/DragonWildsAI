@@ -448,24 +448,27 @@ test("events: damage from someone else -> attacked (debounced); own damage ignor
     assert(#events(drain(), "attacked") == 1, "again after the debounce window")
 end)
 
-test("events: vitals_low only when low AND nothing to eat/drink; re-armed above 25", function()
+test("events: vitals_low when below the policy and the reflex has nothing on the HOTBAR (bag food reported, review H2)", function()
     FAKE.survival = { hydration = { 10, 100 }, sustenance = { 12, 100 } }
-    FAKE.has_food = true
+    FAKE.has_food = true -- the fake keeps it in the BAG: the reflex can't use it
     T = T + B.VITALS_CHECK_S
     step()
     local vl = events(drain(), "vitals_low")
-    assert(#vl == 1 and vl[1].stat == "hydration" and vl[1].value == 10 and vl[1].has_food == true and vl[1].has_drink == false,
-           json.encode(vl))
+    local by = {}
+    for _, e in ipairs(vl) do by[e.stat] = e end
+    assert(#vl == 2 and by.hydration.value == 10 and by.hydration.has_drink == false, json.encode(vl))
+    assert(by.sustenance.has_food == false and by.sustenance.in_bag[1] == "Sandwich" and by.sustenance.policy_pct == 40,
+           "bag food is not 'has food': " .. json.encode(by.sustenance))
     T = T + B.VITALS_CHECK_S
     step()
     assert(#events(drain(), "vitals_low") == 0, "not repeated within VITALS_REPEAT_S")
     T = T + B.VITALS_REPEAT_S
     step()
-    assert(#events(drain(), "vitals_low") == 1, "repeated while still low")
-    FAKE.has_drink = true
+    assert(#events(drain(), "vitals_low") == 2, "repeated while still low")
+    FAKE.survival = { hydration = { 70, 100 }, sustenance = { 80, 100 } }
     T = T + B.VITALS_REPEAT_S
     step()
-    assert(#events(drain(), "vitals_low") == 0, "the reflex can drink: no event")
+    assert(#events(drain(), "vitals_low") == 0, "above the policy: no event")
     FAKE.survival, FAKE.has_food, FAKE.has_drink = nil, nil, nil
 end)
 

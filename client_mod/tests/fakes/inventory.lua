@@ -74,5 +74,6 @@ function M.press_interact(log)
 end
 function M.reflex_start(log) F.reflex_starts = (F.reflex_starts or 0) + 1; F.reflex_on = true; return { ok = true } end
 function M.reflex_status() return { running = F.reflex_on == true } end
+function M.vitals_policy() return F.policy or { drink_below_pct = 40, eat_below_pct = 40, reserve_warn = 2 } end
 M.HANDLERS = { inv_debug = function(log, args, ctx) return { ok = true, data = { echo = args.x } } end }
 return M

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Iterable
 
 REPO = Path(__file__).resolve().parents[1]
-MAX_LINES = 12
+MAX_LINES = 16
 MAX_GROUPS = 6  # per line
 LINE_CHARS = 240
 
@@ -317,6 +317,48 @@ def recent_life(state: dict) -> str | None:
     return ("Recent: " + "; ".join(bits))[:LINE_CHARS]
 
 
+def hands(state: dict) -> str | None:
+    """What the held item can do, from the game's own action data (combat.lua held_actions)."""
+    h = state.get("held_actions") if isinstance(state.get("held_actions"), dict) else None
+    acts = [a for a in (h or {}).get("actions") or [] if isinstance(a, dict)]
+    if not acts:
+        return None
+    out = []
+    for a in acts:
+        bits = [str(a.get("style") or "")]
+        if a.get("needs"):
+            bits.append(f"needs {a['needs']}")
+        bits.append("ready" if a.get("unlocked", True) else f"locked: {a.get('perk') or 'perk'}")
+        out.append(f"{a.get('name') or a.get('style')} ({', '.join(b for b in bits if b)})")
+    who = h.get("item_name") or h.get("item") or "held item"
+    return (f"Hands: {who}: " + "; ".join(out))[:LINE_CHARS]
+
+
+def vitals_policy(state: dict) -> str | None:
+    """When the stay-fed reflex eats/drinks/heals by itself (the model sets it: set_vitals_policy)."""
+    p = state.get("vitals_policy") if isinstance(state.get("vitals_policy"), dict) else None
+    if not p:
+        return None
+    heal = p.get("heal_below_pct")
+    return (f"Reflex policy: drink below {p.get('drink_below_pct')}%, eat below {p.get('eat_below_pct')}%, "
+            f"eat to heal {'below ' + str(heal) + '% HP' if heal else 'off'} (always below {p.get('safety_floor_pct')}%)")
+
+
+def stations(state: dict) -> list[str]:
+    """Crafting/processing stations nearby with what they are doing (crafting.lua stations_nearby)."""
+    out = []
+    for st in state.get("stations_nearby") or []:
+        if not isinstance(st, dict):
+            continue
+        bits = [f"{st['distance']:.0f} m" if isinstance(st.get("distance"), (int, float)) else "", f"id {st.get('id')}"]
+        if st.get("running"):
+            bits.append(f"making {st.get('making') or '?'}")
+        if st.get("contents"):
+            bits.append(", ".join(str(c) for c in st["contents"][:4]))
+        out.append(f"{st.get('name') or st.get('station')} ({'; '.join(b for b in bits if b)})")
+    return out
+
+
 def consumables(state: dict) -> list[str]:
     """Food and drink he carries, with where it is (only hotbar items can be used), from item data."""
     out = []
@@ -368,6 +410,8 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     carry = [f"{name_of_item(k, names)} x{v}" for k, v in sorted(inv.items(), key=lambda kv: -kv[1]) if v]
     lines.append(_line("Carrying", carry) or "Carrying: nothing")
     lines.append(_line("Food/drink", consumables(state)))
+    lines.append(hands(state))
+    lines.append(vitals_policy(state))
 
     pl = [t for t in things if t.kind == "player"]
     lines.append(_line("Players", [f"{t.name} {t.distance:.0f} m" if t.distance is not None else t.name for t in pl]))
@@ -384,6 +428,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     lines.append(_line("Around", [g.label() for g in around]))
     usable = _group([t for t in things if t.group == "usable"])
     lines.append(_line("Usable", [g.label() for g in usable]))
+    lines.append(_line("Stations", stations(state)))
     if not looks_supported and not state.get("surroundings") and \
             "nearby_resources" in (state.get("not_implemented") or []):
         lines.append("You cannot perceive trees, rocks, plants or ground gatherables (sticks, stones) yet: "

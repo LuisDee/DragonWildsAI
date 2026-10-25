@@ -37,18 +37,23 @@ class Spoken:
 
 
 class Voice:
-    def __init__(self, clock: Callable[[], float] = time.monotonic, dup_window_s: float = 30.0):
+    def __init__(self, clock: Callable[[], float] = time.monotonic, dup_window_s: float = 30.0,
+                 burst_window_s: float = 2.0):
         self.clock = clock
-        self.dup_window_s = dup_window_s
+        self.dup_window_s = dup_window_s  # notices (body situations): no near-duplicate within this
+        self.burst_window_s = burst_window_s  # replies to commands: only a same-line burst is blocked
         self.history: deque[Spoken] = deque(maxlen=50)
 
     def gate(self, text: str, kind: str = "reply") -> str | None:
-        """None if the line may be said now, else why not."""
+        """None if the line may be said now, else why not. A reply to a new command is never held back
+        for being like an older line (he asked again: he gets an answer); only a burst of the same line
+        within ``burst_window_s`` is. Notices are deduplicated over ``dup_window_s``."""
         if kind == "system":
             return None
+        window = self.dup_window_s if kind == "notice" else self.burst_window_s
         now, n = self.clock(), _norm(text)
         for s in reversed(self.history):
-            if now - s.t > self.dup_window_s:
+            if now - s.t > window:
                 break
             if s.kind != "system" and difflib.SequenceMatcher(None, n, _norm(s.text)).ratio() >= SIMILAR:
                 return f"near-duplicate of a line said {now - s.t:.0f}s ago"

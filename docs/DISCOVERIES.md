@@ -1364,3 +1364,69 @@ Module `client_mod/scripts/crafting.lua`; offline tests `client_mod/tests/test_c
   - The old level-1 GUID `D06CFBE3…` stays unused in the world save.
 - Files: `edited.json` / `edited_newguid.json` are gitignored. Backups are in C:\GameServers\backups\claude_before_devtest_*, claude_after_devtest_*.
 - Power level read 2.0 right after join (a gear-based value?); recheck.
+- **Live read-only probe (20:20 UTC, Shockbyte, Claude at the church respawn; `craft_probe.lua`):**
+  - `CraftingUIAPI`, `ProcessingStationUIAPI` and `InventoryUIAPI` each exist once on the headless client.
+  - Claude's `RecipesUnlocked` = **46** recipes, still 46 after Luis's stat edit (total level 1076): unlocks don't come from skill levels. They include the Community Cape (0 inputs, Crafting Table), the Compost Bucket (5 Ash Logs), the Ash Rod, the Whetstone, the Magic Focus, potions, teas, rune-altar runes and the skillcapes (Mystic Forge).
+  - The census typed a **Crafting Table** (`BP_Crafting_StartingBench_C`, 75 recipes at that station type, 6 of them unlocked for Claude) at 72 m, [107, 1845, -32].
+  - The bridge lists `craft`, `recipes`, `craft_plan` and `stations` in its capabilities.
+- **FIRST REAL CRAFT through the UI path (verified 20:22:17 UTC, Shockbyte, debug-channel `craft {recipe: RECIPE_Armour_T0_Cape_Community}`):**
+  - Claude walked about 18 m to the Crafting Table and pressed E once; the game opened its menu (`CraftingUIAPI.CurrentStation` became that bench).
+  - He ran `CraftingUIAPI:SelectRecipe` + `SendCraftRequest(1)`, and the server answered **`Client_OnCraftingResultHandler(0 = Success, RECIPE_Armour_T0_Cape_Community, 1)`**.
+  - The **Community Cape** arrived in his bag (slot 1). He closed the menu with `HideCraftingUI(6)`.
+  - Result: `{ok, recipe_chosen, gained 1, result_code 0, detail "I made 1 Community Cape at the Crafting Table."}`.
+  - No `Server_*` call was made by us.
+- **Capture lesson (`craft_capture.lua`): a UE4SS `RegisterHook` on a `Server_*` RPC does NOT fire on the SENDING client.**
+  - The capture logged only SelectRecipe, SendCraftRequest, Client_OnCraftingResultHandler and HideCraftingUI.
+  - Not logged: `Server_CraftRecipe`, `InventoryController:CraftRecipe`, `PlayerInteractionManager:Server_RequestInteraction` (the E press that did open the menu), `ShowCraftingUI` or `Client_ToggleCraftingMenu`. All of them must have run.
+  - Explanation: a hook runs when the UFunction body executes locally. On a client, a Server RPC is only forwarded (`CallRemoteFunction`), and functions called C++-to-C++ (not through ProcessEvent) bypass the hook. Client RPCs do execute on the client, so they are hooked.
+  - So the client cannot prove the internal chain with hooks. The proof that the UI handler is the real path is the outcome: the server's own verdict (code 0) plus the inventory gain.
+  - **We never call CraftRecipe or Server_CraftRecipe**, so the reviewer's fallback conditions (a)-(d) never come up.
+
+## Client spells (R2) (2026-10-25, client build 26162923; reflection dump 26161880; task R2.20, design `docs/design/client-spells.md`)
+Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probes: `client_mod/commands/spell_probe.lua`, `spell_inputs.lua`, `spell_baseline.lua`, `spell_slices.lua`. Offline: `lua client_mod/tests/test_spells.lua` (65 checks).
+
+**Where things live on the client (read live, 20:05 UTC and after the 21:19 local (20:19 UTC) character swap):**
+- **Unlocked spells:** `pc.ProgressComponent.SpellsUnlocked` (TSet `ForEach(a, b)`). Before the swap there was 1 (Windstep); after it, 38.
+- **The wheel:** `pc.SpellcastingComponent.SelectedSpells`, a flat array of `NumSpellRadials` 4 × `NumSpellSlotsPerRadial` 12 = 48. Page p, key k is index (p-1)·12 + (k-1).
+  - `GetCurrentlySelectedSpellData()` (BlueprintPure) works.
+  - `MaxDistanceFromCameraToPlaceSpell` is 1500 cm.
+- **Static spell data, readable from Lua on the client:** `UtilitySpellData.SpellDisplayName`, `CastType` (0 Instant, 1 Placed, 2 Aimed, 3 AllowMovementThenCastInstant), `CooldownDuration`, `bAllowCastingWhileFalling`, `SpecialRequirementsText` (e.g. "Logging Axe", "Cast on a tree").
+  - Costs: `Modules.Modules[].Module` → `SpellModule_CostItems.ItemsCostInfo[] {ItemData, Count}`. `ItemData.Name` gives "Air Rune".
+  - `OwningPerk.PerkDescription` is the game's own description, e.g. "Summons the power of Air Magic to Jump higher and Descend slower.".
+  - `OwningPerk.PerkUnlockInfo {AssociatedSkill, RequiredSkillLevel}`. Windstep = Agility 5, Summon Shelter = Construction 20.
+  - `SpellIcon` (soft pointer: `GetObjectID():GetAssetPathName()`) is the same texture the wheel slice shows.
+- **UI truth per slot:** `HUDUISubsystem.SpellcastingAPI:GetSpellDisplayInfo(slot)` (BlueprintPure, struct return → Lua table). Read for slot 0: `SpellName`, `DescriptionText`, `bIsUnlocked`, `CooldownDuration`. Nested `SpellItemCost[]` entries came back unreadable from the table form, so costs are read from the spell data instead.
+- **Pawn:**
+  - `PlayerUtilityMagicComponent`: `CastingTag` `Player.Status.Casting.UtilitySpell`, `SpellBeingPreparedOrCast.SpellBeingPreparedOrCastData`, `LastCastTimeBySpellData` (TMap, empty before any cast), `OurSpellActors`.
+  - `pawn.WindstepTag` = `Player.Spell.WindStep`.
+  - `GameplayEffectsComponent.ReplicatedInstances` / `NonReplicatedInstances` were empty at rest.
+  - Server clock: `GameStateBase:GetServerWorldTimeSeconds()` (58109.8 at 20:12).
+  - **UNVERIFIED:** that `LastCastTimeBySpellData` values use that clock. Check it after the first cast.
+- **Runes:** they are ordinary inventory items (`ITEM_Rune_<Element>`) in `pc.InventoryComponent.ItemSlots` (the runes page). Luis dropped Air 821 / Astral 5452 / ... at about 20:00. After that swap the inventory was empty, so every spell answers `not_enough_resources`.
+
+**Key path (mapping contexts read live; key names from `EnhancedActionKeyMapping.Key.KeyName`):**
+
+| Context | Mappings |
+|---|---|
+| `IMC_GameplayUI` | Q = `IA_SpellMenu` (action trigger **Released**, `bConsumeInput` false), P = `IA_SpellBook`, R = `IA_QuickAccessRadialToggle` |
+| `IMC_SpellsUI` | **1–8 = `IA_Spellcasting_QuickAccess0..7`** (trigger Pressed), Q, P, H = emotes |
+| `IMC_RadialSelection` | LMB = `IA_SpellsMenu_AcceptSelection` (Pressed), **F/G = `IA_SpellsMenu_SwitchRadialLeft/Right`** (previous/next wheel page), Gamepad_Right2D = `IA_SpellsMenu_SelectSlot` (Axis2D) |
+| `IMC_SpellcastingMode` | **LMB = `IA_Spellcasting_PlaceSpell` (Released)**, Esc = `IA_Spellcasting_Cancel` (Pressed), mouse wheel = `IA_Spellcasting_AdjustSpell` (Axis1D), Q |
+
+- Input modes (`pc.CurrentInputMode`): `DIM_Gameplay` at rest; `DIM_RadialMenu`, `DIM_SpellcastingMode`, `DIM_SpellPlacementMode` and `DIM_SpellPlacementModeAdvancedMovement` are in the PC properties of the same names.
+- The live panel is `WBP_Spellcasting_MainPanel_C` under `/Engine/Transient...BP_DominionGameInstance_C` (the copy under `WidgetTree` is the archetype). It exposes:
+  - its own input actions (`TriggerSpellRadialInputAction` = IA_SpellMenu, `ChangeSpellRadialRightInputAction`, ...);
+  - `SpellRadialWidget` (`WBP_SurvivalSorcery_RadialSelector_C`), whose `QuickAccessInputActions` = QuickAccess0..7 and whose 12 `Slices` each have `SpellSlotNum` 0–11 (**within the page**) and `SliceIcon.Brush.ResourceObject`, the texture of the spell shown.
+  - So **which page is open = compare slice icons with `SpellIcon`**. That is how `cast` checks that the open page shows the wanted spell before pressing its key, so it never casts another spell.
+- Slots 9–12 of each page have no key (QuickAccess covers 8). Those spells answer `not_on_wheel` "sits in a spell wheel slot I can't reach yet". After the swap that includes **Windstep (index 35 = page 3, slot 12)** and the Enchant Weapon spells.
+  - Phase C idea: the gamepad path, i.e. inject an `IA_SpellsMenu_SelectSlot` direction, read the radial's `SpellName` text, and Accept only when it names the wanted spell.
+
+**After the 21:19 swap (`spells {all}` live):**
+- 38 unlocked; Fishnado is locked.
+- Reachable by key, among others:
+  - page 1: Axtral Projection 1, Splinter 2, Trunk Totem 3, Bark to Bones 4, Superheat 5, Overdrive 6, Magical Mending 7, **Tempest Shield 8**;
+  - page 2: **Summon Shelter 1**, Personal Chest 2, Internal Alchemy 3, Bones to Peaches 4, Uproot 5, Humidify 6, Rapid Growth 7, Mucksplosion 8;
+  - page 3: Rocksplosion 1, ... Fire Spirit 8;
+  - page 4: Phase Dash 1, Recall 2.
+
+**Search (search-before-building):** no Dragonwilds or UE4SS spellcasting automation found. Game controls: allthings.how "how the spellbook menu and wheel work" (Q wheel, P spellbook, 4 loadouts of 12) and dragonwilds.runescape.wiki/w/Spells (costs, skill levels). Decision: adapt our verified Enhanced Input injection (combat/inventory) and build the state machine.

@@ -432,10 +432,48 @@ end
 --   * when hungry/thirsty and the game's detector targets a dropped food/drink world item: presses
 --     interact to collect it (cfg.collect).
 -- Events go to client_io/events/vitals.jsonl as {"type":"reflex", action, item, stat}.
-M.REFLEX_CFG = { period_ms = 2000, drink_below = 30, eat_below = 30, cooldown_s = 6, verify_s = 4, collect = true, allow_bag = false }
+M.REFLEX_CFG = { period_ms = 2000, cooldown_s = 6, verify_s = 4, collect = true, allow_bag = false }
 
 local R = _G.DWFedReflex or {}
 _G.DWFedReflex = R
+
+-- VITALS POLICY (PRINCIPLES #2e, review H2/M8): WHEN to eat/drink is the MODEL's call (tool
+-- set_vitals_policy, from vitals, stock, threats, the current task); the code only keeps a SAFETY FLOOR:
+-- below SAFETY_FLOOR_PCT of the maximum he consumes whatever the policy says, so he can't die of thirst
+-- while frozen, stuck or fighting. Percentages of the CURRENT maximum (it drops after a death: 75).
+--   drink_below_pct / eat_below_pct  consume when the stat is below this share of its maximum
+--   heal_below_pct  also eat food that heals (item data AmountToHealOnConsume > 0) when HP is below this
+--                   share (nil = never eat just to heal)
+--   reserve_warn    tell the brain when fewer than this many usable food (or drink) items are carried
+-- Kept in _G (hot reload and module instances share it).
+M.SAFETY_FLOOR_PCT = 10
+M.POLICY_DEFAULT = { drink_below_pct = 40, eat_below_pct = 40, heal_below_pct = nil, reserve_warn = 2 }
+function M.vitals_policy()
+    if not R.policy then
+        R.policy = {}
+        for k, v in pairs(M.POLICY_DEFAULT) do R.policy[k] = v end
+    end
+    return R.policy
+end
+local function clamp_pct(v, lo) v = tonumber(v); if not v then return nil end; return math.max(lo, math.min(95, v)) end
+-- set_vitals_policy: only the given fields change; values are clamped (eat/drink never below the floor).
+function M.set_vitals_policy(log, args)
+    local p = M.vitals_policy()
+    args = args or {}
+    if args.drink_below_pct ~= nil then p.drink_below_pct = clamp_pct(args.drink_below_pct, M.SAFETY_FLOOR_PCT) or p.drink_below_pct end
+    if args.eat_below_pct ~= nil then p.eat_below_pct = clamp_pct(args.eat_below_pct, M.SAFETY_FLOOR_PCT) or p.eat_below_pct end
+    if args.heal_below_pct ~= nil then
+        local v = tonumber(args.heal_below_pct)
+        p.heal_below_pct = (v and v > 0) and clamp_pct(v, 1) or nil
+    end
+    if args.reserve_warn ~= nil then p.reserve_warn = math.max(0, math.min(20, math.floor(tonumber(args.reserve_warn) or p.reserve_warn))) end
+    say(log, string.format("vitals policy: drink<%s%% eat<%s%% heal<%s%% reserve %s (floor %d%%)", tostring(p.drink_below_pct),
+        tostring(p.eat_below_pct), tostring(p.heal_below_pct), tostring(p.reserve_warn), M.SAFETY_FLOOR_PCT))
+    local out = {}
+    for k, v in pairs(p) do out[k] = v end
+    out.safety_floor_pct = M.SAFETY_FLOOR_PCT
+    return { ok = true, policy = out }
+end
 
 local function stat(p, comp, getter)
     local c = U.try(function() return p[comp] end)
@@ -473,20 +511,46 @@ function R.tick(log)
     if not p or U.try(function() return p.HealthComponent:IsDead() end) == true then return end
     local hyd = stat(p, "HydrationComponent", "GetCurrentHydration")
     local sus = stat(p, "SustenanceComponent", "GetCurrentSustenance")
-    local thirsty = hyd and hyd < cfg.drink_below
-    local hungry = sus and sus < cfg.eat_below
+    local hyd_max = stat(p, "HydrationComponent", "GetMaxHydration") or 100
+    local sus_max = stat(p, "SustenanceComponent", "GetMaxSustenance") or 100
+    local pol, floor = M.vitals_policy(), M.SAFETY_FLOOR_PCT
+    local thirsty = hyd and hyd < hyd_max * math.max(pol.drink_below_pct or floor, floor) / 100
+    local hungry = sus and sus < sus_max * math.max(pol.eat_below_pct or floor, floor) / 100
+    R.floor_hit = (hyd and hyd < hyd_max * floor / 100) or (sus and sus < sus_max * floor / 100) or nil
     local t = os.time()
     R.last = R.last or {}
     R.bad = R.bad or {}
     -- Outcome of the previous use: the stat must have risen, else that item is marked bad (no retries).
     local pend = R.pending
+    local hp = U.try(function() return p.HealthComponent:GetAuthoritativeHealth() end)
+    local hp_max = U.try(function() return p.HealthComponent:GetMaxHealth() end)
     if pend and t - pend.t >= cfg.verify_s then
-        local now_v = pend.kind == "drink" and hyd or sus
+        local now_v = (pend.kind == "drink" and hyd) or (pend.kind == "heal" and hp) or sus
         local ok = now_v and pend.before and now_v > pend.before + 0.5
         reflex_emit({ action = "verify", kind = pend.kind, item = pend.item, before = pend.before, after = now_v, ok = ok == true })
         if not ok then R.bad[pend.item] = true end
         R.pending = nil
         pend = nil
+    end
+    -- eat to heal (policy heal_below_pct, the model's call): food whose item data heals (heal > 0)
+    local hurt = pol.heal_below_pct and type(hp) == "number" and type(hp_max) == "number" and hp_max > 0
+        and hp < hp_max * pol.heal_below_pct / 100
+    if hurt and not pend and not hungry and (not R.last.heal or t - R.last.heal >= cfg.cooldown_s) then
+        local l = M.list(log)
+        local pick
+        for _, d in ipairs(l.hotbar or {}) do
+            if d.consumable == "food" and (tonumber(d.heal) or 0) > 0 and not R.bad[d.item] then
+                if not pick or (tonumber(d.heal) or 0) < (tonumber(pick.heal) or 0) then pick = d end -- smallest heal first
+            end
+        end
+        if pick then
+            R.last.heal = t
+            local r = M.use(log, pick.item, { require = "food", hotbar_only = true })
+            reflex_emit({ action = "use", kind = "heal", item = pick.item, name = pick.name, stat = hp, ok = r.ok, via = r.via,
+                          reason = r.reason })
+            if r.ok then R.pending = { kind = "heal", item = pick.item, before = hp, t = t } else R.bad[pick.item] = true end
+            return
+        end
     end
     if not (thirsty or hungry) then return end -- (after the verify: a successful use ends the need)
     if not pend then

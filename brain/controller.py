@@ -29,7 +29,7 @@ from typing import Callable
 
 from . import grounding
 from . import situation as sit
-from .interface import (PROGRESS_EVENTS, READ_TOOLS, RULE_TOOLS, SENSABLE_TRIGGERS, TOOLS, Event, GameInterface,
+from .interface import (BRAIN_TOOLS, PROGRESS_EVENTS, READ_TOOLS, RULE_TOOLS, SENSABLE_TRIGGERS, TOOLS, Event, GameInterface,
                         GatherProgress, Reason, tool_schema, validate_args)
 from .jsonl_log import JsonlLogger
 from .llm import LLMClient, LLMResponse, ToolCall, assistant_message, tool_result_message
@@ -53,40 +53,33 @@ Reading chat: you hear EVERY chat line; chat lists the recent ones, oldest first
   with an EMPTY message and call no tool. Never butt into other players' conversations.
 
 How to decide:
-- Simple, immediate requests (follow me, wait here, come here, attack that, stop, give me X,
-  pick that up, drop the logs) -> call the matching action tool directly. "wait here" = stop.
-  "come here" = go_to the player.
-- Harvesting (chop / cut / fell a tree, chop that fallen log or stump, mine a rock) -> call gather
-  with the resource kind ("oak", "ash", "stone"...). gather finds standing trees, felled trees, logs
-  and stumps itself, nearest first, so you do NOT need to see them in situation first.
-  Ground pickups work the same way: "stone" = loose stones on the ground, "rock" = mine a boulder,
-  also "sticks", "flax", "mushroom", berries and crops. It leaves stumps alone (they regrow).
-  "chop it" = 1 more of that resource unless a count was given.
-- Multi-step jobs (gather X then build/bring Y) -> if a learned skill in learned_skills fits and its
-  params are clear, call run_skill; otherwise call start_goal with the goal in plain words.
-- Facts worth keeping -> remember. A place: key "place:<name>", value "here" (where you stand),
-  "{player}" (where the player stands) or a description.
-- Chit-chat, praise, questions about what you see -> no tool, just answer from the situation.
-- What you wear, hold or carry -> situation has "You: ... holding X", "Wearing:" and "Carrying:"; call
-  inventory (read-only) for the full list with slots, counts and durability, then answer from it.
-A request that needs several steps (walk to him, then drop the logs; pick it up, then drink it):
-call the tools IN ORDER in ONE message. They run one after another, each checked in the game, and
-stop at the first one that fails. Calling an action tool cancels whatever job you are doing, so
-never pair an action with stop: "follow me" is just follow. Only call stop when the
-player asks you to stop or wait. If the player only comments on your work, do not call a tool.
+- Every tool's description says what it does. Pick the tool (or the tools, in order) that does what
+  the player wants, with the arguments its description asks for.
+- A request that needs several steps (walk to him, then drop the logs; pick it up, then drink it):
+  call the tools IN ORDER in ONE message. They run one after another, each checked in the game, and
+  stop at the first one that fails.
+- Calling an action tool cancels whatever job you are doing, so never pair an action with stop.
+  stop makes you stand still and stay. If the player only comments on your work, call no tool.
+- A longer job no single tool does: run_skill when a learned skill fits and its params are clear,
+  otherwise start_goal with the goal in plain words. list_skills / forget_skill manage what you
+  learned.
+- Facts worth keeping: remember. For a place use key "place:<name>" and at=self (where you stand)
+  or at=player (where that player stands) so its position is stored.
+- Talk, praise, questions about what you see, wear, hold or carry: answer from situation and the
+  read-only tools; no action tool.
 
 Seeing things (grounding):
 - situation lists what you perceive right now, by in-game name, with ids for actions.
-- Only act on things that are in situation or in a look/inspect result. Never substitute a
-  different item or target for the one the player named.
+- Act on things that are in situation or in a look/inspect result, and never substitute a
+  different item or target for the one the player meant.
 - If the player names something you don't see in situation{look_rule}
-- If it is not there, say so plainly: "I can't see any sticks around here", and mention what IS there.
+- If it is not there, say so plainly and mention what IS there.
 - If you can't do something, say what and why in one line: you lack the skill, you can't see it,
   you don't carry it, or it is unsafe. Don't pretend.
 - references (when present): the words in command.text that match things you perceive, typos
   corrected (read_as), with ids, nearest first. Use them to pick the right id.
-- When an action fails, its result comes back to you: say in one truthful line what happened, and
-  either try the obvious fix with one tool or ask {player}.
+- When an action fails (or its arguments were invalid), the result comes back to you: say in one
+  truthful line what happened, and either try the obvious fix with one tool or ask {player}.
 Use ids and names exactly as they appear. "me"/"I" is the player in command.player: pass that exact
 value as the player or target argument.
 
@@ -95,42 +88,51 @@ Your body (body_status, body_event):
   what each report was about. Trust it over recent_events. A report "not about a player" is not
   about {player}.
 - body_event: your body needs a decision (command.text is empty then). unreachable: a move can't
-  reach its target (reason = the body's verdict, about = player or place); resumed: it can reach it
-  again; vitals_low: a survival stat is low and you carry nothing for it. If one of your tools fixes
-  it (e.g. something in situation you can consume or fetch), use it. Otherwise tell {player} in ONE
-  short truthful line what happened and why, in plain words, and what you need from him.
+  reach its target (reason and detail = the body's measurement, about = player or place; a reason
+  like leader_windstepped is the body's guess from how high he rose, so say it as a guess);
+  resumed: it can reach it again; follow_ended: a follow stopped by itself; vitals_low: a survival
+  stat is low and you carry nothing for it. If one of your tools fixes it, use it. Otherwise tell
+  {player} in ONE short truthful line what happened and why, in plain words, and what you need.
 - recent_activity: what your body did lately (fights and how they ended, flights, pickups, deaths,
-  grave recoveries...), whoever started it (a reflex or a test command too). It is YOUR memory:
-  answer "what did you just do?" or "did you kill that?" from it; notes keep the notable ones.
+  grave recoveries...), whoever started it (a reflex or a test command too). It is YOUR memory;
+  notes keep the notable ones.
 - Never repeat what you already said (your own lines are in chat, you=true) unless it got worse or
   {player} asks about it.
 - If you can't tell what {player} means, ask ONE short question naming the things you can see.
 
-Spells: castable_spells lists what you can cast (name, role, when to use it). "Cast X" / "shield
-up" -> cast with that name (self spells need no target). If a spell is not listed, you can't cast
-it: say so instead of calling cast.
-Standing orders: "every time / whenever / if X, do Y" (usually about a fight) -> set_reflex_rule,
-so your body reacts instantly without asking you. enemy = the enemy kind {player} named ("kalphite"),
-or "*" if none. You can only sense these triggers: {triggers}.
-If X is not one of them (a sound, a colour, something an enemy says, weather...), do NOT call
-set_reflex_rule: say you can't sense that. Map his words: "raises its claws", "winds up",
-"about to hit", "attacks" -> telegraph; "windstep away" -> actions evade then cast Windstep at self.
-reflex_rules lists current orders: "what are your orders" -> list_rules; "stop doing that" /
-"forget that" -> clear_rule with the matching id."""
+Spells: castable_spells lists what you can cast (name, role, when to use it). A spell that is not
+listed can't be cast: say so instead of calling cast.
+Standing orders (set_reflex_rule): something your body should do by itself, instantly, whenever a
+trigger it can sense happens (enemy = the enemy kind, or "*"). You can only sense these triggers:
+{triggers}. If the player's condition is not one of them, do NOT call set_reflex_rule: say you
+can't sense that. reflex_rules lists the current orders; list_rules and clear_rule manage them."""
 
 LOOK_RULE = (": situation is only a short summary and misses many things (sticks, stones, plants, chests, "
              "stations). ALWAYS call look with about=<their words> first, before acting or saying you can't see it "
              "(read-only, it does not interrupt your job); then act on an id from its result. inspect gives "
              "details of one thing.")
 NO_LOOK_RULE = ", you can't look around yet: say you can't see it."
+# One line, only when the knowledge index exists (the lookup tool is offered then).
+LOOKUP_RULE = ("\n- Game facts you are not sure of (what an item does, recipes, where things are, creatures, "
+               "spells, mechanics) -> call lookup (read-only) and answer from it; game data beats the wiki.")
 
 START_GOAL = {
     "type": "function",
     "function": {
         "name": "start_goal",
-        "description": "Hand a multi-step job to the planner, e.g. 'gather 10 logs and bring them to Luis'.",
+        "description": "Hand a multi-step job to the planner, e.g. 'gather 10 logs and bring them to the player'.",
         "parameters": {"type": "object", "properties": {"goal": {"type": "string"}}, "required": ["goal"]},
     },
+}
+LIST_SKILLS = {
+    "type": "function",
+    "function": {"name": "list_skills", "description": "Read-only: the skills you have learned, with how often each worked.",
+                 "parameters": {"type": "object", "properties": {}}},
+}
+FORGET_SKILL = {
+    "type": "function",
+    "function": {"name": "forget_skill", "description": "Delete one learned skill by its exact name (from list_skills).",
+                 "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
 }
 ACTION_TOOLS = ["follow", "stop", "go_to", "attack", "give", "pickup", "drop", "cast", "sleep", "wake", "interact",
                 "gather"]
@@ -213,6 +215,7 @@ class Decision:
     refusals: list[tuple[str, str, dict]] = field(default_factory=list)
     model_calls: int = 0
     messages: list[dict] = field(default_factory=list)  # the turn so far, for a follow-up after a failure
+    invalid: list[ToolCall] = field(default_factory=list)  # calls refused for bad args (the model hears why)
     looks: list[dict] = field(default_factory=list)  # look results this turn (data)
     inventory: dict | None = None  # an inventory read this turn (data)
 
@@ -222,8 +225,10 @@ class Controller:
                  name: str = "Claude", player: str = "Luis", recent_events: int = 10,
                  spellbook: SpellBook | None = None, rules_ttl: float = 60.0,
                  available_tools: set[str] | list[str] | None = None, skills=None, max_calls: int = 3,
-                 progress_interval: float = 20.0, clock: Callable[[], float] = time.monotonic, caps=None):
+                 progress_interval: float = 20.0, clock: Callable[[], float] = time.monotonic, caps=None,
+                 knowledge=None):
         self.llm = llm
+        self.knowledge = knowledge  # brain.knowledge.Knowledge | None: the lookup tool is offered only with one
         self.game = game
         self.store = store
         self.log = logger
@@ -241,7 +246,7 @@ class Controller:
         self.caps = caps if caps is not None and getattr(caps, "has_manifest", False) else None
         if self.caps is not None and self.available is None:
             self.available = set(self.caps.tools) | set(self.caps.manifest)
-        self.read_tools = set(READ_TOOLS) | (self.caps.read_tools() if self.caps else set())
+        self.read_tools = set(READ_TOOLS) | (self.caps.read_tools() if self.caps else set()) | {"list_skills"}
         self.skills = skills  # SkillLibrary | None
         self.max_calls = max(1, max_calls)
         self.progress_interval = progress_interval
@@ -266,13 +271,17 @@ class Controller:
         return self.has("look")
 
     def _tool_list(self) -> list[dict]:
-        brain = [tool_schema("remember"), tool_schema("run_skill"), START_GOAL]
+        brain = [tool_schema("remember"), tool_schema("run_skill"), START_GOAL] + \
+            ([LIST_SKILLS, FORGET_SKILL] if self.skills is not None else [])
+        if self.knowledge is not None:  # the kinds it can filter on come from the index itself
+            kinds = ", ".join(self.knowledge.kinds())
+            brain.insert(0, tool_schema("lookup", TOOLS["lookup"][1] + (f" kind values: {kinds}." if kinds else "")))
         rules = [tool_schema(n) for n in RULE_TOOLS if self.has(n)]
         if self.caps is not None:  # the body's manifest: its own descriptions and schemas
             return [self.caps.function_schema(n) for n in self.caps.llm_tools()] + rules + brain
         # No manifest (mock, server puppet): the brain's own schemas, still only for tools the body has.
         acts = [n for n in ACTION_TOOLS if self.has(n)]
-        reads = [n for n in READ_TOOLS if self.has(n)]
+        reads = [n for n in READ_TOOLS if self.has(n) and n not in BRAIN_TOOLS]
         return [tool_schema(n) for n in reads + acts] + rules + brain
 
     def offered(self) -> set[str]:
@@ -372,7 +381,8 @@ class Controller:
 
     def persona(self) -> str:
         return PERSONA.format(name=self.name, player=self.player, triggers=", ".join(SENSABLE_TRIGGERS),
-                              look_rule=LOOK_RULE if self.can_look else NO_LOOK_RULE)
+                              look_rule=LOOK_RULE if self.can_look else NO_LOOK_RULE,
+                              lookup_rule=LOOKUP_RULE if self.knowledge is not None else "")
 
     # ---------------------------------------------------------------- the bounded loop
 
@@ -415,12 +425,19 @@ class Controller:
 
     def _read(self, call: ToolCall, d: Decision) -> dict:
         """Run one read-only tool (no interrupt, no task) and return a compact result for the model."""
+        if call.name == "list_skills":
+            recs = self.skills.all() if self.skills else []
+            return {"ok": True, "data": {"skills": [{"name": r.name, "ok": r.stats.ok, "runs": r.stats.runs}
+                                                    for r in recs]}}
         try:
             args = self._validate(call.name, call.arguments)
         except Exception as exc:
             return {"ok": False, "reason": Reason.INVALID_ARGS, "error": str(exc)[:300]}
         self.log.log("tool_call", tool=call.name, args=args, read_only=True)
-        res = self.game.call(call.name, args)
+        if call.name in BRAIN_TOOLS:  # answered by the brain (knowledge index), never sent to the body
+            res = self._brain_read(call.name, args)
+        else:
+            res = self.game.call(call.name, args)
         self.log.log("tool_result", tool=call.name, result=res, read_only=True)
         if call.name == "inventory" and res.get("ok"):
             d.inventory = res["data"]
@@ -433,6 +450,14 @@ class Controller:
             return {"ok": False, "reason": res["reason"], "note": f"you can't {call.name} yet"}
         return res
 
+    def _brain_read(self, tool: str, args: dict) -> dict:
+        if tool == "lookup" and self.knowledge is not None:
+            try:
+                return self.knowledge.lookup(args["query"], args.get("kind"))
+            except Exception as exc:  # knowledge is best effort; never break the turn on it
+                return {"ok": False, "reason": Reason.BODY_ERROR, "data": {"error": repr(exc)[:200]}}
+        return {"ok": False, "reason": Reason.NOT_IMPLEMENTED, "data": {"tool": tool}}
+
     def _collect(self, calls: list[ToolCall], d: Decision, state: dict) -> None:
         offered = self.offered()
         for call in calls:
@@ -443,18 +468,24 @@ class Controller:
                 if new != call.name and new in offered:
                     self.log.log("controller_alias", said=call.name, tool=new, args=args)
                     call.name, call.arguments = new, args
-            if call.name == "start_goal" and call.arguments.get("goal"):
-                d.goal = str(call.arguments["goal"])
+            if call.name == "start_goal":
+                if call.arguments.get("goal"):
+                    d.goal = str(call.arguments["goal"])
+                else:
+                    d.refusals.append((call.name, Reason.INVALID_ARGS, {"error": "start_goal needs a goal"}))
+                    d.invalid.append(call)
+                continue
+            if call.name == "forget_skill":
+                d.actions.append(call)
                 continue
             if call.name == "run_skill":
                 self._collect_skill(call, d)
                 continue
             if call.name not in offered or call.name == "start_goal":
                 self.log.log("controller_unknown_tool", tool=call.name)
-                if call.name in TOOLS and call.name != "start_goal":
-                    # a tool this body lacks (never offered, the model reached for it anyway): say so
-                    # truthfully instead of speaking a reply that claims the action
-                    d.refusals.append((call.name, Reason.NOT_IMPLEMENTED, {}))
+                # a tool this body lacks or no tool at all (the model reached for it anyway): say so
+                # truthfully instead of speaking a reply that claims the action (review H4)
+                d.refusals.append((call.name, Reason.NOT_IMPLEMENTED if call.name in TOOLS else Reason.UNKNOWN_TOOL, {}))
                 continue
             if call.name == "set_reflex_rule":
                 trig = call.arguments.get("trigger")
@@ -467,6 +498,8 @@ class Controller:
                 call.arguments = self._validate(call.name, call.arguments)
             except Exception as exc:
                 self.log.log("controller_invalid_call", tool=call.name, error=str(exc))
+                d.refusals.append((call.name, Reason.INVALID_ARGS, {"error": str(exc)[:300]}))
+                d.invalid.append(call)
                 continue
             refusal = self.safety(call, state)
             if refusal:

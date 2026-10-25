@@ -202,8 +202,11 @@ class SayArgs(BaseModel):
 
 
 class RememberArgs(BaseModel):
-    key: str = Field(description="Short key, e.g. 'place:lake_hut' or 'pref:luis_axe'.")
+    key: str = Field(description="Short key, e.g. 'place:lake_hut' or 'pref:favourite_axe'.")
     value: str
+    at: Literal["self", "player"] | None = Field(
+        None, description="For a place: store the position where you stand (self) or where a player stands (player).")
+    player: str | None = Field(None, description="With at=player: which player (default: the one talking).")
 
 
 class SleepArgs(BaseModel):

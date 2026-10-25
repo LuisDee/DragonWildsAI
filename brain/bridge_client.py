@@ -49,6 +49,7 @@ class BridgeClient(GameInterface):
         self.timeouts = {**DEFAULT_TIMEOUTS, **(timeouts or {})}
         self._events: list[Event] = []
         self._inflight: set[str] = set()  # request ids still waiting for their result
+        self._sent: dict[str, str] = {}  # request id -> tool (broker: which task_failed is a held follow ending)
         self._parked: dict[str, dict] = {}  # results that arrived while some request was reading
         self._progress: list[Event] = []  # progress events not yet handed to the listener
         self._listener: Callable[[Event], None] | None = None
@@ -59,6 +60,10 @@ class BridgeClient(GameInterface):
 
     def set_progress_listener(self, listener: Callable[[Event], None] | None) -> None:
         self._listener = listener
+
+    def sent_tool(self, request_id: str) -> str | None:
+        """The tool a request id was sent for (the body's task_done/task_failed carry that id)."""
+        return self._sent.get(request_id)
 
     def _dispatch(self, msg: dict) -> None:
         """Route one incoming message: events are buffered, results parked for their request."""
@@ -117,6 +122,9 @@ class BridgeClient(GameInterface):
         timeout = timeout if timeout is not None else self.timeouts.get(tool, self.default_timeout)
         self.log.log("bridge_send", msg=msg)
         self._inflight.add(req_id)
+        self._sent[req_id] = tool
+        if len(self._sent) > 200:  # bounded: the oldest ids go first
+            self._sent.pop(next(iter(self._sent)))
         try:
             self.transport.send(msg)
             deadline = time.monotonic() + timeout

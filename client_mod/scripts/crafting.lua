@@ -159,8 +159,17 @@ function M.resolve_item(q)
     if I.path_of[q] then return q end
     if I.id_of[q] then return I.id_of[q] end
     local lq = lower(q)
-    for p, n in pairs(I.name_of) do if lower(n) == lq then return I.id_of[p] end end
     for id in pairs(I.path_of) do if lower(id) == lq then return id end end
+    local exact = {}
+    for p, n in pairs(I.name_of) do if lower(n) == lq then exact[#exact + 1] = I.id_of[p] end end
+    if #exact > 1 then -- the same display name on several items: prefer the craftable ones
+        local made = {}
+        for _, id in ipairs(exact) do if I.by_output[id] then made[#made + 1] = id end end
+        if #made >= 1 then exact = made end
+    end
+    table.sort(exact)
+    if #exact == 1 then return exact[1] end
+    if #exact > 1 then return nil, exact end
     local hits = {}
     for id in pairs(I.by_output) do
         local n = lower(name_of_id(id))
@@ -429,7 +438,7 @@ function M.craftable(ctx, opts)
     opts = opts or {}
     local out = {}
     for rid, r in pairs(M.data().recipes or {}) do
-        if (ctx.unlocked or {})[rid] and #(r.stations or {}) > 0 and #(r.inputs or {}) > 0 then
+        if (ctx.unlocked or {})[rid] and #(r.stations or {}) > 0 then -- (some recipes cost nothing, e.g. capes)
             local a = M.assess(rid, 1, ctx)
             if a.status == "ready" or (a.status == "no_station" and not opts.near_only) then out[#out + 1] = a end
         end
@@ -618,6 +627,11 @@ function W.send_craft(api, rid, count)
     local ui = ui_object(api, "CraftingUIAPI")
     local r = recipe_of(rid)
     local obj = U and r and U.find_object(r.path)
+    if U and r and not (obj and U.valid(obj)) then -- not found by path: the loaded RecipeData objects (read-only)
+        for _, o in ipairs(U.find_all("RecipeData") or {}) do
+            if U.path_of(o) == r.path then obj = o; break end
+        end
+    end
     if not ui then return false, "no CraftingUIAPI" end
     if not (obj and U.valid(obj)) then return false, "recipe object not loaded: " .. tostring(rid) end
     api.log("crafting: CraftingUIAPI:SelectRecipe(" .. rid .. ") + SendCraftRequest(" .. count .. ")")
@@ -696,8 +710,11 @@ end
 -- gather_profiles: item id -> resource name (the gather tool's own data; no code per item)
 function W.gather_for(api)
     local gp = api.module("gather_profiles")
-    local map = {}
-    for name, p in pairs(type(gp) == "table" and gp.RESOURCES or {}) do
+    local map, names = {}, {}
+    for name in pairs(type(gp) == "table" and gp.RESOURCES or {}) do names[#names + 1] = name end
+    table.sort(names) -- deterministic: the first resource name (alphabetical) that yields the item
+    for _, name in ipairs(names) do
+        local p = gp.RESOURCES[name]
         if type(p) == "table" and p.item and not map[p.item] then map[p.item] = name end
     end
     return function(item) return map[item] end
@@ -1189,7 +1206,10 @@ local function proc_step(api, job, t)
         if #targets > 0 and (job.picks or 0) < out_total(job) + 2 and sk and sk._episode_poll and not job.pickup_fail then
             local th = targets[1]
             job.ep = { thing = th, phase = "approach", moving = false, approaches = 0, presses = 0, tol = 1.0,
-                       before = api.counts() or {}, label = th.name or "output", want_item = th.item, need_gain = true }
+                       before = api.counts() or {}, label = th.name or "output", want_item = th.item, need_gain = true,
+                       -- any NEW output of this recipe the detector targets will do (never a pre-existing item)
+                       accept = function(det) return det.item ~= nil and want[det.item] == true and det.actor ~= nil
+                                                     and not job.pre_items[det.actor] end }
             return nil
         end
         if job.took and t < (job.collect_until or 0) then return nil end
@@ -1348,6 +1368,42 @@ local function plan_tool(api, args)
     local tree, why = M.plan_tree(goal, tonumber(args.count) or 1, ctx)
     if not tree then return api.fail(why, { recipe = args.recipe, detail = "I don't know that recipe." }) end
     return { ok = true, data = tree }
+end
+
+-- ------------------------------------------------------------------ get_state extras (honest perception)
+-- client_bridge get_state calls this with the state it built (data.interactables = census rows).
+-- Adds stations_nearby = [{id, name, station, distance, running?, making?, contents?}] (max 4), the
+-- processing state read from the station's own component; cached M.cfg.extras_ttl_s.
+M.cfg.extras_ttl_s = 5
+function M.state_extras(api, data)
+    local st = state()
+    local now = api.now()
+    if st.extras and st.extras_at and now - st.extras_at >= 0 and now - st.extras_at < M.cfg.extras_ttl_s then return st.extras end
+    local rows = {}
+    for _, t in ipairs(type(data) == "table" and data.interactables or {}) do
+        local sid = M.station_type(t.class)
+        if sid and #rows < 4 then
+            local info = station_info(sid) or {}
+            local r = { id = t.id, name = info.name or t.name, station = sid, distance = t.distance }
+            if info.kind == "processing" then
+                local a = api.actor_of({ id = t.id, class = t.class })
+                local s = a and W.station_state(api, a, "processing")
+                if s then
+                    r.running = s.running
+                    if s.recipe then r.making = s.recipe end
+                    local c = {}
+                    for _, x in ipairs(s.resources.rows) do c[#c + 1] = tostring(x.name or x.item) .. " x" .. x.count end
+                    for _, x in ipairs(s.fuel.rows) do c[#c + 1] = tostring(x.name or x.item) .. " x" .. x.count .. " (fuel)" end
+                    for _, x in ipairs(s.output.rows) do c[#c + 1] = tostring(x.name or x.item) .. " x" .. x.count .. " (done)" end
+                    if #c > 0 then r.contents = c end
+                end
+            end
+            rows[#rows + 1] = r
+        end
+    end
+    table.sort(rows, function(x, y) return (x.distance or 0) < (y.distance or 0) end)
+    st.extras, st.extras_at = (#rows > 0) and { stations_nearby = rows } or {}, now
+    return st.extras
 end
 
 -- ------------------------------------------------------------------ handlers

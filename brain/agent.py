@@ -14,7 +14,6 @@ planner call; "what have you learned?" and "forget <skill>" are answered without
 """
 from __future__ import annotations
 
-import re
 import time
 from typing import Literal
 
@@ -37,10 +36,6 @@ HELP_REPEAT_S = 60.0
 # Body situations (unreachable, resumed, vitals_low) are triaged by broker.EventBroker and phrased by
 # the Controller model; broker.fallback_line is the template safety net (streamline step 3).
 
-LEARNED_RE = re.compile(r"^\s*(what (have|did) you (learn|learned|learnt)|what do you know how to do|"
-                        r"(list|show) (me )?(your )?(skills|what you('ve| have)? learn(ed|t)?))\b", re.I)
-FORGET_RE = re.compile(r"^\s*forget (?:about )?(?:the |your )?(?:skill |how to )?(.+?)[.!?]*\s*$", re.I)
-HERE_WORDS = {"here", "there", "this spot", "where i am standing", "where you are"}
 
 
 def _task_label(t: Task) -> str:
@@ -71,7 +66,7 @@ class Agent:
         self._last_reason: str | None = None
         self._help_said: dict[str, float] = {}  # help key -> monotonic time last said
         # Event hygiene (streamline step 3): triage, movement episodes, digest, episodic memory.
-        self.broker = EventBroker(logger)
+        self.broker = EventBroker(logger, tool_of=getattr(game, "sent_tool", None))
         controller.status_provider = self.broker.digest
         controller.activity_provider = self.broker.activity_lines
         self._situations: list[dict] = []  # body situations waiting for one Controller run
@@ -113,6 +108,11 @@ class Agent:
         self.log.log("event", event=event.model_dump())
         if isinstance(event, BODY_SITUATIONS):
             self._body_situation(event)
+            if not self._in_pump:
+                self.flush_situations()
+            return
+        if isinstance(event, TaskFailed) and self.broker.held(event.task_id):
+            self._body_situation(event)  # a follow ended by itself (review H1): the model says why
             if not self._in_pump:
                 self.flush_situations()
             return
@@ -223,8 +223,6 @@ class Agent:
         reading); the model may decide it is not for him, and then nothing is said or done.
         ``body_events``: body situations (broker) this run must also decide on; with an empty text it
         is a body-initiated run: the model phrases the line (or fixes it with a tool)."""
-        if addressed and not body_events and self._skill_command(event.text):
-            return
         state = self._fresh_state()  # unavailable: still let the Controller answer; actions will refuse
         body_ctx = (body_events[0] if len(body_events) == 1 else {"events": body_events}) if body_events else None
         d = self.controller.decide(event.player, event.text, state, self.active_goal, addressed=addressed,
@@ -249,13 +247,19 @@ class Agent:
         if d.interrupts and self.active_goal:
             self._cancelled = True
         failure = d.refusals[0] if d.refusals else None
-        failed_call = None  # the body action that failed: its result goes back to the model
+        # the call that failed (a body action, or one refused for bad args): its result goes back to the model
+        failed_call = d.invalid[0] if d.invalid and failure and failure[0] == d.invalid[0].name else None
         results: dict[str, dict] = {}  # call id -> result of the steps that ran (multi-step turns)
         extra: list[str] = []  # facts the body reported that the speech must carry (single voice)
         spoken = False  # a long action's reply is said when it starts
         for call in d.actions:
-            if call.name == "remember":
-                self._remember(call.arguments, state, event.player)
+            if call.name in ("remember", "forget_skill"):
+                res = self._remember(call.arguments, state, event.player) if call.name == "remember" \
+                    else self._forget_skill(call.arguments)
+                results[call.id or call.name] = res
+                if not res.get("ok", True) and failure is None:
+                    failure, failed_call = (call.name, res["reason"], res["data"]), call
+                    break
                 continue
             if call.name in RULE_TOOLS:
                 res = self._rule_tool(call.name, call.arguments, extra)
@@ -277,7 +281,7 @@ class Agent:
             failure = self._queue_skill(*d.skill, state)
         kind = "notice" if body_events and not event.text else "reply"
         res = None
-        if failure and failed_call is not None and failure[1] not in Reason.INTERRUPTS:
+        if failure and failed_call is not None and failure[1] not in Reason.INTERRUPTS:  # model hears why
             self._explain_failure(d, failed_call, failure, state, results)
         elif failure:
             self.controller.report_failure(*failure)
@@ -352,25 +356,27 @@ class Agent:
                 return ack
         return "Sorry, I didn't catch that." if not d.actions else "Okay."
 
-    def _remember(self, args: dict, state: dict, player: str) -> None:
-        """remember(); a "place:<name>" whose value is "here" or a player's name is stored with its
-        position (per-world places), so go_to(<name>) works later."""
+    def _remember(self, args: dict, state: dict, player: str) -> dict:
+        """remember(); a "place:<name>" with at=self | player is stored with that position (per-world
+        places), so go_to(<name>) works later. The model says where (review M6: no word list); a place
+        with no position it could resolve is a failure the model hears."""
         self.log.log("tool_call", tool="remember", args=args)
         key, value = str(args.get("key", "")), str(args.get("value", ""))
         res = self.store.remember(key, value)
-        if key.lower().startswith("place:"):
-            name = key.split(":", 1)[1].strip()
+        if key.lower().startswith("place:") and (name := key.split(":", 1)[1].strip()):
             pos = None
-            low = value.strip().lower()
-            if low in HERE_WORDS:
+            if args.get("at") == "self":
                 pos = state.get("position")
-            else:
+            elif args.get("at") == "player":
+                who = str(args.get("player") or player)
                 pos = next((p.get("position") for p in state.get("players") or []
-                            if str(p.get("name", "")).lower() == low or (low in ("me", "you") and p.get("name") == player)),
-                           None)
-            if name:
-                res = self.store.remember_place(name, pos if isinstance(pos, list) else None, note=value)
+                            if isinstance(p, dict) and str(p.get("name", "")).lower() == who.lower()), None)
+            res = self.store.remember_place(name, pos if isinstance(pos, list) else None, note=value)
+            if args.get("at") and not isinstance(pos, list):
+                res = {"ok": False, "reason": "no_position",
+                       "data": {"place": name, "at": args.get("at"), "detail": "couldn't read that position now"}}
         self.log.log("tool_result", tool="remember", result=res)
+        return res
 
     def _rule_tool(self, name: str, args: dict, extra: list[str]) -> dict:
         """Standing orders go straight to the body (no task, nothing to retry). A new rule counts
@@ -404,29 +410,16 @@ class Agent:
 
     # ---------------------------------------------------------------- skills
 
-    def _skill_command(self, text: str) -> bool:
-        """'what have you learned?' / 'forget <skill>': answered from the library, no model call."""
-        if not self.skills:
-            return False
-        if LEARNED_RE.match(text):
-            recs = self.skills.all()
-            self.log.log("skill_command", command="list", skills=[r.name for r in recs])
-            if not recs:
-                self.controller.say("I haven't learned any skills yet. When I finish a job, I'll remember how I did it.")
-            else:
-                parts = [f"{r.name} ({r.stats.ok}/{r.stats.runs} ok)" if r.stats.runs else r.name for r in recs]
-                self.controller.say(f"I've learned {len(recs)} skill{'s' if len(recs) != 1 else ''}: " + ", ".join(parts) + ".")
-            return True
-        m = FORGET_RE.match(text)
-        if m:
-            rec = self.skills.find_name(m.group(1))
-            if rec is None:
-                return False  # "forget that" etc. is a standing order for the Controller
-            self.skills.forget(rec.name)
-            self.log.log("skill_command", command="forget", name=rec.name)
-            self.controller.say(f"Okay, I've forgotten how to {rec.name.replace('_', ' ')}.")
-            return True
-        return False
+    def _forget_skill(self, args: dict) -> dict:
+        """forget_skill(name): the model chose to; an exact name only (no fuzzy deletes, review H3)."""
+        name = str(args.get("name") or "")
+        rec = self.skills.get(name) if self.skills else None
+        if rec is None:
+            names = [r.name for r in self.skills.all()] if self.skills else []
+            return {"ok": False, "reason": Reason.UNKNOWN_SKILL, "data": {"skill": name, "learned": names}}
+        self.skills.forget(rec.name)
+        self.log.log("skill_command", command="forget", name=rec.name)
+        return {"ok": True, "reason": None, "data": {"forgot": rec.name}}
 
     def _queue_skill(self, name: str, params: dict, state: dict) -> tuple[str, str, dict] | None:
         """Expand and check a learned skill now; queue it as a goal. A refusal tuple on failure."""

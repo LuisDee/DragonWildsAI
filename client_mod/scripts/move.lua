@@ -816,6 +816,16 @@ local function tick(st, gen, log)
             local okt, trap = pcall(NMm.trap_at, mem, fe)
             local okg3, gtrap = pcall(NMm.trap_at, mem, gfe)
             if okt and trap and not (okg3 and gtrap and gtrap.id == trap.id) then
+                -- whatever gets us out of this known trap becomes (or refreshes) its exit
+                if not rawget(_G, "DW_TRAP_CAND") then
+                    local c0 = trap.center
+                    _G.DW_TRAP_CAND = { at = { X = c0[1] * 100, Y = c0[2] * 100, Z = c0[3] * 100 }, t = os.time(), trap = trap.id }
+                    if log then log("move: memory: in trap " .. tostring(trap.id) .. "; the way out will be learned as its exit") end
+                end
+            end
+            if okt and trap and not (okg3 and gtrap and gtrap.id == trap.id) and st.mode == "follow" and st.target then
+                -- following a visible leader out: his live trail beats a stored (maybe provisional) exit
+            elseif okt and trap and not (okg3 and gtrap and gtrap.id == trap.id) then
                 st.mpath, st.mwp, st.msrc = NMm.trap_exit(trap), 1, "trap:" .. tostring(trap.id)
                 if log then log("move: memory: in trap " .. tostring(trap.id) .. ", taking its exit first") end
             elseif dist > M.cfg.mem_min_trip_cm then

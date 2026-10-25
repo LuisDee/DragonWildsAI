@@ -780,6 +780,15 @@ function M.state_extras(api, data)
         mem.last_held = { item = data.held_item, name = type(data.held) == "string" and data.held or data.held_item }
     end
     if mem.last_held then out.last_held = mem.last_held.name end
+    local inv = api.module("inventory")
+    if inv and type(inv.vitals_policy) == "function" then
+        local okp, pol = pcall(inv.vitals_policy)
+        if okp and type(pol) == "table" then
+            out.vitals_policy = { drink_below_pct = pol.drink_below_pct, eat_below_pct = pol.eat_below_pct,
+                                  heal_below_pct = pol.heal_below_pct or api.null, reserve_warn = pol.reserve_warn,
+                                  safety_floor_pct = inv.SAFETY_FLOOR_PCT }
+        end
+    end
     local g, others = grave_of(api, data.interactables)
     if g then
         local contents = api.contents_of(g) or {}
@@ -812,6 +821,7 @@ M.NEEDS = {
     give = { { "sense", "census" }, { "inventory", "list" }, { "inventory", "drop" }, { "move", "follow" }, { "move", "status" },
              { "move", "stop" } },
     move_item = { { "inventory", "list" }, { "inventory", "move" } },
+    set_vitals_policy = { { "inventory", "set_vitals_policy" } },
     equip = { { "inventory", "list" }, { "inventory", "equip" } },
 }
 
@@ -875,6 +885,15 @@ M.HANDLERS.move_item = function(log, args, ctx)
             .. " to my " .. page .. " but it didn't move." })
     end
     return { wait = w, wait_s = 4 }
+end
+
+-- set_vitals_policy: WHEN the stay-fed reflex eats/drinks/heals is the model's decision (inventory.lua
+-- vitals policy); a safety floor stays in code. Answers with the policy read back.
+M.HANDLERS.set_vitals_policy = function(log, args, ctx)
+    local api = ctx and ctx.api
+    if not api then return { ok = false, reason = "body_error", data = { detail = "needs ctx.api" } } end
+    local r = api.call("inventory", "set_vitals_policy", args or {})
+    return r
 end
 
 M.HANDLERS.equip = function(log, args, ctx)
@@ -953,6 +972,17 @@ M.MANIFEST = {
         args = { type = "object", required = { "item" }, properties = obj({ item = str("A carried item's name or id.") }) },
         ground = obj({ item = "carried" }),
         reasons = { "not_in_inventory", "verification_failed" } },
+    set_vitals_policy = { kind = "waiter", llm = true, moves = false, duration_s = 0, timeout_s = 10,
+        description = "Set WHEN your stay-fed reflex eats, drinks and heals by itself (percent of each maximum). Decide it "
+            .. "from your vitals, your food/drink stock, threats and the job: e.g. top up before a fight, save food when "
+            .. "stock is low, eat to heal after a fight. A safety floor (10%) always applies.",
+        args = { type = "object", properties = obj({
+            drink_below_pct = { type = "number", minimum = 10, maximum = 95, description = "Drink when hydration is below this % of max." },
+            eat_below_pct = { type = "number", minimum = 10, maximum = 95, description = "Eat when food is below this % of max." },
+            heal_below_pct = { type = "number", minimum = 0, maximum = 95,
+                description = "Also eat healing food when HP is below this % (0 = never eat just to heal)." },
+            reserve_warn = { type = "integer", minimum = 0, maximum = 20, description = "Warn when fewer usable items than this." } }) },
+        reasons = { "invalid_args" } },
     fetch = { kind = "action", llm = false, moves = true, priority = "command", duration_s = 8, timeout_s = 120,
         detail_is_speech = SPEAKS,
         description = "Pick up items lying on the ground by name or id (find, walk, face, use, verify; repeats for count)." .. COMPOUND,

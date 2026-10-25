@@ -45,6 +45,7 @@ MOVE_TOOLS = {"follow", "go_to", "come_to"}
 NON_PREEMPTING = {"cast", "say", "look", "inspect", "inventory", "remember", "set_reflex_rule", "list_rules",
                   "clear_rule", "get_state"}
 BODY_SITUATIONS = (Unreachable, Resumed, VitalsLow)
+HELD_TOOLS = {"follow"}  # answer at their start, then keep running in the body
 
 ARRIVED_M = 6.0  # within this of a player = "next to him": an "I can't reach you" is stale
 PLAYER_MATCH_M = 10.0  # an unreachable whose leader_pos is this close to a player is about that player
@@ -61,7 +62,7 @@ ACTIVITY_KEEP = 8  # recent_activity lines in every Controller context
 # Fallback lines, used only when the model call for a situation fails (main, 2026-10-25: the model
 # phrases these; templates stay as the safety net). Keyed by the body's reason code.
 UNREACHABLE_LINES = {
-    "leader_windstepped": "I can't follow you there, you Windstepped across and I can't do that yet.",
+    "leader_windstepped": "You went up higher than I can jump, maybe with Windstep? I can't follow that yet.",
     "too_high": "I can't get up there, it's too high for me. Can you come back down?",
     "gap_too_wide": "That gap is too wide for me to jump. Can you come back over?",
     "no_route": "I can't find a way to you from here. Can you come back towards me?",
@@ -149,6 +150,8 @@ def fallback_line(events: list[dict]) -> str | None:
             lines.append(line or f"I can't reach you: {e.get('detail') or r.replace('_', ' ')}.")
         elif e.get("type") == "resumed":
             lines.append("Found you.")
+        elif str(e.get("type", "")).endswith("_ended"):
+            lines.append(f"I've stopped following you: {str(e.get('reason') or 'it ended').replace('_', ' ')}.")
         elif e.get("type") == "vitals_low":
             needs.append(NEED_WORDS.get(str(e.get("stat")), (f"low on {e.get('stat')}", "something for it")))
     if needs:
@@ -188,9 +191,11 @@ class Verdict:
 
 
 class EventBroker:
-    def __init__(self, log=None, clock: Callable[[], float] = time.monotonic):
+    def __init__(self, log=None, clock: Callable[[], float] = time.monotonic,
+                 tool_of: Callable[[str], str | None] | None = None):
         self.log = log
         self.clock = clock
+        self.tool_of = tool_of or (lambda _id: None)  # bridge request id -> tool (BridgeClient.sent_tool)
         self.episode: Episode | None = None
         self._episodes = 0
         self._unreachable_said: dict[str, float] = {}  # reason -> when last voiced (any episode)
@@ -240,6 +245,8 @@ class EventBroker:
             why = None
             if isinstance(ev, PROGRESS_EVENTS):
                 why = "progress: narrated live by the progress listener"
+            elif isinstance(ev, TaskFailed) and self.held(ev.task_id):
+                pass  # a held action (follow) ended by itself: the executor never saw that (review H1)
             elif isinstance(ev, (TaskDone, TaskFailed)):
                 why = "action result: the executor already has it (synchronous reply)"
             elif isinstance(ev, Unreachable):
@@ -263,7 +270,9 @@ class EventBroker:
     # ---------------------------------------------------------------- per event, against fresh state
 
     def assess(self, ev: Event, state: dict) -> Verdict:
-        if isinstance(ev, Unreachable):
+        if isinstance(ev, TaskFailed):
+            v = self._held_ended(ev)
+        elif isinstance(ev, Unreachable):
             v = self._unreachable(ev, state)
         elif isinstance(ev, Resumed):
             v = self._resumed(ev)
@@ -315,6 +324,18 @@ class EventBroker:
                 "target": who or (ep.label() if ep else None), "mode": ev.mode,
                 "distance_m": dist, "my_pos": ev.my_pos, "target_pos": ev.leader_pos}
         return Verdict("decide", "the brain's own move can't reach its target", data)
+
+    def held(self, task_id: str) -> bool:
+        """Is this the id of a held action (one that answered at its start and keeps running)?"""
+        return self.tool_of(task_id) in HELD_TOOLS
+
+    def _held_ended(self, ev: TaskFailed) -> Verdict:
+        ep = self.episode
+        if ep is None or ep.tool not in HELD_TOOLS or ep.ended is not None:
+            return Verdict("drop", f"its {self.tool_of(ev.task_id)} was already ended by the brain")
+        ep.ended, ep.ok, ep.reason = self.clock(), False, ev.reason
+        return Verdict("decide", f"{ep.tool} ended by itself",
+                       {"type": f"{ep.tool}_ended", "reason": ev.reason, "target": ep.player, "about": "player"})
 
     def _resumed(self, ev: Resumed) -> Verdict:
         open_ = self._unreachable_open

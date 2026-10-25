@@ -1,3 +1,4 @@
+import json
 import pytest
 from conftest import Rig
 
@@ -56,13 +57,26 @@ def test_remember_and_start_goal(rig):
     assert "place:build_site" in rig.planner_llm.calls[0]["messages"][-1]["content"]
 
 
-def test_invalid_controller_calls_are_dropped(rig):
+def test_invalid_controller_calls_are_never_spoken_as_done(rig):
+    """Review H4: a call that can't be dispatched (no such tool, bad args) must not leave the model's
+    "On my way!"-style reply standing while nothing happens: a truthful refusal is said instead."""
     rig.game.player_say("teleport me")
-    rig.controller_llm.push(FakeLLM.say("Can't do that one.", FakeLLM.call("teleport", to="x"),
+    rig.controller_llm.push(FakeLLM.say("Teleporting you now!", FakeLLM.call("teleport", to="x"),
                                         FakeLLM.call("gather", resource="log")))
     rig.agent.step()
-    assert rig.companion_said() == ["Can't do that one."]
+    assert rig.companion_said() == ["Sorry, I can't teleport yet."]
     assert [n for n, _ in rig.game.calls] == ["say"]  # no action reached the body
+
+
+def test_invalid_args_go_back_to_the_model_once(rig):
+    rig.game.player_say("follow me")
+    rig.controller_llm.push(FakeLLM.say("Right behind you!", FakeLLM.call("follow", distance="close")),
+                            FakeLLM.say("Right behind you.", FakeLLM.call("follow", player="Luis")))
+    rig.agent.step()
+    follow_up = rig.controller_llm.calls[1]["messages"]
+    result = json.loads(next(m for m in reversed(follow_up) if m["role"] == "tool")["content"])
+    assert result["ok"] is False and result["reason"] == "invalid_args" and result["data"]["error"]
+    assert rig.game.following == "Luis" and rig.companion_said() == ["Right behind you."]
 
 
 def _planner_rig(tmp_path, *responses, skills=None):

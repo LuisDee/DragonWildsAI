@@ -125,20 +125,28 @@ def test_run_skill_checks_params_and_preconditions(tmp_path):
 
 
 def test_what_have_you_learned_and_forget(tmp_path):
+    """Review H3: no regex routes "what have you learned" / "forget X" around the model any more.
+    The model reads list_skills and chooses forget_skill (exact name); "forget the wolf, follow me"
+    deletes nothing and the follow happens."""
     rig = learn_rig(tmp_path)
     calls = len(rig.controller_llm.calls)
+    rig.game.player_say("forget the wolf, follow me")
+    rig.controller_llm.push(FakeLLM.say("Right behind you.", FakeLLM.call("follow", player="Luis")))
+    rig.agent.step()
+    assert (tmp_path / "skills" / "deliver_resource.json").exists() and rig.game.following == "Luis"
     rig.game.player_say("what have you learned?")
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("list_skills")),
+                            FakeLLM.say("I've learned one skill: deliver_resource."))
     rig.agent.step()
-    assert rig.companion_said()[-1] == "I've learned 1 skill: deliver_resource (1/1 ok)."
+    listed = json.loads(next(m for m in rig.controller_llm.calls[-1]["messages"] if m["role"] == "tool")["content"])
+    assert listed["data"]["skills"] == [{"name": "deliver_resource", "ok": 1, "runs": 1}]
+    assert rig.companion_said()[-1] == "I've learned one skill: deliver_resource."
     rig.game.player_say("forget deliver resource")
+    rig.controller_llm.push(FakeLLM.say("Forgotten.", ToolCall("forget_skill", {"name": "deliver_resource"})))
     rig.agent.step()
-    assert rig.companion_said()[-1] == "Okay, I've forgotten how to deliver resource."
+    assert rig.companion_said()[-1] == "Forgotten."
     assert not (tmp_path / "skills" / "deliver_resource.json").exists()
-    assert len(rig.controller_llm.calls) == calls  # answered without a model
-    rig.game.player_say("forget that")  # not a skill: a standing order for the Controller
-    rig.controller_llm.push(FakeLLM.say("Nothing to forget."))
-    rig.agent.step()
-    assert len(rig.controller_llm.calls) == calls + 1
+    assert len(rig.controller_llm.calls) == calls + 4
 
 
 def test_retrieval_is_bm25_with_stemming(tmp_path):
@@ -215,7 +223,8 @@ def test_legacy_files_migrate_and_default_is_adopted(tmp_path):
 def test_remember_place_here_then_go_there(rig):
     rig.game.pos = [5.0, 5.0, 0.0]
     rig.game.player_say("remember this spot as the farm")
-    rig.controller_llm.push(FakeLLM.say("Noted, this is the farm.", FakeLLM.call("remember", key="place:farm", value="here")))
+    rig.controller_llm.push(FakeLLM.say("Noted, this is the farm.",
+                                        FakeLLM.call("remember", key="place:farm", value="the farm", at="self")))
     rig.agent.step()
     assert rig.store.place_position("farm") == [5.0, 5.0, 0.0]
     rig.game.pos = [0.0, 0.0, 0.0]

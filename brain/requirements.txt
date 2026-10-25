@@ -7,3 +7,4 @@ pydantic==2.14.1   # tool-argument, event and plan schemas + JSON Schema generat
 pytest==9.1.1      # tests
 mcp==2.3.0  # litellm imports it when tools are passed
 jsonschema==4.26.0  # validates tool calls against the body's capability manifest (brain/capabilities.py)
+mwparserfromhell==0.7.2  # tools/wiki_mirror.py only (wikitext -> text); the brain reads the converted mirror
