@@ -627,6 +627,7 @@ end)
 
 test("say: chat RPC to every player, toast fallback on a Lua error", function()
     setup()
+    speech.DEFAULT_MODE = "chat" -- the legacy Client_* mode, offline only (the real default is log)
     local a = make_player("luis_epic", 256, 0, 0, 0)
     local b = make_player("bob", 257, 0, 0, 0)
     local msgs, id = cmd("say", { text = "On my way!" })

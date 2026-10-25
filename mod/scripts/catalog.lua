@@ -541,4 +541,45 @@ function M.run(log, args)
     return res
 end
 
+-- debug_run {module="catalog", fn="check_attack_data", args={charge=false}}: read-only check of the
+-- generated mod/body/attack_data.lua against the live game: StaticFindObject on every set's action
+-- CDO and every step's attack class (no loads). Also reports what the puppet holds and which set
+-- that maps to. charge=true additionally calls the no-arg getters
+-- SpecialChargeComponent:GetSpecialCharge()/GetMaxSpecialCharge() on the puppet (UNVERIFIED calls).
+function M.check_attack_data(log, args)
+    args = args or {}
+    local path = package.searchpath("body.attack_data", package.path)
+    if not path then return { ok = false, detail = "body/attack_data.lua not on package.path" } end
+    local data = dofile(path)
+    local sets, missing, n_steps = 0, {}, 0
+    for key, s in pairs(data.sets or {}) do
+        sets = sets + 1
+        if not valid(StaticFindObject(s.cdo)) then missing[#missing + 1] = s.cdo end
+        for _, st in ipairs(s.steps or {}) do
+            n_steps = n_steps + 1
+            if not valid(StaticFindObject(st.cls)) then missing[#missing + 1] = st.cls end
+        end
+    end
+    local U = require("body.util")
+    local res = { ok = true, build = data.build, sets = sets, steps = n_steps, missing = missing,
+                  missing_count = #missing, puppets = {} }
+    local _, puppets = U.split_pawns()
+    for _, p in ipairs(puppets) do
+        local held = require("body.gear").read(p).right
+        local it = held and data.items[held]
+        local r = { id = U.short(p), held = held, set = it and it.primary or nil, special = it and it.special or nil }
+        if args.charge == true then
+            crumb(log, "special_charge_read", { puppet = r.id })
+            local sc = get(p, "SpecialChargeComponent")
+            if valid(sc) then
+                r.special_charge = num(try(function() return sc:GetSpecialCharge() end))
+                r.special_charge_max = num(try(function() return sc:GetMaxSpecialCharge() end))
+            end
+        end
+        res.puppets[#res.puppets + 1] = r
+    end
+    log.event("catalog_check_attack_data", { sets = sets, steps = n_steps, missing = #missing })
+    return res
+end
+
 return M

@@ -1,0 +1,7 @@
+beehive.lua, a tiny functional behaviour-tree library (MIT, see LICENSE).
+Source: https://github.com/drhayes/beehive.lua
+Commit: 00877150688ce42fffbaeeb76d7a4cb87e88da60 (2022-06-08), files beehive/*.lua copied unmodified.
+Vendored 2026-10-25 for the companion's combat reflex layer (mod/body/combat.lua; design
+docs/design/robustness-and-item-catalog.md section 5). Chosen over behaviour_tree (LuaRocks), which
+depends on middleclass, and behavior3lua, which is much larger. Each node is a closure
+fn(...) -> 'success' | 'failure' | 'running'.

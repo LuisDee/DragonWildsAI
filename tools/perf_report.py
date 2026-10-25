@@ -108,6 +108,30 @@ def load_debug_runs(mod_log_dir: Path, t0: datetime, t1: datetime) -> list[tuple
     return sorted(out)
 
 
+def load_bridge_cmds(bridge_dir: Path, t0: datetime, t1: datetime) -> list[tuple[datetime, str]]:
+    """Every command the brain/tools sent to the body (bridge_io/brain_to_body.jsonl, ms timestamps).
+    Catches experiments and skills that run on the game thread, not only debug_run."""
+    out = []
+    p = bridge_dir / "brain_to_body.jsonl"
+    if not p.exists():
+        return out
+    with p.open(encoding="utf-8", errors="replace") as f:
+        for line in f:
+            try:
+                r = json.loads(line)
+                ts = datetime.fromtimestamp(float(r["ts"]), timezone.utc)
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                continue
+            if r.get("type") != "cmd" or not (t0 - timedelta(seconds=30) <= ts <= t1):
+                continue
+            tool = str(r.get("tool"))
+            if tool in ("ping", "body_status", "companion_status"):
+                continue   # trivial reads
+            mod = (r.get("args") or {}).get("module") if tool == "debug_run" else None
+            out.append((ts, mod if mod else f"cmd:{tool}"))
+    return sorted(out)
+
+
 def attribute(t: datetime, debug_runs, saves) -> str | None:
     """Best-effort cause of a hitch at t (second resolution, logged at the end of the long frame)."""
     for dur, start in saves:
@@ -116,7 +140,7 @@ def attribute(t: datetime, debug_runs, saves) -> str | None:
     for ts, mod in debug_runs:
         # perf_sampler's own arm/status calls are a few ms; ignore them as causes.
         if mod != "perf_sampler" and ts - timedelta(seconds=1) <= t <= ts + timedelta(seconds=5):
-            return f"debug_run:{mod}"
+            return mod if mod.startswith("cmd:") else f"debug_run:{mod}"
     return None
 
 
@@ -206,12 +230,16 @@ PATTERNS = {
     "hitch": re.compile(r"(?i)\bhitch(?!ThresholdMS)|long frame|took too long|stall(ed)? for"),
     "saturated": re.compile(r"(?i)saturat"),
     "client_adjust": re.compile(r"ClientAdjust"),
-    "conn_close": re.compile(r"UNetConnection::Close|ConnectionLost|TIMED OUT|NetworkFailure|ControlChannelClose"),
+    "conn_close": re.compile(r"UNetConnection::Close:"),
+    # Network-caused drops. ControlChannelClose is the client closing its own connection (quit or
+    # a client-side error), so it is not counted here.
+    "conn_timeout": re.compile(r"ConnectionTimeout|TIMED OUT|ConnectionLost|NetworkFailure"),
     "net_warn": re.compile(r"^Log(Net|NetTraffic|NetPlayerMovement|Replication)\w*: (Warning|Error):"),
     "join": re.compile(r"Join succeeded"),
     "save_start": re.compile(r"SaveGameInternal\(\) : Starting save"),
     "save_done": re.compile(r"Save completed SUCCESSFULLY"),
 }
+CLOSE_RESULT = re.compile(r"Result=(\w+)")
 EXPIRED_CHAR = re.compile(r"TimeStamp expired.*Character: (\S+)")
 
 
@@ -223,6 +251,7 @@ class LogStats:
     expired_chars: Counter = field(default_factory=Counter)
     save_durations: list = field(default_factory=list)
     closes: list = field(default_factory=list)
+    close_results: Counter = field(default_factory=Counter)
     files: list = field(default_factory=list)
 
 
@@ -268,7 +297,10 @@ def load_log(log_dir: Path, t0: datetime, t1: datetime) -> LogStats:
                 elif save_t and PATTERNS["save_done"].search(msg):
                     st.save_durations.append(((ts - save_t).total_seconds(), save_t))
                     save_t = None
-                if "UNetConnection::Close" in msg:
+                cr = CLOSE_RESULT.search(msg)
+                if cr:
+                    st.close_results[cr.group(1)] += 1
+                if "UNetConnection::Close:" in msg:
                     st.closes.append((ts, msg.strip()[:160]))
     return st
 
@@ -313,6 +345,7 @@ def main() -> None:
     ap.add_argument("--perf-dir", type=Path, default=PERF_DIR)
     ap.add_argument("--log-dir", type=Path, default=SERVER_LOG_DIR)
     ap.add_argument("--mod-log-dir", type=Path, default=REPO / "logs" / "mod")
+    ap.add_argument("--bridge-dir", type=Path, default=Path(os.environ.get("DW_BRIDGE_DIR", REPO / "bridge_io")))
     ap.add_argument("--no-timeline", action="store_true")
     a = ap.parse_args()
 
@@ -322,7 +355,7 @@ def main() -> None:
     mod = load_mod(a.perf_dir / "mod_perf.jsonl", t0, t1)
     host = load_host(a.perf_dir, t0, t1)
     lg = load_log(a.log_dir, t0, t1)
-    debug_runs = load_debug_runs(a.mod_log_dir, t0, t1)
+    debug_runs = sorted(load_debug_runs(a.mod_log_dir, t0, t1) + load_bridge_cmds(a.bridge_dir, t0, t1))
 
     # ---- per-minute buckets
     mins = sorted({minute(r["_ts"]) for r in mod} | {minute(r["_ts"]) for r in host} | set(lg.per_min))
@@ -511,7 +544,8 @@ def main() -> None:
     print(f"    'ServerMove: TimeStamp expired': {tot['ts_expired']} ({tot['ts_expired'] / span_min:.1f}/min)"
           + (f"  by character: {dict(lg.expired_chars.most_common(3))}" if lg.expired_chars else ""))
     print(f"    other net warnings: {max(tot['net_warn'] - tot['ts_expired'], 0)}, saturation: {tot['saturated']}, "
-          f"ClientAdjust: {tot['client_adjust']}, connection closes: {tot['conn_close']}, joins: {tot['join']}, "
+          f"ClientAdjust: {tot['client_adjust']}, connection closes: {tot['conn_close']} {dict(lg.close_results) or ''}, "
+          f"network drops/timeouts: {tot['conn_timeout']}, joins: {tot['join']}, "
           f"log hitch lines: {tot['hitch']}")
     for ts, msg in lg.closes[:5]:
         print(f"      close {ts:%H:%M:%S}: {msg}")
@@ -523,8 +557,8 @@ def main() -> None:
         findings_net.append(f"{tot['ts_expired']} 'TimeStamp expired' (client moves arriving late/bunched)")
     if tot["saturated"]:
         findings_server.append(("bandwidth", f"{tot['saturated']} net saturation lines"))
-    if tot["conn_close"]:
-        findings_net.append(f"{tot['conn_close']} connection-close lines")
+    if tot["conn_timeout"]:
+        findings_net.append(f"{tot['conn_timeout']} connection timeout/lost lines")
 
     # ---- conclusion
     print("\n" + "-" * 78)
@@ -541,7 +575,7 @@ def main() -> None:
         print("  Upgrading the VM is NOT indicated.")
         if by_cause:
             print("  Hitches seen: " + ", ".join(f"{k} {v}" for k, v in by_cause.most_common())
-                  + " (debug_run = our own experiments, not normal play).")
+                  + " (debug_run/cmd = our own experiments and commands, not normal play).")
     elif host_res:
         print(f"  SERVER-BOUND: upgrade recommended -> {', '.join(host_res)}  (tick {tick_state}).")
         for r, t in findings_server:
