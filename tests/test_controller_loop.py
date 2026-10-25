@@ -226,16 +226,24 @@ def test_controller_context_is_bounded(rig):
 # --------------------------------------------------------------------------- speech
 
 
-def test_every_command_gets_a_reply(rig):
+def test_the_action_is_the_answer_and_no_canned_lines(rig):
+    """Voice workstream (Luis: no stock lines): an action, a started goal or a refusal is the answer;
+    only when nothing at all happened does he say he didn't catch it."""
     rig.game.player_say("follow me")
     rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("follow", player="Luis")))
     rig.agent.step()
-    assert rig.companion_said() == ["Right behind you."]
+    assert rig.game.following == "Luis" and rig.companion_said() == []
     rig.game.player_say("gather 5 logs and bring them")
     rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("start_goal", goal="gather 5 logs")))
     rig.planner_llm.push(FakeLLM.plan([], ask_help="no"))
     rig.agent.step()
-    assert rig.companion_said()[1] == "On it: gather 5 logs."
+    assert not any(s.startswith("On it") for s in rig.companion_said())
+    assert rig.companion_said() and rig.companion_said()[-1].startswith("I'm stuck on")  # stuck is always told
+    n = len(rig.companion_said())
+    rig.game.player_say("hmm")
+    rig.controller_llm.push(FakeLLM.say(""))
+    rig.agent.step()
+    assert rig.companion_said()[n:] == ["Sorry, I didn't catch that."]
 
 
 def test_speech_is_one_chat_line():
@@ -262,35 +270,33 @@ def _gather_world() -> MockGame:
     return g
 
 
-def test_progress_updates_are_throttled_on_long_jobs(tmp_path):
+def test_progress_is_noted_for_body_status_not_said(tmp_path):
+    """Voice workstream: doing the job needs no commentary. Progress goes to body_status ("how's it
+    going?" is answerable); nothing canned is said, the finish is the model's call (goal_done)."""
     rig = Rig(tmp_path, game=_gather_world())
     rig.controller.clock = lambda: rig.game.time  # simulated seconds
     rig.planner_llm.push(FakeLLM.plan([{"skill": "gather", "args": {"resource": "log", "count": 30}}]))
     assert rig.agent.run_goal("gather 30 logs") == "done"
-    lines = [(t, s) for t, s in _said_at(rig) if s.startswith("Gathering")]
-    assert lines, rig.companion_said()
-    times = [t for t, _ in lines]
-    assert all(b - a >= 20 for a, b in zip(times, times[1:]))  # never more than one per 20 s
-    assert len({s for _, s in lines}) == len(lines)  # never the same line twice
-    assert "30/30" not in " ".join(s for _, s in lines)  # completion is reported by the result
-    assert rig.companion_said()[-1] == "Done: gather 30 logs."
+    assert not any(s.startswith(("Gathering", "Done")) for s in rig.companion_said())
+    assert any(r["kind"] == "progress" for r in rig.log.read_all())
+    assert any(line.startswith("Job progress") for line in rig.agent.broker.digest())
+    goal_done = [json.loads(c["messages"][1]["content"]) for c in rig.controller_llm.calls]
+    assert goal_done and goal_done[-1]["body_event"] == {"type": "goal_done", "goal": "gather 30 logs", "steps": 1}
 
 
 def _said_at(rig):
     return list(zip(rig.game.chat_times, rig.companion_said()))
 
 
-def test_milestones_on_multi_step_goals(tmp_path):
+def test_milestones_are_noted_not_said(tmp_path):
     rig = Rig(tmp_path, game=_gather_world())
     rig.controller.clock = lambda: rig.game.time
-    rig.controller.progress_interval = 1.0
     rig.planner_llm.push(FakeLLM.plan([{"skill": "gather", "args": {"resource": "log", "count": 2}},
                                        {"skill": "go_to", "args": {"target": "Luis"}},
                                        {"skill": "give", "args": {"player": "Luis", "item": "log", "count": 2}}]))
     assert rig.agent.run_goal("bring Luis 2 logs") == "done"
-    said = rig.companion_said()
-    assert any(s.startswith("Step 1/3 done (gather log 2)") for s in said)
-    assert not any("Step 3/3" in s for s in said)
+    assert not any("Step " in s for s in rig.companion_said())
+    assert any(line.startswith("Job progress") and "step 3/3 done" in line for line in rig.agent.broker.digest())
 
 
 def test_stuck_asks_for_help_in_one_line(rig):
@@ -345,16 +351,15 @@ def test_body_look_shape_absent_and_present(tmp_path):
     assert [a.name for a in d.actions] == ["interact"] and not d.refusals
 
 
-def test_direct_gather_replies_first_then_progress_then_result(tmp_path):
+def test_direct_gather_says_its_line_as_it_starts_and_nothing_canned(tmp_path):
     rig = Rig(tmp_path, game=_gather_world())
     rig.controller.clock = lambda: rig.game.time
     rig.game.player_say("chop some oak, 20 logs")
     rig.controller_llm.push(FakeLLM.say("Chopping 20 oak logs.", FakeLLM.call("gather", resource="log", count=20)))
     rig.agent.step()
     said = rig.companion_said()
-    assert said[0] == "Chopping 20 oak logs."  # said when the job starts, not minutes later
-    assert any(s.startswith("Gathering: ") for s in said[1:-1])
-    assert said[-1] == "Done, gathered 20 log." and rig.game.inventory["log"] == 20
+    assert said == ["Chopping 20 oak logs."]  # said when the job starts; no "Gathering:"/"Done, gathered" lines
+    assert rig.game.inventory["log"] == 20
     assert "gather" in offered(rig.controller_llm.calls[0])
 
 

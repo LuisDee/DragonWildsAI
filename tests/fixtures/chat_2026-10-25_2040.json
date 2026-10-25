@@ -1,0 +1,301 @@
+{
+"source": "logs/brain-live-20261025-214057-8860.jsonl",
+"window_utc": "20:40-21:03",
+"note": "chat_heard lines (offset s from the first) and whether the live brain's reply called an action",
+"lines": [
+{
+"t": 0.0,
+"player": "Zezima",
+"text": "claude lets sleep - how can we do this ? ",
+"mentions_me": true,
+"acted": false
+},
+{
+"t": 14.1,
+"player": "Zezima",
+"text": "yeah lets each summon shelter",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 43.68,
+"player": "Zezima",
+"text": "no i am not helping you. you are more than capabl;e to figurte out yourself",
+"mentions_me": false,
+"acted": false
+},
+{
+"t": 65.11,
+"player": "Zezima",
+"text": "your character isnt moving ?  ",
+"mentions_me": false,
+"acted": false
+},
+{
+"t": 92.89,
+"player": "Zezima",
+"text": "why are you asking me -  you have the available tools to solve the problem. you can do this on your own",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 134.14,
+"player": "Zezima",
+"text": "what are you working on\\?",
+"mentions_me": false,
+"acted": false
+},
+{
+"t": 160.73,
+"player": "Zezima",
+"text": "your not moving. you are just recalling ytour last state/task but your character is NOT moving ",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 198.47,
+"player": "Zezima",
+"text": "it didnt fail - you successfully fcast the shelter - you can see it in fronmt of you./ what made you think it failed ?",
+"mentions_me": false,
+"acted": false
+},
+{
+"t": 210.35,
+"player": "Zezima",
+"text": "sleep",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 250.52,
+"player": "Zezima",
+"text": "you are trying to jump over the shelter why dont you go round to the front and interact with it",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 271.5,
+"player": "Zezima",
+"text": "you are on top of the shelter. get down and get in it by interacting with it at the front",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 476.58,
+"player": "Zezima",
+"text": "nice work sleeping man. you can stop sleeping now",
+"mentions_me": false,
+"acted": false
+},
+{
+"t": 756.89,
+"player": "Zezima",
+"text": "hey manm",
+"mentions_me": false,
+"acted": false
+},
+{
+"t": 781.2,
+"player": "Zezima",
+"text": "show me some spells can you use axtetral projection on this tree ? ",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 800.4,
+"player": "Zezima",
+"text": "claude",
+"mentions_me": true,
+"acted": true
+},
+{
+"t": 810.96,
+"player": "Zezima",
+"text": "you have it",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 827.76,
+"player": "Zezima",
+"text": "where is your hatchet",
+"mentions_me": false,
+"acted": false
+},
+{
+"t": 845.86,
+"player": "Zezima",
+"text": "have you checked your whole inventory",
+"mentions_me": false,
+"acted": false
+},
+{
+"t": 862.16,
+"player": "Zezima",
+"text": "sure lets sleep first il hand you one aftyer",
+"mentions_me": false,
+"acted": false
+},
+{
+"t": 881.65,
+"player": "Zezima",
+"text": "i said lets sleep - as in both of us",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 910.36,
+"player": "Zezima",
+"text": "use your brain i can see your trying to interact with my shelter wiht my player in",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 920.46,
+"player": "Zezima",
+"text": "if only you had some kind of spell that could summon your own shelter?",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 949.16,
+"player": "Zezima",
+"text": "youve made the shelter now you are just standing there",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 964.04,
+"player": "Zezima",
+"text": "sleep in it!!!!!",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 964.3,
+"player": "Zezima",
+"text": "no you are trying to cast another shelter",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 978.14,
+"player": "Zezima",
+"text": "you already have one",
+"mentions_me": false,
+"acted": false
+},
+{
+"t": 978.14,
+"player": "Zezima",
+"text": "why did you run awaty?",
+"mentions_me": false,
+"acted": false
+},
+{
+"t": 1009.47,
+"player": "Zezima",
+"text": "took you a while - what did you get wrong ?  and why did it not come to you instantly to mak ea shelter and sleep in ot",
+"mentions_me": false,
+"acted": false
+},
+{
+"t": 1024.08,
+"player": "Zezima",
+"text": "awget out the shelter now its day",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 1203.91,
+"player": "Zezima",
+"text": "get our ot the shelter",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 1203.91,
+"player": "Zezima",
+"text": "grab these and go use axtral projection on a tree",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 1203.91,
+"player": "Zezima",
+"text": "claude",
+"mentions_me": true,
+"acted": true
+},
+{
+"t": 1215.15,
+"player": "Zezima",
+"text": "grab these and use axtral projecteion on a tree",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 1215.15,
+"player": "Zezima",
+"text": "clkaude",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 1215.16,
+"player": "Zezima",
+"text": "claude",
+"mentions_me": true,
+"acted": true
+},
+{
+"t": 1221.74,
+"player": "Zezima",
+"text": "pick these up",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 1221.99,
+"player": "Zezima",
+"text": "pick those up",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 1221.99,
+"player": "Zezima",
+"text": "use exetral projkection and cut a tree down with it",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 1222.0,
+"player": "Zezima",
+"text": "using the spell",
+"mentions_me": false,
+"acted": true
+},
+{
+"t": 1251.19,
+"player": "Zezima",
+"text": "i said use axetral prokjection  ?  why did you say done ? ",
+"mentions_me": false,
+"acted": false
+},
+{
+"t": 1279.82,
+"player": "Zezima",
+"text": "what do you mean",
+"mentions_me": false,
+"acted": false
+},
+{
+"t": 1308.37,
+"player": "Zezima",
+"text": "DONT TELL ME WHAT YOUR GOING TO DO AND THEN NOT DO IT YOUR STILL STANDING STILL ?!?!!?!?!?",
+"mentions_me": false,
+"acted": false
+}
+]
+}

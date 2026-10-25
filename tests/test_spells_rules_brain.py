@@ -59,9 +59,9 @@ def test_cast_routes_through_executor_and_controller_sees_castable_spells(rig):
     assert rig.game.casts[0]["spell"] == "USD_TempestShield"
     assert rig.companion_said() == ["Shield's up."]
     ctx = context_of(rig.controller_llm.calls[0])
-    names = [s["name"] for s in ctx["castable_spells"]]
+    names = [s.split(" (")[0] for s in ctx["castable_spells"]]  # one line per spell (speed plan §2.2)
     assert names == ["Tempest Shield", "Windstep"]  # Fire enchant: Luis hasn't unlocked it
-    assert set(ctx["castable_spells"][0]) == {"name", "role", "use_when"}
+    assert ctx["castable_spells"][0].startswith("Tempest Shield (") and ": " in ctx["castable_spells"][0]
     offered = {t["function"]["name"] for t in rig.controller_llm.calls[0]["tools"]}
     assert {"cast", "set_reflex_rule", "list_rules", "clear_rule"} <= offered
 

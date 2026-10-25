@@ -15,6 +15,7 @@ Tests use ``FakeLLM`` and never touch the network.
 from __future__ import annotations
 
 import json
+import re
 import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
@@ -47,11 +48,24 @@ class LLMClient(Protocol):
     def complete(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse: ...
 
 
+# Protocol markers a model or a proxy can put into the text ("[System: Empty message content
+# sanitised to satisfy protocol]", live 21:24:15, BUGS.md L18): never speech.
+_MARKER = re.compile(r"\[System:[^\]]*\]")
+
+
+def strip_markers(text: str | None) -> str | None:
+    """The text without protocol/system markers; None when nothing real is left."""
+    if not text:
+        return text
+    out = _MARKER.sub("", text).strip()
+    return out or None
+
+
 def assistant_message(resp: LLMResponse) -> dict:
     """The assistant turn to append before tool results (OpenAI format, as LiteLLM expects)."""
     if resp.message:
         return resp.message
-    msg: dict[str, Any] = {"role": "assistant", "content": resp.content or ""}
+    msg: dict[str, Any] = {"role": "assistant", "content": resp.content or (None if resp.tool_calls else "")}
     if resp.tool_calls:
         for i, c in enumerate(resp.tool_calls):
             c.id = c.id or f"call_{i}_{c.name}"
@@ -120,13 +134,16 @@ class LiteLLMClient:
             calls.append(ToolCall(tc.function.name, args, tc.id))
             raw_calls.append({"id": tc.id, "type": "function",
                               "function": {"name": tc.function.name, "arguments": tc.function.arguments or "{}"}})
-        replay: dict[str, Any] = {"role": "assistant", "content": msg.content or ""}
+        text = strip_markers(msg.content)
+        # L18: an empty text beside tool calls is replayed as None, never "", which LiteLLM would replace
+        # with a "[System: Empty message content sanitised ...]" placeholder the model then imitates
+        replay: dict[str, Any] = {"role": "assistant", "content": text or (None if msg.tool_calls else "")}
         if raw_calls:
             replay["tool_calls"] = raw_calls
         thinking = getattr(msg, "thinking_blocks", None)
         if thinking:
             replay["thinking_blocks"] = [dict(b) if not isinstance(b, dict) else b for b in thinking]
-        return LLMResponse(content=msg.content, tool_calls=calls, message=replay, usage=_usage(resp))
+        return LLMResponse(content=text, tool_calls=calls, message=replay, usage=_usage(resp))
 
 
 def _model_from_env(var: str) -> str:

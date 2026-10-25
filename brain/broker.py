@@ -161,6 +161,10 @@ def fallback_line(events: list[dict]) -> str | None:
             lines.append(line or f"I can't reach you: {e.get('detail') or r.replace('_', ' ')}.")
         elif e.get("type") == "resumed":
             lines.append("Found you.")
+        elif e.get("type") == "stuck":  # must be told: the template when the model is silent or fails
+            from .controller import Controller  # local import: controller imports broker indirectly
+            lines.append(Controller.stuck_line(str(e.get("goal") or "the job"), e.get("failed"), e.get("reason"),
+                                               e.get("question")))
         elif str(e.get("type", "")).endswith("_ended"):
             lines.append(f"I've stopped following you: {str(e.get('reason') or 'it ended').replace('_', ' ')}.")
         elif e.get("type") == "vitals_low":
@@ -216,6 +220,7 @@ class EventBroker:
         self._vitals_said: dict[str, tuple[float, float]] = {}  # stat -> (when, value)
         self._reports: deque[tuple[float, str]] = deque(maxlen=4)  # informational lines for the digest
         self._activity: deque[tuple[float, Activity]] = deque(maxlen=ACTIVITY_KEEP)  # episodic memory
+        self._progress: tuple[float, str] | None = None  # the running job's latest progress note
         self._seen: dict | None = None  # the last observed state (where am I, who is in sight)
         self._actions: deque[tuple[float, str, dict, bool, str | None, str | None]] = deque(maxlen=5)  # brain actions
         # situation_review bookkeeping
@@ -472,6 +477,9 @@ class EventBroker:
         return (ev.kind in ("death", "respawned") or (ev.kind == "combat_end" and f.get("outcome") == "killed")
                 or _pos(f.get("where")) is not None)
 
+    def note_progress(self, text: str) -> None:
+        self._progress = (self.clock(), text)
+
     def activity_lines(self) -> list[str]:
         now = self.clock()
         return [f"{now - t:.0f}s ago: {self.describe_activity(ev)}" for t, ev in self._activity]
@@ -631,6 +639,8 @@ class EventBroker:
         out: list[str] = []
         if where := self.where_line():
             out.append(where)
+        if self._progress and now - self._progress[0] <= DIGEST_KEEP_S:
+            out.append(f"Job progress {now - self._progress[0]:.0f}s ago: {self._progress[1]}")
         ep = self.episode
         if ep is not None:
             if ep.ended is None:

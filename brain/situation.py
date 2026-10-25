@@ -18,7 +18,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
-from . import item_stats
+from . import item_stats, needs
 
 REPO = Path(__file__).resolve().parents[1]
 MAX_LINES = 16
@@ -317,6 +317,12 @@ def recent_life(state: dict) -> str | None:
         ago = int(d["ago_s"])
         when = f"{ago // 60} min ago" if ago >= 120 else f"{ago} s ago"
         bits.append(f"you died {when}" + (" and respawned" if d.get("respawned") else ""))
+    dm = state.get("death_memory") if isinstance(state.get("death_memory"), dict) else None
+    if dm and not (isinstance(state.get("my_grave"), dict)):
+        dist = f"{dm['distance']} m away" if isinstance(dm.get("distance"), (int, float)) else "somewhere"
+        lost = ", ".join(str(x) for x in (dm.get("lost") or [])[:6])
+        bits.append(f"your gravestone (not in sight) should be where you died, {dist} (go_to target 'my_grave')"
+                    + (f", holding about {dm.get('lost_items')} items: {lost}" if lost else ""))
     g = state.get("my_grave") if isinstance(state.get("my_grave"), dict) else None
     if g:
         dist = f"{g['distance']:.0f} m away" if isinstance(g.get("distance"), (int, float)) else "nearby"
@@ -435,6 +441,8 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     if state.get("sleeping"):
         me.append("asleep")
     lines.append("You: " + (", ".join(me) or "ok"))
+    lines.extend(needs.lines(state))  # pressing needs -> the options the game offers (brain/needs.py)
+    lines.extend(needs.activity_lines(state))  # current activity: spells/actions for it + rate vs best
     if (rec := recent_life(state)):
         lines.append(rec)
 

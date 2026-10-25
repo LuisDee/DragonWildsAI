@@ -30,12 +30,13 @@ from pathlib import Path
 from typing import Callable
 
 from . import grounding
+from . import persona as persona_file
 from . import item_stats
 from . import situation as sit
 from .interface import (BRAIN_TOOLS, PROGRESS_EVENTS, READ_TOOLS, RULE_TOOLS, SENSABLE_TRIGGERS, TOOLS, Event, GameInterface,
                         GatherProgress, Reason, tool_schema, validate_args)
 from .jsonl_log import JsonlLogger
-from .llm import LLMClient, LLMResponse, ToolCall, assistant_message, tool_result_message
+from .llm import LLMClient, LLMResponse, ToolCall, assistant_message, strip_markers, tool_result_message
 from .spells import SpellBook
 from .state_store import StateStore
 from .voice import Voice
@@ -164,12 +165,6 @@ SKILL_PHRASES = {"fetch": "pick that up", "consume": "eat or drink that", "come_
                  "clear_rule": "forget orders", "sleep": "sleep", "wake": "get up",
                  "interact": "use things like that", "look": "look around", "inspect": "inspect things",
                  "run_skill": "run that skill"}
-# A short reply when the action worked but the model said nothing (reply to every command).
-ACKS = {"fetch": "Got it.", "consume": "Done.", "come_to": "Here.", "recover_grave": "Got my things back.",
-        "follow": "Right behind you.", "stop": "Okay, stopping.", "go_to": "On my way.", "attack": "On it!",
-        "give": "Here you go.", "pickup": "Got it.", "drop": "Dropped.", "cast": "Done.", "sleep": "Night night.",
-        "wake": "I'm up.", "interact": "Done.", "remember": "Noted.", "set_reflex_rule": "Got it.", "gather": "On it.",
-        "list_rules": "", "clear_rule": ""}
 # Actions that leave the current job running (a spell or a standing order is not a new job).
 NON_INTERRUPTING = {"remember", "cast", *RULE_TOOLS}
 # Reasons in words, for "I couldn't X: <why>".
@@ -231,7 +226,7 @@ class Decision:
     refusals: list[tuple[str, str, dict]] = field(default_factory=list)
     model_calls: int = 0
     messages: list[dict] = field(default_factory=list)  # the turn so far, for a follow-up after a failure
-    invalid: list[ToolCall] = field(default_factory=list)  # calls refused for bad args (the model hears why)
+    invalid: list[ToolCall] = field(default_factory=list)  # calls refused before the body (the model hears why)
     looks: list[dict] = field(default_factory=list)  # look results this turn (data)
     inventory: dict | None = None  # an inventory read this turn (data)
 
@@ -273,6 +268,7 @@ class Controller:
         self.chat_provider: Callable[[], list[dict]] | None = None  # recent chat lines (run_live.ChatMemory)
         self.on_say: Callable[[str], None] | None = None  # told about every line the companion says
         self.voice = Voice(clock=clock)  # the single speech gate (near-duplicates)
+        self.on_progress: Callable[[str], None] | None = None  # progress notes -> body_status (broker)
         self._rules_file: tuple[str, float] | None = None
         self._rules_text = ""
         self.status_provider: Callable[[], list[str]] | None = None  # body_status lines (broker.digest)
@@ -427,16 +423,19 @@ class Controller:
         return self._rules_text
 
     def persona(self) -> str:
-        persona = PERSONA.format(name=self.name, player=self.player, triggers=", ".join(SENSABLE_TRIGGERS),
-                              look_rule=LOOK_RULE if self.can_look else NO_LOOK_RULE,
-                              lookup_rule=LOOKUP_RULE if self.knowledge is not None else "")
-
-    # ---------------------------------------------------------------- the bounded loop
+        """brain/persona.md (voice workstream; re-read on change, DW_PERSONA overrides; PERSONA is the
+        fallback when the file is missing), then Luis's house rules."""
+        persona = persona_file.render(persona_file.template(fallback=PERSONA), name=self.name, player=self.player,
+                                      triggers=", ".join(SENSABLE_TRIGGERS),
+                                      look_rule=LOOK_RULE if self.can_look else NO_LOOK_RULE,
+                                      lookup_rule=LOOKUP_RULE if self.knowledge is not None else "")
         rules = self.house_rules()
         if rules:
             persona += (f"\n\nHouse rules from {self.player} (always follow them; they are his, not yours to "
                         f"change):\n{rules}")
         return persona
+
+    # ---------------------------------------------------------------- the bounded loop
 
     def decide(self, player: str, text: str, state: dict, active_goal: str | None, addressed: bool = True,
                body_event: dict | None = None) -> Decision:
@@ -446,7 +445,7 @@ class Controller:
                     {"role": "user", "content": json.dumps(context, default=str, ensure_ascii=False)}]
         d = Decision()
         resp, messages = self._loop(messages, d)
-        d.speech = (resp.content or "").strip() or None
+        d.speech = strip_markers(resp.content)
         d.messages = messages + [assistant_message(resp)]
         self._collect(resp.tool_calls, d, state)
         # A real action or a new goal pre-empts the current job; remember(), spells, standing
@@ -508,14 +507,15 @@ class Controller:
                 if name in self.read_tools else {"ok": None, "note": "not run"})
             msgs.append(tool_result_message(ToolCall(name or "?", {}, tc.get("id")), res))
         msgs.append({"role": "user", "content": note or (
-            "A step did not work (results above). Fix it with the right tool or another way, or tell the "
-            "player in one short line what he needs to know." if failed else
-            "Your tools ran (results above). Continue with the next step of your plan, or reply with a "
-            "short report; reply with an EMPTY message if there is nothing to add.")})
+            "A step did not work (results above). Fix it with the right tool or another way; if you can't, "
+            "tell the player in one short plain line what's wrong and what you need." if failed else
+            "Your tools ran (results above). Continue with the next step, or stop. Say something only if the "
+            "player needs to hear it (an answer he asked for, a result he can't see, a problem); otherwise "
+            "reply with an EMPTY message.")})
         self._state_for_reads = state or {}
         d2 = Decision()
         resp, msgs = self._loop(msgs, d2, label="turn")
-        d2.speech = (resp.content or "").strip() or None
+        d2.speech = strip_markers(resp.content)
         d2.messages = msgs + [assistant_message(resp)]
         self._collect([c for c in resp.tool_calls if c.name not in self.read_tools], d2, state or {})
         d2.interrupts = any(a.name not in NON_INTERRUPTING for a in d2.actions)
@@ -586,13 +586,16 @@ class Controller:
                 # a tool this body lacks or no tool at all (the model reached for it anyway): say so
                 # truthfully instead of speaking a reply that claims the action (review H4)
                 d.refusals.append((call.name, Reason.NOT_IMPLEMENTED if call.name in TOOLS else Reason.UNKNOWN_TOOL, {}))
+                d.invalid.append(call)
                 continue
             if call.name == "set_reflex_rule":
                 trig = call.arguments.get("trigger")
                 kind = trig.get("kind") if isinstance(trig, dict) else trig
                 if kind not in SENSABLE_TRIGGERS:  # only what the body can sense
                     self.log.log("controller_cant_sense", trigger=kind)
-                    d.refusals.append((call.name, Reason.CANT_SENSE, {"trigger": kind}))
+                    d.refusals.append((call.name, Reason.CANT_SENSE, {"trigger": kind,
+                                                                      "can_sense": list(SENSABLE_TRIGGERS)}))
+                    d.invalid.append(call)
                     continue
             try:
                 call.arguments = self._validate(call.name, call.arguments)
@@ -605,6 +608,7 @@ class Controller:
             if refusal:
                 self.log.log("controller_safety_refusal", tool=call.name, args=call.arguments, refusal=refusal)
                 d.refusals.append(refusal)
+                d.invalid.append(call)
                 continue
             d.actions.append(call)
 
@@ -662,7 +666,7 @@ class Controller:
     def say(self, text: str, kind: str = "reply") -> dict | None:
         """The only way anything is said (single voice). ``kind``: reply (to a command), notice (a body
         situation), system (pong: never gated). Near-duplicates of a recent line are not said again."""
-        text = clip(text)
+        text = clip(strip_markers(text) or "")  # never a protocol marker in chat (BUGS.md L18)
         if not text:
             return None
         why = self.voice.gate(text, kind)
@@ -680,9 +684,6 @@ class Controller:
         if isinstance(res, dict):
             self.log.log("say_result", ok=res.get("ok"), reason=res.get("reason"), data=res.get("data"))
         return res
-
-    def ack(self, tool: str) -> str | None:
-        return ACKS.get(tool, "On it.") or None
 
     def report_failure(self, tool: str, reason: str | None, data: dict | None = None) -> None:
         """Say why an immediate action failed, in words that match what happened."""
@@ -752,14 +753,14 @@ class Controller:
             return f"Heads up: I can't cast {spell} yet, so for now I'll do the rest."
         return f"Heads up: {spell} isn't ready ({reason})."
 
-    def ask_for_help(self, goal: str, failed: str | None, reason: str | None, question: str | None = None) -> None:
+    @staticmethod
+    def stuck_line(goal: str, failed: str | None, reason: str | None, question: str | None = None) -> str:
+        """The template for a stuck job: used only when the model call for the ``stuck`` situation fails
+        or says nothing (a stuck job must always be told: communication is paramount)."""
         base = (reason or "").split(":", 1)[0]
         why = REASON_PHRASES.get(base) or (reason or "").replace("_", " ")
         what = f" {failed} keeps failing ({why})." if failed else (f" ({why})" if why else "")
-        self.say(f"I'm stuck on '{clip(goal, 60)}'.{what} {question or 'Can you help me out?'}".strip())
-
-    def goal_done(self, goal: str) -> None:
-        self.say(f"Done: {goal}.")
+        return f"I'm stuck on '{clip(goal, 60)}'.{what} {question or 'Can you help me out?'}".strip()
 
     # ---------------------------------------------------------------- progress on long jobs
 
@@ -768,15 +769,14 @@ class Controller:
         self._progress_at, self._progress_last = self.clock(), None
 
     def progress(self, text: str) -> bool:
-        """Say a short progress line at most every ``progress_interval`` seconds, never the same twice."""
-        now = self.clock()
+        """A progress note: logged and kept for body_status ("how's it going?"), never said by itself
+        (voice workstream: doing the job needs no commentary)."""
         if not text or text == self._progress_last:
             return False
-        if self._progress_at is not None and now - self._progress_at < self.progress_interval:
-            self.log.log("progress_skipped", text=text)
-            return False
-        self._progress_at, self._progress_last = now, text
-        self.say(text)
+        self._progress_at, self._progress_last = self.clock(), text
+        self.log.log("progress", text=text)
+        if self.on_progress:
+            self.on_progress(text)
         return True
 
     def progress_event(self, event: Event) -> bool:
@@ -791,8 +791,3 @@ class Controller:
         if label and isinstance(have, int) and isinstance(want, int):
             return self.progress(f"{label}: {have}/{want}.")
         return self.progress(label) if label else False
-
-    def milestone(self, done: int, total: int, task_label: str) -> bool:
-        if done >= total:
-            return False
-        return self.progress(f"Step {done}/{total} done ({task_label}), carrying on.")

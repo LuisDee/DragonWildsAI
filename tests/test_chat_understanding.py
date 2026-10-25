@@ -61,7 +61,8 @@ def test_follow_up_after_talking_to_claude_is_addressed(rig):
     rig.hear("Luis", "ok follow me")  # no name: a follow-up in his conversation with Claude
     assert rig.game.following == "Luis"
     assert len(rig.said()) == n + 1
-    assert ("ok follow me", "addressed", "model: meant for me") in rig.decisions()
+    # he just answered Luis: Luis's next line counts as addressed (speed plan §2.1), no name needed
+    assert ("ok follow me", "addressed", "his conversation partner") in rig.decisions()
 
 
 def test_friends_talking_among_themselves_are_ignored(rig):

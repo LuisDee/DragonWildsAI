@@ -16,14 +16,20 @@ Format: a predicate is a dict with exactly ONE key, a leaf or a combinator.
   equipped    {item}                                                    state.gear (slot -> item id)
   gear_better {category | slot, stat, where=equipped|carried, than="start"|number, op=">"|">="|"<"|"<="}
                                          best item's catalog stat (brain/item_stats.stats); "start" = the
-                                         same measure on ctx.baseline              state.gear (+ inventory)
+                                         best he had HELD OR CARRIED at ctx.baseline (review H2: switching to
+                                         an item he already had is never better)   state.gear (+ inventory)
   bag         {used_pct_at_least | free_at_least}                       state.bag {used, capacity}
   vital       {stat, below_pct | at_least_pct}   a flat state stat vs its max: <stat> and max_<stat> or <stat>_max
                                          (health/max_health, hydration/hydration_max, stamina/max_stamina, ...)
   near        {place | player | position | thing, within_m=5}           state.position, players, nearby_*;
                                                                         ctx.places for place names
+  lost        {item, at_least=1}         left the inventory since ctx.baseline (with on_ground: a delivery)
+  on_ground   {item, at_least=1, player | place | position (default: me), within_m=5}   state.nearby_items
+  elapsed     {seconds}                  ctx.now - ctx.baseline.t
+  station     {station, running?}        a station in sight by type, name or id: state.stations_nearby
   moved       {min_m}                    own position vs ctx.baseline.position
-  killed      {kind, at_least=1}         combat_end episodes with outcome=killed since the baseline: ctx.episodes
+  killed      {kind | kind_id | target_id, at_least=1}   combat_end episodes with outcome=killed since the baseline
+                                         (ctx.episodes); kind matches whole words of the target's name
   quest       {name, stage? | completed?}                               state.quests [{name, stage, completed}]
   combinators: all [..], any [..], not {..}   (three-valued: see below)
   more leaves: ``register_leaf(name, evaluate_fn, validate_fn=None)`` (the Eval benchmark's spell_effect,
@@ -38,12 +44,14 @@ Items are given by item id or in-game name; ``validate`` resolves names to ids f
 (data/items_*.json, data/recipes_*.json) and returns candidates when it can't. One in-game name may
 cover several ids (a quest copy of a fish): counts are summed over all of them.
 
-Result: ``Result(passed, detail, progress, missing)``.
+Result: ``Result(passed, detail, progress, missing, measures)``.
   passed  True | False | None. None = "can't be checked from what the body reports" (e.g. no quest
           state, no baseline for gained): never treated as done; ``missing`` names what is absent
           (a perception gap, docs/design/director.md section 2.7).
   detail  words for the model and the player: "Copper Ore 4/9; Tin Ore 9/9".
   progress 0..1 (numeric leaves: value/target; all = mean; any = max): no-progress detection.
+  measures {key: raw amount} (counts, XP, kills; never distances): grew(before, after) says whether the
+          work moved at all between two checks (XP grows long before a level does; review H8).
 Combinators use Kleene logic: all = False if any False, True if all True, else None; any = True if any
 True, False if all False, else None; not None = None.
 
@@ -325,7 +333,14 @@ def _validate_builtin(k: str, a: dict, items: Items) -> dict:
         if "running" in a and not isinstance(a["running"], bool):
             raise PredicateError("station.running must be true or false")
     elif k == "killed":
-        a["kind"] = _str(a.get("kind"), "killed.kind")
+        ids = [x for x in ("kind_id", "target_id") if a.get(x) is not None]
+        if len(ids) > 1:
+            raise PredicateError("killed takes at most one of kind_id, target_id")
+        for x in ids:
+            a[x] = _str(str(a[x]), f"killed.{x}")
+        if ids and a.get("kind") is None:
+            a["kind"] = a[ids[0]]  # a label for details
+        a["kind"] = _str(a.get("kind"), "killed.kind (or kind_id / target_id)")
         a["at_least"] = _num(a.get("at_least", 1), "killed.at_least", 1)
     elif k == "quest":
         a["name"] = _str(a.get("name"), "quest.name")
@@ -661,15 +676,18 @@ def _killed(a, state, ctx, cat):
     if events is None:
         return Result(None, f"{a['kind']}: no fight record since the step started", 0.0, ["episodes"])
     want = tokens(a["kind"])  # whole words, plurals folded (review L2: "goblin" is not "Hobgoblin")
-    n = 0
-    for e in events:
-        f = _event_fields(e)
-        if f.get("kind") != "combat_end" or f.get("outcome") != "killed":
-            continue
-        if a.get("target_id") is not None:
-            n += str(f.get("target_id")) == str(a["target_id"])
-        else:
-            n += bool(want) and want <= tokens(f.get("target"))
+    kills = [f for f in map(_event_fields, events) if f.get("kind") == "combat_end" and f.get("outcome") == "killed"]
+    if a.get("kind_id") is not None:
+        # an exact creature class / kind id: only checkable when the episodes carry one
+        keyed = [f for f in kills if f.get("target_class") is not None or f.get("target_kind") is not None]
+        if kills and not keyed:
+            return Result(None, f"{a['kind']}: the fight records carry no creature class", 0.0,
+                          ["episodes.target_class"])
+        n = sum(a["kind_id"] in (str(f.get("target_class")), str(f.get("target_kind"))) for f in keyed)
+    elif a.get("target_id") is not None:
+        n = sum(str(f.get("target_id")) == a["target_id"] for f in kills)
+    else:
+        n = sum(bool(want) and want <= tokens(f.get("target")) for f in kills)
     return Result(n >= a["at_least"], f"{a['kind']} killed {n}/{a['at_least']:g}", _ratio(n, a["at_least"]),
                   measures={f"killed:{a['kind'].lower()}": float(n)})
 

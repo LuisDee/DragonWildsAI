@@ -575,7 +575,8 @@ def test_replay_2026_where_are_you_gets_distance_and_motion(tmp_path):
     where = next(line for line in ctx["body_status"] if line.startswith("Where:"))
     assert "standing still" in where and "Zezima is NOT in sight" in where and "follow Zezima" in where, where
     persona = r.model.calls[-1]["messages"][0]["content"]
-    assert "Answer only what was asked, from the CURRENT state" in persona and "Don't list what you" in persona
+    # brain/persona.md (voice workstream) carries these, in its own words
+    assert 'from the CURRENT state (body_status "Where:")' in persona and "don't list what you carry" in persona
     assert "Never invent reasons" in persona
 
 
@@ -644,7 +645,8 @@ def test_night_and_low_endurance_the_model_suggests_resting(tmp_path):
     assert whats["sleep_allowed"]["to"] is True and ev["stats_pct"]["endurance"] == 20
     assert r.body.said == ["Guys, my endurance is at 20%, can we rest for the night?"]
     persona = r.model.calls[-1]["messages"][0]["content"]
-    assert "You may proactively" in persona and "respect the player's answers" in persona
+    assert "situation_review: something about your state changed" in persona
+    assert "Respect his earlier answers" in persona
 
 
 def test_suggested_two_minutes_ago_and_told_no_stays_silent(tmp_path):
@@ -816,8 +818,9 @@ def test_persona_says_act_on_your_own_and_carry_plans_through(tmp_path):
     r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude hi"})
     r.at(0).step()
     persona = r.model.calls[-1]["messages"][0]["content"]
-    assert "act on your own plan and report" in persona and "Carry your plans through" in persona
-    assert "Ask Zezima only when it is genuinely ambiguous, risky or beyond your tools" in persona
+    assert "Solve problems yourself when you have the tools" in persona
+    assert "Your tool results come back for another turn" in persona
+    assert "Ask Zezima only when it's genuinely ambiguous, risky or beyond your tools" in persona
 
 
 # --------------------------------------------------------------------------- docs/BUGS.md L2, L5, L6, L10
@@ -993,3 +996,90 @@ def test_l10_day_while_resting_is_reviewed_at_once(tmp_path):
     assert any(c["what"] == "time_of_day" and c["to"] == "day" for c in ev["changes"])
     assert ev["time_of_day"]["resting_in"] == bed and r.body.calls == [("interact", {"target": bed})]
     assert r.body.said[-1] == "Morning! Getting up."
+
+
+def test_l5_replay_2115_splinter_promise_gets_its_tool_calls(tmp_path):
+    """Live 21:15:01: "You're right, I was near the felled logs by you. I'll try Splinter on them again
+    now." with no tool call. The check turn lets the model call go_to + cast on the log it named."""
+    log = "BP_SplittableLog_Ash_C_2147454874"
+    r = Replay(tmp_path, STATES[5], tools={"get_state", "say", "follow", "go_to", "stop", "interact", "cast"})
+    r.body.act("go_to", ok(target=log))
+    r.body.act("cast", ok(spell="Splinter"))
+    r.model.replies["felled tree already"] = FakeLLM.say(
+        "You're right, I was near the felled logs by you. I'll try Splinter on them again now.")
+    r.model.turns = [FakeLLM.say("", FakeLLM.call("go_to", target=log), FakeLLM.call("cast", spell="Splinter", target=log)),
+                     FakeLLM.say("")]
+    r.body.emit({"type": "chat_heard", "player": "Zezima",
+                 "text": "claude you were trying to cast it by me exactly you were by a felled tree already"})
+    r.at(0).step()
+    assert [c[0] for c in r.body.calls] == ["go_to", "cast"]
+    assert r.body.said == ["You're right, I was near the felled logs by you. I'll try Splinter on them again now."]
+
+
+def test_live_session_never_retries_an_action(tmp_path):
+    """Speed plan §2.3 (live 21:13:30-21:14:37: a Splinter cast that timed out was tried 3 x 22 s):
+    the live executor makes ONE attempt; the result goes back to the model."""
+    from brain.dry_run_llm import DryRunController, DryRunPlanner
+    from brain.fake_body import FakeBody
+    from brain.mock import MockGame
+    from brain.run_live import LiveOptions, LiveSession
+    from brain.transport import file_transport_pair
+    d = tmp_path / "bridge"
+    _, body_t = file_transport_pair(d, "client")
+    body = FakeBody(MockGame.default_world(), body_t).start()
+    try:
+        s = LiveSession(LiveOptions(body="client", bridge_dir=d, state_dir=tmp_path / "state", log_dir=tmp_path / "logs",
+                                    dry_run=True, wait=5.0, probe_timeout=1.0),
+                        DryRunController(), DryRunPlanner(), out=lambda _: None)
+        assert s.executor.max_attempts == 1
+    finally:
+        body.stop()
+
+
+def test_l18_a_protocol_marker_is_never_said(tmp_path):
+    """Live 21:24:15 (BUGS.md L18): "[System: Empty message content sanitised to satisfy protocol]" was
+    said in game chat. Markers are stripped from model text and from anything said; an empty-text
+    assistant turn beside tool calls is replayed as None so the proxy has nothing to sanitise."""
+    from brain.llm import LLMResponse as R, assistant_message, strip_markers
+    marker = "[System: Empty message content sanitised to satisfy protocol]"
+    assert strip_markers(marker) is None and strip_markers(f"{marker} On my way.") == "On my way."
+    r = Replay(tmp_path, STATES[5])
+    r.model.replies["you there"] = FakeLLM.say(marker)
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude you there"})
+    r.at(0).step()
+    assert not any("System:" in s for s in r.body.said)
+    assert r.controller.say(marker) is None
+    assert assistant_message(R(content="", tool_calls=[ToolCall("go_to", {"target": "Zezima"})]))["content"] is None
+
+
+def test_daily_budget_cap_warns_then_goes_reflex_only(tmp_path):
+    """Luis's $10/day cap: at 80 % a warning in the log; at 100 % no model calls (no reviews, no chat
+    runs), one honest line to the next request (then at most every 10 min); body situations still get
+    their template line. Fake spend function."""
+    from brain.budget import OUT_LINE, Budget
+    spend = {"usd": 2.0}
+    r = Replay(tmp_path, STATES[5])
+    r.agent.budget = Budget(lambda: spend["usd"], cap_usd=10.0, log=r.log, clock=r.clock, check_s=0.0)
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude hi"})
+    r.at(0).step()
+    n_calls = len(r.model.calls)
+    assert n_calls >= 1 and not r.records("budget_warning")
+    spend["usd"] = 8.5
+    r.at(1).step()
+    assert len(r.records("budget_warning")) == 1
+    spend["usd"] = 10.2
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude come here"})
+    r.at(5).step()
+    assert len(r.model.calls) == n_calls and r.body.said[-1] == OUT_LINE
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude come on"})
+    r.at(10).step()
+    assert r.body.said.count(OUT_LINE) == 1  # not repeated within 10 min
+    r.body.emit({"type": "unreachable", "reason": "leader_windstepped", "leader_pos": [59.26, 1881.85, -35.45],
+                 "mode": "follow"})
+    r.agent.broker.action_started("follow", {"player": "Zezima"})
+    r.body.state = {**copy.deepcopy(STATES[5]), "players": [{"name": "Zezima", "distance": 40.0,
+                                                             "position": [59.26, 1881.85, -35.45]}]}
+    r.at(20).step()
+    assert len(r.model.calls) == n_calls  # still no model call
+    assert any("Windstep" in s for s in r.body.said)  # the template told him anyway
+    assert r.records("budget_blocked")

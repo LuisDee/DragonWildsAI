@@ -53,7 +53,7 @@ def test_verified_goal_becomes_a_readable_skill_file(tmp_path):
     assert rec["steps"][0] == {"skill": "gather", "args": {"resource": "$resource", "count": "$count"}, "repeat": 1}
     assert rec["stats"]["runs"] == 1 and rec["stats"]["ok"] == 1
     assert rec["origin"]["goal"] == "get 3 logs and bring them to me"
-    assert rig.companion_said()[-1] == "I'll remember how to do that next time (deliver_resource)."
+    assert not any("remember how to do that" in s for s in rig.companion_said())  # learning is not narrated
     learner = rig.planner_llm.calls[1]["messages"]
     assert "verified_steps" in learner[1]["content"] and '"give"' in learner[0]["content"]
 
@@ -93,7 +93,8 @@ def test_run_skill_next_time_needs_no_planner(tmp_path):
     assert rig.agent.step() == "done"
     assert len(rig.planner_llm.calls) == planner_calls  # zero Sonnet calls
     assert rig.game.players["Luis"].inventory["stone"] == 2
-    ctx = json.loads(rig.controller_llm.calls[0]["messages"][1]["content"])
+    ctx = next(c for c in (json.loads(x["messages"][1]["content"]) for x in rig.controller_llm.calls)
+               if c["command"]["text"] == "bring me 2 stone")
     assert ctx["learned_skills"][0]["name"] == "deliver_resource"  # retrieved into the context
     st = rig.library.get("deliver_resource").stats
     assert (st.runs, st.ok) == (2, 2) and st.avg_s is not None
@@ -266,8 +267,8 @@ def test_live_session_uses_the_world_folders(tmp_path):
 
 
 def test_progress_is_spoken_while_the_gather_is_still_running(tmp_path):
-    """The body emits gather_progress mid-action; the brain says a line through a nested say
-    request and still receives the gather's own result (re-entrant bridge client)."""
+    """The body emits gather_progress mid-action; the brain notes it for body_status (not said: voice
+    workstream) and still receives the gather's own result (re-entrant bridge client)."""
     brain_t, body_t = file_transport_pair(tmp_path / "bridge_io")
     game = MockGame.default_world()
     body = FakeBody(game, body_t, progress_delay=0.15).start()  # a real gather takes minutes
@@ -279,7 +280,9 @@ def test_progress_is_spoken_while_the_gather_is_still_running(tmp_path):
         rig.planner_llm.push(FakeLLM.plan([{"skill": "gather", "args": {"resource": "log", "count": 8}}]))
         assert rig.agent.run_goal("gather 8 logs") == "done"
         lines = [t for who, t in game.chat if who == "companion"]
-        assert lines[0] == "Gathering: 5/8 log so far." and lines[-1] == "Done: gather 8 logs."
+        assert not any(t.startswith(("Gathering", "Done")) for t in lines)  # noted, not said
+        assert any(r["kind"] == "progress" and "5/8" in r["text"] for r in rig.log.read_all())  # noted mid-gather
+        assert any(line.startswith("Job progress") for line in rig.agent.broker.digest())
         assert game.inventory["log"] == 8
         kinds = [r["kind"] for r in rig.log.read_all()]
         assert "bridge_unmatched" not in kinds

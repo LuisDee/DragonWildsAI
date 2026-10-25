@@ -38,6 +38,7 @@ from typing import Callable
 from . import paths, worlds
 from .agent import Agent, GoalResult
 from .bridge_client import BridgeClient
+from .budget import OUT_LINE, Budget, default_cap_usd, default_spend_fn
 from .capabilities import Capabilities, discover
 from .controller import Controller
 from .dry_run_llm import DryRunController, DryRunPlanner
@@ -160,6 +161,12 @@ class LiveAgent(Agent):
                      say_round_trip_ms=round((time.perf_counter() - start) * 1000, 1))
 
     def _run(self, player: str, text: str, addressed: bool) -> None:
+        if self.budget is not None and not self.budget.allows("chat"):
+            # $ cap (Luis): one honest line, then reflex-only (the body keeps itself fed, defends, follows)
+            self._decision(player, text, "budget", "out of model budget for today")
+            if addressed and self.budget.out_line_due():
+                self.controller.say(OUT_LINE)
+            return
         self._calls.append(self.clock())
         command = CommandReceived(player=player, text=text)
         self._talking_to = player
@@ -313,6 +320,8 @@ class LiveSession:
                                self.log, prefixes=opts.prefixes, skills=self.skills,
                                calls_per_min=opts.chat_calls_per_min, debounce_s=opts.chat_debounce_s)
         self.agent.body_self_defends = "combat_status" in self.caps.extras
+        self.agent.budget = Budget(None if opts.dry_run else default_spend_fn(), cap_usd=default_cap_usd(),
+                                   log=self.log)  # Luis's daily $ cap (shared with tools/spend.py)
         self.log.log("session_start", dry_run=opts.dry_run, controller_model=controller_llm.model,
                      planner_model=planner_llm.model, body=opts.body, bridge_dir=str(d), prefixes=opts.prefixes,
                      ping_ms=round(self.rtt * 1000, 1), skills=self.store.skills.names(),
@@ -395,7 +404,15 @@ def make_llms(dry_run: bool) -> tuple[LLMClient, LLMClient]:
     if dry_run:
         return DryRunController(), DryRunPlanner()
     # Controller: up to 3 short calls per command; room for default-on adaptive thinking + one tool call.
-    return (LiteLLMClient(os.environ[CONTROLLER_MODEL_ENV], max_tokens=1024),
+    # Speed plan §2 (live p50: ~170 of ~266 completion tokens per Controller call were thinking): effort
+    # "low" for the fast Controller (Claude API docs: low suits latency-sensitive, chat-like routes; keep
+    # adaptive thinking ON rather than disabling it, which can put tool calls into the visible text).
+    # DW_CONTROLLER_EFFORT= (empty) uses the model's default (Haiku 5.5: medium). A constant effort keeps
+    # the prompt cache. LiteLLM 1.106 passes output_config through to the Messages API unchanged.
+    controller = os.environ[CONTROLLER_MODEL_ENV]
+    effort = os.environ.get("DW_CONTROLLER_EFFORT", "low").strip()
+    extra = {"output_config": {"effort": effort}} if effort and controller.startswith("anthropic/") else {}
+    return (LiteLLMClient(controller, max_tokens=1024, **extra),
             LiteLLMClient(os.environ[PLANNER_MODEL_ENV], max_tokens=2048))
 
 

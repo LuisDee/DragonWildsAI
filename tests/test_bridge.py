@@ -106,7 +106,7 @@ def test_agent_runs_over_bridge(bridge, tmp_path):
     ]))
     assert rig.agent.run_goal("bring Luis 2 logs") == "done"
     assert game.players["Luis"].inventory["log"] == 2
-    assert game.chat[-1][1].startswith("Done")
+    assert not any(t.startswith("Done") for _, t in game.chat)  # no canned "Done: ..." (voice workstream)
 
 
 def test_unknown_body_events_are_noted_once_and_skipped(bridge):

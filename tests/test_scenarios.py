@@ -21,7 +21,8 @@ def test_happy_path(rig):
     assert rig.game.players["Luis"].inventory == {"log": 3, "stone": 2}
     tree = rig.store.tree
     assert tree.status == "done" and all(t.done for t in tree.tasks) and tree.replans == 0
-    assert rig.companion_said()[-1].startswith("Done")
+    assert not any(s.startswith("Done") for s in rig.companion_said())  # no canned "Done: ..." line
+    assert json.loads(rig.controller_llm.calls[-1]["messages"][1]["content"])["body_event"]["type"] == "goal_done"
     # persisted and logged
     on_disk = json.loads(rig.store.tree_path.read_text())
     assert on_disk["status"] == "done" and all(t["done"] for t in on_disk["tasks"])
@@ -113,7 +114,9 @@ def test_mid_task_attack_defends_then_resumes(rig):
     assert [c["count"] for c in rig.calls("gather")] == [4, 2]  # resumed with the remainder
     assert rig.game.players["Luis"].inventory["log"] == 4
     assert rig.store.tree.tasks[0].attempts == 1
-    assert len(rig.controller_llm.calls) == 0  # self-defence is a reflex, no model call
+    # self-defence is a reflex: the only model call is the finished goal (goal_done), none for the fight
+    events = [json.loads(c["messages"][1]["content"]).get("body_event", {}).get("type") for c in rig.controller_llm.calls]
+    assert events == ["goal_done"]
 
 
 def test_unverified_success_is_not_trusted(rig):

@@ -19,6 +19,7 @@ from typing import Literal
 
 from . import situation as sit
 from .broker import BODY_SITUATIONS, REVIEW_SAMPLE_S, EventBroker, facts, fallback_line
+from .budget import OUT_LINE
 from .controller import LONG_ACTIONS, Controller, describe_rule
 from .executor import Executor, Outcome, StateUnavailable
 from .interface import (RULE_TOOLS, Activity, Attacked, ChatHeard, CommandReceived, Event, GameInterface, Reason,
@@ -78,8 +79,10 @@ class Agent:
                                   abandoned=getattr(game, "abandoned", None))
         controller.status_provider = self.broker.digest
         controller.activity_provider = self.broker.activity_lines
+        controller.on_progress = self.broker.note_progress  # progress notes -> body_status, never said
         self._situations: list[dict] = []  # body situations waiting for one Controller run
         self._stash: list[Event] = []  # events peeked during a chain (handled by the next pump)
+        self.budget = None  # brain.budget.Budget (LiveSession): the daily model-spend cap
         self.check_promises = True  # L5: a talk-only first turn gets one turn to call what it promised
         self._sampled_at: float | None = None  # last get_state the broker observed (situation_review)
         self._in_pump = False
@@ -97,6 +100,11 @@ class Agent:
         if self.pending_goal:
             goal, tasks, skill = self.pending_goal, self.pending_tasks, self.pending_skill
             self.pending_goal, self.pending_tasks, self.pending_skill = None, None, None
+            if self.budget is not None and not self.budget.allows("planner"):
+                self.log.log("goal_dropped", goal=goal, why="out of model budget")
+                if self.budget.out_line_due():
+                    self.controller.say(OUT_LINE)
+                return "stuck"
             return self.run_goal(goal, tasks=tasks, skill=skill)
         return None
 
@@ -123,6 +131,8 @@ class Agent:
         when the broker sees a meaningful change at a good moment, give the model a situation_review.
         The model decides to speak, act or stay silent."""
         now = self.broker.clock()
+        if self.budget is not None and not self.budget.allows("review"):
+            return  # out of budget: no proactive reviews (reflexes keep running in the body)
         if self._sampled_at is None or now - self._sampled_at >= REVIEW_SAMPLE_S:
             self._fresh_state()
         ep = self.broker.episode
@@ -211,6 +221,12 @@ class Agent:
         state = self._fresh_state()
         events = self.take_situations(state)
         if not events:
+            return
+        if self.budget is not None and not self.budget.allows("situation"):
+            # out of budget: the template line still tells him (communication paramount), no model call
+            line = fallback_line(events)
+            if line and self.controller.say(line, kind="notice") is not None:
+                self.broker.voiced(events)
             return
         player = next((e["target"] for e in events if e.get("about") == "player" and e.get("target")), None)
         if not player:
@@ -349,8 +365,8 @@ class Agent:
             else:
                 self.log.log("situation_unspoken", events=body_events, still=still,
                              why="fixed by the model's own action" if acted else "fixed before speaking")
-        elif not said and addressed and not body_events:  # reply to every command, even when the model said nothing
-            self.controller.say(self._default_reply(d))
+        elif not said and addressed and not body_events and not (acted or d.goal or d.skill or d.refusals):
+            self.controller.say("Sorry, I didn't catch that.")  # nothing ran, started, was said or refused
         if body_events and said:
             self.broker.voiced(body_events, text=" ".join(lines) or d.speech)
         if d.goal and not d.skill:
@@ -384,11 +400,11 @@ class Agent:
                     failure = (call.name, res["reason"], res["data"])
                     break
                 continue
-            if call.name in ANNOUNCE_FIRST and not spoken and (d.speech or call.name in LONG_ACTIONS):
-                # a move or a job that takes a while: its line is said as it starts (true at that moment)
-                self.controller.say(d.speech or self.controller.ack(call.name) or "On it.")
-                if call.name in LONG_ACTIONS:
-                    self.controller.job_started()
+            if call.name in LONG_ACTIONS:
+                self.controller.job_started()
+            if call.name in ANNOUNCE_FIRST and not spoken and d.speech:
+                # a move or a job that takes a while: the model's line is said as it starts (true then)
+                self.controller.say(d.speech)
                 spoken = True
             outcome = self._run_task(Task(skill=call.name, args=call.arguments))
             ran.append(call.name)
@@ -400,8 +416,6 @@ class Agent:
             if not outcome.ok:
                 failure, failed_call = (call.name, outcome.reason, outcome.data), call
                 break  # steps run in order and stop at the first that fails (the model hears why)
-            if call.name in LONG_ACTIONS:
-                extra.append(self._long_done(call.name, call.arguments, outcome.data))
         if d.skill and failure is None:
             failure = self._queue_skill(*d.skill, state)
         return {"failure": failure, "failed_call": failed_call, "results": results, "extra": extra,
@@ -428,24 +442,6 @@ class Agent:
         self.log.log("speech_redecided", changed=changed, first=d.speech)
         return self.controller.decide(event.player, event.text, fresh, self.active_goal, addressed=addressed,
                                       body_event=body_ctx), fresh
-
-    @staticmethod
-    def _long_done(tool: str, args: dict, data: dict) -> str:
-        if tool == "gather":
-            n = data.get("gathered") or args.get("count")
-            what = sit.name_of_item(str(data["item"]), {}) if data.get("item") else args.get("resource")
-            return f"Done, gathered {n} {what}."
-        return "Done."
-
-    def _default_reply(self, d) -> str:
-        if d.skill:
-            return f"On it, I know how to do that ({d.skill[0]})."
-        if d.goal:
-            return f"On it: {d.goal}."
-        for call in d.actions:
-            if ack := self.controller.ack(call.name):
-                return ack
-        return "Sorry, I didn't catch that." if not d.actions else "Okay."
 
     def _remember(self, args: dict, state: dict, player: str) -> dict:
         """remember(); a "place:<name>" with at=self | player is stored with that position (per-world
@@ -546,8 +542,8 @@ class Agent:
         except Exception as exc:  # learning is a bonus; never break the session over it
             self.log.log("skill_learn_error", goal=goal, error=repr(exc))
             return
-        if rec is not None and rec.origin.get("variants", 1) == 1:
-            self.controller.say(f"I'll remember how to do that next time ({rec.name}).")
+        if rec is not None:
+            self.log.log("skill_learned", name=rec.name, variants=rec.origin.get("variants", 1))  # not said
 
     # ---------------------------------------------------------------- goals
 
@@ -557,7 +553,9 @@ class Agent:
             self.store.save_tree()
         self._last_reason = reason
         self.store.progress("stuck", goal=goal, reason=reason)
-        self.controller.ask_for_help(goal, task.skill if task else None, reason, question)
+        self._situations.append({"type": "stuck", "goal": goal, "failed": task.skill if task else None,
+                                 "reason": reason, "question": question})
+        self.flush_situations()
         return "stuck"
 
     def _planner_notes(self) -> dict:
@@ -611,7 +609,7 @@ class Agent:
                 continue  # resume the same task
             if outcome.ok:
                 done = sum(1 for t in tree.tasks if t.done)
-                self.controller.milestone(done, len(tree.tasks), _task_label(task))
+                self.broker.note_progress(f"step {done}/{len(tree.tasks)} done ({_task_label(task)})")
                 self.pump()  # Luis may have said something between steps
                 if self._cancelled:
                     break
@@ -639,5 +637,6 @@ class Agent:
         tree.status = "done"
         self.store.save_tree()
         self.store.progress("goal done", goal=goal)
-        self.controller.goal_done(goal)
+        self._situations.append({"type": "goal_done", "goal": goal, "steps": len(tree.tasks)})
+        self.flush_situations()
         return "done"

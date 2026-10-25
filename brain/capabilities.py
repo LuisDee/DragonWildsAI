@@ -43,6 +43,31 @@ LEGACY_ARGS: dict[tuple[str, str], Callable[[dict], dict]] = {
 }
 
 
+# Prompt budget (speed plan 2.2: <= 8k tokens): the tool block is in the cached prefix but still costs
+# latency. Bodies should keep descriptions short; this caps whatever they publish (at a sentence end).
+DESC_CHARS, ARG_CHARS = 360, 140
+
+
+def _cap(text: str, n: int) -> str:
+    if len(text) <= n:
+        return text
+    cut = text[:n]
+    end = max(cut.rfind(". "), cut.rfind("; "))
+    return (cut[: end + 1] if end > n // 2 else cut.rsplit(" ", 1)[0] + "…").strip()
+
+
+def _cap_args(schema: dict) -> dict:
+    out = dict(schema)
+    props = schema.get("properties")
+    if isinstance(props, dict):
+        out["properties"] = {}
+        for k, p in props.items():
+            if isinstance(p, dict) and isinstance(p.get("description"), str):
+                p = {**p, "description": _cap(p["description"], ARG_CHARS)}
+            out["properties"][k] = p
+    return out
+
+
 class ManifestError(ValueError):
     """A call's args do not satisfy the body's published schema."""
 
@@ -89,10 +114,8 @@ class Capabilities:
         params = dict(e.get("args") or {"type": "object", "properties": {}})
         if not isinstance(params.get("properties"), dict):
             params["properties"] = {}
-        desc = str(e.get("description") or (TOOLS[name][1] if name in TOOLS else name))
-        pre = e.get("preconditions")
-        if isinstance(pre, list) and pre:
-            desc += " Needs: " + "; ".join(str(p) for p in pre) + "."
+        desc = _cap(str(e.get("description") or (TOOLS[name][1] if name in TOOLS else name)), DESC_CHARS)
+        params = _cap_args(params)
         return {"type": "function", "function": {"name": name, "description": desc, "parameters": params}}
 
     def timeouts(self) -> dict[str, float]:
