@@ -24,7 +24,13 @@ Luis set this on 2026-10-25. It is the contract for unattended iteration: what "
 - **M2 Use and tactics:** spells-USE cases, combat tactics, knowledge use, efficiency baselines.
 - **M3 Director:** the task board; T2 multi-trip jobs (coal with lodestones, farm a mob drop).
 - **M4 Long horizon:** gear progression on his own initiative, a quest chain, desert-weed farming, held-out generalisation, the live confirmations.
-Each milestone has its own targets in goal_targets.json. The full goal = all four met.
+- **M5 Capstone (Luis, 2026-10-25):** work through Brynmoor's progression himself, from the wiki (quests, gear tiers, skill gates). Each stage is a pinned case and will expose gaps and bugs. The final checklist item: **slay Vel'gar** with Luis. That takes:
+  - wiki research on Vel'gar;
+  - preparation: anti-poison, upgraded and levelled weapons and armour, food, the right enchant;
+  - reading and answering Vel'gar's attacks in real time (telegraph dodges, Phase Dash, shield);
+  - surviving.
+
+Each milestone has its own targets in goal_targets.json. The full goal = all five met.
 
 
 ## 1c. Decision rules (Luis approved, 2026-10-25)

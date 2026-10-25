@@ -222,7 +222,8 @@ def test_goal_episode_from_the_state_store(tmp_path):
 def test_metrics_over_the_window(window):
     c, eps, an = window
     m = obs.metrics(c, eps, an)
-    assert m["chat_to_first_action_s"]["n"] == 19 and m["chat_to_first_action_s"]["p50"] == pytest.approx(7.68, abs=0.05)
+    assert m["chat_to_first_action_s"]["n"] == 18 and m["chat_to_first_action_s"]["p50"] == pytest.approx(7.68, abs=0.05)  # stop() excluded
+    assert m["chat_to_first_action_of_passing_plan_s"]["n"] == 9
     assert m["model_latency_s"]["controller/claude-haiku-5-5"]["p50"] == pytest.approx(1.93, abs=0.05)
     assert m["tools"]["cast"] == {**m["tools"]["cast"], "n": 22, "failed": 21}
     assert m["failures_by_reason"]["verification_failed"] == 10
@@ -236,7 +237,9 @@ def test_goal_check_contract(window, root):
     assert g["schema"] == "dw_obs_metrics/1" and g["source"] == "live"
     assert g["window"] == {"since": "2026-10-25T20:54:00Z", "until": "2026-10-25T21:18:00Z"}
     assert g["hours_observed"] == pytest.approx(0.394, abs=0.01)
-    assert g["latency"]["chat_to_first_action_s"]["n"] == 19
+    assert g["latency"]["chat_to_first_action_s"]["n"] == 18
+    assert g["exposure"] == {"active_hours": pytest.approx(0.394, abs=0.01), "tool_calls_per_hour": pytest.approx(109.2, abs=0.5),
+                             "world_changing_tool_calls": 43, "player_chat_lines": 41, "sessions": 2}
     assert g["stability"]["stalls_over_30s"] == 4 and g["stability"]["crashes"] == 0
     assert g["voice"] == {"score": None, "n": 0, "source": None}
     assert set(g["anomalies_per_hour"]) == {"stat_narration", "talk_without_action", "stall_over_30s"}
@@ -348,3 +351,60 @@ def test_fixture_has_no_secrets():
         lines = f.read_text(encoding="utf-8-sig").splitlines()
         if len(lines) > 1 and len(lines[1].strip()) >= 3:
             assert lines[1].strip() not in blob
+
+
+# ------------------------------------------------------------------ exposure, companion sha, passing-plan latency
+def _session(r: Path, name: str, t0: float, sha: str | None, chat: bool, act: bool, dirty: bool = False):
+    rows = [{"ts": t0, "kind": "session_start", "world": "shockbyte", **({"companion_sha": sha, "dirty": dirty} if sha else {})}]
+    if act:
+        rows += [{"ts": t0 + 10, "kind": "prompt", "component": "controller", "model": "anthropic/claude-haiku-5-5",
+                  "messages": [{"role": "user", "content": json.dumps({"command": {"player": "Zezima", "text": "chop", "addressed": True}})}]},
+                 {"ts": t0 + 12, "kind": "llm_response", "component": "controller", "content": None,
+                  "tool_calls": [{"name": "gather", "arguments": {"resource": "ash"}, "id": "t1"}],
+                  "usage": {"prompt": 100, "completion": 10, "cached": 0, "cache_write": 0}},
+                 {"ts": t0 + 13, "kind": "tool_call", "task_id": "a1", "tool": "gather", "args": {}, "attempt": 1},
+                 {"ts": t0 + 30, "kind": "tool_result", "task_id": "a1", "tool": "gather", "result": {"ok": True, "reason": None, "data": {}}}]
+    rows.append({"ts": t0 + 3000, "kind": "session_end"})
+    (r / "logs").mkdir(parents=True, exist_ok=True)
+    (r / "logs" / name).write_text("\n".join(json.dumps(x) for x in rows) + "\n", encoding="utf-8")
+    if chat:
+        (r / "client_io" / "events").mkdir(parents=True, exist_ok=True)
+        with (r / "client_io" / "events" / "chat.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": t0 + 8, "type": "chat", "from": "Zezima", "self": False, "text": "chop"}) + "\n")
+
+
+def test_exposure_idle_client_is_not_active(tmp_path):
+    r = tmp_path / "r"
+    t0 = at("10:00")
+    _session(r, "brain-live-a.jsonl", t0, "aaa111", chat=False, act=False)          # idle: brain up, nobody there
+    _session(r, "brain-live-b.jsonl", t0 + 7200, "bbb222", chat=True, act=True)     # real play
+    c, eps, an = obs.analyse(r, t0 - 60, t0 + 4 * 3600)
+    g = obs.goal_metrics(c, eps, an, obs.metrics(c, eps, an))
+    ex = g["exposure"]
+    assert ex["sessions"] == 2 and ex["player_chat_lines"] == 1 and ex["world_changing_tool_calls"] == 1
+    assert ex["active_hours"] == pytest.approx(3000 / 3600, abs=0.01)   # only session b's (clock) hour
+    assert g["hours_observed"] == pytest.approx(6000 / 3600, abs=0.01)
+    assert g["companion"]["shas"] == ["aaa111", "bbb222"]
+    assert g["companion"]["sessions"][0]["sha_source"] == "session_start"
+
+
+def test_companion_sha_filter(tmp_path):
+    r = tmp_path / "r"
+    t0 = at("10:00")
+    _session(r, "brain-live-a.jsonl", t0, "aaa111", chat=True, act=True)
+    _session(r, "brain-live-b.jsonl", t0 + 7200, "bbb222", chat=True, act=True)
+    c, eps, an = obs.analyse(r, t0 - 60, t0 + 4 * 3600, companion_sha="bbb")
+    g = obs.goal_metrics(c, eps, an, obs.metrics(c, eps, an))
+    assert g["companion"]["filter"] == "bbb" and g["companion"]["shas"] == ["bbb222"]
+    assert g["exposure"]["sessions"] == 1 and g["exposure"]["player_chat_lines"] == 1   # the other session's chat is out
+    assert not [a for a in an if a["kind"] == "stall" and a["ts"].startswith("2026-10-25T10:")]  # session a's line is out
+
+
+def test_first_action_ignores_trivial_tools_and_passing_plan_latency(window):
+    _, eps, _ = window
+    stop_only = ep_at(eps, "20:56:41")                       # "use your brain ..." -> stop()
+    assert stop_only.first_action is not None and obs.first_world_action(stop_only) is None
+    e = ep_at(eps, "21:04:32")  # cast fails, look, cast on cooldown, then gather ok (third plan passes)
+    t = obs.first_action_of_passing_plan(e)
+    assert t is not None and next(r for r in e.ran if r["ts"] == t)["tool"] == "gather"
+    assert obs.first_action_of_passing_plan(ep_at(eps, "21:13:20")) is None   # Splinter never passed

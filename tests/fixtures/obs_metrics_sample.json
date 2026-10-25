@@ -1,6 +1,6 @@
 {
  "schema": "dw_obs_metrics/1",
- "generated_at": "2026-10-25T21:46:46Z",
+ "generated_at": "2026-10-25T21:52:50Z",
  "window": {
   "since": "2026-10-25T20:54:00Z",
   "until": "2026-10-25T21:18:00Z"
@@ -11,8 +11,44 @@
   "chat_to_first_action_s": {
    "p50": 7.68,
    "p90": 72.6,
-   "n": 19
+   "n": 18
+  },
+  "chat_to_first_action_of_passing_plan_s": {
+   "p50": 19.94,
+   "p90": 82.54,
+   "n": 9
   }
+ },
+ "exposure": {
+  "active_hours": 0.394,
+  "tool_calls_per_hour": 109.17,
+  "world_changing_tool_calls": 43,
+  "player_chat_lines": 41,
+  "sessions": 2
+ },
+ "companion": {
+  "filter": null,
+  "shas": [],
+  "sessions": [
+   {
+    "file": "brain-live-20261025-214057-8860.jsonl",
+    "start": "2026-10-25T20:40:58Z",
+    "end": "2026-10-25T21:03:41Z",
+    "world": "shockbyte",
+    "companion_sha": null,
+    "dirty": null,
+    "sha_source": null
+   },
+   {
+    "file": "brain-live-20261025-220403-6472.jsonl",
+    "start": "2026-10-25T21:04:03Z",
+    "end": "2026-10-25T21:18:49Z",
+    "world": "shockbyte",
+    "companion_sha": null,
+    "dirty": null,
+    "sha_source": null
+   }
+  ]
  },
  "anomalies_per_hour": {
   "stat_narration": 7.614,
@@ -48,10 +84,16 @@
    "max": 102.58
   },
   "chat_to_first_action_s": {
-   "n": 19,
+   "n": 18,
    "p50": 7.68,
    "p90": 72.6,
    "max": 102.58
+  },
+  "chat_to_first_action_of_passing_plan_s": {
+   "n": 9,
+   "p50": 19.94,
+   "p90": 82.54,
+   "max": 107.71
   },
   "chat_heard_lag_s": {
    "n": 41,

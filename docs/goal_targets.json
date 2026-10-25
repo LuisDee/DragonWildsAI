@@ -79,6 +79,10 @@
       "long_tasks:brynmoor_quest_chain",
       "long_tasks:farm_desert_weed",
       "heldout"
+    ],
+    "M5": [
+      "capstone:brynmoor_progression",
+      "capstone:slay_velgar"
     ]
   },
   "no_starvation_deaths": 0,
@@ -107,5 +111,14 @@
     "_note": "filled when Luis approves the drafted GOAL cases (evals/bench/goal_cases/)"
   },
   "judge_tag": null,
-  "final_gate": "Luis sign-off after goal_check prints GOAL MET"
+  "final_gate": "Luis sign-off after goal_check prints GOAL MET",
+  "capstone": {
+    "brynmoor_progression": "advance through Brynmoor's game progression on his own, guided by the wiki (quests, gear tiers, skill gates), with each stage a pinned case",
+    "slay_velgar": "defeat Vel'gar with Luis: wiki research, preparation (anti-poison, upgraded and levelled weapons and armour, food, enchant type), reading and answering Vel'gar's attacks live, and surviving",
+    "required": [
+      "brynmoor_progression",
+      "slay_velgar"
+    ],
+    "live_confirmed_required": true
+  }
 }

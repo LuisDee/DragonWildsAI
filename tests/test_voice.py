@@ -45,7 +45,7 @@ def test_persona_keeps_every_functional_instruction():
                    "never pair an action with stop", "run_skill", "start_goal", "list_skills", "remember",
                    '"place:<name>"', "at=self", "at=player", "never substitute", "references", "read_as",
                    "command.player", "body_status", "unreachable", "resumed", "follow_ended", "vitals_low",
-                   "items_dropped", "situation_review", "previous_review.you_said", "recent_activity",
+                   "items_dropped", "situation_review", "goal_done", "stuck", "args_help", "previous_review.you_said", "recent_activity",
                    "castable_spells", "set_reflex_rule", "reflex_rules", "list_rules", "clear_rule",
                    "Never invent reasons", "CURRENT state", "you=true"]:
         assert anchor in out, anchor
