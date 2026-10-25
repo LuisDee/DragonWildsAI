@@ -951,8 +951,11 @@ Research and design: `docs/research/2026-10-25-traversal.md`.
   - `bStartPenetrating` reads junk (it shares bitfield byte 0xAD with `bBlockingHit`); use `Distance == 0`.
   - `K2_ComputeFloorDist` works on the dev server.
 
-## Character data on a dedicated server is SERVER-side (2026-10-25 19:10, client build 26162923)
+## Raising Claude's stats via Claude.json: UNRESOLVED (2026-10-25 19:10, client build 26162923)
 - Tried to raise Claude's stats by merging Zezima's Skills, Spellcasting and Progress unlocks into the local `SaveCharacters/Claude.json`, with the client closed (backup at `C:\GameServers\backups\claude_char_20261025-190851.json`).
 - After rejoining Shockbyte, the client logs `Remote Character load complete … slot[Claude]` and `sense.me` reports total_level 12: all skills still 1.
-- **Conclusion: on a dedicated server the world's server holds the authoritative copy of each player's character.** The local JSON is not what the server uses. This matches the dev server's own logs ("RequestGameExit: Server saving World and Player state for Account…").
-- Raising stats therefore means editing the server's saved player data, which on Shockbyte is Luis's file manager, or levelling normally.
+- My first conclusion ("server-authoritative") is **disputed by Luis**: player stats live in the local character JSON, synced via Steam Cloud. Likely causes to check later:
+  - Steam Cloud re-syncing at launch;
+  - the edit needing other fields (SaveCount/Backup checksum);
+  - `sense.me` total_level reading stale data.
+  Parked at Luis's request ("ignore that for now").
