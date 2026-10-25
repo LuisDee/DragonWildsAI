@@ -86,3 +86,10 @@ Luis relies on spells: **a shield spell**, and **wind jump**, whose landing stun
   - Utility scoring nodes choose the weapon (damage × the enemy weakness table), the target and the spell (wind jump when the cluster count is at least N).
   - The LLM sets goals and weights ("focus archers", "save shield"), not actions.
 - Still to research: OSRS bot frameworks (RuneLite/DreamBot scripts do gear and prayer switching by monster weakness). Possibly reusable data on RuneScape monster weaknesses, though Dragonwilds' stats are its own.
+
+## 6. Luis's spell kit (his words, 2026-10-25). The bot should use these and mirror his stats and unlocks
+- **Tempest Shield:** the defensive shield.
+- **Windstep:** AoE stun on landing; "fantastic" against Kalphites.
+- **Melee weapon enchants:** change or boost the weapon's damage type (pair with the enemy weakness table).
+- **Spectral Arrows:** ranged.
+- **Requirement:** the bot mirrors Luis's stats and unlocks, so it has the same spells. Research is in `docs/research/2026-10-25-spells-and-weaknesses.md` section 5.

@@ -11,6 +11,10 @@ New-Item -ItemType Directory -Force $ModLogDir, $BridgeDir | Out-Null
 $env:DW_MOD_LOG_DIR = $ModLogDir
 $env:DW_BRIDGE_DIR  = $BridgeDir
 $env:DW_MOD_ROOT    = $ModDeployDir
+# Bot gear/state must live outside the deployed mod folder (deploy_mod.ps1 wipes that folder).
+$stateDir = Join-Path $RepoRoot 'logs\state'
+New-Item -ItemType Directory -Force $stateDir | Out-Null
+$env:DW_BOT_STATE   = Join-Path $stateDir 'bot_state.json'
 
 $p = Start-Process -FilePath $ServerExe -WorkingDirectory $ServerWin64 -WindowStyle Hidden -PassThru
 Write-Host "Started server pid $($p.Id) (build $(Get-ServerBuildId)). Log: $ServerLog"

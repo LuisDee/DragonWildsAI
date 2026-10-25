@@ -96,7 +96,8 @@ function M.run(log, args)
     local orphans = 0
     if args.orphans then
         for _, c in ipairs(FindAllOf("AIController") or {}) do
-            if alive(c) and not alive(try(function() return c:K2_GetPawn() end)) then
+            local dying = (try(function() return c:GetLifeSpan() end) or 0) > 0 -- already queued above
+            if alive(c) and not dying and not alive(try(function() return c:K2_GetPawn() end)) then
                 if pcall(function() c:SetLifeSpan(0.1) end) then orphans = orphans + 1 end
             end
         end
