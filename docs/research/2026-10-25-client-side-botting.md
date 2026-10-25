@@ -74,3 +74,15 @@ Verified ourselves (DISCOVERIES):
   - On top sits a thin dispatcher (`client_bridge.lua`) with the server body's action-slot semantics (pre-empt, interrupted, `task_done`/`task_failed`), plus waiters for client-side confirmation.
   - Nothing was vendored and no new protocol was introduced.
 - **Sources:** https://raw.githubusercontent.com/chsami/Microbot/main/docs/AGENT_SERVER.md ; https://tomevault.io/tome/chsami/Microbot ; https://docs.ue4ss.com/guides/creating-a-lua-mod.html ; https://www.nexusmods.com/windrose/mods/520 ; https://defold.com/manuals/modules ; https://luarocks.org/modules/jinq0123/hotfix
+
+## Addendum: how working agent systems do pathfinding (2026-10-25 evening)
+- **No shipping system uses the LLM for path-level navigation.** The LLM picks the goal, and a deterministic planner moves the body.
+  - PUBG Ally: an SLM for intent, plus a separate fast gameplay layer that handles "route navigation". Cloud LLM latency was too slow even for squad chat. Sources: https://developer.nvidia.com/blog/how-krafton-built-pubg-ally-a-co-playable-character-powered-by-nvidia-ace/ ; https://labs.invenglobal.com/articles/22889/nvidia-announces-pubg-l-ai-support-at-unreal-fest ; https://www.invenglobal.com/articles/22987/ai-pubg-teammate-raised-through-tens-of-thousands-of-matches-at-internet-cafes-krafton-reveals-development-story
+- **Minecraft agents (Voyager/Mindcraft) call mineflayer-pathfinder.** It is A* over the bot's *own perceived world* (blocks), with per-move costs and toggleable movements (sprint, parkour, dig/place). It re-plans when the world changes, and its goals (GoalNear, composite) are modelled on Baritone. https://npmjs.org/package/mineflayer-pathfinder
+- **Baritone:** A* in **segments** (the world beyond render distance is unknown), so it plans to the edge of known space, executes, and pre-plans the next segment. Its cost model includes hazards (lava, fire, magma) and **parkour moves** (sprint-jump 1-3 block gaps, place-a-block mid-jump). https://raw.githubusercontent.com/cabaletta/baritone/1.19.4/FEATURES.md
+- **LLMs are weak at grid pathfinding:**
+  - SPaRC: o4-mini solves 15.8% (1.1% on hard) versus 98% for humans, and often outputs invalid paths.
+  - PPNL and others: performance degrades with grid size.
+  - So the LLM belongs at strategy level (where to go; what to try when stuck), not at cell level.
+  - Sources: https://arxiv.org/pdf/2505.16686v2 ; https://arxiv.org/html/2310.03249v3
+- **Implication for Claude:** his client sees the real collision through physics traces. So build a Baritone-style local A* over a trace-sampled grid around him, with movement costs and parkour moves from the measured envelope, planned in segments toward a far goal from the nav oracle. The LLM is consulted only when the planner reports failure, with a compact text map to choose a strategy (try another approach, ask Luis, wait).
