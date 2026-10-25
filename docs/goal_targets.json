@@ -6,7 +6,13 @@
   "ranged_hit_rate_15m_moving_pct": 60,
   "adversarial_cases_pct": 80,
   "long_tasks": {
-    "required": ["gather_coal_multitrip", "farm_mob_drop", "gear_upgrade_self_initiated", "brynmoor_quest_chain", "farm_desert_weed"],
+    "required": [
+      "gather_coal_multitrip",
+      "farm_mob_drop",
+      "gear_upgrade_self_initiated",
+      "brynmoor_quest_chain",
+      "farm_desert_weed"
+    ],
     "dev_world_max_hints": 1,
     "live_confirmed_required": true
   },
@@ -14,7 +20,66 @@
   "latency_chat_to_action_p50_s": 2.5,
   "latency_chat_to_action_p90_s": 4.0,
   "voice_score_min": 0.8,
-  "anomalies_per_hour_max": { "stat_narration": 0, "talk_without_action": 0, "stall_over_30s": 0 },
+  "anomalies_per_hour_max": {
+    "stat_narration": 0,
+    "talk_without_action": 0,
+    "stall_over_30s": 0
+  },
   "stability_hours_without_crash": 2,
-  "eval_validity": { "positive_control_required": true, "negative_controls": ["do_nothing", "claims_only"] }
+  "eval_validity": {
+    "positive_control_required": true,
+    "negative_controls": [
+      "do_nothing",
+      "claims_only"
+    ]
+  },
+  "spell_use_cases_pct": 80,
+  "combat_basics_live_proven": [
+    "dodge_directional",
+    "parry",
+    "disengage_heal"
+  ],
+  "combat_tactics": {
+    "prep_before_hard_fight_pct": 80,
+    "telegraph_dodge_success_pct": 70,
+    "damage_taken_trend": "decreasing over 5 repeat fights"
+  },
+  "efficiency_vs_baseline_pct": 70,
+  "knowledge_use": {
+    "lookup_when_needed_pct": 80,
+    "fact_correct_pct": 90,
+    "needless_lookup_pct_max": 30
+  },
+  "milestones": {
+    "M1": [
+      "latency_chat_to_action_p50_s",
+      "latency_chat_to_action_p90_s",
+      "voice_score_min",
+      "anomalies_per_hour_max",
+      "stability_hours_without_crash",
+      "spells_effect_coverage_pct",
+      "combat_basics_live_proven",
+      "no_starvation_deaths"
+    ],
+    "M2": [
+      "spell_use_cases_pct",
+      "combat_tactics",
+      "knowledge_use",
+      "efficiency_vs_baseline_pct",
+      "craft_from_scratch_pct",
+      "ranged_hit_rate_15m_moving_pct",
+      "adversarial_cases_pct"
+    ],
+    "M3": [
+      "long_tasks:gather_coal_multitrip",
+      "long_tasks:farm_mob_drop"
+    ],
+    "M4": [
+      "long_tasks:gear_upgrade_self_initiated",
+      "long_tasks:brynmoor_quest_chain",
+      "long_tasks:farm_desert_weed",
+      "heldout_gap_max_points"
+    ]
+  },
+  "no_starvation_deaths": 0
 }

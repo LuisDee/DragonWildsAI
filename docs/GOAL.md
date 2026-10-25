@@ -5,15 +5,26 @@ Luis set this on 2026-10-25. It is the contract for unattended iteration: what "
 ## 1. Definition of done (all measured by the benchmark and the observability tools; no self-assessment)
 | Area | Target | Measured by |
 |---|---|---|
-| Spells | ≥ 95% of unlocked spells cast with the game-observed effect (not just runes spent) | T0 spell cases, auto-generated from spell data |
+| Spells: can cast | ≥ 95% of unlocked spells cast with the game-observed effect (not just runes spent) | T0 spell cases, auto-generated from spell data |
+| Spells: can USE | each spell achieves its purpose in a situation that needs it, chosen by him without being told the spell name. Examples: Windstep up onto a ledge he can't jump; Phase Dash through an attack in combat; a Windstep landing that stuns low/medium mobs; Rocksplosion while mining; Splinter on felled logs; Axtral on trees; enchant the weapon with the type the enemy is weak to; Tempest Shield before a hard fight. ≥ 80% of the T1 "use" cases | T1 use cases generated from spell_effects.json purposes + situations |
 | Stations and crafting | ≥ 90% of recipes craftable from scratch at their station (gather → process → craft) | T0/T1 craft cases from the recipe graph |
-| Combat | parry/dodge/disengage-heal in fights; ranged hit rate ≥ 60% at 15 m on moving targets; weapon chosen for weakness | T1 combat cases + hit-rate metrics |
+| Combat basics (proven live) | standard dodge (direction + evade) avoids a telegraphed hit; parry lands in the window; disengage, eat, re-engage; ranged hit rate ≥ 60% at 15 m on moving targets | T1 combat cases + server hit/parry/damage events |
+| Combat tactics | prepares before a hard fight (gear, weapon for weakness, enchant type, shield, food) from creature data and wiki; times a dodge or Phase Dash to each attack's telegraph, learned per attack from outcomes; damage taken per fight drops over repeated fights with the same creature | T2 tactics cases (a dragon-class fight on the dev world) + the per-attack learning curve |
+| Efficiency | resource/xp per minute within 70% of a scripted baseline (Luis's or an oracle run) on the same task; uses the abilities that speed the activity up; target and area selection improves over repeats | T1/T2 rate metrics + optimisation trend |
+| Knowledge use | on cases that need a fact not in his perception (a recipe, where a resource is, a creature weakness, a quest step), he looks it up (game data first, then wiki), and the fact he acts on is correct | T1/T2 knowledge cases: lookup-needed vs not, judged by the trace |
 | Thinking on his feet | ≥ 80% on adversarial cases (failure injection, vague chat, interruptions) | T1/T2 adversarial cases |
 | Long tasks, unaided | each completes on the dev world with ≤ 1 player hint, then once live with Luis: (a) gather 50 coal (wiki + lodestones, multi-trip); (b) farm a mob drop with the right weapon; (c) upgrade gear one tier on his own initiative; (d) one Brynmoor quest chain from the wiki; (e) farm desert weed at "our farm" | T3 cases |
 | Generalisation | held-out generated tasks within 10 points of the seen-task pass rate | generator holds out 30% of each batch |
 | Speed | chat → first action p50 ≤ 2.5 s, p90 ≤ 4 s | `tools/obs.py metrics` |
 | Voice | voice-eval score ≥ target; 0 stat narration and 0 talk-without-action per hour of play | voice eval + anomaly detectors |
 | Stability | 2 h of play without a crash or a stall over 30 s | watchdog + anomalies |
+
+## 1b. Milestones (run /goal one milestone at a time: `tools/goal_check.py --milestone Mn`)
+- **M1 Foundation:** speed, voice, stability, no deadlocks, needs→options (no starving), T0 spells ≥ 95%, basic combat proven live.
+- **M2 Use and tactics:** spells-USE cases, combat tactics, knowledge use, efficiency baselines.
+- **M3 Director:** the task board; T2 multi-trip jobs (coal with lodestones, farm a mob drop).
+- **M4 Long horizon:** gear progression on his own initiative, a quest chain, desert-weed farming, held-out generalisation, the live confirmations.
+Each milestone has its own targets in goal_targets.json. The full goal = all four met.
 
 ## 2. The iteration loop (every cycle, in this order)
 1. **Measure.** Run the benchmark (dev world first) and the observability metrics; append to `logs/evals/scoreboard.jsonl`.
