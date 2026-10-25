@@ -72,7 +72,7 @@ def test_startup_banner_and_capabilities(live):
     assert "DRY RUN" in banner and "dry-run/rules" in banner and "dry-run/planner" in banner
     assert live.session.caps.source == "capabilities"
     assert live.session.store.skills.names() == ["go_to", "follow", "stop", "attack", "gather", "craft",
-                                                 "give", "place"]
+                                                 "give", "place", "pickup", "drop", "cast"]
     assert live.session.log.path.name.startswith("brain-live-")
 
 
@@ -132,7 +132,8 @@ def test_old_body_without_capabilities_is_probed(tmp_path):
         caps = rig.session.caps
         assert caps.source == "probe"
         assert caps.missing["follow"] == "not_implemented" and "capabilities" in caps.missing
-        assert rig.session.store.skills.names() == ["go_to", "stop", "gather", "craft", "give"]
+        assert rig.session.store.skills.names() == ["go_to", "stop", "gather", "craft", "give", "pickup", "drop",
+                                                    "cast"]
         assert rig.game.calls == []  # probes never act on the fake body
         rig.chat("!c follow me")
         assert rig.said() == ["Sorry, I can't follow you yet."]

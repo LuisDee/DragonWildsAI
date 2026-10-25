@@ -26,7 +26,8 @@ def _drop_none(v):
 
 
 # Long actions need longer timeouts. Seconds of wall-clock time.
-DEFAULT_TIMEOUTS = {"gather": 180.0, "craft": 60.0, "attack": 60.0, "go_to": 120.0, "place": 60.0,
+DEFAULT_TIMEOUTS = {"gather": 1800.0,  # body/gather.lua caps itself at 1700 s
+                    "craft": 60.0, "attack": 60.0, "go_to": 120.0, "place": 60.0,
                     "pickup": 120.0, "give": 70.0}  # the body's give walks to the player first
 
 
@@ -113,8 +114,11 @@ class BridgeClient(GameInterface):
     def attack(self, target: str) -> ActionResult:
         return self._tool("attack", target=target)
 
-    def gather(self, resource: str, count: int) -> ActionResult:
-        return self._tool("gather", resource=resource, count=count)
+    def gather(self, resource: str, count: int, radius: float | None = None) -> ActionResult:
+        args = {"resource": resource, "count": count}
+        if radius is not None:
+            args["radius"] = radius
+        return self._tool("gather", **args)
 
     def craft(self, item: str, count: int = 1) -> ActionResult:
         return self._tool("craft", item=item, count=count)

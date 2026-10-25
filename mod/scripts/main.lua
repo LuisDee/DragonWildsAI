@@ -90,6 +90,17 @@ if os.getenv("DW_NO_BODY") ~= "1" then
     end)
     log.event("inventory_started", { ok = ok_inv, err = (not ok_inv) and tostring(err_inv) or nil })
     -- ---- end BOT INVENTORY ----
+    -- ---- GATHER (body/gather.lua over body/resource_profiles.lua; services sense, hitcheck, watch) ----
+    -- Bridge handler `gather {resource, count, radius?, bonus?}` (async, gather_progress events),
+    -- sharing body/skills.lua's action slot and tick loop. Collects into the inventory above.
+    -- DW_GATHER_HIT=native disables the emulated hit (see gather.lua header); DW_NO_GATHER=1 skips it.
+    if os.getenv("DW_NO_GATHER") ~= "1" then
+        local ok_g, err_g = pcall(function()
+            require("body.gather").register(bridge, log, { skills = require("body.skills"), puppet = require("body.puppet") })
+        end)
+        log.event("gather_started", { ok = ok_g, err = (not ok_g) and tostring(err_g) or nil })
+    end
+    -- ---- end GATHER ----
 end
 -- ===================== SPELLS + REFLEX RULES (body/spells.lua, body/rules.lua) =====================
 -- Bridge handlers: cast, spells, spell_tactics (spells) and set_reflex_rule, list_rules, clear_rule

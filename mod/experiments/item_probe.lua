@@ -198,7 +198,22 @@ function M.drop(log, args)
         world = any and U.try(function() return any:GetWorld() end)
     end
     if not world then return { ok = false, error = "no world" } end
-    local r = items.spawn_world_item(log, world, data, tonumber(args.count) or 1, at, { route = args.route, instance = args.instance })
+    local r = items.spawn_world_item(log, world, data, tonumber(args.count) or 1, at, { route = args.route, instance = args.instance, skip_floor_check = args.skip_floor_check })
+    r.failure_reason = items.last_failure_reason
+    if args.track and r.data and r.data.actor then
+        -- 50 ms samples for track_s seconds: does it fall (no floor), move, or vanish in place?
+        local w, t0, h = r.data.actor, os.clock(), nil
+        local n = 0
+        h = LoopInGameThreadWithDelay(50, function()
+            n = n + 1
+            local alive = U.alive(w)
+            log.event("item_probe_track", { n = n, alive = alive, valid = U.valid(w), pos = alive and U.to_wire(U.loc(w)) or nil,
+                                            life = alive and U.try(function() return w:GetLifeSpan() end) or nil,
+                                            hidden = alive and U.try(function() return w.bHidden end) or nil })
+            if not alive or n >= (tonumber(args.track_s) or 2) * 20 then pcall(CancelDelayedAction, h) end
+        end)
+    end
+    if r.data and r.data.actor then r.read_back = items.read(r.data.actor); if r.read_back then r.read_back.actor, r.read_back.uitem = nil, nil end end
     if r.ok and r.data and r.data.actor and args.cleanup ~= false then
         -- canary: leave it for N seconds then remove it, unless cleanup=false
         local id = r.data.id
@@ -212,9 +227,30 @@ function M.drop(log, args)
     return r
 end
 
+-- Read-only: UE4SS globals and assets the drop route needs.
+function M.env(log, args)
+    local paths = args.paths or {
+        "/Game/Gameplay/Items/Resources/Wood/ITEM_Resources_Wood_Oak.ITEM_Resources_Wood_Oak",
+        "/Game/Gameplay/Items/Resources/Wood/ITEM_Resources_Wood_Ash.ITEM_Resources_Wood_Ash",
+        "/Game/Gameplay/Items/Resources/Animal/ITEM_Resources_Coarse_Animal_Fur.ITEM_Resources_Coarse_Animal_Fur",
+        "/Game/Gameplay/WorldItems/BP_RuntimeSpawnedWorldItem_NoExpiry.BP_RuntimeSpawnedWorldItem_NoExpiry_C",
+        "/Script/Dominion.Default__ItemHelperLibrary",
+    }
+    local loaded = {}
+    for _, p in ipairs(paths) do loaded[p] = U.find_object(p) ~= nil end
+    local inv = type(CreateInvalidObject) == "function" and U.try(CreateInvalidObject) or nil
+    local players = U.split_pawns()
+    return {
+        CreateInvalidObject = type(CreateInvalidObject), invalid_is_valid = inv and U.try(function() return inv:IsValid() end),
+        LoadAsset = type(LoadAsset), loaded = loaded, players = #players,
+        game_mode = U.fullname(U.find_first("GameModeBase")),
+    }
+end
+
 function M.run(log, args)
     args = args or {}
     local a = args.action or "census"
+    if a == "env" then return M.env(log, args) end
     if a == "census" then return M.census(log, args) end
     if a == "watch" then return M.watch(log, args) end
     if a == "take" then return M.take(log, args) end

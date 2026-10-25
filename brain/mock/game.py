@@ -353,14 +353,15 @@ class MockGame(GameInterface):
         e.hp, e.alive = 0, False
         return ok(target=target, killed=True)
 
-    def gather(self, resource: str, count: int) -> ActionResult:
+    def gather(self, resource: str, count: int, radius: float | None = None) -> ActionResult:
         rule = self._begin("gather", resource=resource, count=count)
+        reach = GATHER_RANGE if radius is None else max(float(radius), GATHER_RANGE)
         attacked = rule is not None and rule.reason == "attacked"
         if rule and not attacked:
             return self._apply_rule(rule)
         nodes = sorted(
             (n for n in self.nodes.values()
-             if n.resource == resource and n.remaining > 0 and math.dist(n.pos, self.pos) <= GATHER_RANGE),
+             if n.resource == resource and n.remaining > 0 and math.dist(n.pos, self.pos) <= reach),
             key=lambda n: math.dist(n.pos, self.pos),
         )
         if not nodes:

@@ -60,6 +60,9 @@ class Reason:
     NOT_UNLOCKED = "not_unlocked"  # Luis hasn't unlocked that spell (or its perk): the bot mirrors him
     UNSAFE = "unsafe"  # an area spell would land too close to a player
     CANT_SENSE = "cant_sense"  # a reflex rule trigger the body cannot sense
+    # gather (body/gather.lua)
+    WRONG_TOOL = "wrong_tool"  # no held tool of the right category/tier: equip one (or fetch it) first
+    INVENTORY_FULL = "inventory_full"  # the bot's store refused more items: deliver/drop first
 
     # A player command or an attack pre-empted the action: not the skill's fault.
     INTERRUPTS: frozenset[str] = frozenset({INTERRUPTED, ATTACKED})
@@ -67,7 +70,7 @@ class Reason:
     DETERMINISTIC: frozenset[str] = frozenset({
         NOTHING_IN_RANGE, NOT_ENOUGH, MISSING_MATERIALS, UNKNOWN_TARGET, UNKNOWN_RECIPE, TOO_FAR,
         INVALID_ARGS, UNKNOWN_TOOL, NOT_IMPLEMENTED, COMPANION_DOWN, UNKNOWN_SKILL, STATE_UNAVAILABLE,
-        NOT_UNLOCKED, UNSAFE, CANT_SENSE, NOT_IN_INVENTORY,
+        NOT_UNLOCKED, UNSAFE, CANT_SENSE, NOT_IN_INVENTORY, WRONG_TOOL, INVENTORY_FULL,
     })
     # The companion simply cannot do this yet (skill missing on the body or in the registry).
     CANT_YET: frozenset[str] = frozenset({NOT_IMPLEMENTED, UNKNOWN_TOOL, UNKNOWN_SKILL})
@@ -98,8 +101,10 @@ class AttackArgs(BaseModel):
 
 
 class GatherArgs(BaseModel):
-    resource: str = Field(description="Resource to harvest, e.g. 'log' or 'stone'.")
-    count: int = Field(ge=1, description="How many to gather.")
+    resource: str = Field(description="Resource to harvest, e.g. 'oak' (oak logs), 'ash', 'stone' or 'rune_essence'.")
+    count: int = Field(ge=1, description="How many more to gather (counted in the inventory).")
+    radius: float | None = Field(None, gt=0, le=120,
+                                 description="Initial search radius in metres (default 30; it widens when nothing is found).")
 
 
 class CraftArgs(BaseModel):
@@ -283,6 +288,16 @@ class Attacked(BaseModel):
     by: str
 
 
+class GatherProgress(BaseModel):
+    """gather's progress: have of want collected so far (body/gather.lua)."""
+    type: Literal["gather_progress"] = "gather_progress"
+    task_id: str | None = None
+    resource: str | None = None
+    item: str | None = None
+    have: int
+    want: int
+
+
 class PlayerNearbyActivity(BaseModel):
     type: Literal["player_nearby_activity"] = "player_nearby_activity"
     player: str
@@ -290,7 +305,7 @@ class PlayerNearbyActivity(BaseModel):
 
 
 Event = Annotated[
-    Union[CommandReceived, TaskDone, TaskFailed, Attacked, PlayerNearbyActivity],
+    Union[CommandReceived, TaskDone, TaskFailed, Attacked, PlayerNearbyActivity, GatherProgress],
     Field(discriminator="type"),
 ]
 _event_adapter: TypeAdapter[Event] = TypeAdapter(Event)
@@ -322,7 +337,7 @@ class GameInterface(ABC):
     def attack(self, target: str) -> ActionResult: ...
 
     @abstractmethod
-    def gather(self, resource: str, count: int) -> ActionResult: ...
+    def gather(self, resource: str, count: int, radius: float | None = None) -> ActionResult: ...
 
     @abstractmethod
     def craft(self, item: str, count: int = 1) -> ActionResult: ...

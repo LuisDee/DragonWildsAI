@@ -307,6 +307,27 @@
       "title": "Patch delta pipeline: dump diff, catalog diff, smoke tests, report",
       "status": "done",
       "passes_test": true
+    },
+    {
+      "id": "P7.M1",
+      "phase": 7,
+      "title": "Per-world memory keyed by WorldSaveGuid (notes, rules, places)",
+      "status": "todo",
+      "passes_test": false
+    },
+    {
+      "id": "P7.M2",
+      "phase": 7,
+      "title": "Named places: remember_place + travel to place (lodestone + walk)",
+      "status": "todo",
+      "passes_test": false
+    },
+    {
+      "id": "P7.F1",
+      "phase": 7,
+      "title": "Farming: plot sense/watch, crop profiles, plant/tend/harvest primitives, planner composition",
+      "status": "todo",
+      "passes_test": false
     }
   ]
 }

@@ -50,6 +50,8 @@ class FakeBody:
             res = ok(tools=list(self.capabilities))
         elif tool in self.not_implemented:
             res = fail(Reason.NOT_IMPLEMENTED, tool=tool)
+        elif tool == "spells":  # the Controller's spell list (not a GameInterface tool)
+            res = self.game.spells()
         elif msg.get("probe") and tool in BODY_TOOLS:
             res = ok(probe=True)  # implemented; a probe never acts
         else:

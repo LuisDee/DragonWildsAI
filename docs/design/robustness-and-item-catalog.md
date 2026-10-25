@@ -155,3 +155,20 @@ Luis relies on spells: **a shield spell**, and **wind jump**, whose landing stun
 - A new gatherable or mechanic = census → watch one instance (by the bot itself or Luis) → write a profile → the shared loop runs it.
 - End state: the brain can propose a profile from watch data for an unknown thing, then test it.
 - After each wave, run a `/simplify` pass to extract and dedupe, and update the ARCHITECTURE.md recipes ("How to add a new gatherable / spell / enemy / skill in N steps").
+
+## 15. Per-world memory and named places (Luis, 2026-10-25)
+- "Our farm is at lodestone X in Fellhollow → 'go to the farm and farm desert weed'".
+- **Per-world memory:** key `notes.json` (and rules, task tree) by the world's **`WorldSaveGuid`**, which the server advertises in session settings (CompanionDev = EE0ADF284F2591BC344C6AA8A1FE985C). Storage: `logs/state/worlds/<guid>/`. Facts never leak between worlds.
+- **Named places:** `remember_place(name, at="here"|"luis"|coords, notes)` stores {position, region (from game map-region data), nearest lodestone, notes}. The Controller exposes these places to the Planner.
+- **Travel to a place:** nearest unlocked lodestone teleport (travel skill P7.T1), then go_to. The places list goes into bounded context (CLAUDE.md principle 4).
+- Also per world: preferences, standing reflex rules per enemy class, known stations, chests and beds.
+
+## 16. Farming (planned after gather + inventory + spells)
+- Steps: plot state → plant → tend/water (spells?) → grow → harvest → replant.
+- Built on the shared services:
+  - `sense`: plots and growth state
+  - `watch`: record one cycle (Luis or self-test)
+  - crop **profiles**: seed, plot, stages, helpful spells, harvest action, yield
+  - primitives: interact, plant, cast on plot, harvest, collect
+  - the Planner composes "farm X at the farm".
+- Expect most of it to be reuse by then (section 14).

@@ -13,21 +13,25 @@
 --            displayed and is the suspected cause of the client freeze. Kept only so the old API
 --            still answers; do not enable it with a player connected.
 --   notify : LEGACY, DANGEROUS. Client_DisplayTextNotification HUD toast (same incident).
---   direct : ON-DEMAND (experiments/speech_direct; status in DISCOVERIES "On-demand speech").
---            Server_SendChatMessage on a connected player's PlayerChat with an FChatMessageData
---            given as a Lua table whose network fields are userdata of LIVE engine structs, copied
---            by UE4SS with FStructProperty::CopyCompleteValue (never built):
+--   direct : ON-DEMAND, UNVERIFIED (experiments/speech_direct; DISCOVERIES "On-demand speech").
+--            Server_SendChatMessage on a connected player's PlayerChat, called with SCALAR-ONLY
+--            tables (CharacterGuid = M.GUID, PlayerId, Color, MessageBody; empty filter). A one-shot
+--            PRE-hook on the same function then copies the network fields into the live param
+--            buffer by PROPERTY ASSIGNMENT from live engine structs (never built):
 --              SenderData.PrimaryNetId/SecondaryNetId <- host PS OwnerGuid.AccountGuid.NetIdPrimary/
---              NetIdSecondary; Filter.SenderId <- host PS UniqueID; ReceiverIds empty; CharacterGuid
---              = M.GUID, PlayerId = host PS PlayerId (scalars). The server builds and sends the
---              Client_ReceiveChatMessage itself. Any failure falls back to the relay queue.
+--              NetIdSecondary; Filter.SenderId <- host PS UniqueID.
+--            Why not a table holding the userdata: UE4SS bug (83330635 and main): push_structproperty's
+--            userdata branch calls get_userdata() at stack index 1 instead of stored_at_index, so a
+--            struct userdata NESTED in a Lua table is read from the wrong stack slot -> native AV
+--            (crash_2026_10_25_15_45_24; same frames as R3). Property assignment (__newindex) leaves
+--            the value at index 1, so it copies correctly (identity's AccountGuid copy).
+--            Needs experiments/speech_direct action=prove (a read-only check that the native code sees
+--            pre-hook edits) to pass first. If the pre-hook does not patch, direct is disabled for
+--            the run; any failure falls back to the relay queue.
 --
--- THE GAP (honest): relay needs a triggering chat line. say() in relay mode QUEUES the text, and
+-- Relay limitation: relay needs a triggering chat line. say() in relay mode QUEUES the text, and
 -- it is delivered the next time any player sends a chat message (using that message as the
--- template), within QUEUE_TTL_S. Speaking on demand, with no player message to piggy-back on, is
--- still unsolved. Options (not built): copying the struct at hook time (UE4SS param memory is
--- freed after the call, so caching the wrapper risks a use-after-free), a server-side sender
--- helper in the dump, or a Discord/side channel. Do NOT build a new Client_* path for this.
+-- template), within QUEUE_TTL_S. Do NOT build a new Client_* path for on-demand speech.
 --
 -- Debug triggers (relay mode or experiments/chat_as, chat_relay): a player typing "!as <words>"
 -- makes the bot say <words> (verified); "!echo <words>" re-sends "[Claude] <words>" under the
@@ -216,49 +220,99 @@ local function direct_host()
     end
 end
 
--- A struct field passed as userdata is only engine-copied when it IS a UScriptStruct userdata.
+-- A struct value is only engine-copied when it IS a UScriptStruct userdata.
 local function struct_ud(v)
     if v == nil then return false end
     local ok, t = pcall(function() return v:type() end)
     return (not ok) or t == "UScriptStruct" -- fakes in tests have no :type()
 end
 
--- Build (msg, filter) tables. Network fields are live userdata; everything else is scalar.
+-- The call's own params: SCALARS ONLY (never a userdata inside a table: UE4SS bug, see header).
 function M.direct_message(host_ps, text)
-    local acct = host_ps.OwnerGuid.AccountGuid
     local msg = {
         SenderData = {
-            PrimaryNetId = acct.NetIdPrimary,
-            SecondaryNetId = acct.NetIdSecondary,
             CharacterGuid = { A = M.GUID.A, B = M.GUID.B, C = M.GUID.C, D = M.GUID.D },
             PlayerId = U.try(function() return host_ps.PlayerId end) or 0,
             Color = { R = M.COLOR.R, G = M.COLOR.G, B = M.COLOR.B, A = M.COLOR.A },
         },
         MessageBody = text:sub(1, M.MAX_LEN),
     }
-    local filter = { SenderId = host_ps.UniqueID }
-    return msg, filter
+    return msg, {}
 end
 
-local function say_direct(log, text)
+-- PRE-hook body (one-shot): copy the net ids into the live param buffer by property assignment.
+-- Exposed for tests. Runs only while s.direct_job is set, i.e. inside our own send.
+function M._direct_patch(ctx, msg_param, filter_param)
     local s = state()
+    local job = s.direct_job
+    if not job or job.done then return end
+    job.done = true
+    local m = msg_param:get()
+    if not M.is_bot_guid(m.SenderData.CharacterGuid) then job.err = "not our message"; return end
+    local sd = m.SenderData
+    sd.PrimaryNetId = job.acct.NetIdPrimary     -- __newindex: CopyCompleteValue from the live PS
+    sd.SecondaryNetId = job.acct.NetIdSecondary
+    filter_param:get().SenderId = job.uid
+    job.patched = true
+end
+
+-- Register the pre-hook once per run; it dispatches to the latest loaded module's _direct_patch.
+function M.arm_direct(log)
+    local s = state()
+    rawset(_G, "__dw_speech_direct_patch", M._direct_patch)
+    if s.direct_armed then return { armed = true, already = true } end
+    if type(RegisterHook) ~= "function" then return { armed = false, err = "RegisterHook unavailable" } end
+    local ok, err = U.call(log, "speech.RegisterHook_direct", { fn = M.CHAT_FN }, function()
+        RegisterHook(M.CHAT_FN, function(ctx, a, b)
+            local f = rawget(_G, "__dw_speech_direct_patch")
+            if f then
+                local hok, herr = pcall(f, ctx, a, b)
+                if not hok then
+                    local job = state().direct_job
+                    if job then job.err = tostring(herr) end
+                    U.event(nil, "speech_direct_patch_error", { err = tostring(herr) })
+                end
+            end
+        end, function() end)
+    end)
+    s.direct_armed = ok
+    return { armed = ok, err = (not ok) and tostring(err) or nil }
+end
+
+-- On-demand send. Returns ok, err. Disables itself for the run if the pre-hook ever fails to patch
+-- (that message would have carried empty net ids: the client-freeze shape).
+function M.send_direct(log, text)
+    local s = state()
+    if s.direct_disabled then return false, "direct disabled: " .. s.direct_disabled end
+    local armed = M.arm_direct(log)
+    if not armed.armed then return false, "arm: " .. tostring(armed.err) end
     local pc, ps, chat = direct_host()
     if not pc then return false, "no connected player" end
-    M.register_names(log)
-    local okb, msg, filter = pcall(M.direct_message, ps, text)
-    if not okb then return false, "build: " .. tostring(msg) end
-    if not (struct_ud(msg.SenderData.PrimaryNetId) and struct_ud(msg.SenderData.SecondaryNetId) and struct_ud(filter.SenderId)) then
+    local acct = U.try(function() return ps.OwnerGuid.AccountGuid end)
+    local uid = U.try(function() return ps.UniqueID end)
+    if not (acct and struct_ud(U.try(function() return acct.NetIdPrimary end))
+            and struct_ud(U.try(function() return acct.NetIdSecondary end)) and struct_ud(uid)) then
         return false, "net id source is not a live struct"
     end
-    s.relaying = true -- our send passes through every chat hook: never a template or a command
+    M.register_names(log)
+    local msg, filter = M.direct_message(ps, text)
+    local job = { acct = acct, uid = uid }
+    s.direct_job, s.relaying = job, true -- our send passes every chat hook: never a template/command
     local ok, err = U.call(log, "speech.direct_Server_SendChatMessage", { pc = U.short(pc), len = #text }, function()
         chat:Server_SendChatMessage(msg, filter)
     end)
-    s.relaying = false
+    s.direct_job, s.relaying = nil, false
+    if not job.patched then
+        s.direct_disabled = job.err or "pre-hook did not run"
+        U.event(log, "speech_direct_unpatched", { err = s.direct_disabled, call_ok = ok })
+        return false, "unpatched: " .. s.direct_disabled
+    end
     if ok then s.sent = s.sent + 1 end
     U.event(log, "speech_direct", { ok = ok, err = (not ok) and tostring(err) or nil, text = text })
     return ok, (not ok) and tostring(err) or nil
 end
+
+local function say_direct(log, text) return M.send_direct(log, text) end
 
 -- ------------------------------------------------------------------ legacy Client_* modes
 local function legacy_message(text)
@@ -348,6 +402,7 @@ function M.status()
         mode = M.mode(), name = M.NAME, bot_guid = U.guid_hex(M.GUID),
         capabilities = { log = true, relay = s.armed, on_demand = M.mode() == "direct" },
         relay_armed = s.armed, relay_err = s.arm_err, triggers = s.triggers,
+        direct_armed = s.direct_armed == true, direct_disabled = s.direct_disabled,
         pending = #s.queue, sent = s.sent, dropped = s.dropped,
         gap = M.mode() == "direct" and "direct: on-demand; failures fall back to the relay queue"
             or "relay needs a player's chat line to piggy-back on (DW_SAY_MODE=direct speaks on demand)",

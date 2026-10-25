@@ -75,8 +75,10 @@ def _v_gain(skill):
     key = _COUNTED[skill][0]
 
     def check(args, base, post, data):
-        gained = _delta(skill, args, base, post)
-        return None if gained >= args["count"] else f"inventory {args[key]} +{gained}, wanted +{args['count']}"
+        # gather: the body reports the item id it resolved ("oak" -> ITEM_Resources_Wood_Oak); count that key.
+        item = (data or {}).get("item") or args[key]
+        gained = _inv(post, item) - _inv(base, item)
+        return None if gained >= args["count"] else f"inventory {item} +{gained}, wanted +{args['count']}"
     return check
 
 
@@ -122,8 +124,12 @@ def _v_cast(args, base, post, data):
     # verification_failed itself; a retry would double-cast, so nothing more is demanded here
     # except, when the state exposes spell cooldowns (the mock does), that the cooldown started.
     cds = post.get("spell_cooldowns")
+    if not isinstance(cds, dict):
+        return None
     spell = data.get("spell")
-    if isinstance(cds, dict) and spell and data.get("cooldown_s", 0) > 1 and not cds.get(spell):
+    if not spell:
+        return "the body did not say which spell it cast"
+    if data.get("cooldown_s", 0) > 1 and not cds.get(spell):
         return f"{spell} cooldown did not start"
     return None
 
@@ -156,6 +162,7 @@ class Executor:
         self.sleep = sleep
         self.max_cooldown_wait = max_cooldown_wait
         self._baselines: dict[str, dict] = {}  # task id -> state when the task first started
+        self._resolved_items: dict[str, str] = {}  # task id -> inventory key the body reported (data.item)
 
     def state(self) -> dict:
         res = self.game.get_state()
@@ -167,7 +174,11 @@ class Executor:
         """Resume count-based skills where they left off; None means already satisfied."""
         if task.skill not in _COUNTED:
             return dict(task.args)
-        remaining = task.args["count"] - _delta(task.skill, task.args, base, now)
+        args = task.args
+        key = _COUNTED[task.skill][0]
+        if task.id in self._resolved_items:  # the body told us the real inventory key on an earlier try
+            args = {**args, key: self._resolved_items[task.id]}
+        remaining = task.args["count"] - _delta(task.skill, args, base, now)
         return {**task.args, "count": remaining} if remaining > 0 else None
 
     def run_task(self, task: Task) -> Outcome:
@@ -193,6 +204,8 @@ class Executor:
             self.log.log("tool_call", task_id=task.id, tool=task.skill, args=args, attempt=task.attempts)
             result = self.game.call(task.skill, args)
             self.log.log("tool_result", task_id=task.id, tool=task.skill, result=result)
+            if task.skill in _COUNTED and isinstance(result.get("data"), dict) and result["data"].get("item"):
+                self._resolved_items[task.id] = result["data"]["item"]
 
             if not result["ok"]:
                 reason = result["reason"]

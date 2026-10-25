@@ -198,7 +198,7 @@ function M.spawn_params(cls, data, count, at, opts)
         LaunchDirection = { X = 0.0, Y = 0.0, Z = 1.0 },
         LaunchSpeed = opts.launch_speed or 0.0,
         LaunchAngleVariance = 0.0,
-        bSkipFloorSafetyCheck = false,
+        bSkipFloorSafetyCheck = opts.skip_floor_check == true, -- diagnostics only; the game settles it on the floor
         OwnerController = none,
         bSpawnOnlyForController = false,       -- true would make a client-only item
         PlayerControllerThatDroppedItem = none,
@@ -213,12 +213,28 @@ local function spawn_sync(log, world, data, count, at, opts)
     if not helper then return nil, "ItemHelperLibrary CDO not found" end
     if not cls then return nil, "world item class not loaded" end
     local params = M.spawn_params(cls, data, count, at, opts)
+    -- UE4SS 3.0.1 needs a Lua TABLE for an Out parameter (a string raises "Tried storing reference to
+    -- a Lua table for an 'Out' parameter", verified offline 2026-10-25); it writes the value back into it.
+    local out = {}
     local w
     local ok, err = U.call(log, "items.SpawnAndLaunchItem_Sync", { item = U.path_of(data), count = count, at = U.to_wire(at) }, function()
-        w = helper:SpawnAndLaunchItem_Sync(world, params, "")
+        w = helper:SpawnAndLaunchItem_Sync(world, params, out)
     end)
+    M.last_failure_reason = M.out_text(out)
     if not ok then return nil, tostring(err) end
+    if not U.valid(w) then return nil, "no world item returned: " .. tostring(M.last_failure_reason) end
     return w
+end
+
+-- Whatever UE4SS wrote into an Out-parameter table, as text (for logs and failure reasons).
+function M.out_text(out)
+    if type(out) ~= "table" then return U.str(out) end
+    local parts = {}
+    for k, v in pairs(out) do
+        local s = U.str(v) or U.try(function() return v:get():ToString() end) or tostring(v)
+        parts[#parts + 1] = tostring(k) .. "=" .. tostring(s)
+    end
+    return #parts > 0 and table.concat(parts, ",") or nil
 end
 
 local function spawn_actor(log, world, data, count, at)

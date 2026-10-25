@@ -489,7 +489,7 @@ test("drop at feet: store first, SpawnAndLaunchItem_Sync with EVERY struct field
     eq(prm.ItemClass, F.assets[items.PATHS.noexpiry]); eq(prm.SpawnedItemData, F.assets[OAK]); eq(prm.Count, 99)
     eq(prm.Transform.Rotation.W, 1.0); eq(prm.Transform.Scale3D.Z, 1.0)
     eq(prm.Transform.Translation.X, 100, "1 m in front of the bot")
-    eq(F.spawn_calls[1].world, F.world); eq(F.spawn_calls[1].out, "")
+    eq(F.spawn_calls[1].world, F.world); eq(type(F.spawn_calls[1].out), "table", "UE4SS needs a table for the Out FString")
     eq(F.spawn_calls[2].params.Count, 21)
     -- the new world items are real, at the spot, with the right stack
     local w = items.by_id(r.data.world_items[1])

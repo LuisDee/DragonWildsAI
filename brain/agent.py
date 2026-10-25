@@ -10,9 +10,9 @@ from __future__ import annotations
 import time
 from typing import Literal
 
-from .controller import Controller
+from .controller import Controller, describe_rule
 from .executor import Executor, StateUnavailable
-from .interface import Attacked, CommandReceived, Event, GameInterface, Reason
+from .interface import RULE_TOOLS, Attacked, CommandReceived, Event, GameInterface, Reason
 from .jsonl_log import JsonlLogger
 from .planner import Planner, PlanError
 from .state_store import StateStore, Task
@@ -71,21 +71,55 @@ class Agent:
         d = self.controller.decide(event.player, event.text, state, self.active_goal)
         if d.interrupts and self.active_goal:
             self._cancelled = True
-        failure = None
+        failure = d.refusals[0] if d.refusals else None
+        extra: list[str] = []  # facts the body reported that the speech must carry (single voice)
         for call in d.actions:
             if call.name == "remember":
                 self.log.log("tool_call", tool="remember", args=call.arguments)
                 self.log.log("tool_result", tool="remember", result=self.store.remember(**call.arguments))
                 continue
+            if call.name in RULE_TOOLS:
+                res = self._rule_tool(call.name, call.arguments, extra)
+                if not res["ok"] and failure is None:
+                    failure = (call.name, res["reason"], res["data"])
+                continue
             outcome = self.executor.run_task(Task(skill=call.name, args=call.arguments))
             if not outcome.ok and failure is None:
-                failure = (call.name, outcome.reason)
+                failure = (call.name, outcome.reason, outcome.data)
         if failure:
             self.controller.report_failure(*failure)
-        elif d.speech:
-            self.controller.say(d.speech)
+        elif d.speech or extra:
+            self.controller.say(" ".join(s for s in [d.speech, *extra] if s))
         if d.goal:
             self.pending_goal = d.goal
+
+    def _rule_tool(self, name: str, args: dict, extra: list[str]) -> dict:
+        """Standing orders go straight to the body (no task, nothing to retry). A new rule counts
+        only once the body's rule list shows it (verified state, principle 2)."""
+        self.log.log("tool_call", tool=name, args=args)
+        res = self.game.call(name, args)
+        self.log.log("tool_result", tool=name, result=res)
+        self.controller.rules_changed()
+        if not res["ok"]:
+            return res
+        data = res["data"]
+        if name == "set_reflex_rule":
+            rid = (data.get("rule") or {}).get("id")
+            listed = self.game.list_rules()
+            ids = {r.get("id") for r in listed["data"].get("rules", [])} if listed["ok"] else set()
+            if not rid or rid not in ids:
+                self.log.log("verification_failed", tool=name, problem="rule not in list_rules", rule=rid)
+                return {"ok": False, "reason": Reason.VERIFICATION_FAILED, "data": data}
+            if note := self.controller.warning_note(data.get("warnings") or []):
+                extra.append(note)
+        elif name == "list_rules":
+            rules = data.get("rules") or []
+            extra.append("My standing orders: " + "; ".join(describe_rule(r) for r in rules) + "."
+                         if rules else "I have no standing orders.")
+        elif name == "clear_rule":
+            n = len(data.get("removed") or [])
+            extra.append(f"Forgot {n} order{'s' if n != 1 else ''}.")
+        return res
 
     # ---------------------------------------------------------------- goals
 
