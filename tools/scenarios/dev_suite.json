@@ -1,0 +1,197 @@
+{
+    "_doc": "Scenario suite for Claude's client on the nav-only DEV server (tools/scenario_run.py; streamline plan step 6). Places are metres [x,y,z] on L_World, the same map as Shockbyte; the start-area ones were recorded on Shockbyte (DISCOVERIES 'Client locomotion', move.jsonl 19:22-19:24). Each scenario has a kind (see scenario_run.KINDS) and its pass criteria in 'pass'. go_to legs are capped at 105 s because the client bridge answers timeout at 110 s (client_bridge.GOTO_TIMEOUT_S). 'repeat' runs a scenario N times in a row and passes only if every run passes (the step-5 acceptance: unaided, 5x in a row); --repeat N on the command line overrides it (e.g. --repeat 1 for a quick pass). Trap coordinates from the locomotion agent (client_mod/tests/test_move.lua scenarios 8, 14, 15-17 are the offline twins).",
+    "target": "dev",
+    "lease_min": 45,
+    "places": {
+        "pit": [
+            83.4,
+            1873.8,
+            -34.6
+        ],
+        "pit_alcove": [
+            71.6,
+            1862.0,
+            -34.7
+        ],
+        "pad_upper": [
+            89.5,
+            1851.2,
+            -31.4
+        ],
+        "cow_field": [
+            438.7,
+            1837.5,
+            -35.0
+        ],
+        "grave_area": [
+            442.6,
+            1836.5,
+            -15.6
+        ],
+        "cliff_base": [
+            440.0,
+            1820.0,
+            -37.0
+        ],
+        "grave_plateau": [
+            441.6,
+            1829.1,
+            -16.7
+        ],
+        "death_spot_1922": [
+            440.06,
+            1766.78,
+            -40.88
+        ]
+    },
+    "scenarios": [
+        {
+            "id": "pit_escape",
+            "kind": "go_to_chain",
+            "desc": "CHURCH START PIT (Claude's respawn point): the under-floor space beside the central ramp, (80.5, 1873.5, -35.5) feet level. The exit is the central ramp up to the doorway (89.5, 1851.2, -31.4). The 19:22-19:24 failure (leader_above_jump_height / no_route); navmem seed trap 'church_start_underfloor'.",
+            "start": "pit",
+            "legs": [
+                {
+                    "to": "pad_upper",
+                    "tol": 3.0,
+                    "timeout": 90
+                }
+            ],
+            "pass": "every leg answers ok AND a fresh get_state position is within tol of the goal (2D) and within 1.5 m in height",
+            "repeat": 5
+        },
+        {
+            "id": "pit_to_grave_area",
+            "kind": "go_to_chain",
+            "desc": "From the pit to the grave plateau (442.6, 1836.5, -15.6): the trip that failed 4x on 2026-10-25, unaided.",
+            "start": "pit",
+            "legs": [
+                {
+                    "to": "pad_upper",
+                    "tol": 3.0,
+                    "timeout": 90
+                },
+                {
+                    "to": "grave_area",
+                    "tol": 3.0,
+                    "timeout": 105,
+                    "expect_log": "memory: remembered route|grave_hill_up"
+                }
+            ],
+            "pass": "as pit_escape, for every leg",
+            "repeat": 5
+        },
+        {
+            "id": "alcove_escape",
+            "kind": "go_to_chain",
+            "desc": "LODESTONE ALCOVE (71.6, 1862.0, -34.7): under an overhang with a 3.4 m ledge (out of jump reach); an exit was proven by follow. Navmem taboo: the alcove is a dead end the dev oracle kept routing into.",
+            "start": "pit_alcove",
+            "legs": [
+                {
+                    "to": "pad_upper",
+                    "tol": 3.0,
+                    "timeout": 90
+                }
+            ],
+            "repeat": 5,
+            "pass": "as pit_escape, every run"
+        },
+        {
+            "id": "waypoint_course",
+            "kind": "go_to_chain",
+            "desc": "Follow course without a second player: a go_to chain over the start area and back (stands in for follow, which needs a leader).",
+            "start": "pad_upper",
+            "legs": [
+                {
+                    "to": "cow_field",
+                    "tol": 4.0,
+                    "timeout": 105
+                },
+                {
+                    "to": "death_spot_1922",
+                    "tol": 3.0,
+                    "timeout": 105
+                },
+                {
+                    "to": "cow_field",
+                    "tol": 4.0,
+                    "timeout": 105
+                },
+                {
+                    "to": "pad_upper",
+                    "tol": 3.0,
+                    "timeout": 105
+                }
+            ],
+            "pass": "every leg arrives (verified position); total time recorded"
+        },
+        {
+            "id": "ledge_jump",
+            "kind": "ledge_jump",
+            "desc": "Jump onto a ledge 0.6-1.4 m high found by a read-only trace probe (client_mod/commands/scn_find_ledge.lua) near the current position; set 'ledge' {base, top} here to pin a known one.",
+            "radius_m": 6,
+            "rise_min_m": 0.6,
+            "rise_max_m": 1.4,
+            "pass": "go_to base then top answers ok, final height >= base + 0.6 x rise, and within 1.5 m (2D) of top; skip if no ledge is found"
+        },
+        {
+            "id": "fetch_consume",
+            "kind": "fetch_consume",
+            "desc": "Fetch something edible lying around (dropped items first, then crop pickups) and eat/drink it. Uses the bridge 'fetch'/'consume' tools when they exist (streamline step 2), else interact + scn_consume.lua (hotbar only).",
+            "radius": 40,
+            "about": "food drink water sandwich infusion potion meat fish berry mushroom cabbage potato onion pumpkin",
+            "pass": "fetch: the inventory gained the item (interact verified); consume: the matching stat (food/water/hp) rose by >= 1 within 6 s; consume is skipped when the fetched item is not consumable, sits only in the bag, or the stat is full"
+        },
+        {
+            "id": "combat_weak",
+            "kind": "combat",
+            "desc": "Commanded fight against a weak creature if one is near (never a boss, never near aggressive packs).",
+            "radius": 40,
+            "max_hp": 120,
+            "archetypes": [
+                "Passive",
+                "NeutralUntilAttacked",
+                "Defensive"
+            ],
+            "avoid_aggressive_m": 25,
+            "min_own_hp_frac": 0.8,
+            "timeout": 110,
+            "pass": "attack answers ok and the target is dead or gone in a fresh look; Claude alive; skip if no candidate"
+        },
+        {
+            "id": "cliff_to_grave_plateau",
+            "kind": "go_to_chain",
+            "desc": "Live trap 2026-10-25 ~19:45: the cliff base below the grave plateau. Straight up is a ~20 m cliff; the way is round, west and up the grassy hill, then east (data/nav/L_World_seeds.json route 'grave_hill_up', human-proven). Evidence records whether move.lua took a remembered route (client.log 'memory: remembered route').",
+            "start": "cliff_base",
+            "legs": [
+                {
+                    "to": "grave_plateau",
+                    "tol": 3.0,
+                    "timeout": 105,
+                    "expect_log": "memory: remembered route|grave_hill_up"
+                }
+            ],
+            "pass": "the leg arrives (fresh position within 3 m 2D and 1.5 m height of the plateau point); used_route is reported as evidence",
+            "repeat": 5
+        },
+        {
+            "id": "rune_pickup_cluster",
+            "kind": "collect_cluster",
+            "desc": "Live case: 7 rune stacks lying within 3 m -> collect them all, quickly. Uses stacks already on the ground near Claude; otherwise (dev world only) makes them by dropping 1 of each of up to 7 of his own non-equipment, non-food stacks (runes first, then resources/ammo) and collects them back. Uses collect_all / pickup / fetch when the bridge has them, else interact per stack.",
+            "stacks": 7,
+            "min_stacks": 2,
+            "radius_m": 3.0,
+            "max_s": 35,
+            "prefer": "Rune",
+            "setup": "drop_own",
+            "pass": "every stack is back in the inventory (counts restored; per-stack interact verified) within max_s seconds of the first collect; per-stack times reported"
+        },
+        {
+            "id": "grave_recovery",
+            "kind": "grave_recovery",
+            "desc": "Recover Claude's gravestone ONLY if one exists (a death that happened naturally; deaths are never forced).",
+            "radius": 80,
+            "pass": "interact on the grave answers ok, the grave is gone and the inventory grew; skip when no grave is perceived"
+        }
+    ]
+}

@@ -203,16 +203,22 @@ It moves Claude off Luis's world for a few minutes, so main must OK the slot and
 .venv\Scripts\python.exe -m tools.scenario_run                     # dry run: read-only, any server, no switch
 .venv\Scripts\python.exe -m tools.scenario_run --live              # Shockbyte -> dev -> scenarios -> Shockbyte
 .venv\Scripts\python.exe -m tools.scenario_run --live --only pit_escape,ledge_jump
+.venv\Scripts\python.exe -m tools.scenario_run --live --repeat 1          # quick pass: each scenario once
 .venv\Scripts\python.exe -m tools.scenario_run --here              # already on dev: run there (refused on Shockbyte)
 ```
 - **Scenarios** (`tools\scenarios\dev_suite.json`, each with its own `pass` text):
-  - `pit_escape`, `pit_to_grave_area`: the start-area respawn trap;
+  - the traps, each 5 times in a row (`repeat`):
+    - `pit_escape`: the church pit to the doorway;
+    - `pit_to_grave_area`: the pit to the grave plateau;
+    - `alcove_escape`: the lodestone alcove;
+    - `cliff_to_grave_plateau`: the cliff foot up to the plateau, round via route `grave_hill_up`. Whether a remembered route was used is recorded from client.log;
   - `waypoint_course`: a go_to chain standing in for follow;
   - `ledge_jump`: a 0.6-1.4 m ledge found by traces;
   - `fetch_consume`: what lies around on dev;
   - `combat_weak`: a weak creature, if one is near;
+  - `rune_pickup_cluster`: up to 7 stacks within 3 m, all collected within 35 s. On dev it drops 1 of each of his own rune/resource stacks first, never equipment or food;
   - `grave_recovery`: only after a natural death.
-  - Each answers pass, fail, skip or error.
+  - Each answers pass, fail, skip or error; a repeated scenario passes only when every run passes.
 - **Preflight aborts** before anything moves when any of these holds: the client is not in the world, a hold file exists, `run_live` is running, the client is not on Shockbyte, the dev server is down, or the dev target file is missing.
 - **Report:** `logs\scenarios\scn_<ts>_<mode>.{json,md}` plus `_timeline.txt` for the run window. The JSON holds per-scenario evidence, the switch results and the Shockbyte before/after diff. Exit code 0 = pass (or dry run).
 - **If it dies mid-run:** the lease expires (45 min at most, renewed per scenario), and the next boot or watchdog check brings Claude back to Shockbyte. To do it now: delete `logs\state\client_target.json`, then run `tools\client_boot.ps1`.
@@ -225,7 +231,7 @@ It moves Claude off Luis's world for a few minutes, so main must OK the slot and
 .venv\Scripts\python.exe -m tools.timeline --since 19:20 --html logs\timeline.html --jsonl logs\timeline.jsonl
 ```
 - **What it merges:**
-  - `chat.jsonl`, the brain-live logs that overlap the window, `move`, `vitals` and the other `client_io\events` files;
+  - `chat.jsonl`, the brain-live logs that overlap the window, `move` (unreachable / reachable_again / stuck), `vitals`, `activity` (completed episodes: combat_end, fled, healed, ...; also as the brain's `ev:act:<kind>`) and the other `client_io\events` files;
   - `client_watchdog.jsonl`, `boot.log`, `client.log` and `mod_*.jsonl`;
   - the client game log (joins, travel, failures and `FlushAsyncLoading` only);
   - scenario reports.

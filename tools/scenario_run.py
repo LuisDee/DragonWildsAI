@@ -23,7 +23,7 @@ Live run, in order (any failure still runs the restore steps):
 
 Dry run: on whatever server the client is on, read-only: capabilities, get_state, the ledge probe (traces),
 and per scenario the candidates it would use (items, creatures, graves) and leg distances. No movement, no chat.
-Scenario kinds (KINDS): go_to_chain, ledge_jump, fetch_consume, combat, grave_recovery.
+Scenario kinds (KINDS): go_to_chain, ledge_jump, fetch_consume, combat, collect_cluster, grave_recovery.
 """
 from __future__ import annotations
 
@@ -51,6 +51,7 @@ SECRETS = CLIENT_IO / "secrets"
 HOLD_FILES = [ROOT / "logs" / "client.stopped", ROOT / "logs" / "client.hold"]
 GAME_LOG = Path(os.environ.get("DW_CLIENT_GAME_LOG",
                                Path(os.environ.get("LOCALAPPDATA", "")) / "RSDragonwilds" / "Saved" / "Logs" / "RSDragonwilds.log"))
+CLIENT_LOG = Path(os.environ.get("DW_CLIENT_MOD_LOG", ROOT / "logs" / "client" / "client.log"))
 CHAR_FILE = Path(os.environ.get("LOCALAPPDATA", "")) / "RSDragonwilds" / "Saved" / "SaveCharacters" / "Claude.json"
 BACKUPS = Path(r"C:\GameServers\backups")
 DEFAULT_TARGET = "shockbyte"
@@ -219,6 +220,23 @@ class Ops:
         return [x for x in out.splitlines() if x.strip() and needle in x]
 
 
+def log_offset(path: Path = CLIENT_LOG) -> int:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
+def log_since(offset: int, path: Path = CLIENT_LOG, max_bytes: int = 2_000_000) -> list[str]:
+    """client.log lines written after `offset` (what the modules logged during a leg)."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(offset)
+            return f.read(max_bytes).decode("utf-8", "replace").splitlines()
+    except OSError:
+        return []
+
+
 class Body:
     """The client bridge's DEBUG channel (tools/bridge_cmd --channel debug): same tools, its own file pair."""
 
@@ -232,6 +250,9 @@ class Body:
 
     def request(self, tool: str, args: dict | None = None, timeout: float = 15.0) -> dict:
         return self.client.request(tool, args or {}, timeout=timeout)
+
+    log_offset = staticmethod(log_offset)
+    log_since = staticmethod(log_since)
 
     def cmd(self, file: str, args: dict | None = None, timeout: float = 20.0) -> dict | None:
         stem = Path(file).stem
@@ -279,9 +300,11 @@ class Runner:
         r = self.body.request("look", args, timeout=15)
         return (r.get("data") or {}).get("things", []) if r.get("ok") else []
 
-    def go(self, to, tol: float, timeout: float, label: str) -> tuple[bool, dict]:
-        """go_to + verification from a fresh get_state (2D within tol, height within 1.5 m)."""
+    def go(self, to, tol: float, timeout: float, label: str, expect_log: str | None = None) -> tuple[bool, dict]:
+        """go_to + verification from a fresh get_state (2D within tol, height within 1.5 m). expect_log: a regex
+        over what client.log got during the leg (e.g. 'remembered route'), reported as evidence, not required."""
         goal = self.place(to)
+        off = self.body.log_offset() if expect_log and hasattr(self.body, "log_offset") else None
         t0 = now()
         r = self.body.request("go_to", {"target": goal, "tolerance": tol}, timeout=min(timeout, 105) + 15)
         st = self.state() or {}
@@ -291,6 +314,9 @@ class Runner:
         if here:
             ev["dist_2d_m"] = round(d2(here, goal), 2)
             ev["dz_m"] = round(here[2] - goal[2], 2)
+        if off is not None:
+            hits = [x for x in self.body.log_since(off) if re.search(expect_log, x)]
+            ev["expect_log"] = {"pattern": expect_log, "seen": bool(hits), "lines": hits[:5]}
         arrived = bool(r.get("ok")) and here is not None and ev["dist_2d_m"] <= tol and abs(ev["dz_m"]) <= 1.5
         return arrived, ev
 
@@ -315,12 +341,17 @@ class Runner:
             return Outcome(sc["id"], "dry", f"{len(sc['legs'])} legs", {"legs": sc["legs"]})
         t0 = now()
         for i, leg in enumerate(sc["legs"]):
-            ok, ev = self.go(leg["to"], float(leg.get("tol", 3.0)), float(leg.get("timeout", 105)), f"{i + 1}:{leg['to']}")
+            ok, ev = self.go(leg["to"], float(leg.get("tol", 3.0)), float(leg.get("timeout", 105)), f"{i + 1}:{leg['to']}",
+                             leg.get("expect_log"))
             legs.append(ev)
             if not ok:
                 return Outcome(sc["id"], "fail", f"leg {i + 1} to {leg['to']}: {ev.get('reason') or 'not at goal'} "
                                                  f"(2D {ev.get('dist_2d_m')} m, dz {ev.get('dz_m')} m)", {"legs": legs})
-        return Outcome(sc["id"], "pass", f"{len(legs)} legs arrived in {round(now() - t0)} s", {"legs": legs})
+        note = ""
+        exp = [lg["expect_log"]["seen"] for lg in legs if "expect_log" in lg]
+        if exp:
+            note = f"; expected log seen on {sum(exp)}/{len(exp)} legs"
+        return Outcome(sc["id"], "pass", f"{len(legs)} legs arrived in {round(now() - t0)} s{note}", {"legs": legs})
 
     def k_ledge_jump(self, sc: dict) -> Outcome:
         led = sc.get("ledge")
@@ -467,30 +498,119 @@ class Runner:
             return Outcome(sc["id"], "pass", f"grave taken: {sum(ev['gained'].values())} items back", ev)
         return Outcome(sc["id"], "fail", f"grave: interact {r.get('reason') or 'ok'}, gone={gone}, gained={len(ev['gained'])}", ev)
 
+    def k_collect_cluster(self, sc: dict) -> Outcome:
+        """Several stacks within radius_m -> collect all, against a time budget (the 7-rune-stacks case)."""
+        st = self.state() or {}
+        here = st.get("position")
+        if not here:
+            return Outcome(sc["id"], "error", "no position")
+        want, radius, min_n = int(sc.get("stacks", 7)), float(sc.get("radius_m", 3.0)), int(sc.get("min_stacks", 2))
+        budget = float(sc.get("max_s", 35))
+
+        def ground():
+            return [t for t in self.look(None, radius=max(radius + 2, 5), max_n=40)
+                    if t.get("category") == "items" and "interact" in (t.get("actions") or [])
+                    and t.get("position") and d2(t["position"], here) <= radius + 0.5]
+        stacks = ground()
+        ev: dict[str, Any] = {"on_ground": [(t.get("name"), t.get("count")) for t in stacks]}
+        dropped: list[dict] = []
+        if len(stacks) < want and sc.get("setup") == "drop_own":
+            prefer = str(sc.get("prefer", "Rune")).lower()
+            rows = [x for x in st.get("inventory_items") or [] if x.get("kind") in (None, "Item") and not x.get("consumable")
+                    and x.get("durability") is None and re.search(r"Rune|Resources|Ammo", str(x.get("item", "")))]
+            rows.sort(key=lambda x: (prefer not in f"{x.get('item', '')} {x.get('name', '')}".lower(), str(x.get("item"))))
+            plan = rows[:want - len(stacks)]
+            ev["drop_plan"] = [x.get("item") for x in plan]
+            if len(stacks) + len(plan) < min_n:
+                return Outcome(sc["id"], "skip", f"{len(stacks)} stacks on the ground and only {len(plan)} droppable stacks carried", ev)
+            if not self.live:
+                return Outcome(sc["id"], "dry", f"{len(stacks)} on the ground; would drop {len(plan)} own stacks, then collect "
+                                                f"{len(stacks) + len(plan)}", ev)
+            for x in plan:
+                r = self.body.request("drop", {"item": x["item"], "count": 1}, timeout=15)
+                dropped.append({"item": x["item"], "ok": r.get("ok"), "reason": r.get("reason")})
+            time.sleep(1.5)  # let the drops land
+            stacks = ground()
+            ev["dropped"] = dropped
+        elif not self.live:
+            if len(stacks) < min_n:
+                return Outcome(sc["id"], "skip", f"only {len(stacks)} stacks within {radius} m", ev)
+            return Outcome(sc["id"], "dry", f"would collect {len(stacks)} stacks within {radius} m", ev)
+        if len(stacks) < min_n:
+            return Outcome(sc["id"], "fail" if dropped else "skip", f"only {len(stacks)} stacks on the ground", ev)
+        inv_before = (self.state() or {}).get("inventory") or {}
+        t0 = now()
+        per: list[dict] = []
+        if "collect_all" in self.caps:
+            r = self.body.request("collect_all", {"radius": radius + 0.5}, timeout=budget + 30)
+            per.append({"tool": "collect_all", "ok": r.get("ok"), "reason": r.get("reason"), "secs": round(now() - t0, 1)})
+        else:
+            tool = next((t for t in ("pickup", "fetch") if t in self.caps), "interact")
+            for t in sorted(stacks, key=lambda t: d2(t["position"], here)):
+                t1 = now()
+                r = self.body.request(tool, {"target": t["id"]}, timeout=60)
+                per.append({"tool": tool, "name": t.get("name"), "ok": r.get("ok"), "reason": r.get("reason"),
+                            "secs": round(now() - t1, 1)})
+        total = round(now() - t0, 1)
+        left = ground()
+        inv_after = (self.state() or {}).get("inventory") or {}
+        gained = {k: inv_after.get(k, 0) - inv_before.get(k, 0) for k in inv_after if inv_after.get(k, 0) > inv_before.get(k, 0)}
+        ev.update(per_stack=per, total_s=total, left_on_ground=[t.get("name") for t in left], gained=gained)
+        missing = ([x["item"] for x in dropped if x.get("ok") and gained.get(x["item"], 0) < 1] if dropped
+                   else [t.get("name") for t in left])
+        ev["not_recovered"] = missing
+        n_ok = sum(1 for x in per if x.get("ok"))
+        if not missing and not left and total <= budget:
+            return Outcome(sc["id"], "pass", f"collected {len(stacks)} stacks in {total} s ({n_ok}/{len(per)} calls ok)", ev)
+        return Outcome(sc["id"], "fail", f"{len(left)} stacks left, not recovered {missing}, {total} s (budget {budget:g} s)", ev)
+
     KINDS = {"go_to_chain": k_go_to_chain, "ledge_jump": k_ledge_jump, "fetch_consume": k_fetch_consume,
-             "combat": k_combat, "grave_recovery": k_grave_recovery}
+             "combat": k_combat, "grave_recovery": k_grave_recovery, "collect_cluster": k_collect_cluster}
+
+    def run_one(self, sc: dict, renew, healthy) -> Outcome:
+        if renew:
+            renew()
+        why = healthy() if healthy else None
+        if why:
+            return Outcome(sc["id"], "error", f"not run: {why}")
+        t0 = now()
+        try:
+            if self.live:
+                self.body.request("stop", {}, timeout=10)
+            o = self.KINDS[sc["kind"]](self, sc)
+        except Exception as exc:  # one broken scenario must not stop the suite (or the switch back)
+            o = Outcome(sc["id"], "error", f"{type(exc).__name__}: {exc}")
+        o.started, o.duration_s = t0, round(now() - t0, 1)
+        return o
 
     def run_scenarios(self, only: set[str] | None, renew: Callable[[], None] | None = None,
-                      healthy: Callable[[], str | None] | None = None) -> list[Outcome]:
+                      healthy: Callable[[], str | None] | None = None, repeat: int | None = None) -> list[Outcome]:
+        """repeat: run each scenario N times in a row (default its own 'repeat', else 1); it passes only when every
+        run passes. A dry run never repeats (nothing changes between read-only runs)."""
         out = []
         for sc in self.suite["scenarios"]:
             if only and sc["id"] not in only:
                 continue
-            if renew:
-                renew()
-            why = healthy() if healthy else None
-            if why:
-                o = Outcome(sc["id"], "error", f"not run: {why}")
+            n = max(1, int(repeat if repeat is not None else sc.get("repeat", 1))) if self.live else 1
+            runs = []
+            for i in range(n):
+                o = self.run_one(sc, renew, healthy)
+                if n > 1:
+                    self.step(f"{sc['id']}#{i + 1}", o.result, o.detail, **o.evidence)
+                runs.append(o)
+                if o.result in ("skip", "error") and o.detail.startswith(("not run", "could not reach")):
+                    break  # the setup itself is broken: more runs prove nothing
+            if n == 1:
+                o = runs[0]
             else:
-                t0 = now()
-                try:
-                    if self.live:
-                        self.body.request("stop", {}, timeout=10)
-                    o = self.KINDS[sc["kind"]](self, sc)
-                except Exception as exc:  # one broken scenario must not stop the suite (or the switch back)
-                    o = Outcome(sc["id"], "error", f"{type(exc).__name__}: {exc}")
-                o.started, o.duration_s = t0, round(now() - t0, 1)
-            self.step(o.scenario, o.result, o.detail, **o.evidence)
+                res = [r.result for r in runs]
+                agg = ("pass" if all(r == "pass" for r in res) and len(res) == n else
+                       "skip" if all(r == "skip" for r in res) else
+                       "error" if "error" in res and "fail" not in res else "fail")
+                o = Outcome(sc["id"], agg, f"{res.count('pass')}/{n} runs passed in a row: {', '.join(res)}",
+                            {"runs": [{"result": r.result, "detail": r.detail, "secs": r.duration_s, **r.evidence} for r in runs]},
+                            runs[0].started, round(sum(r.duration_s for r in runs), 1))
+            self.step(o.scenario, o.result, o.detail, **({} if n > 1 else o.evidence))
             out.append(o)
         return out
 
@@ -591,7 +711,7 @@ def run(args, body=None, ops=None, suite: dict | None = None, log: Callable[[str
                 rep["dev_start"] = snapshot(runner.state())
         if rep.get("result") != "aborted":
             renew = (lambda: write_lease(target, float(suite.get("lease_min", 45)), f"scenario_run pid {os.getpid()}")) if args.live else None
-            outs = runner.run_scenarios(only, renew=renew, healthy=healthy if live else None)
+            outs = runner.run_scenarios(only, renew=renew, healthy=healthy if live else None, repeat=getattr(args, "repeat", None))
             rep["scenarios"] = [o.__dict__ for o in outs]
     finally:
         if args.live:
@@ -670,6 +790,7 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--live", action="store_true", help="switch to the dev server, run, switch back (needs main's OK)")
     g.add_argument("--here", action="store_true", help="run live on the CURRENT server without switching (dev only)")
     ap.add_argument("--only", help="comma list of scenario ids")
+    ap.add_argument("--repeat", type=int, help="run each scenario N times in a row (overrides the suite's repeat; 1 = quick)")
     ap.add_argument("--suite", default=str(SUITE))
     ap.add_argument("--allow-brain", action="store_true", help="run even though run_live is up (shares the action slot)")
     ap.add_argument("--allow-shockbyte", action="store_true", help=argparse.SUPPRESS)

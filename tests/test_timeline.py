@@ -29,7 +29,13 @@ def make_root(tmp: Path) -> Path:
         {"type": "chat_event", "tag": "UI.Notification.Server.Player.Death", "from": "Claude", "ts": int(T0 + 40)}])
     w(r / "client_io" / "events" / "move.jsonl", [
         {"type": "unreachable", "reason": "no_route", "mode": "go_to", "my_pos": [1, 2, 3], "leader_pos": [4, 5, 6],
-         "detail": "d=357m", "ts": int(T0 + 10)}])
+         "detail": "d=357m", "ts": int(T0 + 10), "target": "Zezima", "target_kind": "player"},
+        {"type": "reachable_again", "my_pos": [1, 2, 3], "leader_pos": [4, 5, 6], "after_s": 12.5, "ts": int(T0 + 30),
+         "target": "point", "target_kind": "point"}])
+    w(r / "client_io" / "events" / "activity.jsonl", [
+        {"type": "activity", "kind": "combat_end", "by": "reflex", "target": "Kebbit", "outcome": "killed", "damage_taken": 0,
+         "loot": [{"name": "Bones", "count": 1}], "where": [440.1, 1836.2, -15.6], "ts": int(T0 + 15), "iso": iso(T0 + 15)},
+        {"type": "activity", "kind": "fled", "by": "reflex", "from": "Goblin Runt", "why": "outnumbered", "ts": int(T0 + 16)}])
     w(r / "client_io" / "events" / "vitals.jsonl", [
         {"type": "survival", "hp": 100, "hydration": [10, 75], "sustenance": [20, 75], "endurance": [30, 100], "ts": int(T0 + 1)},
         {"type": "survival", "hp": 100, "hydration": [10, 75], "sustenance": [20, 75], "endurance": [30, 100], "ts": int(T0 + 2)},
@@ -44,6 +50,8 @@ def make_root(tmp: Path) -> Path:
         {"ts": T0 + 3.3, "kind": "bridge_timeout", "tool": "ping", "timeout": 2.0},
         {"ts": T0 + 6.0, "kind": "tool_call", "tool": "go_to", "args": {"target": "Zezima"}, "task_id": "t1", "attempt": 1},
         {"ts": T0 + 11.0, "kind": "say", "text": "I can't find a way to you"},
+        {"ts": T0 + 15.3, "kind": "event", "event": {"type": "activity", "kind": "combat_end", "by": "reflex", "target": "Kebbit",
+                                                      "outcome": "killed", "ts": T0 + 15}},
         {"ts": T0 + 12.0, "kind": "tool_result", "tool": "go_to", "result": {"ok": False, "reason": "path_blocked", "data": {}}}])
     w(r / "logs" / "client_watchdog.jsonl", [{"ts": iso(T0 + 20) .replace("Z", ".1234567Z"), "event": "client_hang", "pid": 1}], bom=True)
     local = datetime.fromtimestamp(T0 + 25).astimezone()
@@ -109,4 +117,18 @@ def test_cli_outputs(tmp_path, capsys):
     rc = timeline.main(["--root", str(r), "--game-dir", str(r / "nogame"), "--date", "2026-10-25",
                         "--around", "19:22:10", "--window", "1", "--src", "move"])
     out = capsys.readouterr().out
-    assert "unreachable" in out and "Zezima" not in out
+    assert "unreachable" in out and "come here" not in out
+
+
+def test_activity_move_and_brain_episode_rows(tmp_path):
+    rows = build(make_root(tmp_path))
+    act = [x for x in rows if x.src == "activity"]
+    assert [x.kind for x in act] == ["combat_end", "fled"]
+    assert "outcome=killed" in act[0].text and "loot=Bones" in act[0].text and "where=(440.1,1836.2,-15.6)" in act[0].text
+    assert "(by reflex)" in act[0].text and act[1].level == "warn"
+    ev = next(x for x in rows if x.kind == "ev:act:combat_end")
+    assert ev.src == "brain" and "target=Kebbit" in ev.text
+    un = next(x for x in rows if x.kind == "unreachable")
+    assert "to Zezima (player)" in un.text
+    back = next(x for x in rows if x.kind == "reachable_again")
+    assert "after 12.5 s" in back.text and back.level == "info"

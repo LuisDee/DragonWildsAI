@@ -5,6 +5,8 @@ Merges, each source optional:
   brain    logs/brain-live-*.jsonl              decisions: events in, prompts, LLM replies, tool calls/results, speech
   move     client_io/events/move.jsonl          unreachable / reachable_again / stuck episodes
   vitals   client_io/events/vitals.jsonl        hp, water/food, damage, death, revive, stay-fed reflex
+  activity client_io/events/activity.jsonl      completed body episodes (combat_end, fled, picked_up, consumed, death,
+                                                respawned, trap_escaped, ...; the brain's episodic memory, interface.Activity)
   events   client_io/events/*.jsonl (others)    gather, traversal, savehook
   watchdog logs/client_watchdog.jsonl           crash / hang / disconnect / wrong_server / boot results
   boot     logs/client/boot.log                 boot_and_join steps
@@ -40,7 +42,7 @@ from typing import Callable, Iterable, Iterator
 
 ROOT = Path(__file__).resolve().parents[1]
 CLIENT_GAME_LOG_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "RSDragonwilds" / "Saved" / "Logs"
-SOURCES = ("chat", "brain", "move", "vitals", "events", "watchdog", "boot", "client", "mod", "game", "scenario")
+SOURCES = ("chat", "brain", "move", "vitals", "activity", "events", "watchdog", "boot", "client", "mod", "game", "scenario")
 
 
 @dataclass
@@ -146,6 +148,36 @@ def pos(p) -> str:
     return str(p)
 
 
+def _val(v) -> str:
+    if isinstance(v, list):
+        if v and all(isinstance(x, (int, float)) for x in v) and len(v) in (2, 3):
+            return pos(v)
+        return ",".join(_val(x) for x in v[:6]) or "none"
+    if isinstance(v, dict):
+        if v.get("name"):
+            return str(v["name"]) + (f" x{v['count']}" if (v.get("count") or 1) > 1 else "")
+        return short(v, 60)
+    if isinstance(v, float):
+        return f"{v:g}"
+    return short(v, 60)
+
+
+ACTIVITY_WARN = {"fled", "death", "trap_entered", "stuck", "failed", "gave_up"}
+ACTIVITY_ERROR = {"death"}
+
+
+def activity_text(d: dict) -> tuple[str, str, str]:
+    """(kind, text, level) for an activity episode, from the body file or the brain's event."""
+    k = str(d.get("kind") or "?")
+    fields = {x: y for x, y in d.items() if x not in ("type", "kind", "by", "ts", "iso") and y not in (None, "", [], {})}
+    text = "; ".join(f"{x}={_val(y)}" for x, y in fields.items())
+    if d.get("by"):
+        text += f"  (by {d['by']})"
+    out = str(fields.get("outcome", ""))
+    level = "error" if k in ACTIVITY_ERROR else "warn" if (k in ACTIVITY_WARN or out in ("failed", "fled", "died")) else "info"
+    return k, text, level
+
+
 def kv(d: dict, skip: Iterable[str] = ()) -> str:
     skip = set(skip) | {"ts", "iso", "type", "kind"}
     return " ".join(f"{k}={short(v, 60)}" for k, v in d.items() if k not in skip and v not in (None, "", [], {}))
@@ -196,6 +228,9 @@ def _brain_row(d: dict) -> Row | None:
         rest = kv(e)
         if et == "command_received":
             rest = f"{e.get('player')}: {e.get('text')}"
+        elif et == "activity":
+            ak, rest, alvl = activity_text(e)
+            return B(rest, alvl, kind="ev:act:" + ak)
         if d.get("route"):
             rest += f"  [route {d['route']}]"
         return B(rest, "warn" if et in ("attacked", "vitals_low", "unreachable", "task_failed") else "info", kind="ev:" + et)
@@ -268,15 +303,33 @@ def read_brain(path: Path) -> Iterator[Row]:
 
 
 def read_move(path: Path) -> Iterator[Row]:
+    """unreachable (once per episode) / reachable_again / stuck, from move.lua emit_move_event."""
     for d in jsonl(path):
         ts = parse_ts(d.get("ts") or d.get("iso"))
         if ts is None:
             continue
         t = d.get("type", "?")
-        text = f"{d.get('mode', '')} reason={d.get('reason')} me={pos(d.get('my_pos'))} goal={pos(d.get('leader_pos'))} {d.get('detail', '')}"
-        if t not in ("unreachable", "stuck"):
+        tgt = d.get("target")
+        tgt = f" to {tgt}" + (f" ({d['target_kind']})" if d.get("target_kind") and d.get("target_kind") != tgt else "") if tgt else ""
+        if t == "unreachable":
+            text = (f"{d.get('mode', '')}{tgt} reason={d.get('reason')} me={pos(d.get('my_pos'))} "
+                    f"goal={pos(d.get('leader_pos'))} {d.get('detail', '')}")
+        elif t == "reachable_again":
+            text = f"{tgt.strip()} after {d.get('after_s')} s me={pos(d.get('my_pos'))} goal={pos(d.get('leader_pos'))}"
+        elif t == "stuck":
+            text = f"{tgt.strip()} me={pos(d.get('my_pos'))} goal={pos(d.get('leader_pos'))} unstuck={d.get('unstuck')}"
+        else:
             text = kv(d)
         yield Row(ts, "move", t, text.strip(), "warn" if t in ("unreachable", "stuck") else "info")
+
+
+def read_activity(path: Path) -> Iterator[Row]:
+    for d in jsonl(path):
+        ts = parse_ts(d.get("ts") or d.get("iso"))
+        if ts is None:
+            continue
+        k, text, level = activity_text(d)
+        yield Row(ts, "activity", k, text, level)
 
 
 def _stat(d: dict, name: str) -> str:
@@ -449,8 +502,9 @@ def discover(root: Path, since: float | None, until: float | None, game_dir: Pat
     srcs["chat"].append((ev / "chat.jsonl", read_chat))
     srcs["move"].append((ev / "move.jsonl", read_move))
     srcs["vitals"].append((ev / "vitals.jsonl", read_vitals))
+    srcs["activity"].append((ev / "activity.jsonl", read_activity))
     for f in sorted(ev.glob("*.jsonl")):
-        if f.name not in ("chat.jsonl", "move.jsonl", "vitals.jsonl"):
+        if f.name not in ("chat.jsonl", "move.jsonl", "vitals.jsonl", "activity.jsonl"):
             srcs["events"].append((f, read_events_generic))
     for f in _pick_by_start(list((root / "logs").glob("brain-live-*.jsonl")), r"(\d{8})-(\d{6})", False, since, until):
         srcs["brain"].append((f, read_brain))
