@@ -36,7 +36,7 @@ The companion ("Claude") is a **humanoid that is basically another player**.
 - Model API spend is approved for live play (key in the user env var `ANTHROPIC_API_KEY`, never in files). Still state the call counts before batch eval runs.
 
 ### Building principles (Luis's, binding)
-1. **Don't hand-roll** what an open-source or managed tool already does, and **web-search before building**. That includes ops plumbing (e.g. service supervision: NSSM/WinSW).
+1. **Don't hand-roll** what an open-source or managed tool already does, and **web-search before building**. That includes ops plumbing (e.g. service supervision: NSSM/WinSW). Follow the project skill **`search-before-building`** (`.claude/skills/search-before-building/SKILL.md`), and paste its subagent-brief paragraph into every build brief.
 2. **Every capability leaves reusable foundations:**
    - shared services: `sense` (census), `watch` (state watcher), `hitcheck`, tool/weapon chains, collect+verify;
    - **data profiles**: items, spells, enemies, resources.

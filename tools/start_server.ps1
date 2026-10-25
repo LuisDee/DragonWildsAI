@@ -11,6 +11,8 @@ New-Item -ItemType Directory -Force $ModLogDir, $BridgeDir, (Join-Path $RepoRoot
 $env:DW_MOD_LOG_DIR = $ModLogDir
 $env:DW_BRIDGE_DIR  = $BridgeDir
 $env:DW_MOD_ROOT    = $ModDeployDir
+# Repo root: the mod reads data catalogs from <repo>/data (e.g. spells_<build>.json; data/ isn't deployed).
+$env:DW_REPO_ROOT   = $RepoRoot
 # Bot gear/state must live outside the deployed mod folder (deploy_mod.ps1 wipes that folder).
 $stateDir = Join-Path $RepoRoot 'logs\state'
 New-Item -ItemType Directory -Force $stateDir | Out-Null

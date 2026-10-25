@@ -28,7 +28,8 @@ M.BODY_TO_BRAIN = "body_to_brain.jsonl"
 
 -- Tools named in the protocol. A known tool without a handler answers not_implemented;
 -- anything else answers unknown_tool (as the mock does via GameInterface.call).
-M.TOOLS = { "get_state", "follow", "stop", "go_to", "attack", "gather", "craft", "place", "give", "say", "ping" }
+M.TOOLS = { "get_state", "follow", "stop", "go_to", "attack", "gather", "craft", "place", "give", "pickup", "drop", "say", "ping",
+            "cast", "set_reflex_rule", "list_rules", "clear_rule" }
 local KNOWN = {}
 for _, t in ipairs(M.TOOLS) do KNOWN[t] = true end
 

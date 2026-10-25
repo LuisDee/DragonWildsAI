@@ -76,7 +76,67 @@ if os.getenv("DW_NO_BODY") ~= "1" then
     end)
     log.event("body_started", { ok = ok_body, err = (not ok_body) and tostring(err_body) or nil,
                                 autospawn = os.getenv("DW_PUPPET_AUTOSPAWN") == "1" })
+    -- ---- BOT INVENTORY + ITEM SKILLS (body/inventory.lua, body/items.lua, body/item_skills.lua) ----
+    -- The persistent instance store lives in the "inventory" section of the puppet's bot state file
+    -- (DW_BOT_STATE); on first run it migrates the persisted gear into owned, equipped instances, so
+    -- gear.equip's ownership rule keeps the bot dressed. Must run before the puppet (re)applies gear,
+    -- i.e. here at startup. Then: pickup / drop / give / inventory / inventory_grant handlers and the
+    -- get_state inventory + nearby_items fields. (The spells block below hands the same store to the
+    -- spells budget policy: count(item_id) / take(item_id, n).)
+    local ok_inv, err_inv = pcall(function()
+        local puppet = require("body.puppet")
+        require("body.inventory").init({ log = log, puppet = puppet })
+        require("body.item_skills").register(bridge, log, { skills = require("body.skills"), puppet = puppet })
+    end)
+    log.event("inventory_started", { ok = ok_inv, err = (not ok_inv) and tostring(err_inv) or nil })
+    -- ---- end BOT INVENTORY ----
 end
+-- ===================== SPELLS + REFLEX RULES (body/spells.lua, body/rules.lua) =====================
+-- Bridge handlers: cast, spells, spell_tactics (spells) and set_reflex_rule, list_rules, clear_rule
+-- (rules). Combat hooks into body/combat.lua's BT: rules first (Luis's standing orders), then the
+-- spells utility reflexes (shield on low HP / telegraph, Windstep on 3+ clustered enemies).
+--   * Cost policy: DW_SPELL_COST_POLICY, else "mirror_budget" (Luis's unlocks AND the bot's own runes)
+--     when the inventory store (body/inventory.lua count/take) is available, else "mirror" (logged).
+--   * Routes not verified in game (catalog routes[r].verified) stay off unless DW_SPELLS_UNVERIFIED=1.
+--   * Catalog: DW_SPELLS_CATALOG, else <repo>/data/spells_<build>.json (repo = DW_REPO_ROOT, else
+--     derived from DW_MOD_LOG_DIR = <repo>/logs/mod).
+--   * Rules persist per enemy class in the bot state file (puppet section "reflex_rules").
+-- DW_NO_SPELLS=1 switches this block off; it needs the body (DW_NO_BODY unset).
+if os.getenv("DW_NO_BODY") ~= "1" and os.getenv("DW_NO_SPELLS") ~= "1" then
+    local ok_spells, err_spells = pcall(function()
+        local skills, combat = require("body.skills"), require("body.combat")
+        local spells, rules, puppet = require("body.spells"), require("body.rules"), require("body.puppet")
+        local ok_inv, inv = pcall(require, "body.inventory")
+        -- the inventory block above initialises the store; only a ready store can pay runes
+        local store = (ok_inv and type(inv) == "table" and type(inv.count) == "function"
+                       and type(inv.take) == "function"
+                       and (type(inv.is_ready) ~= "function" or inv.is_ready())) and inv or nil
+        if not store then
+            log.event("spells_policy_fallback", { policy = "mirror",
+                      detail = ok_inv and "inventory store not ready (no count/take or init failed)" or tostring(inv) })
+        end
+        local repo = os.getenv("DW_REPO_ROOT")
+        if not repo or repo == "" then
+            local ld = os.getenv("DW_MOD_LOG_DIR") or ""
+            local base, n = ld:gsub("[/\\]logs[/\\]mod[/\\]?$", "")
+            repo = n > 0 and base or nil
+        end
+        local catalog = os.getenv("DW_SPELLS_CATALOG")
+        if not catalog or catalog == "" then catalog = repo and (repo .. "/data/spells_" .. spells.BUILD .. ".json") or nil end
+        spells.register(bridge, log, { puppet = puppet, find_ai = skills.find_ai, catalog_path = catalog,
+                                       cost_policy = store and "mirror_budget" or "mirror", inventory = store })
+        local rule_store = type(puppet.section) == "function" and {
+            load = function() return puppet.section(rules.STATE_KEY) end,
+            save = function(t) return puppet.set_section(rules.STATE_KEY, t) end,
+        } or nil
+        rules.register(bridge, log, { spells = spells, gear = require("body.gear"), inventory = store,
+                                      combat = combat, store = rule_store })
+        rules.install(combat)
+        spells.install_combat_hooks(combat)
+    end)
+    log.event("spells_started", { ok = ok_spells, err = (not ok_spells) and tostring(err_spells) or nil })
+end
+-- =================== end SPELLS + REFLEX RULES =====================================================
 -- Frame-time sampler -> logs/perf/mod_perf.jsonl (scripts/perf_sampler.lua). DW_PERF=0 disables it.
 -- Armed 60 s after start so the game world exists for its clock; debug_run can also arm it.
 if os.getenv("DW_PERF") ~= "0" and mod_root then
