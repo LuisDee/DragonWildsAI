@@ -130,5 +130,36 @@ end
 check("30 deg ramp is walked, not jumped", sp and ramp_jumps == 0, ramp_jumps)
 check("90 cm step is a jump", step_jump, "replans=" .. r2)
 
+-- ramp over low dead space (church start area, live 19:22): a 20 deg ramp rises from the lower
+-- ground to an upper floor 3.4 m up; UNDER the ramp is ground with < head clearance. Each ramp cell
+-- yields lo = ground under it, hi = ramp surface; the walkable one is the ramp.
+local function ramp_top(x) if x < 0 then return 0 end; if x < 930 then return 0.366 * x end; return 340 end
+local function trace3(a, b, horizontal)
+    if horizontal then
+        for k = 0, 20 do
+            local t = k / 20
+            local x = a.X + (b.X - a.X) * t
+            if ramp_top(x) > a.Z and not (a.Z < ramp_top(x) - 30) then return true end
+        end
+        return nil
+    end
+    local top = ramp_top(a.X)
+    if a.Z >= top then return top, false end                 -- from above: the ramp surface
+    -- from below the ramp surface (inside the dead space under it): the ground under the ramp
+    if a.Z > 0 then return 0, false end
+    return 0, true
+end
+local Pr = LP.new({ trace = trace3, center = { X = -200, Y = 0, Z = 90 }, radius_m = 14, env = { step = 45, jump = 165, djump = 165, drop = 600 } })
+while Pr:step(60) ~= "ready" do end
+local rp = Pr:plan({ X = 1100, Y = 0, Z = 340 })
+local rr, rres = 0, "blocked"
+while rp and rres ~= "ok" and rr < 30 do
+    rres = Pr:verify(rp, 100)
+    if rres == "blocked" then rp = Pr:plan({ X = 1100, Y = 0, Z = 340 }); rr = rr + 1 end
+end
+local top_end = rp and rp[#rp]
+check("ramp over dead space: route climbs the ramp to the upper floor", top_end and top_end.Z >= 300 and top_end.X > 900,
+    top_end and string.format("end (%.0f,%.0f)", top_end.X, top_end.Z) or "no plan")
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

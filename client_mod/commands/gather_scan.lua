@@ -14,5 +14,12 @@ return function(log)
     local c = S.census(log, { radius_m = 40, max = 15, kinds = { resources = true } })
     local res = {}
     for _, r in ipairs(c.resources or {}) do res[#res + 1] = { r.name, r.kind, r.distance, r.tool, r.tool_tier, r.health } end
-    return { ok = true, me = S.U.to_wire(me), trees = rows, trees_ms = ms, census_ms = c.ms, census_resources = res }
+    -- is the axe chop montage already in memory? (StaticFindObject never loads; a first-ever swing
+    -- might load it synchronously, the suspected hang pattern)
+    local loaded = {}
+    for _, path in ipairs({ "/Game/Art/Animation/PlayerM/Hatchet/AM_Player_Axe_OnSpot_Woodcut1.AM_Player_Axe_OnSpot_Woodcut1",
+                            "/Game/Gameplay/Character/Player/Attacks/Axe/BP_Player_Axe_Woodcut1.BP_Player_Axe_Woodcut1_C" }) do
+        loaded[path:match("([%w_]+)$")] = S.U.find_object(path) ~= nil
+    end
+    return { ok = true, loaded = loaded, me = S.U.to_wire(me), trees = rows, trees_ms = ms, census_ms = c.ms, census_resources = res }
 end

@@ -72,7 +72,7 @@ local function fail(reason, data) return { ok = false, reason = reason, data = d
 -- Module reasons -> protocol reason codes (brain/interface.py Reason). Exact codes first, then
 -- patterns on free text; any other snake_case code passes through, other free text is body_error.
 M.REASONS = { no_pawn = "companion_down", stuck = "path_blocked", target_not_visible = "unknown_target",
-              error = "body_error", unreachable = "path_blocked" }
+              error = "body_error", unreachable = "path_blocked", no_resource_nearby = "nothing_in_range" }
 M.REASON_PATTERNS = {
     { "^no pawn", "companion_down" }, { "^no local pawn", "companion_down" },
     { "^no local player controller", "companion_down" }, { "^not in inventory", "not_in_inventory" },
@@ -226,7 +226,7 @@ local function tick_action()
         if a.errors >= 3 then return finish(a, fail("body_error", { detail = tostring(res) })) end
         return
     end
-    if res then finish(a, res) end
+    if res then finish(a, norm(res)) end
 end
 
 function M.following()
@@ -602,7 +602,11 @@ local function thing_of(cat, row)
     t.kind = t.kind or cat.kind
     t.verb = t.verb or cat.verb
     if cat.key == "resources" then
-        t.actions = t.kind == "gatherable" and { "interact" } or { t.verb or "hit" }
+        if t.kind == "foliage" then -- standing trees, bushes, branches, ground stones (instanced foliage)
+            t.actions = t.verb == "gather" and { "interact", "gather" } or { "gather" }
+        else
+            t.actions = t.kind == "gatherable" and { "interact" } or { t.verb or "hit" }
+        end
     else
         t.actions = cat.actions
     end
@@ -796,7 +800,11 @@ R.interact = { needs = { { "sense", "census" }, { "inventory", "interact_target"
             local it_fn = fn_of("inventory", "interact_target") -- (pawn), no log argument
             local okd, cur = pcall(it_fn, s and s.local_pawn() or nil)
             self.detector = okd and type(cur) == "table" and cur or nil
-            if self.detector and self.detector.actor == id then
+            local fol = tostring(id):sub(1, 4) == "fol:"
+            local det = self.detector
+            local same = det and (det.actor == id or (fol and not det.none and (
+                (det.name and det.name == self.thing.name) or (det.item and det.item == self.thing.item))))
+            if same then
                 local pr = call("inventory", "press_interact")
                 if not pr.ok then return pr end
                 self.phase, self.verify_until = "verify", tnow + M.INTERACT_VERIFY_S
@@ -809,7 +817,12 @@ R.interact = { needs = { { "sense", "census" }, { "inventory", "interact_target"
             return nil
         else -- verify
             local item, n, all = gained(counts())
-            local gone = actor_of(self.thing) == nil
+            local want = self.thing.item
+            if want and tostring(id):sub(1, 4) == "fol:" then -- a foliage pickup must yield ITS item
+                item, n = (all[want] and want or nil), all[want] or 0
+            end
+            -- a foliage id never has an actor of its own: only an inventory gain proves the press worked
+            local gone = tostring(id):sub(1, 4) ~= "fol:" and actor_of(self.thing) == nil
             if item or gone then
                 return { ok = true, data = { target = id, item = item or S.bridge.null, count = n, gained = S.bridge.object(all),
                                              target_gone = gone, prompt = self.detector and self.detector.prompt or S.bridge.null } }
@@ -835,7 +848,7 @@ end
 
 -- Module-declared tools: a module listed in M.MODULES may export HANDLERS = {tool = fn(log, args, ctx)}
 -- returning what a route returns (see above). Routes win over HANDLERS.
-M.MODULES = { "chat", "move", "sense", "inventory", "combat", "arbiter" }
+M.MODULES = { "chat", "move", "sense", "inventory", "combat", "arbiter", "gather" }
 local function module_handler(tool)
     for _, name in ipairs(M.MODULES) do
         local mod = M.module(name)
@@ -1007,6 +1020,20 @@ local function forward_moves()
     rotate(S.move_tail)
 end
 
+-- gather_progress{task_id, resource, item, have, want} from gather.lua's client_io/events/gather.jsonl
+-- (gather_status phase lines are for the logs, not speech: not forwarded).
+local function forward_gather()
+    if not S.gather_tail then return end
+    for _, raw in ipairs(S.gather_tail:read()) do
+        local ok, m = pcall(S.jsonutil.decode, raw)
+        if ok and type(m) == "table" and m.type == "gather_progress" and tonumber(m.have) and tonumber(m.want) then
+            S.bridge.emit_event("gather_progress", { task_id = m.task_id, resource = m.resource, item = m.item,
+                                                     have = math.floor(tonumber(m.have)), want = math.floor(tonumber(m.want)) })
+        end
+    end
+    rotate(S.gather_tail)
+end
+
 local function check_vitals()
     local t = now_s()
     if S.vitals_checked and t - S.vitals_checked < M.VITALS_CHECK_S then return end
@@ -1101,6 +1128,10 @@ M.SERVICES = {
           local st = type(mod.reflex_status) == "function" and mod.reflex_status() or {}
           return st.running == true
       end },
+    -- Client-hang fix (DISCOVERIES "Client hang (R2)"): ULightFlickeringWorldSubSystem's tick can
+    -- deadlock the GameThread, so tickguard gives it a 1 h TickInterval on every new world instance.
+    { name = "tickguard", module = "tickguard", start = "start",
+      healthy = function(mod) return type(mod.healthy) == "function" and mod.healthy() == true end },
 }
 
 local function supervise(force)
@@ -1227,6 +1258,8 @@ function M.step()
     if not ok then ev("client_vitals_check_error", { err = tostring(err) }) end
     ok, err = pcall(forward_moves)
     if not ok then ev("client_moves_forward_error", { err = tostring(err) }) end
+    ok, err = pcall(forward_gather)
+    if not ok then ev("client_gather_forward_error", { err = tostring(err) }) end
     ok, err = pcall(supervise, S.rearm == true)
     if not ok then ev("client_supervise_error", { err = tostring(err) }) end
 end
@@ -1330,6 +1363,8 @@ function M.start(opts)
     S.vitals_tail = bridge.new_tail(S.vitals_path)
     S.move_path = opts.move_events or (root .. "/client_io/events/move.jsonl")
     S.move_tail = bridge.new_tail(S.move_path)
+    S.gather_path = opts.gather_events or (root .. "/client_io/events/gather.jsonl")
+    S.gather_tail = bridge.new_tail(S.gather_path)
     S.services, S.services_on = {}, opts.start_modules == true
     if S.services_on then pcall(supervise, true) end -- now, then every SERVICE_CHECK_S from step()
     if not opts.no_loop then

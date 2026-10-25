@@ -332,6 +332,9 @@ local function facts_of(cls)
     local cdo = U.try(function() return cls:GetCDO() end)
     if U.valid(cdo) then
         f.name = text(U.try(function() return cdo.DisplayName end))
+        if f.name and f.name:upper():find("DEFAULT DISPLAY NAME", 1, true) then f.name = nil end -- placeholder on spawners
+        local data = U.try(function() return cdo.ItemData end) -- ground resources: the item they give
+        if U.valid(data) then f.item, f.name = item_id(data), f.name or item_name(data) end
         local g = gate(cdo)
         if g then f.tool, f.tool_tier = g.tool, g.tier end
         f.max_health = num(U.try(function() return cdo.HealthComponent.MaxHealth end))
@@ -388,7 +391,7 @@ function M.foliage(origin, radius_cm, opts)
                                 class = cname, name = facts.name, position = U.to_wire(p), distance = U.cm_to_m(d), _pos = p,
                                 _comp = c, _index = i, damageable = U.try(function() return c.bDamageable end) == true or nil,
                                 interactable = U.try(function() return c.bInteractable end) == true or nil,
-                                tool = facts.tool, tool_tier = facts.tool_tier, health = facts.max_health, max_health = facts.max_health,
+                                tool = facts.tool, tool_tier = facts.tool_tier, health = facts.max_health, max_health = facts.max_health, item = facts.item,
                                 verb = (facts.tool == "Hatchet" and "chop") or (facts.tool == "Pickaxe" and "mine") or (fk == "pickup" and "gather") or "hit" }
                         end
                     end
@@ -456,13 +459,17 @@ function M.census(log, opts)
     pass("resources", { "DestructibleWorldActor", "OreNode", "BaseInteractableResource" }, describe_resource)
     -- standing trees / bushes / pickups still drawn as foliage (see M.foliage); opts.foliage=false skips
     if (not want or want.resources) and opts.foliage ~= false then
-        local ok, rows = pcall(M.foliage, origin, r_cm, { max = max, kinds = { tree = true, pickup = true } })
-        if ok then
-            for _, r in ipairs(rows) do
-                r._comp, r._index, r._pos = nil, nil, nil
-                add("resources", r)
-            end
-        elseif log then log("sense: foliage " .. tostring(rows)) end
+        -- trees and pickups capped separately (a third of the rows each), so ground stones and branches
+        -- (they lie everywhere) don't crowd out the trees or the actors
+        for _, kind in ipairs({ "tree", "pickup" }) do
+            local ok, rows = pcall(M.foliage, origin, r_cm, { max = math.max(math.ceil(max / 3), 1), kinds = { [kind] = true } })
+            if ok then
+                for _, r in ipairs(rows) do
+                    r._comp, r._index, r._pos = nil, nil, nil
+                    add("resources", r)
+                end
+            elseif log then log("sense: foliage " .. tostring(rows)) end
+        end
     end
 
     local kind_of = {}

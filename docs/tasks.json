@@ -466,7 +466,7 @@
    "id": "R2.17",
    "phase": "R2",
    "title": "Gathering on real client: woodcutting/mining with real swings, loop, collect drops",
-   "status": "todo",
+   "status": "in_progress",
    "passes_test": false
   },
   {

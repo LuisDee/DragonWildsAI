@@ -163,3 +163,11 @@ def test_what_are_you_wearing_names_the_worn_gear_and_the_axe():
                                          {"role": "user", "content": json.dumps(ctx)}]).content
     for word in ("Cowl", "Platebody", "Leggings", "Axe"):
         assert word in reply, (word, reply)
+
+
+def test_gather_failure_says_the_bodys_own_sentence(rig):
+    rig.session.controller.report_failure("gather", "wrong_tool",
+                                         {"why": "tool_tier_too_low", "detail": "My axe is too weak for that yew tree."})
+    assert rig.said()[-1] == "My axe is too weak for that yew tree."
+    rig.session.controller.report_failure("gather", "nothing_in_range", {"resource": "willow"})
+    assert rig.said()[-1] == "There's no willow anywhere near me."

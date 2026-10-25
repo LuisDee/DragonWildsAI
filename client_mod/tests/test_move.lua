@@ -37,8 +37,17 @@ local function wall_top(x, y)
         if x > w[1] and x < w[2] and y > w[3] and y < w[4] then return FLOOR + (w[5] and 900 or 80) end
     end
 end
+-- Claude's attached gear: bIgnoreSelf ignores his pawn but NOT his armour/tool actors (live 19:22)
+local GEAR = false
+local function in_gear(x, y, z)
+    return GEAR and math.sqrt((x - pawn.loc.X) ^ 2 + (y - pawn.loc.Y) ^ 2) < 40 and z > pawn.loc.Z - 90 and z < pawn.loc.Z + 90
+end
 -- fake KismetSystemLibrary:LineTraceSingle over the fake world (fills `out` like UE4SS does)
 local KSL = { LineTraceSingle = function(self, ctx, a, b, ch, cx, ign, dbg, out)
+    if a.X == b.X and a.Y == b.Y and GEAR and math.sqrt((a.X - pawn.loc.X) ^ 2 + (a.Y - pawn.loc.Y) ^ 2) < 40 and a.Z > pawn.loc.Z then
+        out.Distance = a.Z - (pawn.loc.Z + 90); out.ImpactPoint = { X = a.X, Y = a.Y, Z = pawn.loc.Z + 90 }; out.ImpactNormal = { X = 0, Y = 0, Z = 1 }
+        return true -- a downward trace through Claude lands on his head/gear
+    end
     if a.X == b.X and a.Y == b.Y then
         local top = wall_top(a.X, a.Y) or FLOOR
         -- like the real client: bStartPenetrating is junk (always true), Distance 0 = started inside
@@ -51,6 +60,10 @@ local KSL = { LineTraceSingle = function(self, ctx, a, b, ch, cx, ign, dbg, out)
     for k = 0, 30 do
         local t = k / 30
         local x, y = a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t
+        if in_gear(x, y, a.Z) then
+            out.Distance = (k == 0) and 0 or 1; out.ImpactPoint = { X = x, Y = y, Z = a.Z }; out.ImpactNormal = { X = -1, Y = 0, Z = 0 }
+            return true
+        end
         local top = wall_top(x, y)
         if top and a.Z < top then
             out.ImpactPoint = { X = x, Y = y, Z = a.Z }; out.ImpactNormal = { X = -1, Y = 0, Z = 0 }
@@ -376,6 +389,27 @@ os.remove(dir .. "/client_mod/scripts/traverse_learn.lua")
 raised, portals = {}, {}
 
 _G.DW_LP_CACHE = nil
+-- 13. self-collision regression (live 19:22): with Claude's gear blocking traces, an open-field
+--     go_to must not see "walls" around him (no endless wall_ahead plans, no "walls everywhere")
+GEAR = true
+walls = { { 900, 1000, -300, 300 } } -- one real (jumpable) obstacle so a plan is needed
+oracle = nil; raised = {}
+pawn.loc = { X = 0, Y = 0, Z = 0 }
+local nlog0 = #logs
+M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1 })
+run(200)
+s = M.status()
+local plans, everywhere = 0, false
+for i = nlog0 + 1, #logs do
+    if logs[i]:find("local plan #") then plans = plans + 1 end
+    if logs[i]:find("walls everywhere") then everywhere = true end
+end
+if os.getenv("DBG13") then for i = nlog0 + 1, #logs do print("  " .. logs[i]) end end
+check("gear: arrives in the open", s.result and s.result.status == "arrived", s.result and s.result.status)
+check("gear: no 'walls everywhere', few plans", not everywhere and plans <= 3, "plans=" .. plans)
+GEAR = false
+walls = {}
+
 -- 7. arbiter hooks: actor target ({actor=obj}), snapshot/restore, face_when_near
 walls = {}; pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 1500, Y = 0, Z = 0 }; oracle = nil
 M.follow(log, { actor = luis }, 2, { sprint = true, face_when_near = true })

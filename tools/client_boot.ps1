@@ -17,6 +17,11 @@
 #   powershell -File tools\client_boot.ps1 -DryRun         # probe only; says what it would do
 #   powershell -File tools\client_boot.ps1 -NoLaunch       # never start the client (join/repair only)
 #   powershell -File tools\client_boot.ps1 -Release        # clear a hold (logs\client.hold / client.stopped), then boot
+#   powershell -File tools\client_boot.ps1 -Target dev     # join client_io/secrets/server_dev.txt instead (see below)
+# Targets (client_lib.ps1 "join targets"): -Target <name>, else an unexpired lease in logs\state\client_target.json
+# (tools/scenario_run.py), else shockbyte (server.txt). When the client is in the world on a DIFFERENT server than
+# the target (game log LoadMap address), boot disconnects it (disconnect.lua) and joins the target. When the
+# joined server is unknown it is left alone.
 # While a hold file exists it does nothing (exit 3). Returns a result object ({ok, state, reason, actions, ...}); exit code 0 when in world.
 param(
     [switch]$DryRun,
@@ -29,6 +34,7 @@ param(
     [int]$PawnTimeoutS = 90,      # in L_World -> pawn
     [int]$ServiceWaitS = 30,      # bridge supervisor checks every 10 s
     [switch]$Release,             # clear the hold files first (a held client is otherwise left alone)
+    [string]$Target = '',         # join target name (shockbyte = server.txt; dev = server_dev.txt); '' = lease or shockbyte
     [switch]$Quiet
 )
 . "$PSScriptRoot\client_lib.ps1"
@@ -45,11 +51,13 @@ $script:actions = New-Object System.Collections.ArrayList
 function Act([string]$what) { [void]$script:actions.Add($what); BLog ("{0}{1}" -f ($(if ($DryRun) { 'DRY-RUN would: ' } else { 'do: ' })), $what) }
 
 # Run one command file from client_mod/commands under a boot_ name (no collision with other agents).
-function Run-Cmd([string]$file, [int]$timeout = 20) {
+# -Source: run this file instead (same name), e.g. the join command with its target prefixed.
+function Run-Cmd([string]$file, [int]$timeout = 20, [string]$Source = '', [string]$Note = '') {
     $name = 'boot_' + [IO.Path]::GetFileNameWithoutExtension($file)
-    Act $file
+    Act ($file + $Note)
     if ($DryRun) { return $null }
-    $r = Invoke-ClientCmd -Path (Join-Path $ClientCmds $file) -Name $name -TimeoutS $timeout
+    $path = if ($Source) { $Source } else { Join-Path $ClientCmds $file }
+    $r = Invoke-ClientCmd -Path $path -Name $name -TimeoutS $timeout
     if (-not $r) { Clear-ClientCmd $name; BLog "  ${file}: no answer in ${timeout}s"; return $null }
     BLog ("  ${file} -> " + (Protect-Secret ($r | ConvertTo-Json -Compress -Depth 4)))
     $r
@@ -74,11 +82,22 @@ function New-Result([bool]$ok, [string]$state, [string]$reason, $p, [datetime]$t
     [ordered]@{
         ok = $ok; state = $state; reason = $reason; dry_run = [bool]$DryRun
         actions = @($script:actions); duration_s = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
+        target = $script:target.name; target_source = $script:target.source; joined = Get-JoinedServer
         pid = if ($c) { $c.Id } else { $null }; client_mb = if ($c) { [math]::Round($c.WorkingSet64 / 1MB) } else { $null }
         free_mb = Get-FreeMB; build = Get-ClientBuildId
         map = $p.map; pawn = $p.pawn; pos_m = $p.pos_m; logged_in = $p.logged_in
         services = if ($p -and $p.bridge) { $p.bridge.services } else { $null }
     }
+}
+
+# join_server.lua with `local SECRETS_FILE = "<file>"` prefixed (a chunk local: the plain file defaults to server.txt).
+function New-JoinCmd {
+    $src = Join-Path $ClientCmds 'join_server.lua'
+    $leaf = Split-Path $TargetFile -Leaf
+    $tmp = Join-Path $ClientStateDir "join_server_$($script:target.name).lua"
+    New-Item -ItemType Directory -Force $ClientStateDir | Out-Null
+    ("local SECRETS_FILE = `"$leaf`"`n" + (Get-Content $src -Raw)) | Set-Content -Encoding utf8 $tmp
+    $tmp
 }
 
 # One pass of the sequence. Returns a result; ok=$true only when in the world with services running.
@@ -126,9 +145,23 @@ function Invoke-BootOnce([datetime]$t0) {
 
     # 4. Menu -> world -> pawn
     $loginTries = 0; $joinTries = 0; $joinSent = $null; $worldSince = $null; $introTries = 0; $noAnswer = 0
+    $leaveTries = 0
     $deadline = (Get-Date).AddSeconds($JoinTimeoutS + $PawnTimeoutS + 120)
     while ($true) {
-        if ($p -and $p.map -eq 'L_World' -and $p.pawn) { break }
+        if ($p -and $p.map -eq 'L_World' -and $p.pawn) {
+            # in a world: the right one? (unknown = leave it alone; only a known, different address switches)
+            $on = Get-JoinedServer
+            if (-not $on -or -not $TargetAddr -or $on -eq $TargetAddr -or $joinSent) { break }
+            if ($leaveTries -ge 2) { return New-Result $false 'in_world' "wrong_server: on $on, target $($script:target.name)" $p $t0 }
+            $leaveTries++
+            BLog "in the world on $on but the target is $($script:target.name) ($TargetAddr): leaving"
+            [void](Run-Cmd 'disconnect.lua' 20 '' " (on $on, target $($script:target.name))")
+            if ($DryRun) { return New-Result $false 'in_world' "wrong_server: on $on" $p $t0 }
+            $worldSince = $null
+            Start-Sleep 5
+            $p = Get-ClientProbe 12
+            continue
+        }
         if ((Get-Date) -gt $deadline) { return New-Result $false 'stuck' ("timeout at: " + (Summary $p)) $p $t0 }
         if (-not (Get-ClientProcess)) { return New-Result $false 'down' 'client_exited' $p $t0 }
         if (-not $p) {
@@ -160,10 +193,11 @@ function Invoke-BootOnce([datetime]$t0) {
                     if ($DryRun) { return New-Result $false 'menu' 'not_signed_in' $p $t0 }
                 }
             } else {
-                if (-not (Test-Path $ClientSecrets)) { return New-Result $false 'menu' 'no_secrets_file' $p $t0 }
+                if (-not (Test-Path $TargetFile)) { return New-Result $false 'menu' 'no_secrets_file' $p $t0 }
                 if ($joinTries -ge 2) { return New-Result $false 'menu' 'join_timeout' $p $t0 }
                 $joinTries++
-                [void](Run-Cmd 'join_server.lua')
+                if ($script:target.name -eq $ClientDefaultTarget) { [void](Run-Cmd 'join_server.lua') }
+                else { [void](Run-Cmd 'join_server.lua' 20 $(if ($DryRun) { '' } else { New-JoinCmd }) " (target $($script:target.name))") }
                 if ($DryRun) { return New-Result $false 'menu' 'not_joined' $p $t0 }
                 $joinSent = Get-Date
             }
@@ -206,6 +240,9 @@ function Invoke-BootOnce([datetime]$t0) {
 
 # ------------------------------------------------------------------ main
 $t0 = Get-Date
+$script:target = Resolve-ClientTarget $Target
+$TargetFile = Get-TargetFile $script:target.name
+$TargetAddr = Get-TargetAddress $script:target.name
 $hold = Get-ClientHold
 if ($hold -and -not $DryRun) {
     if (-not $Release) {
@@ -221,7 +258,7 @@ if (-not $DryRun -and -not (Enter-ClientLock)) {
     $res = [ordered]@{ ok = $false; state = 'busy'; reason = 'boot_locked'; actions = @() }
     Write-Output ([pscustomobject]$res); exit 2
 }
-BLog ("boot_and_join start" + $(if ($DryRun) { ' (dry run)' } else { '' }) + " build=$(Get-ClientBuildId)")
+BLog ("boot_and_join start" + $(if ($DryRun) { ' (dry run)' } else { '' }) + " build=$(Get-ClientBuildId) target=$($script:target.name) [$($script:target.source)] joined=$(Get-JoinedServer)")
 try {
     $res = $null
     for ($a = 1; $a -le $Attempts; $a++) {

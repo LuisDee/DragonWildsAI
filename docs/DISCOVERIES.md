@@ -1143,6 +1143,12 @@ Modules: `client_mod/scripts/gather.lua` (the job), `client_mod/scripts/gather_p
   - A zero-scale instance is treated as hidden (felled or converted). **UNVERIFIED** whether the client hides a converted instance that way.
   - `GetInstanceTransform` (an `FTransform&` out param) was not needed, so it was not called.
   - Cost: the whole 198-component pass with the sphere query took 33 ms on the game thread; the full probe took 55 ms.
+- **`sense.foliage` live (VERIFIED, `gather_scan.lua`, about 19:36 UTC):** Ash Trees at 29.7-39 m and an Oak Tree at 38.9 m, found in 14-17 ms.
+  - Name, gate and HP come from the actor class's default object: `cls:GetCDO()` → `DisplayName`, `DamageModifiersWhenTree` → Hatchet tier 1 (ash) / 3 (oak), `HealthComponent.MaxHealth` 160 / 220. These match the server census.
+  - Pickup spawner CDOs carry the placeholder name "DEFAULT DISPLAY NAME", so their name comes from the CDO's `ItemData` instead ("Stone").
+  - The census caps trees and pickups separately, because ground stones are everywhere and crowded the trees out.
+  - The census grew from about 50-90 ms to about 105 ms (40 m radius).
+  - `StaticFindObject` (no load) shows `AM_Player_Axe_OnSpot_Woodcut1` and `BP_Player_Axe_Woodcut1_C` already in memory on the client, so a first swing needs no synchronous asset load (the suspected hang pattern).
 - **Rocks are level actors, not foliage (VERIFIED):** `BP_OreNode_Stone_C_UAID_*` HP 75 and `BP_MiningRock_RuneEssence_Static_C_UAID_*` HP 60 (`DestructibleMiningRock`), plus `BP_RuneEssenceGeyser_B_C_*` (`OreNode`, no HP). All replicate at 21-27 m. Felled-tree pieces (`BP_SplittableLog_Ash_C`, HP 80) were present 40-45 m away.
 - **Pitfall:** `a.bIsStump` on a log or rock returns a `TrivialObject` (truthy; see "missing property is NOT nil"), so compare `== true`.
 - **The gather job (offline-verified; live UNVERIFIED until the first supervised run):**
@@ -1162,3 +1168,11 @@ Modules: `client_mod/scripts/gather.lua` (the job), `client_mod/scripts/gather_p
   - Dragonwilds wiki Woodcutting / Overhead Chop: tier per tree, Overhead Chop at level 4 does about 10% damage to standing trees, stumps regrow in 72 h unless cut.
   - Nothing on Dragonwilds' melee aim assist (`MaximumAngleAimAssist` 45, camera-based); whether it helps against resources is a live question.
   - Decision: **adapt** (the collectblock / Baritone loop shapes, the legacy server profiles and chain) and **build** the thin client loop over move/inventory/combat/arbiter.
+- **First live runs (2026-10-25, about 19:36-19:37 UTC, Shockbyte):**
+  - `gather_ash2` answered at once with `wrong_tool` / `no_tool`, "I need a logging axe for ash and I don't have one." This was correct: after the 19:14 cow-fight death his axe, pickaxe, dagger, shield and torch were in a gravestone. Inventory: armour, food, drink, bolts. Nothing moved and the pawn was not taken.
+  - `gather_stones2` (ground stones, interact key):
+    - The arbiter granted `gather:stone` (task). The foliage scan picked a Stone pickup at 23.1 m (`fol:BP_InteractableFoliageISMC_PickUps_C_10:112`).
+    - `move.go_to` failed `unreachable` / `no_route`: the local planner found only drop edges ("walls everywhere") from the lodestone-pad island. Gather blacklisted that stone and moved on to the next one at 12.7 m, as designed.
+    - **The client then hung** (last mod line 19:37:01, move's local plan #3). The watchdog took a stack (`logs/client/hang_9728_20261025_203801.txt`), killed the client at 19:38:06 and rebooted it, back in the world at 19:38:59.
+    - No interact press, swing or equip had happened. Gather was only polling `move.status`, `FindAllOf` and `inventory.list` (1 Hz) while move.lua planned. That run had `t.MaxFPS=30`.
+  - Still **UNVERIFIED live**: a swing's hit on a tree, the felled chain on the client, magnet or interact collection, and the inventory delta.

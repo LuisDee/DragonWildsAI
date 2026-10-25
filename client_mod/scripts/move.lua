@@ -168,6 +168,12 @@ local function m3s(p) return p and string.format("[%.2f,%.2f,%.2f]", p.X / 100, 
 local function emit_move_event(kind, fields)
     local f = io.open(MOVE_EVENTS, "a")
     if not f then return end
+    -- who the move was toward (the bridge must not say "can't reach YOU" for a go_to to a point)
+    local st = rawget(_G, "DW_MOVE")
+    if st and fields.target == nil then
+        fields.target = st.target_name or "point"
+        fields.target_kind = st.target_kind or "point"
+    end
     local parts = { string.format('"type":"%s"', kind), string.format('"ts":%d', os.time()),
         string.format('"iso":"%s"', os.date("!%Y-%m-%dT%H:%M:%SZ")) }
     for k, x in pairs(fields) do
@@ -208,7 +214,7 @@ local function make_trace(st, pawn)
     return function(a, b, horizontal)
         st.traces = (st.traces or 0) + 1
         local hit, out = raw_trace(pawn, a, b)
-        if horizontal then return hit end
+        if horizontal then return hit, hit and out.ImpactPoint or nil end
         if not hit then return nil end
         local ip = out.ImpactPoint
         return ip and ip.Z, (tonumber(out.Distance) or 1) < 0.5
@@ -411,7 +417,7 @@ local function lp_begin(st, pawn, me, far, why, log)
     st.env = st.env or envelope(pawn, st.pc)
     st.lp = LP.new({ trace = make_trace(st, pawn), center = v(me), feet_z = me.Z - hh,
         radius_m = M.cfg.lp_grid_m, cell_cm = M.cfg.lp_cell_cm, env = st.env,
-        cache = lp_cache(), now = function() return now(pawn) end })
+        cache = lp_cache(), now = function() return now(pawn) end, self_pos = v(me) })
     st.lp_t0 = now(pawn)
     st.lp_far, st.lp_state, st.lp_why = v(far), "sampling", why
     st.lp_runs = (st.lp_runs or 0) + 1
@@ -832,8 +838,9 @@ local function tick(st, gen, log)
         st.probe_t = t
         local hh = st.half_h or 90
         local knee = me.Z - hh + 50
-        local a = { X = me.X, Y = me.Y, Z = knee }
-        local b = { X = me.X + dx * M.cfg.probe_ahead_cm, Y = me.Y + dy * M.cfg.probe_ahead_cm, Z = knee }
+        -- start 60 cm out: from Claude's centre the ray hits his own attached gear (live 19:22)
+        local a = { X = me.X + dx * 60, Y = me.Y + dy * 60, Z = knee }
+        local b = { X = me.X + dx * (60 + M.cfg.probe_ahead_cm), Y = me.Y + dy * (60 + M.cfg.probe_ahead_cm), Z = knee }
         local okp, hit, out = pcall(raw_trace, pawn, a, b)
         st.traces = (st.traces or 0) + 1
         if okp and hit then

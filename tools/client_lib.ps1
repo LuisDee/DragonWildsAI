@@ -51,14 +51,59 @@ function Get-SteamState {
 }
 
 # Never let the world password reach a log: the game log's Browse/LoadMap lines carry ?p=<base64 pw>.
+# Every target file (server.txt, server_<name>.txt) is redacted, not only the default one.
 function Protect-Secret([string]$s) {
     if (-not $s) { return $s }
     $s = $s -replace '\?p=[^?\s"]*', '?p=<redacted>'
-    if (Test-Path $ClientSecrets) {
-        $pw = (Get-Content $ClientSecrets -TotalCount 2 -ErrorAction SilentlyContinue | Select-Object -Skip 1 -First 1)
+    foreach ($f in @(Get-ChildItem (Split-Path $ClientSecrets) -Filter 'server*.txt' -ErrorAction SilentlyContinue)) {
+        $pw = (Get-Content $f.FullName -TotalCount 2 -ErrorAction SilentlyContinue | Select-Object -Skip 1 -First 1)
         if ($pw) { $pw = $pw.Trim(); if ($pw.Length -ge 3) { $s = $s.Replace($pw, '<redacted>') } }
     }
     $s
+}
+
+# ------------------------------------------------------------------ join targets (which server Claude joins)
+# A target is a gitignored secrets file: line 1 address (host:port), line 2 world password.
+#   shockbyte (default, Luis's world) -> client_io/secrets/server.txt
+#   <name>                            -> client_io/secrets/server_<name>.txt   (e.g. dev -> 127.0.0.1:7777)
+# Which target applies: an explicit -Target, else an unexpired lease in logs/state/client_target.json
+# (written by tools/scenario_run.py for the length of a scenario run, so the watchdog's rejoins go to the
+# same server), else shockbyte. An expired or missing lease always means shockbyte.
+$ClientDefaultTarget = 'shockbyte'
+$ClientTargetLease = Join-Path $ClientStateDir 'client_target.json'
+function Get-TargetFile([string]$Name) {
+    if (-not $Name -or $Name -eq $ClientDefaultTarget) { return $ClientSecrets }
+    if ($Name -notmatch '^[a-z0-9_]+$') { throw "bad target name '$Name' (a-z, 0-9, _)" }
+    Join-Path (Split-Path $ClientSecrets) "server_$Name.txt"
+}
+function Get-TargetAddress([string]$Name) {
+    $f = Get-TargetFile $Name
+    if (-not (Test-Path $f)) { return $null }
+    $a = Get-Content $f -TotalCount 1 -ErrorAction SilentlyContinue
+    if ($a) { $a.Trim() } else { $null }
+}
+function Get-TargetLease {
+    if (-not (Test-Path $ClientTargetLease)) { return $null }
+    try { $l = Get-Content $ClientTargetLease -Raw -ErrorAction Stop | ConvertFrom-Json } catch { return $null }
+    if (-not $l.target -or -not $l.until) { return $null }
+    try { $until = [datetime]::Parse($l.until, $null, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime() } catch { return $null }
+    if ($until -le (Get-Date).ToUniversalTime()) { return $null }
+    $l
+}
+function Resolve-ClientTarget([string]$Explicit) {
+    if ($Explicit) { return [pscustomobject]@{ name = $Explicit; source = 'explicit' } }
+    $l = Get-TargetLease
+    if ($l) { return [pscustomobject]@{ name = [string]$l.target; source = "lease (until $($l.until), by $($l.by))" } }
+    [pscustomobject]@{ name = $ClientDefaultTarget; source = 'default' }
+}
+# The server the client last loaded L_World from: the game log's "LoadMap: <host:port>/Game/Maps/World/L_World"
+# line (the ?p= part is never returned). $null when unknown (menu, fresh log, no line).
+function Get-JoinedServer {
+    if (-not (Test-Path $ClientGameLog)) { return $null }
+    $last = Select-String -Path $ClientGameLog -Pattern 'LoadMap: ' -ErrorAction SilentlyContinue | Select-Object -Last 1
+    if (-not $last) { return $null }
+    if ($last.Line -match 'LoadMap: ([0-9A-Za-z.\-]+:\d+)/Game/Maps/World/L_World') { return $Matches[1] }
+    $null
 }
 
 # Run one client_mod command through the DWClient runner (client_mod/scripts/main.lua polls

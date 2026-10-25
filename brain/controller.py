@@ -57,6 +57,8 @@ How to decide:
 - Harvesting (chop / cut / fell a tree, chop that fallen log or stump, mine a rock) -> call gather
   with the resource kind ("oak", "ash", "stone"...). gather finds standing trees, felled trees, logs
   and stumps itself, nearest first, so you do NOT need to see them in situation first.
+  Ground pickups work the same way: "stone" = loose stones on the ground, "rock" = mine a boulder,
+  also "sticks", "flax", "mushroom", berries and crops. It leaves stumps alone (they regrow).
   "chop it" = 1 more of that resource unless a count was given.
 - Multi-step jobs (gather X then build/bring Y) -> if a learned skill in learned_skills fits and its
   params are clear, call run_skill; otherwise call start_goal with the goal in plain words.
@@ -528,7 +530,11 @@ class Controller:
         data = data or {}
         spell = spell_label(data.get("spell") or (data.get("rule") or {}).get("spell"))
         reason_base = (reason or "").split(":", 1)[0]
-        if reason == Reason.CANT_SENSE:
+        detail = data.get("detail")
+        if tool == "gather" and isinstance(detail, str) and detail.strip() and reason not in Reason.CANT_YET:
+            # the client gather skill writes a truthful chat sentence for each failure (data.why = the code)
+            self.say(detail.strip())
+        elif reason == Reason.CANT_SENSE:
             self.say("I can't sense that, so I can't react to it. I can watch for attacks starting, "
                      "health levels, enemies bunching up, stuns and spell cooldowns.")
         elif reason == Reason.NOT_PERCEIVED or (reason == Reason.UNKNOWN_TARGET and tool in ("pickup", "attack", "interact")):

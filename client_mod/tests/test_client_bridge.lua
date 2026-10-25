@@ -91,7 +91,7 @@ test("start: stale brain lines and chat history are ignored; bare capabilities",
     B.RELOAD_CHECK_S = 0
     T = 1000
     B.clock = function() return T end
-    local st = B.start({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = CHAT, vitals_events = base .. "/vitals.jsonl", move_events = base .. "/move.jsonl", jlog = H.log, no_loop = true,
+    local st = B.start({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = CHAT, vitals_events = base .. "/vitals.jsonl", move_events = base .. "/move.jsonl", gather_events = base .. "/gather.jsonl", jlog = H.log, no_loop = true,
                          start_modules = true })
     assert(st.dir == DIR:gsub("\\", "/"), "dir " .. tostring(st.dir))
     step()
@@ -631,6 +631,81 @@ test("DW_PAUSE: no game work, actions end companion_down, get_state paused; clea
     assert(rpc("get_state").ok)
 end)
 
+test("gather module: async via HANDLERS, flat failure keeps why/detail, gather.jsonl -> gather_progress", function()
+    install("gather", [[
+local G = {}
+G.HANDLERS = { gather = function(log, args, ctx)
+    local a = { kind = "gather", timeout_s = 900 }
+    a.poll = function()
+        if _G.FAKE.gather_done == "ok" then return { ok = true, data = { resource = args.resource, item = "ITEM_Resources_Wood_Oak", gathered = 2 } } end
+        if _G.FAKE.gather_done == "fail" then
+            return { ok = false, reason = "wrong_tool", why = "tool_tier_too_low", need_tier = 2, have_tier = 1,
+                     detail = "My axe is too weak for that tree." }
+        end
+    end
+    a.cancel = function() _G.FAKE.gather_cancelled = true end
+    return { pending = a }
+end }
+return G
+]])
+    assert(has(rpc("capabilities").data.tools, "gather"), "gather from gather.HANDLERS")
+    local _, _, id = rpc("gather", { resource = "oak", count = 2 })
+    write(base .. "/gather.jsonl", json.encode({ type = "gather_progress", task_id = id, resource = "oak",
+                                                  item = "ITEM_Resources_Wood_Oak", have = 1, want = 2 }) .. "\n")
+    write(base .. "/gather.jsonl", json.encode({ type = "gather_status", task_id = id, phase = "swing" }) .. "\n")
+    step()
+    local out = drain()
+    local gp = events(out, "gather_progress")
+    assert(#gp == 1 and gp[1].task_id == id and gp[1].have == 1 and gp[1].want == 2, json.encode(out))
+    assert(#results(out, id) == 0, "still gathering")
+    FAKE.gather_done = "ok"
+    step()
+    local r = results(drain(), id)[1]
+    assert(r and r.ok and r.data.gathered == 2)
+    FAKE.gather_done = "fail"
+    r, _, id = rpc("gather", { resource = "yew", count = 1 }) -- fails on its first poll, same step
+    if not r then step(); r = results(drain(), id)[1] end
+    assert(r and r.reason == "wrong_tool" and r.data.why == "tool_tier_too_low" and r.data.detail:find("too weak"), json.encode(r))
+    FAKE.gather_done = nil
+    uninstall("gather")
+end)
+
+test("foliage in look (trees as instanced foliage) and interact on a fol: id verified by the inventory only", function()
+    local tree = { id = "fol:ISM_Oak:12", class = "BP_BM_Tree_Oak_01_C", kind = "foliage", foliage = "tree", name = "Oak Tree",
+                   verb = "chop", tool = "Hatchet", tool_tier = 1, position = { 4, 2, 3 } }
+    local stone = { id = "fol:ISM_Stone:3", class = "BP_Stone_C", kind = "foliage", foliage = "pickup", name = "Stone",
+                    item = "ITEM_Resources_Stone", verb = "gather", position = { 2, 2, 3 } }
+    table.insert(FAKE.world.resources, tree)
+    table.insert(FAKE.world.resources, stone)
+    FAKE.move.position = nil
+    local r = rpc("look", { about = "oak tree" })
+    local by = {}
+    for _, t in ipairs(r.data.things) do by[t.id] = t end
+    assert(by["fol:ISM_Oak:12"].actions[1] == "gather" and #by["fol:ISM_Oak:12"].actions == 1, "trees: use gather")
+    assert(by["fol:ISM_Stone:3"].actions[1] == "interact", "ground pickups: interact")
+    -- the server converted the stone near Claude: the detector targets a new actor with the same name
+    FAKE.detector_override = { actor = "BP_Stone_C_2147400001", name = "Stone", item = "ITEM_Resources_Stone", prompt = "Collect" }
+    FAKE.press_noop = true -- this fake press changes nothing
+    local _, _, id = rpc("interact", { target = "fol:ISM_Stone:3" })
+    step(); step()
+    T = T + B.INTERACT_VERIFY_S
+    step()
+    local res = results(drain(), id)[1]
+    assert(res and res.reason == "verification_failed", "no actor for a fol: id is NOT success: " .. json.encode(res))
+    FAKE.press_noop = nil
+    FAKE.extra["ITEM_Resources_Stone"] = nil
+    local presses = FAKE.presses
+    _, _, id = rpc("interact", { target = "fol:ISM_Stone:3" })
+    step(); step()
+    res = results(drain(), id)[1]
+    assert(res and res.ok and res.data.item == "ITEM_Resources_Stone" and res.data.target_gone == false, json.encode(res))
+    assert(FAKE.presses == presses + 1)
+    FAKE.detector_override = nil
+    for i = #FAKE.world.resources, 1, -1 do
+        if tostring(FAKE.world.resources[i].id):sub(1, 4) == "fol:" then table.remove(FAKE.world.resources, i) end
+    end
+end)
+
 test("module-declared HANDLERS dispatch", function()
     local r = rpc("inv_debug", { x = 7 })
     assert(r.ok and r.data.echo == 7)
@@ -665,7 +740,7 @@ test("restart via start(): old loop cancelled, new instance answers", function()
     local B2 = assert(loadfile(REPO .. "/client_mod/scripts/client_bridge.lua"))()
     B2.RELOAD_CHECK_S = 0
     B2.clock = function() return T end
-    B2.start({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = CHAT, vitals_events = base .. "/vitals.jsonl", move_events = base .. "/move.jsonl", jlog = H.log, poll_ms = 50 })
+    B2.start({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = CHAT, vitals_events = base .. "/vitals.jsonl", move_events = base .. "/move.jsonl", gather_events = base .. "/gather.jsonl", jlog = H.log, poll_ms = 50 })
     local handle, loop = nil, nil
     for h, l in pairs(H.loops) do handle, loop = h, l end
     assert(loop and loop.delay_ms == 50, "loop registered")

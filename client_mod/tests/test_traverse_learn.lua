@@ -218,7 +218,7 @@ if os.getenv("DBG") then for _, l in ipairs(store.links) do print(json.encode(l)
 local ja = bymove["jump/up"]
 check("A: jump-up link, merged twice", ja and ja.n_seen == 2 and ja.status == "demonstrated" and ja.dz_m > 1.0 and ja.dz_m < 1.4,
     ja and json.encode(ja))
-check("A: endpoints blended (from y ~ 0.2 m)", ja and math.abs(ja.from[2] - 0.2) < 0.15, ja and json.encode(ja.from))
+check("A: endpoints blended (from y ~ 0.2 m), feet level (z 0 / 1.2)", ja and math.abs(ja.from[2] - 0.2) < 0.15 and math.abs(ja.from[3]) < 0.05 and math.abs(ja.to[3] - 1.2) < 0.05, ja and json.encode({ ja.from, ja.to }))
 local sj = bymove["sprint_jump/gap"]
 check("C: sprint-jump gap link with width/depth", sj and sj.gap_m and sj.gap_m >= 2 and sj.gap_depth_m >= 5 and sj.needs.sprint == true,
     sj and json.encode(sj))
@@ -323,6 +323,17 @@ local c3 = L2.classify(ev({ land = { X = 300, Y = 0, Z = 88 + 250 }, apex = 88 +
 check("classify: 3.3 m rise with jump count 2 = double jump", c3.move == "double_jump" and c3.shape == "up", c3.move)
 local c4 = L2.classify(ev({ land = { X = 300, Y = 0, Z = 88 }, air = 0.05 }))
 check("classify: blip", c4.why == "blip")
+
+-- hooks that fail at start (main menu) are retried from the tick once in the world
+_G.DW_LEARN = nil
+local real_rh = RegisterHook
+RegisterHook = function() error("class not loaded") end
+local L3 = dofile(FILE)
+local r3 = L3.start(log, { world = "testC" })
+check("start survives failing hooks", r3.ok and L3.status().hooks == 0)
+RegisterHook = real_rh
+for _ = 1, 60 * 11 do frame() end
+check("hooks retried and registered from the tick", L3.status().hooks == 3, L3.status().hooks)
 
 print(string.format("\n%d passed, %d failed (traces=%d)", passes, fails, traces))
 os.exit(fails == 0 and 0 or 1)

@@ -18,7 +18,8 @@
 -- Files (world = DW world id, see world_id()):
 --   raw events  <root>/logs/state/worlds/<world>/traversal_events.jsonl   (gitignored, append-only)
 --   link store  <root>/data/skills/<world>/traversal_links.json           (git-tracked; ONE writer: this module)
--- API for move.lua (positions: {x,y,z} metres or {X,Y,Z} centimetres; results in metres):
+-- API for move.lua (positions: {x,y,z} metres or {X,Y,Z} centimetres; results in metres). Link
+-- endpoints are FEET level (capsule centre - half height); raw-event samples are capsule centres.
 --   M.links_near(pos, radius_m, opts) -> { link..., d_m } sorted by distance of link.from
 --   M.best_link(from, to, opts)       -> link, info | nil, reason   (detour cost through one link)
 --   M.usable(link, env)               -> bool, reason ("needs:DoubleJump", "disabled", ...)
@@ -481,7 +482,10 @@ function M.probe_gap(ctx, take, land, half_h, trace)
     for i = 1, n do
         local f = i / (n + 1)
         local x, y = take.X + (land.X - take.X) * f, take.Y + (land.Y - take.Y) * f
-        local z, inside = trace(ctx, x, y, z0, z1)
+        -- the jumper stands at the landing point while we probe, and traces hit attached gear
+        -- (bIgnoreSelf skips only the context pawn): no probe within 1 m of the landing
+        local z, inside
+        if horiz * (1 - f) >= 100 then z, inside = trace(ctx, x, y, z0, z1) else inside = true end
         if not inside then
             valid_n = valid_n + 1
             local depth = z and (low - z) or 500
@@ -609,6 +613,12 @@ local function close_event(tr, t, land, why_abort, ctx, log)
         local ok, g = pcall(M.probe_gap, ctx, e.take, e.land, tr.half_h or 88, M._trace)
         e.gap = ok and g or { gap = false, err = tostring(g) }
     end
+    -- links are stored at FEET level (floor points), like nav waypoints; the actor location is the
+    -- capsule centre (move.lua's landing check compares feet with link.to.Z)
+    local hh = tr.half_h or 88
+    e.take = { X = e.take.X, Y = e.take.Y, Z = e.take.Z - hh }
+    e.land = { X = e.land.X, Y = e.land.Y, Z = e.land.Z - hh }
+    e.apex_z = e.apex_z - hh
     local c = M.classify(e)
     s.counts.events = s.counts.events + 1
     if why_abort then s.counts.aborted = s.counts.aborted + 1 end
@@ -780,6 +790,13 @@ local function tick(log)
     s.last_now = t
     s.counts.ticks = s.counts.ticks + 1
     s.status = "recording"
+    -- hooks registered at the main menu (or while paused) can fail: retry in the world every 10 s
+    local nh = 0
+    for _ in pairs(s.hooks) do nh = nh + 1 end
+    if nh < #M.HOOKS and (not s.hook_try_t or t - s.hook_try_t >= 10) then
+        s.hook_try_t = t
+        register_hooks(log)
+    end
     if not s.disc_t or t - s.disc_t >= M.cfg.discover_s then
         s.disc_t = t
         discover(s, me, log)

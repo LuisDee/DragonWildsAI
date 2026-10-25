@@ -408,7 +408,7 @@ local function roots_near(J, me, radius_cm)
             if not dup and not is_bad(r.id, J.t) then
                 out[#out + 1] = { key = r.id, kind = "foliage", stage = "root", pos = r._pos, attack = root.attack or "primary",
                                   reach_cm = root.reach_cm or 130, name = r.name, tier = r.tool_tier, tool = r.tool,
-                                  d = U.dist2d(me, r._pos), max_hp = r.max_health, class = r.class }
+                                  d = U.dist2d(me, r._pos), max_hp = r.max_health, class = r.class, item = r.item }
             end
         end
     end
@@ -595,6 +595,7 @@ local function step_scan(J, me)
     if T then
         J.T = T
         T.side, T.aim_i, T.noeff, T.presses, T.g0 = 0, 1, 0, 0, J.gained or 0
+        if J.profile.mode == "pickup" and T.item then J.learn_item = J.learn_item or T.item end
         J.radius_tries = 0
         if T.kind == "drop" then return set_phase(J, "collect", T.key) end
         return set_phase(J, "approach", string.format("%s %s %.1f m", T.stage, tostring(T.name), (T.d or 0) / 100))

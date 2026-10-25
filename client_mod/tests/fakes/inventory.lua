@@ -59,6 +59,11 @@ end
 function M.press_interact(log)
     F.presses = (F.presses or 0) + 1
     if F.press_noop then return { ok = true, action = "IA_Interact" } end
+    local o = F.detector_override
+    if o and o.item then -- the detector's (converted) target is what the press takes
+        F.extra[o.item] = (F.extra[o.item] or 0) + 1
+        return { ok = true, action = "IA_Interact" }
+    end
     local r, cat, i = near()
     if r and (cat == "items" or r.kind == "gatherable" or r.contents) then
         table.remove(F.world[cat], i)

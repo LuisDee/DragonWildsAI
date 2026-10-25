@@ -39,6 +39,12 @@ function LP.new(o)
     self.c = { X = math.floor(o.center.X / self.cell + 0.5) * self.cell,
                Y = math.floor(o.center.Y / self.cell + 0.5) * self.cell, Z = o.center.Z }
     self.cache = o.cache
+    -- Claude's own position: bIgnoreSelf ignores his pawn but NOT his attached gear actors (armour,
+    -- held tool), which block Visibility traces. Live 19:22: every edge leaving his own cell hit
+    -- his gear -> "walls everywhere". Cells within self_r use his feet height (he stands there),
+    -- and wall checks skip the part of a segment within self_r of him.
+    self.self_pos = o.self_pos
+    self.self_r = o.self_r or 80
     self.now = o.now or os.clock
     self.cache_hits = 0
     self.r = math.floor((o.radius_m or 12) * 100 / self.cell)
@@ -55,6 +61,7 @@ function LP.new(o)
     self.blocked = {}                          -- edge key -> true (lazy wall checks)
     self.edge_ok = {}
     self.steep = {}                            -- edge key -> true: a "slope" walk that is really a step
+    self.wall_pts = {}                         -- horizontal-check hit points: edges passing near one are walls
     self.queue = {}
     -- spiral order from the centre outwards, so a partial grid is still useful
     for ring = 0, self.r do
@@ -74,14 +81,22 @@ function LP:pos(i, j) return self.c.X + i * self.cell, self.c.Y + j * self.cell 
 
 -- Sample one cell (2 traces). Layers with < head clearance between them collapse to one.
 -- Floor heights (cm) of one world cell: up to two layers, from a trace starting just above our
--- level and one from high above (a ledge over an alcove is a separate layer). Layers closer than
--- head clearance collapse to one (a roof that low is part of the same surface for us).
+-- level and one from high above (a ledge over an alcove is a separate layer). Two surfaces closer
+-- than head clearance are ONE walkable surface: the upper one (the lower has no headroom).
 local function cell_floors(trace, x, y, feet, lo_off, hi_off, depth, head)
     local lo, lo_pen = trace({ X = x, Y = y, Z = feet + lo_off }, { X = x, Y = y, Z = feet - depth })
     local hi, hi_pen = trace({ X = x, Y = y, Z = feet + hi_off }, { X = x, Y = y, Z = feet - depth })
     local zs = {}
-    if lo and not lo_pen then zs[#zs + 1] = lo end
-    if hi and not hi_pen and (not lo or lo_pen or hi > lo + head) then zs[#zs + 1] = hi end
+    local lo_ok, hi_ok = lo and not lo_pen, hi and not hi_pen
+    if lo_ok and hi_ok and hi > lo + 5 and hi <= lo + head then
+        -- something sits less than head clearance above the low floor: the low floor has NO
+        -- headroom (e.g. the ground under a ramp, live 19:22 church start area), and the upper
+        -- surface (first hit from above, so open above) is the walkable one. Keep only that.
+        zs[1] = hi
+        return zs
+    end
+    if lo_ok then zs[#zs + 1] = lo end
+    if hi_ok and (not lo_ok or hi > lo + head) then zs[#zs + 1] = hi end
     return zs
 end
 
@@ -107,6 +122,10 @@ end
 
 function LP:sample(i, j)
     local x, y = self:pos(i, j)
+    if self.self_pos and math.sqrt((x - self.self_pos.X) ^ 2 + (y - self.self_pos.Y) ^ 2) < self.self_r then
+        self.nodes[key(i, j)] = { { z = self.feet, i = i, j = j } }
+        return 0
+    end
     local k = ckey(x, y, self.cell)
     local now = self.now()
     local zs = cache_get(self.cache, k, self.feet, now)
@@ -156,6 +175,29 @@ function LP:edge(a, b)
     return nil
 end
 
+-- 2D distance from point p to segment a-b
+local function seg_dist(px, py, ax, ay, bx, by)
+    local vx, vy = bx - ax, by - ay
+    local l2 = vx * vx + vy * vy
+    local t = l2 > 0 and math.max(0, math.min(1, ((px - ax) * vx + (py - ay) * vy) / l2)) or 0
+    local qx, qy = ax + vx * t, ay + vy * t
+    return math.sqrt((px - qx) ^ 2 + (py - qy) ^ 2)
+end
+
+-- Does the edge between two nodes pass a known wall hit (from an earlier lazy check)? One hit then
+-- rules out every edge across that wall nearby, instead of one re-plan per crossing edge (a thin
+-- wall spanning many cells exhausted the 12-round budget: "walls everywhere").
+function LP:crosses_wall(a, b)
+    if #self.wall_pts == 0 then return false end
+    local ax, ay = self:pos(a.i, a.j)
+    local bx, by = self:pos(b.i, b.j)
+    local top = math.max(a.z, b.z)
+    for _, w in ipairs(self.wall_pts) do
+        if w.Z > top and w.Z < top + 150 and seg_dist(w.X, w.Y, ax, ay, bx, by) < 45 then return true end
+    end
+    return false
+end
+
 -- A* over the sampled nodes from the node nearest to the centre at our level, toward `goal`
 -- (cm). If the goal is off-grid, the target is the reachable node closest to it.
 function LP:plan(goal)
@@ -200,7 +242,7 @@ function LP:plan(goal)
                 for dj = -1, 1 do
                     if di ~= 0 or dj ~= 0 then
                         for _, nb in ipairs(self.nodes[key(cur.i + di, cur.j + dj)] or {}) do
-                            if not closed[nb] and not self.blocked[ekey(cur, nb)] then
+                            if not closed[nb] and not self.blocked[ekey(cur, nb)] and not self:crosses_wall(cur, nb) then
                                 local kind, extra = self:edge(cur, nb)
                                 if kind then
                                     local step = ((di ~= 0 and dj ~= 0) and 1.414 or 1) * cell + extra * cell
@@ -256,7 +298,21 @@ function LP:verify(pts, budget)
                 end
             end
             local z = (b.act == "jump" or b.act == "djump") and (math.max(a.Z, b.Z) + 60) or (math.max(a.Z, b.Z) + 50)
-            local hit = self.trace({ X = a.X, Y = a.Y, Z = z }, { X = b.X, Y = b.Y, Z = z }, true)
+            -- clip the part of the segment within self_r of Claude (his own gear)
+            local ax, ay, bx, by = a.X, a.Y, b.X, b.Y
+            local sp = self.self_pos
+            if sp then
+                local function near(px, py) return math.sqrt((px - sp.X) ^ 2 + (py - sp.Y) ^ 2) < self.self_r end
+                local n = 0
+                while near(ax, ay) and n < 10 do ax, ay = ax + (bx - ax) * 0.2, ay + (by - ay) * 0.2; n = n + 1 end
+                n = 0
+                while near(bx, by) and n < 10 do bx, by = bx + (ax - bx) * 0.2, by + (ay - by) * 0.2; n = n + 1 end
+            end
+            local hit, hp = false, nil
+            if math.sqrt((bx - ax) ^ 2 + (by - ay) ^ 2) > 10 then
+                hit, hp = self.trace({ X = ax, Y = ay, Z = z }, { X = bx, Y = by, Z = z }, true)
+            end
+            if hit and type(hp) == "table" and hp.X then self.wall_pts[#self.wall_pts + 1] = { X = hp.X, Y = hp.Y, Z = z } end
             used, self.traces = used + 1, self.traces + 1
             if hit then
                 self.blocked[ek] = true
