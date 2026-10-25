@@ -1176,3 +1176,45 @@ Modules: `client_mod/scripts/gather.lua` (the job), `client_mod/scripts/gather_p
     - **The client then hung** (last mod line 19:37:01, move's local plan #3). The watchdog took a stack (`logs/client/hang_9728_20261025_203801.txt`), killed the client at 19:38:06 and rebooted it, back in the world at 19:38:59.
     - No interact press, swing or equip had happened. Gather was only polling `move.status`, `FindAllOf` and `inventory.list` (1 Hz) while move.lua planned. That run had `t.MaxFPS=30`.
   - Still **UNVERIFIED live**: a swing's hit on a tree, the felled chain on the client, magnet or interact collection, and the inventory delta.
+
+## Traversal learning (R2) (2026-10-25, 19:24-19:45 UTC, client build 26162923, Shockbyte world, read-only)
+Module: `client_mod/scripts/traverse_learn.lua` (task R2.12; design `docs/research/2026-10-25-traversal.md` 3.5). Commands: `client_mod/commands/learn_start.lua`, `learn_status.lua`, `learn_stop.lua`. Offline test: `lua client_mod/tests/test_traverse_learn.lua <empty_dir>` (36 checks).
+- **What it is.** A read-only recorder: one `LoopInGameThreadWithDelay(1)` loop, about 120 Hz live.
+  - It never moves the pawn or presses input.
+  - Per frame and per tracked pawn (every other player via PlayerState `PawnPrivate`, plus Claude himself), it reads `CharacterMovement.MovementMode`, `.Velocity`, `ReplicatedJumpCurrentCount` (and `JumpCurrentCount` on the local pawn) and `K2_GetActorLocation`.
+  - An event opens on falling (mode 3) or a jump-count change, and closes on landing.
+  - It honours `_G.DW_PAUSE` and an invalid controller/pawn: verified offline, no UObject reads while paused.
+- **Proxy reads VERIFIED live.** On Luis's simulated proxy, `CharacterMovement.MovementMode` reads 3 in the air and 1 on the ground, and `ReplicatedJumpCurrentCount` reads 1 then 2 within the jump.
+  - Luis's double jump: the count went 1→2 at **0.31-0.33 s** after take-off, with vz 201→670 cm/s (second impulse). That matches move.lua's 0.35 s second Jump.
+  - Measured double-jump rise **3.11 m** (dz 3.03 m onto a ledge, air 0.64 s) and **2.69 m** (dz 2.53 m, air 0.51 s), both sprinting (6.0-6.8 m/s).
+  - So a rise of 2.5-3.1 m is a double jump, not Windstep. The recorder calls it Windstep only on a Windstep cast since the last landing, a rise > 2.5 m on a single jump, or a rise > 4.5 m.
+- **`ReplicatedJumpCurrentCount` is STALE on proxies after landing.** It stayed 2 through Luis's walk-off drop 1 s after a double jump (19:40:48), so that drop was first misclassified as double_jump. It reads 0 again at other times.
+  - **Rule:** only a *change* from the grounded baseline is a jump signal, never the absolute value.
+  - Fixed, with the fake leader in the test now keeping a stale count. L2 and its raw event were corrected by hand.
+- **Take-off speed on walk-off drops reads 9-12 m/s** (last grounded `Velocity` of the proxy). That is implausible for running (sprint 6.8), possibly proxy smoothing at the edge. It is only used for the sprint_jump label on jumps; on jumps the values look right (6.0-6.8). Open.
+- **Multicast hooks** `PlayerEvadeComponent:Multicast_StartEvade`, `PlayerMagicComponent:Multicast_SendPayloadForSpellCasting` and `DominionMovementComponent:Multicast_ApplyFallDamage` register on the client (`ok=true`). No hit was seen yet (hook_hits 0: Luis did not evade or cast in range). So **Windstep and Air Dash detection on live data is UNVERIFIED**; it is offline-tested only. If hooks fail at the main menu, they are retried from the tick every 10 s.
+- **First live links** (data/skills/shockbyte/traversal_links.json; feet-level endpoints, metres):
+  - L1 double_jump up 3.03 m (51.7,1889.3,-36.0)→(55.2,1885.9,-33.0);
+  - L2 drop 3.37 m; L3 drop 3.05 m;
+  - L4 double_jump up 2.53 m (117.4,1836.7,-32.1)→(121.0,1835.0,-29.6);
+  - L5 drop 1.87 m.
+  - All are `demonstrated` (Claude lacks Double Jump, so L1/L4 are `usable=false`, reason `needs:DoubleJump`).
+  - Claude's own local-planner step-ups (dz 0.61-0.63 m) were seen and correctly not turned into links (below the 1.0 m self threshold); they still verify a matching link.
+- **Classification:**
+  - shape: up (dz ≥ 0.6 m), down (dz ≤ -1.5 m), gap (a flat flight ≥ 1.5 m with downward traces under it finding no floor within 1 m below the lower end), else flat (a hop: raw event only, no link);
+  - move: drop | jump | sprint_jump (take-off > 5.2 m/s) | double_jump | air_dash (an evade multicast mid-air, or a horizontal speed rise > 3 m/s in 0.2 s) | windstep. The easiest move seen to cross a link is what it needs.
+- **Clustering:** leader clustering. A new event merges into a link when from is within 1.5 m, to within 2.0 m and the heading is within 25°. Endpoints are a member-weighted running mean, and `n_seen++`. Self crossings within 2 m of both endpoints mark the link **verified** (`n_ok++`) and never move it. `record_attempt` failures 3 times in a row → `disabled`.
+- **Traces hit attached gear:** `LineTraceSingle`'s bIgnoreSelf skips only the context pawn, not its attached armour or held actors (locomotion agent). Gap probes therefore skip points within 1 m of the landing, where the jumper stands.
+- **Files:**
+  - raw events `logs/state/worlds/<world>/traversal_events.jsonl` (one line per airborne event, with up to 120 airborne samples `[dt,x,y,z(capsule),mode,jc,vz]` for replay fixtures);
+  - links `data/skills/<world>/traversal_links.json` (git-tracked; this module is the single writer; `rebuild` re-clusters from raw events).
+  - World id: `DW_WORLD_GUID` (global or env), else `client_io/world_guid.txt`, else `shockbyte`.
+- **move.lua consumes it (locomotion agent, move.lua v6):** `best_link(me, goal, {env, max_detour=3})` at the unreachable give-up, then `record_attempt`. A nil result with `needs:X` becomes the unreachable reason. Not yet in localplan A* edges.
+- **Search (search-before-building, 2026-10-25):**
+  - Queries on learning off-mesh/jump links from player trajectories, CS bot learn modes, trajectory/flight-phase segmentation and online leader clustering.
+  - **No source turns recorded human jumps into navmesh links.** Unity, UE and Recast generate links from geometry: docs.unity3d.com nav-BuildingOffMeshLinksAutomatically; dev.epicgames.com automatic-navigation-link-generation; Utrecht thesis studenttheses.uu.nl/handle/20.500.12932/22818.
+  - CS bots use hand-placed jump hints (developer.valvesoftware.com Nav_Mesh_Editing; RealBot learns without human guidance).
+  - The closest prior art is a patent family building route links from aggregated player telemetry, dropping rarely used links (USPTO 10406437 / 11235241). That supports our `n_seen`-based confidence.
+  - Phase segmentation in the flight-trajectory literature is rule- or HMM-based on altitude and vertical rate (arxiv.org/abs/2203.09033; TU Delft JOAS HMM flight phases). We adapt the rule-based form, since the engine gives us the movement mode directly.
+  - Leader (threshold) clustering with member-weighted merges is the standard online pattern (arxiv.org/abs/1506.07208; arxiv.org/abs/2006.01117).
+  - Decision: **adapt** (off-mesh link model, rule-based phase segmentation, leader clustering) and **build** the thin recorder. No library was needed.

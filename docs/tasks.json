@@ -431,7 +431,7 @@
    "id": "R2.12",
    "phase": "R2",
    "title": "Learned jump links from Luis's movement + per-world link store",
-   "status": "todo",
+   "status": "in_progress",
    "passes_test": false
   },
   {

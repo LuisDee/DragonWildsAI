@@ -73,6 +73,7 @@ local function make_pawn(name, x, y)
     return p
 end
 local luis = make_pawn("Zezima", 0, 0)
+luis.stale_jc = true -- like the real proxy
 local claude = make_pawn("Claude", 0, -3000)
 local pawns = { luis, claude }
 local function ps(p, n)
@@ -126,7 +127,9 @@ local function sim(p)
         if c and c[1] == "jump" and c[5] and not c.ev and T - c.t >= c[5] then c.ev = true; fire(EVADE, p.evade); p.vel.X = p.vel.X + 500 end
         local f = floor_at(p.feet.X, p.feet.Y)
         if p.vel.Z <= 0 and p.feet.Z <= f then
-            p.feet.Z, p.vel, p.mode, p.jc = f, { X = 0, Y = 0, Z = 0 }, 1, 0
+            -- proxies keep a STALE ReplicatedJumpCurrentCount after landing (live 19:40:48)
+            p.feet.Z, p.vel, p.mode = f, { X = 0, Y = 0, Z = 0 }, 1
+            if not p.stale_jc then p.jc = 0 end
             if c and (c[1] == "jump" or c[1] == "walkoff") then p.cmd = nil end
         end
     elseif c then

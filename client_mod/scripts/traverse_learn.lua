@@ -109,7 +109,7 @@ end
 local function heading(a, b) return math.deg(math.atan(b.Y - a.Y, b.X - a.X)) end
 local function ang(a, b) local d = math.abs(a - b) % 360; return d > 180 and 360 - d or d end
 local function iso(t) return os.date("!%Y-%m-%dT%H:%M:%SZ", t or os.time()) end
-local function try(f) local ok, x = pcall(f); if ok then return x end end
+local function try(f) local ok, x = pcall(f); if ok then return x end; return nil end
 local function valid(o) return o ~= nil and try(function() return o:IsValid() end) == true end
 
 local function mkdir(p)
@@ -437,6 +437,7 @@ function M.classify(e)
         gap_m = e.gap and e.gap.gap and r2((e.gap.width_cm or 0) / 100) or nil,
         gap_depth_m = e.gap and e.gap.gap and r2((e.gap.depth_cm or 0) / 100) or nil,
         jc_max = e.jc_max, fall_damage = e.fall_damage, sprint = v0h > c.sprint_cms, inputs = inputs,
+        land_mode = e.land_mode, land_vz = e.land_vz,
     }
 end
 
@@ -663,15 +664,19 @@ local function step_tracker(tr, t, ctx, log)
     local swimming = mode == MODE_SWIMMING
     local e = tr.ev
     if not e then
-        if airborne or (jc > (tr.last_jc or 0) and vel.Z > 100) then
+        -- ReplicatedJumpCurrentCount on a proxy is STALE after landing (live 19:40:48: it stayed 2
+        -- through a walk-off one second after a double jump), so only a CHANGE from the grounded
+        -- baseline counts as a jump signal, never the absolute value.
+        local base = tr.ground_jc or 0
+        if airborne or (jc ~= base and jc >= 1 and vel.Z > 100) then
             local take = tr.ring[#tr.ring] and tr.last_ground or pos
             tr.ring_before = tr.ring
             tr.ring = {}
-            e = { t0 = t, take = take, v0 = tr.last_ground_vel or vel, apex_z = math.max(pos.Z, take.Z), jc_max = jc,
+            e = { t0 = t, take = take, v0 = tr.last_ground_vel or vel, apex_z = math.max(pos.Z, take.Z), jc_max = 0,
+                  jc_base = base, jc_prev = base,
                   jc_times = {}, impulses = {}, dashes = {}, samples = {}, last = pos, prev_vz = vel.Z,
                   hs = { { t = t, h = math.sqrt(vel.X ^ 2 + vel.Y ^ 2) } } }
             if e.v0.Z < vel.Z then e.v0 = { X = e.v0.X, Y = e.v0.Y, Z = vel.Z } end
-            if jc >= 1 then e.jc_times[1] = 0 end
             tr.ev = e
         else
             -- grounded: ring of take-off candidates
@@ -680,16 +685,17 @@ local function step_tracker(tr, t, ctx, log)
                 r[#r + 1] = pos
                 if #r > c.ground_ring then table.remove(r, 1) end
             end
-            tr.last_ground, tr.last_ground_vel = pos, vel
+            tr.last_ground, tr.last_ground_vel, tr.ground_jc = pos, vel, jc
         end
     end
     if e then
         local dt = t - e.t0
         e.apex_z = math.max(e.apex_z, pos.Z)
-        if jc > e.jc_max then
-            for k = e.jc_max + 1, jc do e.jc_times[k] = dt end
-            e.jc_max = jc
+        if jc ~= e.jc_prev and jc >= 1 then -- a jump (1) or second jump (2) happened now
+            e.jc_max = math.max(e.jc_max, jc)
+            e.jc_times[jc] = e.jc_times[jc] or dt
         end
+        e.jc_prev = jc
         if airborne then
             -- a second upward impulse mid-air (double jump / Windstep boost) when the count lags.
             -- Airborne frames only: the landing frame zeroes a falling velocity (not an impulse).
@@ -716,9 +722,10 @@ local function step_tracker(tr, t, ctx, log)
                 tr.ring = tr.ring_before or {}
             else
                 e.water = swimming or nil
+                e.land_mode, e.land_vz = mode, math.floor(vel.Z)
                 close_event(tr, t, pos, nil, ctx, log)
                 tr.ring = { pos }
-                tr.last_ground, tr.last_ground_vel = pos, vel
+                tr.last_ground, tr.last_ground_vel, tr.ground_jc = pos, vel, jc
             end
         elseif dt > c.max_air_s then
             close_event(tr, t, pos, "too_long_airborne", nil, log)
@@ -726,6 +733,9 @@ local function step_tracker(tr, t, ctx, log)
     end
     tr.last, tr.last_jc, tr.mode, tr.hspeed, tr.vz = pos, jc, mode, math.sqrt(vel.X ^ 2 + vel.Y ^ 2), vel.Z
     if mode == MODE_FALLING then tr.falling_frames = (tr.falling_frames or 0) + 1 end
+    tr.modes = tr.modes or {}
+    local mk = tostring(mode)
+    tr.modes[mk] = (tr.modes[mk] or 0) + 1
     if jc > 0 then tr.jc_frames = (tr.jc_frames or 0) + 1 end
 end
 
@@ -819,7 +829,7 @@ function M.start(log, opts)
     opts = opts or {}
     local s = S()
     local world, src = M.world_id(opts.world)
-    if s.world ~= world then
+    if s.world ~= world or s.stopped then -- after stop() re-read the file (hand edits / forget via git)
         if s.dirty then M.save(true) end
         s.store, s.events_dir_ok, s.links_dir_ok = nil, nil, nil
     end
@@ -875,7 +885,7 @@ function M.status()
     for name, tr in pairs(s.trackers) do
         trackers[#trackers + 1] = { name = tr.name, self = tr.self, leader = tr.leader, airborne = tr.ev ~= nil, errors = tr.errors,
             mode = tr.mode, jc = tr.last_jc, speed_ms = r2((tr.hspeed or 0) / 100), vz = tr.vz and math.floor(tr.vz),
-            pos = tr.last and m3(tr.last), falling_frames = tr.falling_frames, jc_frames = tr.jc_frames }
+            pos = tr.last and m3(tr.last), falling_frames = tr.falling_frames, jc_frames = tr.jc_frames, modes = tr.modes }
     end
     local hooks = 0
     for _ in pairs(s.hooks) do hooks = hooks + 1 end

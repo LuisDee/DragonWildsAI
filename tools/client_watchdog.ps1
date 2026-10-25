@@ -89,6 +89,7 @@ function Stop-Client([string]$why) {
 }
 
 $script:bootFails = 0
+$script:inWorldPid = $null   # pid a probe last saw in the world (ends the boot grace early)
 function Recover-Client([string]$why, [switch]$Kill, $proc) {
     if (Get-ClientHold) { return }
     if (-not (Allow-Restart $why)) { return }
@@ -225,7 +226,10 @@ while ($true) {
                     $script:lastProbe = Get-Date
                     $script:p = Get-ClientProbe 12
                     if ($script:p) { $script:probeFails = 0 } else { $script:probeFails++ }
-                    $hung = -not $script:p -and $ageProc -gt $GraceS -and ($stale -or $script:probeFails -ge $ProbeFails)
+                    # The boot grace ends early once a probe has seen this process in the world (hangs can
+                    # strike within a minute of joining: DISCOVERIES "Client hang (R2)").
+                    $pastGrace = $ageProc -gt $GraceS -or $script:inWorldPid -eq $proc.Id
+                    $hung = -not $script:p -and $pastGrace -and ($stale -or $script:probeFails -ge $ProbeFails)
                     if ($hung) {
                         $state = 'hung'
                         Ev 'client_hang' @{ pid = $proc.Id; cpu_cores = $cpu; game_log_age_s = $gameAge; mod_log_age_s = $modAge;
@@ -236,7 +240,7 @@ while ($true) {
                     } elseif ($script:p) {
                         $inWorld = $script:p.map -eq 'L_World' -and $script:p.pawn -and -not $script:p.paused
                         $state = if ($inWorld) { 'in_world' } elseif ($script:p.map -eq 'L_World' -and $script:p.pawn) { 'paused' } elseif ($script:p.map -eq 'L_World') { 'no_pawn' } else { 'menu' }
-                        if ($inWorld) { $script:notWorldSince = $null }
+                        if ($inWorld) { $script:notWorldSince = $null; $script:inWorldPid = $proc.Id }
                         elseif (-not $script:notWorldSince) { $script:notWorldSince = Get-Date }
                         elseif (((Get-Date) - $script:notWorldSince).TotalSeconds -gt $DisconnectS -and $ageProc -gt $GraceS -and -not $held) {
                             Ev 'client_disconnected' @{ map = $script:p.map; screen = $script:p.screen; pawn = $script:p.pawn;
