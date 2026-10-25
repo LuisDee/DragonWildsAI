@@ -115,3 +115,20 @@ Luis relies on spells: **a shield spell**, and **wind jump**, whose landing stun
 - **Reflex layer:** utility scoring. Each castable spell is scored against the situation (chopping with an axe, enemy cluster, incoming telegraph, damaged item); the best spell above a threshold is cast. No LLM involved.
 - **Controller:** sees the short list of castable spells; follows Luis's instructions; stores habits in notes via `remember`.
 - **Rune policy** (`spells.cost_policy`): free | budget (the bot's own runes in its inventory store) | mirror (only Luis's unlocked spells). Proposed default: mirror + budget, with free as a debug toggle. **Awaiting Luis's choice.**
+
+## 10. Learning on the go: standing orders become reflex rules (Luis, 2026-10-25)
+- Model calls are stateless. Memory lives in our files: `notes.json` via `remember()`, the task tree, and the progress log. Relevant parts go into each call (CLAUDE.md principle 4).
+- "Claude, every time it does X, do Y" (e.g. during a boss fight):
+  - The Controller converts it into a structured **reflex rule** via a tool `set_reflex_rule(trigger, action, scope)`.
+  - The body executes the rule at tick speed. It persists per enemy type, so it is reused at the next encounter.
+- **Triggers** = only what the body can sense: enemy telegraph or attack id (`DominionAiAttackComponent` TELEGRAPH), enemy HP %, enemy count/cluster, own or Luis's HP %, enemy stunned, buff/debuff tags, spell cooldown ready.
+- **Actions:** evade, block, cast <spell> (with target mode), switch weapon, retreat to Luis, focus target, use item.
+- If a requested trigger isn't sensable, the Controller says so.
+- Tasks: P7.R1 (body: rule engine + trigger sensors), P7.R2 (brain: `set_reflex_rule`, `list_rules`, `clear_rule` tools, per-enemy persistence).
+
+## 11. Game patches: delta pipeline
+- Update via SteamCMD; regenerate the reflection dump.
+- **Dump diff** (new / removed / changed classes, functions, properties) flags breakage of anything we call or hook.
+- **Catalog rebuild and diff** (items / spells / enemies). New weapons, bosses and items are mostly auto-supported via the catalogs; new spells get LLM-drafted role tags for review.
+- **Smoke tests**, then a delta report listing what is auto-supported, what needs review and what is broken.
+- Built by the patch-pipeline agent: `tools/patch_pipeline.py` and `docs/RUNBOOK-patch.md`.

@@ -1,0 +1,147 @@
+"""Generate mod/body/attack_data.lua, the compact melee combo table the body's attack loop uses,
+from the item catalog data/items_<build>.json (tools/build_catalog.py; schema in data/README.md).
+
+The mod never parses the big catalog JSON at runtime: this keeps only melee weapons, their
+primary combo chain and their special, with swing timing in milliseconds.
+
+  .venv\\Scripts\\python.exe -m tools.gen_attack_data                 # newest data/items_*.json
+  .venv\\Scripts\\python.exe -m tools.gen_attack_data --catalog data\\items_26161880.json
+
+Per attack step (from the catalog's attacks[<class>].timing, read from the montage notifies):
+  next_ms   when the following swing may be issued: the end of the AttackInputWindow (the combo
+            input window), and never earlier than the last damage point + DAMAGE_MARGIN_S;
+  reset_ms  AttackResetChain: after this long without a new swing the game's chain resets;
+  dmg_ms    first damage point (logging / tests only).
+Steps without timing get FALLBACK_NEXT_MS / FALLBACK_RESET_MS (the old verified 1.25 s cadence).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+from brain.paths import REPO_ROOT
+
+OUT = REPO_ROOT / "mod" / "body" / "attack_data.lua"
+DAMAGE_MARGIN_S = 0.2
+FALLBACK_NEXT_MS = 1250
+FALLBACK_RESET_MS = 2500
+
+
+def cdo_path(class_path: str) -> str:
+    """'/Pkg/PA_X.PA_X_C' -> '/Pkg/PA_X.Default__PA_X_C' (the action's class default object,
+    the FPlayerActionInstance.Data that BP_PerformAttack was verified with)."""
+    pkg, name = class_path.rsplit(".", 1)
+    return f"{pkg}.Default__{name}"
+
+
+def step(attacks: dict, cls: str) -> dict:
+    rec = attacks.get(cls) or {}
+    t = rec.get("timing") or {}
+    rate = t.get("rate") or 1.0
+    rate = rate if rate > 0 else 1.0
+    win = t.get("input_window")
+    dmg = t.get("damage_points") or []
+    nxt = None
+    if win or dmg:
+        nxt = max(win[1] if win else 0.0, (max(dmg) + DAMAGE_MARGIN_S) if dmg else 0.0) / rate
+    reset = t.get("reset_chain")
+    out = {
+        "cls": cls,
+        "damage": rec.get("damage"),
+        "stamina": rec.get("stamina_cost"),
+        "special_cost": rec.get("special_charge_cost") or None,
+        "next_ms": round(nxt * 1000) if nxt else FALLBACK_NEXT_MS,
+        "reset_ms": round(reset / rate * 1000) if reset else FALLBACK_RESET_MS,
+        "dmg_ms": round(dmg[0] / rate * 1000) if dmg else None,
+        "timed": bool(nxt),
+    }
+    if out["reset_ms"] <= out["next_ms"]:
+        out["reset_ms"] = out["next_ms"] + 500
+    return {k: v for k, v in out.items() if v is not None}
+
+
+def build(cat: dict) -> dict:
+    attacks, sets_in = cat["attacks"], cat["attack_sets"]
+    sets, items, by_cat = {}, {}, {}
+
+    def add_set(s: dict | None) -> str | None:
+        if not s or s.get("kind") != "melee" or not s.get("chain"):
+            return None
+        key = s["action"]
+        if key not in sets:
+            short = s.get("short_chain")
+            sets[key] = {
+                "name": s.get("name"), "cdo": cdo_path(key),
+                "steps": [step(attacks, c) for c in s["chain"]],
+                "short": [step(attacks, c) for c in short] if short else None,
+            }
+        return key
+
+    for iid, it in sorted(cat["items"].items()):
+        if it.get("range_type") != "melee" or it.get("category") == "test":
+            continue
+        a = it.get("attacks") or {}
+        prim = add_set(a.get("primary"))
+        if not prim:
+            continue
+        spec = add_set(sets_in.get((a.get("special") or {}).get("action")) or a.get("special"))
+        items[it["path"]] = {"id": iid, "category": it.get("category"), "primary": prim, "special": spec}
+        if it.get("category"):
+            by_cat.setdefault(it["category"], {}).setdefault(prim, 0)
+            by_cat[it["category"]][prim] += 1
+    categories = {c: max(v, key=v.get) for c, v in sorted(by_cat.items())}
+    return {"build": cat.get("build"), "sets": sets, "items": items, "categories": categories}
+
+
+def lua(v, ind: str = "") -> str:
+    if v is None:
+        return "nil"
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return repr(v)
+    if isinstance(v, str):
+        return json.dumps(v)  # ASCII paths: a JSON string is a valid Lua string
+    nxt = ind + "  "
+    if isinstance(v, list):
+        if all(not isinstance(x, (dict, list)) for x in v):
+            return "{ " + ", ".join(lua(x) for x in v) + " }"
+        return "{\n" + "".join(f"{nxt}{lua(x, nxt)},\n" for x in v) + ind + "}"
+    items = [(k, x) for k, x in sorted(v.items()) if x is not None]
+    if all(not isinstance(x, (dict, list)) for _, x in items) and len(items) <= 8:
+        return "{ " + ", ".join(f"{k} = {lua(x)}" for k, x in items) + " }"
+    return "{\n" + "".join(f"{nxt}[{json.dumps(k)}] = {lua(x, nxt)},\n" for k, x in items) + ind + "}"
+
+
+def render(data: dict, src: str) -> str:
+    return (
+        f"-- GENERATED by tools/gen_attack_data.py from {src}. Do not edit; regenerate after a game patch.\n"
+        "-- Melee combo table for body/combat.lua. Times in ms from the swing start (montage notifies):\n"
+        "--   next_ms  issue the next combo step (end of AttackInputWindow, >= last damage point + 0.2 s)\n"
+        "--   reset_ms AttackResetChain: with no new swing by then the combo starts over\n"
+        "--   timed    false = no montage timing in the catalog, a conservative fallback was used\n"
+        "-- sets[action class] = {name, cdo (FPlayerActionInstance.Data), steps (full chain), short (no-perk chain)}\n"
+        "-- items[item data path] = {id, category, primary = set key, special = set key}\n"
+        "-- categories[category] = the primary set most items of that category use (fallback)\n"
+        f"return {lua(data)}\n"
+    )
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--catalog", help="default: the newest data/items_*.json")
+    ap.add_argument("--out", default=str(OUT))
+    a = ap.parse_args()
+    src = Path(a.catalog) if a.catalog else max((REPO_ROOT / "data").glob("items_*.json"))
+    cat = json.loads(src.read_text(encoding="utf-8"))
+    data = build(cat)
+    rel = src.resolve().relative_to(REPO_ROOT).as_posix() if src.resolve().is_relative_to(REPO_ROOT) else src.name
+    Path(a.out).write_text(render(data, rel), encoding="utf-8", newline="\n")
+    untimed = sum(1 for s in data["sets"].values() for st in s["steps"] if not st["timed"])
+    print(f"wrote {a.out}: {len(data['items'])} melee items, {len(data['sets'])} attack sets, "
+          f"{untimed} untimed steps, categories {sorted(data['categories'])}")
+
+
+if __name__ == "__main__":
+    main()

@@ -5131,7 +5131,7 @@
   "shortbow": "/Game/Gameplay/Character/Player/Attacks/Shortbow/PA_RangedAttack_Shortbow.PA_RangedAttack_Shortbow_C",
   "sword": "/Game/Gameplay/Character/Player/Attacks/Sword/PA_Attack_Sword.PA_Attack_Sword_C"
  },
- "generated_at": "2026-10-25T13:57:15Z",
+ "generated_at": "2026-10-25T13:59:40Z",
  "items": {
   "ITEM_AnimaOrb": {
    "ammo": "None",
@@ -10128,7 +10128,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "two_handed",
@@ -10199,7 +10199,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "two_handed",
@@ -18055,7 +18055,7 @@
    },
    "range_type": "none",
    "requirements": {},
-   "role": "other",
+   "role": "tool",
    "slot": "left_hand",
    "slot_strategy": "HeldOnlyLeft",
    "socket": "prop_l",
@@ -18126,7 +18126,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -18199,7 +18199,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -18272,7 +18272,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -18345,7 +18345,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -18418,7 +18418,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -18491,7 +18491,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -18564,7 +18564,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -18637,7 +18637,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -18710,7 +18710,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -18783,7 +18783,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -18856,7 +18856,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -18929,7 +18929,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -19002,7 +19002,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -19075,7 +19075,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -19148,7 +19148,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -19221,7 +19221,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -19294,7 +19294,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -19367,7 +19367,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -19440,7 +19440,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -19513,7 +19513,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -19586,7 +19586,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -19659,7 +19659,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -19732,7 +19732,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -19805,7 +19805,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "right_hand",
@@ -19878,7 +19878,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {
     "perk_required": "/Game/Gameplay/Character/Player/PerksV2/Farming/PerkV2_Farming_TreeFarming.PerkV2_Farming_TreeFarming"
    },
@@ -19953,7 +19953,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {
     "perk_required": "/Game/Gameplay/Character/Player/PerksV2/Farming/PerkV2_Farming_TreeFarming.PerkV2_Farming_TreeFarming"
    },
@@ -20028,7 +20028,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {
     "perk_required": "/Game/Gameplay/Character/Player/PerksV2/Farming/PerkV2_Farming_TreeFarming.PerkV2_Farming_TreeFarming"
    },
@@ -20103,7 +20103,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {
     "perk_required": "/Game/Gameplay/Character/Player/PerksV2/Farming/PerkV2_Farming_TreeFarming.PerkV2_Farming_TreeFarming"
    },
@@ -20178,7 +20178,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {
     "perk_required": "/Game/Gameplay/Character/Player/PerksV2/Farming/PerkV2_Farming_TreeFarming.PerkV2_Farming_TreeFarming"
    },
@@ -20253,7 +20253,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {
     "perk_required": "/Game/Gameplay/Character/Player/PerksV2/Farming/PerkV2_Farming_TreeFarming.PerkV2_Farming_TreeFarming"
    },
@@ -20326,9 +20326,9 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
-   "role": "other",
+   "role": "tool",
    "slot": "two_handed",
    "slot_strategy": "HeldTwoHanded",
    "socket": "prop_r",
@@ -20397,9 +20397,9 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
-   "role": "other",
+   "role": "tool",
    "slot": "two_handed",
    "slot_strategy": "HeldTwoHanded",
    "socket": "prop_r",
@@ -20468,9 +20468,9 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
-   "role": "other",
+   "role": "tool",
    "slot": "two_handed",
    "slot_strategy": "HeldTwoHanded",
    "socket": "prop_r",
@@ -20539,9 +20539,9 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
-   "role": "other",
+   "role": "tool",
    "slot": "two_handed",
    "slot_strategy": "HeldTwoHanded",
    "socket": "prop_r",
@@ -20610,9 +20610,9 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
-   "role": "other",
+   "role": "tool",
    "slot": "two_handed",
    "slot_strategy": "HeldTwoHanded",
    "socket": "prop_r",
@@ -20681,7 +20681,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "two_handed",
@@ -20752,7 +20752,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "two_handed",
@@ -20823,7 +20823,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "two_handed",
@@ -20894,7 +20894,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "two_handed",
@@ -20965,7 +20965,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "two_handed",
@@ -31776,7 +31776,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "weapon",
    "slot": "two_handed",
@@ -31852,7 +31852,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "weapon",
    "slot": "two_handed",
@@ -31929,7 +31929,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "weapon",
    "slot": "two_handed",
@@ -32006,7 +32006,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "weapon",
    "slot": "two_handed",
@@ -32084,7 +32084,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "weapon",
    "slot": "two_handed",
@@ -32162,7 +32162,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "weapon",
    "slot": "two_handed",
@@ -37443,7 +37443,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "two_handed",
@@ -37514,7 +37514,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "two_handed",
@@ -37585,7 +37585,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "two_handed",
@@ -37656,7 +37656,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "two_handed",
@@ -37727,7 +37727,7 @@
     "row": "Weapons",
     "table": "/Game/Gameplay/Character/Player/Equipment/DT_PlayerWeaponPowerLevels.DT_PlayerWeaponPowerLevels"
    },
-   "range_type": "magic",
+   "range_type": "none",
    "requirements": {},
    "role": "tool",
    "slot": "two_handed",

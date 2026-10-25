@@ -286,6 +286,27 @@
       "title": "Overhead nameplate shows Claude",
       "status": "todo",
       "passes_test": false
+    },
+    {
+      "id": "P7.R1",
+      "phase": 7,
+      "title": "Body: reflex rule engine + trigger sensors (telegraph, hp, cluster, stun)",
+      "status": "todo",
+      "passes_test": false
+    },
+    {
+      "id": "P7.R2",
+      "phase": 7,
+      "title": "Brain: set_reflex_rule/list_rules/clear_rule tools, per-enemy persistence",
+      "status": "todo",
+      "passes_test": false
+    },
+    {
+      "id": "OPS.P1",
+      "phase": "ops",
+      "title": "Patch delta pipeline: dump diff, catalog diff, smoke tests, report",
+      "status": "todo",
+      "passes_test": false
     }
   ]
 }

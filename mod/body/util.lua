@@ -1,20 +1,63 @@
--- Shared helpers for the body modules (body/puppet.lua, body/gear.lua, body/skills.lua, body/speech.lua).
--- Same idioms as the proven experiment modules (scripts/puppet_test.lua, puppet_gear.lua, puppet_combat.lua):
--- every UE access goes through try()/valid() so a missing property or a dead wrapper is a Lua
+-- Shared Lua core for the whole mod: body/, scripts/ and experiments/ all use these helpers
+-- instead of re-defining try/valid/fullname/split_pawns (docs/ARCHITECTURE.md, rule 1).
+--
+-- Every UE access goes through try()/valid() so a missing property or a dead wrapper is a Lua
 -- error we can catch. pcall can NOT catch native access violations (DISCOVERIES "ROOT CAUSES"),
--- so risky native calls also leave a breadcrumb in the log first (U.call).
+-- so every risky native call goes through U.call: it writes a breadcrumb to the log (flushed to
+-- disk) BEFORE the call, so if the server dies the log's last line names the call that killed it.
 --
 -- Units: the game works in centimetres; everything on the bridge wire is in METRES
 -- (brain/interface.py: follow distance in metres, the mock's positions in metres).
+--
+-- API stability: body/skills.lua, body/gear.lua and body/puppet.lua depend on every name here.
+-- Add functions; never change an existing signature or return shape (U.try returns ONE value:
+-- callers write tonumber(U.try(...)), so a second return value would break them; use U.try_err).
 local U = {}
 
+-- ------------------------------------------------------------------ logging / breadcrumbs
+-- Default logger (a dwlog-like module with .event(name, data)). main.lua sets it once, so
+-- experiments and services can breadcrumb without threading `log` through every call.
+local default_log = nil
+
+function U.set_log(log) default_log = log end
+function U.get_log() return default_log end
+
+-- Log an event without ever raising. `log` may be nil (then the default logger is used).
+function U.event(log, name, data)
+    log = log or default_log
+    if log then pcall(log.event, name, data) end
+end
+
+-- A breadcrumb: "about to do <step>". Same as U.event with a fixed event name.
+function U.crumb(log, step, data) U.event(log, "crumb", { step = step, data = data }) end
+
+-- ------------------------------------------------------------------ guarded access
 function U.try(f, ...)
     local ok, v = pcall(f, ...)
     if ok then return v end
 end
 
+-- Like U.try, but returns nil, err_string on failure (for probes that report the error).
+function U.try_err(f, ...)
+    local ok, v = pcall(f, ...)
+    if ok then return v end
+    return nil, tostring(v)
+end
+
 function U.valid(o)
     return o ~= nil and U.try(function() return o:IsValid() end) == true
+end
+
+-- EInternalObjectFlags Garbage (1<<21) | Unreachable (1<<28).
+U.GARBAGE_OR_UNREACHABLE = 0x200000 | 0x10000000
+
+-- Valid AND not destroyed-awaiting-GC. After SetLifeSpan/destroy an actor stays in FindAllOf,
+-- with IsValid() still true, until GC runs (minutes); only the internal Garbage flag tells it
+-- apart (DISCOVERIES "Unpossess crash: fix bisect", notes). Use this for anything you are about
+-- to act on (possess, move, equip). Objects without HasAnyInternalFlags (offline fakes) count as alive.
+function U.alive(o)
+    if not U.valid(o) then return false end
+    return U.try(function() return o:HasAnyInternalFlags(U.GARBAGE_OR_UNREACHABLE) end) ~= true
 end
 
 function U.fullname(o)
@@ -28,6 +71,21 @@ function U.short(o)
     return n and (n:match("([%w_]+)$") or n) or nil
 end
 
+-- Full name without the leading class word: "/Game/.../ITEM_X.ITEM_X" (UE4SS GetFullName is
+-- "<Class> <path>"). This is the object path StaticFindObject takes.
+function U.path_of(o)
+    local n = U.fullname(o)
+    return n and (n:match("^%S+%s+(.*)$") or n) or nil
+end
+
+-- The class word of GetFullName: "WearableEquipmentData", "BP_PlayerController_C", ...
+function U.class_word(o) return ((U.fullname(o) or ""):match("^(%S+)")) or nil end
+
+-- Full name of the object's class ("BlueprintGeneratedClass /Game/...").
+function U.class_name(o)
+    return U.valid(o) and U.try(function() return o:GetClass():GetFullName() end) or nil
+end
+
 -- UE4SS hands FString/FName/FText back as userdata with ToString(); plain strings pass through.
 function U.str(v)
     if v == nil then return nil end
@@ -35,6 +93,34 @@ function U.str(v)
     return U.try(function() return v:ToString() end)
 end
 
+-- ------------------------------------------------------------------ finding objects
+-- FindAllOf(short_class) filtered to alive objects; always a table. opts.skip_defaults also
+-- drops class default objects ("Default__" in the name). opts.valid_only keeps zombies (use only
+-- for diagnostics that want to see them).
+function U.find_all(class, opts)
+    opts = opts or {}
+    local out = {}
+    local keep = opts.valid_only and U.valid or U.alive
+    for _, o in ipairs(U.try(FindAllOf, class) or {}) do
+        if keep(o) and not (opts.skip_defaults and (U.fullname(o) or ""):find("Default__", 1, true)) then
+            out[#out + 1] = o
+        end
+    end
+    return out
+end
+
+function U.find_first(class)
+    local o = U.try(FindFirstOf, class)
+    return U.alive(o) and o or nil
+end
+
+-- StaticFindObject(path) if it is loaded and valid, else nil. Never loads anything.
+function U.find_object(path)
+    local o = U.try(StaticFindObject, path)
+    return U.valid(o) and o or nil
+end
+
+-- ------------------------------------------------------------------ geometry
 function U.loc(a)
     local v = U.try(function() return a:K2_GetActorLocation() end)
     return v and { X = v.X, Y = v.Y, Z = v.Z } or nil
@@ -51,6 +137,20 @@ function U.dist2d(p, q)
 end
 
 function U.actor_dist(a, b) return U.dist(U.loc(a), U.loc(b)) end
+
+-- Forward vector, defaulting to +X when it can't be read.
+function U.forward(a)
+    return U.try(function() return a:GetActorForwardVector() end) or { X = 1, Y = 0, Z = 0 }
+end
+
+-- A point `ahead_cm` in front of the actor (negative = behind), raised by `up_cm`. nil if the
+-- actor has no location. The verified puppet spawn point is U.in_front(player, 300, 50).
+function U.in_front(a, ahead_cm, up_cm)
+    local at = U.loc(a)
+    if not at then return nil end
+    local f = U.forward(a)
+    return { X = at.X + f.X * ahead_cm, Y = at.Y + f.Y * ahead_cm, Z = at.Z + (up_cm or 0) }
+end
 
 local function round(x, n)
     local m = 10 ^ (n or 2)
@@ -73,9 +173,11 @@ end
 
 function U.cm_to_m(d) return d == math.huge and nil or round(d / 100) end
 
+-- ------------------------------------------------------------------ players vs puppets
 -- Real players are pawns whose controller is a PlayerController; every other BP_PlayerCharacter_C
--- is a puppet (the split logic of scripts/puppet_test.lua, verified in game 2026-10-25).
+-- is a puppet (the split logic of experiments/puppet_test.lua, verified in game 2026-10-25).
 U.PLAYER_CHAR_CLASS = "BP_PlayerCharacter_C"
+U.PLAYER_CONTROLLER_CLASS = "BP_PlayerController_C"
 
 function U.controller_of(p)
     local c = U.try(function() return p:GetController() end)
@@ -86,15 +188,18 @@ function U.is_player_controller(c)
     return (U.fullname(c) or ""):find("PlayerController", 1, true) ~= nil
 end
 
+-- (players, puppets). Destroyed-awaiting-GC pawns are skipped (U.alive), so a removed puppet
+-- is never re-adopted or re-possessed.
 function U.split_pawns()
     local players, puppets = {}, {}
-    for _, p in ipairs(U.try(FindAllOf, U.PLAYER_CHAR_CLASS) or {}) do
-        if U.valid(p) then
-            table.insert(U.is_player_controller(U.controller_of(p)) and players or puppets, p)
-        end
+    for _, p in ipairs(U.find_all(U.PLAYER_CHAR_CLASS)) do
+        table.insert(U.is_player_controller(U.controller_of(p)) and players or puppets, p)
     end
     return players, puppets
 end
+
+-- Connected players' controllers (BP_PlayerController_C), alive only.
+function U.player_controllers() return U.find_all(U.PLAYER_CONTROLLER_CLASS) end
 
 function U.health(a)
     return U.try(function() return a.HealthComponent:GetAuthoritativeHealth() end)
@@ -123,6 +228,7 @@ local function player_state(p)
     ps = c and U.try(function() return c.PlayerState end)
     return U.valid(ps) and ps or nil
 end
+U.player_state = player_state
 
 function U.player_id(p)
     local ps = player_state(p)
@@ -163,9 +269,53 @@ function U.find_player(who, loose)
     return nil
 end
 
+-- ------------------------------------------------------------------ GUIDs
+-- FGuid {A,B,C,D} (uint32 each) <-> 32 hex chars, as the join log prints them (DCG:<hex>).
+function U.guid_hex(g)
+    if type(g) ~= "table" and type(g) ~= "userdata" then return nil end
+    local ok, s = pcall(function()
+        return string.format("%08X%08X%08X%08X", g.A % 0x100000000, g.B % 0x100000000, g.C % 0x100000000, g.D % 0x100000000)
+    end)
+    return ok and s or nil
+end
+
+function U.guid_from_hex(h)
+    if type(h) ~= "string" or not h:match("^%x+$") or #h ~= 32 then return nil end
+    local function word(i) return tonumber(h:sub(i, i + 7), 16) end
+    return { A = word(1), B = word(9), C = word(17), D = word(25) }
+end
+
+-- Copy {A,B,C,D} out of a UE struct (or table) into a plain table.
+function U.guid_copy(g)
+    local ok, t = pcall(function() return { A = g.A, B = g.B, C = g.C, D = g.D } end)
+    return ok and t or nil
+end
+
+-- Write {A,B,C,D} into a UE struct in place (a struct property field by field, as verified in
+-- experiments/name_register: whole-struct assignment is avoided).
+function U.guid_set(dst, src)
+    dst.A, dst.B, dst.C, dst.D = src.A, src.B, src.C, src.D
+end
+
+function U.guid_eq(a, b)
+    if a == nil or b == nil then return false end
+    local ok, eq = pcall(function() return a.A == b.A and a.B == b.B and a.C == b.C and a.D == b.D end)
+    return ok and eq or false
+end
+
+-- ------------------------------------------------------------------ results
+-- The tool result shape every handler returns (CLAUDE.md section 5).
+function U.result(ok, reason, data) return { ok = ok == true, reason = reason, data = data or {} } end
+function U.ok(data) return { ok = true, data = data or {} } end
+function U.fail(reason, data) return { ok = false, reason = reason, data = data or {} } end
+
+-- ------------------------------------------------------------------ the guarded native call
 -- Log a breadcrumb, then run fn under pcall. The breadcrumb is flushed to disk before the native
--- call, so if the server dies the log's last line names the call that killed it.
+-- call, so if the server dies the log's last line names the call that killed it. `log` may be nil
+-- (the default logger from U.set_log is used). Returns pcall's (ok, result_or_error).
+-- EVERY native call that can change game state goes through here (docs/ARCHITECTURE.md, rule 2).
 function U.call(log, label, data, fn)
+    log = log or default_log
     if log then pcall(log.event, "native", { call = label, data = data }) end
     local ok, res = pcall(fn)
     if not ok and log then pcall(log.event, "native_error", { call = label, err = tostring(res) }) end
