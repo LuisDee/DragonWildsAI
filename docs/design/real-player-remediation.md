@@ -125,3 +125,12 @@ levels up, or he is started from an existing high-level character on the throwaw
   - perception limited to what replicates to Claude's client (nearby actors);
   - a player slot for Claude.
 - Dev testing still happens on this VM's throwaway world (CLAUDE.md section 1).
+
+## Next-wave hardening (agreed 2026-10-25, after gate 2)
+Do these alongside porting the skills:
+1. **Client watchdog plus one `boot_and_join` script:** launch headless, consent, select character, sign in, `open` the server, skip the intro, verify the pawn exists. Retries, and auto-rejoin on crash or disconnect (like tools/watchdog.ps1 for the server).
+2. **Control arbiter in the client:** one owner of the pawn at a time, by priority (reflex > command > skill > idle). Movement, combat and interaction request control instead of driving the pawn directly.
+3. **Dev server first** for risky experiments (combat, crafting, anything that changes the world). Claude's client can join either server. Shockbyte only for verified behaviour.
+4. **Client smoke test after patches:** boot, join, walk, jump, chat, equip.
+5. **Hardware:** 16 GB RAM before relying on server and client together.
+6. **Delete the server-side puppet path** skill by skill, as each real-path replacement is verified.
