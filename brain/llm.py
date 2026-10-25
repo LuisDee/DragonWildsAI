@@ -102,8 +102,10 @@ class LiteLLMClient:
 
         params = dict(self.kwargs)
         if tools:
-            # One decision = one action: parallel calls let the model pair follow with stop.
-            params.update(tools=tools, tool_choice="auto", parallel_tool_calls=False)
+            # Several tool calls per response are allowed (PRINCIPLES 4b: the model composes primitives, e.g.
+            # go_to then drop): the agent runs them IN ORDER, each verified, stopping at the first failure.
+            # (They were disabled because the model paired follow with stop; the persona now forbids that.)
+            params.update(tools=tools, tool_choice="auto")
         if self.model.startswith("anthropic/"):
             messages = with_cache_control(messages)
         resp = litellm.completion(model=self.model, messages=messages, **params)

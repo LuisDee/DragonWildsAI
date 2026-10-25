@@ -309,7 +309,7 @@ def test_assistant_replay_keeps_thinking_blocks_and_caches_the_system_prompt(mon
         [{"role": "system", "content": "persona"}, {"role": "user", "content": "{}"}], tools=[{"x": 1}])
     sys_msg = seen["messages"][0]
     assert sys_msg["content"][0]["cache_control"] == {"type": "ephemeral"}
-    assert seen["params"]["parallel_tool_calls"] is False
+    assert "parallel_tool_calls" not in seen["params"]  # ordered multi-step turns (PRINCIPLES 4b)
     assert resp.message["thinking_blocks"][0]["signature"] == "sig"
     assert resp.message["tool_calls"][0]["id"] == "toolu_1" and resp.usage["cached"] == 800
     assert assistant_message(resp) is resp.message

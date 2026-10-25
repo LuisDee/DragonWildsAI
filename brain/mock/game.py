@@ -486,14 +486,14 @@ class MockGame(GameInterface):
                   inventory=dict(+self.inventory))
 
     @_scriptable
-    def drop(self, item: str, count: int, at: str = "feet") -> ActionResult:
+    def drop(self, item: str, count: int, at: str = "feet", player: str | None = None) -> ActionResult:
         if self.inventory[item] <= 0:
             return fail(Reason.NOT_IN_INVENTORY, item=item)
         if self.inventory[item] < count:
             return fail(Reason.NOT_ENOUGH, item=item, have=self.inventory[item])
         spot = list(self.pos)
-        if at == "luis":
-            luis = next(iter(self.players.values()), None)
+        if at == "player":
+            luis = self.players.get(player) if player else next(iter(self.players.values()), None)
             if luis is None or math.dist(luis.pos, self.pos) > REACH:
                 return fail(Reason.TOO_FAR)
             spot = list(luis.pos)

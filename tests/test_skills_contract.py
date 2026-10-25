@@ -213,7 +213,7 @@ def test_args_are_validated_against_the_body_schema(lua_caps, tmp_path):
     caps = Rig(tmp_path, lua_caps).caps
     assert caps.validate("drop", {"item": "Ash Logs", "count": 2}) == {"item": "Ash Logs", "count": 2, "at": "feet"}
     with pytest.raises(ValueError):
-        caps.validate("drop", {"item": "Ash Logs", "count": 2, "at": "luis"})  # the brain's own model allows it
+        caps.validate("drop", {"item": "Ash Logs", "count": 2, "at": "player"})  # the brain's own model allows it
     with pytest.raises(ValueError):
         caps.validate("move_item", {"item": "Sandwich", "to": "chest"})
     assert caps.validate("move_item", {"item": "Sandwich", "to": "hotbar"}) == {"item": "Sandwich", "to": "hotbar"}

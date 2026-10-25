@@ -141,7 +141,8 @@ class PickupArgs(BaseModel):
 class DropArgs(BaseModel):
     item: str = Field(description="Carried item: an id from state inventory, or a name like 'oak logs'.")
     count: int = Field(ge=1, description="How many to drop.")
-    at: Literal["feet", "luis"] = Field("feet", description="At the companion's feet, or at Luis's feet when he is close.")
+    at: Literal["feet", "player"] = Field("feet", description="At the companion's own feet, or at a nearby player's feet.")
+    player: str | None = Field(None, description="at=player: whose feet (the player must be close).")
 
 
 class LookArgs(BaseModel):
@@ -544,7 +545,7 @@ class GameInterface(ABC):
     def pickup(self, target: str, item: str | None = None, limit: int = 1) -> ActionResult: ...
 
     @abstractmethod
-    def drop(self, item: str, count: int, at: str = "feet") -> ActionResult: ...
+    def drop(self, item: str, count: int, at: str = "feet", player: str | None = None) -> ActionResult: ...
 
     @abstractmethod
     def say(self, text: str) -> ActionResult: ...

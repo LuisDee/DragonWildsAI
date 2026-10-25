@@ -73,7 +73,6 @@ ALLOW_NAMES = [
     ("brain/run_live.py", 'DW_PLAYER_NAME", "Luis"'),
     ("brain/controller.py", 'player: str = "Luis"'),
     # pending owners' fixes (review M7), remove when done:
-    ("brain/interface.py", '"luis"'),  # capability agent: drop at="luis" -> at="player" + player
     ("brain/interface.py", "luis_hp_below"),  # spells/rules agent: -> player_hp_below + player
     ("client_mod/scripts/combat.lua", '"Zezima"'),  # combat agent: protect = configured player / every player
 ]

@@ -203,8 +203,8 @@ class BridgeClient(GameInterface):
             args["item"] = item
         return self._tool("pickup", **args)
 
-    def drop(self, item: str, count: int, at: str = "feet") -> ActionResult:
-        return self._tool("drop", item=item, count=count, at=at)
+    def drop(self, item: str, count: int, at: str = "feet", player: str | None = None) -> ActionResult:
+        return self.request("drop", _drop_none({"item": item, "count": count, "at": at, "player": player}))
 
     def say(self, text: str) -> ActionResult:
         return self._tool("say", text=text)
