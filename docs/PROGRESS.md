@@ -25,3 +25,19 @@
   - **Text chat exists and is readable.** `!ping hello` arrived in Python as a `command_received` event over the bridge.
   - The other half of the `!ping` gate, the reply appearing in game, needs a "say" implementation (task P5.3).
   - Tree felling and inventory adds aren't hookable (task P2.6); they will be verified by polling state.
+- `/simplify` pass done, using 4 review agents and 2 fix agents:
+  - Python: shared protocol envelopes, reason classification moved into `Reason`, injectable SkillRegistry, dead code removed.
+  - Lua: dkjson 2.8 replaces the rxi json.lua null/{} hack, one sanitiser, the log handle stays open.
+  - 39 tests pass, and the Lua tests can no longer skip silently. The refactored mod was redeployed and verified on the live server (14 hooks, ping OK).
+- Added a `debug_run` hot-reload trigger and `tools/bridge_cmd.py`. Phase 4 experiments can now run while Luis is connected, without restarts.
+- Phase 4 dump analysis: humanoid NPCs are plain Actors and can't walk. The body will be a `DominionAICharacter` creature. The game has a native `FollowerComponent:ToggleFollower` (the Kalphite summon), so we try that first.
+
+### Next session: Needs Luis (in order)
+1. **Phase 4, T2: native follower.** Luis joins and stands in the open. Claude runs `debug_run follower_test {action:"status"}`, then `{action:"summon"}`. Ask: did a Kalphite appear, and does it follow you? Then: leave and rejoin; is it still there and consistent? That is the gate.
+2. If T2 fails, **T3: confuse.** Luis goes near any creature, and Claude runs `{action:"confuse"}`. Ask: does it start following you?
+3. Further fallbacks are T4 (`AsyncDomSpawnAIAtLocation`) and T5 (raw `SpawnActor` plus `MoveTo`), following the plan in `docs/research/2026-10-25-dump-body.md`.
+4. **Phase 3 gate:** teleport Luis with `K2_TeleportTo`, or give him a single harmless item with `InventoryComponent:AddItemByData`, then confirm it survives a rejoin. Luis's character profile is client-owned, so this also tests persistence. Use harmless items only, because the profile travels to the group's real world.
+5. **Phase 5 `!ping` gate:** implement companion "say" (task P5.3) and test that the reply shows in chat.
+
+### Blocked
+- Nothing is blocked. Remaining work needs Luis in game, plus a decision later on model provider and API key for Phase 6.

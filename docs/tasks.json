@@ -67,7 +67,7 @@
       "id": "P4.1",
       "phase": 4,
       "title": "Spawn character and drive with AIController MoveTo (player class, then NPC class)",
-      "status": "todo",
+      "status": "in_progress",
       "passes_test": false
     },
     {
@@ -195,6 +195,13 @@
       "title": "Companion say: server-side chat output (Server_SendChatMessage / Client_ReceiveChatMessage / Client_DisplayTextNotification) to finish the !ping gate",
       "status": "todo",
       "passes_test": false
+    },
+    {
+      "id": "P4.0",
+      "phase": 4,
+      "title": "Debug trigger: debug_run reloads + runs a mod module on the game thread without restart (tools/bridge_cmd.py)",
+      "status": "done",
+      "passes_test": true
     }
   ]
 }
