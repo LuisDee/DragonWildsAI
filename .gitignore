@@ -1,0 +1,15 @@
+# secrets / personal
+player-id.txt
+.env
+*.key
+
+# runtime
+logs/
+bridge_io/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# reflection dumps are large and regenerated per build
+dumps/
