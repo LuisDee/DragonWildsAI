@@ -8,7 +8,13 @@
 -- cleared then SetLifeSpan, as scripts/puppet_gear.lua disarm); resolving the weapon's own class
 -- from the data asset's soft pointer HeldEquipmentActorClass; whether the generic BP_HeldEquipmentBase_C
 -- renders a weapon's mesh; LoadAsset for data assets that are not loaded yet.
+--
+-- EQUIP RULE (Luis, design section 12): the bot equips ONLY items in its own inventory
+-- (body/inventory.lua), like a normal player. equip refuses anything else with reason
+-- not_in_inventory, unless opts.debug_unowned == true (debug tools only; the brain never sends it).
+-- On success the owned instance is marked equipped in that slot (the old one goes back to the bag).
 local U = require("body.util")
+local inventory = require("body.inventory")
 
 local M = {}
 
@@ -159,12 +165,25 @@ local function hold(log, p, eq, hand, data, item_path, opts)
     return true, U.fullname(cls), cls_from
 end
 
--- Equip one item. opts: {hand=, actor_class=}. Returns {ok, reason, data}. Success is decided by
--- reading the slot back (principle 2), not by the calls returning.
+-- Does the bot own an instance of this data path (equipped anywhere or not)?
+local function owns(item_path)
+    for _, it in ipairs(inventory.list(true)) do
+        if it.item_data_path == item_path then return true end
+    end
+    return false
+end
+
+-- Equip one item. opts: {hand=, actor_class=, debug_unowned=}. Returns {ok, reason, data}. Success
+-- is decided by reading the slot back (principle 2), not by the calls returning.
 function M.equip(log, p, item_path, opts)
     opts = opts or {}
     if type(item_path) ~= "string" or not item_path:find("^/") then
         return { ok = false, reason = "invalid_args", data = { detail = "item_path must be an object path" } }
+    end
+    local unowned_ok = opts.debug_unowned == true
+    -- Ownership first, before any asset load or native call.
+    if not unowned_ok and not owns(item_path) then
+        return { ok = false, reason = "not_in_inventory", data = { item_path = item_path } }
     end
     local eq = U.try(function() return p.PlayerEquipmentComponent end)
     if not U.valid(eq) then return { ok = false, reason = "body_error", data = { detail = "no PlayerEquipmentComponent" } } end
@@ -172,6 +191,12 @@ function M.equip(log, p, item_path, opts)
     if not data then return { ok = false, reason = "unknown_target", data = { item_path = item_path, detail = "data asset not found" } } end
     local slot, why = M.slot_for(data, item_path, opts.hand)
     if not slot then return { ok = false, reason = "invalid_args", data = { item_path = item_path, detail = why } } end
+    -- The exact instance: unequipped, or already worn in this very slot (re-apply after a respawn).
+    local inst = inventory.find_for_equip(item_path, slot)
+    if not inst and not unowned_ok then
+        return { ok = false, reason = "not_in_inventory", data = { item_path = item_path, slot = slot,
+                 detail = "owned copy is equipped in another slot" } }
+    end
     local res = { slot = slot, item_path = item_path }
     local ok, a, b
     if M.WEAR_SLOTS[slot] then
@@ -189,6 +214,12 @@ function M.equip(log, p, item_path, opts)
     if now == nil or now ~= want then
         res.detail, res.read_back = "slot did not take the item", now
         return { ok = false, reason = "verification_failed", data = res }
+    end
+    if inst then
+        local marked = inventory.mark_equipped(inst.id, slot)
+        res.instance = marked and marked.id or inst.id
+    else
+        res.debug_unowned = true
     end
     res.gear = M.read(p)
     return { ok = true, data = res }

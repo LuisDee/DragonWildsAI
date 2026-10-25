@@ -45,7 +45,9 @@ local st = {
 local function log(name, data) if st.log then pcall(st.log.event, name, data) end end
 
 -- ------------------------------------------------------------------ persisted bot state
--- JSON: {"v":1,"gear":{"right":"/path","body":"/path",...}}. DW_BOT_STATE overrides the path.
+-- JSON: {"v":1,"gear":{"right":"/path","body":"/path",...},"inventory":{...}}. DW_BOT_STATE
+-- overrides the path. Sections other than gear belong to other services (M.section/M.set_section;
+-- "inventory" = body/inventory.lua), so the whole bot state has one writer and one atomic rename.
 -- NOTE: tools/deploy_mod.ps1 wipes the deployed mod folder, so set DW_BOT_STATE outside it to
 -- keep gear across deploys.
 function M.state_path() return st.state_path end
@@ -61,7 +63,10 @@ function M.load_state()
             s = v
             if type(s.gear) ~= "table" then s.gear = {} end
         else
-            log("bot_state_corrupt", { path = st.state_path })
+            -- Keep the bad file: the next save would otherwise overwrite the bot's inventory.
+            local keep = st.state_path .. ".corrupt-" .. os.time()
+            local moved = os.rename(st.state_path, keep)
+            log("bot_state_corrupt", { path = st.state_path, kept_as = moved and keep or nil })
         end
     end
     st.saved = s
@@ -89,6 +94,20 @@ function M.saved_gear() return (st.saved or M.load_state()).gear end
 function M.remember_gear(slot, item_path)
     local s = st.saved or M.load_state()
     s.gear[slot] = item_path
+    return M.save_state()
+end
+
+-- Other services keep their persisted state as a named section of the SAME file (one writer, one
+-- atomic rename): body/inventory.lua uses section "inventory". `gear` and `v` are reserved.
+function M.section(name)
+    local s = st.saved or M.load_state()
+    return s[name]
+end
+
+function M.set_section(name, value)
+    if name == "gear" or name == "v" then error("reserved bot state section " .. tostring(name)) end
+    local s = st.saved or M.load_state()
+    s[name] = value
     return M.save_state()
 end
 

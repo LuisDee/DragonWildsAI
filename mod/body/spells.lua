@@ -24,8 +24,16 @@
 --                {allow_modular=true} or DW_SPELLS_MODULAR=1): its CostItems module may dereference
 --                the puppet's null PlayerController inventory (DISCOVERIES "ROOT CAUSES").
 --   none         catalogued only (e.g. Magical Mending until its repair path is verified).
--- A route is used live only once verified in game (M.ROUTES[r].verified) unless allow_unverified.
+-- A route is used live only once verified in game unless allow_unverified (DW_SPELLS_UNVERIFIED=1).
+-- The verified status comes from the loaded catalog's `routes[r].verified` (data/spells_<build>.json,
+-- the record of what was seen in game) and falls back to M.ROUTES[r].verified (M.route_verified).
 -- pcall cannot catch native crashes, so every native call goes through U.call (breadcrumb first).
+--
+-- Integration (main.lua): spells.register(bridge, log, {find_ai=skills.find_ai, catalog_path=...,
+-- cost_policy=..., inventory=<store>}) then spells.install_combat_hooks(require("body.combat")).
+-- Luis's unlocks come from M.live_mirror(): his PlayerController's ProgressComponent.SpellsUnlocked
+-- (TSet) and SkillPerkComponent active perks, read-only (the X1 dump read them), cached
+-- MIRROR_TTL_S, with the catalog's `players[1]` snapshot as the fallback.
 --
 -- Cost policies (configure {cost_policy=...}, env DW_SPELL_COST_POLICY):
 --   "free"    ignore runes
@@ -46,6 +54,7 @@ M.SAFE_PLAYER_CM = 1000         -- never put an AoE within 10 m of a real player
 M.STOMP_RADIUS_CM = 700         -- BP_WindstepExplosion_C sphere radius (X1 dump); catalog wins
 M.STOMP_LIFESPAN_S = 5.0        -- the explosion actor is cleaned up after this
 M.STUN_PRESUME_S = 1.5          -- after our stomp, targets in radius count as "stunned" this long
+M.MIRROR_TTL_S = 60             -- re-read Luis's unlocks at most this often
 M.POLICIES = { free = true, budget = true, mirror = true, mirror_budget = true }
 M.ROLES = { "combat_defence", "combat_cc", "combat_damage", "weapon_buff", "gathering_buff",
             "gathering_aoe", "scouting", "repair", "travel", "other" }
@@ -349,6 +358,20 @@ function M.route(asset)
     return r or "none"
 end
 
+-- Verified-in-game status of a route: the catalog's routes[r].verified (a boolean) wins, because the
+-- catalog is the record of what was seen in game; else the code default M.ROUTES[r].verified.
+-- -> verified(bool), note
+function M.route_verified(route)
+    local c = S.catalog
+    local cr = c and type(c.routes) == "table" and c.routes[route]
+    local r = M.ROUTES[route]
+    if not r and not cr then return false, "unknown route" end
+    if type(cr) == "table" and type(cr.verified) == "boolean" then
+        return cr.verified, cr.note or (r and r.note)
+    end
+    return (r and r.verified) == true, r and r.note
+end
+
 -- ------------------------------------------------------------------ cost policies
 local function rune_item(rune) return "ITEM_Rune_" .. rune end
 
@@ -428,9 +451,9 @@ function M.can_cast(name)
     local data = { spell = asset, route = route }
     if route == "none" then return false, "not_implemented", data end
     if route == "modular" and not S.allow_modular then return false, "not_implemented", data end
-    local rinfo = M.ROUTES[route]
-    if not (rinfo and (rinfo.verified or S.allow_unverified)) then
-        data.detail = "route not verified in game (" .. tostring(rinfo and rinfo.note) .. ")"
+    local verified, note = M.route_verified(route)
+    if not (verified or S.allow_unverified) then
+        data.detail = "route not verified in game (" .. tostring(note) .. ")"
         return false, "not_implemented", data
     end
     local left = M.remaining_s(asset)
@@ -447,21 +470,112 @@ function M.can_cast(name)
     return true, nil, data
 end
 
-function M.list()
+-- opts.compact: only spells the bot could cast (castable now, or blocked only by a cooldown or
+-- missing runes), with the short fields the brain's Controller context needs.
+M.TRANSIENT_REASONS = { on_cooldown = true, not_enough_resources = true }
+function M.list(opts)
+    local compact = type(opts) == "table" and opts.compact == true
     local out = {}
     for _, a in ipairs(all_assets()) do
         local meta, g = M.META[a] or {}, game_rec(a) or {}
-        local ok, reason = M.can_cast(a)
-        local runes, rsrc = M.runes(a)
-        local cd, csrc = M.cooldown_s(a)
-        out[#out + 1] = {
-            id = a, name = g.name or meta.name or a, role = meta.role or "other", route = M.route(a),
-            runes = runes, runes_source = rsrc, cooldown_s = cd, cooldown_source = csrc,
-            remaining_s = M.remaining_s(a), castable = ok, reason = reason,
-            preconditions = meta.preconditions or {}, use_when = meta.use_when or "",
-        }
+        local ok, reason, cdata = M.can_cast(a)
+        if not compact then
+            local runes, rsrc = M.runes(a)
+            local cd, csrc = M.cooldown_s(a)
+            out[#out + 1] = {
+                id = a, name = g.name or meta.name or a, role = meta.role or "other", route = M.route(a),
+                runes = runes, runes_source = rsrc, cooldown_s = cd, cooldown_source = csrc,
+                remaining_s = M.remaining_s(a), castable = ok, reason = reason,
+                preconditions = meta.preconditions or {}, use_when = meta.use_when or "",
+            }
+        elseif ok or M.TRANSIENT_REASONS[reason] then
+            out[#out + 1] = {
+                id = a, name = g.name or meta.name or a, role = meta.role or "other",
+                use_when = meta.use_when or "", castable = ok, reason = reason,
+                remaining_s = (cdata and cdata.remaining_s) or M.remaining_s(a), missing = cdata and cdata.missing,
+            }
+        end
     end
     return out
+end
+
+-- ------------------------------------------------------------------ Luis's unlocks (mirror)
+-- Pure: a catalog `players[i]` snapshot (spell_dump X1) -> {unlocked={asset=true}, perks={perk=true}}.
+function M.mirror_from_snapshot(snap)
+    if type(snap) ~= "table" or type(snap.spells_unlocked) ~= "table" then return nil end
+    local m = { unlocked = {}, perks = nil, source = "catalog_snapshot", name = snap.name }
+    for _, a in ipairs(snap.spells_unlocked) do m.unlocked[a] = true end
+    if type(snap.active_perks) == "table" then
+        m.perks = {}
+        for _, p in ipairs(snap.active_perks) do m.perks[p] = true end
+    end
+    return m
+end
+
+local function each_set(s, fn)
+    if s == nil then return false end
+    return pcall(function()
+        s:ForEach(function(a, b)
+            local e = b ~= nil and b or a
+            local v = U.try(function() return e:get() end)
+            fn(v ~= nil and v or e)
+        end)
+    end)
+end
+
+local function each_arr(arr, fn)
+    if arr == nil then return false end
+    return pcall(function()
+        arr:ForEach(function(_, e)
+            local v = U.try(function() return e:get() end)
+            fn(v ~= nil and v or e)
+        end)
+    end)
+end
+
+-- Read-only live read of a connected player's unlocks (the reads X1 verified). nil when unreadable.
+function M.read_player_unlocks(pawn)
+    local pc = U.controller_of(pawn)
+    if not pc then return nil end
+    local prog = U.try(function() return pc.ProgressComponent end)
+    if not U.valid(prog) then return nil end
+    local m = { unlocked = {}, perks = nil, source = "live", name = U.player_name(pawn) }
+    local n = 0
+    local ok = each_set(U.try(function() return prog.SpellsUnlocked end), function(s)
+        local id = U.short(s)
+        if id then m.unlocked[id] = true; n = n + 1 end
+    end)
+    if not ok or n == 0 then return nil end
+    local spc = U.try(function() return pc.SkillPerkComponent end)
+    if U.valid(spc) then
+        local perks = {}
+        local okp = each_arr(U.try(function() return spc.SkillPerkRuntimeStates end), function(st)
+            each_arr(U.try(function() return st.ActivePerkDatas end), function(p)
+                local id = U.short(p)
+                if id then perks[id] = true end
+            end)
+        end)
+        if okp and next(perks) then m.perks = perks end
+    end
+    return m
+end
+
+-- Mirror provider for configure({mirror=...}): Luis = the first connected player (U.find_player).
+-- Cached for MIRROR_TTL_S; when no player is online or the read fails, the catalog snapshot.
+function M.live_mirror()
+    local cache = { at = nil, m = nil }
+    return function()
+        local now = S.clock()
+        if cache.at and now - cache.at >= 0 and now - cache.at < M.MIRROR_TTL_S then return cache.m end
+        local luis = U.find_player("luis")
+        local m = luis and M.read_player_unlocks(luis)
+        if not m then
+            local c = S.catalog
+            m = c and type(c.players) == "table" and M.mirror_from_snapshot(c.players[1]) or nil
+        end
+        cache.at, cache.m = now, m
+        return m
+    end
 end
 
 -- ------------------------------------------------------------------ helpers
@@ -688,7 +802,7 @@ function M.usage(asset)
         preconditions = meta.preconditions or {},
         use_when = meta.use_when or ("Cast " .. tostring(g.name or meta.name or asset) .. " (no usage notes yet)."),
         runes = runes, runes_source = rsrc, cooldown_s = cd, cooldown_source = csrc,
-        route = route, route_verified = (M.ROUTES[route] or {}).verified == true,
+        route = route, route_verified = M.route_verified(route) == true,
         wiki = meta.wiki, requires_perk = meta.requires_perk, mechanism = meta.mechanism,
         catalogued_in_meta = M.META[asset] ~= nil,
     }
@@ -705,7 +819,13 @@ function M.merge_catalog(doc)
     table.sort(missing)
     doc.usage_roles = M.ROLES
     doc.cost_policies = { "free", "budget", "mirror", "mirror_budget" }
-    doc.routes = M.ROUTES
+    -- keep any verified status the catalog already records (route_verified reads doc.routes here)
+    local routes = {}
+    for r, info in pairs(M.ROUTES) do
+        local v, note = M.route_verified(r)
+        routes[r] = { verified = v, note = note or info.note }
+    end
+    doc.routes = routes
     doc.meta_missing = missing
     local not_loaded = {}
     for asset in pairs(M.META) do if not (doc.spells or {})[asset] then not_loaded[#not_loaded + 1] = asset end end
@@ -785,6 +905,21 @@ function M.situation(ctx)
     return sit
 end
 
+-- Which reflex scorers may cast live: a scorer's spell is ON only when its route is verified in
+-- game (catalog routes[r].verified, M.route_verified) or unverified routes are allowed
+-- (DW_SPELLS_UNVERIFIED=1). -> {asset = {route, verified, on, why}}
+function M.reflex_status()
+    local out = {}
+    for asset in pairs(M.SCORERS) do
+        local route = M.route(asset)
+        local verified, note = M.route_verified(route)
+        local on = route ~= "none" and (verified or S.allow_unverified)
+        out[asset] = { route = route, verified = verified, on = on,
+                       why = (not on) and ("route " .. route .. " not verified in game: " .. tostring(note)) or nil }
+    end
+    return out
+end
+
 -- One decision per eval_ms. Returns the cast spell's id (truthy: the BT skips the swing) or nil.
 -- ctx = {a, p, t, hp, d, now, threat, ...} from body/combat.lua.
 function M.combat_tick(ctx)
@@ -792,36 +927,57 @@ function M.combat_tick(ctx)
     if a._spell_eval and ctx.now and ctx.now - a._spell_eval < S.tactics.eval_ms then return nil end
     a._spell_eval = ctx.now
     if not U.valid(ctx.p) then return nil end
+    local status = M.reflex_status()
     for _, c in ipairs(M.rank(M.situation(ctx))) do
-        if M.can_cast(c.spell) then
+        if status[c.spell] and status[c.spell].on and M.can_cast(c.spell) then
             local r = M.cast(ctx.p, c.spell, c.target, {})
             if r.ok then log("spell_reflex", { spell = c.spell, score = c.score }); return c.spell end
+            log("spell_reflex_failed", { spell = c.spell, reason = r.reason })
         end
     end
     return nil
 end
 
--- Install into body/combat.lua's BT (on_tick hook). Returns the remover.
+-- Install into body/combat.lua's BT (on_tick hook): Tempest Shield on low HP or a fresh telegraph
+-- (combat.notify_threat, fed by body/rules.lua's sensor), Windstep (Wind Stomp) on a cluster of
+-- tactics.stomp_min (3) or more. Each is gated per route by M.reflex_status(). Returns the remover.
 function M.install_combat_hooks(combat)
-    return combat.add_hook("on_tick", "spells", M.combat_tick)
+    local remover = combat.add_hook("on_tick", "spells", M.combat_tick)
+    log("spells_reflexes_installed", { routes = M.reflex_status(), allow_unverified = S.allow_unverified })
+    return remover
 end
 
 -- ------------------------------------------------------------------ bridge
 -- cast {spell, target?, trigger?, upgraded?}: target is an entity id, a player name is refused, or
 -- [x,y,z] metres. spells {}: the list. Both honour args.probe.
+-- opts: {puppet, find_ai(id, origin) -> actor, catalog_path, cost_policy, inventory (store with
+-- count/take), mirror (false = none; default M.live_mirror()), allow_unverified}.
+-- Env: DW_SPELL_COST_POLICY overrides opts.cost_policy; DW_SPELLS_UNVERIFIED=1 allows unverified
+-- routes (manual casts and reflexes); DW_SPELLS_MODULAR=1 allows the modular route.
 function M.register(bridge, log_mod, opts)
     opts = opts or {}
     S.bridge, S.log = bridge, log_mod or S.log
     S.puppet = opts.puppet or S.puppet
-    if opts.cost_policy or os.getenv("DW_SPELL_COST_POLICY") then
-        M.configure({ cost_policy = opts.cost_policy or os.getenv("DW_SPELL_COST_POLICY") })
+    if opts.catalog_path then
+        local doc, err = M.load_catalog(opts.catalog_path)
+        log("spells_catalog", { path = opts.catalog_path, ok = doc ~= nil, err = err,
+                                spells = doc and doc.spell_count or nil })
     end
+    if opts.inventory ~= nil then S.inventory = opts.inventory end
+    if opts.mirror ~= false and S.mirror == nil then S.mirror = opts.mirror or M.live_mirror() end
+    local policy = os.getenv("DW_SPELL_COST_POLICY")
+    if policy == "" then policy = nil end
+    policy = policy or opts.cost_policy
+    if policy then M.configure({ cost_policy = policy }) end
     if os.getenv("DW_SPELLS_MODULAR") == "1" then S.allow_modular = true end
-    if opts.catalog_path then M.load_catalog(opts.catalog_path) end
+    if os.getenv("DW_SPELLS_UNVERIFIED") == "1" or opts.allow_unverified == true then S.allow_unverified = true end
+    log("spells_registered", M.config())
     local find_ai = opts.find_ai -- function(id) -> actor (skills.lua's resolver), optional
+    -- spells {compact?}: the list (compact = only what the bot could cast, for the Controller)
     bridge.handlers.spells = function(args)
         if type(args) == "table" and args.probe == true then return result(true, nil, { probe = true, tool = "spells" }) end
-        return result(true, nil, { spells = M.list(), config = M.config() })
+        local compact = type(args) == "table" and args.compact == true
+        return result(true, nil, { spells = M.list({ compact = compact }), config = M.config(), reflexes = M.reflex_status() })
     end
     bridge.handlers.cast = function(args)
         args = args or {}
@@ -831,7 +987,9 @@ function M.register(bridge, log_mod, opts)
         local p = U.try(pm.get)
         if not p then return result(false, "companion_down", {}) end
         local target = args.target
-        if type(target) == "string" then
+        if target == "self" or target == "" then
+            target = nil
+        elseif type(target) == "string" then
             local ai = find_ai and find_ai(target, U.loc(p))
             if not ai then return result(false, "unknown_target", { target = target }) end
             target = ai

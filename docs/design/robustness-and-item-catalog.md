@@ -142,3 +142,16 @@ Luis relies on spells: **a shield spell**, and **wind jump**, whose landing stun
 - The bot's held actors are spawned from the data asset only (`HeldEquipmentItem` = nil), so they very likely behave as **base, unupgraded** items. That is fine for visuals and wrong for "acts like a player".
 - **The bot inventory store must hold instances:** `{item_data_path, count, level, ascension, enchant, durability, perks...}`. Equip must attach a matching `HeldEquipmentItem` (built from the stored instance state, or copied from an item Luis hands over) so server damage reflects the real item.
 - Research needed: the `UItem` / `HeldEquipmentItem` property layout and how upgrade level feeds damage (power level / ascension multipliers). Can the server construct a `UItem` for the puppet safely (object, not struct)?
+
+## 14. Capabilities should get cheaper over time (Luis's principle, 2026-10-25)
+"I don't mind spending a while learning how to get it to chop a tree … AS LONG AS it is centralised and /simplified, so 'add mining' takes a fraction of the time, until adding functionality is easy, or something it could figure out on the fly."
+- Every new capability must leave behind **shared services**:
+  - `sense`: census and filters
+  - `watch`: generic state watcher, for learning and verification
+  - `hitcheck`: whether a hit registered and why not
+  - `tool chains`: from the catalog
+  - `collect + verify`: via inventory
+  - plus **data profiles** (resources, spells, enemies, items)
+- A new gatherable or mechanic = census → watch one instance (by the bot itself or Luis) → write a profile → the shared loop runs it.
+- End state: the brain can propose a profile from watch data for an unknown thing, then test it.
+- After each wave, run a `/simplify` pass to extract and dedupe, and update the ARCHITECTURE.md recipes ("How to add a new gatherable / spell / enemy / skill in N steps").

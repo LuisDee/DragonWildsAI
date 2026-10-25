@@ -117,6 +117,10 @@ local function start(a)
     log("action_start", { kind = a.kind, id = a.id })
     return a
 end
+-- For skill modules registered beside this one (body/item_skills.lua): the same single action
+-- slot, pre-emption and tick loop (ARCHITECTURE rule 9).
+M._start = start
+M._preempt = preempt
 
 function M.tick()
     S.now = S.now + M.TICK_MS
@@ -152,6 +156,8 @@ end
 local function stop_movement(c)
     if c then U.call(S.log, "StopMovement", {}, function() c:StopMovement() end) end
 end
+M._move_to_actor, M._move_to_location, M._stop_movement = move_to_actor, move_to_location, stop_movement
+M.REQ_FAILED = REQ_FAILED
 
 -- ------------------------------------------------------------------ entities
 local function ai_kind(name)
@@ -194,6 +200,10 @@ end
 
 -- ------------------------------------------------------------------ get_state
 M.NOT_IMPLEMENTED = { "inventory", "nearby_resources", "structures", "places" }
+-- Other skill modules fill their own get_state keys: fn(data, puppet) mutates data and returns the
+-- list of keys it now implements (removed from not_implemented). Errors are logged and ignored.
+M.STATE_EXTENDERS = {}
+function M.add_state_extender(name, fn) M.STATE_EXTENDERS[name] = fn end
 
 function M.get_state()
     local p = S.puppet.get()
@@ -245,6 +255,17 @@ function M.get_state()
         puppet = S.puppet.status(),
         not_implemented = M.NOT_IMPLEMENTED,
     }
+    if next(M.STATE_EXTENDERS) then
+        local done = {}
+        for name, fn in pairs(M.STATE_EXTENDERS) do
+            local ok, keys = pcall(fn, data, p)
+            if ok then for _, k in ipairs(type(keys) == "table" and keys or {}) do done[k] = true end
+            else log("state_extender_error", { name = name, err = tostring(keys) }) end
+        end
+        local left = {}
+        for _, k in ipairs(M.NOT_IMPLEMENTED) do if not done[k] then left[#left + 1] = k end end
+        data.not_implemented = left
+    end
     if not p then return { ok = false, reason = "companion_down", data = data } end
     return { ok = true, data = data }
 end
@@ -433,7 +454,9 @@ local function h_equip(args)
     end
     local p, err = S.puppet.ensure_spawned()
     if not p then return { ok = false, reason = "companion_down", data = { detail = err } } end
-    local r = gear.equip(S.log, p, args.item_path, { hand = args.hand, actor_class = args.actor_class })
+    -- Only owned items (gear.lua EQUIP RULE); debug_unowned is a debug override the brain never sends.
+    local r = gear.equip(S.log, p, args.item_path, { hand = args.hand, actor_class = args.actor_class,
+                                                     debug_unowned = args.debug_unowned == true })
     if r.ok then r.data.persisted = S.puppet.remember_gear(r.data.slot, args.item_path) end
     return r
 end
