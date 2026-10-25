@@ -15,7 +15,8 @@
 --   teleport {who, from, to, dist_m}                  a tracked player moved >= 300 m between two polls
 -- Not in v0 (need hooks that fire; DISCOVERIES says many inventory/damage natives don't): damage types, parry/dodge,
 -- projectile hits, crafts, deposits. Their leaves stay null (perception gap) until added and verified.
-local M = { VERSION = 0, POLL_MS = 250, RADIUS_CM = 6000, TELEPORT_CM = 30000 }
+local M = { VERSION = 0, POLL_MS = 250, RADIUS_CM = 6000, TELEPORT_CM = 30000,
+            CREATURE_CLASS = "BP_DominionAICharacter_C" }  -- the AI creature base class (object dump 26161880)
 M.SUPPORTED = {}  -- filled per kind after the dev probe is verified (see the header)
 
 local root = (rawget(_G, "__dw_bench_root") or os.getenv("DW_MOD_ROOT") or "."):gsub("\\", "/")
@@ -90,7 +91,7 @@ function M.poll(watch)
     end
     if anchor then
         local here = U.loc(anchor)
-        for _, a in ipairs(U.find_all("BP_CreatureCharacter_C", { skip_defaults = true })) do
+        for _, a in ipairs(U.find_all(M.CREATURE_CLASS, { skip_defaults = true })) do
             local q = U.loc(a)
             if q and here and U.dist(q, here) <= M.RADIUS_CM then
                 local key = "creature:" .. tostring(U.short(a))
@@ -114,9 +115,16 @@ function M.run(log, args)
         local players = {}
         for _, p in ipairs(U.find_all("BP_PlayerCharacter_C", { skip_defaults = true })) do
             local pc = U.controller_of(p)
-            players[#players + 1] = { name = U.player_name(p), health = U.health(p), has_inventory = U.valid(pc) and counts(pc) ~= nil }
+            local ps = U.try(function() return p.PlayerState end)
+            players[#players + 1] = { name = U.player_name(p), health = U.health(p), has_inventory = U.valid(pc) and counts(pc) ~= nil,
+                                      character_guid = ps and U.try(function() return U.guid_hex(ps.OwnerGuid.CharacterGuid.InnerGuid) end) }
         end
-        return { ok = true, version = M.VERSION, players = players, supported = M.SUPPORTED }
+        local here = players[1] and nil
+        local creatures = {}
+        for _, a in ipairs(U.find_all(M.CREATURE_CLASS, { skip_defaults = true })) do
+            if #creatures < 12 then creatures[#creatures + 1] = { id = U.short(a), class = U.class_word(a), health = U.health(a) } end
+        end
+        return { ok = true, version = M.VERSION, players = players, creatures = creatures, supported = M.SUPPORTED }
     elseif args.action == "start" then
         if s.handle then return { ok = true, already = true } end
         s.watch = tostring(args.watch or "Claude")

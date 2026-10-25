@@ -24,6 +24,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "fc6fe31"  # 2026-10-25T22:22:24+01:00, before the detector and before any benchmark case existed
 CODE_DIRS = ("brain", "client_mod/scripts")
+# Test infrastructure inside brain/ (mock worlds and their scenario data): PRINCIPLES exempts data files and tests, and
+# a mock legitimately mirrors benchmark wording. Every other brain/ and client_mod/scripts/ path stays strict.
+EXEMPT = ("brain/mock/",)
 TASK_DIRS = (ROOT / "evals" / "bench" / "cases", ROOT / "evals" / "bench" / "goal_cases", ROOT / "evals" / "bench" / "tasks",
              ROOT / "logs" / "evals" / "heldout")
 N = 4
@@ -141,7 +144,7 @@ def test_no_benchmark_task_text_added_to_companion_code():
     added = added_lines()
     if added is None:
         pytest.skip(f"git unavailable or baseline {BASELINE} missing")
-    hits = find_overlaps(added, texts)
+    hits = find_overlaps([a for a in added if not a[0].replace("\\", "/").startswith(EXEMPT)], texts)
     assert not hits, ("benchmark task text copied into the companion (GOAL.md §3 overfit detector); fix tools, "
                       "perception or context instead:\n" + "\n".join(hits[:40]))
 

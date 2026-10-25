@@ -127,7 +127,8 @@ def t0_cases(spells: dict | None = None, catalog: dict | None = None) -> tuple[l
                  phrasing_heldout=f"go on then, let's see {name}",
                  fixtures={"setup": setup, "state_snapshot": "empty"},
                  success={"spell_effect": {"spell": sid}}, controls=controls,
-                 limits={"wall_s": 300, "sim_s": 120, "idle_s": 30}, targets=["mock", "dev"],
+                 limits={"wall_s": 300, "sim_s": 120, "idle_s": 30, "repeat": TRIALS_PER_CASE["spell_cast"]},
+                 targets=["mock", "dev"],
                  oracle={"mock": oracle, "dev": oracle},
                  provenance={"by": "generator.t0_cases", "from": "data/spell_effects.json", "description": desc})
         cases.append(c)
@@ -371,13 +372,18 @@ def shingle_dupe(a: str, b: str, n: int = 4, thresh: float = 0.5) -> bool:
 # ------------------------------------------------------------------ files
 
 
+# Trials per case for a family's percentage target (main, 2026-10-25: spells k=2 -> 78 trials under the Wilson rule)
+TRIALS_PER_CASE = {"spell_cast": 2}
+
+
 def manifest(cases: list[Case], na: dict[str, str], version: int = 1) -> dict:
     fam: dict[str, list] = {}
     for c in cases:
         if c.status == "suite":
             fam.setdefault(c.family, []).append({"id": c.id, "hash": case_hash(c)})
     return {"schema": "dw_bench_manifest/1", "version": version, "build": hashes.game_build(), "canary": CANARY,
-            "families": fam, "denominators": {f: len(v) for f, v in fam.items()},
+            "families": fam, "trials_per_case": {f: TRIALS_PER_CASE.get(f, 1) for f in fam},
+            "denominators": {f: len(v) * TRIALS_PER_CASE.get(f, 1) for f, v in fam.items()},
             "na": {"spell_cast": na}, "approved_by": None, "_note": "Luis approves this manifest and its n/a list per build"}
 
 

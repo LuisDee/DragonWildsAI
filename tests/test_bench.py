@@ -329,3 +329,14 @@ def test_spend_preflight_fails_closed(monkeypatch):
     assert not ok and "worst case" in why
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: P_(json.dumps({"state": "ok", "spent_usd": 1.0, "cap_usd": 10})))
     assert runner.spend_preflight({"haiku": 10}, {"haiku": "anthropic/claude-haiku-5-5"})[0]
+
+
+def test_kills_come_from_the_referee_not_the_body_claim():
+    from evals.bench.observer import Record
+    rec = Record(referee=[{"kind": "death", "who": "BP_AI_RuntGoblin_Character_C_1", "kind_id": "BP_AI_RuntGoblin_Character_C"}],
+                 episodes=[{"kind": "combat_end", "outcome": "killed", "target": "Goblin Runt", "target_class": "BP_AI_Cow_Character_C"}])
+    ctx = evidence_ctx(rec, {}, SPELLS, 0.0, referee_supports={"death"})
+    p = P.validate({"killed": {"kind": "Goblin Runt", "kind_id": "BP_AI_RuntGoblin_Character_C", "at_least": 1}})
+    assert P.evaluate(p, {}, ctx).passed is True
+    p2 = P.validate({"killed": {"kind": "Cow", "kind_id": "BP_AI_Cow_Character_C", "at_least": 1}})
+    assert P.evaluate(p2, {}, ctx).passed is False  # the body's own claim is ignored when the referee covers deaths

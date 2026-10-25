@@ -82,6 +82,25 @@ function Save-Stack($proc, [string]$why) {
     $out
 }
 
+# BUGS L24: the relaunch overwrites UE4SS.log (and rotates the game log), so the lines before a crash were
+# lost. Copy both (plus our own client.log tail) into a folder next to the dump BEFORE anything restarts.
+function Save-CrashLogs($dump) {
+    if (-not $dump) { return $null }
+    $dest = Join-Path $dump.DirectoryName ($dump.BaseName + '.logs')
+    if ($DryRun) { return "(dry run) $dest" }
+    try {
+        New-Item -ItemType Directory -Force $dest | Out-Null
+        $ue4ss = Join-Path $ClientDumpDir 'UE4SS.log'
+        foreach ($f in @($ue4ss, $ClientGameLog)) {
+            if ($f -and (Test-Path $f)) { Copy-Item -LiteralPath $f -Destination $dest -Force -ErrorAction SilentlyContinue }
+        }
+        $own = Join-Path $RepoRoot 'logs\client\client.log'
+        if (Test-Path $own) { Get-Content $own -Tail 400 | Set-Content -Encoding utf8 (Join-Path $dest 'client.log.tail') }
+        Ev 'crash_logs_saved' @{ dump = $dump.Name; dir = $dest }
+        return $dest
+    } catch { Ev 'crash_logs_failed' @{ dump = $dump.Name; err = "$_" }; return $null }
+}
+
 function Stop-Client([string]$why) {
     foreach ($n in 'wd_boot_probe', 'boot_pick_char', 'boot_join_server', 'boot_skip_intro') { Clear-ClientCmd $n }
     $tree = @(Get-ClientProcessTree)
@@ -207,6 +226,10 @@ while ($true) {
         $state = 'unknown'; $cpu = $null
         if (-not $proc) {
             $state = 'down'
+            $gone_dump = Get-LatestDump $ClientDumpDir
+            if ($gone_dump -and $gone_dump.FullName -ne $script:clientDump -and $gone_dump.Length -gt 0) {
+                $script:clientDump = $gone_dump.FullName; Save-CrashLogs $gone_dump | Out-Null
+            }
             if (-not $held -and -not $bootBusy) { Ev 'client_gone' @{}; Recover-Client 'crash' }
         } else {
             $ageProc = ((Get-Date) - $proc.StartTime).TotalSeconds
@@ -220,6 +243,7 @@ while ($true) {
             if ($dump -and $dump.FullName -ne $script:clientDump -and $dump.Length -gt 0) {
                 Start-Sleep 3; $script:clientDump = $dump.FullName; $state = 'crashed'
                 Ev 'client_crash_dump' @{ dump = $dump.Name; pid = $proc.Id }
+                Save-CrashLogs $dump | Out-Null
                 if (-not $held -and -not $bootBusy) { Recover-Client 'crash' -Kill $proc }
             } elseif ($reporter) {
                 $state = 'crashed'; Ev 'client_crash_reporter' @{ pid = $proc.Id }

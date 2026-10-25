@@ -38,7 +38,7 @@
      },
      {
       "verb": "grant",
-      "item": "<pickaxe that mines coal (tier from data)>",
+      "item": "ITEM_Pickaxe_Iron",
       "count": 1
      }
     ],
@@ -101,7 +101,7 @@
     "ladder": [
      "any luck with the coal?",
      "coal's in rocky places, the wiki lists the regions",
-     "Fellhollow has coal nodes; there's a lodestone near there"
+     "Fellhollow has coal nodes, an iron pickaxe will do"
     ]
    },
    "targets": [
@@ -137,7 +137,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "I need 20 <a drop only <creature> drops>, can you farm them for me? they're tough, gear up for them",
+     "text": "I need 20 goblin packs, can you farm them off the goblin runts? gear up for them first",
      "from": "player"
     }
    ],
@@ -154,15 +154,15 @@
      {
       "delivered": {
        "to": "Tester",
-       "item": "<the drop item>",
+       "item": "ITEM_Consumable_GoblinPack",
        "at_least": 20
       }
      },
      {
       "damage_type_dealt": {
-       "target_kind_id": "<creature class>",
+       "target_kind_id": "BP_AI_RuntGoblin_Character_C",
        "types": [
-        "<weakness damage type from the wiki>"
+        "DamageType.Magical.Fire"
        ]
       }
      },
@@ -182,13 +182,13 @@
    ],
    "needs_fact": {
     "kind": "weakness",
-    "truth": "<the creature's wiki infobox weakness>"
+    "truth": "Fire"
    },
    "controls": {
     "alt_means": [
      {
       "setup": "grant_to_ground",
-      "item": "<the drop item>",
+      "item": "ITEM_Consumable_GoblinPack",
       "count": 20
      }
     ],
@@ -205,7 +205,7 @@
     "ladder": [
      "how's the farming going?",
      "check what they're weak to",
-     "<the weakness> works on them"
+     "fire works on them"
     ]
    },
    "targets": [
@@ -214,9 +214,9 @@
    "risk": "low",
    "oracle": {},
    "provenance": {
-    "note": "pick a creature whose drop has a single source (wiki Drop sources) and a weakness",
+    "note": "Goblin Runt: weakness Fire, drops Goblin Pack (Always)",
     "sources": [
-     "https://dragonwilds.runescape.wiki/w/Monsters"
+     "https://dragonwilds.runescape.wiki/w/Goblin_Runt"
     ]
    },
    "heldout": false,
@@ -241,12 +241,7 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_gear",
-      "tier": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
     "player_body": false
@@ -353,7 +348,7 @@
     "ladder": [
      "how far along are you?",
      "Zanik starts it in Bramblemead Valley",
-     "<the next quest step>"
+     "Zanik is on the ridge in Bramblemead Valley, over the Whispering Swamp"
     ]
    },
    "targets": [
@@ -422,7 +417,7 @@
     "alt_means": [
      {
       "setup": "grant_to_ground",
-      "item": "<Desert Weed item id>",
+      "item": "ITEM_Resources_Weed_Desert",
       "count": 20
      }
     ],
@@ -439,7 +434,7 @@
     "ladder": [
      "how's the farm?",
      "you need desert weed seeds and a plot",
-     "<where seeds come from>"
+     "desert weed seeds grow best in a yew farming plot"
     ]
    },
    "targets": [

@@ -25,6 +25,9 @@ from pydantic import ValidationError
 from .llm import LLMClient, LLMResponse, assistant_message, tool_result_message
 
 
+RESEARCH_OVER = "Research is over: answer now with the JSON object only, without calling more tools."
+
+
 class DecisionError(Exception):
     pass
 
@@ -54,21 +57,35 @@ def json_decision(llm: LLMClient, messages: list[dict], validate: Callable[[str,
         if before_request is not None and not before_request():
             info["messages"] = msgs
             raise BudgetStop("out of budget")
-        offer = tools if tools and run_tool is not None and tool_rounds < max_tool_rounds else None
+        can_research = bool(tools) and run_tool is not None
+        if can_research and tool_rounds >= max_tool_rounds and not info.get("research_over"):
+            info["research_over"] = True  # wave 5: say it, don't withdraw the tools (LiteLLM then injects a dummy tool)
+            msgs = msgs + [{"role": "user", "content": RESEARCH_OVER}]
+        offer = tools if can_research else None
         resp = llm.complete(msgs, offer) if offer else llm.complete(msgs)
         info["requests"] += 1
         if on_response is not None:
             on_response(resp, msgs)
         if offer and resp.tool_calls:
+            over = tool_rounds >= max_tool_rounds
             tool_rounds += 1
             msgs = msgs + [assistant_message(resp)]
             for call in resp.tool_calls:
-                info["tool_calls"].append({"name": call.name, "args": call.arguments})
-                try:
-                    result = run_tool(call.name, call.arguments or {})
-                except Exception as exc:  # a research tool failing is information, not a crash
-                    result = {"ok": False, "error": repr(exc)[:300]}
+                info["tool_calls"].append({"name": call.name, "args": call.arguments, "refused": over})
+                if over:
+                    result = {"ok": False, "error": "research is over: answer with the JSON object now"}
+                else:
+                    try:
+                        result = run_tool(call.name, call.arguments or {})
+                    except Exception as exc:  # a research tool failing is information, not a crash
+                        result = {"ok": False, "error": repr(exc)[:300]}
                 msgs.append(tool_result_message(call, result))
+            if over:
+                if repairs >= max_repairs:
+                    info["messages"] = msgs
+                    raise DecisionError("kept researching after the research limit")
+                repairs += 1
+                info["repairs"] = repairs
             continue
         text = resp.content or ""
         try:

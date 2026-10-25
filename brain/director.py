@@ -134,7 +134,9 @@ Rules:
   workaround if there is one) instead of pretending.
 - If he is under-prepared for a risky step (a hard fight, a long trip), mark it risk and plan preparation;
   an abort_if test and escape hints say when and how to back off.
-- Prerequisites he should do first can go on the board with add_tasks (with because).
+- The work of THIS job goes in its steps (gathering, crafting, travelling for it). add_tasks is only for a separate
+  job he should do first that is worth its own place on the board (e.g. a gear upgrade he needs anyway); at most
+  one per answer.
 - If you can't make progress with his tools and what you know, ask the player ONE specific question (ask_help).
 Answer with ONE JSON object only:
 {output}"""
@@ -929,8 +931,7 @@ class Director:
                 dec.error = f"planning call failed: {exc!r}"[:300]
         dec.requests = count["n"]
         facts = validator.unknown_seen + ((dec.value or {}).get("facts") or [])
-        dec.lookups = [{"query": lk["query"], "needed": matches_unknown(lk["query"], facts),
-                        "top": _top_result(lk["result"])} for lk in research.lookups]
+        dec.lookups = score_lookups(research.lookups, facts, dec.tool_calls)
         return dec
 
     def _collect_decision(self) -> None:
@@ -992,7 +993,7 @@ class Director:
             elif v["task_success"] != task.success["predicate"]:
                 task.history.append({"title": "note", "outcome": "ignored",
                                      "reason": "the job's done test is fixed; a new one was not used"})
-        for t in v.get("add_tasks", []):
+        for t in v.get("add_tasks", [])[:1]:  # one prerequisite per decision (wave 5: real plans added three)
             try:
                 kid = self.ops.add_task(str(t["text"]), by="self", parent=task.id, because=t.get("because"),
                                         when="next")
@@ -1362,6 +1363,25 @@ class _nullcontext:
 
     def __exit__(self, *exc):
         return False
+
+
+def score_lookups(lookups: list[dict], facts: list[dict], tool_calls: list[dict]) -> list[dict]:
+    """needed: True when the lookup answers a fact the plan listed as unknown; False when it repeats an earlier
+    lookup or recall of the same decision (needless); None when neither can be told (wave 5: Sonnet researches
+    before it writes its facts, so "not listed" is not "needless")."""
+    seen: list[set[str]] = []
+    queries = [P.tokens(str((c.get("args") or {}).get("query") or "")) for c in tool_calls
+               if c.get("name") in ("recall", "lookup")]
+    out = []
+    for lk in lookups:
+        q = P.tokens(lk["query"])
+        idx = next((i for i, x in enumerate(queries) if x == q), None)
+        earlier = queries[:idx] if idx is not None else seen
+        repeat = any(q and len(q & e) * 2 >= len(q) for e in earlier)
+        needed = True if matches_unknown(lk["query"], facts) else (False if repeat else None)
+        seen.append(q)
+        out.append({"query": lk["query"], "needed": needed, "top": _top_result(lk["result"])})
+    return out
 
 
 def _top_result(res: Any) -> dict | None:

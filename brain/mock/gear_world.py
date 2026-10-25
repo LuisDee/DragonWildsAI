@@ -334,13 +334,25 @@ class GearWorld(MockGame):
             if have >= n or depth > 4 or not recs:
                 out["status"] = "have" if have >= n else ("gather" if not recs else "depth")
                 return out
-            rid, r = recs[0]
+            rid, r = self._best_recipe(i, recs)
             per = sum(o.get("count", 1) for o in r["outputs"] if o.get("item") == i) or 1
             crafts = math.ceil((n - have) / per)
             out.update(status="craft", recipe=rid, station=r["stations"], crafts=crafts,
                        inputs=[node(x["item"], x["count"] * crafts, depth + 1) for x in r["inputs"]])
             return out
         return ok(root=node(iid, count, 0))
+
+    def _best_recipe(self, item: str, recs: list[tuple[str, dict]]) -> tuple[str, dict]:
+        """Rank like the client planner (crafting.lua candidates): a station of its type near, then how many of
+        its inputs he carries or can make without needing the item itself (no cycles), then the recipe id."""
+        def score(rr):
+            rid, r = rr
+            near = self._near_station(r["stations"]) is not None
+            ok_inputs = sum(1 for x in r["inputs"] if self._carried(x["item"]) >= x["count"] or
+                            (self._recipes_for(x["item"]) and not any(o.get("item") == item for _, rx in
+                             self._recipes_for(x["item"]) for o in rx.get("inputs") or [])))
+            return (not near, -ok_inputs / max(1, len(r["inputs"])), rid)
+        return sorted(recs, key=score)[0]
 
     def drop(self, item: str, count: int, at: str = "feet", player: str | None = None) -> ActionResult:
         iid = self.resolve_item(item) or item

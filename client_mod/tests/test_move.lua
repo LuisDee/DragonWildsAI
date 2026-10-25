@@ -58,7 +58,15 @@ local function fake_water(a, b, out)
 end
 local KSL_BASE
 local KSL = {}
-KSL.LineTraceSingleByProfile = function(self, ctx, a, b, prof, cx, ign, dbg, out) return KSL_BASE(self, ctx, a, b, 99, cx, ign, dbg, out) end
+-- like the engine: an unknown profile name ("Custom" = per-channel responses, not a preset) is
+-- "not found" and the trace returns NO hit (live bug 2026-10-25 21:33)
+local VALID_PROFILES = { Player = true, Pawn = true }
+local profile_not_found = 0
+KSL.LineTraceSingleByProfile = function(self, ctx, a, b, prof, cx, ign, dbg, out)
+    local n = type(prof) == "table" and prof.name or tostring(prof)
+    if not VALID_PROFILES[n] then profile_not_found = profile_not_found + 1; return false end
+    return KSL_BASE(self, ctx, a, b, 99, cx, ign, dbg, out)
+end
 KSL.LineTraceSingleForObjects = function(self, ctx, a, b, ots, cx, ign, dbg, out) return KSL_BASE(self, ctx, a, b, 99, cx, ign, dbg, out) end
 KSL.LineTraceSingle = function(self, ctx, a, b, ch, cx, ign, dbg, out)
     if ch == 0 and fake_water(a, b, out) then return true end
@@ -100,7 +108,8 @@ function pawn:Jump() self.jumps = self.jumps + 1; air = 0.6; self.jump_origin = 
 function pawn:StopJumping() end
 pawn.CharacterMovement = obj({ MaxStepHeight = 45, GetMaxJumpHeightWithJumpTime = function() return 120 end,
     IsMovingOnGround = function() return air <= 0 end, MinFallDamageHeight = 500 })
-pawn.CapsuleComponent = obj({ GetScaledCapsuleHalfHeight = function() return 90 end })
+pawn.CapsuleComponent = obj({ GetScaledCapsuleHalfHeight = function() return 90 end,
+    GetCollisionProfileName = function() return { ToString = function() return "Custom" end } end })
 pawn.EnvironmentComponent = obj({ GetNormalizedWaterDepth = function() return in_lake(pawn.loc.X, pawn.loc.Y) and 0.6 or 0 end })
 local water_frames = 0
 pawn.SprintComponent = obj({ SprintInputAction = obj({}), IsSprinting = function() return sprinting end })
@@ -614,6 +623,34 @@ check("water: second trip goes round (less wading)", s.result and s.result.statu
     string.format("w1=%d w2=%d %s", w1, w2, tostring(s.result and s.result.status)))
 MW2.stop(log)
 lakes = {}
+
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+-- 20. TRACE PROFILE regression: the capsule reports "Custom" (not a preset); traces must not use it
+--     (the engine finds no such profile and returns no hit), but a validated preset ("Player"), and
+--     Visibility when no preset validates
+walls = { { 900, 1000, -300, 300, true } }; raised = {}; oracle = nil; lakes = {}
+pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 90000, Y = 90000, Z = 0 }
+profile_not_found = 0
+local MP = dofile(MOVE)
+MP.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 60 })
+run(400)
+s = MP.status()
+check("profile: never traces with the capsule's 'Custom' name", profile_not_found == 0, profile_not_found)
+check("profile: a validated preset is used", s.trace_profile == "Player", tostring(s.trace_profile))
+check("profile: planning works (arrives round the wall)", s.result and s.result.status == "arrived", s.result and s.result.status)
+MP.stop(log)
+VALID_PROFILES = {} -- a game with neither preset: fall back to Visibility, still plans
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+pawn.loc = { X = 0, Y = 0, Z = 0 }
+local MP2 = dofile(MOVE)
+MP2.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 60 })
+run(400)
+s = MP2.status()
+check("profile: no preset -> Visibility fallback, still arrives", s.trace_profile == "visibility" and s.result and s.result.status == "arrived",
+    tostring(s.trace_profile) .. " " .. tostring(s.result and s.result.status))
+MP2.stop(log)
+VALID_PROFILES = { Player = true, Pawn = true }
+walls = {}
 
 _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
 -- 7. arbiter hooks: actor target ({actor=obj}), snapshot/restore, face_when_near

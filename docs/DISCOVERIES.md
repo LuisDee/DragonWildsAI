@@ -1612,3 +1612,13 @@ Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probe
   - Source: `move.lua` `raw_trace` traces with `LineTraceSingleByProfile(capsule:GetCollisionProfileName())`. On Claude's capsule the name is "Custom" (per-component collision, not a named profile), so EVERY trace warns and returns no hit.
   - Why the file stopped is UNPROVEN: the engine kept running (client.log continues), and the trace spam is the obvious anomaly.
   - Suggested fix for move.lua's owner: treat "Custom" (or any name the profile table lacks) as invalid, and trace by the capsule's object channel (ECC_Pawn) or fall back to the Visibility trace.
+- **Server-side grant WORKS (verified 2026-10-25 23:0x UTC):**
+  - The call is `pc.InventoryComponent:AddItemByData(ItemData, Count, 100.0, tags)`, where `ItemData = StaticFindObject(<catalog asset path>)` and `tags` is a COPY of a live, empty `FGameplayTagContainer` (`UItem.GameplayTags` of an item already in that inventory: the torch's `HeldEquipmentItem`). No struct is built in Lua (CLAUDE.md principle 4).
+  - Stone 0 → 1, Air Rune 0 → 20; both replicated to the client (`bench_probe` inventory). No crash.
+  - The game's `domAddItem` cheat is inert, so this is the fixture route (`mod/bench/fixtures.lua` verbs `grant` / `grant_runes`).
+  - Limitation: it needs at least one item with empty tags already in the inventory.
+- **Server-side spell unlock WORKS:** `pc.ProgressComponent:UnlockSpells({<UtilitySpellData object>})`, with a Lua array of a `StaticFindObject`'d `USD_Windstep`. The client's `spells` tool went from 0 unlocked to 1 (Windstep, castable). Fixture verb `unlock`.
+- **Dev positive control (T0 Windstep) PASSED, judged by the harness probe:**
+  - Claude's real `cast` (wheel: menu, quick0, place) spent Air 20 → 15 and set `LastCastTimeBySpellData` `USD_Windstep = 699.29`.
+  - The tag `Player.Spell.WindStep` appeared on the pawn; GEs `DominionStatusEffect` and `HydrationDamageGameplayEffect` (the second is thirst, not the spell).
+  - The cast reply agrees with the probe (no `sensor_mismatch`), so `spell_effect` passes on the specific tag. The base GE class is rejected as generic evidence.

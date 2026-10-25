@@ -23,7 +23,7 @@
      {
       "verb": "spawn",
       "as": "boss",
-      "class": "<a creature 2+ PL above his gear>",
+      "class": "BP_AI_RuntGoblin_Character_C",
       "offset_m": [
        30,
        0,
@@ -39,13 +39,13 @@
     "prepared": {
      "any": [
       {
-       "tag": "<Tempest Shield tag>"
+       "tag": "Player.Status.TempestShield"
       },
       {
-       "enchant_type": "<the boss weakness damage type>"
+       "enchant_type": "DamageType.Magical.Fire"
       },
       {
-       "item": "<antipoison or food>",
+       "item": "ITEM_Consumable_Fish_Anchovies",
        "at_least": 1
       }
      ]
@@ -72,8 +72,10 @@
    "oracle": {},
    "provenance": {
     "sources": [
-     "https://dragonwilds.runescape.wiki/w/Velgar/Strategies"
-    ]
+     "https://dragonwilds.runescape.wiki/w/Velgar/Strategies",
+     "https://dragonwilds.runescape.wiki/w/Goblin_Runt"
+    ],
+    "note": "hard = the creature's PL above his gear PL: a fresh ClaudeDev (no gear) vs a PL 1 runt"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -99,7 +101,7 @@
     "setup": [
      {
       "verb": "spawn",
-      "class": "<a mid creature with telegraphs>",
+      "class": "BP_AI_RuntGoblin_Character_C",
       "offset_m": [
        8,
        0,
@@ -113,7 +115,8 @@
    },
    "success": {
     "killed": {
-     "kind": "<creature>",
+     "kind": "Goblin Runt",
+     "kind_id": "BP_AI_RuntGoblin_Character_C",
      "at_least": 1
     }
    },
@@ -220,7 +223,7 @@
      {
       "verb": "spawn",
       "as": "foe",
-      "class": "<a creature with a wiki weakness>"
+      "class": "BP_AI_RuntGoblin_Character_C"
      }
     ],
     "scene": {},
@@ -229,16 +232,16 @@
    },
    "success": {
     "damage_type_dealt": {
-     "target_kind_id": "<class>",
+     "target_kind_id": "BP_AI_RuntGoblin_Character_C",
      "types": [
-      "<weakness type>"
+      "DamageType.Magical.Fire"
      ]
     }
    },
    "guards": [],
    "needs_fact": {
     "kind": "weakness",
-    "truth": "<the creature's weakness from the wiki>"
+    "truth": "Fire"
    },
    "controls": {
     "na": {}
@@ -294,7 +297,7 @@
    "guards": [],
    "needs_fact": {
     "kind": "location",
-    "truth": "<clay node region>"
+    "truth": "Whispering Swamp"
    },
    "controls": {
     "na": {}

@@ -289,11 +289,12 @@ def family_target(d: Data, name: str, family: str, target_pct: float) -> Row:
         if man is None or family not in (man.get("families") or {}):
             continue
         ids = {x["id"]: x["hash"] for x in man["families"][family]}
-        by_id = {c.get("case_id"): c for c in r["cases"]}
-        passed = sum(1 for cid, h in ids.items() if (c := by_id.get(cid)) and c.get("case_hash") == h
-                     and c.get("result") == "pass" and case_valid(d, c)[0])
-        return wilson_row(name, passed, len(ids), target_pct, min_n, str(r["row"].get("run_id")), age_h(d, r["row"].get("at")),
-                          f"manifest v{man.get('version')}")
+        k = max(1, int((man.get("trials_per_case") or {}).get(family, 1)))  # repeated trials per case (spells: 2)
+        trials = {(c.get("case_id"), int(c.get("repeat_i") or 0)): c for c in r["cases"]}
+        passed = sum(1 for cid, h in ids.items() for i in range(k) if (c := trials.get((cid, i)))
+                     and c.get("case_hash") == h and c.get("result") == "pass" and case_valid(d, c)[0])
+        return wilson_row(name, passed, len(ids) * k, target_pct, min_n, str(r["row"].get("run_id")), age_h(d, r["row"].get("at")),
+                          f"manifest v{man.get('version')}" + (f", {k} trials/case" if k > 1 else ""))
     return _no_runs_row(d, name, f"LB >= {target_pct:g}%")
 
 
@@ -356,7 +357,7 @@ def metric_from_cases(d: Data, name: str, key: str, want_v: float, at_most: bool
 
 def damage_trend(d: Data, name: str, spec: str) -> Row:
     need = next((int(w) for w in str(spec).split() if w.isdigit()), 5)
-    series = [(c.get("repeat_i", 0), float((c.get("process") or {})["damage_taken"])) for _, c in
+    series = [((c.get("process") or {}).get("fight_i", c.get("repeat_i", 0)), float((c.get("process") or {})["damage_taken"])) for _, c in
               _cases(d, lambda c: c.get("family") == "tactics" and "damage_taken" in (c.get("process") or {}))]
     if len(series) < need:
         return _no_runs_row(d, name, f"falling over {need}") if not series else \

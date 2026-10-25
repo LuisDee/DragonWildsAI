@@ -24,7 +24,7 @@
      {
       "verb": "spawn",
       "as": "foe",
-      "class": "<a creature with a telegraphed attack>",
+      "class": "BP_AI_RuntGoblin_Character_C",
       "offset_m": [
        6,
        0,
@@ -98,7 +98,7 @@
      {
       "verb": "spawn",
       "as": "foe",
-      "class": "<a melee creature>",
+      "class": "BP_AI_RuntGoblin_Character_C",
       "offset_m": [
        6,
        0,
@@ -107,7 +107,7 @@
      },
      {
       "verb": "grant",
-      "item": "<a shield>",
+      "item": "ITEM_Shield_Wood",
       "count": 1
      }
     ],
@@ -167,7 +167,7 @@
      {
       "verb": "spawn",
       "as": "foe",
-      "class": "<a creature stronger than him>",
+      "class": "BP_AI_RuntGoblin_Character_C",
       "offset_m": [
        4,
        0,
@@ -175,13 +175,27 @@
       ]
      },
      {
-      "verb": "grant",
-      "item": "<food>",
-      "count": 5
+      "verb": "spawn",
+      "class": "BP_AI_RuntGoblin_Character_C",
+      "offset_m": [
+       5,
+       2,
+       0
+      ]
      },
      {
-      "verb": "set_health_pct",
-      "pct": 35
+      "verb": "spawn",
+      "class": "BP_AI_RuntGoblin_Character_C",
+      "offset_m": [
+       5,
+       -2,
+       0
+      ]
+     },
+     {
+      "verb": "grant",
+      "item": "ITEM_Consumable_Fish_Anchovies",
+      "count": 5
      }
     ],
     "scene": {},

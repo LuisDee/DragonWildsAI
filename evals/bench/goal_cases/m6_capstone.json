@@ -567,7 +567,7 @@
     "setup": [
      {
       "verb": "grant",
-      "item": "Challenge Horn",
+      "item": "ITEM_Masterworks_Challenge_Horn",
       "count": 1
      }
     ],
@@ -580,7 +580,7 @@
      {
       "killed": {
        "kind": "Velgar",
-       "kind_id": "<Velgar class id from the dev census>",
+       "kind_id": "BP_AI_DragonVelgar_Character_C",
        "at_least": 1
       }
      },
@@ -588,11 +588,11 @@
       "prepared": {
        "any": [
         {
-         "item": "<Lesser Antipoison potion>",
+         "item": "ITEM_Consumable_Potion_T2_Lesser_Antipoison",
          "at_least": 1
         },
         {
-         "tag": "<Tempest Shield tag>"
+         "tag": "Player.Status.TempestShield"
         },
         {
          "enchant_type": "DamageType.Magical.Air"

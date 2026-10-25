@@ -172,11 +172,18 @@ def evidence_ctx(rec: Record, baseline_state: dict, spells: dict, now: float, pl
                  referee_supports: set[str] | None = None) -> dict:
     """The ctx dict leaves evaluate on (brain/predicates.evaluate passes it through)."""
     from brain.predicates import snapshot
+    sup = referee_supports if referee_supports is not None else set()
+    episodes = list(rec.episodes)
+    if "death" in sup:  # kills come from the referee (harness-owned), never from the body's own combat_end claims
+        episodes = [e for e in episodes if e.get("kind") != "combat_end"]
+        episodes += [{"kind": "combat_end", "outcome": "killed", "target": e.get("kind_id"), "target_id": e.get("who"),
+                      "target_class": e.get("kind_id"), "by": "referee", "t": e.get("t")}
+                     for e in rec.referee if e.get("kind") == "death" and e.get("who") != "self"]
     return {"baseline": snapshot(baseline_state, t=(rec.probe0 or {}).get("t", 0.0)) if baseline_state else None,
             "now": now, "places": places or {},
-            "episodes": list(rec.episodes), "results": [{"t": o.t1, "tool": o.tool, "args": o.args,
+            "episodes": episodes, "results": [{"t": o.t1, "tool": o.tool, "args": o.args,
                                                           "ok": o.reply.get("ok"), "reason": o.reply.get("reason"),
                                                           "data": o.reply.get("data")} for o in rec.observations],
             "observations": rec.observations, "referee": list(rec.referee), "probe0": rec.probe0,
             "probe1": rec.probe1, "spells": spells, "mismatches": [],
-            "referee_supports": referee_supports if referee_supports is not None else set()}
+            "referee_supports": sup}

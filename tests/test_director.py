@@ -691,3 +691,37 @@ def test_a_review_that_keeps_the_plan_changes_nothing(tmp_path):
     kinds = [json.loads(c["messages"][1]["content"])["decision"] for c in llm.calls]
     assert kinds == ["plan", "review"] and [s.title for s in task.steps] == ["mine", "then"]
     assert task.steps[0].status == "active"
+
+
+# ------------------------------------------------------------------ wave 5 fixes (real Sonnet cassettes)
+
+
+def test_research_limit_keeps_tools_offered_says_so_and_refuses_late_calls():
+    from brain.llm_json import RESEARCH_OVER, json_decision
+    look = lambda i: LLMResponse(tool_calls=[ToolCall("recall", {"query": f"q{i}"}, f"t{i}")])
+    llm = FakeLLM([look(1), look(2), look(3), look(4), '{"ok": 1}'])
+    ran = []
+    value, info = json_decision(llm, [{"role": "user", "content": "go"}], lambda t, r: json.loads(t),
+                                tools=[{"type": "function", "function": {"name": "recall"}}],
+                                run_tool=lambda n, a: ran.append(a) or {"ok": True}, max_tool_rounds=3, max_repairs=1)
+    assert value == {"ok": 1} and len(ran) == 3 and info["requests"] == 5
+    assert all(c["tools"] for c in llm.calls)  # never withdrawn (LiteLLM would inject a dummy tool)
+    assert llm.calls[3]["messages"][-1]["content"] == RESEARCH_OVER
+    assert info["tool_calls"][-1]["refused"] is True
+
+
+def test_lookup_scoring_needed_needless_or_unknown():
+    facts = [{"fact": "where coal nodes are", "status": "unknown"}]
+    lookups = [{"query": "coal node locations", "result": {}}, {"query": "Lodestone", "result": {}},
+               {"query": "lodestone", "result": {}}]
+    calls = [{"name": "lookup", "args": {"query": q["query"]}} for q in lookups]
+    assert [x["needed"] for x in D.score_lookups(lookups, facts, calls)] == [True, None, False]
+
+
+def test_only_one_prerequisite_is_taken_per_decision(tmp_path):
+    d, port, world, llm, clock = make(tmp_path, None, [
+        decision(task_success=have(COPPER, 5), steps=[step("mine", gained(COPPER, 5))],
+                 add_tasks=[{"text": "a", "because": "x"}, {"text": "b", "because": "y"}, {"text": "c", "because": "z"}])])
+    d.handle_tool("add_task", {"text": "copper"}, "Zezima")
+    ticks(d, 2)
+    assert [t.text for t in d.ops.b.tasks if t.by == "self"] == ["a"]
