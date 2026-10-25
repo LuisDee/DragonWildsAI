@@ -1152,7 +1152,10 @@ def test_director_is_off_unless_dw_director_is_1(tmp_path, monkeypatch):
                         DryRunController(), DryRunPlanner(), out=lambda _: None)
         assert s.director is None and s.agent.director is None and s.controller.director is None
         assert "brain.director" not in sys.modules
-        assert next(r for r in s.log.read_all() if r["kind"] == "session_start")["director"] is False
+        start = next(r for r in s.log.read_all() if r["kind"] == "session_start")
+        assert start["director"] is False
+        # the benchmark ties each session to the exact code (obs/goal_check)
+        assert len(start["companion_sha"] or "") == 40 and isinstance(start["dirty"], bool)
         s.step()  # pump with the hooks in place: no director, nothing breaks
     finally:
         body.stop()

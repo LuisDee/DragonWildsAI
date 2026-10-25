@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import re
 import sys
 import threading
@@ -299,6 +300,22 @@ class LiveOptions:
     director: bool = field(default_factory=lambda: os.environ.get("DW_DIRECTOR", "0") == "1")
 
 
+def code_version() -> dict:
+    """{companion_sha, dirty} of the repo this brain runs from, so obs/goal_check can tie a session to the
+    exact code. None values when git isn't available (never fails a start)."""
+    root = Path(__file__).resolve().parents[1]
+
+    def git(*args: str) -> str | None:
+        try:
+            out = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return out.stdout if out.returncode == 0 else None
+    sha = git("rev-parse", "HEAD")
+    status = git("status", "--porcelain")
+    return {"companion_sha": sha.strip() if sha else None, "dirty": None if status is None else bool(status.strip())}
+
+
 class BodyUnavailable(RuntimeError):
     pass
 
@@ -357,7 +374,7 @@ class LiveSession:
                      world=self.world, world_source=self.world_source, state_dir=str(state_dir),
                      migrated=migrated, learned_skills=self.skills.names(), skills_dir=str(self.skills.dir),
                      knowledge=self.knowledge.stats() if self.knowledge else None,
-                     director=self.director is not None)
+                     director=self.director is not None, **code_version())
         self.out(self.banner(controller_llm.model, planner_llm.model))
 
     def _connect(self) -> float:

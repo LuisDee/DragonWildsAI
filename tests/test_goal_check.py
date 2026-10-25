@@ -174,6 +174,35 @@ def test_denominator_is_the_manifest_and_only_pass_counts(tmp_path):
     assert r.value.startswith("20/30") and r.status == gc.NOT_MET
 
 
+def test_spells_count_k_trials_per_case(tmp_path):
+    """39 manifest spells x k=2 trials = 78 (main's decision): 78/78 meets the 95% LB; one missing trial doesn't."""
+    cases = [case(f"s{i}", "spell_cast", repeat_i=k) for i in range(39) for k in range(2)]
+    row = make_run(tmp_path, "r1", cases, manifest_cases=[case(f"s{i}", "spell_cast") for i in range(39)])
+    man_path = tmp_path / json.loads((tmp_path / row["dir"] / "run.json").read_text())["suite_manifest"]["path"]
+    man = json.loads(man_path.read_text())
+    man["trials_per_case"] = {"spell_cast": 2}
+    man_path.write_text(json.dumps(man))
+    run = json.loads((tmp_path / row["dir"] / "run.json").read_text())
+    run["suite_manifest"]["sha256"] = hashes.sha256_file(man_path)
+    (tmp_path / row["dir"] / "run.json").write_text(json.dumps(run))
+    row["run_sha256"] = hashes.sha256_file(tmp_path / row["dir"] / "run.json")
+    d = data(tmp_path, [row], validity_for(cases))
+    r = all_rows(d)["spells_effect_coverage_pct"]
+    assert r.status == gc.MET and r.value.startswith("78/78")
+    cases2 = cases[:-1]
+    row2 = make_run(tmp_path, "r2", cases2, manifest_cases=[case(f"s{i}", "spell_cast") for i in range(39)])
+    man2 = tmp_path / json.loads((tmp_path / row2["dir"] / "run.json").read_text())["suite_manifest"]["path"]
+    m2 = json.loads(man2.read_text())
+    m2["trials_per_case"] = {"spell_cast": 2}
+    man2.write_text(json.dumps(m2))
+    run2 = json.loads((tmp_path / row2["dir"] / "run.json").read_text())
+    run2["suite_manifest"]["sha256"] = hashes.sha256_file(man2)
+    (tmp_path / row2["dir"] / "run.json").write_text(json.dumps(run2))
+    row2["run_sha256"] = hashes.sha256_file(tmp_path / row2["dir"] / "run.json")
+    d = data(tmp_path, [row2], validity_for(cases2))
+    assert all_rows(d)["spells_effect_coverage_pct"].status == gc.NOT_MET
+
+
 def test_wilson_lower_bound_and_min_n(tmp_path):
     few = [case(f"s{i}", "spell_cast") for i in range(10)]
     d = data(tmp_path, [make_run(tmp_path, "r1", few)], validity_for(few))
