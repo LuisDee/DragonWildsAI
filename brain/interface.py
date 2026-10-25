@@ -44,6 +44,7 @@ class Reason:
     TIMEOUT = "timeout"
     INVALID_ARGS = "invalid_args"
     UNKNOWN_TOOL = "unknown_tool"
+    NOT_IMPLEMENTED = "not_implemented"  # the body doesn't have this skill yet
     VERIFICATION_FAILED = "verification_failed"
 
 

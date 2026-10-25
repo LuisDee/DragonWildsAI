@@ -28,12 +28,12 @@ M.HOOKS = {
 M.PENDING = {}
 
 local function register_one(h, log)
-    local ok, err = pcall(RegisterHook, h.path, function(ctx, ...)
+    local ok, pre_or_err = pcall(RegisterHook, h.path, function(ctx, ...)
         local params = {}
         for i, p in ipairs({ ... }) do params[i] = describe(p) end
         log.event("hook", { tag = h.tag, fn = h.path, self = describe(ctx), params = params })
     end)
-    log.event("hook_registered", { tag = h.tag, fn = h.path, ok = ok, err = err and tostring(err) })
+    log.event("hook_registered", { tag = h.tag, fn = h.path, ok = ok, err = (not ok) and tostring(pre_or_err) or nil })
 end
 
 function M.register(log)

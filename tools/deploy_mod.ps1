@@ -8,7 +8,7 @@ if (-not (Test-Path (Join-Path $ServerWin64 'ue4ss'))) { throw "UE4SS not instal
 
 if (Test-Path $ModDeployDir) { Remove-Item $ModDeployDir -Recurse -Force }
 New-Item -ItemType Directory -Force $ModDeployDir, $ModLogDir | Out-Null
-Get-ChildItem $src -Directory | ForEach-Object { Copy-Item $_.FullName (Join-Path $ModDeployDir $_.Name) -Recurse }
+Get-ChildItem $src -Directory | Where-Object Name -ne 'tests' | ForEach-Object { Copy-Item $_.FullName (Join-Path $ModDeployDir $_.Name) -Recurse }
 Get-ChildItem $ModDeployDir -Recurse -Filter .gitkeep | Remove-Item
 New-Item -ItemType File (Join-Path $ModDeployDir 'enabled.txt') -Force | Out-Null
 if ($Dump) { New-Item -ItemType File (Join-Path $ModDeployDir 'dump.flag') -Force | Out-Null }

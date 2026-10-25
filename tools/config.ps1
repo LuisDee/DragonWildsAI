@@ -2,7 +2,7 @@
 $RepoRoot      = Split-Path $PSScriptRoot -Parent
 $ServerRoot    = if ($env:DW_SERVER_ROOT) { $env:DW_SERVER_ROOT } else { 'C:\GameServers\Dragonwilds' }
 $ServerWin64   = Join-Path $ServerRoot 'RSDragonwilds\Binaries\Win64'
-$ServerLauncher = Join-Path $ServerRoot 'RSDragonwildsServer.exe'
+$ServerExe     = Join-Path $ServerWin64 'RSDragonwildsServer-Win64-Shipping.exe'
 $ServerSaved   = Join-Path $ServerRoot 'RSDragonwilds\Saved'
 $ServerLog     = Join-Path $ServerSaved 'Logs\RSDragonwilds.log'
 $BackupRoot    = Join-Path (Split-Path $ServerRoot -Parent) 'backups'

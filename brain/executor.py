@@ -20,7 +20,7 @@ INTERRUPTS = {Reason.INTERRUPTED, Reason.ATTACKED}
 # Retrying these cannot help; the plan has to change.
 NO_RETRY = {
     Reason.NOTHING_IN_RANGE, Reason.NOT_ENOUGH, Reason.MISSING_MATERIALS, Reason.UNKNOWN_TARGET,
-    Reason.UNKNOWN_RECIPE, Reason.TOO_FAR, Reason.INVALID_ARGS, Reason.UNKNOWN_TOOL,
+    Reason.UNKNOWN_RECIPE, Reason.TOO_FAR, Reason.INVALID_ARGS, Reason.UNKNOWN_TOOL, Reason.NOT_IMPLEMENTED,
     Reason.COMPANION_DOWN, "unknown_skill",
 }
 
