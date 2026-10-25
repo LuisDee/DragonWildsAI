@@ -38,7 +38,14 @@ end
 
 local function describe_ai(ai, from)
     local l = loc(ai)
+    local ctrl = try(function() return ai:GetController() end)
+    local vel = try(function() return ai:GetVelocity() end)
     return {
+        speed = vel and math.sqrt(vel.X ^ 2 + vel.Y ^ 2 + vel.Z ^ 2),
+        movement_mode = try(function() return ai.CharacterMovement.MovementMode end),
+        move_status = ctrl and try(function() return ctrl:GetMoveStatus() end),
+        should_follow = try(function() return ai:ShouldFollowConfuser() end),
+        hidden = try(function() return ai.bHidden end),
         name = name(ai),
         location = l,
         dist_cm = dist(l, from),
@@ -85,7 +92,7 @@ function M.run(log, args)
     elseif action == "confuse" then
         local here, best, best_d = loc(pawn), nil, math.huge
         for _, ai in ipairs(FindAllOf("DominionAICharacter") or {}) do
-            local d = valid(ai) and dist(loc(ai), here)
+            local d = valid(ai) and (not args.match or (name(ai) or ""):find(args.match, 1, true)) and dist(loc(ai), here)
             if d and d < best_d then best, best_d = ai, d end
         end
         if not best then return { ok = false, error = "no AI character loaded near the player" } end

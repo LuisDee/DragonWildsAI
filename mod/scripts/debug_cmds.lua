@@ -5,14 +5,18 @@
 -- Only plain module names under the mod are accepted; the bridge files are local-only.
 local M = {}
 
-function M.register(bridge, log)
+-- scripts_dir: <mod_root>/scripts. Modules are loaded with loadfile from there on every call:
+-- clearing package.loaded + require was verified NOT to pick up redeployed files under UE4SS.
+function M.register(bridge, log, scripts_dir)
     bridge.handlers.debug_run = function(args)
         local name, fn = args.module, args.fn or "run"
         if type(name) ~= "string" or not name:match("^[%w_]+$") or type(fn) ~= "string" then
             return { ok = false, reason = "invalid_args", data = { detail = "module must match ^[%w_]+$" } }
         end
-        package.loaded[name] = nil -- pick up the freshly deployed file
-        local ok_req, mod = pcall(require, name)
+        local ok_req, mod = pcall(function()
+            local chunk = assert(loadfile(scripts_dir .. "/" .. name .. ".lua"))
+            return chunk()
+        end)
         if not ok_req then
             return { ok = false, reason = "body_error", data = { stage = "require", detail = tostring(mod) } }
         end

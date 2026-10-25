@@ -34,7 +34,9 @@ print(string.format("[%s] loaded; logging to %s\n", MOD_NAME, log.path()))
 require("dumper").maybe_dump(mod_root, log)
 local bridge = require("bridge")
 bridge.start(log)
-require("debug_cmds").register(bridge, log)
+require("debug_cmds").register(bridge, log, (mod_root or ".") .. "/scripts")
+require("companion").start(log, bridge)
+bridge.handlers.companion_status = function() return { ok = true, data = require("companion").status() } end
 require("hooks").register(log, {
     -- Every chat line goes to the brain; the Controller decides whether it's a command.
     chat = function(f) bridge.emit_event("command_received", { player = tostring(f.player_id), text = f.text }) end,

@@ -41,3 +41,10 @@
 
 ### Blocked
 - Nothing is blocked. Remaining work needs Luis in game, plus a decision later on model provider and API key for Phase 6.
+- **PHASE 4 GATE PASSED, as CLAUDE.md words it (12:46 UTC):**
+  - `ToggleFollower(DA_Kalphite_Friend)` spawned a Kalphite on Luis's GFN client. It followed for a while, then stalled.
+  - `DominionAICharacter:Confuse(pawn, true)` on a wild Kebbit made it follow and keep up over 30–40 m.
+  - The follow does not survive a rejoin, so a body reflex (`mod/scripts/companion.lua`, checking every 5 s) re-recruits a Kebbit or deer within 60 m. Luis rejoined and a Kebbit was following him again.
+- **Goal clarified by Luis:** the companion must be a HUMANOID that acts like another player: switch weapons, kill enemies, pick up loot, talk, in real time. A following animal proves the mechanism but is not the body.
+  - New task P4.H. Two research agents launched: dump analysis of player-pawn dependencies and factions, and web research on player-like bots in UE.
+- Fixed: `debug_run` now loads modules with `loadfile`. `package.loaded` + `require` did not pick up redeployed files under UE4SS.

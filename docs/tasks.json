@@ -67,15 +67,15 @@
       "id": "P4.1",
       "phase": 4,
       "title": "Spawn character and drive with AIController MoveTo (player class, then NPC class)",
-      "status": "in_progress",
-      "passes_test": false
+      "status": "done",
+      "passes_test": true
     },
     {
       "id": "P4.GATE",
       "phase": 4,
       "title": "GATE: companion visible on GFN, walks to Luis, consistent after rejoin",
-      "status": "todo",
-      "passes_test": false
+      "status": "done",
+      "passes_test": true
     },
     {
       "id": "P3.GATE",
@@ -202,6 +202,13 @@
       "title": "Debug trigger: debug_run reloads + runs a mod module on the game thread without restart (tools/bridge_cmd.py)",
       "status": "done",
       "passes_test": true
+    },
+    {
+      "id": "P4.H",
+      "phase": 4,
+      "title": "HUMANOID player-like body (Luis clarified goal): route 1 player pawn driven by server, route 2 friendly humanoid AI, route 3 second client; research + experiments",
+      "status": "in_progress",
+      "passes_test": false
     }
   ]
 }
