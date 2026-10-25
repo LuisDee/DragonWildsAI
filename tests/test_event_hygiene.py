@@ -1102,3 +1102,31 @@ def test_every_row_of_a_chat_burst_carries_one_episode_id(tmp_path):
     r.at(10).step()
     sit_ids = {x.get("episode_id") for x in r.log.read_all() if x["kind"] == "prompt"} - ids
     assert len(sit_ids) == 1 and next(iter(sit_ids)).startswith("situation-")
+
+
+def test_budget_reader_errors_fail_closed_for_autonomy_and_after_30_min_for_chat(tmp_path):
+    """Main: the spend guard must fail CLOSED. While the spend can't be read, reviews/situations/the
+    Director are refused at once (anomaly logged); player chat keeps working for 30 min, then gets one
+    honest line and the brain stays reflex-only."""
+    from brain.budget import BLIND_LINE, Budget
+
+    def broken():
+        raise OSError("logs unreadable")
+    r = Replay(tmp_path, STATES[5])
+    b = Budget(broken, cap_usd=10.0, log=r.log, clock=r.clock, check_s=0.0)
+    r.agent.budget = b
+    assert not b.allows("director") and not b.allows("review") and not b.allows("situation")
+    assert b.allows("chat")
+    errs = r.records("budget_reader_error")
+    assert len(errs) == 1 and errs[0]["anomaly"] is True
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude hi"})
+    r.at(60).step()
+    assert len(r.model.calls) >= 1  # chat still answered within the grace period
+    n = len(r.model.calls)
+    r.body.emit({"type": "vitals_low", "stat": "hydration", "value": 3.0, "max": 75.0})
+    r.at(70).step()
+    assert len(r.model.calls) == n  # the situation got no model call (its template line instead)
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude come here"})
+    r.at(1900).step()  # past 30 min of reader errors
+    assert len(r.model.calls) == n and r.body.said[-1] == BLIND_LINE
+    assert not b.allows("chat")

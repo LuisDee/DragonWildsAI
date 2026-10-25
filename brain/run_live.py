@@ -38,8 +38,9 @@ from typing import Callable
 from . import paths, worlds
 from .agent import Agent, GoalResult
 from .bridge_client import BridgeClient
-from .budget import OUT_LINE, Budget, default_cap_usd, default_spend_fn
+from .budget import Budget, default_cap_usd, default_spend_fn
 from .capabilities import Capabilities, discover
+from .map_memory import MapMemory, annotate
 from .controller import Controller
 from .dry_run_llm import DryRunController, DryRunPlanner
 from .executor import Executor
@@ -163,9 +164,9 @@ class LiveAgent(Agent):
     def _run(self, player: str, text: str, addressed: bool) -> None:
         if self.budget is not None and not self.budget.allows("chat"):
             # $ cap (Luis): one honest line, then reflex-only (the body keeps itself fed, defends, follows)
-            self._decision(player, text, "budget", "out of model budget for today")
+            self._decision(player, text, "budget", "model calls refused by the budget guard")
             if addressed and self.budget.out_line_due():
-                self.controller.say(OUT_LINE)
+                self.controller.say(self.budget.out_line())
             return
         self._calls.append(self.clock())
         command = CommandReceived(player=player, text=text)
@@ -322,6 +323,10 @@ class LiveSession:
                                           else Path(opts.state_dir) / "skills")
         self.skills = SkillLibrary(worlds.prepare_skills_dir(skills_root, self.world), self.log)
         self.store = StateStore(state_dir, self.caps.registry())
+        # per-world map / resource memory (BUGS L21): every census feeds it; get_state carries the nearest
+        # remembered options beyond sight (state["remembered"]); the Director reads the same file
+        self.map = MapMemory(Path(state_dir) / "map_memory.json")
+        self.client.state_hooks.append(lambda data: (self.map.observe(data), annotate(data, self.map)))
         self.executor = Executor(self.client, self.store, self.log)
         self.planner = Planner(planner_llm, self.store.skills, self.log)
         self.knowledge = open_knowledge(self.log) if opts.knowledge else None

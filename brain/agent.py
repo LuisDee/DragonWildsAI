@@ -19,7 +19,6 @@ from typing import Literal
 
 from . import situation as sit
 from .broker import BODY_SITUATIONS, REVIEW_SAMPLE_S, EventBroker, facts, fallback_line
-from .budget import OUT_LINE
 from .controller import LONG_ACTIONS, Controller, describe_rule
 from .executor import Executor, Outcome, StateUnavailable
 from .interface import (RULE_TOOLS, Activity, Attacked, ChatHeard, CommandReceived, Event, GameInterface, Reason,
@@ -103,7 +102,7 @@ class Agent:
             if self.budget is not None and not self.budget.allows("planner"):
                 self.log.log("goal_dropped", goal=goal, why="out of model budget")
                 if self.budget.out_line_due():
-                    self.controller.say(OUT_LINE)
+                    self.controller.say(self.budget.out_line())
                 return "stuck"
             eid, self._goal_episode = getattr(self, "_goal_episode", None), None
             with self.log.episode(eid or self.log.new_episode_id("goal")):
