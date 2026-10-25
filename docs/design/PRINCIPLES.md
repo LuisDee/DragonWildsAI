@@ -19,6 +19,11 @@ These come from Luis's decisions (CLAUDE.md section 0). Breaking one needs Luis'
 4. **Two speeds.**
    - The LLM chooses and parameterises skills on events, never at tick speed.
    - Deterministic layers (reflexes, movement, combat) run at frame rate and report verified results.
+4b. **Primitives first; the model composes.**
+   - Expose small, general tools (go_to, follow, stop, interact, use_action, equip, drop, move_item, consume, inventory, look, lookup, say).
+   - The model chains them: "give Luis the logs" = go_to(Luis) then drop(logs).
+   - Build a compound tool only when the steps must be coupled faster than the model can act, or need per-frame verification (e.g. interact's approach+face+press, gather/attack swing loops).
+   - Never build one compound per combination of steps.
 5. **Verified state only.** A step is done when the game state confirms it; the model's claims are never state.
 6. **Search for precedent first.** Reuse > adapt > build, with sources (the search-before-building skill).
 7. **Communication is paramount.** Every failure surfaces one specific, truthful reason that Claude says in chat. Persistent behaviours never end silently.
