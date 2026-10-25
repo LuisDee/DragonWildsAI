@@ -49,3 +49,6 @@
   - New task P4.H. Two research agents launched: dump analysis of player-pawn dependencies and factions, and web research on player-like bots in UE.
 - Fixed: `debug_run` now loads modules with `loadfile`. `package.loaded` + `require` did not pick up redeployed files under UE4SS.
 - Written down so nothing is lost: `docs/research/2026-10-25-voice-discord.md` (Discord voice and realtime-voice research) and `docs/research/2026-10-25-humanoid-goal-and-routes.md` (clarified goal, three routes, experiment order). Route 1 experiment module: `mod/scripts/puppet_test.lua`.
+- **Route 1 milestones with Luis (13:00–13:10 UTC):** spawn, possess, walk (done). Dressed in Luis's Zamorak set and skillcape, holding a Skullsplitter (done). Swung at a Kebbit and did damage, the Kebbit fought back, and the puppet stayed immortal (done).
+- The "freezes" turned out to be crashes behind UE4SS's blocking MessageBox. Root causes found from dumps with cdb. The watchdog now auto-restarts the server. See DISCOVERIES "ROOT CAUSES".
+- Design for crash-proofing and the item catalog: `docs/design/robustness-and-item-catalog.md`. An agent is building `mod/scripts/catalog.lua` and `tools/build_catalog.py`.
