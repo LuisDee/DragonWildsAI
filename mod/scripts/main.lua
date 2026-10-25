@@ -34,6 +34,16 @@ print(string.format("[%s] loaded; logging to %s\n", MOD_NAME, log.path()))
 require("dumper").maybe_dump(mod_root, log)
 local bridge = require("bridge")
 bridge.start(log)
+
+-- Game-thread heartbeat: tools/watchdog.ps1 restarts the server if this file goes stale, which
+-- catches hangs that produce no crash dump. Written from the game thread on purpose.
+local hb_path = os.getenv("DW_HEARTBEAT_FILE")
+if hb_path then
+    LoopInGameThreadWithDelay(10000, function()
+        local f = io.open(hb_path, "w")
+        if f then f:write(os.time(), "\n"); f:close() end
+    end)
+end
 require("debug_cmds").register(bridge, log, (mod_root or ".") .. "/scripts")
 -- DW_NO_COMPANION / DW_NO_HOOKS=1 switch subsystems off (for bisecting server problems).
 if os.getenv("DW_NO_COMPANION") ~= "1" then
