@@ -12,6 +12,11 @@
 --   equip {item_path, hand?, actor_class?} -> sync ok {slot, item_path, gear, persisted}
 --   say {text}                         -> sync ok {method, recipients, verified=false}
 --   body_status {} / body_spawn {} / body_park {}   (debug/lifecycle)
+--   capabilities {}                    -> sync ok {tools=[every tool with a real handler, sorted]}
+-- Every handler above honours args.probe == true: ok {probe=true, tool} without acting. Without a
+-- probe, missing required args answer invalid_args (never act on defaults).
+-- Player identifiers (follow/go_to): the chat PlayerId string ("256", what command_received.player
+-- carries), a display name, or "me"/"luis" for the first connected player (U.find_player).
 -- Async actions reply once with bridge.reply(ctx.id, res) and also emit task_done{task_id,data} /
 -- task_failed{task_id,reason}. A new action pre-empts the current one: that one replies
 -- reason=interrupted (follow, already answered, ends silently).
@@ -250,7 +255,7 @@ local function step_follow(a)
     a.last_eval = S.now
     local p = S.puppet.get()
     if not p then return finish(a, false, "companion_down", {}) end
-    local target = U.find_player(a.player)
+    local target = U.find_player(a.player, true)
     if not target then return finish(a, false, "unknown_target", { player = a.player }) end
     local c = U.controller_of(p)
     if not c then return finish(a, false, "companion_down", {}) end
@@ -282,11 +287,14 @@ local function h_follow(args, ctx)
     local who = args.player
     local dist_m = tonumber(args.distance) or 3.0
     if dist_m < 1 then dist_m = 1 end
-    local target = U.find_player(who)
+    if who == nil or (type(who) ~= "string" and type(who) ~= "number") then
+        return { ok = false, reason = "invalid_args", data = { detail = "player is required" } }
+    end
+    local target = U.find_player(who, true)
     if not target then return { ok = false, reason = "unknown_target", data = { target = who or null } } end
     local p, err = S.puppet.ensure_ready(target)
     if not p then return { ok = false, reason = "companion_down", data = { detail = err } } end
-    local a = start({ kind = "follow", id = ctx.id, player = who or U.player_name(target), dist_cm = dist_m * 100,
+    local a = start({ kind = "follow", id = ctx.id, player = tostring(who), dist_cm = dist_m * 100,
                       moves = 0, failed_moves = 0, step = step_follow })
     step_follow(a) -- first move right away
     if a.done then return { ok = false, reason = a.reason or "body_error", data = { player = a.player } } end
@@ -350,6 +358,7 @@ local function resolve_goto(target, origin)
 end
 
 local function h_go_to(args, ctx)
+    if args.target == nil then return { ok = false, reason = "invalid_args", data = { detail = "target is required" } } end
     local origin = U.loc(S.puppet.get()) or U.loc(U.split_pawns()[1])
     local r = resolve_goto(args.target, origin)
     if not r then return { ok = false, reason = "unknown_target", data = { target = args.target or null } } end
@@ -372,15 +381,14 @@ end
 -- ------------------------------------------------------------------ attack
 local function attack_set(p, a)
     if a.atk then return a.atk, a.act end
-    local cats = { gear.category(gear.read(p).right), M.DEFAULT_ATTACK_CATEGORY }
+    local held = gear.category(gear.read(p).right) -- nil when unarmed
+    local cats = { held or M.DEFAULT_ATTACK_CATEGORY, M.DEFAULT_ATTACK_CATEGORY }
     for _, cat in ipairs(cats) do
-        if cat then
-            local atk = U.try(StaticFindObject, M.ATTACK_FMT:format(cat, cat, cat))
-            local act = U.try(StaticFindObject, M.ACTION_FMT:format(cat, cat, cat))
-            if U.valid(atk) and U.valid(act) then
-                a.atk, a.act, a.category = atk, act, cat
-                return atk, act
-            end
+        local atk = U.try(StaticFindObject, M.ATTACK_FMT:format(cat, cat, cat))
+        local act = U.try(StaticFindObject, M.ACTION_FMT:format(cat, cat, cat))
+        if U.valid(atk) and U.valid(act) then
+            a.atk, a.act, a.category = atk, act, cat
+            return atk, act
         end
     end
     return nil
@@ -442,6 +450,9 @@ local function attack_cleanup(a)
 end
 
 local function h_attack(args, ctx)
+    if type(args.target) ~= "string" or args.target == "" then
+        return { ok = false, reason = "invalid_args", data = { detail = "target is required" } }
+    end
     local origin = U.loc(S.puppet.get()) or U.loc(U.split_pawns()[1])
     local t = find_ai(args.target, origin, M.ATTACK_MAX_CM)
     if not t then return { ok = false, reason = "unknown_target", data = { target = args.target or null } } end
@@ -457,6 +468,9 @@ end
 
 -- ------------------------------------------------------------------ equip / say / lifecycle
 local function h_equip(args)
+    if type(args.item_path) ~= "string" or args.item_path == "" then
+        return { ok = false, reason = "invalid_args", data = { detail = "item_path is required" } }
+    end
     local p, err = S.puppet.ensure_spawned()
     if not p then return { ok = false, reason = "companion_down", data = { detail = err } } end
     local r = gear.equip(S.log, p, args.item_path, { hand = args.hand, actor_class = args.actor_class })
@@ -492,12 +506,40 @@ M.HANDLERS = {
     body_status = h_body_status, body_spawn = h_body_spawn, body_park = h_body_park,
 }
 
+-- Probe contract (BRIDGE_PROTOCOL.md "Fallback for bodies without capabilities"): a cmd with
+-- args.probe == true only asks whether the tool exists. Answer ok without acting; this matters
+-- most for stop and follow. Every handler registered here is wrapped.
+local function probe_guard(name, fn)
+    return function(args, ctx)
+        if type(args) == "table" and args.probe == true then
+            return { ok = true, data = { probe = true, tool = name } }
+        end
+        return fn(args or {}, ctx)
+    end
+end
+M._probe_guard = probe_guard
+
+-- Handlers that exist but only answer not_implemented: left out of `capabilities`.
+M.STUB_TOOLS = {}
+
+-- capabilities: every tool with a real handler (dynamic, so debug_run/companion_status etc. show up
+-- too; the brain ignores non-protocol names). bridge.lua's own stub get_state is replaced by ours.
+local function h_capabilities()
+    local tools = {}
+    for name in pairs(S.bridge.handlers) do
+        if not M.STUB_TOOLS[name] then tools[#tools + 1] = name end
+    end
+    table.sort(tools)
+    return { ok = true, data = { tools = tools } }
+end
+
 -- opts: {puppet = body.puppet module (default require), no_loop = true for tests}
 function M.register(bridge, log_mod, opts)
     opts = opts or {}
     S.bridge, S.log = bridge, log_mod
     S.puppet = opts.puppet or require("body.puppet")
-    for name, fn in pairs(M.HANDLERS) do bridge.handlers[name] = fn end
+    for name, fn in pairs(M.HANDLERS) do bridge.handlers[name] = probe_guard(name, fn) end
+    bridge.handlers.capabilities = h_capabilities
     if not opts.no_loop and not S.loop then
         S.loop = LoopInGameThreadWithDelay(M.TICK_MS, function()
             local ok, err = pcall(M.tick)

@@ -90,8 +90,19 @@ function M.run(log, args)
             out[#out + 1] = M.safe_remove(p, args)
         end
     end
-    log.event("puppet_safe_remove", { results = out })
-    return { results = out }
+    -- args.orphans=true: also destroy plain AIControllers that possess nothing (left over when a
+    -- puppet was unpossessed but only the pawn was destroyed). FindAllOf matches the exact class,
+    -- so creature controller subclasses are not touched.
+    local orphans = 0
+    if args.orphans then
+        for _, c in ipairs(FindAllOf("AIController") or {}) do
+            if alive(c) and not alive(try(function() return c:K2_GetPawn() end)) then
+                if pcall(function() c:SetLifeSpan(0.1) end) then orphans = orphans + 1 end
+            end
+        end
+    end
+    log.event("puppet_safe_remove", { results = out, orphans = orphans })
+    return { results = out, orphan_controllers_destroyed = orphans }
 end
 
 return M

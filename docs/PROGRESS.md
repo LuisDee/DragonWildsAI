@@ -52,3 +52,7 @@
 - **Route 1 milestones with Luis (13:00–13:10 UTC):** spawn, possess, walk (done). Dressed in Luis's Zamorak set and skillcape, holding a Skullsplitter (done). Swung at a Kebbit and did damage, the Kebbit fought back, and the puppet stayed immortal (done).
 - The "freezes" turned out to be crashes behind UE4SS's blocking MessageBox. Root causes found from dumps with cdb. The watchdog now auto-restarts the server. See DISCOVERIES "ROOT CAUSES".
 - Design for crash-proofing and the item catalog: `docs/design/robustness-and-item-catalog.md`. An agent is building `mod/scripts/catalog.lua` and `tools/build_catalog.py`.
+- **Model API configured (2026-10-25):** `ANTHROPIC_API_KEY`, `DW_CONTROLLER_MODEL=anthropic/claude-haiku-5-5` and `DW_PLANNER_MODEL=anthropic/claude-sonnet-5-5` are set as **user environment variables** on the VM. They are not in any file and not in git (`git grep sk-ant-` is clean).
+  - Smoke test: 1 Haiku call via LiteLLM, 19 tokens in / 5 out, 3.1 s including cold connection setup.
+  - Luis pasted the key in chat and accepted the risk. Recommended: rotate it in the Anthropic console and set a monthly spend cap.
+- Brain live loop done (`python -m brain.run_live [--dry-run]`, `python -m brain.tail_logs`). 51 tests pass.
