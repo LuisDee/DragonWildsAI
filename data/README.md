@@ -9,6 +9,7 @@ Build-specific game data, generated offline and committed, so the companion pays
   ```
   .venv\Scripts\python.exe -m tools.build_catalog                  # loaded items + registry + LoadAsset batches
   .venv\Scripts\python.exe -m tools.build_catalog --no-load        # loaded items only
+  .venv\Scripts\python.exe -m tools.build_catalog --no-load --notifies   # + swing timing (what produced the 26161880 file)
   .venv\Scripts\python.exe -m tools.build_catalog --merge-only logs\catalog\<build>_<ts>   # re-normalise, no server
   ```
 - **Raw output:** the mod writes its raw per-call files (`dw_catalog_raw/1`) to `logs/catalog/<build>_<ts>/`, which is gitignored. Only the normalised file lives here.
@@ -26,7 +27,7 @@ Build-specific game data, generated offline and committed, so the companion pays
 | `source` | `raw_files`, `registry_count` (held/wearable assets the registry knows), `described_count`, `missing_from_catalog` (registry paths never described, e.g. load failures or a run stopped early), `errors` (the first 200 raw errors). |
 | `items` | Map of item id → item (below). The id is the asset name (`ITEM_Sword_Mithril`); on a name clash, `<name>@<mount root>`. |
 | `attack_sets` | Map of action class path → attack set (below), for every action any item references. |
-| `attacks` | Map of attack-data class path (`BP_Player_<Cat>_AttackN_C`) → per-swing data read from the class default object: `damage` (`DamageAmount`), `damage_class(_name)` (`EDamageClass`), `stamina_cost`, `special_charge_cost`, `force`, `uses_weapon`, `single_target`, `damage_shapes` (count of `TimedDamageShapes`), `max_move_speed`, `next` (`NextAttackClass`), `next_no_perk` (`NextAttackClassNoRequiredPerk`, the short-combo end), `required_perk_for_next`. |
+| `attacks` | Map of attack-data class path (`BP_Player_<Cat>_AttackN_C`) → per-swing data read from the class default object: `damage` (`DamageAmount`), `damage_class(_name)` (`EDamageClass`), `stamina_cost`, `special_charge_cost`, `force`, `uses_weapon`, `single_target`, `damage_shapes` (count of `TimedDamageShapes`), `max_move_speed`, `next` (`NextAttackClass`), `next_no_perk` (`NextAttackClassNoRequiredPerk`, the short-combo end), `required_perk_for_next`, and with `--montage`/`--notifies` a `timing` object from the attack's montage (`RootMotionAttackData.Montage`, else `InPlaceAttackData.Montage`): `montage`, `length` and `rate` (`SequenceLength`, `RateScale`), `input_window` [start, end] (`AnimNotifyState_AttackInputWindow_C`, the combo input window), `damage_points` (`AnimNotify_AttackDamagePoint_C`), `reset_chain` (`AnimNotify_AttackResetChain_C`) and `allow_move` (`AnimNotify_AllowMovementInput_C`), all in seconds from the swing start. |
 | `ranged_collections` | Map of `UPlayerRangedAttackCollection` class path → `quick_attack`, `full_attack` (attack paths), `trick_shot_damage_multiplier`, `max_charge_up`, `allow_move_quick`. |
 | `category_action_fallback` | Static category → primary-action table (from the object dump), used only when an item's own `PrimaryActionClass` could not be read. |
 
@@ -70,6 +71,7 @@ Build-specific game data, generated offline and committed, so the companion pays
 - `kind`: `melee`, `ranged`, `magic`, `aim`, `block`, `harvest`, `evade` or `drop`.
 - `name`: `ActionName`.
 - `chain`: the attack-data classes in combo order, following `NextAttackClass`, starting with `AttackData`. `chain[0]` is the class to pass to `BP_PerformAttack` (DISCOVERIES, "Combat (E3)").
+- `short_chain`: the chain without the `PerkV2_Attack_MeleeExtendCombo` perk (follows `next_no_perk` where set), when it differs from `chain`.
 - `combo_ends`: short-combo finishers.
 - `damage`: `DamageAmount` per step.
 - `damage_class`.
@@ -84,6 +86,10 @@ Build-specific game data, generated offline and committed, so the companion pays
 | `male_mesh`, `female_mesh` | `UWearableEquipmentMeshData` object paths. |
 
 Equip a wearable on the puppet by writing `PlayerEquipmentComponent.Current<Slot>Wearable` with the data object. This works for `head`, `body`, `legs` and `cape` (DISCOVERIES).
+
+## ../mod/body/attack_data.lua: the combo table the mod loads
+
+Generated from this catalog by `.venv\Scripts\python.exe -m tools.gen_attack_data` (newest `items_*.json`), so the mod never parses this JSON at runtime. It keeps only melee weapons (not `test` items): `items[<data path>] = {id, category, primary, special}`, `sets[<action class>] = {name, cdo, steps, short}` with per-step `next_ms` (end of the input window, at least the last damage point + 0.2 s), `reset_ms` (chain reset), `damage`, `special_cost`, and `categories[<category>]` = that category's usual primary set. Used by `mod/body/combat.lua`. Regenerate together with the catalog.
 
 ### Caveats
 

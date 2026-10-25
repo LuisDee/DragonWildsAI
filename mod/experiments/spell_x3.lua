@@ -1,5 +1,5 @@
 -- X3 (docs/research/2026-10-25-spells-and-weaknesses.md section 6): Wind Stomp emulation.
--- Temporary home: mod/scripts (debug_run searches only mod/scripts for now).
+-- Lives in mod/experiments (debug_run searches mod/scripts, then mod/experiments).
 -- Runs body/spells.lua's real wind_stomp route (loaded fresh from DW_MOD_ROOT) with the route
 -- unlocked for this experiment only. Never targets a point within spells.SAFE_PLAYER_CM (or 1.5x
 -- the 700 cm explosion radius) of a real player; never touches a player.

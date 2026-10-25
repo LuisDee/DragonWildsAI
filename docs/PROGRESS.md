@@ -67,3 +67,14 @@
     - Attacks only use the first swing of a combo, and use the sword set while holding a mace. Next: real combo chains from the catalog, plus specials.
     - The overhead name still reads "Character Name Here".
     - Speech works only via the relay.
+
+### 2026-10-25: catalog run and melee combos (task P7.C1, in progress)
+- **Catalog:** ran it live, staged, with no crash: `data/items_26161880.json` holds 466 items. It now records swing timing from the montage notifies (`--notifies`), and tools no longer count as "magic" weapons.
+- **Generator:** `tools/gen_attack_data.py` produces `mod/body/attack_data.lua` (81 melee items, 26 sets).
+- **Attack loop rewritten:** `mod/body/combat.lua` is a reactive behaviour tree on vendored beehive.lua (MIT).
+  - It uses the held weapon's chain (Skullsplitter: Club 1→5) and issues each step at that step's input-window end.
+  - It resets the chain after the finisher or after a long gap, and uses the weapon special between combos when charged.
+  - It has `on_tick`/`evade`/`before_swing`/`after_swing` hooks for spells.
+  - `skills.lua` keeps the handler contract.
+- **Tests:** 30/30 Lua body tests and 56 pytest pass.
+- **Next:** a server restart (skills.lua loads at startup), then Luis's in-game check: the mace chains and uses the special.

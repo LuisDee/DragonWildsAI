@@ -32,6 +32,8 @@
 --             "ITEM_Rune_Air". Paid only after a successful cast.
 --   "mirror"  only spells Luis has unlocked (mirror.unlocked[asset]); perk-gated variants (Wind
 --             Stomp) also need the perk in mirror.perks when perks are known. Runes are not charged.
+--   "mirror_budget"  both: Luis's unlocks AND the bot's runes (the design's proposed default,
+--             docs/design/robustness-and-item-catalog.md section 9; awaiting Luis's choice).
 local U = require("body.util")
 
 local M = {}
@@ -39,10 +41,10 @@ local M = {}
 M.BUILD = "26161880"
 M.MIN_GAP_S = 1.0               -- global spacing between two casts (any spell)
 M.SAFE_PLAYER_CM = 1000         -- never put an AoE within 10 m of a real player
-M.STOMP_RADIUS_CM = 500         -- fallback if the catalog has no explosion radius
+M.STOMP_RADIUS_CM = 700         -- BP_WindstepExplosion_C sphere radius (X1 dump); catalog wins
 M.STOMP_LIFESPAN_S = 5.0        -- the explosion actor is cleaned up after this
 M.STUN_PRESUME_S = 1.5          -- after our stomp, targets in radius count as "stunned" this long
-M.POLICIES = { free = true, budget = true, mirror = true }
+M.POLICIES = { free = true, budget = true, mirror = true, mirror_budget = true }
 M.ROLES = { "combat_defence", "combat_cc", "combat_damage", "weapon_buff", "gathering_buff",
             "gathering_aoe", "scouting", "repair", "travel", "other" }
 
@@ -55,7 +57,7 @@ M.PATHS = {
 
 -- verified: true only after an in-game test recorded in DISCOVERIES "Spells (build 26161880)".
 M.ROUTES = {
-    wind_stomp = { verified = false, note = "X3" },
+    wind_stomp = { verified = false, note = "X3: no-target canary passed 2026-10-25 (spawn, BeginPlay, SetOwner, StartDelayedDamage(0), lifespan); stun on creatures not yet seen" },
     self_effect = { verified = false, note = "X4" },
     held_effect = { verified = false, note = "X7" },
     modular = { verified = false, note = "X5; opt-in only (null-PC rune-cost path)" },
@@ -78,8 +80,8 @@ M.META = {
     USD_Windstep = { name = "Windstep", role = "combat_cc", route = "wind_stomp",
         requires_perk = "PerkV2_Agility_Spell_Windstep_Upgrade",
         runes = { Air = 5 }, cooldown_s = 3, wiki = W("Agility", 8), aliases = { "wind stomp", "windstomp", "wind jump", "stun", "stomp" },
-        preconditions = { "enemy cluster >= 3 within ~5 m of the landing point (Kalphites especially)", "no player within 10 m of the landing point" },
-        use_when = "Wind Stomp: an AoE stagger at the landing point; use on groups (great vs Kalphites), then hit them while they stumble." },
+        preconditions = { "enemy cluster >= 3 within 7 m of the landing point (Kalphites especially)", "no player within 10.5 m of the landing point" },
+        use_when = "Wind Stomp: a 7 m AoE stagger (force 1000, no damage) at the landing point; use on groups (great vs Kalphites), then hit them while they stumble." },
     USD_EnchantWeapon_Fire = { name = "Enchant Weapon: Fire", role = "weapon_buff", route = "held_effect",
         held_effect = "HEED_EnchantWeaponFire", runes = { Fire = 15, Astral = 5 }, cooldown_s = 90, wiki = W("Attack", 20),
         aliases = { "fire enchant", "enchant fire" },
@@ -129,16 +131,16 @@ M.META = {
     USD_AxtralProjection = { name = "Axtral Projection", role = "gathering_aoe", runes = { Air = 10, Astral = 5 }, wiki = W("Woodcutting", 11),
         aliases = { "astral projection", "axtral" },
         preconditions = { "holding an axe", "several standing trees in a line in front of the caster" },
-        use_when = "Throws a conjured axe that fells every tree in its path; use when chopping a row of trees (uses the held axe's damage)." },
+        use_when = "Aimed: throws a conjured axe that flies up to 20 m and fells the trees in its path (damage from the held axe); use when several trees stand in a line. Cooldown 45 s." },
     USD_Splinter = { name = "Splinter", role = "gathering_aoe", runes = { Earth = 10, Nature = 5 }, wiki = W("Woodcutting", 27),
         preconditions = { "holding an axe", "felled tree trunks on the ground nearby" },
-        use_when = "Chops fallen trunks around the caster into logs at once; cast after felling trees (pair with Trunk Totem)." },
-    USD_PileEmUp = { name = "Trunk Totem", role = "gathering_aoe", runes = { Nature = 30, Law = 10 }, wiki = W("Woodcutting", 52),
+        use_when = "Placed: chops felled trunks within 2.3 m of the target point into logs at once (damage from the held axe); cast on a Trunk Totem or a felled trunk. Cooldown 45 s." },
+    USD_PileEmUp = { name = "Trunk Totem", role = "gathering_aoe", runes = { Nature = 30, Law = 10 }, wiki = W("Woodcutting", 50),
         aliases = { "trunk totem", "totem" },
         preconditions = { "several felled trunks scattered nearby" },
-        use_when = "Gathers scattered felled trunks into one totem; then cast Splinter on it to get all the logs." },
+        use_when = "Placed: gathers scattered felled trunks into one totem; then Splinter the totem for all the logs. Cooldown 180 s, so use it once per clearing." },
     USD_Rocksplosion = { name = "Rocksplosion", role = "gathering_aoe", runes = { Earth = 15, Fire = 5 }, wiki = W("Mining", 11),
-        preconditions = { "boulders or ore rocks nearby" }, use_when = "Breaks apart nearby boulders and ore; use while mining." },
+        preconditions = { "holding a pickaxe", "boulders or ore rocks nearby" }, use_when = "Breaks apart nearby boulders and ore; use while mining." },
     USD_Harvest = { name = "Uproot", role = "gathering_aoe", runes = { Earth = 10, Astral = 10 }, wiki = W("Farming", 15),
         aliases = { "uproot" },
         preconditions = { "ripe crops or wild plants within a few metres" }, use_when = "Instantly harvests ripe and wild plants in a small radius." },
@@ -188,6 +190,31 @@ M.META = {
         preconditions = { "planted crops" }, use_when = "Advances plant growth." },
     USD_Farming_Compost = { name = "Mucksplosion", role = "other", runes = { Earth = 20, Astral = 15 }, wiki = W("Farming", 80),
         preconditions = { "farm plots needing fertiliser" }, use_when = "Showers plots with fertiliser." },
+    USD_Treequipment = { name = "Bark to Bones", role = "other", runes = { Earth = 10, Nature = 10 }, wiki = W("Artisan", 11),
+        preconditions = { "cast on a tree (placed spell)", "bones are wanted more than logs" },
+        use_when = "Turns a tree into a stack of bones; only when bones are needed (not for log gathering)." },
+    USD_ShadowVeil = { name = "Shadow Veil", role = "other", runes = { Astral = 20 },
+        preconditions = { "sneaking past enemies (not in the wiki spell list; may be unreleased)" },
+        use_when = "Self gameplay effect GE_ShadowVeil_C (stealth, inferred from the name); not for normal play." },
+    USD_CabbageRain = { name = "Cabbage Rain", role = "other",
+        preconditions = { "no rune cost and no owning perk in this build (likely event/unreleased)" },
+        use_when = "Not a normal player spell in this build; do not use." },
+    USD_EnchantChefsTools = { name = "Enchant Chef's Tools", role = "other",
+        preconditions = { "cast on a Cooking Range" }, use_when = "Cooking-station buff; no rune cost or owning perk in this build." },
+    USD_MagicFocus = { name = "Magic Focus", role = "other", preconditions = { "internal (held-equipment montage only)" },
+        use_when = "Internal spell data, not on the spell wheel; do not use." },
+    USD_WeaponBarbs = { name = "Weapon Barbs", role = "other", preconditions = { "internal (held-equipment montage only)" },
+        use_when = "Internal spell data (no cost, no modules beyond a montage); do not use." },
+    USD_WeaponPoison = { name = "Weapon Poison", role = "other", preconditions = { "internal (held-equipment montage only)" },
+        use_when = "Internal spell data (no cost, no modules beyond a montage); do not use." },
+    USD_Whetstone = { name = "Whetstone", role = "other", preconditions = { "internal (held-equipment montage only)" },
+        use_when = "Internal spell data (no cost, no modules beyond a montage); do not use." },
+    USD_GetWaterFromWaterSource = { name = "Get Water", role = "other", preconditions = { "world interaction, not a wheel spell" },
+        use_when = "World interaction (filling water from a source); not cast directly." },
+    USD_SiphonAnimaCharge = { name = "Siphon Anima Charge", role = "other", preconditions = { "world interaction at an anima source" },
+        use_when = "World interaction; not cast directly." },
+    USD_SiphonRunes = { name = "Siphon Runes", role = "other", preconditions = { "world interaction at a rune source" },
+        use_when = "World interaction; not cast directly." },
     USD_RunesToRuneEssence = { name = "Runes To Rune Essence", role = "other", runes = { Water = 5, Astral = 5 }, wiki = W("Runecrafting", 61),
         preconditions = { "unwanted runes dropped on the ground" }, use_when = "Converts dropped runes back into 40% of their essence." },
 }
@@ -229,6 +256,8 @@ function M._reset()
     S.allow_modular, S.allow_unverified = false, false
     S.clock, S.last_cast, S.last_any = os.time, {}, nil
     S.knockdown, S.stomps, S.log, S.bridge, S.puppet = {}, {}, nil, nil, nil
+    S.tactics = {}
+    for k, v in pairs(M.TACTICS_DEFAULT) do S.tactics[k] = v end
 end
 
 -- Catalog: the decoded data/spells_<build>.json (X1). Game values override wiki fallbacks.
@@ -332,9 +361,7 @@ local function mirror_state()
     return type(m) == "table" and m or nil
 end
 
-local function check_policy(asset)
-    if S.policy == "free" then return true end
-    if S.policy == "mirror" then
+local function check_mirror(asset)
         local m = mirror_state()
         if not m or type(m.unlocked) ~= "table" then return false, "state_unavailable", { detail = "no mirror of Luis's unlocks" } end
         if not m.unlocked[asset] then return false, "not_unlocked", { spell = asset } end
@@ -343,8 +370,9 @@ local function check_policy(asset)
             return false, "not_unlocked", { spell = asset, perk = perk }
         end
         return true
-    end
-    -- budget
+end
+
+local function check_budget(asset)
     local store = S.inventory
     if not store or type(store.count) ~= "function" or type(store.take) ~= "function" then
         return false, "state_unavailable", { detail = "no bot inventory store (mod/body/inventory.lua)" }
@@ -359,8 +387,19 @@ local function check_policy(asset)
     return true
 end
 
+local function check_policy(asset)
+    local pol = S.policy
+    if pol == "free" then return true end
+    if pol == "mirror" or pol == "mirror_budget" then
+        local ok, reason, data = check_mirror(asset)
+        if not ok then return ok, reason, data end
+        if pol == "mirror" then return true end
+    end
+    return check_budget(asset)
+end
+
 local function pay(asset)
-    if S.policy ~= "budget" then return {} end
+    if S.policy ~= "budget" and S.policy ~= "mirror_budget" then return {} end
     local need = M.runes(asset)
     local paid = {}
     for rune, n in pairs(need) do
@@ -663,7 +702,7 @@ function M.merge_catalog(doc)
     end
     table.sort(missing)
     doc.usage_roles = M.ROLES
-    doc.cost_policies = { "free", "budget", "mirror" }
+    doc.cost_policies = { "free", "budget", "mirror", "mirror_budget" }
     doc.routes = M.ROUTES
     doc.meta_missing = missing
     local not_loaded = {}
@@ -672,6 +711,97 @@ function M.merge_catalog(doc)
     doc.meta_not_in_game = not_loaded
     S.catalog = prev
     return doc
+end
+
+-- ------------------------------------------------------------------ combat reflexes (BT hook)
+-- Tactics the Controller may set (honours "save shield for the boss": shield=false).
+M.TACTICS_DEFAULT = { shield = true, shield_hp_frac = 0.5, shield_on_threat = true,
+                      stomp = true, stomp_min = 3, stomp_scan_cm = 1500, eval_ms = 500 }
+S.tactics = {}
+for k, v in pairs(M.TACTICS_DEFAULT) do S.tactics[k] = v end
+
+function M.set_tactics(t)
+    for k, v in pairs(t or {}) do if M.TACTICS_DEFAULT[k] ~= nil then S.tactics[k] = v end end
+    return M.tactics()
+end
+function M.tactics() local c = {}; for k, v in pairs(S.tactics) do c[k] = v end; return c end
+
+local function enemy_points(around, scan_cm)
+    local pts = {}
+    for _, ai in ipairs(U.try(FindAllOf, "DominionAICharacter") or {}) do
+        if U.valid(ai) and U.try(function() return ai:IsFollower() end) ~= true and (U.health(ai) or 1) > 0 then
+            local at = U.loc(ai)
+            if at and U.dist(around, at) <= scan_cm then pts[#pts + 1] = at end
+        end
+    end
+    return pts
+end
+
+-- Utility scoring (design section 9): each scorer maps the situation to (score 0..~1.2, target).
+-- The best castable spell above SCORE_THRESHOLD is cast. Add more with M.add_scorer(asset, fn).
+-- situation = {hp_frac, threat (fresh telegraph), cluster_n, cluster_centre, kalphite}
+M.SCORE_THRESHOLD = 0.5
+M.SCORERS = {
+    USD_TempestShield = function(sit, tac)
+        if not tac.shield then return 0 end
+        local v = 0
+        if sit.hp_frac and sit.hp_frac < tac.shield_hp_frac then v = 0.6 + (tac.shield_hp_frac - sit.hp_frac) end
+        if sit.threat and tac.shield_on_threat then v = math.max(v, 0.8) end
+        return v
+    end,
+    USD_Windstep = function(sit, tac)
+        if not tac.stomp or not sit.cluster_centre or (sit.cluster_n or 0) < tac.stomp_min then return 0 end
+        return 0.55 + 0.1 * (sit.cluster_n - tac.stomp_min) + (sit.kalphite and 0.2 or 0), sit.cluster_centre
+    end,
+}
+function M.add_scorer(asset, fn) M.SCORERS[asset] = fn end
+
+-- -> ranked list of {spell, score, target} above the threshold (pure given the situation).
+function M.rank(sit)
+    local out = {}
+    for asset, fn in pairs(M.SCORERS) do
+        local ok, score, target = pcall(fn, sit, S.tactics)
+        if ok and type(score) == "number" and score >= M.SCORE_THRESHOLD then
+            out[#out + 1] = { spell = asset, score = score, target = target }
+        end
+    end
+    table.sort(out, function(a, b) return a.score > b.score end)
+    return out
+end
+
+function M.situation(ctx)
+    local tac = S.tactics
+    local p, t = ctx.p, ctx.t
+    local hp, max = U.health(p), U.max_health(p)
+    local th = ctx.threat
+    local sit = { hp_frac = (hp and max and max > 0) and hp / max or nil,
+                  threat = th and ctx.now and th.at and ctx.now - th.at < 1000 or false }
+    if U.valid(t) then
+        sit.cluster_centre, sit.cluster_n = M.pick_cluster(enemy_points(U.loc(t), tac.stomp_scan_cm), stomp_radius(), 1)
+        sit.kalphite = (U.short(t) or ""):find("Kalphite", 1, true) ~= nil
+    end
+    return sit
+end
+
+-- One decision per eval_ms. Returns the cast spell's id (truthy: the BT skips the swing) or nil.
+-- ctx = {a, p, t, hp, d, now, threat, ...} from body/combat.lua.
+function M.combat_tick(ctx)
+    local a = ctx.a or {}
+    if a._spell_eval and ctx.now and ctx.now - a._spell_eval < S.tactics.eval_ms then return nil end
+    a._spell_eval = ctx.now
+    if not U.valid(ctx.p) then return nil end
+    for _, c in ipairs(M.rank(M.situation(ctx))) do
+        if M.can_cast(c.spell) then
+            local r = M.cast(ctx.p, c.spell, c.target, {})
+            if r.ok then log("spell_reflex", { spell = c.spell, score = c.score }); return c.spell end
+        end
+    end
+    return nil
+end
+
+-- Install into body/combat.lua's BT (on_tick hook). Returns the remover.
+function M.install_combat_hooks(combat)
+    return combat.add_hook("on_tick", "spells", M.combat_tick)
 end
 
 -- ------------------------------------------------------------------ bridge
@@ -705,6 +835,13 @@ function M.register(bridge, log_mod, opts)
             target = ai
         end
         return M.cast(p, args.spell, target, { trigger = args.trigger, upgraded = args.upgraded == true })
+    end
+    -- spell_tactics {shield=false, stomp_min=4, ...}: the Controller's knobs for the reflexes
+    bridge.handlers.spell_tactics = function(args)
+        args = args or {}
+        if args.probe == true then return result(true, nil, { probe = true, tool = "spell_tactics" }) end
+        args.probe = nil
+        return result(true, nil, { tactics = M.set_tactics(args) })
     end
     return M
 end

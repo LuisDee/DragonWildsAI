@@ -578,6 +578,16 @@ function M.check_attack_data(log, args)
         end
         res.puppets[#res.puppets + 1] = r
     end
+    -- load_combat=true: load body/combat.lua (fresh, via loadfile) to prove it and its requires
+    -- (vendored beehive, attack_data, jsonutil) load in UE4SS's Lua; only module top-level code runs.
+    if args.load_combat == true then
+        local cp = package.searchpath("body.combat", package.path)
+        local ok, mod = pcall(function() return assert(loadfile(cp))() end)
+        res.combat = { ok = ok and type(mod) == "table", err = (not ok) and tostring(mod) or nil,
+                       data_build = ok and type(mod) == "table" and mod.data() and mod.data().build or nil,
+                       skull_steps = ok and type(mod) == "table" and #mod.profile_for(
+                           "/Game/Gameplay/Character/Player/Equipment/Held/Mace/ITEM_Mace_Skullsplitter.ITEM_Mace_Skullsplitter").steps or nil }
+    end
     log.event("catalog_check_attack_data", { sets = sets, steps = n_steps, missing = #missing })
     return res
 end

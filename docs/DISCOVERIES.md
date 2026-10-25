@@ -5,6 +5,12 @@ Server build: **26161880** (Steam app 4019830, installed 2026-10-25). Engine **U
 
 Research notes with full source lists: `docs/research/2026-10-25-ue4ss-chat-bridge.md`, `docs/research/2026-10-25-phase4-body.md`.
 
+**Code layout (2026-10-25):** the experiment modules named below as `mod/scripts/<name>.lua` now live in `mod/experiments/<name>.lua`, and `debug_run` still finds them by name. Proven code was promoted:
+- `puppet_safe` became `mod/body/removal.lua`.
+- `chat_relay`, `chat_as`, `name_register` and `names_probe` became `mod/body/speech.lua` (`DW_SAY_MODE=relay`).
+
+See `docs/ARCHITECTURE.md`.
+
 ## Environment
 
 ### Dedicated server install (verified 2026-10-25, build 26161880)
@@ -311,3 +317,35 @@ Investigated 2026-10-25, about 13:50–14:10 UTC, with nobody connected (the wor
 - Clients are not affected by an extra bot PlayerState in `PlayerArray` (player list, chat).
 - World save with a PC-less PlayerState: the first autosave with Luis connected.
 - Removal with a PS attached: `UnPossess` clears the pawn's PS; destroying the controller destroys its PS (engine `CleanupPlayerState`); untested here.
+
+## Item catalog run and melee combo timing (build 26161880, 2026-10-25, live server with Luis connected; no crash, no restart)
+- **Catalog run** (`mod/scripts/catalog.lua` through `debug_run`, staged, with a ping and a crash-dump count after each step; 9 old dumps before and after):
+  1. Property reads only (`registry=false, attacks=false, soft=false`): 466 items, 342 ms of game-thread CPU.
+  2. `attacks=true`: 117 actions and 119 attack-data classes, 350 ms.
+  3. Registry (`GetAssetsByClass`): 466 assets. **Every held and wearable item is already loaded at idle**, so `LoadAsset` is not needed for this build.
+  4. Soft refs (`HeldEquipmentActorClass`) read fine, e.g. `BP_Mace_Skullsplitter_C`.
+  - Output: `data/items_26161880.json`, with 466 items (232 held, 234 wearable), 0 missing and 0 errors. Command: `tools.build_catalog --no-load --notifies`.
+- **Attack timing is readable as properties.**
+  - `UPlayerAttackData.RootMotionAttackData.Montage` (`InPlaceAttackData.Montage` is null for the Club) gives `SequenceLength`, `RateScale` and `Notifies` (`TArray<FAnimNotifyEvent>`: `NotifyStateClass`/`Notify`, `LinkValue` = start in seconds, `Duration`). The struct-array reads via `ForEach` did not crash.
+  - Per swing, the montage carries:
+    - `AnimNotifyState_AttackInputWindow_C`: the combo input window.
+    - `AnimNotify_AttackDamagePoint_C`.
+    - `AnimNotify_AttackResetChain_C`: the chain resets here if there is no new input.
+    - `AnimNotify_AllowMovementInput_C`.
+    - Evade/Secondary input windows, `InputCancelWindow_*`, `HyperArmour_C`, `Invulnerability_C` (visceral).
+  - Club Attack1, for example: window 0.367–0.805 s, damage at 0.501 s, reset at 1.702 s, montage 2.567 s.
+- **Skullsplitter** (`ITEM_Mace_Skullsplitter`, Club set, not Sword):
+  - Primary is `PA_Attack_Club_C`, a melee "Attack": `BP_Player_Club_Attack1 → 2 → 3 → 4 → 5`, damage 13.5/13.5/15/18/24, stamina 17 each.
+    - Attack3 → Attack4 needs `PerkV2_Attack_MeleeExtendCombo`. Without it, Attack3 → `Attack4_ShortComboEnd`.
+    - Attack5 → Attack1.
+  - Special: `PA_Attack_Club_Special_C`, "Block Breaker": `BP_Player_Club_SpecialAction_C`, damage 20, `SpecialChargeCost` 33.
+  - Also: sprint `PA_Attack_Club_Sprint` (SprintAttack → Attack2...), visceral `PA_Attack_Club_Visceral`, block `PA_Block_Club`, jump `PA_Spell_Club_JumpAttack` (a magic-kind action named "Dig").
+- **Sword** (`ITEM_Sword_Mithril`, `PA_Attack_Sword_C`):
+  - `BP_Player_Sword_Attack1 → 5`, damage 11/11/13/15/20. Attack2 → Attack3 needs the perk; without it, Attack2 → `Attack3_ShortComboEnd`.
+  - Special: "Barge", `BP_Player_Sword_SpecialAction_C`, damage 24, cost 25.
+- **Puppet special charge:** `puppet.SpecialChargeComponent:GetSpecialCharge()` / `GetMaxSpecialCharge()` (no-arg getters) returned 100 / 100 on the live puppet.
+- **Live resolve check** (`debug_run catalog fn=check_attack_data`): all 26 melee attack sets and 71 steps in the generated `mod/body/attack_data.lua` resolve with `StaticFindObject`, including the CDO path `<pkg>.Default__PA_*_C`. The puppet was holding the Skullsplitter, which maps to the Club set.
+- **UNVERIFIED (needs Luis):**
+  - Whether `BP_PerformAttack` with combo steps 2–5 and with the special plays and damages like step 1 did.
+  - Whether issuing step k+1 at step k's input-window end chains visibly.
+  - Whether the server enforces the extend-combo perk, stamina or special charge on these direct calls.

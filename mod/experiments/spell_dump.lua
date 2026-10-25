@@ -1,5 +1,5 @@
 -- X1 (docs/research/2026-10-25-spells-and-weaknesses.md section 6): READ-ONLY spell catalog dump.
--- Temporary home: mod/scripts (debug_run only searches mod/scripts until mod/experiments is wired).
+-- Lives in mod/experiments (debug_run searches mod/scripts, then mod/experiments).
 -- Run: debug_run {"module":"spell_dump","args":{"out":"C:/gameserver/data/spells_26161880.json"}}
 --
 -- What it reads (property reads only; no UFunction calls except UE4SS's own GetFullName/IsValid/

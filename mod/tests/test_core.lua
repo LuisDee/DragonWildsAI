@@ -298,6 +298,33 @@ test("debug_run: scripts/ first, then experiments/; unknown names are rejected",
     assert(fake.handlers.debug_run({ module = "both" }).data.result == "experiments")
 end)
 
+-- Every experiment loads through the real lookup (mod/scripts, then mod/experiments) and its
+-- default/read-only action runs against an empty world without raising. Crash paths must refuse.
+test("experiments: all load by name via debug_run and fail safe in an empty world", function()
+    reset()
+    speech._reset()
+    function RegisterHook() return 1, 2 end
+    local fake = { handlers = {} }
+    debug_cmds.register(fake, H.log, { here .. "/../scripts", here .. "/../experiments" })
+    local run = fake.handlers.debug_run
+    local cases = {
+        { "puppet_test", {} }, { "puppet_gear", {} }, { "puppet_combat", {} }, { "follower_test", {} },
+        { "body_probe", { nav_query = false } }, { "names_probe", {} }, { "perf_probe", {} },
+        { "name_register", {} }, { "chat_relay", {} }, { "chat_as", {} }, { "puppet_safe", {} },
+        { "companion", {} }, { "say_test", { variant = "a" } },
+    }
+    for _, c in ipairs(cases) do
+        local r = run({ module = c[1], args = c[2] })
+        assert(r.ok, c[1] .. ": " .. json.encode(r))
+    end
+    -- known crash paths refuse without an explicit override
+    for _, c in ipairs({ { "puppet_test", { action = "destroy" } }, { "puppet_test", { action = "unpossess" } },
+                         { "puppet_combat", { action = "hit" } }, { "say_test", {} } }) do
+        local r = run({ module = c[1], args = c[2] })
+        assert(r.ok and r.data.result.ok == false and r.data.result.error:find("refused"), c[1] .. " " .. json.encode(r))
+    end
+end)
+
 test("bridge: a top-level probe flag reaches the handler as args.probe", function()
     reset()
     assert(bridge.init({ dir = dir, log = H.log }))
