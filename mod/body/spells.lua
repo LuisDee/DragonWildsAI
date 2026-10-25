@@ -477,7 +477,7 @@ local ROUTE_FN = {}
 -- Windstep stun (X3). BP_WindstepExplosion_C's BeginPlay (authority) already calls
 -- StartDelayedDamage (ubergraph CallFunc_StartDelayedDamage); opts.trigger="force" calls it again.
 function ROUTE_FN.wind_stomp(p, asset, target, opts)
-    local point = resolve_point(target)
+    local point = resolve_point(target == nil and p or target)
     if not point then return result(false, "invalid_args", { detail = "target must be an actor, {X,Y,Z} cm or [x,y,z] m" }) end
     local radius = stomp_radius()
     local safe = math.max(M.SAFE_PLAYER_CM, radius * 1.5)
@@ -670,7 +670,7 @@ function M.merge_catalog(doc)
     for asset in pairs(M.META) do if not (doc.spells or {})[asset] then not_loaded[#not_loaded + 1] = asset end end
     table.sort(not_loaded)
     doc.meta_not_in_game = not_loaded
-    S.catalog = prev or doc
+    S.catalog = prev
     return doc
 end
 

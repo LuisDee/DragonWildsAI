@@ -34,9 +34,14 @@ M.PENDING = {
     -- {SenderData, MessageBody}, FChatPlayerFilterData. Fires once per message sent. OD:45120
     { path = "/Script/JagexChatBackend.PlayerChatComponent:Server_SendChatMessage", tag = "chat",
       -- FChatMessageData { SenderData: FChatPlayerSenderData { ..., PlayerId: int32 }, MessageBody: FString }
+      -- character_guid lets main.lua drop the bot's own relayed lines (body/speech.lua re-sends
+      -- with SenderData.CharacterGuid = the bot's GUID and the template player's PlayerId).
       extract = function(params)
           local msg = params[1]:get()
-          return { text = msg.MessageBody:ToString(), player_id = msg.SenderData.PlayerId }
+          local g = msg.SenderData.CharacterGuid
+          local ok_g, guid = pcall(function() return { A = g.A, B = g.B, C = g.C, D = g.D } end)
+          return { text = msg.MessageBody:ToString(), player_id = msg.SenderData.PlayerId,
+                   character_guid = ok_g and guid or nil }
       end },
     -- Client -> server tag-based player event (FChatPlayerEventData). Rare (join/leave/death style). OD:45118
     { path = "/Script/JagexChatBackend.PlayerChatComponent:Server_SendPlayerEvent", tag = "chat_event" },

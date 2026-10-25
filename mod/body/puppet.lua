@@ -11,9 +11,10 @@
 --   * immortal from the moment it is possessed, so death never runs.
 --   * one puppet per run: if the module state is lost (hot reload), adopt the existing AI-possessed
 --     puppet instead of spawning a second one.
--- TODO(puppet_safe): a separate agent is researching a safe removal. When it lands, register it with
--- M.set_safe_remover(fn(puppet, log) -> ok) and set DW_PUPPET_SAFE_REMOVE=1; park() then calls it
--- instead of hiding. Until then nothing here removes the actor.
+-- Safe removal exists (body/removal.lua: strip PlayerRangedAttackComponent, then unpossess; verified
+-- offline, DISCOVERIES "Unpossess crash: fix bisect"). main.lua registers it with
+-- M.set_safe_remover(fn(puppet, log) -> ok); park() uses it only with DW_PUPPET_SAFE_REMOVE=1, and
+-- otherwise hides and parks the puppet as below.
 --
 -- Identity: right after possession the puppet gets a DominionPlayerState named "Claude" (overhead
 -- nameplate; body/identity.lua). ensure_spawned() also attaches one to an adopted puppet without one.

@@ -149,6 +149,9 @@ local function handle(msg)
     end
     local tool = msg.tool
     local args = type(msg.args) == "table" and msg.args or {}
+    -- The brain sends "probe": true at the top level of the cmd (brain/protocol.py); handlers
+    -- (body/skills.lua probe_guard) read args.probe. Copy it so a probe never acts.
+    if msg.probe == true and args.probe == nil then args.probe = true end
     local h = M.handlers[tool]
     local res
     if h then

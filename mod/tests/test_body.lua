@@ -544,7 +544,7 @@ test("go_to interrupted by follow: interrupted result + task_failed, then follow
     assert(result_of(msgs, fid).ok)
 end)
 
-test("attack: approach, swing on cooldown, stop when target hp hits 0", function()
+test("attack: approach, combo 1-2-3 on the step timings, stop when target hp hits 0", function()
     setup()
     make_player("luis_epic", 256, 0, 0, 0)
     local wolf = make_ai("Wolf", 3, 2300, 0, 0, 30)
@@ -561,15 +561,19 @@ test("attack: approach, swing on cooldown, stop when target hp hits 0", function
     local sw = p.swings[1]
     assert(sw.atk == F.assets[PATHS.sword_atk] and sw.inst.Data == F.assets[PATHS.sword_act])
     assert(sw.inst.PlayerOwner == p and sw.inst.EquipmentHand == 1 and sw.inst.ActionInputType == 0 and sw.inst.DesiredActionTarget == wolf)
-    ticks(4)
-    assert(#p.swings == 1, "cooldown 1250 ms: no swing for 4 ticks")
     ticks(1)
-    assert(#p.swings == 2 and wolf.hp == 10)
-    msgs = ticks(5)
-    assert(#p.swings == 3 and wolf.hp == 0)
+    assert(#p.swings == 1, "step 1 next_ms 500: nothing 250 ms later")
+    ticks(1)
+    assert(#p.swings == 2 and wolf.hp == 10 and p.swings[2].atk == F.assets[A.sword2], "step 2 at +500 ms")
+    assert(p.swings[2].inst.Data == F.assets[PATHS.sword_act], "the whole chain uses the primary action's CDO")
+    ticks(2)
+    assert(#p.swings == 2, "step 2 next_ms 750")
+    msgs = ticks(1)
+    assert(#p.swings == 3 and wolf.hp == 0 and p.swings[3].atk == F.assets[A.sword3], "step 3 at +750 ms")
     msgs = ticks(1)
     local r = result_of(msgs, id)
-    assert(r and r.ok and r.data.killed == true and r.data.swings == 3, json.encode(r))
+    assert(r and r.ok and r.data.killed == true and r.data.swings == 3 and r.data.combos == 1, json.encode(r))
+    assert(r.data.attack_set == "PA_Attack_Sword_C" and r.data.specials == 0, json.encode(r))
     local ev = events_of(msgs, "task_done")
     assert(#ev == 1 and ev[1].task_id == id and ev[1].data.killed == true)
     ticks(20)
@@ -601,15 +605,173 @@ test("attack: no damage -> verification_failed; out of reach -> timeout; no Pred
     local p = spawned()
     F.swing_damage = 0
     local _, id = cmd("attack", { target = "dummy" })
-    local msgs = ticks(5 * 11 + 2)
+    -- unarmed: default Sword set, no special; 10 swings = 3 combos + 1 (~8.3 s), then the check
+    local msgs = ticks(40)
     local r = result_of(msgs, id)
     assert(r and r.reason == "verification_failed" and #p.swings == 10, json.encode(r))
+    local S1, S2, S3 = "BP_Player_Sword_Attack1_C", "BP_Player_Sword_Attack2_C", "BP_Player_Sword_Attack3_C"
+    local want = table.concat({ S1, S2, S3, S1, S2, S3, S1, S2, S3, S1 }, ",")
+    assert(swing_names(p) == want, swing_names(p))
     -- unreachable target: keeps approaching until the 55 s timeout
     make_ai("Goat", 7, 3000, 0, 0, 100)
     _, id = cmd("attack", { target = "goat" })
     msgs = ticks(221)
     r = result_of(msgs, id)
     assert(r and r.reason == "timeout", json.encode(r))
+end)
+
+local function count(s, pat) return select(2, s:gsub(pat, "")) end
+
+test("combat: combo state machine steps in order, finisher waits reset_ms, a long gap resets the chain", function()
+    local st = combat.new_combo({ { next_ms = 500, reset_ms = 1000 }, { next_ms = 700, reset_ms = 1200 },
+                                  { next_ms = 900, reset_ms = 2000 } })
+    local _, i = combat.combo_peek(st, 0)
+    assert(i == 1 and combat.combo_ready(st, 0))
+    assert(combat.combo_advance(st, 0) == 500)
+    assert(not combat.combo_ready(st, 499) and combat.combo_ready(st, 500))
+    _, i = combat.combo_peek(st, 600)
+    assert(i == 2, "within step 1's reset window: continue")
+    assert(combat.combo_advance(st, 600) == 1300)
+    _, i = combat.combo_peek(st, 1799)
+    assert(i == 3, "still inside step 2's reset_ms (1200)")
+    _, i = combat.combo_peek(st, 1800)
+    assert(i == 1 and st.combos == 0, "gap >= reset_ms: chain starts over")
+    combat.combo_advance(st, 1800)
+    combat.combo_peek(st, 2300); combat.combo_advance(st, 2300)
+    _, i = combat.combo_peek(st, 3000)
+    assert(i == 3)
+    assert(combat.combo_advance(st, 3000) == 5000, "finisher: wait its reset_ms before step 1")
+    assert(st.i == 1 and st.combos == 1 and st.count == 5)
+    _, i = combat.combo_peek(st, 5000)
+    assert(i == 1)
+    combat.combo_reset(st)
+    assert(st.i == 1 and st.last_at == nil)
+end)
+
+test("attack with the Skullsplitter: Club chain (never Sword), special between combos when charged", function()
+    setup()
+    make_player("luis_epic", 256, 0, 0, 0)
+    local ogre = make_ai("Ogre", 8, 150, 0, 0, 1000)
+    local p = spawned()
+    hold(p, A.mace)
+    local charge = 100
+    p.SpecialChargeComponent = obj("SpecialChargeComponent", { GetSpecialCharge = function() return charge end })
+    F.swing_damage = 10
+    local _, id = cmd("attack", { target = "ogre" })
+    ticks(1)
+    -- sturdy target (1000 hp >= 3 x 13.5) and full charge: the special opens
+    assert(#p.swings == 1 and p.swings[1].atk == F.assets[A.club_sp], swing_names(p))
+    assert(p.swings[1].inst.Data == F.assets[A.club_special_cdo] and p.swings[1].inst.DesiredActionTarget == ogre)
+    ticks(3)
+    assert(#p.swings == 1, "special next_ms 1000")
+    ticks(1)
+    assert(swing_names(p) == "BP_Player_Club_SpecialAction_C,BP_Player_Club_Attack1_C", swing_names(p))
+    assert(p.swings[2].inst.Data == F.assets[A.club_cdo], "combo steps carry the PA_Attack_Club CDO")
+    ticks(2)
+    assert(swing_names(p, 2) == "BP_Player_Club_Attack1_C,BP_Player_Club_Attack2_C", swing_names(p))
+    ticks(2)
+    assert(swing_names(p, 2) == "BP_Player_Club_Attack1_C,BP_Player_Club_Attack2_C,BP_Player_Club_Attack3_C",
+        swing_names(p))
+    for _, sw in ipairs(p.swings) do
+        assert(not sw.atk._full:find("Sword", 1, true) and sw.inst.EquipmentHand == 1, "no sword attacks with a mace")
+    end
+    -- special cooldown 8 s: combos only until then (never mid-combo), then the special again
+    ticks(26) -- to +8.25 s after the special
+    assert(count(swing_names(p), "SpecialAction") == 1, swing_names(p))
+    ticks(10)
+    assert(count(swing_names(p), "SpecialAction") == 2, "special again after cooldown: " .. swing_names(p))
+    -- the second special came right after a finisher, at chain step 1
+    local names = {}
+    for n in swing_names(p):gmatch("[^,]+") do names[#names + 1] = n end
+    for k = 2, #names do
+        if names[k] == "BP_Player_Club_SpecialAction_C" then
+            assert(names[k - 1] == "BP_Player_Club_Attack3_C", "special only between combos: " .. swing_names(p))
+        end
+    end
+    -- low charge: no more specials
+    charge = 10
+    local before = #p.swings
+    ticks(60)
+    assert(#p.swings > before and count(swing_names(p, before + 1), "SpecialAction") == 0, swing_names(p, before + 1))
+    skills._finish(skills.current(), false, "interrupted", {})
+    -- an unlisted mace falls back to its category's set; unarmed to the Sword set
+    local prof = combat.profile_for(A.mace_unknown)
+    assert(prof.primary_key == A.club_set and prof.source == "category")
+    assert(combat.profile_for(nil).primary_key == A.sword_set and combat.profile_for(nil).special == nil)
+    assert(id)
+end)
+
+test("attack: chain continues after a short chase, restarts at step 1 after a long one", function()
+    setup()
+    make_player("luis_epic", 256, 0, 0, 0)
+    local boar = make_ai("Boar", 9, 150, 0, 0, 1000)
+    local p, c = spawned()
+    F.swing_damage = 1
+    cmd("attack", { target = "boar" })
+    ticks(1)
+    assert(swing_names(p) == "BP_Player_Sword_Attack1_C")
+    boar.loc = { X = 900, Y = 0, Z = 0 } -- out of range for 250 ms (< step 1 reset_ms 1000)
+    ticks(1)
+    assert(#c.moves >= 1 and #p.swings == 1, "chase")
+    boar.loc = { X = 150, Y = 0, Z = 0 }
+    ticks(1)
+    assert(swing_names(p) == "BP_Player_Sword_Attack1_C,BP_Player_Sword_Attack2_C", swing_names(p))
+    boar.loc = { X = 900, Y = 0, Z = 0 } -- out of range for 1.5 s (> step 2 reset_ms 1250)
+    ticks(6)
+    boar.loc = { X = 150, Y = 0, Z = 0 }
+    ticks(1)
+    assert(swing_names(p, 3) == "BP_Player_Sword_Attack1_C", "long gap: chain restarted: " .. swing_names(p))
+end)
+
+test("combat hooks: on_tick and evade take the tick, before_swing can skip, a failing hook is ignored", function()
+    setup()
+    make_player("luis_epic", 256, 0, 0, 0)
+    make_ai("Boar", 10, 150, 0, 0, 1000)
+    local p = spawned()
+    F.swing_damage = 1
+    local seen
+    local remove = combat.add_hook("on_tick", "test_spell", function(ctx) seen = ctx; return true end)
+    cmd("attack", { target = "boar" })
+    ticks(4)
+    assert(#p.swings == 0 and seen and seen.t and seen.p == p and type(seen.perform) == "function", "on_tick took every tick")
+    remove()
+    combat.add_hook("evade", "test_evade", function(ctx) return ctx.threat ~= nil end)
+    combat.notify_threat({ by = "boar", ms_until = 400 }, skills.now())
+    ticks(2)
+    assert(#p.swings == 0, "evading while a telegraph is recorded")
+    combat.threat = nil
+    combat.add_hook("before_swing", "veto", function() return "skip" end)
+    ticks(2)
+    assert(#p.swings == 0, "before_swing skip")
+    combat.add_hook("before_swing", "veto", function() error("hook bug") end) -- same name: replaces
+    local seen_after
+    combat.add_hook("after_swing", "count", function(_, sw, ok) seen_after = { sw = sw, ok = ok } end)
+    ticks(1)
+    assert(#p.swings == 1 and seen_after and seen_after.ok == true and seen_after.sw.step == 1,
+        "a hook error never blocks the swing")
+    assert(not pcall(combat.add_hook, "bogus", "x", function() end), "unknown hook kinds are rejected")
+end)
+
+test("generated attack_data.lua: Skullsplitter -> Club 5-step chain with timing, sword -> Sword set", function()
+    local d = assert(REAL_ATTACK_DATA, "body/attack_data.lua missing: run tools/gen_attack_data.py")
+    local skull = d.items[A.mace]
+    assert(skull and skull.primary == A.club_set and skull.special == A.club_special_set)
+    local set = d.sets[A.club_set]
+    assert(set.cdo == A.club_cdo and #set.steps == 5 and set.steps[1].cls == A.club1, #set.steps)
+    for i, st in ipairs(set.steps) do
+        assert(st.timed and st.next_ms > 0 and st.reset_ms > st.next_ms, "step " .. i)
+        assert(st.cls:find("BP_Player_Club_Attack" .. i, 1, true), st.cls)
+    end
+    assert(#set.short == 4 and set.short[4].cls:find("ShortComboEnd", 1, true))
+    assert(d.sets[A.club_special_set].steps[1].special_cost == 33)
+    assert(d.items[PATHS.sword].primary == combat.DEFAULT_SET and d.categories.mace == A.club_set)
+    combat.set_data(d)
+    local prof = combat.profile_for(A.mace)
+    assert(prof.source == "item" and #prof.steps == 5 and prof.special_key == A.club_special_set)
+    combat.CHAIN = "short"
+    assert(#combat.profile_for(A.mace).steps == 4)
+    combat.CHAIN = "full"
+    combat.set_data(FAKE_ATTACK_DATA)
 end)
 
 test("equip: right-hand weapon and inferred body slot, verified by read-back and persisted", function()
