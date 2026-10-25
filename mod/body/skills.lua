@@ -8,7 +8,8 @@
 --                                         re-issues MoveToActor every FOLLOW_MS when too far.
 --   stop {}                            -> sync ok {stopped=<kind>|absent}
 --   go_to {target}                     -> ASYNC; ok {target_position, position, arrive_tolerance}
---   attack {target}                    -> ASYNC; ok {target, killed, swings} when target hp <= 0 or it is gone
+--   attack {target}                    -> ASYNC; ok {target, killed, swings, specials, combos, weapon, attack_set}
+--                                         when target hp <= 0 or it is gone (loop: body/combat.lua)
 --   equip {item_path, hand?, actor_class?} -> sync ok {slot, item_path, gear, persisted}
 --   say {text}                         -> sync ok {method, recipients, verified=false}
 --   body_status {} / body_spawn {} / body_park {}   (debug/lifecycle)
@@ -24,14 +25,16 @@
 -- health/validity, the equipment slot), never from a call returning.
 --
 -- Verified in game: MoveToLocation/MoveToActor on the AIController (return 2 = RequestSuccessful),
--- BP_PerformAttack with the Sword attack set, GetAuthoritativeHealth, FindAllOf("DominionAICharacter"),
--- IsFollower. UNVERIFIED: GetMoveStatus, StopMovement, K2_SetFocus/K2_ClearFocus, attack sets other
--- than Sword, GetAttitude (off unless DW_STATE_ATTITUDE=1), the catch-up teleport, speech.
+-- BP_PerformAttack with the Sword attack set (step 1), GetAuthoritativeHealth, FindAllOf("DominionAICharacter"),
+-- IsFollower, SpecialChargeComponent:GetSpecialCharge (read only). UNVERIFIED: GetMoveStatus, StopMovement,
+-- K2_SetFocus/K2_ClearFocus, combo steps 2+, attack sets other than Sword, specials, GetAttitude (off
+-- unless DW_STATE_ATTITUDE=1), the catch-up teleport, speech.
 -- The direct-damage path (PredictDamage/ApplyDamageFromGameplayEffect) is deliberately NOT used:
 -- it crashed the server in UE4SS struct marshalling.
 local U = require("body.util")
 local gear = require("body.gear")
 local speech = require("body.speech")
+local combat = require("body.combat")
 local jsonutil = require("jsonutil")
 
 local M = {}
@@ -58,13 +61,10 @@ M.ATTACK_LEASH_CM = 9000          -- give up (too_far) beyond 90 m
 M.ATTACK_RANGE_CM = 250           -- swing when this close
 M.ATTACK_ACCEPT_CM = 120
 M.ATTACK_APPROACH_REISSUE_MS = 1500
-M.ATTACK_COOLDOWN_MS = 1250
 M.ATTACK_TIMEOUT_MS = 55000       -- brain gives up at 60 s
 M.ATTACK_INEFFECTIVE_SWINGS = 10  -- this many swings with no health drop -> verification_failed
 M.ATTACK_MAX_ERRORS = 3
-M.ATTACK_FMT = "/Game/Gameplay/Character/Player/Attacks/%s/BP_Player_%s_Attack1.BP_Player_%s_Attack1_C"
-M.ACTION_FMT = "/Game/Gameplay/Character/Player/Attacks/%s/PA_Attack_%s.Default__PA_Attack_%s_C"
-M.DEFAULT_ATTACK_CATEGORY = "Sword" -- the verified set (it swung even with a mace in hand)
+-- Swing timing, combo chains and specials: body/combat.lua (+ generated body/attack_data.lua).
 -- state export
 M.NEARBY_CM = 5000
 M.NEARBY_MAX = 20
@@ -379,70 +379,29 @@ local function h_go_to(args, ctx)
 end
 
 -- ------------------------------------------------------------------ attack
-local function attack_set(p, a)
-    if a.atk then return a.atk, a.act end
-    local held = gear.category(gear.read(p).right) -- nil when unarmed
-    local cats = { held or M.DEFAULT_ATTACK_CATEGORY, M.DEFAULT_ATTACK_CATEGORY }
-    for _, cat in ipairs(cats) do
-        local atk = U.try(StaticFindObject, M.ATTACK_FMT:format(cat, cat, cat))
-        local act = U.try(StaticFindObject, M.ACTION_FMT:format(cat, cat, cat))
-        if U.valid(atk) and U.valid(act) then
-            a.atk, a.act, a.category = atk, act, cat
-            return atk, act
-        end
-    end
-    return nil
+-- The loop is a behaviour tree in body/combat.lua (held weapon's combo chain from body/attack_data.lua,
+-- the weapon special, hook points for evade/spells). This file keeps the handler contract: async
+-- reply, verified kill/gone, the termination rules (timeout, too_far, verification_failed,
+-- body_error), focus set at start and cleared on any end.
+local function attack_approach(a, p, t)
+    if a.last_issue and S.now - a.last_issue < M.ATTACK_APPROACH_REISSUE_MS then return end
+    a.last_issue = S.now
+    local c = U.controller_of(p)
+    if c then move_to_actor(c, t, M.ATTACK_ACCEPT_CM) end
 end
 
-local function swing(a, p, t)
-    local atk, act = attack_set(p, a)
-    if not atk then return finish(a, false, "body_error", { detail = "attack set not loaded" }) end
-    a.last_swing = S.now
-    local ok, err = U.call(S.log, "BP_PerformAttack", { target = a.target_id, category = a.category, n = a.swings + 1 }, function()
-        p.PlayerMeleeAttackComponent:BP_PerformAttack(atk, {
-            Data = act, PlayerOwner = p, EquipmentHand = 1, ActionInputType = 0, DesiredActionTarget = t,
-        })
-    end)
-    if ok then
-        a.swings = a.swings + 1
-    else
-        a.errors = a.errors + 1
-        if a.errors >= M.ATTACK_MAX_ERRORS then return finish(a, false, "body_error", { detail = tostring(err), swings = a.swings }) end
-    end
+local attack_tree_deps
+local function attack_deps()
+    attack_tree_deps = attack_tree_deps or {
+        cfg = M, now = function() return S.now end, puppet = function() return S.puppet.get() end,
+        finish = function(a, ok, reason, data) return finish(a, ok, reason, data) end,
+        approach = attack_approach, log_mod = S.log, log = log,
+    }
+    attack_tree_deps.log_mod = S.log
+    return attack_tree_deps
 end
 
-local function step_attack(a)
-    local p = S.puppet.get()
-    if not p then return finish(a, false, "companion_down", {}) end
-    local t = a.target
-    if not U.valid(t) then
-        return finish(a, true, nil, { target = a.target_id, killed = (a.last_hp ~= nil and a.last_hp <= 0) or null, gone = true, swings = a.swings })
-    end
-    local hp = U.health(t)
-    if hp ~= nil then
-        a.first_hp = a.first_hp or hp
-        a.last_hp = hp
-        if hp <= 0 then return finish(a, true, nil, { target = a.target_id, killed = true, swings = a.swings }) end
-    end
-    if S.now - a.started >= M.ATTACK_TIMEOUT_MS then
-        return finish(a, false, "timeout", { target = a.target_id, hp = hp or null, swings = a.swings })
-    end
-    local d = U.actor_dist(p, t)
-    if d > M.ATTACK_LEASH_CM then return finish(a, false, "too_far", { target = a.target_id, distance = U.cm_to_m(d) }) end
-    if d > M.ATTACK_RANGE_CM then
-        if not a.last_issue or S.now - a.last_issue >= M.ATTACK_APPROACH_REISSUE_MS then
-            a.last_issue = S.now
-            local c = U.controller_of(p)
-            if c then move_to_actor(c, t, M.ATTACK_ACCEPT_CM) end
-        end
-        return
-    end
-    if a.last_swing and S.now - a.last_swing < M.ATTACK_COOLDOWN_MS then return end
-    if a.swings >= M.ATTACK_INEFFECTIVE_SWINGS and hp ~= nil and a.first_hp ~= nil and hp >= a.first_hp then
-        return finish(a, false, "verification_failed", { target = a.target_id, detail = "no damage after " .. a.swings .. " swings", hp = hp })
-    end
-    swing(a, p, t)
-end
+local function step_attack(a) a.tree(a) end
 
 local function attack_cleanup(a)
     local c = S.puppet.controller()
@@ -460,8 +419,9 @@ local function h_attack(args, ctx)
     if hp ~= nil and hp <= 0 then return { ok = false, reason = "unknown_target", data = { target = U.short(t), detail = "already dead" } } end
     local p, c = S.puppet.ensure_ready()
     if not p then return { ok = false, reason = "companion_down", data = { detail = c } } end
-    local a = start({ kind = "attack", id = ctx.id, async = true, target = t, target_id = U.short(t), swings = 0, errors = 0,
-                      step = step_attack, cleanup = attack_cleanup })
+    local a = start({ kind = "attack", id = ctx.id, async = true, target = t, target_id = U.short(t),
+                      swings = 0, specials = 0, errors = 0, ready_at = 0, special_ready_at = 0,
+                      tree = combat.attack_tree(attack_deps()), step = step_attack, cleanup = attack_cleanup })
     U.call(S.log, "K2_SetFocus", { target = a.target_id }, function() c:K2_SetFocus(t) end)
     return nil -- async: step_attack replies
 end
@@ -554,6 +514,7 @@ end
 function M._reset()
     if S.loop and CancelDelayedAction then pcall(CancelDelayedAction, S.loop) end
     S.now, S.action, S.loop = 0, nil, nil
+    combat._reset()
 end
 
 return M

@@ -2,14 +2,14 @@
 -- docs/research/2026-10-25-dump-body.md. Never spawns, possesses, moves, loads or writes
 -- anything. Every Unreal call is wrapped in pcall; a failure is logged, never fatal.
 --
--- Usage (from main.lua, on the game thread, ideally once Luis is connected so the world
--- has streamed in around him and the AiDirector has spawned creatures):
---   require("body_probe").run(log)            -- log = dwlog (needs log.event(name, data))
---   require("body_probe").run(log, { max_names = 8, nav_query = false })
+-- Usage: debug_run {module="body_probe", args={max_names=8, nav_query=false}}, ideally once Luis
+-- is connected so the world has streamed in around him and the AiDirector has spawned creatures.
 -- Returns a summary table (also logged as event "body_probe_summary").
 --
 -- Class names below come from the 26161880 dump (Dominion module). FindAllOf/FindFirstOf
 -- take the short class name and only see objects already in memory.
+local U = require("body.util")
+
 local M = {}
 
 M.DEFAULTS = {
@@ -35,32 +35,11 @@ M.OBJECT_PATHS = {
     "/UmbralSands/Gameplay/AI/Kalphite_Faction/Kalphite_Friend/DA_Kalphite_Friend.DA_Kalphite_Friend", -- (dump) FollowerDataAsset
 }
 
--- ------------------------------------------------------------------ safe helpers
-local function try(f, ...)
-    local ok, v = pcall(f, ...)
-    if ok then return v end
-    return nil, tostring(v)
-end
-
-local function valid(o)
-    if o == nil or type(o) ~= "userdata" then return false end
-    return try(function() return o:IsValid() end) == true
-end
-
-local function full_name(o)
-    if not valid(o) then return nil end
-    return try(function() return o:GetFullName() end)
-end
-
-local function class_name(o)
-    if not valid(o) then return nil end
-    return try(function() return o:GetClass():GetFullName() end)
-end
-
-local function is_default(o)
-    local n = full_name(o)
-    return n ~= nil and n:find("Default__", 1, true) ~= nil
-end
+-- ------------------------------------------------------------------ safe helpers (body/util.lua)
+local try = U.try_err -- (value) or (nil, err): prop() reports the error string
+local valid = U.valid
+local full_name = U.fullname
+local class_name = U.class_name
 
 local function vec(v)
     if v == nil then return nil end
@@ -71,10 +50,7 @@ local function vec(v)
     return nil
 end
 
-local function location(actor)
-    if not valid(actor) then return nil end
-    return vec(try(function() return actor:K2_GetActorLocation() end))
-end
+local function location(actor) return valid(actor) and vec(U.loc(actor)) or nil end
 
 -- Read a property; objects become their full name, other userdata a string.
 local function prop(o, name)
@@ -96,16 +72,10 @@ local function props(o, names)
     return out
 end
 
--- Non-default, valid instances of a short class name (empty table when none).
+-- Non-default, valid instances of a short class name (empty table when none). valid_only: this
+-- probe also wants to see destroyed-awaiting-GC objects.
 local function find_all(short)
-    local list, err = try(function() return FindAllOf(short) end)
-    local out = {}
-    if type(list) == "table" then
-        for _, o in ipairs(list) do
-            if valid(o) and not is_default(o) then out[#out + 1] = o end
-        end
-    end
-    return out, err
+    return U.find_all(short, { skip_defaults = true, valid_only = true })
 end
 
 local function histogram(objs)
@@ -128,8 +98,8 @@ local REPL = { "bReplicates", "bReplicateMovement", "bAlwaysRelevant", "NetDorma
 local PAWN = { "AutoPossessAI", "AIControllerClass", "Controller" }
 
 local function survey(log, short, opts, detail)
-    local objs, err = find_all(short)
-    local rec = { class = short, count = #objs, err = err, classes = histogram(objs), names = names(objs, opts.max_names) }
+    local objs = find_all(short)
+    local rec = { class = short, count = #objs, classes = histogram(objs), names = names(objs, opts.max_names) }
     if detail then
         rec.details = {}
         for i = 1, math.min(#objs, opts.max_names) do

@@ -59,6 +59,14 @@ function M.run(log, args)
     local n = 0
     pcall(function() gs.PlayerArray:ForEach(function() n = n + 1 end) end)
     out.player_array_count = n
+    out.registry_sanitized = {}
+    pcall(function()
+        gs.DisplayNameComponent.SanitizedCharacterNames:ForEach(function(_, elem)
+            local e = elem:get()
+            out.registry_sanitized[#out.registry_sanitized + 1] = (str(try(function() return e.AccountGuidSaveStr end)) or "?") .. " | "
+                .. (guid(try(function() return e.CharacterGuid.InnerGuid end)) or "?") .. " | " .. (str(try(function() return e.CharacterName end)) or "?")
+        end)
+    end)
     out.all_player_states = {}
     for _, ps in ipairs(FindAllOf("PlayerState") or {}) do
         out.all_player_states[#out.all_player_states + 1] = ps_info(ps)

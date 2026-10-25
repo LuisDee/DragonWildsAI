@@ -5,99 +5,80 @@
 --                      game's Pharaoh's Sceptre spell makes (BP_SMBG_SpawnKalphiteFollower)
 --   action="dismiss" : same call again (toggles the follower off)
 --   action="confuse" : nearest DominionAICharacter:Confuse(pawn, true) -> ambient Follow state
+--                      (verified; the legacy follower reflex experiments/companion.lua uses it)
+-- Locations are {X,Y,Z} in cm (they were lower-case {x,y,z} before the move to experiments/).
+local U = require("body.util")
+
 local M = {}
 
 local FOLLOWER_DA = "/UmbralSands/Gameplay/AI/Kalphite_Faction/Kalphite_Friend/DA_Kalphite_Friend.DA_Kalphite_Friend"
 
-local function try(f, ...)
-    local ok, v = pcall(f, ...)
-    if ok then return v end
-    return nil
-end
-
-local function name(o) return o and try(function() return o:GetFullName() end) end
-
-local function loc(actor)
-    local v = actor and try(function() return actor:K2_GetActorLocation() end)
-    return v and { x = v.X, y = v.Y, z = v.Z }
-end
-
-local function valid(o) return o ~= nil and try(function() return o:IsValid() end) == true end
-
-local function player_pawn()
-    local pawns = FindAllOf("BP_PlayerCharacter_C") or {}
-    for _, p in ipairs(pawns) do
-        if valid(p) then return p end
-    end
-end
-
-local function dist(a, b)
-    if not (a and b) then return nil end
-    return math.sqrt((a.x - b.x) ^ 2 + (a.y - b.y) ^ 2 + (a.z - b.z) ^ 2)
-end
-
 local function describe_ai(ai, from)
-    local l = loc(ai)
-    local ctrl = try(function() return ai:GetController() end)
-    local vel = try(function() return ai:GetVelocity() end)
+    local l = U.loc(ai)
+    local ctrl = U.controller_of(ai)
+    local vel = U.try(function() return ai:GetVelocity() end)
     return {
         speed = vel and math.sqrt(vel.X ^ 2 + vel.Y ^ 2 + vel.Z ^ 2),
-        movement_mode = try(function() return ai.CharacterMovement.MovementMode end),
-        move_status = ctrl and try(function() return ctrl:GetMoveStatus() end),
-        should_follow = try(function() return ai:ShouldFollowConfuser() end),
-        hidden = try(function() return ai.bHidden end),
-        name = name(ai),
+        movement_mode = U.try(function() return ai.CharacterMovement.MovementMode end),
+        move_status = ctrl and U.try(function() return ctrl:GetMoveStatus() end),
+        should_follow = U.try(function() return ai:ShouldFollowConfuser() end),
+        hidden = U.try(function() return ai.bHidden end),
+        name = U.fullname(ai),
         location = l,
-        dist_cm = dist(l, from),
-        is_follower = try(function() return ai:IsFollower() end),
-        controller = name(try(function() return ai:GetController() end)),
-        replicates = try(function() return ai:GetIsReplicated() end),
-        replicate_movement = try(function() return ai.bReplicateMovement end),
+        dist_cm = from and l and U.dist(l, from) or nil,
+        is_follower = U.try(function() return ai:IsFollower() end),
+        controller = U.fullname(ctrl),
+        replicates = U.try(function() return ai:GetIsReplicated() end),
+        replicate_movement = U.try(function() return ai.bReplicateMovement end),
     }
 end
 
 local function status(pawn)
-    local here = loc(pawn)
-    local comp = try(function() return pawn:GetFollowerComponent() end)
-    local follower = try(function() return pawn.Follower end)
+    local here = U.loc(pawn)
+    local comp = U.try(function() return pawn:GetFollowerComponent() end)
+    local follower = U.try(function() return pawn.Follower end)
     local ais = {}
-    for _, ai in ipairs(FindAllOf("DominionAICharacter") or {}) do
-        if valid(ai) and #ais < 10 then ais[#ais + 1] = describe_ai(ai, here) end
+    for _, ai in ipairs(U.find_all("DominionAICharacter")) do
+        if #ais < 10 then ais[#ais + 1] = describe_ai(ai, here) end
     end
     return {
-        pawn = name(pawn),
+        pawn = U.fullname(pawn),
         pawn_location = here,
-        follower_component = name(comp),
-        follower = valid(follower) and describe_ai(follower, here) or nil,
-        time_remaining = comp and try(function() return comp.FollowerRealTimeRemaining end),
+        follower_component = U.fullname(comp),
+        follower = U.valid(follower) and describe_ai(follower, here) or nil,
+        time_remaining = comp and U.try(function() return comp.FollowerRealTimeRemaining end),
         nearby_ai = ais,
     }
 end
 
 function M.run(log, args)
+    args = args or {}
     local action = args.action or "status"
-    local pawn = player_pawn()
+    -- A real player only (the first BP_PlayerCharacter_C may be the puppet).
+    local pawn = U.split_pawns()[1]
     if not pawn then return { ok = false, error = "no player pawn (is Luis connected?)" } end
 
     if action == "summon" or action == "dismiss" then
-        local da = StaticFindObject(FOLLOWER_DA)
-        if not valid(da) then return { ok = false, error = "follower data asset not loaded", path = FOLLOWER_DA } end
+        local da = U.find_object(FOLLOWER_DA)
+        if not da then return { ok = false, error = "follower data asset not loaded", path = FOLLOWER_DA } end
         local comp = pawn:GetFollowerComponent()
-        local on_cooldown = try(function() return comp:IsFollowerOnCooldown(da) end)
-        local ok, err = pcall(function() comp:ToggleFollower(da) end)
-        log.event("follower_toggle", { action = action, ok = ok, err = (not ok) and tostring(err) or nil, on_cooldown = on_cooldown })
+        local on_cooldown = U.try(function() return comp:IsFollowerOnCooldown(da) end)
+        local ok, err = U.call(log, "follower_test.ToggleFollower", { action = action }, function() comp:ToggleFollower(da) end)
+        U.event(log, "follower_toggle", { action = action, ok = ok, err = (not ok) and tostring(err) or nil, on_cooldown = on_cooldown })
         local res = status(pawn)
         res.toggled, res.toggle_error, res.was_on_cooldown = ok, (not ok) and tostring(err) or nil, on_cooldown
         return res
     elseif action == "confuse" then
-        local here, best, best_d = loc(pawn), nil, math.huge
-        for _, ai in ipairs(FindAllOf("DominionAICharacter") or {}) do
-            local d = valid(ai) and (not args.match or (name(ai) or ""):find(args.match, 1, true)) and dist(loc(ai), here)
-            if d and d < best_d then best, best_d = ai, d end
+        local here, best, best_d = U.loc(pawn), nil, math.huge
+        for _, ai in ipairs(U.find_all("DominionAICharacter")) do
+            if not args.match or (U.fullname(ai) or ""):find(args.match, 1, true) then
+                local d = U.dist(U.loc(ai), here)
+                if d < best_d then best, best_d = ai, d end
+            end
         end
         if not best then return { ok = false, error = "no AI character loaded near the player" } end
-        local ok, err = pcall(function() best:Confuse(pawn, true) end)
-        log.event("ai_confuse", { target = name(best), ok = ok, err = (not ok) and tostring(err) or nil })
+        local ok, err = U.call(log, "follower_test.Confuse", { target = U.short(best) }, function() best:Confuse(pawn, true) end)
+        U.event(log, "ai_confuse", { target = U.fullname(best), ok = ok, err = (not ok) and tostring(err) or nil })
         return { confused = ok, error = (not ok) and tostring(err) or nil, target = describe_ai(best, here) }
     end
     return status(pawn)

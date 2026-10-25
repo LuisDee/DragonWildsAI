@@ -109,6 +109,23 @@ function actions.detach(log)
     return { ok = true, steps = steps }
 end
 
+-- Hot-load mod/body/identity.lua (require would return the cached copy) and run ensure() on the
+-- puppet: validates the shipped module in game. With a PS already attached it only re-checks the
+-- registry (no writes unless the (",", bot GUID) entry is missing).
+function actions.module(log, args)
+    local scripts = debug.getinfo(1, "S").source:match("^@(.*)[/\\][^/\\]+$")
+    -- The running server's body.util may predate helpers identity uses (U.alive): bind a fresh copy
+    -- for this load only, then restore the live one.
+    local live_util = package.loaded["body.util"]
+    package.loaded["body.util"] = assert(loadfile(scripts .. "/../body/util.lua"))()
+    local okl, identity = pcall(function() return assert(loadfile(scripts .. "/../body/identity.lua"))() end)
+    package.loaded["body.util"] = live_util
+    if not okl then return { ok = false, error = tostring(identity) } end
+    local p, c = find_puppet()
+    if not p then return { ok = false, error = "no AI-possessed puppet" } end
+    return identity.ensure(log, p, c, args.name)
+end
+
 function M.run(log, args)
     local a = actions[args.action or "status"]
     if not a then return { ok = false, error = "unknown action" } end

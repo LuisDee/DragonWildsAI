@@ -15,11 +15,15 @@
 -- M.set_safe_remover(fn(puppet, log) -> ok) and set DW_PUPPET_SAFE_REMOVE=1; park() then calls it
 -- instead of hiding. Until then nothing here removes the actor.
 --
+-- Identity: right after possession the puppet gets a DominionPlayerState named "Claude" (overhead
+-- nameplate; body/identity.lua). ensure_spawned() also attaches one to an adopted puppet without one.
+--
 -- UNVERIFIED in game (all pcall-guarded, breadcrumbed): parking (CharacterMovement:DisableMovement,
 -- SetActorHiddenInGame, SetActorEnableCollision, K2_TeleportTo), unparking (SetMovementMode(1)),
 -- reading WorldSettings.KillZ, re-applying persisted gear on spawn.
 local U = require("body.util")
 local gear = require("body.gear")
+local identity = require("body.identity")
 local jsonutil = require("jsonutil")
 
 local M = {}
@@ -150,6 +154,13 @@ local function make_immortal(p)
     return U.call(st.log, "puppet.SetIsImmortal", {}, function() p.HealthComponent:SetIsImmortal(true, p) end)
 end
 
+-- Overhead name "Claude": give the puppet a named DominionPlayerState (body/identity.lua).
+-- Idempotent and pcall-guarded; DW_PUPPET_IDENTITY=0 disables it.
+local function ensure_identity(p)
+    local ok, r = pcall(identity.ensure, st.log, p, U.controller_of(p))
+    if not ok then log("puppet_identity_error", { err = tostring(r) }) end
+end
+
 -- Re-apply persisted gear (UNVERIFIED as a batch; each item uses the verified equip pattern).
 function M.apply_saved_gear()
     local p = M.get()
@@ -172,7 +183,10 @@ end
 function M.ensure_spawned()
     local p = M.get()
     if p then
-        if is_ai_possessed(p) or possess(p) then return p end
+        if is_ai_possessed(p) or possess(p) then
+            if not identity.player_state(p) then ensure_identity(p) end
+            return p
+        end
         return nil, "possess failed"
     end
     local players = U.split_pawns()
@@ -187,6 +201,7 @@ function M.ensure_spawned()
         return nil, "possess failed"
     end
     make_immortal(actor)
+    ensure_identity(actor)
     log("puppet_spawned", { puppet = st.name, controller = U.fullname(U.controller_of(actor)) })
     if next(M.saved_gear()) ~= nil then
         if type(ExecuteInGameThreadWithDelay) == "function" then

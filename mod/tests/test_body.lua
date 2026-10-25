@@ -11,8 +11,10 @@ local bridge = require("bridge")
 local puppet = require("body.puppet")
 local skills = require("body.skills")
 local speech = require("body.speech")
+local combat = require("body.combat")
+local REAL_ATTACK_DATA = combat.data() -- the generated body/attack_data.lua (checked in its own test)
 
-local dir = assert(arg[1] or os.getenv("DW_BRIDGE_DIR"), "usage: lua test_body.lua <dir>")
+local dir =assert(arg[1] or os.getenv("DW_BRIDGE_DIR"), "usage: lua test_body.lua <dir>")
 local IN, OUT = dir .. "/brain_to_body.jsonl", dir .. "/body_to_brain.jsonl"
 local STATE = dir .. "/bot_state.json"
 
@@ -217,9 +219,77 @@ local function ticks(n)
     return drain()
 end
 
+-- Fake combo table (same shape as the generated body/attack_data.lua) with round timings, so the
+-- tick arithmetic in the tests is exact (TICK_MS = 250).
+local ATK = "/Game/Gameplay/Character/Player/Attacks/"
+local A = {
+    sword_set = combat.DEFAULT_SET,
+    sword_special_set = ATK .. "Sword/PA_Attack_Sword_Special.PA_Attack_Sword_Special_C",
+    sword_special_cdo = ATK .. "Sword/PA_Attack_Sword_Special.Default__PA_Attack_Sword_Special_C",
+    sword2 = ATK .. "Sword/BP_Player_Sword_Attack2.BP_Player_Sword_Attack2_C",
+    sword3 = ATK .. "Sword/BP_Player_Sword_Attack3.BP_Player_Sword_Attack3_C",
+    sword_sp = ATK .. "Sword/BP_Player_Sword_SpecialAction.BP_Player_Sword_SpecialAction_C",
+    club_set = ATK .. "Club/PA_Attack_Club.PA_Attack_Club_C",
+    club_cdo = ATK .. "Club/PA_Attack_Club.Default__PA_Attack_Club_C",
+    club_special_set = ATK .. "Club/PA_Attack_Club_Special.PA_Attack_Club_Special_C",
+    club_special_cdo = ATK .. "Club/PA_Attack_Club_Special.Default__PA_Attack_Club_Special_C",
+    club1 = ATK .. "Club/BP_Player_Club_Attack1.BP_Player_Club_Attack1_C",
+    club2 = ATK .. "Club/BP_Player_Club_Attack2.BP_Player_Club_Attack2_C",
+    club3 = ATK .. "Club/BP_Player_Club_Attack3.BP_Player_Club_Attack3_C",
+    club_sp = ATK .. "Club/BP_Player_Club_SpecialAction.BP_Player_Club_SpecialAction_C",
+    mace = "/Game/Gameplay/Character/Player/Equipment/Held/Mace/ITEM_Mace_Skullsplitter.ITEM_Mace_Skullsplitter",
+    mace_unknown = "/Game/Gameplay/Character/Player/Equipment/Held/Mace/ITEM_Mace_Unlisted.ITEM_Mace_Unlisted",
+}
+local FAKE_ATTACK_DATA = {
+    build = "test",
+    sets = {
+        [A.sword_set] = { name = "Attack", cdo = PATHS.sword_act, steps = {
+            { cls = PATHS.sword_atk, damage = 11, next_ms = 500, reset_ms = 1000 },
+            { cls = A.sword2, damage = 11, next_ms = 750, reset_ms = 1250 },
+            { cls = A.sword3, damage = 13, next_ms = 1000, reset_ms = 1500 },
+        } },
+        [A.sword_special_set] = { name = "Barge", cdo = A.sword_special_cdo, steps = {
+            { cls = A.sword_sp, damage = 24, next_ms = 1000, reset_ms = 1500, special_cost = 25 } } },
+        [A.club_set] = { name = "Attack", cdo = A.club_cdo, steps = {
+            { cls = A.club1, damage = 13.5, next_ms = 500, reset_ms = 1000 },
+            { cls = A.club2, damage = 13.5, next_ms = 500, reset_ms = 1000 },
+            { cls = A.club3, damage = 15, next_ms = 750, reset_ms = 1250 },
+        } },
+        [A.club_special_set] = { name = "Block Breaker", cdo = A.club_special_cdo, steps = {
+            { cls = A.club_sp, damage = 20, next_ms = 1000, reset_ms = 1500, special_cost = 33 } } },
+    },
+    items = {
+        [PATHS.sword] = { id = "ITEM_Sword_Mithril", category = "sword", primary = A.sword_set, special = A.sword_special_set },
+        [A.mace] = { id = "ITEM_Mace_Skullsplitter", category = "mace", primary = A.club_set, special = A.club_special_set },
+    },
+    categories = { sword = A.sword_set, mace = A.club_set },
+}
+local function fake_attack_assets()
+    for _, k in ipairs({ "sword2", "sword3", "sword_sp", "club1", "club2", "club3", "club_sp" }) do
+        F.assets[A[k]] = obj("BlueprintGeneratedClass " .. A[k])
+    end
+    for _, k in ipairs({ "sword_special_cdo", "club_cdo", "club_special_cdo" }) do
+        F.assets[A[k]] = obj("PA_C " .. A[k])
+    end
+end
+-- Put a held weapon (its data asset path) in the puppet's right hand, as gear.read sees it.
+local function hold(p, item_path)
+    p.PlayerEquipmentComponent.HeldEquipmentActorRight = obj("BP_Held_C " .. LEVEL .. "BP_Held_C_1",
+        { HeldEquipmentData = obj("HeldEquipmentData " .. item_path) })
+end
+local function swing_names(p, from)
+    local out = {}
+    for i = from or 1, #p.swings do
+        out[#out + 1] = (p.swings[i].atk._full:match("([%w_]+)$"))
+    end
+    return table.concat(out, ",")
+end
+
 -- Fresh world + fresh module state for each test.
 local function setup()
     reset_world()
+    fake_attack_assets()
+    combat.set_data(FAKE_ATTACK_DATA)
     puppet._reset()
     skills._reset()
     speech._reset()
