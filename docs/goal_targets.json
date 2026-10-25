@@ -1,0 +1,20 @@
+{
+  "_doc": "Machine-readable targets for docs/GOAL.md section 1. tools/goal_check.py compares the latest measured results against these. Missing data = NOT MET. Only Luis changes targets.",
+  "spells_effect_coverage_pct": 95,
+  "craft_from_scratch_pct": 90,
+  "combat_cases_pct": 80,
+  "ranged_hit_rate_15m_moving_pct": 60,
+  "adversarial_cases_pct": 80,
+  "long_tasks": {
+    "required": ["gather_coal_multitrip", "farm_mob_drop", "gear_upgrade_self_initiated", "brynmoor_quest_chain", "farm_desert_weed"],
+    "dev_world_max_hints": 1,
+    "live_confirmed_required": true
+  },
+  "heldout_gap_max_points": 10,
+  "latency_chat_to_action_p50_s": 2.5,
+  "latency_chat_to_action_p90_s": 4.0,
+  "voice_score_min": 0.8,
+  "anomalies_per_hour_max": { "stat_narration": 0, "talk_without_action": 0, "stall_over_30s": 0 },
+  "stability_hours_without_crash": 2,
+  "eval_validity": { "positive_control_required": true, "negative_controls": ["do_nothing", "claims_only"] }
+}

@@ -7,6 +7,7 @@ Read this whole file before doing anything. It is the single source of truth for
 ## 0. Current state and standing decisions (updated 2026-10-25, end of session 1)
 
 **Read next:**
+- `docs/GOAL.md` (+ `docs/goal_targets.json`): THE long-running goal, its definition of done, iteration loop, anti-dead-end rules and when to ask Luis. `docs/BUGS.md`: live bug ledger.
 - `docs/ARCHITECTURE.md`: layers, module APIs, rules, the "how to add X" recipes and the crash risk register.
 - `docs/DISCOVERIES.md`: everything verified, with build ID and evidence.
 - `docs/design/robustness-and-item-catalog.md`: the design decisions and Luis's requirements, sections 1–14.
