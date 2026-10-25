@@ -12,7 +12,7 @@ spec.loader.exec_module(run_evals)
 def test_case_files_are_small_and_valid():
     ctl = run_evals.load_cases("controller_cases.jsonl")
     pl = run_evals.load_cases("planner_cases.jsonl")
-    assert 10 <= len(ctl) <= 15 and 10 <= len(pl) <= 15
+    assert 10 <= len(ctl) <= 20 and 10 <= len(pl) <= 15
     assert all({"id", "utterance", "expected"} <= c.keys() for c in ctl)
     assert all("goal" in c and ("success" in c or c.get("expect_ask_help")) for c in pl)
 
@@ -21,7 +21,7 @@ def test_runner_refuses_without_yes_or_model(monkeypatch, capsys):
     monkeypatch.delenv("DW_CONTROLLER_MODEL", raising=False)
     monkeypatch.delenv("DW_PLANNER_MODEL", raising=False)
     assert run_evals.main(["--suite", "controller"]) == 2
-    assert "planned calls: 13" in capsys.readouterr().out
+    assert "planned calls: 18 (max 54)" in capsys.readouterr().out
 
 
 def test_runner_refuses_without_api_key(monkeypatch, capsys):
@@ -47,3 +47,20 @@ def test_scoring_with_fake_models(tmp_path):
     no_walk = FakeLLM([FakeLLM.plan([gather, give])])
     res = run_evals.eval_planner_case({**pl_case, "id": "p2"}, no_walk, tmp_path)
     assert not res["passed"] and "too_far" in res["error"]
+
+
+def test_grounding_cases_score_with_fake_models(tmp_path):
+    cases = {c["id"]: c for c in run_evals.load_cases("controller_cases.jsonl")}
+    # absent: look, find nothing, say so -> pass; picking up the logs instead -> fail
+    honest = FakeLLM([FakeLLM.say("", FakeLLM.call("look", about="sticks")),
+                      FakeLLM.say("I can't see any sticks, only oak logs.")])
+    res = run_evals.eval_controller_case(cases["sticks_absent"], honest, tmp_path)
+    assert res["passed"] and res["model_calls"] == 2
+    sub = FakeLLM([FakeLLM.say("Got them!", FakeLLM.call("pickup", target="world_item_1"))])
+    res = run_evals.eval_controller_case({**cases["sticks_absent"], "id": "s2"}, sub, tmp_path)
+    assert res["passed"]  # grounding refused the substitution in code: nothing reached the body
+    assert res["got"] == [] and res["refusals"][0][1] == "not_perceived"
+    # present: look then interact with the gatherable's id
+    good = FakeLLM([FakeLLM.say("", FakeLLM.call("look", about="sticks")),
+                    FakeLLM.say("Grabbing them.", FakeLLM.call("interact", target="gatherable_1"))])
+    assert run_evals.eval_controller_case(cases["sticks_present"], good, tmp_path)["passed"]

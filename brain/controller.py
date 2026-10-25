@@ -95,7 +95,11 @@ START_GOAL = {
         "parameters": {"type": "object", "properties": {"goal": {"type": "string"}}, "required": ["goal"]},
     },
 }
-ACTION_TOOLS = ["follow", "stop", "go_to", "attack", "give", "pickup", "drop", "cast", "sleep", "wake", "interact"]
+ACTION_TOOLS = ["follow", "stop", "go_to", "attack", "give", "pickup", "drop", "cast", "sleep", "wake", "interact",
+                "gather"]
+# Actions that can run for minutes: the reply is said when they start, progress lines while they run,
+# and a short result line when they end (a failure still overrides, single voice).
+LONG_ACTIONS = {"gather"}
 # How to name a skill in "I can't ... yet".
 SKILL_PHRASES = {"follow": "follow you", "stop": "stop", "go_to": "walk somewhere", "attack": "fight",
                  "give": "hand items over", "gather": "gather", "craft": "craft", "place": "build",
@@ -107,7 +111,7 @@ SKILL_PHRASES = {"follow": "follow you", "stop": "stop", "go_to": "walk somewher
 # A short reply when the action worked but the model said nothing (reply to every command).
 ACKS = {"follow": "Right behind you.", "stop": "Okay, stopping.", "go_to": "On my way.", "attack": "On it!",
         "give": "Here you go.", "pickup": "Got it.", "drop": "Dropped.", "cast": "Done.", "sleep": "Night night.",
-        "wake": "I'm up.", "interact": "Done.", "remember": "Noted.", "set_reflex_rule": "Got it.",
+        "wake": "I'm up.", "interact": "Done.", "remember": "Noted.", "set_reflex_rule": "Got it.", "gather": "On it.",
         "list_rules": "", "clear_rule": ""}
 # Actions that leave the current job running (a spell or a standing order is not a new job).
 NON_INTERRUPTING = {"remember", "cast", *RULE_TOOLS}

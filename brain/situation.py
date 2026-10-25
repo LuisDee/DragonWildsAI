@@ -136,8 +136,12 @@ def perceived(state: dict, looks: Iterable[dict] = ()) -> list[Thing]:
     for p in state.get("players") or []:
         if isinstance(p, dict) and p.get("name"):
             out.append(Thing(str(p["name"]), "player", str(p["name"]), _num(p.get("distance")), actions=["follow", "give"]))
-    for r in state.get("nearby_resources") or []:  # the mock's trees and rocks
-        if isinstance(r, dict):
+    for r in state.get("nearby_resources") or []:
+        if not isinstance(r, dict):
+            continue
+        if r.get("name"):  # the real body (body/gather.lua extender, from sense.look)
+            out.append(_look_thing(r))
+        else:  # the mock's trees and rocks
             res = str(r.get("resource") or "")
             kind = {"log": "tree", "stone": "rock"}.get(res, "resource")
             out.append(Thing(f"{kind} ({res})", kind, r.get("id"), _num(r.get("distance")), gives=[res],
@@ -152,11 +156,35 @@ def perceived(state: dict, looks: Iterable[dict] = ()) -> list[Thing]:
     for look in looks:
         for t in (look or {}).get("things") or []:
             if isinstance(t, dict) and t.get("name"):
-                acts = [a.get("a") if isinstance(a, dict) else str(a) for a in t.get("actions") or []]
-                out.append(Thing(str(t["name"]), str(t.get("kind") or "thing"), t.get("id"), _num(t.get("distance_m")),
-                                 count=int(t.get("count") or 1), gives=[str(x) for x in t.get("gives") or []],
-                                 actions=[a for a in acts if a], extra={str(t.get("class") or "")}))
+                out.append(_look_thing(t))
     return out
+
+
+def _look_thing(t: dict) -> Thing:
+    """One entry of a body look (body/sense.lua M.describe): {id, name, kind, verb, distance, count,
+    item | drops, prompt, class, ...}. The design-doc shape (gives, actions, distance_m) works too."""
+    acts = [a.get("a") if isinstance(a, dict) else str(a) for a in t.get("actions") or []]
+    if t.get("verb"):
+        acts.append(str(t["verb"]))
+    gives = [str(x) for x in t.get("gives") or []]
+    if t.get("drops"):
+        gives.append(str(t["drops"]))
+    if t.get("item"):
+        gives.append(pretty_id(str(t["item"])))
+    kind = str(t.get("kind") or "thing")
+    return Thing(str(t["name"]), kind, t.get("id"), _num(t.get("distance", t.get("distance_m"))),
+                 count=int(t.get("count") or 1), gives=gives, actions=[a for a in acts if a],
+                 hostile=True if kind == "creature" and t.get("hostile") else None,
+                 extra={str(t.get("class") or ""), str(t.get("item") or ""), str(t.get("prompt") or "")})
+
+
+def look_matched(look: dict) -> bool | None:
+    """Did a look about=X find X? The body ranks by a per-thing ``match`` score (0 = no match)."""
+    if not (look.get("_about") or look.get("about")):
+        return None
+    if isinstance(look.get("matched"), bool):
+        return look["matched"]
+    return any((t.get("match") or 0) > 0 for t in look.get("things") or [] if isinstance(t, dict))
 
 
 def match(query: str | None, things: Iterable[Thing]) -> list[Thing]:

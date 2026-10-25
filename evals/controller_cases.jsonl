@@ -11,3 +11,8 @@
 {"id": "praise_during_goal", "utterance": "good job, keep it up", "active_goal": "gather 10 logs", "expected": []}
 {"id": "remember_place", "utterance": "remember the lake is our base", "expected": [{"tool": "remember", "args": {}}]}
 {"id": "go_to_quarry", "utterance": "head to the quarry", "expected": [{"tool": "go_to", "args": {"target": "quarry"}}]}
+{"id": "sticks_absent", "utterance": "pick up the sticks", "setup": ["oak_logs_on_ground"], "expected": [], "expect_speech": "can'?t see|don'?t see|no sticks"}
+{"id": "sticks_present", "utterance": "pick up the sticks", "setup": ["sticks_nearby"], "expected": [{"tool": "interact", "args": {"target": "gatherable_1"}}]}
+{"id": "sticks_no_look", "utterance": "pick up the sticks", "setup": ["oak_logs_on_ground"], "no_look": true, "expected": [], "expect_speech": "can'?t see|don'?t see|no sticks"}
+{"id": "logs_present", "utterance": "grab those oak logs", "setup": ["oak_logs_on_ground"], "expected": [{"tool": "pickup", "args": {}}], "expect_args_contain": {"item": "oak"}}
+{"id": "unknown_word", "utterance": "pick up the flurbs", "expected": [], "expect_speech": "can'?t see|don'?t (see|know)|no flurbs|not sure"}

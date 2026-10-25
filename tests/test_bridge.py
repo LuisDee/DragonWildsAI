@@ -1,5 +1,6 @@
 """JSONL bridge round trip through the fake body (no game needed)."""
 import json
+import time
 
 import pytest
 from conftest import Rig
@@ -106,3 +107,18 @@ def test_agent_runs_over_bridge(bridge, tmp_path):
     assert rig.agent.run_goal("bring Luis 2 logs") == "done"
     assert game.players["Luis"].inventory["log"] == 2
     assert game.chat[-1][1].startswith("Done")
+
+
+def test_unknown_body_events_are_noted_once_and_skipped(bridge):
+    """Body debug events (gather_status, gather_step) are not protocol events: log each type once."""
+    client, _game, body, _dir, log = bridge
+    for i in range(3):
+        body.transport.send({"v": 1, "type": "event", "event": {"type": "gather_status", "phase": "repositioning", "have": i}})
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and "bridge_unknown_event" not in [r["kind"] for r in log.read_all()]:
+        assert client.poll_events() == []
+        time.sleep(0.02)
+    time.sleep(0.1)
+    assert client.poll_events() == []
+    kinds = [r["kind"] for r in log.read_all()]
+    assert kinds.count("bridge_unknown_event") == 1 and "bridge_bad_event" not in kinds

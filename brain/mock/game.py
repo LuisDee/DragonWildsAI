@@ -550,7 +550,7 @@ class MockGame(GameInterface):
     @_scriptable
     def sleep(self, target: str | None = None, mode: str = "auto") -> ActionResult:
         bed = None
-        if mode != "flag" and self.beds:
+        if mode != "shelter" and self.beds:
             bed = target if target in self.beds else min(self.beds, key=lambda b: math.dist(self.beds[b], self.pos))
             if target and target not in self.beds:
                 return fail(Reason.UNKNOWN_TARGET, target=target)
@@ -559,7 +559,7 @@ class MockGame(GameInterface):
             return fail(Reason.NOTHING_IN_RANGE, detail="no free bed")
         self.following = None
         self.sleeping = True
-        return ok(mode="bed" if bed else "flag", bed=bed, sleeping=True)
+        return ok(mode="bed" if bed else "shelter", bed=bed, sleeping=True)
 
     @_scriptable
     def wake(self) -> ActionResult:
@@ -660,54 +660,44 @@ class MockGame(GameInterface):
     # ------------------------------------------------------------------ perception (body/perception.lua shape)
 
     def _things(self, radius: float) -> list[dict]:
-        def entry(id_, name, kind, pos, actions, gives=(), state="available", count=1):
-            d = math.dist(pos, self.pos)
-            return {"id": id_, "name": name, "kind": kind, "gives": list(gives), "state": state, "count": count,
-                    "distance_m": round(d, 1), "actions": [{"a": a} for a in actions], "_d": d}
+        """Like body/sense.lua M.describe: {id, name, kind, verb, distance, count, item|drops, prompt}."""
+        def entry(id_, name, kind, verb, pos, **extra):
+            return {"id": id_, "name": name, "kind": kind, "verb": verb,
+                    "distance": round(math.dist(pos, self.pos), 1), **extra}
         out = []
         for g in self.gatherables.values():
-            out.append(entry(g.id, g.name, "gatherable", g.pos, ["interact"], [g.gives], count=g.count))
+            out.append(entry(g.id, g.name, "gatherable", "gather", g.pos, item=g.gives, prompt=g.prompt,
+                             available=True))
         for g in self.ground.values():
-            out.append(entry(g.id, g.item, "item", g.pos, ["pickup", "interact"], [g.item], count=g.count))
+            out.append(entry(g.id, g.item, "item", "pickup", g.pos, item=g.item, count=g.count))
         for e in self.entities.values():
             if e.alive:
-                out.append(entry(e.id, e.kind, "creature", e.pos, ["attack"], state="alive"))
+                out.append(entry(e.id, e.kind, "creature", "attack", e.pos, hp=e.hp))
         for n in self.nodes.values():
             if n.remaining > 0:
                 kind = {"log": "tree", "stone": "rock"}.get(n.resource, "resource")
-                out.append(entry(n.id, f"{kind} ({n.resource})", kind, n.pos, ["gather"], [n.resource]))
-        for p in self.players.values():
-            out.append(entry(p.name, p.name, "player", p.pos, ["follow", "give"]))
-        return sorted((t for t in out if t["_d"] <= radius), key=lambda t: t["_d"])
+                out.append(entry(n.id, f"{kind} ({n.resource})", "resource", "chop" if kind == "tree" else "mine",
+                                 n.pos, drops=n.resource))
+        return sorted((t for t in out if t["distance"] <= radius), key=lambda t: t["distance"])
 
     @_scriptable
-    def look(self, about: str | None = None, radius_m: float = 30.0, kinds: list[str] | None = None,
-             max: int = 12) -> ActionResult:
-        things = self._things(radius_m)
-        if kinds:
-            things = [t for t in things if t["kind"] in kinds]
-        matched = None
+    def look(self, about: str | None = None, radius: float = 20.0, max: int = 15) -> ActionResult:
+        """Ranked like the body: every thing in range, best ``match`` score first (not filtered)."""
+        things = self._things(min(radius, 80.0))
+        total = len(things)
         if about:
             want = tokens(about)
-            hits = [t for t in things if want & (tokens(t["name"]) | {w for g in t["gives"] for w in tokens(g)}
-                                                  | tokens(t["kind"]))]
-            matched = bool(hits)
-            things = hits or things
-        for t in things:
-            t.pop("_d", None)
-        data = {"things": things[:max], "radius_m": radius_m}
-        if about:
-            data["matched"] = matched
-        if len(things) > max:
-            data.update(more=len(things) - max, hint="narrow with about= or radius_m=")
-        return ok(**data)
+            for t in things:
+                hay = tokens(" ".join(str(t.get(k) or "") for k in ("name", "kind", "verb", "item", "drops", "prompt")))
+                t["match"] = round(len(want & hay) / len(want), 2) if want else 0
+            things.sort(key=lambda t: (-t["match"], t["distance"]))
+        return ok(origin=list(self.pos), radius_m=radius, about=about, total=total, things=things[:max])
 
     @_scriptable
     def inspect(self, target: str) -> ActionResult:
         t = next((x for x in self._things(NEARBY_RANGE) if x["id"] == target), None)
         if t is None:
             return fail(Reason.UNKNOWN_TARGET, target=target)
-        t.pop("_d", None)
         return ok(**t, description=f"A {t['name']}.")
 
     @_scriptable

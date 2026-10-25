@@ -17,8 +17,8 @@ from typing import Callable
 from pydantic import ValidationError
 
 from . import protocol
-from .interface import (PROGRESS_EVENTS, ActionResult, Coords, Event, GameInterface, Reason, fail, from_wire,
-                        parse_event)
+from .interface import (EVENT_TYPES, PROGRESS_EVENTS, ActionResult, Coords, Event, GameInterface, Reason, fail,
+                        from_wire, parse_event)
 from .jsonl_log import JsonlLogger
 from .transport import Transport
 
@@ -36,7 +36,8 @@ def _drop_none(v):
 DEFAULT_TIMEOUTS = {"gather": 1800.0,  # body/gather.lua caps itself at 1700 s
                     "craft": 60.0, "attack": 60.0, "go_to": 120.0, "place": 60.0,
                     "pickup": 120.0, "give": 70.0,  # the body's give walks to the player first
-                    "interact": 120.0, "look": 15.0}  # interact walks there; look converts foliage first
+                    "interact": 120.0, "look": 15.0,  # interact walks there; look converts foliage first
+                    "travel": 300.0}  # body/travel.lua caps itself at 280 s
 
 
 class BridgeClient(GameInterface):
@@ -52,6 +53,7 @@ class BridgeClient(GameInterface):
         self._progress: list[Event] = []  # progress events not yet handed to the listener
         self._listener: Callable[[Event], None] | None = None
         self._notifying = False
+        self._unknown_events: dict[str | None, int] = {}  # event type -> count (logged once each)
 
     # ---------------------------------------------------------------- plumbing
 
@@ -62,6 +64,13 @@ class BridgeClient(GameInterface):
         """Route one incoming message: events are buffered, results parked for their request."""
         kind = msg.get("type")
         if kind == "event":
+            etype = (msg.get("event") or {}).get("type") if isinstance(msg.get("event"), dict) else None
+            if etype not in EVENT_TYPES:  # a body debug event (e.g. gather_status): note each type once
+                n = self._unknown_events.get(etype, 0)
+                self._unknown_events[etype] = n + 1
+                if n == 0:
+                    self.log.log("bridge_unknown_event", event_type=etype, sample=msg.get("event"))
+                return
             try:
                 ev = parse_event(msg.get("event") or {})
             except ValidationError as exc:
@@ -217,9 +226,8 @@ class BridgeClient(GameInterface):
         return self.request("clear_rule", _drop_none({"id": id, "enemy": enemy, "all": all or None}))
 
     # perception (body/perception.lua) and the world id (per-world memory)
-    def look(self, about: str | None = None, radius_m: float = 30.0, kinds: list[str] | None = None,
-             max: int = 12) -> ActionResult:
-        return self.request("look", _drop_none({"about": about, "radius_m": radius_m, "kinds": kinds, "max": max}))
+    def look(self, about: str | None = None, radius: float = 20.0, max: int = 15) -> ActionResult:
+        return self.request("look", _drop_none({"about": about, "radius": radius, "max": max}))
 
     def inspect(self, target: str) -> ActionResult:
         return self._tool("inspect", target=target)

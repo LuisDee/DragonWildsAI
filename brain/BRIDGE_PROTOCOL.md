@@ -118,12 +118,13 @@ Body: `mod/body/spells.lua` and `mod/body/rules.lua`, registered in `main.lua`. 
 
 | Tool | Args | Success `data` |
 |---|---|---|
-| `sleep` | `target?` (`nearest` or a bed id), `mode?` (`auto` \| `bed` \| `flag`) | `{mode, bed?, sleeping: true}`; async when the bot walks to a bed |
-| `wake` | none | `{was, sleeping: false}` |
-| `sleep_status` | none | `{night, luis_sleeping, bot_sleeping, how, beds, reflex, night_skip}` |
-| `night_skip` (debug) | `mode` (`spectator` \| `flag` \| `off`) | the status |
+| `sleep` | `target?` (`nearest` or a bed id), `mode?` (`auto` \| `bed` \| `shelter`) | `{mode, bed?, shelter?, sleeping: true, resting_area, can_sleep}`; async when the bot walks to a bed |
+| `wake` | none | `{was, sleeping: false, shelter_removed}` |
+| `sleep_status` | none | `{night, luis_sleeping, bot_sleeping, how, shelter, beds, reflex}` |
 
-`get_state` gains `sleeping` and `luis_sleeping`. The bot never uses a bed claimed by someone else. `mode=bed` with no free bed answers `nothing_in_range`.
+- `auto` uses a free bed, and otherwise spawns a Summon Shelter next to the bot and sleeps in it directly. This is the route verified to pass the night.
+- The bot never uses a bed claimed by someone else, or someone else's shelter. `mode=bed` with no free bed answers `nothing_in_range`.
+- `get_state` gains `sleeping` and `luis_sleeping`.
 
 ### `result` (body to brain)
 
@@ -222,6 +223,63 @@ it equips only what it owns, and items enter it only by pickup (later: being giv
 - `reason` codes new to `interface.Reason`: `no_lodestone`. Also used: `not_unlocked`, `too_far` and
   `not_enough_resources` (all existing).
 
+### Perception and interaction: what the brain expects (protocol v1 addition)
+
+The Controller is a bounded look-then-act loop (`brain/controller.py`; research 2026-10-25 sections
+3.2 and 6). It offers `look`/`inspect`/`interact` to the model **only when the body lists them in
+`capabilities`**. Without them it works from the `get_state` situation digest alone and says
+"I can't see any X" for anything not in it.
+
+| Tool | Args (brain sends) | Success `data` (brain reads) | Notes |
+|---|---|---|---|
+| `look` (body: `gather.lua` `h_look`) | `about?` (the player's words), `radius` (m, default 20, max 80), `max` (default 15) | `{origin, radius_m, about, total, things: [{id, name, kind, verb, distance, count?, item?, drops?, prompt?, class, match?}]}` | Read-only and sync. Things are ranked by `match` (0 = no match) when `about` is set. The brain treats "no thing with `match > 0`" as `matched: false` (an explicit boolean `matched` also works). |
+| `inspect` | `target` (an id from look) | one thing, as in look, plus anything descriptive (`description`, `gives`, `actions`) | Read-only. Optional. |
+| `interact` | `target` (an id from look), `secondary=false` | `{target, item?, count?, prompt?}`; `item` = the inventory id granted | Async (walks). The executor verifies `item` gained `count` in `inventory`. A grant-less interaction is verified by the body. Reasons: `unknown_target`, `not_interactable`, `too_far`, `path_blocked`, `timeout`, `verification_failed`. |
+| `world_info` (probe, not a planner tool) | none | `{world_guid, name?}` | The save's `WorldSaveGuid`, for per-world memory. Optional: `get_state.world_guid` (or `world.guid`) works too; else the brain uses `DW_WORLD_GUID` or `default`. |
+
+- `get_state.nearby_resources` rows from the body (`{id, name, kind, verb, distance, count, hp}`) are
+  shown to the model as the "Around" line of the situation. A future `surroundings` key
+  (`[{name, kind, count, nearest_m, gives}]`) is also understood.
+- **Grounding is enforced in the brain:** `pickup`, `interact` and `attack` are refused before they reach
+  the body when their target is not among the perceived things (state, digest or a look this turn), or
+  when it is not what the player named ("sticks" vs a perceived "Oak Logs"). The refusal reason is
+  `not_perceived` (brain-side only).
+- **Progress while an action runs:** the brain speaks a progress line (at most every ~20 s) as soon as a
+  `gather_progress` or `task_progress` event arrives, *while the action's own `result` is still pending*.
+  So the body must accept a `say` cmd during an async action (it does: actions are ticked, not blocking).
+
+### Crafting (`mod/body/crafting.lua`, strict emulation)
+
+Recipes, stations and unlock rules come from live game data (`data/recipes_<build>.json`, generated
+by `tools/build_recipes.py`). The body crafts **only** when all three hold: the bot's inventory has
+every input for `count` crafts, the bot stands within interaction range of a live station of the
+recipe's type, and Luis has the recipe unlocked (live mirror of his `RecipesUnlocked`). It consumes
+exactly the inputs (+ fuel at processing stations), waits the craft time, then adds exactly the
+outputs. It never walks: on `too_far` send `go_to` with `data.position`, then craft again.
+
+| Tool | Args | Success `data` | Failure reasons |
+|---|---|---|---|
+| `craft` | `recipe` (id, e.g. `"RECIPE_Process_IronBar"`) **or** `item` (output id or name, e.g. `"Iron Bar"`); `count` (default 1; with `recipe` = number of crafts, with `item` = items wanted, crafts = ceil(count / output per craft)); `fuel?` (processing stations: which accepted fuel to burn) | `{recipe, crafts, consumed: [{item, count}], produced: [{path, item, count}], fuel: [{item, count}] \| null, seconds, station: {station, name, id, kind, position, distance, max}, inventory}` | `missing_input` (`item, have, need, missing: [{item, name, have, need, fuel?}]`), `wrong_station` (`need: [{station, name}]`, `near: [stations within 30 m]`), `not_unlocked` (`recipe`, or `detail: "vendor_reputation", tag, need, have`), `too_far` (`station, name, distance, max, position` in metres), `unknown_target` (no such recipe / no recipe makes the item), `invalid_args`, `state_unavailable` (no inventory store / no unlock mirror), `companion_down`, `interrupted`, `verification_failed` (`mismatch`) |
+| `craft_check` | as `craft` | `{plan: {recipe, crafts, kind, inputs, outputs, seconds, seconds_model, fuel, station}}` | as `craft` (it runs the same checks and consumes nothing) |
+| `recipes` | `item` or `station` (id or display name), `limit=10` | `{recipes: [{recipe, inputs, outputs, stations, unlocked}], total}` | `invalid_args` |
+| `stations` | `radius=30` (m) | `{stations: [{station, name, id, kind, position, distance, max, in_reach}]}` | `invalid_args`, `companion_down` |
+
+- `craft` is async: the reply comes after the craft time (crafting stations 0.5–1.5 s; processing
+  stations `count × mean(processing time) / rate`, e.g. 2 s per Iron Bar). `craft_check` returns
+  `plan.seconds`; **the brain's craft timeout must be at least `plan.seconds + 10`** (the default 60 s
+  is too short for big processing batches; the body caps a craft at 600 s).
+- Refusal data always carries `checks: {unlocked, inputs, station}` so one call shows every unmet
+  condition. When several recipes make an `item`, the body picks the first one that passes, else
+  returns the closest refusal plus `alternatives: [{recipe, reason}]`.
+- **Verify against `data.produced[].item`** (the resolved inventory key, e.g. `ITEM_Resources_IronBar`),
+  not the `item` argument; the inventory gains exactly the produced counts and loses exactly
+  `consumed` (+ `fuel`).
+- If the action is interrupted (a new command, `stop`) or the bot leaves the station mid-craft, every
+  input and the fuel are refunded and the reason is `interrupted` / `too_far` / `wrong_station`
+  with `mid_craft: true`.
+- Debug env (never set by the brain): `DW_CRAFT_UNLOCKS=all` skips the unlock mirror,
+  `DW_CRAFT_FUEL=off` skips fuel, `DW_CRAFT_EXTRAS=roll` rolls `ChanceToProduceExtraItems`.
+
 ### `event` (body to brain, unsolicited)
 
 ```json
@@ -237,6 +295,8 @@ The `event` object types (`brain/interface.py`) are:
 - `attacked{by}`
 - `player_nearby_activity{player,activity}`
 - `gather_progress{task_id,resource,item,have,want}`
+- `task_progress{task_id?,text?,have?,want?}`: milestones of any long skill (`text` is a short label,
+  e.g. `"Smelting"`); optional
 
 When an action is interrupted, the body sends the event that caused the interrupt
 **before** the `result` with `reason: interrupted` or `attacked`.
@@ -253,8 +313,8 @@ null, the brain only logs it.
 ## Timeouts
 
 The brain gives up on a request after a per-tool timeout and returns `reason: timeout`.
-Defaults are 10 s, with gather 1800 s, travel 300 s (proposed; the brain agent sets it), go_to and pickup 120 s, give 70 s, and craft, attack and
-place 60 s (see
+Defaults are 10 s, with gather 1800 s, travel 300 s, go_to, pickup and interact 120 s, give 70 s, craft, attack and
+place 60 s, and look 15 s (see
 `DEFAULT_TIMEOUTS` in `bridge_client.py`). If a `result` arrives late, the brain logs it as
 unmatched and discards it.
 

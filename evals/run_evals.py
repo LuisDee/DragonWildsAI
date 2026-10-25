@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import re
 import sys
 import tempfile
 import time
@@ -24,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from brain import paths  # noqa: E402
 from brain.controller import Controller  # noqa: E402
 from brain.executor import Executor  # noqa: E402
+from brain.interface import BODY_TOOLS  # noqa: E402
 from brain.jsonl_log import JsonlLogger, read_jsonl  # noqa: E402
 from brain.llm import CONTROLLER_MODEL_ENV, PLANNER_MODEL_ENV, LLMClient, LiteLLMClient  # noqa: E402
 from brain.mock import BLUEPRINTS, RECIPES, MockGame  # noqa: E402
@@ -52,9 +54,12 @@ def _matches(expected: dict, got: dict) -> bool:
 
 
 def eval_controller_case(case: dict, llm: LLMClient, workdir: Path) -> dict:
-    game = MockGame.default_world()
+    """One command through the Controller's bounded loop (<= 3 calls; look/inspect run on the mock).
+    Grounding refusals count as "no action": the case passes only if nothing reached the body."""
+    game = _setup_world(case)
     store = StateStore(workdir / case["id"])
-    ctl = Controller(llm, game, store, JsonlLogger(workdir / "controller.jsonl"))
+    tools = set(BODY_TOOLS) - {"look", "inspect", "interact"} if case.get("no_look") else None
+    ctl = Controller(llm, game, store, JsonlLogger(workdir / "controller.jsonl"), available_tools=tools)
     state = {**game.get_state()["data"], **case.get("state_patch", {})}
     d = ctl.decide("Luis", case["utterance"], state, case.get("active_goal"))
     got = [{"tool": a.name, "args": a.arguments} for a in d.actions]
@@ -64,7 +69,12 @@ def eval_controller_case(case: dict, llm: LLMClient, workdir: Path) -> dict:
     passed = len(got) == len(exp) and all(
         g["tool"] == e["tool"] and _matches(e["args"], g["args"]) for g, e in zip(got, exp)
     )
-    return {"id": case["id"], "passed": passed, "got": got, "speech": d.speech, "expected": exp}
+    for k, v in (case.get("expect_args_contain") or {}).items():
+        passed = passed and bool(got) and str(v).lower() in str(got[0]["args"].get(k, "")).lower()
+    if case.get("expect_speech"):
+        passed = passed and bool(re.search(case["expect_speech"], d.speech or "", re.I) or d.refusals)
+    return {"id": case["id"], "passed": passed, "got": got, "speech": d.speech, "expected": exp,
+            "model_calls": d.model_calls, "refusals": d.refusals}
 
 
 # ------------------------------------------------------------------ planner
@@ -77,6 +87,11 @@ def _setup_world(case: dict) -> MockGame:
             game.remove_nodes("stone", within=30)
         elif step == "wolf_near_camp":
             game.add_entity("wolf", [8, 3, 0], hp=30, hostile=True, damage=8)
+        elif step == "oak_logs_on_ground":
+            game.add_ground_item("oak_log", 2, [1, 0, 0])
+        elif step == "sticks_nearby":
+            game.add_ground_item("oak_log", 2, [1, 0, 0])
+            game.add_gatherable("Ash Branch", "stick", [4, 2, 0], count=2)
         elif step.startswith("companion_has:"):
             _, item, n = step.split(":")
             game.inventory[item] += int(n)
@@ -126,7 +141,7 @@ def eval_planner_case(case: dict, llm: LLMClient, workdir: Path) -> dict:
 # ------------------------------------------------------------------ main
 
 SUITES = {
-    "controller": ("controller_cases.jsonl", CONTROLLER_MODEL_ENV, eval_controller_case, 1),
+    "controller": ("controller_cases.jsonl", CONTROLLER_MODEL_ENV, eval_controller_case, 3),  # bounded loop
     "planner": ("planner_cases.jsonl", PLANNER_MODEL_ENV, eval_planner_case, 2),  # 1 + one repair
 }
 
@@ -165,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
     out = JsonlLogger(paths.log_dir() / f"evals-{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
     with tempfile.TemporaryDirectory() as tmp:
         for name, cases, model, fn, _, _ in plan:
-            llm = LiteLLMClient(model)
+            llm = LiteLLMClient(model, max_tokens=1024 if name == "controller" else 16000)
             results = [fn(c, llm, Path(tmp)) for c in cases]
             for r in results:
                 out.log("eval_result", suite=name, model=model, **r)

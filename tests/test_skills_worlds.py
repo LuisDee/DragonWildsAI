@@ -89,8 +89,7 @@ def test_run_skill_next_time_needs_no_planner(tmp_path):
     rig = learn_rig(tmp_path)
     planner_calls = len(rig.planner_llm.calls)
     rig.game.player_say("bring me 2 stone")
-    rig.controller_llm.push(FakeLLM.say("On it.", FakeLLM.call(
-        "run_skill", name="deliver_resource", params={"resource": "stone", "count": 2, "player": "Luis"})))
+    rig.controller_llm.push(FakeLLM.say("On it.", ToolCall("run_skill", {"name": "deliver_resource", "params": {"resource": "stone", "count": 2, "player": "Luis"}})))
     assert rig.agent.step() == "done"
     assert len(rig.planner_llm.calls) == planner_calls  # zero Sonnet calls
     assert rig.game.players["Luis"].inventory["stone"] == 2
@@ -105,8 +104,7 @@ def test_run_skill_failure_updates_stats_and_suspect_hides_it(tmp_path):
     rig.game.remove_nodes("stone")
     for _ in range(3):
         rig.game.player_say("bring me 2 stone")
-        rig.controller_llm.push(FakeLLM.say("On it.", FakeLLM.call(
-            "run_skill", name="deliver_resource", params={"resource": "stone", "count": 2, "player": "Luis"})))
+        rig.controller_llm.push(FakeLLM.say("On it.", ToolCall("run_skill", {"name": "deliver_resource", "params": {"resource": "stone", "count": 2, "player": "Luis"}})))
         rig.planner_llm.push(FakeLLM.plan([], ask_help="No rocks here?"))
         assert rig.agent.step() == "stuck"
     st = rig.library.get("deliver_resource").stats
@@ -117,12 +115,11 @@ def test_run_skill_failure_updates_stats_and_suspect_hides_it(tmp_path):
 def test_run_skill_checks_params_and_preconditions(tmp_path):
     rig = learn_rig(tmp_path)
     rig.game.player_say("bring Bob 2 stone")
-    rig.controller_llm.push(FakeLLM.say("On it.", FakeLLM.call(
-        "run_skill", name="deliver_resource", params={"resource": "stone", "count": 2, "player": "Bob"})))
+    rig.controller_llm.push(FakeLLM.say("On it.", ToolCall("run_skill", {"name": "deliver_resource", "params": {"resource": "stone", "count": 2, "player": "Bob"}})))
     assert rig.agent.step() is None
     assert rig.companion_said()[-1] == "I couldn't run skill: I can't see Bob."
     rig.game.player_say("do the thing")
-    rig.controller_llm.push(FakeLLM.say("Okay.", FakeLLM.call("run_skill", name="dance", params={})))
+    rig.controller_llm.push(FakeLLM.say("Okay.", ToolCall("run_skill", {"name": "dance", "params": {}})))
     rig.agent.step()
     assert rig.companion_said()[-1] == "I haven't learned a skill called dance."
 
@@ -264,7 +261,7 @@ def test_progress_is_spoken_while_the_gather_is_still_running(tmp_path):
     request and still receives the gather's own result (re-entrant bridge client)."""
     brain_t, body_t = file_transport_pair(tmp_path / "bridge_io")
     game = MockGame.default_world()
-    body = FakeBody(game, body_t).start()
+    body = FakeBody(game, body_t, progress_delay=0.15).start()  # a real gather takes minutes
     try:
         client = BridgeClient(brain_t, JsonlLogger(tmp_path / "b.jsonl"), default_timeout=5.0)
         rig = Rig(tmp_path, game=client)

@@ -270,3 +270,65 @@ def test_stuck_asks_for_help_in_one_line(rig):
     last = rig.companion_said()[-1]
     assert "stuck" in last and "Where can I find gold?" in last and len(last) <= MAX_SAY
     assert Reason.NOTHING_IN_RANGE.replace("_", " ") in last or "nothing" in last
+
+
+# --------------------------------------------------------------------------- the real body's look shape
+
+
+class BodyShapedLook(MockGame):
+    """look answers exactly like mod/body/gather.lua h_look + sense.look (ranked, match scores, no 'matched')."""
+
+    def __init__(self, things):
+        super().__init__()
+        self._look_things = things
+
+    def look(self, about=None, radius=20.0, max=15):
+        self.calls.append(("look", {"about": about, "radius": radius, "max": max}))
+        return {"ok": True, "reason": None, "data": {"origin": [0, 0, 0], "radius_m": radius, "about": about,
+                                                     "total": len(self._look_things), "things": self._look_things}}
+
+
+def test_body_look_shape_absent_and_present(tmp_path):
+    logs = {"id": "BP_RuntimeSpawnedWorldItem_C_1", "class": "BP_RuntimeSpawnedWorldItem_C", "name": "Oak Logs",
+            "item": "/Game/Items/ITEM_Resources_Wood_Oak", "count": 2, "kind": "item", "verb": "pickup",
+            "distance": 1.2, "match": 0}
+    tree = {"id": "BP_Tree_Oak_C_7", "class": "BP_Tree_Oak_C", "name": "Tree Oak (Oak Logs)", "kind": "resource",
+            "verb": "chop", "drops": "Oak Logs", "distance": 6.0, "match": 0}
+    game = BodyShapedLook([logs, tree])
+    game.players["Luis"] = __import__("brain.mock.game", fromlist=["Player"]).Player("Luis", [1.0, 0.0, 0.0])
+    rig = Rig(tmp_path, game=game)
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("look", about="sticks")),
+                            FakeLLM.say("On it.", FakeLLM.call("pickup", target="BP_RuntimeSpawnedWorldItem_C_1")))
+    d = rig.controller.decide("Luis", "pick up the sticks", game.get_state()["data"], None)
+    assert not d.actions and d.refusals[0][1] == Reason.NOT_PERCEIVED and d.refusals[0][2]["what"] == "sticks"
+    tool_msg = json.loads(next(m for m in rig.controller_llm.calls[1]["messages"] if m["role"] == "tool")["content"])
+    assert tool_msg["data"]["matched"] is False  # stated plainly for the model
+
+    branch = {"id": "BP_Spawner_AshBranch_C_3", "class": "BP_Spawner_AshBranch_C", "name": "Stick",
+              "item": "/Game/Items/ITEM_Resources_Stick", "kind": "gatherable", "verb": "gather",
+              "prompt": "Gather", "distance": 4.2, "match": 1}
+    game._look_things = [branch, logs, tree]
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("look", about="sticks")),
+                            FakeLLM.say("Grabbing those sticks.", FakeLLM.call("interact", target="BP_Spawner_AshBranch_C_3")))
+    d = rig.controller.decide("Luis", "pick up the sticks", game.get_state()["data"], None)
+    assert [a.name for a in d.actions] == ["interact"] and not d.refusals
+
+
+def test_direct_gather_replies_first_then_progress_then_result(tmp_path):
+    rig = Rig(tmp_path, game=_gather_world())
+    rig.controller.clock = lambda: rig.game.time
+    rig.game.player_say("chop some oak, 20 logs")
+    rig.controller_llm.push(FakeLLM.say("Chopping 20 oak logs.", FakeLLM.call("gather", resource="log", count=20)))
+    rig.agent.step()
+    said = rig.companion_said()
+    assert said[0] == "Chopping 20 oak logs."  # said when the job starts, not minutes later
+    assert any(s.startswith("Gathering: ") for s in said[1:-1])
+    assert said[-1] == "Done, gathered 20 log." and rig.game.inventory["log"] == 20
+    assert "gather" in offered(rig.controller_llm.calls[0])
+
+
+def test_direct_gather_failure_still_reports_why(rig):
+    rig.game.player_say("mine some gold")
+    rig.controller_llm.push(FakeLLM.say("Mining gold.", FakeLLM.call("gather", resource="gold", count=5)))
+    rig.agent.step()
+    assert rig.companion_said() == ["Mining gold.", "There's no gold anywhere near me."]

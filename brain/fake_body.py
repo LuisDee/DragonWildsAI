@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -19,10 +20,12 @@ from .transport import BODY_TO_BRAIN, BRAIN_TO_BODY, JsonlFileTransport, Transpo
 class FakeBody:
     """``capabilities``: True answers the capabilities request truthfully, a list answers with
     that list (to fake a body that over-reports), False answers unknown_tool like an older body.
-    ``not_implemented``: tools that answer not_implemented, like a stubbed Lua handler."""
+    ``not_implemented``: tools that answer not_implemented, like a stubbed Lua handler.
+    ``progress_delay``: seconds to pause after each live progress event, standing in for the time a
+    real gather takes between two progress events (the mock itself is instantaneous)."""
 
     def __init__(self, game: GameInterface, transport: Transport, capabilities: bool | list[str] = True,
-                 not_implemented: Iterable[str] = ()):
+                 not_implemented: Iterable[str] = (), progress_delay: float = 0.0):
         self.game = game
         self.transport = transport
         self.not_implemented = set(not_implemented)
@@ -33,7 +36,13 @@ class FakeBody:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         # Progress goes out live, while the action is still running (like body/gather.lua).
-        game.set_progress_listener(lambda ev: self.transport.send(protocol.event(ev.model_dump())))
+        self.progress_delay = progress_delay
+        game.set_progress_listener(self._live_progress)
+
+    def _live_progress(self, ev) -> None:
+        self.transport.send(protocol.event(ev.model_dump()))
+        if self.progress_delay:
+            time.sleep(self.progress_delay)
 
     def _send_events(self) -> None:
         for ev in self.game.poll_events():

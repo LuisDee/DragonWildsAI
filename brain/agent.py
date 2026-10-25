@@ -18,7 +18,8 @@ import re
 import time
 from typing import Literal
 
-from .controller import Controller, describe_rule
+from . import situation as sit
+from .controller import LONG_ACTIONS, Controller, describe_rule
 from .executor import Executor, StateUnavailable
 from .interface import RULE_TOOLS, Attacked, CommandReceived, Event, GameInterface, Reason
 from .jsonl_log import JsonlLogger
@@ -93,8 +94,8 @@ class Agent:
         # Progress events are narrated live through the progress listener (_on_progress).
 
     def _on_progress(self, event: Event) -> None:
-        if self.active_goal:
-            self.controller.progress_event(event)
+        # Progress events only come while a long body action runs (a goal's task or a direct gather).
+        self.controller.progress_event(event)
 
     # ---------------------------------------------------------------- commands
 
@@ -110,6 +111,7 @@ class Agent:
             self._cancelled = True
         failure = d.refusals[0] if d.refusals else None
         extra: list[str] = []  # facts the body reported that the speech must carry (single voice)
+        spoken = False  # a long action's reply is said when it starts
         for call in d.actions:
             if call.name == "remember":
                 self._remember(call.arguments, state, event.player)
@@ -119,19 +121,36 @@ class Agent:
                 if not res["ok"] and failure is None:
                     failure = (call.name, res["reason"], res["data"])
                 continue
+            if call.name in LONG_ACTIONS and failure is None and not spoken:
+                self.controller.say(d.speech or self.controller.ack(call.name) or "On it.")
+                self.controller.job_started()
+                spoken = True
             outcome = self.executor.run_task(Task(skill=call.name, args=call.arguments))
             if not outcome.ok and failure is None:
                 failure = (call.name, outcome.reason, outcome.data)
+            elif outcome.ok and call.name in LONG_ACTIONS:
+                extra.append(self._long_done(call.name, call.arguments, outcome.data))
         if d.skill and failure is None:
             failure = self._queue_skill(*d.skill, state)
         if failure:
             self.controller.report_failure(*failure)
+        elif spoken:
+            if extra:
+                self.controller.say(" ".join(extra))
         elif d.speech or extra:
             self.controller.say(" ".join(s for s in [d.speech, *extra] if s))
         else:  # reply to every command, even when the model said nothing
             self.controller.say(self._default_reply(d))
         if d.goal and not d.skill:
             self.pending_goal = d.goal
+
+    @staticmethod
+    def _long_done(tool: str, args: dict, data: dict) -> str:
+        if tool == "gather":
+            n = data.get("gathered") or args.get("count")
+            what = sit.name_of_item(str(data["item"]), {}) if data.get("item") else args.get("resource")
+            return f"Done, gathered {n} {what}."
+        return "Done."
 
     def _default_reply(self, d) -> str:
         if d.skill:

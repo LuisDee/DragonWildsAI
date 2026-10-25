@@ -147,9 +147,8 @@ class LookArgs(BaseModel):
     about: str | None = Field(None, description=(
         "What the player named, in their words (e.g. 'sticks'). If nothing matches, the answer says "
         "matched=false and lists what IS around instead."))
-    radius_m: float = Field(30.0, gt=0, le=120, description="Search radius in metres.")
-    kinds: list[str] | None = Field(None, description="Only these kinds, e.g. ['gatherable', 'item', 'creature'].")
-    max: int = Field(12, ge=1, le=30, description="At most this many entries.")
+    radius: float = Field(20.0, gt=0, le=80, description="Search radius in metres (the body caps it at 80).")
+    max: int = Field(15, ge=1, le=40, description="At most this many entries, best matches first.")
 
 
 class InspectArgs(BaseModel):
@@ -177,8 +176,8 @@ class RememberArgs(BaseModel):
 
 class SleepArgs(BaseModel):
     target: str | None = Field(None, description="Omit for the nearest free bed; or a bed id.")
-    mode: Literal["auto", "bed", "flag"] = Field(
-        "auto", description="auto: a free bed if there is one, else just lie down on the spot.")
+    mode: Literal["auto", "bed", "shelter"] = Field(
+        "auto", description="auto: a free bed if there is one, else summon a shelter and sleep in it.")
 
 
 class CastArgs(BaseModel):
@@ -372,6 +371,8 @@ Event = Annotated[
     Field(discriminator="type"),
 ]
 _event_adapter: TypeAdapter[Event] = TypeAdapter(Event)
+EVENT_TYPES: frozenset[str] = frozenset(m.model_fields["type"].default for m in (
+    CommandReceived, TaskDone, TaskFailed, Attacked, PlayerNearbyActivity, GatherProgress, TaskProgress))
 
 
 def parse_event(raw: dict) -> Event:
@@ -436,8 +437,7 @@ class GameInterface(ABC):
 
     # Perception (body/perception.lua, owned by the gather agent). Bodies without it answer
     # not_implemented, and the Controller then works from the get_state situation digest only.
-    def look(self, about: str | None = None, radius_m: float = 30.0, kinds: list[str] | None = None,
-             max: int = 12) -> ActionResult:
+    def look(self, about: str | None = None, radius: float = 20.0, max: int = 15) -> ActionResult:
         return fail(Reason.NOT_IMPLEMENTED, tool="look")
 
     def inspect(self, target: str) -> ActionResult:
