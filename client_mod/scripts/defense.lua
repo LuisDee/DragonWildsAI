@@ -45,6 +45,10 @@ D.cfg = {
     prior_strength = 4,     -- pseudo-observations behind the rule prior
     prior_rule = 0.75, prior_alt = 0.5, prior_fit = 0.6, prior_misfit = 0.3,
     danger_bonus = 0.3,     -- a fitting ability's prior grows by this x danger
+    precast_danger = 0.5,   -- pre-cast only against attacks at least this dangerous (learned damage)
+    prior_pre_needed = 0.8, -- pre-cast prior when reacting is too slow for the attack
+    prior_pre_alt = 0.45,   -- ... and when reacting would also fit in time
+    precast_min_score = 0.3,
     ability_cost = 0.35,    -- runes/cooldown cost, scaled by (1 - danger)
     ability_latency_s = 0.6, -- spell cast latency until measured (the spells module reports it)
     ability_margin_s = 0.15,
@@ -234,6 +238,18 @@ function D.plan(info, ctx, orders, rng)
             end
         end
     end
+    -- 2b. an ability cast AHEAD is still active: use its follow-up (dash in the window, block under the shield)
+    -- (active = {name = {from, to}} seconds from now: up now, or a cast in progress that will be)
+    for name, win in pairs(ctx.active or {}) do
+        local def = D.abilities()[name]
+        if type(win) == "number" then win = { from = 0, to = win } end
+        if def and def.then_input and win and win.to > 0 then
+            local need = def.then_input == "evade" and (T - L - cfg.evade_lead_s) or math.max(0, T - L - 0.1)
+            if need >= win.from and need <= win.to then
+                cands[name .. "_pre"] = math.min(0.95, cfg.prior_fit + cfg.danger_bonus * th.danger)
+            end
+        end
+    end
     -- 3. Thompson sampling with a cost: runes / cooldowns are worth spending on dangerous attacks only
     -- no outcome seen for this attack yet: act on the priors (what a sensible player does first);
     -- once there is evidence, sample (explore in proportion to doubt)
@@ -247,7 +263,7 @@ function D.plan(info, ctx, orders, rng)
         local beta = 1 + cfg.prior_strength * (1 - prior) + a.f
         local sample = tried > 0 and beta_sample(alpha, beta, rng()) or alpha / (alpha + beta)
         local cost = 0
-        if D.abilities()[resp] then cost = cfg.ability_cost * (1 - th.danger) end
+        if D.abilities()[resp] then cost = cfg.ability_cost * (1 - th.danger) end -- "_pre" answers are already paid
         local score = sample - cost
         p.candidates[#p.candidates + 1] = { action = resp, score = math.floor(score * 1000) / 1000, n = a.n }
         if not best_score or score > best_score + 1e-9 or (math.abs(score - best_score) <= 1e-9 and resp == pick) then
@@ -272,6 +288,19 @@ function D.plan(info, ctx, orders, rng)
         p.hold_s = 0.25
     elseif pick == "retreat" then
         p.at_s, p.hold_s = react, 0.8
+    elseif pick:sub(-4) == "_pre" then
+        -- the ability is already up: only its follow-up input
+        local def = D.abilities()[pick:sub(1, -5)] or {}
+        if def.then_input == "evade" then
+            p.input = "dodge"
+            p.at_s = math.max(react, T - L - cfg.evade_lead_s + err)
+            p.hold_s = 0.35
+            p.dir = (rng() < 0.5) and "left" or "right"
+        else
+            p.input = "block"
+            p.at_s = react
+            p.hold_s = math.max(cfg.min_block_s, T - react + cfg.block_tail_s)
+        end
     else -- an ability: cast early enough that it is active at the impact
         local ab = (ctx.abilities or {})[pick] or {}
         local def = D.abilities()[pick] or {}
@@ -339,6 +368,114 @@ function D.feedback(key, action, outcome, damage)
         a.s, a.f, a.n = a.s + reward, a.f + (1 - reward), a.n + 1
     end
     r.last = { action = action, outcome = outcome, t = os.time() }
+end
+
+-- ------------------------------------------------------------------ pre-casting (ahead of the telegraph)
+-- Casting a defensive spell takes 0.7-2 s through the real spell inputs (measured live), often more
+-- than an attack's wind-up. So an ability can also be cast AHEAD: Tempest Shield when a fight against
+-- a known-dangerous attacker is on, Phase Dash shortly before the next attack is expected (its 2 s
+-- dash window then covers the impact). Whether pre-casting or reacting works better is learned per
+-- attack like any other answer (arms "<ability>_pre" vs "<ability>").
+
+-- Attack rhythm per creature: intervals between its telegraphs (EMA).
+function D.observe_cadence(creature, t)
+    if not creature or not t then return end
+    local s = S()
+    s.cadence = s.cadence or {}
+    local c = s.cadence[creature]
+    if not c then s.cadence[creature] = { last_t = t, n = 0 }; return end
+    local dt = t - c.last_t
+    if dt > 0.3 and dt < 15 then
+        c.interval = c.interval and (c.interval + D.cfg.ema * (dt - c.interval)) or dt
+        c.n = c.n + 1
+    end
+    c.last_t = t
+end
+
+-- Seconds until the creature's next attack is expected (nil when its rhythm is unknown).
+function D.next_attack_eta(creature, t)
+    local c = (S().cadence or {})[creature]
+    if not (c and c.interval and c.n >= 2) then return nil end
+    local eta = c.last_t + c.interval - t
+    while eta < -0.5 do eta = eta + c.interval end -- missed one: the next in the rhythm
+    return eta, c.interval
+end
+
+-- The creature's most dangerous known attack (largest learned damage).
+function D.most_dangerous(creature)
+    local best, br
+    local pre = tostring(creature) .. ":"
+    for key, r in pairs(S().attacks) do
+        if key:sub(1, #pre) == pre and r.damage and (not br or r.damage > br.damage) then best, br = key, r end
+    end
+    return best, br
+end
+
+-- Should an ability be cast now, ahead of the next attack?
+--   ctx = {max_hp, stamina, latency_s, abilities = {name = {available, latency_s}}, active = {name = remaining_s}}
+-- -> {ability, spell_asset, key, cast_now = bool, cast_in_s, why} | nil, why
+function D.precast_decision(creature, t, ctx, orders, rng)
+    rng = rng or rnd
+    orders = orders or {}
+    if (orders.defense or "auto") ~= "auto" then return nil, "orders" end
+    local key, r = D.most_dangerous(creature)
+    if not key then return nil, "no_known_danger" end
+    local th = D.threat({ key = key }, ctx.max_hp)
+    if th.danger < D.cfg.precast_danger then return nil, "not_dangerous" end
+    local T = D.impact_delay(key, {})
+    local L = clamp(ctx.latency_s or 0.03, 0, 0.25)
+    local react = (D.cfg.react_s[1] + D.cfg.react_s[2]) / 2
+    local best, best_score
+    for name, def in pairs(D.abilities()) do
+        local ab = (ctx.abilities or {})[name]
+        local allowed = not (orders.abilities and orders.abilities[name] == false)
+        -- already up (or being cast) and covering the next expected impact: nothing to do
+        local act = (ctx.active or {})[name]
+        if type(act) == "number" then act = { from = 0, to = act } end
+        local covered = false
+        if act then
+            local eta = def.window_s and D.next_attack_eta(creature, t)
+            covered = (not def.window_s) or (eta ~= nil and act.to >= eta + T) or act.pending == true
+        end
+        if def.precast and allowed and ab and ab.available and not covered then
+            local lat = ab.latency_s or D.cfg.ability_latency_s
+            local fit = false
+            for _, tag in ipairs(def.avoids or {}) do if th.tags[tag] then fit = true end end
+            -- reacting is possible only if the wind-up covers reaction + cast + lead
+            local lead = def.then_input == "evade" and D.cfg.evade_lead_s or D.cfg.ability_margin_s
+            local reactive_ok = T - L - lead - lat >= react
+            local prior_pre = fit and (reactive_ok and D.cfg.prior_pre_alt or D.cfg.prior_pre_needed) or D.cfg.prior_misfit
+            local pre = arm(key, name .. "_pre")
+            local reac = arm(key, name)
+            local function score(a, prior)
+                local alpha = 1 + D.cfg.prior_strength * prior + a.s
+                local beta = 1 + D.cfg.prior_strength * (1 - prior) + a.f
+                return (a.n > 0 or pre.n + reac.n > 0) and beta_sample(alpha, beta, rng()) or alpha / (alpha + beta)
+            end
+            local s_pre = score(pre, prior_pre) - D.cfg.ability_cost * (1 - th.danger)
+            local s_reac = reactive_ok and score(reac, fit and math.min(0.95, D.cfg.prior_fit + D.cfg.danger_bonus * th.danger) or D.cfg.prior_misfit) or -1
+            if s_pre > s_reac and s_pre > D.cfg.precast_min_score and (not best_score or s_pre > best_score) then
+                local d = { ability = name, spell_asset = def.spell_asset, key = key, latency_s = lat, score = s_pre }
+                if def.window_s then
+                    -- a short window: time the cast so the window covers the next expected impact
+                    local eta = D.next_attack_eta(creature, t)
+                    if not eta then d = nil
+                    else
+                        local impact_in = eta + T
+                        d.cast_in_s = impact_in - lat - def.window_s / 2
+                        d.cast_now = d.cast_in_s <= 0 and impact_in >= lat -- the window still reaches the impact
+                        d.why = string.format("next attack in %.1fs, cast %.2fs, window %.1fs", eta, lat, def.window_s)
+                    end
+                else
+                    d.cast_in_s, d.cast_now = 0, true
+                    d.why = "dangerous attacker"
+                end
+                if d then best, best_score = d, s_pre end
+            end
+        end
+    end
+    if not best then return nil, "reactive_preferred" end
+    return best
 end
 
 -- The defensive abilities table (data file client_mod/scripts/defense_abilities.lua).

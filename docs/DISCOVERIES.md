@@ -1553,3 +1553,12 @@ Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probe
   - Each real bolt is fitted (speed, gravity, straight time); learning keeps a capped pitch/yaw bias; hit/miss comes from our damage multicast.
   - Metrics by distance and target speed.
   - Fake-game result: 2 misses, then 5 hits, against a goblin strafing at 3 m/s at 20 m, starting from wrong seeds.
+
+### Defensive abilities and telegraphs (2026-10-25, game data + offline; live proof owed). Design: docs/design/defense-abilities.md
+- **Spell data (`data/spells_26161880.json`):**
+  - **Phase Dash** `USD_PhaseDash`: Instant, 20 Air + 10 Astral, 45 s cooldown. Modules: PlayMontage, CostItems, Cast, Blueprint, `ExpireAfterDuration` 2 s, so it opens a 2 s window in which the evade is the dash. Owning perk `PerkV2_Agility_Spell_PhaseDash` (wiki: Agility 44).
+  - **Windstep** `USD_Windstep`: Instant, 5 Air, 3 s cooldown, applies `GE_Windstep`. Its Wind Stomp landing (with `PerkV2_Agility_Spell_Windstep_Upgrade`) is a 700 cm, force-1000 stagger.
+  - **Tempest Shield** `USD_TempestShield`: Instant, 15 Air, 45 s cooldown, `GE_TempestShield` (upgraded with `PerkV2_Attack_TempestShield`).
+- **Readable at the AI attack telegraph** (`AiAttackComponent.CurrentAttack.AttackData`): damage times, montage and `GetPlayLength`, `MaximumRootMotionScaling`, `bLeaveNavMesh`, `NextAttack` (combo), flags (Special 4, ComboFinisher 8, ForceBlast 16). combat.lua now records all of these. The lunge distance and the attack's damage are learned per attack key.
+- **The spells module's cast refuses while fighting** ("I can't cast while I'm fighting yet"), and its wheel route takes about 0.5-1.5 s. Combat needs `spells.ability_status` / `spells.cast_now` (contract in the design doc). Until then the abilities are reported unavailable.
+- **Pre-casting (offline, 2026-10-25):** the spells contract is live (`ability_status` / `cast_now`, latency 0.7–2.05 s; Phase Dash 2.05 s). Combat now has a per-frame cast manager, learns each creature's attack rhythm, pre-casts Phase Dash so its 2 s window covers the next expected impact (one dash per cast, so used up by the dash) and Tempest Shield against dangerous attackers. Pre-cast and reactive answers are learned as separate bandit arms. Offline: a lunge every 3 s with a 1.6 s wind-up is dashed through after 3 hits (8 seeds stable). Live: still owed.

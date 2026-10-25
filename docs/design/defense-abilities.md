@@ -40,6 +40,24 @@ How it decides (no creature-specific code; everything is keyed by the attack's k
    - Offline: a lunge that hurts unless answered with an ability is avoided in 4–5 of the last 5 tries in the live-like test and in 8+ of the last 10 in the unit test.
 5. **Policy from the model:** `combat_orders` takes `defense` (auto, parry, block, dodge, none), `allow_jump` and `abilities` (for example `{"tempest_shield": false}` forbids it). An explicit style is obeyed as the model's order; only `auto` explores.
 
+## 1b. Pre-casting (added after the spells contract went live)
+
+Measured cast latencies through the real spell inputs are 0.7–2.05 s (Phase Dash 2.05 s from wheel page 1). That is often longer than an attack's wind-up (1.6 s for a lunge), so reacting at the telegraph can be too slow.
+
+- **Rhythm:** combat records every telegraph of nearby creatures, and `D.observe_cadence` learns each creature's interval between attacks. `D.next_attack_eta` predicts the next one.
+- **The pre-cast decision** (`D.precast_decision`, every 0.25 s while engaged or approaching, never mid-defence) applies only to the creature's most dangerous known attack (learned damage ≥ 50% of the "dangerous" share).
+  - Each pre-castable ability (data: `precast = true`; Phase Dash, Tempest Shield) competes as `<ability>_pre` against its reactive arm.
+  - The prior is high when reacting cannot fit in time (wind-up < reaction + cast latency + lead) and low otherwise. Then the bandit learns which works.
+- **Timing:**
+  - Tempest Shield (lasts about 60 s) is cast at once.
+  - Phase Dash (a 2 s window, one dash per cast) is cast so that its window is centred on the next expected impact: cast at `eta + T − latency − window/2`.
+  - No new pre-cast is made while the current window (or a cast in progress) still covers the next impact.
+- **Using it:** at the telegraph, an ability that is up, or whose cast in progress will be up in time, is offered as `<ability>_pre`. That answer runs only the follow-up input (the dash for Phase Dash, which uses its charge; block under Tempest Shield) and is credited to the `_pre` arm.
+- **Mechanics:**
+  - One cast manager steps every running `cast_now` job every frame (spells jobs advance only when polled), opens effect windows and learns latency.
+  - Attack presses pause while the spell's own inputs run.
+- **Offline result:** against a rhythmic lunge (every 3 s, 1.6 s wind-up, 40 damage) with a 2.05 s Phase Dash cast, reacting can't work. After 3 hits he pre-casts, and dashes through 4–6 of the last 6 lunges (stable across 8 random seeds).
+
 ## 2. What the client can read ahead of a hit (telegraph detection)
 
 - **At the attack's start:** the NetMulticast `AiAttackComponent:Multicast_PerformAttackOnSimulatedProxies` (live-verified: it fired for every Goblin Runt attack). At that moment `CurrentAttack.AttackData` gives:
@@ -74,6 +92,7 @@ Combat casts abilities in the middle of a fight, while it holds the pawn at refl
 - `spells.ability_status(asset)` → `{available, why, latency_s, cooldown_s, runes_ok}`: unlocked, runes and cooldown, plus the measured latency of the fastest route (a quick-access key if the spell is on one, else the wheel).
 - `spells.cast_now(log, asset, {owner_token})` → a job with `poll()` → nil, or `{ok, cast_t, reason}`. It acts under the caller's arbiter token (no new request), uses the same real inputs, and reports the moment the cast took effect.
 - Until these exist, combat reports the abilities as unavailable (`no_fast_cast_route`) and uses the plain inputs. Nothing is faked.
+- **Status:** live in spells.lua (`ability_status` returns measured/route latency; `cast_now` steps the real wheel inputs under the caller's token; its jobs advance only when polled, which the combat cast manager does every frame).
 
 ## 5. Search record (search-before-building)
 

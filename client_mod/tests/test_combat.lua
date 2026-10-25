@@ -944,5 +944,100 @@ do
     check("brief: invalid args", Cm.HANDLERS.combat_brief(nil, {}, {}).reason == "invalid_args")
 end
 
+-- ================================================================ 17. pre-casting: cadence, timing, active windows
+do
+    _G.DWDefense = nil
+    Dm.observe_cadence("Drake", 0); Dm.observe_cadence("Drake", 3); Dm.observe_cadence("Drake", 6)
+    local eta, iv = Dm.next_attack_eta("Drake", 7)
+    check("cadence: learned interval and next attack", math.abs(iv - 3) < 1e-6 and math.abs(eta - 2) < 1e-6, tostring(eta) .. " " .. tostring(iv))
+    Dm.observe_damage("Drake:ATK_Lunge", 40)
+    Dm.observe("Drake:ATK_Lunge", 1.6)
+    local ctx = { max_hp = 100, stamina = 60, latency_s = 0.03,
+                  abilities = { phase_dash = { available = true, latency_s = 2.05 }, tempest_shield = { available = false } } }
+    local d1 = Dm.precast_decision("Drake", 7.0, ctx, { defense = "auto" }, function() return 0.5 end)
+    check("precast: phase dash planned when reacting is too slow (2.05 s cast vs 1.6 s wind-up)", d1 and d1.ability == "phase_dash", d1 and d1.why)
+    check("precast: not yet (window would close before the impact)", d1 and d1.cast_now == false, d1 and d1.cast_in_s)
+    local d2 = Dm.precast_decision("Drake", 7.6, ctx, { defense = "auto" }, function() return 0.5 end)
+    check("precast: cast now so the 2 s window covers the expected impact", d2 and d2.cast_now == true, d2 and d2.cast_in_s)
+    local nod = Dm.precast_decision("Drake", 7.6, ctx, { defense = "auto", abilities = { phase_dash = false } }, function() return 0.5 end)
+    check("precast: the model can forbid it", nod == nil)
+    local ctx2 = { max_hp = 100, abilities = { tempest_shield = { available = true, latency_s = 2.0 } } } -- too slow to react
+    local d3 = Dm.precast_decision("Drake", 7.0, ctx2, {}, function() return 0.5 end)
+    check("precast: tempest shield cast at once against a dangerous attacker", d3 and d3.ability == "tempest_shield" and d3.cast_now)
+    check("precast: none for a harmless creature", Dm.precast_decision("Kebbit", 7.0, ctx2, {}, function() return 0.5 end) == nil)
+    local p = Dm.plan({ key = "Drake:ATK_Lunge", dmg_time = 1.6 }, { dist_cm = 300, stamina = 60, can_block = true, block_cost = 10, evade_cost = 15,
+        max_hp = 100, hp_frac = 1, active = { phase_dash = 1.8 } }, { defense = "auto" }, function() return 0.5 end)
+    check("plan: an active Phase Dash window -> dash through (phase_dash_pre, evade input)", p.action == "phase_dash_pre" and p.input == "dodge", p.action)
+    _G.DWDefense = nil
+end
+
+-- ================================================================ 18. live-like: a rhythmic lunge, Phase Dash too slow to react -> learns to pre-cast
+reset_world()
+do
+    _G.DWDefense = nil
+    PERKS.unlocked = {}
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local casts = {}
+    local fake_spells = {
+        ability_status = function(asset)
+            return { available = asset == "USD_PhaseDash", latency_s = 2.05, why = asset ~= "USD_PhaseDash" and "no runes" or nil }
+        end,
+        cast_now = function(log, asset, opts)
+            local rec = { asset = asset, t = T, owner = opts and opts.owner_token, polls = 0 }
+            casts[#casts + 1] = rec
+            local job = {}
+            function job.poll() rec.polls = rec.polls + 1; if T - rec.t >= 2.05 then rec.done = rec.done or T; return { ok = true, cast_t = rec.done, latency_s = 2.05 } end end
+            return job
+        end,
+    }
+    Cm.set_modules({ spells = fake_spells })
+    local drake = new_creature("BP_AI_Drake_C_2", "Drake", { X = 300, Y = 0, Z = 0 }, { hp = 50000, pl = 2, arch = 0 })
+    check("rhythm: fight starts", Cm._start_fight(nil, drake, { mode = "attack", force = true }).ok)
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 6)
+    local results = {}
+    local next_t = T + 0.5
+    for i = 1, 14 do
+        run_until(function() return T >= next_t end, 5)
+        world.resolved, world.result = nil, nil
+        local ad = obj({ AttackPropertyFlags = 0, GetDamageTime = function() return 1.6 end, GetLastDamageTime = function() return 1.6 end,
+                         GetDuration = function() return 2.5 end, Damage = { ForEach = function(_, f) f(1, { get = function() return { Time = 1.6 } end }) end } },
+                       "ATK_Drake_Lunge_C /Game/AI/Drake/ATK_Drake_Lunge.Default__ATK_Drake_Lunge_C")
+        local comp = obj({ GetOwner = function() return drake end, CurrentAttack = { AttackData = ad } }, "C /x")
+        hooks["/Script/Dominion.AiAttackComponent:Multicast_PerformAttackOnSimulatedProxies"]({ get = function() return comp end }, { get = function() return 3 end })
+        local impact = T + 1.6
+        world.on_step = function()
+            if T >= impact and not world.resolved then
+                world.resolved = true
+                local phasing = false
+                for _, c in ipairs(casts) do
+                    if c.asset == "USD_PhaseDash" and c.done and T - c.done <= 2.0 and T >= c.done then
+                        phasing = world.evading_until and world.evading_until > T
+                    end
+                end
+                if phasing then world.result = "avoided"
+                else
+                    pawn.hp = pawn.hp - 40
+                    multicast(pawn, drake, 40)
+                    world.result = "hit"
+                end
+            end
+        end
+        run_until(function() return world.resolved end, 3)
+        results[#results + 1] = world.result
+        pawn.hp = 100
+        next_t = next_t + 3.0
+    end
+    local late = 0
+    for i = 9, 14 do if results[i] == "avoided" then late = late + 1 end end
+    local f = Cm._state().fight
+    check("rhythm: pre-casts Phase Dash ahead of the lunge and dashes through it (>= 4 of the last 6)", late >= 4, table.concat(results, ","))
+    check("rhythm: casts went through the spells contract under the fight's token", #casts >= 3 and casts[1].owner ~= nil and casts[1].polls > 10, #casts)
+    check("rhythm: pre-casts counted", f and (f.n_precasts or 0) >= 3, f and f.n_precasts)
+    check("rhythm: the cast latency was learned", math.abs((Cm._state().ability_latency or {}).USD_PhaseDash or 0) - 2.05 < 0.05)
+    Cm.stop(nil, "test")
+    Cm.set_modules({ spells = false })
+    A.reset(nil)
+end
+
 print(string.format("combat/arbiter tests: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

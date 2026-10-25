@@ -619,6 +619,12 @@ function M.on_ai_attack(ctx, class_id)
     local t = now(a)
     c.telegraphs[id] = t
     c.counts.telegraphs = c.counts.telegraphs + 1
+    do
+        local data = U.try(function() return a.LoadedData end)
+        local nm = U.valid(data) and text(U.try(function() return data.AIName end)) or id
+        local D = mod("defense")
+        if D and D.observe_cadence then D.observe_cadence(nm, t) end
+    end
     -- only attacks near Claude are worth reading
     local f = c.fight
     if f and (id == f.target_id or (f.me_pos and U.loc(a) and U.dist(U.loc(a), f.me_pos) < 800)) then
@@ -764,7 +770,7 @@ local function result_of(F, ok, reason, data)
     data.looted = F.looted
     data.phase_log = F.phase_log
     data.defense = { parries = F.n_parried or 0, blocks = F.n_blocked or 0, dodges = F.n_dodges or 0, jumps = F.n_jumps or 0,
-                     abilities = F.n_abilities,
+                     abilities = F.n_abilities, precasts = F.n_precasts,
                      avoided = F.n_avoided or 0, hits_taken = F.n_hit or 0, heals = F.n_heals or 0 }
     data.damage_taken = F.dmg_taken or 0
     return { ok = ok, reason = reason, data = data }
@@ -1048,6 +1054,69 @@ M.spell_api = {
     end,
 }
 
+-- Start a cast (reactive or ahead). -> the cast record (also in F.casts)
+local function start_cast(F, ability, asset, why)
+    local D = mod("defense")
+    local def = D and D.abilities()[ability] or {}
+    local rec = { ability = ability, asset = asset, t = F.t, why = why, job = M.spell_api.cast(F, asset), def = def }
+    if not rec.job then rec.failed = "no_cast_route" end
+    F.casts = F.casts or {}
+    F.casts[#F.casts + 1] = rec
+    F.n_abilities = F.n_abilities or {}
+    F.n_abilities[ability] = (F.n_abilities[ability] or 0) + 1
+    say(F.log, string.format("cast %s (%s) %s", tostring(ability), tostring(why), rec.failed or ""))
+    return rec
+end
+M._start_cast = start_cast
+
+-- Per frame: step every running cast; a finished one opens its effect window.
+local function casts_frame(F)
+    F.casting = nil
+    for _, rec in ipairs(F.casts or {}) do
+        if not rec.result and not rec.failed and rec.job and type(rec.job.poll) == "function" then
+            local ok, r = pcall(rec.job.poll, rec.job)
+            if ok and r then
+                rec.result = r
+                if r.ok then
+                    local lat = r.latency_s or (F.t - rec.t)
+                    local c = C()
+                    c.ability_latency = c.ability_latency or {}
+                    local old = c.ability_latency[rec.asset]
+                    c.ability_latency[rec.asset] = old and (old * 0.7 + lat * 0.3) or lat
+                    rec.done_t = F.t
+                    local dur = rec.def.window_s or rec.def.lasts_s or 1
+                    F.effects = F.effects or {}
+                    F.effects[rec.ability] = F.t + dur
+                    F.ab_ctx = nil -- availability changed (cooldown)
+                else
+                    rec.failed = r.reason or "failed"
+                end
+            elseif not ok then rec.failed = "poll_error" end
+            if not rec.result and not rec.failed then F.casting = rec end
+        end
+    end
+end
+M._casts_frame = casts_frame
+
+-- Abilities up now or about to be (a cast in progress): {name = {from = s, to = s}} relative to now.
+local function active_effects(F)
+    local out
+    for name, until_t in pairs(F.effects or {}) do
+        if until_t > F.t then out = out or {}; out[name] = { from = 0, to = until_t - F.t } end
+    end
+    local c = C()
+    for _, rec in ipairs(F.casts or {}) do
+        if not rec.result and not rec.failed then
+            local lat = (c.ability_latency or {})[rec.asset] or 1.0
+            local done_in = math.max(0, rec.t + lat - F.t)
+            local dur = rec.def.window_s or rec.def.lasts_s or 1
+            out = out or {}
+            out[rec.ability] = { from = done_in, to = done_in + dur, pending = true }
+        end
+    end
+    return out
+end
+
 local function ability_ctx(F)
     if F.ab_ctx and F.t - (F.ab_ctx_t or -9) < 2 then return F.ab_ctx end
     local D = mod("defense")
@@ -1074,7 +1143,7 @@ local function start_defend(F, me, attacker_id, tt, info)
                   stamina = me.stamina, can_parry = cap.can_parry, can_block = cap.can_block,
                   parry_cost = cap.parry_cost, block_cost = cap.block_cost, evade_cost = c.evade_cost or 15,
                   hp_frac = (me.max_hp and me.max_hp > 0) and (me.hp or 0) / me.max_hp or 1, heal_hp = M.orders.heal_hp,
-                  max_hp = me.max_hp, abilities = ability_ctx(F) }
+                  max_hp = me.max_hp, abilities = ability_ctx(F), active = active_effects(F) }
     info = info or { key = "?:unknown" }
     local plan = D and D.plan(info, ctx, M.orders)
         or { action = "block", at_s = M.react_delay(), hold_s = 0.9, impact_s = 0.6, why = "no defense module" }
@@ -1097,7 +1166,7 @@ local function finish_defend(F)
     if d.parried then outcome = "parried"
     elseif (d.hit_amt or 0) > 0 then outcome = "hit"
     elseif d.blocked then outcome = "blocked"
-    elseif (act == "dodge" or act == "jump" or act == "retreat") and (d.impact_t or d.evaded) then outcome = "avoided"
+    elseif (act == "dodge" or act == "jump" or act == "retreat" or act:sub(-4) == "_pre") and (d.impact_t or d.evaded) then outcome = "avoided"
     elseif d.cast and d.cast.result and d.cast.result.ok and d.impact_t then outcome = "avoided"
     elseif d.cast and (d.cast.failed or (d.cast.result and not d.cast.result.ok)) then outcome = "whiff"; d.cast_failed = true
     else outcome = "whiff" end
@@ -1155,11 +1224,16 @@ local function defend_act(F, pawn, acts)
     local a = plan.action
     if plan.spell_asset then
         -- a defensive ability: cast it now (the spells module drives the real spell inputs)
-        d.cast = { t = F.t, asset = plan.spell_asset, job = M.spell_api.cast(F, plan.spell_asset) }
-        F.n_abilities = F.n_abilities or {}
-        F.n_abilities[a] = (F.n_abilities[a] or 0) + 1
-        if not d.cast.job then d.cast.failed = "no_cast_route" end
+        d.cast = start_cast(F, a, plan.spell_asset, "reactive " .. tostring(d.key))
         return
+    end
+    if plan.input then
+        -- "<ability>_pre": the ability is up, only its follow-up input; a dash charge is used up by it
+        local name = a:sub(1, -5)
+        local D = mod("defense")
+        local def = D and D.abilities()[name] or {}
+        if def.charges and F.effects then F.effects[name] = nil end
+        a = plan.input
     end
     if (a == "parry" or a == "block") and acts.secondary then
         F.hold, F.hold_until = acts.secondary, F.t + (plan.hold_s or 0.9)
@@ -1203,20 +1277,7 @@ local function defend_followup(F, pawn, acts)
     local d = F.def
     if not (d and d.cast) then return end
     local plan, rel = d.plan, F.t - d.tel_t
-    local job = d.cast.job
-    if job and not d.cast.result and type(job.poll) == "function" then
-        local ok, r = pcall(job.poll, job)
-        if ok and r then
-            d.cast.result = r
-            if r.ok and r.cast_t then
-                local c = C()
-                c.ability_latency = c.ability_latency or {}
-                local lat = math.max(0, r.cast_t - d.cast.t)
-                local old = c.ability_latency[d.cast.asset]
-                c.ability_latency[d.cast.asset] = old and (old * 0.7 + lat * 0.3) or lat
-            end
-        end
-    end
+    -- (the cast itself is stepped by casts_frame)
     if plan.evade_at_s and not d.evade_done and rel >= plan.evade_at_s and acts.evade then
         d.evade_done = true
         local me = F.me_last or {}
@@ -1229,6 +1290,7 @@ local function defend_followup(F, pawn, acts)
             F.move_inject, F.move_until = (M.cfg.move_axes == "yx" and { X = 0, Y = sx } or { X = sx, Y = 0 }), F.t + 0.35
         end
         tap(F, acts.evade, 4, "phase_dash")
+        if (d.cast and d.cast.def and d.cast.def.charges) and F.effects then F.effects[d.cast.ability] = nil end -- the dash is used up
         F.n_dodges = (F.n_dodges or 0) + 1
     end
     if plan.action == "tempest_shield" and not d.block_done and rel >= (plan.at_s or 0) and acts.secondary then
@@ -1247,7 +1309,7 @@ local function step_defend(F, pawn, me, acts)
     defend_act(F, pawn, acts)
     if F.evade_until and F.t >= F.evade_until then F.evade_dir, F.evade_until = nil, nil end
     if d.jump_release and F.t >= d.jump_release then pcall(function() pawn:StopJumping() end); d.jump_release = nil end
-    if d.started and plan.action == "dodge" and not d.evaded and F.t - d.started < 0.6 then d.evaded = my_evading(pawn) end
+    if d.started and (plan.input or plan.action) == "dodge" and not d.evaded and F.t - d.started < 0.6 then d.evaded = my_evading(pawn) end
     if d.st_dodge and d.started and F.t - d.started > 0.6 and me.stamina then
         local cost = d.st_dodge - me.stamina
         if cost > 1 and cost < 60 then c.evade_cost = c.evade_cost and (c.evade_cost * 0.7 + cost * 0.3) or cost end
@@ -1496,6 +1558,7 @@ local function step_engage(F, pawn, me, acts, tgt)
         end
     end
     if d_m > F.reach then return end
+    if F.casting then return end -- the spell's own inputs are running
     -- lock on once (one frame of the toggle; InputTriggerPressed)
     if cfg.lock_on and not F.locked and acts.lock then
         F.locked = true
@@ -1641,6 +1704,7 @@ local function frame(F)
     if not U.valid(pawn) then return finish(F, result_of(F, false, "companion_down")) end
     F.t = now(pawn)
     if F.def and not F.def.started then defend_act(F, pawn, actions(pawn)) end
+    if F.casts then casts_frame(F) end
     if F.def and F.def.cast then defend_followup(F, pawn, actions(pawn)) end
     F.frame_n = (F.frame_n or 0) + 1
     if F.rg then ranged_frame(F, pawn) end
@@ -1747,6 +1811,20 @@ local function frame(F)
                 return set_phase(F, "disengage", string.format("hp %.0f%% < %.0f%%", frac * 100, (M.orders.heal_hp or 0.5) * 100))
             end
             F.no_food = true
+        end
+    end
+    if (F.phase == "engage" or F.phase == "approach") and not F.casting and F.t - (F.precast_t or -9) >= 0.25 then
+        F.precast_t = F.t
+        local D = mod("defense")
+        if D and D.precast_decision then
+            local ctx = { max_hp = me.max_hp, stamina = me.stamina, latency_s = F.latency or 0.03, abilities = ability_ctx(F),
+                          active = active_effects(F) }
+            local dec = D.precast_decision(F.target_name, F.t, ctx, M.orders)
+            if dec and dec.cast_now then
+                local rec = start_cast(F, dec.ability, dec.spell_asset, "ahead: " .. tostring(dec.why))
+                rec.pre_key = dec.key
+                F.n_precasts = (F.n_precasts or 0) + 1
+            end
         end
     end
     if F.phase == "approach" or F.phase == "disengage" then

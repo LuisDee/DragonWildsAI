@@ -8,6 +8,8 @@ return {
         spell_asset = "USD_PhaseDash",   -- Instant; its Blueprint module enables phase dashes, ExpireAfterDuration 2 s
         then_input = "evade",            -- the dash itself is the evade input while the spell is active
         window_s = 2.0,                  -- from the spell's ExpireAfterDuration module
+        precast = true,                  -- may be cast ahead of an expected attack (its window then covers it)
+        charges = 1,                     -- one dash per cast (MaxPhaseDashCharges; to confirm live)
         avoids = { "melee", "lunge", "aoe", "unblockable" },
         note = "dash through the attack",
     },
@@ -23,6 +25,7 @@ return {
         then_input = "block",            -- guides: the shield prevents damage while blocking
         avoids = { "melee", "lunge", "aoe", "unparryable" },
         lasts_s = 60,
+        precast = true,                  -- may be cast when a dangerous fight starts
         note = "absorb a big hit; keep blocking",
     },
 }
