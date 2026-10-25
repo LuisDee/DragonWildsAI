@@ -1,15 +1,19 @@
 # Director and task board: long-horizon jobs ("get better gear, level skills of your choice")
 
-Status: **design, for the review gate** (autonomy-plan.md §4, §5 steps 2–3; scope additions from Luis via main, 2026-10-25). Author: the Director agent.
-Nothing is built yet. The build is offline only (mock + fake models) until main approves the hooks in §8.
+Status: **design, revision 2**, after the fresh-context review `docs/reviews/2026-10-25-director-review.md` (approve with changes). Author: the Director agent. Scope: autonomy-plan.md §4 and §5 steps 2–3; Luis's scope additions via main; GOAL.md milestone **M3**.
+- **Built:** wave 1, `brain/predicates.py` + `tests/test_predicates.py` (shared with the Eval agent). It includes the review's H2, H8 and L2 code fixes.
+- **Not built yet:** everything else. Build waves: (2) board + store → (3) worker + StepRunner (needs the §8 hooks) → (4) the five T3 offline scenarios + negative controls → (5) cassettes. Offline only (mock + fake models) until main wires §8.
+- **Review resolution:** every H/M/L finding maps to a section in §11.
 
 ## 1. Goal (what Luis will see)
-- **Task board.** Luis says "go gather coal", "farm desert weed at our farm", "get a better pickaxe" or "level up skills of your choice". Each becomes a board entry, and Claude says what he'll do first and why. Main can queue tasks from a CLI (`tools/board.py add/list/cancel/gaps`). "What are you up to?" is answered from the board: the current task, its current step, progress and what's queued.
-- **Works it out himself.** Claude researches (wiki + game data + his own map memory), plans steps, runs them for hours, loops trips when his bag fills, replans when a step fails, and adds his own prerequisite tasks ("I'm PL 2 and those are PL 5: upgrading my armour first").
-- **Milestones, not a timer.** He reports verified facts once per milestone, e.g. "Bronze Pickaxe on: tier 1 → 3", "trip 3: 61 coal so far".
-- **Interruptible.** When Luis talks to him, he answers at once and does what is asked. The board pauses and resumes by itself when Claude is idle again ("Back to the coal"). "Hold on" or "drop the coal job" pause or cancel it; the model decides that, through tools.
-- **Honest about gaps.** When a plan needs something his body can't do yet (lodestone teleport, storage deposit, planting, quest dialogue, ranged aim), he says so plainly ("I can't use lodestones yet, so I'll walk: about 4 min") and the gap is logged. That log drives the next primitives we build.
-- **Asks for help once.** When he's stuck after his own replans, he asks once and specifically ("I've checked the two coal spots I know and both were mined out. Know another?").
+- **A task board.** A player says "go gather coal", "farm desert weed at our farm", "get a better pickaxe" or "level up skills of your choice". Main can queue tasks from a CLI (`tools/board.py add/list/cancel/gaps`).
+  - Each becomes a board entry, and Claude says what he'll do first, what "done" will mean, and why.
+  - "What are you up to?" is answered from the board: the current task, its step, its progress and the queue.
+- **He works it out himself.** He researches (game data first, then the wiki, plus his own map and knowledge memory), plans steps, and runs them for hours. He loops trips when his bag fills, replans when a step fails, and adds his own prerequisite tasks (a gear upgrade when he's under-geared for the target).
+- **Milestones, not a timer.** He voices a milestone only when the model chooses to. Failures, gaps, help questions and task ends are always said.
+- **Interruptible.** A player's request is answered and done at once. The board resumes when he's idle again, unless the model decides the player wanted him to stop, wait or stay.
+- **Honest about gaps.** A plan that needs a primitive the body lacks says so plainly once, with the workaround, and logs it. That log drives the next primitives we build.
+- **Asks for help once.** When he's stuck after his own replans, he asks once and specifically, citing what he tried. He doesn't ask into an empty server.
 
 ## 2. Approach: layers and files
 Three loops at three speeds (autonomy-plan §4):
@@ -17,335 +21,456 @@ Three loops at three speeds (autonomy-plan §4):
 - the Haiku Controller, on events, one step at a time;
 - the **Sonnet Director**, at step boundaries only.
 
-The board and the Director are brain-side. They act only through the Controller's normal tools.
+The board and the Director are brain-side, and act only through the Controller's normal tools.
 
-| New file | What it owns |
+| File | What it owns |
 |---|---|
-| `brain/predicates.py` | **The success-predicate format and its evaluator, shared with the Eval agent's benchmark** (§2.2): `validate(p, catalog)` and `evaluate(p, state, ctx) → {passed: true\|false\|null, detail, progress, missing}`. Pure functions. |
-| `brain/board.py` | The board: task and step models, plus `BoardStore` (`<state>/worlds/<w>/goals.json`, written atomically, single writer = the brain). Also the CLI inbox `board_inbox.jsonl` (appended by `tools/board.py`, ingested on `tick`) and the verified tallies. |
-| `brain/capability_gaps.py` | `GapLog` for `logs/state/capability_gaps.json` (§2.7). |
-| `brain/recipes.py` | `RecipeGraph` over `data/recipes_<build>.json` plus `items_<build>.json`: `makers(item)`, `tree(item, count, have, stations_known)`, and name→id resolution with candidates. It is an AND-OR backward chainer with a shared ledger (Plan4MC Alg. 1 plus Mindcraft's leftovers), built as decided in research D4 (`docs/research/2026-10-25-scalable-agent-frameworks.md` §5.2). About 200 lines. |
-| `brain/knowledge_memory.py` | `KnowledgeMemory`: facts the Director looked up or observed, with source, confidence, build, refuted flag (§2.11); `efficiency.json` best rates + `efficiency.jsonl` trend log (§2.10) |
-| `brain/map_memory.py` | `MapMemory`, per world (`map_memory.json`). It records what any `get_state` showed: stations, resource nodes (by kind/item), creatures (kind, PL, attitude), lodestones, chests and beds, each with position, count and last seen. `query(kind\|name\|item)` returns the nearest known first, with distance and age. It also reports `places.json` and the learned nav-route count as facts. |
-| `brain/director.py` | `Director`: the Sonnet decision loop with read-only research tools, the curriculum, DEPS replans, caps and the per-hour `CallBudget`. `StepRunner`: the executor bridge. The Controller-facing board tools. `AgentAdapter`: interim glue to today's `Agent` (§8). |
-| `tools/board.py` | CLI: `add "<text>" [--first]`, `list`, `cancel <id>`, `gaps`. Writes only to the inbox; reads `goals.json` and `capability_gaps.json`. |
-| `brain/mock/gear_world.py` | `GearWorld(MockGame)`, driven by the real catalogs (item ids, recipe inputs/outputs/stations, tiers, recipe XP). It has ore rocks, a Furnace, a Blacksmith's Bench, `craft` by recipe data, `equip`, `gear`, `inventory_items`, `skills`, a `bag` capacity, creatures with drops and PL, places, and a toggle that removes primitives to provoke gaps. |
-| `tests/test_director.py` (+ `tests/test_predicates.py`) | §7 |
+| `brain/predicates.py` (**built**) | The success-predicate format shared with the Eval benchmark (§2.2): `validate`, `errors`, `evaluate → Result(passed True\|False\|None, detail, progress, missing, measures)`, `grew`, `snapshot`, `describe`, `register`. Pure. |
+| `brain/board.py` | Task, step and segment models and `BoardStore` (`<state>/worlds/<w>/goals.json`). The agent loop is the only writer: atomic writes with a unique temp name, a Windows retry/backoff, and quarantine of a bad file. Also the CLI inbox (`board_inbox.jsonl`, an offset-tracked ingest) and tallies. |
+| `brain/capability_gaps.py` | `GapLog` (`logs/state/capability_gaps.json`, §2.7). |
+| `brain/knowledge_memory.py` | `KnowledgeMemory` (per world): facts with source, confidence, build and a refuted flag (§2.11). `Efficiency`: best rates plus the `efficiency.jsonl` trend log (§2.10). |
+| `brain/map_memory.py` | `MapMemory` (per world): what any `get_state` showed, including **negative evidence** (§2.12). Loads static map data (regions, lodestones) when a generated file exists. Writes are debounced. |
+| `brain/llm_json.py` | `json_decision(llm, messages, validate, max_repairs, tools?, on_call)`: the validate-and-repair loop extracted from `Planner._ask` (review M7a). The Director uses it; main may switch the Planner to it. |
+| `brain/director.py` | `Director` (the decision worker: Sonnet, research tools, curriculum, DEPS, prep, reflection, caps), `StepRunner` (the executor bridge), the board tools for the Controller, and `HourlyWindow` (with the daily cap from `brain/budget.py`). |
+| `tools/board.py` | CLI: `add "<text>" [--first]`, `list`, `cancel <id>`, `gaps`. It appends to the inbox and only reads `goals.json` and the gap log. |
+| `brain/mock/gear_world.py` | `GearWorld(MockGame)`, driven by the real catalogs: item ids, recipe inputs/outputs/stations, tiers, recipe XP. It has ore rocks, a Furnace, a Blacksmith's Bench, creatures with PL and drops, `bag` slots, `stations_nearby`, `skills` with XP, `activity` episodes, a `craft_plan` read tool that replays the client's `plan_tree` shape (from a recorded fixture), and toggles to remove primitives. |
+| `tests/test_director.py` | §7. |
 
-No edits to `agent.py`, `controller.py`, `broker.py` or `client_mod/` (other owners). Their hooks are in §8.
+**Not built** (review H7b): no `brain/recipes.py`. The Director reaches the client's own planner (`craft_plan`, `recipes`, `stations`, in `crafting.lua` `plan_tree`, which has `gather_for`, unlocks and station-near) through a **proxied read tool** (§2.3). There is then one planner over one data file.
+
+No edits to `agent.py`, `controller.py`, `broker.py`, `run_live.py` or `client_mod/` (other owners). Their hooks are in §8, sent to main as an exact diff.
 
 ### 2.1 The board (`goals.json`, survives restarts)
 ```
-{v:1, current: <task id>|null, paused: null|{by, reason, until_resume}, budget:{calls:[ts...]},
- tasks:[{id, text, by: player:<name>|cli|self, because?, kind: specific|open, priority_index,
-         status: queued|active|preempted|paused|waiting_help|waiting_budget|done|stuck|cancelled,
-         success: predicate|null (open tasks: none), baseline, tallies:{item: verified gain}, created, ended,
-         steps:[{id, title, why, hints, success: predicate, needs:[primitive], group?, status: pending|active|done|failed|dropped,
-                 attempts, max_attempts:2, runs, max_runs:8, baseline, failures:[{reason, detail, explanation, at}],
-                 actions:[{tool, args, ok, reason}], started, ended}],
-         loops:{<group>: {until: predicate, max:20, done:n}}, replans, history:[{title, outcome, seconds, reason}],
-         notes_from_player:[...]}]}
+{v:1, version:<int, bumped on every change>, current:<task id>|null, inbox_offset:<bytes>,
+ awaiting_decision: null|{task_id, reason, since},
+ budget:{calls:[ts...]},
+ tasks:[{id, text, by: player:<name>|cli|self, parent?, depth, because?, kind: specific|open,
+         status: queued|active|preempted|paused|parked|waiting_help|waiting_budget|done|stuck|cancelled,
+         paused_by?, success:{predicate, set_at, set_by: director|player, trivial?}|null, baseline,
+         tallies:{item: n}, my_drops:[world item ids], kills:{kind: n}, created, ended,
+         steps:[{id, title, why, hints, success, abort_if?, escape?, risk?, needs:[primitive], group?, trivial?,
+                 status: pending|active|done|failed|aborted|dropped, attempts, max_attempts:2, runs, max_runs:8,
+                 segments:[{baseline, start, end?, delta?}], accumulated:{item: n}, last_measures,
+                 failures:[{reason, detail, explanation, at}], actions:[{tool, args, ok, reason, data}], started, ended}],
+         loops:{<group>: {until: predicate, max:20, done:n, zero_gain:n}},
+         replans, decisions_without_progress, history:[{title, outcome, seconds, reason}], notes_from_player:[...],
+         help:{question, asked_at, asked_player, revoice_pending}?}]}
 ```
-- **Who adds tasks:**
-  - Players, through the Controller tool `add_task(text, when: now|next|later)`. The Controller model understands the line; no phrase tables.
-  - Main, through the CLI inbox.
-  - Claude himself, through the Director's `add_tasks` output (prerequisites, shown with `because`).
-- **One current task.** The others queue. `now` preempts the current task, which goes back to the queue head, its steps intact.
-- **Loops (trips).** A step may belong to a `group` that has `until: predicate`. When the group's last step is done and `until` still fails, code re-queues the group's steps (new baselines). That needs no Sonnet call. The cap is 20 loops, and the loop stops after 2 loops with zero verified gain. Example: [mine coal until bag ≥ 95 % or Coal ≥ 99] → [go to base] → [deposit], repeated until the task's tally of Coal ≥ 200.
-- **Tallies.** At every step end, code adds the step's verified inventory delta (fresh state minus baseline) to the task's tallies. That is how "200 coal over 4 trips" is verified without trusting a claim.
 
-### 2.2 Success predicates: checkable from fresh state, never from the model's claim (principle 5)
-This is a JSON DSL. The Director writes it; code validates it and evaluates it on fresh `get_state`. **The same format is proposed to the Eval agent for `docs/design/eval-benchmark.md`** (that file doesn't exist yet; main to relay, §9). One module serves both. Each leaf reads only fields the body already reports (`inventory`, `inventory_items`, `gear`, `skills[{skill, level, xp}]`, `bag{used, capacity}`, `position`, `players`, census rows, `activity` episodes), plus catalog data (`item_stats`) and per-world memory (places).
+**Who adds tasks**
+- A player, through the Controller tool `add_task(text, when: now|next|later)`. The model understands the line; there are no phrase tables.
+- Main, through the CLI inbox. Ingest stores `inbox_offset` in the same atomic write as the new tasks, and parses only newline-terminated lines (M2d).
+- Claude himself, through the Director's `add_tasks`, with `parent`, `because` and depth ≤ 2. A parent may have at most 3 live self-added tasks. A duplicate (same text and parent while a sibling is stuck) goes back to the model as information (H10).
 
-| Leaf | Meaning |
+**Order**
+- One task is current; the others queue.
+- `now` preempts the current task, which keeps its state and goes back to the queue head.
+- `add_task(now)` starts its first run at once, even while following (that run's first action replaces the follow, as any action does). The tool result says when it won't start at once, e.g. waiting for a decision or out of budget (H6).
+- An **open** task yields to queued specific tasks at every curriculum boundary.
+- A `waiting_help` task **parks**, and the next queued task runs (M1).
+
+**Success: immutable, never trivial (H1)**
+- `task.success` is set by the task's first decision and is **never changed by later decisions**. Only a player's new instruction can change it: the Controller calls `add_task` / `cancel_task`, and the change is logged and voiced.
+- Every new predicate (task or step) is evaluated on the current state at validation:
+  - **already true** → the repair round gets "already true now: choose a test that measures the work" as information. If the model keeps it, it is stored `trivial: true` and shown so in `board()` and the benchmark.
+  - **null** → it goes back for repair with `missing`. No run is spent on it (M3).
+- A player-given task's first run carries `success` in words, so Luis hears what "done" will mean.
+
+**Steps, segments and tallies (H3)**
+- A step's work is a list of **segments**. Activating or resuming a step opens a segment with a fresh baseline. Preemption closes the segment and folds its positive deltas into `accumulated`.
+- `gained` and the tally use `accumulated` + the open segment. So whatever happens during a player's command (he gives Luis 10 coal; Luis hands him ore) never counts for the step.
+- **Tallies** count **positive** deltas only, per item, and only for items named in the task's or its loops' predicates.
+- **Own drops don't count twice.** World-item ids from his own `drop` results in this task are kept in `my_drops`. A later `picked_up` episode or pickup result naming one of them is subtracted, so a "drop at base" round trip can't inflate the tally.
+- Gains from a player (`items_dropped` by another player, then picked up) are kept but flagged in the tally detail.
+- **Kills** for `killed` come from activity forwarded on the agent loop (M6). They are counted per step and persisted with the step.
+
+**Loops (trips)**
+- A step may belong to a `group` with `until`. When the group's last step is done and `until` still fails, code re-queues the group (fresh segments, no Sonnet call).
+- Caps: 20 loops. After 2 loops with zero tally gain, the loop ends, and that **counts as a replan** (H5).
+- For "bag full", the step also ends on a gather result of `inventory_full`, which is a recorded body outcome (M9).
+
+**Task-level progress rule (H5)**
+- Every Director decision records `success.progress` and `measures`.
+- After K = 3 consecutive decisions on a task with no increase in either, and no newly done step, the task goes to `waiting_help`. The reason is the predicate's detail.
+
+### 2.2 Success predicates (built: `brain/predicates.py`; shared with the benchmark, `docs/design/eval-benchmark.md` §4)
+Each leaf reads only fields the body already reports, plus catalogs and per-world memory. Every result says `passed` true, false or **null** ("can't be checked from what the body reports"). Null never counts as done.
+
+| Leaf | Reads |
 |---|---|
-| `have {item, at_least}` | carried count |
-| `gained {item, at_least}` | since the step's baseline |
-| `tally {item, at_least}` | the task's verified gains across steps and trips |
-| `skill {name, at_least}` / `skill_gain {name, levels}` | from `state.skills` |
-| `equipped {item}` | in gear |
-| `gear_better {category\|slot, stat, where: equipped\|carried, than: "start"\|number}` | the best item's catalog stat; `"start"` = the baseline's best |
-| `bag {used_pct_at_least \| free_at_least}` | from `state.bag` |
-| `near {place\|player\|position\|thing, within_m}` | |
-| `moved {min_m}` | distance from the baseline position |
-| `killed {kind, at_least}` | combat-end episodes with outcome killed since the baseline (body-verified, `ctx.episodes`) |
-| `vital {stat, below_pct\|at_least_pct}` | health and survival stats vs their max (§2.9) |
-| `quest {name, stage\|completed}` | **evaluates `null` today**, because the body reports no quest state (a perception gap) |
+| `have {item, at_least}` | `inventory` |
+| `gained {item, at_least}` | `inventory` vs the step's segments |
+| `lost {item, at_least}` | `inventory` vs the baseline |
+| `tally {item, at_least}` | the task's verified tallies |
+| `on_ground {item, at_least, player\|place\|position, within_m}` | `nearby_items` (a delivery = `all[lost, on_ground near the player]`; out of sight = null) |
+| `skill {name, at_least}` / `skill_gain {name, levels}` | `skills[{skill, level, xp}]`; XP is the measure (H8) |
+| `equipped {item}` | `gear` (worn or held now; tools flicker) |
+| `gear_better {category\|slot, stat, where, than, op}` | catalog stats. `than: "start"` = the best he had **held or carried** at the baseline (H2); for tools use `where: carried` |
+| `bag {used_pct_at_least\|free_at_least}` | `bag` slots (slot occupancy, M9) |
+| `vital {stat, below_pct\|at_least_pct}` | `health`/`max_health`, `<stat>`/`<stat>_max` |
+| `near {place\|player\|position\|thing, within_m}` | `position`, `players`, census rows; places from `places.json` |
+| `moved {min_m}` | position vs the baseline |
+| `elapsed {seconds}` | the baseline's `t` vs now |
+| `station {station, running?}` | `stations_nearby` |
+| `killed {kind\|kind_id\|target_id, at_least}` | forwarded `combat_end` episodes; whole-word name match (L2); `kind_id` needs `target_class` in combat_end (null until the combat agent adds it) |
+| `quest {name, stage\|completed}` | `quests`: **null today** (a perception gap) |
 
-Combinators: `all`, `any`, `not` (three-valued: Kleene logic). `ctx` is a plain dict: `baseline` (`snapshot(state)`), `tallies`, `places`, `episodes` (activity since the baseline), `results` (tool calls since the baseline). Other leaves join through `register(name, evaluate_fn, validate_fn)` without edits to the module (the benchmark's `spell_effect`, `station_used`, `hit_rate`, ...); `errors(p)` lists every problem with its path and candidates, for one repair round. **Built:** `brain/predicates.py` + `tests/test_predicates.py` (main allowed it before the gate; the Eval agent adopts it). Item names resolve to ids through the catalogs. An unknown or ambiguous name returns its candidates for one repair round.
+- **Combinators:** `all`, `any`, `not`, with Kleene logic: `any` is true when one branch is true, even if others are null.
+- **Extension:** the benchmark adds its own leaves (`spell_effect`, `station_used`, `hit_rate`, …) through `register()`, with no edits to the module.
+- **`measures`** (counts, XP, kills; never distances) feed the no-progress rules through `grew()`.
+- **Gaps today, logged and never faked:** Luis's inventory (what he received), crop/structure state, container contents, instance stats (item level, ascension, enchant; L3).
 
-**`passed: null` means "can't be checked from what the body reports"** (`missing: ["quests"]`). Such a step is never marked done: it is logged as a perception gap (§2.7) and the Director must choose a checkable test or ask the player. `progress` (0..1) and `detail` (e.g. "Copper Ore 4/9; Tin Ore 9/9") feed progress lines, the no-progress rule and the Director.
-
-### 2.3 Director calls (Sonnet, `planner_llm`), each counted against the budget
-**When it is called.** Only at these points:
+### 2.3 Director decisions (Sonnet via `planner_llm`)
+**When a decision is made** (at most one outstanding):
 - a task becomes current;
-- the step queue is empty (and no loop re-queued);
-- a step attempt failed (DEPS);
-- the player answered a help question;
-- every `review_every_s` (300 s) while a step runs, and only if at least half of the hour's budget is left.
+- the step queue is empty and no loop was re-queued;
+- a step attempt failed or aborted (DEPS);
+- a risky step is next (prepare, §2.9);
+- a loop's rate fell (reflect, §2.10);
+- a player answered a help question.
+- Plus a 5-minute review while a step runs, only if at least half of the hour's window is left and no other decision is pending. A review may replace only *pending* steps, never the active one.
 
-**Prompt.**
-- Cached prefix: persona, output schema, and **the body's real tool list** (manifest names and descriptions), so it knows which primitives exist.
-- Then: the task, the board (other tasks, one line each), the step tree with done/failed steps and reasons, `history`, a compact state (skills, gear with stats, PL, inventory, bag, where), a map-memory summary, the top-3 learned skills, the known capability gaps, and **readiness** and **curriculum** facts (below).
+**Versioning (H7a).** Each request carries `(task_id, board_version)`. `tick()` applies the result only if neither changed. Otherwise the result is discarded: it is logged, and still counted against the budget.
 
-**Research tools.** They are read-only and brain-side. They run on a state snapshot and never touch the bridge.
-- `lookup` (knowledge.py: game data first, then wiki; covers drop tables, regions, quests and lodestones);
-- `recipe_tree` and `makers` (recipes.py);
-- `compare_gear`: item_stats over the catalog for a category/slot, with stats and deltas vs his best, and each item's recipe status;
-- `map_memory`;
+**Threading (H11)**
+- The decision runs on one worker thread, on an **immutable snapshot**: the state, a map-memory snapshot, top-k learned skills retrieved on the agent loop, the board view, gaps and known facts.
+- The worker never writes files and never touches the bridge. Only the agent loop records call timestamps and writes `goals.json`.
+- `Knowledge` is thread-safe and is used directly (it has a lock and `check_same_thread = False`).
+- Each decision has a 90 s timeout. On failure or timeout: one retry at the next boundary. If that fails too, the Controller says "my planning call failed" once, and the task waits.
+
+**Prompt**
+- Cached prefix: the persona, the output schema, `predicates.SCHEMA_DOC`, and the body's real tool list (manifest names and descriptions).
+- Then:
+  - the task, and every board task with its status and last reason (cancelled and stuck ones included: H10);
+  - the step tree, `history`, and a compact state (skills with XP, gear with stats, PL, inventory, bag, vitals, where);
+  - map and knowledge memory summaries, top-3 learned skills, known gaps, readiness/curriculum facts, and the `facts` ledger (§2.11).
+
+**Research tools** (read-only):
+- `recall` (knowledge memory) and `map_memory` (snapshot);
+- `lookup` (knowledge.py: game docs first, then the wiki);
+- `compare_gear` (item_stats over the catalog);
 - `skills_progress`;
-- `learned_skills`.
+- the **proxied body reads** `craft_plan`, `recipes` and `stations`. The worker posts the request, the agent loop serves it inside `tick()` (between runs, when the bridge is free), and it times out after 20 s with "body busy". This reuses the Lua planner (H7b).
 
-A decision gets at most 4 LLM rounds (3 research rounds plus the answer), plus 1 repair round for invalid JSON or predicates.
+A decision gets at most 4 LLM rounds plus 1 repair round. Each round is **one counted call** (M5a).
 
-**Output.**
+**Output** (validated by `json_decision`):
 ```
-{description, explanation, task_success?: predicate,
- steps: [{title, why, hints, success, needs?:[primitive], group?}], loops?: {group: {until}},
- add_tasks?: [{text, because, when}], capability_gaps?: [{primitive, why, workaround?}],
- ask_help?, done?}
+{description, explanation, facts:[{fact, for_step, status, source, confidence}],
+ task_success? (first decision only), steps:[{title, why, hints, success, risk?, abort_if?, escape?, needs?, group?}],
+ loops?, add_tasks?:[{text, because, when}], capability_gaps?:[{primitive, why, workaround?}], ask_help?, done?}
 ```
-- `steps` replaces the pending queue; done steps stay.
-- `done` ends an open task. That is the model's decision.
-- A specific task ends only when `task_success` passes on fresh state.
+- `steps` replaces the pending queue.
+- `done` ends an *open* task; a specific task ends only when its immutable `success` passes on fresh state.
 
-**Readiness facts** (information, never a rule):
-- his PL: catalog power levels of what he wears and holds;
-- PLs of creatures and regions involved: census rows plus the wiki's region PL (e.g. Brynmoor 1–2);
-- the target creature's weaknesses: `creature_priors` data and learned hit outcomes;
-- which carried and craftable weapons deal those damage types (the catalog's `damage_types`).
+**Readiness facts** (information only):
+- His PL (catalog power levels of what he wears and holds).
+- The creature PL from census rows (`power_level`).
+- Region PL, once the region data exists (§2.12).
+- Creature weaknesses: the brain can't read `creature_priors.lua` today (M8). The Skills agent is asked for a `state_extras` export or a generated `data/creature_priors.json`. Until then this is "unknown", and a `lookup` candidate.
+- Weapons and enchants by damage type (catalog `damage_types`, spells data); food and drink carried.
 
-The model decides whether to add an upgrade task first.
-
-**Curriculum (Voyager §2.1), for open tasks.** The model proposes the next 1–2 achievable steps. Code supplies facts only:
-- gear upgrade options per slot/category he uses, with recipe-tree status;
-- skills with level/XP, and the recipes/stations that award XP for each (recipe `skill`/`xp`);
+**Curriculum (Voyager), for open tasks.** Code supplies facts only:
+- gear upgrade options with `craft_plan` status;
+- skills with XP and the recipes that award XP;
 - what he can make now;
-- the completed/failed history, so he avoids repeating what just failed.
+- the completed/failed history.
 
-No ranking rule picks for him.
+**DEPS** on failure: describe (the real tool results, the predicate detail, the `report_step` reason) → explain → revise, add a prerequisite task, or `ask_help`. Caps: 2 attempts per step, 6 replans per task. Past either, or past the task-level progress rule, the task goes to `waiting_help`.
 
-**DEPS on failure.**
-1. Describe: the attempt's real tool results and reasons, the predicate's detail now, and the Controller's `report_step` reason.
-2. Explain the cause.
-3. Revise the remaining steps, add a prerequisite task, or `ask_help`.
+### 2.4 Executor bridge (`StepRunner`; needs `Agent.run_directed`, §8)
+**Activate a step:**
+- evaluate its predicate (null → back to the Director, no runs);
+- open a segment;
+- `attempts += 1`.
 
-Caps: 2 attempts per step and 6 replans per task. Past either, the task goes to `waiting_help`, and the question is said once.
+**One run** = `agent.run_directed(event)`: one body-initiated Controller request, with the agent loop's continuation turns. Any `run_skill` it queues is **executed inside the run before it returns** (H7b). `start_goal` is not offered while the Director is on.
 
-**Threading.** The decision runs on one background worker (PIANO's concurrent modules). `tick()` applies the result on the agent loop, so chat stays responsive while Sonnet thinks. Tests use a synchronous executor.
+The `board_step` event carries:
+- the task;
+- the step's title, why and hints, plus `escape` (if any);
+- the predicate in words with its current detail;
+- run n of max;
+- the last run's results;
+- learned skills for the step;
+- `resumed` and `preempted_by` (§2.6);
+- `just_completed` (verified facts of the previous step or loop).
 
-### 2.4 Executor bridge (`StepRunner`)
-- **Activate a step:** baseline snapshot, `attempts += 1`, persisted.
-- **One run** is one body-initiated Controller request (empty command text) carrying a `board_step` event. The event holds:
-  - the task, the step's title, why and hints;
-  - the predicate in words, plus its current detail;
-  - run n of max, and the last run's results;
-  - learned skills matching the title;
-  - `resumed` (after a pause) and `just_completed` (the verified facts of the previous step or loop, which the Controller voices as the milestone: single voice).
+`run_directed` returns the action records (tool, args, ok, reason, data) and why the run ended.
 
-  The Controller uses its normal tools and the agent loop (≤ 4 continuation turns).
-- **After each run**, the predicate is evaluated on fresh state:
-  - Passed: the step is `done`, the tallies are updated, and the next step or loop follows.
-  - The Controller called `report_step(blocked, reason)`: the attempt fails with that reason.
-  - The Controller called `report_step(done)`: this only triggers an immediate check. If the check fails, the next run is told "you reported done, but: Copper Ore 4/9".
-  - No progress in 2 consecutive runs (progress unchanged and no successful action), or `max_runs` reached: the attempt fails with "no progress: <detail>". Then DEPS (§2.3).
-- **A tool result in Reason.CANT_YET** (`not_implemented`, `unknown_tool`) is recorded as a capability gap automatically (§2.7).
-- **Skill library reuse:** a done step with ≥ 2 verified actions goes to the existing `SkillLibrary.learn`, with its faithfulness and postcondition gates, if at least 30 % of the hour's budget is left. Learned skills are offered to the Director (to plan with) and to the Controller (`run_skill`), so the next trip costs no Sonnet call.
+**After each run** (fresh state):
+- `abort_if` holds → `aborted` (§2.9).
+- The predicate passed → done; tallies and the segment are folded in.
+- `report_step(blocked, reason)` → the attempt fails.
+- `report_step(done)` → only an immediate check. If it fails, the next run is told the detail.
+
+**No-progress rule (H7c, H8).** The run counts toward "2 runs without progress" only if it ended normally and:
+- no measure grew (`grew`);
+- no body action succeeded with a verified state change.
+
+A run that ended because chat arrived (`chain_stopped why="the player spoke"`) never counts, and neither do interrupts. The same holds for `max_runs`.
+
+**Capability gaps from tools.** Tool results with `not_implemented` or `unknown_tool` (not `unknown_skill`: M4) are recorded as gaps.
+
+**Skill library.** A done step with ≥ 2 verified **body** actions goes to `SkillLibrary.learn`. It is converted to `Task`s from the step's successful body actions only (not reads, `remember`, board tools or `report_step`: M7c).
+- It runs on the worker with **its own `SkillLibrary` instance** over the same directory (its own SQLite). The agent loop's library `load()`s when the result is applied (H11).
+- It runs only if at least 30 % of the hour's window is left. It is the first thing to be skipped when budget is short (M5c).
 
 ### 2.5 How the requested jobs fall out generically
-No job has code of its own. Each comes from the research tools, the predicates, map memory, loops and the gap log.
+No job has code of its own.
 
 | Job | Research | Steps, predicates and loops | Gaps today |
 |---|---|---|---|
-| **gather coal** | `lookup coal` (wiki: coal nodes in Fellhollow, Dowdun Reach, Umbral Sands; game data: vendor too); `map_memory item=coal` and `kind=lodestone` | go to the best known spot (`near`) → mine until `any[bag ≥ 95 %, have Coal ≥ 99]` → go home → deposit → loop until `tally Coal ≥ N` | lodestone teleport, storage deposit (workarounds: walk; drop at base or give to the player) |
-| **farm resource X** | `lookup X` (drop tables: X from mob Y) → `lookup Y` (where it lives) + `map_memory creature=Y` → readiness (Y's PL and weaknesses vs his gear) | (gear upgrade task if he chooses one) → go to Y's area → hunt until `any[bag full, have X ≥ k]` → go home → deposit → loop on `tally X` | ranged aim (if chosen), deposit |
-| **all Brynmoor quests** | `lookup Brynmoor quests` → each quest's steps and prerequisites (wiki) | one task per quest (`add_tasks`), with steps in prerequisite order; the predicates `quest{...}` evaluate `null` | quest-state perception and quest dialogue: logged and said once; the task asks Luis how he'd like to proceed instead of faking progress |
-| **gear progression** | readiness facts on every Director call | the Director adds "upgrade <slot>" tasks before the current one (`because: PL 2 vs PL 5`) | — |
-| **farm desert weed at our farm** | `places.json` "our farm" (Luis taught it with `remember`), `lookup desert weed seeds` | go to the place → plant → wait/water → harvest → loop | plant/harvest primitives (`interact` may cover harvesting; unverified) |
-| **get a better pickaxe** | `compare_gear category=pickaxe`, `recipe_tree` | mine copper and tin → smelt Bronze Bars → craft at the Blacksmith's Bench → equip; task predicate `gear_better{category: pickaxe, stat: tool_tier, where: equipped, than: start}` | equip (`llm=false` on the client today: "not yet verified") |
+| **gather coal** | `recall`/`lookup coal` (game data: no recipe, vendor; wiki: coal nodes and regions); `map_memory item=coal` (incl. depleted spots), `kind=lodestone`, regions | go to a known spot (`near`) → mine until `any[bag ≥ 95 %, have Coal ≥ 99]` or `inventory_full` → go home → deposit → loop until `tally Coal ≥ N` | region coordinates (until §2.12 data), long-distance travel (`go_to` timeout 120 s), lodestone teleport, storage deposit. Workarounds: ask the player for a place or to lead the way (said once); drop at base (tracked by `my_drops`) |
+| **farm X from mob Y** | `lookup X` (drop table) → `lookup Y` (habitat) → `map_memory creature=Y` → readiness (PL, weakness, weapons, food) | prepare (§2.9) → go to Y's area → hunt until `any[bag full, have X ≥ k]` (with `killed` as progress) → home → deposit → loop on `tally X` | weaknesses (M8), ranged aim (if chosen), deposit |
+| **all Brynmoor quests** | `lookup` (wiki quest steps and prerequisites) | one task per quest via `add_tasks`; `quest` predicates are null | quest-state perception and quest dialogue: logged, said once, the task parks with an honest question |
+| **gear progression** (his own initiative) | readiness facts on every decision | under an open task, or as a prerequisite: "upgrade <slot>" tasks with `gear_better` | instance stats (L3) |
+| **farm desert weed at our farm** | `places.json` ("our farm", taught with `remember`), `lookup` seeds | go to place → plant → `elapsed` → harvest → loop | plant/harvest primitives, crop state |
+| **get a better pickaxe** | `compare_gear category=pickaxe`, proxied `craft_plan` | mine → smelt (`station running`, `have bars`) → craft → task success `gear_better{pickaxe, tool_tier, carried, start}` | equip is `llm=false` on the client ("not yet verified") |
 
 ### 2.6 Preemption, pause, resume, reports
-- **Preemption.** A chat-originated command that runs actions puts the board in `preempted`. No state is lost: the active step keeps its baseline and attempt. A running board run already stops when the player speaks (`Agent._player_spoke`).
-- **Auto-resume** follows Mindcraft's `self_prompter`, which stays ACTIVE and restarts after an idle cooldown. The board resumes when all of these hold:
-  - no player command for `resume_idle_s` (30 s);
-  - no brain action running;
-  - not following a player (`state.following`);
-  - no chat pending.
+**Preemption.** A chat-originated command that runs actions closes the step's segment, and the board goes to `preempted`. Board tools never preempt: they are in `NON_INTERRUPTING` (H7d).
 
-  The next run carries `resumed: true`, so he says he's going back to it.
-- **Pause and cancel** are the Controller model's choices, through `pause_board(reason)`, `resume_board(note)` and `cancel_task(id, reason)`. A `note` carries the player's answer to a help question into the Director's next call.
-- **`board()`** (read) lets the Controller answer "what are you up to?".
-- **Milestones.** The verified facts of a done step or loop (predicate detail, tallies, skill and gear deltas since the task began, elapsed time) ride in the next run's `just_completed`. A task's end is a `task_report` event.
-- **Never silent** (principle 7): if no model line comes back, a template from the same facts is said. The same holds for help questions and gap notices.
+**Auto-resume** (Mindcraft `self_prompter`) is allowed when all of these hold:
+- no player command for 30 s;
+- no brain action running;
+- not following;
+- no chat pending.
+
+It does not decide by itself (H4). The resume run is a normal Controller run whose event carries `resumed: true`, `preempted_by` (the command and its tools), the recent chat, and `paused_by: player` when the preempting tool was `stop`. Its instructions say: "If the player told you to stop, wait or stay, call `pause_board` instead of working". The model may decline. This gate applies **only** to auto-resume, never to a new `add_task(now)` (H6).
+
+**Tools:** `pause_board(reason)` (until `resume_board`), `resume_board(note)` (a player's answer reaches the next decision), `cancel_task(id, reason)`, `board()` (read).
+
+**Help (M1).** The help question is said once. If the asked player isn't in `players_online` or in range, it is said when he next appears (once). The task parks meanwhile.
+
+**Speech (M10)**
+- Milestone facts ride in `just_completed`, and the model voices them only if it chooses to. A silent milestone stays silent, and is logged and visible in `board()`.
+- Templates are used **only** for failures, gaps, help questions, budget waits and task ends (principle 7), through `Controller.say` (single voice).
 
 ### 2.7 Capability-gap log (`logs/state/capability_gaps.json`, all worlds)
-Each primitive gets one record:
-```
-{primitive, kind: action|perception, count, first_seen, last_seen, examples: [{task, step, why, workaround}], sources: [director|tool_failure|uncheckable]}
-```
+- **Record:** `{primitive, kind: action|perception, count, first_seen, last_seen, examples:[{task, step, why, workaround}], sources, tool_exists?}`.
 - **Sources:**
-  - the Director's `capability_gaps` (a plan needs a primitive that is not in the tool list);
-  - tool results in `Reason.CANT_YET`;
-  - predicates that evaluate `null`, which become perception gaps (e.g. `quests`).
-- **Voicing:** each new gap for a task becomes a `capability_gap` event. The Controller says it plainly once, with the workaround if any.
-- **Reading it:** `tools/board.py gaps` lists the gaps sorted by count. That list drives the next primitives we build.
+  - tool results `not_implemented` / `unknown_tool`;
+  - predicates that evaluate null (perception gaps, e.g. `quests`, `nearby_items` for a delivery out of sight);
+  - **seeded** from `caps.missing` and the manifest's `llm = false` tools (equip, unequip), plus the travel gaps of §2.5 (H9);
+  - the Director's `capability_gaps`, **cross-checked against the manifest** (M4). A primitive the body has is recorded as `source: director_claim, tool_exists: true`, not counted as a gap, and the Director is told in the repair round.
+- **Voicing:** each new gap for a task is voiced once (a `capability_gap` event, Controller voice, template fallback).
+- **Reading:** `tools/board.py gaps` sorts the gaps by count.
 
-### 2.8 Budget
-- `CallBudget(per_hour = DW_DIRECTOR_CALLS_PER_HOUR, default 20)` keeps a sliding one-hour window of call timestamps, persisted in `goals.json`, so a restart doesn't reset it.
-- When it is exhausted at a boundary, the board goes to `waiting_budget` until the oldest call leaves the window, and says so once ("I'll pick my next step in 6 minutes").
-- Loops and learned skills keep him working without Sonnet calls.
-- Haiku turns are not counted here.
-- **Estimate**, using the research doc's §6.7 prices (Sonnet $2/$10 per M):
-  - one Director call ≈ 8k tokens in (≈ 3k cached) + 0.8k out ≈ $0.02;
-  - 20 calls/h ≈ **$0.40/h**;
-  - plus Haiku runs, ~60–120/h ≈ $0.05/h.
+### 2.8 Budget (M5)
+- **Hourly window:** one **call = one LLM request** (research rounds, repairs, prepare, reflect and skill learning included). `HourlyWindow(per_hour = DW_DIRECTOR_CALLS_PER_HOUR, default 20)` is a sliding window persisted in `goals.json`.
+- **Daily cap:** `brain/budget.py` `Budget.allows("director")`, the shared $10/day cap from `tools.spend.spent_today_usd` (GOAL §3, commit 7ae4e23). At 100 % the Director stops: the board keeps running loops and learned skills (no Sonnet), and a help wait says so once.
+- **Kill switch:** `DW_DIRECTOR=0`, read on every tick.
+- **Priority when budget is short:** player-driven decisions (a new `add_task`, a help answer) first, then failures, then curriculum, reviews and reflection. Skill learning is the first thing dropped.
+- **A waiting player** hears the wait time once, computed from the window.
+- **Logging:** every call logs its usage with `component: "director"`, so `tools.spend` attributes it (`director_planner`).
+- **Estimate** (research doc §6.7 prices):
+  - a request is ~8–12k tokens in (≈ 3–4k cached) + ~0.8k out ≈ $0.02–0.03, so a decision of 1–5 requests ≈ $0.03–0.10;
+  - 20 requests/h ≈ **$0.5/h**, plus Haiku runs ≈ $0.1–0.2/h (~13k-token prompts, up to 5 turns);
+  - a 10-hour unattended day is ~$6–7. The daily cap still binds.
 
-### 2.9 Preparation before risky steps (Luis, 2026-10-25)
-- The Director marks a step `risk: fight | trip` (its own judgement). Before such a step activates, if the steps just before it are not already its prep, the Director gets one **prepare** call (budget-gated). That call carries the `combat_brief` facts:
-  - his power level vs the target's or region's;
-  - the target's weaknesses and resistances;
-  - his weapons and enchant spells matching those damage types;
-  - armour, buffs he can cast, food and drink on the hotbar and in the bag;
-  - the way back (known lodestones, places, the nearest bed or shelter).
+### 2.9 Preparation before risky steps
+- **When:** the Director marks a step `risk: fight | trip`. Before such a step activates, if the steps before it aren't already its prep, a **prepare** decision runs (budget-gated).
+- **Its facts:**
+  - his PL vs the target's or region's;
+  - weaknesses and resistances (M8: "unknown" until exported);
+  - his weapons and enchant spells by damage type;
+  - armour, castable buffs, food and drink;
+  - the way back (lodestones, places, bed or shelter).
 
-  The facts come from the body's `combat_brief` when it reports one; until then they are brain-side (§2.3 readiness).
-- The model chooses the prep. It may insert prep steps (swap gear, cast the matching enchant, move food to the hotbar, craft potions) and attach an **escape plan**: `escape` hints for the Controller plus an `abort_if` predicate (e.g. `any[vital{health below_pct 30}, not have{food}]`). It may also decide no prep is needed.
-- After every run, code checks `abort_if` on fresh state. If it holds, the step stops (`aborted: <detail>`), and the next run's event tells the Controller to carry out the escape hints. Then DEPS follows. Reflexes still own in-fight defence.
-- New core leaf for this: `vital {stat: health|hydration|sustenance|endurance|stamina, below_pct | at_least_pct}`. It reads the flat state fields and their `*_max`.
+  These come from the body's `combat_brief` once it reports one, else brain-side.
+- **The model chooses.** It may insert prep steps (swap gear, cast the matching enchant, move food to the hotbar, craft potions), attach `escape` hints and an `abort_if` predicate (e.g. `any[vital{health below_pct 30}, not have{food}]`), or decide no prep is needed.
+- **Abort:** after each run, `abort_if` is checked on fresh state. If it holds, the step goes to `aborted`, the next run carries out the escape hints, and then DEPS follows. Reflexes still own in-fight defence.
 
-### 2.10 Efficiency reflection (milestones)
-- **Rates.** At every step or loop end, code computes the verified rate from the step's baseline → fresh state: items per minute (inventory or tally deltas) and XP per minute (`state.skills` xp deltas). It keys the rate by (item or skill, place or nearest known spot), and keeps the best rate seen per key in `efficiency.json` (per world).
-- **Facts for the Director:** rate now, best seen, and the previous loops' trend. Alternatives come from data:
-  - castable spells with their own `use_when` text and role;
-  - other known spots for the same item (map memory) with travel estimates;
-  - lodestones known near them;
-  - better tools for the job (`compare_gear` on the tool category the step used).
+### 2.10 Efficiency reflection
+- **Rates:** at each step or loop end, the verified rate (items/min from tallies, XP/min from skill XP) is computed per key (item or skill, plus spot). The best rate seen per key is kept.
+- **Alternatives offered** (from data):
+  - castable spells with their own `use_when` text;
+  - other known spots (map memory) with travel estimates;
+  - lodestones;
+  - better tools (`compare_gear`).
 
-  Code never says which alternative helps (it can't know that Rocksplosion speeds up mining); the model reads the spell text.
-- **When it is called:** a **reflect** call is triggered at a loop end when the rate fell below 70 % of the best for the key, or every 3 loops. Both are budget-gated. Otherwise the facts ride along in the next call that happens anyway.
-- **Optimisation trend log.** Each reflection appends one line to `logs/state/worlds/<w>/efficiency.jsonl`: `{ts, task, step, key, rate, best, alternatives_offered, change: <what the model changed> | null}`. The benchmark reads it.
+  Code never decides which helps.
+- **When:** a **reflect** decision runs at a loop end when the rate fell below 70 % of the best for the key, or every 3 loops (budget-gated). Otherwise the facts ride along in the next decision.
+- **Trend log:** each reflection appends `{ts, task, step, key, rate, best, alternatives_offered, change}` to `logs/state/worlds/<w>/efficiency.jsonl`, for the benchmark's optimisation-trend score.
 
 ### 2.11 Knowledge-gap check (when to use the wiki)
-- **Every Director plan states its facts.** The output gets `facts: [{fact, for_step, status: known | unknown, source: game_data | perception | memory | wiki, confidence}]`. Examples: a recipe, where a resource is, a creature's weakness, a quest step.
-- **Unknown facts get one nudge.** If facts are unknown and research rounds are left, the loop answers once with the list: "These facts are unknown: look them up, or say why the plan doesn't need them". This is information, not a veto; the model may commit anyway with its reason.
-- **Lookup order:** `recall` (the cache) → game data (`recipe_tree`, `makers`, `compare_gear`, map memory) → `lookup` (game docs first, then wiki: knowledge.py's tiering).
-- **The cache.** `KnowledgeMemory` (per world, `knowledge_memory.json`) stores `{key, value, source, confidence, ts, build}`:
-  - game data and in-game observation are `high` and override the wiki ("coal mined at [x,y,z]" beats "coal is found in Fellhollow");
-  - wiki is `medium`;
-  - a fact refuted in game is marked `refuted` (DECKARD's idea).
+- **Each plan states its facts:** `{fact, for_step, status: known|unknown, source: game_data|perception|memory|wiki, confidence}`.
+- **Unknowns get one nudge.** If facts are unknown and rounds are left, the loop answers once: "These facts are unknown: look them up, or say why the plan doesn't need them". Information, not a veto.
+- **Order:** `recall` → game data (`craft_plan`, `compare_gear`, map memory) → `lookup` (game docs, then wiki).
+- **The cache.** `KnowledgeMemory` stores `{key, value, source, confidence, ts, build, refuted?}`:
+  - game data and in-game observation are `high` and override the wiki;
+  - a wiki fact refuted in game (e.g. no coal where it said) is marked refuted (DECKARD).
+- **Lookup logging:** each lookup is logged `needed: true|false` (did it match a listed unknown fact?), so the benchmark can score needed vs needless lookups.
 
-  Locations also go into map memory.
-- **Lookups are logged** with `needed: true` when the query matches a fact the plan had listed as unknown, otherwise `false`. The benchmark can then score needed vs needless lookups. Cached facts make repeat lookups needless by construction.
+### 2.12 Map memory and static map data (H9, L5, M2e)
+- **Sightings:** what a `get_state` showed (stations, resource nodes by item, creatures with PL, lodestones, chests, beds), each with position, count and last seen.
+- **Negative evidence:** `gather` results of `nothing_in_range` or depleted at a position, with the time. These spots rank lower, and the help question can cite them truthfully.
+- **Writes** are debounced: every 30 s, or on change.
+- **Static map data already exists in the game** (DISCOVERIES "Lodestones, map regions and travel"):
+  - 31 `BP_MapRegion_C` actors (RegionName, PowerLevel, BoundarySpline);
+  - `AGameplayObjectRegistry.Lodestones` (Location, Identifier);
+  - 558 landmarks.
 
-## 3. Precedent (search-before-building; searches 2026-10-25)
+  A generated `data/regions_<build>.json` (an item for the capability/skills agent: a read-only dump, like the recipe dump) would give region positions and PL for "go to Coalridge Pass". Map memory loads it when present. Until then "region positions" and "long-distance travel" are seeded gaps.
+
+## 3. Precedent
 | Need | Found | Decision |
 |---|---|---|
-| Director/Controller split | PIANO / Project Sid: concurrent modules (arXiv 2411.00114). GITM: goal → sub-goals → structured actions (github.com/OpenGVLab/GITM). HiMAC: planner/executor (arXiv 2603.00977). Odyssey: planner-actor-critic (arXiv 2407.15325) | **adapt**: our Controller is the actor, the Director the planner |
-| Task tree with working memory | ReAcTree: an agent node per subgoal, control-flow nodes (sequence/fallback), shared working memory, episodic examples (arXiv 2511.02424, AAMAS 2026) | **adapt**: a board of tasks → step queue with loop groups; map memory as working memory; the skill library as episodic memory. No parallel nodes, because there is one pawn |
-| Verified subgoals | Voyager self-verification (arXiv 2305.16291). StructAgent: "verifier-backed state transitions", Minecraft subgoals (VERB, ITEM, n) checked on inventory (arXiv 2607.11388). Neuro-symbolic dual memory: symbolic checks plus neural progress (arXiv 2604.02734) | **adapt**: a declarative predicate DSL evaluated by code. No generated code (the skill library's L3 rule) |
-| Curriculum | Voyager's automatic curriculum (completed/failed lists, "not too hard"); OMNI interestingness (arXiv 2306.01711) | **adapt** Voyager's inputs; code gives facts, the model picks |
-| Replanning | DEPS: describe/explain/plan/select (arXiv 2302.01560). Metagent-P: plan-verify-execute-reflect, fewer replans (ACL Findings 2025) | **reuse** the Planner's DEPS pattern. The caps are ours; no source found sets one |
-| Self-directed loop, interruption | Mindcraft `src/agent/self_prompter.js`: ACTIVE/PAUSED/STOPPED, stops on a user command, auto-restarts after 2 s idle, stops after 3 replies without a command (github.com/kolbytn/mindcraft). MineCollab (arXiv 2504.17950) | **adapt**: preempted/paused states and idle auto-resume, with our no-progress rule in place of "no command ×3" |
-| Recipe chaining | Plan4MC, Mindcraft `getDetailedCraftingPlan`, GOAP, GTPyhop (research doc D4) | **build small**, as decided in D4. The Lua `craft_plan` stays the Controller's live tool |
-| Board/goal-tree library | py_trees and Dendron (LLM behaviour trees): neither persists or resumes a run. LangGraph checkpoints (rejected in D1: we keep our own harness) | **build**: pydantic models plus atomic JSON, like `task_tree.json`; a CLI inbox file, so there is one writer (principle 9) |
-| Hourly budget | `limits` (moving window; memory/redis backends); `pyrate-limiter` (leaky bucket; redis to persist) | **build**, ~20 lines: neither persists to a file, and we need one counter |
-| Gap log | Voyager's/Odyssey's skill-library growth comes from failures; no ready tool | **build**: a JSON counter file |
+| Director/Controller split | [PIANO](https://arxiv.org/abs/2411.00114) concurrent modules; [GITM](https://github.com/OpenGVLab/GITM) goal → sub-goals → actions; [HiMAC](https://arxiv.org/abs/2603.00977); [Odyssey](https://arxiv.org/abs/2407.15325) planner-actor-critic | **adapt**: our Controller is the actor, the Director the planner |
+| Task tree + working memory | [ReAcTree](https://arxiv.org/abs/2511.02424): agent node per subgoal, control-flow nodes, working and episodic memory | **adapt**: board → steps with loop groups; map/knowledge memory = working memory; skill library = episodic memory |
+| Verified subgoals | [Voyager](https://arxiv.org/abs/2305.16291) self-verification; [StructAgent](https://arxiv.org/abs/2607.11388) verifier-backed transitions, (VERB, ITEM, n) inventory checks; [dual memory](https://arxiv.org/abs/2604.02734) symbolic checks; [MineDojo](https://docs.minedojo.org/sections/customization/task.html) programmatic tasks (all targets must hold); [Crafter](https://pypi.org/project/crafter) achievements | **build** the domain DSL: three-valued null, baselines/segments, tallies, catalog name resolution and measures have no counterpart in JsonLogic/CEL |
+| Rule evaluators | [JsonLogic](https://github.com/delta10/json-logic-py) (2017 port, two-valued), [python-jsonlogic](https://pypi.org/project/python-jsonlogic) (typed); CEL (search found no Python binding to evaluate) | **not adopted**: our leaves are domain functions, and the combinator layer is ~15 lines |
+| Curriculum | Voyager; [OMNI](https://arxiv.org/abs/2306.01711) | **adapt** Voyager's inputs; code gives facts, the model picks |
+| Replanning | [DEPS](https://arxiv.org/abs/2302.01560); [Metagent-P](https://preview.aclanthology.org/new-sigs/2025.findings-acl.1169/) | **reuse** the Planner's DEPS pattern through `json_decision`. The caps are ours (no source sets one) |
+| Self-directed loop | [Mindcraft self_prompter](https://github.com/kolbytn/mindcraft/blob/main/src/agent/self_prompter.js): ACTIVE/PAUSED/STOPPED, restart after 2 s idle; [MineCollab](https://arxiv.org/abs/2504.17950) | **adapt**, with a resume the model may decline (H4) |
+| Recipe chaining | `crafting.lua` `plan_tree` (ours, live data, `gather_for`) | **reuse** through the proxied `craft_plan` (H7b) |
+| Board persistence | [py_trees](https://pypi.org/project/py-trees/), [Dendron](https://pypi.org/project/dendron/): no persisted resume; LangGraph checkpoints (rejected in D1) | **build**: pydantic + atomic JSON |
+| Hourly window | [limits](https://limits.readthedocs.io/) (moving window; no file store); [pyrate-limiter](https://pyratelimiter.readthedocs.io/en/stable/modules/pyrate_limiter.limiter_factory.html) **does** persist (`SQLiteBucket`) | **build** ~20 lines: the timestamps already live in `goals.json`'s single atomic write, so a second store (SQLite) would split board state across two files. The daily cap **reuses** `brain/budget.py` |
 
 ## Search record
-Queries (2026-10-25): "LLM agent open-ended game long-horizon goal tree curriculum 2026 arXiv Minecraft"; "ReAcTree hierarchical LLM agent tree subgoal working memory"; "Mindcraft self-guided play self_prompt"; "2026 arXiv LLM agent automatic curriculum open-ended embodied goal feasibility"; "LLM game agent hierarchical planner executor long-horizon 2026 Minecraft subgoal verification replanning budget"; "Python library persistent goal tree task tree LLM agent behavior tree py_trees resume"; "pyrate-limiter sliding window rate limit python persistent per hour". Searches with nothing usable: a library for a persisted/resumable LLM goal tree, and any published cap on replans.
-- Voyager: https://arxiv.org/abs/2305.16291
-- DEPS: https://arxiv.org/abs/2302.01560
-- GITM: https://github.com/OpenGVLab/GITM
-- PIANO / Project Sid: https://arxiv.org/abs/2411.00114
-- ReAcTree (AAMAS 2026): https://arxiv.org/abs/2511.02424
-- Mindcraft self-prompter: https://github.com/kolbytn/mindcraft/blob/main/src/agent/self_prompter.js
-- MineCollab: https://arxiv.org/abs/2504.17950
-- StructAgent: https://arxiv.org/abs/2607.11388
-- Neuro-symbolic dual memory: https://arxiv.org/abs/2604.02734
-- HiMAC: https://arxiv.org/abs/2603.00977
-- Odyssey: https://arxiv.org/abs/2407.15325
-- Metagent-P: https://preview.aclanthology.org/new-sigs/2025.findings-acl.1169/
-- OMNI: https://arxiv.org/abs/2306.01711
-- py_trees: https://pypi.org/project/py-trees/ · Dendron: https://pypi.org/project/dendron/
-- limits: https://limits.readthedocs.io/ · pyrate-limiter: https://pypi.org/project/pyrate-limiter/
+Queries (2026-10-25):
+- "LLM agent open-ended game long-horizon goal tree curriculum 2026 arXiv Minecraft"
+- "ReAcTree hierarchical LLM agent tree subgoal working memory"
+- "Mindcraft self-guided play self_prompt"
+- "2026 arXiv LLM agent automatic curriculum open-ended embodied goal feasibility"
+- "LLM game agent hierarchical planner executor long-horizon 2026 Minecraft subgoal verification replanning budget"
+- "Python library persistent goal tree task tree LLM agent behavior tree py_trees resume"
+- "pyrate-limiter sliding window rate limit python persistent per hour"
+- "JsonLogic python json-logic-py evaluate rules CEL common expression language python"
+- "MineDojo programmatic tasks success criteria inventory check Crafter achievements success"
+
+Found nothing for: a persisted/resumable LLM goal-tree library; a published replan cap; a CEL evaluator for Python (not found by this search).
+
+Sources:
+- https://arxiv.org/abs/2305.16291 · https://arxiv.org/abs/2302.01560 · https://github.com/OpenGVLab/GITM · https://arxiv.org/abs/2411.00114
+- https://arxiv.org/abs/2511.02424 · https://github.com/kolbytn/mindcraft/blob/main/src/agent/self_prompter.js · https://arxiv.org/abs/2504.17950
+- https://arxiv.org/abs/2607.11388 · https://arxiv.org/abs/2604.02734 · https://arxiv.org/abs/2603.00977 · https://arxiv.org/abs/2407.15325
+- https://preview.aclanthology.org/new-sigs/2025.findings-acl.1169/ · https://arxiv.org/abs/2306.01711
+- https://pypi.org/project/py-trees/ · https://pypi.org/project/dendron/
+- https://limits.readthedocs.io/ · https://pyratelimiter.readthedocs.io/en/stable/modules/pyrate_limiter.limiter_factory.html
+- https://github.com/delta10/json-logic-py · https://pypi.org/project/python-jsonlogic
+- https://docs.minedojo.org/sections/customization/task.html · https://pypi.org/project/crafter
 
 ## 4. Generality check
-- **No names in code.** There is no item, creature, station, skill, quest, region or place name in code. Those come from:
-  - `data/*_<build>.json`: items, stats, categories, damage types, recipes, stations, XP;
-  - `state.skills`;
-  - map memory and `places.json`;
-  - the wiki through `lookup`.
-
-  "Better pickaxe", "farm X", "gather coal" and "level Fishing" use the same code; only the model's steps and the data differ. The held-out tests (§7) push non-pickaxe jobs through the same code.
-- **Language is the model's job.** The Controller model decides whether a line adds, pauses or cancels a task. Code never reads the player's words.
+- **No names in code.** No item, creature, station, skill, quest, region or place names. These come from `data/*_<build>.json`, `state`, map/knowledge memory, `places.json`, the wiki and the client's planner. The held-out jobs (§7) run through the same code.
+- **No example lines in prompts.** The example lines in this note never go into brain/ prompt strings (`tests/test_overfit.py`).
+- **Language is the model's job.** The Controller decides whether a line adds, pauses, cancels or declines a resume. Code never reads the player's words.
 - **What code decides:**
-  - whether a predicate passed, failed or can't be checked (verification);
-  - re-queueing a loop while its `until` fails, a rule the model wrote;
-  - the attempt, replan and loop caps, and the hourly budget (Luis's cost rule);
-  - when to auto-resume, from state (idle, not following).
+  - whether a predicate passed, failed or can't be checked;
+  - segment and tally accounting;
+  - re-queueing a loop while its own `until` fails;
+  - the caps (attempts, replans, task-level progress, loops, prerequisite depth and count);
+  - the hourly window and daily cap (Luis's cost rule);
+  - when an auto-resume *run* is offered (the model may decline it).
 
-  It never changes the model's steps, predicates or tasks. The one exception: an invalid predicate schema goes back to the model with the reason.
+  It never changes the model's steps or predicates. Exceptions: `task.success` is immutable (H1, verification integrity), and invalid or trivial predicates go back to the model as information.
 
 ## 5. Principles touched
-- **Central to the design:** #5 verified state (predicates, tallies), #7 communication (milestones, gaps, help), #8 remember (map memory, skills, gaps).
-- **#6 single voice: kept.** The Director never speaks. Its facts and questions reach chat through the Controller's runs; templates are used only when the model says nothing.
-- **#4 two speeds:** Sonnet runs only at boundaries. The only timer is the budget-gated 5-min review, which autonomy-plan §4 asks for.
-- **Luis's OK needed?** No principle is bent. He should nod to the default budget (20 calls/h, ~$0.40/h) before the first long live run.
+- **Central:** #5 (immutable, non-trivial, code-evaluated success; segments), #7 (failures, gaps and help always said), #8 (map/knowledge memory, skills, gaps).
+- **#6 single voice: kept.** The Director never speaks.
+- **#2:** no vetoes. The resume run lets the model honour "stop" (H4). Trivial predicates are information.
+- **Luis's OK:** the budget defaults (20 requests/h, inside the $10/day cap) before the first long live run.
 
-## 6. Interaction with the existing Planner
-- `start_goal` (Planner, a one-shot task list) and `add_task` overlap.
-- Proposal: with the Director on, `start_goal` is no longer offered, and `add_task` covers it. The Director plans short jobs in one call, just as the Planner did. This keeps one way to hand off work, so Haiku has fewer near-duplicate tools.
-- Check it with a ≤ 15-call Haiku eval before the live switch.
+## 6. The Planner and `start_goal` (M7, main's decision)
+- **Who runs them:** the Director subsumes the Planner.
+- **When:** while the Director is on, `start_goal` is hidden, after a ≤ 15-call Haiku eval (stated before running) that shows `add_task` gets chosen for multi-step jobs.
+- **How `run_skill` runs:** it becomes a step action, and its expansion runs inside `run_directed`.
+- **What is retired:** `Agent.run_goal`, `task_tree.json` and `Planner.replan`, once the Director is on live.
+- **Shared code:** `json_decision` (in `brain/llm_json.py`) replaces the copy of `Planner._ask`.
 
-## 7. Acceptance tests (offline: GearWorld mock + FakeLLM scripts; no real model calls)
-1. **"get a better pickaxe"** (autonomy ladder 1). Claude starts holding a Stone Pickaxe (catalog tool_tier 1). The Director researches (`recipe_tree`) and plans: mine copper and tin → smelt Bronze Bars at the Furnace → craft the Bronze Pickaxe at the Blacksmith's Bench → equip. Each step is done only by its predicate on fresh state. The task ends on `gear_better` from `item_stats` (tier 1 → 3). Milestones reach chat via the Controller, and `goals.json` shows the tree.
-2. **Deliberate failure → replan → ask for help.** No tin is in range, and the Controller reports blocked. The fake DEPS replan sends him to another remembered place; that fails again. The caps are hit, one specific help question is said, and the status is `waiting_help`. Then `resume_board(note)` passes the note to the Director.
-3. **Trips.** A loop group with a bag-full predicate: 3 loops, verified tallies, then it stops at `tally ≥ N`. A second case stops after 2 zero-gain loops.
-4. **Capability gap.** The Director plans `deposit`, which the body lacks. The gap is logged, told once and listed by `tools/board.py gaps`. A `quest` predicate evaluates `null` and becomes a perception gap; the step is never done.
-5. **Board.**
-   - A player `add_task` with `when=now` preempts the current task, which keeps its state.
-   - A CLI inbox `add` is ingested.
-   - A self-added prerequisite task is created from the readiness facts and runs first.
-   - `board()` answers status.
-6. **Claim vs state:** `report_step(done)` with a failing predicate is not done.
-7. **Preemption:**
-   - a chat command → preempted;
-   - no runs while following;
-   - 30 s idle → resumed with `resumed: true`;
-   - `pause_board` holds until `resume_board`;
-   - `cancel_task` ends the task.
-8. **Restart:** a new Director over the same `goals.json` continues the active step with its baseline and tallies.
-9. **Budget:** the 21st call in an hour is not made, and the board goes to `waiting_budget`. The window slides on a fake clock.
-10. **Prep, reflection, knowledge gaps:** a risky step gets a prepare call whose prep steps run first, and `abort_if` stops a run on a vital; a rate drop at a loop end triggers a reflect call and logs a trend line; a plan with unknown facts gets the one nudge, cached facts are recalled without a lookup, and lookups are logged needed/needless.
-11. **Unit tests:**
-    - every predicate leaf, including `null`;
-    - recipe tree: the Bronze Pickaxe chain from real data, the ledger and the alternatives;
-    - map memory;
-    - readiness and curriculum facts;
-    - the gap log.
-12. **Held-out generalisation:** a "farm X from creature Y" job and a skill-level job through the same code. `test_principles.py` stays green.
-- **Scenario and live:** after main wires the hooks, run ladder 1 on the dev server. Then spend ≤ 15 real Sonnet calls (stated beforehand) on 3 held-out jobs.
+## 7. Acceptance tests (offline: GearWorld + FakeLLM; cassettes later)
+1. **"get a better pickaxe"** (ladder 1, a player task): proxied `craft_plan` → mine → smelt (`station`) → craft → task success `gear_better` (tier 1 → 3). The H2 sequence (a held sword at the start, then switching to the Stone Pickaxe) is **not** done.
+2. **Failure → replan → help:** no tin. The Controller reports blocked → DEPS to a remembered place → fails again → caps → one specific help question citing the depleted spots (negative evidence) → the task parks, and the next queued task runs. `resume_board(note)` reaches the Director.
+3. **The five GOAL T3 jobs** (H12b), each ending done or in an honest `waiting_help` with the right gap:
+   - coal: a world with no map memory, so travel and region gaps plus the ask-to-lead workaround; then a world with a known spot → 3 trips → `tally`;
+   - farm-drop: prepare uses the readiness facts, plus `abort_if` on a vital;
+   - a quest: null predicate → perception gap → parked, with an honest question;
+   - gear progression under an open task, on his own initiative (a self-added prerequisite);
+   - desert weed: a place from `places.json` → plant gap → said once.
+4. **Negative controls** (H12a): a do-nothing Controller; a claims-only Controller (always `report_step(done)` plus "done!"); a Director writing trivially-true or weakened predicates (flagged `trivial`; a weakened `task.success` is rejected as immutable). All leave tasks not done.
+5. **Must-not-fake held-out jobs** (H12d; the Eval agent's generator holds the real held-out set): "gather 20 logs and 10 stone, then bring them to me" (`lost` + `on_ground` near the player, null when he's out of sight); "wait for me at the lodestone" (`near` + `elapsed`); "keep the furnace going" (`station running`). Each ends done with a real predicate, or with a logged perception gap.
+6. **Interleavings** (H12e):
+   - "stop" → 30 s → the resume run's model calls `pause_board` → no movement;
+   - an unaddressed friend's chat mid-run doesn't count as no-progress;
+   - cancel while Sonnet thinks → the stale result is discarded;
+   - `add_task(now)` while following starts at once;
+   - preempted activity (Luis gives ore) doesn't count for `gained`.
+7. **Persistence:** a restart continues the active step with its segments, tallies and kills. A pending decision is re-issued (M2b). A corrupt `goals.json` is quarantined (M2a). CLI ingest survives a crash without duplicates (M2d). A Windows `PermissionError` on replace is retried (M2c).
+8. **Budget:** the 21st request in an hour isn't made; the daily cap stops the Director; the player hears the wait once; usage is logged as `director`.
+9. **Prep, reflection, knowledge:** a prepare decision's prep steps run first; `abort_if` stops a run; a rate drop triggers reflect and a trend line; unknown facts get the one nudge; recalled facts need no lookup; lookups are logged needed/needless.
+10. **Thread safety:** the worker sees snapshots only; a hung decision times out; skill learning on the worker uses its own library instance.
+11. **Unit tests:** predicates (built, 55 tests), segments/tallies/my_drops, map memory with negative evidence, the gap cross-check against the manifest, the prerequisite caps.
+12. **Cassettes** (H12c): real Sonnet decisions for the five T3 jobs, recorded once (≤ 15 calls, stated beforehand), then replayed in CI.
 
-## 8. Hooks main needs in files I don't own (small)
-1. `Agent.step()`: call `if self.director: self.director.tick()` after `pump()`.
-2. `Agent._run_turn`: dispatch the board tool names (`add_task`, `board`, `pause_board`, `resume_board`, `cancel_task`, `report_step`) to `director.handle_tool(name, args, player)`, as `remember` is dispatched today.
-3. `Controller._tool_list`: append `director.tool_schemas()`, and add `board` to `read_tools`. Drop `start_goal` while the Director is on (§6).
-4. `Controller.context`:
-   - `board = director.brief()`: the current task and step, progress and the queue, so normal chat knows them;
-   - in board runs, learned-skill retrieval uses the step title.
-5. Persona: two or three lines on `board` and the `board_step` / `task_report` / `capability_gap` events. Interim: each event carries its own instructions.
-6. A public `Agent.run_directed(event) -> list[action records]` and an `Agent.on_command` notification. Interim: `AgentAdapter` calls `Agent._command(..., body_events=[event])` and wraps `Agent._run_task` per instance to record outcomes.
-7. `Agent._review_tick` busy rule: a board run in progress counts as busy. Between runs, reviews (vitals, night) stay allowed.
-8. Map-memory feed: `broker.observe(state)` also calls `director.observe(state)`. Interim: the Director observes its own reads.
-9. `run_live.py`: build the Director with `planner_llm`, `open_knowledge`, the world state dir and the skill library. Settings: `DW_DIRECTOR=1`, `DW_DIRECTOR_CALLS_PER_HOUR`.
+## 8. Hooks in files I don't own (approved by main: H7e, NON_INTERRUPTING/read_tools, M6, the tick in pump; exact diff sent to main)
+1. `Agent.pump()` (end): `if self.director: self.director.tick()`.
+2. `Agent.run_directed(event: dict, player: str) -> dict`: runs one body-initiated Controller request with the event as `body_events=[event]`. It executes a `run_skill` queued in that run before returning, and returns `{actions: [records], ended: normal|chat|interrupted|error, said: [lines]}`. Action records come from `_run_task`.
+3. `Agent._run_turn`: board tool names go to `director.handle_tool(name, args, player)`, as `remember` does.
+4. `Agent._activity`: forward every `Activity` to `director.observe_activity(event)` (M6).
+5. `Agent._command`: after a chat-originated command whose decision ran actions, call `director.on_player_command(event, tools_run)`.
+6. `Controller`:
+   - board tool schemas appended from `director.tool_schemas()`;
+   - `board` added to `read_tools`;
+   - the board tools added to `NON_INTERRUPTING`;
+   - `start_goal` hidden while the Director is on (after the eval, §6);
+   - context `board = director.brief()`;
+   - learned-skill retrieval in `board_step` runs uses the step title.
+7. Persona: three lines on `board`, the `board_step` / `capability_gap` / `task_report` events and the resume rule. Each event also carries its own instructions.
+8. `Agent._review_tick`: a board run in progress counts as busy; reviews between runs stay allowed.
+9. `run_live.py`: build the Director (`planner_llm`, `open_knowledge`, the world state dir, the skill library dir, caps, the shared `Budget`); `DW_DIRECTOR=1`, `DW_DIRECTOR_CALLS_PER_HOUR`.
+10. **Main (optional):** narrow `_player_spoke` to addressed lines (H7c).
 
 ## 9. Coordination
-- **Eval agent (agreed):** `brain/predicates.py` is the shared format (`docs/design/eval-benchmark.md` §4). I own the module; the benchmark adds its leaves through `register()` from `evals/bench/leaves.py`. `None` never counts as a pass (the benchmark reports it as unverifiable). `quest` will read `state.quests [{name, stage, completed}]` once the body reports it.
-- **Skills agent:** equip (now `llm=false`, "not yet verified"); `bag` and `quests` perception; the gap log as their backlog.
+- **Eval agent (a65fe5f1906cd7879):**
+  - `brain/predicates.py` is the shared format; I own it, and the benchmark adds leaves through `register()`.
+  - Core gained `lost`, `on_ground`, `elapsed`, `station`, `vital` and `measures`; told 2026-10-25.
+  - Null is "unverifiable" and never a pass.
+- **Skills/capability agents:**
+  - verify equip (`llm=false`);
+  - export creature weaknesses and learned outcomes (M8);
+  - `combat_brief`;
+  - `quests` perception;
+  - a `data/regions_<build>.json` dump (§2.12);
+  - instance stats (L3);
+  - the gap log as their backlog.
+- **Observability agent:** `tools.spend.spent_today_usd` via `brain/budget.py`. Director calls log `component: "director"`.
 
 ## 10. Unverified / risks
-- Equipping tools on the client is unverified (see §9). Live ladder 1 needs it.
-- Gathering XP is not in the data (only recipe XP). Skill-level steps rely on `state.skills` deltas and the wiki.
-- The ore-rock → item mapping lives in `gather_profiles.lua`. The Director names items; the Controller maps them to `gather` resources with its own tools.
-- Wiki drop tables, habitats and quest steps are community text. The Director is told so, and in-game evidence wins (DECKARD's idea: wiki edges are hypotheses).
-- Long Controller runs block the agent loop, as today (body actions are synchronous). Only the Director's thinking is off-loop.
+- Equip of tools on the client (needed for live ladder 1).
+- Gathering XP is not in data. Skill steps rely on `state.skills` XP (reported live) and the wiki.
+- Wiki drop tables, habitats and quest steps are community text. In-game evidence wins, and refuted facts are marked.
+- The proxied `craft_plan` waits for the bridge between runs. During a long run it answers "body busy", and the Director plans with what it has.
+- Long Controller runs block the agent loop, as today. Only the Director's thinking is off-loop.
+
+## 11. Review resolution (docs/reviews/2026-10-25-director-review.md)
+| Finding | Where |
+|---|---|
+| H1 the model defines done | §2.1 "Success: immutable, never trivial", §7.4 |
+| H2 gear_better false pass | **fixed in code**: `predicates._gear_better` (reference = held or carried at the baseline; a missing baseline inventory gives null). Tests: `test_h2_switching_to_a_pickaxe_he_already_carried_is_not_better` |
+| H3 tally/baseline semantics | §2.1 segments, positive tallies, `my_drops`, kills |
+| H4 auto-resume overrides "stop" | §2.6 (the resume run may decline), §7.6 |
+| H5 endless empty-queue loop | §2.1 task-level progress rule; zero-gain loops count as replans |
+| H6 `add_task(now)` while following | §2.1 Order, §2.6 |
+| H7 races, `run_directed`, chat-cut runs, NON_INTERRUPTING, recipes | §2.3 versioning, §2.4, §8, the "Not built" note in §2 |
+| H8 levelling progress | **fixed in code**: XP `measures` + `grew()`. Test: `test_h8_xp_is_a_measure_...`; §2.4 no-progress rule |
+| H9 travel to unseen places | §2.5, §2.7 seeded gaps, §2.12 game map data |
+| H10 prerequisite growth | §2.1 Who adds tasks (parent, depth ≤ 2, ≤ 3 live), §2.3 prompt shows every task |
+| H11 thread safety | §2.3 Threading, §2.4 skill library instance |
+| H12 acceptance | §7.3–7.6, §7.12 |
+| M1 open tasks, help blocking | §2.1 Order, §2.6 Help |
+| M2 persistence | §2 board.py row, §2.1 inbox offset / `awaiting_decision`, §7.7 |
+| M3 null at activation | §2.1, §2.4 Activate |
+| M4 claimed gaps | §2.7 cross-check, seeding, `unknown_skill` excluded |
+| M5 budget | §2.8 |
+| M6 `killed` feed | §8.4, §2.1 kills |
+| M7 two task systems | §6, `brain/llm_json.py`, §2.4 skill conversion |
+| M8 readiness data | §2.3 Readiness, §9 |
+| M9 bag is slots | **fixed in code**: `SCHEMA_DOC`; §2.1 `inventory_full` ends the step |
+| M10 templates | §2.6 Speech |
+| L1 stale text | this revision |
+| L2 `killed` substring | **fixed in code**: whole words (`situation.tokens`) + `target_id`. Test: `test_l2_killed_matches_whole_words_not_substrings` |
+| L3 instance stats | §2.2 gaps, §9 |
+| L4 search record | §3, Search record (JsonLogic, CEL, MineDojo, Crafter; pyrate-limiter corrected; links) |
+| L5 negative evidence | §2.12 |
