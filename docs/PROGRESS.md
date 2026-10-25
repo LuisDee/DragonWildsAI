@@ -19,3 +19,5 @@
 - **Bridge:** `mod/scripts/bridge.lua` runs inside the live server. Python `BridgeClient` pinged it 10 times: median 166 ms, max 187 ms (the poll interval is 150 ms). The in-game `!ping` gate is still open: it needs chat hooks and Luis.
 - **Track M:** 38 tests pass (`.\.venv\Scripts\python.exe -m pytest tests -q`), including the Lua bridge tests (Lua 5.4.5). Evals are written but have not been run, so no API spend.
 - Windows Update: active hours 08–02, no auto-reboot while a user is logged on.
+- **PHASE 1 GATE PASSED (2026-10-25 12:18 UTC):** Luis joined `CompanionDev` from GeForce Now. Server log: `Login request ... Name=luisdeburnaybastos userId: RedpointEOS:...`, then `Join succeeded: luisdeburnaybastos`. GFN can reach a self-hosted server.
+  - The `PlayerController:ClientRestart` hook did not fire on join; Dragonwilds' spawn and possession path differs, so hooks will be based on the dump.

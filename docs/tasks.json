@@ -25,8 +25,8 @@
       "id": "P1.GATE",
       "phase": 1,
       "title": "GATE: Luis joins the world from GFN",
-      "status": "todo",
-      "passes_test": false
+      "status": "done",
+      "passes_test": true
     },
     {
       "id": "P2.1",
