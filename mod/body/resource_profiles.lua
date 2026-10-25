@@ -8,11 +8,11 @@
 --                (the live gate on the resource, BP_DamageModifier_SpecificWeapon_C.RequiredTier, wins)
 --   foliage    = true: the resource lives as foliage until converted (trees), sense.convert_foliage
 --   root       = the stage SCAN looks for: {class (FindAllOf short class), match (Lua pattern on the
---                class word), exclude, filter (sense.FILTERS), attack = "primary" | "special", reach_cm}
+--                class word), exclude, filter (sense.FILTERS), attack = "primary" | "special", radius_cm (the target's collision radius, added to the attack's reach)}
 --   settle     = optional {class, match, max_ms}: wait while this transient actor exists near the site
 --                (the toppling felled tree that turns into log pieces)
 --   children   = stages worked at the site after the root is broken, in priority order:
---                {name, class, match, filter, attack, reach_cm, bonus = true (optional, args.bonus=false
+--                {name, class, match, filter, attack, radius_cm, bonus = true (optional, args.bonus=false
 --                skips it), at_root = true (the root actor itself, e.g. the stump)}
 --   site_radius_cm / collect_radius_cm = how far from the root the children / the drops are looked for
 --   verified   = which parts were seen in game (DISCOVERIES); false = from names only
@@ -61,14 +61,14 @@ local function tree(species, item_id, min_tier, aliases, verified)
     return {
         item = WOOD .. item_id .. "." .. item_id, aliases = aliases, tool = "axe", min_tier = min_tier, foliage = true,
         root = { class = "FellableTree", match = "Tree_" .. species, exclude = "Sapling", filter = "standing",
-                 attack = "primary", reach_cm = 160 },
+                 attack = "primary", radius_cm = 30 },
         settle = { class = "FelledTree", match = "FelledTree_" .. species, max_ms = 10000 },
         children = {
             { name = "splittable", class = "SplittableTreeLog", match = "SplittableLog_" .. species, filter = "alive",
-              attack = "special", reach_cm = 170 },
-            { name = "log", class = "TreeLog", match = "^BP_Log_" .. species, filter = "alive", attack = "special", reach_cm = 170 },
+              attack = "special", radius_cm = 25 },
+            { name = "log", class = "TreeLog", match = "^BP_Log_" .. species, filter = "alive", attack = "special", radius_cm = 25 },
             { name = "stump", class = "FellableTree", match = "Tree_" .. species, exclude = "Sapling", filter = "stump",
-              attack = "special", reach_cm = 160, bonus = true, at_root = true },
+              attack = "special", radius_cm = 30, bonus = true, at_root = true },
         },
         site_radius_cm = 1000, collect_radius_cm = 1200, verified = verified,
     }
@@ -77,7 +77,7 @@ end
 local function rock(match, item, aliases, verified)
     return {
         item = item, aliases = aliases, tool = "pickaxe", min_tier = 1, foliage = false,
-        root = { class = "DestructibleMiningRock", match = match, filter = "alive", attack = "primary", reach_cm = 200 },
+        root = { class = "DestructibleMiningRock", match = match, filter = "alive", attack = "primary", radius_cm = 50 },
         children = {}, site_radius_cm = 600, collect_radius_cm = 800, verified = verified,
     }
 end

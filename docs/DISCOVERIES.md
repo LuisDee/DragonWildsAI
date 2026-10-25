@@ -532,3 +532,7 @@ Modules: `mod/experiments/gather_probe.lua` (discovery), services `mod/body/sens
 ## The bot counts as a player for the night skip (2026-10-25, Luis via GFN)
 - Since the bot got a `DominionPlayerState` (in `GameState.PlayerArray`, nameplate "Claude"), **Luis confirms it counts as a character/player**, so it blocks "all players sleeping" from passing the night.
 - Needed: a `sleep` skill (nearest bed via sense → go_to → `Claim/Sleep(puppet)`; else cast Summon Shelter on flat ground), plus a reflex to sleep when Luis sleeps, plus an interim debug flag so the bot doesn't count. Spells agent assigned.
+
+## Speech: genuine filter captured (2026-10-25, about 15:55 UTC)
+- A genuine `Server_SendChatMessage` from Luis carries `FChatPlayerFilterData` {SenderId = his RedpointEOS id, **ReceiverIds = [his RedpointEOS id] (1 entry)**}, and SenderData {Primary = RedpointEOS id, Secondary = STEAM id, PlayerId 256, CharacterGuid, Color}.
+- The first direct send had **0 ReceiverIds**, so the server routed it to nobody. Second send: `receivers=true` (each connected player's PlayerState.UniqueID copied by array-element assignment in the pre-hook). No crash; awaiting Luis's visual result.

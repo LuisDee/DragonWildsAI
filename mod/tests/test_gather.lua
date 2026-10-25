@@ -133,6 +133,7 @@ local profiles = require("body.resource_profiles")
 local sense = require("body.sense")
 local hitcheck = require("body.hitcheck")
 local watch = require("body.watch")
+local reach = require("body.reach")
 U.set_log(H.log)
 
 local function reset()
@@ -185,7 +186,8 @@ local function deps()
         log = function(name, data) F.logs[#F.logs + 1] = { name = name, data = data } end,
         store = store(),
         held = function() return F.held end,
-        face = function() end,
+        face = function() return 0 end,
+        shape_of = function() return reach.window_of({ kind = "DominionShape_Wedge", Depth = 150, TopAngle = 80, AngleOffset = 0 }) end,
         convert = function() F.converts = (F.converts or 0) + 1 end,
         perform = function(p, sw, actor)
             F.swings[#F.swings + 1] = { kind = sw.kind, target = actor, label = sw.label }
@@ -279,6 +281,20 @@ test("hitcheck.verdict: damaged, gate_no_weapon, tier, category, no_contact", fu
     eq(hitcheck.verdict({ { fn = "IsEquipmentCorrectCategory", result = false }, { fn = "ModifyDamage" } }, 1, 1), "gate_category")
     eq(hitcheck.verdict({}, 220, 220), "no_contact")
     eq(hitcheck.verdict({ { fn = "GetHeldEquipmentThatInflictedDamage", held = "X" }, { fn = "ModifyDamage" } }, 5, 5), "modified_to_zero")
+end)
+
+test("reach: wedge windows and the aim solution (calibrated live: Chop target 35 deg right, overhead straight)", function()
+    local chop = reach.window_of({ kind = "DominionShape_Wedge", Depth = 115, TopAngle = 80, AngleOffset = 35 })
+    eq(chop.max_cm, 115); eq(chop.half_angle, 40); eq(chop.angle_offset, 35)
+    local here, tree = { X = 0, Y = 0, Z = 0 }, { X = 100, Y = 0, Z = 0 }
+    local sol = reach.solve(here, tree, 30, chop, 1, 15)
+    eq(sol.in_range, true); eq(sol.yaw, -35); eq(sol.hi, 130)
+    sol = reach.solve({ X = -200, Y = 0, Z = 0 }, tree, 30, chop, 1, 15)
+    eq(sol.in_range, false); truthy(sol.stand and math.abs(sol.stand.X - (100 - 100)) < 1, "stand at the sweet spot")
+    local over = reach.window_of({ kind = "DominionShape_Wedge", Depth = 170, TopAngle = 15, AngleOffset = 0, Offset = { X = 0, Y = 0, Z = -40 } })
+    sol = reach.solve(here, { X = 180, Y = 0, Z = 0 }, 30, over, 1, 15)
+    eq(sol.in_range, true); eq(sol.yaw, 0)
+    eq(reach.window_of(nil).kind, "default")
 end)
 
 test("watch.diff: appear, update, gone", function()

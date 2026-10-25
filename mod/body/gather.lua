@@ -38,6 +38,7 @@ local combat = require("body.combat")
 local sense = require("body.sense")
 local hitcheck = require("body.hitcheck")
 local watch = require("body.watch")
+local reach = require("body.reach")
 local profiles = require("body.resource_profiles")
 local selector = require("body.vendor.beehive.selector")
 local jsonutil = require("jsonutil")
@@ -60,8 +61,8 @@ M.APPROACH_ANGLES = { 0, 72, -72, 144, -144 } -- stand points tried around the t
 M.REPOSITION_MS = 1500          -- after swings with no contact, walk to another side for this long
 M.OFFSPRING_CM = 1500           -- new pieces within this of a felled tree belong to it
 M.LEFTOVER_MAX_CM = 3000        -- logs left lying around within this radius are finished first
-M.STAND_INSET_CM = 80           -- stand points this far inside the reach ...
-M.STAND_MIN_CM = 60             -- ... but never closer than this to the aim point
+M.STAND_MIN_CM = 60             -- stand points never closer than this to the aim point
+M.AIM_MARGIN_CM = 15            -- stay this far inside the attack shape's depth
 M.APPROACH_MAX_MS = 25000       -- give a target up if we cannot reach it in this long
 M.STATUS_MIN_MS = 3000          -- gather_status events at most this often per phase
 M.DMG_SLACK_MS = 150            -- check the HP this long after the swing's damage point
@@ -256,7 +257,7 @@ function M.tree(deps)
             return
         end
         local gated = verdict == "gate_no_weapon" or verdict == "modified_to_zero"
-        local in_reach = sw.dist <= (t.spec.reach_cm or 170) + M.STUCK_SWING_SLACK_CM
+        local in_reach = sw.in_range == true
         if M.HIT == "auto" and (gated or (verdict == nil and in_reach)) then
             local amount = sw.damage * (a.tool and a.tool.mult or 1)
             local ok = deps.decrease_health(actor, amount, a)
@@ -510,10 +511,11 @@ function M.tree(deps)
         return m
     end
 
-    -- Walk to the target. First MoveToActor (trees: the navmesh stops at the trunk); targets whose aim
-    -- point is not their origin (logs: midpoint), and every retry after getting stuck, walk to a stand
-    -- point at reach-60 cm from the aim point, rotated by M.APPROACH_ANGLES[angle_i].
-    local function approach(a, t, aim, reach)
+    -- Walk to the target. First MoveToActor (trees and stumps: the navmesh stops at the trunk); logs
+    -- (aim = nearest axis point) and every retry after getting stuck walk to a stand point at the
+    -- attack's sweet distance (`sweet`, from body/reach.lua) from the aim point, rotated by
+    -- M.APPROACH_ANGLES[angle_i] around it (the base angle is fixed once per target).
+    local function approach(a, t, aim, sweet)
         local here = U.loc(a.p)
         local m = move_state(a, t, here)
         if now() - m.since >= M.APPROACH_MAX_MS then return mark_bad(a, "path_blocked") end
@@ -533,11 +535,9 @@ function M.tree(deps)
             if c and m.angle_i == 0 and not t.use_aim then
                 r = deps.move_to_actor(c, t.actor, M.ACCEPT_CM)
             elseif c then
-                -- the base angle is fixed once per target (else the stand point flips sides every reissue)
                 m.base_angle = m.base_angle or math.deg(math.atan(here.Y - aim.Y, here.X - aim.X))
                 local ang = m.base_angle + M.APPROACH_ANGLES[(m.angle_i % #M.APPROACH_ANGLES) + 1]
-                -- closer on every retry: whiffs come from standing too far (Luis, 2026-10-25)
-                local r_cm = math.max(M.STAND_MIN_CM, reach - M.STAND_INSET_CM - 20 * m.angle_i)
+                local r_cm = math.max(M.STAND_MIN_CM, sweet or 100)
                 local stand = { X = aim.X + math.cos(math.rad(ang)) * r_cm, Y = aim.Y + math.sin(math.rad(ang)) * r_cm, Z = aim.Z }
                 r = deps.move_to_location(c, stand, 30)
             end
@@ -549,21 +549,26 @@ function M.tree(deps)
         return S_
     end
 
-    local function swing(a, t, d)
-        local sw = M.swing_for(a.held, t.spec.attack or "primary")
-        if not sw then return fail(a, "wrong_tool", { detail = "attack set not loaded", held = a.held and profiles.item_id(a.held) or jsonutil.null }) end
-        -- re-read the target right before the swing (felled logs roll), face that point
-        local aim = sense.aim(t.actor, U.loc(a.p)) or U.loc(t.actor)
-        t.aim = aim
-        local yaw_err = deps.face(a.p, aim)
+    -- The aim step (body/reach.lua): the attack's own damage shape decides the distance window and
+    -- the facing (bearing minus AngleOffset). Re-read before every swing: felled logs roll.
+    local function aim_solve(a, t, sw, here)
+        local aim = sense.aim(t.actor, here) or U.loc(t.actor)
+        local win = deps.shape_of(sw.obj)
+        local sol = reach.solve(here, aim, t.spec.radius_cm or 25, win, 1, M.AIM_MARGIN_CM)
+        return aim, sol, win
+    end
+
+    local function swing(a, t, sw, aim, sol, win)
+        local yaw_err = deps.face(a.p, aim, sol.yaw)
         local seq = hitcheck.seq()
         local hp0 = U.health(t.actor) -- before the swing: native damage may land at once
-        d = U.dist2d(U.loc(a.p), aim)
-        lg("gather_swing", { target = t.id, stage = t.stage, label = sw.label, dist_cm = U.round(d, 0),
-                             yaw_err_deg = yaw_err and U.round(yaw_err, 1) or nil, hp_before = hp0 })
+        lg("gather_swing", { target = t.id, stage = t.stage, label = sw.label, dist_cm = U.round(sol.dist, 0),
+                             window_cm = { U.round(sol.lo, 0), U.round(sol.hi, 0) }, angle_offset = win and win.angle_offset,
+                             yaw = U.round(sol.yaw, 1), yaw_err_deg = yaw_err and U.round(yaw_err, 1) or nil, hp_before = hp0 })
         local ok = deps.perform(a.p, sw, t.actor, { target = t.id, stage = t.stage, n = a.swings + 1, label = sw.label })
         a.swings = a.swings + 1
-        a.swing = { at = now(), dmg_ms = sw.dmg_ms, damage = sw.damage, hp = hp0, seq = seq, dist = d, resolved = not ok }
+        a.swing = { at = now(), dmg_ms = sw.dmg_ms, damage = sw.damage, hp = hp0, seq = seq, dist = sol.dist,
+                    in_range = sol.in_range, resolved = not ok, aim = aim }
         a.ready_at = now() + sw.next_ms
         if not ok then t.no_effect = (t.no_effect or 0) + 1 end
         return S_
@@ -594,40 +599,40 @@ function M.tree(deps)
         local t = a.target
         if not t then return F_ end
         if not refresh(a) then return target_done(a) end
-        local reach = t.spec.reach_cm or 170
         local here = U.loc(a.p)
         if t.stage == "drop" then
             local at = U.loc(t.actor)
-            if U.dist(here, at) > reach then return approach(a, t, at, reach) end
+            if U.dist(here, at) > M.PICKUP_CM then return approach(a, t, at, 80) end
             return pickup(a, t)
         end
-        -- reach is horizontal, to the aim point (a log's midpoint, a tree's trunk base)
-        local aim = sense.aim(t.actor, here) or U.loc(t.actor)
-        local origin = U.loc(t.actor)
-        t.aim, t.use_aim = aim, origin ~= nil and U.dist2d(aim, origin) > 100
-        local d = U.dist2d(here, aim)
         if (t.no_effect or 0) >= M.NO_EFFECT_SWINGS then
             if t.last_verdict == "gate_tier" or t.last_verdict == "gate_category" then
                 return fail(a, "wrong_tool", { detail = t.last_verdict, target = t.id })
             end
             return mark_bad(a, "swing_no_effect:" .. tostring(t.last_verdict))
         end
-        if t.reposition then -- two swings in a row made no contact: try another side
+        local sw = M.swing_for(a.held, t.spec.attack or "primary")
+        if not sw then return fail(a, "wrong_tool", { detail = "attack set not loaded", held = a.held and profiles.item_id(a.held) or jsonutil.null }) end
+        local aim, sol, win = aim_solve(a, t, sw, here)
+        local origin = U.loc(t.actor)
+        t.aim, t.use_aim = aim, origin ~= nil and U.dist2d(aim, origin) > 100
+        local sweet = math.max(sol.lo + 10, sol.hi - 30)
+        if t.reposition then -- a whiff: walk to another side, at the sweet distance, then re-aim
             t.reposition = false
             local m = move_state(a, t, here)
             m.angle_i, m.issued = m.angle_i + 1, nil
             m.best, m.last_progress, m.since = math.huge, now(), now()
             status(a, "repositioning", { target = t.id, detail = "no contact" })
-            approach(a, t, aim, reach)
+            approach(a, t, aim, sweet)
             a.ready_at = now() + M.REPOSITION_MS
             return S_
         end
-        if d > reach then
+        if not sol.in_range then
             local m = a.move
-            local stuck_close = m and m.reissues > 0 and d <= reach + M.STUCK_SWING_SLACK_CM
-            if not stuck_close then return approach(a, t, aim, reach) end
+            local stuck_close = m and m.reissues > 0 and sol.dist <= sol.hi + M.STUCK_SWING_SLACK_CM and sol.dist >= sol.lo
+            if not stuck_close then return approach(a, t, aim, sweet) end
         end
-        return swing(a, t, d)
+        return swing(a, t, sw, aim, sol, win)
     end
 
     return selector({ end_checks, recovering, tool_check, work_target, choose_target })
@@ -637,16 +642,18 @@ end
 -- Turn the pawn to face `tl` (K2_SetActorRotation, which the verified tree hit used) and point the
 -- AI controller's focus there too (else the controller may turn the pawn back). Returns the yaw error
 -- (degrees) between the pawn's forward and the target after turning, when readable.
-local function face(log, p, tl)
+local function face(log, p, tl, want_yaw)
     local pl = U.loc(p)
     if not (pl and tl) then return nil end
-    local yaw = math.deg(math.atan(tl.Y - pl.Y, tl.X - pl.X))
+    local yaw = want_yaw or math.deg(math.atan(tl.Y - pl.Y, tl.X - pl.X))
     U.call(log, "gather.K2_SetActorRotation", { yaw = U.round(yaw, 1) }, function()
         p:K2_SetActorRotation({ Pitch = 0, Yaw = yaw, Roll = 0 }, false)
     end)
     local c = U.controller_of(p)
     if c then
-        U.call(log, "gather.K2_SetFocalPoint", { at = U.to_wire(tl) }, function() c:K2_SetFocalPoint({ X = tl.X, Y = tl.Y, Z = tl.Z }) end)
+        -- focus a point straight along the wanted yaw, so the controller keeps the pawn there
+        local fp = { X = pl.X + math.cos(math.rad(yaw)) * 300, Y = pl.Y + math.sin(math.rad(yaw)) * 300, Z = tl.Z }
+        U.call(log, "gather.K2_SetFocalPoint", { at = U.to_wire(fp) }, function() c:K2_SetFocalPoint(fp) end)
     end
     local f = U.forward(p)
     local fy = math.deg(math.atan(f.Y, f.X))
@@ -676,7 +683,8 @@ function M.live_deps(opts)
         log_mod = log_mod,
         store = opts.store,
         held = function(p) return gear.read(p).right end,
-        face = function(p, at) face(log_mod, p, at) end,
+        face = function(p, at, yaw) return face(log_mod, p, at, yaw) end,
+        shape_of = function(cls) return (reach.shape_of(cls)) end,
         perform = function(p, sw, actor, crumb) return (combat.perform(log_mod, p, sw.obj, sw.act, actor, crumb)) end,
         move_to_actor = opts.move_to_actor or (skills and skills._move_to_actor) or function(c, actor, accept)
             local ok, r = U.call(log_mod, "MoveToActor", { goal = U.short(actor), accept = accept }, function()
