@@ -33,6 +33,12 @@ return function(log)
     local stage, pts, rounds = "sampling", nil, 0
     if _G.DW_PLANDRY_H then pcall(CancelDelayedAction, _G.DW_PLANDRY_H) end
     _G.DW_PLANDRY_H = LoopInGameThreadWithDelay(1, function()
+        -- world teardown guard (DW_PAUSE / invalid pawn): abort, never call into a dying world
+        if rawget(_G, "DW_PAUSE") == true or not (pc:IsValid() and pawn:IsValid()) then
+            stage = "done"; res.state = "aborted_paused"
+            pcall(CancelDelayedAction, _G.DW_PLANDRY_H); _G.DW_PLANDRY_H = nil
+            return
+        end
         local ok, err = pcall(function()
             if stage == "sampling" then
                 if P:step(8) == "ready" then

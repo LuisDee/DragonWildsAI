@@ -18,8 +18,11 @@ def main() -> None:
     ap.add_argument("--body", choices=("server", "client"), default=None,
                     help="server puppet mod or Claude's game client (client_io/bridge). Default DW_BODY or server")
     ap.add_argument("--probe", action="store_true", help="send probe: true (the body answers without acting)")
+    ap.add_argument("--channel", choices=("main", "debug"), default=None,
+                    help="client body: 'debug' (default for --body client) keeps replies out of the live brain's file")
     a = ap.parse_args()
-    brain_side, _ = file_transport_pair(body=a.body)
+    channel = a.channel or ("debug" if (a.body or "") == "client" else "main")
+    brain_side, _ = file_transport_pair(body=a.body, channel=channel)
     client = BridgeClient(brain_side)
     print(json.dumps(client.request(a.tool, json.loads(a.args), timeout=a.timeout, probe=a.probe), indent=2))
 

@@ -288,7 +288,8 @@ Route R2 (`docs/design/real-player-remediation.md`): Claude plays through a real
         │  a fresh loadfile instance of mod/scripts/bridge.lua (one protocol implementation for both bodies)
         │  hot-loads modules: re-reads <name>.lua at most every 2 s and reloads it when the text changed
         ▼
- client modules (one owner each): chat.lua · move.lua · sense.lua · inventory.lua · (next: combat, gather, ...)
+ client modules (one owner each): chat.lua · move.lua · sense.lua · inventory.lua · combat.lua · (next: gather, ...)
+        │  arbiter.lua: one owner of the pawn at a time (reflex > command > task > idle; suspend + resume)
         │  shared helpers: mod/body/util.lua (loadfile), dkjson
         ▼
  the game's own CLIENT paths: UI handlers, Enhanced Input injection, character calls (never server RPCs)
@@ -319,6 +320,8 @@ Every function takes the DWClient text logger `log(msg)` first and returns a tab
 | `move.lua` | `go_to(log, [x,y,z] \| name, {tolerance_m})`, `follow(log, name, distance_m)`, `stop(log)`, `status()` → `{mode, status, result={status=arrived\|failed\|stopped, reason, dist_m}}` | `go_to`, `follow`, `stop`, `move_status` |
 | `sense.lua` | `me(log)` → `{name, position, health, max_health, stamina, survival = {stat = {cur, max}}, skills, ...}`; `census(log, {radius_m, max})` → `{players, creatures, items, resources, interactables, players_online}`; `U` (mod/body/util), `local_pc()`, `local_pawn()`; writes `client_io/events/vitals.jsonl` (`damage`, `survival`, ...) | `get_state`, `me`, `census`, `look`, `inspect`, `interact` (target lookup, aim), events `attacked`, `vitals_low` |
 | `inventory.lua` | `list(log)` → `{hotbar, bag, loadout, personal, held}` (rows carry `consumable`); `drop(log, what, count)`; `equip(log, what)`; `unequip(log, slot)`; `interact_target(pawn)`; `press_interact(log)`; `describe_item(item)` | `get_state.inventory/inventory_items/gear/held`, `drop`, `equip`, `unequip`, `inventory`, `interact` (detector + press), `inspect` (container contents), `vitals_low` (has food/drink) |
+| `arbiter.lua` | `request(log, {name, level=reflex\|command\|task\|idle, uses_move, lease_s, on_suspend, on_resume, on_stop})` → `{ok, token, preempted}` or `{ok=false, reason="busy", owner}`; `release(log, token)` (resumes the newest suspended owner, replaying its move via `move.snapshot/restore`); `renew`, `holds`, `is_suspended`, `owner`, `status`; HANDLERS `arbiter_status` | which module owns the pawn; reflex fights suspend and later resume commands and tasks |
+| `combat.lua` | `attack(log, target, {force})`; `guard_start(log)` / `guard_stop` (the reflex); `stop`; `status`; `set_orders({stance, avoid, force})`; HANDLERS `attack` (async `{pending}`), `combat_status`, `combat_orders`. Pure: `assess`, `best_weapon`, `score_weapon`, `pick_threats`, `learn_outcome` | `attack`; `attacked` → reflex fight or flee |
 
 ### 8.3 Rules (client side)
 
@@ -333,6 +336,8 @@ Every function takes the DWClient text logger `log(msg)` first and returns a tab
    - Waiters (`say`, `drop`) never pre-empt.
    - Probes never act. Missing required args answer `invalid_args`.
 6. **The client is Luis's shared world.** Experiments that move the pawn or chat belong to that module's owner. The bridge itself is read-only until the brain sends an action.
+
+6. **Owning the pawn.** A module that moves the body or presses gameplay keys first calls `arbiter.request` at its level (a skill = `task`, a brain command = `command`, a reflex = `reflex`), renews its lease in its loop, and calls `arbiter.release` when done. It moves only through move.lua's public API. If it can be resumed after a fight, pass `on_resume` (or rely on the move snapshot the arbiter takes).
 
 ### 8.4 How to add a skill on the client (e.g. `gather`)
 
@@ -355,4 +360,5 @@ Every function takes the DWClient text logger `log(msg)` first and returns a tab
 | What | Command |
 |---|---|
 | Client bridge (fake modules) | `"C:\Program Files\WinGet\Links\lua.exe" client_mod/tests/test_client_bridge.lua <empty_dir>` |
+| Arbiter + combat (fake engine: whole fights, flee, block, dead inputs) | `"C:\Program Files\WinGet\Links\lua.exe" client_mod/tests/test_combat.lua` |
 | Client bridge ⇄ brain (BridgeClient, capabilities, run_live dry run end to end) | `.venv\Scripts\python.exe -m pytest tests/test_client_bridge.py` |

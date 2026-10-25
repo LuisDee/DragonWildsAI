@@ -559,6 +559,7 @@ local function register(h, log)
 end
 
 local function poll()
+    if _G.DW_PAUSE then return end -- set by disconnect/travel commands: no UObject access during teardown
     local p = M.local_pawn()
     if not p then return end
     V.me_id = U.short(p)

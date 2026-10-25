@@ -25,7 +25,13 @@ local function blocked(x, y, airborne)
     end
 end
 local frame_hook = nil
+local raised = {}          -- {x0,x1,y0,y1, h0, h1}: floor raised by h0..h1 cm (linear along x) = plateau / ramp
 local function wall_top(x, y)
+    for _, r in ipairs(raised) do
+        if x > r[1] and x < r[2] and y > r[3] and y < r[4] then
+            return FLOOR + r[5] + (r[6] - r[5]) * (x - r[1]) / (r[2] - r[1])
+        end
+    end
     for _, w in ipairs(walls) do
         if x > w[1] and x < w[2] and y > w[3] and y < w[4] then return FLOOR + (w[5] and 900 or 80) end
     end
@@ -204,12 +210,100 @@ local t_start = T
 M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1, timeout_s = 120 })
 run(300)
 s = M.status()
-check("gives up stuck", s.result and s.result.reason == "stuck", s.result and s.result.reason)
+check("go_to gives up (stuck or unreachable)", s.result and (s.result.reason == "stuck" or s.result.reason == "unreachable"), s.result and s.result.reason)
 check("gives up within 5-9 s of no progress", s.result and (T - t_start) > 5, T - t_start)
 check("tried the local planner / backtrack before giving up", (s.backtracks or 0) >= 1 or (s.lp_runs or 0) >= 2, s.lp_runs)
 local stuck_logged = false
 for _, l in ipairs(logs) do if l:find("move: stuck n=") and l:find("aim=") then stuck_logged = true end end
 check("stuck events log me/aim/goal/waypoints", stuck_logged)
+
+-- 8. leader on a 6 m plateau reached by a ramp ~23 m away (outside the 9 m planner window):
+--    the local plan must fail as "unreachable", and Claude must retrace the leader's trail up
+walls = {}; oracle = nil
+raised = { { 1000, 4000, -1000, 3000, 600, 600 },        -- plateau, 6 m high, x >= 10 m
+           { 100, 1000, 2200, 2600, 0, 600 } }            -- ramp up to it from ground level, far north (y 22-26 m)
+pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 0, Y = 300, Z = 0 }
+local route2 = { { 0, 300 }, { 0, 2400 }, { 1600, 2400 }, { 1600, 0 } }
+local seg2 = 1
+frame_hook = function()
+    local tgt = route2[seg2 + 1]
+    if tgt then
+        local dx, dy = tgt[1] - luis.loc.X, tgt[2] - luis.loc.Y
+        local d = math.sqrt(dx * dx + dy * dy)
+        local sp = 400 * DT
+        if d <= sp then luis.loc.X, luis.loc.Y = tgt[1], tgt[2]; seg2 = seg2 + 1
+        else luis.loc.X, luis.loc.Y = luis.loc.X + dx / d * sp, luis.loc.Y + dy / d * sp end
+    end
+    luis.loc.Z = (wall_top(luis.loc.X, luis.loc.Y) or FLOOR) + 90
+end
+M.follow(log, "Zezima", 3)
+run(500)
+s = M.status()
+local dl = math.sqrt((pawn.loc.X - luis.loc.X) ^ 2 + (pawn.loc.Y - luis.loc.Y) ^ 2)
+check("leader on a plateau: reached him via his trail", dl < 450 and math.abs(pawn.loc.Z - luis.loc.Z) < 60,
+    string.format("d=%.0f dz=%.0f status=%s res=%s trail=%s lp_fail=%s", dl, pawn.loc.Z - luis.loc.Z, tostring(s.status),
+        tostring(s.result and s.result.reason), tostring(s.trail_entries), tostring(s.lp_fail)))
+check("plateau: trail used", (s.trail_entries or 0) >= 1, s.trail_entries); if os.getenv("DBG8") then for i = math.max(1, #logs - 40), #logs do print("  " .. logs[i]) end end
+M.stop(log)
+frame_hook = nil
+raised = {}
+
+-- 9. persistent follow: the leader Windsteps onto a plateau Claude can't reach (no ramp), so
+--    follow goes "unreachable" (once, with reason leader_windstepped), then he jumps back down
+--    and follow resumes by itself
+walls = {}; oracle = nil
+raised = { { 1000, 4000, -1000, 3000, 600, 600 } }
+local ev_path = dir .. "/client_io/events/move.jsonl"
+os.execute('mkdir "' .. (dir .. "/client_io/events"):gsub("/", "\\") .. '" 2>nul')
+os.remove(ev_path)
+pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 300, Y = 0, Z = 0 }
+local lground = true
+luis.CharacterMovement = obj({ IsMovingOnGround = function() return lground end })
+M.follow(log, "Zezima", 3)
+run(30)
+-- windstep: airborne, rises 8 m, lands on the plateau at x = 1500
+local ws = 0
+frame_hook = function()
+    ws = ws + 1
+    if ws <= 60 then
+        lground = false
+        luis.loc.X = 300 + ws * 20; luis.loc.Z = math.min(800, ws * 25)
+    elseif ws == 61 then
+        lground = true; luis.loc.X = 1500; luis.loc.Z = 600 + 90
+    end
+end
+run(250)
+s = M.status()
+if os.getenv("DBG9") then for i = math.max(1, #logs - 25), #logs do print("  " .. logs[i]) end end
+check("follow goes unreachable instead of ending", s.mode == "follow" and s.status == "unreachable", tostring(s.mode) .. " " .. tostring(s.status))
+check("unreachable reason = leader_windstepped", s.unreachable and s.unreachable.reason == "leader_windstepped", s.unreachable and s.unreachable.reason)
+local n_ev = 0
+local fe = io.open(ev_path)
+if fe then for l in fe:lines() do if l:find('"type":"unreachable"') then n_ev = n_ev + 1 end end; fe:close() end
+check("one unreachable event per episode", n_ev == 1, n_ev)
+-- he jumps back down near Claude
+frame_hook = nil
+luis.loc = { X = 600, Y = 300, Z = 0 }
+run(120)
+s = M.status()
+check("follow resumes by itself when he comes back", s.mode == "follow" and s.status == "near", tostring(s.status))
+M.stop(log)
+luis.CharacterMovement = nil
+raised = {}
+
+-- 10. oracle path with an auto-generated nav LINK (a 1 m step up): jump from the take-off point.
+--     Local planner off so only the nav-link logic can get us up.
+walls = {}
+raised = { { 500, 3000, -1000, 1000, 100, 100 } }
+pawn.loc = { X = 0, Y = 0, Z = 0 }
+oracle = function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{4.8,0,-0.9},{5.3,0,0.1},{10,0,0.1}}}"):format(id) end
+pump_oracle()
+M.go_to(log, { 10, 0, 1.0 }, { tolerance_m = 1, local_plan = false })
+run(150)
+s = M.status()
+check("nav link: jumped up the step and arrived", s.result and s.result.status == "arrived" and (s.link_jumps or 0) >= 1,
+    tostring(s.result and s.result.status) .. " link_jumps=" .. tostring(s.link_jumps))
+raised = {}; oracle = nil
 
 -- 7. arbiter hooks: actor target ({actor=obj}), snapshot/restore, face_when_near
 walls = {}; pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 1500, Y = 0, Z = 0 }; oracle = nil

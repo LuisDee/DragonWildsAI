@@ -212,6 +212,9 @@ function LP:plan(goal)
         end
     end
     if best_n == start then return nil, "no_progress_possible" end
+    -- the goal is out of reach inside this window (e.g. on a ledge above jump height): say so instead
+    -- of handing back a route to the cliff base that the lazy wall check then rejects again and again
+    if h(start) - best_h < 2 * cell and best_h > 2 * cell then return nil, "unreachable_in_window" end
     local rev, n = {}, best_n
     while n do
         local x, y = self:pos(n.i, n.j)
@@ -239,6 +242,12 @@ function LP:verify(pts, budget)
             used, self.traces = used + 1, self.traces + 1
             if hit then
                 self.blocked[ek] = true
+                self.blocks = (self.blocks or 0) + 1
+                self.block_log = self.block_log or {}
+                if #self.block_log < 6 then
+                    self.block_log[#self.block_log + 1] = string.format("%s(%.0f,%.0f,%.0f)->(%.0f,%.0f,%.0f)@%.0f",
+                        b.act, a.X, a.Y, a.Z, b.X, b.Y, b.Z, z)
+                end
                 return "blocked"
             end
             self.edge_ok[ek] = true

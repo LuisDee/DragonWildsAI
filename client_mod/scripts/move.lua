@@ -31,6 +31,13 @@
 --   M.follow(log, goal, distance_m=3, opts)   same goal kinds; runs until stop(). opts.face_when_near
 --                              = keep facing the target while idle in range (combat).
 --   M.stop(log)   M.status()
+-- FOLLOW IS PERSISTENT: when the leader can't be reached, follow enters status "unreachable"
+-- (stands, keeps watching him, re-plans every unreachable_check_s or when he moves/comes within
+-- reach) and resumes by itself; only stop()/another command ends it. Each episode appends ONE
+-- event to client_io/events/move.jsonl: {"type":"unreachable","reason":..., "leader_pos", "my_pos",
+-- "detail"}; reasons: leader_windstepped | leader_double_jumped | leader_above_jump_height | no_route,
+-- and {"type":"reachable_again"} when it resumes. go_to keeps its give-up (failed/stuck|unreachable).
+-- Unstuck (the game's, teleports to start) is used only when Claude himself cannot move at all.
 --   M.snapshot() -> {mode, goal, distance_m, opts} | nil    M.restore(log, snap)   (arbiter suspend/resume)
 -- Units: metres on the API (wire units), centimetres inside.
 local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
@@ -84,6 +91,10 @@ M.cfg = {
     probe_ahead_cm = 150,
     probe_wall_nz = 0.7,       -- hit normal Z below this = wall (WalkableFloorAngle ~45 deg)
     follow_hysteresis_cm = 100,
+    unreachable_check_s = 1.5, -- while unreachable: re-check this often
+    unreachable_moved_cm = 300,-- ... and resume at once when the leader moved this far
+    self_stuck_cm = 100,       -- moved less than this in total over give_up_s = WE are stuck (not the route)
+    superjump_cm = 250,        -- leader airborne rise above this = Windstep (normal jump apex 180 cm)
     log_every_s = 2.0,
 }
 
@@ -148,6 +159,21 @@ end
 -- Traversal events for the traversal agent / brain (docs/research/2026-10-25-traversal.md):
 -- successful non-walk local-plan edges, one JSON line each, metres.
 local EVENTS = ROOT .. "/client_io/events/traversal.jsonl"
+local MOVE_EVENTS = ROOT .. "/client_io/events/move.jsonl"
+local function m3s(p) return p and string.format("[%.2f,%.2f,%.2f]", p.X / 100, p.Y / 100, p.Z / 100) or "null" end
+local function emit_move_event(kind, fields)
+    local f = io.open(MOVE_EVENTS, "a")
+    if not f then return end
+    local parts = { string.format('"type":"%s"', kind), string.format('"ts":%d', os.time()),
+        string.format('"iso":"%s"', os.date("!%Y-%m-%dT%H:%M:%SZ")) }
+    for k, x in pairs(fields) do
+        if type(x) == "table" and x.X then parts[#parts + 1] = string.format('"%s":%s', k, m3s(x))
+        elseif type(x) == "number" then parts[#parts + 1] = string.format('"%s":%s', k, tostring(x))
+        elseif x ~= nil then parts[#parts + 1] = string.format('"%s":%q', k, tostring(x)) end
+    end
+    f:write("{" .. table.concat(parts, ",") .. "}\n")
+    f:close()
+end
 local function emit_self_edge(st, a, b, move)
     local f = io.open(EVENTS, "a")
     if not f then return end
@@ -294,6 +320,7 @@ local function record_crumb(st, p)
     -- airborne samples are kept, flagged: that is where the leader jumped (we jump there too)
     local crumb = v(p)
     crumb.air = air or nil
+    if st.next_gap and not air then crumb.gap = true; st.next_gap = nil end
     c[#c + 1] = crumb
     if #c > M.cfg.crumb_cap then
         table.remove(c, 1)
@@ -304,14 +331,21 @@ end
 -- Nearest crumb at OUR level (|dz| <= 1 m): a crumb on a ledge 3.3 m above is not "near"
 -- (live 18:52: the trail index jumped 2 -> 21 along crumbs all 3.3 m overhead). nil if none.
 local function nearest_crumb(c, me)
-    local best, bi = math.huge, nil
-    for i, p in ipairs(c) do
-        if not p.air and math.abs(me.Z - p.Z) <= 100 then
-            local d = d2(me, p)
-            if d < best then best, bi = d, i end
+    -- after a leader super-jump gap, prefer the part of the trail beyond it when any of it is at our level
+    local g = 0
+    for i = #c, 1, -1 do if c[i].gap then g = i; break end end
+    local function search(from)
+        local best, bi = math.huge, nil
+        for i = from, #c do
+            local p = c[i]
+            if not p.air and not p.gap and math.abs(me.Z - p.Z) <= 100 then
+                local d = d2(me, p)
+                if d < best then best, bi = d, i end
+            end
         end
+        return bi
     end
-    return bi
+    return (g > 0 and search(g + 1)) or search(1)
 end
 
 -- Skip points already reached, or passed (closer to the next one than this one is), but only at
@@ -322,7 +356,12 @@ local function advance(pts, i, me, radius, dz_tol, zoff)
     while i <= #pts do
         local p, nxt = pts[i], pts[i + 1]
         local dz = math.abs((me.Z - zoff) - p.Z)
-        if (p.air or dz < dz_tol) and (d2(me, p) < radius or (nxt and d2(me, nxt) < d2(p, nxt))) then
+        if p.gap then break end -- never advance across a leader super-jump gap
+        -- slope-aware: an ordinary point may differ in height by ~0.9 x the horizontal distance
+        -- (slopes up to ~42 deg); jump/link endpoints need us really up there (strict dz_tol)
+        local strict = p.link or p.act == "jump" or p.act == "djump"
+        local tol = strict and dz_tol or (dz_tol + 0.9 * d2(me, p))
+        if (p.air or dz < tol) and (d2(me, p) < radius or (nxt and d2(me, nxt) < d2(p, nxt))) then
             i = i + 1
         else break end
     end
@@ -375,6 +414,7 @@ local function lp_work(st, t, log)
             if not pts then
                 st.lp, st.lp_state, st.lp_fail_t, st.lp_fail = nil, nil, t, why
                 if log then log("move: local plan failed: " .. tostring(why)) end
+                st.want_trail = true
                 return false
             end
             st.lp_pts, st.lp_state, st.lp_rounds = pts, "verifying", 0
@@ -387,7 +427,8 @@ local function lp_work(st, t, log)
             local pts = st.lp_rounds <= 12 and P:plan(st.lp_far) or nil
             if not pts then
                 st.lp, st.lp_state, st.lp_fail_t, st.lp_fail = nil, nil, t, "verify_exhausted"
-                if log then log("move: local plan failed: walls everywhere") end
+                if log then log("move: local plan failed: walls everywhere (" .. table.concat(P.block_log or {}, " ") .. ")") end
+                st.want_trail = true
                 return false
             end
             st.lp_pts = pts
@@ -443,7 +484,26 @@ local function tick(st, gen, log)
             return
         end
         goal = st.target:K2_GetActorLocation()
-        if st.target_kind ~= "actor" then record_crumb(st, goal) end
+        if st.target_kind ~= "actor" then
+            record_crumb(st, goal)
+            -- leader moves Claude may lack: airborne rise > superjump_cm = Windstep; jump count 2 = double jump
+            local okg, ground = pcall(function() return st.target.CharacterMovement:IsMovingOnGround() end)
+            if okg and ground == false then
+                if not st.l_air then st.l_air = { z0 = goal.Z, zmax = goal.Z, n0 = #st.crumbs } else st.l_air.zmax = math.max(st.l_air.zmax, goal.Z) end
+            elseif okg and st.l_air then
+                if st.l_air.zmax - st.l_air.z0 > M.cfg.superjump_cm then
+                    -- Windstep: his airborne crumbs are not a path for us; the trail ends at his take-off
+                    st.leader_superjump_t = t
+                    for k = #st.crumbs, st.l_air.n0 + 1, -1 do table.remove(st.crumbs, k) end
+                    if st.trail_i and st.trail_i > #st.crumbs then st.trail_i = #st.crumbs end
+                    st.next_gap = true
+                    if log then log("move: leader super-jump (Windstep) rise=" .. math.floor(st.l_air.zmax - st.l_air.z0) .. "cm; trail cut at take-off") end
+                end
+                st.l_air = nil
+            end
+            local okj, jc = pcall(function() return st.target.ReplicatedJumpCurrentCount end)
+            if okj and tonumber(jc) and tonumber(jc) >= 2 then st.leader_dj_t = t end
+        end
         st.target_pos = goal
     else
         goal = st.goal
@@ -459,6 +519,10 @@ local function tick(st, gen, log)
         local hold = st.idle and (st.tol_cm + M.cfg.follow_hysteresis_cm) or st.tol_cm
         if dist <= hold then
             st.idle, st.status = true, "near"
+            if st.unreach then
+                pcall(emit_move_event, "reachable_again", { leader_pos = goal, my_pos = me, after_s = math.floor((t - st.unreach.since) * 10) / 10 })
+                st.unreach = nil
+            end
             if st.face_when_near then
                 pc:SetControlRotation({ Pitch = 0, Yaw = math.deg(math.atan(goal.Y - me.Y, goal.X - me.X)), Roll = 0 })
             end
@@ -468,6 +532,27 @@ local function tick(st, gen, log)
             return
         end
         st.idle = false
+    end
+
+    -- persistent follow: unreachable sub-state (stand, watch, re-check, resume by itself)
+    if st.unreach then
+        local u = st.unreach
+        st.status = "unreachable"
+        local moved = d2(goal, u.leader_pos) > M.cfg.unreachable_moved_cm
+        local within = (goal.Z - me.Z) <= ((st.env and st.env.jump or 165) + 60)
+        if moved or (t - u.check_t > M.cfg.unreachable_check_s and within and u.reason == "leader_above_jump_height") then
+            if log then log(string.format("move: reachable again? (%s) leader=%s", moved and "leader moved" or "within reach", fmt(goal))) end
+            pcall(emit_move_event, "reachable_again", { leader_pos = goal, my_pos = me, after_s = math.floor((t - u.since) * 10) / 10 })
+            st.unreach = nil
+            st.prog_t, st.prog_pos, st.stuck_n, st.lp_plans_np, st.move_acc = t, v(me), 0, 0, 0
+            st.lpath, st.backtrack_until = nil, nil
+            st.trail_i = nil
+        else
+            if t - u.check_t > M.cfg.unreachable_check_s then u.check_t = t end
+            st.win_t, st.win_pos = t, v(me)
+            pc:SetControlRotation({ Pitch = 0, Yaw = math.deg(math.atan(goal.Y - me.Y, goal.X - me.X)), Roll = 0 })
+            return
+        end
     end
 
     -- own trail (where we have been is walkable)
@@ -502,7 +587,11 @@ local function tick(st, gen, log)
                         if r.ok and r.points and #r.points >= 2 then
                             local pts = {}
                             for i, p in ipairs(r.points) do pts[i] = { X = p[1] * 100, Y = p[2] * 100, Z = p[3] * 100 } end
+                            for i = 2, #pts do -- mark nav-link endpoints (rise > step over a short run)
+                                if pts[i].Z - pts[i - 1].Z > 60 and d2(pts[i - 1], pts[i]) < 300 then pts[i].link = true end
+                            end
                             st.path, st.wp, st.path_partial, st.path_goal = pts, 2, r.partial, st.nav_goal
+                            st.nav_jumped = {}
                         else
                             st.path, st.nav_fail = nil, r.reason or "no_path"
                         end
@@ -528,7 +617,9 @@ local function tick(st, gen, log)
     local path = st.path
     if st.target and not st.trail_i and #st.crumbs >= 2 then
         local nav_bad = (path and st.path_partial and st.wp > #path) and dist > M.cfg.trail_min_dist_cm
-        if nav_bad or st.stuck_n >= M.cfg.trail_enter_stuck then
+        local above = (goal.Z - me.Z) > ((st.env and st.env.jump or 165) + 100) and dist < 1500
+        if nav_bad or above or st.want_trail or st.stuck_n >= M.cfg.trail_enter_stuck then
+            st.want_trail = false
             st.trail_i = nearest_crumb(st.crumbs, me)
             if st.trail_i then
                 st.trail_entries = (st.trail_entries or 0) + 1
@@ -562,12 +653,16 @@ local function tick(st, gen, log)
             else
                 local p = st.lpath[st.lwp]
                 aim, src = p, "local"
-                -- jump edges: take off near the edge start, once per point
-                if (p.act == "jump" or p.act == "djump") and not st.lp_jumped[st.lwp] then
+                -- jump edges: take off AT the edge start (within 50 cm of the previous point) while
+                -- moving toward the landing point; re-armed after 1.5 s if we are still not up
+                if (p.act == "jump" or p.act == "djump") then
                     local prev = st.lpath[st.lwp - 1]
-                    if d2(me, p) < 160 or (prev and d2(me, prev) < 60) then
-                        st.lp_jumped[st.lwp] = true
-                        start_jump(st, t, pawn, p.act == "djump")
+                    local last = st.lp_jumped[st.lwp]
+                    if prev and d2(me, prev) < 50 and (not last or t - last > 1.5) then
+                        st.lp_jumped[st.lwp] = t
+                        start_jump(st, t, pawn, p.act == "djump" and st.env and st.env.double_jump)
+                    elseif prev and d2(me, prev) >= 50 and not last and d2(me, p) > d2(prev, p) then
+                        aim = prev -- walk to the take-off spot first
                     end
                 end
             end
@@ -582,6 +677,12 @@ local function tick(st, gen, log)
             else
                 local cr = st.crumbs[st.trail_i]
                 aim, src = cr, "trail"
+                if cr.gap then
+                    -- the trail continues only beyond a move we lack: hold at the take-off spot
+                    local prev = st.crumbs[st.trail_i - 1]
+                    aim = prev or cr
+                    if d2(me, aim) < 150 then st.status = "holding"; st.win_t, st.win_pos = t, v(me); st.hold_gap = true end
+                end
                 -- the leader jumped here: take off when we reach the start of his airborne run
                 if cr.air and d2(me, cr) < 150 and not st.trail_jumped[cr] then
                     for k = st.trail_i, #st.crumbs do
@@ -595,9 +696,24 @@ local function tick(st, gen, log)
         end
         if not st.lpath and not st.trail_i and path then
             local i0 = st.wp
-            st.wp = advance(path, st.wp, me, M.cfg.wp_radius_cm, 150, st.half_h or 90)
+            st.wp = advance(path, st.wp, me, M.cfg.wp_radius_cm, math.max((st.env and st.env.step or 45) + 20, 60), st.half_h or 90)
             if st.wp > i0 then idx_progress = true end
-            if st.wp <= #path then aim, src = path[st.wp], "nav" end
+            if st.wp <= #path then
+                aim, src = path[st.wp], "nav"
+                -- an oracle segment that rises more than a step over a short run is a nav LINK (the
+                -- dev navmesh's auto-generated jump links, bGenerateNavLinks): jump from its start
+                local prev = path[st.wp - 1]
+                if prev and aim.link then
+                    local last = st.nav_jumped[st.wp]
+                    if d2(me, prev) < 60 and (not last or t - last > 1.5) then
+                        st.nav_jumped[st.wp] = t
+                        start_jump(st, t, pawn, false)
+                        st.link_jumps = (st.link_jumps or 0) + 1
+                    elseif d2(me, prev) >= 60 and not last and d2(me, aim) > d2(prev, aim) then
+                        aim = prev -- reach the take-off spot first
+                    end
+                end
+            end
         end
     end
     st.source, st.aim = src, aim
@@ -658,8 +774,13 @@ local function tick(st, gen, log)
 
     -- face where we go (control rotation = camera yaw; the pawn orients to its movement)
     pc:SetControlRotation({ Pitch = 0, Yaw = math.deg(math.atan(dy, dx)), Roll = 0 })
-    pawn:AddMovementInput({ X = dx, Y = dy, Z = 0 }, 1.0, false)
-    st.status = "moving"
+    if st.hold_gap then
+        st.hold_gap = nil
+        st.move_acc, st.bt_tested = M.cfg.self_stuck_cm, t -- holding on purpose: not wedged
+    else
+        pawn:AddMovementInput({ X = dx, Y = dy, Z = 0 }, 1.0, false)
+        st.status = "moving"
+    end
 
     -- sprint: far from the goal, only while making progress on the ground, never on a local path
     if dist > M.cfg.sprint_on_cm and st.sprint then st.sprint_want = true
@@ -694,6 +815,7 @@ local function tick(st, gen, log)
     if not st.win_t then st.win_t, st.win_pos = t, v(me) end
     if t - st.win_t >= M.cfg.stuck_window_s then
         local moved = d2(me, st.win_pos)
+        st.move_acc = (st.move_acc or 0) + moved
         st.speed_cms = moved / (t - st.win_t)
         if sprinting then st.sprint_speed_cms = st.speed_cms end
         if moved < M.cfg.stuck_min_cm then
@@ -745,14 +867,52 @@ local function tick(st, gen, log)
     local gl = math.max(math.sqrt(gx * gx + gy * gy), 1)
     local toward = ((me.X - st.prog_pos.X) * gx + (me.Y - st.prog_pos.Y) * gy) / gl
     if toward >= M.cfg.progress_cm or idx_progress then
-        st.prog_t, st.prog_pos = t, v(me)
+        st.prog_t, st.prog_pos, st.move_acc, st.bt_tested, st.bt_pos = t, v(me), 0, nil, nil
         if toward >= M.cfg.progress_cm then st.lp_plans_np = 0 end
     elseif t - st.prog_t > M.cfg.give_up_s then
-        if log then log("move: giving up, no progress for " .. M.cfg.give_up_s .. " s. " .. tostring(st.last_stuck)) end
-        local un = nil
-        if M.cfg.allow_unstuck and st.allow_unstuck ~= false then un = M.unstuck(log) end
-        return finish(st, { status = "failed", reason = "stuck", dist_m = dist / 100, unstuck = un and (un.ok and "requested" or un.error),
-            at_m = { math.floor(me.X) / 100, math.floor(me.Y) / 100, math.floor(me.Z) / 100 } }, log)
+        local at = { math.floor(me.X) / 100, math.floor(me.Y) / 100, math.floor(me.Z) / 100 }
+        local self_stuck = false
+        if (st.move_acc or 0) < M.cfg.self_stuck_cm then
+            if not st.bt_tested then
+                -- before calling ourselves wedged, try to move back the way we came (2.5 s)
+                local sc2, back, acc = st.self_crumbs, nil, 0
+                for i = #sc2 - 1, 1, -1 do
+                    acc = acc + d2(sc2[i], sc2[i + 1]); back = sc2[i]
+                    if acc >= M.cfg.backtrack_cm then break end
+                end
+                st.bt_tested, st.bt_pos = t, v(me)
+                if back then st.backtrack_pt, st.backtrack_until = back, t + 2.5 end
+                st.prog_t = t - M.cfg.give_up_s + 2.5
+                if log then log("move: no movement; backtrack test before declaring self-stuck") end
+                return
+            end
+            self_stuck = st.bt_pos ~= nil and d2(me, st.bt_pos) < 50
+        end
+        if self_stuck then
+            -- WE cannot move at all (wedged): the game's Unstuck is the last rung, then report
+            if log then log("move: self-stuck (moved " .. math.floor(st.move_acc or 0) .. " cm in " .. M.cfg.give_up_s .. " s). " .. tostring(st.last_stuck)) end
+            local un = nil
+            if M.cfg.allow_unstuck and st.allow_unstuck ~= false then un = M.unstuck(log) end
+            pcall(emit_move_event, "stuck", { my_pos = me, leader_pos = goal, unstuck = un and (un.ok and "requested" or un.error) })
+            return finish(st, { status = "failed", reason = "stuck", dist_m = dist / 100, unstuck = un and (un.ok and "requested" or un.error), at_m = at }, log)
+        end
+        -- we can move but cannot get closer: the route is the problem; say why
+        local reason
+        if st.leader_superjump_t and t - st.leader_superjump_t < 30 then reason = "leader_windstepped"
+        elseif st.leader_dj_t and t - st.leader_dj_t < 30 and not (st.env and st.env.double_jump) then reason = "leader_double_jumped"
+        elseif goal.Z - me.Z > ((st.env and st.env.jump or 165) + 60) then reason = "leader_above_jump_height"
+        else reason = "no_route" end
+        local detail = string.format("dz=%.1fm d=%.1fm lp_fail=%s", (goal.Z - me.Z) / 100, dist / 100, tostring(st.lp_fail))
+        if log then log("move: unreachable: " .. reason .. " " .. detail) end
+        if st.mode == "follow" then
+            st.unreach = { reason = reason, since = t, check_t = t, leader_pos = v(goal), my_pos = v(me), detail = detail }
+            st.unreach_episodes = (st.unreach_episodes or 0) + 1
+            pcall(emit_move_event, "unreachable", { reason = reason, leader_pos = goal, my_pos = me, detail = detail, mode = "follow" })
+            st.status = "unreachable"
+            return
+        end
+        pcall(emit_move_event, "unreachable", { reason = reason, leader_pos = goal, my_pos = me, detail = detail, mode = "go_to" })
+        return finish(st, { status = "failed", reason = "unreachable", why = reason, detail = detail, dist_m = dist / 100, at_m = at }, log)
     end
 
     if log and t - (st.log_t or 0) > M.cfg.log_every_s then
@@ -774,7 +934,7 @@ local function start(log, mode, opts)
     for k in pairs(st) do st[k] = nil end
     for k, x in pairs(keep) do st[k] = x end
     st.mode, st.pc, st.ticks, st.stuck_n = mode, pc, 0, 0
-    st.crumbs, st.self_crumbs, st.lp_plans_np, st.trail_jumped = {}, {}, 0, {}
+    st.crumbs, st.self_crumbs, st.lp_plans_np, st.trail_jumped, st.nav_jumped = {}, {}, 0, {}, {}
     st.half_h = tonumber((pcall(function() return pawn.CapsuleComponent:GetScaledCapsuleHalfHeight() end))
         and pawn.CapsuleComponent:GetScaledCapsuleHalfHeight()) or 90
     st.t0 = now(pawn)
@@ -890,13 +1050,16 @@ function M.status()
         lwp = st.lwp, n_lwp = st.lpath and #st.lpath, lp_state = st.lp_state, lp_runs = st.lp_runs,
         lp_fail = st.lp_fail, lp_why = st.lp_why, traces = st.traces, env = st.env,
         nav_live = st.nav_live, nav_requests = st.nav_requests,
-        trail_jumps = st.trail_jumps, backtracks = st.backtracks, trail_i = st.trail_i, crumbs = st.crumbs and #st.crumbs, trail_entries = st.trail_entries,
+        link_jumps = st.link_jumps, trail_jumps = st.trail_jumps, backtracks = st.backtracks, trail_i = st.trail_i, crumbs = st.crumbs and #st.crumbs, trail_entries = st.trail_entries,
         sprinting = st.sprinting, sprint_route = st.sprint_route, sprint_err = st.sprint_err, sprint_presses = st.sprint_presses,
         sprint_speed_ms = st.sprint_speed_cms and math.floor(st.sprint_speed_cms) / 100,
         press_to_sprint = st.pts, speed_ms = st.speed_cms and math.floor(st.speed_cms) / 100,
         stuck_n = st.stuck_n, stuck_total = st.stuck_total, jumps = st.jumps, double_jumps = st.double_jumps,
         last_stuck = st.last_stuck, ticks = st.ticks, self_edges = st.self_edges,
         prefetched = st.prefetched, lp_stand_s = st.lp_stand_s, unstuck = _G.DW_UNSTUCK,
+        unreachable = st.unreach and { reason = st.unreach.reason, detail = st.unreach.detail,
+            leader_pos = m3(st.unreach.leader_pos), my_pos = m3(st.unreach.my_pos) } or nil,
+        unreach_episodes = st.unreach_episodes,
         aim = m3(st.aim), target_pos = m3(st.target_pos), target_kind = st.target_kind,
     }
 end

@@ -87,6 +87,23 @@ local function page_of(pages, raw)
     end
 end
 
+local KIND_CLASSES = { { "food", "/Script/Dominion.FoodItemData" }, { "drink", "/Script/Dominion.DrinkItemData" },
+                       { "potion", "/Script/Dominion.PotionItemData" } }
+local function is_a(obj, path)
+    local cls = U.find_object(path)
+    return cls ~= nil and U.valid(obj) and U.try(function() return obj:IsA(cls) end) == true
+end
+M.is_a = is_a
+
+-- "food" | "drink" | "potion" | nil for a UItemData, by class (equipment is never consumable).
+function M.consumable_kind(data)
+    if not U.valid(data) or is_a(data, "/Script/Dominion.EquipmentData") then return nil end
+    for _, k in ipairs(KIND_CLASSES) do
+        if is_a(data, k[2]) then return k[1] end
+    end
+    return nil
+end
+
 function M.describe_item(it)
     if not U.valid(it) then return nil end
     local data = U.try(function() return it.ItemData end)
@@ -100,19 +117,15 @@ function M.describe_item(it)
         category = text(U.try(function() return data.Category.TagName end)),
     }
     if d.max_durability and d.max_durability <= 0 then d.max_durability, d.durability = nil, nil end
-    -- Food / drink, from the item data class (UFoodItemData / UDrinkItemData) and its stat texts.
-    -- (The live classes are Blueprint subclasses, e.g. BP_Consumables_Drink_C, so test for the
-    -- UFoodItemData / UDrinkItemData properties rather than the class name.)
-    local function has(f) return U.try(function() return data[f] ~= nil end) == true end
-    if has("StatSustenance") then
-        d.consumable = "food"
+    -- Food / drink / potion by CLASS (UObject:IsA on the item data). Never by property presence:
+    -- UE4SS returns a non-nil invalid "TrivialObject" for a property the object does not have, so
+    -- `data.StatSustenance ~= nil` is true for a pickaxe (live bug 18:20 UTC: the reflex "ate" one).
+    d.consumable = M.consumable_kind(data)
+    if d.consumable == "food" then
         d.sustenance = text(U.try(function() return data.StatSustenance end))
         d.heal = num(U.try(function() return data.AmountToHealOnConsume end))
-    elseif has("StatHydration") then
-        d.consumable = "drink"
+    elseif d.consumable == "drink" then
         d.hydration = text(U.try(function() return data.StatHydration end))
-    elseif (U.class_word(data) or ""):find("Potion", 1, true) then
-        d.consumable = "potion"
     end
     if d.consumable then
         d.soulscourge = text(U.try(function() return data.StatSoulScourge end))
@@ -291,11 +304,22 @@ end
 
 -- Use (eat, drink, read...) `what` the way a player does: its hotbar number key if it is on the
 -- hotbar, else the inventory UI's use. Unlike equip, no "already equipped" check.
-function M.use(log, what)
+function M.use(log, what, opts)
+    opts = opts or {}
     local l = M.list(log)
     if not l.ok then return l end
     local d, where = M.find(l, what)
     if not d or where == "loadout" then return { ok = false, reason = "not in hotbar/bag: " .. tostring(what) } end
+    -- Fresh check of the exact slot about to be pressed: the item there must be this item and,
+    -- when opts.require is set, of that consumable class. Equipment is never "used" here.
+    local pc = M.pc()
+    local it = U.try(function() return pc.InventoryComponent.ItemSlots[d.raw + 1] end)
+    local data = U.valid(it) and U.try(function() return it.ItemData end)
+    if not U.valid(data) or item_id(data) ~= d.item then return { ok = false, reason = "slot changed", item = d } end
+    if is_a(data, "/Script/Dominion.EquipmentData") then return { ok = false, reason = "equipment, not usable", item = d } end
+    if opts.require and M.consumable_kind(data) ~= opts.require then
+        return { ok = false, reason = "not " .. opts.require, item = d }
+    end
     if where == "hotbar" then
         local bar = M.hotbar()
         if not bar then return { ok = false, reason = "no hotbar widget" } end
@@ -303,6 +327,7 @@ function M.use(log, what)
         local ok, err = pcall(function() bar:UseItemInSlot(d.slot) end)
         return { ok = ok, reason = (not ok) and tostring(err) or nil, via = "hotbar key " .. (d.slot + 1), item = d }
     end
+    if opts.hotbar_only then return { ok = false, reason = "not on the hotbar (bag use disabled)", item = d } end
     local api = M.ui_api()
     if not api then return { ok = false, reason = "no InventoryUIAPI" } end
     say(log, "use: HandleInternalUseItem(" .. d.slot .. ", " .. tostring(d.slot_type) .. ") " .. tostring(d.item))
@@ -379,7 +404,7 @@ end
 --   * when hungry/thirsty and the game's detector targets a dropped food/drink world item: presses
 --     interact to collect it (cfg.collect).
 -- Events go to client_io/events/vitals.jsonl as {"type":"reflex", action, item, stat}.
-M.REFLEX_CFG = { period_ms = 2000, drink_below = 30, eat_below = 30, cooldown_s = 6, collect = true }
+M.REFLEX_CFG = { period_ms = 2000, drink_below = 30, eat_below = 30, cooldown_s = 6, verify_s = 4, collect = true, allow_bag = false }
 
 local R = _G.DWFedReflex or {}
 _G.DWFedReflex = R
@@ -389,11 +414,11 @@ local function stat(p, comp, getter)
     return U.valid(c) and num(U.try(function() return c[getter](c) end)) or nil
 end
 
-local function best(list, kind)
+local function best(list, kind, bad, wheres)
     local pick
-    for _, where in ipairs({ "hotbar", "bag" }) do
+    for _, where in ipairs(wheres or { "hotbar", "bag" }) do
         for _, d in ipairs(list[where] or {}) do
-            if d.consumable == kind then
+            if d.consumable == kind and not (bad and bad[d.item]) then
                 local clean = not d.soulscourge
                 if not pick or (clean and pick.soulscourge) then pick = d end
             end
@@ -414,6 +439,7 @@ local function reflex_emit(ev)
 end
 
 function R.tick(log)
+    if _G.DW_PAUSE then return end -- set by disconnect/travel commands: no UObject access during teardown
     local cfg = M.REFLEX_CFG
     local p = M.pawn()
     if not p or U.try(function() return p.HealthComponent:IsDead() end) == true then return end
@@ -421,17 +447,43 @@ function R.tick(log)
     local sus = stat(p, "SustenanceComponent", "GetCurrentSustenance")
     local thirsty = hyd and hyd < cfg.drink_below
     local hungry = sus and sus < cfg.eat_below
-    if not (thirsty or hungry) then return end
     local t = os.time()
     R.last = R.last or {}
-    local l = M.list(log)
-    for _, need in ipairs({ { thirsty, "drink", hyd }, { hungry, "food", sus } }) do
-        if need[1] and (not R.last[need[2]] or t - R.last[need[2]] >= cfg.cooldown_s) then
-            local d = best(l, need[2])
-            if d then
-                R.last[need[2]] = t
-                local r = M.use(log, d.item)
-                reflex_emit({ action = "use", kind = need[2], item = d.item, name = d.name, stat = need[3], ok = r.ok, via = r.via })
+    R.bad = R.bad or {}
+    -- Outcome of the previous use: the stat must have risen, else that item is marked bad (no retries).
+    local pend = R.pending
+    if pend and t - pend.t >= cfg.verify_s then
+        local now_v = pend.kind == "drink" and hyd or sus
+        local ok = now_v and pend.before and now_v > pend.before + 0.5
+        reflex_emit({ action = "verify", kind = pend.kind, item = pend.item, before = pend.before, after = now_v, ok = ok == true })
+        if not ok then R.bad[pend.item] = true end
+        R.pending = nil
+        pend = nil
+    end
+    if not (thirsty or hungry) then return end -- (after the verify: a successful use ends the need)
+    if not pend then
+        local l = M.list(log)
+        for _, need in ipairs({ { thirsty, "drink", hyd }, { hungry, "food", sus } }) do
+            if not R.pending and need[1] and (not R.last[need[2]] or t - R.last[need[2]] >= cfg.cooldown_s) then
+                -- Hotbar only by default: the client hung right after a bag "use"
+                -- (InventoryUIAPI:HandleInternalUseItem, 18:27:40 UTC), so that path is suspect.
+                local d = best(l, need[2], R.bad, cfg.allow_bag and { "hotbar", "bag" } or { "hotbar" })
+                if not d and best(l, need[2], R.bad, { "bag" }) then
+                    R.warned = R.warned or {}
+                    if not R.warned[need[2]] or t - R.warned[need[2]] >= 60 then
+                        R.warned[need[2]] = t
+                        reflex_emit({ action = "no_hotbar_" .. need[2], kind = need[2], stat = need[3],
+                                      reason = need[2] .. " only in the bag; move it to the hotbar" })
+                    end
+                end
+                if d then
+                    R.last[need[2]] = t
+                    local r = M.use(log, d.item, { require = need[2], hotbar_only = not cfg.allow_bag })
+                    reflex_emit({ action = "use", kind = need[2], item = d.item, name = d.name, stat = need[3], ok = r.ok,
+                                  via = r.via, reason = r.reason })
+                    if r.ok then R.pending = { kind = need[2], item = d.item, before = need[3], t = t }
+                    else R.bad[d.item] = true end
+                end
             end
         end
     end
@@ -443,8 +495,8 @@ function R.tick(log)
             for _, w in ipairs(U.find_all("WorldItem", { skip_defaults = true })) do
                 if U.short(w) == tg.actor then data = U.try(function() return w.ItemData end) end
             end
-            local is_drink = U.try(function() return data.StatHydration ~= nil end) == true
-            local is_food = U.try(function() return data.StatSustenance ~= nil end) == true
+            local kind = M.consumable_kind(data)
+            local is_drink, is_food = kind == "drink", kind == "food"
             if (thirsty and is_drink) or (hungry and is_food) then
                 R.last.collect = t
                 local r = M.press_interact(log)
@@ -458,6 +510,7 @@ end
 function M.reflex_start(log, opts)
     for k, v in pairs(opts or {}) do M.REFLEX_CFG[k] = v end
     R.cfg = M.REFLEX_CFG
+    R.bad, R.pending = {}, nil -- a (re)start forgets items marked bad
     R.tick_fn = R.tick
     if not R.loop then
         R.loop = LoopInGameThreadWithDelay(M.REFLEX_CFG.period_ms, function()
@@ -478,7 +531,7 @@ function M.reflex_stop()
 end
 
 function M.reflex_status()
-    return { running = R.loop ~= nil, last = R.last, err = R.err, cfg = R.cfg }
+    return { running = R.loop ~= nil, last = R.last, bad = R.bad, pending = R.pending, err = R.err, cfg = R.cfg }
 end
 
 return M

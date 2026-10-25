@@ -72,7 +72,7 @@ local function fail(reason, data) return { ok = false, reason = reason, data = d
 -- Module reasons -> protocol reason codes (brain/interface.py Reason). Exact codes first, then
 -- patterns on free text; any other snake_case code passes through, other free text is body_error.
 M.REASONS = { no_pawn = "companion_down", stuck = "path_blocked", target_not_visible = "unknown_target",
-              error = "body_error" }
+              error = "body_error", unreachable = "path_blocked" }
 M.REASON_PATTERNS = {
     { "^no pawn", "companion_down" }, { "^no local pawn", "companion_down" },
     { "^no local player controller", "companion_down" }, { "^not in inventory", "not_in_inventory" },
@@ -366,6 +366,14 @@ function M.get_state()
             missing.inventory = true
         end
     end
+    if mine then
+        local cs = call("combat", "status")
+        if cs.ok and type(cs.data.fight) == "table" then
+            local f = cs.data.fight
+            data.fight = { mode = f.mode, phase = f.phase, target = f.target, target_id = f.target_id, target_hp = f.target_hp,
+                           weapon = f.weapon }
+        end
+    end
     local left = {}
     for k in pairs(missing) do left[#left + 1] = k end
     table.sort(left)
@@ -407,6 +415,8 @@ end }
 
 R.stop = { needs = { { "move", "stop" } }, fn = function()
     local prev = preempt("stop")
+    local cs = call("combat", "status")
+    if cs.ok and type(cs.data.fight) == "table" and cs.data.fight.mode == "attack" then call("combat", "stop", "stop") end
     local r = call("move", "stop")
     if not r.ok then return r end
     return { ok = true, data = { stopped = prev and prev.kind or S.bridge.null } }
@@ -416,6 +426,19 @@ local function move_status()
     local r = call("move", "status")
     return r.ok and r.data or {}
 end
+
+-- combat.lua's reflex (self-defence) takes the pawn through arbiter.lua, which suspends a running
+-- follow/go_to and restores it after the fight. While that is going on, our polls must wait, not
+-- read the stopped move as "interrupted".
+local function reflex_owns_pawn()
+    local A = M.module("arbiter")
+    if not (A and type(A.owner) == "function") then return false end
+    local ok, o = pcall(A.owner)
+    if ok and type(o) == "table" and o.level == "reflex" then return true end
+    local ok2, st = pcall(A.status)
+    return ok2 and type(st) == "table" and type(st.suspended) == "table" and #st.suspended > 0 and (not o)
+end
+M._reflex_owns_pawn = reflex_owns_pawn
 
 R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function(args, ctx)
     local target = args.target
@@ -429,6 +452,7 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
                 tol = M.GOTO_TOL_M, polls = 0 }
     a.cancel = function() call("move", "stop") end
     a.poll = function(self)
+        if reflex_owns_pawn() then self.started = now_s(); return nil end -- fighting back; resumes after
         self.polls = self.polls + 1
         local st = move_status()
         if st.mode == "go_to" then return nil end -- still walking
@@ -445,8 +469,8 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
                                          position = here or S.bridge.null, arrive_tolerance = self.tol, dist_m = res.dist_m } }
         end
         if res.status == "failed" then
-            return fail(reason_code(res.reason or "path_blocked"), { detail = res.detail or res.reason, position = here,
-                                                                      dist_m = res.dist_m })
+            return fail(reason_code(res.reason or "path_blocked"), { detail = res.why or res.detail or res.reason,
+                                                                      why = res.why, position = here, dist_m = res.dist_m })
         end
         if res.status == "stopped" or self.polls > 3 then
             return fail("interrupted", { detail = "the move ended without arriving (" .. tostring(res.status) .. ")",
@@ -469,6 +493,7 @@ R.follow = { needs = { { "move", "follow" }, { "move", "status" } }, fn = functi
     local a = { kind = "follow", id = ctx.id, player = tostring(who), quiet_preempt = true, replied = true }
     a.cancel = function() call("move", "stop") end
     a.poll = function()
+        if reflex_owns_pawn() then return nil end -- the arbiter restores the follow after the fight
         local st = move_status()
         if st.mode == "follow" then return nil end
         local res = type(st.result) == "table" and st.result or {}
@@ -521,7 +546,35 @@ R.unequip = { needs = { { "inventory", "unequip" } }, fn = function(args)
     if args.slot == nil then return fail("invalid_args", { detail = "slot is required (HeldRight, Body, ... or index)" }) end
     return call("inventory", "unequip", args.slot)
 end }
-R.inventory = { needs = { { "inventory", "list" } }, fn = function() return call("inventory", "list") end }
+-- inventory (brain read tool): compact listing; raw=true gives inventory.list as is.
+local function pct(it)
+    local d, m = tonumber(it.durability), tonumber(it.max_durability)
+    if d and m and m > 0 then return math.floor(d / m * 100 + 0.5) end
+    return nil
+end
+local function slim(it, with_slot)
+    local o = { name = it.name or it.item, item = it.item, count = it.count, durability_pct = pct(it) }
+    if with_slot then o.slot = it.slot end
+    if it.consumable then o.use = it.consumable end
+    return o
+end
+function M.compact_inventory(d)
+    local worn, hotbar, bag = {}, {}, {}
+    for _, it in ipairs(d.loadout or {}) do
+        local slot = it.loadout_slot or tostring(it.slot)
+        if slot ~= "HeldRight" and slot ~= "HeldLeft" then worn[slot] = it.name or it.item end
+    end
+    for _, it in ipairs(d.hotbar or {}) do hotbar[#hotbar + 1] = slim(it, true) end
+    for _, it in ipairs(d.bag or {}) do bag[#bag + 1] = slim(it, false) end
+    local held = type(d.held) == "table" and d.held or {}
+    return { worn = S.bridge.object(worn), held = S.bridge.object({ right = held.right, left = held.left }),
+             hotbar = hotbar, bag = bag, weight = d.weight, empty_slots = d.empty_slots }
+end
+R.inventory = { needs = { { "inventory", "list" } }, fn = function(args)
+    local r = call("inventory", "list")
+    if not r.ok or args.raw == true then return r end
+    return { ok = true, data = M.compact_inventory(r.data) }
+end }
 R.census = { needs = { { "sense", "census" } }, fn = function(args) return call("sense", "census", args) end }
 R.me = { needs = { { "sense", "me" } }, fn = function() return call("sense", "me") end }
 R.move_status = { needs = { { "move", "status" } }, fn = function() return call("move", "status") end }
@@ -713,6 +766,7 @@ R.interact = { needs = { { "sense", "census" }, { "inventory", "interact_target"
     end
     a.poll = function(self)
         local tnow = now_s()
+        if reflex_owns_pawn() then self.started = tnow; return nil end
         if self.phase == "approach" then
             local here = my_position()
             local d = here and self.thing.position and dist2d(here, self.thing.position)
@@ -781,7 +835,7 @@ end
 
 -- Module-declared tools: a module listed in M.MODULES may export HANDLERS = {tool = fn(log, args, ctx)}
 -- returning what a route returns (see above). Routes win over HANDLERS.
-M.MODULES = { "chat", "move", "sense", "inventory" }
+M.MODULES = { "chat", "move", "sense", "inventory", "combat", "arbiter" }
 local function module_handler(tool)
     for _, name in ipairs(M.MODULES) do
         local mod = M.module(name)
@@ -930,6 +984,29 @@ local function forward_vitals()
     rotate(S.vitals_tail)
 end
 
+-- unreachable{reason, detail, leader_pos, my_pos, mode} / resumed{} from move.lua's events
+-- (client_io/events/move.jsonl: "unreachable" once per episode, "reachable_again", "stuck").
+local function forward_moves()
+    if not S.move_tail then return end
+    for _, raw in ipairs(S.move_tail:read()) do
+        local ok, m = pcall(S.jsonutil.decode, raw)
+        if ok and type(m) == "table" then
+            if m.type == "unreachable" then
+                S.bridge.emit_event("unreachable", { reason = tostring(m.reason or "no_route"), detail = m.detail,
+                                                     leader_pos = m.leader_pos, my_pos = m.my_pos, mode = m.mode })
+                S.stats.unreachable = S.stats.unreachable + 1
+            elseif m.type == "reachable_again" then
+                S.bridge.emit_event("resumed", { reason = "reachable_again", after_s = m.after_s })
+            elseif m.type == "stuck" then
+                S.bridge.emit_event("unreachable", { reason = "stuck", detail = m.unstuck and ("unstuck " .. tostring(m.unstuck)) or nil,
+                                                     leader_pos = m.leader_pos, my_pos = m.my_pos })
+                S.stats.unreachable = S.stats.unreachable + 1
+            end
+        end
+    end
+    rotate(S.move_tail)
+end
+
 local function check_vitals()
     local t = now_s()
     if S.vitals_checked and t - S.vitals_checked < M.VITALS_CHECK_S then return end
@@ -974,11 +1051,20 @@ local function forward_chat()
                 for _, w in ipairs(S.waiters) do -- FIFO: the oldest say still waiting gets this echo
                     if w.kind == "say" and w.echo == nil then w.echo = m.text; break end
                 end
-            elseif S.chat_all or M.addressed(m.text, S.prefixes, S.name) then
-                S.bridge.emit_event("command_received", { player = tostring(m.from or m.player_id or "?"), text = m.text })
-                S.stats.chat_forwarded = S.stats.chat_forwarded + 1
+            elseif S.chat_mode == "addressed" then -- legacy: only addressed lines, as command_received
+                if M.addressed(m.text, S.prefixes, S.name) then
+                    S.bridge.emit_event("command_received", { player = tostring(m.from or m.player_id or "?"), text = m.text })
+                    S.stats.chat_forwarded = S.stats.chat_forwarded + 1
+                else
+                    S.stats.chat_ignored = S.stats.chat_ignored + 1
+                end
             else
-                S.stats.chat_ignored = S.stats.chat_ignored + 1
+                -- Luis (2026-10-25): Claude reads ALL chat and the brain decides what is meant for him.
+                -- mentions_me is the fast-path hint (a prefix or his name as a whole word).
+                S.bridge.emit_event("chat_heard", { from = tostring(m.from or m.player_id or "?"),
+                                                    player = tostring(m.from or m.player_id or "?"), text = m.text,
+                                                    ts = m.ts, mentions_me = M.addressed(m.text, S.prefixes, S.name) })
+                S.stats.chat_forwarded = S.stats.chat_forwarded + 1
             end
         end
     end
@@ -1005,6 +1091,11 @@ M.SERVICES = {
           local st = type(mod.vitals_status) == "function" and mod.vitals_status() or {}
           return st.running == true and (st.hooks or 0) >= #(mod.VITALS_HOOKS or {})
       end },
+    { name = "combat_guard", module = "combat", start = "guard_start", off_env = "DW_COMBAT_REFLEX",
+      healthy = function(mod)
+          local st = type(mod.status) == "function" and mod.status() or {}
+          return st.guard == true
+      end },
     { name = "fed_reflex", module = "inventory", start = "reflex_start",
       healthy = function(mod)
           local st = type(mod.reflex_status) == "function" and mod.reflex_status() or {}
@@ -1020,6 +1111,7 @@ local function supervise(force)
     for _, svc in ipairs(M.SERVICES) do
         local st = S.services[svc.name] or { starts = 0 }
         S.services[svc.name] = st
+        if svc.off_env and os.getenv(svc.off_env) == "0" then st.state = "off (" .. svc.off_env .. "=0)"; goto continue end
         local mod, err = M.module(svc.module)
         local loads = S.mods[svc.module] and S.mods[svc.module].loads or 0
         if not mod or type(mod[svc.start]) ~= "function" then
@@ -1046,6 +1138,7 @@ local function supervise(force)
             end
             st.loads = loads
         end
+        ::continue::
     end
 end
 M._supervise = supervise
@@ -1073,6 +1166,8 @@ function M.step()
     if not ok then ev("client_vitals_forward_error", { err = tostring(err) }) end
     ok, err = pcall(check_vitals)
     if not ok then ev("client_vitals_check_error", { err = tostring(err) }) end
+    ok, err = pcall(forward_moves)
+    if not ok then ev("client_moves_forward_error", { err = tostring(err) }) end
     ok, err = pcall(supervise)
     if not ok then ev("client_supervise_error", { err = tostring(err) }) end
 end
@@ -1114,9 +1209,10 @@ function M.start(opts)
     S = { root = root, scripts = scripts, dir = dir, bridge = bridge, jsonutil = jsonutil, jlog = jlog,
           text_log = opts.log or function() end, mods = {}, action = nil, waiters = {},
           started = os.date("!%Y-%m-%dT%H:%M:%SZ"),
-          stats = { chat_forwarded = 0, chat_ignored = 0, chat_rotations = 0, attacked = 0, vitals_low = 0 },
+          stats = { chat_forwarded = 0, chat_ignored = 0, chat_rotations = 0, attacked = 0, vitals_low = 0, unreachable = 0 },
           attacked_at = {}, vitals_low = {}, prefixes = prefixes(),
-          chat_all = os.getenv("DW_CLIENT_CHAT_ALL") == "1",
+          -- DW_CLIENT_CHAT=heard (default): every other player's line -> chat_heard; =addressed: legacy filter
+          chat_mode = (os.getenv("DW_CLIENT_CHAT") or "heard"):lower(),
           name = opts.name or os.getenv("DW_COMPANION_NAME") or "Claude" }
     assert(bridge.init({ dir = dir, log = jlog, in_name = M.IN_NAME, out_name = M.OUT_NAME, from_start = opts.from_start }))
     -- every tool goes through dispatch, so modules can appear (or break) while the bridge runs.
@@ -1165,6 +1261,8 @@ function M.start(opts)
     -- vitals events (sense.lua's watcher writes them): damage -> attacked
     S.vitals_path = opts.vitals_events or (root .. "/client_io/events/vitals.jsonl")
     S.vitals_tail = bridge.new_tail(S.vitals_path)
+    S.move_path = opts.move_events or (root .. "/client_io/events/move.jsonl")
+    S.move_tail = bridge.new_tail(S.move_path)
     S.services, S.services_on = {}, opts.start_modules == true
     if S.services_on then pcall(supervise, true) end -- now, then every SERVICE_CHECK_S from step()
     if not opts.no_loop then

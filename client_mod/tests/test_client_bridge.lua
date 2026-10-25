@@ -91,7 +91,7 @@ test("start: stale brain lines and chat history are ignored; bare capabilities",
     B.RELOAD_CHECK_S = 0
     T = 1000
     B.clock = function() return T end
-    local st = B.start({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = CHAT, vitals_events = base .. "/vitals.jsonl", jlog = H.log, no_loop = true,
+    local st = B.start({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = CHAT, vitals_events = base .. "/vitals.jsonl", move_events = base .. "/move.jsonl", jlog = H.log, no_loop = true,
                          start_modules = true })
     assert(st.dir == DIR:gsub("\\", "/"), "dir " .. tostring(st.dir))
     step()
@@ -469,36 +469,138 @@ test("events: vitals_low only when low AND nothing to eat/drink; re-armed above 
     FAKE.survival, FAKE.has_food, FAKE.has_drink = nil, nil, nil
 end)
 
-test("chat: addressed lines -> command_received, others ignored, !ping forwarded", function()
+test("chat: every other player's line -> chat_heard with mentions_me; self, events and junk skipped", function()
     for _, line in ipairs({
-        { type = "chat", from = "Luis", text = "Claude, follow me", self = false },
+        { type = "chat", from = "Luis", text = "Claude, follow me", self = false, ts = 5 },
         { type = "chat", from = "Bob", text = "nice house", self = false },
+        { type = "chat", from = "Luis", text = "hello claude what are you wearing", self = false },
+        { type = "chat", from = "Luis", text = "thanks Claude", self = false },
+        { type = "chat", from = "Ann", text = "claudette is here", self = false },
         { type = "chat", from = "Luis", text = "!ping", self = false },
-        { type = "chat", from = "Luis", text = "!c", self = false },
         { type = "chat_event", from = "Bob", tag = "Joined" },
         { type = "chat", from = "Claude", text = "claude here", self = true },
     }) do write(CHAT, json.encode(line) .. "\n") end
     write(CHAT, "not json\n")
     step()
-    local cr = events(drain(), "command_received")
-    assert(#cr == 2, "two forwarded, got " .. #cr)
-    assert(cr[1].player == "Luis" and cr[1].text == "Claude, follow me")
-    assert(cr[2].text == "!ping")
-    assert(B.addressed("@Companion come") and not B.addressed("claude") and B.addressed("  !PING x"))
+    local out = drain()
+    assert(#events(out, "command_received") == 0, "no pre-filtered commands any more")
+    local h = events(out, "chat_heard")
+    assert(#h == 6, "six heard, got " .. #h)
+    assert(h[1].from == "Luis" and h[1].player == "Luis" and h[1].text == "Claude, follow me" and h[1].mentions_me == true and h[1].ts == 5)
+    assert(h[2].from == "Bob" and h[2].mentions_me == false)
+    assert(h[3].mentions_me == true and h[4].mentions_me == true, "name anywhere")
+    assert(h[5].mentions_me == false, "claudette is not claude")
+    assert(h[6].text == "!ping" and h[6].mentions_me == true)
+    assert(B.addressed("@Companion come") and B.addressed("  !PING x") and not B.addressed("claudette", nil, "Claude"))
 end)
 
 test("chat file rotation: emptied once consumed past the threshold, reading continues", function()
     B.CHAT_ROTATE_BYTES = 10
     write(CHAT, json.encode({ type = "chat", from = "Luis", text = "claude one", self = false }) .. "\n")
     step()
-    assert(#events(drain(), "command_received") == 1)
+    assert(#events(drain(), "chat_heard") == 1)
     local f = io.open(CHAT, "rb"); local size = f:seek("end"); f:close()
     assert(size == 0, "rotated, size " .. size)
     write(CHAT, json.encode({ type = "chat", from = "Luis", text = "claude two", self = false }) .. "\n")
     step()
-    local cr = events(drain(), "command_received")
+    local cr = events(drain(), "chat_heard")
     assert(#cr == 1 and cr[1].text == "claude two")
     B.CHAT_ROTATE_BYTES = 1024 * 1024
+end)
+
+test("debug channel: same tools on its own file pair; replies never reach the brain's file", function()
+    local DIN, DOUT = DIR .. "/debug_to_client.jsonl", DIR .. "/client_to_debug.jsonl"
+    write(DIN, json.encode({ v = 1, type = "cmd", id = "dbg1", tool = "ping", args = setmetatable({}, { __jsontype = "object" }) }) .. "\n")
+    step()
+    assert(#drain() == 0, "nothing on the brain's file")
+    local f = assert(io.open(DOUT, "rb")); local txt = f:read("a"); f:close()
+    local m = json.decode(txt:match("([^\n]*)\n"))
+    assert(m.id == "dbg1" and m.ok and m.data.pong, txt)
+end)
+
+test("move events: unreachable once per episode, reachable_again -> resumed, stuck -> unreachable(stuck)", function()
+    local MV = base .. "/move.jsonl"
+    write(MV, json.encode({ type = "unreachable", reason = "leader_windstepped", detail = "dz=6.9m", leader_pos = { 1, 2, 9 },
+                            my_pos = { 1, 2, 3 }, mode = "follow" }) .. "\n")
+    write(MV, json.encode({ type = "reachable_again", after_s = 12 }) .. "\n")
+    write(MV, json.encode({ type = "stuck", unstuck = "requested", my_pos = { 0, 0, 0 } }) .. "\n")
+    step()
+    local out = drain()
+    local un, re = events(out, "unreachable"), events(out, "resumed")
+    assert(#un == 2 and un[1].reason == "leader_windstepped" and un[1].detail == "dz=6.9m" and un[1].leader_pos[3] == 9)
+    assert(un[2].reason == "stuck" and un[2].detail == "unstuck requested")
+    assert(#re == 1 and re[1].after_s == 12)
+end)
+
+test("inventory tool: compact worn / held / hotbar with durability / bag; raw on request", function()
+    local r = rpc("inventory", {})
+    assert(r.ok, tostring(r.reason))
+    local d = r.data
+    assert(d.held.right == "Bronze Hatchet" and d.hotbar[1].slot == 0 and d.hotbar[1].name == "Oak Logs", json.encode(d))
+    assert(d.worn.HeldRight == nil, "held slots are under held, not worn")
+    assert(#d.bag >= 1 and d.bag[1].count >= 1)
+    local raw = rpc("inventory", { raw = true })
+    assert(raw.ok and raw.data.loadout and raw.data.loadout[1].loadout_slot == "HeldRight")
+end)
+
+test("a reflex fight owns the pawn: go_to and follow wait (no interrupted), then carry on", function()
+    install("arbiter", [[
+local A = {}
+function A.owner() return _G.FAKE.reflex and { name = "reflex:guard", level = "reflex" } or nil end
+function A.status() return { ok = true, suspended = {} } end
+A.HANDLERS = { arbiter_status = function() return A.status() end }
+return A
+]])
+    FAKE.move.position = nil
+    local _, _, id = rpc("go_to", { target = { 10, 0, 0 } })
+    FAKE.reflex = true
+    FAKE.move.mode, FAKE.move.result = "idle", { status = "stopped" } -- the arbiter suspended the walk
+    for _ = 1, 5 do step() end
+    T = T + B.GOTO_TIMEOUT_S - 1
+    step()
+    assert(#results(drain(), id) == 0, "waits while the reflex fights, and the clock is paused")
+    FAKE.reflex = nil
+    FAKE.move.mode, FAKE.move.result = "go_to", nil -- restored by the arbiter
+    step()
+    FAKE.move.mode, FAKE.move.result, FAKE.move.position = "idle", { status = "arrived" }, { 10, 0, 0 }
+    step()
+    local r = results(drain(), id)[1]
+    assert(r and r.ok, json.encode(r))
+    FAKE.move.position = nil
+    uninstall("arbiter")
+end)
+
+test("combat module: attack via its HANDLERS (async), stop ends a commanded fight only", function()
+    install("combat", [[
+local C = {}
+_G.FAKE.fight = _G.FAKE.fight or nil
+function C.status() return { ok = true, fight = _G.FAKE.fight, guard = true } end
+function C.stop(log, why) _G.FAKE.combat_stopped = why; _G.FAKE.fight = nil; return { ok = true } end
+function C.guard_start(log) return { ok = true } end
+C.HANDLERS = { attack = function(log, args, ctx)
+    _G.FAKE.fight = { mode = "attack", phase = "engage", target = "Wolf", target_id = args.target }
+    local a = { kind = "attack", timeout_s = 135 }
+    a.poll = function() if _G.FAKE.killed then _G.FAKE.fight = nil; return { ok = true, data = { killed = true, target = args.target } } end end
+    a.cancel = function() C.stop(log, "cancel") end
+    return { pending = a }
+end }
+return C
+]])
+    assert(has(rpc("capabilities").data.tools, "attack"), "attack from combat.HANDLERS")
+    local _, _, id = rpc("attack", { target = "wolf_9" })
+    local s = rpc("get_state").data
+    assert(s.fight and s.fight.mode == "attack" and s.fight.target_id == "wolf_9" and s.action == "attack")
+    local sid = send("stop")
+    step()
+    local out = drain()
+    assert(results(out, id)[1].reason == "interrupted" and results(out, sid)[1].data.stopped == "attack")
+    assert(FAKE.combat_stopped ~= nil, "commanded fight stopped")
+    FAKE.combat_stopped = nil
+    FAKE.fight = { mode = "reflex", phase = "engage" }
+    rpc("stop")
+    assert(FAKE.combat_stopped == nil, "self-defence keeps running on stop")
+    FAKE.fight = nil
+    uninstall("combat")
 end)
 
 test("module-declared HANDLERS dispatch", function()
@@ -535,7 +637,7 @@ test("restart via start(): old loop cancelled, new instance answers", function()
     local B2 = assert(loadfile(REPO .. "/client_mod/scripts/client_bridge.lua"))()
     B2.RELOAD_CHECK_S = 0
     B2.clock = function() return T end
-    B2.start({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = CHAT, vitals_events = base .. "/vitals.jsonl", jlog = H.log, poll_ms = 50 })
+    B2.start({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = CHAT, vitals_events = base .. "/vitals.jsonl", move_events = base .. "/move.jsonl", jlog = H.log, poll_ms = 50 })
     local handle, loop = nil, nil
     for h, l in pairs(H.loops) do handle, loop = h, l end
     assert(loop and loop.delay_ms == 50, "loop registered")
