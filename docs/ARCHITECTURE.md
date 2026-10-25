@@ -326,6 +326,7 @@ Every function takes the DWClient text logger `log(msg)` first and returns a tab
 | `arbiter.lua` | `request(log, {name, level=reflex\|command\|task\|idle, uses_move, lease_s, on_suspend, on_resume, on_stop})` → `{ok, token, preempted}` or `{ok=false, reason="busy", owner}`; `release(log, token)` (resumes the newest suspended owner, replaying its move via `move.snapshot/restore`); `renew`, `holds`, `is_suspended`, `owner`, `status`; HANDLERS `arbiter_status` | which module owns the pawn; reflex fights suspend and later resume commands and tasks |
 | `traverse_learn.lua` (traversal agent; READ-ONLY recorder) | `start(log, {world})` / `stop` / `status()`; for move.lua: `links_near(pos, radius_m, {env, usable_only})`, `best_link(from, to, {env, radius_m, max_detour})`, `usable(link, env)`, `record_attempt(log, id, ok, reason)`, `forget(log, id)`, `rebuild(log, world)`; HANDLERS `learn_status`, `learn_links` (not yet in `MODULES`). It records other players' and Claude's own airborne events into `logs/state/worlds/<world>/traversal_events.jsonl` and clusters them into `data/skills/<world>/traversal_links.json`. It is the **only writer** of that file. | (planned) link segments for go_to/follow; "what have you learned?" |
 | `combat.lua` | `attack(log, target, {force})`; `guard_start(log)` / `guard_stop` (the reflex); `stop`; `status`; `set_orders({stance, avoid, force})`; HANDLERS `attack` (async `{pending}`), `combat_status`, `combat_orders`. Pure: `assess`, `best_weapon`, `score_weapon`, `pick_threats`, `learn_outcome` | `attack`; `attacked` → reflex fight or flee |
+| `gather.lua` + `gather_profiles.lua` (gather agent) | HANDLERS `gather` (async `{pending}`; args `{resource, count, radius, stumps}`), `gather_status`; `start(log, args, ctx)`, `stop(log, why)`, `status()`. Data: `gather_profiles.RESOURCES` (mode chop/pickup, tool, root/children classes, aliases), `resolve(name)`. Uses `sense.foliage`, `move.go_to`, `inventory.{list,equip,held,interact_target,press_interact}`, `combat.{actions,_inject,weapons}`, arbiter level `task`. Events: `client_io/events/gather.jsonl` (`gather_progress`, `gather_status`) | `gather`; standing trees in `census.resources` (kind `foliage`) |
 
 ### 8.3 Rules (client side)
 
@@ -359,6 +360,7 @@ Every function takes the DWClient text logger `log(msg)` first and returns a tab
    - add a case to `client_mod/tests/test_client_bridge.lua` covering success, each failure reason and the probe;
    - for brain-visible behaviour, add to `tests/test_client_bridge.py` (the Lua client bridge driven by the real BridgeClient and `run_live`).
 5. **Brain side:** nothing, if the tool already exists in `interface.TOOLS`. Otherwise follow §4.1 step 4. Document client-specific behaviour in `BRIDGE_PROTOCOL.md` "Client endpoint".
+6. **Add a gatherable** (a new tree, rock, bush or ground pickup) = one entry in `client_mod/scripts/gather_profiles.lua`: `mode` (chop/pickup), `tool`, `root` class family + class-word pattern (read the `class` of the foliage or actor row from `client_mod/commands/gather_scan.lua`), `children` for multi-stage chains, `item`, `aliases`. No code.
 
 ### 8.5 Tests
 
@@ -367,4 +369,5 @@ Every function takes the DWClient text logger `log(msg)` first and returns a tab
 | Client bridge (fake modules) | `"C:\Program Files\WinGet\Links\lua.exe" client_mod/tests/test_client_bridge.lua <empty_dir>` |
 | Arbiter + combat (fake engine: whole fights, flee, block, dead inputs) | `"C:\Program Files\WinGet\Links\lua.exe" client_mod/tests/test_combat.lua` |
 | Traversal recorder (kinematic fake leader on a heightmap: jump-up, gap, double jump, Windstep, drop, air dash, hop, teleport; clustering, self-verify, pause, per-world store, API, rebuild) | `"C:\Program Files\WinGet\Links\lua.exe" client_mod/tests/test_traverse_learn.lua <empty_dir>` |
+| Gather (fake world: oak chain, tools, failures, suspend/resume, pickups, foliage maths) | `"C:\Program Files\WinGet\Links\lua.exe" client_mod/tests/test_gather.lua` |
 | Client bridge ⇄ brain (BridgeClient, capabilities, run_live dry run end to end) | `.venv\Scripts\python.exe -m pytest tests/test_client_bridge.py` |

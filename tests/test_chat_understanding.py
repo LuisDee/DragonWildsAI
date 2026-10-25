@@ -120,6 +120,8 @@ def test_unreachable_speaks_the_real_reason_and_found_you_after(rig):
     assert rig.said()[-1] == "Found you."
     rig.agent.handle_event(Unreachable(reason="weird_new_reason", detail="ledge 4.2 m"))
     assert rig.said()[-1] == "I can't reach you: ledge 4.2 m."
+    rig.agent.handle_event(Unreachable(reason="needs:DoubleJump"))
+    assert rig.said()[-1] == "I'd need Double Jump to get there, and I can't do that yet."
 
 
 def test_inventory_read_tool_answers_what_is_in_the_bag(rig):

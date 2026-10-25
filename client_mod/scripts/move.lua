@@ -45,6 +45,7 @@ local NAV_REQ = ROOT .. "/client_io/nav/req.json"
 local NAV_RESP = ROOT .. "/client_io/nav/resp.lua"
 local NAV_ALIVE = ROOT .. "/client_io/nav/alive.lua"
 local LP_PATH = ROOT .. "/client_mod/scripts/localplan.lua"
+local TL_PATH = ROOT .. "/client_mod/scripts/traverse_learn.lua" -- learned traversal links (traversal agent)
 
 local M = {}
 
@@ -94,7 +95,10 @@ M.cfg = {
     unreachable_check_s = 1.5, -- while unreachable: re-check this often
     unreachable_moved_cm = 300,-- ... and resume at once when the leader moved this far
     self_stuck_cm = 100,       -- moved less than this in total over give_up_s = WE are stuck (not the route)
-    superjump_cm = 250,        -- leader airborne rise above this = Windstep (normal jump apex 180 cm)
+    superjump_cm = 250,        -- leader rise above this on a SINGLE jump = Windstep (normal apex 180 cm) ...
+    superjump_any_cm = 450,    -- ... or above this whatever the jump count (a double jump rises ~3 m)
+    link_max_tries = 2,        -- learned-link attempts per unreachable episode before reporting
+    link_approach_s = 15,
     log_every_s = 2.0,
 }
 
@@ -379,6 +383,17 @@ local CONE = {}
 for f = 2, 8 do for l = -3, 3 do CONE[#CONE + 1] = { f, l } end end
 table.sort(CONE, function(a, b) return a[1] * a[1] + a[2] * a[2] < b[1] * b[1] + b[2] * b[2] end)
 
+local TL_MOD
+local function tl_module()
+    if TL_MOD == nil then
+        local okc, chunk = pcall(loadfile, TL_PATH)
+        local okm, mod = false, nil
+        if okc and chunk then okm, mod = pcall(chunk) end
+        TL_MOD = (okm and type(mod) == "table" and mod.best_link) and mod or false
+    end
+    return TL_MOD
+end
+
 local LP_MOD
 local function lp_module()
     if LP_MOD == nil then
@@ -496,9 +511,12 @@ local function tick(st, gen, log)
             -- leader moves Claude may lack: airborne rise > superjump_cm = Windstep; jump count 2 = double jump
             local okg, ground = pcall(function() return st.target.CharacterMovement:IsMovingOnGround() end)
             if okg and ground == false then
-                if not st.l_air then st.l_air = { z0 = goal.Z, zmax = goal.Z, n0 = #st.crumbs } else st.l_air.zmax = math.max(st.l_air.zmax, goal.Z) end
+                if not st.l_air then st.l_air = { z0 = goal.Z, zmax = goal.Z, n0 = #st.crumbs, jc = 0 } else st.l_air.zmax = math.max(st.l_air.zmax, goal.Z) end
+                local okj0, jc0 = pcall(function() return st.target.ReplicatedJumpCurrentCount end)
+                if okj0 and tonumber(jc0) then st.l_air.jc = math.max(st.l_air.jc or 0, tonumber(jc0)) end
             elseif okg and st.l_air then
-                if st.l_air.zmax - st.l_air.z0 > M.cfg.superjump_cm then
+                local rise = st.l_air.zmax - st.l_air.z0
+                if rise > M.cfg.superjump_any_cm or (rise > M.cfg.superjump_cm and (st.l_air.jc or 0) <= 1) then
                     -- Windstep: his airborne crumbs are not a path for us; the trail ends at his take-off
                     st.leader_superjump_t = t
                     for k = #st.crumbs, st.l_air.n0 + 1, -1 do table.remove(st.crumbs, k) end
@@ -550,7 +568,7 @@ local function tick(st, gen, log)
         if moved or (t - u.check_t > M.cfg.unreachable_check_s and within and u.reason == "leader_above_jump_height") then
             if log then log(string.format("move: reachable again? (%s) leader=%s", moved and "leader moved" or "within reach", fmt(goal))) end
             pcall(emit_move_event, "reachable_again", { leader_pos = goal, my_pos = me, after_s = math.floor((t - u.since) * 10) / 10 })
-            st.unreach = nil
+            st.unreach, st.link_tries = nil, 0
             st.prog_t, st.prog_pos, st.stuck_n, st.lp_plans_np, st.move_acc = t, v(me), 0, 0, 0
             st.lpath, st.backtrack_until = nil, nil
             st.trail_i = nil
@@ -638,7 +656,55 @@ local function tick(st, gen, log)
     -- choose the steering point
     local aim, src = goal, "straight"
     local idx_progress = false
-    if st.backtrack_until and t < st.backtrack_until and st.backtrack_pt then
+    local lx = st.link_exec
+    if lx then
+        -- running a learned traversal link (traverse_learn.lua): approach the run-up point, run at
+        -- link.from, jump there (double/sprint per the link), then verify the landing near link.to
+        local L = lx.link
+        local from = { X = L.from[1] * 100, Y = L.from[2] * 100, Z = L.from[3] * 100 }
+        local to = { X = L.to[1] * 100, Y = L.to[2] * 100, Z = L.to[3] * 100 }
+        local hx, hy = to.X - from.X, to.Y - from.Y
+        local hl = math.max(math.sqrt(hx * hx + hy * hy), 1)
+        hx, hy = hx / hl, hy / hl
+        local runup = (tonumber(L.runup_m) or 0) * 100
+        local feet = { X = me.X, Y = me.Y, Z = me.Z - (st.half_h or 90) }
+        local function done(ok, why)
+            st.link_exec = nil
+            local TL = tl_module()
+            if TL then pcall(TL.record_attempt, log, L.id, ok, why) end
+            if log then log(string.format("move: link %s %s %s", tostring(L.id), ok and "OK" or "FAILED", tostring(why or ""))) end
+            st.prog_t, st.prog_pos, st.move_acc, st.bt_tested = t, v(me), 0, nil
+            st.lpath, st.trail_i = nil, nil
+            if ok then st.link_ok = (st.link_ok or 0) + 1 end
+        end
+        if lx.phase == "approach" then
+            local start = runup > 50 and { X = from.X - hx * runup, Y = from.Y - hy * runup, Z = from.Z } or from
+            aim, src = start, "link"
+            if d2(me, start) < 60 then lx.phase = "run" end
+            if t - lx.t0 > M.cfg.link_approach_s then done(false, "approach_timeout") end
+        elseif lx.phase == "run" then
+            aim, src = to, "link"
+            if (L.needs and L.needs.sprint) or L.move == "sprint_jump" then st.sprint_want = true end
+            local along = (me.X - from.X) * hx + (me.Y - from.Y) * hy
+            if d2(me, from) < 50 or along > 0 then
+                start_jump(st, t, pawn, L.move == "double_jump" and st.env and st.env.double_jump)
+                lx.phase, lx.t_jump = "air", t
+            end
+        elseif lx.phase == "air" then
+            aim, src = to, "link"
+            local okg2, ground = pcall(function() return pawn.CharacterMovement:IsMovingOnGround() end)
+            if t - lx.t_jump > 0.4 and okg2 and ground then
+                local dz = math.abs(feet.Z - to.Z)
+                done(d2(feet, to) < 200 and dz < 100, string.format("landed %.1fm from link.to", d2(feet, to) / 100))
+            elseif t - lx.t_jump > 4 then
+                done(false, "no_landing")
+            end
+        end
+        if st.link_exec then idx_progress = true end -- executing a link is progress (no give-up mid-run)
+    end
+    if lx and st.link_exec then
+        -- steering point chosen above
+    elseif st.backtrack_until and t < st.backtrack_until and st.backtrack_pt then
         aim, src = st.backtrack_pt, "backtrack"
         if d2(me, st.backtrack_pt) < M.cfg.wp_radius_cm then st.backtrack_until = nil end
     else
@@ -761,7 +827,7 @@ local function tick(st, gen, log)
     end
 
     -- forward wall probe (cheap, a few per second): a steep hit at knee height ahead -> plan
-    if st.use_lp and not st.lpath and src ~= "backtrack" and t - (st.probe_t or 0) > M.cfg.probe_every_s
+    if st.use_lp and not st.lpath and src ~= "backtrack" and src ~= "link" and t - (st.probe_t or 0) > M.cfg.probe_every_s
         and t - (st.lp_fail_t or -100) > M.cfg.lp_cooldown_s and st.lp_plans_np < M.cfg.lp_max_plans then
         st.probe_t = t
         local hh = st.half_h or 90
@@ -903,9 +969,26 @@ local function tick(st, gen, log)
             pcall(emit_move_event, "stuck", { my_pos = me, leader_pos = goal, unstuck = un and (un.ok and "requested" or un.error) })
             return finish(st, { status = "failed", reason = "stuck", dist_m = dist / 100, unstuck = un and (un.ok and "requested" or un.error), at_m = at }, log)
         end
-        -- we can move but cannot get closer: the route is the problem; say why
+        -- we can move but cannot get closer. First: a learned traversal link toward the goal?
+        local TL = tl_module()
+        local needs = nil
+        if TL and (st.link_tries or 0) < M.cfg.link_max_tries then
+            local m = function(q) return { q.X / 100, q.Y / 100, q.Z / 100 } end
+            local okb, link, info = pcall(TL.best_link, m(me), m(goal), { env = { double_jump = st.env and st.env.double_jump or false,
+                air_dash = false, windstep = false }, max_detour = 3 })
+            if okb and link then
+                st.link_tries = (st.link_tries or 0) + 1
+                st.link_exec = { link = link, phase = "approach", t0 = t }
+                st.prog_t, st.prog_pos, st.move_acc = t, v(me), 0
+                if log then log(string.format("move: trying learned link %s (%s, cost %.1fm)", tostring(link.id), tostring(link.move), tonumber(link.cost_m) or -1)) end
+                return
+            elseif okb and type(info) == "string" and info:sub(1, 6) == "needs:" then
+                needs = info
+            end
+        end
         local reason
-        if st.leader_superjump_t and t - st.leader_superjump_t < 30 then reason = "leader_windstepped"
+        if needs then reason = needs                                -- e.g. "needs:DoubleJump" (a known link needs a move we lack)
+        elseif st.leader_superjump_t and t - st.leader_superjump_t < 30 then reason = "leader_windstepped"
         elseif st.leader_dj_t and t - st.leader_dj_t < 30 and not (st.env and st.env.double_jump) then reason = "leader_double_jumped"
         elseif goal.Z - me.Z > ((st.env and st.env.jump or 165) + 60) then reason = "leader_above_jump_height"
         else reason = "no_route" end
@@ -1060,6 +1143,8 @@ function M.status()
         lwp = st.lwp, n_lwp = st.lpath and #st.lpath, lp_state = st.lp_state, lp_runs = st.lp_runs,
         lp_fail = st.lp_fail, lp_why = st.lp_why, traces = st.traces, env = st.env,
         nav_live = st.nav_live, nav_requests = st.nav_requests,
+        link_exec = st.link_exec and { id = st.link_exec.link.id, move = st.link_exec.link.move, phase = st.link_exec.phase } or nil,
+        link_tries = st.link_tries, link_ok = st.link_ok,
         link_jumps = st.link_jumps, trail_jumps = st.trail_jumps, backtracks = st.backtracks, trail_i = st.trail_i, crumbs = st.crumbs and #st.crumbs, trail_entries = st.trail_entries,
         sprinting = st.sprinting, sprint_route = st.sprint_route, sprint_err = st.sprint_err, sprint_presses = st.sprint_presses,
         sprint_speed_ms = st.sprint_speed_cms and math.floor(st.sprint_speed_cms) / 100,

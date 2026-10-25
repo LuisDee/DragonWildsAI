@@ -119,8 +119,11 @@ class Agent:
                 who = event.name or sit.pretty_id(event.by)
                 self._help("attacked", f"Help! {who} is attacking me and I can't fight back yet.")
         elif isinstance(event, Unreachable):
-            line = UNREACHABLE_LINES.get(event.reason) or (
-                f"I can't reach you: {event.detail or event.reason.replace('_', ' ')}.")
+            line = UNREACHABLE_LINES.get(event.reason)
+            if not line and event.reason.startswith("needs:"):  # a learned traversal link needs a move he lacks
+                move = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", event.reason.split(":", 1)[1]).strip() or "a move"
+                line = f"I'd need {move} to get there, and I can't do that yet."
+            line = line or f"I can't reach you: {event.detail or event.reason.replace('_', ' ')}."
             self._help(f"unreachable_{event.reason}", line)
             self._unreachable_at = self.clock()
         elif isinstance(event, Resumed):

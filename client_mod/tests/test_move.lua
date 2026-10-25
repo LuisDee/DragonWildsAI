@@ -26,6 +26,7 @@ local function blocked(x, y, airborne)
 end
 local frame_hook = nil
 local raised = {}          -- {x0,x1,y0,y1, h0, h1}: floor raised by h0..h1 cm (linear along x) = plateau / ramp
+local portals = {}         -- {x,y}: airborne within 1.5 m of one may rise up to 7 m (a learned link's take-off)
 local function wall_top(x, y)
     for _, r in ipairs(raised) do
         if x > r[1] and x < r[2] and y > r[3] and y < r[4] then
@@ -61,7 +62,7 @@ end }
 pawn = obj({ loc = { X = 0, Y = 0, Z = 0 }, input = nil, jumps = 0 })
 function pawn:K2_GetActorLocation() return { X = self.loc.X, Y = self.loc.Y, Z = self.loc.Z } end
 function pawn:AddMovementInput(d, s) self.input = d end
-function pawn:Jump() self.jumps = self.jumps + 1; air = 0.6 end
+function pawn:Jump() self.jumps = self.jumps + 1; air = 0.6; self.jump_origin = { X = self.loc.X, Y = self.loc.Y } end
 function pawn:StopJumping() end
 pawn.CharacterMovement = obj({ MaxStepHeight = 45, GetMaxJumpHeightWithJumpTime = function() return 120 end,
     IsMovingOnGround = function() return air <= 0 end, MinFallDamageHeight = 500 })
@@ -98,7 +99,12 @@ local function step(n)
             local here_top = wall_top(pawn.loc.X, pawn.loc.Y) or FLOOR
             local there_top = wall_top(nx, ny) or FLOOR
             local rise = there_top - here_top
-            if rise <= 45 or (air > 0 and rise <= 120) then
+            local near_portal = false
+            local jo = pawn.jump_origin
+            for _, pt in ipairs(portals) do
+                if jo and math.sqrt((jo.X - pt[1]) ^ 2 + (jo.Y - pt[2]) ^ 2) < 60 then near_portal = true end
+            end
+            if rise <= 45 or (air > 0 and rise <= 120) or (air > 0 and near_portal and rise <= 700) then
                 pawn.loc.X, pawn.loc.Y, pawn.loc.Z = nx, ny, there_top + 90
             end
         else sprinting = false end
@@ -178,6 +184,7 @@ run(5)
 local n = 0; for _ in pairs(loops) do n = n + 1 end
 check("no loops left after stop from a fresh load", n == 0, n)
 
+_G.DW_LP_CACHE = nil
 -- 5. breadcrumbs: a tall wall the dev navmesh doesn't know; nav gives a partial path into it;
 --    the leader walks around the wall's end; Claude must retrace the leader's trail
 walls = { { 900, 1100, -2000, 600, true } }
@@ -203,6 +210,7 @@ check("breadcrumbs or local planner routed around it", (s.trail_entries or 0) >=
 M.stop(log)
 frame_hook = nil
 
+_G.DW_LP_CACHE = nil
 -- 6. bounded give-up: walled in, no trail -> stops with "stuck" after > 5 s, not a loop
 walls = { { 300, 400, -5000, 5000, true } }
 pawn.loc = { X = 0, Y = 0, Z = 0 }; oracle = nil
@@ -217,6 +225,7 @@ local stuck_logged = false
 for _, l in ipairs(logs) do if l:find("move: stuck n=") and l:find("aim=") then stuck_logged = true end end
 check("stuck events log me/aim/goal/waypoints", stuck_logged)
 
+_G.DW_LP_CACHE = nil
 -- 8. leader on a 6 m plateau reached by a ramp ~23 m away (outside the 9 m planner window):
 --    the local plan must fail as "unreachable", and Claude must retrace the leader's trail up
 walls = {}; oracle = nil
@@ -248,6 +257,7 @@ M.stop(log)
 frame_hook = nil
 raised = {}
 
+_G.DW_LP_CACHE = nil
 -- 9. persistent follow: the leader Windsteps onto a plateau Claude can't reach (no ramp), so
 --    follow goes "unreachable" (once, with reason leader_windstepped), then he jumps back down
 --    and follow resumes by itself
@@ -291,6 +301,7 @@ M.stop(log)
 luis.CharacterMovement = nil
 raised = {}
 
+_G.DW_LP_CACHE = nil
 -- 10. oracle path with an auto-generated nav LINK (a 1 m step up): jump from the take-off point.
 --     Local planner off so only the nav-link logic can get us up.
 walls = {}
@@ -305,6 +316,7 @@ check("nav link: jumped up the step and arrived", s.result and s.result.status =
     tostring(s.result and s.result.status) .. " link_jumps=" .. tostring(s.link_jumps))
 raised = {}; oracle = nil
 
+_G.DW_LP_CACHE = nil
 -- 11. world-teardown guard: while _G.DW_PAUSE is set, the loop makes no engine calls at all
 walls = {}; oracle = nil
 pawn.loc = { X = 0, Y = 0, Z = 0 }
@@ -322,6 +334,48 @@ run(100)
 check("unpaused: moves again", M.status().result and M.status().result.status == "arrived", M.status().status)
 pawn.AddMovementInput = real_add
 
+_G.DW_LP_CACHE = nil
+-- 12. learned traversal links (traverse_learn.lua API): Luis on a 6 m plateau, no ramp; a learned
+--     "jump" link exists at x = 9 m (only there can you get up). Expect: give-up -> best_link ->
+--     approach -> jump at link.from -> landing verified -> record_attempt(ok) -> follow reaches him.
+local tl_src = [[
+local M = {}
+_G.TL_ATTEMPTS = {}
+function M.best_link(from, to, opts)
+    if _G.TL_MODE == "needs" then return nil, "needs:DoubleJump" end
+    return { id = "L1", move = "sprint_jump", from = { 5, 0, -0.9 }, to = { 8.6, 0, 5.1 }, runup_m = 3, needs = { sprint = true }, cost_m = 12 }, {}
+end
+function M.record_attempt(log, id, ok, reason) _G.TL_ATTEMPTS[#_G.TL_ATTEMPTS + 1] = { id = id, ok = ok, reason = reason } end
+return M
+]]
+do local f = io.open(dir .. "/client_mod/scripts/traverse_learn.lua", "w"); f:write(tl_src); f:close() end
+local M3 = dofile(MOVE) -- fresh module instance: picks up the fake traverse_learn.lua
+walls = {}; oracle = nil
+raised = { { 800, 4000, -1000, 1000, 600, 600 } }
+portals = { { 500, 0 } }
+pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 1500, Y = 0, Z = 690 }
+_G.TL_MODE = "link"
+M3.follow(log, "Zezima", 3)
+run(500)
+s = M3.status()
+if os.getenv("DBG12") then for i = math.max(1, #logs - 8), #logs do print("  " .. logs[i]) end; local q = M3.status(); print("ST", q.mode, q.status, q.lp_state, q.stuck_n, q.ticks, q.source, pawn.loc.X, pawn.loc.Z, T) end
+local att = (_G.TL_ATTEMPTS or {})[1]
+check("learned link tried and recorded ok", att and att.id == "L1" and att.ok == true, att and tostring(att.reason))
+check("follow reached the leader via the link", s.status == "near", tostring(s.status) .. " z=" .. pawn.loc.Z)
+M3.stop(log)
+-- needs:X becomes the unreachable reason
+_G.TL_MODE = "needs"
+pawn.loc = { X = 0, Y = 0, Z = 0 }
+local M4 = dofile(MOVE)
+M4.follow(log, "Zezima", 3)
+run(400)
+s = M4.status()
+check("unreachable reason = needs:DoubleJump", s.unreachable and s.unreachable.reason == "needs:DoubleJump", s.unreachable and s.unreachable.reason)
+M4.stop(log)
+os.remove(dir .. "/client_mod/scripts/traverse_learn.lua")
+raised, portals = {}, {}
+
+_G.DW_LP_CACHE = nil
 -- 7. arbiter hooks: actor target ({actor=obj}), snapshot/restore, face_when_near
 walls = {}; pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 1500, Y = 0, Z = 0 }; oracle = nil
 M.follow(log, { actor = luis }, 2, { sprint = true, face_when_near = true })

@@ -123,7 +123,11 @@ function W.now(ctx)
     return ok and t or os.time()
 end
 function W.pc() return mcall("sense", "local_pc") end
-function W.pawn(pc) local p = pc and U.try(function() return pc.Pawn end); return U.alive(p) and p or nil end
+function W.pawn(pc)
+    if not U.valid(pc) then return nil end
+    local p = U.try(function() return pc.Pawn end)
+    return U.alive(p) and p or nil
+end
 function W.actors(cls) return U.find_all(cls, { skip_defaults = true }) end
 function W.foliage(origin, r_cm, opts) return mcall("sense", "foliage", origin, r_cm, opts) or {} end
 function W.loc(a) return U.loc(a) end
@@ -521,6 +525,8 @@ local function target_done(J, T)
             T.kind, T.key, T.actor, T.alias = "foliage", T.alias, nil, nil
             return false
         end
+        -- log pieces are destroyed when they break: gone right after our hits = broken by us
+        if (T.hits or 0) > 0 then return true, "broken" end
         return true, "gone"
     end
     if J.profile.mode == "pickup" then return not W.available(T.actor), "picked" end
@@ -821,7 +827,7 @@ local function step_collect(J, pawn, me)
     end
     if J.t - (T.press_t or -9) < cfg.collect_press_gap_s then return end
     local tg = mcall("inventory", "interact_target", pawn)
-    if type(tg) == "table" and tg.actor == T.key then
+    if type(tg) == "table" and (tg.actor == T.key or (J.item and tg.item == J.item)) then
         T.press_t, T.presses = J.t, T.presses + 1
         mcall("move", "stop", J.log)
         mcall("inventory", "press_interact", J.log)
@@ -889,7 +895,7 @@ local function frame(J)
     if J.gen ~= c.gen or J.done then return end
     if _G.DW_PAUSE then return abort_paused(J) end
     local pc = J.pc
-    local pawn = pc and U.valid(pc) and W.pawn(pc)
+    local pawn = pc and W.pawn(pc)
     if not pawn then return finish(J, result_of(J, false, "companion_down", { why = "no_pawn" })) end
     J.t = W.now(pawn)
     if J.suspended then
@@ -964,7 +970,8 @@ function M.start(log, args, ctx)
     args = args or {}
     if _G.DW_PAUSE then return { ok = false, reason = "companion_down", data = { why = "paused", detail = "The world is loading." } } end
     local P = M.profiles()
-    local key, profile = P and P.resolve(args.resource)
+    local key, profile
+    if P then key, profile = P.resolve(args.resource) end
     if not profile then
         return { ok = false, reason = "unknown_target", data = { why = "unknown_resource", resource = args.resource,
                  detail = string.format("I don't know how to gather '%s'.", tostring(args.resource)) } }

@@ -366,7 +366,7 @@ The `event` object types (`brain/interface.py`) are:
   "Client endpoint".
 - `unreachable{reason, detail?, leader_pos?, my_pos?, mode?}` (client body, from move.lua's
   `client_io/events/move.jsonl`, once per episode): reasons `leader_windstepped`, `leader_double_jumped`,
-  `leader_above_jump_height`, `no_route`, `stuck` (`detail` "unstuck requested"). The brain says one line for
+  `leader_above_jump_height`, `no_route`, `stuck` (`detail` "unstuck requested"). `needs:<Move>` (e.g. `needs:DoubleJump`: a learned traversal link would get there but needs a move he lacks) -> "I'd need Double Jump to get there, and I can't do that yet." The brain says one line for
   that exact reason (`agent.UNREACHABLE_LINES`; an unknown reason quotes `detail`), at most once a minute per
   reason. `resumed{}` ("reachable_again"): "Found you." only if it complained in the last 5 min.
 - `vitals_low{stat, value, max?, has_food?, has_drink?}` (client body): hydration or sustenance below 15

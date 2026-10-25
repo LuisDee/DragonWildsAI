@@ -372,7 +372,7 @@ function M.foliage(origin, radius_cm, opts)
                 local sc = U.try(function() local s = c:K2_GetComponentScale(); return { X = s.X, Y = s.Y, Z = s.Z } end) or { X = 1, Y = 1, Z = 1 }
                 local facts
                 for _, e in ipairs(idxs) do
-                    local i = (type(e) == "userdata" and U.try(function() return e:get() end)) or e
+                    local i = type(e) == "number" and e or U.try(function() return e:get() end)
                     local w = type(i) == "number" and cl and U.try(function()
                         local m = c.PerInstanceSMData[i + 1].Transform
                         local t, x = m.WPlane, m.XPlane
