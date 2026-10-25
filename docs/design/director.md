@@ -488,3 +488,24 @@ Sources:
 9. **No-progress prefers the step's own measures (Low).** `gained` / `tally` / XP / `killed` / `lost` / `on_ground` keys first, so a drop and pick-up of the same `have:` count never reads as progress.
 10. **Request timeout (Low).** The Director passes `timeout=` to LiteLLM (`LiteLLMClient(..., timeout=60)`), so a hung request can't block the single worker. The 90 s decision timeout stays as the outer guard.
 11. **Regions dump source (Low):** a dev-server run (§2.12).
+
+## 13. Wave 5: real-model findings (2026-10-26; 24 Sonnet + 14 Haiku requests, $0.37, cap 40)
+Cassettes are in `tests/fixtures/director_cassettes/` (better_pickaxe, coal_multitrip). `tests/test_director_cassettes.py` replays each job's first decision through today's Validator and board. The recorder is `tools/director_cassettes.py`. The other four jobs were not recorded: the hard cap was reached.
+
+**Where real Sonnet differed from the scripted plans:**
+- **Better pickaxe.** It planned a **Bone Pickaxe first**: the wiki says copper and tin ore need a bone pickaxe or better. GearWorld doesn't gate those rocks by tier (`min_tier` 1), so the mock is the inaccurate side; the live gate is read from the rock actor (gather_profiles / sense `gate`). Its first plan also put **3 prerequisites** on the board, and one of them made the Bronze plan with 7 steps, including explicit "walk to the Furnace / Bench" steps. It over-gathered (15 of each ore instead of 9), because the game-data lookup card was truncated.
+- **Coal.** It planned "mine 50 coal → go back → drop at his feet" even though it knew no node position. It tried first rather than asking for help. The wiki says coal needs an iron pickaxe, so it added an iron-pickaxe prerequisite, and that prerequisite's own plan mixed ore with Iron Salvage Piles. It declared no travel gap.
+
+**Problems it exposed, and the fixes:**
+1. **About 5 requests per decision, not 3.** All 3 research rounds were used. Then, once the tools were withdrawn, LiteLLM injected a `dummy_tool` and Sonnet called it, which cost a repair round. **Fixed:** `json_decision` keeps the tools offered, says "Research is over", and refuses late calls as a counted repair. Test: `test_research_limit_keeps_tools_offered_says_so_and_refuses_late_calls`.
+2. **Prerequisite explosion:** each prerequisite costs a full decision. **Fixed:** the prompt says the job's own work goes in its steps, and add_tasks is for a separate job; code takes at most 1 per decision (a cost cap).
+3. **Lookup scoring.** Sonnet researches before it writes facts, so "not listed as unknown" was scored "needless". `situation.tokens` folded "nodes"→"nod" but "node"→"node". **Fixed:** needed = answers a listed unknown fact; needless = repeats an earlier lookup or recall of the same decision; else unscored (None). The knowledge index's own stemmer is used.
+4. **Game-data cards are truncated** (`knowledge.py` SNIPPET 500 characters), so recipe quantities were cut off. Not my file; reported to main. `craft_plan` gives the quantities.
+5. **GearWorld `craft_plan`** took the first recipe by id (Bronze Bar from Bronze Leaf), and Haiku then reported a recipe loop. **Fixed:** it ranks like the client planner (station near, inputs obtainable without a cycle).
+
+**Haiku (start_goal eval, 5 lines × 2):**
+- With or without `start_goal`, Haiku **never chose `add_task`**. Multi-step lines went straight to `gather` (a first step); a single action stayed a single action; "what are you working on?" was answered from `board`.
+- So hiding `start_goal` doesn't by itself route long jobs to the board, and `start_goal` stays offered (`hides_start_goal=False`).
+- Next: the `add_task` description and the persona lines need a clearer "a job of several steps or long duration goes on the board" (information, not a rule). Then re-check with a ≤15-call eval.
+
+**Validator:** every recorded answer validated on its first JSON. No predicate errors. The only repair was the dummy-tool artefact.

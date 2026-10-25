@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .board import _atomic_write
+from .knowledge import _terms  # the index's stemmer (plurals folded consistently)
 from .situation import tokens
 
 HIGH = ("game_data", "perception", "memory")
@@ -87,11 +88,11 @@ def recall(facts: dict[str, dict], query: str, limit: int = 5) -> list[dict]:
 
 def matches_unknown(query: str, plan_facts: list[dict]) -> bool:
     """Did this lookup ask about a fact the plan had listed as unknown? (2 shared words, or all of a short one)"""
-    q = tokens(query)
+    q = _terms(query)
     for f in plan_facts or []:
         if not isinstance(f, dict) or f.get("status") != "unknown":
             continue
-        ft = tokens(f.get("fact"))
+        ft = _terms(f.get("fact"))
         shared = q & ft
         if ft and shared and (len(shared) >= 2 or len(shared) * 2 >= len(ft)):  # at least half its words
             return True

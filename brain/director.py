@@ -1369,17 +1369,19 @@ def score_lookups(lookups: list[dict], facts: list[dict], tool_calls: list[dict]
     """needed: True when the lookup answers a fact the plan listed as unknown; False when it repeats an earlier
     lookup or recall of the same decision (needless); None when neither can be told (wave 5: Sonnet researches
     before it writes its facts, so "not listed" is not "needless")."""
-    seen: list[set[str]] = []
-    queries = [P.tokens(str((c.get("args") or {}).get("query") or "")) for c in tool_calls
-               if c.get("name") in ("recall", "lookup")]
-    out = []
+    from .knowledge import _terms
+    asked = [(c.get("name"), str((c.get("args") or {}).get("query") or "")) for c in tool_calls
+             if c.get("name") in ("recall", "lookup")]
+    out, pos = [], 0
     for lk in lookups:
-        q = P.tokens(lk["query"])
-        idx = next((i for i, x in enumerate(queries) if x == q), None)
-        earlier = queries[:idx] if idx is not None else seen
+        # this lookup's own place among the research calls, in order (recalls before it count as asked)
+        while pos < len(asked) and not (asked[pos][0] == "lookup" and asked[pos][1] == lk["query"]):
+            pos += 1
+        q = _terms(lk["query"])
+        earlier = [_terms(text) for _, text in asked[:pos]]
+        pos += 1
         repeat = any(q and len(q & e) * 2 >= len(q) for e in earlier)
         needed = True if matches_unknown(lk["query"], facts) else (False if repeat else None)
-        seen.append(q)
         out.append({"query": lk["query"], "needed": needed, "top": _top_result(lk["result"])})
     return out
 
