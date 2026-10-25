@@ -136,3 +136,9 @@ Luis relies on spells: **a shield spell**, and **wind jump**, whose landing stun
 ## 12. Equip rule (Luis, 2026-10-25): the bot equips only what is in its inventory, like a normal player
 - `equip` must check the bot inventory store and refuse items the bot doesn't own (`reason: not_in_inventory`). Gear enters the inventory only through pickup, Luis giving it, or crafting. A debug override requires an explicit flag and is never used by the brain.
 - **There is no generic fallback** (removed 2026-10-25): if the item's exact held-actor class can't be resolved (data-asset soft pointer via LoadAsset, then the catalog `held_class`), equip fails instead of spawning `BP_HeldEquipmentBase_C`, which rendered a blank placeholder sword.
+
+## 13. Item instances, not item types (Luis, 2026-10-25)
+- Luis's Skullsplitter is **ascended level 6**. Upgrade level, ascension, enchants and durability live on the **item instance** (`UItem` / `HeldEquipmentItem` in the PlayerController's inventory), not on the `UHeldEquipmentData` asset.
+- The bot's held actors are spawned from the data asset only (`HeldEquipmentItem` = nil), so they very likely behave as **base, unupgraded** items. That is fine for visuals and wrong for "acts like a player".
+- **The bot inventory store must hold instances:** `{item_data_path, count, level, ascension, enchant, durability, perks...}`. Equip must attach a matching `HeldEquipmentItem` (built from the stored instance state, or copied from an item Luis hands over) so server damage reflects the real item.
+- Research needed: the `UItem` / `HeldEquipmentItem` property layout and how upgrade level feeds damage (power level / ascension multipliers). Can the server construct a `UItem` for the puppet safely (object, not struct)?

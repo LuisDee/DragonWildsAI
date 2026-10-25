@@ -7,7 +7,9 @@
 --   M.is_target_stunned(ai)           -> bool, detail      (IsStumbling() or a hooked knockdown)
 --   M.note_knockdown(ai, on)          hook sink for BP_DominionAICharacter_C:OnAIKnockdownState_*
 --   M.pick_cluster(points, r, n)      pure helper for "Windstep into 3+ enemies"
---   M.register(bridge, log, opts)     bridge handlers `cast` and `spells` (main.lua must call it)
+--   M.register(bridge, log, opts)     bridge handlers `cast`, `spells`, `spell_tactics` (main.lua must call it)
+--   M.install_combat_hooks(combat)    on_tick hook into body/combat.lua: utility-scored reflex casts
+--   M.rank(situation) / M.add_scorer  utility scoring (design section 9)
 --   M.merge_catalog(doc)              adds usage metadata to the X1 dump (data/spells_<build>.json)
 --
 -- Casting routes, in the research's safety order (section 1.3):
@@ -57,7 +59,7 @@ M.PATHS = {
 
 -- verified: true only after an in-game test recorded in DISCOVERIES "Spells (build 26161880)".
 M.ROUTES = {
-    wind_stomp = { verified = false, note = "X3: no-target canary passed 2026-10-25 (spawn, BeginPlay, SetOwner, StartDelayedDamage(0), lifespan); stun on creatures not yet seen" },
+    wind_stomp = { verified = false, note = "X3 2026-10-25: native path crash-safe (5 live spawns, 2 forced); no stagger seen on a Kebbit (can't stumble, knockdown 1000); needs a Kalphite test with Luis watching" },
     self_effect = { verified = false, note = "X4" },
     held_effect = { verified = false, note = "X7" },
     modular = { verified = false, note = "X5; opt-in only (null-PC rune-cost path)" },
