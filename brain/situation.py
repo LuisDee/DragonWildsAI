@@ -330,6 +330,28 @@ def recent_life(state: dict) -> str | None:
     return ("Recent: " + "; ".join(bits))[:LINE_CHARS]
 
 
+def world_line(state: dict) -> str | None:
+    """In-game clock, the sleep window and bag space (client get_state time_of_day / bag)."""
+    bits = []
+    t = state.get("time_of_day") if isinstance(state.get("time_of_day"), dict) else {}
+    if isinstance(t.get("hour"), (int, float)):
+        h = float(t["hour"])
+        bits.append(f"in-game {int(h):02d}:{int(round((h % 1) * 60)) % 60:02d}")
+    if t.get("phase"):
+        bits.append(str(t["phase"]))
+    if t.get("resting_in"):
+        bits.append(f"you are lying in {t['resting_in']} (movement is disabled while resting)")
+    if isinstance(t.get("sleep_allowed"), bool):
+        bits.append("sleeping is possible now" if t["sleep_allowed"] else "too early to sleep")
+    b = state.get("bag") if isinstance(state.get("bag"), dict) else {}
+    if isinstance(b.get("used"), int) and isinstance(b.get("capacity"), int):
+        bits.append(f"bag {b['used']}/{b['capacity']} slots")
+    end, mx = state.get("endurance"), state.get("endurance_max")
+    if isinstance(end, (int, float)) and isinstance(mx, (int, float)) and mx:
+        bits.append(f"rested {round(100 * end / mx)}% (endurance, restored by sleep)")
+    return ("World: " + ", ".join(bits)) if bits else None
+
+
 def hands(state: dict) -> str | None:
     """What the held item can do, from the game's own action data (combat.lua held_actions)."""
     h = state.get("held_actions") if isinstance(state.get("held_actions"), dict) else None
@@ -425,6 +447,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     lines.append(_line("Food/drink", consumables(state)))
     lines.append(_line("Spare gear", item_stats.describe_carried(state)))
     lines.append(hands(state))
+    lines.append(world_line(state))
     lines.append(vitals_policy(state))
 
     pl = [t for t in things if t.kind == "player"]

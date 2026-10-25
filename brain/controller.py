@@ -21,10 +21,12 @@ standing orders and the last N events. No transcript; a loop step appends only t
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from . import grounding
@@ -83,8 +85,12 @@ Seeing things (grounding):
 - Never invent reasons. If you don't know why something happened, say so.
 - references (when present): the words in command.text that match things you perceive, typos
   corrected (read_as), with ids, nearest first. Use them to pick the right id.
-- When an action fails (or its arguments were invalid), the result comes back to you: say in one
-  truthful line what happened, and either try the obvious fix with one tool or ask {player}.
+- Carry your plans through: after your tools run, their results come back to you for another
+  turn. Continue with the next step, or reply with a short report (an EMPTY reply if you already
+  said it). When a step fails, fix it with the right tool or another way.
+- When you have the tools and the information to solve a problem, act on your own plan and report
+  briefly. Ask {player} only when it is genuinely ambiguous, risky or beyond your tools, and then
+  ask once, specifically.
 Use ids and names exactly as they appear. "me"/"I" is the player in command.player: pass that exact
 value as the player or target argument.
 
@@ -97,7 +103,10 @@ Your body (body_status, body_event):
   like leader_windstepped is the body's guess from how high he rose, so say it as a guess);
   resumed: it can reach it again; follow_ended: a follow stopped by itself; vitals_low: a survival
   stat is low and you carry nothing for it; items_dropped: a player dropped those items near you
-  (decide yourself whether to pick them up, and whether to thank him). If one of your tools fixes it, use it. Otherwise tell
+  (decide yourself whether to pick them up, and whether to thank him); situation_review: something
+  about your state changed (changes, stats_pct, time_of_day, previous_review). You may proactively
+  suggest or do something when the situation calls for it, briefly, and respect the player's answers
+  (chat, previous_review.you_said). Reply with an EMPTY message to stay silent. If one of your tools fixes it, use it. Otherwise tell
   {player} in ONE short truthful line what happened and why, in plain words, and what you need.
 - recent_activity: what your body did lately (fights and how they ended, flights, pickups, deaths,
   grave recoveries...), whoever started it (a reflex or a test command too). It is YOUR memory;
@@ -264,6 +273,8 @@ class Controller:
         self.chat_provider: Callable[[], list[dict]] | None = None  # recent chat lines (run_live.ChatMemory)
         self.on_say: Callable[[str], None] | None = None  # told about every line the companion says
         self.voice = Voice(clock=clock)  # the single speech gate (near-duplicates)
+        self._rules_file: tuple[str, float] | None = None
+        self._rules_text = ""
         self.status_provider: Callable[[], list[str]] | None = None  # body_status lines (broker.digest)
         # recent_activity lines (broker.activity_lines): completed body episodes, whoever started them
         self.activity_provider: Callable[[], list[str]] | None = None
@@ -323,6 +334,20 @@ class Controller:
                 self.log.log("rules_snapshot_error", error=repr(exc))
         return self._rules
 
+    def spell_lines(self) -> list[str]:
+        """One line per spell (speed plan §2.2: the JSON rows were ~6k characters): name, role, what it
+        does (80 chars) and why it can't be cast now. ``spells`` (read) has the full rows."""
+        out = []
+        for s in self.castable_spells():
+            bits = [str(s.get("role") or "")]
+            if s.get("castable") is False:
+                bits.append("NOT castable now: " + str(s.get("reason") or s.get("needs") or "?"))
+            elif s.get("remaining_s"):
+                bits.append(f"cooldown {float(s['remaining_s']):.0f}s")
+            use = clip(str(s.get("use_when") or ""), 80)
+            out.append(f"{s.get('name')} ({', '.join(b for b in bits if b)})" + (f": {use}" if use else ""))
+        return out
+
     def castable_spells(self) -> list[dict]:
         if not self.has("spells") and not self.has("cast"):
             return []
@@ -359,9 +384,10 @@ class Controller:
             "goal_tasks": tasks,
             "notes": self._notes(),
             "learned_skills": self.learned_skills(text),
-            "castable_spells": self.castable_spells(),
+            "castable_spells": self.spell_lines(),
             "reflex_rules": self.reflex_rules(),
-            "recent_events": list(self.events),
+            # chat lines are in "chat", body situations in body_status: only the rest, newest 5
+            "recent_events": [e for e in self.events if e.get("type") not in ("command_received", "chat_heard")][-5:],
         }
         if self.status_provider:
             try:
@@ -386,12 +412,31 @@ class Controller:
                 self.log.log("chat_context_error", error=repr(exc))
         return ctx
 
+    def house_rules(self) -> str:
+        """Luis's house rules (brain/house_rules.md, or DW_HOUSE_RULES): rules the MODEL follows, not
+        code vetoes (PRINCIPLES #2). Re-read when the file changes, so he can edit it any time."""
+        path = Path(os.environ.get("DW_HOUSE_RULES") or Path(__file__).with_name("house_rules.md"))
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return ""
+        if self._rules_file != (str(path), mtime):
+            text = path.read_text(encoding="utf-8")
+            lines = [ln.strip() for ln in text.splitlines() if ln.strip().startswith(("-", "*"))]
+            self._rules_file, self._rules_text = (str(path), mtime), "\n".join(lines)
+        return self._rules_text
+
     def persona(self) -> str:
-        return PERSONA.format(name=self.name, player=self.player, triggers=", ".join(SENSABLE_TRIGGERS),
+        persona = PERSONA.format(name=self.name, player=self.player, triggers=", ".join(SENSABLE_TRIGGERS),
                               look_rule=LOOK_RULE if self.can_look else NO_LOOK_RULE,
                               lookup_rule=LOOKUP_RULE if self.knowledge is not None else "")
 
     # ---------------------------------------------------------------- the bounded loop
+        rules = self.house_rules()
+        if rules:
+            persona += (f"\n\nHouse rules from {self.player} (always follow them; they are his, not yours to "
+                        f"change):\n{rules}")
+        return persona
 
     def decide(self, player: str, text: str, state: dict, active_goal: str | None, addressed: bool = True,
                body_event: dict | None = None) -> Decision:
@@ -399,28 +444,8 @@ class Controller:
         context = self.context(player, text, state, active_goal, addressed, body_event)
         messages = [{"role": "system", "content": self.persona()},
                     {"role": "user", "content": json.dumps(context, default=str, ensure_ascii=False)}]
-        offered = self.offered()
         d = Decision()
-        resp = LLMResponse()
-        for step in range(self.max_calls):
-            self.log.log("prompt", component="controller", model=self.llm.model, step=step,
-                         messages=messages if step == 0 else messages[-2:])
-            resp = self.llm.complete(messages, tools=self.tools)
-            d.model_calls += 1
-            self.log.log("llm_response", component="controller", step=step, content=resp.content,
-                         tool_calls=[vars(c) for c in resp.tool_calls], usage=resp.usage)
-            reads = [c for c in resp.tool_calls if c.name in self.read_tools and c.name in offered]
-            commits = [c for c in resp.tool_calls if c.name not in self.read_tools]
-            if commits or not reads:
-                break  # the first real action ends the turn (reads alongside an action are dropped)
-            if step == self.max_calls - 1:
-                self.log.log("controller_budget_exhausted", calls=d.model_calls)
-                break
-            messages = messages + [assistant_message(resp)]
-            for call in reads:
-                messages.append(tool_result_message(call, self._read(call, d)))
-            if step == self.max_calls - 2:
-                messages.append({"role": "user", "content": "Last step: act now on what you found, or reply."})
+        resp, messages = self._loop(messages, d)
         d.speech = (resp.content or "").strip() or None
         d.messages = messages + [assistant_message(resp)]
         self._collect(resp.tool_calls, d, state)
@@ -430,6 +455,71 @@ class Controller:
         if not d.actions and not d.goal and not d.skill and not d.refusals:
             self._unseen_fallback(d)
         return d
+
+    def _loop(self, messages: list[dict], d: Decision, label: str = "") -> tuple[LLMResponse, list[dict]]:
+        """At most ``max_calls`` model calls: read-only tools run inline and their results go back;
+        the first response with a real action (or none at all) ends the loop."""
+        offered = self.offered()
+        resp = LLMResponse()
+        for step in range(self.max_calls):
+            tag = f"{label}{step}" if label else step
+            self.log.log("prompt", component="controller", model=self.llm.model, step=tag,
+                         messages=messages if step == 0 and not label else messages[-2:])
+            resp = self.llm.complete(messages, tools=self.tools)
+            d.model_calls += 1
+            self.log.log("llm_response", component="controller", step=tag, content=resp.content,
+                         tool_calls=[vars(c) for c in resp.tool_calls], usage=resp.usage)
+            reads = [c for c in resp.tool_calls if c.name in self.read_tools and c.name in offered]
+            commits = [c for c in resp.tool_calls if c.name not in self.read_tools]
+            if commits or not reads:
+                break  # the first real action ends the turn (reads alongside an action are not run)
+            if step == self.max_calls - 1:
+                self.log.log("controller_budget_exhausted", calls=d.model_calls)
+                break
+            messages = messages + [assistant_message(resp)]
+            for call in reads:
+                messages.append(tool_result_message(call, self._read(call, d)))
+            if step == self.max_calls - 2:
+                messages.append({"role": "user", "content": "Last step: act now on what you found, or reply."})
+        return resp, messages
+
+    def arg_help(self, tool: str) -> dict[str, str]:
+        """The offered schema's own argument descriptions (sent back with a failure so the model can
+        call the tool right the next time: generic, from the tool contract)."""
+        for t in self.tools:
+            f = t.get("function") or {}
+            if f.get("name") == tool:
+                props = (f.get("parameters") or {}).get("properties") or {}
+                return {k: str(v.get("description") or v.get("type") or "") for k, v in props.items()
+                        if isinstance(v, dict)}
+        return {}
+
+    def next_turn(self, d: Decision, results: dict[str, dict], state: dict | None = None,
+                  failed: bool = False, note: str | None = None) -> Decision:
+        """The standard agent loop: the results of the turn's tool calls go back to the model, which
+        continues its plan (more tools), reports, or stops (an empty reply). Reads run inline again."""
+        msgs = list(d.messages)
+        calls = (msgs[-1].get("tool_calls") or []) if msgs else []
+        for tc in calls:  # every tool call of the turn needs a result
+            name = (tc.get("function") or {}).get("name")
+            res = results.get(tc.get("id")) or results.get(name) or (
+                {"ok": None, "note": "not run: an earlier step failed"} if failed else
+                {"ok": None, "note": "not run: a read alongside an action is skipped; call it on its own"}
+                if name in self.read_tools else {"ok": None, "note": "not run"})
+            msgs.append(tool_result_message(ToolCall(name or "?", {}, tc.get("id")), res))
+        msgs.append({"role": "user", "content": note or (
+            "A step did not work (results above). Fix it with the right tool or another way, or tell the "
+            "player in one short line what he needs to know." if failed else
+            "Your tools ran (results above). Continue with the next step of your plan, or reply with a "
+            "short report; reply with an EMPTY message if there is nothing to add.")})
+        self._state_for_reads = state or {}
+        d2 = Decision()
+        resp, msgs = self._loop(msgs, d2, label="turn")
+        d2.speech = (resp.content or "").strip() or None
+        d2.messages = msgs + [assistant_message(resp)]
+        self._collect([c for c in resp.tool_calls if c.name not in self.read_tools], d2, state or {})
+        d2.interrupts = any(a.name not in NON_INTERRUPTING for a in d2.actions)
+        return d2
 
     def _read(self, call: ToolCall, d: Decision) -> dict:
         """Run one read-only tool (no interrupt, no task) and return a compact result for the model."""
@@ -547,29 +637,9 @@ class Controller:
 
     def follow_up(self, d: Decision, call: ToolCall, result: dict, state: dict | None = None,
                   results: dict[str, dict] | None = None) -> Decision:
-        """An action failed: hand the body's truthful result back to the model for ONE more step,
-        so IT decides what to say, which fix to try, or what to ask (no code-side rewording).
-        ``results``: call id -> result of the steps that ran before it (multi-step turns)."""
-        msgs = list(d.messages)
-        calls = (msgs[-1].get("tool_calls") or []) if msgs else []
-        for tc in calls:  # every tool call of the turn needs a result
-            name = (tc.get("function") or {}).get("name")
-            res = result if tc.get("id") == call.id or (not call.id and name == call.name) else \
-                (results or {}).get(tc.get("id")) or {"ok": None, "note": "not run: an earlier step failed"}
-            msgs.append(tool_result_message(ToolCall(name or "?", {}, tc.get("id")), res))
-        msgs.append({"role": "user", "content": "That action did not work (result above). Reply to the player in "
-                     "one short truthful line; you may call ONE tool to fix it, or ask him."})
-        self.log.log("prompt", component="controller", model=self.llm.model, step="follow_up", messages=msgs[-2:])
-        resp = self.llm.complete(msgs, tools=self.tools)
-        self.log.log("llm_response", component="controller", step="follow_up", content=resp.content,
-                     tool_calls=[vars(c) for c in resp.tool_calls], usage=resp.usage)
-        d2 = Decision(model_calls=1, speech=(resp.content or "").strip() or None)
-        d2.messages = msgs + [assistant_message(resp)]
-        self._collect([c for c in resp.tool_calls if c.name not in self.read_tools and c.name != "start_goal"],
-                      d2, state or {})
-        return d2
+        """An action failed: ``next_turn`` with the failure (and the earlier steps' real results)."""
+        return self.next_turn(d, {**(results or {}), call.id or call.name: result}, state, failed=True)
 
-    @staticmethod
     def _carries(state: dict, item: str) -> bool:
         inv = {k: v for k, v in (state.get("inventory") or {}).items() if v}
         if item in inv:
@@ -659,7 +729,11 @@ class Controller:
         elif reason_base in REASON_PHRASES:
             self.say(f"I couldn't {tool.replace('_', ' ')}: {REASON_PHRASES[reason_base]}.")
         else:
-            self.say(f"I couldn't {tool.replace('_', ' ')}: {reason}.")
+            detail = data.get("detail")
+            why = next((x for x in (reason, detail) if isinstance(x, str) and " " in x.strip()), None)  # a sentence
+            why = re.sub(r"^[a-z_]+:\s*", "", why) if why else why  # "verification_failed: not following" -> the words
+            self.say(f"Sorry, I couldn't {SKILL_PHRASES.get(tool, tool.replace('_', ' '))}"
+                     + (f": {why.strip().rstrip('.')}." if why else "."))
 
     @staticmethod
     def warning_note(warnings: list[dict]) -> str | None:

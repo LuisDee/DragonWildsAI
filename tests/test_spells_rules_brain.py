@@ -183,7 +183,7 @@ def test_rule_not_in_the_body_list_fails_verification(rig):
     rig.game.player_say("every time the kalphite raises its claws, windstep away")
     rig.controller_llm.push(FakeLLM.say("Got it.", FakeLLM.call("set_reflex_rule", **WINDSTEP_AWAY)))
     rig.agent.step()
-    assert rig.companion_said() == ["I couldn't set reflex rule: verification_failed."]
+    assert rig.companion_said() == ["Sorry, I couldn't do that as a reflex."]  # no raw reason codes in chat
 
 
 def test_describe_rule_and_spell_label():

@@ -99,6 +99,13 @@ end
 
 function FindAllOf(cls)
     if cls == "BP_PlayerController_C" or cls == "PlayerController" then return { pc } end
+    if cls == "PlayerState" then
+        -- Luis (Zezima) is online with a visible pawn; Claude's own state too
+        local luis_pawn = obj({}, "BP_PlayerCharacter_C /Game/L.L:PersistentLevel.BP_PlayerCharacter_C_9")
+        function luis_pawn:K2_GetActorLocation() return { X = -3000, Y = 0, Z = 0 } end
+        return { obj({ PawnPrivate = luis_pawn, GetPlayerName = function() return fname("Zezima") end }, "PS /x.PS_9"),
+                 obj({ PawnPrivate = pawn, GetPlayerName = function() return fname("Claude") end }, "PS /x.PS_1") }
+    end
     if cls == "DominionAICharacter" then
         local out = {}
         for _, c in ipairs(world.creatures) do if not c._dead_obj then out[#out + 1] = c end end

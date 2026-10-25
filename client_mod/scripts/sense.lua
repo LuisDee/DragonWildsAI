@@ -148,6 +148,7 @@ end
 
 -- Own state: position, health, stamina, survival, skills (levels + xp), total level.
 function M.me(log)
+    if rawget(_G, "DW_PAUSE") then return { ok = false, reason = "paused" } end -- no reads during world changes
     local pc = M.local_pc()
     if not pc then return { ok = false, reason = "no local player controller" } end
     local p = M.local_pawn(pc)
@@ -259,6 +260,40 @@ local function describe_creature(a, origin)
     return d
 end
 
+-- In-game clock and the sleep window, from the game (DISCOVERIES "Night skip and sleep": both read fine
+-- live on the server; UInGameTimeFunctionLibrary is static, PlayerRestComponent is the pawn's):
+--   hour        GetInGameTime(ctx).Ticks / 3.6e10, modulo 24 (FTimespan ticks = 100 ns)
+--   is_night    IsNighttime(ctx)
+--   phase       "night" | "day" from is_night (dusk/dawn times are not readable: GetTimeOfDusk/Dawn
+--               returned nothing, so no dusk/dawn phase is claimed)
+--   sleep_allowed  PlayerRestComponent:IsInTimeframeForSleep() (the game's own check)
+-- Read-only; nil fields when a read fails. UNVERIFIED on the client until a live read.
+M.TIME_LIB = "/Script/Dominion.Default__InGameTimeFunctionLibrary"
+function M.time_of_day(pawn)
+    if rawget(_G, "DW_PAUSE") then return nil end
+    pawn = pawn or M.local_pawn()
+    if not U.valid(pawn) then return nil end
+    local lib = U.try(StaticFindObject, M.TIME_LIB)
+    local out = {}
+    if U.valid(lib) then
+        local night = U.try(function() return lib:IsNighttime(pawn) end)
+        if type(night) == "boolean" then out.is_night, out.phase = night, night and "night" or "day" end
+        local ts = U.try(function() return lib:GetInGameTime(pawn) end)
+        local ticks = ts and num(U.try(function() return ts.Ticks end))
+        if ticks then out.hour = math.floor((ticks / 3.6e10) % 24 * 10 + 0.5) / 10 end
+    end
+    local rc = U.try(function() return pawn.PlayerRestComponent end)
+    if U.valid(rc) then
+        local ok = U.try(function() return rc:IsInTimeframeForSleep() end)
+        if type(ok) == "boolean" then out.sleep_allowed = ok end
+        local zz = U.try(function() return rc.IsSleeping end)
+        if type(zz) == "boolean" then out.sleeping = zz end
+        local area = U.try(function() return rc.CurrentRestingAreaActor end)
+        if U.valid(area) then out.resting_in = U.short(area) end -- lying in a bed/shelter (movement disabled)
+    end
+    return next(out) and out or nil
+end
+
 -- inventory.lua's consumable_kind (food | drink | potion by the item DATA CLASS), loaded lazily: loading
 -- inventory.lua has no side effects beyond its own _G state table.
 local INV
@@ -322,10 +357,28 @@ end
 
 local function describe_interactable(a, ic, kind, origin)
     local d = base(a, origin)
+    -- position = the interaction component's own location when it has one (where the game's detector
+    -- aims), not the actor origin (a tent's origin is under its roof: live 20:46)
+    local v = ic and U.try(function() return ic:K2_GetComponentLocation() end)
+    local okv, x, y, z = pcall(function() return v.X, v.Y, v.Z end)
+    if okv and type(x) == "number" then
+        d.actor_position = d.position
+        d.position = U.to_wire({ X = x, Y = y, Z = z })
+        if origin then d.distance = U.cm_to_m(U.dist(origin, { X = x, Y = y, Z = z })) end
+    end
     d.kind = kind or "interactable"
     d.prompt = ic and text(U.try(function() return ic.InteractionPrompt end)) or nil
     d.name = text(U.try(function() return a.DisplayName end))
         or text(U.try(function() return a.DisplayNameText end)) or clean_class(d.class)
+    -- ownership (BUGS L10): a summoned shelter's caster (AUtilitySpell:GetCaster(), DISCOVERIES "Lodestones /
+    -- night skip"), a bed's claimant (UBedComponent:GetClaimingCharacterName); UNVERIFIED on the client
+    local caster = U.try(function() return a:GetCaster() end)
+    if U.valid(caster) then d.owner = U.player_name(caster) or U.short(caster) end
+    local bed = U.try(function() return a.BedComponent end) or U.try(function() return a.Bed end)
+    if U.valid(bed) then
+        local who = text(U.try(function() return bed:GetClaimingCharacterName() end))
+        if who then d.claimed_by = who end
+    end
     return d
 end
 
@@ -433,6 +486,7 @@ local function owner_of(c) local o = U.try(function() return c:GetOwner() end); 
 -- items, resources, interactables, totals, ms}. Each list nearest first, capped at `max`.
 function M.census(log, opts)
     opts = opts or {}
+    if rawget(_G, "DW_PAUSE") then return { ok = false, reason = "paused" } end
     local t0 = os.clock()
     local pc = M.local_pc()
     local me = M.local_pawn(pc)

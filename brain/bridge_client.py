@@ -40,6 +40,11 @@ DEFAULT_TIMEOUTS = {"gather": 1800.0,  # body/gather.lua caps itself at 1700 s
                     "travel": 300.0}  # body/travel.lua caps itself at 280 s
 
 
+WATCH_AFTER_S = 5.0  # waits longer than this are watched: addressed chat, bridge heartbeat (L2)
+HEARTBEAT_S = 10.0  # ping the body this often during a watched wait
+BEAT_TIMEOUT_S = 3.0
+
+
 class BridgeClient(GameInterface):
     def __init__(self, transport: Transport, logger: JsonlLogger | None = None,
                  default_timeout: float = 10.0, timeouts: dict[str, float] | None = None):
@@ -50,6 +55,10 @@ class BridgeClient(GameInterface):
         self._events: list[Event] = []
         self._inflight: set[str] = set()  # request ids still waiting for their result
         self._sent: dict[str, str] = {}  # request id -> tool (broker: which task_failed is a held follow ending)
+        self._abandoned: set[str] = set()  # ids the brain stopped waiting for (chat interrupt): still running in the body
+        self._started = None  # the body bridge's start epoch, from the last ping that carried one
+        # L2(a): set by the agent: True for an event that must get the floor now (an addressed chat line)
+        self.interrupt_check: Callable[[Event], bool] | None = None
         self._parked: dict[str, dict] = {}  # results that arrived while some request was reading
         self._progress: list[Event] = []  # progress events not yet handed to the listener
         self._listener: Callable[[Event], None] | None = None
@@ -125,9 +134,12 @@ class BridgeClient(GameInterface):
         self._sent[req_id] = tool
         if len(self._sent) > 200:  # bounded: the oldest ids go first
             self._sent.pop(next(iter(self._sent)))
+        watch = timeout > WATCH_AFTER_S and tool not in ("ping", protocol.CAPABILITIES)
+        started0, seen = self._started, len(self._events)
         try:
             self.transport.send(msg)
             deadline = time.monotonic() + timeout
+            next_beat = time.monotonic() + HEARTBEAT_S
             while True:
                 reply = self._parked.pop(req_id, None)
                 if reply is not None:
@@ -139,11 +151,37 @@ class BridgeClient(GameInterface):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
-                for incoming in self.transport.receive(remaining):
+                for incoming in self.transport.receive(min(remaining, HEARTBEAT_S) if watch else remaining):
                     self._dispatch(incoming)
                 self._drain_malformed()
                 if req_id not in self._parked:
                     self._notify_progress()
+                if not watch or req_id in self._parked:
+                    continue
+                # L2(a): an addressed chat line gets the floor; the body keeps working on the command
+                if self.interrupt_check and any(self._safe_check(e) for e in self._events[seen:]):
+                    self._abandoned.add(req_id)
+                    self.log.log("bridge_wait_interrupted", id=req_id, tool=tool, why="addressed chat")
+                    return fail(Reason.INTERRUPTED, tool=tool, id=req_id, by="chat",
+                                detail="the player spoke; the body may still be doing it")
+                seen = len(self._events)
+                # L2(b): bridge heartbeat: a restart or a dropped command fails the request at once
+                if time.monotonic() >= next_beat:
+                    next_beat = time.monotonic() + HEARTBEAT_S
+                    beat = self._beat()
+                    if beat is not None and req_id not in self._parked:
+                        started = beat.get("started")
+                        if started is not None and started0 is not None and started != started0:
+                            self.log.log("bridge_restart_detected", id=req_id, tool=tool, was=started0, now=started)
+                            return fail(Reason.BODY_RESTARTED, tool=tool, id=req_id,
+                                        detail="my body's bridge restarted and dropped the command")
+                        started0 = started0 if started0 is not None else started
+                        if "action" in beat:
+                            act = beat.get("action") or {}
+                            if act.get("id") != req_id:
+                                self.log.log("bridge_command_lost", id=req_id, tool=tool, slot=act)
+                                return fail(Reason.LOST_BY_BODY, tool=tool, id=req_id, now_doing=act.get("kind"),
+                                            detail="my body isn't working on it any more and never answered")
         finally:
             self._inflight.discard(req_id)
             self._parked.pop(req_id, None)
@@ -156,7 +194,30 @@ class BridgeClient(GameInterface):
         """Round-trip time in seconds, or None on timeout."""
         start = time.perf_counter()
         res = self.request("ping", {}, timeout)
+        if res["ok"] and res["data"].get("started") is not None:
+            self._started = res["data"]["started"]
         return time.perf_counter() - start if res["ok"] else None
+
+    def _beat(self) -> dict | None:
+        """One heartbeat ping during a watched wait: its data ({started, action}) or None."""
+        res = self.request("ping", {}, BEAT_TIMEOUT_S)
+        if not res["ok"]:
+            return None
+        data = res["data"] or {}
+        if data.get("started") is not None and self._started is None:
+            self._started = data["started"]
+        return data
+
+    def _safe_check(self, ev: Event) -> bool:
+        try:
+            return bool(self.interrupt_check(ev))
+        except Exception as exc:  # never let a predicate bug block the wait
+            self.log.log("interrupt_check_error", error=repr(exc))
+            return False
+
+    def abandoned(self, request_id: str) -> bool:
+        """The brain stopped waiting for this request (an addressed chat line came in)."""
+        return request_id in self._abandoned
 
     def capabilities(self, timeout: float = 5.0) -> ActionResult:
         """Ask the body which tools it implements (``data.tools``). Older bodies answer unknown_tool."""

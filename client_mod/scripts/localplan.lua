@@ -64,6 +64,7 @@ function LP.new(o)
     self.wall_pts = {}                         -- horizontal-check hit points: edges passing near one are walls
     self.hop = {}                              -- edge key -> true: a LOW obstacle (clear at jump height): jump it
     self.cell_cost = o.cell_cost               -- optional fn(x, y) -> extra cost in cells (e.g. known water)
+    self.water_probe = o.water_probe           -- optional fn(x, y, floor_z) -> true if water covers that floor
     self.queue = {}
     -- spiral order from the centre outwards, so a partial grid is still useful
     for ring = 0, self.r do
@@ -140,6 +141,10 @@ function LP:sample(i, j)
     end
     local layers = {}
     for _, z in ipairs(zs) do layers[#layers + 1] = { z = z, i = i, j = j } end
+    if self.water_probe and zs[1] then
+        local okw = pcall(self.water_probe, x, y, zs[1]) -- marks water cells (navmem) as a side effect
+        self.traces = self.traces + 1
+    end
     self.nodes[key(i, j)] = layers
     return zs and 2 or 0
 end

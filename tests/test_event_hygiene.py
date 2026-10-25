@@ -52,6 +52,7 @@ class ReplayBody(GameInterface):
         self.queue: list[dict] = []
         self.said: list[str] = []
         self.calls: list[tuple[str, dict]] = []
+        self.timeline: list[tuple[str, str]] = []  # ("say", text) / ("call", tool), in order
         self.script: dict[str, list[tuple[dict, list[dict], dict | None]]] = {}
 
     def emit(self, *events: dict) -> None:
@@ -62,6 +63,7 @@ class ReplayBody(GameInterface):
 
     def _act(self, tool: str, **args) -> dict:
         self.calls.append((tool, args))
+        self.timeline.append(("call", tool))
         if not self.script.get(tool):
             return fail("not_implemented", tool=tool)
         res, emitted, after = self.script[tool].pop(0)
@@ -79,7 +81,18 @@ class ReplayBody(GameInterface):
 
     def say(self, text):
         self.said.append(text)
+        self.timeline.append(("say", text))
         return ok()
+
+    def cast(self, spell, target=None):
+        return self._act("cast", spell=spell)
+
+    look_things: list | None = None
+
+    def look(self, about=None, radius=20.0, max=15):
+        if self.look_things is None:
+            return fail("not_implemented", tool="look")
+        return ok(about=about, things=self.look_things)
 
     def follow(self, player, distance=3.0):
         return self._act("follow", player=player, distance=distance)
@@ -125,11 +138,14 @@ class FakeModel(FakeLLM):
         self.contexts: list[dict] = []
         self.replies: dict[str, object] = {}
         self.body_reply = None  # callable ctx -> response for body-initiated runs
+        self.turns: list = []  # scripted responses for the agent loop's continuation turns
 
     def complete(self, messages, tools=None):
         self.calls.append({"messages": messages, "tools": tools})
-        if messages[-1].get("role") == "user" and not messages[-1]["content"].startswith("{"):
-            return LLMResponse(content="")  # failure follow-up: say nothing, the template answers
+        last = messages[-1]
+        if last.get("role") == "tool" or (last.get("role") == "user" and not last["content"].startswith("{")):
+            # a continuation / follow-up turn: the next scripted one, else nothing more to say
+            return self.turns.pop(0) if self.turns else LLMResponse(content="")
         ctx = json.loads(messages[1]["content"])
         self.contexts.append(ctx)
         text = ctx["command"]["text"]
@@ -590,3 +606,390 @@ def test_items_dropped_is_a_model_decision_and_goes_stale_when_gone(tmp_path):
     gone.body.emit(ev)
     gone.at(0).step()
     assert gone.model.contexts == [] and gone.body.said == []
+
+
+# --------------------------------------------------------------------------- proactive: situation_review
+
+
+def _vitals_state(endurance: float, phase: str = "day", sleep_allowed: bool = False, dist: float = 4.0) -> dict:
+    st = copy.deepcopy(STATES[5])
+    st["players"] = [{"name": "Zezima", "distance": dist, "position": [59.26, 1881.85, -35.45]}]
+    st["survival"] = {"endurance": [endurance, 100.0], "hydration": [60.0, 75.0], "sustenance": [60.0, 75.0]}
+    st["health"], st["max_health"] = 100.0, 100.0
+    st["time_of_day"] = {"phase": phase, "hour": 22.0 if phase == "night" else 15.0, "is_night": phase == "night",
+                         "sleep_allowed": sleep_allowed}
+    return st
+
+
+def _proactive_rig(tmp_path, said: str = ""):
+    r = Replay(tmp_path, _vitals_state(60))
+    r.model.body_reply = lambda ctx: FakeLLM.say(said)
+    r.at(0).step()  # first observation: the baseline, nothing changed yet
+    assert r.model.contexts == []
+    return r
+
+
+def test_night_and_low_endurance_the_model_suggests_resting(tmp_path):
+    """Luis: at night, with endurance low, he says so and asks to rest. The broker only notices the
+    STATE CHANGE (endurance crossed 50/30 %, day -> night) and hands it to the model; the words are the
+    model's (here a fake)."""
+    r = _proactive_rig(tmp_path, said="Guys, my endurance is at 20%, can we rest for the night?")
+    r.body.state = _vitals_state(20, phase="night", sleep_allowed=True)
+    r.at(40).step()  # the 30 s state sample sees it
+    ev = r.model.contexts[-1]["body_event"]
+    assert ev["type"] == "situation_review" and r.model.contexts[-1]["command"]["text"] == ""
+    whats = {c["what"]: c for c in ev["changes"]}
+    assert whats["endurance"]["direction"] == "down" and whats["endurance"]["to_pct"] == 20
+    assert whats["time_of_day"] == {"what": "time_of_day", "from": "day", "to": "night", "hour": 22.0}
+    assert whats["sleep_allowed"]["to"] is True and ev["stats_pct"]["endurance"] == 20
+    assert r.body.said == ["Guys, my endurance is at 20%, can we rest for the night?"]
+    persona = r.model.calls[-1]["messages"][0]["content"]
+    assert "You may proactively" in persona and "respect the player's answers" in persona
+
+
+def test_suggested_two_minutes_ago_and_told_no_stays_silent(tmp_path):
+    """He suggested resting, the player said no: two minutes later a small further change brings no new
+    review (rate limit, not worse); when a review does come, it carries what he said before, and the
+    model may (and here does) stay silent."""
+    r = _proactive_rig(tmp_path, said="Guys, my endurance is at 20%, can we rest?")
+    r.body.state = _vitals_state(20, phase="night")
+    r.at(40).step()
+    assert len(r.body.said) == 1
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude no, not now, keep going"})
+    r.at(45).step()
+    n_ctx, n_said = len(r.model.contexts), len(r.body.said)
+    r.body.state = _vitals_state(18, phase="night", sleep_allowed=True)  # same band; the sleep window opened
+    r.at(160).step()  # 2 min after the suggestion: no review yet
+    assert len(r.model.contexts) == n_ctx and len(r.body.said) == n_said
+    r.model.body_reply = lambda ctx: FakeLLM.say("")  # the model respects his "no"
+    r.at(230).step()  # past the 3 min gap: the pending change is reviewed, with the history
+    ev = r.model.contexts[-1]["body_event"]
+    assert ev["previous_review"]["you_said"] == "Guys, my endurance is at 20%, can we rest?"
+    assert any(c["text"] == "claude no, not now, keep going" for c in r.model.contexts[-1]["chat"])
+    assert len(r.body.said) == n_said  # silence is a valid choice: no template, no default reply
+
+
+def test_getting_worse_bypasses_the_gap(tmp_path):
+    r = _proactive_rig(tmp_path, said="Getting really tired now.")
+    r.body.state = _vitals_state(25)
+    r.at(40).step()
+    r.body.state = _vitals_state(10)  # crossed 15 %: worse than at the last review
+    r.at(80).step()
+    assert [c["body_event"]["changes"][0]["to_pct"] for c in r.model.contexts] == [25, 10]
+
+
+def test_no_review_in_combat_during_a_command_or_a_job(tmp_path):
+    r = _proactive_rig(tmp_path, said="Tired.")
+    r.body.emit({"type": "attacked", "by": "rat_1", "name": "Giant Rat"})
+    r.body.state = _vitals_state(20)
+    r.at(40).step()
+    assert r.model.contexts == []  # attacked 0 s ago: in combat
+    r.agent.active_goal = "gather 10 logs"
+    r.at(75).step()
+    assert r.model.contexts == []  # a job is running
+    r.agent.active_goal = None
+    r.at(80).step()
+    assert len(r.model.contexts) == 1
+
+
+def test_idle_near_the_player_is_a_change_worth_a_review(tmp_path):
+    r = _proactive_rig(tmp_path, said="")
+    r.at(200).step()
+    assert r.model.contexts == []
+    r.at(310).step()
+    ev = r.model.contexts[-1]["body_event"]
+    assert ev["changes"] == [{"what": "idle", "for_s": 310, "near": ["Zezima"]}] and r.body.said == []
+
+
+# --------------------------------------------------------------------------- the agent loop (live 20:43)
+
+SPOT = [382.64462211155, 1744.29481585, -42.468945506218]
+SHELTER = "BP_Magic_SummonShelter_C_2147450308"
+
+
+def test_replay_2043_shelter_plan_is_carried_through(tmp_path):
+    """Live 20:42-20:43: Luis "why are you asking me - you have the available tools ... do this on your
+    own". The model cast Summon Shelter (blocked: ground not flat), then go_to a flatter spot... and the
+    plan died there: the go_to finished and the model never got another turn. At 20:43:49 it told him
+    "I'm walking to a flatter spot" while standing still. Now every turn's results go back to the
+    model, which carries the plan through: walk, recast, get in the bed, report. The walk's line is
+    said as the walk starts, never after arriving."""
+    here = copy.deepcopy(STATES[5])
+    there = {**copy.deepcopy(STATES[5]), "position": [381.87, 1745.43, -41.57]}
+    tools = {"get_state", "say", "follow", "go_to", "stop", "interact", "cast"}
+    r = Replay(tmp_path, here, tools=tools)
+    r.body.act("cast", fail("nothing_in_range", rejected=[{"spot": SPOT, "game": "UI.Notification.SpellPlacement.Blocked"}]))
+    r.body.act("go_to", ok(target_position=SPOT, dist_m=1.47, position=there["position"]), state_after=there)
+    r.body.act("cast", ok(spell="Summon Shelter", placed=SHELTER))
+    r.body.act("interact", ok(target=SHELTER, prompt="Sleep"))
+    r.model.replies["you can do this on your own"] = FakeLLM.say(
+        "You're right, I'll handle it. Trying the shelter again on my own now.", FakeLLM.call("cast", spell="Summon Shelter"))
+    r.model.turns = [
+        FakeLLM.say("Ground's not flat here, walking to a flatter spot 25 m away to try again.",
+                    FakeLLM.call("go_to", target=SPOT)),
+        FakeLLM.say("", FakeLLM.call("cast", spell="Summon Shelter")),
+        FakeLLM.say("", FakeLLM.call("interact", target=SHELTER)),
+        FakeLLM.say("Shelter's up and I'm in bed. Come join me."),
+    ]
+    r.body.emit({"type": "chat_heard", "player": "Zezima",
+                 "text": "why are you asking me -  you have the available tools to solve the problem. you can do this on your own"})
+    r.at(0).step()
+    r.at(3).step()
+    assert [c[0] for c in r.body.calls] == ["cast", "go_to", "cast", "interact"]
+    # the walk's line came BEFORE the walk; the failed first cast's line was never said (failure overrides)
+    tl = r.body.timeline
+    walk_line = ("say", "Ground's not flat here, walking to a flatter spot 25 m away to try again.")
+    assert tl.index(walk_line) < tl.index(("call", "go_to"))
+    assert r.body.said == [walk_line[1], "Shelter's up and I'm in bed. Come join me."]
+    # the second turn saw the failure with the body's truthful data
+    follow = r.model.calls[1]["messages"]
+    failed = json.loads(next(m for m in reversed(follow) if m["role"] == "tool")["content"])
+    assert failed["ok"] is False and failed["reason"] == "nothing_in_range" and failed["data"]["rejected"]
+    turns = [x["turn"] for x in r.records("chain_turn")]
+    assert turns == [1, 2, 3, 4]
+
+    # 20:43:49 "what are you working on?": the context says what really happened, and where he is
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "what are you working on?"})
+    r.at(30).step()
+    r.at(33).step()
+    status = r.model.contexts[-1]["body_status"]
+    recent = next(line for line in status if line.startswith("Your recent actions"))
+    assert "cast Summon Shelter FAILED: nothing_in_range" in recent and "go_to" in recent and " ok" in recent
+    assert recent.index("FAILED") < recent.rindex("interact")
+    assert any(line.startswith("Last move: go_to") and "arrived" in line for line in status)
+
+
+def test_chain_is_bounded_and_yields_to_a_new_chat_line(tmp_path):
+    r = Replay(tmp_path, STATES[5], tools={"get_state", "say", "follow", "go_to", "stop", "interact"})
+    for _ in range(8):
+        r.body.act("interact", ok(target=INFUSION))
+    r.model.replies["keep grabbing"] = FakeLLM.say("On it.", FakeLLM.call("interact", target=INFUSION))
+    r.model.turns = [FakeLLM.say("", FakeLLM.call("interact", target=INFUSION)) for _ in range(8)]
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude keep grabbing"})
+    r.at(0).step()
+    from brain.agent import MAX_TURNS
+    assert len(r.body.calls) == 1 + MAX_TURNS  # the first turn plus MAX_TURNS continuations, no more
+    assert r.records("chain_stopped")[0]["why"] == "budget"
+    # a new chat line from the player ends a chain at once (he has the floor)
+    r2 = Replay(tmp_path / "two", STATES[5], tools={"get_state", "say", "follow", "go_to", "stop", "interact"})
+    r2.body.act("interact", ok(target=INFUSION), emitted=[{"type": "chat_heard", "player": "Zezima", "text": "stop that"}])
+    r2.model.replies["keep grabbing"] = FakeLLM.say("On it.", FakeLLM.call("interact", target=INFUSION))
+    r2.model.turns = [FakeLLM.say("", FakeLLM.call("interact", target=INFUSION))]
+    r2.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude keep grabbing"})
+    r2.at(0).step()
+    assert len(r2.body.calls) == 1 and r2.records("chain_stopped")[0]["why"] == "the player spoke"
+
+
+def test_a_follow_needs_no_continuation_turn(tmp_path):
+    r = Replay(tmp_path, STATES[5])
+    r.body.act("follow", ok(following="Zezima"), state_after={**copy.deepcopy(STATES[5]), "following": "Zezima"})
+    r.model.replies["follow me"] = FakeLLM.say("Right behind you.", FakeLLM.call("follow", player="Zezima"))
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude follow me"})
+    r.at(0).step()
+    assert len(r.model.calls) == 1 and r.body.said == ["Right behind you."]
+
+
+def test_unknown_target_goes_back_with_the_tools_own_argument_help(tmp_path):
+    """Live 20:46: "I couldn't go to: unknown_target." twice (a raw code, from the template fallback,
+    because the follow-up's own fix failed / its look was never run). Now the failure and the tool's
+    argument descriptions go back to the model, a read in the next turn is run, and no raw code is said."""
+    tools = {"get_state", "say", "follow", "go_to", "stop", "interact", "look"}
+    r = Replay(tmp_path, STATES[5], tools=tools)
+    r.body.act("go_to", fail("unknown_target", detail="target_not_visible"))
+    r.body.act("interact", ok(target=SHELTER))
+    r.body.look_things = [{"id": SHELTER, "name": "Summon Shelter", "kind": "interactable", "distance": 3.0, "match": 1}]
+    r.model.replies["get in it"] = FakeLLM.say("", FakeLLM.call("go_to", target=SHELTER))
+    r.model.turns = [FakeLLM.say("", FakeLLM.call("look", about="shelter")),
+                     FakeLLM.say("Getting in from the front.", FakeLLM.call("interact", target=SHELTER)),
+                     FakeLLM.say("")]
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude get in it by interacting with it at the front"})
+    r.at(0).step()
+    failed = json.loads(next(m for m in reversed(r.model.calls[1]["messages"]) if m["role"] == "tool")["content"])
+    assert failed["reason"] == "unknown_target" and "target" in failed["args_help"]
+    assert [c[0] for c in r.body.calls] == ["go_to", "interact"]
+    assert r.body.said == ["Getting in from the front."]
+    assert not any("unknown_target" in s for s in r.body.said)
+
+
+def test_persona_says_act_on_your_own_and_carry_plans_through(tmp_path):
+    r = Replay(tmp_path, STATES[5])
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude hi"})
+    r.at(0).step()
+    persona = r.model.calls[-1]["messages"][0]["content"]
+    assert "act on your own plan and report" in persona and "Carry your plans through" in persona
+    assert "Ask Zezima only when it is genuinely ambiguous, risky or beyond your tools" in persona
+
+
+# --------------------------------------------------------------------------- docs/BUGS.md L2, L5, L6, L10
+
+
+class StubTransport:
+    """A body that answers pings (with a scripted heartbeat) and holds every other command forever,
+    or pushes the scripted messages while a command waits."""
+
+    def __init__(self, beats=(), push=()):
+        self.sent, self.beats, self.push = [], list(beats), list(push)
+        self.malformed: list = []
+
+    def send(self, msg):
+        self.sent.append(msg)
+        if msg["tool"] == "ping":
+            data = self.beats.pop(0) if self.beats else {"pong": True}
+            self.push.insert(0, {"v": 1, "type": "result", "id": msg["id"], "ok": True, "reason": None, "data": data})
+
+    def receive(self, timeout):
+        out, self.push = self.push, []
+        return out
+
+
+def _client(transport, monkeypatch, tmp_path):
+    from brain import bridge_client as bc
+    monkeypatch.setattr(bc, "HEARTBEAT_S", 0.0)
+    return bc.BridgeClient(transport, JsonlLogger(tmp_path / f"bridge-{len(transport.sent)}-{id(transport)}.jsonl"))
+
+
+def test_l2a_an_addressed_line_stops_the_wait_for_a_running_tool(monkeypatch, tmp_path):
+    """L2 (20:58-21:01): chat queued for 3 min behind a go_to. Now an addressed chat line arriving while
+    a long tool runs ends the wait at once (interrupted); the body keeps going until told otherwise."""
+    chat = {"v": 1, "type": "event", "event": {"type": "chat_heard", "player": "Zezima", "text": "claude get out of the shelter"}}
+    t = StubTransport(push=[chat])
+    client = _client(t, monkeypatch, tmp_path)
+    client.interrupt_check = lambda ev: getattr(ev, "text", "").startswith("claude")
+    res = client.request("go_to", {"target": "Zezima"}, timeout=60)
+    assert res["ok"] is False and res["reason"] == "interrupted" and res["data"]["by"] == "chat"
+    assert client.abandoned(t.sent[0]["id"])
+    assert [e.text for e in client.poll_events()] == ["claude get out of the shelter"]  # the line is kept for the agent
+    # an unaddressed line does not interrupt
+    t2 = StubTransport(push=[{"v": 1, "type": "event", "event": {"type": "chat_heard", "player": "Bob", "text": "lol"}}],
+                       beats=[{"pong": True, "started": 7, "action": {"id": "x"}}])
+    c2 = _client(t2, monkeypatch, tmp_path)
+    c2._started = 7
+    c2.interrupt_check = lambda ev: getattr(ev, "text", "").startswith("claude")
+    assert c2.request("go_to", {"target": "Zezima"}, timeout=60)["reason"] == "lost_by_body"
+
+
+def test_l2b_a_bridge_restart_or_a_dropped_command_fails_the_request_at_once(monkeypatch, tmp_path):
+    t = StubTransport(beats=[{"pong": True, "started": 200, "action": None}])
+    client = _client(t, monkeypatch, tmp_path)
+    client._started = 100  # from the session's first ping
+    res = client.request("go_to", {"target": "Zezima"}, timeout=125)
+    assert res["reason"] == "body_restarted" and "restarted" in res["data"]["detail"]
+    t2 = StubTransport()
+    client2 = _client(t2, monkeypatch, tmp_path)
+    client2._started = 100
+
+    def beat_with_our_id(msg, orig=t2.send):
+        orig(msg)
+        if msg["tool"] == "go_to":
+            t2.beats = [{"pong": True, "started": 100, "action": {"id": msg["id"], "kind": "go_to"}}] * 2 + \
+                       [{"pong": True, "started": 100, "action": None}]
+    t2.send = beat_with_our_id
+    res2 = client2.request("go_to", {"target": "Zezima"}, timeout=125)
+    assert res2["reason"] == "lost_by_body"  # it worked on it for two beats, then the slot was empty, no reply
+    assert [m["tool"] for m in t2.sent].count("ping") == 3
+
+
+def test_l2c_timeouts_and_restarts_are_not_retried_blindly(tmp_path):
+    from brain.interface import Reason
+    assert {Reason.TIMEOUT, Reason.BODY_RESTARTED, Reason.LOST_BY_BODY, Reason.RESTING} <= Reason.DETERMINISTIC
+    r = Replay(tmp_path, STATES[5])
+    r.executor.max_attempts = 3
+    r.body.act("go_to", fail("timeout", detail="timeout"))
+    r.body.act("go_to", ok(target="Zezima"))  # would succeed on a retry: must not be tried blindly
+    r.model.replies["get out of the shelter"] = FakeLLM.say("", FakeLLM.call("go_to", target="Zezima"))
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude get out of the shelter now its day"})
+    r.at(0).step()
+    assert [c[0] for c in r.body.calls] == ["go_to"]  # one try; the timeout went back to the model
+    result = json.loads(next(m for m in reversed(r.model.calls[1]["messages"]) if m["role"] == "tool")["content"])
+    assert result["reason"] == "timeout"
+
+
+def test_l2a_live_agent_marks_addressed_lines_as_interrupting(tmp_path):
+    r = Replay(tmp_path, STATES[5])
+    r.body.interrupt_check = None
+    agent = LiveAgent(r.body, r.controller, Planner(FakeLLM(), r.store.skills, r.log), r.executor, r.store, r.log,
+                      prefixes=["claude "], clock=r.clock)
+    from brain.interface import ChatHeard
+    assert r.body.interrupt_check is not None
+    assert r.body.interrupt_check(ChatHeard(player="Zezima", text="claude stop"))
+    assert not r.body.interrupt_check(ChatHeard(player="Bob", text="nice weather"))
+    assert agent
+
+
+def test_l5_replay_2102_promise_without_a_tool_call_gets_a_turn(tmp_path):
+    """Live 21:02:56 ("what do you mean", not addressed): "...I'll walk closer and cast it on the tree."
+    with NO tool call, and nothing happened. A talk-only first turn now gets ONE more turn to call what
+    it said it would do (information, not a veto); here the model calls go_to + cast in order."""
+    tree = "fol:BP_InteractableFoliageISMC_Tree_C_7:2"
+    r = Replay(tmp_path, STATES[5], tools={"get_state", "say", "follow", "go_to", "stop", "interact", "cast"})
+    r.body.act("go_to", ok(target=tree))
+    r.body.act("cast", ok(spell="Axtral Projection"))
+    r.model.replies["what do you mean"] = FakeLLM.say(
+        "Sorry, I said \"Done\" too early. I never cast Axtral Projection. The tree I tried to reach is out of sight, "
+        "so I'm standing still. I'll walk closer and cast it on the tree.")
+    r.model.turns = [FakeLLM.say("", FakeLLM.call("go_to", target=tree), FakeLLM.call("cast", spell="Axtral Projection", target=tree)),
+                     FakeLLM.say("Cast it on the tree.")]
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude what do you mean"})
+    r.at(0).step()
+    assert [c[0] for c in r.body.calls] == ["go_to", "cast"]
+    note = r.model.calls[1]["messages"][-1]["content"]
+    assert note.startswith("You replied without calling any tool.")
+    assert r.body.said[0].endswith("I'll walk closer and cast it on the tree.") and r.body.said[-1] == "Cast it on the tree."
+
+
+def test_l5_a_plain_answer_costs_one_check_turn_and_stays_one_line(tmp_path):
+    r = Replay(tmp_path, STATES[5])
+    r.model.replies["how are you"] = FakeLLM.say("Doing well, thanks!")
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude how are you"})
+    r.at(0).step()
+    assert r.body.said == ["Doing well, thanks!"] and r.body.calls == [] and len(r.model.calls) == 2
+
+
+def test_l6_one_state_read_before_an_action(tmp_path):
+    """L6 (20:58:39-40): three get_state round trips before each tool. Now the turn's read is reused by
+    the executor (<= 1 s, invalidated by any action); verification after the action stays fresh."""
+    r = Replay(tmp_path, STATES[5])
+    reads = []
+    orig = r.body.get_state
+    r.body.get_state = lambda: (reads.append(r.body.timeline[-1] if r.body.timeline else None), orig())[1]
+    r.agent._fresh_state()
+    n0 = len(reads)
+    r.body.act("go_to", ok(target="Zezima"))
+    out = r.executor.run_task(__import__("brain.state_store", fromlist=["Task"]).Task(skill="go_to", args={"target": "Zezima"}))
+    assert out.ok and len(reads) - n0 == 1  # only the verification read (was 3: baseline, attempt, verify)
+
+
+def test_l10_house_rules_file_is_in_the_persona_and_re_read_on_edit(tmp_path, monkeypatch):
+    rules = tmp_path / "house_rules.md"
+    rules.write_text("# rules\n- Sleep in your own shelter.\n- PvP is off: never attack a player.\n", encoding="utf-8")
+    monkeypatch.setenv("DW_HOUSE_RULES", str(rules))
+    r = Replay(tmp_path, STATES[5])
+    persona = r.controller.persona()
+    assert "House rules from Zezima" in persona and "- Sleep in your own shelter." in persona
+    import os
+    rules.write_text("- Get up and out of bed as soon as it's day.\n", encoding="utf-8")
+    os.utime(rules, (rules.stat().st_atime + 5, rules.stat().st_mtime + 5))
+    assert "- Get up and out of bed as soon as it's day." in r.controller.persona()
+    shipped = (Path(__file__).resolve().parents[1] / "brain" / "house_rules.md").read_text(encoding="utf-8")
+    for line in ("- Sleep in your own shelter.", "- Get up and out of bed as soon as it's day.",
+                 "- Don't use another player's shelter or bed unless that player asked you to."):
+        assert line in shipped
+
+
+def test_l10_day_while_resting_is_reviewed_at_once(tmp_path):
+    """L10: he stayed in bed after day. The night -> day change while resting is reviewed even inside
+    the 3 min gap; the model (house rule: get up as soon as it's day) gets up with interact on the bed."""
+    bed = "BP_Magic_SummonShelter_C_2147450308"
+    r = _proactive_rig(tmp_path, said="Night, see you in the morning.")
+    r.body.state = _vitals_state(25, phase="night", sleep_allowed=True)
+    r.at(40).step()  # a review (endurance down, night)
+    resting = _vitals_state(25, phase="day")
+    resting["time_of_day"].update(sleeping=True, resting_in=bed)
+    r.body.state = resting
+    r.body.act("interact", ok(target=bed))
+    r.model.body_reply = lambda ctx: FakeLLM.say("Morning! Getting up.", FakeLLM.call("interact", target=bed))
+    r.at(100).step()  # 60 s after the last review: still reviewed (day change)
+    ev = r.model.contexts[-1]["body_event"]
+    assert any(c["what"] == "time_of_day" and c["to"] == "day" for c in ev["changes"])
+    assert ev["time_of_day"]["resting_in"] == bed and r.body.calls == [("interact", {"target": bed})]
+    assert r.body.said[-1] == "Morning! Getting up."

@@ -48,7 +48,23 @@ local function in_gear(x, y, z)
     return GEAR and math.sqrt((x - pawn.loc.X) ^ 2 + (y - pawn.loc.Y) ^ 2) < 40 and z > pawn.loc.Z - 90 and z < pawn.loc.Z + 90
 end
 -- fake KismetSystemLibrary:LineTraceSingle over the fake world (fills `out` like UE4SS does)
-local KSL = { LineTraceSingle = function(self, ctx, a, b, ch, cx, ign, dbg, out)
+-- fake water surface: Visibility (ch 0) vertical traces stop at the lake surface; the pawn profile
+-- (LineTraceSingleByProfile) and object-type traces pass through to the bed
+local function fake_water(a, b, out)
+    if a.X == b.X and a.Y == b.Y and in_lake(a.X, a.Y) and a.Z > FLOOR + 50 then
+        out.Distance = a.Z - (FLOOR + 50); out.ImpactPoint = { X = a.X, Y = a.Y, Z = FLOOR + 50 }; out.ImpactNormal = { X = 0, Y = 0, Z = 1 }
+        return true
+    end
+end
+local KSL_BASE
+local KSL = {}
+KSL.LineTraceSingleByProfile = function(self, ctx, a, b, prof, cx, ign, dbg, out) return KSL_BASE(self, ctx, a, b, 99, cx, ign, dbg, out) end
+KSL.LineTraceSingleForObjects = function(self, ctx, a, b, ots, cx, ign, dbg, out) return KSL_BASE(self, ctx, a, b, 99, cx, ign, dbg, out) end
+KSL.LineTraceSingle = function(self, ctx, a, b, ch, cx, ign, dbg, out)
+    if ch == 0 and fake_water(a, b, out) then return true end
+    return KSL_BASE(self, ctx, a, b, ch, cx, ign, dbg, out)
+end
+KSL_BASE = function(self, ctx, a, b, ch, cx, ign, dbg, out)
     if a.X == b.X and a.Y == b.Y and GEAR and math.sqrt((a.X - pawn.loc.X) ^ 2 + (a.Y - pawn.loc.Y) ^ 2) < 40 and a.Z > pawn.loc.Z then
         out.Distance = a.Z - (pawn.loc.Z + 90); out.ImpactPoint = { X = a.X, Y = a.Y, Z = pawn.loc.Z + 90 }; out.ImpactNormal = { X = 0, Y = 0, Z = 1 }
         return true -- a downward trace through Claude lands on his head/gear
@@ -76,7 +92,7 @@ local KSL = { LineTraceSingle = function(self, ctx, a, b, ch, cx, ign, dbg, out)
         end
     end
     return false
-end }
+end
 pawn = obj({ loc = { X = 0, Y = 0, Z = 0 }, input = nil, jumps = 0 })
 function pawn:K2_GetActorLocation() return { X = self.loc.X, Y = self.loc.Y, Z = self.loc.Z } end
 function pawn:AddMovementInput(d, s) self.input = d end
@@ -101,6 +117,7 @@ end
 function FindFirstOf(c)
     if c == "DominionUserSettings" then return settings elseif c == "EnhancedInputLocalPlayerSubsystem" then return eis end
 end
+function FName(n) return { name = n } end -- UE4SS global (move.lua traces by the pawn's collision profile)
 local GSF = { GetRealTimeSeconds = function() return T end }
 function StaticFindObject(path) if path and path:find("KismetSystemLibrary") then return KSL end return GSF end
 local loops, nid = {}, 0
@@ -591,6 +608,7 @@ water_frames = 0
 MW2.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 120 })
 run(600)
 local w2 = water_frames
+if os.getenv("DBG19") then for _, l in ipairs(logs) do if l:find("water sense") then print("  WS " .. l) end end; for i = math.max(1, #logs - 14), #logs do print("  " .. logs[i]) end; local mem = _G.DW_NAVMEM; local n = 0; for _ in pairs(mem and mem.water or {}) do n = n + 1 end; print("WATER cells", n) end
 s = MW2.status()
 check("water: second trip goes round (less wading)", s.result and s.result.status == "arrived" and w2 < w1 * 0.5,
     string.format("w1=%d w2=%d %s", w1, w2, tostring(s.result and s.result.status)))

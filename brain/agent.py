@@ -18,11 +18,11 @@ import time
 from typing import Literal
 
 from . import situation as sit
-from .broker import BODY_SITUATIONS, EventBroker, facts, fallback_line
+from .broker import BODY_SITUATIONS, REVIEW_SAMPLE_S, EventBroker, facts, fallback_line
 from .controller import LONG_ACTIONS, Controller, describe_rule
 from .executor import Executor, Outcome, StateUnavailable
-from .interface import (RULE_TOOLS, Activity, Attacked, CommandReceived, Event, GameInterface, Reason, TaskDone,
-                        TaskFailed)
+from .interface import (RULE_TOOLS, Activity, Attacked, ChatHeard, CommandReceived, Event, GameInterface, Reason,
+                        TaskDone, TaskFailed)
 from .jsonl_log import JsonlLogger
 from .planner import Planner, PlanError
 from .skill_library import SkillError, SkillLibrary, check_preconditions
@@ -33,6 +33,14 @@ GoalResult = Literal["done", "stuck", "interrupted"]
 # Help lines the companion says by itself (no model call) when it can't handle something alone.
 # At most one per key per HELP_REPEAT_S seconds, so a fight doesn't spam chat.
 HELP_REPEAT_S = 60.0
+# The agent loop: model turns after the first, per request (every turn's results go back to the model).
+MAX_TURNS = 4
+# Tools that take a while: the turn's line is said as they start, so it is true when said.
+ANNOUNCE_FIRST = {"go_to", "come_to", *LONG_ACTIONS}
+# A turn of only these is a standing behaviour, not a step of a plan: no continuation turn.
+STANDING = {"follow", "stop"}
+PROMISE_NOTE = ("You replied without calling any tool. If your reply says you will do something now, call the "
+                "tool(s) for it now, in order. Otherwise reply with an EMPTY message.")
 # Body situations (unreachable, resumed, vitals_low) are triaged by broker.EventBroker and phrased by
 # the Controller model; broker.fallback_line is the template safety net (streamline step 3).
 
@@ -66,10 +74,14 @@ class Agent:
         self._last_reason: str | None = None
         self._help_said: dict[str, float] = {}  # help key -> monotonic time last said
         # Event hygiene (streamline step 3): triage, movement episodes, digest, episodic memory.
-        self.broker = EventBroker(logger, tool_of=getattr(game, "sent_tool", None))
+        self.broker = EventBroker(logger, tool_of=getattr(game, "sent_tool", None),
+                                  abandoned=getattr(game, "abandoned", None))
         controller.status_provider = self.broker.digest
         controller.activity_provider = self.broker.activity_lines
         self._situations: list[dict] = []  # body situations waiting for one Controller run
+        self._stash: list[Event] = []  # events peeked during a chain (handled by the next pump)
+        self.check_promises = True  # L5: a talk-only first turn gets one turn to call what it promised
+        self._sampled_at: float | None = None  # last get_state the broker observed (situation_review)
         self._in_pump = False
         # True when the body runs its own self-defence reflex (client combat.lua guard): an attacked
         # event then needs no brain-side attack (it would fight the body's reflex for the pawn).
@@ -98,11 +110,28 @@ class Agent:
         situations in ONE Controller run (unless a chat run will take them along)."""
         self._in_pump = True
         try:
-            for event in self.broker.triage(self.game.poll_events()):
+            batch, self._stash = self._stash + self.game.poll_events(), []
+            for event in self.broker.triage(batch):
                 self.handle_event(event)
         finally:
             self._in_pump = False
         self.flush_situations()
+        self._review_tick()
+
+    def _review_tick(self) -> None:
+        """Proactive behaviour: read the state now and then (a bridge read, never a model call) and,
+        when the broker sees a meaningful change at a good moment, give the model a situation_review.
+        The model decides to speak, act or stay silent."""
+        now = self.broker.clock()
+        if self._sampled_at is None or now - self._sampled_at >= REVIEW_SAMPLE_S:
+            self._fresh_state()
+        ep = self.broker.episode
+        busy = bool(self.active_goal or self.pending_goal or self._situations or self._chat_waiting()
+                    or (ep is not None and ep.ended is None and ep.tool != "follow"))
+        ev = self.broker.review_due(busy=busy)
+        if ev:
+            self._situations.append(ev)
+            self.flush_situations()
 
     def handle_event(self, event: Event) -> None:
         self.log.log("event", event=event.model_dump())
@@ -122,6 +151,7 @@ class Agent:
             return self._activity(event)
         self.controller.note_event(event)
         if isinstance(event, Attacked):
+            self.broker.note_attacked()
             if self.body_self_defends:
                 self.log.log("attacked_body_reflex", by=event.by)  # the body's own guard fights back
             elif "attack" in self.store.skills:
@@ -148,10 +178,11 @@ class Agent:
 
     def _fresh_state(self) -> dict:
         try:
-            state = self.executor.state()
+            state = self.executor.state()  # fresh; the executor reuses it within the turn (L6)
         except StateUnavailable as exc:
             return {"unavailable": str(exc)}
         self.broker.observe(state)  # where am I, am I moving, who is in sight (body_status "Where:")
+        self._sampled_at = self.broker.clock()
         return state
 
     def _body_situation(self, event: Event) -> None:
@@ -210,6 +241,7 @@ class Agent:
     def _run_task(self, task: Task) -> Outcome:
         """Every body action the brain runs goes through here, so the broker knows the brain's own moves."""
         self.broker.action_started(task.skill, task.args)
+        self.broker.note_busy()
         outcome = self.executor.run_task(task)
         self.broker.action_finished(task.skill, task.args, outcome.ok, outcome.reason, outcome.data)
         return outcome
@@ -224,7 +256,13 @@ class Agent:
         """``addressed=False``: a chat line nobody addressed to the companion (LiveAgent's chat
         reading); the model may decide it is not for him, and then nothing is said or done.
         ``body_events``: body situations (broker) this run must also decide on; with an empty text it
-        is a body-initiated run: the model phrases the line (or fixes it with a tool)."""
+        is a body-initiated run: the model phrases the line (or fixes it with a tool).
+
+        The agent loop (live 21:43, the shelter plan died after its first step): every turn's tool
+        results go back to the model for the next turn (``Controller.next_turn``), up to MAX_TURNS more,
+        until it stops calling tools; a new chat line ends the chain (the player has the floor)."""
+        if event.text:
+            self.broker.note_busy()  # he is talking with the player: no proactive review on top
         state = self._fresh_state()  # unavailable: still let the Controller answer; actions will refuse
         body_ctx = (body_events[0] if len(body_events) == 1 else {"events": body_events}) if body_events else None
         d = self.controller.decide(event.player, event.text, state, self.active_goal, addressed=addressed,
@@ -246,90 +284,133 @@ class Agent:
         if not addressed:
             self.log.log("chat_decision", player=event.player, text=event.text, decision="addressed",
                          reason="model: meant for me", actions=[c.name for c in d.actions], speech=d.speech)
-        if d.interrupts and self.active_goal:
-            self._cancelled = True
+        kind = "notice" if body_events and not event.text else "reply"
+        said = False  # anything said for this request (single voice: at most one line per turn)
+        lines: list[str] = []  # what the model's turns actually said (for previous_review.you_said)
+        acted = False
+        turn = 0
+        while True:
+            if d.interrupts and self.active_goal:
+                self._cancelled = True
+            t = self._run_turn(d, state, event)
+            acted = acted or bool(t["ran"])
+            if t["failure"] and t["failed_call"] is None:  # refused before the body (safety, no such tool)
+                self.controller.report_failure(*t["failure"])
+                said = True
+                break
+            if not t["failure"]:
+                text = " ".join(s for s in [None if t["spoken"] else d.speech, *t["extra"]] if s)
+                if text:
+                    if self.controller.say(text, kind=kind) is not None:
+                        said = True
+                        lines.append(text)
+                said = said or t["spoken"]
+            elif t["failure"][1] in Reason.INTERRUPTS:  # a newer command took over: it speaks
+                break
+            more = bool(t["failure"]) or bool(set(t["ran"]) - STANDING)
+            # L5 (live 21:02:56 "I'll walk closer and cast it on the tree", no tool call): a first turn that
+            # only talked gets ONE more turn to call what it said it would do (or reply empty). Its line
+            # is already said, so this costs no reply latency.
+            promise_check = (turn == 0 and self.check_promises and not t["ran"] and not t["failure"]
+                             and bool(d.speech) and not (d.actions or d.goal or d.skill))
+            more = more or promise_check
+            if not more:
+                break
+            if turn >= MAX_TURNS or self._player_spoke():
+                self.log.log("chain_stopped", turns=turn, why="budget" if turn >= MAX_TURNS else "the player spoke")
+                if t["failure"]:
+                    self.controller.report_failure(*t["failure"])
+                    said = True
+                break
+            turn += 1
+            state = self._fresh_state()
+            try:
+                d = self.controller.next_turn(d, t["results"], state, failed=bool(t["failure"]),
+                                              note=PROMISE_NOTE if promise_check else None)
+            except Exception as exc:  # model/provider error: the template still says why
+                self.log.log("next_turn_error", turn=turn, error=repr(exc))
+                if t["failure"]:
+                    self.controller.report_failure(*t["failure"])
+                    said = True
+                break
+            self.log.log("chain_turn", turn=turn, actions=[c.name for c in d.actions], speech=d.speech)
+            if t["failure"] and not (d.actions or d.speech or d.refusals):
+                self.controller.report_failure(*t["failure"])  # the model had nothing to say about it
+                said = True
+                break
+        if not said and body_events and not event.text:  # the model said nothing about a body situation
+            # Live 20:21:53: the model fixed it silently (picked up 4 sandwiches) and the template "I'm really
+            # hungry and have nothing left" was said anyway. Re-check on fresh state at speak time: only
+            # what is still true is said, and nothing at all when the model's own action fixed it.
+            still = self.broker.still_valid(body_events, self._fresh_state())
+            if still and not acted:
+                line = fallback_line(still)  # None for a situation_review: the model chose silence
+                said = bool(line) and self.controller.say(line, kind=kind) is not None
+            else:
+                self.log.log("situation_unspoken", events=body_events, still=still,
+                             why="fixed by the model's own action" if acted else "fixed before speaking")
+        elif not said and addressed and not body_events:  # reply to every command, even when the model said nothing
+            self.controller.say(self._default_reply(d))
+        if body_events and said:
+            self.broker.voiced(body_events, text=" ".join(lines) or d.speech)
+        if d.goal and not d.skill:
+            self.pending_goal = d.goal
+
+    def _run_turn(self, d, state: dict, event: CommandReceived) -> dict:
+        """Run one model turn's calls in order; stop at the first failure. Every result is kept for the
+        model's next turn (a failure also carries the tool's own argument descriptions)."""
         failure = d.refusals[0] if d.refusals else None
         # the call that failed (a body action, or one refused for bad args): its result goes back to the model
         failed_call = d.invalid[0] if d.invalid and failure and failure[0] == d.invalid[0].name else None
-        results: dict[str, dict] = {}  # call id -> result of the steps that ran (multi-step turns)
+        results: dict[str, dict] = {}
+        if failed_call is not None:
+            results[failed_call.id or failed_call.name] = {"ok": False, "reason": failure[1], "data": failure[2],
+                                                           "args_help": self.controller.arg_help(failed_call.name)}
         extra: list[str] = []  # facts the body reported that the speech must carry (single voice)
-        spoken = False  # a long action's reply is said when it starts
-        for call in d.actions:
+        spoken, ran = False, []
+        for call in ([] if failure else d.actions):
             if call.name in ("remember", "forget_skill"):
                 res = self._remember(call.arguments, state, event.player) if call.name == "remember" \
                     else self._forget_skill(call.arguments)
                 results[call.id or call.name] = res
-                if not res.get("ok", True) and failure is None:
+                if not res.get("ok", True):
                     failure, failed_call = (call.name, res["reason"], res["data"]), call
                     break
                 continue
             if call.name in RULE_TOOLS:
                 res = self._rule_tool(call.name, call.arguments, extra)
-                if not res["ok"] and failure is None:
+                results[call.id or call.name] = res
+                if not res["ok"]:
                     failure = (call.name, res["reason"], res["data"])
+                    break
                 continue
-            if call.name in LONG_ACTIONS and failure is None and not spoken:
+            if call.name in ANNOUNCE_FIRST and not spoken and (d.speech or call.name in LONG_ACTIONS):
+                # a move or a job that takes a while: its line is said as it starts (true at that moment)
                 self.controller.say(d.speech or self.controller.ack(call.name) or "On it.")
-                self.controller.job_started()
+                if call.name in LONG_ACTIONS:
+                    self.controller.job_started()
                 spoken = True
             outcome = self._run_task(Task(skill=call.name, args=call.arguments))
-            results[call.id or call.name] = {"ok": outcome.ok, "reason": outcome.reason, "data": outcome.data}
-            if not outcome.ok and failure is None:
+            ran.append(call.name)
+            res = {"ok": outcome.ok, "reason": outcome.reason, "data": outcome.data}
+            if not outcome.ok and outcome.reason in (Reason.UNKNOWN_TARGET, Reason.INVALID_ARGS, Reason.NOT_PERCEIVED,
+                                                     Reason.AMBIGUOUS_TARGET):
+                res["args_help"] = self.controller.arg_help(call.name)  # how to name a target for this tool
+            results[call.id or call.name] = res
+            if not outcome.ok:
                 failure, failed_call = (call.name, outcome.reason, outcome.data), call
                 break  # steps run in order and stop at the first that fails (the model hears why)
-            elif outcome.ok and call.name in LONG_ACTIONS:
+            if call.name in LONG_ACTIONS:
                 extra.append(self._long_done(call.name, call.arguments, outcome.data))
         if d.skill and failure is None:
             failure = self._queue_skill(*d.skill, state)
-        kind = "notice" if body_events and not event.text else "reply"
-        res = None
-        if failure and failed_call is not None and failure[1] not in Reason.INTERRUPTS:  # model hears why
-            self._explain_failure(d, failed_call, failure, state, results)
-        elif failure:
-            self.controller.report_failure(*failure)
-        elif spoken:
-            if extra:
-                self.controller.say(" ".join(extra))
-        elif d.speech or extra:
-            res = self.controller.say(" ".join(s for s in [d.speech, *extra] if s), kind=kind)
-        elif body_events and not event.text:  # the model said nothing about a body situation
-            # Live 20:21:53: the model fixed it silently (picked up 4 sandwiches) and the template "I'm really
-            # hungry and have nothing left" was said anyway. Re-check on fresh state at speak time: only
-            # what is still true is said, and nothing at all when the model's own action fixed it.
-            still = self.broker.still_valid(body_events, self._fresh_state())
-            if still and not d.actions:
-                res = self.controller.say(fallback_line(still) or self._default_reply(d), kind=kind)
-            else:
-                self.log.log("situation_unspoken", events=body_events, still=still,
-                             why="fixed by the model's own action" if d.actions else "fixed before speaking")
-        elif addressed:  # reply to every command, even when the model said nothing
-            res = self.controller.say(self._default_reply(d))
-        if body_events and (res is not None or failure or spoken):
-            self.broker.voiced(body_events)
-        if d.goal and not d.skill:
-            self.pending_goal = d.goal
+        return {"failure": failure, "failed_call": failed_call, "results": results, "extra": extra,
+                "spoken": spoken, "ran": ran}
 
-    def _explain_failure(self, d, call, failure: tuple, state: dict, results: dict | None = None) -> None:
-        """PRINCIPLES.md #2: the body's truthful result goes back to the model, which says what happened
-        and may try ONE fix or ask. The reason templates (report_failure) are only the safety net when
-        the model call fails or says nothing."""
-        tool, reason, data = failure
-        try:
-            d2 = self.controller.follow_up(d, call, {"ok": False, "reason": reason, "data": data}, state, results)
-        except Exception as exc:  # model/provider error: the template still says why
-            self.log.log("follow_up_error", tool=tool, error=repr(exc))
-            return self.controller.report_failure(*failure)
-        if d2.refusals:
-            return self.controller.report_failure(*d2.refusals[0])
-        fix = next((c for c in d2.actions if c.name not in ("remember", *RULE_TOOLS)), None)
-        if fix is not None:
-            outcome = self._run_task(Task(skill=fix.name, args=fix.arguments))
-            if not outcome.ok:  # no second follow-up: say why, from the body's result
-                return self.controller.report_failure(fix.name, outcome.reason, outcome.data)
-            return self.controller.say(d2.speech or self.controller.ack(fix.name) or "Done.")
-        if d2.speech:
-            return self.controller.say(d2.speech)
-        self.controller.report_failure(*failure)
+    def _player_spoke(self) -> bool:
+        """Has a chat line arrived since this request started? (peeked, kept for the next pump)"""
+        self._stash.extend(self.game.poll_events())
+        return self._chat_waiting() or any(isinstance(e, (ChatHeard, CommandReceived)) for e in self._stash)
 
     def _fresh_reply(self, event: CommandReceived, d, state: dict, addressed: bool, body_ctx: dict | None):
         """Single voice, speak-time check: a pure-talk reply decided on facts that changed while the

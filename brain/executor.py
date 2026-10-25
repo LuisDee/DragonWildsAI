@@ -203,6 +203,9 @@ VERIFIERS: dict[str, Callable] = {
 }
 
 
+STATE_REUSE_S = 1.0  # a get_state this recent is reused before an action (L6)
+
+
 class Executor:
     """``sleep`` waits out a short spell cooldown (on_cooldown with data.remaining_s up to
     ``max_cooldown_wait`` seconds) before the retry; longer cooldowns fail at once."""
@@ -216,12 +219,19 @@ class Executor:
         self.sleep = sleep
         self.max_cooldown_wait = max_cooldown_wait
         self._baselines: dict[str, dict] = {}  # task id -> state when the task first started
+        self._cache: tuple[float, dict] | None = None  # (time, data) of the last get_state
         self._resolved_items: dict[str, str] = {}  # task id -> inventory key the body reported (data.item)
 
-    def state(self) -> dict:
+    def state(self, max_age: float | None = None) -> dict:
+        """Fresh get_state, or (``max_age``) the last one if it is that recent and no action ran since
+        (L6: one state read per turn instead of three; verification after an action is always fresh)."""
+        now = time.monotonic()
+        if max_age is not None and self._cache is not None and now - self._cache[0] <= max_age:
+            return self._cache[1]
         res = self.game.get_state()
         if not res["ok"]:
             raise StateUnavailable(f"get_state failed: {res['reason']}")
+        self._cache = (time.monotonic(), res["data"])
         return res["data"]
 
     def _remaining_args(self, task: Task, base: dict, now: dict) -> dict | None:
@@ -260,11 +270,11 @@ class Executor:
             return self._finish(task, Outcome(False, Reason.STATE_UNAVAILABLE, task.attempts))
 
     def _run(self, task: Task) -> Outcome:
-        base = self._baselines.setdefault(task.id, self.state())
+        base = self._baselines.setdefault(task.id, self.state(max_age=STATE_REUSE_S))
         reason = None
         last_data: dict = {}
         while task.attempts < self.max_attempts:
-            now = self.state()
+            now = self.state(max_age=STATE_REUSE_S)  # the read just before is reused (L6)
             args = self._remaining_args(task, base, now)
             if args is None:
                 return self._finish(task, Outcome(True, attempts=task.attempts))
@@ -274,6 +284,7 @@ class Executor:
             self.store.save_tree()
             self.log.log("tool_call", task_id=task.id, tool=task.skill, args=args, attempt=task.attempts)
             result = self.game.call(task.skill, args)
+            self._cache = None  # the world changed: verification reads fresh state
             self.log.log("tool_result", task_id=task.id, tool=task.skill, result=result)
             if task.skill in _COUNTED and isinstance(result.get("data"), dict) and result["data"].get("item"):
                 self._resolved_items[task.id] = result["data"]["item"]

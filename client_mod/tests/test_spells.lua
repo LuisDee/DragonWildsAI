@@ -21,7 +21,8 @@ function fake_move.stop() fake_move.stops = fake_move.stops + 1; fake_move.mode 
 function fake_move.status() return { mode = fake_move.mode } end
 A.set_move(fake_move)
 
-local SP = assert(loadfile(ROOT .. "/client_mod/scripts/spells.lua"))()
+local SRC = os.getenv("DW_SPELLS_SRC") or (ROOT .. "/client_mod/scripts/spells.lua")
+local SP = assert(loadfile(SRC))()
 local W = SP.W
 
 -- ---------------------------------------------------------------- fake game
@@ -41,6 +42,9 @@ local SHELTER = spell({ asset = "USD_SummonShelter", name = "Summon Shelter", de
                         perk = { level = 20, skill = "SKILL_Construction", skill_name = "Construction" } })
 local BLAST = spell({ asset = "USD_TestBlast", name = "Rock Blast", desc = "Hurls rocks at a spot.", cast_type = 1, harmful = true,
                       cost = { { item = EARTH, name = "Earth Rune", count = 5 } }, perk = { level = 3, skill = "SKILL_Mining", skill_name = "Mining" } })
+local AXTRAL = spell({ asset = "USD_TestAxe", name = "Astral Axe", desc = "Throws an axe forward, felling trees in its path.", cast_type = 2,
+                       special_req = "Logging Axe", cost = { { item = AIR, name = "Air Rune", count = 10 } },
+                       perk = { level = 3, skill = "SKILL_Woodcutting", skill_name = "Woodcutting" } })
 local ENCHANT = spell({ asset = "USD_TestEnchant", name = "Enchant Weapon: Air", desc = "Adds air damage to your weapon.", cast_type = 0, harmful = true,
                         cost = { { item = AIR, name = "Air Rune", count = 15 } }, perk = { level = 3, skill = "SKILL_Attack", skill_name = "Attack" } })
 
@@ -56,7 +60,8 @@ local function reset(o)
           skills = { SKILL_Agility = 5, SKILL_Construction = 1, SKILL_Mining = 3, SKILL_Attack = 5 },
           presses = {}, sched = {}, pos = { 0, 0, 0 }, players = o.players or {}, falling = false, server_time = 1000,
           wheel_broken = o.wheel_broken, quick_no_select = o.quick_no_select, no_effect = o.no_effect, land_offset = o.land_offset,
-          server_cooldown = o.server_cooldown, invalid_spots = o.invalid_spots, no_preview = o.no_preview, no_spots = o.no_spots, all = o.all or { WINDSTEP, SHELTER }, page = o.page or 0, shown_page = o.page or 0, no_icons = o.no_icons, slow_pages = o.slow_pages }
+          server_cooldown = o.server_cooldown, highlight_wrong = o.highlight_wrong, invalid_spots = o.invalid_spots, not_flat = o.not_flat, slow_cast = o.slow_cast, req = o.req, foliage = o.foliage,
+          aim_valid_after = o.aim_valid_after, cooldown_then_spend = o.cooldown_then_spend, no_preview = o.no_preview, no_spots = o.no_spots, all = o.all or { WINDSTEP, SHELTER }, page = o.page or 0, shown_page = o.page or 0, no_icons = o.no_icons, slow_pages = o.slow_pages }
 end
 local function at(dt, fn) G.sched[#G.sched + 1] = { t = T + dt, fn = fn } end
 local function tick()
@@ -91,7 +96,7 @@ W.snapshot = function()
     for k, v in pairs(G.actors) do s.actors[k] = v end
     return s
 end
-local ACTS = { menu = { n = "menu" }, place = { n = "place" }, cancel = { n = "cancel" }, next_page = { n = "next_page" }, quick = {} }
+local ACTS = { menu = { n = "menu" }, place = { n = "place" }, cancel = { n = "cancel" }, next_page = { n = "next_page" }, accept = { n = "accept" }, quick = {} }
 for i = 0, 7 do ACTS.quick[i + 1] = { n = "quick" .. i } end
 W.actions = function() return ACTS end
 W.shown_icons = function()
@@ -101,8 +106,15 @@ W.shown_icons = function()
     return out
 end
 W.selected = function() return G.selected end
-W.aim = function(_, pos) G.aimed = pos; return math.sqrt(pos[1] ^ 2 + pos[2] ^ 2 + 9) end
+W.highlight = function(_, slot)
+    G.highlighted = slot
+    local sp = spell_by(G.wheel[G.shown_page * 12 + slot + 1])
+    return { section = slot, name = G.highlight_wrong or (sp and sp.name) or "" }
+end
+W.aim = function(_, pos) G.aimed = pos; G.aims = (G.aims or 0) + 1; return math.sqrt(pos[1] ^ 2 + pos[2] ^ 2 + 9) end
 W.players = function() return G.players end
+W.requirement = function(_, st) return G.req and G.req[st.asset] or nil end
+W.foliage_thing = function(_, id) return G.foliage and G.foliage[id] or nil end
 local function key2(p) return string.format("%d,%d", math.floor(p[1] + 0.5), math.floor(p[2] + 0.5)) end
 W.spots = function(_, center)
     if G.no_spots then return {} end
@@ -112,12 +124,17 @@ end
 W.preview = function()
     if G.no_preview or G.mode ~= "DIM_SpellPlacementMode" then return nil end
     local a = G.aimed or { 3, 0, 0 }
+    if G.aim_valid_after then -- aimed: valid only once the camera has been aimed this many times
+        local ok = (G.aims or 0) >= G.aim_valid_after
+        return { valid = ok, tag = not ok and "UI.Notification.SpellPlacement.NoTarget" or nil, position = { a[1], a[2], (a[3] or 0) - 1.2 } }
+    end
     local bad = G.invalid_spots and (G.invalid_spots[key2(a)] or G.invalid_spots.all)
-    return { valid = not bad, tag = bad and "Spell.Placement.Invalid.Slope" or nil, position = { a[1], a[2], a[3] or 0 } }
+    return { valid = not bad, tag = bad and (G.not_flat and "UI.Notification.SpellPlacement.GroundNotFlatEnough" or "Spell.Placement.Invalid.Slope") or nil,
+             position = { a[1], a[2], a[3] or 0 } }
 end
 W.inject = function(_, a)
     G.presses[#G.presses + 1] = a.n
-    if a.n == "menu" then
+    if a.n == "menu" or a.n == "close_previous" then
         if G.mode == "DIM_RadialMenu" then G.mode = "DIM_Gameplay"
         elseif G.mode == "DIM_Gameplay" and not G.wheel_broken then at(0.15, function() G.mode = "DIM_RadialMenu" end) end
     elseif a.n == "next_page" then
@@ -126,16 +143,19 @@ W.inject = function(_, a)
             local p = G.page
             if G.slow_pages then at(G.slow_pages, function() G.shown_page = p end) else G.shown_page = p end
         end
-    elseif a.n:match("^quick") then
+    elseif a.n:match("^quick") or a.n == "accept" then
         if G.mode ~= "DIM_RadialMenu" then return true end
         if G.quick_no_select then return true end
-        local slot = tonumber(a.n:match("%d+"))
+        local slot = a.n == "accept" and G.highlighted or tonumber(a.n:match("%d+"))
         local s = spell_by(G.wheel[G.page * 12 + slot + 1])
         G.selected = s and s.asset
         if not s then G.mode = "DIM_Gameplay"; return true end
         if s.cast_type == 0 then
             G.mode = "DIM_Gameplay"
-            if G.server_cooldown then at(0.2, function() local m = SP.mem(); m.events[#m.events + 1] = { ev = "on_cooldown" } end)
+            if G.cooldown_then_spend then
+                at(0.2, function() local m = SP.mem(); m.events[#m.events + 1] = { ev = "on_cooldown" } end)
+                at(1.2, function() effect(s) end)
+            elseif G.server_cooldown then at(0.2, function() local m = SP.mem(); m.events[#m.events + 1] = { ev = "on_cooldown" } end)
             else at(0.4, function() effect(s) end) end
         else
             G.mode, G.placing = "DIM_SpellPlacementMode", s
@@ -144,10 +164,15 @@ W.inject = function(_, a)
         if G.mode == "DIM_SpellPlacementMode" then
             local s, aim = G.placing, G.aimed or { 3, 0, 0 }
             local off = G.land_offset or 0
-            G.mode = "DIM_Gameplay"
-            at(0.5, function() effect(s, { aim[1] + off, aim[2], aim[3] or 0 }) end)
+            if G.slow_cast then
+                G.mode = "DIM_SpellcastingMode" -- the cast animation (live: runes spent after > 4 s)
+                at(G.slow_cast, function() G.mode = "DIM_Gameplay"; effect(s, { aim[1] + off, aim[2], aim[3] or 0 }) end)
+            else
+                G.mode = "DIM_Gameplay"
+                at(0.5, function() effect(s, { aim[1] + off, aim[2], aim[3] or 0 }) end)
+            end
         end
-    elseif a.n == "cancel" then
+    elseif a.n == "cancel" or a.n == "close_previous_cancel" then
         if G.mode ~= "DIM_RadialMenu" then G.mode = "DIM_Gameplay" end
     end
     return true
@@ -266,7 +291,13 @@ end
 reset({ wheel = { false, false, false, false, false, false, false, false, "USD_Windstep" } })
 do
     local res = run_cast({ spell = "Windstep" })
-    check("slot beyond quick keys -> not_on_wheel", res.reason == "not_on_wheel" and (res.data.detail or ""):find("can't reach", 1, true))
+    check("slot 9 (no number key): highlight, check the name, accept", res.ok and presses() == "menu,accept" and res.data.picked == "pointer", presses())
+end
+reset({ wheel = { false, false, false, false, false, false, false, false, "USD_Windstep" }, highlight_wrong = "Fire Spirit" })
+do
+    local res = run_cast({ spell = "Windstep" })
+    check("highlight shows another spell -> nothing accepted", res.reason == "verification_failed" and res.data.why == "highlight_mismatch"
+        and not presses():find("accept", 1, true) and (res.data.detail or ""):find("Fire Spirit", 1, true), presses())
 end
 reset()
 do
@@ -366,10 +397,11 @@ do
 end
 
 -- ---------------------------------------------------------------- cast: placed, spot chosen by Claude + the game's preview
-reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" }, invalid_spots = { ["4,0"] = true } })
+reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" }, invalid_spots = { ["3,0"] = true, ["4,0"] = true } })
 do
     local res = run_cast({ spell = "Summon Shelter" })
-    check("auto spot: first spot red, second green -> placed there", res.ok and res.data.spot[2] == 4 and presses() == "menu,quick0,place", presses())
+    check("no target: straight ahead refused (ground tag) -> flat spots; first red, second green -> placed there",
+        res.ok and res.data.spot and res.data.spot[2] == 4 and presses() == "menu,quick0,place", presses())
     check("auto spot: the game's reason for the rejected spot is kept", res.data.rejected and res.data.rejected[1].game == "Spell.Placement.Invalid.Slope")
     check("auto spot: landed_at reported", res.data.landed_at ~= nil)
 end
@@ -377,23 +409,124 @@ reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" }, invalid_spots =
 do
     local res = run_cast({ spell = "Summon Shelter" })
     check("no spot accepted -> nothing_in_range no_valid_spot + cancel", res.reason == "nothing_in_range" and res.data.why == "no_valid_spot"
-        and presses() == "menu,quick0,cancel" and #res.data.rejected == 3 and (res.data.detail or ""):find("flat, open ground", 1, true), presses())
+        and presses() == "menu,quick0,cancel" and #res.data.rejected == 4 and (res.data.detail or ""):find("the game says: slope", 1, true)
+        and res.data.flat_spot ~= nil and (res.data.detail or ""):find("walk there", 1, true), (res.data.detail or "") .. " " .. presses())
     check("no runes spent when nothing placed", G.items[EARTH] == 500)
 end
-reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" }, no_spots = true })
+reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" }, no_spots = true, invalid_spots = { ["3,0"] = true } })
 do
     local res = run_cast({ spell = "Summon Shelter" })
-    check("no flat ground at all -> nothing_in_range no_spot", res.reason == "nothing_in_range" and res.data.why == "no_spot", res.reason)
+    check("no flat ground at all -> nothing_in_range no_valid_spot, cancelled", res.reason == "nothing_in_range" and res.data.why == "no_valid_spot"
+        and presses() == "menu,quick0,cancel", res.reason .. " " .. presses())
 end
 reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" }, no_preview = true })
 do
     local res = run_cast({ spell = "Summon Shelter" })
-    check("preview unreadable -> places on our flattest spot, says so", res.ok and res.data.preview == "unreadable" and res.data.spot[1] == 4, res.reason)
+    check("preview unreadable -> places straight ahead, says so", res.ok and res.data.preview == "unreadable", res.reason)
 end
 reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" }, invalid_spots = { ["6,2"] = true } })
 do
     local res = run_cast({ spell = "Summon Shelter", target = { 6, 2, 0 } })
     check("named target red -> placed just beside it (within tolerance, ok)", res.ok and res.data.spot[1] == 8 and res.data.landed_dist_m == 2, res.reason)
+end
+
+reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" }, slow_cast = 6 })
+do
+    local res = run_cast({ spell = "Summon Shelter" })
+    check("slow cast animation (6 s, live > 4 s): waits, no Esc, verified", res.ok and presses() == "menu,quick0,place" and res.data.runes_spent[EARTH] == 10, presses())
+end
+-- late success: the game finishes the cast after the answer (live 20:44: shelter stood, result said failed)
+do
+    local loops = {}
+    _G.LoopInGameThreadWithDelay = function(ms, fn) loops[#loops + 1] = fn; return #loops end
+    _G.CancelDelayedAction = function() end
+    local tmp = os.tmpname()
+    SP.LATE_EVENT_PATH = tmp
+    reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" }, slow_cast = 16 })
+    local res = run_cast({ spell = "Summon Shelter" })
+    check("very slow cast -> answer is a failure first", res.ok == false, res.reason)
+    local done
+    for _ = 1, 20 do T = T + 1; tick(); for _, fn in ipairs(loops) do if fn() then done = true end end; if done then break end end
+    local f = io.open(tmp, "rb"); local txt = f and f:read("a") or ""; if f then f:close() end
+    check("late success -> activity event cast_late_success", done and txt:find("cast_late_success", 1, true) and txt:find("did go off after all", 1, true), txt)
+    os.remove(tmp)
+    _G.LoopInGameThreadWithDelay, _G.CancelDelayedAction = nil, nil
+end
+-- a wheel left open by an earlier attempt is closed first ("a previous cast was still in progress")
+reset()
+do
+    G.mode = "DIM_RadialMenu"
+    local res = run_cast({ spell = "Windstep" })
+    check("leftover wheel closed, then cast", res.ok and res.data.closed_previous == "DIM_RadialMenu" and presses() == "menu,menu,quick0", presses())
+end
+-- L1: the game's own special requirement (Logging Axe) is reported and blocks the cast
+reset({ unlocked = { AXTRAL }, wheel = { "USD_TestAxe" }, req = { USD_TestAxe = "UI.ConsumeItem.RequiresLoggingAxe" } })
+do
+    local r = SP.HANDLERS.spells(nil, {}, ctx).data.spells[1]
+    check("requirement row: castable false, reason requirement, needs the game's text", r.castable == false and r.reason == "requirement"
+        and r.needs == "Logging Axe" and (r.detail or ""):find("needs Logging Axe", 1, true), r.detail)
+    local res = run_cast({ spell = "Astral Axe", target = { 6, 0, 0 } })
+    check("requirement blocks before any key press", res.reason == "requirement" and #G.presses == 0, res.reason)
+end
+reset({ unlocked = { AXTRAL }, wheel = { "USD_TestAxe" }, quick_no_select = true })
+do
+    local res = run_cast({ spell = "Astral Axe" })
+    check("not_selected names the game's requirement", (res.data.detail or ""):find("the game says it needs: Logging Axe", 1, true), res.data.detail)
+end
+-- L14: an aimed spell with a preview: aim at the trunk, re-aim until the preview turns valid, then release
+reset({ unlocked = { AXTRAL }, wheel = { "USD_TestAxe" }, aim_valid_after = 2,
+        foliage = { ["fol:Tree_7:2"] = { id = "fol:Tree_7:2", name = "Oak Tree", position = { 6, 0, 0 } } } })
+do
+    local res = run_cast({ spell = "Astral Axe", target = "fol:Tree_7:2" })
+    check("aimed: foliage target resolved, re-aimed until valid, then released", res.ok and presses() == "menu,quick0,place"
+        and G.aims >= 2, tostring(res.reason) .. " " .. presses() .. " aims=" .. tostring(G.aims))
+    check("aimed: aims at the body (1.2 m up), not the base", res.data.aim_height_m == 1.2 and G.aimed[3] == 1.2)
+    check("aimed: target state reported", res.data.target_after ~= nil)
+end
+reset({ unlocked = { AXTRAL }, wheel = { "USD_TestAxe" }, aim_valid_after = 99 })
+do
+    local res = run_cast({ spell = "Astral Axe", target = { 6, 0, 0 } })
+    check("aimed never valid -> no_valid_aim with the game's words, nothing thrown", res.reason == "verification_failed" and res.data.why == "no_valid_aim"
+        and not presses():find("place", 1, true) and (res.data.detail or ""):find("no target", 1, true), (res.data.detail or "") .. " " .. presses())
+end
+reset({ cooldown_then_spend = true })
+do
+    local res = run_cast({ spell = "Windstep" })
+    check("L13: a cooldown notice followed by the rune spend is a success", res.ok and res.data.runes_spent[AIR] == 5, res.reason)
+end
+reset({ unlocked = { AXTRAL }, wheel = { "USD_TestAxe" } })
+do
+    local res = run_cast({ spell = "Astral Axe", target = "fol:Gone_1:1" })
+    check("foliage target gone -> unknown_target says felled or picked", res.reason == "unknown_target"
+        and (res.data.detail or ""):find("felled or picked", 1, true), res.data.detail)
+end
+-- L15: a placed spell aimed at an OBJECT (Splinter on a log): aim at the object, never flat-ground spots
+local SPLINTER = spell({ asset = "USD_TestSplinter", name = "Wood Splitter", desc = "Splits a log.", cast_type = 1,
+                         cost = { { item = EARTH, name = "Earth Rune", count = 10 } }, perk = { level = 3, skill = "SKILL_Woodcutting", skill_name = "Woodcutting" } })
+reset({ unlocked = { SPLINTER }, wheel = { "USD_TestSplinter" }, aim_valid_after = 1,
+        foliage = {} })
+do
+    local res = run_cast({ spell = "Wood Splitter", target = "BP_Log_1" })
+    check("L15: placed spell on a log: aims at the log, valid, LMB", res.ok and presses() == "menu,quick0,place" and res.data.aim_height_m == 1.2,
+        tostring(res.reason) .. " " .. presses())
+end
+reset({ unlocked = { SPLINTER }, wheel = { "USD_TestSplinter" }, aim_valid_after = 99 })
+do
+    local t0 = T
+    local res = run_cast({ spell = "Wood Splitter", target = "BP_Log_1" })
+    check("L15: never valid on the log -> no_valid_aim, cancelled before casting, no ground search", res.reason == "verification_failed"
+        and res.data.why == "no_valid_aim" and presses() == "menu,quick0,cancel" and not res.data.flat_spot, presses())
+    check("L15: fails fast (about 6 s, not 22)", T - t0 <= 7, T - t0)
+    check("L15: says it cancelled, with the game's words", (res.data.detail or ""):find("cancelled the spell", 1, true)
+        and (res.data.detail or ""):find("no target", 1, true), res.data.detail)
+end
+-- the game's "not flat" verdict teaches the spread limit: equally uneven spots are skipped
+reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" }, invalid_spots = { ["3,0"] = true, ["4,0"] = true }, not_flat = true })
+do
+    local res = run_cast({ spell = "Summon Shelter" })
+    check("learned flatness: after a 0.1 m spot is 'not flat', rougher spots are skipped", res.reason == "nothing_in_range"
+        and #res.data.rejected == 2 and SP.mem().bad_spread == 0.1, tostring(res.reason) .. " " .. tostring(res.data.rejected and #res.data.rejected))
+    check("tag in words", SP.tag_words("UI.Notification.SpellPlacement.GroundNotFlatEnough") == "ground not flat enough")
 end
 
 -- ---------------------------------------------------------------- cast: safety floor
@@ -451,7 +584,7 @@ do
     check("manifest spells is an llm read", s.llm == true and s.kind == "read")
     check("needs listed", SP.NEEDS.cast and SP.NEEDS.spells)
     -- no spell names in code (generality): the module source never names a game spell
-    local f = assert(io.open(ROOT .. "/client_mod/scripts/spells.lua", "rb")); local src = f:read("a"); f:close()
+    local f = assert(io.open(SRC, "rb")); local src = f:read("a"); f:close()
     local named = {}
     for _, n in ipairs({ "Windstep", "Shelter", "Tempest", "Mending", "Fire Spirit", "USD_" }) do
         for line in src:gmatch("[^\n]+") do

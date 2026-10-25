@@ -451,12 +451,35 @@ local function reflex_owns_pawn()
 end
 M._reflex_owns_pawn = reflex_owns_pawn
 
+-- Lying in a bed/shelter: the game disables movement until he gets up (live 20:58, go_to hung 46 s;
+-- BUGS L2d). Movement tools answer at once with the bed's id.
+local function resting_failure()
+    local sk = M.module("skills")
+    local W = sk and sk.W
+    if not (W and type(W.resting_in) == "function") then return nil end
+    local ok, bed = pcall(W.resting_in, M.API)
+    if ok and bed then
+        return fail("resting", { resting_in = bed, detail = "lying in " .. tostring(bed) .. "; movement is disabled until "
+            .. "he gets up (interact on that bed)" })
+    end
+    return nil
+end
+M._resting_failure = resting_failure
+
 R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function(args, ctx)
     local target = args.target
     if target == nil or (type(target) == "table" and #target < 2) or (type(target) == "string" and target == "") then
         return fail("invalid_args", { detail = "target is required ([x,y,z] metres, a player, an entity id or a place)" })
     end
+    local rf = resting_failure()
+    if rf then return rf end
     local coords = type(target) == "table" and to_m(target) or nil
+    -- every id that look / get_state return resolves (BUGS L8): a perceived thing's position, except
+    -- creatures and players, which move.lua tracks as moving actors
+    if not coords and type(target) == "string" then
+        local t = M.API.find_thing(target, M.LOOK_MAX_RADIUS_M)
+        if t and t.position and t.category ~= "creatures" and t.category ~= "players" then coords = to_m(t.position) end
+    end
     local r = call("move", "go_to", coords or tostring(target), { tolerance_m = tonumber(args.tolerance) })
     if not r.ok then return r end
     local a = { kind = "go_to", id = ctx.id, target = target, timeout_s = M.GOTO_TIMEOUT_S, target_position = coords,
@@ -500,6 +523,8 @@ R.follow = { needs = { { "move", "follow" }, { "move", "status" } }, fn = functi
     end
     local dist_m = tonumber(args.distance) or 3.0
     if dist_m < 1 then dist_m = 1 end
+    local rf = resting_failure()
+    if rf then return rf end
     local r = call("move", "follow", tostring(who), dist_m)
     if not r.ok then return r end
     local a = { kind = "follow", id = ctx.id, player = tostring(who), quiet_preempt = true, replied = true }
@@ -713,6 +738,9 @@ end
 
 -- Containers (graves, chests, storage): what is inside, read-only; nil when not a container.
 local function contents_of(a, U)
+    -- TArray reads on an invalid owner crash natively (UE4SS push_arrayproperty, 21:49:34): validate the
+    -- owner and the component in this same tick, never during a pause
+    if rawget(_G, "DW_PAUSE") == true or not U.valid(a) then return nil end
     local inv = U.try(function() return a:GetInventory() end) or U.try(function() return a.InventoryComponent end)
     local desc = fn_of("inventory", "describe_item")
     if not (U.valid(inv) and desc) then return nil end
@@ -999,6 +1027,13 @@ local function dispatch(tool, args, ctx)
         h = function(a, c) c.api = M.API; return mh(S.text_log, a, c) end
     end
     if args.probe == true then return { ok = true, data = { probe = true, tool = tool } } end
+    if M.ACTION_TOOLS[tool] and S.debug and ctx.chan == S.debug and S.action and S.action.chan ~= S.debug
+       and args.force ~= true then
+        -- BUGS L12: a debug/test action never pre-empts the brain's running action (it answered
+        -- "interrupted" to Luis, 20:56); pass force = true to take the slot anyway
+        return fail("busy", { owner = "brain:" .. tostring(S.action.kind), owner_id = S.action.id,
+                              detail = "the brain's " .. tostring(S.action.kind) .. " is running (debug channel; force=true overrides)" })
+    end
     if M.ACTION_TOOLS[tool] and tool ~= "stop" then preempt(tool) end
     local res = h(args, ctx)
     if type(res) == "table" and res.wait then
@@ -1526,7 +1561,7 @@ function M.start(opts)
     end
     S = { root = root, scripts = scripts, dir = dir, bridge = bridge, jsonutil = jsonutil, jlog = jlog,
           text_log = opts.log or function() end, mods = {}, action = nil, waiters = {},
-          started = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+          started = os.date("!%Y-%m-%dT%H:%M:%SZ"), started_epoch = os.time(),
           stats = { chat_forwarded = 0, chat_ignored = 0, chat_rotations = 0, attacked = 0, vitals_low = 0, unreachable = 0 },
           attacked_at = {}, vitals_low = {}, prefixes = prefixes(),
           -- DW_CLIENT_CHAT=heard (default): every other player's line -> chat_heard; =addressed: legacy filter
@@ -1560,7 +1595,13 @@ function M.start(opts)
         for t in pairs(R) do ch.handlers[t] = wrap(t) end
         for _, t in ipairs({ "look", "inspect", "interact", "travel", "where", "world_info", "spells" }) do ch.handlers[t] = wrap(t) end
         ch.handlers.ping = function()
-            return { ok = true, data = { pong = true, body = "client", server_clock = os.clock(), server_time = os.time() } }
+            -- started (this bridge instance's start, a new value on every reload) and the action slot let the
+            -- brain fail a request at once when the body restarted or lost it (BUGS L2b)
+            local a = S.action
+            return { ok = true, data = { pong = true, body = "client", server_clock = os.clock(), server_time = os.time(),
+                                         started = S.started_epoch,
+                                         action = a and { id = a.id, kind = a.kind, age_s = a.started and (now_s() - a.started) or S.bridge.null }
+                                             or S.bridge.null } }
         end
         ch.handlers.capabilities = function()
             local okm, list, aliases, ver = pcall(M.manifest)

@@ -23,7 +23,7 @@
 --   ground       {arg = kind}: what an argument names, for brain-side grounding ("item" on the ground,
 --                "carried", "carried_or_item", "player", "thing" from look, "creature")
 --   detail_is_speech  true = data.detail of a failure is a truthful sentence the brain may say as is
---   aliases      legacy tool names that now mean this tool (the brain maps pickup -> fetch)
+--   aliases      legacy tool names that now mean this tool (the brain maps pickup -> interact)
 -- A module may also export MANIFEST = {tool = entry} for its own tools; that entry wins over this file
 -- (skills.lua does so). Owners of attack/gather may move their entries into their modules.
 local OBJ = { __jsontype = "object" }
@@ -44,8 +44,8 @@ M.TOOLS = {
         preconditions = { "the player is in the world" }, ground = obj({ player = "player" }),
         reasons = { "unknown_target", "companion_down", "invalid_args" } },
     stop = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 0, timeout_s = 10,
-        description = "Stop whatever you are doing (following, walking, fetching, fighting a commanded fight) and stand still. "
-            .. "\"wait here\" = stop.",
+        description = "Stop whatever you are doing (following, walking, using something, a commanded fight) and stand "
+            .. "still where you are until told otherwise.",
         args = NOARGS, reasons = {} },
     go_to = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 20, timeout_s = 120,
         description = "Walk to a player (his name: stops within about 3 m of him), a thing's id from situation/look, a "

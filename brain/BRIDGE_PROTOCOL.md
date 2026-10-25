@@ -122,6 +122,52 @@ Every message has `"v": 1` and a `"type"`.
 - `probe` (optional, boolean): `true` means the brain only wants to know whether the tool is
   implemented. See below.
 
+### Capability manifest (client body, 2026-10-25; streamline plan step 2)
+
+The client's `capabilities` answer also carries the CONTRACT: `data.manifest` = one entry per tool that
+is implemented right now, `data.aliases` = legacy names that now mean a tool, `data.manifest_version`.
+
+```json
+{"tools":["consume","drop","go_to","interact",...],"manifest_version":1,"aliases":{"pickup":"interact"},
+ "manifest":[{"name":"interact","kind":"action","llm":true,"moves":true,"priority":"command","duration_s":6,
+   "timeout_s":110,"detail_is_speech":true,"description":"Use one thing like a player pressing E: ...",
+   "args":{"type":"object","required":["target"],"properties":{"target":{"type":"string"},"secondary":{"type":"boolean","default":false}}},
+   "ground":{"target":"thing"},"reasons":["unknown_target","not_interactable","too_far","path_blocked","verification_failed","timeout"]}]}
+```
+
+- Entry fields are documented in `client_mod/scripts/manifest.lua`. A module's own `MANIFEST[tool]` wins over that file, and a
+  module tool is listed only while its `NEEDS` exist.
+- **The brain offers the model exactly the entries with `llm: true`** (descriptions and JSON schemas as published), validates calls
+  against `args` (jsonschema), waits `timeout_s + 5`, and maps aliases (`pickup {target}` → `interact {target}`).
+  Without a manifest, it offers only the brain's own schemas for tools listed in `data.tools`.
+- **Primitives offered (PRINCIPLES 4b):**
+  - `go_to` takes a player name, an id, a place or `[x,y,z]`;
+  - `follow`, `stop`;
+  - `interact {target, secondary?}`, verified by an inventory gain, the target gone, the sleep state, or its prompt changing;
+  - `consume {item}`: hotbar only. Reasons: `in_bag` (data.offer=`move_item`), `not_in_inventory` (with `data.on_ground` when one lies within 15 m), `not_consumable`, `verification_failed`;
+  - `move_item {item, to: hotbar|bag, slot?}`;
+  - `equip {item}`: a waiter, answered once it is held or worn;
+  - `drop {item, count, at: feet}`;
+  - `set_vitals_policy {drink_below_pct, eat_below_pct, heal_below_pct, reserve_warn}`: answers the policy read back, with a 10 % safety floor;
+  - `look`, `inspect`, `inventory`;
+  - plus the combat, gather, spells and crafting modules' own entries.
+  - Several calls in one response run in order, each verified, and stop at the first failure.
+- Demoted compounds, `llm: false`, kept for debugging: `fetch {target|item, count}`, `come_to {player, distance}`,
+  `recover_grave {}`, `give {player, item, count}`.
+- New failure reason `busy` {owner, owner_level, owner_since, owner_age_s}: a non-fight owner held the pawn for 20 s.
+- New get_state fields:
+  - `my_grave` {id, name, distance, position, items, contents, owner verified|unverified}, `other_graves`;
+  - `last_death` {ago_s, respawned}, `last_held`;
+  - `vitals_policy`; `time_of_day` {hour, phase day|night, is_night, sleep_allowed, sleeping}; `bag` {used, capacity};
+  - `held_actions` (combat), `stations_nearby` (crafting);
+  - on nearby_items: `consumable`, `dropped_by`, `seen_s`; interactables' `position` = their interaction component's location (`actor_position` = origin).
+- New events:
+  - `items_dropped` {by, players, items: [{id, name, item, count, consumable, distance, dropped_by}]}, once per burst;
+  - `activity` {kind, by, ...}, forwarded as-is from `client_io/events/activity.jsonl`, plus the stay-fed reflex's `reflex_use` / `reflex_no_hotbar_*` / `reflex_use_failed`;
+  - `vitals_low` now carries `in_bag`, `unusable` and `policy_pct`, and fires when the stat is below the model's policy and nothing usable is on the HOTBAR.
+- `tools/bridge_cmd.py` defaults to `--body client` and the debug channel, waits the tool's own timeout, and refuses a directory where
+  that body never answered. Cause: at 19:25 an `interact` was written to the server body's `brain_to_body.jsonl` in the client directory and "timed out".
+
 ### Capabilities (protocol v1 addition)
 
 The brain builds the Planner's skill registry from what the body says it can do

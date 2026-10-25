@@ -62,7 +62,7 @@ M.cfg = {
     face_err_deg = 35,
     loot = true, loot_radius_m = 7, loot_s = 20, loot_max = 6, loot_wait_s = 0.8,
     safe_m = 22, safe_s = 4, flee_timeout_s = 45, flee_far_m = 30,
-    protect = "Zezima",      -- Luis's character on the Shockbyte world
+    protect = os.getenv("DW_PLAYER_NAME"), -- the player to defend and flee to (config; combat_orders.protect overrides)
     verify_presses = 6,      -- this many presses with no stamina drop and no hit -> the input is not reaching the game
 }
 
@@ -83,11 +83,10 @@ M.orders = { stance = "defensive", avoid = {}, force = false,
 -- Provisional weakness priors by creature name (docs/research/2026-10-25-spells-and-weaknesses.md;
 -- wiki/gamever, MEDIUM confidence). Live DamageTypeAffinities (empty on the client for Kebbits) and
 -- learned hit outcomes override these.
-M.PRIORS = {
-    goblin = { weak = { ["DamageType.Magical.Fire"] = true } },
-    kalphite = { resist = { ["DamageType.Physical.Crush"] = true, ["DamageType.Physical.Slash"] = true,
-                            ["DamageType.Physical.Stab"] = true, ["DamageType.Ranged"] = true } },
-}
+M.PRIORS = (function()
+    local ok, d = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/creature_priors.lua"))() end)
+    return ok and type(d) == "table" and d or {}
+end)() -- data file (client_mod/scripts/creature_priors.lua), not code
 M.TOOL_FACTOR = { axe = 0.6, pickaxe = 0.6, spade = 0.3, torch = 0, fishing_rod = 0, fishingnet = 0,
                   container = 0, harvest_tool = 0, farming = 0, animaorb = 0 }
 M.AFFINITY = { [0] = "weak", "resist", "immune" } -- EDamageTypeAffinity
@@ -379,6 +378,23 @@ local function find_creature(id)
     for _, a in ipairs(U.find_all("DominionAICharacter", { skip_defaults = true })) do
         if U.short(a) == id then return a end
     end
+end
+
+-- The nearest OTHER player whose pawn is visible (the default ally to flee to / defend when no
+-- protect is configured): PlayerStates are always replicated, pawns only within relevancy.
+function M.nearest_player_name(origin)
+    local me = C().me_id
+    local best, bd
+    for _, ps in ipairs(U.find_all("PlayerState", { skip_defaults = true })) do
+        local p = U.try(function() return ps.PawnPrivate end)
+        if U.valid(p) and U.short(p) ~= me then
+            local at = U.loc(p)
+            local d = (at and origin) and U.dist(origin, at) or 1e9
+            local n = U.str(U.try(function() return ps:GetPlayerName() end))
+            if n and (not bd or d < bd) then best, bd = n, d end
+        end
+    end
+    return best
 end
 
 -- Resolve an attack target: entity id, or a creature name (nearest live one within 40 m).
@@ -864,7 +880,7 @@ local function begin_flee(F, why)
     F.inputs = {}
     set_phase(F, "flee", why)
     M.emit_activity({ kind = "fled", by = F.by or "unknown", from = F.target_name, from_id = F.target_id, why = why, hp = F.hp_now })
-    local luis = M.cfg.protect
+    local luis = M.orders.protect or M.cfg.protect or M.nearest_player_name(F.me_pos)
     local r = luis and mcall("move", "follow", F.log, luis, 3, { sprint = true })
     if r and r.ok ~= false and (r.target_visible ~= false) then F.flee_to = luis
     else
@@ -1654,7 +1670,7 @@ function M.set_orders(t)
         if k == "avoid" and type(v) == "table" then
             M.orders.avoid = {}
             for _, n in ipairs(v) do M.orders.avoid[tostring(n):lower()] = true end
-        elseif M.orders[k] ~= nil or k == "stance" or k == "flee_hp" then M.orders[k] = v end
+        elseif M.orders[k] ~= nil or k == "stance" or k == "flee_hp" or k == "protect" then M.orders[k] = v end
     end
     return { ok = true, orders = M.orders }
 end

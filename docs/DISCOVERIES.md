@@ -884,6 +884,30 @@ Service: `client_mod/scripts/move.lua` (go_to / follow / stop / status). Command
 - **Escape ladder (v10):** memory route → learned link → **Bug2 wall-following** (left-hand, then right-hand, 12 s / 35 m per side, probes every 3rd frame) → (wedged: the game's Unstuck) → unreachable.
   - With a player within 40 m: one `{"type":"stuck","ask":"lead_me","where","helper"}` event. A go_to then waits (`waiting_for_lead`, up to 60 s), follows the helper's trail out, and carries on to its goal (`led_out`).
 - **Leader double-jump detection:** use CHANGES of `ReplicatedJumpCurrentCount` (the replicated value stays stale after landing; traversal agent).
+- **Church respawn → doorway, learned live (20:21 UTC):** a go_to to Zezima from the respawn point (50.7, 1890.2, -35.9) arrived in 18 s via the local planner, then Luis's breadcrumbs.
+  - Stored as a self route: 23 points along the church floor, then UP THE CENTRAL RAMP (points 8-12 rise 3.7 m over ~10 m, about 20°), then to the doorway (88.55, 1850.9, -32.25).
+  - Now verified map seeds: trap `church_respawn` (10 m, exit = that route) and trap `church_start_underfloor` (pit → ramp base by a 16 m dev-oracle leg, then the ramp).
+  - The bridge calls `escape_trap()` after every respawn and rejoin.
+- **New character (Agility 99, 2026-10-25 ~20:19 UTC):** `IsPerkUnlocked(DoubleJumpSkillPerk)` = true. Single jump unchanged (apex 180 cm, GravityScale 1.85).
+  - Double-jump EDGES are disabled until measured by `client_mod/commands/move_calib.lua`, which writes `data/envelopes/Claude.json`; move.lua prefers it.
+  - The calibration checks the spot (flat ±30 cm within 1.5 m, open at knee and head 2.5 m round, no roof) and takes the pawn via the arbiter.
+- **The leader proxy reads (0,0,0) while relevancy-culled or teleporting (20:25 live):** Claude "followed" to the world origin 1.8 km away.
+  - An origin position now counts as not visible. A target jump of more than 50 m resets the route and trail.
+  - A leader more than 300 m away means hold plus `{unreachable, reason:"leader_far"}` (the lodestone catch-up hook).
+- **Luis's double jumps rise 2.6-3 m** and were misread as Windstep at 2.5 m, which cut his trail. Windstep is now only rises over 4.5 m.
+- **Low obstacles (felled log, 20:30 live):** the forward probe checks at knee and at jump height minus 30 cm. Blocked low but clear high means jump at ≤ 1.2 m with no planning. The lazy wall check marks such edges as hop edges (jumps), not walls.
+- **Water (20:30 live: "he went straight through the lake"):**
+  - This build has no UE Water-plugin bodies and no water PhysicsVolumes client-side.
+  - The game signal is `pawn.EnvironmentComponent:GetNormalizedWaterDepth()` (0 when dry; above 0.25 = wading) and `CharacterMovement.MovementMode` 4 (swimming).
+  - Water cells (2 m) are learned and persisted per world in navmem. On the first wade, a "water sense" calibration tests which trace channel (Visibility/Camera/WorldStatic/WorldDynamic) sees the surface above the bed (the pawn profile passes through water). If one does, the planner samples water in its window.
+  - Water cells cost ×8; segment targets prefer dry ground; known water ahead triggers a re-plan.
+  - UNVERIFIED live: whether any channel sees the real water surface.
+- **Wall-point blocking fix:** a recorded wall hit blocks an edge only if it lies ahead along the edge (projection 0.1-1). A hit at the start cell had blocked every edge leaving it.
+- **The game's Unstuck crashed the client (20:49:34 UTC):** move.lua requested it twice via the pause menu (20:49:25 and 20:49:33) while Claude was on top of the shelter.
+  - Crash: an access violation in UE4SS `LuaType::push_arrayproperty` (a Lua loop reading a TArray on an object being replaced after the teleport). Same class as the 18:08 disconnect crash. Dump `ue4ss\crash_2026_10_25_21_49_34.5457439.dmp`, stack `logs/client/hang_unstuck_8712.txt`.
+  - Unstuck is now DISABLED by default (opt-in per call only; if used, it holds `_G.DW_PAUSE` across the teleport).
+  - A wedged Claude reports `{stuck, ask:"lead_me", reason:"wedged"}` instead: a follow waits "unreachable"; a go_to waits for a lead.
+  - A perched Claude (floor more than 60 cm below his feet at 3 of 4 points 90 cm round) first steps off: a jump forward, then 8 short pushes.
 
 ## Client perception + inventory (R2) (2026-10-25, 17:30-18:00 UTC, client build 26162923, Shockbyte world)
 Modules: `client_mod/scripts/sense.lua` (census + me), `client_mod/scripts/inventory.lua` (list, collect, equip, unequip, drop). Commands: `client_mod/commands/sense_*.lua`, `inv_*.lua`. Both reuse the dependency-free `mod/body/util.lua` via `loadfile` (works unchanged on the client).
@@ -1432,3 +1456,61 @@ Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probe
 **Search (search-before-building):** no Dragonwilds or UE4SS spellcasting automation found. Game controls: allthings.how "how the spellbook menu and wheel work" (Q wheel, P spellbook, 4 loadouts of 12) and dragonwilds.runescape.wiki/w/Spells (costs, skill levels). Decision: adapt our verified Enhanced Input injection (combat/inventory) and build the state machine.
 - **After the character swap (21:19 UTC; Attack 99, Agility 99, total level 1076), read live:** `PerkV2_Attack_Parry` unlocked = **true**, `PerkV2_Attack_MeleeSpecialAttacks` unlocked = **true**. `BP_GetPowerLevel` is still **2**: power level follows the gear, not the skills. Max HP 100, max stamina 60. Hands were empty (inventory being refilled).
 - **North Star change (cold review):** a commanded `attack` is never refused for strength any more. Its reply carries `data.assessment {verdict likely_win|likely_lose|too_strong|boss|outnumbered, u_fight, est_s_to_kill, est_s_to_die, pl_gap}` as information. Mid-fight, a commanded fight flees only below the model's `combat_orders.flee_hp`. The reflex keeps its own vetoes, with its policy set by the model. Never-attack-players is the only hard gate.
+
+**Live findings, Shockbyte world at night (about 20:35–20:45 UTC):**
+- **The wheel input path works live.**
+  - One injected frame of Q (`IA_SpellMenu`, Released) opens the wheel (`DIM_RadialMenu`).
+  - G (`IA_SpellsMenu_SwitchRadialRight`) turns the page. The slice icons refresh about 0.4 s later, **not immediately**. Reading them at 0.3 s caused a run of page turns that never matched (the first scripted cast: `page_not_found`, safely refused). `cast` now waits until the icons actually change, up to 1.5 s.
+  - **A page turn also changes the game's selected spell** (`GetCurrentlySelectedSpellData`) to that page's slot 1. No cast happens.
+  - Q again closes the wheel.
+  - `IA_RadialSelection_SwitchRadial` flips the panel's `WidgetSwitcher` to index 1, the **emote** radial. Don't use it. Q does not close the wheel while the emote radial is showing.
+- **Placed spells:** the number key enters `DIM_SpellPlacementMode` (brain run, Summon Shelter page 2 key 1). Cleanup Esc (`IA_Spellcasting_Cancel`) left it cleanly, and no runes were spent.
+  - The game's own preview is `AUtilitySpellPlacementVisualizer.bCurrentPlacementValid` plus the `CurrentAdditionalValidationInfo` tag (green/red). `cast` aims the camera at each candidate spot and releases LMB only on green.
+  - **Lesson:** don't pre-filter spots strictly with traces. Ground near the start area has a 0.6–0.75 m spread over 3 m, so a 0.6 m limit dropped all 24 candidates (`no_spot` twice in the brain run). Traces now only rank and drop hopeless spots; the game decides.
+- **Brain side:** `brain/spells.py MAX_ROWS = 12` cut Summon Shelter from `castable_spells` (14 castable after the swap). The model then said "isn't in my castable spells". The body now sorts castable rows first, and MAX_ROWS is now 40.
+- **Sleep prerequisites (read-only `rest_probe.lua`):**
+  - `IsNighttime` true, in-game 00:14, `PlayerRestComponent.IsInTimeframeForSleep()` true.
+  - `pc.RestingInputMode` = `DIM_Resting`. `IMC_Resting` maps only E / Gamepad_FaceButton_Left to `IA_Interact` (Pressed), i.e. **E again leaves the bed**.
+  - Rest texts: "Resting. Waiting for {PlayersNotInBed}/{TotalPlayers} players to sleep." and "Taking a nap to recover Rest, since it's too early to sleep through the night.".
+- **Side bug (skills.lua fetch, reported):** in a pile of rune stacks, `fetch {item: "Earth Rune"}` failed with "keeps picking Air Rune", and `fetch {item: "Air Rune"}` with "keeps picking Water Rune". The detector targets the nearest stack. Fetching in the detector's order worked.
+- **SUMMON SHELTER CAST BY CLAUDE (live, 20:44 UTC, brain-chosen `cast {spell: "Summon Shelter"}` with no target; Luis saw it):**
+  - Path: Q → page turn → key 1 → `DIM_SpellPlacementMode`. The preview was green at a spot 1.5 m from the chosen one (spread 0.0). Then LMB (Released).
+  - **The game then plays the cast animation in `DIM_SpellcastingMode`, and runes (Earth −10, Astral −10) are spent only after more than 4 s.** `cast` now waits up to 12 s while a spell input mode is open.
+  - The result was `BP_Magic_SummonShelter_C_2147450308`.
+  - The earlier attempts' preview tags: `UI.Notification.SpellPlacement.GroundNotFlatEnough` (trace spread ≥ 0.52 m over 3 m was rejected) and `UI.Notification.SpellPlacement.Blocked`.
+- **`LastCastTimeBySpellData` uses the client's own world clock.** It read 1503.27 for Summon Shelter about 25 min after the client joined (`UGameplayStatics::GetTimeSeconds`). `GetServerWorldTimeSeconds` read 58000+ at the same time.
+- **`PlayerUtilityMagicComponent.OurSpellActors` reads empty on the client** even with Claude's shelter standing (not replicated). `cast` matches the new `UtilitySpell` actor nearest its preview point instead.
+- **Summoned shelter (client reads):**
+  - One `InteractionComponent` ("Interaction", a SceneComponent) sits at the actor origin at ground level inside the tent.
+  - Prompt: "Sleep" at night, "Rest" in daytime. Bed `LeaveActionText` is "Leave Bed"; `bRequiresClaimingToSleepIn` false.
+  - Actor forward (-1, 0, 0) is the entrance side.
+  - Approaching the actor origin walked Claude onto the roof (z +4 m), and the detector targeted nothing. Approach the entrance (origin + forward × about 1.5 m) and face the component instead.
+
+## Capability contract + interact engine on the client (R2) (2026-10-25, 19:35-21:10 UTC, client build 26162923, Shockbyte world)
+- **The interact "timeout" at 19:25 was a tooling foot-gun**, not a body bug. The `interact` cmd was in `client_io/bridge/brain_to_body.jsonl`: the SERVER body's file name. `tools/bridge_cmd.py` defaulted to `--body server` while DW_BRIDGE_DIR pointed at the client dir, so nobody read it. bridge_cmd now defaults to client and refuses a directory where that body never answered.
+- **Summoned shelter geometry (live read, `client_mod/commands/skills_detector.lua`, read-only), BP_Magic_SummonShelter_C_2147461184:**
+  - actor origin (398.89, 1746.96, -42.29); `GetActorForwardVector` (-0.996, 0.088);
+  - `Interaction` (the InteractionComponent) sits AT the origin;
+  - `InteractionCollider` sits at the ENTRANCE, (397.32, 1747.08, -41.0), 1.6 m out along forward;
+  - `Bed` is valid (a component with no location).
+  - Walking to the actor origin puts him on the roof (the 20:46 photo).
+- **Sleeping in a shelter works through the real path (verified 20:57:40-47):**
+  - the interact engine stood 1.5 m out from the collider along forward, faced the collider, the game's detector targeted the shelter with prompt "Sleep", and one IA_Interact press was made;
+  - result `changed: "sleeping"`: PlayerRestComponent `CurrentRestingAreaActor` = the shelter, `CurrentRestingAreaComponent` = Bed, CharacterMovement `MovementMode` 0 (None), `IsSleeping` false afterwards;
+  - Luis: "now its day" (the night passed).
+- **Getting up = one plain IA_Interact press while resting** (verified 20:59:5x). The detector targets nothing while he lies there. After the press, MovementMode is 1 and the resting area is cleared; a straight go_to then walked him out of the entrance.
+  - Movement input alone does nothing while resting: move.lua reported "walls everywhere" / self-stuck.
+  - Movement tools now answer `resting` at once.
+- **In-game clock reads on the client:** `UInGameTimeFunctionLibrary.IsNighttime(pawn)` / `GetInGameTime(pawn).Ticks / 3.6e10` returned hour 15.7 at 20:48 and 5.7 at 20:59, across a slept night. `PlayerRestComponent:IsInTimeframeForSleep()` read false (day). The hour formula is UNVERIFIED against the in-game clock UI.
+- **Crash 21:49:34 (UTC+1 dump name; 20:49:34 UTC):** UE4SS `push_arrayproperty` right after move.lua's pause-menu Unstuck (teleport) fired twice while he stood on the tent roof.
+  - The interact engine now always passes `allow_unstuck = false`.
+  - sense/inventory/bridge array reads check the owner's IsValid in the same tick, and do nothing under DW_PAUSE.
+- **Vitals damage hooks registered at the main menu never delivered a damage row:** rows exist only from the 17:53 in-world start, none after the 19:29/19:33/19:38 boot-time starts, despite a 36 HP hit at 19:43:53. The supervisor now re-registers them once `hooked_pawn` differs from the current pawn. This is a hypothesis fix, UNVERIFIED until a damage row appears after a boot.
+- **Who dropped a world item:** `AWorldItem.NameOfPlayerCharacterThatDroppedItem` (FString), also `GuidOfPlayerCharacterThatDroppedItem` (reflection dump 26161880). It is read into census rows as `dropped_by`, UNVERIFIED live.
+- **Collect-all exists in game data:** `UItemDeveloperSettings.CollectAllRadius` / `bCollectAllCollectsOnlySameType`, and `PlayerInteractionManager.SecondaryInteractAction` + `UInteractionComponent.SecondaryInteractionPrompt`. `interact {secondary=true}` presses the secondary action, UNVERIFIED live.
+- **Real-model eval of the manifest tool list** (`evals/manifest_eval.py`, claude-haiku-5-5, 11 cases, **11 model calls**, 21:46 local; logs/evals/manifest_eval_20261025-214600.json): 9 PASS, 1 PARTIAL, 1 FAIL.
+  - Pass: grave → interact(grave id); drink (hotbar) → consume; drink (on the ground) → interact + consume; "grab those" and "food and water in front of me" → interact on both dropped stacks; "give me the logs" → go_to(Zezima) + drop(Ash Logs); "come to me" → go_to; platebody → equip; bag food → move_item + consume.
+  - Partial (fight prep at 29 % food): attacked without eating.
+  - Fail (38 % HP after a fight): it asked "want me to eat some meat to heal?" instead of acting.
+  - Both are judgement calls, left to the model and the vitals policy.
+  - Speech was null on every action response: the model returned tool calls without text.

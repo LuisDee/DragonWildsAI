@@ -35,7 +35,7 @@ def test_sticks_absent_the_model_says_so(rig):
     rig.agent.step()
     assert rig.calls("pickup") == [] and rig.game.inventory["oak_log"] == 0
     assert rig.companion_said() == ["I can't see any sticks here, only some Oak Logs."]
-    assert len(rig.controller_llm.calls) == 2
+    assert len(rig.controller_llm.calls) == 3  # + the L5 check turn after a talk-only reply (none scripted)
     second = rig.controller_llm.calls[1]["messages"]
     assert second[-2]["role"] == "assistant" and second[-2]["tool_calls"][0]["function"]["name"] == "look"
     tool_msg = next(m for m in second if m["role"] == "tool")
@@ -82,7 +82,8 @@ def test_sticks_present_look_then_interact(rig):
     rig.agent.step()
     assert rig.game.inventory["stick"] == 2 and sticks not in rig.game.gatherables
     assert rig.companion_said() == ["Grabbing those sticks."]
-    assert [n for n, _ in rig.game.calls].count("look") == 1 and len(rig.controller_llm.calls) == 2
+    # look + interact, then the agent loop's continuation turn (results back to the model; none scripted)
+    assert [n for n, _ in rig.game.calls].count("look") == 1 and len(rig.controller_llm.calls) == 3
     assert rig.store.progress_path.read_text(encoding="utf-8").count("task interact done") == 1
 
 
@@ -248,7 +249,9 @@ def test_cant_do_says_why(rig):
     rig.game.player_say("come here")
     rig.controller_llm.push(FakeLLM.say("Coming!", FakeLLM.call("go_to", target="Luis")))
     rig.agent.step()
-    assert rig.companion_said() == ["Sorry, I can't walk somewhere yet."]
+    # a walk's line is said as it starts (true then, never stale after arriving: live 21:43); the
+    # failure that follows says why
+    assert rig.companion_said() == ["Coming!", "Sorry, I can't walk somewhere yet."]
 
 
 def _gather_world() -> MockGame:

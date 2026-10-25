@@ -166,7 +166,7 @@ No source was found for expiring queued NPC lines on state change; that part is 
    - A body situation is re-checked on fresh state before it is spoken.
    - A pure-talk reply whose `facts()` changed while the model was thinking (near_player, low/has food/drink) is decided once more.
    - `Voice.gate` never holds back a reply to a new command, except a 2 s same-line burst.
-6. **Chat bursts are one run.** The player's pending lines are joined with " / " into `command.text`, and an addressed line takes them along (debounce 2 s, `DW_CHAT_DEBOUNCE_S`). The text reaches the model verbatim (no greeting stripping).
+6. **Chat bursts are one run.** The player's pending lines are joined with " / " into `command.text`, and an addressed line takes them along (debounce 1.2 s, `DW_CHAT_DEBOUNCE_S`; lines typed while a model call or tool runs are merged anyway). The text reaches the model verbatim (no greeting stripping).
 7. **Code never vetoes the model** (PRINCIPLES.md #2).
    - The only gate is `Controller.safety`: never attack a player.
    - Grounding only informs (`references`).
@@ -175,6 +175,39 @@ No source was found for expiring queued NPC lines on state change; that part is 
    - `body_status`: "Where:" (moving or still, who is in sight at what distance and height, who is NOT in sight), the current or last move and how it ended, open complaints, informational body reports;
    - `recent_activity`: completed body episodes from any starter, generic `kind: field=value` rendering. Kills, deaths and anything with a place are promoted to notes; a death's `where` becomes place `grave`.
 9. **Learned-skill management is model-chosen** (`list_skills` read, `forget_skill` exact name). There are no regexes over player text. `remember` stores a place's position only from `at=self|player`.
+10. **Proactive behaviour = `situation_review`** (Luis, 2026-10-25: at night with low endurance he asks to rest and, if agreed, composes cast(Summon Shelter) + interact(bed)).
+    - **Triggers: meaningful STATE CHANGES only, never rules about what to do.**
+      - any reported survival stat, or health, crossing the 50/30/15 % lines downwards;
+      - `time_of_day.phase` changing;
+      - `sleep_allowed` turning true;
+      - the bag reaching 90 %;
+      - 5 min with no command or action while a player is within 15 m.
+    - **Sampling:** the Agent reads get_state every 30 s when idle. That is a bridge read; the model is called only on a change.
+    - **Gates:**
+      - 3 min between reviews, unless a stat fell below the band it had at the last review;
+      - none during combat (attacked < 30 s ago, or `state.fight`), during a goal or a non-follow move, while chat is pending, or within 20 s of a command.
+    - **The event** carries the changes, `stats_pct`, `time_of_day`, `bag`, the players near, and `previous_review` (when, what changed, what he said). The rolling chat holds the player's answer.
+    - **The model decides to speak, act or stay silent.** An empty reply is silence: no template, no default reply.
+    - **Perception:** `time_of_day` and `bag` come from the body (requested from the capability agent); endurance is already in `survival`.
+11. **The agent loop** (live 20:43: a shelter plan died after its first step; 20:46: a raw "I couldn't go to: unknown_target." said twice).
+    - **Every model turn's tool results go back to the model** (`Controller.next_turn`). That covers successes and failures, reads run inline again, and each call gets its own result, or "not run" with the reason.
+    - **The loop continues** until the model calls no tools, for at most `MAX_TURNS` = 4 extra turns per request. It stops at once when a new chat line arrives (peeked events are stashed for the next pump). A turn of only follow or stop (a standing behaviour) needs no continuation.
+    - **A failure's result carries the tool's own schema argument descriptions** (`args_help`), so the model can name the target correctly next time.
+    - **The `report_failure` templates are a last resort:** only when the model call errors or it says nothing about a failure. They contain no raw reason codes; a reason that is already a sentence is used without its code prefix.
+    - **Speech:** a blocking move or job (go_to, come_to, gather) says its turn's line as it starts, so the line is true when said. Other turns' lines are said after their actions succeed. A failed turn's line is never said.
+    - **`body_status` "Your recent actions"** lists the brain's last 5 actions with outcomes and ages. The persona says to act on your own plan, report briefly, and ask only when genuinely ambiguous, risky or beyond your tools.
+    - **Cost:** one extra model call per action turn.
+12. **Live fixes from the 20:40–21:04 session (docs/BUGS.md L2, L5, L6, L10).**
+    - **L2 (3 min unresponsive):**
+      - During any wait longer than 5 s, `BridgeClient.request` watches two things. An addressed chat line ends the wait as `interrupted`; the body keeps going until the model's next action or stop, and the late result lands in "Your recent actions". A 10 s heartbeat ping compares the body's `started` epoch and action slot, giving `body_restarted` or `lost_by_body` at once.
+      - `timeout`, `body_restarted`, `lost_by_body` and `resting` are deterministic: no blind executor retry, and the model hears them.
+    - **L5 (promised, never did):** a first turn that only talked gets ONE more turn ("If your reply says you will do something now, call the tool(s)..., otherwise reply EMPTY"). Its line is said first, so this adds no reply latency. Information, not a veto.
+    - **L6 (slow):**
+      - The agent's fresh read at the start of a turn is reused by the executor (≤ 1 s, invalidated by any action), and verification stays fresh. That is 1 read before a tool instead of 3.
+      - `tools/turn_latency.py <log>` prints chat → first response p50/p95, reads per tool and the prompt-cache share. Before (20:40–21:03): p50 5.0 s, p95 7.8 s, 3 reads per tool, 61–65 % cached.
+    - **L10:**
+      - `brain/house_rules.md` holds Luis's rules (lines starting with "-"). It is loaded into the persona as rules the model follows and re-read when the file changes.
+      - A day/night change is reviewed at once, even inside the 3 min review gap (he stayed in bed after day). A sleep window opening is not urgent.
 
 ---
 
@@ -406,6 +439,53 @@ Every function takes the DWClient text logger `log(msg)` first and returns a tab
 5. **Brain side:** nothing, if the tool already exists in `interface.TOOLS`. Otherwise follow §4.1 step 4. Document client-specific behaviour in `BRIDGE_PROTOCOL.md` "Client endpoint".
 6. **Add a gatherable** (a new tree, rock, bush or ground pickup) = one entry in `client_mod/scripts/gather_profiles.lua`: `mode` (chop/pickup), `tool`, `root` class family + class-word pattern (read the `class` of the foliage or actor row from `client_mod/commands/gather_scan.lua`), `children` for multi-stage chains, `item`, `aliases`. No code.
 
+### 8.4b The capability contract: manifest, primitives, composite engine (streamline plan step 2)
+
+Root cause R2 of the 19:22–19:26 episode was that the brain's tool list was hand-written and offered tools the body lacked (`pickup` → "Sorry, I can't pick things up yet"). The fix: **the body publishes its contract and the brain builds the model's tool list from it ONLY.**
+
+- **Precedent** (search-before-building):
+  - MCP `tools/list` {name, description, inputSchema}, turned into the model's function list at connect time;
+  - MINDcraft's command table: name, description, typed params with domain, `runAsAction(fn, resume, timeout)` (github.com/kolbytn/mindcraft `src/agent/commands/actions.js`; arXiv 2504.17950);
+  - the ToolFailBench taxonomy: Tool-Skip / Result-Ignore / Output-Fabrication (arXiv 2607.04686).
+  - Decision: **adapt**. JSON Schema validation is **reused** (`jsonschema` 4.26, pinned in brain/requirements.txt).
+- **Body side.** `client_bridge.lua` `capabilities` answers `{tools, manifest: [entry per IMPLEMENTED tool], aliases, manifest_version}`.
+  - The entry shape is documented in `client_mod/scripts/manifest.lua`: name, description (for the LLM), args (JSON Schema, with no top-level anyOf because model APIs reject it), kind (action | read | waiter | probe), llm, moves, priority, preconditions, duration_s, timeout_s, reasons, ground ({arg: kind}), detail_is_speech, aliases.
+  - Entries come from `manifest.lua`; a module's own `MANIFEST[tool]` wins over it (skills, combat, gather, spells, crafting).
+  - A module handler is listed only while its `NEEDS = {tool = {{module, fn}}}` exist.
+  - Get_state extras: every module in `M.MODULES` may export `state_extras(api, data)`.
+- **Brain side** (`brain/capabilities.py`):
+  - `Capabilities.manifest`, `llm_tools()`, `function_schema()`, `validate()` (manifest schema, then the pydantic model if the brain has one), `timeouts()` (fed into `BridgeClient.timeouts`), `skills()`/`registry()` (the planner registry = manifest actions and waiters; tools without a pydantic model carry their manifest spec), `resolve()` (legacy `pickup` → `interact`).
+  - `Controller(caps=...)`: tools come from the manifest only. Without a manifest, ACTION_TOOLS are filtered by what the body lists.
+  - A body tool name the body lacks becomes a `not_implemented` refusal, so no reply claims an action that never ran.
+  - Rule tools and spells are offered and queried only when the body has them.
+  - `GameInterface.call` sends tools without a typed method through `call_raw`.
+- **PRINCIPLES 4b (Luis): primitives first, and the model composes them.**
+  - Offered to the model: `go_to` (a player name, an id, a place or coordinates), `follow`, `stop`, `interact` (the frame-coupled engine), `consume` (hotbar only), `move_item` (bag ↔ hotbar), `equip` (a verified waiter), `drop`, `set_vitals_policy`, `look`/`inspect`/`inventory`, plus combat/gather/spells/crafting's own entries.
+  - Multi-step requests are several tool calls in ONE response. `brain/llm.py` no longer disables parallel calls. The agent runs them in order, each verified, and stops at the first failure.
+  - Real Haiku composed them correctly (evals/manifest_eval.py): "give me the logs" → go_to(Zezima) + drop(Ash Logs); "eat something" with food in the bag → move_item + consume.
+  - `fetch`, `come_to`, `recover_grave` and `give` (skills.lua) are kept, tested, as `llm = false` debug compounds.
+- **The interact engine** (`skills.lua` `episode_poll`, used by `interact`, crafting and the compounds):
+  - It acquires the pawn through the arbiter (level `command`). A reflex fight suspends it; it re-approaches on resume, and its timer stops meanwhile.
+  - Approach: `move.go_to` with 1 m tolerance, then one tighter approach at 0.6 m.
+  - Face: the camera with `SetControlRotation`, plus a small `AddMovementInput` nudge, until the game's own detector (`inventory.interact_target`) targets the thing. A detector on any world item of the wanted item id counts.
+  - Then one press (`secondary = true` presses `SecondaryInteractAction`; collect-all is UNVERIFIED live).
+  - Verify: the inventory grew, or the target is gone. Re-press at most twice.
+  - Every failure carries a reason, a `why` code and a factual `detail`.
+  - A pawn held by a non-fight owner for 20 s fails `busy`, naming the real owner (never a guess).
+  - `_G.DW_PAUSE` means no game calls.
+- **Perception added for the model** (get_state → `brain/situation.py` digest):
+  - `my_grave` {id, distance, items, contents, owner verified | unverified}; `other_graves`; `last_death`;
+  - `last_held`, re-equipped after a grave recovery;
+  - world items' `consumable` kind, `dropped_by`, `seen_s`;
+  - `time_of_day` {hour, phase day | night, sleep_allowed};
+  - `bag` {used, capacity};
+  - `vitals_policy`;
+  - `held_actions` (combat); `stations_nearby` (crafting);
+  - item stats from `data/items_<build>.json` (`brain/item_stats.py`: PL, weight, slot, tool tier, armour class, attack names, and numeric deltas to what is equipped; no verdict).
+  - Events: `items_dropped` (once per burst), `activity` (from `client_io/events/activity.jsonl` and the reflex's own acts), and `vitals_low` (below the model's policy, nothing usable on the HOTBAR, `in_bag`/`unusable` lists).
+- **Vitals policy** (review H2/M8): `set_vitals_policy {drink_below_pct, eat_below_pct, heal_below_pct, reserve_warn}` is the model's call. `inventory.lua` keeps only a 10 % safety floor.
+- **How to add a tool now:** a module handler plus its `MANIFEST` entry (plus `NEEDS`). The brain needs no edit unless the result needs a verifier (`executor.VERIFIERS`).
+
 ### 8.5 Tests
 
 | What | Command |
@@ -417,6 +497,10 @@ Every function takes the DWClient text logger `log(msg)` first and returns a tab
 | Spells (fake game: wheel pages by icon, quick keys, placement, runes/cooldown verify, safety floor, arbiter suspend/resume, pause) | `"C:\Program Files\WinGet\Links\lua.exe" client_mod/tests/test_spells.lua` |
 | Crafting (real catalog planner; fake world: bench + furnace jobs, every failure reason, fuel, shared stations, UI closed on every exit) | `"C:\Program Files\WinGet\Links\lua.exe" client_mod/tests/test_crafting.lua` |
 | Client bridge ⇄ brain (BridgeClient, capabilities, run_live dry run end to end) | `.venv\Scripts\python.exe -m pytest tests/test_client_bridge.py` |
+| Capability manifest + composite skills (real bridge + skills + manifest + arbiter over fakes: manifest per implemented tool, interact engine, consume/move_item/equip, compounds, arbiter suspend/busy, pause, items_dropped, activity, vitals re-arm) | `"C:\Program Files\WinGet\Links\lua.exe" client_mod/tests/test_skills.lua <empty_dir>` |
+| Contract on the brain side (the real Lua manifest drives the tools, schema validation, alias, today's lines via a scripted model, ordered go_to + drop) | `.venv\Scripts\python.exe -m pytest tests/test_skills_contract.py` |
+| Stay-fed reflex + vitals policy (floor, heal) | `"C:\Program Files\WinGet\Links\lua.exe" client_mod/tests/test_inventory_reflex.lua <empty_dir>` |
+| Real-model eval of the tool list (states its call budget; `--yes` spends it) | `.venv\Scripts\python.exe -m evals.manifest_eval --yes` |
 | Scenario runner (fake body + ops: dry run read-only, live switch/run/switch back, failed leg, crash, preflight abort, Lua prefix compiles) | `.venv\Scripts\python.exe -m pytest tests/test_scenario_run.py` |
 | Timeline (synthetic logs: zones, window, noise, collapse, redaction, CLI/HTML/JSONL) | `.venv\Scripts\python.exe -m pytest tests/test_timeline.py` |
 | Join targets + lease + wrong-server watchdog (fake client) | `.venv\Scripts\python.exe -m pytest tests/test_client_ops.py -k "target or lease or wrong_server"` |

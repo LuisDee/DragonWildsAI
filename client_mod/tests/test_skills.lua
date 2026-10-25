@@ -545,6 +545,187 @@ test("a pawn held by a non-fight owner: the skill fails 'busy' naming the real o
     assert(r and r.reason == "busy" and r.data.owner == "debug:stale_lock", json.encode(r))
 end)
 
+test("interact on a shelter: walk to the INTERACTION point's open side (not the roof), detector, press, verified by sleeping", function()
+    reset()
+    local sk = B.module("skills")
+    local shelter = { id = "BP_Magic_SummonShelter_C_1", class = "BP_Magic_SummonShelter_C", name = "Summon Shelter",
+                      kind = "resting_area", prompt = "Sleep", position = { 20, 20, 3 },
+                      InteractionCollider = { K2_GetComponentLocation = function() return { X = 2100, Y = 2000, Z = 350 } end },
+                      GetActorForwardVector = function() return { X = 1, Y = 0, Z = 0 } end }
+    table.insert(F.world.interactables, shelter)
+    F.move.position = { 20, 20, 5 } -- standing ON the tent (the 20:46 bug)
+    local det0, sig0 = sk.W.detector, sk.W.press_signals
+    local slept = false
+    sk.W.detector = function()
+        local p = F.move.position
+        if math.abs(p[1] - 22.5) < 0.5 and math.abs(p[2] - 20) < 0.5 then
+            return { actor = shelter.id, prompt = "Sleep", class = shelter.class }
+        end
+        return { none = true }
+    end
+    local inv = B.module("inventory")
+    local p0 = inv.press_interact
+    inv.press_interact = function() slept = true; return { ok = true } end
+    sk.W.press_signals = function() return { sleeping = slept } end
+    local _, id = rpc("interact", { target = shelter.id })
+    local r = run(id, 40)
+    sk.W.detector, sk.W.press_signals, inv.press_interact = det0, sig0, p0
+    assert(r and r.ok and r.data.changed == "sleeping", json.encode(r))
+    local tg = F.move.target
+    assert(math.abs(tg[1] - 22.5) < 0.01 and tg[2] == 20, "walked to the open side of the collider, not the origin: " .. json.encode(tg))
+    -- spot maths: away from the actor centre, then rotated alternatives; forward vector when the collider is central
+    local sp = sk._spots_around({ 21, 20, 3.5 }, { 20, 20, 3 }, nil)
+    assert(math.abs(sp[1][1] - 22.5) < 1e-6 and #sp == 6 and math.abs(sp[6][1] - 19.5) < 1e-6, json.encode(sp))
+    sp = sk._spots_around({ 20, 20, 3 }, { 20, 20, 3 }, { 0, 1 })
+    assert(math.abs(sp[1][2] - 21.5) < 1e-6, "forward vector used: " .. json.encode(sp[1]))
+    assert(B.module("move") and true)
+end)
+
+test("interact: a blocked side -> the next standing spot", function()
+    reset()
+    local sk = B.module("skills")
+    local bench = { id = "bench_9", class = "BP_Workbench_C", name = "Workbench", kind = "crafting_station", prompt = "Craft",
+                    position = { 6, 2, 3 },
+                    InteractionCollider = { K2_GetComponentLocation = function() return { X = 700, Y = 200, Z = 300 } end } }
+    table.insert(F.world.interactables, bench)
+    local det0, sig0 = sk.W.detector, sk.W.press_signals
+    local mv = B.module("move")
+    local go0 = mv.go_to
+    local tries = 0
+    local unstuck_allowed = false
+    mv.go_to = function(log, goal, opts)
+        tries = tries + 1
+        if not opts or opts.allow_unstuck ~= false then unstuck_allowed = true end
+        local r = go0(log, goal, opts)
+        if tries == 1 then F.auto_arrive = false; F.move.mode, F.move.result = "idle", { status = "failed", reason = "no_route" } end
+        return r
+    end
+    local status0 = mv.status
+    mv.status = function() local st = status0(); if tries >= 2 then F.auto_arrive = true end; return st end
+    sk.W.detector = function()
+        local p = F.move.position or {}
+        if p[1] and math.abs(p[2] - 2) > 0.5 then return { actor = bench.id, prompt = "Craft" } end -- only from the rotated spot
+        return { none = true }
+    end
+    local opened = false
+    sk.W.press_signals = function() return { sleeping = false } end
+    local inv = B.module("inventory")
+    local p0 = inv.press_interact
+    inv.press_interact = function() opened = true; return { ok = true } end
+    local d0 = sk.W.detector
+    sk.W.detector = function() if opened then return { actor = bench.id, prompt = "Close" } end return d0() end
+    local _, id = rpc("interact", { target = bench.id })
+    local r = run(id, 60)
+    mv.go_to, mv.status, inv.press_interact, sk.W.detector, sk.W.press_signals = go0, status0, p0, det0, sig0
+    assert(r and r.ok and tostring(r.data.changed):find("prompt"), json.encode(r))
+    assert(tries >= 2, "tried another side after the first was blocked")
+    assert(not unstuck_allowed, "the interact engine never lets move.lua use the game's Unstuck (teleport; live 20:49)")
+end)
+
+test("interact on the bed he is lying in: one press gets him up, verified by the resting area clearing", function()
+    reset()
+    local sk = B.module("skills")
+    local bed = { id = "BP_Magic_SummonShelter_C_2", class = "BP_Magic_SummonShelter_C", name = "Summon Shelter",
+                  kind = "resting_area", prompt = "Sleep", position = { 1, 3, 3 } }
+    table.insert(F.world.interactables, bed)
+    local lying = true
+    local r0 = sk.W.resting_in
+    sk.W.resting_in = function() return lying and bed.id or nil end
+    local inv = B.module("inventory")
+    local p0 = inv.press_interact
+    local pressed = 0
+    inv.press_interact = function() pressed = pressed + 1; lying = false; return { ok = true } end
+    local r1, id = rpc("interact", { target = bed.id })
+    local r = r1 or run(id, 10)
+    sk.W.resting_in, inv.press_interact = r0, p0
+    assert(r and r.ok and r.data.changed == "got_up" and pressed == 1, json.encode(r))
+    assert(#F.move.calls == 0, "no walking to get up")
+end)
+
+test("BUGS L2d: movement while lying in a bed fails at once with reason resting (bed named)", function()
+    reset()
+    local sk = B.module("skills")
+    local r0 = sk.W.resting_in
+    sk.W.resting_in = function() return "BP_Magic_SummonShelter_C_7" end
+    local g = rpc("go_to", { target = "Luis" })
+    local f = rpc("follow", { player = "Luis" })
+    local i = rpc("interact", { target = "wi_1" })
+    local ir = i or run(select(2, rpc("interact", { target = "wi_1" })), 5)
+    sk.W.resting_in = r0
+    assert(g and g.reason == "resting" and g.data.resting_in == "BP_Magic_SummonShelter_C_7", json.encode(g))
+    assert(f and f.reason == "resting", json.encode(f))
+    assert(ir and ir.reason == "resting", json.encode(ir))
+    assert(#F.move.calls == 0, "no movement attempted")
+end)
+
+test("BUGS L8: go_to resolves every perceived id (a foliage tree) to its position", function()
+    reset()
+    table.insert(F.world.resources, { id = "fol:BP_InteractableFoliageISMC_Tree_C_7:2", class = "BP_BM_Tree_Ash_02_C", name = "Ash Tree",
+                                      kind = "foliage", verb = "chop", position = { 9, 4, 3 } })
+    local r0, id = rpc("go_to", { target = "fol:BP_InteractableFoliageISMC_Tree_C_7:2" })
+    local r = r0 or run(id, 10)
+    assert(r and r.ok, json.encode(r))
+    assert(F.move.target[1] == 9 and F.move.target[2] == 4, "walked to the tree's position: " .. json.encode(F.move.target))
+end)
+
+test("BUGS L7: interact on an item: an equal stack in front serves; a DIFFERENT item in front is named", function()
+    reset()
+    local sk = B.module("skills")
+    local d0 = sk.W.detector
+    table.insert(F.world.items, { id = "wi_axe", class = "BP_WorldItem_C", name = "Steel Logging Axe", item = "ITEM_Logging_Axe_Steel",
+                                  count = 1, position = { 4, 4, 3 } })
+    sk.W.detector = function() return { actor = "wi_pick", name = "Iron Pickaxe", item = "ITEM_Pickaxe_Iron" } end
+    local _, id = rpc("interact", { target = "wi_axe" })
+    local r = run(id, 80)
+    assert(r and r.reason == "not_interactable" and r.data.detail:find("Iron Pickaxe") and r.data.spots_tried, json.encode(r))
+    assert(#F.move.calls >= 2, "tried other sides of the item")
+    reset()
+    sk.W.detector = function() return { actor = "wi_other_logs", name = "Oak Logs", item = "ITEM_Resources_Wood_Oak" } end
+    _, id = rpc("interact", { target = "wi_1" }) -- the same item id, another stack: pressing takes it
+    r = run(id, 30)
+    sk.W.detector = d0
+    assert(r and r.ok and F.presses >= 1, json.encode(r))
+end)
+
+test("BUGS L12: the debug channel never pre-empts the brain's action (force=true overrides)", function()
+    reset()
+    local DIN, DOUT = DIR .. "/debug_to_client.jsonl", DIR .. "/client_to_debug.jsonl"
+    local doff = 0
+    do local f = io.open(DOUT, "rb"); if f then doff = f:seek("end"); f:close() end end
+    local function dsend(tool, args)
+        seq = seq + 1
+        local did = "d" .. seq
+        write(DIN, json.encode({ v = 1, type = "cmd", id = did, tool = tool, args = args }) .. "\n")
+        return did
+    end
+    local function dresult(did)
+        local f = io.open(DOUT, "rb"); if not f then return nil end
+        f:seek("set", doff); local s2 = f:read("a"); f:close()
+        for line in s2:gmatch("([^\n]*)\n") do local m = json.decode(line); if m and m.id == did and m.type == "result" then return m end end
+    end
+    local fr = rpc("follow", { player = "Luis" }) -- the brain's action holds the slot
+    assert(fr and fr.ok)
+    local did = dsend("interact", { target = "wi_1" })
+    B.step()
+    local dr = dresult(did)
+    assert(dr and dr.reason == "busy" and dr.data.owner == "brain:follow", json.encode(dr))
+    assert(B._state().action and B._state().action.kind == "follow", "the brain's follow still runs")
+    did = dsend("interact", { target = "wi_1", force = true })
+    B.step()
+    assert(B._state().action and B._state().action.kind == "interact", "force takes the slot")
+    rpc("stop")
+end)
+
+test("ping carries the bridge start epoch and the action slot (BUGS L2b)", function()
+    reset()
+    local p = rpc("ping")
+    assert(p.ok and type(p.data.started) == "number" and p.data.action == nil, json.encode(p))
+    rpc("follow", { player = "Luis" })
+    p = rpc("ping")
+    assert(p.data.action and p.data.action.kind == "follow" and p.data.action.id, json.encode(p))
+    rpc("stop")
+end)
+
 -- ------------------------------------------------------------------ run
 for _, t in ipairs(tests) do
     local ok, err = pcall(t[2])

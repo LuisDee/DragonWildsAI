@@ -67,6 +67,7 @@ end
 -- Page table of the main inventory: list of {type, type_name, first (raw index), n}.
 function M.pages(inv)
     local pages, first = {}, 0
+    if not U.valid(inv) then return pages end -- array reads on an invalid object crash natively (21:49:34)
     local quick = num(U.try(function() return inv.NumberOfQuickActionSlots end)) or 0
     if quick > 0 then pages[1] = { type = 0, type_name = "QuickAction", first = 0, n = quick }; first = quick end
     pcall(function()
@@ -139,6 +140,7 @@ function M.describe_item(it)
 end
 
 local function slots_of(comp, fn)
+    if rawget(_G, "DW_PAUSE") or not U.valid(comp) then return end -- pcall cannot catch the native crash
     pcall(function()
         local arr = comp.ItemSlots
         for i = 1, arr:GetArrayNum() do

@@ -117,7 +117,7 @@ def test_run_skill_checks_params_and_preconditions(tmp_path):
     rig.game.player_say("bring Bob 2 stone")
     rig.controller_llm.push(FakeLLM.say("On it.", ToolCall("run_skill", {"name": "deliver_resource", "params": {"resource": "stone", "count": 2, "player": "Bob"}})))
     assert rig.agent.step() is None
-    assert rig.companion_said()[-1] == "I couldn't run skill: I can't see Bob."
+    assert rig.companion_said()[-1] == "Sorry, I couldn't run that skill: I can't see Bob."
     rig.game.player_say("do the thing")
     rig.controller_llm.push(FakeLLM.say("Okay.", ToolCall("run_skill", {"name": "dance", "params": {}})))
     rig.agent.step()
@@ -146,7 +146,7 @@ def test_what_have_you_learned_and_forget(tmp_path):
     rig.agent.step()
     assert rig.companion_said()[-1] == "Forgotten."
     assert not (tmp_path / "skills" / "deliver_resource.json").exists()
-    assert len(rig.controller_llm.calls) == calls + 4
+    assert len(rig.controller_llm.calls) == calls + 5  # + the L5 check turn after the talk-only list reply
 
 
 def test_retrieval_is_bm25_with_stemming(tmp_path):

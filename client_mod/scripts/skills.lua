@@ -221,10 +221,77 @@ local function same_target(thing, det)
 end
 M._same_target = same_target
 
+-- Where to USE a thing from (live bug 20:46 UTC: interact walked onto the summoned shelter's ROOF, its
+-- actor origin, so the game never offered the bed). Generic for every interactable (beds, stations,
+-- chests, lodestones, NPCs):
+--   ipoint  the thing's INTERACTION point: the location of its interaction collider (a scene component
+--           named Interaction*Collider/Collision/Volume, or the InteractionComponent itself when it is a
+--           scene component); the actor origin only when none reads
+--   spots   standing spots ~1.2 m from ipoint, first on the side facing AWAY from the actor's centre
+--           (the open side: a tent's opening, a bench's front), then rotated around it; each is tried
+--           until the game's own detector targets the thing from there
+-- World items and ground pickups keep the plain approach (walk onto them).
+M.cfg.spot_m = 1.5
+M.cfg.spot_angles = { 0, 50, -50, 100, -100, 180 }
+M.cfg.on_top_m = 1.0       -- standing this much above the interaction point = on top of the thing: step off
+-- collider first: the detection volume (live read 20:57, summoned shelter: InteractionCollider at the
+-- ENTRANCE, 1.6 m out along the forward vector; the InteractionComponent itself sits at the origin)
+local COLLIDER_PROPS = { "InteractionCollider", "InteractionCollision", "InteractionVolume", "InteractionBox",
+                         "InteractionSphere", "InteractionComponent", "Interaction" }
+
+function W.interaction_point(api, thing)
+    local a = api.actor_of(thing)
+    local s = api.module("sense")
+    local U = s and s.U
+    if not (a and U) then return nil end
+    local function loc(c)
+        if not U.valid(c) then return nil end
+        local v = U.try(function() return c:K2_GetComponentLocation() end)
+        local ok, x, y, z = pcall(function() return v.X, v.Y, v.Z end)
+        if ok and type(x) == "number" then return { x / 100, y / 100, z / 100 } end
+    end
+    local p, from
+    for _, prop in ipairs(COLLIDER_PROPS) do
+        p = loc(U.try(function() return a[prop] end))
+        if p then from = prop; break end
+    end
+    local f = U.try(function() return a:GetActorForwardVector() end)
+    local okf, fx, fy = pcall(function() return f.X, f.Y end)
+    return p, from, (okf and type(fx) == "number") and { fx, fy } or nil
+end
+
+local function spots_around(ip, origin, fwd)
+    -- first direction: the actor's forward vector (a tent's entrance faces it: live read 20:50, shelter
+    -- forward (-1,0,0), entrance on -X), else away from the actor's centre, else +X; then rotations
+    local dx, dy, l = 0, 0, 0
+    if fwd then dx, dy = fwd[1], fwd[2]; l = math.sqrt(dx * dx + dy * dy) end
+    if l < 0.3 and origin then dx, dy = ip[1] - origin[1], ip[2] - origin[2]; l = math.sqrt(dx * dx + dy * dy) end
+    if l < 0.3 then dx, dy, l = 1, 0, 1 end
+    dx, dy = dx / l, dy / l
+    local out = {}
+    for _, deg in ipairs(M.cfg.spot_angles) do
+        local r = math.rad(deg)
+        local cx, cy = dx * math.cos(r) - dy * math.sin(r), dx * math.sin(r) + dy * math.cos(r)
+        out[#out + 1] = { ip[1] + cx * M.cfg.spot_m, ip[2] + cy * M.cfg.spot_m, ip[3] }
+    end
+    return out
+end
+M._spots_around = spots_around
+
 local function new_episode(api, thing, opts)
     opts = opts or {}
-    return { thing = thing, phase = "approach", moving = false, approaches = 0, presses = 0, tol = M.cfg.approach_m,
-             before = api.counts() or {}, accept = opts.accept, label = opts.label or thing.name or "that" }
+    local e = { thing = thing, phase = "approach", moving = false, approaches = 0, presses = 0, tol = M.cfg.approach_m,
+                before = api.counts() or {}, accept = opts.accept, label = opts.label or thing.name or "that",
+                ipoint = thing.position }
+    local small = thing.category == "items" or tostring(thing.id):sub(1, 4) == "fol:" or thing.kind == "gatherable"
+    if not small and thing.position then
+        local ip, from, fwd = W.interaction_point(api, thing)
+        e.ipoint, e.ipoint_from = ip or thing.position, from or "actor_origin"
+        e.spots, e.spot_i = spots_around(e.ipoint, thing.position, fwd), 1
+    elseif small and thing.position then
+        e.small = true -- after the plain approach, other sides are tried (spots made on demand, BUGS L7)
+    end
+    return e
 end
 
 local function gained(before, now, want)
@@ -239,22 +306,73 @@ local function gained(before, now, want)
     return best, n, all
 end
 
+-- The bed/shelter actor he is lying in (PlayerRestComponent.CurrentRestingAreaActor), or nil.
+function W.resting_in(api)
+    local s = api.module("sense")
+    local U = s and s.U
+    local p = s and s.local_pawn and s.local_pawn()
+    if not (U and U.valid(p)) then return nil end
+    local rc = U.try(function() return p.PlayerRestComponent end)
+    if not U.valid(rc) then return nil end
+    local a = U.try(function() return rc.CurrentRestingAreaActor end)
+    return U.valid(a) and U.short(a) or nil
+end
+
+-- Signals that a press did something besides the inventory: he is now sleeping/resting (beds), or the
+-- thing's prompt changed (open -> close, ...). Read-only.
+function W.press_signals(api)
+    local s = api.module("sense")
+    local tod = s and type(s.time_of_day) == "function" and select(2, pcall(s.time_of_day)) or nil
+    return { sleeping = type(tod) == "table" and tod.sleeping or nil }
+end
+
+local function next_spot(e, api)
+    if e.small and not e.spots and api then
+        -- a small thing the detector would not name from the first approach (another stack in front):
+        -- stand on other sides of it, 0.9 m out, starting from the side opposite the item it picked
+        local here = api.my_position()
+        local away = here and { 2 * e.ipoint[1] - here[1], 2 * e.ipoint[2] - here[2], e.ipoint[3] } or nil
+        local saved = M.cfg.spot_m
+        M.cfg.spot_m = 0.9
+        e.spots = spots_around(e.ipoint, away and { 2 * e.ipoint[1] - away[1], 2 * e.ipoint[2] - away[2] } or nil, nil)
+        M.cfg.spot_m = saved
+        table.remove(e.spots, 1) -- the side he already stood on
+        e.spot_i, e.phase, e.moving, e.approaches, e.tol = 1, "approach", false, 0, 0.4
+        return true
+    end
+    if not e.spots or e.spot_i >= #e.spots then return false end
+    e.spot_i, e.phase, e.moving, e.approaches = e.spot_i + 1, "approach", false, 0
+    return true
+end
+
 local function episode_poll(api, e, t)
     local th = e.thing
+    local goal = e.spots and e.spots[e.spot_i] or th.position
     if e.phase == "approach" then
+        local bed = W.resting_in(api)
+        if bed and bed ~= th.id then
+            return api.fail("resting", { resting_in = bed, detail = "lying in " .. tostring(bed)
+                .. "; movement is disabled until he gets up (interact on that bed)" })
+        end
         local here = api.my_position()
-        local d = here and th.position and dist2d(here, th.position)
-        if d and d <= math.max(M.cfg.reach_m, e.tol + 0.3) and not (e.tight and d > M.cfg.close_m + 0.3) then
+        local d = here and goal and dist2d(here, goal)
+        local on_top = here and e.ipoint and e.spots and (here[3] - (e.ipoint[3] or here[3])) > M.cfg.on_top_m
+        local near = d and d <= math.max(e.spots and (e.tol + 0.3) or M.cfg.reach_m, e.tol + 0.3)
+            and not (e.tight and d > M.cfg.close_m + 0.3)
+        if near and not on_top then
             e.phase, e.face_until, e.moving = "face", t + M.cfg.face_s, false
-            W.face(api, th.position, false) -- look at it first (the camera), as a player turns to what he wants
+            W.face(api, e.ipoint, false) -- look at it first (the camera), as a player turns to what he wants
             return nil
         end
         if not e.moving then
             if e.approaches >= M.cfg.approaches then
-                return api.fail("too_far", { target = th.id, distance = d,
+                if next_spot(e) then return nil end
+                return api.fail("too_far", { target = th.id, distance = d, spots_tried = e.spots and e.spot_i, detector = e.detector,
                     detail = "I can't get close enough to the " .. e.label .. "." })
             end
-            local mr = api.call("move", "go_to", th.position, { tolerance_m = e.tol, timeout_s = 60 })
+            -- never the game's Unstuck (pause menu, teleports to the start point): live 20:49, it fired twice
+            -- while he stood on a tent roof and the client stopped answering right after
+            local mr = api.call("move", "go_to", goal, { tolerance_m = e.tol, timeout_s = 60, allow_unstuck = false })
             if not mr.ok then return mr end
             e.moving, e.approaches = true, e.approaches + 1
             return nil
@@ -265,43 +383,60 @@ local function episode_poll(api, e, t)
         local res = type(st.result) == "table" and st.result or {}
         if res.status == "arrived" then return nil end -- re-check the distance next tick
         if res.status == "stopped" then return nil end -- e.g. suspended by a reflex and resumed: walk again
+        if next_spot(e) then return nil end -- that side is blocked: try the next standing spot (big things only)
         return move_failure(api, res, "the " .. e.label, { target = th.id })
     elseif e.phase == "face" then
         local det = W.detector(api)
         e.detector = det
         if same_target(th, det) or (det and not det.none and e.accept and e.accept(det)) then
+            e.sig_before = W.press_signals(api)
+            e.prompt_before = det.prompt
             local pr = api.call("inventory", "press_interact", e.secondary and { secondary = true } or nil)
             if not pr.ok then return pr end
             e.presses = e.presses + 1
             e.phase, e.verify_until = "verify", t + M.cfg.verify_s
             return nil
         end
-        W.face(api, th.position, true)
+        W.face(api, e.ipoint, true)
         if t >= e.face_until then
+            if next_spot(e, api) then return nil end -- the detector won't take it from here: another side
             local here = api.my_position()
-            local d = here and dist2d(here, th.position)
-            if not e.tight and d and d > M.cfg.close_m + 0.2 then -- one tighter approach, then give up
+            local dd = here and dist2d(here, e.ipoint)
+            if not e.spots and not e.tight and dd and dd > M.cfg.close_m + 0.2 then -- small things: one tighter approach
                 e.tight, e.tol, e.phase = true, M.cfg.close_m, "approach"
                 return nil
             end
             local other = det and not det.none and (det.name or det.actor)
-            return api.fail("not_interactable", { target = th.id, detector = det,
-                detail = other and ("I can't get the game to target the " .. e.label .. ", it keeps picking " .. tostring(other) .. ".")
-                    or ("I can't get the game to let me use the " .. e.label .. ".") })
+            return api.fail("not_interactable", { target = th.id, detector = det, spots_tried = e.spots and e.spot_i,
+                interaction_point = e.ipoint, interaction_from = e.ipoint_from,
+                detail = other and ("the game targets " .. tostring(other) .. ", not the " .. e.label)
+                    or ("the game offers no use for the " .. e.label .. " from where I can stand") })
         end
         return nil
     else -- verify
         local item, n, all = gained(e.before, api.counts(), e.want_item)
         if not item and not e.want_item then item, n, all = gained(e.before, api.counts()) end
         local gone = tostring(th.id):sub(1, 4) ~= "fol:" and api.actor_of(th) == nil and api.find_thing(th.id, 10) == nil
-        if item or (gone and not e.need_gain) then
+        local changed
+        if not e.need_gain then
+            local sig = W.press_signals(api)
+            if sig.sleeping == true and not (e.sig_before and e.sig_before.sleeping) then changed = "sleeping" end
+            if not changed then
+                local det = W.detector(api)
+                if det and det.prompt and e.prompt_before and det.prompt ~= e.prompt_before and same_target(th, det) then
+                    changed = "prompt:" .. tostring(e.prompt_before) .. "->" .. tostring(det.prompt)
+                end
+            end
+        end
+        if item or ((gone or changed) and not e.need_gain) then
             return { ok = true, data = { target = th.id, item = item or api.null, count = n, gained = api.object(all),
-                                         target_gone = gone, prompt = e.detector and e.detector.prompt or api.null } }
+                                         target_gone = gone, changed = changed or api.null,
+                                         prompt = e.detector and e.detector.prompt or api.null } }
         end
         if t >= e.verify_until then
             if e.presses < M.cfg.presses then e.phase, e.face_until = "face", t + M.cfg.face_s; return nil end
             return api.fail("verification_failed", { target = th.id, prompt = e.detector and e.detector.prompt,
-                detail = "I pressed use on the " .. e.label .. " but nothing happened." })
+                detail = "pressed use on the " .. e.label .. "; nothing changed (inventory, the thing, sleep state, its prompt)" })
         end
         return nil
     end
@@ -770,7 +905,25 @@ local function start_interact(api, args, ctx)
     if not can then return api.fail("not_interactable", { target = id, kind = t.kind, actions = t.actions,
         detail = "There's nothing I can do with the " .. tostring(t.name or id) .. " by pressing use." }) end
     local job = { kind = "interact" }
-    job.ep = new_episode(api, t)
+    local accept = (t.category == "items" and t.item) and function(det) return det.item == t.item end or nil
+    -- lying in this very bed/shelter: the game ends the rest on a plain interact press (live 20:59, the
+    -- detector targets nothing while resting); verified by the resting area clearing
+    if W.resting_in(api) == t.id then
+        local pr = api.call("inventory", "press_interact")
+        if not pr.ok then return pr end
+        local until_t = api.now() + 4
+        job.step = function(tt)
+            if W.resting_in(api) ~= t.id then
+                return { ok = true, data = { target = id, changed = "got_up", item = api.null, count = 0 } }
+            end
+            if tt >= until_t then
+                return api.fail("verification_failed", { target = id, detail = "pressed use to get up; still lying in the " .. tostring(t.name or id) })
+            end
+            return nil
+        end
+        return job
+    end
+    job.ep = new_episode(api, t, { accept = accept })
     job.ep.secondary = args.secondary == true
     job.on_resume = resume_episode(job)
     job.step = function(tt) return episode_poll(api, job.ep, tt) end
@@ -787,6 +940,7 @@ end
 
 function M.state_extras(api, data)
     local mem, out = memory(), {}
+    if paused() then return out end
     local null = api.null
     if type(data.held_item) == "string" and data.held_item ~= "" then
         mem.last_held = { item = data.held_item, name = type(data.held) == "string" and data.held or data.held_item }
@@ -813,6 +967,24 @@ function M.state_extras(api, data)
                          contents = names, owner = g.owner_check }
     end
     if others > 0 then out.other_graves = others end
+    -- the in-game clock and the sleep window (sense.time_of_day), and how full the bag is
+    local sense = api.module("sense")
+    if sense and type(sense.time_of_day) == "function" then
+        local okt, tod = pcall(sense.time_of_day)
+        if okt and type(tod) == "table" then out.time_of_day = tod end
+    end
+    local inv_rows = data.inventory_items or {}
+    local used = 0
+    for _, r in ipairs(inv_rows) do if r.where == "bag" then used = used + 1 end end
+    if inv and type(inv.pages) == "function" and type(inv.pc) == "function" then
+        local okc, cap = pcall(function()
+            local pc = inv.pc()
+            local ic = pc and pc.InventoryComponent
+            if not (ic and ic:IsValid()) then return nil end
+            for _, pg in ipairs(inv.pages(ic)) do if pg.type_name == "InventoryItems" then return pg.n end end
+        end)
+        out.bag = { used = used, capacity = okc and cap or nil }
+    end
     local life = rawget(_G, "DW_LIFE")
     if type(life) == "table" and life.died_at then
         out.last_death = { ago_s = math.max(0, math.floor(api.now() - life.died_at)), respawned = life.respawned_at ~= nil }
@@ -953,9 +1125,11 @@ M.MANIFEST = {
         detail_is_speech = SPEAKS, aliases = { "pickup" },
         description = "Use one thing like a player pressing E: walks to it, faces it until the game targets it, presses "
             .. "use and checks something changed. Picks up an item stack lying on the ground (into your inventory), takes "
-            .. "everything from a gravestone ('Take All'), opens, talks, collects plants. One id per call.",
+            .. "everything from a gravestone ('Take All'), lies down in a bed or shelter (Sleep / Rest), opens, talks, "
+            .. "collects plants. One id per call. While lying in a bed, interact on that bed (its id) gets you up again.",
         args = { type = "object", required = { "target" }, properties = obj({
-            target = str("An id from situation or look whose actions include interact."),
+            target = str("The id of ONE perceived thing (from situation or look) whose actions include interact: a world item, "
+                .. "a ground pickup ('fol:...'), a gravestone, a bed/shelter, a station, a chest. Not a name, not coordinates."),
             secondary = { type = "boolean", default = false,
                 description = "Use the thing's SECOND action instead (the F key), when look/inspect shows one, e.g. "
                     .. "collect-all on a dropped stack picks up every nearby stack of that kind at once." } }) },

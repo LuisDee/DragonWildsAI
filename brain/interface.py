@@ -68,6 +68,9 @@ class Reason:
     AMBIGUOUS_TARGET = "ambiguous_target"  # several perceived things match; data.candidates
     NOT_INTERACTABLE = "not_interactable"  # the target affords no interaction
     BUSY = "busy"  # another owner holds the pawn (data: owner, owner_level, owner_since, owner_age_s)
+    BODY_RESTARTED = "body_restarted"  # the client bridge restarted while the command was in flight (L2)
+    LOST_BY_BODY = "lost_by_body"  # the body is no longer working on the command and never answered (L2)
+    RESTING = "resting"  # he lies in a bed (data.resting_in = its id): get up with interact on it first
 
     # A player command or an attack pre-empted the action: not the skill's fault.
     INTERRUPTS: frozenset[str] = frozenset({INTERRUPTED, ATTACKED})
@@ -77,6 +80,8 @@ class Reason:
         INVALID_ARGS, UNKNOWN_TOOL, NOT_IMPLEMENTED, COMPANION_DOWN, UNKNOWN_SKILL, STATE_UNAVAILABLE,
         NOT_UNLOCKED, UNSAFE, CANT_SENSE, NOT_IN_INVENTORY, WRONG_TOOL, INVENTORY_FULL,
         NOT_PERCEIVED, AMBIGUOUS_TARGET, NOT_INTERACTABLE, BUSY,
+        # L2: never retried blindly (a lost or timed-out command goes back to the model, which decides)
+        TIMEOUT, BODY_RESTARTED, LOST_BY_BODY, RESTING,
     })
     # The companion simply cannot do this yet (skill missing on the body or in the registry).
     CANT_YET: frozenset[str] = frozenset({NOT_IMPLEMENTED, UNKNOWN_TOOL, UNKNOWN_SKILL})
@@ -621,6 +626,11 @@ class GameInterface(ABC):
         method = getattr(type(self), tool, None)
         if method is None:  # e.g. the composite skills: no typed method, sent by name
             return self.call_raw(tool, clean)
+        # an optional arg left unset (None) is not passed to a method that does not take it
+        import inspect
+        params = inspect.signature(method).parameters
+        if not any(p.kind == p.VAR_KEYWORD for p in params.values()):
+            clean = {k: v for k, v in clean.items() if k in params or v is not None}
         return method(self, **clean)
 
     def call_raw(self, tool: str, args: dict) -> ActionResult:

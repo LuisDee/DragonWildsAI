@@ -58,6 +58,16 @@ VITALS_WORSE = 0.6  # at or below this fraction of the value last voiced: worse,
 VITAL_NEEDS = {"hydration": "drink", "sustenance": "food"}
 DIGEST_KEEP_S = 180.0
 MOVING_MPS = 0.3  # slower than this between two observations = standing still
+# Proactive behaviour (Luis, 2026-10-25): a "situation_review" for the model on meaningful STATE
+# CHANGES only. These numbers say when something changed enough to look again, never what to do.
+REVIEW_BANDS = (50.0, 30.0, 15.0)  # a stat's band = how many of these % lines it is below
+REVIEW_MIN_GAP_S = 180.0  # between reviews, unless something got worse than at the last review
+REVIEW_SAMPLE_S = 30.0  # the Agent reads get_state this often when idle (no model call unless a change)
+REVIEW_QUIET_AFTER_CMD_S = 20.0  # just talked to: the conversation already covers it
+REVIEW_IDLE_S = 300.0  # no command or action this long with a player close by = an idle stretch
+REVIEW_NEAR_M = 15.0
+REVIEW_BAG_FULL = 0.9
+FIGHT_QUIET_S = 30.0  # an attack this recent = in combat: no review
 ACTIVITY_KEEP = 8  # recent_activity lines in every Controller context
 
 # Fallback lines, used only when the model call for a situation fails (main, 2026-10-25: the model
@@ -193,10 +203,12 @@ class Verdict:
 
 class EventBroker:
     def __init__(self, log=None, clock: Callable[[], float] = time.monotonic,
-                 tool_of: Callable[[str], str | None] | None = None):
+                 tool_of: Callable[[str], str | None] | None = None,
+                 abandoned: Callable[[str], bool] | None = None):
         self.log = log
         self.clock = clock
         self.tool_of = tool_of or (lambda _id: None)  # bridge request id -> tool (BridgeClient.sent_tool)
+        self.abandoned = abandoned or (lambda _id: False)  # ids the brain stopped waiting for (chat interrupt)
         self.episode: Episode | None = None
         self._episodes = 0
         self._unreachable_said: dict[str, float] = {}  # reason -> when last voiced (any episode)
@@ -205,6 +217,19 @@ class EventBroker:
         self._reports: deque[tuple[float, str]] = deque(maxlen=4)  # informational lines for the digest
         self._activity: deque[tuple[float, Activity]] = deque(maxlen=ACTIVITY_KEEP)  # episodic memory
         self._seen: dict | None = None  # the last observed state (where am I, who is in sight)
+        self._actions: deque[tuple[float, str, dict, bool, str | None, str | None]] = deque(maxlen=5)  # brain actions
+        # situation_review bookkeeping
+        self._bands: dict[str, tuple[int, float]] = {}  # stat -> (band, pct) last observed
+        self._reviewed_bands: dict[str, int] = {}  # stat -> band at the last review
+        self._phase: str | None = None
+        self._sleep_ok: bool | None = None
+        self._bag_full: bool | None = None
+        self._pending: list[dict] = []  # changes since the last review
+        self._last_review: dict | None = None  # {"at", "changes", "you_said"}
+        self._last_busy: float | None = None  # last command / brain action (None: since the first observation)
+        self._first_seen: float | None = None
+        self._idle_reported = False
+        self._attacked_at: float | None = None
         self._track: deque[tuple[float, list[float]]] = deque(maxlen=8)  # (t, position) observations
         self._still_since: float | None = None
 
@@ -227,6 +252,8 @@ class EventBroker:
 
     def action_finished(self, tool: str, args: dict, ok: bool, reason: str | None = None,
                         data: dict | None = None) -> None:
+        why = (data or {}).get("detail") or (data or {}).get("why")
+        self._actions.append((self.clock(), tool, dict(args or {}), ok, reason, str(why) if why else None))
         ep = self.episode
         if tool not in MOVE_TOOLS or ep is None or ep.ended is not None:
             return
@@ -251,6 +278,12 @@ class EventBroker:
                 why = "progress: narrated live by the progress listener"
             elif isinstance(ev, TaskFailed) and self.held(ev.task_id):
                 pass  # a held action (follow) ended by itself: the executor never saw that (review H1)
+            elif isinstance(ev, (TaskDone, TaskFailed)) and self.abandoned(ev.task_id):
+                # the brain stopped waiting (the player spoke): this late result is what really happened
+                tool = self.tool_of(ev.task_id) or "action"
+                ok_ = isinstance(ev, TaskDone)
+                self._actions.append((self.clock(), tool, {}, ok_, None if ok_ else ev.reason, "finished after you stopped waiting"))
+                why = "late result of an abandoned wait: recorded in recent actions"
             elif isinstance(ev, (TaskDone, TaskFailed)):
                 why = "action result: the executor already has it (synchronous reply)"
             elif isinstance(ev, Unreachable):
@@ -376,10 +409,12 @@ class EventBroker:
         return Verdict("decide", f"{ev.by or 'a player'} dropped items nearby",
                        {"type": "items_dropped", "by": ev.by, "players": ev.players, "items": items})
 
-    def voiced(self, events: list[dict]) -> None:
+    def voiced(self, events: list[dict], text: str | None = None) -> None:
         """A situation's line was spoken: remember it for cooldowns and 'found you'."""
         now = self.clock()
         for e in events:
+            if e.get("type") == "situation_review" and self._last_review is not None:
+                self._last_review["you_said"] = text
             if e.get("type") == "unreachable":
                 self._unreachable_said[str(e.get("reason"))] = now
                 if self.episode and self.episode.ended is None:
@@ -451,6 +486,9 @@ class EventBroker:
             return
         now, pos = self.clock(), _pos(state.get("position"))
         self._seen = state
+        if self._first_seen is None:
+            self._first_seen = now
+        self._watch(state)
         if pos is None:
             return
         if self._track:
@@ -461,6 +499,99 @@ class EventBroker:
             elif self._still_since is None:
                 self._still_since = t0
         self._track.append((now, pos))
+
+    # ---------------------------------------------------------------- situation_review (proactive)
+
+    @staticmethod
+    def stats(state: dict) -> dict[str, float]:
+        """Every survival stat the body reports, plus health, as % of max (generic: whatever it sends)."""
+        out: dict[str, float] = {}
+        surv = state.get("survival") if isinstance(state.get("survival"), dict) else {}
+        for name, v in surv.items():
+            if isinstance(v, (list, tuple)) and len(v) >= 2 and _num(v[0]) is not None and _num(v[1]):
+                out[str(name)] = 100.0 * float(v[0]) / float(v[1])
+        hp, mx = _num(state.get("health")), _num(state.get("max_health"))
+        if hp is not None and mx:
+            out["health"] = 100.0 * hp / mx
+        return out
+
+    @staticmethod
+    def band(pct: float) -> int:
+        return sum(1 for cut in REVIEW_BANDS if pct < cut)
+
+    def _change(self, change: dict) -> None:
+        self._pending = [c for c in self._pending if c.get("what") != change.get("what")] + [change]
+
+    def _watch(self, state: dict) -> None:
+        for name, pct in self.stats(state).items():
+            b = self.band(pct)
+            prev = self._bands.get(name)
+            self._bands[name] = (b, pct)
+            if prev is not None and b > prev[0]:  # crossed a line downwards
+                self._change({"what": name, "from_pct": round(prev[1]), "to_pct": round(pct), "direction": "down"})
+        tod = state.get("time_of_day") if isinstance(state.get("time_of_day"), dict) else None
+        if tod:
+            phase = tod.get("phase") or (("night" if tod.get("is_night") else "day") if "is_night" in tod else None)
+            if phase and self._phase and phase != self._phase:
+                self._change({"what": "time_of_day", "from": self._phase, "to": phase, "hour": tod.get("hour")})
+            self._phase = phase or self._phase
+            ok = tod.get("sleep_allowed")
+            if isinstance(ok, bool):
+                if ok and self._sleep_ok is False:
+                    self._change({"what": "sleep_allowed", "to": True})
+                self._sleep_ok = ok
+        bag = state.get("bag") if isinstance(state.get("bag"), dict) else None
+        if bag and _num(bag.get("used")) is not None and _num(bag.get("capacity")):
+            full = float(bag["used"]) / float(bag["capacity"]) >= REVIEW_BAG_FULL
+            if full and self._bag_full is False:
+                self._change({"what": "bag", "used": bag["used"], "capacity": bag["capacity"]})
+            self._bag_full = full
+
+    def note_busy(self) -> None:
+        """A command arrived or the brain ran an action: not idle, and the conversation covers it."""
+        self._last_busy = self.clock()
+        self._idle_reported = False
+
+    def note_attacked(self) -> None:
+        self._attacked_at = self.clock()
+
+    def review_due(self, busy: bool = False) -> dict | None:
+        """A situation_review event when something meaningful changed and now is a fine moment, else None.
+        Never a rule about what to do: the model gets the changes, the facts and its previous review."""
+        now, st = self.clock(), self._seen or {}
+        if not st:
+            return None
+        in_fight = bool(st.get("fight")) or (self._attacked_at is not None and now - self._attacked_at < FIGHT_QUIET_S)
+        last_busy = self._last_busy if self._last_busy is not None else (self._first_seen or now)
+        if busy or in_fight or (self._last_busy is not None and now - last_busy < REVIEW_QUIET_AFTER_CMD_S):
+            return None
+        near = [p for p in st.get("players") or [] if isinstance(p, dict)
+                and (_num(p.get("distance")) or 1e9) <= REVIEW_NEAR_M]
+        if near and not self._idle_reported and now - last_busy >= REVIEW_IDLE_S:
+            self._idle_reported = True
+            self._change({"what": "idle", "for_s": round(now - last_busy),
+                          "near": [str(p.get("name")) for p in near]})
+        if not self._pending:
+            return None
+        worse = any(c.get("direction") == "down" and self._bands.get(c["what"], (0, 0))[0] >
+                    self._reviewed_bands.get(c["what"], 0) for c in self._pending)
+        # day/night is time-critical (L10: he stayed in bed after day): no gap. The sleep window opening is not.
+        worse = worse or any(c.get("what") == "time_of_day" for c in self._pending)
+        last = self._last_review
+        if last and now - last["at"] < REVIEW_MIN_GAP_S and not worse:
+            return None
+        changes, self._pending = self._pending, []
+        self._reviewed_bands = {k: b for k, (b, _) in self._bands.items()}
+        ev = {"type": "situation_review", "changes": changes,
+              "stats_pct": {k: round(p) for k, (_, p) in self._bands.items()},
+              "time_of_day": st.get("time_of_day"), "bag": st.get("bag"),
+              "players_near": [str(p.get("name")) for p in near]}
+        if last:
+            ev["previous_review"] = {"ago_s": round(now - last["at"]), "changes": last["changes"],
+                                     "you_said": last.get("you_said")}
+        self._last_review = {"at": now, "changes": changes, "you_said": None}
+        self._log("situation_review", changes=changes, worse=worse)
+        return ev
 
     def where_line(self) -> str | None:
         st = self._seen
@@ -515,4 +646,13 @@ class EventBroker:
         for t, line in self._reports:
             if now - t <= DIGEST_KEEP_S:
                 out.append(f"Body report {now - t:.0f}s ago: {line}")
-        return out[:6]
+        recent = [(t, tool, args, ok, reason, why) for t, tool, args, ok, reason, why in self._actions
+                  if now - t <= DIGEST_KEEP_S]
+        if recent:  # live 21:43: "what are you working on?" must be answered from what really happened
+            def arg_text(args: dict) -> str:
+                vals = [str(v) for v in args.values() if v not in (None, "", [], {}) and not isinstance(v, bool)]
+                return " ".join(vals)[:48]
+            out.append("Your recent actions (oldest first): " + "; ".join(
+                f"{tool} {arg_text(args)}".strip() + (" ok" if ok else f" FAILED: {reason}" + (f" ({why})" if why else ""))
+                + f", {now - t:.0f}s ago" for t, tool, args, ok, reason, why in recent))
+        return out[:7]

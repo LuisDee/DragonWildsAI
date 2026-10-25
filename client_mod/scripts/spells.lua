@@ -34,19 +34,27 @@ M.cfg = {
     page_wait_s = 0.4,      -- after switching the wheel page: let the slices refresh (live: updated within 0.4 s)
     page_max_s = 1.5,       -- ... and wait up to this long for the slice icons to change
     select_wait_s = 1.0,    -- after the quick key: wait for a spell mode or the cast to start
-    verify_s = 4.0,         -- after the cast input: runes / cooldown must change within this
+    verify_s = 4.0,         -- after the cast input: runes / cooldown must change within this ...
+    cast_max_s = 12,
+    late_watch_s = 15,
+    cooldown_grace_s = 2,   -- after the server's cooldown notice: wait this long for a success signal
+    aim_heights_m = { 1.2, 0.8, 1.6, 0.5 }, -- aimed spells at a thing: aim at its body, not its base
+    aim_match_m = 3,        -- an aimed preview must sit this close (2D) to the target
+    preview_checks = 2,     -- re-aim + re-read the preview this many times per candidate
+    place_budget_s = 5,     -- the whole aim/placement search; then cancel (never cast it badly)      -- after a failed answer: keep checking this long for a late success        -- ... or, while the game is still casting it (spell input mode / casting state), this
     wait_s = 22,           -- waiter deadline (the bridge answers expire() after it)
     typo_cutoff = 0.8,      -- fuzzy name match only above this similarity, and only if unique
     default_radius_m = 5,   -- harm radius when a harmful spell has no Shape module
     place_max_m = 15,       -- fallback camera-to-target limit (SpellcastingComponent.MaxDistanceFromCameraToPlaceSpell)
     landed_tolerance_m = 3, -- a targeted spell that lands farther than max(this, its radius) is reported as a miss
-    preview_wait_s = 0.45,  -- after aiming at a spot: let the game's placement preview follow the camera
+    preview_wait_s = 0.35,  -- after aiming at a spot: let the game's placement preview follow the camera
     preview_match_m = 2.5,  -- the preview must sit this close to the spot aimed at
-    max_spots = 8,
-    spot_rings_m = { 4, 6 }, -- automatic spots around me (around a named target: itself, then 2 and 3.5 m rings)
+    max_spots = 10,
+    spot_rings_m = { 3, 4.5, 6, 7.5, 9 }, -- (live: 11 m spots were beyond the camera's 15 m reach)
+    far_rings_m = { 15, 20, 25, 30 }, -- when nothing nearby is accepted: where the flattest ground is (a hint) -- automatic spots around me (around a named target: itself, then 2 and 3.5 m rings)
     spot_player_clear_m = 3, -- automatic spots keep this far from players
-    spot_max_spread_m = 0.6, -- 3x3 ground heights over 3 m must differ less than this
-    spot_min_normal_z = 0.95,
+    spot_max_spread_m = 1.5, -- traces only rank and drop hopeless spots (3x3 heights over 3 m); the GAME preview decides
+    spot_min_normal_z = 0.85,
     quick_keys = 8,         -- IA_Spellcasting_QuickAccess0..7
     gameplay_mode = "DIM_Gameplay",
     radial_mode = "DIM_RadialMenu",
@@ -145,7 +153,7 @@ function M.row(st, snap, local_cast_at, now_local)
     r.cost = cost
     -- cooldown: the game's LastCastTimeBySpellData vs the server clock; our own cast record as a floor
     local left = 0
-    local last, now = (snap.last_cast or {})[st.asset], snap.server_time
+    local last, now = (snap.last_cast or {})[st.asset], snap.world_time or snap.server_time
     if type(last) == "number" and type(now) == "number" and now >= last and now - last < 1e6 then
         left = math.max(left, (st.cooldown_s or 0) - (now - last))
     end
@@ -166,9 +174,13 @@ function M.row(st, snap, local_cast_at, now_local)
             .. tostring(p.level) .. (have and (" and I'm level " .. have) or "")) or "") .. "."
     elseif r.wheel_slot == nil then
         why, detail = "not_on_wheel", st.name .. " isn't on my spell wheel, so I can't cast it yet."
-    elseif r.wheel_slot % per >= M.cfg.quick_keys then
-        why, detail = "not_on_wheel", st.name .. " sits in a spell wheel slot I can't reach yet (only slots 1-"
-            .. M.cfg.quick_keys .. " of each wheel page have keys)."
+    elseif (snap.req or {})[st.asset] then
+        -- the game's own special requirement is not met (e.g. "Logging Axe", "A held melee weapon")
+        local tag = snap.req[st.asset]
+        why = "requirement"
+        r.needs = (st.special_req and st.special_req:gsub("%s+$", "")) or M.tag_words(tag)
+        r.requirement_tag = tag
+        detail = st.name .. " needs " .. tostring(r.needs) .. " (the game says: " .. M.tag_words(tag) .. ")."
     else
         for _, c in ipairs(cost) do
             if c.have < (c.count or 0) then
@@ -183,8 +195,8 @@ function M.row(st, snap, local_cast_at, now_local)
         if not why and snap.falling and not st.allow_falling then
             why, detail = "busy", "I can't cast " .. st.name .. " in mid-air."
         end
-        if not why and snap.casting then
-            why, detail = "busy", "I'm already casting " .. tostring(snap.casting_name or snap.casting) .. "."
+        if not why and snap.input_mode and (M.cfg.spell_modes[snap.input_mode] or snap.input_mode == M.cfg.radial_mode) then
+            why, detail = "busy", "A previous cast was still in progress (my spell wheel was open)."
         end
     end
     r.castable = why == nil
@@ -266,6 +278,12 @@ function W.static(spell)
                 allow_falling = u.try(function() return spell.bAllowCastingWhileFalling end) == true,
                 special_req = u.str(u.try(function() return spell.SpecialRequirementsText end)), cost = {}, modules = {} }
     if s.special_req == "" then s.special_req = nil end
+    s.req_class = u.try(function() return spell.SpecialRequirementsStrategy end)
+    if not u.valid(s.req_class) then s.req_class = nil end
+    -- reach: the spell's own placement distance override (cm), when it has one
+    local ov = u.try(function() return spell.bOverrideMaxPlacementDistanceFromCamera end) == true
+    local mx = ov and u.try(function() return spell.MaxPlacementDistanceFromCamera end) or nil
+    if type(mx) == "number" and mx > 0 then s.reach_m = mx / 100 end
     -- the wheel slice shows this texture: how the cast checks the open page shows THIS spell
     local icon = u.str(u.try(function() return spell.SpellIcon:GetObjectID():GetAssetPathName() end))
         or u.str(u.try(function() return spell.SpellIcon:GetAssetPathName() end))
@@ -361,14 +379,21 @@ function W.snapshot(api)
         pcall(function() um.LastCastTimeBySpellData:ForEach(function(k, v) s.last_cast[u.short(unwrap(k)) or "?"] = unwrap(v) end) end)
         local sp = u.try(function() return um.SpellBeingPreparedOrCast.SpellBeingPreparedOrCastData end)
         if u.valid(sp) then s.casting = u.short(sp); s.casting_name = u.str(u.try(function() return sp.SpellDisplayName end)) end
-        each(u.try(function() return um.OurSpellActors end), function(e)
-            local a = e
-            if type(e) == "userdata" and not u.valid(e) then a = u.try(function() return e:Get() end) end
-            if u.valid(a) then s.actors[u.short(a)] = { class = u.class_word(a), position = to_m(u.try(function() return a:K2_GetActorLocation() end)) } end
-        end, 32)
+    end
+    -- spell actors (shelters, totems, ...) near me. OurSpellActors read EMPTY on the client (live,
+    -- with Claude's own shelter standing), so every UtilitySpell within 40 m is listed and a cast is
+    -- matched to the NEW one nearest its preview point.
+    local here = u.loc(pawn)
+    for _, a in ipairs(u.find_all("UtilitySpell", { skip_defaults = true })) do
+        local p = u.loc(a)
+        if p and here and u.dist(p, here) < 4000 then s.actors[u.short(a)] = { class = u.class_word(a), position = to_m(p) } end
     end
     local gs = u.find_first("GameStateBase")
     s.server_time = gs and u.try(function() return gs:GetServerWorldTimeSeconds() end)
+    -- LastCastTimeBySpellData uses THIS client's world clock (live: 1503 s ~ 25 min after joining,
+    -- while the server clock read 58000+), i.e. UGameplayStatics::GetTimeSeconds
+    local gst = u.find_object("/Script/Engine.Default__GameplayStatics")
+    s.world_time = gst and u.try(function() return gst:GetTimeSeconds(pawn) end)
     s.input_mode = u.short(u.try(function() return pc.CurrentInputMode end))
     s.falling = u.try(function() return pawn.CharacterMovement:IsFalling() end) == true
     local ge = u.try(function() return pawn.GameplayEffectsComponent end)
@@ -385,6 +410,24 @@ function W.snapshot(api)
     end, 32)
     s.position = to_m(u.try(function() return pawn:K2_GetActorLocation() end))
     return s
+end
+
+-- The game's own special-requirement check (L1): the spell's SpecialRequirementsStrategy default object
+-- -> AreSpecialRequirementsMet(local PC) (BlueprintNativeEvent, const; the call the game makes). It
+-- answers a failure FGameplayTag, "None" when met. Verified live on all 14 strategy classes (20:05).
+-- -> failure tag (string) | nil (met, or the spell has no requirement)
+function W.requirement(api, st)
+    if not st.req_class then return nil end
+    local u = U()
+    local pc = W.pc(api)
+    local cdo = u.try(function() return st.req_class:GetCDO() end)
+    if not (u.valid(pc) and u.valid(cdo)) then return nil end
+    local ok, tag = pcall(function() return cdo:AreSpecialRequirementsMet(pc) end)
+    if not ok then return nil end
+    local name = u.str(u.try(function() return tag.TagName end))
+    if (not name) and type(tag) == "table" and tag.TagName then name = tostring(tag.TagName) end
+    if not name or name == "" or name == "None" then return nil end
+    return name
 end
 
 -- Every spell asset the game has loaded (for the locked list).
@@ -408,6 +451,7 @@ function W.actions(api)
         if not (u.fullname(p) or ""):find("WidgetTree", 1, true) then
             a.menu = u.try(function() return p.TriggerSpellRadialInputAction end)
             a.next_page = u.try(function() return p.ChangeSpellRadialRightInputAction end)
+            a.accept = u.try(function() return p.GenericAcceptInputAction end)
             local rw = u.try(function() return p.SpellRadialWidget end)
             each(rw and u.try(function() return rw.QuickAccessInputActions end), function(x) a.quick[#a.quick + 1] = x end, 16)
             break
@@ -429,6 +473,22 @@ function W.shown_icons(api)
                 if type(n) == "number" then out[n + 1] = ic or false end
             end, 32)
             return next(out) and out or nil
+        end
+    end
+    return nil
+end
+
+-- Point at one slice of the open wheel (the radial's own BlueprintCallable HighlightSlice handler, what
+-- hovering runs; live 21:1x: HighlightSlice(9) -> CachedSectionId 9 and SpellName "Enchant Weapon: Air",
+-- sticky over the next frames) and read back what the wheel now shows. -> {section, name} | nil
+function W.highlight(api, slot)
+    local u = U()
+    for _, p in ipairs(u.find_all("SpellcastingMainPanel", { skip_defaults = true })) do
+        if not (u.fullname(p) or ""):find("WidgetTree", 1, true) then
+            local rw = u.try(function() return p.SpellRadialWidget end)
+            if not u.valid(rw) then return nil end
+            if not pcall(function() rw:HighlightSlice(slot) end) then return nil end
+            return { section = u.try(function() return rw.CachedSectionId end), name = u.str(u.try(function() return rw.SpellName:GetText() end)) }
         end
     end
     return nil
@@ -494,7 +554,8 @@ end
 -- itself first) or around me. Each: 3x3 downward traces 1.5 m apart (height spread, centre normal), a
 -- 3 m clearance trace up and line of sight from my chest (the trace call move.lua uses).
 -- -> {{position, spread_m, normal_z, exact}}
-function W.spots(api, center)
+function W.spots(api, center, opts)
+    opts = opts or {}
     local u = U()
     local pawn = W.pawn(api)
     if not u.valid(pawn) then return {} end
@@ -517,7 +578,7 @@ function W.spots(api, center)
             pts[#pts + 1] = { center[1] * 100 + r * 100 * math.cos(a), center[2] * 100 + r * 100 * math.sin(a), cz }
         end end
     else
-        for _, r in ipairs(cfg.spot_rings_m) do for i = 0, 11 do
+        for _, r in ipairs(opts.rings or cfg.spot_rings_m) do for i = 0, 11 do
             local a = math.rad(i * 30)
             pts[#pts + 1] = { me.X + r * 100 * math.cos(a), me.Y + r * 100 * math.sin(a), me.Z }
         end end
@@ -544,7 +605,7 @@ function W.spots(api, center)
                 for _, z in ipairs(zs) do lo = math.min(lo, z); hi = math.max(hi, z) end
                 local spread = (hi - lo) / 100
                 local up = trace({ X = p[1], Y = p[2], Z = zc + 50 }, { X = p[1], Y = p[2], Z = zc + 350 })
-                local los = trace({ X = me.X, Y = me.Y, Z = me.Z + 50 }, { X = p[1], Y = p[2], Z = zc + 80 })
+                local los = opts.los ~= false and trace({ X = me.X, Y = me.Y, Z = me.Z + 50 }, { X = p[1], Y = p[2], Z = zc + 80 }) or false
                 if not up and not los and spread <= cfg.spot_max_spread_m and (nz or 0) >= cfg.spot_min_normal_z then
                     out[#out + 1] = { position = { p[1] / 100, p[2] / 100, zc / 100 }, spread_m = math.floor(spread * 100) / 100,
                                       normal_z = nz and math.floor(nz * 1000) / 1000, exact = p.exact }
@@ -557,6 +618,26 @@ function W.spots(api, center)
         return a.spread_m < b.spread_m
     end)
     return out
+end
+
+-- A foliage id from look ("fol:<component>:<index>": a standing tree, bush, ...) that the bridge's
+-- capped census did not return: ask sense's own foliage reader around me (what look and gather use).
+-- -> {id, name, position (metres)} | nil (gone: felled, picked, or out of range)
+function W.foliage_thing(api, id)
+    local s = api.module("sense")
+    local pawn = W.pawn(api)
+    if not (s and type(s.foliage) == "function" and pawn) then return nil end
+    local here = U().loc(pawn)
+    local ok, rows = pcall(s.foliage, here, 6000, {})
+    if not ok or type(rows) ~= "table" then return nil end
+    for _, r in ipairs(rows) do
+        if r.id == id then
+            local p = r.position
+            if type(p) == "table" and type(p[1]) ~= "number" and p.X then p = { p.X / 100, p.Y / 100, p.Z / 100 } end
+            return { id = r.id, name = r.name, position = p }
+        end
+    end
+    return nil
 end
 
 -- Players around: {{name, id, position}} (census, metres).
@@ -587,8 +668,10 @@ local function rows_of(api, snap, all)
     local m = mem()
     local now_local = api.now()
     local out, seen = {}, {}
+    snap.req = snap.req or {}
     for id, obj in pairs(snap.objects) do
         local st = W.static(obj)
+        snap.req[id] = W.requirement(api, st)
         out[#out + 1] = M.row(st, snap, m.cast_at[id], now_local)
         seen[id] = true
     end
@@ -606,7 +689,7 @@ local function rows_of(api, snap, all)
     end
     -- castable first (consumers like brain/spells.py keep only the first rows), then what a little
     -- time or a few runes would fix, then what needs the wheel, then locked; by name within each
-    local rank = { on_cooldown = 1, busy = 1, not_enough_resources = 2, not_on_wheel = 3, not_unlocked = 4 }
+    local rank = { on_cooldown = 1, busy = 1, requirement = 2, not_enough_resources = 2, not_on_wheel = 3, not_unlocked = 4 }
     table.sort(out, function(a, b)
         local ra, rb = a.castable and 0 or (rank[a.reason] or 3), b.castable and 0 or (rank[b.reason] or 3)
         if ra ~= rb then return ra < rb end
@@ -641,8 +724,11 @@ local function target_of(api, target, snap)
         if p.id == target or lower(p.name) == lower(target) then return { kind = "player", position = p.position, name = p.name, id = p.id } end
     end
     local t, r = api.find_thing(target)
+    if not t and target:sub(1, 4) == "fol:" then t = W.foliage_thing(api, target) end
     if not t then
-        local d = copy(r and r.data); d.detail = "I can't see " .. target .. " to aim at."
+        local d = copy(r and r.data)
+        d.detail = target:sub(1, 4) == "fol:" and ("I can't see that " .. "tree or plant any more (" .. target .. "); it may have been felled or picked.")
+            or ("I can't see " .. target .. " to aim at.")
         return nil, api.fail("unknown_target", d)
     end
     return { kind = "thing", position = t.position, name = t.name, id = t.id }
@@ -698,7 +784,7 @@ local function new_cast(api, args)
     local acts = W.actions(api)
     local per = snap.per_radial or 12
     local slot = row.wheel_slot % per -- the key within the page
-    if not (acts.menu and acts.quick[slot + 1]) then
+    if not (acts.menu and (acts.quick[slot + 1] or acts.accept)) then
         d.detail = "I can't find the spell wheel's controls right now."
         return nil, api.fail("verification_failed", d)
     end
@@ -747,6 +833,21 @@ local function press(job, name, action)
     return W.inject(job.api, action)
 end
 
+-- Drop spots at least as uneven as one the game already called "not flat" (learned this session).
+function M.filter_spots(spots, bad_spread)
+    if not bad_spread then return spots or {} end
+    local out = {}
+    for _, x in ipairs(spots or {}) do if (x.spread_m or 0) < bad_spread then out[#out + 1] = x end end
+    return out
+end
+
+-- A game validation tag in words: "UI.Notification.SpellPlacement.GroundNotFlatEnough" -> "ground not flat enough".
+function M.tag_words(tag)
+    if not tag then return "it isn't allowed there" end
+    local last = tostring(tag):match("([%w_]+)$") or tostring(tag)
+    return (last:gsub("(%l)(%u)", "%1 %2"):lower())
+end
+
 -- What changed since the cast started (pure on two snapshots).
 function M.diff(before, after, st)
     local out = { runes_spent = {}, ge_added = {}, tags_added = {}, actors_added = {} }
@@ -767,13 +868,90 @@ function M.diff(before, after, st)
     return out
 end
 
+-- (the shared failure shape; `failed` below is the same, defined later for the state machine)
+function M._fail(job, reason, why, detail)
+    job.d.why, job.d.detail, job.d.presses = why, detail, job.presses
+    return { ok = false, reason = reason, data = job.d }
+end
+
+-- Aim candidates for what was asked for: a thing (its body at a few heights; compared in 2D), a
+-- point (itself), or nothing (keep the current, straight-ahead aim). Pure.
+function M.target_candidates(target, cfg)
+    cfg = cfg or M.cfg
+    local p = target and target.kind ~= "self" and target.position or nil
+    if not p then return { { here = true } } end
+    if target.kind == "point" then return { { position = { p[1], p[2], p[3] or 0 }, exact = true } } end
+    local out = {}
+    for _, h in ipairs(cfg.aim_heights_m) do
+        out[#out + 1] = { position = { p[1], p[2], (p[3] or 0) + h }, aim = true, height_m = h }
+    end
+    return out
+end
+
+-- Does the game's validation tag complain about the GROUND (so flat-spot search can help)?
+function M.ground_tag(tag)
+    local t = tostring(tag or ""):lower()
+    return t:find("flat", 1, true) ~= nil or t:find("ground", 1, true) ~= nil or t:find("blocked", 1, true) ~= nil
+        or t:find("slope", 1, true) ~= nil or t:find("surface", 1, true) ~= nil
+end
+
+-- Append flat clear ground spots (traces; around the target or me) after the current candidate.
+function M.add_ground_spots(job, api)
+    job.ground_added = true
+    local around = job.target.kind ~= "self" and job.target.position or nil
+    for _, x in ipairs(M.filter_spots(W.spots(api, around), job.bad_spread)) do job.spots[#job.spots + 1] = x end
+end
+
+-- The one placement/aim failure answer: too far, the game's ground verdict (+ a flat-ground hint),
+-- or "couldn't line it up" with the game's own words. The spell is cancelled by cleanup (never cast).
+function M.placement_failure(job, api, lim)
+    local cfg = M.cfg
+    local tag, far, ground
+    for _, r in ipairs(job.rejects or {}) do
+        if r.game and not tag then tag = r.game end
+        if r.game and M.ground_tag(r.game) then ground = r.game end
+        if r.why == "too_far" then far = r.dist_m end
+    end
+    local what = job.target.name or (job.target.kind ~= "self" and "the target") or nil
+    if far and not tag then
+        return M._fail(job, "too_far", "too_far", "That's too far away for " .. job.row.name .. ": it's " .. math.floor(far + 0.5)
+            .. " m from my view and I can reach about " .. math.floor(lim) .. " m, so I need to get closer.")
+    end
+    if ground and job.ground_ok then
+        local hint = ""
+        local farspots = W.spots(api, nil, { rings = cfg.far_rings_m, los = false })
+        local best = M.filter_spots(farspots, job.bad_spread)[1]
+        if best and job.before.position then
+            local dd = d3(best.position, job.before.position)
+            job.d.flat_spot, job.d.flat_spot_dist_m = best.position, dd and math.floor(dd + 0.5)
+            hint = " The flattest ground I can see is about " .. tostring(job.d.flat_spot_dist_m) .. " m away; I could walk there and try again."
+        end
+        return M._fail(job, "nothing_in_range", "no_valid_spot", "I couldn't find a spot the game accepts for " .. job.row.name ..
+            " near " .. (what and "there" or "me") .. " (the game says: " .. M.tag_words(ground) .. "), so I cancelled the spell." .. hint)
+    end
+    return M._fail(job, "verification_failed", "no_valid_aim", "I couldn't line " .. job.row.name .. " up on " .. (what or "anything in front of me")
+        .. (tag and (" (the game says: " .. M.tag_words(tag) .. ")") or "") .. ", so I cancelled the spell; I may need to stand closer or face it from another side.")
+end
+
+-- The new spell actor that is THIS cast's: the one nearest the preview / chosen spot (within 4 m).
+function M.own_actor(job, df)
+    local ref = job.d.preview_at or job.d.spot
+    if not ref or not df then return nil end
+    local best, bd
+    for _, a in ipairs(df.actors_added or {}) do
+        local d = a.position and d3(a.position, ref)
+        if d and d <= 4 and (not bd or d < bd) then best, bd = a, d end
+    end
+    return best
+end
+
 local function verified_result(job, df)
     local d = job.d
     d.verified = true
     d.runes_spent, d.cooldown_started = df.runes_spent, df.cooldown_started == true
     d.effects = { ge = df.ge_added, tags = df.tags_added }
     d.effect_verified = (#df.ge_added + #df.tags_added + #df.actors_added) > 0
-    local a = df.actors_added[1]
+    local a = M.own_actor(job, df) or df.actors_added[1]
     if a then
         d.spell_actor, d.landed_at = a.id, a.position
         if job.target.kind ~= "self" and a.position and job.target.position then
@@ -781,6 +959,14 @@ local function verified_result(job, df)
         end
     end
     if job.target.kind ~= "self" then d.target = job.target.name or job.target.position end
+    if job.target.kind == "thing" and job.target.id then
+        -- what happened to the target (a tree hit by an aimed spell): gone (felled) or its health now
+        local api = job.api
+        local tt = select(1, api.find_thing(job.target.id))
+        if not tt and tostring(job.target.id):sub(1, 4) == "fol:" then tt = W.foliage_thing(api, job.target.id) end
+        d.target_after = tt and "still_there" or "gone"
+        if tt and tt.health then d.target_health = tt.health end
+    end
     d.presses = job.presses
     mem().cast_at[job.row.id] = job.api.now()
     -- it went off, but not where asked: say so (the brain voices failures, not ok results)
@@ -802,6 +988,14 @@ end
 local function step(job)
     local api, cfg, t = job.api, M.cfg, job.api.now()
     if paused() then return failed(job, "companion_down", "paused", "I'm not in the world right now.") end
+    if job.phase == "settle" then
+        -- a wheel / placement left open by an earlier attempt: wait until it has closed, then open ours
+        local s0 = W.snapshot(api)
+        if s0 and s0.input_mode ~= cfg.gameplay_mode and t < job.until_t then return nil end
+        job.phase, job.until_t, job.tries = "open", t + cfg.open_wait_s, 1
+        press(job, "menu", job.acts.menu)
+        return nil
+    end
     if job.phase == "own" then
         local A = arbiter(api)
         if A then
@@ -818,6 +1012,13 @@ local function step(job)
         end
         W.hooks_start()
         job.ev0 = #mem().events
+        local m0 = job.before.input_mode
+        if m0 and m0 ~= cfg.gameplay_mode and (in_spell_mode(m0) or m0 == cfg.radial_mode) then
+            job.d.closed_previous = m0
+            press(job, "close_previous", (m0 == cfg.radial_mode and job.acts.menu) or job.acts.cancel)
+            job.phase, job.until_t = "settle", t + 1.5
+            return nil
+        end
         job.phase, job.until_t, job.tries = "open", t + cfg.open_wait_s, 1
         press(job, "menu", job.acts.menu)
         return nil
@@ -829,10 +1030,15 @@ local function step(job)
     -- the server's own verdicts (Client RPC hooks)
     local evs = mem().events
     for i = (job.ev0 or 0) + 1, #evs do
-        if evs[i].ev == "on_cooldown" then return failed(job, "on_cooldown", "server_cooldown", job.row.name .. " is still recharging.") end
+        if evs[i].ev == "on_cooldown" and not job.cd_seen then job.cd_seen = t end
     end
     local df = M.diff(job.before, snap, job.st)
-    if df.spent or df.cooldown_started then return verified_result(job, df) end
+    if df.spent or df.cooldown_started or M.own_actor(job, df) then return verified_result(job, df) end
+    -- the server said "on cooldown": give a just-cast spell a moment to show its rune spend / cooldown
+    -- (L13: a retry got server_cooldown right after a cast that DID go off) before believing it
+    if job.cd_seen and t >= job.cd_seen + cfg.cooldown_grace_s then
+        return failed(job, "on_cooldown", "server_cooldown", job.row.name .. " is still recharging.")
+    end
     local mode = snap.input_mode
     if job.phase == "open" then
         if mode == cfg.radial_mode then
@@ -845,8 +1051,22 @@ local function step(job)
             if job.page_sig and sig == job.page_sig and t < (job.page_deadline or 0) then return nil end
             job.page_sig = sig
             if icons[job.slot + 1] == job.st.icon then
+                if job.slot < cfg.quick_keys and job.acts.quick[job.slot + 1] then
+                    job.phase, job.until_t = "select", t + cfg.select_wait_s
+                    press(job, "quick" .. job.slot, job.acts.quick[job.slot + 1])
+                    return nil
+                end
+                -- slots without a number key (9-12): point at the slice like the mouse does (the radial's
+                -- own HighlightSlice handler), CHECK the wheel now names this spell, then press accept.
+                -- Never accept a slice that names another spell.
+                local hl = W.highlight(api, job.slot)
+                if not (hl and hl.section == job.slot and norm_name(hl.name) == norm_name(job.row.name)) then
+                    return failed(job, "verification_failed", "highlight_mismatch", "I couldn't point at " .. job.row.name .. " on my spell wheel"
+                        .. ((hl and hl.name and hl.name ~= "") and (" (it showed " .. hl.name .. ")") or "") .. ", so I didn't pick anything.")
+                end
+                job.d.picked = "pointer"
                 job.phase, job.until_t = "select", t + cfg.select_wait_s
-                press(job, "quick" .. job.slot, job.acts.quick[job.slot + 1])
+                press(job, "accept", job.acts.accept)
                 return nil
             end
             job.flips = (job.flips or 0) + 1
@@ -875,22 +1095,27 @@ local function step(job)
             if sel and sel ~= job.row.id then
                 return failed(job, "verification_failed", "wrong_spell", "My wheel picked a different spell than " .. job.row.name .. ", so I cancelled.")
             end
-            if job.row.cast_type == "placed" then
-                -- choose the spot: candidates (the target, then flat clear points near it / near me),
-                -- each confirmed by the GAME's own placement preview (green/red) before LMB
-                job.spots = W.spots(api, job.target.kind ~= "self" and job.target.position or nil, snap)
-                if #job.spots == 0 then
-                    return failed(job, "nothing_in_range", "no_spot", "I can't find flat, open ground near " ..
-                        (job.target.kind ~= "self" and "there" or "me") .. " to place " .. job.row.name .. ".")
-                end
+            local aimed_at = job.target.kind ~= "self" and job.target.position or nil
+            -- ONE loop for every spell that shows the game's preview (placed, or aimed with a visualizer):
+            -- aim at what was asked for (a thing's body at a few heights, a point, or straight ahead),
+            -- re-read the preview, release LMB only when it is valid and on target. Flat-ground spots
+            -- are added only when the game's own validation tag talks about the ground (not flat /
+            -- blocked), or for a placed spell given no target after "straight ahead" was refused.
+            -- (L14/L15: one-shot aims threw at nothing; ground spots never validated on a log.)
+            if job.row.cast_type == "placed" or mode == "DIM_SpellPlacementMode" or W.preview(api) then
+                job.aim_mode = job.row.cast_type ~= "placed"
+                job.ground_ok = job.row.cast_type == "placed"
+                job.spots = M.target_candidates(job.target, cfg)
+                job.place_deadline = t + cfg.place_budget_s
                 job.spot_i, job.rejects, job.phase, job.next_spot = 0, {}, "place_check", true
                 return nil
             end
-            if job.target.kind ~= "self" and job.target.position then
-                local dist = W.aim(api, job.target.position)
-                local lim = (snap.place_max_m and snap.place_max_m > 0) and snap.place_max_m or cfg.place_max_m
+            if aimed_at then
+                local dist = W.aim(api, { aimed_at[1], aimed_at[2], (aimed_at[3] or 0) + cfg.aim_heights_m[1] })
+                local lim = job.st.reach_m or ((snap.place_max_m and snap.place_max_m > 0) and snap.place_max_m) or cfg.place_max_m
                 if dist and dist > lim + 0.5 then
-                    return failed(job, "too_far", "too_far", "That's too far away to place " .. job.row.name .. " (" .. math.floor(dist) .. " m; I can reach about " .. math.floor(lim) .. " m).")
+                    return failed(job, "too_far", "too_far", "That's too far away for " .. job.row.name .. ": it's " .. math.floor(dist + 0.5)
+                        .. " m from my view and I can reach about " .. math.floor(lim) .. " m, so I need to get closer.")
                 end
             end
             job.phase, job.until_t = "verify", t + cfg.verify_s
@@ -902,7 +1127,11 @@ local function step(job)
             return nil
         end
         if t >= job.until_t then
-            return failed(job, "verification_failed", "not_selected", "I opened the spell wheel but " .. job.row.name .. " didn't get selected.")
+            if job.d.precheck == "on_cooldown" then
+                return failed(job, "on_cooldown", "cooldown", job.d.precheck_detail or (job.row.name .. " is still recharging."))
+            end
+            local need = job.st.special_req and (" (the game says it needs: " .. (job.st.special_req:gsub("%s+$", "")) .. ")") or ""
+            return failed(job, "verification_failed", "not_selected", "I opened the spell wheel but " .. job.row.name .. " didn't get selected" .. need .. ".")
         end
         return nil
     end
@@ -910,31 +1139,42 @@ local function step(job)
         if not in_spell_mode(mode) then
             return failed(job, "verification_failed", "placement_closed", "The placement preview for " .. job.row.name .. " closed before I could place it.")
         end
-        local lim = (snap.place_max_m and snap.place_max_m > 0) and snap.place_max_m or cfg.place_max_m
+        local lim = job.st.reach_m or ((snap.place_max_m and snap.place_max_m > 0) and snap.place_max_m) or cfg.place_max_m
+        local function give_up()
+            job.d.rejected = job.rejects
+            return M.placement_failure(job, api, lim)
+        end
+        if t >= (job.place_deadline or math.huge) then return give_up() end
         if job.next_spot then
             job.next_spot = nil
-            while true do -- the next spot within the camera's reach
+            while true do -- the next candidate within the camera's reach
                 job.spot_i = job.spot_i + 1
                 local sp = job.spots[job.spot_i]
-                if not sp or job.spot_i > cfg.max_spots then
-                    local why = job.rejects[1] and job.rejects[1].game or nil
-                    job.d.rejected = job.rejects
-                    return failed(job, "nothing_in_range", "no_valid_spot", "I couldn't find a spot the game accepts for " .. job.row.name ..
-                        " near " .. (job.target.kind ~= "self" and "there" or "me") .. (why and (" (" .. why .. ")") or "") .. "; it needs flat, open ground.")
+                if not sp and job.ground_ok and not job.ground_added and job.target.kind == "self" then
+                    M.add_ground_spots(job, api) -- a placed spell with no target: "straight ahead" was refused
+                    sp = job.spots[job.spot_i]
                 end
+                if not sp or job.spot_i > cfg.max_spots then return give_up() end
+                if sp.here then break end
                 local dist = W.aim(api, sp.position)
                 if not dist or dist <= lim + 0.5 then break end
-                job.rejects[#job.rejects + 1] = { spot = sp.position, why = "too_far" }
+                job.rejects[#job.rejects + 1] = { spot = sp.position, why = "too_far", dist_m = math.floor(dist * 10 + 0.5) / 10 }
             end
-            job.spot_t = t + cfg.preview_wait_s
+            job.spot_t, job.checks = t + cfg.preview_wait_s, 0
             return nil
         end
         if t < job.spot_t then return nil end
         local sp = job.spots[job.spot_i]
         local vis = W.preview(api)
-        local near = vis and vis.position and d3(vis.position, sp.position)
-        if vis and vis.valid == true and (not near or near <= cfg.preview_match_m) then
-            job.d.spot, job.d.spot_flatness, job.d.preview_at = sp.position, sp.spread_m, vis.position
+        local near
+        if vis and vis.position and sp.position then
+            if sp.aim then -- aimed: the preview sits on/at the target, compare in 2D
+                near = math.sqrt((vis.position[1] - sp.position[1]) ^ 2 + (vis.position[2] - sp.position[2]) ^ 2)
+            else near = d3(vis.position, sp.position) end
+        end
+        local match = sp.here or not near or near <= (sp.aim and cfg.aim_match_m or cfg.preview_match_m)
+        if vis and vis.valid == true and match then
+            job.d.spot, job.d.spot_flatness, job.d.preview_at, job.d.aim_height_m = sp.position, sp.spread_m, vis.position, sp.height_m
             if #job.rejects > 0 then job.d.rejected = job.rejects end
             job.phase, job.until_t = "verify", t + cfg.verify_s
             press(job, "place", job.acts.place)
@@ -947,12 +1187,35 @@ local function step(job)
             press(job, "place", job.acts.place)
             return nil
         end
+        -- re-aim and look again a few times before moving on (the preview follows the camera)
+        job.checks = (job.checks or 0) + 1
+        if job.checks < cfg.preview_checks then
+            if sp.position then W.aim(api, sp.position) end
+            job.spot_t = t + cfg.preview_wait_s
+            return nil
+        end
         job.rejects[#job.rejects + 1] = { spot = sp.position, valid = vis.valid, game = vis.tag, preview_at = vis.position,
-                                          off_m = near and math.floor(near * 10 + 0.5) / 10 or nil }
+                                          spread_m = sp.spread_m, height_m = sp.height_m, off_m = near and math.floor(near * 10 + 0.5) / 10 or nil }
+        -- the game's verdict decides the search: a ground complaint brings in flat-ground spots
+        if job.ground_ok and not job.ground_added and M.ground_tag(vis.tag) then M.add_ground_spots(job, api) end
+        -- learn the game's flatness limit (this cast only): a spot it calls "not flat" bounds the
+        -- spread it accepts, so equally uneven candidates are skipped; kept as a hint in mem().bad_spread
+        if vis.tag and vis.tag:find("NotFlat", 1, true) and sp.spread_m then
+            job.bad_spread = math.min(job.bad_spread or math.huge, sp.spread_m)
+            mem().bad_spread = job.bad_spread
+            local keep = {}
+            for i, x in ipairs(job.spots) do if i <= job.spot_i or (x.spread_m or 0) < job.bad_spread then keep[#keep + 1] = x end end
+            job.spots = keep
+        end
         job.next_spot = true
         return nil
     end
-    -- verify
+    -- verify (a placed spell plays its cast animation in a spell input mode first: live, Summon
+    -- Shelter spent its runes only after the 4 s window, so keep waiting while the game is casting)
+    job.cast_deadline = job.cast_deadline or (t + cfg.cast_max_s)
+    if t >= job.until_t and (in_spell_mode(mode) or (snap.casting and snap.casting == job.row.id)) and t < job.cast_deadline then
+        return nil
+    end
     if t >= job.until_t then
         return failed(job, "verification_failed", "no_effect", "I tried to cast " .. job.row.name .. " but no runes were used and it didn't go on cooldown"
             .. (snap.casting and " (still casting)" or "") .. ".")
@@ -960,6 +1223,45 @@ local function step(job)
     return nil
 end
 M._step = step
+
+-- After a cast answered "failed", the game may still finish it (a slow animation, a late commit):
+-- watch for ~15 s and, if runes fall / the cooldown starts / our spell actor appears, write an
+-- activity event so the brain can correct itself ("it did work after all"). Never while paused.
+M.LATE_EVENT_PATH = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/") .. "/client_io/events/activity.jsonl"
+function M.emit_activity(ev)
+    local root = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
+    local okj, json = pcall(function() return assert(loadfile(root .. "/client_mod/scripts/dkjson.lua"))() end)
+    if not okj then return false end
+    ev.type, ev.ts = "activity", os.time()
+    ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts)
+    local f = io.open(M.LATE_EVENT_PATH, "a")
+    if not f then return false end
+    f:write(json.encode(ev), "\n"); f:close()
+    return true
+end
+function M.watch_late(job)
+    if type(LoopInGameThreadWithDelay) ~= "function" then return end
+    local n, h = 0, nil
+    h = LoopInGameThreadWithDelay(1000, function()
+        n = n + 1
+        local done = n > M.cfg.late_watch_s or paused()
+        if not done then
+            local snap = W.snapshot(job.api)
+            local df = snap and M.diff(job.before, snap, job.st)
+            if df and (df.spent or df.cooldown_started or M.own_actor(job, df)) then
+                local a = M.own_actor(job, df) or (df.actors_added or {})[1]
+                M.emit_activity({ kind = "cast_late_success", by = "spells", spell = job.row.name, id = job.row.id,
+                                  runes_spent = df.runes_spent, landed_at = a and a.position or nil, spell_actor = a and a.id or nil,
+                                  earlier_reason = job.d.why, detail = "My " .. job.row.name .. " did go off after all." })
+                mem().cast_at[job.row.id] = job.api.now()
+                done = true
+            end
+        end
+        if done and h then pcall(CancelDelayedAction, h) end
+        return done
+    end)
+end
+M.LATE_REASONS = { verification_failed = true, timeout = true, interrupted = true, body_error = true, on_cooldown = true, busy = true }
 
 local function cast(log, args, ctx)
     local api = ctx and ctx.api
@@ -970,12 +1272,20 @@ local function cast(log, args, ctx)
     w.poll = function()
         local ok, res = pcall(step, job)
         if not ok then res = failed(job, "body_error", "error", tostring(res)) end
-        if res then cleanup(job); if not res.ok then job.d.why = res.data and res.data.why end; return res end
+        if res then
+            cleanup(job)
+            if not res.ok then
+                job.d.why = res.data and res.data.why
+                if M.LATE_REASONS[res.reason] and job.presses[1] then pcall(M.watch_late, job) end
+            end
+            return res
+        end
         return nil
     end
     w.expire = function()
         local res = failed(job, "timeout", "timeout", "Casting " .. job.row.name .. " took too long, so I stopped.")
         cleanup(job)
+        if job.presses[1] then pcall(M.watch_late, job) end
         return res
     end
     M._last_job = job

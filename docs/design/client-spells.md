@@ -114,3 +114,16 @@ Status: **rev 2**, after review aa990d09b7e96fb65 (CHANGES-NEEDED: 5 items, all 
 - **Small real-model eval** (≤ 6 Haiku calls, stated before running):
   - "can you get up there?" and the held-out phrasing "jump that wall", each with a ledge in perception, should choose `cast Windstep` from the description alone;
   - "make a shelter" should get a truthful "I can't yet: Construction 20".
+
+## Rev 3 (live run, 2026-10-25 evening)
+- **Placed spells choose their own spot** (main's request).
+  - Candidates come from traces: rings at 3–9 m around me, or the target, then 2 and 3.5 m rings around it. They are ranked by 3x3 ground spread, with overhead clearance and line of sight checked.
+  - Each candidate is confirmed by the **game's own placement preview** (`AUtilitySpellPlacementVisualizer.bCurrentPlacementValid` + `CurrentAdditionalValidationInfo`) before LMB.
+  - A "not flat" verdict skips equally uneven candidates for the rest of the cast.
+  - If nothing is accepted: `nothing_in_range` / `no_valid_spot`, the game's reason in words, and a `flat_spot` hint 15–30 m away. The model decides whether to walk there.
+- **Verification:**
+  - Wait through the cast animation (up to 12 s in a spell input mode).
+  - A new own spell actor near the preview counts as success.
+  - A late watcher (15 s) emits `cast_late_success` activity.
+  - A leftover open wheel is closed first.
+  - The cooldown uses the client world clock.

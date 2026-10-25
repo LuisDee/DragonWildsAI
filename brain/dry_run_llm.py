@@ -52,7 +52,7 @@ class DryRunController:
         last = messages[-1] if messages else {}
         # A failed action's follow-up (Controller.follow_up): the dry run has nothing better than the
         # truthful reason template, so it says nothing and the Agent falls back to it.
-        if last.get("role") == "user" and not ctx and any(m.get("role") == "tool" for m in messages[-4:]):
+        if last.get("role") == "user" and not ctx:  # a continuation / follow-up / promise-check note
             return LLMResponse(content="")
         # A tool result came back this turn (a read tool such as inventory): answer from it.
         if last.get("role") == "tool":

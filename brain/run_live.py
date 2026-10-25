@@ -55,6 +55,7 @@ from .transport import JsonlFileTransport, endpoint_files
 DEFAULT_PREFIXES = ["!c ", "claude,", "claude:", "@claude ", "claude ", "companion,", "companion:", "@companion "]
 PREFIX_ENV = "DW_CHAT_PREFIXES"
 PING = "!ping"
+PARTNER_S = 180.0  # a player he answered this recently is the one he is talking with
 PONG = "pong"
 
 
@@ -83,7 +84,7 @@ class ChatMemory:
     what is meant for him): the last ``max_lines`` lines of the last ``max_age_s`` seconds, his own
     lines included (``you``)."""
 
-    def __init__(self, name: str, max_lines: int = 20, max_age_s: float = 300.0,
+    def __init__(self, name: str, max_lines: int = 12, max_age_s: float = 240.0,
                  clock: Callable[[], float] = time.monotonic):
         self.name = name
         self.max_lines, self.max_age_s, self.clock = max_lines, max_age_s, clock
@@ -118,11 +119,37 @@ class LiveAgent(Agent):
         self.calls_per_min, self.debounce_s, self.clock = calls_per_min, debounce_s, clock
         self.chat = ChatMemory(self.controller.name, clock=clock)
         self.controller.chat_provider = self.chat.lines
-        self.controller.on_say = lambda text: self.chat.add(self.controller.name, text, you=True)
-        self._pending: list[tuple[float, ChatHeard]] = []
+        self._pending: list[tuple[float, ChatHeard, bool, str]] = []  # (heard at, event, addressed, text)
         self._calls: deque[float] = deque()
+        self._partner: tuple[str, float] | None = None  # the player he last answered, and when
+        self._talking_to: str | None = None
+        self.controller.on_say = self._said
+        if hasattr(self.game, "interrupt_check"):  # L2(a): the player's addressed line gets the floor at once
+            self.game.interrupt_check = self._addressed_line
+
+    def _addressed_line(self, event: Event) -> bool:
+        if isinstance(event, CommandReceived):
+            return True
+        return isinstance(event, ChatHeard) and \
+            chat_route(event.text, self.prefixes, self.controller.name)[0] in ("command", "ping")
 
     # ---------------------------------------------------------------- chat
+    def _said(self, text: str) -> None:
+        self.chat.add(self.controller.name, text, you=True)
+        if self._talking_to:
+            self._partner = (self._talking_to, self.clock())
+
+    def _with(self, player: str) -> str | None:
+        """Why a line from ``player`` counts as addressed without his name (speed plan §2.1: Luis rarely
+        says "claude"): he is the one Claude is talking with, or the only player around."""
+        if self._partner and self._partner[0] == player and self.clock() - self._partner[1] <= PARTNER_S:
+            return "his conversation partner"
+        seen = self.broker._seen or {}
+        names = [str(p.get("name")) for p in seen.get("players") or [] if isinstance(p, dict) and p.get("name")]
+        if names == [player]:
+            return "the only player around"
+        return None
+
     def _decision(self, player: str, text: str, decision: str, reason: str, **extra) -> None:
         self.log.log("chat_decision", player=player, text=text, decision=decision, reason=reason, **extra)
 
@@ -135,13 +162,15 @@ class LiveAgent(Agent):
     def _run(self, player: str, text: str, addressed: bool) -> None:
         self._calls.append(self.clock())
         command = CommandReceived(player=player, text=text)
-        self.controller.note_event(command)
+        self._talking_to = player
         try:
             self._command(command, addressed=addressed, body_events=self.take_situations() or None)
         except Exception as exc:  # a model/provider error must not kill the session
             self.log.log("command_error", error=repr(exc), traceback=traceback.format_exc())
             if addressed:
                 self.controller.say("Sorry, my head glitched on that one. Try again?")
+        finally:
+            self._talking_to = None
 
     def _rate_capped(self) -> bool:
         now = self.clock()
@@ -156,32 +185,41 @@ class LiveAgent(Agent):
         if route == "ping":
             self._decision(event.player, event.text, "ping", "!ping (no model)")
             return self._ping(event.player)
-        if route == "command":
-            mine = [ev for _, ev in self._pending if ev.player == event.player]
-            self._pending = [(t, ev) for t, ev in self._pending if ev.player != event.player]
-            for ev in mine:
+        if route == "command":  # named: at once, taking his pending lines along
+            mine = [(ev, t) for _, ev, _, t in self._pending if ev.player == event.player]
+            self._pending = [x for x in self._pending if x[1].player != event.player]
+            for ev, _ in mine:
                 self._decision(ev.player, ev.text, "merged", "burst: decided together with his addressed line")
-            text = " / ".join([ev.text.strip() for ev in mine] + [text])
+            text = " / ".join([t.strip() for _, t in mine] + [text])
             self._decision(event.player, event.text, "addressed", "named or prefixed", command=text)
             return self._run(event.player, text, addressed=True)
-        self._pending.append((self.clock(), event))
-        self._decision(event.player, event.text, "pending", "not named: the model decides after the burst")
+        if why := self._with(event.player):
+            self._pending.append((self.clock(), event, True, event.text))
+            self._decision(event.player, event.text, "addressed", why)
+        else:
+            self._pending.append((self.clock(), event, False, event.text))
+            self._decision(event.player, event.text, "pending", "not named: the model decides after the burst")
+        if self.debounce_s <= 0:
+            self.flush_chat()
 
     def flush_chat(self) -> None:
-        """Decide on unaddressed lines once the chat has been quiet for ``debounce_s``."""
+        """Run the burst once the chat has been quiet for ``debounce_s`` (0.8 s): ONE run with all of the
+        last speaker's lines; it is addressed when any of them was (named, or from the player he is with)."""
         if not self._pending:
             return
         if self.clock() - self._pending[-1][0] < self.debounce_s and len(self._pending) < 4:
             return
         batch, self._pending = self._pending, []
         last = batch[-1][1]
-        for _, ev in batch[:-1]:
+        mine = [(ev, addr, text) for _, ev, addr, text in batch if ev.player == last.player]
+        for _, ev, _, _ in batch[:-1]:
             self._decision(ev.player, ev.text, "merged", "burst: decided together with the last line")
-        text = " / ".join(ev.text.strip() for _, ev in batch if ev.player == last.player)
-        if self._rate_capped():
+        addressed = any(addr for _, addr, _ in mine)
+        text = " / ".join(t.strip() for _, _, t in mine)
+        if not addressed and self._rate_capped():
             self._decision(last.player, text, "ignored", f"rate cap ({self.calls_per_min} model calls/min)")
             return
-        self._run(last.player, text, addressed=False)
+        self._run(last.player, text, addressed=addressed)
 
     def _chat_waiting(self) -> bool:
         return bool(self._pending)
@@ -233,7 +271,7 @@ class LiveOptions:
     # chat reading (client body): model calls per minute for lines nobody addressed to him, and the
     # quiet time that ends a burst of lines (DW_CHAT_CALLS_PER_MIN, DW_CHAT_DEBOUNCE_S)
     chat_calls_per_min: int = field(default_factory=lambda: int(os.environ.get("DW_CHAT_CALLS_PER_MIN", "20")))
-    chat_debounce_s: float = field(default_factory=lambda: float(os.environ.get("DW_CHAT_DEBOUNCE_S", "2.0")))
+    chat_debounce_s: float = field(default_factory=lambda: float(os.environ.get("DW_CHAT_DEBOUNCE_S", "0.8")))
     # game knowledge (brain/knowledge.py: game data + local wiki mirror) behind the lookup tool; DW_KNOWLEDGE=0 off
     knowledge: bool = field(default_factory=lambda: os.environ.get("DW_KNOWLEDGE", "1") != "0")
 
@@ -270,6 +308,7 @@ class LiveSession:
         self.controller = Controller(controller_llm, self.client, self.store, self.log,
                                      name=opts.name, player=opts.player, available_tools=self.caps.tools,
                                      skills=self.skills, caps=self.caps, knowledge=self.knowledge)
+        self.executor.max_attempts = 1  # speed plan §2.3: no executor retries live; results go to the model
         self.agent = LiveAgent(self.client, self.controller, self.planner, self.executor, self.store,
                                self.log, prefixes=opts.prefixes, skills=self.skills,
                                calls_per_min=opts.chat_calls_per_min, debounce_s=opts.chat_debounce_s)

@@ -10,7 +10,7 @@ def test_item_tools_in_the_contract():
     schemas = {s["function"]["name"]: s["function"]["parameters"] for s in tool_schemas()}
     assert set(schemas["pickup"]["required"]) == {"target"}
     assert set(schemas["drop"]["required"]) == {"item", "count"}
-    assert validate_args("drop", {"item": "oak", "count": 3}) == {"item": "oak", "count": 3, "at": "feet"}
+    assert validate_args("drop", {"item": "oak", "count": 3}) == {"item": "oak", "count": 3, "at": "feet", "player": None}
     assert validate_args("pickup", {"target": "nearest"})["limit"] == 1
     for bad in ({"item": "oak", "count": 0}, {"item": "oak", "count": 1, "at": "moon"}):
         try:

@@ -1099,9 +1099,10 @@ do
     M.MANIFEST = {
         gather = { kind = "action", llm = true, moves = true, priority = "task", duration_s = 120, timeout_s = 1800,
             detail_is_speech = true,
-            description = "Harvest a resource kind nearby until you have count MORE of it (chop trees/logs/stumps, mine rocks, "
-                .. "pick ground resources). Finds targets itself and equips the right tool you carry. style picks one of the "
-                .. "tool's own actions (see held_actions; e.g. the axe has Chop and Overhead Chop).",
+            description = "Harvest a resource kind (resource = a profile key, e.g. oak, ash, stone) until you have `count` MORE "
+                .. "of it in your inventory. It finds standing trees, felled trunks, logs, stumps (only with stumps=true), rocks and "
+                .. "ground resources itself, nearest first, equips the right tool you carry, and fails naming the tool it needs. "
+                .. "style picks one of the held tool's own actions (see held_actions, e.g. an axe's Chop or Overhead Chop).",
             args = { type = "object", required = { "resource", "count" }, properties = obj({
                 resource = { type = "string", description = "Resource kind, e.g. 'oak', 'ash', 'stone', 'log'." },
                 count = { type = "integer", minimum = 1, description = "How many more to gather." },

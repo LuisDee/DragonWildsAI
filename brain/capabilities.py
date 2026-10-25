@@ -133,8 +133,8 @@ class Capabilities:
             for k, p in (schema.get("properties") or {}).items():
                 if k not in clean and isinstance(p, dict) and "default" in p:
                     clean[k] = p["default"]
-        if name in TOOLS:
-            return validate_args(name, clean)
+        if name in TOOLS:  # typed defaults; unset optionals stay absent (the body's schema decides them)
+            return {k: v for k, v in validate_args(name, clean).items() if v is not None}
         return clean
 
 

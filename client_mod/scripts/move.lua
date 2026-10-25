@@ -95,7 +95,10 @@ M.cfg = {
     lp_cache_ttl_s = 30,       -- world-aligned cell cache shared by plans and prefetch (builds change)
     prefetch_every = 3,        -- while moving: sample one cell ahead (2 traces) every N frames, so a
                                -- later plan mostly hits the cache (cuts the ~0.9 s standstill)
-    allow_unstuck = true,      -- the game's own Unstuck (pause menu, teleports to start): LAST rung,
+    allow_unstuck = false,     -- DISABLED (live 20:49:34: client CRASH, UE4SS push_arrayproperty access
+                               -- violation right after the pause-menu Unstuck teleport). Opt-in only via
+                               -- opts.allow_unstuck=true, and then it holds _G.DW_PAUSE across the teleport.
+                               -- Default: report "stuck" and ask for help instead. (Was: the game's own
                                -- just before reporting "stuck" (Luis's decision 2026-10-25)
     lp_max_plans = 4,          -- plans without progress before the ladder takes over
     lp_cooldown_s = 1.5,       -- after a failed plan
@@ -103,6 +106,9 @@ M.cfg = {
     probe_ahead_cm = 150,
     probe_wall_nz = 0.7,       -- hit normal Z below this = wall (WalkableFloorAngle ~45 deg)
     follow_hysteresis_cm = 100,
+    hop_dist_cm = 120,         -- a low obstacle (blocked at knee, clear at jump height) this close: jump now
+    water_depth = 0.25,        -- EnvironmentComponent:GetNormalizedWaterDepth() above this = in water
+    water_cell_cost = 8,       -- local planner: extra cost per known-water cell (prefer going round)
     bug_side_s = 12,           -- Bug2: time per side (left-hand, then right-hand)
     bug_side_cm = 3500,        -- Bug2: distance per side
     help_player_cm = 4000,     -- ask for help when a player is this close
@@ -266,6 +272,36 @@ local function raw_trace(ctx, a, b)
     end
     local hit = KSL:LineTraceSingle(ctx, a, b, 0, false, {}, 0, out, true, C0, C0, 0.0)
     return hit == true, out
+end
+
+-- WATER SENSE: which trace channel reports the water SURFACE (the pawn profile passes through water
+-- to the bed)? Calibrated the first time Claude wades: a downward trace beside him that hits above
+-- his feet. Candidates: Visibility (0), Camera (1) channels; WorldStatic (0) / WorldDynamic (1) objects.
+local WATER_CANDIDATES = { { ch = 0, name = "vis" }, { ch = 1, name = "cam" }, { ot = 0, name = "static" }, { ot = 1, name = "dyn" } }
+local function trace_with(c, ctx, a, b)
+    KSL = KSL or StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+    local out = {}
+    local hit
+    if c.ch then hit = KSL:LineTraceSingle(ctx, a, b, c.ch, false, {}, 0, out, true, C0, C0, 0.0)
+    else hit = KSL:LineTraceSingleForObjects(ctx, a, b, { c.ot }, false, {}, 0, out, true, C0, C0, 0.0) end
+    return hit == true, out
+end
+
+local function water_sense_calibrate(st, pawn, me, fe, dx, dy, log)
+    if rawget(_G, "DW_WATER_CH") ~= nil then return end
+    local x, y = me.X + dx * 90, me.Y + dy * 90 -- beside Claude (his own gear blocks traces)
+    for _, c in ipairs(WATER_CANDIDATES) do
+        local ok, hit, out = pcall(trace_with, c, pawn, { X = x, Y = y, Z = fe.Z + 300 }, { X = x, Y = y, Z = fe.Z - 300 })
+        if log then log(string.format("move: water sense try %s: ok=%s hit=%s z=%s feet=%.0f", c.name, tostring(ok), tostring(hit),
+            tostring(ok and type(out) == "table" and out.ImpactPoint and math.floor(out.ImpactPoint.Z) or out), fe.Z)) end
+        if ok and hit and out.ImpactPoint and out.ImpactPoint.Z > fe.Z + 15 and out.ImpactPoint.Z < fe.Z + 250 then
+            _G.DW_WATER_CH = c
+            if log then log("move: water sense: channel '" .. c.name .. "' sees the surface") end
+            return
+        end
+    end
+    _G.DW_WATER_CH = false
+    if log then log("move: water sense: no trace channel sees the water surface (learning by wading only)") end
 end
 
 local function make_trace(st, pawn)
@@ -546,7 +582,21 @@ local function lp_begin(st, pawn, me, far, why, log)
     st.env = st.env or envelope(pawn, st.pc)
     st.lp = LP.new({ trace = make_trace(st, pawn), center = v(me), feet_z = me.Z - hh,
         radius_m = M.cfg.lp_grid_m, cell_cm = M.cfg.lp_cell_cm, env = st.env,
-        cache = lp_cache(), now = function() return now(pawn) end, self_pos = v(me) })
+        cache = lp_cache(), now = function() return now(pawn) end, self_pos = v(me),
+        cell_cost = function(x, y)
+            local mem, NMm = nav_mem()
+            return (mem and NMm.is_water(mem, { X = x, Y = y })) and M.cfg.water_cell_cost or 0
+        end,
+        water_probe = rawget(_G, "DW_WATER_CH") and function(x, y, floor_z)
+            local c = rawget(_G, "DW_WATER_CH")
+            local ok, hit, out = pcall(trace_with, c, pawn, { X = x, Y = y, Z = floor_z + 300 }, { X = x, Y = y, Z = floor_z - 50 })
+            if ok and hit and out.ImpactPoint and out.ImpactPoint.Z > floor_z + 15 then
+                local mem, NMm = nav_mem()
+                if mem then NMm.mark_water(mem, { X = x, Y = y, Z = floor_z }) end
+                return true
+            end
+            return false
+        end or nil })
     st.lp_t0 = now(pawn)
     st.lp_far, st.lp_state, st.lp_why = v(far), "sampling", why
     st.lp_runs = (st.lp_runs or 0) + 1
@@ -578,7 +628,7 @@ local function lp_work(st, t, log)
             local pts = st.lp_rounds <= 12 and P:plan(st.lp_far) or nil
             if not pts then
                 st.lp, st.lp_state, st.lp_fail_t, st.lp_fail = nil, nil, t, "verify_exhausted"
-                if log then log("move: local plan failed: walls everywhere (" .. table.concat(P.block_log or {}, " ") .. ")") end
+                if log then log("move: local plan failed: walls everywhere (" .. table.concat(P.block_log or {}, " ") .. ") hops=" .. tostring(P.hops) .. " steeps=" .. tostring(P.steeps) .. " firstseg=" .. tostring(P.first_blocks)) end
                 st.want_trail = true
                 st.nav_force = true
                 return false
@@ -812,6 +862,38 @@ local function tick(st, gen, log)
         end
     end
 
+    -- WATER: learned from wading/swimming (EnvironmentComponent depth, MovementMode 4 = swimming);
+    -- entering water, or known water ahead on the route, triggers a local re-plan that goes round
+    if st.ticks % 6 == 0 then
+        local okd, depth = pcall(function() return pawn.EnvironmentComponent:GetNormalizedWaterDepth() end)
+        local okm, mmode = pcall(function() return pawn.CharacterMovement.MovementMode end)
+        local wet = (okd and tonumber(depth) and tonumber(depth) > M.cfg.water_depth) or (okm and mmode == 4)
+        local mem, NMm = nav_mem()
+        if wet and mem then
+            if NMm.mark_water(mem, fe) then st.water_new = (st.water_new or 0) + 1 end
+            if not st.in_water then
+                local hx, hy = 1, 0
+                if st.aim then
+                    local ax2, ay2 = st.aim.X - me.X, st.aim.Y - me.Y
+                    local al = math.max(math.sqrt(ax2 * ax2 + ay2 * ay2), 1)
+                    hx, hy = ax2 / al, ay2 / al
+                end
+                water_sense_calibrate(st, pawn, me, fe, hx, hy, log)
+                st.in_water = true
+                st.water_entries = (st.water_entries or 0) + 1
+                if log then log("move: entered water at " .. fmt(me) .. "; re-planning round it") end
+                if st.use_lp and not st.trail_i then st.lpath, st.water_replan = nil, true end
+            end
+        elseif not wet then
+            if st.in_water and mem and (st.water_new or 0) > 0 then pcall(NMm.save, mem); st.water_new = 0 end
+            st.in_water = nil
+        end
+        if st.target and st.target_kind == "player" and mem then
+            local okl, ldepth = pcall(function() return st.target.EnvironmentComponent:GetNormalizedWaterDepth() end)
+            if okl and tonumber(ldepth) and tonumber(ldepth) > M.cfg.water_depth then NMm.mark_water(mem, feet_of(st, goal)) end
+        end
+    end
+
     -- go_to waiting for / being led out by a helper (after asking "lead me")
     local ld = st.lead
     if ld then
@@ -1001,8 +1083,27 @@ local function tick(st, gen, log)
         end
         if st.link_exec then idx_progress = true end -- executing a link is progress (no give-up mid-run)
     end
+    local so = st.stepoff
+    if so then
+        if d2(me, so.start) > 120 or (so.start.Z - me.Z) > 60 then
+            if log then log("move: stepped off") end
+            st.stepoff = nil
+            st.prog_t, st.prog_pos, st.move_acc, st.bt_tested, st.stuck_n, st.nav_force = t, v(me), 0, nil, 0, true
+            st.lpath = nil
+        elseif t - so.t0 > 0.6 then
+            so.i, so.t0 = so.i + 1, t
+            if so.i > 8 then st.stepoff = nil end
+        end
+        if st.stepoff then
+            local yaw = so.yaw0 + so.i * 45 * ((so.i % 2 == 0) and 1 or -1)
+            aim, src = { X = me.X + math.cos(math.rad(yaw)) * 300, Y = me.Y + math.sin(math.rad(yaw)) * 300, Z = me.Z }, "stepoff"
+            idx_progress = true
+        end
+    end
     local bug = st.bug
-    if bug and not (lx and st.link_exec) then
+    if st.stepoff then
+        -- steering point chosen by step-off
+    elseif bug and not (lx and st.link_exec) then
         -- BUG2 wall-following (automaticaddison.com/the-bug2-algorithm-for-robot-motion-planning ;
         -- cs.columbia.edu/~allen/F19/NOTES/Chap2-Bug.pdf): keep the obstacle on one side until we
         -- cross the start->goal line closer to the goal than where we hit it. Probes every 3rd frame.
@@ -1047,7 +1148,9 @@ local function tick(st, gen, log)
         end
         if st.bug then aim = { X = me.X + math.cos(math.rad(bug.yaw)) * 300, Y = me.Y + math.sin(math.rad(bug.yaw)) * 300, Z = me.Z } end
     end
-    if bug and st.bug then
+    if st.stepoff then
+        -- steering point chosen by step-off
+    elseif bug and st.bug then
         -- steering point chosen by Bug2
     elseif lx and st.link_exec then
         -- steering point chosen above
@@ -1209,7 +1312,7 @@ local function tick(st, gen, log)
     end
 
     -- forward wall probe (cheap, a few per second): a steep hit at knee height ahead -> plan
-    if st.use_lp and not st.lpath and src ~= "backtrack" and src ~= "link" and src ~= "bug2" and t - (st.probe_t or 0) > M.cfg.probe_every_s
+    if st.use_lp and not st.lpath and src ~= "backtrack" and src ~= "link" and src ~= "bug2" and src ~= "stepoff" and t - (st.probe_t or 0) > M.cfg.probe_every_s
         and t - (st.lp_fail_t or -100) > M.cfg.lp_cooldown_s and st.lp_plans_np < M.cfg.lp_max_plans then
         st.probe_t = t
         local hh = st.half_h or 90
@@ -1219,11 +1322,46 @@ local function tick(st, gen, log)
         local b = { X = me.X + dx * (60 + M.cfg.probe_ahead_cm), Y = me.Y + dy * (60 + M.cfg.probe_ahead_cm), Z = knee }
         local okp, hit, out = pcall(raw_trace, pawn, a, b)
         st.traces = (st.traces or 0) + 1
+        local low = false
         if okp and hit then
             local nz = out.ImpactNormal and out.ImpactNormal.Z or 0
-            if nz < M.cfg.probe_wall_nz and lp_begin(st, pawn, me, far_goal(), "wall_ahead", log) then
-                st.status = "planning"
-                return
+            if nz < M.cfg.probe_wall_nz then
+                -- blocked at the knee but clear at jump height = a LOW obstacle (felled log): jump it
+                local zh = me.Z - hh + ((st.env and st.env.jump) or 165) - 30
+                local okh, hh2 = pcall(raw_trace, pawn, { X = a.X, Y = a.Y, Z = zh }, { X = b.X, Y = b.Y, Z = zh })
+                st.traces = (st.traces or 0) + 1
+                if okh and not hh2 then
+                    low = true
+                    st.probe_t = t - M.cfg.probe_every_s + 0.05 -- watch it closely until we jump
+                    if 60 + (tonumber(out.Distance) or 999) < M.cfg.hop_dist_cm and not st.jump_t then
+                        start_jump(st, t, pawn, false)
+                        st.hops = (st.hops or 0) + 1
+                        if log then log("move: hop over a low obstacle") end
+                    end
+                elseif lp_begin(st, pawn, me, far_goal(), "wall_ahead", log) then
+                    st.status = "planning"
+                    return
+                end
+            end
+        end
+        if not low and st.water_replan then
+            st.water_replan = nil
+            if lp_begin(st, pawn, me, far_goal(), "water", log) then st.status = "planning"; return end
+        end
+        -- known water a few metres ahead on the way (e.g. an oracle route through shallow water)
+        if not low and not st.lpath and not st.in_water and dist > 1000 and not st.trail_i then
+            local mem, NMm = nav_mem()
+            if mem and next(mem.water or {}) then
+                for _, k in ipairs({ 300, 600, 900 }) do
+                    if NMm.is_water(mem, { X = fe.X + dx * k, Y = fe.Y + dy * k }) then
+                        if t - (st.water_plan_t or -100) > 5 and lp_begin(st, pawn, me, far_goal(), "water_ahead", log) then
+                            st.water_plan_t = t
+                            st.status = "planning"
+                            return
+                        end
+                        break
+                    end
+                end
             end
         end
     end
@@ -1284,7 +1422,27 @@ local function tick(st, gen, log)
             st.last_stuck = ev
             if log then log(ev) end
             local planned = false
-            if st.use_lp and n == 1 and t - (st.lp_fail_t or -100) > M.cfg.lp_cooldown_s and st.lp_plans_np < M.cfg.lp_max_plans then
+            if n == 1 and not st.stepoff_tried then
+                -- standing ON TOP of geometry (the floor around us is well below our feet, e.g. on the
+                -- shelter, live 20:49): step off first (a jump forward, then short pushes all round)
+                local feet = me.Z - (st.half_h or 90)
+                local below = 0
+                for k = 0, 3 do
+                    local ang = math.rad(k * 90 + 45)
+                    local px, py = me.X + math.cos(ang) * 90, me.Y + math.sin(ang) * 90
+                    local okf, hitf, outf = pcall(raw_trace, pawn, { X = px, Y = py, Z = feet + 60 }, { X = px, Y = py, Z = feet - 400 })
+                    st.traces = (st.traces or 0) + 1
+                    if okf and (not hitf or (outf.ImpactPoint and outf.ImpactPoint.Z < feet - 60)) then below = below + 1 end
+                end
+                if below >= 3 then
+                    st.stepoff_tried = true
+                    st.stepoff = { i = 0, t0 = t, start = v(me), yaw0 = math.deg(math.atan(goal.Y - me.Y, goal.X - me.X)) }
+                    start_jump(st, t, pawn, false)
+                    if log then log("move: perched on geometry; stepping off") end
+                    planned = true
+                end
+            end
+            if st.use_lp and not planned and n == 1 and t - (st.lp_fail_t or -100) > M.cfg.lp_cooldown_s and st.lp_plans_np < M.cfg.lp_max_plans then
                 st.lpath = nil
                 planned = lp_begin(st, pawn, me, far_goal(), "stuck", log)
             end
@@ -1348,9 +1506,27 @@ local function tick(st, gen, log)
             -- WE cannot move at all (wedged): the game's Unstuck is the last rung, then report
             if log then log("move: self-stuck (moved " .. math.floor(st.move_acc or 0) .. " cm in " .. M.cfg.give_up_s .. " s). " .. tostring(st.last_stuck)) end
             local un = nil
-            if M.cfg.allow_unstuck and st.allow_unstuck ~= false then un = M.unstuck(log) end
-            pcall(emit_move_event, "stuck", { my_pos = me, leader_pos = goal, unstuck = un and (un.ok and "requested" or un.error) })
+            if st.allow_unstuck == true then un = M.unstuck(log) end -- explicit opt-in only
             _G.DW_TRAP_CAND = { at = feet_of(st, me), toward = st.aim and feet_of(st, st.aim) or nil, t = os.time() }
+            local hname, hpawn = nearest_player(pawn, me, M.cfg.help_player_cm)
+            if not st.asked_help then
+                st.asked_help = true
+                pcall(emit_move_event, "stuck", { ask = "lead_me", helper = hname, reason = "wedged", my_pos = me, leader_pos = goal,
+                    where = string.format("at (%.0f, %.0f, %.0f)", me.X / 100, me.Y / 100, me.Z / 100),
+                    unstuck = un and (un.ok and "requested" or un.error) })
+            end
+            if st.mode == "follow" then
+                st.unreach = { reason = "wedged", since = t, check_t = t, leader_pos = v(goal), my_pos = v(me), detail = "can't move" }
+                st.status = "unreachable"
+                return
+            end
+            if hname and hpawn and not st.lead_done then
+                local okl, hl = pcall(function() return hpawn:K2_GetActorLocation() end)
+                st.lead = { pawn = hpawn, name = hname, from = v(me), since = t, leader_pos = okl and v(hl) or v(me), why = "wedged", detail = "can't move" }
+                st.crumbs, st.crumb_mark, st.trail_i = {}, 0, nil
+                st.status = "waiting_for_lead"
+                return
+            end
             return finish(st, { status = "failed", reason = "stuck", dist_m = dist / 100, unstuck = un and (un.ok and "requested" or un.error), at_m = at }, log)
         end
         -- we can move but cannot get closer. First: a remembered route (once per move)?
@@ -1535,13 +1711,23 @@ end
 function M.unstuck(log)
     local api = FindFirstOf("MainMenuUIAPI")
     if not (api and api:IsValid()) then return { ok = false, error = "no MainMenuUIAPI" } end
+    -- every game-thread loop must stay out while the pawn is teleported (crash 20:49:34)
+    local set_pause = rawget(_G, "DW_PAUSE") ~= true
+    if set_pause then _G.DW_PAUSE = true end
     local ok, err = pcall(function() api:NavigateToScreen(12) end)
-    if not ok then return { ok = false, error = "NavigateToScreen: " .. tostring(err) } end
+    if not ok then
+        if set_pause then _G.DW_PAUSE = nil end
+        return { ok = false, error = "NavigateToScreen: " .. tostring(err) }
+    end
+    if set_pause then
+        ExecuteWithDelay(4000, function() ExecuteInGameThread(function() if rawget(_G, "DW_UNSTUCK_PAUSE") then _G.DW_PAUSE = nil; _G.DW_UNSTUCK_PAUSE = nil end end) end)
+        _G.DW_UNSTUCK_PAUSE = true
+    end
     _G.DW_UNSTUCK = { state = "menu_requested" }
     if log then log("move: unstuck requested (pause menu)") end
     ExecuteWithDelay(700, function()
         ExecuteInGameThread(function()
-            if paused() then return end
+            if paused() and not rawget(_G, "DW_UNSTUCK_PAUSE") then return end
             local r = _G.DW_UNSTUCK
             local scr
             for _, w in ipairs(FindAllOf("PauseMenuScreen") or {}) do
@@ -1616,6 +1802,7 @@ function M.status()
         stuck_n = st.stuck_n, stuck_total = st.stuck_total, jumps = st.jumps, double_jumps = st.double_jumps,
         last_stuck = st.last_stuck, ticks = st.ticks, self_edges = st.self_edges,
         prefetched = st.prefetched, lp_stand_s = st.lp_stand_s, unstuck = _G.DW_UNSTUCK,
+        hops = st.hops, water_entries = st.water_entries, in_water = st.in_water,
         bug2 = st.bug and { dir = st.bug.dir, travel_m = math.floor(st.bug.travel) / 100 } or nil,
         lead = st.lead and { helper = st.lead.name, phase = st.lead.phase or "waiting" } or nil,
         memory = st.mpath and { src = st.msrc, wp = st.mwp, n = #st.mpath } or nil, trip_pts = st.trip and #st.trip,
