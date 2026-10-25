@@ -185,7 +185,10 @@ def test_decide_loops_reads_like_the_live_controller(tmp_path):
     llm.push(LLMResponse(tool_calls=[ToolCall("look", {"about": "shelter"}, "c1")]),
              FakeLLM.say("yep", FakeLLM.call("cast", spell="Summon Shelter")))
     budget = ve.Budget(10)
-    rep, reads, _ = ve.decide(case, ve.system_prompt("new", ctl), ctl, llm, budget)
+    seen = []
+    rep, reads, usages = ve.decide(case, ve.system_prompt("new", ctl), ctl, llm, budget,
+                                   on_call=lambda step, u: seen.append(step))
+    assert seen == [0, 1] and [u["step"] for u in usages] == [0, 1]  # every call reported (spend ledger)
     assert budget.used == 2 and reads == [{"tool": "look", "args": {"about": "shelter"}}]
     assert rep["calls"] == [{"tool": "cast", "args": {"spell": "Summon Shelter"}}] and rep["speech"] == "yep"
 
@@ -229,3 +232,36 @@ def test_runner_refuses_without_yes_and_over_the_cap(monkeypatch, capsys):
     assert "planned calls: 54-154" in capsys.readouterr().out
     assert ve.main(["--max-calls", "10", "--yes"]) == 2
     assert ve.main(["--plan"]) == 0
+
+
+
+def test_every_model_call_is_one_priced_spend_row(tmp_path):
+    """tools/spend.py prices each row with a top-level "usage" by its "model": one row per call, read-loop
+    steps and judge calls included, none counted twice (the per-case row carries no top-level usage)."""
+    import sys
+    sys.path.insert(0, str(ROOT / "tools"))
+    import spend
+    usage = {"prompt": 1000, "completion": 50, "cached": 0, "cache_write": 0}
+    first = [True]
+
+    def step(_msgs, _tools):  # the first case reads first (two calls); the rest answer at once
+        if first[0]:
+            first[0] = False
+            return LLMResponse(tool_calls=[ToolCall("look", {"about": "x"}, "c1")], usage=usage)
+        return LLMResponse(content="ok", usage=usage)
+
+    def grade(msgs, _tools):
+        ids = [x["id"] for x in json.loads(msgs[-1]["content"])]
+        return LLMResponse(content=json.dumps([{"id": i, "human": 4, "silence": 4, "match": 4} for i in ids]), usage=usage)
+
+    ctl_llm = FakeLLM([step] * 20, model="anthropic/claude-haiku-5-5")
+    judge_llm = FakeLLM([grade] * 4, model="anthropic/claude-sonnet-5-5")
+    log = ve.JsonlLogger(tmp_path / "voice-eval-test.jsonl")
+    out = ve.run(["old", "new"], cases()[:3], ctl_llm, judge_llm, tmp_path, log)
+    rows = [r for r in ve.read_jsonl(log.path) if isinstance(r.get("usage"), dict)]
+    assert len(rows) == out["calls"] == 7 + 2  # 6 cases + 1 read-loop step + 2 judge calls
+    assert sum(r["kind"] == "voice_llm_call" for r in rows) == 7
+    assert all(r.get("model") and r.get("source") == "evals" for r in rows)
+    st = spend._FileState(log.path, "evals")
+    st.update()
+    assert len(st.rows) == 9 and {r["model"] for r in st.rows} == {ctl_llm.model, judge_llm.model}

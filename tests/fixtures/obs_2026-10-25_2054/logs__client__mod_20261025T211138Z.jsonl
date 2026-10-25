@@ -1,0 +1,20 @@
+{"ts": "2026-10-25T21:11:38Z", "event": "client_module_loaded", "data": {"name": "chat", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T21:11:38Z", "event": "client_module_loaded", "data": {"name": "sense", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T21:11:38Z", "event": "client_module_loaded", "data": {"name": "combat", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T21:11:38Z", "event": "client_module_loaded", "data": {"name": "inventory", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T21:11:38Z", "event": "client_module_loaded", "data": {"name": "tickguard", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T21:11:38Z", "event": "client_bridge_started", "data": {"poll_ms": 100, "chat": "C:/gameserver/client_io/events/chat.jsonl", "dir": "C:/gameserver/client_io/bridge", "offset": 131236}}
+{"ts": "2026-10-25T21:11:38Z", "event": "client_module_loaded", "data": {"name": "move", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T21:11:38Z", "event": "client_module_loaded", "data": {"name": "arbiter", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T21:11:38Z", "event": "client_module_loaded", "data": {"name": "gather", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T21:11:38Z", "event": "client_module_loaded", "data": {"name": "skills", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T21:11:38Z", "event": "client_module_loaded", "data": {"name": "spells", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T21:11:38Z", "event": "client_module_loaded", "data": {"name": "crafting", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T21:13:27Z", "event": "client_action_start", "data": {"id": "8e39ff64cf10", "kind": "interact"}}
+{"ts": "2026-10-25T21:13:29Z", "event": "client_action_end", "data": {"ok": true, "id": "8e39ff64cf10", "kind": "interact"}}
+{"ts": "2026-10-25T21:15:14Z", "event": "client_action_start", "data": {"id": "cf6fae99865e", "kind": "go_to"}}
+{"ts": "2026-10-25T21:15:16Z", "event": "client_action_end", "data": {"ok": true, "id": "cf6fae99865e", "kind": "go_to"}}
+{"ts": "2026-10-25T21:16:31Z", "event": "client_action_start", "data": {"id": "2b85e8f371b4", "kind": "gather"}}
+{"ts": "2026-10-25T21:16:52Z", "event": "client_action_end", "data": {"ok": true, "id": "2b85e8f371b4", "kind": "gather"}}
+{"ts": "2026-10-25T21:17:44Z", "event": "client_action_start", "data": {"id": "347fe2b4a94e", "kind": "interact"}}
+{"ts": "2026-10-25T21:17:47Z", "event": "client_action_end", "data": {"ok": true, "id": "347fe2b4a94e", "kind": "interact"}}

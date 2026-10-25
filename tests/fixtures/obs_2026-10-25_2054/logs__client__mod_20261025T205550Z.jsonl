@@ -1,0 +1,29 @@
+{"ts": "2026-10-25T20:55:50Z", "event": "client_module_loaded", "data": {"name": "chat", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:55:50Z", "event": "client_module_loaded", "data": {"name": "sense", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:55:50Z", "event": "client_module_loaded", "data": {"name": "combat", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:55:50Z", "event": "client_module_loaded", "data": {"name": "inventory", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:55:50Z", "event": "client_module_loaded", "data": {"name": "tickguard", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:55:50Z", "event": "client_bridge_started", "data": {"poll_ms": 100, "chat": "C:/gameserver/client_io/events/chat.jsonl", "dir": "C:/gameserver/client_io/bridge", "offset": 114032}}
+{"ts": "2026-10-25T20:55:50Z", "event": "client_module_loaded", "data": {"name": "move", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:55:50Z", "event": "client_module_loaded", "data": {"name": "arbiter", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:55:50Z", "event": "client_module_loaded", "data": {"name": "gather", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:55:50Z", "event": "client_module_loaded", "data": {"name": "skills", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:55:50Z", "event": "client_module_loaded", "data": {"name": "spells", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:55:50Z", "event": "client_module_loaded", "data": {"name": "crafting", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:56:18Z", "event": "client_action_start", "data": {"id": "9e3c63a93bf0", "kind": "interact"}}
+{"ts": "2026-10-25T20:56:18Z", "event": "client_module_loaded", "data": {"name": "manifest", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:56:18Z", "event": "client_action_end", "data": {"reason": "interrupted", "ok": false, "id": "9e3c63a93bf0", "kind": "interact"}}
+{"ts": "2026-10-25T20:56:19Z", "event": "client_action_start", "data": {"id": "118904acd9bb", "kind": "interact"}}
+{"ts": "2026-10-25T20:56:42Z", "event": "client_action_end", "data": {"reason": "too_far", "ok": false, "id": "118904acd9bb", "kind": "interact"}}
+{"ts": "2026-10-25T20:57:31Z", "event": "client_action_start", "data": {"id": "c1a15f1b61ad", "kind": "go_to"}}
+{"ts": "2026-10-25T20:57:34Z", "event": "client_action_end", "data": {"ok": true, "id": "c1a15f1b61ad", "kind": "go_to"}}
+{"ts": "2026-10-25T20:57:41Z", "event": "client_action_start", "data": {"id": "08754df5cafe", "kind": "interact"}}
+{"ts": "2026-10-25T20:57:48Z", "event": "client_action_end", "data": {"ok": true, "id": "08754df5cafe", "kind": "interact"}}
+{"ts": "2026-10-25T20:57:49Z", "event": "client_module_loaded", "data": {"name": "skills", "loads": 2, "ok": true}}
+{"ts": "2026-10-25T20:57:53Z", "event": "client_module_loaded", "data": {"name": "skills", "loads": 3, "ok": true}}
+{"ts": "2026-10-25T20:57:54Z", "event": "client_action_start", "data": {"id": "931aa0fdad66", "kind": "interact"}}
+{"ts": "2026-10-25T20:58:40Z", "event": "client_action_end", "data": {"reason": "interrupted", "ok": false, "id": "931aa0fdad66", "kind": "interact"}}
+{"ts": "2026-10-25T20:58:40Z", "event": "client_action_start", "data": {"id": "0711af1e4b16", "kind": "go_to"}}
+{"ts": "2026-10-25T20:59:26Z", "event": "client_action_end", "data": {"reason": "timeout", "ok": false, "id": "0711af1e4b16", "kind": "go_to"}}
+{"ts": "2026-10-25T20:59:26Z", "event": "client_action_start", "data": {"id": "fb3c08aa6d48", "kind": "go_to"}}
+{"ts": "2026-10-25T20:59:39Z", "event": "client_bridge_stopped", "data": {"stats": {"errors": 0, "received": 47, "malformed": 0, "sent": 66}}}

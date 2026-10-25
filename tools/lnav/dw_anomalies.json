@@ -1,0 +1,37 @@
+{
+    "$schema": "https://lnav.org/schemas/format-v1.schema.json",
+    "dw_anomalies": {
+        "title": "Dragonwilds companion anomalies",
+        "description": "Rows written by tools/obs.py anomalies (logs/anomalies.jsonl): stall, promise_without_action, repeated_failure, raw_code_spoken, stat_narration, contradictory_speech, tool_timeout, bridge_restart_in_flight, spend_warn, spend_cap.",
+        "url": "https://github.com/tstack/lnav",
+        "file-pattern": "anomalies.*\\.jsonl$",
+        "file-type": "json",
+        "timestamp-field": "ts",
+        "level-field": "level",
+        "level": {
+            "error": "^error$",
+            "warning": "^warn$",
+            "info": "^info$"
+        },
+        "opid-field": "episode",
+        "line-format": [
+            { "field": "__timestamp__", "timestamp-format": "%H:%M:%S" },
+            " ",
+            { "field": "kind", "min-width": 24 },
+            " ",
+            { "prefix": "[", "field": "episode", "suffix": "] ", "default-value": "" },
+            { "field": "text" }
+        ],
+        "value": {
+            "kind": { "kind": "string", "identifier": true },
+            "episode": { "kind": "string", "identifier": true },
+            "text": { "kind": "string" },
+            "level": { "kind": "string", "hidden": true },
+            "key": { "kind": "string", "hidden": true },
+            "data": { "kind": "json", "hidden": true }
+        },
+        "sample": [
+            { "line": "{\"ts\": \"2026-10-25T20:59:57.000Z\", \"kind\": \"stall\", \"level\": \"error\", \"episode\": \"205957c\", \"text\": \"waited 103 s\", \"key\": \"stall:205957c\", \"data\": {}}" }
+        ]
+    }
+}

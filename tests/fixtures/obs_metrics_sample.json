@@ -1,0 +1,197 @@
+{
+ "schema": "dw_obs_metrics/1",
+ "generated_at": "2026-10-25T21:46:46Z",
+ "window": {
+  "since": "2026-10-25T20:54:00Z",
+  "until": "2026-10-25T21:18:00Z"
+ },
+ "source": "live",
+ "hours_observed": 0.394,
+ "latency": {
+  "chat_to_first_action_s": {
+   "p50": 7.68,
+   "p90": 72.6,
+   "n": 19
+  }
+ },
+ "anomalies_per_hour": {
+  "stat_narration": 7.614,
+  "talk_without_action": 15.228,
+  "stall_over_30s": 10.152
+ },
+ "stability": {
+  "longest_run_without_crash_h": 0.394,
+  "crashes": 0,
+  "stalls_over_30s": 4
+ },
+ "voice": {
+  "score": null,
+  "n": 0,
+  "source": null
+ },
+ "deaths": {
+  "total": 0,
+  "starvation": 0,
+  "dehydration": 0,
+  "combat": 0,
+  "other": 0
+ },
+ "detail": {
+  "episodes": {
+   "chat": 29,
+   "body": 6
+  },
+  "chat_to_first_response_s": {
+   "n": 29,
+   "p50": 7.4,
+   "p90": 46.97,
+   "max": 102.58
+  },
+  "chat_to_first_action_s": {
+   "n": 19,
+   "p50": 7.68,
+   "p90": 72.6,
+   "max": 102.58
+  },
+  "chat_heard_lag_s": {
+   "n": 41,
+   "p50": 1.28,
+   "p90": 68.23,
+   "max": 97.99
+  },
+  "model_latency_s": {
+   "controller/claude-haiku-5-5": {
+    "n": 60,
+    "p50": 1.93,
+    "p90": 2.77,
+    "max": 3.87
+   }
+  },
+  "model_calls": 60,
+  "model_calls_per_episode": 1.71,
+  "prompt_tokens": {
+   "n": 60,
+   "p50": 13382.0,
+   "p90": 15158.0,
+   "max": 16668.0
+  },
+  "prompt_cache_share": 0.64,
+  "state_reads_per_action": 4.14,
+  "tools": {
+   "cast": {
+    "n": 22,
+    "failed": 21,
+    "fail_rate": 0.95,
+    "reasons": {
+     "verification_failed": 10,
+     "nothing_in_range": 1,
+     "too_far": 1,
+     "unknown_target": 1,
+     "on_cooldown": 1,
+     "not_enough_resources": 1,
+     "timeout": 6
+    },
+    "p50_s": 2.02,
+    "p90_s": 22.5
+   },
+   "gather": {
+    "n": 3,
+    "failed": 1,
+    "fail_rate": 0.33,
+    "reasons": {
+     "wrong_tool": 1
+    },
+    "p50_s": 20.5,
+    "p90_s": 20.82
+   },
+   "go_to": {
+    "n": 8,
+    "failed": 4,
+    "fail_rate": 0.5,
+    "reasons": {
+     "timeout": 2,
+     "unknown_target": 2
+    },
+    "p50_s": 10.3,
+    "p90_s": 46.16
+   },
+   "interact": {
+    "n": 10,
+    "failed": 4,
+    "fail_rate": 0.4,
+    "reasons": {
+     "interrupted": 1,
+     "not_interactable": 2,
+     "unknown_target": 1
+    },
+    "p50_s": 0.84,
+    "p90_s": 5.21
+   },
+   "stop": {
+    "n": 1,
+    "failed": 0,
+    "fail_rate": 0.0,
+    "reasons": {},
+    "p50_s": 0.14,
+    "p90_s": 0.14
+   }
+  },
+  "failures_by_reason": {
+   "verification_failed": 10,
+   "timeout": 8,
+   "unknown_target": 4,
+   "not_interactable": 2,
+   "wrong_tool": 1,
+   "interrupted": 1,
+   "nothing_in_range": 1,
+   "too_far": 1,
+   "on_cooldown": 1,
+   "not_enough_resources": 1
+  },
+  "retries": 13,
+  "talk_only_replies": 10,
+  "promises_without_action": 6,
+  "bridge_rtt_s": {
+   "get_state": {
+    "n": 184,
+    "p50": 0.38,
+    "p90": 0.51,
+    "max": 0.77
+   },
+   "inventory": {
+    "n": 1,
+    "p50": 0.04,
+    "p90": 0.04,
+    "max": 0.04
+   },
+   "look": {
+    "n": 6,
+    "p50": 0.32,
+    "p90": 0.35,
+    "max": 0.37
+   },
+   "ping": {
+    "n": 1,
+    "p50": 0.12,
+    "p90": 0.12,
+    "max": 0.12
+   },
+   "say": {
+    "n": 35,
+    "p50": 0.27,
+    "p90": 0.42,
+    "max": 0.55
+   }
+  },
+  "anomalies": {
+   "repeated_failure": 2,
+   "raw_code_spoken": 3,
+   "stall": 5,
+   "promise_without_action": 6,
+   "tool_timeout": 3,
+   "bridge_restart_in_flight": 2,
+   "contradictory_speech": 3,
+   "stat_narration": 3
+  }
+ }
+}

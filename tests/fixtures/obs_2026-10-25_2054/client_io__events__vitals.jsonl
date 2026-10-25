@@ -1,0 +1,6 @@
+{"power_level": 2.0, "ts": 1792952464, "status_flags": 0, "type": "fatal", "iso": "2026-10-25T18:21:04Z", "text": "Giant Rat", "set": true, "killed_by": {"name": "Giant Rat", "id": "BP_AI_GiantRat_Character_C_2147464062", "class": "BP_AI_GiantRat_Character_C"}}
+{"type": "death", "iso": "2026-10-25T18:21:04Z", "hp": 0.0, "survival": {"hydration": [10.9, 100.0], "sustenance": [24.7, 100.0], "endurance": [27.0, 100.0]}, "ts": 1792952464}
+{"ts": 1792963556, "iso": "2026-10-25T21:25:56Z", "type": "fatal", "status": ["starvation"], "set": true, "status_flags": 32, "killed_by": {"self": true, "player": "Claude", "id": "BP_PlayerCharacter_C_2147473304", "class": "BP_PlayerCharacter_C"}, "power_level": -1.0}
+{"survival": {"sustenance": [0.0, 100.0], "endurance": [80.2, 100.0], "hydration": [52.5, 100.0]}, "iso": "2026-10-25T21:25:56Z", "type": "death", "hp": 0.0, "ts": 1792963556}
+{"ts": 1792964064, "iso": "2026-10-25T21:34:24Z", "type": "fatal", "power_level": 1.0, "set": true, "status_flags": 0, "killed_by": {"name": "Kebbit", "id": "BP_AI_Kebbit_Character_02_C_2147446492", "class": "BP_AI_Kebbit_Character_02_C"}, "text": "Kebbit"}
+{"survival": {"sustenance": [7.7, 100.0], "endurance": [58.3, 100.0], "hydration": [10.5, 100.0]}, "iso": "2026-10-25T21:34:24Z", "type": "death", "hp": 0.0, "ts": 1792964064}

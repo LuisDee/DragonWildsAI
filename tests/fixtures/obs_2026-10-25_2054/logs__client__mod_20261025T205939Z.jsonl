@@ -1,0 +1,46 @@
+{"ts": "2026-10-25T20:59:39Z", "event": "client_module_loaded", "data": {"name": "chat", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:59:39Z", "event": "client_module_loaded", "data": {"name": "sense", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:59:39Z", "event": "client_module_loaded", "data": {"name": "combat", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:59:39Z", "event": "client_module_loaded", "data": {"name": "inventory", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:59:39Z", "event": "client_module_loaded", "data": {"name": "tickguard", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:59:39Z", "event": "client_bridge_started", "data": {"poll_ms": 100, "chat": "C:/gameserver/client_io/events/chat.jsonl", "dir": "C:/gameserver/client_io/bridge", "offset": 118947}}
+{"ts": "2026-10-25T20:59:39Z", "event": "client_module_loaded", "data": {"name": "move", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:59:39Z", "event": "client_module_loaded", "data": {"name": "arbiter", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:59:39Z", "event": "client_module_loaded", "data": {"name": "gather", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:59:39Z", "event": "client_module_loaded", "data": {"name": "skills", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:59:39Z", "event": "client_module_loaded", "data": {"name": "spells", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T20:59:39Z", "event": "client_module_loaded", "data": {"name": "crafting", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T21:01:05Z", "event": "client_module_loaded", "data": {"name": "skills", "loads": 2, "ok": true}}
+{"ts": "2026-10-25T21:01:11Z", "event": "client_module_loaded", "data": {"name": "sense", "loads": 2, "ok": true}}
+{"ts": "2026-10-25T21:01:19Z", "event": "client_service_start", "data": {"name": "vitals", "starts": 1, "state": "running", "reloaded": true, "ok": true}}
+{"ts": "2026-10-25T21:01:32Z", "event": "client_module_loaded", "data": {"name": "skills", "loads": 3, "ok": true}}
+{"ts": "2026-10-25T21:01:32Z", "event": "client_action_start", "data": {"id": "86ea1d578341", "kind": "go_to"}}
+{"ts": "2026-10-25T21:01:33Z", "event": "client_action_end", "data": {"ok": true, "id": "86ea1d578341", "kind": "go_to"}}
+{"ts": "2026-10-25T21:01:39Z", "event": "client_action_start", "data": {"id": "a136c65e92ec", "kind": "interact"}}
+{"ts": "2026-10-25T21:01:42Z", "event": "client_action_end", "data": {"reason": "not_interactable", "ok": false, "id": "a136c65e92ec", "kind": "interact"}}
+{"ts": "2026-10-25T21:01:45Z", "event": "client_action_start", "data": {"id": "90cff23d9041", "kind": "interact"}}
+{"ts": "2026-10-25T21:01:45Z", "event": "client_action_end", "data": {"ok": true, "id": "90cff23d9041", "kind": "interact"}}
+{"ts": "2026-10-25T21:01:57Z", "event": "client_action_start", "data": {"id": "a869212dd37b", "kind": "interact"}}
+{"ts": "2026-10-25T21:01:57Z", "event": "client_action_end", "data": {"ok": true, "id": "a869212dd37b", "kind": "interact"}}
+{"ts": "2026-10-25T21:01:59Z", "event": "client_action_start", "data": {"id": "d05a080ee21f", "kind": "interact"}}
+{"ts": "2026-10-25T21:02:04Z", "event": "client_action_end", "data": {"reason": "not_interactable", "ok": false, "id": "d05a080ee21f", "kind": "interact"}}
+{"ts": "2026-10-25T21:02:07Z", "event": "client_action_start", "data": {"id": "0df1fe8b6ea5", "kind": "interact"}}
+{"ts": "2026-10-25T21:02:07Z", "event": "client_action_end", "data": {"ok": true, "id": "0df1fe8b6ea5", "kind": "interact"}}
+{"ts": "2026-10-25T21:02:36Z", "event": "client_action_start", "data": {"id": "0abb4ef6e229", "kind": "go_to"}}
+{"ts": "2026-10-25T21:02:46Z", "event": "client_action_end", "data": {"reason": "unknown_target", "ok": false, "id": "0abb4ef6e229", "kind": "go_to"}}
+{"ts": "2026-10-25T21:03:26Z", "event": "client_action_start", "data": {"id": "9dab071e3379", "kind": "go_to"}}
+{"ts": "2026-10-25T21:03:36Z", "event": "client_action_end", "data": {"reason": "unknown_target", "ok": false, "id": "9dab071e3379", "kind": "go_to"}}
+{"ts": "2026-10-25T21:03:39Z", "event": "client_action_start", "data": {"id": "09fd532329fc", "kind": "go_to"}}
+{"ts": "2026-10-25T21:03:40Z", "event": "client_action_end", "data": {"ok": true, "id": "09fd532329fc", "kind": "go_to"}}
+{"ts": "2026-10-25T21:04:03Z", "event": "client_module_loaded", "data": {"name": "manifest", "loads": 1, "ok": true}}
+{"ts": "2026-10-25T21:05:06Z", "event": "client_action_start", "data": {"id": "d54b12dfc0f0", "kind": "gather"}}
+{"ts": "2026-10-25T21:05:26Z", "event": "client_action_end", "data": {"ok": true, "id": "d54b12dfc0f0", "kind": "gather"}}
+{"ts": "2026-10-25T21:06:15Z", "event": "client_module_loaded", "data": {"name": "sense", "loads": 3, "ok": true}}
+{"ts": "2026-10-25T21:06:15Z", "event": "client_module_loaded", "data": {"name": "skills", "loads": 4, "ok": true}}
+{"ts": "2026-10-25T21:06:19Z", "event": "client_service_start", "data": {"name": "vitals", "starts": 2, "state": "running", "reloaded": true, "ok": true}}
+{"ts": "2026-10-25T21:06:20Z", "event": "bridge_truncated", "data": {"path": "C:/gameserver/client_io/events/activity.jsonl", "size": 0, "offset": 610}}
+{"ts": "2026-10-25T21:06:35Z", "event": "client_module_loaded", "data": {"name": "skills", "loads": 5, "ok": true}}
+{"ts": "2026-10-25T21:09:10Z", "event": "client_module_loaded", "data": {"name": "spells", "loads": 2, "ok": true}}
+{"ts": "2026-10-25T21:09:28Z", "event": "client_module_loaded", "data": {"name": "spells", "loads": 3, "ok": true}}
+{"ts": "2026-10-25T21:11:33Z", "event": "client_module_loaded", "data": {"name": "spells", "loads": 4, "ok": true}}
+{"ts": "2026-10-25T21:11:37Z", "event": "client_bridge_stopped", "data": {"stats": {"errors": 0, "received": 115, "malformed": 0, "sent": 146}}}
