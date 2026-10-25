@@ -209,6 +209,34 @@
       "title": "HUMANOID player-like body (Luis clarified goal): route 1 player pawn driven by server, route 2 friendly humanoid AI, route 3 second client; research + experiments",
       "status": "in_progress",
       "passes_test": false
+    },
+    {
+      "id": "P4.H1",
+      "phase": 4,
+      "title": "Route 1: spawn BP_PlayerCharacter_C + AIController + MoveTo, visible on GFN",
+      "status": "done",
+      "passes_test": true
+    },
+    {
+      "id": "P4.H2",
+      "phase": 4,
+      "title": "Route 1: equip weapon + armour on puppet server-side, visible on GFN",
+      "status": "todo",
+      "passes_test": false
+    },
+    {
+      "id": "P4.H3",
+      "phase": 4,
+      "title": "Route 1: puppet attacks and kills an enemy",
+      "status": "todo",
+      "passes_test": false
+    },
+    {
+      "id": "P4.H4",
+      "phase": 4,
+      "title": "Route 1: puppet inventory (game components) + persistent bot state server-side",
+      "status": "todo",
+      "passes_test": false
     }
   ]
 }

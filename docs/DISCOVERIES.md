@@ -97,3 +97,13 @@ Inventory changes will have to be checked by reading inventory state (polling `G
   - `ADominionPlayerCharacter:GetFollowerComponent():ToggleFollower(UFollowerDataAsset*)`, with `DA_Kalphite_Friend` (the Pharaoh's Sceptre summon) as the data asset.
   - `ADominionAICharacter:Confuse(InConfuser, bShouldFollow)` makes an existing creature follow.
   - Details: `docs/research/2026-10-25-dump-body.md`. Experiment module: `mod/scripts/follower_test.lua`.
+
+## ROUTE 1 WORKS: a server-driven player character (verified 2026-10-25, about 13:00 UTC, Luis via GFN)
+Module `mod/scripts/puppet_test.lua`, run through `debug_run`.
+1. `luis:GetWorld():SpawnActor(StaticFindObject("/Game/Gameplay/Character/Player/BP_PlayerCharacter.BP_PlayerCharacter_C"), {X,Y,Z}, {Pitch,Yaw,Roll})`, placed 3 m in front of Luis.
+   - The server survived (1262 MB). **Luis saw a player character standing still.**
+2. `puppet:SpawnDefaultController()` gave it a plain `/Script/AIModule.AIController`, with no PlayerController and no PlayerState.
+3. `ai:MoveToLocation(luis_loc, 150, true, true, true, false, nil, true)` returned `2` (`EPathFollowingRequestResult::RequestSuccessful`).
+   - **Luis confirmed it walked to him.**
+- **Conclusion:** a `BP_PlayerCharacter_C` controlled by an AIController spawns, replicates, path-finds on the navmesh and animates on a vanilla client.
+- **Next:** equipment and armour on the puppet, combat, loot, and how it looks (blank vs geared).
