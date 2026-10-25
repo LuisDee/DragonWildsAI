@@ -243,6 +243,11 @@ $t0 = Get-Date
 $script:joinTarget = Resolve-ClientTarget $Target
 $TargetFile = Get-TargetFile $script:joinTarget.name
 $TargetAddr = Get-TargetAddress $script:joinTarget.name
+if (Test-TargetForbidden $script:joinTarget.name) {
+    # never join a forbidden target (GOAL.md: shockbyte during /goal), whatever asked for it
+    BLog "target $($script:joinTarget.name) [$($script:joinTarget.source)] is FORBIDDEN (client_forbid_targets): not booting"
+    Write-Output ([pscustomobject][ordered]@{ ok = $false; state = 'forbidden'; reason = "target $($script:joinTarget.name) is forbidden"; actions = @() }); exit 4
+}
 $hold = Get-ClientHold
 if ($hold -and -not $DryRun) {
     if (-not $Release) {

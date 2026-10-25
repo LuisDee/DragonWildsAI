@@ -106,6 +106,8 @@ def rig(tmp_path):
                DW_CLIENT_GAME_LOG=str(game_log), DW_CLIENT_MOD_LOG=str(mod_log), DW_CLIENT_DUMP_DIR=str(tmp_path / "dumps"),
                DW_CLIENT_HOLD=str(tmp_path / "client.stopped"), DW_CLIENT_WD_EVENTS=str(tmp_path / "wd.jsonl"),
                DW_CLIENT_BOOT_LOG=str(tmp_path / "boot.log"), DW_CLIENT_SMOKE_DIR=str(tmp_path))
+    for k in ("DW_CLIENT_DEFAULT_TARGET", "DW_CLIENT_FORBID_TARGETS"):  # per-machine settings never leak in
+        env.pop(k, None)
     r = type("Rig", (), {})()
     r.tmp, r.io, r.env, r.proc, r.game_log, r.mod_log = tmp_path, io, env, proc, game_log, mod_log
     r.runner = None
@@ -263,6 +265,28 @@ def test_boot_lease_picks_target_until_it_expires(rig):
     lease.write_text(json.dumps({"target": "dev", "until": past, "by": "test"}), encoding="utf-8")
     p = rig.ps("client_boot.ps1", "-NoLaunch", "-DryRun")
     assert "target=shockbyte [default]" in p.stdout and "disconnect" not in p.stdout, p.stdout
+
+
+def test_boot_refuses_a_forbidden_target_even_as_default(rig):
+    # GOAL.md: during /goal shockbyte is forbidden; a boot (or a watchdog rejoin) must never join it
+    rig.start(in_world())
+    (rig.tmp / "state" / "client_forbid_targets.txt").write_text("# goal\nshockbyte\n", encoding="utf-8")
+    p = rig.ps("client_boot.ps1", "-NoLaunch", "-Quiet")
+    assert p.returncode == 4, p.stdout + p.stderr
+    assert "boot_join_server" not in rig.runner.calls
+    assert "FORBIDDEN" in (rig.tmp / "boot.log").read_text(encoding="utf-8-sig")
+    p = rig.ps("client_boot.ps1", "-NoLaunch", "-Quiet", "-Target", "shockbyte")
+    assert p.returncode == 4
+
+
+def test_default_target_file_switches_default_and_dev_never_maps_to_server_txt(rig):
+    dev_target(rig)
+    with open(rig.game_log, "a", encoding="utf-8") as f:
+        f.write(loadmap("1.2.3.4:7777"))
+    rig.start(in_world())
+    (rig.tmp / "state" / "client_default_target.txt").write_text("dev\n", encoding="utf-8")
+    p = rig.ps("client_boot.ps1", "-NoLaunch", "-DryRun")
+    assert "target=dev [default]" in p.stdout and "would: disconnect.lua" in p.stdout, p.stdout
 
 
 # ------------------------------------------------------------------ watchdog (always -DryRun)

@@ -72,10 +72,26 @@ function Protect-Secret([string]$s) {
 # Which target applies: an explicit -Target, else an unexpired lease in logs/state/client_target.json
 # (written by tools/scenario_run.py for the length of a scenario run, so the watchdog's rejoins go to the
 # same server), else shockbyte. An expired or missing lease always means shockbyte.
-$ClientDefaultTarget = 'shockbyte'
+# The default target and the forbidden targets are per-machine settings (GOAL.md: during /goal the
+# default is dev and shockbyte is forbidden):
+#   DW_CLIENT_DEFAULT_TARGET env, else logs/state/client_default_target.txt, else 'shockbyte'
+#   DW_CLIENT_FORBID_TARGETS env (comma list), else logs/state/client_forbid_targets.txt (one per line)
+# A forbidden target is never joined: Resolve-ClientTarget marks it, and client_boot refuses.
+$ClientDefaultTargetFile = Join-Path $ClientStateDir 'client_default_target.txt'
+$ClientForbidTargetsFile = Join-Path $ClientStateDir 'client_forbid_targets.txt'
+$ClientDefaultTarget = if ($env:DW_CLIENT_DEFAULT_TARGET) { $env:DW_CLIENT_DEFAULT_TARGET.Trim() }
+    elseif (Test-Path $ClientDefaultTargetFile) { (Get-Content $ClientDefaultTargetFile -TotalCount 1).Trim() }
+    else { 'shockbyte' }
 $ClientTargetLease = Join-Path $ClientStateDir 'client_target.json'
+function Get-ForbiddenTargets {
+    $raw = if ($env:DW_CLIENT_FORBID_TARGETS) { $env:DW_CLIENT_FORBID_TARGETS -split ',' }
+           elseif (Test-Path $ClientForbidTargetsFile) { Get-Content $ClientForbidTargetsFile } else { @() }
+    @($raw | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
+}
+function Test-TargetForbidden([string]$Name) { (Get-ForbiddenTargets) -contains $Name }
 function Get-TargetFile([string]$Name) {
-    if (-not $Name -or $Name -eq $ClientDefaultTarget) { return $ClientSecrets }
+    # 'shockbyte' (and the empty name) is server.txt, whatever the default target is
+    if (-not $Name -or $Name -eq 'shockbyte') { return $ClientSecrets }
     if ($Name -notmatch '^[a-z0-9_]+$') { throw "bad target name '$Name' (a-z, 0-9, _)" }
     Join-Path (Split-Path $ClientSecrets) "server_$Name.txt"
 }
@@ -98,6 +114,12 @@ function Resolve-ClientTarget([string]$Explicit) {
     $l = Get-TargetLease
     if ($l) { return [pscustomobject]@{ name = [string]$l.target; source = "lease (until $($l.until), by $($l.by))" } }
     [pscustomobject]@{ name = $ClientDefaultTarget; source = 'default' }
+}
+# Is the address the client is on (Get-JoinedServer) the address of a forbidden target?
+function Test-JoinedForbidden([string]$Joined) {
+    if (-not $Joined) { return $false }
+    foreach ($n in Get-ForbiddenTargets) { $a = Get-TargetAddress $n; if ($a -and $a -eq $Joined) { return $true } }
+    $false
 }
 # The server the client last loaded L_World from: the game log's "LoadMap: <host:port>/Game/Maps/World/L_World"
 # line (the ?p= part is never returned). $null when unknown (menu, fresh log, no line).
