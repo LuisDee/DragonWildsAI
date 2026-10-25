@@ -14,16 +14,28 @@ Facts about this box, written by the Claude Code session on Luis's Mac that set 
 | Remote Desktop TCP/UDP 3389 | Luis's home IP `195.224.171.195` and Tailscale `100.64.0.0/10` |
 | WinRM HTTPS 5986 | same as Remote Desktop |
 | OpenSSH 22 | Tailscale only; key login for Luis's Mac |
-| Game UDP 7777 | **not open yet**: open it (to everyone) when the dedicated server is installed |
+| Game UDP 7777 | everyone (rule "Dragonwilds Server UDP 7777") |
+| Beacon UDP 8888 | everyone (rule "Dragonwilds Server UDP 8888 beacon") |
 
 ## Installed
 
 - Tailscale, OpenSSH Server (running, starts automatically), Claude Code 2.1.310 for `Administrator` (on the user PATH).
+- Installed via winget, always with `--source winget` (the msstore source fails here with a certificate error):
+  - Git 2.56.0, Python 3.12.10 (machine-wide), SteamCMD, VC++ 2015–2022 x64 runtime, Lua 5.4.5 (`DEVCOM.Lua`).
+- The Dragonwilds dedicated server (build 26161880) is at `C:\GameServers\Dragonwilds`, with the `CompanionDev` throwaway world.
+  - World and admin passwords are in `C:\gameserver\server-secrets.local.txt`, which is not in git.
+- UE4SS experimental-latest, loaded through Ultimate ASI Loader as `version.dll`, is in `C:\GameServers\Dragonwilds\RSDragonwilds\Binaries\Win64`. See docs/DISCOVERIES.md.
+- The Python venv for the brain is at `C:\gameserver\.venv`.
+- Server control: `tools\start_server.ps1`, `stop_server.ps1`, `update_server.ps1`, `install_ue4ss.ps1`, `deploy_mod.ps1`.
+  - The server does **not** start automatically at boot yet.
 
-## Not installed yet (CLAUDE.md section 3 lists them as expected)
+## Not done yet
 
-- Git for Windows, Python 3, SteamCMD, the Dragonwilds dedicated server, UE4SS.
-- Windows Update active-hours / no-auto-reboot setting is not configured.
+- Windows Update is configured (2026-10-25):
+  - Active hours are 08:00–02:00.
+  - Policy `AU\NoAutoRebootWithLoggedOnUsers=1`.
+  - `AUOptions=3` (download, then notify before installing).
+- No auto-start or auto-restart for the game server.
 
 ## Account quirks
 
