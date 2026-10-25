@@ -82,12 +82,50 @@ local function tag_names(ai)
     return out
 end
 
+-- Read-only: the explosion's DelayedDamageInfliction.PendingDamage (FDamagedActor, DOM:2223),
+-- scalar fields only.
+local function read_pending(ex)
+    local ddi = U.try(function() return ex.DelayedDamageInfliction end)
+    local arr = ddi and U.try(function() return ddi.PendingDamage end)
+    if not arr then return nil end
+    local out = {}
+    pcall(function()
+        arr:ForEach(function(_, e)
+            local d = U.try(function() return e:get() end) or e
+            local ev = U.try(function() return d.PointDamageEvent end)
+            out[#out + 1] = {
+                hit_reaction_flag = U.try(function() return d.bPerformingHitReaction end),
+                amount = ev and U.try(function() return ev.Amount end),
+                force = ev and U.try(function() return ev.Force end),
+                instigator = ev and U.short(U.try(function() return ev.Instigator end)),
+                source = ev and U.short(U.try(function() return ev.Source end)),
+                hit_montage = ev and U.short(U.try(function() return ev.HitReaction end)),
+                should_hit_react = ev and U.try(function() return ev.CachedDamageShouldHitReact end),
+                victim = ev and U.to_wire(U.try(function() return { X = ev.VictimLocation.X, Y = ev.VictimLocation.Y, Z = ev.VictimLocation.Z } end)),
+            }
+        end)
+    end)
+    return out
+end
+
 -- Sample IsStumbling()/hp every 100 ms for 3 s on the game thread (the stagger is short).
-local function start_sampler(cands)
+local function start_sampler(cands, ex, PENDING)
     local n = 0
     for _, c in ipairs(cands) do c.samples, c.max_stumble, c.min_hp, c.new_tags = 0, false, c.hp, {} end
-    LoopInGameThreadWithDelay(100, function()
+    -- returning true does NOT stop LoopInGameThreadWithDelay (seen 2026-10-25: a sampler kept
+    -- running); cancel by handle like skills.lua/bridge.lua do.
+    local h
+    h = LoopInGameThreadWithDelay(100, function()
         n = n + 1
+        if ex and U.valid(ex) then
+            local pd = read_pending(ex)
+            PENDING.samples = PENDING.samples + 1
+            if pd and #pd > PENDING.seen_max then PENDING.seen_max, PENDING.first, PENDING.at_ms = #pd, pd, n * 100 end
+        end
+        if n > 30 then
+            if h and CancelDelayedAction then pcall(CancelDelayedAction, h) end
+            return true
+        end
         for _, c in ipairs(cands) do
             if U.valid(c.ai) then
                 c.samples = c.samples + 1
@@ -171,12 +209,18 @@ function M.run(log, args)
                                   tags_before = tag_names(e.ai) }
         end
         local r = S.cast(p, "windstep", target, { trigger = args.force and "force" or nil })
-        if r.ok then pcall(start_sampler, cands) end
-        LAST = { at = at, cands = cands, t = os.time(), result = r }
+        local ex
+        for _, a in ipairs(U.try(FindAllOf, "BP_WindstepExplosion_C") or {}) do
+            if U.short(a) == r.data.explosion then ex = a end
+        end
+        local pending_now = ex and read_pending(ex) or nil
+        local pending = { seen_max = 0, samples = 0 }
+        if r.ok then pcall(start_sampler, cands, ex, pending) end
+        LAST = { at = at, cands = cands, t = os.time(), result = r, pending = pending }
         rawset(_G, "__dw_spell_x3_last", LAST)
         local wire = {}
         for _, c in ipairs(cands) do wire[#wire + 1] = { id = c.id, hp_before = c.hp, stumbling_before = c.stumbling } end
-        return { ok = r.ok, result = r, target = U.short(target), candidates = wire }
+        return { ok = r.ok, result = r, target = U.short(target), candidates = wire, pending_at_cast = pending_now }
     end
 
     if action == "check" then
@@ -196,7 +240,7 @@ function M.run(log, args)
             end
             out[#out + 1] = rec
         end
-        return { ok = true, since_s = os.time() - LAST.t, candidates = out }
+        return { ok = true, since_s = os.time() - LAST.t, candidates = out, pending = LAST.pending }
     end
     return { ok = false, error = "unknown action " .. tostring(action) }
 end

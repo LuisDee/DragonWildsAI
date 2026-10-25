@@ -376,3 +376,15 @@ Investigated 2026-10-25, about 13:50–14:10 UTC, with nobody connected (the wor
 - The server-side OnRep calls were not made (opt-in `onrep=true`), because native OnReps may touch client-only UI.
 - Result: pending Luis.
 - `{action=recycle}` sets the puppet's `NetCullDistanceSquared` to 1 for 9 s, then restores it, so clients drop and re-create the pawn as on a rejoin. Prepared, not run yet.
+
+## Woodcutting timeline: W1, recorded live (2026-10-25 14:15–14:16 UTC, Luis chopped one oak with an axe)
+Recorder: `mod/experiments/tree_watch.lua` (read-only, 1 s poll, 25 m radius).
+1. **Standing tree:** `BP_BM_Tree_Oak_02_C`, HP **220**. One chop took it to 110, and at once `bIsStump=True`: the standing tree became the stump. A **`BP_FelledTree_Oak_C`** (HP 105) appeared next to it.
+2. **Felled tree** (HP stays 105) spawns **`BP_SplittableLog_Oak_C`** pieces (HP 105) over about 4 s.
+3. **Each splittable log** is chopped 105 → 21 → 0 (2 hits). At 0 it yields a **`BP_Log_Oak_C`** (HP 105) and further splittable pieces.
+4. **Each `BP_Log_Oak_C`** is chopped 105 → 21 → 0. At 0 it bursts into **`BP_RuntimeSpawnedWorldItem_C` drops**: `ITEM_Resources_Wood_Oak`, **stack 1 each, 6 per log**.
+5. **Pickup is by magnet:** drop distances shrink toward the player (1.1 m → 0.7 m, or 10 m → 0) and then the item is gone (collected). Players don't press interact for these.
+6. **Stump:** HP 110, overhead swings took it 26 → 0. It disappears and drops **1 more oak log** item.
+- So the bot's loop is: find a standing oak (`bIsStump=false`, HP>0) → chop → the felled tree splits on its own → chop every `SplittableLog_*` and `Log_*` within range until gone → collect `RuntimeSpawnedWorldItem` (ITEM_Resources_Wood_Oak) → optionally overhead-chop the stump (+1 log) → next tree.
+- Progress check: the bot store count of ITEM_Resources_Wood_Oak. Each drop is a stack of 1, so a stack of 99 is built up in the store.
+- Open: whether the **puppet's** magnet component pulls items (it has `BP_Components_ItemMagnet`), and where they go with no player inventory. Test W2 before relying on it; the bot may need to destroy and record items itself.
