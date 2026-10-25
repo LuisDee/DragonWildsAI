@@ -91,10 +91,16 @@ class Converter:
     def __init__(self):
         self.infobox: str | None = None
         self.categories: list[str] = []
+        self.top = True  # still above the page's first infobox or prose (hatnotes, interwiki banners)
+        self._depth = 0
 
     def render(self, code) -> str:
         nodes = list(code.nodes)
-        return "".join(self._node(n, nodes, i) for i, n in enumerate(nodes))
+        self._depth += 1
+        try:
+            return "".join(self._node(n, nodes, i) for i, n in enumerate(nodes))
+        finally:
+            self._depth -= 1
 
     def _param_value(self, p) -> str:
         return _squash(self.render(p.value))
@@ -105,7 +111,11 @@ class Converter:
             return ""
         named = [(str(p.name).strip(), self._param_value(p)) for p in t.params if p.showkey]
         positional = [self._param_value(p) for p in t.params if not p.showkey]
-        if name.lower().startswith("infobox"):
+        is_infobox = name.lower().startswith("infobox")
+        if self.top and self._depth == 1 and not is_infobox:
+            return ""  # a banner above the content (hatnote, interwiki links): wiki chrome, not facts
+        self.top = False
+        if is_infobox:
             if self.infobox is None:
                 self.infobox = name[len("infobox"):].strip() or name
             lines = [f"{k.replace('_', ' ')}: {v}" for k, v in named if v and not SKIP_KEY.match(k)]
@@ -125,6 +135,8 @@ class Converter:
     def _node(self, n, nodes: list, i: int) -> str:
         from mwparserfromhell import nodes as N
         if isinstance(n, N.Text):
+            if self._depth == 1 and str(n).strip():
+                self.top = False
             return str(n)
         if isinstance(n, N.Comment):
             return ""
@@ -293,24 +305,19 @@ class Api:
             cont = data["continue"]
 
 
-def list_pages(api: Api) -> dict[str, dict]:
-    """Namespace-0 articles (no redirects): title -> {pageid, revid}."""
-    out = {}
+def list_pages(api: Api) -> tuple[dict[str, dict], dict[str, str]]:
+    """Namespace-0 articles: title -> {pageid, revid}, plus redirect title -> article title (aliases).
+    One enumeration (prop=info|redirects); a page can repeat across continuation blocks."""
+    pages, redirects = {}, {}
     for q in api.query_all(generator="allpages", gapnamespace="0", gapfilterredir="nonredirects",
-                           gaplimit="max", prop="info"):
+                           gaplimit="max", prop="info|redirects", rdprop="title", rdnamespace="0",
+                           rdlimit="max"):
         for p in q.get("pages", []):
-            out[p["title"]] = {"pageid": p["pageid"], "revid": p.get("lastrevid")}
-    return out
-
-
-def list_redirects(api: Api) -> dict[str, str]:
-    """Namespace-0 redirect title -> target title (aliases for the index)."""
-    out = {}
-    for q in api.query_all(generator="allpages", gapnamespace="0", gapfilterredir="redirects",
-                           gaplimit="max", redirects="1", prop="info"):
-        for r in q.get("redirects", []):
-            out[r["from"]] = r["to"]
-    return out
+            if "lastrevid" in p:
+                pages[p["title"]] = {"pageid": p["pageid"], "revid": p["lastrevid"]}
+            for r in p.get("redirects") or []:
+                redirects[r["title"]] = p["title"]
+    return pages, redirects
 
 
 def fetch_content(api: Api, pageids: list[int]):
@@ -366,12 +373,9 @@ def mirror(root: Path, api: Api, full: bool = False, titles: list[str] | None = 
         live = None
     else:
         log("listing pages ...")
-        live = list_pages(api)
+        live, man["redirects"] = list_pages(api)
         wanted = live
-        log(f"  {len(live)} articles")
-        log("listing redirects ...")
-        man["redirects"] = list_redirects(api)
-        log(f"  {len(man['redirects'])} redirects")
+        log(f"  {len(live)} articles, {len(man['redirects'])} redirects")
     todo = [t for t, info in wanted.items()
             if full or titles or t not in pages or pages[t].get("revid") != info["revid"]]
     if limit:

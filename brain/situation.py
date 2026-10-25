@@ -155,7 +155,8 @@ def perceived(state: dict, looks: Iterable[dict] = ()) -> list[Thing]:
             item = str(g.get("item") or g.get("id") or "")
             out.append(Thing(g.get("name") or name_of_item(item, names), "item", g.get("id"), _num(g.get("distance")),
                              count=int(g.get("count") or 1), gives=[g.get("name") or name_of_item(item, names)],
-                             actions=["pickup", "interact"], extra={item}, group="item"))
+                             actions=["pickup", "interact"], extra={item}, group="item",
+                             note=g.get("consumable") if isinstance(g.get("consumable"), str) else None))
     for p in state.get("players") or []:
         if isinstance(p, dict) and p.get("name"):
             out.append(Thing(str(p["name"]), "player", str(p["name"]), _num(p.get("distance")), actions=["follow", "give"],
@@ -295,6 +296,40 @@ def wearing(state: dict, names: dict[str, str] | None = None) -> list[str]:
     return out
 
 
+def recent_life(state: dict) -> str | None:
+    """Own gravestone and the last death, from the client body's get_state (my_grave, last_death)."""
+    bits = []
+    d = state.get("last_death") if isinstance(state.get("last_death"), dict) else None
+    if d and isinstance(d.get("ago_s"), (int, float)):
+        ago = int(d["ago_s"])
+        when = f"{ago // 60} min ago" if ago >= 120 else f"{ago} s ago"
+        bits.append(f"you died {when}" + (" and respawned" if d.get("respawned") else ""))
+    g = state.get("my_grave") if isinstance(state.get("my_grave"), dict) else None
+    if g:
+        dist = f"{g['distance']:.0f} m away" if isinstance(g.get("distance"), (int, float)) else "nearby"
+        what = ", ".join(str(c) for c in (g.get("contents") or [])[:8])
+        bits.append(f"YOUR gravestone is {dist} (id {g.get('id')}) holding {g.get('items', '?')} of your items"
+                    + (f": {what}" if what else ""))
+    if isinstance(state.get("other_graves"), int) and state["other_graves"] > 0:
+        bits.append(f"{state['other_graves']} other gravestone(s) here are not yours")
+    if not bits:
+        return None
+    return ("Recent: " + "; ".join(bits))[:LINE_CHARS]
+
+
+def consumables(state: dict) -> list[str]:
+    """Food and drink he carries, with where it is (only hotbar items can be used), from item data."""
+    out = []
+    for r in state.get("inventory_items") or []:
+        if isinstance(r, dict) and isinstance(r.get("consumable"), str) and r.get("where") in ("hotbar", "bag"):
+            facts = [r["consumable"], r["where"]]
+            for k, label in (("hydration", "water"), ("sustenance", "food"), ("heal", "heals")):
+                if r.get(k) not in (None, "", "None"):
+                    facts.append(f"{label} {r[k]}")
+            out.append(f"{r.get('name') or r.get('item')} x{r.get('count') or 1} ({', '.join(facts)})")
+    return out
+
+
 def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | None = None,
             places: Iterable[str] = (), looks_supported: bool = False) -> list[str]:
     """At most 10 short lines describing the companion's situation, by in-game names."""
@@ -323,6 +358,8 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     if state.get("sleeping"):
         me.append("asleep")
     lines.append("You: " + (", ".join(me) or "ok"))
+    if (rec := recent_life(state)):
+        lines.append(rec)
 
     worn = wearing(state, names)
     if worn:
@@ -330,6 +367,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     inv = state.get("inventory") or {}
     carry = [f"{name_of_item(k, names)} x{v}" for k, v in sorted(inv.items(), key=lambda kv: -kv[1]) if v]
     lines.append(_line("Carrying", carry) or "Carrying: nothing")
+    lines.append(_line("Food/drink", consumables(state)))
 
     pl = [t for t in things if t.kind == "player"]
     lines.append(_line("Players", [f"{t.name} {t.distance:.0f} m" if t.distance is not None else t.name for t in pl]))

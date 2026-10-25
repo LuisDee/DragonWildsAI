@@ -48,10 +48,10 @@ M.TOOLS = {
             .. "\"wait here\" = stop.",
         args = NOARGS, reasons = {} },
     go_to = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 20, timeout_s = 120,
-        description = "Walk to [x, y, z] metres, a named place from notes, or an entity id. For walking to a player use "
-            .. "come_to instead.",
+        description = "Walk to a player (his name: stops within about 3 m of him), a thing's id from situation/look, a "
+            .. "named place from notes, or [x, y, z] metres. Answers when you arrive or with why you can't get there.",
         args = { type = "object", required = { "target" }, properties = obj({
-            target = { description = "[x, y, z] metres, a place name, or an entity id.",
+            target = { description = "A player name, an id from situation/look, a place name, or [x, y, z] metres.",
                        anyOf = { { type = "string" }, { type = "array", items = { type = "number" }, minItems = 2, maxItems = 3 } } } }) },
         reasons = { "path_blocked", "verification_failed", "interrupted", "timeout", "companion_down" } },
     drop = { kind = "waiter", llm = true, moves = false, duration_s = 1, timeout_s = 10,
@@ -137,7 +137,7 @@ M.TOOLS = {
 
 -- Legacy tool names the brain (or the planner's prompt history) may still use -> the tool that does
 -- that job now, published only while the new tool is implemented. Args are mapped brain-side
--- (brain/capabilities.py LEGACY_ARGS): pickup {target, item, limit} -> fetch {target, item, count}.
-M.ALIASES = { pickup = "fetch" }
+-- (brain/capabilities.py LEGACY_ARGS): pickup {target = an id} -> interact {target}.
+M.ALIASES = { pickup = "interact" }
 
 return M

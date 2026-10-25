@@ -117,9 +117,12 @@ class LiveAgent(Agent):
     """Agent for live chat. With a client body every chat line arrives (``chat_heard``):
     - "!ping" -> "pong" at once, no model;
     - a line that names the companion (or starts with a prefix) -> the Controller, addressed;
-    - any other line -> after a short quiet time (bursts are merged: the earlier lines are in the
-      chat context), the Controller with addressed=false decides whether it is meant for him and
-      stays silent if not. Capped at ``calls_per_min`` model calls per minute for such lines.
+    - any other line -> after a short quiet time, the Controller with addressed=false decides whether
+      it is meant for him and stays silent if not. Capped at ``calls_per_min`` model calls per minute.
+    A burst is ONE run with all of the player's lines (streamline step 3): his pending lines are
+    joined with " / " into the command text, so "drink the pumkin spice infusuion / thats drink / smh"
+    is grounded as a whole, and an addressed line takes his pending lines along. Body situations
+    waiting meanwhile ride along in that run (one line for both).
     Every line gets a ``chat_decision`` log record with the reason. A body that pre-filters chat
     (``command_received``) is still handled the old way."""
 
@@ -140,7 +143,7 @@ class LiveAgent(Agent):
 
     def _ping(self, player: str) -> None:
         start = time.perf_counter()
-        res = self.controller.say(PONG)
+        res = self.controller.say(PONG, kind="system")
         self.log.log("ping_reply", player=player, ok=bool(res and res.get("ok")), reason=res.get("reason") if res else None,
                      say_round_trip_ms=round((time.perf_counter() - start) * 1000, 1))
 
@@ -149,7 +152,7 @@ class LiveAgent(Agent):
         command = CommandReceived(player=player, text=text)
         self.controller.note_event(command)
         try:
-            self._command(command, addressed=addressed)
+            self._command(command, addressed=addressed, body_events=self.take_situations() or None)
         except Exception as exc:  # a model/provider error must not kill the session
             self.log.log("command_error", error=repr(exc), traceback=traceback.format_exc())
             if addressed:
@@ -169,6 +172,11 @@ class LiveAgent(Agent):
             self._decision(event.player, event.text, "ping", "!ping (no model)")
             return self._ping(event.player)
         if route == "command":
+            mine = [ev for _, ev in self._pending if ev.player == event.player]
+            self._pending = [(t, ev) for t, ev in self._pending if ev.player != event.player]
+            for ev in mine:
+                self._decision(ev.player, ev.text, "merged", "burst: decided together with his addressed line")
+            text = " / ".join([ev.text.strip() for ev in mine] + [text])
             self._decision(event.player, event.text, "addressed", "named or prefixed", command=text)
             return self._run(event.player, text, addressed=True)
         self._pending.append((self.clock(), event))
@@ -184,10 +192,14 @@ class LiveAgent(Agent):
         last = batch[-1][1]
         for _, ev in batch[:-1]:
             self._decision(ev.player, ev.text, "merged", "burst: decided together with the last line")
+        text = " / ".join(ev.text.strip() for _, ev in batch if ev.player == last.player)
         if self._rate_capped():
-            self._decision(last.player, last.text, "ignored", f"rate cap ({self.calls_per_min} model calls/min)")
+            self._decision(last.player, text, "ignored", f"rate cap ({self.calls_per_min} model calls/min)")
             return
-        self._run(last.player, last.text, addressed=False)
+        self._run(last.player, text, addressed=False)
+
+    def _chat_waiting(self) -> bool:
+        return bool(self._pending)
 
     def step(self) -> GoalResult | None:
         self.pump()
@@ -236,7 +248,7 @@ class LiveOptions:
     # chat reading (client body): model calls per minute for lines nobody addressed to him, and the
     # quiet time that ends a burst of lines (DW_CHAT_CALLS_PER_MIN, DW_CHAT_DEBOUNCE_S)
     chat_calls_per_min: int = field(default_factory=lambda: int(os.environ.get("DW_CHAT_CALLS_PER_MIN", "20")))
-    chat_debounce_s: float = field(default_factory=lambda: float(os.environ.get("DW_CHAT_DEBOUNCE_S", "1.5")))
+    chat_debounce_s: float = field(default_factory=lambda: float(os.environ.get("DW_CHAT_DEBOUNCE_S", "2.0")))
 
 
 class BodyUnavailable(RuntimeError):
@@ -269,7 +281,7 @@ class LiveSession:
         self.planner = Planner(planner_llm, self.store.skills, self.log)
         self.controller = Controller(controller_llm, self.client, self.store, self.log,
                                      name=opts.name, player=opts.player, available_tools=self.caps.tools,
-                                     skills=self.skills)
+                                     skills=self.skills, caps=self.caps)
         self.agent = LiveAgent(self.client, self.controller, self.planner, self.executor, self.store,
                                self.log, prefixes=opts.prefixes, skills=self.skills,
                                calls_per_min=opts.chat_calls_per_min, debounce_s=opts.chat_debounce_s)

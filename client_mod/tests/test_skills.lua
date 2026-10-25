@@ -100,6 +100,15 @@ local function patch()
         return { ok = false, reason = "not in hotbar/bag: " .. tostring(what) }
     end
     inv.equip = function(log, what) F.equips = (F.equips or 0) + 1; F.held_item, F.held_name = what, what; return { ok = true } end
+    inv.move = function(log, what, to)
+        for _, c in ipairs(F.cons or {}) do
+            if c.item == what or c.name == what then
+                if not F.move_noop then c.where = to end
+                return { ok = true, to = to }
+            end
+        end
+        return { ok = false, reason = "not in inventory: " .. tostring(what) }
+    end
     inv.press_interact = function(log)
         local det = inv.interact_target()
         for cat, rows in pairs(F.world) do
@@ -137,7 +146,7 @@ local function reset()
     F.survival = { sustenance = { 40, 100 }, hydration = { 10, 100 }, endurance = { 40, 100 } }
     F.move = { mode = "idle", calls = {} }
     F.me_pos, F.detector_override, F.press_noop, F.use_noop, F.follow, F.held_item, F.held_name = nil, nil, nil, nil, nil, nil, nil
-    F.auto_arrive, F.aims, F.presses, F.uses, F.equips, F.pickup_where = true, 0, 0, 0, 0, nil
+    F.auto_arrive, F.aims, F.presses, F.uses, F.equips, F.pickup_where, F.move_noop = true, 0, 0, 0, 0, nil, nil
     _G.DW_PAUSE, _G.DWSkills, _G.DW_LIFE = nil, nil, nil
     local sk = B.module("skills")
     sk.W.grave_owner = function() return nil end
@@ -157,7 +166,7 @@ test("start the real bridge with skills + manifest over the fakes", function()
     reset()
 end)
 
-test("manifest: one entry per implemented tool, llm flags, schemas, legacy alias pickup -> fetch", function()
+test("manifest: one entry per implemented tool; primitives offered, compounds demoted; alias pickup -> interact", function()
     reset()
     local r = rpc("capabilities")
     assert(r.ok and type(r.data.manifest) == "table", json.encode(r))
@@ -165,18 +174,22 @@ test("manifest: one entry per implemented tool, llm flags, schemas, legacy alias
     for _, e in ipairs(r.data.manifest) do by[e.name] = e end
     for _, t in ipairs(r.data.tools) do assert(by[t], "manifest lacks implemented tool " .. t) end
     for _, e in ipairs(r.data.manifest) do assert(has(r.data.tools, e.name), "manifest lists unimplemented " .. e.name) end
-    for _, t in ipairs({ "fetch", "consume", "come_to", "recover_grave", "give", "interact", "follow", "stop", "go_to", "drop", "look" }) do
+    for _, t in ipairs({ "interact", "consume", "move_item", "equip", "follow", "stop", "go_to", "drop", "look", "inspect", "inventory" }) do
         assert(by[t] and by[t].llm == true, "llm tool " .. t)
         assert(by[t].args and by[t].args.type == "object", "schema " .. t)
         assert(type(by[t].description) == "string" and #by[t].description > 20, "description " .. t)
     end
-    assert(by.fetch.moves == true and by.fetch.priority == "command" and by.fetch.timeout_s >= 100)
-    assert(by.consume.args.required[1] == "item" and by.come_to.args.required[1] == "player")
+    for _, t in ipairs({ "fetch", "come_to", "recover_grave", "give" }) do -- compounds: tested, not offered (PRINCIPLES 4b)
+        assert(by[t] and by[t].llm == false, "compound demoted " .. t)
+    end
+    assert(by.interact.moves == true and by.interact.priority == "command" and by.interact.timeout_s >= 100)
+    assert(by.interact.args.properties.secondary and by.interact.detail_is_speech == true)
+    assert(by.consume.args.required[1] == "item" and by.move_item.args.properties.to.enum[1] == "hotbar")
     assert(by.recover_grave.args.properties ~= nil, "no-arg schema still has properties")
     assert(by.look.kind == "read" and by.drop.args.properties.at.enum[1] == "feet")
     assert(by.get_state and by.get_state.llm == false and by.ping.llm == false and by.census.llm == false)
     assert(not by.pickup and not by.attack and not by.gather, "tools the body lacks are absent")
-    assert(r.data.aliases.pickup == "fetch", json.encode(r.data.aliases))
+    assert(r.data.aliases.pickup == "interact", json.encode(r.data.aliases))
     assert(r.data.manifest_version == 1)
     write(base .. "/capabilities.json", json.encode(r.data), "wb") -- for tests/test_skills_contract.py
     -- the raw JSON keeps empty schemas as objects
@@ -199,7 +212,8 @@ test("manifest follows the modules: no move.follow -> no come_to/give (and no al
     inv.press_interact = nil
     r = rpc("capabilities")
     inv.press_interact = p
-    assert(not has(r.data.tools, "fetch") and r.data.aliases.pickup == nil, "no alias to a missing tool")
+    assert(not has(r.data.tools, "fetch") and not has(r.data.tools, "interact") and r.data.aliases.pickup == nil,
+           "no alias to a missing tool")
 end)
 
 test("fetch by item name: find -> walk -> face -> press -> verified in the inventory", function()
@@ -273,7 +287,7 @@ test("consume: in the bag -> in_bag + offer; not carried -> not_in_inventory; no
     F.cons = { { name = "Forager's Sandwich", item = "ITEM_Food_Sandwich", count = 3, consumable = "food", where = "bag",
                  stat = "sustenance", amount = 20 } }
     local r = rpc("consume", { item = "sandwich" })
-    assert(r.reason == "in_bag" and r.data.offer == "move_to_hotbar" and r.data.detail:find("bag"), json.encode(r))
+    assert(r.reason == "in_bag" and r.data.offer == "move_item" and r.data.detail:find("bag"), json.encode(r))
     assert(F.uses == 0, "no bag-UI use")
     r = rpc("consume", { item = "potato" })
     assert(r.reason == "not_in_inventory" and r.data.detail:find("potato"), json.encode(r))
@@ -286,13 +300,57 @@ test("consume: in the bag -> in_bag + offer; not carried -> not_in_inventory; no
     assert(rr and rr.reason == "verification_failed" and rr.data.detail:find("sustenance"), json.encode(rr))
 end)
 
-test("consume something lying nearby: fetch first, then drink it, one result", function()
+test("consume: not carried but lying nearby -> not_in_inventory naming it (the model composes interact + consume)", function()
     reset()
     F.me_pos = { 8, 8, 3 } -- the infusion lies 1.4 m away (Luis dropped it in front of him)
-    local _, id = rpc("consume", { item = "Pumpkin Spice Infusion" })
-    local r = run(id, 40)
-    assert(r and r.ok and r.data.fetched == true and r.data.stat_rose == true and r.data.item == "ITEM_Consumable_PSI", json.encode(r))
-    assert(F.presses == 1 and F.uses == 1)
+    local r = rpc("consume", { item = "Pumpkin Spice Infusion" })
+    assert(r.reason == "not_in_inventory" and r.data.on_ground.id == "wi_psi" and r.data.detail:find("on the ground"), json.encode(r))
+    assert(F.presses == 0 and F.uses == 0, "a primitive: it neither walked nor picked up")
+    -- composed: interact (pick up) then consume
+    local _, id = rpc("interact", { target = "wi_psi" })
+    local p = run(id, 30)
+    assert(p and p.ok and p.data.item == "ITEM_Consumable_PSI" and p.data.count == 2, json.encode(p))
+    local r0
+    r0, id = rpc("consume", { item = "Pumpkin Spice Infusion" })
+    local c = r0 or run(id, 10)
+    assert(c and c.ok and c.data.stat_rose == true, json.encode(c))
+end)
+
+test("move_item bag -> hotbar (verified), then consume works; equip verified in the hands", function()
+    reset()
+    F.cons = { { name = "Forager's Sandwich", item = "ITEM_Food_Sandwich", count = 3, consumable = "food", where = "bag",
+                 stat = "sustenance", amount = 20 } }
+    assert(rpc("consume", { item = "Forager's Sandwich" }).reason == "in_bag")
+    local id = send("move_item", { item = "Forager's Sandwich", to = "hotbar" })
+    local m = run(id, 10)
+    assert(m and m.ok and m.data.to == "hotbar" and F.cons[1].where == "hotbar", json.encode(m))
+    local r0
+    r0, id = rpc("consume", { item = "Forager's Sandwich" })
+    local c = r0 or run(id, 10)
+    assert(c and c.ok and c.data.stat == "sustenance", json.encode(c))
+    F.move_noop = true
+    F.cons[1].where = "bag"
+    id = send("move_item", { item = "Forager's Sandwich", to = "hotbar" })
+    m = run(id, 12)
+    assert(m and m.reason == "verification_failed" and m.data.detail:find("didn't move"), json.encode(m))
+    assert(rpc("move_item", { item = "Dragon Bones", to = "hotbar" }).reason == "not_in_inventory")
+    -- equip: answered once it is in his hands
+    F.held_item, F.held_name = false, nil
+    id = send("equip", { item = "Oak Logs" })
+    local e = run(id, 10)
+    assert(e and e.ok and e.data.item == "ITEM_Resources_Wood_Oak" and F.equips == 1, json.encode(e))
+end)
+
+test("interact secondary=true presses the secondary action (collect-all on a stack)", function()
+    reset()
+    local inv = B.module("inventory")
+    local p0 = inv.press_interact
+    local got
+    inv.press_interact = function(log, opts) got = opts; return p0(log, opts) end
+    local _, id = rpc("interact", { target = "wi_1", secondary = true })
+    local r = run(id, 30)
+    inv.press_interact = p0
+    assert(r and r.ok and got and got.secondary == true, json.encode(r))
 end)
 
 test("come_to: follow until near, then stop; verified distance", function()

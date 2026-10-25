@@ -21,6 +21,13 @@ Live run, in order (any failure still runs the restore steps):
   6. lease removed, tools/client_boot.ps1 -Target shockbyte, verified; post-run snapshot compared with the
      baseline (Shockbyte keeps its own per-character state, so nothing should change; a diff is reported).
 
+Navigation memory (--memory): move.lua learns routes/traps into the world store named by
+traverse_learn.world_id(), whose fallback is "shockbyte" on EVERY server. So a live run sets _G.DW_WORLD_GUID
+(client_mod/commands/scn_world.lua) after the switch, re-applies it per scenario and restores it before switching back:
+  dev     (default) "dev_scenarios": isolated store that keeps learning across runs; Shockbyte's memory untouched
+  nomem   "scn_nomem_<ts>": a fresh empty store for this run (map seeds still load: data/nav/L_World_seeds.json)
+  shared  no override: uses and WRITES Shockbyte's memory (same map; opt-in only)
+
 Dry run: on whatever server the client is on, read-only: capabilities, get_state, the ledge probe (traces),
 and per scenario the candidates it would use (items, creatures, graves) and leg distances. No movement, no chat.
 Scenario kinds (KINDS): go_to_chain, ledge_jump, fetch_consume, combat, collect_cluster, grave_recovery.
@@ -688,6 +695,29 @@ def run(args, body=None, ops=None, suite: dict | None = None, log: Callable[[str
             log("ABORT: " + p)
         return finish(rep, runner, t_start, args)
 
+    mem_mode = getattr(args, "memory", None) or "dev"
+    mem_world = {"dev": "dev_scenarios", "nomem": f"scn_nomem_{datetime.now():%Y%m%d_%H%M%S}", "shared": None}[mem_mode]
+    rep["memory"] = {"mode": mem_mode, "world": mem_world}
+    mem_prev: dict[str, Any] = {}
+
+    def set_memory() -> None:
+        if not (args.live or args.here) or mem_world is None:
+            return
+        r = body.cmd("scn_world.lua", {"set": mem_world}, timeout=20)
+        res = (r or {}).get("result") or {}
+        if "previous" not in mem_prev:
+            mem_prev["previous"] = res.get("previous")
+        rep["memory"]["applied"] = bool(r and r.get("ok"))
+
+    def restore_memory() -> None:
+        if not (args.live or args.here) or mem_world is None or "previous" not in mem_prev:
+            return
+        a = {"restore": True}
+        if mem_prev["previous"] and mem_prev["previous"] != mem_world:
+            a["previous"] = mem_prev["previous"]
+        r = body.cmd("scn_world.lua", a, timeout=20)
+        rep["memory"]["restored"] = bool(r and r.get("ok"))
+
     def healthy() -> str | None:
         if args.live or args.here:
             j = ops.joined()
@@ -710,10 +740,18 @@ def run(args, body=None, ops=None, suite: dict | None = None, log: Callable[[str
                 time.sleep(5)
                 rep["dev_start"] = snapshot(runner.state())
         if rep.get("result") != "aborted":
-            renew = (lambda: write_lease(target, float(suite.get("lease_min", 45)), f"scenario_run pid {os.getpid()}")) if args.live else None
-            outs = runner.run_scenarios(only, renew=renew, healthy=healthy if live else None, repeat=getattr(args, "repeat", None))
+            def renew() -> None:   # the lease (live) and the memory world (live / here; a client restart loses it)
+                if args.live:
+                    write_lease(target, float(suite.get("lease_min", 45)), f"scenario_run pid {os.getpid()}")
+                set_memory()
+            outs = runner.run_scenarios(only, renew=renew if live else None, healthy=healthy if live else None,
+                                        repeat=getattr(args, "repeat", None))
             rep["scenarios"] = [o.__dict__ for o in outs]
     finally:
+        try:
+            restore_memory()
+        except Exception as exc:  # never block the switch back
+            rep["memory"]["restore_error"] = repr(exc)
         if args.live:
             clear_lease()
             log("switching back to Shockbyte ...")
@@ -768,6 +806,8 @@ def markdown(rep: dict) -> str:
     L += ["", "## Preflight", "", "| check | value |", "|---|---|"]
     for k in ("on", "joined", "in_world", "hold", "brain_running", "dev_server_running", "dev_target_file", "nav_oracle_age_s"):
         L.append(f"| {k} | {pf.get(k)} |")
+    if rep.get("memory"):
+        L += ["", f"Nav memory: {json.dumps(rep['memory'])}"]
     L += ["", "## Scenarios", "", "| scenario | result | time (s) | detail |", "|---|---|---|---|"]
     for o in rep.get("scenarios") or []:
         L.append(f"| {o['scenario']} | {o['result']} | {o.get('duration_s')} | {str(o['detail']).replace('|', '/')} |")
@@ -792,6 +832,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--only", help="comma list of scenario ids")
     ap.add_argument("--repeat", type=int, help="run each scenario N times in a row (overrides the suite's repeat; 1 = quick)")
     ap.add_argument("--suite", default=str(SUITE))
+    ap.add_argument("--memory", choices=("dev", "nomem", "shared"), default="dev",
+                    help="nav memory store for the run: dev (isolated, default), nomem (fresh, seeds only), shared (Shockbyte's)")
     ap.add_argument("--allow-brain", action="store_true", help="run even though run_live is up (shares the action slot)")
     ap.add_argument("--allow-shockbyte", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--report-dir", default=str(REPORT_DIR))

@@ -1202,6 +1202,19 @@ local function step_engage(F, pawn, me, acts, tgt)
     end
     local prof = F.profile or {}
     local prim, spec = prof.prim or {}, prof.spec
+    -- the model chose a style (e.g. the weapon's special action): press that one each time
+    local se = F.style_entry
+    if se and (se.input == "special" or se.input == "primary") and acts[se.input] and se.style ~= "visceral" then
+        local tim = (se.input == "special" and spec) or prim
+        if se.needs == "airborne" then pcall(function() pawn:Jump() end) end
+        if (me.stamina or 0) < cfg.stamina_reserve + (prim.stam or 0) then F.next_press = F.t + 0.3; return end
+        tap(F, acts[se.input], cfg.tap_frames, se.style)
+        F.next_press = F.t + ((tim and tim.next_ms) or 900) / 1000 + jitter(cfg.press_jitter_ms)
+        F.presses = F.presses + 1
+        C().counts.presses = C().counts.presses + 1
+        F.pending_press = { t = F.t, stamina = me.stamina, hits = F.hits, err = err }
+        return
+    end
     -- special: charge covers it, target is worth it, not too often
     if spec and spec.cost and acts.special and F.cap and F.cap.special_ok and (me.special or 0) >= spec.cost and F.t - (F.last_special or -99) >= cfg.special_gap_s
         and (F.target_hp or 0) >= cfg.special_hp_factor * (prim.dmg or 10) then
@@ -1416,6 +1429,11 @@ local function frame(F)
         if step_equip(F, pawn) then
             local r, l = held_items(pawn)
             F.cap = M.capabilities(pc, r, l)
+            if F.style and F.style ~= "auto" then
+                local a, bad = M.check_style(F.style, pawn, pc)
+                if not a then return finish(F, bad) end
+                F.style_entry = a
+            end
             say(F.log, string.format("can block %s (%s) parry %s (perk %s) special %s (perk %s)", tostring(F.cap.can_block), tostring(F.cap.block_item),
                 tostring(F.cap.can_parry), tostring(F.cap.parry_perk), tostring(F.cap.special_ok), tostring(F.cap.special_perk)))
             set_phase(F, "approach")
@@ -1450,7 +1468,11 @@ local function start_fight(log, actor, opts)
     opts = opts or {}
     if _G.DW_PAUSE then return { ok = false, reason = "companion_down", data = { detail = "paused (world loading)" } } end
     local c = C()
-    if not (c.hooks_started and c.handlers) then c.hooks_started = true; M.hooks_start(log) end
+    -- (re)register when any hook of this version is missing (a hot reload may add hooks) or the
+    -- dispatch table belongs to an older load
+    local missing = not (c.hooks_started and c.handlers) or c.handlers.on_damage ~= M.on_damage
+    for _, h in ipairs(M.HOOKS) do if not c.hooks[h.path] then missing = true end end
+    if missing then c.hooks_started = true; M.hooks_start(log) end
     local pc = local_pc()
     local pawn = pc and U.try(function() return pc.Pawn end)
     if not U.valid(pawn) then return { ok = false, reason = "companion_down" } end
@@ -1491,7 +1513,8 @@ local function start_fight(log, actor, opts)
                 dist_m = tgt.distance_m or 99, affinities = read_affinities(actor),
                 t0 = t, t = t, phase_t = t, inputs = {}, presses = 0, hits = 0, kills = 0, verified = 0, unverified_run = 0,
                 hit_seq = c.counts.hits, phase_log = {}, items_before = {}, loot_skip = {}, why = opts.why,
-                by = opts.by or (opts.mode == "reflex" and "reflex" or "debug"), hp_start = tgt.hp, loot_names = {} }
+                by = opts.by or (opts.mode == "reflex" and "reflex" or "debug"), hp_start = tgt.hp, loot_names = {},
+                style = opts.style }
     for _, w in ipairs(U.find_all("WorldItem", { skip_defaults = true })) do F.items_before[U.short(w) or "?"] = true end
     -- distances are centre to centre: a big creature (a cow's capsule) keeps us farther away, so
     -- reach and follow distance grow with its capsule radius beyond a Kebbit-sized one
@@ -1519,7 +1542,7 @@ function M.attack(log, target, opts)
     if not U.valid(pawn) then return { ok = false, reason = "companion_down" } end
     local actor = M.resolve_target(target, U.loc(pawn))
     if not actor then return { ok = false, reason = "unknown_target", data = { target = tostring(target) } } end
-    return start_fight(log, actor, { mode = "attack", force = opts.force, why = "commanded", by = opts.by or "debug" })
+    return start_fight(log, actor, { mode = "attack", force = opts.force, why = "commanded", by = opts.by or "debug", style = opts.style })
 end
 
 function M.stop(log, why)
@@ -1588,7 +1611,7 @@ function M.set_orders(t)
         if k == "avoid" and type(v) == "table" then
             M.orders.avoid = {}
             for _, n in ipairs(v) do M.orders.avoid[tostring(n):lower()] = true end
-        elseif M.orders[k] ~= nil or k == "stance" then M.orders[k] = v end
+        elseif M.orders[k] ~= nil or k == "stance" or k == "flee_hp" then M.orders[k] = v end
     end
     return { ok = true, orders = M.orders }
 end
@@ -1610,6 +1633,207 @@ function M.status()
              hooks = (function() local n = 0; for _ in pairs(c.hooks) do n = n + 1 end; return n end)() }
 end
 
+-- ------------------------------------------------------------------ the held items' own actions
+-- Every held item carries its actions in its item data (UHeldEquipmentData: PrimaryActionClass,
+-- SpecialActionClass, SecondaryActionClass, PrimarySprintActionClass, PrimaryJumpActionClass,
+-- PrimaryVisceralActionClass). Each action's CDO (UPlayerAction) has its display name (ActionName,
+-- e.g. "Chop" / "Overhead Chop" on the Mithril Logging Axe), RequiredPerk and bRequiresHolding.
+-- They are read live (patch-proof) and offered to the model as STYLES; the model picks one from
+-- these names and the player's tips. Nothing here says which style suits what.
+M.ACTION_SLOTS = {
+    { style = "primary", field = "PrimaryActionClass", input = "primary" },
+    { style = "special", field = "SpecialActionClass", input = "special" },
+    { style = "secondary", field = "SecondaryActionClass", input = "secondary", hold = true },
+    { style = "sprint", field = "PrimarySprintActionClass", input = "primary", needs = "sprinting" },
+    { style = "jump", field = "PrimaryJumpActionClass", input = "primary", needs = "airborne" },
+    { style = "visceral", field = "PrimaryVisceralActionClass", input = "primary", needs = "after a parry" },
+}
+
+local function perk_unlocked(pc, perk)
+    if not U.valid(perk) then return true end
+    local spc = U.try(function() return pc.SkillPerkComponent end)
+    if not U.valid(spc) then return false end
+    local ok, v = pcall(function() return spc:IsPerkUnlocked(perk) end)
+    return ok and v == true
+end
+
+-- -> {item, item_name, hand, actions = {{style, name, input, hold, needs, perk, unlocked, dmg, stamina}}}
+function M.held_actions(pawn, pc)
+    pc = pc or local_pc()
+    pawn = pawn or (pc and U.try(function() return pc.Pawn end))
+    if not U.valid(pawn) then return { ok = false, reason = "companion_down" } end
+    local eq = U.try(function() return pawn.PlayerEquipmentComponent end)
+    local right = U.valid(eq) and U.try(function() return eq:GetHeldEquipmentDataRight() end)
+    local left = U.valid(eq) and U.try(function() return eq:GetHeldEquipmentDataLeft() end)
+    local main = U.valid(right) and right or (U.valid(left) and left or nil)
+    local out = { ok = true, actions = {} }
+    if not main then out.item = nil; out.detail = "nothing held (bare hands)"; return out end
+    out.item = (U.path_of(main) or ""):match("%.([%w_]+)$")
+    out.item_name = text(U.try(function() return main.Name end))
+    out.hand = main == right and "right" or "left"
+    local prof = (M.weapons().items or {})[out.item or ""] or {}
+    for _, s in ipairs(M.ACTION_SLOTS) do
+        local src = main
+        if s.style == "secondary" and U.valid(left) and left ~= main then src = left end -- a shield's block
+        local cls = U.try(function() return src[s.field] end)
+        local cdo = U.valid(cls) and U.try(function() return cls:GetCDO() end)
+        if U.valid(cdo) then
+            local name = text(U.try(function() return cdo.ActionName end)) or text(U.try(function() return cdo.PromptText end))
+            local perk = U.try(function() return cdo.RequiredPerk end)
+            local a = { style = s.style, name = name or s.style, input = s.input, hold = s.hold or U.try(function() return cdo.bRequiresHolding end) == true or nil,
+                        needs = s.needs, perk = U.valid(perk) and U.short(perk) or nil, unlocked = perk_unlocked(pc, perk),
+                        action_class = U.short(cls) }
+            if s.style == "primary" and prof.prim then a.dmg, a.stamina, a.every_s = prof.prim.dmg, prof.prim.stam, prof.prim.next_ms and prof.prim.next_ms / 1000 end
+            if s.style == "special" and prof.spec then a.dmg, a.charge_cost, a.every_s = prof.spec.dmg, prof.spec.cost, prof.spec.next_ms and prof.spec.next_ms / 1000 end
+            if s.style == "secondary" and U.valid(cdo) then
+                a.can_parry = U.try(function() return cdo.bCanParry end) == true or nil
+                local pp = U.try(function() return cdo.SkillPerkRequiredToParry end)
+                if a.can_parry then a.parry_perk, a.parry_unlocked = U.valid(pp) and U.short(pp) or nil, perk_unlocked(pc, pp) end
+            end
+            out.actions[#out.actions + 1] = a
+        end
+    end
+    return out
+end
+
+-- A style the model asked for -> the action entry, matching the slot name ("primary", "special", ...)
+-- or the action's own display name, case-insensitive ("Overhead Chop", "overhead").
+function M.resolve_style(held, style)
+    if style == nil or style == "" then return nil end
+    local want = tostring(style):lower()
+    local acts = (held and held.actions) or {}
+    for _, a in ipairs(acts) do if a.style == want then return a end end
+    for _, a in ipairs(acts) do if (a.name or ""):lower() == want then return a end end
+    for _, a in ipairs(acts) do if (a.name or ""):lower():find(want, 1, true) then return a end end
+    return nil, "no_such_style"
+end
+
+local function styles_text(held)
+    local parts = {}
+    for _, a in ipairs((held and held.actions) or {}) do
+        parts[#parts + 1] = string.format("%s = %s%s", a.style, tostring(a.name), a.unlocked == false and (" (locked: " .. tostring(a.perk) .. ")") or "")
+    end
+    return table.concat(parts, "; ")
+end
+M.styles_text = styles_text
+
+-- Validate a requested style for the held item. -> entry | nil, failure result
+function M.check_style(style, pawn, pc)
+    if style == nil or style == "" or style == "auto" then return nil end
+    local held = M.held_actions(pawn, pc)
+    local a = M.resolve_style(held, style)
+    if not a then
+        return nil, { ok = false, reason = "invalid_args", data = { why = "no_such_style", style = style, item = held.item_name,
+            styles = held.actions, detail = string.format("My %s has no '%s' action. It has: %s.", tostring(held.item_name or "hands"),
+            tostring(style), styles_text(held)) } }
+    end
+    if a.unlocked == false then
+        return nil, { ok = false, reason = "not_unlocked", data = { why = "perk_locked", style = a.style, name = a.name, perk = a.perk,
+            detail = string.format("I can't do %s yet; it needs the %s perk.", tostring(a.name), tostring(a.perk)) } }
+    end
+    return a
+end
+
+-- One-off use of a held item's action (a swing to show Luis, one overhead chop...). Real inputs:
+-- a tap of the action's input (held ~0.8 s for a holding action like block); a jump style jumps
+-- first. Takes the pawn at command level for the short press. Verified by stamina spent or the
+-- action's montage starting. -> async {pending}.
+function M.use_action(log, style, opts)
+    opts = opts or {}
+    if _G.DW_PAUSE then return { ok = false, reason = "companion_down" } end
+    local pc = local_pc()
+    local pawn = pc and U.try(function() return pc.Pawn end)
+    if not U.valid(pawn) then return { ok = false, reason = "companion_down" } end
+    local a, bad = M.check_style(style or "primary", pawn, pc)
+    if not a then return bad end
+    if a.needs == "sprinting" or a.needs == "after a parry" then
+        return { ok = false, reason = "not_implemented", data = { why = "context_action", style = a.style, name = a.name,
+            detail = string.format("%s only happens %s; I can't do it on its own.", tostring(a.name), a.needs) } }
+    end
+    local acts = actions(pawn)
+    local input = acts[a.input]
+    if not input then return { ok = false, reason = "body_error", data = { detail = "no input for " .. tostring(a.input) } } end
+    local arb = mod("arbiter")
+    local token
+    if arb then
+        local r = arb.request(log, { name = "use_action", level = "command", resumable = false, uses_move = false, lease_s = 5 })
+        if not r.ok then return { ok = false, reason = "interrupted", data = { detail = "pawn busy", owner = r.owner } } end
+        token = r.token
+    end
+    local st0 = U.try(function() return pawn.StaminaComponent:GetStamina() end)
+    local sp0 = U.try(function() return pawn.SpecialChargeComponent:GetSpecialCharge() end)
+    local ai = U.try(function() return pawn.Mesh:GetAnimInstance() end)
+    local m0 = U.valid(ai) and U.short(U.try(function() return ai:GetCurrentActiveMontage() end)) or nil
+    local U_ = { t0 = now(pawn), frames = 0, done = false, style = a.style, name = a.name }
+    local hold_frames = a.hold and 80 or M.cfg.tap_frames
+    if a.needs == "airborne" then pcall(function() pawn:Jump() end) end
+    local start_frame = a.needs == "airborne" and 15 or 0
+    local function close(res)
+        if U_.done then return end
+        U_.done = true
+        if U_.handle then pcall(CancelDelayedAction, U_.handle) end
+        if a.needs == "airborne" then pcall(function() pawn:StopJumping() end) end
+        if arb and token then pcall(arb.release, log, token, res.ok and "done" or res.reason) end
+        U_.result = res
+        say(log, string.format("use_action %s (%s) -> %s %s", tostring(a.style), tostring(a.name), tostring(res.ok), tostring(res.reason or "")))
+    end
+    U_.handle = LoopInGameThreadWithDelay(1, function()
+        if _G.DW_PAUSE then return close({ ok = false, reason = "interrupted", data = { detail = "world teardown" } }) end
+        local ok = pcall(function()
+            if not U.valid(pawn) then return close({ ok = false, reason = "companion_down" }) end
+            U_.frames = U_.frames + 1
+            local f = U_.frames - start_frame
+            if f >= 1 and f <= hold_frames then inject(input) end
+            local t = now(pawn)
+            if f > hold_frames and not U_.checked and t - U_.t0 >= 0.6 then
+                local st = U.try(function() return pawn.StaminaComponent:GetStamina() end)
+                local m = U.valid(ai) and U.short(U.try(function() return ai:GetCurrentActiveMontage() end)) or nil
+                local sp = U.try(function() return pawn.SpecialChargeComponent:GetSpecialCharge() end)
+                local spent = (st0 and st and st < st0 - 0.5) or (sp0 and sp and sp < sp0 - 0.5)
+                local montage = m and m ~= m0
+                U_.checked = true
+                if spent or montage or a.hold then
+                    close({ ok = true, data = { style = a.style, name = a.name, stamina_spent = (st0 and st) and (st0 - st) or nil,
+                                                   charge_spent = (sp0 and sp) and (sp0 - sp) or nil, montage = m } })
+                else
+                    close({ ok = false, reason = "verification_failed", data = { style = a.style, name = a.name,
+                        detail = string.format("I pressed %s but nothing happened.", tostring(a.name)) } })
+                end
+            end
+            if t - U_.t0 > 4 then close({ ok = false, reason = "timeout" }) end
+        end)
+        if not ok then close({ ok = false, reason = "body_error" }) end
+    end)
+    C().use_action = U_
+    return { ok = true, pending = U_ }
+end
+
+-- get_state extras (client_bridge calls state_extras on every module): what his hands can do.
+-- Cached 3 s, or until the held item changes, so get_state stays cheap.
+function M.state_extras(api, data)
+    local c = C()
+    local pc = local_pc()
+    local pawn = pc and U.try(function() return pc.Pawn end)
+    if not U.valid(pawn) then return {} end
+    local eq = U.try(function() return pawn.PlayerEquipmentComponent end)
+    local r = U.valid(eq) and U.short(U.try(function() return eq:GetHeldEquipmentDataRight() end)) or ''
+    local l = U.valid(eq) and U.short(U.try(function() return eq:GetHeldEquipmentDataLeft() end)) or ''
+    local key = r .. '|' .. l
+    local t = os.time()
+    if not (c.extras and c.extras.key == key and t - c.extras.t < 3) then
+        local h = M.held_actions(pawn, pc)
+        h.ok = nil
+        c.extras = { key = key, t = t, v = h }
+    end
+    return { held_actions = c.extras.v }
+end
+
+-- Module functions each tool needs (the bridge offers a tool only when they exist).
+M.NEEDS = {
+    attack = { { 'inventory', 'list' }, { 'inventory', 'equip' }, { 'move', 'follow' } },
+    use_action = { { 'arbiter', 'request' } },
+}
+
 -- ------------------------------------------------------------------ bridge module handlers
 -- attack: an async action ({pending = a}); the bridge pre-empts other actions (attack is in ACTION_TOOLS).
 M.HANDLERS = {
@@ -1617,7 +1841,7 @@ M.HANDLERS = {
         if type(args.target) ~= "string" or args.target == "" then
             return { ok = false, reason = "invalid_args", data = { detail = "target is required (entity id or creature name)" } }
         end
-        local r = M.attack(log, args.target, { force = args.force == true, by = "brain" })
+        local r = M.attack(log, args.target, { force = args.force == true, by = "brain", style = args.style })
         if not r.ok then return r end
         local F = C().fight
         local a = { kind = "attack", id = ctx and ctx.id, timeout_s = M.cfg.fight_timeout_s + 15 }
@@ -1631,6 +1855,59 @@ M.HANDLERS = {
     end,
     combat_status = function() return M.status() end,
     combat_orders = function(log, args) return M.set_orders(args) end,
+    held_actions = function() return M.held_actions() end,
+    use_action = function(log, args, ctx)
+        local r = M.use_action(log, args.style or "primary", args)
+        if not r.ok then return r end
+        local U_ = r.pending
+        local a = { kind = "use_action", id = ctx and ctx.id, timeout_s = 8 }
+        a.poll = function() return U_.result end
+        return { pending = a }
+    end,
 }
+
+-- Capability contract entries for these tools (they win over manifest.lua's; see its header).
+do
+    local OBJ = { __jsontype = "object" }
+    local function obj(t) return setmetatable(t or {}, OBJ) end
+    local STYLE = { type = "string", description = "One of the held item's own actions, by style (primary, special, secondary, "
+        .. "jump) or by its name from held_actions / situation (e.g. the axe's \"Overhead Chop\"). Omit for the default." }
+    M.MANIFEST = {
+        attack = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 30, timeout_s = 150,
+            detail_is_speech = true,
+            description = "Fight a creature until it is dead, the way a player does: picks the best weapon you carry, attacks with "
+                .. "real button presses, answers its attacks (parry/block/dodge/jump per your combat_orders), backs off to eat when "
+                .. "hurt, loots, then re-equips your tool. Refuses unsafe fights (too strong, a boss, outnumbered, low health) "
+                .. "unless force; never players.",
+            args = { type = "object", required = { "target" }, properties = obj({
+                target = { type = "string", description = "Creature id from situation or look (or its name: the nearest one)." },
+                style = STYLE,
+                force = { type = "boolean", default = false, description = "Fight even if it looks unsafe (only when the player insists)." } }) },
+            ground = obj({ target = "creature" }),
+            reasons = { "unsafe", "unknown_target", "too_far", "interrupted", "timeout", "not_unlocked", "invalid_args", "companion_down", "body_error" } },
+        use_action = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 2, timeout_s = 8,
+            detail_is_speech = true,
+            description = "Use one of your held item's actions once (a single swing, block or the special), e.g. to show the player "
+                .. "or when asked for a specific move. Lists of actions: held_actions.",
+            args = { type = "object", properties = obj({ style = STYLE }) },
+            reasons = { "invalid_args", "not_unlocked", "not_implemented", "verification_failed", "interrupted", "companion_down" } },
+        held_actions = { kind = "read", llm = true, moves = false, duration_s = 0, timeout_s = 5,
+            description = "The actions of what you are holding, from the item's own data: style, display name (e.g. Chop, "
+                .. "Overhead Chop), input, whether a perk is needed and unlocked, damage and stamina.",
+            args = { type = "object", properties = obj() } },
+        combat_orders = { kind = "waiter", llm = true, moves = false, duration_s = 0, timeout_s = 5,
+            description = "Set your standing combat policy (kept until changed): stance defensive|aggressive|passive|flee, "
+                .. "defense auto|parry|block|dodge|none, allow_jump, disengage (back off and eat when hurt), heal_hp and "
+                .. "reengage_hp (HP fractions), flee_hp, avoid (creature names never to fight).",
+            args = { type = "object", properties = obj({
+                stance = { type = "string", enum = { "defensive", "aggressive", "passive", "flee" } },
+                defense = { type = "string", enum = { "auto", "parry", "block", "dodge", "none" } },
+                allow_jump = { type = "boolean" }, disengage = { type = "boolean" },
+                heal_hp = { type = "number", minimum = 0, maximum = 1 }, reengage_hp = { type = "number", minimum = 0, maximum = 1 },
+                flee_hp = { type = "number", minimum = 0, maximum = 1 },
+                avoid = { type = "array", items = { type = "string" } } }) } },
+        combat_status = { kind = "probe", llm = false, timeout_s = 5, description = "Combat state (debug).", args = { type = "object", properties = obj() } },
+    }
+end
 
 return M

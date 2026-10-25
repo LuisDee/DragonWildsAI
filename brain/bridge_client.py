@@ -34,7 +34,7 @@ def _drop_none(v):
 
 # Long actions need longer timeouts. Seconds of wall-clock time.
 DEFAULT_TIMEOUTS = {"gather": 1800.0,  # body/gather.lua caps itself at 1700 s
-                    "craft": 60.0, "attack": 60.0, "go_to": 120.0, "place": 60.0,
+                    "craft": 60.0, "attack": 140.0, "go_to": 300.0, "place": 60.0,  # go_to: may wait for a lead out (client)
                     "pickup": 120.0, "give": 70.0,  # the body's give walks to the player first
                     "interact": 120.0, "look": 15.0,  # interact walks there; look converts foliage first
                     "travel": 300.0}  # body/travel.lua caps itself at 280 s
@@ -240,6 +240,10 @@ class BridgeClient(GameInterface):
 
     def world_info(self) -> ActionResult:
         return self.request("world_info", {}, 5.0)
+
+    def call_raw(self, tool: str, args: dict) -> ActionResult:
+        # composite skills (fetch, consume, come_to, recover_grave) and manifest-only tools
+        return self.request(tool, _drop_none(args))
 
     def poll_events(self) -> list[Event]:
         for msg in self.transport.receive(0.0):

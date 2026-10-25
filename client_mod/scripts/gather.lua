@@ -759,7 +759,20 @@ local function step_swing(J, pawn, me, acts)
         J.next_press = J.t + 0.5 -- let stamina come back
         return
     end
-    local action = (T.attack == "special" and acts.special) or acts.primary
+    -- a style the model chose (one of the held tool's own actions, combat.check_style), else the
+    -- profile's default for this target
+    if J.style and not J.style_entry then
+        local a, bad = mcall("combat", "check_style", J.style, pawn, J.pc)
+        if not a then
+            local d = (type(bad) == "table" and bad.data) or {}
+            return fail(J, (type(bad) == "table" and bad.reason) or "invalid_args", d.why or "no_such_style", d.detail, d)
+        end
+        J.style_entry = a
+        say(J.log, string.format("style %s = %s (%s)", tostring(J.style), tostring(a.name), tostring(a.input)))
+    end
+    local slot = (J.style_entry and J.style_entry.input) or (T.attack == "special" and "special") or "primary"
+    local action = acts[slot] or acts.primary
+    if slot == "special" then prim = prof.spec or prim end
     if not tap(J, action, cfg.tap_frames) then
         return fail(J, "body_error", "no_attack_input", "I can't find my attack input.")
     end
@@ -1021,7 +1034,8 @@ function M.start(log, args, ctx)
             end,
             on_stop = function(_, _, why) if J and not J.done then J.released = true; finish(J, result_of(J, false, "interrupted", { why = tostring(why), detail = "I was told to do something else." })) end end })
         if not r.ok then
-            return { ok = false, reason = "interrupted", data = { why = "pawn_busy", owner = r.owner, detail = "I'm busy with something more important." } }
+            return { ok = false, reason = "interrupted", data = { why = "pawn_busy", owner = r.owner,
+                     busy_with = r.owner and r.owner.name, busy_move = r.owner and r.owner.move } }
         end
         token = r.token
     end
@@ -1034,6 +1048,7 @@ function M.start(log, args, ctx)
           radius_cm = math.min((tonumber(args.radius) or M.cfg.radius_m) * 100, M.cfg.max_radius_m * 100),
           inv0 = counts_of(list), gained = 0, have = M.count_in(list, profile.item), t0 = t, t = t, phase_t = t,
           inputs = {}, sites = {}, swings = 0, hits = 0, broken = 0, targets = 0, phase_log = {}, bad_streak = 0,
+          style = (args.style ~= nil and args.style ~= "" and args.style ~= "auto") and tostring(args.style) or nil,
           timeout_s = math.min(M.cfg.timeout_base_s + M.cfg.timeout_per_unit_s * want, M.cfg.timeout_max_s) }
     c.job = J
     set_phase(J, tool and "equip" or "scan", "start " .. key .. " x" .. want)
@@ -1077,6 +1092,29 @@ end
 
 -- ------------------------------------------------------------------ bridge module handlers
 -- gather: an async action ({pending = a}); the bridge pre-empts other actions (gather is in ACTION_TOOLS).
+-- Capability contract entry (wins over manifest.lua's): adds the style argument.
+do
+    local OBJ = { __jsontype = "object" }
+    local function obj(t) return setmetatable(t or {}, OBJ) end
+    M.MANIFEST = {
+        gather = { kind = "action", llm = true, moves = true, priority = "task", duration_s = 120, timeout_s = 1800,
+            detail_is_speech = true,
+            description = "Harvest a resource kind nearby until you have count MORE of it (chop trees/logs/stumps, mine rocks, "
+                .. "pick ground resources). Finds targets itself and equips the right tool you carry. style picks one of the "
+                .. "tool's own actions (see held_actions; e.g. the axe has Chop and Overhead Chop).",
+            args = { type = "object", required = { "resource", "count" }, properties = obj({
+                resource = { type = "string", description = "Resource kind, e.g. 'oak', 'ash', 'stone', 'log'." },
+                count = { type = "integer", minimum = 1, description = "How many more to gather." },
+                radius = { type = "number", minimum = 1, maximum = 120, description = "Search radius in metres (default 30)." },
+                stumps = { type = "boolean", description = "Also chop stumps (only when asked)." },
+                style = { type = "string", description = "One of the tool's actions by style (primary, special) or name (e.g. "
+                    .. "\"Overhead Chop\"); omit for the default." } }) },
+            preconditions = { "a tool of the right kind in your inventory (axe for trees, pickaxe for rocks)" },
+            reasons = { "nothing_in_range", "wrong_tool", "path_blocked", "inventory_full", "interrupted", "timeout", "unknown_target",
+                        "invalid_args", "not_unlocked" } },
+    }
+end
+
 M.HANDLERS = {
     gather = function(log, args, ctx)
         if type(args.resource) ~= "string" or args.resource == "" then
@@ -1085,7 +1123,8 @@ M.HANDLERS = {
         if args.count ~= nil and (tonumber(args.count) or 0) < 1 then
             return { ok = false, reason = "invalid_args", data = { detail = "count must be 1 or more" } }
         end
-        local r = M.start(log, { resource = args.resource, count = args.count or 1, radius = args.radius, stumps = args.stumps }, ctx)
+        local r = M.start(log, { resource = args.resource, count = args.count or 1, radius = args.radius, stumps = args.stumps,
+                                 style = args.style }, ctx)
         if not r.ok then return r end
         local J = C().job
         local a = { kind = "gather", id = ctx and ctx.id, timeout_s = (J and J.timeout_s or 600) + 15 }

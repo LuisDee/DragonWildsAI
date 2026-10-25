@@ -54,7 +54,8 @@
                 {
                     "to": "pad_upper",
                     "tol": 3.0,
-                    "timeout": 90
+                    "timeout": 90,
+                    "expect_log": "memory: in trap|memory: remembered route"
                 }
             ],
             "pass": "every leg answers ok AND a fresh get_state position is within tol of the goal (2D) and within 1.5 m in height",
@@ -69,7 +70,8 @@
                 {
                     "to": "pad_upper",
                     "tol": 3.0,
-                    "timeout": 90
+                    "timeout": 90,
+                    "expect_log": "memory: in trap|memory: remembered route"
                 },
                 {
                     "to": "grave_area",
@@ -90,7 +92,8 @@
                 {
                     "to": "pad_upper",
                     "tol": 3.0,
-                    "timeout": 90
+                    "timeout": 90,
+                    "expect_log": "memory: in trap|memory: remembered route"
                 }
             ],
             "repeat": 5,

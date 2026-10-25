@@ -27,13 +27,15 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Callable
 
+from . import grounding
 from . import situation as sit
-from .interface import (PROGRESS_EVENTS, READ_TOOLS, RULE_TOOLS, SENSABLE_TRIGGERS, Event, GameInterface,
+from .interface import (PROGRESS_EVENTS, READ_TOOLS, RULE_TOOLS, SENSABLE_TRIGGERS, TOOLS, Event, GameInterface,
                         GatherProgress, Reason, tool_schema, validate_args)
 from .jsonl_log import JsonlLogger
 from .llm import LLMClient, LLMResponse, ToolCall, assistant_message, tool_result_message
 from .spells import SpellBook
 from .state_store import StateStore
+from .voice import Voice
 
 MAX_SAY = 200  # one chat line (DW_SAY_MODE=direct sends real chat)
 
@@ -67,8 +69,10 @@ How to decide:
 - Chit-chat, praise, questions about what you see -> no tool, just answer from the situation.
 - What you wear, hold or carry -> situation has "You: ... holding X", "Wearing:" and "Carrying:"; call
   inventory (read-only) for the full list with slots, counts and durability, then answer from it.
-Call AT MOST ONE action tool per message. Calling an action tool cancels whatever job you are
-doing, so never pair an action with stop: "follow me" is just follow. Only call stop when the
+A request that needs several steps (walk to him, then drop the logs; pick it up, then drink it):
+call the tools IN ORDER in ONE message. They run one after another, each checked in the game, and
+stop at the first one that fails. Calling an action tool cancels whatever job you are doing, so
+never pair an action with stop: "follow me" is just follow. Only call stop when the
 player asks you to stop or wait. If the player only comments on your work, do not call a tool.
 
 Seeing things (grounding):
@@ -79,8 +83,28 @@ Seeing things (grounding):
 - If it is not there, say so plainly: "I can't see any sticks around here", and mention what IS there.
 - If you can't do something, say what and why in one line: you lack the skill, you can't see it,
   you don't carry it, or it is unsafe. Don't pretend.
+- references (when present): the words in command.text that match things you perceive, typos
+  corrected (read_as), with ids, nearest first. Use them to pick the right id.
+- When an action fails, its result comes back to you: say in one truthful line what happened, and
+  either try the obvious fix with one tool or ask {player}.
 Use ids and names exactly as they appear. "me"/"I" is the player in command.player: pass that exact
 value as the player or target argument.
+
+Your body (body_status, body_event):
+- body_status: what your body reports right now: your current or last move and how it ended, and
+  what each report was about. Trust it over recent_events. A report "not about a player" is not
+  about {player}.
+- body_event: your body needs a decision (command.text is empty then). unreachable: a move can't
+  reach its target (reason = the body's verdict, about = player or place); resumed: it can reach it
+  again; vitals_low: a survival stat is low and you carry nothing for it. If one of your tools fixes
+  it (e.g. something in situation you can consume or fetch), use it. Otherwise tell {player} in ONE
+  short truthful line what happened and why, in plain words, and what you need from him.
+- recent_activity: what your body did lately (fights and how they ended, flights, pickups, deaths,
+  grave recoveries...), whoever started it (a reflex or a test command too). It is YOUR memory:
+  answer "what did you just do?" or "did you kill that?" from it; notes keep the notable ones.
+- Never repeat what you already said (your own lines are in chat, you=true) unless it got worse or
+  {player} asks about it.
+- If you can't tell what {player} means, ask ONE short question naming the things you can see.
 
 Spells: castable_spells lists what you can cast (name, role, when to use it). "Cast X" / "shield
 up" -> cast with that name (self spells need no target). If a spell is not listed, you can't cast
@@ -114,7 +138,8 @@ ACTION_TOOLS = ["follow", "stop", "go_to", "attack", "give", "pickup", "drop", "
 # and a short result line when they end (a failure still overrides, single voice).
 LONG_ACTIONS = {"gather"}
 # How to name a skill in "I can't ... yet".
-SKILL_PHRASES = {"follow": "follow you", "stop": "stop", "go_to": "walk somewhere", "attack": "fight",
+SKILL_PHRASES = {"fetch": "pick that up", "consume": "eat or drink that", "come_to": "come to you",
+                 "recover_grave": "get my things from my grave", "follow": "follow you", "stop": "stop", "go_to": "walk somewhere", "attack": "fight",
                  "give": "hand items over", "gather": "gather", "craft": "craft", "place": "build",
                  "pickup": "pick things up", "drop": "drop things", "cast": "cast that spell",
                  "set_reflex_rule": "do that as a reflex", "list_rules": "list my orders",
@@ -122,19 +147,13 @@ SKILL_PHRASES = {"follow": "follow you", "stop": "stop", "go_to": "walk somewher
                  "interact": "use things like that", "look": "look around", "inspect": "inspect things",
                  "run_skill": "run that skill"}
 # A short reply when the action worked but the model said nothing (reply to every command).
-ACKS = {"follow": "Right behind you.", "stop": "Okay, stopping.", "go_to": "On my way.", "attack": "On it!",
+ACKS = {"fetch": "Got it.", "consume": "Done.", "come_to": "Here.", "recover_grave": "Got my things back.",
+        "follow": "Right behind you.", "stop": "Okay, stopping.", "go_to": "On my way.", "attack": "On it!",
         "give": "Here you go.", "pickup": "Got it.", "drop": "Dropped.", "cast": "Done.", "sleep": "Night night.",
         "wake": "I'm up.", "interact": "Done.", "remember": "Noted.", "set_reflex_rule": "Got it.", "gather": "On it.",
         "list_rules": "", "clear_rule": ""}
 # Actions that leave the current job running (a spell or a standing order is not a new job).
 NON_INTERRUPTING = {"remember", "cast", *RULE_TOOLS}
-# Command words that don't name a thing ("pick that up", "grab it all", "loot everything").
-VERB_WORDS = {"pick", "grab", "take", "collect", "fetch", "bring", "gather", "carry", "lift", "hold", "use", "open",
-              "press", "harvest", "loot", "everything", "lot", "can", "could", "would", "will", "go", "come",
-              "quick", "quickly", "now", "again", "too", "also", "just", "claude", "companion", "mate", "buddy",
-              "drop", "dropped", "stuff", "here", "over", "what", "which", "where", "who", "we", "us", "our", "his",
-              "her", "their", "mine", "yours", "left", "behind", "front", "next", "close", "one", "ones", "few",
-              "couple", "lying", "floor", "ground", "around", "nearby"}
 # Reasons in words, for "I couldn't X: <why>".
 REASON_PHRASES = {
     Reason.PATH_BLOCKED: "I can't find a way there",
@@ -193,6 +212,7 @@ class Decision:
     # (tool, reason, data) the Controller refused before reaching the body, e.g. cant_sense, not_perceived
     refusals: list[tuple[str, str, dict]] = field(default_factory=list)
     model_calls: int = 0
+    messages: list[dict] = field(default_factory=list)  # the turn so far, for a follow-up after a failure
     looks: list[dict] = field(default_factory=list)  # look results this turn (data)
     inventory: dict | None = None  # an inventory read this turn (data)
 
@@ -202,7 +222,7 @@ class Controller:
                  name: str = "Claude", player: str = "Luis", recent_events: int = 10,
                  spellbook: SpellBook | None = None, rules_ttl: float = 60.0,
                  available_tools: set[str] | list[str] | None = None, skills=None, max_calls: int = 3,
-                 progress_interval: float = 20.0, clock: Callable[[], float] = time.monotonic):
+                 progress_interval: float = 20.0, clock: Callable[[], float] = time.monotonic, caps=None):
         self.llm = llm
         self.game = game
         self.store = store
@@ -216,6 +236,12 @@ class Controller:
         self._rules_at: float | None = None
         # None = every tool (the mock); else the body's capabilities decide look/inspect/interact.
         self.available = set(available_tools) if available_tools is not None else None
+        # The body's capability manifest (brain.capabilities.Capabilities): when present, the tool list
+        # comes from it ONLY, so the model can never be offered a tool the body lacks.
+        self.caps = caps if caps is not None and getattr(caps, "has_manifest", False) else None
+        if self.caps is not None and self.available is None:
+            self.available = set(self.caps.tools) | set(self.caps.manifest)
+        self.read_tools = set(READ_TOOLS) | (self.caps.read_tools() if self.caps else set())
         self.skills = skills  # SkillLibrary | None
         self.max_calls = max(1, max_calls)
         self.progress_interval = progress_interval
@@ -225,6 +251,10 @@ class Controller:
         self.tools = self._tool_list()
         self.chat_provider: Callable[[], list[dict]] | None = None  # recent chat lines (run_live.ChatMemory)
         self.on_say: Callable[[str], None] | None = None  # told about every line the companion says
+        self.voice = Voice(clock=clock)  # the single speech gate (near-duplicates)
+        self.status_provider: Callable[[], list[str]] | None = None  # body_status lines (broker.digest)
+        # recent_activity lines (broker.activity_lines): completed body episodes, whoever started them
+        self.activity_provider: Callable[[], list[str]] | None = None
 
     # ---------------------------------------------------------------- tools offered (fixed per session)
 
@@ -236,11 +266,14 @@ class Controller:
         return self.has("look")
 
     def _tool_list(self) -> list[dict]:
-        optional = {"interact", *READ_TOOLS}  # offered only when the body has them
-        acts = [n for n in ACTION_TOOLS if n not in optional or self.has(n)]
+        brain = [tool_schema("remember"), tool_schema("run_skill"), START_GOAL]
+        rules = [tool_schema(n) for n in RULE_TOOLS if self.has(n)]
+        if self.caps is not None:  # the body's manifest: its own descriptions and schemas
+            return [self.caps.function_schema(n) for n in self.caps.llm_tools()] + rules + brain
+        # No manifest (mock, server puppet): the brain's own schemas, still only for tools the body has.
+        acts = [n for n in ACTION_TOOLS if self.has(n)]
         reads = [n for n in READ_TOOLS if self.has(n)]
-        return ([tool_schema(n) for n in reads + acts] + [tool_schema(n) for n in RULE_TOOLS]
-                + [tool_schema("remember"), tool_schema("run_skill"), START_GOAL])
+        return [tool_schema(n) for n in reads + acts] + rules + brain
 
     def offered(self) -> set[str]:
         return {t["function"]["name"] for t in self.tools}
@@ -258,6 +291,8 @@ class Controller:
     def reflex_rules(self) -> list[str]:
         """One line per standing order, refreshed after any rule tool call (or every rules_ttl s).
         The rules themselves are snapshotted into this world's memory (reflex_rules.json)."""
+        if not self.has("list_rules"):
+            return []
         now = time.monotonic()
         if self._rules_at is not None and now - self._rules_at < self.rules_ttl:
             return self._rules
@@ -273,6 +308,8 @@ class Controller:
         return self._rules
 
     def castable_spells(self) -> list[dict]:
+        if not self.has("spells") and not self.has("cast"):
+            return []
         try:
             return self.spellbook.castable()
         except Exception as exc:  # context is best effort; never block a decision on it
@@ -294,7 +331,8 @@ class Controller:
             notes = dict(list(notes.items())[-20:])
         return notes
 
-    def context(self, player: str, text: str, state: dict, active_goal: str | None, addressed: bool = True) -> dict:
+    def context(self, player: str, text: str, state: dict, active_goal: str | None, addressed: bool = True,
+                body_event: dict | None = None) -> dict:
         tree = self.store.tree
         tasks = [t.model_dump(include={"skill", "args", "status"}) for t in tree.tasks] if tree and active_goal else []
         ctx = {
@@ -309,6 +347,22 @@ class Controller:
             "reflex_rules": self.reflex_rules(),
             "recent_events": list(self.events),
         }
+        if self.status_provider:
+            try:
+                ctx["body_status"] = self.status_provider()
+            except Exception as exc:  # context is best effort
+                self.log.log("body_status_error", error=repr(exc))
+        if self.activity_provider:
+            try:
+                ctx["recent_activity"] = self.activity_provider()
+            except Exception as exc:  # context is best effort
+                self.log.log("recent_activity_error", error=repr(exc))
+        if body_event:
+            ctx["body_event"] = body_event
+        if text and state and not state.get("unavailable"):
+            refs = grounding.hints(grounding.read(text, sit.perceived(state), exclude=[player, self.name]))
+            if refs:
+                ctx["references"] = refs  # information only: the model decides (PRINCIPLES.md #2)
         if self.chat_provider:
             try:
                 ctx["chat"] = self.chat_provider()
@@ -322,11 +376,9 @@ class Controller:
 
     # ---------------------------------------------------------------- the bounded loop
 
-    def decide(self, player: str, text: str, state: dict, active_goal: str | None, addressed: bool = True) -> Decision:
-        # What the player named, for grounding pickup/interact against the words they used.
-        self._named = sit.tokens(text) - VERB_WORDS - sit.tokens(player) - sit.tokens(self.name)
-        self._named_words = [w for w in re.findall(r"[A-Za-z']+", text) if sit.tokens(w) & self._named]
-        context = self.context(player, text, state, active_goal, addressed)
+    def decide(self, player: str, text: str, state: dict, active_goal: str | None, addressed: bool = True,
+               body_event: dict | None = None) -> Decision:
+        context = self.context(player, text, state, active_goal, addressed, body_event)
         messages = [{"role": "system", "content": self.persona()},
                     {"role": "user", "content": json.dumps(context, default=str, ensure_ascii=False)}]
         offered = self.offered()
@@ -339,8 +391,8 @@ class Controller:
             d.model_calls += 1
             self.log.log("llm_response", component="controller", step=step, content=resp.content,
                          tool_calls=[vars(c) for c in resp.tool_calls], usage=resp.usage)
-            reads = [c for c in resp.tool_calls if c.name in READ_TOOLS and c.name in offered]
-            commits = [c for c in resp.tool_calls if c.name not in READ_TOOLS]
+            reads = [c for c in resp.tool_calls if c.name in self.read_tools and c.name in offered]
+            commits = [c for c in resp.tool_calls if c.name not in self.read_tools]
             if commits or not reads:
                 break  # the first real action ends the turn (reads alongside an action are dropped)
             if step == self.max_calls - 1:
@@ -352,6 +404,7 @@ class Controller:
             if step == self.max_calls - 2:
                 messages.append({"role": "user", "content": "Last step: act now on what you found, or reply."})
         d.speech = (resp.content or "").strip() or None
+        d.messages = messages + [assistant_message(resp)]
         self._collect(resp.tool_calls, d, state)
         # A real action or a new goal pre-empts the current job; remember(), spells, standing
         # orders and chat do not.
@@ -363,7 +416,7 @@ class Controller:
     def _read(self, call: ToolCall, d: Decision) -> dict:
         """Run one read-only tool (no interrupt, no task) and return a compact result for the model."""
         try:
-            args = validate_args(call.name, call.arguments)
+            args = self._validate(call.name, call.arguments)
         except Exception as exc:
             return {"ok": False, "reason": Reason.INVALID_ARGS, "error": str(exc)[:300]}
         self.log.log("tool_call", tool=call.name, args=args, read_only=True)
@@ -383,8 +436,13 @@ class Controller:
     def _collect(self, calls: list[ToolCall], d: Decision, state: dict) -> None:
         offered = self.offered()
         for call in calls:
-            if call.name in READ_TOOLS:
+            if call.name in self.read_tools:
                 continue
+            if call.name not in offered and self.caps is not None:  # a legacy name (pickup -> fetch)
+                new, args = self.caps.resolve(call.name, call.arguments or {})
+                if new != call.name and new in offered:
+                    self.log.log("controller_alias", said=call.name, tool=new, args=args)
+                    call.name, call.arguments = new, args
             if call.name == "start_goal" and call.arguments.get("goal"):
                 d.goal = str(call.arguments["goal"])
                 continue
@@ -393,6 +451,10 @@ class Controller:
                 continue
             if call.name not in offered or call.name == "start_goal":
                 self.log.log("controller_unknown_tool", tool=call.name)
+                if call.name in TOOLS and call.name != "start_goal":
+                    # a tool this body lacks (never offered, the model reached for it anyway): say so
+                    # truthfully instead of speaking a reply that claims the action
+                    d.refusals.append((call.name, Reason.NOT_IMPLEMENTED, {}))
                 continue
             if call.name == "set_reflex_rule":
                 trig = call.arguments.get("trigger")
@@ -402,16 +464,22 @@ class Controller:
                     d.refusals.append((call.name, Reason.CANT_SENSE, {"trigger": kind}))
                     continue
             try:
-                call.arguments = validate_args(call.name, call.arguments)
+                call.arguments = self._validate(call.name, call.arguments)
             except Exception as exc:
                 self.log.log("controller_invalid_call", tool=call.name, error=str(exc))
                 continue
-            refusal = self.ground(call, state, d.looks)
+            refusal = self.safety(call, state)
             if refusal:
-                self.log.log("controller_not_perceived", tool=call.name, args=call.arguments, refusal=refusal)
+                self.log.log("controller_safety_refusal", tool=call.name, args=call.arguments, refusal=refusal)
                 d.refusals.append(refusal)
                 continue
             d.actions.append(call)
+
+    def _validate(self, name: str, args: dict) -> dict:
+        """The body's published schema when it has one for this tool, else the brain's own model."""
+        if self.caps is not None and name in self.caps.manifest:
+            return self.caps.validate(name, args)
+        return validate_args(name, args)
 
     def _collect_skill(self, call: ToolCall, d: Decision) -> None:
         name = str(call.arguments.get("name") or "")
@@ -423,69 +491,40 @@ class Controller:
 
     # ---------------------------------------------------------------- grounding (in code)
 
-    def ground(self, call: ToolCall, state: dict, looks: list[dict]) -> tuple[str, str, dict] | None:
-        """(tool, reason, data) when the action names something that was not perceived, else None.
-        It may also rewrite a name the model passed as a target into the perceived thing's id."""
-        if not state or state.get("unavailable"):
-            return None  # nothing to ground against; the executor refuses without state anyway
-        args = call.arguments
-        things = sit.perceived(state, looks)
-        unmatched = [lk.get("_about") for lk in looks if sit.look_matched(lk) is False and lk.get("_about")]
-
-        def refuse(what: str, kinds: set[str] | None = None) -> tuple[str, str, dict]:
-            return call.name, Reason.NOT_PERCEIVED, {"what": what, "seen": sit.describe_seen(things, kinds=kinds)}
-
-        named = getattr(self, "_named", set())
-
-        def off_topic(t: sit.Thing) -> bool:
-            """The player named something (e.g. 'sticks') and this target is not it (e.g. Oak Logs)."""
-            return bool(named) and not (named & t.words())
-
-        spoken = " ".join(getattr(self, "_named_words", [])) or " ".join(sorted(named))
-        if call.name == "pickup":
-            if args.get("target") not in (None, "nearest"):
-                t = sit.by_id(args["target"], things)
-                if t is None:
-                    return refuse(args.get("item") or args["target"])
-                if args.get("item") and not sit.match(args["item"], [t]):
-                    return refuse(args["item"])
-                if off_topic(t):
-                    return refuse(unmatched[-1] if unmatched else spoken)
-            if args.get("item"):
-                ground = [t for t in things if t.kind == "item"]
-                hits = sit.match(args["item"], ground)
-                if not hits:
-                    return refuse(args["item"])
-                if all(off_topic(t) for t in hits):
-                    return refuse(unmatched[-1] if unmatched else spoken)
-            elif unmatched:
-                return refuse(unmatched[-1])
-            elif named and not any(not off_topic(t) for t in things if t.kind == "item"):
-                return refuse(spoken)
-        elif call.name in ("attack", "interact"):
-            target = str(args.get("target") or "")
-            t = sit.by_id(target, things)
-            if t is None:
-                hits = [h for h in sit.match(target, things) if h.id and h.kind != "player"]
-                if call.name == "attack":
-                    hits = [h for h in hits if h.kind == "creature"]
-                if len(hits) >= 1 and len({h.name for h in hits}) == 1:
-                    near = min(hits, key=lambda h: h.distance if h.distance is not None else 1e9)
-                    self.log.log("controller_target_resolved", tool=call.name, said=target, id=near.id)
-                    args["target"] = near.id
-                    t = near
-                else:
-                    spoken = re.sub(r"(_C)?[_\d]+", " ", target).strip() or target
-                    return refuse(unmatched[-1] if unmatched else spoken,
-                                  {"creature"} if call.name == "attack" else None)
-            if unmatched and call.name == "interact" and not sit.match(unmatched[-1], [t]):
-                return refuse(unmatched[-1])
-            if call.name == "interact" and off_topic(t):
-                return refuse(unmatched[-1] if unmatched else spoken)
-        elif call.name in ("give", "drop"):
-            if "inventory" in state and not self._carries(state, str(args.get("item") or "")):
-                return call.name, Reason.NOT_IN_INVENTORY, {"item": args.get("item")}
+    def safety(self, call: ToolCall, state: dict) -> tuple[str, str, dict] | None:
+        """Luis's explicit safety rules: the ONLY code gate on the model's calls (PRINCIPLES.md #2).
+        Never attack a player. Everything else (what the player meant, which item, whether it is
+        there) is the model's decision; the body reports the outcome truthfully."""
+        if call.name == "attack" and state and not state.get("unavailable"):
+            target = str(call.arguments.get("target") or "")
+            names = {str(p.get("name")) for p in state.get("players") or [] if isinstance(p, dict) and p.get("name")}
+            if target in names or target == self.player:
+                return call.name, Reason.UNSAFE, {"target": target, "safety_rule": "never attack a player"}
         return None
+
+    def follow_up(self, d: Decision, call: ToolCall, result: dict, state: dict | None = None,
+                  results: dict[str, dict] | None = None) -> Decision:
+        """An action failed: hand the body's truthful result back to the model for ONE more step,
+        so IT decides what to say, which fix to try, or what to ask (no code-side rewording).
+        ``results``: call id -> result of the steps that ran before it (multi-step turns)."""
+        msgs = list(d.messages)
+        calls = (msgs[-1].get("tool_calls") or []) if msgs else []
+        for tc in calls:  # every tool call of the turn needs a result
+            name = (tc.get("function") or {}).get("name")
+            res = result if tc.get("id") == call.id or (not call.id and name == call.name) else \
+                (results or {}).get(tc.get("id")) or {"ok": None, "note": "not run: an earlier step failed"}
+            msgs.append(tool_result_message(ToolCall(name or "?", {}, tc.get("id")), res))
+        msgs.append({"role": "user", "content": "That action did not work (result above). Reply to the player in "
+                     "one short truthful line; you may call ONE tool to fix it, or ask him."})
+        self.log.log("prompt", component="controller", model=self.llm.model, step="follow_up", messages=msgs[-2:])
+        resp = self.llm.complete(msgs, tools=self.tools)
+        self.log.log("llm_response", component="controller", step="follow_up", content=resp.content,
+                     tool_calls=[vars(c) for c in resp.tool_calls], usage=resp.usage)
+        d2 = Decision(model_calls=1, speech=(resp.content or "").strip() or None)
+        d2.messages = msgs + [assistant_message(resp)]
+        self._collect([c for c in resp.tool_calls if c.name not in self.read_tools and c.name != "start_goal"],
+                      d2, state or {})
+        return d2
 
     @staticmethod
     def _carries(state: dict, item: str) -> bool:
@@ -507,11 +546,18 @@ class Controller:
 
     # ---------------------------------------------------------------- speech (single voice)
 
-    def say(self, text: str) -> dict | None:
+    def say(self, text: str, kind: str = "reply") -> dict | None:
+        """The only way anything is said (single voice). ``kind``: reply (to a command), notice (a body
+        situation), system (pong: never gated). Near-duplicates of a recent line are not said again."""
         text = clip(text)
         if not text:
             return None
-        self.log.log("say", text=text)
+        why = self.voice.gate(text, kind)
+        if why:
+            self.log.log("say_suppressed", text=text, voice=kind, why=why)
+            return None
+        self.voice.record(text, kind)
+        self.log.log("say", text=text, voice=kind)
         if self.on_say:
             try:
                 self.on_say(text)
@@ -531,8 +577,9 @@ class Controller:
         spell = spell_label(data.get("spell") or (data.get("rule") or {}).get("spell"))
         reason_base = (reason or "").split(":", 1)[0]
         detail = data.get("detail")
-        if tool == "gather" and isinstance(detail, str) and detail.strip() and reason not in Reason.CANT_YET:
-            # the client gather skill writes a truthful chat sentence for each failure (data.why = the code)
+        speaks = tool == "gather" or (self.caps is not None and self.caps.speaks_detail(tool))
+        if speaks and isinstance(detail, str) and detail.strip() and reason not in Reason.CANT_YET:
+            # the client skills write a truthful chat sentence for each failure (manifest detail_is_speech)
             self.say(detail.strip())
         elif reason == Reason.CANT_SENSE:
             self.say("I can't sense that, so I can't react to it. I can watch for attacks starting, "

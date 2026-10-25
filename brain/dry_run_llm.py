@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 
+from .broker import fallback_line
 from .llm import LLMResponse, ToolCall
 
 
@@ -48,8 +49,12 @@ class DryRunController:
         def act(line: str, name: str, **args) -> LLMResponse:
             return LLMResponse(content=f"(dry run) {line}", tool_calls=[ToolCall(name, args)])
 
-        # A tool result came back this turn (a read tool such as inventory): answer from it.
         last = messages[-1] if messages else {}
+        # A failed action's follow-up (Controller.follow_up): the dry run has nothing better than the
+        # truthful reason template, so it says nothing and the Agent falls back to it.
+        if last.get("role") == "user" and not ctx and any(m.get("role") == "tool" for m in messages[-4:]):
+            return LLMResponse(content="")
+        # A tool result came back this turn (a read tool such as inventory): answer from it.
         if last.get("role") == "tool":
             try:
                 res = json.loads(last.get("content") or "{}")
@@ -60,6 +65,16 @@ class DryRunController:
                 bits = [str(i.get("name")) + (f" x{i['count']}" if (i.get("count") or 1) > 1 else "")
                         for i in (data.get("hotbar") or []) + (data.get("bag") or []) if isinstance(i, dict)]
                 return LLMResponse(content="(dry run) I've got " + (", ".join(bits) or "nothing") + ".")
+
+        # A body situation (broker): the real model phrases it; the dry run says the template line.
+        if ctx.get("body_event") and not text:
+            ev = ctx["body_event"]
+            return LLMResponse(content=fallback_line(ev.get("events") or [ev]) or "")
+        # Episodic memory: answer from recent_activity (what the body did, whoever started it).
+        if re.search(r"\bwhat (did|have) you (just )?(do|done|been doing)\b|\bdid you (just )?kill\b|\bremember\b", low):
+            acts = [str(a) for a in ctx.get("recent_activity") or []]
+            return LLMResponse(content=f"(dry run) Last thing I did: {acts[-1]}" if acts
+                               else "(dry run) Nothing much since you last asked.")
 
         # Reading chat: nobody named him. Speak only when the line is meant for him.
         if cmd.get("addressed") is False:

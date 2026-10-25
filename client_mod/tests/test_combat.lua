@@ -284,6 +284,11 @@ do
     check("arb adopts unregistered move", r5.ok and r5.preempted and r5.preempted.name == "move:follow" and r5.preempted.suspended)
     A.release(nil, r5.token)
     check("arb resumes adopted follow", MV.mode == "follow" and MV.goal == "Zezima" and A.owner().implicit)
+    local refused = A.request(nil, { name = "gather", level = "task" })
+    check("arb refusal says who and what", not refused.ok and refused.owner.name == "move:follow" and refused.owner.move and refused.owner.move.mode == "follow")
+    fake_move.stop()
+    check("arb implicit owner released when its move ends (live bug 20:07)", A.owner() == nil)
+    check("arb task granted after the move ended", A.request(nil, { name = "gather", level = "task" }).ok)
     A.reset(nil)
     -- lease expiry
     local r6 = A.request(nil, { name = "crashy", level = "command", lease_s = 2 })
@@ -649,6 +654,46 @@ do
     for _, l in ipairs(read_activity()) do if l:find('"kind":"healed"', 1, true) then healed = healed + 1 end end
     check("heal: healed activity events", healed >= 3, healed)
     Cm.stop(nil, "test")
+    A.reset(nil)
+end
+
+-- ================================================================ 12. the held item's own actions (styles)
+reset_world()
+do
+    local function action(name, perk_name, extra)
+        local cdo = obj({ ActionName = fname(name), RequiredPerk = perk_name and perk(perk_name) or nil }, "PA_C /x")
+        for k, v in pairs(extra or {}) do cdo[k] = v end
+        return obj({ GetCDO = function() return cdo end }, "BlueprintGeneratedClass /Game/PA_" .. name:gsub(" ", "") .. ".PA_" .. name:gsub(" ", "") .. "_C")
+    end
+    local axe = obj({ Name = fname("Mithril Logging Axe"), PrimaryActionClass = action("Chop"), SpecialActionClass = action("Overhead Chop", "PerkV2_Woodcutting_Overhead"),
+                      SecondaryActionClass = action("Block") },
+                    "HeldEquipmentData /DowdunReach/Gameplay/Character/Player/Equipment/Held/Hatchet/ITEM_Logging_Axe_Mithril.ITEM_Logging_Axe_Mithril")
+    pawn.PlayerEquipmentComponent = obj({ GetHeldEquipmentDataRight = function() return nil end, GetHeldEquipmentDataLeft = function() return axe end }, "C /x")
+    local h = Cm.held_actions(pawn, pc)
+    check("held_actions: read from the item data", h.ok and h.item == "ITEM_Logging_Axe_Mithril" and #h.actions == 3, #h.actions)
+    local names = {}
+    for _, a in ipairs(h.actions) do names[a.style] = a.name end
+    check("held_actions: display names", names.primary == "Chop" and names.special == "Overhead Chop" and names.secondary == "Block")
+    check("resolve_style by name", Cm.resolve_style(h, "Overhead Chop").style == "special")
+    check("resolve_style by partial name", Cm.resolve_style(h, "overhead").style == "special")
+    check("resolve_style by slot", Cm.resolve_style(h, "primary").name == "Chop")
+    local _, bad = Cm.check_style("Overhead Chop", pawn, pc)
+    check("check_style: locked perk -> not_unlocked", bad and bad.reason == "not_unlocked", bad and bad.reason)
+    local _, bad2 = Cm.check_style("pirouette", pawn, pc)
+    check("check_style: unknown style lists the real ones", bad2 and bad2.reason == "invalid_args" and bad2.data.detail:find("Overhead Chop", 1, true))
+    PERKS.unlocked = { PerkV2_Woodcutting_Overhead = true }
+    check("check_style: unlocked perk -> ok", Cm.check_style("overhead", pawn, pc).input == "special")
+    -- use_action: one real press of the special input, verified by stamina spent
+    local r = Cm.HANDLERS.use_action(nil, { style = "Overhead Chop" }, { id = "u1" })
+    check("use_action pending", r.pending ~= nil)
+    local s0 = world.injected.IA_SpecialAction or 0
+    run_until(function() return r.pending.poll() ~= nil end, 5)
+    local res = r.pending.poll()
+    check("use_action pressed the special input", (world.injected.IA_SpecialAction or 0) > s0)
+    check("use_action verified (stamina spent)", res and res.ok and res.data.name == "Overhead Chop", res and res.reason)
+    check("use_action released the pawn", A.owner() == nil)
+    PERKS.unlocked = {}
+    pawn.PlayerEquipmentComponent = nil
     A.reset(nil)
 end
 

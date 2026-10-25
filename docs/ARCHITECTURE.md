@@ -390,6 +390,7 @@ Every function takes the DWClient text logger `log(msg)` first and returns a tab
 **Scenario suite** (`tools/scenario_run.py`, data in `tools/scenarios/dev_suite.json`):
 - Dry run (default) is read-only on any server. `--live` = preflight → Shockbyte baseline snapshot → Claude.json backup → lease → boot `-Target dev` → scenarios → lease cleared → boot `-Target shockbyte` → snapshot diff (in a `finally`). `--here` runs on the current server without switching (refused on Shockbyte).
 - It talks to the bridge's **debug channel** (the same tools as the brain). Read-only probes and fallbacks go through the command runner with `local ARGS = {...}` prefixed (`run_client_cmd`): `client_mod/commands/scn_find_ledge.lua` (traces only) and `scn_consume.lua` (one hotbar use; used only while there is no `consume` tool).
+- Nav memory: `traverse_learn.world_id()` falls back to "shockbyte" on any server, so a live run sets `_G.DW_WORLD_GUID` through `scn_world.lua`: `--memory dev` (default) = `dev_scenarios`, `nomem` = a fresh `scn_nomem_<ts>`, `shared` = no override. It is re-applied per scenario and restored in the `finally`.
 - Every outcome comes from a fresh `get_state`/`look` read: position within tol in 2D and 1.5 m in height, inventory deltas, the stat rising, the target gone or dead.
 - **Add a scenario** = one entry in `dev_suite.json` of an existing kind, with its places and pass text:
   - `go_to_chain` (legs may carry `expect_log`, a client.log regex recorded as evidence);

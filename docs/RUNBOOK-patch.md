@@ -221,6 +221,11 @@ It moves Claude off Luis's world for a few minutes, so main must OK the slot and
   - Each answers pass, fail, skip or error; a repeated scenario passes only when every run passes.
 - **Preflight aborts** before anything moves when any of these holds: the client is not in the world, a hold file exists, `run_live` is running, the client is not on Shockbyte, the dev server is down, or the dev target file is missing.
 - **Report:** `logs\scenarios\scn_<ts>_<mode>.{json,md}` plus `_timeline.txt` for the run window. The JSON holds per-scenario evidence, the switch results and the Shockbyte before/after diff. Exit code 0 = pass (or dry run).
+- **Navigation memory during a run** (`--memory`):
+  - `dev` (default): Claude learns into his own store, `data/skills/dev_scenarios/`, and Shockbyte's memory is untouched. Without an override, `world_id()` falls back to "shockbyte" on every server.
+  - `nomem`: a fresh empty store for this run; the map seeds still load.
+  - `shared`: uses and writes Shockbyte's memory.
+  - The runner sets `_G.DW_WORLD_GUID` (`scn_world.lua`) per scenario and restores it before switching back.
 - **If it dies mid-run:** the lease expires (45 min at most, renewed per scenario), and the next boot or watchdog check brings Claude back to Shockbyte. To do it now: delete `logs\state\client_target.json`, then run `tools\client_boot.ps1`.
 
 ### Diagnosis: one timeline

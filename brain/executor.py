@@ -146,7 +146,46 @@ def _v_cast(args, base, post, data):
     return None
 
 
+def _v_fetch(args, base, post, data):
+    # the body reports the inventory key it picked up (data.item) and how many (data.count)
+    item, count = data.get("item"), int(data.get("count") or 0)
+    if not item or count < 1:
+        return "nothing picked up"
+    gained = _inv(post, item) - _inv(base, item)
+    return None if gained >= count else f"inventory {item} +{gained}, body said +{count}"
+
+
+def _v_consume(args, base, post, data):
+    # The body verified the stat rose (or the item was used up at a full stat); check the carried count fell.
+    item = data.get("item")
+    if not item:
+        return "the body did not say what it used"
+    if data.get("fetched"):  # picked up first, then used: net change can be zero
+        return None
+    return None if _inv(post, item) < _inv(base, item) else f"{item} still carried ({_inv(post, item)})"
+
+
+def _v_come_to(args, base, post, data):
+    me = post.get("position")
+    for p in post.get("players") or []:
+        if p.get("name") == args["player"] and me and p.get("position"):
+            d = math.dist(me[:2], p["position"][:2])
+            tol = float(data.get("arrive_tolerance") or (args.get("distance", 2.0) + 1.5))
+            return None if d <= tol + 1.0 else f"still {d:.1f}m from {args['player']}"
+    return None  # he is not in the fresh census (moved out of relevancy): trust the body's own check
+
+
+def _v_recover_grave(args, base, post, data):
+    before = sum((base.get("inventory") or {}).values())
+    after = sum((post.get("inventory") or {}).values())
+    return None if after > before else "nothing came back into the inventory"
+
+
 VERIFIERS: dict[str, Callable] = {
+    "fetch": _v_fetch,
+    "consume": _v_consume,
+    "come_to": _v_come_to,
+    "recover_grave": _v_recover_grave,
     "go_to": _v_go_to,
     "follow": _v_follow,
     "stop": _v_stop,

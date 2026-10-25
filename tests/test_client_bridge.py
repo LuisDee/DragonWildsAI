@@ -284,9 +284,8 @@ def test_attacked_without_attack_skill_asks_for_help(tmp_path):
         assert isinstance(low, VitalsLow)
         session.agent.handle_event(low)
         assert said()[-1] == "I'm really thirsty and have nothing left. Could you bring me something to drink?"
-        session.agent.clock = lambda: 1e12  # a minute later the help line may be said again
-        session.agent.handle_event(low)
-        assert len(said()) == 3
+        session.agent.handle_event(low)  # the same report again, not worse: the broker drops it
+        assert len(said()) == 2  # (when to repeat a worse report is brain/broker.py's rule)
     finally:
         body.stop()
 

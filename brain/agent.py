@@ -19,9 +19,11 @@ import time
 from typing import Literal
 
 from . import situation as sit
+from .broker import BODY_SITUATIONS, EventBroker, facts, fallback_line
 from .controller import LONG_ACTIONS, Controller, describe_rule
-from .executor import Executor, StateUnavailable
-from .interface import RULE_TOOLS, Attacked, CommandReceived, Event, GameInterface, Reason, Resumed, Unreachable, VitalsLow
+from .executor import Executor, Outcome, StateUnavailable
+from .interface import (RULE_TOOLS, Activity, Attacked, CommandReceived, Event, GameInterface, Reason, TaskDone,
+                        TaskFailed)
 from .jsonl_log import JsonlLogger
 from .planner import Planner, PlanError
 from .skill_library import SkillError, SkillLibrary, check_preconditions
@@ -30,21 +32,10 @@ from .state_store import StateStore, Task
 GoalResult = Literal["done", "stuck", "interrupted"]
 
 # Help lines the companion says by itself (no model call) when it can't handle something alone.
-# At most one per key per HELP_REPEAT_S seconds, so a fight or a long thirst doesn't spam chat.
+# At most one per key per HELP_REPEAT_S seconds, so a fight doesn't spam chat.
 HELP_REPEAT_S = 60.0
-NEED_WORDS = {"hydration": ("thirsty", "something to drink"), "sustenance": ("hungry", "something to eat")}
-# What to say when the body reports it can't reach the player: one line per body reason, so the
-# words always match what the body found (no guessing). Unknown reasons quote the body's detail.
-UNREACHABLE_LINES = {
-    "leader_windstepped": "I can't follow you there, you Windstepped across and I can't do that yet.",
-    "too_high": "I can't get up there, it's too high for me. Can you come back down?",
-    "gap_too_wide": "That gap is too wide for me to jump. Can you come back over?",
-    "no_route": "I can't find a way to you from here. Can you come back towards me?",
-    "too_far": "You're too far away for me to catch up. Can you wait for me?",
-    "stuck": "I got stuck and can't get to you. Can you come and get me?",
-    "leader_double_jumped": "You double-jumped up there and I can't do that yet. Can you come back down?",
-    "leader_above_jump_height": "You're higher up than I can jump. Can you come back down?",
-}
+# Body situations (unreachable, resumed, vitals_low) are triaged by broker.EventBroker and phrased by
+# the Controller model; broker.fallback_line is the template safety net (streamline step 3).
 
 LEARNED_RE = re.compile(r"^\s*(what (have|did) you (learn|learned|learnt)|what do you know how to do|"
                         r"(list|show) (me )?(your )?(skills|what you('ve| have)? learn(ed|t)?))\b", re.I)
@@ -79,7 +70,12 @@ class Agent:
         self._cancelled = False
         self._last_reason: str | None = None
         self._help_said: dict[str, float] = {}  # help key -> monotonic time last said
-        self._unreachable_at: float | None = None  # when we last said we can't reach the player
+        # Event hygiene (streamline step 3): triage, movement episodes, digest, episodic memory.
+        self.broker = EventBroker(logger)
+        controller.status_provider = self.broker.digest
+        controller.activity_provider = self.broker.activity_lines
+        self._situations: list[dict] = []  # body situations waiting for one Controller run
+        self._in_pump = False
         # True when the body runs its own self-defence reflex (client combat.lua guard): an attacked
         # event then needs no brain-side attack (it would fight the body's reflex for the pawn).
         self.body_self_defends = False
@@ -103,37 +99,37 @@ class Agent:
             time.sleep(poll_interval)
 
     def pump(self) -> None:
-        for event in self.game.poll_events():
-            self.handle_event(event)
+        """Poll the body, triage the batch (broker), handle what is left, then voice the batch's body
+        situations in ONE Controller run (unless a chat run will take them along)."""
+        self._in_pump = True
+        try:
+            for event in self.broker.triage(self.game.poll_events()):
+                self.handle_event(event)
+        finally:
+            self._in_pump = False
+        self.flush_situations()
 
     def handle_event(self, event: Event) -> None:
         self.log.log("event", event=event.model_dump())
+        if isinstance(event, BODY_SITUATIONS):
+            self._body_situation(event)
+            if not self._in_pump:
+                self.flush_situations()
+            return
+        if isinstance(event, (TaskDone, TaskFailed)):
+            return  # the executor already has the result (synchronous reply); see broker.triage
+        if isinstance(event, Activity):
+            return self._activity(event)
         self.controller.note_event(event)
         if isinstance(event, Attacked):
             if self.body_self_defends:
                 self.log.log("attacked_body_reflex", by=event.by)  # the body's own guard fights back
             elif "attack" in self.store.skills:
                 # Self-defence is a reflex: no model call needed.
-                self.executor.run_task(Task(skill="attack", args={"target": event.by}))
+                self._run_task(Task(skill="attack", args={"target": event.by}))
             else:  # a body that can't fight yet (the client body today): say so and ask for help
                 who = event.name or sit.pretty_id(event.by)
                 self._help("attacked", f"Help! {who} is attacking me and I can't fight back yet.")
-        elif isinstance(event, Unreachable):
-            line = UNREACHABLE_LINES.get(event.reason)
-            if not line and event.reason.startswith("needs:"):  # a learned traversal link needs a move he lacks
-                move = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", event.reason.split(":", 1)[1]).strip() or "a move"
-                line = f"I'd need {move} to get there, and I can't do that yet."
-            line = line or f"I can't reach you: {event.detail or event.reason.replace('_', ' ')}."
-            self._help(f"unreachable_{event.reason}", line)
-            self._unreachable_at = self.clock()
-        elif isinstance(event, Resumed):
-            # at most a short line, and only right after we complained
-            if self._unreachable_at is not None and self.clock() - self._unreachable_at < 300:
-                self._help("resumed", "Found you.")
-            self._unreachable_at = None
-        elif isinstance(event, VitalsLow):
-            feel, need = NEED_WORDS.get(event.stat, (f"low on {event.stat}", "something for it"))
-            self._help(f"vitals_{event.stat}", f"I'm really {feel} and have nothing left. Could you bring me {need}?")
         elif isinstance(event, CommandReceived):
             self._command(event)
         # Progress events are narrated live through the progress listener (_on_progress).
@@ -148,22 +144,101 @@ class Agent:
         self.log.log("help", key=key, text=line)
         self.controller.say(line)
 
+    # ---------------------------------------------------------------- body situations (broker)
+
+    def _fresh_state(self) -> dict:
+        try:
+            return self.executor.state()
+        except StateUnavailable as exc:
+            return {"unavailable": str(exc)}
+
+    def _body_situation(self, event: Event) -> None:
+        v = self.broker.assess(event, self._fresh_state())
+        if v.action == "decide":
+            self._situations.append(v.event)
+
+    def _chat_waiting(self) -> bool:
+        """True while chat lines wait for a Controller run that will take the situations along."""
+        return False
+
+    def take_situations(self, state: dict | None = None) -> list[dict]:
+        """The pending situations still true now (a chat run takes them along: one line for both)."""
+        events, self._situations = self._situations, []
+        if not events:
+            return []
+        still = self.broker.still_valid(events, state if state is not None else self._fresh_state())
+        for e in events:
+            if e not in still:
+                self.log.log("situation_stale", event=e, why="fixed before it was voiced")
+        return still
+
+    def flush_situations(self) -> None:
+        if not self._situations or self._chat_waiting():
+            return
+        state = self._fresh_state()
+        events = self.take_situations(state)
+        if not events:
+            return
+        player = next((e["target"] for e in events if e.get("about") == "player" and e.get("target")), None)
+        if not player:
+            near = sorted((p for p in state.get("players") or [] if isinstance(p, dict) and p.get("name")),
+                          key=lambda p: p.get("distance") if isinstance(p.get("distance"), (int, float)) else 1e9)
+            player = str(near[0]["name"]) if near else self.controller.player
+        try:
+            self._command(CommandReceived(player=player, text=""), addressed=True, body_events=events)
+        except Exception as exc:  # the model call failed: the template line still tells him
+            self.log.log("situation_error", error=repr(exc), events=events)
+            if line := fallback_line(events):
+                if self.controller.say(line, kind="notice") is not None:
+                    self.broker.voiced(events)
+
+    def _activity(self, event: Activity) -> None:
+        """Episodic memory: every completed body episode, whoever started it."""
+        self.broker.remember_activity(event)
+        line = self.broker.describe_activity(event)
+        self.store.progress("activity", kind=event.kind, by=event.by, ts=event.ts, **event.fields())
+        if self.broker.notable(event):
+            when = time.strftime("%H:%M UTC", time.gmtime(event.ts)) if event.ts else "earlier"
+            self.store.remember(f"last_{event.kind}", f"{when}: {line}")
+            where = event.fields().get("where")
+            if event.kind == "death" and isinstance(where, list) and len(where) >= 3:
+                self.store.remember_place("grave", [float(c) for c in where[:3]],
+                                          note=f"my gravestone (died {when}: {event.fields().get('cause') or '?'})")
+
+    def _run_task(self, task: Task) -> Outcome:
+        """Every body action the brain runs goes through here, so the broker knows the brain's own moves."""
+        self.broker.action_started(task.skill, task.args)
+        outcome = self.executor.run_task(task)
+        self.broker.action_finished(task.skill, task.args, outcome.ok, outcome.reason, outcome.data)
+        return outcome
+
     def _on_progress(self, event: Event) -> None:
         # Progress events only come while a long body action runs (a goal's task or a direct gather).
         self.controller.progress_event(event)
 
     # ---------------------------------------------------------------- commands
 
-    def _command(self, event: CommandReceived, addressed: bool = True) -> None:
+    def _command(self, event: CommandReceived, addressed: bool = True, body_events: list[dict] | None = None) -> None:
         """``addressed=False``: a chat line nobody addressed to the companion (LiveAgent's chat
-        reading); the model may decide it is not for him, and then nothing is said or done."""
-        if addressed and self._skill_command(event.text):
+        reading); the model may decide it is not for him, and then nothing is said or done.
+        ``body_events``: body situations (broker) this run must also decide on; with an empty text it
+        is a body-initiated run: the model phrases the line (or fixes it with a tool)."""
+        if addressed and not body_events and self._skill_command(event.text):
             return
-        try:
-            state = self.executor.state()
-        except StateUnavailable as exc:  # still let the Controller answer; actions will refuse
-            state = {"unavailable": str(exc)}
-        d = self.controller.decide(event.player, event.text, state, self.active_goal, addressed=addressed)
+        state = self._fresh_state()  # unavailable: still let the Controller answer; actions will refuse
+        body_ctx = (body_events[0] if len(body_events) == 1 else {"events": body_events}) if body_events else None
+        d = self.controller.decide(event.player, event.text, state, self.active_goal, addressed=addressed,
+                                   body_event=body_ctx)
+        if body_events:  # speak-time check of the situation itself, on fresh state
+            state = self._fresh_state()
+            still = self.broker.still_valid(body_events, state)
+            if not still and not (d.actions or d.goal or d.skill):
+                self.log.log("situation_stale", events=body_events, why="fixed while the model was thinking",
+                             speech=d.speech)
+                if not event.text:
+                    return
+            body_events = still
+        d, state = self._fresh_reply(event, d, state, addressed, body_ctx)
         if not addressed and not (d.actions or d.goal or d.skill or d.refusals or d.speech):
             self.log.log("chat_decision", player=event.player, text=event.text, decision="ignored",
                          reason="model: not meant for me")
@@ -174,6 +249,8 @@ class Agent:
         if d.interrupts and self.active_goal:
             self._cancelled = True
         failure = d.refusals[0] if d.refusals else None
+        failed_call = None  # the body action that failed: its result goes back to the model
+        results: dict[str, dict] = {}  # call id -> result of the steps that ran (multi-step turns)
         extra: list[str] = []  # facts the body reported that the speech must carry (single voice)
         spoken = False  # a long action's reply is said when it starts
         for call in d.actions:
@@ -189,24 +266,73 @@ class Agent:
                 self.controller.say(d.speech or self.controller.ack(call.name) or "On it.")
                 self.controller.job_started()
                 spoken = True
-            outcome = self.executor.run_task(Task(skill=call.name, args=call.arguments))
+            outcome = self._run_task(Task(skill=call.name, args=call.arguments))
+            results[call.id or call.name] = {"ok": outcome.ok, "reason": outcome.reason, "data": outcome.data}
             if not outcome.ok and failure is None:
-                failure = (call.name, outcome.reason, outcome.data)
+                failure, failed_call = (call.name, outcome.reason, outcome.data), call
+                break  # steps run in order and stop at the first that fails (the model hears why)
             elif outcome.ok and call.name in LONG_ACTIONS:
                 extra.append(self._long_done(call.name, call.arguments, outcome.data))
         if d.skill and failure is None:
             failure = self._queue_skill(*d.skill, state)
-        if failure:
+        kind = "notice" if body_events and not event.text else "reply"
+        res = None
+        if failure and failed_call is not None and failure[1] not in Reason.INTERRUPTS:
+            self._explain_failure(d, failed_call, failure, state, results)
+        elif failure:
             self.controller.report_failure(*failure)
         elif spoken:
             if extra:
                 self.controller.say(" ".join(extra))
         elif d.speech or extra:
-            self.controller.say(" ".join(s for s in [d.speech, *extra] if s))
+            res = self.controller.say(" ".join(s for s in [d.speech, *extra] if s), kind=kind)
+        elif body_events and not event.text:  # the model said nothing about a body situation: the template
+            res = self.controller.say(fallback_line(body_events) or self._default_reply(d), kind=kind)
         elif addressed:  # reply to every command, even when the model said nothing
-            self.controller.say(self._default_reply(d))
+            res = self.controller.say(self._default_reply(d))
+        if body_events and (res is not None or failure or spoken):
+            self.broker.voiced(body_events)
         if d.goal and not d.skill:
             self.pending_goal = d.goal
+
+    def _explain_failure(self, d, call, failure: tuple, state: dict, results: dict | None = None) -> None:
+        """PRINCIPLES.md #2: the body's truthful result goes back to the model, which says what happened
+        and may try ONE fix or ask. The reason templates (report_failure) are only the safety net when
+        the model call fails or says nothing."""
+        tool, reason, data = failure
+        try:
+            d2 = self.controller.follow_up(d, call, {"ok": False, "reason": reason, "data": data}, state, results)
+        except Exception as exc:  # model/provider error: the template still says why
+            self.log.log("follow_up_error", tool=tool, error=repr(exc))
+            return self.controller.report_failure(*failure)
+        if d2.refusals:
+            return self.controller.report_failure(*d2.refusals[0])
+        fix = next((c for c in d2.actions if c.name not in ("remember", *RULE_TOOLS)), None)
+        if fix is not None:
+            outcome = self._run_task(Task(skill=fix.name, args=fix.arguments))
+            if not outcome.ok:  # no second follow-up: say why, from the body's result
+                return self.controller.report_failure(fix.name, outcome.reason, outcome.data)
+            return self.controller.say(d2.speech or self.controller.ack(fix.name) or "Done.")
+        if d2.speech:
+            return self.controller.say(d2.speech)
+        self.controller.report_failure(*failure)
+
+    def _fresh_reply(self, event: CommandReceived, d, state: dict, addressed: bool, body_ctx: dict | None):
+        """Single voice, speak-time check: a pure-talk reply decided on facts that changed while the
+        model was thinking (he arrived, ate, drank, got something) is decided once more on fresh state."""
+        if not d.speech or d.actions or d.goal or d.skill or d.refusals:
+            return d, state
+        before = facts(state)
+        if not before:
+            return d, state
+        fresh = self._fresh_state()
+        after = facts(fresh)
+        changed = {k: (before.get(k), after.get(k)) for k in before.keys() | after.keys() if before.get(k) != after.get(k)}
+        if not after or not changed:
+            return d, state
+        self.log.log("speech_redecided", changed=changed, first=d.speech)
+        return self.controller.decide(event.player, event.text, fresh, self.active_goal, addressed=addressed,
+                                      body_event=body_ctx), fresh
 
     @staticmethod
     def _long_done(tool: str, args: dict, data: dict) -> str:
@@ -390,7 +516,7 @@ class Agent:
         interrupts = 0
 
         while (task := tree.next_task()) is not None:
-            outcome = self.executor.run_task(task)
+            outcome = self._run_task(task)
             if outcome.interrupt:
                 interrupts += 1
                 self.pump()

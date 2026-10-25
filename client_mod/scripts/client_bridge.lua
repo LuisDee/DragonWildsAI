@@ -374,13 +374,15 @@ function M.get_state()
             data.fight = { mode = f.mode, phase = f.phase, target = f.target, target_id = f.target_id, target_hp = f.target_hp,
                            weapon = f.weapon }
         end
-        -- skills.lua extras: my_grave {id, distance, items, contents} (his own gravestone nearby) and
-        -- last_held (the tool he held last, re-equipped after a grave recovery)
-        local sk = M.module("skills")
-        if sk and type(sk.state_extras) == "function" then
-            local okx, ex = pcall(sk.state_extras, M.API, data)
-            if okx and type(ex) == "table" then for k, v in pairs(ex) do data[k] = v end
-            elseif not okx then ev("client_module_error", { module = "skills", fn = "state_extras", err = tostring(ex) }) end
+        -- module extras: any module in M.MODULES may export state_extras(api, data) -> {key = value}
+        -- (skills.lua: my_grave, other_graves, last_death, last_held; spells.lua: spells, spells_locked_n)
+        for _, name in ipairs(M.MODULES) do
+            local mod = M.module(name)
+            if mod and type(mod.state_extras) == "function" then
+                local okx, ex = pcall(mod.state_extras, M.API, data)
+                if okx and type(ex) == "table" then for k, v in pairs(ex) do data[k] = v end
+                elseif not okx then ev("client_module_error", { module = name, fn = "state_extras", err = tostring(ex) }) end
+            end
         end
     end
     local left = {}
@@ -548,7 +550,13 @@ R.drop = { needs = { { "inventory", "drop" }, { "inventory", "list" } }, fn = fu
 end }
 
 -- Debug / non-planner tools (capabilities lists them; the brain ignores non-protocol names).
-R.equip = { needs = { { "inventory", "equip" } }, fn = function(args)
+R.equip = { needs = { { "inventory", "equip" } }, fn = function(args, ctx)
+    -- skills.lua's verified equip (a waiter: answers once it is in his hands or worn) when present
+    local sk = M.module("skills")
+    if sk and type(sk.HANDLERS) == "table" and type(sk.HANDLERS.equip) == "function" and fn_of("inventory", "list") then
+        ctx.api = M.API
+        return sk.HANDLERS.equip(S.text_log, args, ctx)
+    end
     if not need_str(args.item) then return fail("invalid_args", { detail = "item is required" }) end
     return call("inventory", "equip", args.item)
 end }
@@ -872,7 +880,7 @@ end
 -- returning what a route returns (see above). Routes win over HANDLERS.
 -- A module may also export NEEDS = {tool = {{module, fn}, ...}}: the handler is listed (and run) only
 -- while those functions exist, exactly like a route's `needs` (skills.lua composes other modules).
-M.MODULES = { "chat", "move", "sense", "inventory", "combat", "arbiter", "gather", "skills" }
+M.MODULES = { "chat", "move", "sense", "inventory", "combat", "arbiter", "gather", "skills", "spells" }
 local function module_handler(tool)
     for _, name in ipairs(M.MODULES) do
         local mod = M.module(name)

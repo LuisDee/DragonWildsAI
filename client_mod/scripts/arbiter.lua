@@ -190,8 +190,22 @@ local function resume_next(log, s)
 end
 
 -- Lazy housekeeping: an expired lease releases its owner.
+-- An adopted ("implicit") move owner lives exactly as long as the move it adopted: once move.lua
+-- is idle (arrived / failed / stopped, by anyone) it is released, and while the move runs its lease
+-- is renewed (live bug 20:05-20:07: a finished manual go_to kept the pawn "busy" and gather was refused).
+A.IMPLICIT_LEASE_S = 30
 local function housekeep(log, s)
     local o = s.owner
+    if o and o.implicit and not paused() then
+        if move_is_idle() then
+            history(s, { ev = "implicit_done", name = o.name })
+            say(log, "released " .. o.name .. " (its move ended)")
+            s.owner = nil
+            resume_next(log, s)
+            return
+        end
+        o.renewed = now()
+    end
     if o and expired(o) then
         s.counts.expired = s.counts.expired + 1
         history(s, { ev = "expired", name = o.name })
@@ -221,14 +235,22 @@ function A.request(log, spec)
         local st = move_call("status") or {}
         s.seq = s.seq + 1
         cur = { token = s.seq, name = "move:" .. tostring(st.mode), level = A.LEVELS.command, resumable = true,
-                uses_move = true, implicit = true, since = now(), state = "owner" }
+                uses_move = true, implicit = true, since = now(), state = "owner", lease_s = A.IMPLICIT_LEASE_S }
+        cur.renewed = cur.since
         s.owner = cur
     end
     local preempted
     if cur then
         if lvl < cur.level or (lvl == cur.level and spec.replace_same == false) then
             s.counts.refused = s.counts.refused + 1
-            return { ok = false, reason = "busy", owner = brief(cur) }
+            -- say WHO holds the pawn and what it is doing, so the reply can be truthful ("still walking to you")
+            local ob = brief(cur)
+            ob.age_s = now() - (cur.since or now())
+            if cur.uses_move ~= false then
+                local st = move_call("status")
+                if type(st) == "table" then ob.move = { mode = st.mode, status = st.status, target = st.target, dist_m = st.dist_m } end
+            end
+            return { ok = false, reason = "busy", owner = ob }
         end
         s.owner = nil
         if lvl > cur.level and cur.resumable ~= false then

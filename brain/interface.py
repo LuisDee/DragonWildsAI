@@ -9,7 +9,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Annotated, Any, Callable, Literal, TypedDict, Union
 
-from pydantic import AliasChoices, ConfigDict, BaseModel, Field, TypeAdapter
+from pydantic import AliasChoices, ConfigDict, BaseModel, Field, TypeAdapter, model_validator
 
 # --------------------------------------------------------------------------- results
 
@@ -155,9 +155,41 @@ class InspectArgs(BaseModel):
     target: str = Field(description="An id from a look result.")
 
 
+class LookupArgs(BaseModel):
+    query: str = Field(min_length=1, max_length=120, description=(
+        "The thing or topic, in a few words: an item, recipe, creature, place, spell, perk, station or "
+        "mechanic (e.g. 'pumpkin spice infusion', 'iron bar', 'oak tree', 'over eating')."))
+    kind: str | None = Field(None, max_length=40, description=(
+        "Optional filter, e.g. item, recipe, station, spell, perk, monster, resource node, location. "
+        "Ignored when nothing of that kind matches."))
+
+
 class InteractArgs(BaseModel):
     target: str = Field(description="An id from a look result whose actions include interact.")
     secondary: bool = Field(False, description="Use the thing's secondary interaction instead.")
+
+
+# Composite client skills (client_mod/scripts/skills.lua). The body's capability manifest publishes the
+# same arg names with its own descriptions; these models give the brain typed defaults and verifiers.
+class FetchArgs(BaseModel):
+    target: str | None = Field(None, description="An id from situation or look (a world item or ground pickup).")
+    item: str | None = Field(None, description="What to pick up, by name or item id.")
+    count: int = Field(1, ge=1, le=20, description="How many items.")
+
+    @model_validator(mode="after")
+    def _target_or_item(self):
+        if not (self.target or self.item):
+            raise ValueError("fetch needs target or item")
+        return self
+
+
+class ConsumeArgs(BaseModel):
+    item: str = Field(description="The item's name or id, or 'food' / 'drink' (its kind).")
+
+
+class ComeToArgs(BaseModel):
+    player: str = Field(description="The player's exact name.")
+    distance: float = Field(2.0, ge=1.0, le=10.0, description="Stop this close, metres.")
 
 
 class RunSkillArgs(BaseModel):
@@ -275,19 +307,30 @@ TOOLS: dict[str, tuple[type[BaseModel], str]] = {
                        "in-game name, with distance and what you can do with it. Read-only: does not interrupt."),
     "inspect": (InspectArgs, "Details of one thing from a look result: what it is, what it gives, what it needs, "
                              "which actions work. Read-only."),
-    "interact": (InteractArgs, "Use a thing you looked at, like a player pressing E (gather sticks, open, pick)."),
+    "lookup": (LookupArgs, "Look up game knowledge: what an item is and does, how to make it, where something is "
+                           "found, creatures and weaknesses, spells, perks, mechanics. Game data first "
+                           "(authoritative), then the wiki with page links. Read-only: does not interrupt."),
+    "interact": (InteractArgs,"Use a thing you looked at, like a player pressing E (gather sticks, open, pick)."),
     "run_skill": (RunSkillArgs, "Run a skill you learned earlier (listed in learned_skills) with its params."),
+    # composite client skills (offered only when the body's manifest lists them)
+    "fetch": (FetchArgs, "Pick up items lying on the ground into your inventory (find, walk, face, use, verify)."),
+    "consume": (ConsumeArgs, "Eat or drink an item from your hotbar (or pick it up first if it lies nearby)."),
+    "come_to": (ComeToArgs, "Walk to a player and stop next to them."),
+    "recover_grave": (NoArgs, "Go to your own gravestone and take everything back."),
 }
+
+# Tools that only exist in a body's capability manifest (never offered without it).
+MANIFEST_ONLY = ("fetch", "consume", "come_to", "recover_grave")
 
 # Brain-side tools that talk to the body directly, not through the executor (no game state to verify
 # beyond the body's own read-back of the stored rule).
 RULE_TOOLS = ("set_reflex_rule", "list_rules", "clear_rule")
 
 # Read-only perception tools: they never interrupt the current job and never end a Controller turn.
-READ_TOOLS = ("look", "inspect", "inventory")
+READ_TOOLS = ("look", "inspect", "inventory", "lookup")
 
-# Brain-side tools (the state store / skill library), never sent to the body.
-BRAIN_TOOLS = ("remember", "run_skill")
+# Brain-side tools (the state store / skill library / knowledge index), never sent to the body.
+BRAIN_TOOLS = ("remember", "run_skill", "lookup")
 
 # Tools the body implements.
 BODY_TOOLS = [name for name in TOOLS if name not in BRAIN_TOOLS]
@@ -360,14 +403,24 @@ class Unreachable(BaseModel):
     type: Literal["unreachable"] = "unreachable"
     reason: str
     detail: str | None = None
-    leader_pos: list[float] | None = None
+    leader_pos: list[float] | None = None  # where the move was going (the leader, or a go_to target)
     my_pos: list[float] | None = None
+    mode: str | None = None  # the body's move mode: follow | go_to (client move.lua; broker.py uses it)
+    # move.lua v10 (client_bridge forwards them): what the move was going to, and for reason
+    # "lead_me" (stuck with a player within 40 m: "can you lead me out?") where and whom to ask.
+    target: str | None = None  # a name, or "point"
+    target_kind: str | None = None  # player | actor | point
+    where: str | None = None  # the trap's name, or "at (x, y, z)"
+    helper: str | None = None  # the player asked to lead him out
 
 
 class Resumed(BaseModel):
-    """Following works again after an ``unreachable`` episode."""
+    """Following works again after an ``unreachable`` episode (``reachable_again``), or a player led
+    him out of a trap (``led_out``)."""
     type: Literal["resumed"] = "resumed"
-    reason: str | None = None
+    reason: str | None = None  # reachable_again | led_out
+    helper: str | None = None
+    target_kind: str | None = None
 
 
 class VitalsLow(BaseModel):
@@ -409,15 +462,30 @@ class PlayerNearbyActivity(BaseModel):
     activity: str
 
 
+class Activity(BaseModel):
+    """One COMPLETED body episode, whoever started it (brain, a reflex, a debug/test command): the
+    brain's episodic memory (broker.py). ``kind`` is open (combat_end, fled, grave_recovered,
+    picked_up, consumed, death, respawned, trap_escaped, gather_done, follow_episode, ...) and every
+    other field the body sends is kept (target, outcome, damage_taken, loot, items, where, ...)."""
+    model_config = ConfigDict(extra="allow")
+    type: Literal["activity"] = "activity"
+    kind: str
+    by: str | None = None  # brain | reflex | debug | unknown
+    ts: float | None = None  # body epoch seconds
+
+    def fields(self) -> dict:
+        return {k: v for k, v in self.model_dump().items() if k not in ("type", "kind", "by", "ts", "iso") and v not in (None, [], "")}
+
+
 Event = Annotated[
     Union[CommandReceived, ChatHeard, TaskDone, TaskFailed, Attacked, VitalsLow, Unreachable, Resumed,
-          PlayerNearbyActivity, GatherProgress, TaskProgress],
+          PlayerNearbyActivity, GatherProgress, TaskProgress, Activity],
     Field(discriminator="type"),
 ]
 _event_adapter: TypeAdapter[Event] = TypeAdapter(Event)
 EVENT_TYPES: frozenset[str] = frozenset(m.model_fields["type"].default for m in (
     CommandReceived, ChatHeard, TaskDone, TaskFailed, Attacked, VitalsLow, Unreachable, Resumed, PlayerNearbyActivity,
-    GatherProgress, TaskProgress))
+    GatherProgress, TaskProgress, Activity))
 
 
 def parse_event(raw: dict) -> Event:
@@ -518,9 +586,15 @@ class GameInterface(ABC):
     def clear_rule(self, id: str | None = None, enemy: str | None = None, all: bool = False) -> ActionResult:
         return fail(Reason.NOT_IMPLEMENTED, tool="clear_rule")
 
+    # Tools a body's capability manifest added that the brain has no model for (validated by the
+    # Controller against the manifest's JSON schema, sent as is). Set by brain.capabilities.discover.
+    manifest_tools: frozenset[str] = frozenset()
+
     def call(self, tool: str, args: dict) -> ActionResult:
         """Dispatch a tool by name after validating its arguments."""
         if tool not in BODY_TOOLS:
+            if tool in self.manifest_tools:
+                return self.call_raw(tool, dict(args))
             return fail(Reason.UNKNOWN_TOOL, tool=tool)
         try:
             clean = validate_args(tool, args)
@@ -528,4 +602,11 @@ class GameInterface(ABC):
             return fail(Reason.INVALID_ARGS, error=str(exc))
         # Look the tool up on the class: an instance attribute of the same name (the mock's
         # ``inventory`` Counter) must not shadow the tool method.
-        return getattr(type(self), tool)(self, **clean)
+        method = getattr(type(self), tool, None)
+        if method is None:  # e.g. the composite skills: no typed method, sent by name
+            return self.call_raw(tool, clean)
+        return method(self, **clean)
+
+    def call_raw(self, tool: str, args: dict) -> ActionResult:
+        """Send a tool without a typed method (bodies that can: the bridge client)."""
+        return fail(Reason.NOT_IMPLEMENTED, tool=tool)

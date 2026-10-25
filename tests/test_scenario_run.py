@@ -94,6 +94,10 @@ class FakeBody:
         if file == "scn_find_ledge.lua":
             return {"ok": True, "result": {"ok": True, "traces": 90, "candidates": [
                 {"rise_m": 1.0, "dist_m": 2.5, "base": [84.4, 1873.8, -34.6], "top": [86.6, 1873.8, -33.6]}]}}
+        if file == "scn_world.lua":
+            prev = getattr(self, "world", None)
+            self.world = args.get("set") if args.get("set") else args.get("previous")
+            return {"ok": True, "result": {"ok": True, "previous": prev, "now": self.world}}
         if file == "scn_consume.lua":
             self.sust += 18
             self.inv[args["item"]] -= 1
@@ -145,7 +149,7 @@ def isolated(tmp_path, monkeypatch):
 
 def args(tmp, **kw):
     a = dict(live=False, here=False, only=None, suite=None, allow_brain=False, allow_shockbyte=False, report_dir=str(tmp / "rep"),
-             repeat=None)
+             repeat=None, memory="dev")
     a.update(kw)
     return types.SimpleNamespace(**a)
 
@@ -284,3 +288,19 @@ def test_expect_log_is_evidence(isolated, tmp_path):
     o = rep["scenarios"][0]
     assert o["result"] == "pass" and "expected log seen on 1/1" in o["detail"]
     assert o["evidence"]["legs"][0]["expect_log"]["lines"] == ["2026-10-25T20:00:00Z move: memory: remembered route, 27 pts"]
+
+
+def test_memory_world_isolated_then_restored(isolated):
+    body, ops = FakeBody(), FakeOps()
+    body.world = None
+    rep = sr.run(args(isolated, live=True, only="pit_escape,ledge_jump", repeat=1), body=body, ops=ops, suite=SUITE, log=lambda m: None)
+    sets = [a for c, a in body.calls if c == "cmd:scn_world.lua"]
+    assert sets[0] == {"set": "dev_scenarios"} and sets[-1] == {"restore": True}   # no override before -> back to none
+    assert len([a for a in sets if a.get("set")]) == 2                            # re-applied per scenario
+    assert body.world is None and rep["memory"]["restored"] is True
+    body2 = FakeBody()
+    rep = sr.run(args(isolated, live=True, only="pit_escape", repeat=1, memory="shared"), body=body2, ops=FakeOps(), suite=SUITE,
+                 log=lambda m: None)
+    assert not [c for c, _ in body2.calls if c == "cmd:scn_world.lua"]
+    rep = sr.run(args(isolated), body=FakeBody(), ops=FakeOps(), suite=SUITE, log=lambda m: None)   # dry run: never touches it
+    assert "applied" not in rep["memory"]

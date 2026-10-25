@@ -258,7 +258,7 @@ local function episode_poll(api, e, t)
         local det = W.detector(api)
         e.detector = det
         if same_target(th, det) or (det and not det.none and e.accept and e.accept(det)) then
-            local pr = api.call("inventory", "press_interact")
+            local pr = api.call("inventory", "press_interact", e.secondary and { secondary = true } or nil)
             if not pr.ok then return pr end
             e.presses = e.presses + 1
             e.phase, e.verify_until = "verify", t + M.cfg.verify_s
@@ -476,8 +476,8 @@ local function start_consume(api, args, ctx)
                 detail = "I can't eat or drink the " .. tostring(r.name) .. "." })
         end
         if r.where ~= "hotbar" then
-            return api.fail("in_bag", { item = r.item, name = r.name, offer = "move_to_hotbar",
-                detail = "The " .. tostring(r.name) .. " is in my bag, not on my hotbar, and I can only use things from the hotbar for now." })
+            return api.fail("in_bag", { item = r.item, name = r.name, offer = "move_item",
+                detail = "The " .. tostring(r.name) .. " is in my bag, not on my hotbar; I can only use things from the hotbar." })
         end
         job.stat = STAT_OF[r.consumable]
         job.row, job.before, job.before_n = r, stat_now(api, job.stat), count_of(api, r.item)
@@ -491,15 +491,15 @@ local function start_consume(api, args, ctx)
         return nil
     end
     if not row and not kind then
-        -- not carried: lying close by? fetch it first (one call does "drink the infusion on the floor")
+        -- not carried. A primitive (PRINCIPLES 4b): say where one is, the model composes interact + consume
         local near = find_pickup(api, what, M.cfg.consume_ground_m)
         if not near then
             return api.fail("not_in_inventory", { item = what,
                 detail = "I don't have any " .. what .. " on me, and I can't see one nearby." })
         end
-        local fj = start_fetch(api, { target = near.id, item = near.item or near.name, count = 1 }, ctx, { kind = "consume" })
-        if fj.ok == false then return fj end
-        job.fetch, job.phase = fj, "fetch"
+        return api.fail("not_in_inventory", { item = what, on_ground = { id = near.id, name = near.name, distance = near.distance },
+            detail = "I don't have any " .. what .. " on me yet; there's " .. tostring(near.name) .. " on the ground "
+                .. tostring(near.distance and (math.floor(near.distance + 0.5) .. " m away") or "nearby") .. "." })
     elseif not row then
         return api.fail("not_in_inventory", { item = what, kind = kind,
             detail = "I don't have anything to " .. (kind == "food" and "eat" or "drink") .. " on me." })
@@ -748,15 +748,18 @@ end
 local function start_interact(api, args, ctx)
     local id = args.target or args.id
     if not need_str(id) then return api.fail("invalid_args", { detail = "target is required (an id from look)" }) end
-    if args.secondary == true then return api.fail("not_implemented", { detail = "secondary interactions are not wired yet" }) end
     local t, r = api.find_thing(id)
-    if not t then return r end
+    if not t then
+        local d = copy(r and r.data); d.detail = d.detail or "I can't see that anywhere near me."
+        return api.fail(r and r.reason or "unknown_target", d)
+    end
     local can = false
     for _, act in ipairs(t.actions or {}) do if act == "interact" then can = true end end
     if not can then return api.fail("not_interactable", { target = id, kind = t.kind, actions = t.actions,
         detail = "There's nothing I can do with the " .. tostring(t.name or id) .. " by pressing use." }) end
     local job = { kind = "interact" }
     job.ep = new_episode(api, t)
+    job.ep.secondary = args.secondary == true
     job.on_resume = resume_episode(job)
     job.step = function(tt) return episode_poll(api, job.ep, tt) end
     return job
@@ -804,10 +807,12 @@ M.NEEDS = {
     fetch = FIND,
     interact = FIND,
     recover_grave = FIND,
-    consume = plus(FIND, { { "inventory", "use" }, { "sense", "me" } }),
+    consume = { { "sense", "census" }, { "sense", "me" }, { "inventory", "list" }, { "inventory", "use" } },
     come_to = { { "sense", "census" }, { "move", "follow" }, { "move", "status" }, { "move", "stop" } },
     give = { { "sense", "census" }, { "inventory", "list" }, { "inventory", "drop" }, { "move", "follow" }, { "move", "status" },
              { "move", "stop" } },
+    move_item = { { "inventory", "list" }, { "inventory", "move" } },
+    equip = { { "inventory", "list" }, { "inventory", "equip" } },
 }
 
 -- ------------------------------------------------------------------ handlers
@@ -826,63 +831,154 @@ local function handler(name)
     end
 end
 
-M.HANDLERS = { skills_status = function() return { ok = true, data = { cfg = M.cfg, tools = { "fetch", "consume", "come_to",
-                                                                                               "recover_grave", "give", "interact" } } } end }
+M.HANDLERS = { skills_status = function() return { ok = true, data = { cfg = M.cfg, tools = { "interact", "consume", "move_item", "equip",
+                                                                                               "fetch", "come_to", "recover_grave", "give" } } } end }
 for name in pairs(STARTERS) do M.HANDLERS[name] = handler(name) end
+
+-- ------------------------------------------------------------------ inventory primitives (no pawn: waiters)
+-- move_item(item, to = hotbar|bag): the inventory UI's drag (inventory.move); verified once the item is
+-- listed in that page. equip(item): the hotbar key / inventory use (inventory.equip); verified once it
+-- is in his hands or in the loadout.
+local function where_is(api, item)
+    local lr = api.call("inventory", "list")
+    if not lr.ok then return nil end
+    local row = find_carried(api, lr.data, item)
+    local held = type(lr.data.held) == "table" and lr.data.held or {}
+    local equipped = false
+    for _, e in ipairs(lr.data.loadout or {}) do if e.item == item or e.name == item then equipped = true end end
+    return row, held, equipped, lr.data
+end
+
+M.HANDLERS.move_item = function(log, args, ctx)
+    local api = ctx and ctx.api
+    if not api then return { ok = false, reason = "body_error", data = { detail = "needs ctx.api" } } end
+    if not need_str(args.item) then return api.fail("invalid_args", { detail = "item is required" }) end
+    local to = lower(args.to or "hotbar")
+    local page = ({ hotbar = "hotbar", bag = "bag" })[to]
+    if not page then return api.fail("invalid_args", { detail = "to must be hotbar or bag" }) end
+    local row = where_is(api, args.item)
+    if not row then return api.fail("not_in_inventory", { item = args.item, detail = "I don't have any " .. args.item .. "." }) end
+    if row.where == page then return { ok = true, data = { item = row.item, name = row.name, to = page, already = true } } end
+    local r = api.call("inventory", "move", row.item, page, args.slot)
+    if not r.ok then
+        local d = copy(r.data); d.detail = d.detail or ("I couldn't move the " .. tostring(row.name) .. " to my " .. page .. ".")
+        return api.fail(r.reason, d)
+    end
+    local w = { kind = "move_item" }
+    w.poll = function()
+        local now = where_is(api, row.item)
+        if now and now.where == page then return { ok = true, data = { item = row.item, name = row.name, to = page } } end
+        return nil
+    end
+    w.expire = function()
+        return api.fail("verification_failed", { item = row.item, detail = "I tried to move the " .. tostring(row.name)
+            .. " to my " .. page .. " but it didn't move." })
+    end
+    return { wait = w, wait_s = 4 }
+end
+
+M.HANDLERS.equip = function(log, args, ctx)
+    local api = ctx and ctx.api
+    if not api then return { ok = false, reason = "body_error", data = { detail = "needs ctx.api" } } end
+    if not need_str(args.item) then return api.fail("invalid_args", { detail = "item is required" }) end
+    local row, held, equipped = where_is(api, args.item)
+    if not row and not equipped then return api.fail("not_in_inventory", { item = args.item, detail = "I don't have any " .. args.item .. "." }) end
+    local item = row and row.item or args.item
+    if equipped or held.right_item == item or held.left_item == item then
+        return { ok = true, data = { item = item, already = true } }
+    end
+    local r = api.call("inventory", "equip", item)
+    if not r.ok then
+        local d = copy(r.data); d.detail = d.detail or ("I couldn't equip the " .. tostring(row and row.name or item) .. ".")
+        return api.fail(r.reason, d)
+    end
+    local w = { kind = "equip" }
+    w.poll = function()
+        local _, h, eq = where_is(api, item)
+        if eq or (h and (h.right_item == item or h.left_item == item)) then
+            return { ok = true, data = { item = item, name = row and row.name, held = h and (h.right or h.left) } }
+        end
+        return nil
+    end
+    w.expire = function()
+        return api.fail("verification_failed", { item = item, detail = "I tried to equip the " .. tostring(row and row.name or item)
+            .. " but it isn't in my hands or worn." })
+    end
+    return { wait = w, wait_s = 4 }
+end
 
 -- ------------------------------------------------------------------ manifest entries (client_mod/scripts/manifest.lua shape)
 local OBJ = { __jsontype = "object" }
 local function obj(t) return setmetatable(t or {}, OBJ) end
 local function str(desc) return { type = "string", description = desc } end
 local SPEAKS = true
+-- PRINCIPLES 4b (Luis): primitives first, the MODEL composes ("walk to him" + "drop the logs"). Offered
+-- to the LLM: interact (frame-coupled: approach + face + press + verify), consume, move_item, equip (and
+-- the bridge's go_to / follow / stop / drop / look / inspect / inventory). The compounds fetch, come_to,
+-- recover_grave and give stay as tested debug tools (llm = false), not offered.
+local COMPOUND = " (Compound kept for debugging; the model composes the primitives instead.)"
 M.MANIFEST = {
-    fetch = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 8, timeout_s = 120,
+    interact = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 6, timeout_s = 110,
         detail_is_speech = SPEAKS, aliases = { "pickup" },
-        description = "Pick up items lying on the ground (dropped items, food, drink, sticks, stones) into your inventory: "
-            .. "finds them, walks there, faces them, presses use and checks they arrived. \"grab those\", \"pick that up\".",
+        description = "Use one thing like a player pressing E: walks to it, faces it until the game targets it, presses "
+            .. "use and checks something changed. Picks up an item stack lying on the ground (into your inventory), takes "
+            .. "everything from a gravestone ('Take All'), opens, talks, collects plants. One id per call.",
+        args = { type = "object", required = { "target" }, properties = obj({
+            target = str("An id from situation or look whose actions include interact."),
+            secondary = { type = "boolean", default = false,
+                description = "Use the thing's SECOND action instead (the F key), when look/inspect shows one, e.g. "
+                    .. "collect-all on a dropped stack picks up every nearby stack of that kind at once." } }) },
+        ground = obj({ target = "thing" }),
+        reasons = { "unknown_target", "not_interactable", "too_far", "path_blocked", "verification_failed", "timeout" } },
+    consume = { kind = "action", llm = true, moves = false, priority = "command", duration_s = 3, timeout_s = 30,
+        detail_is_speech = SPEAKS,
+        description = "Eat or drink one item from your HOTBAR, then check the stat it restores went up. Items in the bag "
+            .. "must be moved to the hotbar first (move_item); items on the ground picked up first (interact).",
+        args = { type = "object", required = { "item" }, properties = obj({
+            item = str("The carried item's name or id, or just 'food' / 'drink' / 'potion' (its kind).") }) },
+        ground = obj({ item = "carried" }),
+        reasons = { "in_bag", "not_in_inventory", "not_consumable", "verification_failed" } },
+    move_item = { kind = "waiter", llm = true, moves = false, duration_s = 1, timeout_s = 10, detail_is_speech = SPEAKS,
+        description = "Move a carried item between your bag and your hotbar (as dragging it in the inventory). Only "
+            .. "hotbar food/drink can be eaten, so move food there first.",
+        args = { type = "object", required = { "item", "to" }, properties = obj({
+            item = str("A carried item's name or id."),
+            to = { type = "string", enum = { "hotbar", "bag" }, description = "Where to put it." },
+            slot = { type = "integer", minimum = 0, description = "Optional slot number in that page (default: first free)." } }) },
+        ground = obj({ item = "carried" }),
+        reasons = { "not_in_inventory", "inventory_full", "verification_failed", "invalid_args" } },
+    equip = { kind = "waiter", llm = true, moves = false, duration_s = 1, timeout_s = 10, detail_is_speech = SPEAKS,
+        description = "Equip a carried weapon, tool or armour piece (hotbar key or inventory use); checks it is in your "
+            .. "hands or worn.",
+        args = { type = "object", required = { "item" }, properties = obj({ item = str("A carried item's name or id.") }) },
+        ground = obj({ item = "carried" }),
+        reasons = { "not_in_inventory", "verification_failed" } },
+    fetch = { kind = "action", llm = false, moves = true, priority = "command", duration_s = 8, timeout_s = 120,
+        detail_is_speech = SPEAKS,
+        description = "Pick up items lying on the ground by name or id (find, walk, face, use, verify; repeats for count)." .. COMPOUND,
         args = { type = "object", properties = obj({
             target = str("An id from situation or look (a world item or ground pickup)."),
-            item = str("What to pick up, by name or item id (e.g. 'Pumpkin Spice Infusion'); set it whenever the player names it."),
+            item = str("What to pick up, by name or item id."),
             count = { type = "integer", minimum = 1, maximum = 20, default = 1, description = "How many items." } }) },
-        -- (no top-level anyOf "target or item": model APIs reject it in tool schemas; the body and the
-        --  brain's FetchArgs check it instead)
-        preconditions = { "the thing is on the ground within 60 m and reachable on foot" },
-        ground = obj({ target = "item", item = "item" }),
         reasons = { "unknown_target", "nothing_in_range", "not_interactable", "too_far", "path_blocked", "verification_failed", "timeout" } },
-    consume = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 4, timeout_s = 120,
+    come_to = { kind = "action", llm = false, moves = true, priority = "command", duration_s = 15, timeout_s = 120,
         detail_is_speech = SPEAKS,
-        description = "Eat or drink something: from your hotbar, or if it is lying on the ground within 15 m, pick it up "
-            .. "first and then use it. Checks your hydration/food went up. \"drink the infusion\", \"eat something\".",
-        args = { type = "object", required = { "item" }, properties = obj({
-            item = str("The item's name or id, or just 'food' or 'drink'.") }) },
-        preconditions = { "it is on your hotbar (bag items can't be used yet) or on the ground nearby" },
-        ground = obj({ item = "carried_or_item" }),
-        reasons = { "in_bag", "not_in_inventory", "not_consumable", "verification_failed", "path_blocked", "timeout" } },
-    come_to = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 15, timeout_s = 120,
-        detail_is_speech = SPEAKS,
-        description = "Walk to a player and stop next to them (keeps trying other routes for a while if the way is "
-            .. "blocked, then says why). \"come here\", \"come to me\".",
+        description = "Walk to a player and stop next to them (persistent follow until near)." .. COMPOUND,
         args = { type = "object", required = { "player" }, properties = obj({
-            player = str("The player's exact name (command.player for 'me')."),
-            distance = { type = "number", minimum = 1, maximum = 10, default = 2, description = "Stop this close, metres." } }) },
-        ground = obj({ player = "player" }),
-        reasons = { "unknown_target", "path_blocked", "timeout", "interrupted" } },
-    recover_grave = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 20, timeout_s = 120,
-        detail_is_speech = SPEAKS,
-        description = "Go to your own gravestone and take everything back (\"Take All\"); checks the items are back in "
-            .. "your inventory. Never touches other players' graves. \"get your stuff from your grave\".",
-        args = { type = "object", properties = obj() },
-        preconditions = { "your grave is within 80 m" },
-        reasons = { "nothing_in_range", "ambiguous_target", "path_blocked", "not_interactable", "verification_failed", "timeout" } },
-    give = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 15, timeout_s = 120,
-        detail_is_speech = SPEAKS,
-        description = "Hand carried items to a player: walk to them and drop the items at their feet; checks they left "
-            .. "your inventory.",
-        args = { type = "object", required = { "player", "item", "count" }, properties = obj({
             player = str("The player's exact name."),
-            item = str("A carried item's name or id."),
+            distance = { type = "number", minimum = 1, maximum = 10, default = 2, description = "Stop this close, metres." } }) },
+        reasons = { "unknown_target", "path_blocked", "timeout", "interrupted" } },
+    recover_grave = { kind = "action", llm = false, moves = true, priority = "command", duration_s = 20, timeout_s = 120,
+        detail_is_speech = SPEAKS,
+        description = "Go to your own gravestone, Take All, verify, re-equip the last held tool." .. COMPOUND,
+        args = { type = "object", properties = obj() },
+        reasons = { "nothing_in_range", "ambiguous_target", "path_blocked", "not_interactable", "verification_failed", "timeout" } },
+    give = { kind = "action", llm = false, moves = true, priority = "command", duration_s = 15, timeout_s = 120,
+        detail_is_speech = SPEAKS,
+        description = "Walk to a player and drop carried items at their feet." .. COMPOUND,
+        args = { type = "object", required = { "player", "item", "count" }, properties = obj({
+            player = str("The player's exact name."), item = str("A carried item's name or id."),
             count = { type = "integer", minimum = 1, description = "How many." } }) },
-        ground = obj({ player = "player", item = "carried" }),
         reasons = { "not_in_inventory", "not_enough_resources", "path_blocked", "unknown_target", "verification_failed", "timeout" } },
 }
 

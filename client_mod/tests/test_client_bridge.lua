@@ -719,7 +719,7 @@ test("move v10: lead_me / led_out events with target_kind; escape_trap after res
     assert(un[2].reason == "no_route" and un[2].target_kind == "point")
     assert(re[1].reason == "led_out" and re[1].helper == "Zezima")
     -- escape_trap: after a respawn (vitals "revive") once, not again until the next spawn
-    install("move", FAKES.move .. [[
+    install("move", (FAKES.move:gsub("return M%s*$", "")) .. [[
 
 function M.escape_trap(log) _G.FAKE.escapes = (_G.FAKE.escapes or 0) + 1; return { ok = false, error = "not_in_trap" } end
 return M
@@ -742,10 +742,11 @@ test("module-declared HANDLERS dispatch", function()
 end)
 
 test("hot reload: an edited module is reloaded; a broken one answers not_implemented, a crash body_error", function()
+    local loads0 = B._state().mods.move.loads
     install("move", FAKES.move:gsub("M.VERSION = 1", "M.VERSION = 2"))
     rpc("capabilities")
     local st = B._state().mods.move
-    assert(st.loads == 2 and st.mod.VERSION == 2, "reloaded")
+    assert(st.loads == loads0 + 1 and st.mod.VERSION == 2, "reloaded")
     install("move", "return {")
     local r = rpc("follow", { player = "Luis" })
     assert(r.reason == "not_implemented" and r.data.detail:find("load"), tostring(r.data.detail))

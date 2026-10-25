@@ -35,9 +35,18 @@ Status: rev 2 after review aa990d09b7e96fb65 (crafting agent, 2026-10-25). Templ
      - when `bStoreOutput` is set: `InventoryUIAPI:HandleExternalQuickTransfer(slot, OutputInventory)`;
      - otherwise the outputs spawn as world items at the station, so he picks them up with the skills.lua fetch engine (interact presses), **filtered to the recipe's output item ids, to world items that appeared after he pressed start, and to no more than the amount he produced**.
   5. Verify the outputs are in his inventory. Close with `HideCraftingUI` (or the processing UI's own close).
-- **Shared stations (Luis's rule: never touch his items):** he loads only a station that is idle, with empty `Resources` and `OutputInventory` (and empty `Fuel`, unless `use_station_fuel` is set), or one whose contents he loaded himself in this episode. He collects only what he produced, counted against what he loaded. Otherwise he fails with `station_busy`: "The Furnace is busy with someone else's stuff (Copper Ore x3)."
+- **Shared stations (Luis's binding rule, via main, 2026-10-25):** Claude MAY use shared stations, including furnaces that hold other players' items and the station's own fuel. What he must do is **report truthfully** what he used and collected:
+  - `data.station_before` (the contents when he arrived);
+  - `data.fuel_used` (his own, or `from = "station"`);
+  - `data.collected`.
+  - If what is already loaded would make the station produce a different recipe than the one asked for, he fails with `station_busy` and names the contents ("the Furnace would make Bronze Bars with the Tin Ore already in it").
+  - He collects outputs of the recipe's output ids that appeared after he started. The collect is filtered to new items so verification counts only what he made.
 - **Fuel:**
-  - `craft` takes a `fuel` arg. Without it, he burns the one accepted fuel he carries. If he carries more than one kind, he fails with `ambiguous_target` and lists the candidates.
+  - `craft` takes a `fuel` arg; when given, he adds his own fuel of that kind.
+  - Without it:
+    - he uses the accepted fuel already in the station, if there is enough;
+    - else the one accepted fuel kind he carries;
+    - with more than one kind, he fails with `ambiguous_target` and lists the candidates.
   - He never burns an input of this recipe; if that is the only fuel he has, he says so.
   - The result always carries `data.fuel_used`.
 - **Recipe choice is the model's:**
@@ -54,7 +63,7 @@ Status: rev 2 after review aa990d09b7e96fb65 (crafting agent, 2026-10-25). Templ
   - The UI is closed on every exit path (success, failure, cancel, interrupt).
 - **Bridge tools:**
   - module `HANDLERS` plus a `MANIFEST` in crafting.lua (no route edits);
-  - `craft {recipe | item, count, station?, fuel?, use_station_fuel?}`, kind action (`use_station_fuel`: "only when the player said to use the fuel already in it (it may be someone else's)"; default false), async `{pending}`;
+  - `craft {recipe | item, count, station?, fuel?}`, kind action, async `{pending}`;
   - `recipes {item? | station? | craftable?}` and `craft_plan {item | recipe, count}`, kind `read`, offered to the LLM;
   - `stations {radius}`, kind `read`.
   - **Needs from main:** add `"crafting"` to `client_bridge.M.MODULES`. One small generic addition to sense.lua's `describe_interactable` would give census rows `station = {type, running, progress, contents}`; that is a sense-owner decision, otherwise `stations` covers it.
@@ -102,7 +111,7 @@ Status: rev 2 after review aa990d09b7e96fb65 (crafting agent, 2026-10-25). Templ
   - pause, suspend/resume and timeout;
   - an ambiguous recipe answers candidates; a single viable recipe answers `recipe_chosen` plus the alternatives;
   - ambiguous fuel; never burning a recipe input;
-  - `station_busy` with the contents named;
+  - a station already holding other items: reported in `station_before`; `station_busy` only when its contents would change the recipe;
   - output pickup ignores a pre-existing world item of the same id near the station;
   - an unknown ECraftingResult answers `craft_failed`;
   - the UI is closed on each exit path.

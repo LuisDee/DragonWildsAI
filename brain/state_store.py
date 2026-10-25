@@ -67,11 +67,14 @@ class SkillRegistry:
     description come from there.
     """
 
-    def __init__(self, names: Iterable[str] = MOCK_SKILLS) -> None:
+    def __init__(self, names: Iterable[str] = MOCK_SKILLS, specs: dict[str, dict] | None = None) -> None:
+        # specs: capability-manifest entries for tools the brain has no typed model for (e.g. the client's
+        # move_item, equip): validated against the body's JSON schema, described with its own words.
         self._names = list(dict.fromkeys(names))
-        unknown = [n for n in self._names if n not in TOOLS]
+        self._specs = dict(specs or {})
+        unknown = [n for n in self._names if n not in TOOLS and n not in self._specs]
         if unknown:
-            raise ValueError(f"not tools in interface.TOOLS: {unknown}")
+            raise ValueError(f"not tools in interface.TOOLS or the body manifest: {unknown}")
 
     def __contains__(self, name: str) -> bool:
         return name in self._names
@@ -80,11 +83,21 @@ class SkillRegistry:
         return list(self._names)
 
     def validate(self, name: str, args: dict) -> dict:
+        if name not in TOOLS and name in self._specs:
+            import jsonschema  # only bodies with a manifest need it
+            jsonschema.validate(args, self._specs[name].get("args") or {"type": "object"})
+            return dict(args)
         return TOOLS[name][0].model_validate(args).model_dump()
 
     def describe(self) -> list[dict]:
         out = []
         for name in self._names:
+            if name not in TOOLS:
+                spec = self._specs[name]
+                schema = spec.get("args") or {}
+                out.append({"name": name, "description": spec.get("description", ""),
+                            "args": schema.get("properties", {}), "required": schema.get("required", [])})
+                continue
             model, description = TOOLS[name]
             schema = model.model_json_schema()
             out.append({"name": name, "description": description, "args": schema.get("properties", {}),
