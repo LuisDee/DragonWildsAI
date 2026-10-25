@@ -1,6 +1,9 @@
-"""Crafting drift check: record ONE real craft by Luis and compare it with the bot's emulation of
-the same recipe (design doc section 19: "compare one real craft by Luis with the bot's emulation;
-re-run after patches"). Read-only on the game side (mod/experiments/craft_drift.lua).
+"""Real-craft capture and catalog drift check: record ONE real craft by Luis, report which server
+RPCs his client sent (in order, with params: the path the real-client body must drive), and compare
+the real consumption/production/time with the recipe catalog's plan for the same recipe (design doc
+section 19; re-run after patches). There is no emulated craft (real-player remediation, 2026-10-25):
+"emulated" in the report means the catalog plan (mod/body/crafting.lua M.plan). Read-only on the
+game side (mod/experiments/craft_drift.lua).
 
   .venv\\Scripts\\python.exe -m tools.craft_drift run            # arm, wait for Luis's craft, report
   .venv\\Scripts\\python.exe -m tools.craft_drift run --seconds 600   # longer window (processing stations)
@@ -12,7 +15,8 @@ What Luis does (one craft, nothing else in that window):
   * processing station (Furnace, Kiln ...): put the ingredients and the fuel in, start it, wait
     for the outputs, take them out.
 The watcher logs his inventory, the nearest stations' inventories and processing state, world items
-around the stations, and the Server_CraftRecipe / Server_ToggleProcessing RPCs. The analysis takes
+around the stations, and the player's inventory/crafting RPCs (Server_CraftRecipe, Server_ToggleProcessing,
+Server_MoveItemBetweenInventories, ..., Server_RequestInteraction; report key `real.rpcs`). The analysis takes
 the net change of that whole system (player + station + items on the ground), so moving items
 between them cancels out and only real consumption and production remain. The emulation's plan
 comes from a fresh copy of mod/body/crafting.lua on the server (debug_run craft_drift plan).
@@ -97,7 +101,11 @@ def analyse(events: list[dict]) -> dict:
     consumed = {k: -v for k, v in net.items() if v < 0}
     produced = {k: v for k, v in net.items() if v > 0}
     res = {"captured": bool(consumed or produced), "consumed": consumed, "produced": produced,
-           "events": len(events), "window_ms": timeline[-1][0] - timeline[0][0]}
+           "events": len(events), "window_ms": timeline[-1][0] - timeline[0][0],
+           # the real player path, in order (pre-hooks only: one entry per RPC the client sent)
+           "rpcs": [{"t": e.get("t"), "fn": e.get("fn") or e.get("hook"), "params": e.get("params"),
+                     "caller": e.get("caller")}
+                    for e in events if e.get("kind") == "hook" and e.get("phase") == "pre"]}
     if craft_hooks:
         h = craft_hooks[0]
         res.update({"kind": "crafting", "recipe": h.get("recipe"), "count": h.get("count"), "bonus": h.get("bonus"),
@@ -273,6 +281,7 @@ def main() -> None:
     code, out = report(client, jsonl, a.build)
     rp = DRIFT_DIR / f"{a.build}_{stamp}.report.json"
     rp.write_text(json.dumps(out, indent=1), encoding="utf-8")
+    print("real player RPCs:", json.dumps((out.get("real") or {}).get("rpcs"), indent=1))
     print(json.dumps(out.get("comparison") or out, indent=1))
     print(f"\nverdict: {out['verdict']}  ({rp})")
     sys.exit(code)

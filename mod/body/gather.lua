@@ -20,7 +20,7 @@
 -- register, why not), body/watch (timeline recorder, M.WATCH), body/combat (attack sets, perform),
 -- body/gear (held item), body/inventory + body/items (count, pickup) via M.default_store().
 --
--- THE HIT (verified live 2026-10-25, DISCOVERIES "Gather"): a puppet swing reaches a tree's damage
+-- THE HIT (verified live 2026-10-25, DISCOVERIES "Gather"; emulation now OFF by default, see M.HIT): a puppet swing reaches a tree's damage
 -- pipeline but the tool gate (BP_DamageModifier_SpecificWeapon_C) reads it as UNARMED (no
 -- ActionGranter item instance), so it does 0 damage. Mode M.HIT = "auto": swing for real; at the
 -- swing's damage point, if the HP did not drop AND hitcheck saw the gate reject it (or hooks are
@@ -45,7 +45,10 @@ local jsonutil = require("jsonutil")
 
 local M = {}
 
-M.HIT = os.getenv("DW_GATHER_HIT") or "auto"   -- auto | native (never emulate)
+-- native (DEFAULT since Luis's 2026-10-25 direction: real player code paths only, no emulation):
+-- swings only; a gated resource then fails with path_blocked (swing_no_effect). auto = the emulated
+-- hit below (DW_GATHER_HIT=auto, for experiments).
+M.HIT = os.getenv("DW_GATHER_HIT") or "native"
 M.WATCH = os.getenv("DW_GATHER_WATCH") ~= "0"   -- timeline events "gather_watch" (1 Hz near the site)
 M.DEFAULT_RADIUS_CM = 3000
 M.MAX_RADIUS_CM = 12000

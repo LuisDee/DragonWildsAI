@@ -1,6 +1,9 @@
--- Drift check for the crafting emulation (Luis, design doc section 19): record ONE real craft by a
--- player and compare it with what body/crafting.lua would do for the same recipe. READ-ONLY: it
--- never writes to the player, his inventory or the station. Driven by tools/craft_drift.py.
+-- Real-craft capture + catalog drift check: record ONE real craft by a player (which server RPCs his
+-- client sends, with params, and the exact inventory/station deltas), and compare it with the recipe
+-- catalog's plan (body/crafting.lua M.plan over body/recipe_data.lua). There is no emulated craft any
+-- more (real-player remediation, 2026-10-25): the capture tells the real-client route which game path
+-- to drive, and the comparison keeps the catalog honest. READ-ONLY: it never writes to the player,
+-- his inventory or the station. Driven by tools/craft_drift.py.
 --
 --   debug_run {module="craft_drift", args={action="arm", seconds=240, radius_m=12}}
 --       starts a 250 ms watcher (one per run; re-arming replaces it) over:
@@ -28,10 +31,36 @@ local M = {}
 M.PERIOD_MS = 250
 M.REFRESH_MS = 5000
 M.WORLD_ITEM_CM = 400
+-- The player's server RPCs a craft can go through (UInventoryController, Dominion.hpp:24740), so a
+-- capture shows which real path a player's craft takes (the real-client route will call the same).
+-- Params are logged generically: objects by short name, numbers as numbers, TArrays as their type.
+local IC = "/Script/Dominion.InventoryController:"
 M.HOOKS = {
-    craft = "/Script/Dominion.InventoryController:Server_CraftRecipe",
-    toggle = "/Script/Dominion.InventoryController:Server_ToggleProcessing",
+    craft = IC .. "Server_CraftRecipe",                        -- (CraftingStation, Recipe, Count, BonusCount, XPMul, BonusXPMul, Inventories)
+    toggle = IC .. "Server_ToggleProcessing",                  -- (ProcessingStation)
+    move = IC .. "Server_MoveItemBetweenInventories",          -- (SrcInv, SrcSlot, DstInv, DstSlot): loading a furnace / taking outputs
+    move_all = IC .. "Server_MoveAllItemsBetweenInventories",  -- (SrcInv, DstInv)
+    fill = IC .. "Server_FillStacksBetweenInventories",        -- (SrcInv, DstInv)
+    split_put = IC .. "Server_SplitAndPutStack",               -- (SrcInv, SrcSlot, Amount, DstInv, DstSlot)
+    repair = IC .. "Server_RepairItem",                        -- (CraftingStation, Item, Recipe, Inventories)
+    masterwork = IC .. "Server_UpgradeMasterworkEquipment",    -- (CraftingStation, Inventory, SlotIndex, Inventories)
+    interact = "/Script/Dominion.PlayerInteractionManager:Server_RequestInteraction",  -- opening the station
 }
+
+-- One hook param, readable and scalar-only (never a userdata in the log record).
+local function describe(v)
+    if type(v) == "number" or type(v) == "boolean" or type(v) == "string" then return v end
+    if v == nil then return nil end
+    local full = U.fullname(v)
+    if full then
+        local owner = U.try(function() return v:GetOwner() end)
+        local o = U.valid(owner) and U.short(owner) or nil
+        return o and (U.short(v) .. "@" .. o) or (full:match("([%w_%-]+)$") or full)
+    end
+    local n = U.try(function() return v:GetArrayNum() end)
+    if n then return "TArray[" .. tostring(n) .. "]" end
+    return type(v)
+end
 M.STATION_INV_PROPS = { "ResourcesInventory", "FuelInventory", "CatalystInventory" }
 
 local G = rawget(_G, "__dw_craft_drift")
@@ -210,10 +239,13 @@ local function arm_hooks(log)
     for tag, path in pairs(M.HOOKS) do
         if not G.hooks[tag] then
             local function cb(phase)
-                return function(ctx, a1, a2, a3, a4)
+                return function(ctx, a1, a2, a3, a4, a5, a6, a7)
                     local ok, err = pcall(function()
                         local pawn = U.find_player(G.player or "luis")
-                        local rec = { kind = "hook", hook = tag, phase = phase, counts = pawn and player_counts(pawn) or nil }
+                        local rec = { kind = "hook", hook = tag, fn = path:match(":(.*)$"), phase = phase,
+                                      counts = pawn and player_counts(pawn) or nil, params = {} }
+                        for i, p in ipairs({ a1, a2, a3, a4, a5, a6, a7 }) do rec.params[i] = describe(param(p)) end
+                        rec.caller = describe(U.try(function() return ctx:get() end))
                         if tag == "craft" then
                             local station = param(a1)
                             rec.recipe = asset(U.path_of(param(a2)))
@@ -223,7 +255,7 @@ local function arm_hooks(log)
                             rec.station_actor = owner and U.short(owner) or nil
                             rec.station_class = owner and U.class_word(owner) or nil
                             if phase == "pre" then G.crafts[#G.crafts + 1] = { recipe = rec.recipe, count = rec.count } end
-                        else
+                        elseif tag == "toggle" then
                             local station = param(a1)
                             local owner = U.valid(station) and U.try(function() return station:GetOwner() end)
                             rec.station_actor = owner and U.short(owner) or nil

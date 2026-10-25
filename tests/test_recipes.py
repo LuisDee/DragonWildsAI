@@ -208,6 +208,7 @@ def test_drift_crafting_station_uses_the_rpc_count():
           {"kind": "player", "t": 1600, "counts": {"ITEM_Log": 2, "ITEM_Hammer": 1, "ITEM_Plank": 6}}]
     real = cd.analyse(ev)
     assert real["kind"] == "crafting" and real["count"] == 3 and real["seconds_to_last_output"] == 0.6
+    assert [r["fn"] for r in real["rpcs"]] == ["craft"], "the real RPC path is reported"
     plan = {"recipe": "RECIPE_Plank", "crafts": 3, "kind": "crafting", "seconds": 0.72,
             "inputs": [{"item": "ITEM_Log", "count": 3}], "outputs": [{"item": "ITEM_Plank", "count": 6}]}
     assert cd.crafts_from(real, plan) == 3

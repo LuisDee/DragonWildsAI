@@ -135,6 +135,7 @@ local hitcheck = require("body.hitcheck")
 local watch = require("body.watch")
 local reach = require("body.reach")
 U.set_log(H.log)
+gather.HIT = "auto" -- the default is native (no emulation); these tests cover the emulated route too
 
 local function reset()
     F = { n = 0, actors = {}, drops = {}, assets = {}, inv = {}, now = 0, swings = {}, emits = {}, finished = nil,
@@ -190,14 +191,18 @@ local function deps()
         stop_movement = function() F.stops = (F.stops or 0) + 1 end,
         shape_of = function() return reach.window_of({ kind = "DominionShape_Wedge", Depth = 150, TopAngle = 80, AngleOffset = 0 }) end,
         convert = function() F.converts = (F.converts or 0) + 1 end,
-        perform = function(p, sw, actor)
+        perform = function(p, sw, actor, crumb)
             F.swings[#F.swings + 1] = { kind = sw.kind, target = actor, label = sw.label }
             if F.gate_events then
                 hitcheck._record({ fn = "GetHeldEquipmentThatInflictedDamage", who = U.short(p), held = nil })
                 hitcheck._record({ fn = "IsDamageCausedByUnarmedAttack", who = U.short(p), result = true })
                 hitcheck._record({ fn = "ModifyDamage", who = U.short(p), amount = 10 })
             end
-            if F.native_damage and actor then F.damage(actor, F.native_damage) end
+            if F.native_damage then -- the swing lands on the aimed target (DesiredActionTarget may be nil for logs)
+                local tgt = actor
+                if not tgt then for _, x in ipairs(F.actors) do if x._valid and U.short(x) == crumb.target then tgt = x end end end
+                if tgt then F.damage(tgt, F.native_damage) end
+            end
             return true
         end,
         move_to_actor = function(_, target)
