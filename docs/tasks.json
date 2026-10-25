@@ -1,354 +1,529 @@
 {
-  "tasks": [
-    {
-      "id": "P1.1",
-      "phase": 1,
-      "title": "Install toolchain (Git, Python, SteamCMD)",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P1.2",
-      "phase": 1,
-      "title": "Install dedicated server (app 4019830), set Owner ID, moddable mode, throwaway world",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P1.3",
-      "phase": 1,
-      "title": "Update/start scripts, open UDP 7777, server up and listening",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P1.GATE",
-      "phase": 1,
-      "title": "GATE: Luis joins the world from GFN",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P2.1",
-      "phase": 2,
-      "title": "Install UE4SS for the server binary",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P2.2",
-      "phase": 2,
-      "title": "Hello-world Lua mod logs to file at server start",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P2.3",
-      "phase": 2,
-      "title": "Reflection dump generated and searchable",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P2.4",
-      "phase": 2,
-      "title": "RegisterHook logs item pickup when Luis picks up an item",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P2.5",
-      "phase": 2,
-      "title": "Determine whether text chat exists and whether the mod can receive it",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P4.1",
-      "phase": 4,
-      "title": "Spawn character and drive with AIController MoveTo (player class, then NPC class)",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P4.GATE",
-      "phase": 4,
-      "title": "GATE: companion visible on GFN, walks to Luis, consistent after rejoin",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P3.GATE",
-      "phase": 3,
-      "title": "GATE: trigger teleports Luis or gives him an item",
-      "status": "todo",
-      "passes_test": false
-    },
-    {
-      "id": "P5.1",
-      "phase": 5,
-      "title": "Bridge research and recommendation",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P5.2",
-      "phase": 5,
-      "title": "JSONL bridge fallback implemented against mock",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P5.GATE",
-      "phase": 5,
-      "title": "GATE: !ping round trip in game, latency recorded",
-      "status": "todo",
-      "passes_test": false
-    },
-    {
-      "id": "P6.GATE",
-      "phase": 6,
-      "title": "GATE: follow me / wait here / come here / kill that wolf / stop work in game",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P7.1",
-      "phase": 7,
-      "title": "Skill: gather",
-      "status": "in_progress",
-      "passes_test": false
-    },
-    {
-      "id": "P7.2",
-      "phase": 7,
-      "title": "Skill: give",
-      "status": "todo",
-      "passes_test": false
-    },
-    {
-      "id": "P7.3",
-      "phase": 7,
-      "title": "Skill: craft",
-      "status": "in_progress",
-      "passes_test": false
-    },
-    {
-      "id": "P7.4",
-      "phase": 7,
-      "title": "Skill: place/build",
-      "status": "todo",
-      "passes_test": false
-    },
-    {
-      "id": "P8.GATE",
-      "phase": 8,
-      "title": "GATE: multi-step task end to end, replans/asks for help on forced failure",
-      "status": "todo",
-      "passes_test": false
-    },
-    {
-      "id": "M.1",
-      "phase": "M",
-      "title": "brain/interface.py GameInterface + tool schema",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "M.2",
-      "phase": "M",
-      "title": "brain/mock game with scriptable failures",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "M.3",
-      "phase": "M",
-      "title": "llm adapter, Controller, Planner, Executor, state store",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "M.4",
-      "phase": "M",
-      "title": "evals case files + runner (not executed)",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "M.GATE",
-      "phase": "M",
-      "title": "GATE: section 8 mock scenarios pass",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P2.6",
-      "phase": 2,
-      "title": "Find hookable signal for tree felling / harvest hits and inventory adds (OnHealthChanged, InventoryComponent:Add*, OnNewInventoryChangedLogEvent did not fire)",
-      "status": "todo",
-      "passes_test": false
-    },
-    {
-      "id": "P5.3",
-      "phase": 5,
-      "title": "Companion say: server-side chat output (Server_SendChatMessage / Client_ReceiveChatMessage / Client_DisplayTextNotification) to finish the !ping gate",
-      "status": "todo",
-      "passes_test": false
-    },
-    {
-      "id": "P4.0",
-      "phase": 4,
-      "title": "Debug trigger: debug_run reloads + runs a mod module on the game thread without restart (tools/bridge_cmd.py)",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P4.H",
-      "phase": 4,
-      "title": "HUMANOID player-like body (Luis clarified goal): route 1 player pawn driven by server, route 2 friendly humanoid AI, route 3 second client; research + experiments",
-      "status": "in_progress",
-      "passes_test": false
-    },
-    {
-      "id": "P4.H1",
-      "phase": 4,
-      "title": "Route 1: spawn BP_PlayerCharacter_C + AIController + MoveTo, visible on GFN",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P4.H2",
-      "phase": 4,
-      "title": "Route 1: equip weapon + armour on puppet server-side, visible on GFN",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P4.H3",
-      "phase": 4,
-      "title": "Route 1: puppet attacks and kills an enemy",
-      "status": "todo",
-      "passes_test": false
-    },
-    {
-      "id": "P4.H4",
-      "phase": 4,
-      "title": "Route 1: puppet inventory (game components) + persistent bot state server-side",
-      "status": "todo",
-      "passes_test": false
-    },
-    {
-      "id": "P7.C1",
-      "phase": 7,
-      "title": "Combat: full combo chains per held weapon (NextAttackClass), specials/sprint/visceral, correct attack set for held weapon",
-      "status": "in_progress",
-      "passes_test": false
-    },
-    {
-      "id": "P5.3b",
-      "phase": 5,
-      "title": "On-demand speech as Claude (outside the relay hook); overhead nameplate shows Claude",
-      "status": "todo",
-      "passes_test": false
-    },
-    {
-      "id": "P7.I1",
-      "phase": 7,
-      "title": "Bot persistent inventory store (server-side, items+counts)",
-      "status": "todo",
-      "passes_test": false
-    },
-    {
-      "id": "P7.I2",
-      "phase": 7,
-      "title": "Skill: pick up world items into bot inventory",
-      "status": "todo",
-      "passes_test": false
-    },
-    {
-      "id": "P7.I3",
-      "phase": 7,
-      "title": "Skill: drop items / give to Luis",
-      "status": "todo",
-      "passes_test": false
-    },
-    {
-      "id": "P7.T1",
-      "phase": 7,
-      "title": "Skill: lodestone teleport (unlocked lodestones)",
-      "status": "todo",
-      "passes_test": false
-    },
-    {
-      "id": "P4.N1",
-      "phase": 4,
-      "title": "Overhead nameplate shows Claude",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P7.R1",
-      "phase": 7,
-      "title": "Body: reflex rule engine + trigger sensors (telegraph, hp, cluster, stun)",
-      "status": "in_progress",
-      "passes_test": false
-    },
-    {
-      "id": "P7.R2",
-      "phase": 7,
-      "title": "Brain: set_reflex_rule/list_rules/clear_rule tools, per-enemy persistence",
-      "status": "in_progress",
-      "passes_test": false
-    },
-    {
-      "id": "OPS.P1",
-      "phase": "ops",
-      "title": "Patch delta pipeline: dump diff, catalog diff, smoke tests, report",
-      "status": "done",
-      "passes_test": true
-    },
-    {
-      "id": "P7.M1",
-      "phase": 7,
-      "title": "Per-world memory keyed by WorldSaveGuid (notes, rules, places)",
-      "status": "todo",
-      "passes_test": false
-    },
-    {
-      "id": "P7.M2",
-      "phase": 7,
-      "title": "Named places: remember_place + travel to place (lodestone + walk)",
-      "status": "todo",
-      "passes_test": false
-    },
-    {
-      "id": "P7.F1",
-      "phase": 7,
-      "title": "Farming: plot sense/watch, crop profiles, plant/tend/harvest primitives, planner composition",
-      "status": "todo",
-      "passes_test": false
-    },
-    {
-      "id": "P7.S1",
-      "phase": 7,
-      "title": "Spells wired live: cast tool + reasons, castable list in Controller context, shield/Windstep combat reflexes gated by verified-in-game route status",
-      "status": "in_progress",
-      "passes_test": false
-    },
-    {
-      "id": "P7.Z1",
-      "phase": 7,
-      "title": "Sleep skill + sleep-when-Luis-sleeps reflex + night-skip safety valve (bot must never block the night)",
-      "status": "in_progress",
-      "passes_test": false
-    },
-    {
-      "id": "P7.S2",
-      "phase": 7,
-      "title": "Woodcutting spells (Axtral Projection, Splinter, Trunk Totem) via spells.woodcutting_assist from gather; needs a cast route for module-graph spells",
-      "status": "todo",
-      "passes_test": false
-    }
-  ]
+ "tasks": [
+  {
+   "id": "P1.1",
+   "phase": 1,
+   "title": "Install toolchain (Git, Python, SteamCMD)",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P1.2",
+   "phase": 1,
+   "title": "Install dedicated server (app 4019830), set Owner ID, moddable mode, throwaway world",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P1.3",
+   "phase": 1,
+   "title": "Update/start scripts, open UDP 7777, server up and listening",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P1.GATE",
+   "phase": 1,
+   "title": "GATE: Luis joins the world from GFN",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P2.1",
+   "phase": 2,
+   "title": "Install UE4SS for the server binary",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P2.2",
+   "phase": 2,
+   "title": "Hello-world Lua mod logs to file at server start",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P2.3",
+   "phase": 2,
+   "title": "Reflection dump generated and searchable",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P2.4",
+   "phase": 2,
+   "title": "RegisterHook logs item pickup when Luis picks up an item",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P2.5",
+   "phase": 2,
+   "title": "Determine whether text chat exists and whether the mod can receive it",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P4.1",
+   "phase": 4,
+   "title": "Spawn character and drive with AIController MoveTo (player class, then NPC class)",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P4.GATE",
+   "phase": 4,
+   "title": "GATE: companion visible on GFN, walks to Luis, consistent after rejoin",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P3.GATE",
+   "phase": 3,
+   "title": "GATE: trigger teleports Luis or gives him an item",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "P5.1",
+   "phase": 5,
+   "title": "Bridge research and recommendation",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P5.2",
+   "phase": 5,
+   "title": "JSONL bridge fallback implemented against mock",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P5.GATE",
+   "phase": 5,
+   "title": "GATE: !ping round trip in game, latency recorded",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "P6.GATE",
+   "phase": 6,
+   "title": "GATE: follow me / wait here / come here / kill that wolf / stop work in game",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P7.1",
+   "phase": 7,
+   "title": "Skill: gather",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "P7.2",
+   "phase": 7,
+   "title": "Skill: give",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "P7.3",
+   "phase": 7,
+   "title": "Skill: craft",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "P7.4",
+   "phase": 7,
+   "title": "Skill: place/build",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "P8.GATE",
+   "phase": 8,
+   "title": "GATE: multi-step task end to end, replans/asks for help on forced failure",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "M.1",
+   "phase": "M",
+   "title": "brain/interface.py GameInterface + tool schema",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "M.2",
+   "phase": "M",
+   "title": "brain/mock game with scriptable failures",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "M.3",
+   "phase": "M",
+   "title": "llm adapter, Controller, Planner, Executor, state store",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "M.4",
+   "phase": "M",
+   "title": "evals case files + runner (not executed)",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "M.GATE",
+   "phase": "M",
+   "title": "GATE: section 8 mock scenarios pass",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P2.6",
+   "phase": 2,
+   "title": "Find hookable signal for tree felling / harvest hits and inventory adds (OnHealthChanged, InventoryComponent:Add*, OnNewInventoryChangedLogEvent did not fire)",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "P5.3",
+   "phase": 5,
+   "title": "Companion say: server-side chat output (Server_SendChatMessage / Client_ReceiveChatMessage / Client_DisplayTextNotification) to finish the !ping gate",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "P4.0",
+   "phase": 4,
+   "title": "Debug trigger: debug_run reloads + runs a mod module on the game thread without restart (tools/bridge_cmd.py)",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P4.H",
+   "phase": 4,
+   "title": "HUMANOID player-like body (Luis clarified goal): route 1 player pawn driven by server, route 2 friendly humanoid AI, route 3 second client; research + experiments",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "P4.H1",
+   "phase": 4,
+   "title": "Route 1: spawn BP_PlayerCharacter_C + AIController + MoveTo, visible on GFN",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P4.H2",
+   "phase": 4,
+   "title": "Route 1: equip weapon + armour on puppet server-side, visible on GFN",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P4.H3",
+   "phase": 4,
+   "title": "Route 1: puppet attacks and kills an enemy",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "P4.H4",
+   "phase": 4,
+   "title": "Route 1: puppet inventory (game components) + persistent bot state server-side",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "P7.C1",
+   "phase": 7,
+   "title": "Combat: full combo chains per held weapon (NextAttackClass), specials/sprint/visceral, correct attack set for held weapon",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "P5.3b",
+   "phase": 5,
+   "title": "On-demand speech as Claude (outside the relay hook); overhead nameplate shows Claude",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "P7.I1",
+   "phase": 7,
+   "title": "Bot persistent inventory store (server-side, items+counts)",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "P7.I2",
+   "phase": 7,
+   "title": "Skill: pick up world items into bot inventory",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "P7.I3",
+   "phase": 7,
+   "title": "Skill: drop items / give to Luis",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "P7.T1",
+   "phase": 7,
+   "title": "Skill: lodestone teleport (unlocked lodestones)",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "P4.N1",
+   "phase": 4,
+   "title": "Overhead nameplate shows Claude",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P7.R1",
+   "phase": 7,
+   "title": "Body: reflex rule engine + trigger sensors (telegraph, hp, cluster, stun)",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "P7.R2",
+   "phase": 7,
+   "title": "Brain: set_reflex_rule/list_rules/clear_rule tools, per-enemy persistence",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "OPS.P1",
+   "phase": "ops",
+   "title": "Patch delta pipeline: dump diff, catalog diff, smoke tests, report",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "P7.M1",
+   "phase": 7,
+   "title": "Per-world memory keyed by WorldSaveGuid (notes, rules, places)",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "P7.M2",
+   "phase": 7,
+   "title": "Named places: remember_place + travel to place (lodestone + walk)",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "P7.F1",
+   "phase": 7,
+   "title": "Farming: plot sense/watch, crop profiles, plant/tend/harvest primitives, planner composition",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "P7.S1",
+   "phase": 7,
+   "title": "Spells wired live: cast tool + reasons, castable list in Controller context, shield/Windstep combat reflexes gated by verified-in-game route status",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "P7.Z1",
+   "phase": 7,
+   "title": "Sleep skill + sleep-when-Luis-sleeps reflex + night-skip safety valve (bot must never block the night)",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "P7.S2",
+   "phase": 7,
+   "title": "Woodcutting spells (Axtral Projection, Splinter, Trunk Totem) via spells.woodcutting_assist from gather; needs a cast route for module-graph spells",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "R2.1",
+   "phase": "R2",
+   "title": "Real client joins Shockbyte as player 'Claude' (headless, own Steam account)",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "R2.2",
+   "phase": "R2",
+   "title": "Client chat send/receive through the game's own chat paths",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "R2.3",
+   "phase": "R2",
+   "title": "Client perception: census, me, vitals/damage watcher",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "R2.4",
+   "phase": "R2",
+   "title": "Client inventory: collect (interact), equip via hotbar, use/consume, grave Take All",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "R2.5",
+   "phase": "R2",
+   "title": "Stay-fed reflex (drink/eat below 30)",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "R2.6",
+   "phase": "R2",
+   "title": "Brain drives the client body (client bridge, DW_BODY=client)",
+   "status": "done",
+   "passes_test": true
+  },
+  {
+   "id": "R2.7",
+   "phase": "R2",
+   "title": "Locomotion v2: local trace planner + nav oracle + 3D breadcrumbs + bounded give-up",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "R2.8",
+   "phase": "R2",
+   "title": "look/inspect/interact tools + rich situation digest + attacked/vitals_low events",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "R2.9",
+   "phase": "R2",
+   "title": "Control arbiter (reflex > command > task > idle) with suspend/resume",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "R2.10",
+   "phase": "R2",
+   "title": "Combat on real client: threat detection, fight-or-flight, weapon choice, real attack/lock-on/dodge/block, loot, resume",
+   "status": "in_progress",
+   "passes_test": false
+  },
+  {
+   "id": "R2.11",
+   "phase": "R2",
+   "title": "Traversal: capability envelope self-calibration, obstacle classification, jump executor",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "R2.12",
+   "phase": "R2",
+   "title": "Learned jump links from Luis's movement + per-world link store",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "R2.13",
+   "phase": "R2",
+   "title": "Unreal experimental auto-generated jump links on dev server (Luis approved)",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "R2.14",
+   "phase": "R2",
+   "title": "Unstuck tool + lodestone teleport to the stone nearest Luis (Luis approved; needs Law runes)",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "R2.15",
+   "phase": "R2",
+   "title": "Client watchdog + boot_and_join with retries + auto-rejoin; autostart chat/vitals/reflex",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "R2.16",
+   "phase": "R2",
+   "title": "Client smoke test after patches (boot, join, walk, jump, chat, equip)",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "R2.17",
+   "phase": "R2",
+   "title": "Gathering on real client: woodcutting/mining with real swings, loop, collect drops",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "R2.18",
+   "phase": "R2",
+   "title": "Water sourcing: drink from lake (dirty water) / boil at campfire",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "R2.19",
+   "phase": "R2",
+   "title": "Crafting at real stations through the crafting UI (catalog + recipe planner exist)",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "R2.20",
+   "phase": "R2",
+   "title": "Spells via the real spell wheel (incl. Windstep, Summon Shelter), sleep, lodestone travel",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "R2.21",
+   "phase": "R2",
+   "title": "Human-like layer: reaction delays, idle behaviour, facing speaker, spacing",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "R2.22",
+   "phase": "R2",
+   "title": "Raise Claude's stats: server-side character data (Shockbyte save edit) or level normally",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "R2.23",
+   "phase": "R2",
+   "title": "Delete legacy server-side puppet path skill by skill after parity",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "R2.24",
+   "phase": "R2",
+   "title": "Hardware: 16 GB RAM (possibly Linux + Wine box) before relying on client + nav server",
+   "status": "todo",
+   "passes_test": false
+  },
+  {
+   "id": "R2.25",
+   "phase": "R2",
+   "title": "Discord voice channel for Claude (research done: docs/research/2026-10-25-voice-discord.md)",
+   "status": "todo",
+   "passes_test": false
+  }
+ ]
 }

@@ -134,3 +134,17 @@
   - Gate 2: inject input (jump/move) and verify Luis sees it. This needs a second viewer: Luis's account is in use by the bot client, so he can't join from GFN at the same time.
   - Buy and create Claude's own Steam account.
   - Gate 3: real axe and chop.
+
+## 2026-10-25 19:15 — R2 wave status
+- Verified live on Shockbyte as the real player Claude:
+  - joining, walking and jumping, chat both ways, collecting items, equipping (Luis confirmed visually), death and gravestone recovery (twice);
+  - eating and drinking (dehydration killed him twice; the stay-fed reflex fixed it);
+  - the brain driving him from chat.
+- Learned:
+  - PlayerGuid = Steam persona;
+  - a new character plays a narrative intro;
+  - dehydration kills;
+  - character data is server-side on dedicated servers;
+  - the client can hang under memory pressure (needs 16 GB).
+- Running agents: locomotion v2 (local trace planner), bridge (look/inspect/interact and events), combat and arbiter.
+- Roadmap: docs/tasks.json, ids R2.1–R2.25 (append-only). Design docs: real-player-remediation.md, research/2026-10-25-client-side-botting.md, research/2026-10-25-traversal.md.
