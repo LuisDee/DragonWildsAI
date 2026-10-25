@@ -63,7 +63,7 @@ M.OFFSPRING_CM = 1500           -- new pieces within this of a felled tree belon
 M.LEFTOVER_MAX_CM = 3000        -- logs left lying around within this radius are finished first
 M.STAND_MIN_CM = 60             -- stand points never closer than this to the aim point
 M.AIM_MARGIN_CM = 15            -- stay this far inside the attack shape's depth
-M.SETTLE_MS = 400               -- stand still this long (movement stopped) before a swing
+M.SETTLE_MS = 700               -- stand still this long (movement stopped) before a swing
 M.SETTLE_SLACK_CM = 60          -- once settled, swing unless the target is this far beyond the window
 M.APPROACH_MAX_MS = 25000       -- give a target up if we cannot reach it in this long
 M.STATUS_MIN_MS = 3000          -- gather_status events at most this often per phase
@@ -579,7 +579,13 @@ function M.tree(deps)
         lg("gather_swing", { target = t.id, stage = t.stage, label = sw.label, dist_cm = U.round(sol.dist, 0),
                              window_cm = { U.round(sol.lo, 0), U.round(sol.hi, 0) }, angle_offset = win and win.angle_offset,
                              yaw = U.round(sol.yaw, 1), yaw_err_deg = yaw_err and U.round(yaw_err, 1) or nil, hp_before = hp0 })
-        local ok = deps.perform(a.p, sw, t.actor, { target = t.id, stage = t.stage, n = a.swings + 1, label = sw.label })
+        -- The attack turns the pawn toward DesiredActionTarget's ACTOR ORIGIN during the swing. For a
+        -- rolled log that origin is stale (metres from the trunk), which turned the wedge 50-110 deg
+        -- away at the damage point (live 2026-10-25). Such targets get no DesiredActionTarget: our
+        -- own facing (reach.solve) aims the swing.
+        local desired = (not t.use_aim) and t.actor or nil
+        local ok = deps.perform(a.p, sw, desired, { target = t.id, stage = t.stage, n = a.swings + 1, label = sw.label,
+                                                    desired = desired and "actor" or "none" })
         a.swings = a.swings + 1
         a.swing = { at = now(), dmg_ms = sw.dmg_ms, damage = sw.damage, hp = hp0, seq = seq, dist = sol.dist,
                     in_range = sol.in_range, resolved = not ok, aim = aim, want_yaw = sol.yaw }
@@ -655,6 +661,7 @@ function M.tree(deps)
             if c then deps.stop_movement(c) end
             a.move = nil
             t.settled_at = now()
+            deps.face(a.p, aim, sol.yaw) -- turn now; swing() turns again right before the swing
             return S_
         end
         if now() - t.settled_at < M.SETTLE_MS then return S_ end
@@ -675,11 +682,15 @@ local function face(log, p, tl, want_yaw)
     U.call(log, "gather.K2_SetActorRotation", { yaw = U.round(yaw, 1) }, function()
         p:K2_SetActorRotation({ Pitch = 0, Yaw = yaw, Roll = 0 }, false)
     end)
+    -- The controller must agree, else it turns the pawn back before the damage point (live
+    -- 2026-10-25: with a focal point set, the pawn faced 50-110 deg off at the hit). Same as the
+    -- calibrated reach_calib: no focus, actor rotation, plus the control rotation.
     local c = U.controller_of(p)
     if c then
-        -- focus a point straight along the wanted yaw, so the controller keeps the pawn there
-        local fp = { X = pl.X + math.cos(math.rad(yaw)) * 300, Y = pl.Y + math.sin(math.rad(yaw)) * 300, Z = tl.Z }
-        U.call(log, "gather.K2_SetFocalPoint", { at = U.to_wire(fp) }, function() c:K2_SetFocalPoint(fp) end)
+        U.call(log, "gather.SetControlRotation", { yaw = U.round(yaw, 1) }, function()
+            c:K2_ClearFocus()
+            c:SetControlRotation({ Pitch = 0, Yaw = yaw, Roll = 0 })
+        end)
     end
     local f = U.forward(p)
     local fy = math.deg(math.atan(f.Y, f.X))
@@ -806,6 +817,33 @@ function M.register(bridge, log_mod, opts)
     end
     local guard = skills._probe_guard
     bridge.handlers.gather = guard and guard("gather", h_gather) or h_gather
+    -- look {radius?=20 (m), about?, max?=15}: generic perception (body/sense.lua M.look), sync.
+    local function h_look(args)
+        local p = puppet.get and puppet.get()
+        local origin = U.loc(p) or U.loc((U.split_pawns())[1])
+        if not origin then return { ok = false, reason = "companion_down", data = { detail = "no puppet or player" } } end
+        local radius = math.min(math.max(tonumber(args.radius) or 20, 1), 80) * 100
+        local things, total = sense.look({ origin = origin, radius_cm = radius, about = args.about,
+                                           max = math.min(tonumber(args.max) or 15, 40) })
+        return { ok = true, data = { origin = U.to_wire(origin), radius_m = radius / 100, about = args.about or jsonutil.null,
+                                     total = total, things = things } }
+    end
+    bridge.handlers.look = guard and guard("look", h_look) or h_look
+    -- get_state.nearby_resources: a short summary of what is around the puppet (25 m, 10 things)
+    if skills.add_state_extender then
+        skills.add_state_extender("nearby_resources", function(data, p)
+            local origin = U.loc(p)
+            if not origin then return {} end
+            local things = sense.look({ origin = origin, radius_cm = 2500, max = 10 })
+            local out = {}
+            for _, t in ipairs(things) do
+                out[#out + 1] = { id = t.id, name = t.name, kind = t.kind or jsonutil.null, verb = t.verb or jsonutil.null,
+                                  distance = t.distance, count = t.count, hp = t.hp }
+            end
+            data.nearby_resources = out
+            return { "nearby_resources" }
+        end)
+    end
     U.event(log_mod, "gather_registered", { resources = (function()
         local k = {}; for name in pairs(profiles.RESOURCES) do k[#k + 1] = name end; table.sort(k); return k end)() })
     return M

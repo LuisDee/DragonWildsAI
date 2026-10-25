@@ -153,6 +153,161 @@ function M.relocate(log, ctx, spec, loc, tol_cm, convert)
     return M.nearest(spec, { origin = loc, radius_cm = tol_cm })
 end
 
+-- ------------------------------------------------------------------ look: generic perception
+-- Everything around a point, described from GAME DATA, found through the game's own base classes
+-- (dump 26161880), never item lists: anything with a UInteractionComponent (gatherables, drops,
+-- stations, chests, NPCs), ADestructibleWorldActor (trees, stumps, felled trunks, logs, rocks),
+-- AOreNode, ADominionAICharacter. Names: the item's display name (UItemData.Name FText: a drop's
+-- ItemData, a gatherable's ItemData, a destructible's first drop), else the interaction prompt,
+-- else a cleaned class name. Verbs: pickup (world items), gather (interactable resources), chop /
+-- mine (the tool gate's category tag), attack (creatures), interact (anything else interactable).
+M.LOOK_BASES = { "InteractionComponent", "DestructibleWorldActor", "OreNode", "DominionAICharacter" }
+M.LOOK_SKIP = { BP_PlayerCharacter_C = true }
+
+local function clean_class(cw)
+    if not cw then return "?" end
+    local s = cw:gsub("^BP_AI_", ""):gsub("^BP_", ""):gsub("_C$", ""):gsub("_Character$", ""):gsub("_%d+$", "")
+    s = s:gsub("(%l)(%u)", "%1 %2") -- AshBranch -> Ash Branch
+    return (s:gsub("_", " "))
+end
+
+local function text_of(v) local s = U.str(v); if s and s ~= "" and s ~= "None" then return s end end
+
+local function item_name(data) return U.valid(data) and text_of(U.try(function() return data.Name end)) or nil end
+
+local function first_drop(comp)
+    if not U.valid(comp) then return nil end
+    local name, path
+    pcall(function()
+        comp.ItemsToDrop:ForEach(function(_, e)
+            if name or path then return true end
+            local d = U.try(function() return e:get() end) or e
+            local sp = U.try(function() return d.ItemDataClass end)
+            local obj = U.try(function() return sp:Get() end) or U.try(function() return sp:GetWeakPtr():Get() end)
+            if U.valid(obj) then name, path = item_name(obj), U.path_of(obj) end
+            if not path then path = U.str(U.try(function() return sp:GetObjectID():GetAssetPathName() end)) end
+        end)
+    end)
+    return name, path
+end
+
+local function gate_verb(a)
+    local verb
+    local function scan(arr)
+        if verb or arr == nil then return end
+        pcall(function()
+            arr:ForEach(function(_, e)
+                local m = U.try(function() return e:get() end) or e
+                local tag = U.str(U.try(function() return m.RequiredCategory.TagName end)) or ""
+                if tag:find("Hatchet", 1, true) then verb = "chop" elseif tag:find("Pickaxe", 1, true) then verb = "mine" end
+            end)
+        end)
+    end
+    scan(U.try(function() return a.DamageModifiersWhenTree end))
+    scan(U.try(function() return a.DamageComponent.DamageModifiers end))
+    return verb
+end
+
+-- Describe one actor (cheap property reads). Returns a compact table for the wire.
+function M.describe(a, ic, origin)
+    local cw = U.class_word(a) or ""
+    local d = { id = U.short(a), class = cw, position = U.to_wire(M.aim(a)), hp = U.health(a) }
+    if origin then d.distance = U.cm_to_m(U.dist2d(origin, M.aim(a) or U.loc(a))) end
+    local data = U.try(function() return a.ItemData end)
+    local st = M.state_of(a)
+    if st.stump then d.stump = true end
+    if st.hidden then d.hidden = true end
+    if U.valid(data) then
+        d.name, d.item = item_name(data), U.path_of(data)
+        local n = U.try(function() return a:GetStackSize() end)
+        if n then d.count, d.kind, d.verb = n, "item", "pickup"
+        else
+            d.kind, d.verb = "gatherable", "gather"
+            local avail = U.try(function() return a:IsResourceAvailable() end)
+            if avail ~= nil then d.available = avail == true end
+        end
+    elseif U.try(function() return a.HealthComponent ~= nil and a.DamageComponent ~= nil end) and not cw:find("AI_", 1, true) then
+        local dn, dp = first_drop(U.try(function() return a.ItemDropOnDestructionComponent end))
+        d.kind, d.verb = "resource", gate_verb(a) or "hit"
+        d.drops, d.drop_item = dn, dp
+        local short = dn or (dp and (dp:match("%.ITEM_[%a]+_[%a]+_([%w_]+)$") or dp:match("%.([%w_]+)$")))
+        d.name = short and (clean_class(cw) .. " (" .. short:gsub("_", " ") .. ")") or nil
+    elseif cw and (cw:find("^BP_AI_") or U.try(function() return a.AiAttackComponent ~= nil end)) then
+        d.kind, d.verb = "creature", "attack"
+    end
+    if ic then
+        d.prompt = text_of(U.try(function() return ic.InteractionPrompt end))
+        if not d.kind or d.verb == "hit" then d.kind, d.verb = "interactable", "interact" end
+    end
+    d.name = d.name or d.prompt or clean_class(cw)
+    return d
+end
+
+local function words(s)
+    local out = {}
+    for w in tostring(s or ""):lower():gmatch("[%a]+") do
+        if #w > 2 then out[#out + 1] = w end
+    end
+    return out
+end
+
+-- Pure: how well a description matches the words of `about` (0 = not at all).
+function M.match_score(d, about)
+    local q = words(about)
+    if #q == 0 then return 0 end
+    local hay = table.concat({ d.name or "", clean_class(d.class), d.prompt or "", d.drops or "", d.drop_item or "",
+                               d.item or "", d.kind or "", d.verb or "" }, " "):lower()
+    local score = 0
+    for _, w in ipairs(q) do
+        -- plural forms: branches -> branch, berries -> berry, logs -> log
+        local forms = { w, (w:gsub("ies$", "y")), (w:gsub("es$", "")), (w:gsub("s$", "")) }
+        for _, f in ipairs(forms) do
+            if #f > 2 and hay:find(f, 1, true) then score = score + 1; break end
+        end
+    end
+    return score / #q
+end
+
+-- look: {origin (cm), radius_cm=2000, about="sticks", max=15} -> ranked list of descriptions.
+function M.look(opts)
+    opts = opts or {}
+    local origin, r = opts.origin, opts.radius_cm or 2000
+    local seen, list = {}, {}
+    for _, base in ipairs(M.LOOK_BASES) do
+        for _, o in ipairs(U.find_all(base, { skip_defaults = true })) do
+            local a, ic = o, nil
+            if base == "InteractionComponent" then
+                ic = o
+                a = U.try(function() return o:GetOwner() end)
+            end
+            local id = U.alive(a) and U.short(a) or nil
+            if id and not seen[id] and not M.LOOK_SKIP[U.class_word(a) or ""] then
+                local at = M.aim(a) or U.loc(a)
+                if not origin or U.dist(origin, at) <= r then
+                    seen[id] = true
+                    local ok, d = pcall(M.describe, a, ic, origin)
+                    if ok and d then
+                        d._score = M.match_score(d, opts.about)
+                        list[#list + 1] = d
+                    end
+                end
+            end
+        end
+    end
+    table.sort(list, function(x, y)
+        if x._score ~= y._score then return x._score > y._score end
+        return (x.distance or 0) < (y.distance or 0)
+    end)
+    local out = {}
+    for i = 1, math.min(#list, opts.max or 15) do
+        local d = list[i]
+        d.match = opts.about and U.round(d._score, 2) or nil
+        d._score = nil
+        out[#out + 1] = d
+    end
+    return out, #list
+end
+
 function M._reset() S.last_convert = {}; S.clock = nil end
 
 return M

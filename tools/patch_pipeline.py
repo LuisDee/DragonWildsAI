@@ -826,9 +826,9 @@ def deps_counts(deps: dict) -> dict:
 # ------------------------------------------------------------------------------ dependency checks
 
 def catalog_paths(ctx: Ctx, build: str) -> set[str] | None:
-    """Every '/...' string in data/items|spells|enemies_<build>.json (what the catalog loaded), or None."""
+    """Every '/...' string in data/items|spells|enemies|recipes_<build>.json (what the catalog loaded), or None."""
     found = None
-    for prefix in ("items", "spells", "enemies"):
+    for prefix in ("items", "spells", "enemies", "recipes"):
         p = ctx.data_dir / f"{prefix}_{build}.json"
         if not p.exists():
             continue
@@ -1194,7 +1194,8 @@ def catalog_diff(ctx: Ctx, old_b: str, new_b: str) -> dict:
         if changed:
             res["needs_review"].append(f"{len(changed)} existing item(s) changed (stats/slots/attacks): "
                                        f"{', '.join(list(changed)[:6])}{', ...' if len(changed) > 6 else ''}")
-    for prefix, coll_keys, label in (("spells", ("spells",), "spell"), ("enemies", ("enemies", "creatures", "npcs"), "enemy")):
+    for prefix, coll_keys, label in (("spells", ("spells",), "spell"), ("enemies", ("enemies", "creatures", "npcs"), "enemy"),
+                                     ("recipes", ("recipes",), "recipe")):
         o, n = _load(ctx, prefix, old_b), _load(ctx, prefix, new_b)
         res["available"][prefix] = [o is not None, n is not None]
         if o is None or n is None:
@@ -1222,6 +1223,9 @@ def catalog_diff(ctx: Ctx, old_b: str, new_b: str) -> dict:
                 res["auto_supported"].append(f"{len(added)} new {label}(s) in the catalog: {', '.join(added[:6])}")
             if changed:
                 res["needs_review"].append(f"{len(changed)} {label}(s) changed: {', '.join(list(changed)[:6])}")
+            if label == "recipe" and (added or changed or removed):
+                res["needs_review"].append("recipes changed: regenerate mod/body/recipe_data.lua (tools.build_recipes) "
+                                           "and re-run the crafting drift check (tools.craft_drift run, one real craft)")
         if removed:
             res["needs_review"].append(f"{len(removed)} {label}(s) removed: {', '.join(removed[:6])}")
     if res["items"] and res["items"]["removed"]:
@@ -1403,6 +1407,11 @@ def render_markdown(delta: dict) -> str:
         sp = cat["spells"]
         L += ["### Spell catalog", "", f"- spells {sp['counts']['old']} -> {sp['counts']['new']}: {len(sp['added'])} added "
               f"(need role tags), {len(sp['removed'])} removed, {len(sp['changed'])} changed", ""]
+    if cat and cat.get("recipes"):
+        rc = cat["recipes"]
+        L += ["### Recipe catalog", "", f"- recipes {rc['counts']['old']} -> {rc['counts']['new']}: {len(rc['added'])} added, "
+              f"{len(rc['removed'])} removed, {len(rc['changed'])} changed (any change: regenerate recipe_data.lua and "
+              f"re-run `tools.craft_drift run`)", ""]
     return "\n".join(L).rstrip() + "\n"
 
 

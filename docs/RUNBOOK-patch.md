@@ -111,6 +111,14 @@ The server must be up with the new build and the redeployed mod. The item catalo
 
 The spell catalog (`data/spells_<build>.json`) comes from the spell dump experiment (`mod/experiments/spell_dump.lua`, merged by `spell_merge.lua`; see `docs/PROGRESS.md` for the current command). Run it the same way and save to `data\spells_$NEW.json`. If it is not repeatable yet, the report says `spells_<NEW>.json` is missing and that spell items stay in review. Enemy catalog: same, `data/enemies_<build>.json` once it exists.
 
+Recipe catalog (read-only, a few seconds; the new dump must exist first because the station template paths come from `dumps\$NEW\UE4SS_ObjectDump.txt`):
+
+```powershell
+.venv\Scripts\python.exe -m tools.build_recipes --build $NEW --wiki-check   # data\recipes_$NEW.json + mod\body\recipe_data.lua
+```
+
+`catalog-diff` then lists added/removed/changed recipes. If any changed, deploy the regenerated `recipe_data.lua` (restart) and re-run the crafting drift check with Luis doing one real craft: `.venv\Scripts\python.exe -m tools.craft_drift run` (exit 0 = the emulation still matches the game).
+
 If `gen_attack_data` changed `mod/body/attack_data.lua`, redeploy (`tools\deploy_mod.ps1`) and restart after the checks.
 
 ## 7. Report

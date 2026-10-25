@@ -197,7 +197,7 @@ local function deps()
                 hitcheck._record({ fn = "IsDamageCausedByUnarmedAttack", who = U.short(p), result = true })
                 hitcheck._record({ fn = "ModifyDamage", who = U.short(p), amount = 10 })
             end
-            if F.native_damage then F.damage(actor, F.native_damage) end
+            if F.native_damage and actor then F.damage(actor, F.native_damage) end
             return true
         end,
         move_to_actor = function(_, target)
@@ -296,6 +296,25 @@ test("reach: wedge windows and the aim solution (calibrated live: Chop target 35
     sol = reach.solve(here, { X = 180, Y = 0, Z = 0 }, 30, over, 1, 15)
     eq(sol.in_range, true); eq(sol.yaw, 0)
     eq(reach.window_of(nil).kind, "default")
+end)
+
+test("look: generic perception from game data, ranked by what the player named", function()
+    reset()
+    spawn.oak(600, 0)
+    local stick = actor("BP_Spawner_AshBranch_01_C", {}, 300, 100, nil, {
+        ItemData = obj("ItemData /Game/Gameplay/Items/Resources/Wood/ITEM_Stick.ITEM_Stick", { Name = { ToString = function() return "Ash Branch" end } }),
+        IsResourceAvailable = function() return true end })
+    local ic = actor("InteractionComponent", { InteractionComponent = true }, 300, 100, nil, {
+        InteractionPrompt = { ToString = function() return "Pick up" end } })
+    ic.GetOwner = function() return stick end
+    local rock = spawn.stone(900, 0)
+    rock._families.DestructibleWorldActor = true
+    local list, total = sense.look({ origin = { X = 0, Y = 0, Z = 0 }, radius_cm = 2000, about = "ash branches" })
+    truthy(total >= 2, "found things: " .. tostring(total))
+    eq(list[1].id, U.short(stick)); eq(list[1].name, "Ash Branch"); eq(list[1].verb, "gather"); eq(list[1].prompt, "Pick up")
+    local r
+    for _, t in ipairs(list) do if t.id == U.short(rock) then r = t end end
+    truthy(r, "rock listed"); eq(r.verb, "mine"); eq(r.kind, "resource")
 end)
 
 test("watch.diff: appear, update, gone", function()

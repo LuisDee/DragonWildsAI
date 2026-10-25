@@ -370,10 +370,11 @@ test("experiments: all load by name via debug_run and fail safe in an empty worl
         { "name_register", {} }, { "chat_relay", {} }, { "chat_as", {} }, { "puppet_safe", {} },
         { "companion", {} }, { "say_test", { variant = "a" } }, { "speech_direct", {} },
         { "presence_probe", {} }, { "presence_test", {} },
-        { "rules_probe", {} }, { "rules_probe", { action = "sense" } }, { "sleep_probe", {} }, { "sleep_arm", { action = "status" } },
+        { "rules_probe", {} }, { "rules_probe", { action = "sense" } }, { "sleep_probe", {} }, { "sleep_arm", { action = "status" } }, { "shelter_spawn", {} }, { "bed_direct", {} },
         { "item_probe", {} }, { "item_probe", { action = "gone", target = "x" } },
-        { "gather_probe", {} }, { "gather_test", {} },
+        { "gather_probe", {} }, { "gather_test", {} }, { "reach_calib", {} }, { "interact_probe", {} },
         { "travel_probe", {} }, { "travel_probe", { action = "luis" } },
+        { "craft_drift", {} }, { "craft_drift", { action = "plan", recipe = "RECIPE_Process_IronBar", count = 1 } },
     }
     for _, c in ipairs(cases) do
         local r = run({ module = c[1], args = c[2] })
