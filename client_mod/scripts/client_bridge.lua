@@ -474,6 +474,12 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
     local rf = resting_failure()
     if rf then return rf end
     local coords = type(target) == "table" and to_m(target) or nil
+    if target == "my_grave" then -- BUGS L19: where he last died (persisted), at any distance
+        local sk = M.module("skills")
+        local d = sk and type(sk.death_memory) == "function" and sk.death_memory() or nil
+        if not (d and d.position) then return fail("unknown_target", { target = target, detail = "no remembered death spot" }) end
+        coords = to_m(d.position)
+    end
     -- every id that look / get_state return resolves (BUGS L8): a perceived thing's position, except
     -- creatures and players, which move.lua tracks as moving actors
     if not coords and type(target) == "string" then
@@ -1133,7 +1139,14 @@ local function forward_vitals()
             -- recent context for the brain (get_state.last_death via skills.state_extras)
             local life = rawget(_G, "DW_LIFE") or {}
             _G.DW_LIFE = life
-            if m.type == "death" then life.died_at, life.respawned_at = tonumber(m.ts) or now_s(), nil
+            if m.type == "death" then
+                life.died_at, life.respawned_at = tonumber(m.ts) or now_s(), nil
+                -- BUGS L19: remember WHERE he died and what he carried, persisted, until the grave is recovered
+                local sk = M.module("skills")
+                if sk and type(sk.record_death) == "function" then
+                    local okd, e = pcall(sk.record_death, M.API, tonumber(m.ts) or now_s())
+                    if not okd then ev("client_module_error", { module = "skills", fn = "record_death", err = tostring(e) }) end
+                end
             else life.respawned_at = tonumber(m.ts) or now_s() end
         end
         if ok and type(m) == "table" and m.type == "revive" then S.escape_pending = "respawn" end

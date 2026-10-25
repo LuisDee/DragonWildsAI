@@ -150,6 +150,8 @@ local function reset()
     _G.DW_PAUSE, _G.DWSkills, _G.DW_LIFE = nil, nil, nil
     local sk = B.module("skills")
     sk.W.grave_owner = function() return nil end
+    sk.DEATH_FILE = base .. "/last_death.json" -- never the live client's file
+    os.remove(sk.DEATH_FILE)
     patch()
     B.module("arbiter").reset()
     drain()
@@ -724,6 +726,60 @@ test("ping carries the bridge start epoch and the action slot (BUGS L2b)", funct
     p = rpc("ping")
     assert(p.data.action and p.data.action.kind == "follow" and p.data.action.id, json.encode(p))
     rpc("stop")
+end)
+
+test("BUGS L19: a death is remembered (where, what he carried), persisted, shown, go_to my_grave, cleared on recovery", function()
+    reset()
+    F.move.position = { 1, 25, 3 }
+    rpc("get_state") -- he carries 3+5 oak logs here
+    write(base .. "/vitals.jsonl", json.encode({ type = "death", ts = T, hp = 0 }) .. string.char(10))
+    B.step()
+    local sk = B.module("skills")
+    local f = io.open(sk.DEATH_FILE, "rb")
+    assert(f, "persisted to a file"); f:close()
+    _G.DWSkills = nil -- a client restart forgets _G: the file brings it back
+    F.move.position = { 60, 60, 3 }
+    local s = rpc("get_state")
+    local dm = s.data.death_memory
+    assert(dm and dm.position[2] == 25 and dm.lost_items >= 8 and dm.distance and dm.distance > 40, json.encode(dm))
+    local r0, id = rpc("go_to", { target = "my_grave" })
+    local r = r0 or run(id, 10)
+    assert(r and r.ok and F.move.target[2] == 25, "walked to the death spot: " .. json.encode(F.move.target))
+    -- Take All on the grave clears it
+    F.move.position = { 1, 29, 3 }
+    local _, gid = rpc("interact", { target = "grave_1" })
+    local g = run(gid, 30)
+    assert(g and g.ok, json.encode(g))
+    s = rpc("get_state")
+    assert(s.data.death_memory == nil, "recovered: no longer shown")
+end)
+
+test("vitals drain rate from samples (for 'empty in ~N min')", function()
+    reset()
+    F.survival = { sustenance = { 30, 100 }, hydration = { 50, 100 }, endurance = { 40, 100 } }
+    rpc("get_state")
+    T = T + 60
+    F.survival.sustenance[1], F.survival.hydration[1] = 28, 47
+    local s = rpc("get_state")
+    assert(s.data.vitals_rate and s.data.vitals_rate.sustenance_per_min == 2 and s.data.vitals_rate.hydration_per_min == 3,
+           json.encode(s.data.vitals_rate))
+end)
+
+test("activity: XP/min per skill and item gains/min over the window, with the best seen", function()
+    reset()
+    local sense = B.module("sense")
+    local me0 = sense.me
+    local xp = 1000
+    sense.me = function(log) local r = me0(log); r.skills = { { skill = "Mining", level = 5, xp = xp } }; return r end
+    rpc("get_state")
+    T = T + 120
+    xp = 1300
+    F.inv.oak_bag = F.inv.oak_bag + 6
+    local s = rpc("get_state")
+    sense.me = me0
+    local a = s.data.activity
+    assert(a and a.skill == "Mining" and a.xp_per_min == 150 and a.best_xp_per_min == 150, json.encode(a))
+    assert(a.items[1].item == "ITEM_Resources_Wood_Oak" and a.items[1].per_min == 3, json.encode(a.items))
 end)
 
 -- ------------------------------------------------------------------ run

@@ -266,7 +266,8 @@ def test_boot_lease_picks_target_until_it_expires(rig):
 
 
 # ------------------------------------------------------------------ watchdog (always -DryRun)
-WD = ("-DryRun", "-NoDevServer", "-NoNavOracle", "-PollS", "1", "-ProbeEveryS", "0", "-GraceS", "0")
+# memory thresholds 0: the real VM's free RAM must not leak memory_low events into these tests
+WD = ("-DryRun", "-NoDevServer", "-NoNavOracle", "-PollS", "1", "-ProbeEveryS", "0", "-GraceS", "0", "-WarnFreeMB", "0", "-CritFreeMB", "0")
 
 
 def names(evs):

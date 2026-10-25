@@ -815,6 +815,7 @@ local function start_recover_grave(api, args, ctx)
         if not r.ok then return r end
         local d = r.data
         d.grave, d.items = mine.id, d.gained
+        M.death_recovered("recover_grave")
         local n = 0
         for _, v in pairs(d.gained or {}) do n = n + v end
         d.count = n
@@ -925,9 +926,63 @@ local function start_interact(api, args, ctx)
     end
     job.ep = new_episode(api, t, { accept = accept })
     job.ep.secondary = args.secondary == true
+    if tostring(t.class or ""):find("Gravestone", 1, true) then
+        job.verify_final = function(res)
+            local n = 0
+            for _, v in pairs(res.data and res.data.gained or {}) do n = n + (tonumber(v) or 0) end
+            if n > 0 then M.death_recovered("interact") end
+            return res
+        end
+    end
     job.on_resume = resume_episode(job)
     job.step = function(tt) return episode_poll(api, job.ep, tt) end
     return job
+end
+
+-- ------------------------------------------------------------------ death memory (BUGS L19), persisted
+-- {ts, iso, position, lost = [{item, name, count}], recovered}: written when the vitals watcher reports
+-- a death, from the last inventory he was seen carrying; kept in client_io/state/last_death.json so a
+-- client restart does not forget it; cleared (recovered = true) once his grave is emptied.
+local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
+M.DEATH_FILE = ROOT .. "/client_io/state/last_death.json"
+local function json_mod()
+    local ok, j = pcall(require, "jsonutil")
+    return ok and j or nil
+end
+function M.death_memory()
+    local mem = memory()
+    if mem.death == nil then
+        local j = json_mod()
+        local f = io.open(M.DEATH_FILE, "rb")
+        if f and j then
+            local s = f:read("a"); f:close()
+            mem.death = j.decode(s) or false
+        else
+            if f then f:close() end
+            mem.death = false
+        end
+    end
+    return mem.death or nil
+end
+local function save_death(d)
+    local mem = memory()
+    mem.death = d
+    local j = json_mod()
+    if not j then return end
+    os.execute('mkdir "' .. (ROOT .. "/client_io/state"):gsub("/", "\\") .. '" 2>nul')
+    local f = io.open(M.DEATH_FILE, "wb")
+    if f then f:write(j.encode(d)); f:close() end
+end
+function M.record_death(api, ts)
+    local mem = memory()
+    local lost = {}
+    for _, r in ipairs(mem.last_items or {}) do lost[#lost + 1] = r end
+    local here = api.my_position() or (mem.last_pos)
+    save_death({ ts = ts, iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ts), position = here, lost = lost, recovered = false })
+end
+function M.death_recovered(how)
+    local d = M.death_memory()
+    if d and not d.recovered then d.recovered, d.recovered_how = true, how; save_death(d) end
 end
 
 -- ------------------------------------------------------------------ get_state extras (honest perception)
@@ -946,6 +1001,102 @@ function M.state_extras(api, data)
         mem.last_held = { item = data.held_item, name = type(data.held) == "string" and data.held or data.held_item }
     end
     if mem.last_held then out.last_held = mem.last_held.name end
+    -- what he carries now (for the death memory) and where he is
+    if type(data.inventory_items) == "table" and #data.inventory_items > 0 then
+        local rows = {}
+        for _, r in ipairs(data.inventory_items) do
+            if r.where == "hotbar" or r.where == "bag" then rows[#rows + 1] = { item = r.item, name = r.name, count = r.count } end
+        end
+        mem.last_items = rows
+    end
+    if type(data.position) == "table" then mem.last_pos = data.position end
+    -- vitals drain rates (points per real minute), from samples >= 20 s apart over the last ~10 min
+    local function num(v) return type(v) == "number" and v or nil end
+    local t = api.now()
+    mem.vit = mem.vit or {}
+    local last = mem.vit[#mem.vit]
+    if num(data.sustenance) and (not last or t - last.t >= 20) then
+        mem.vit[#mem.vit + 1] = { t = t, sus = data.sustenance, hyd = num(data.hydration) }
+        while #mem.vit > 40 or (mem.vit[1] and t - mem.vit[1].t > 600) do table.remove(mem.vit, 1) end
+    end
+    if #mem.vit >= 2 then
+        local a, b = mem.vit[1], mem.vit[#mem.vit]
+        local mins = (b.t - a.t) / 60
+        if mins >= 0.5 then
+            -- only the falling part counts (eating makes it jump up): the drain = the steepest fall rate
+            local sus_rate, hyd_rate
+            local function rate(key)
+                local best
+                for i = 2, #mem.vit do
+                    local p, q = mem.vit[i - 1], mem.vit[i]
+                    if p[key] and q[key] and q[key] < p[key] and q.t > p.t then
+                        local r = (p[key] - q[key]) / ((q.t - p.t) / 60)
+                        best = best and math.max(best, r) or r
+                    end
+                end
+                return best
+            end
+            sus_rate, hyd_rate = rate("sus"), rate("hyd")
+            out.vitals_rate = { sustenance_per_min = sus_rate and math.floor(sus_rate * 100 + 0.5) / 100 or api.null,
+                                hydration_per_min = hyd_rate and math.floor(hyd_rate * 100 + 0.5) / 100 or api.null }
+        end
+    end
+    -- activity rate feedback (information only): XP per minute per skill and item gains per minute over
+    -- the last ~10 min, plus the best rate seen this session; the skill gaining XP fastest is the activity
+    local snap = { t = t, xp = {}, inv = {} }
+    for _, sk in ipairs(type(data.skills) == "table" and data.skills or {}) do
+        if type(sk) == "table" and sk.skill and num(sk.xp) then snap.xp[sk.skill] = sk.xp end
+    end
+    for k, v in pairs(type(data.inventory) == "table" and data.inventory or {}) do if num(v) then snap.inv[k] = v end end
+    mem.act = mem.act or {}
+    mem.best = mem.best or { xp = {}, inv = {} }
+    local la = mem.act[#mem.act]
+    if not la or t - la.t >= 20 then
+        mem.act[#mem.act + 1] = snap
+        while #mem.act > 40 or (mem.act[1] and t - mem.act[1].t > 600) do table.remove(mem.act, 1) end
+    end
+    if #mem.act >= 2 then
+        local a0, a1 = mem.act[1], mem.act[#mem.act]
+        local mins = (a1.t - a0.t) / 60
+        if mins >= 1 then
+            local best_skill, best_rate
+            for skn, xp1 in pairs(a1.xp) do
+                local r = (xp1 - (a0.xp[skn] or xp1)) / mins
+                if r > 0 then
+                    if r > (mem.best.xp[skn] or 0) then mem.best.xp[skn] = r end
+                    if not best_rate or r > best_rate then best_skill, best_rate = skn, r end
+                end
+            end
+            local items = {}
+            for k, n1 in pairs(a1.inv) do
+                local g = (n1 - (a0.inv[k] or 0)) / mins
+                if g > 0 then
+                    if g > (mem.best.inv[k] or 0) then mem.best.inv[k] = g end
+                    items[#items + 1] = { item = k, per_min = math.floor(g * 10 + 0.5) / 10, best_per_min = math.floor(mem.best.inv[k] * 10 + 0.5) / 10 }
+                end
+            end
+            table.sort(items, function(x, y) return x.per_min > y.per_min end)
+            while #items > 4 do table.remove(items) end
+            if best_skill or #items > 0 then
+                out.activity = { skill = best_skill, window_min = math.floor(mins * 10 + 0.5) / 10,
+                                 xp_per_min = best_rate and math.floor(best_rate + 0.5) or api.null,
+                                 best_xp_per_min = best_skill and math.floor(mem.best.xp[best_skill] + 0.5) or api.null, items = items }
+            end
+        end
+    end
+    local dm = M.death_memory()
+    if dm and not dm.recovered then
+        local here = data.position
+        local dist = (type(here) == "table" and type(dm.position) == "table") and dist2d(here, dm.position) or nil
+        local n, names = 0, {}
+        for _, r in ipairs(dm.lost or {}) do
+            n = n + (tonumber(r.count) or 1)
+            if #names < 8 then names[#names + 1] = tostring(r.name or r.item) .. " x" .. tostring(r.count or 1) end
+        end
+        out.death_memory = { iso = dm.iso, ago_s = dm.ts and math.max(0, math.floor(os.time() - dm.ts)) or nil,
+                             position = dm.position, distance = dist and math.floor(dist + 0.5) or nil,
+                             lost_items = n, lost = names }
+    end
     local inv = api.module("inventory")
     if inv and type(inv.vitals_policy) == "function" then
         local okp, pol = pcall(inv.vitals_policy)
@@ -984,6 +1135,22 @@ function M.state_extras(api, data)
             for _, pg in ipairs(inv.pages(ic)) do if pg.type_name == "InventoryItems" then return pg.n end end
         end)
         out.bag = { used = used, capacity = okc and cap or nil }
+    end
+    -- his own recipe unlocks (crafting.W.unlocked: PlayerController.ProgressComponent.RecipesUnlocked),
+    -- cached 30 s, for the brain's needs -> options digest (brain/needs.py: what he could craft or cook)
+    local crafting = api.module("crafting")
+    if crafting and type(crafting.W) == "table" and type(crafting.W.unlocked) == "function" then
+        if not mem.unl_at or api.now() - mem.unl_at >= 30 then
+            local oku, set = pcall(crafting.W.unlocked, api)
+            if oku and type(set) == "table" then
+                local ids = {}
+                for id in pairs(set) do ids[#ids + 1] = id end
+                table.sort(ids)
+                mem.unl = ids
+            end
+            mem.unl_at = api.now()
+        end
+        if mem.unl then out.recipes_unlocked = mem.unl end
     end
     local life = rawget(_G, "DW_LIFE")
     if type(life) == "table" and life.died_at then
@@ -1123,51 +1290,42 @@ local COMPOUND = " (Compound kept for debugging; the model composes the primitiv
 M.MANIFEST = {
     interact = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 6, timeout_s = 110,
         detail_is_speech = SPEAKS, aliases = { "pickup" },
-        description = "Use one thing like a player pressing E: walks to it, faces it until the game targets it, presses "
-            .. "use and checks something changed. Picks up an item stack lying on the ground (into your inventory), takes "
-            .. "everything from a gravestone ('Take All'), lies down in a bed or shelter (Sleep / Rest), opens, talks, "
-            .. "collects plants. One id per call. While lying in a bed, interact on that bed (its id) gets you up again.",
+        description = "Press use (E) on one perceived thing: walks there, faces it, presses, checks it worked. Picks up a "
+            .. "ground stack or plant, Take All from a grave, lies down in a bed/shelter (interact on it again to get up), "
+            .. "opens, talks.",
         args = { type = "object", required = { "target" }, properties = obj({
-            target = str("The id of ONE perceived thing (from situation or look) whose actions include interact: a world item, "
-                .. "a ground pickup ('fol:...'), a gravestone, a bed/shelter, a station, a chest. Not a name, not coordinates."),
+            target = str("The id of one perceived thing (from situation or look). Not a name or coordinates."),
             secondary = { type = "boolean", default = false,
-                description = "Use the thing's SECOND action instead (the F key), when look/inspect shows one, e.g. "
-                    .. "collect-all on a dropped stack picks up every nearby stack of that kind at once." } }) },
+                description = "Its second action (F), e.g. collect every nearby stack of that kind." } }) },
         ground = obj({ target = "thing" }),
         reasons = { "unknown_target", "not_interactable", "too_far", "path_blocked", "verification_failed", "timeout" } },
     consume = { kind = "action", llm = true, moves = false, priority = "command", duration_s = 3, timeout_s = 30,
         detail_is_speech = SPEAKS,
-        description = "Eat or drink one item from your HOTBAR, then check the stat it restores went up. Items in the bag "
-            .. "must be moved to the hotbar first (move_item); items on the ground picked up first (interact).",
+        description = "Eat or drink one item from your hotbar (bag items: move_item first; ground items: interact first).",
         args = { type = "object", required = { "item" }, properties = obj({
-            item = str("The carried item's name or id, or just 'food' / 'drink' / 'potion' (its kind).") }) },
+            item = str("A carried item's name or id, or 'food' / 'drink' / 'potion'.") }) },
         ground = obj({ item = "carried" }),
         reasons = { "in_bag", "not_in_inventory", "not_consumable", "verification_failed" } },
     move_item = { kind = "waiter", llm = true, moves = false, duration_s = 1, timeout_s = 10, detail_is_speech = SPEAKS,
-        description = "Move a carried item between your bag and your hotbar (as dragging it in the inventory). Only "
-            .. "hotbar food/drink can be eaten, so move food there first.",
+        description = "Move a carried item between bag and hotbar (only hotbar food/drink can be used).",
         args = { type = "object", required = { "item", "to" }, properties = obj({
             item = str("A carried item's name or id."),
             to = { type = "string", enum = { "hotbar", "bag" }, description = "Where to put it." },
-            slot = { type = "integer", minimum = 0, description = "Optional slot number in that page (default: first free)." } }) },
+            slot = { type = "integer", minimum = 0, description = "Slot in that page (default: first free)." } }) },
         ground = obj({ item = "carried" }),
         reasons = { "not_in_inventory", "inventory_full", "verification_failed", "invalid_args" } },
     equip = { kind = "waiter", llm = true, moves = false, duration_s = 1, timeout_s = 10, detail_is_speech = SPEAKS,
-        description = "Equip a carried weapon, tool or armour piece (hotbar key or inventory use); checks it is in your "
-            .. "hands or worn.",
+        description = "Equip a carried weapon, tool or armour piece.",
         args = { type = "object", required = { "item" }, properties = obj({ item = str("A carried item's name or id.") }) },
         ground = obj({ item = "carried" }),
         reasons = { "not_in_inventory", "verification_failed" } },
     set_vitals_policy = { kind = "waiter", llm = true, moves = false, duration_s = 0, timeout_s = 10,
-        description = "Set WHEN your stay-fed reflex eats, drinks and heals by itself (percent of each maximum). Decide it "
-            .. "from your vitals, your food/drink stock, threats and the job: e.g. top up before a fight, save food when "
-            .. "stock is low, eat to heal after a fight. A safety floor (10%) always applies.",
+        description = "Set when your reflex eats, drinks or eats to heal by itself (% of max; a 10% floor always applies).",
         args = { type = "object", properties = obj({
-            drink_below_pct = { type = "number", minimum = 10, maximum = 95, description = "Drink when hydration is below this % of max." },
-            eat_below_pct = { type = "number", minimum = 10, maximum = 95, description = "Eat when food is below this % of max." },
-            heal_below_pct = { type = "number", minimum = 0, maximum = 95,
-                description = "Also eat healing food when HP is below this % (0 = never eat just to heal)." },
-            reserve_warn = { type = "integer", minimum = 0, maximum = 20, description = "Warn when fewer usable items than this." } }) },
+            drink_below_pct = { type = "number", minimum = 10, maximum = 95, description = "Drink below this % hydration." },
+            eat_below_pct = { type = "number", minimum = 10, maximum = 95, description = "Eat below this % food." },
+            heal_below_pct = { type = "number", minimum = 0, maximum = 95, description = "Eat healing food below this % HP (0 = off)." },
+            reserve_warn = { type = "integer", minimum = 0, maximum = 20, description = "Warn below this many usable items." } }) },
         reasons = { "invalid_args" } },
     fetch = { kind = "action", llm = false, moves = true, priority = "command", duration_s = 8, timeout_s = 120,
         detail_is_speech = SPEAKS,

@@ -1,0 +1,1238 @@
+{
+ "tools": [
+  "arbiter_status",
+  "attack",
+  "bridge_status",
+  "capabilities",
+  "cast",
+  "census",
+  "combat_orders",
+  "combat_status",
+  "come_to",
+  "consume",
+  "craft",
+  "craft_plan",
+  "drop",
+  "equip",
+  "fetch",
+  "follow",
+  "gather",
+  "gather_status",
+  "get_state",
+  "give",
+  "go_to",
+  "held_actions",
+  "inspect",
+  "interact",
+  "inventory",
+  "look",
+  "me",
+  "move_item",
+  "move_status",
+  "ping",
+  "recipes",
+  "recover_grave",
+  "say",
+  "set_vitals_policy",
+  "skills_status",
+  "spells",
+  "stations",
+  "stop",
+  "unequip",
+  "use_action"
+ ],
+ "manifest": [
+  {
+   "name": "arbiter_status",
+   "args": {
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+   },
+   "kind": "probe",
+   "llm": false,
+   "timeout_s": 5,
+   "description": "Who owns the pawn."
+  },
+  {
+   "name": "attack",
+   "args": {
+    "properties": {
+     "force": {
+      "default": false,
+      "type": "boolean",
+      "description": "Also ignore your flee_hp for this fight (fight to the end)."
+     },
+     "target": {
+      "type": "string",
+      "description": "Creature id from situation or look (or its name: the nearest one)."
+     },
+     "style": {
+      "type": "string",
+      "description": "One of the held item's own actions, by style (primary, special, secondary, jump) or by its name from held_actions / situation (e.g. the axe's \"Overhead Chop\"). Omit for the default."
+     }
+    },
+    "type": "object",
+    "required": [
+     "target"
+    ]
+   },
+   "duration_s": 30,
+   "llm": true,
+   "timeout_s": 150,
+   "kind": "action",
+   "ground": {
+    "target": "creature"
+   },
+   "moves": true,
+   "reasons": [
+    "unsafe",
+    "unknown_target",
+    "too_far",
+    "interrupted",
+    "timeout",
+    "not_unlocked",
+    "invalid_args",
+    "companion_down",
+    "body_error"
+   ],
+   "detail_is_speech": true,
+   "priority": "command",
+   "description": "Fight a creature until it is dead, the way a player does: picks the best weapon you carry, attacks with real button presses, answers its attacks (parry/block/dodge/jump per your combat_orders), backs off to eat when hurt (heal_hp), flees only below your flee_hp, loots, then re-equips your tool. It never refuses a creature: the reply carries data.assessment (verdict likely_win|likely_lose|too_strong|boss|outnumbered, est_s_to_kill, est_s_to_die) so you can warn the player or call it off with stop. Never players."
+  },
+  {
+   "name": "bridge_status",
+   "args": {
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+   },
+   "kind": "probe",
+   "llm": false,
+   "timeout_s": 5,
+   "description": "Bridge, modules and services."
+  },
+  {
+   "name": "capabilities",
+   "args": {
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+   },
+   "kind": "probe",
+   "llm": false,
+   "timeout_s": 5,
+   "description": "This manifest."
+  },
+  {
+   "name": "cast",
+   "args": {
+    "properties": {
+     "target": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "items": {
+         "type": "number"
+        },
+        "minItems": 2,
+        "type": "array",
+        "maxItems": 3
+       }
+      ],
+      "description": "Placed/aimed spells only: an id from look, or [x, y, z] metres. Omit: instant spells hit yourself; placed spells go on a valid spot you find nearby."
+     },
+     "spell": {
+      "type": "string",
+      "description": "The spell's exact name as listed by spells (e.g. from castable_spells)."
+     }
+    },
+    "type": "object",
+    "required": [
+     "spell"
+    ]
+   },
+   "preconditions": [
+    "the spell is unlocked and on your spell wheel",
+    "you carry its runes",
+    "it is not on cooldown"
+   ],
+   "duration_s": 3,
+   "llm": true,
+   "timeout_s": 30,
+   "kind": "waiter",
+   "reasons": [
+    "unknown_target",
+    "ambiguous_target",
+    "not_unlocked",
+    "not_on_wheel",
+    "not_enough_resources",
+    "on_cooldown",
+    "busy",
+    "unsafe",
+    "too_far",
+    "verification_failed",
+    "interrupted",
+    "timeout"
+   ],
+   "moves": false,
+   "ground": {
+    "target": "thing"
+   },
+   "detail_is_speech": true,
+   "priority": "command",
+   "description": "Cast one of your spells like a player (spell wheel, then cast); checks runes were used and it went on cooldown. Use a spell from castable_spells/spells, chosen by what its description says it does. Instant spells affect you. Placed spells need flat, open ground: give no target and you pick a spot nearby yourself (flat, clear, accepted by the game's own placement preview), or give a target and you place it there or just beside it. Aimed spells fly toward target (or straight ahead). Never at players. Runs alongside following."
+  },
+  {
+   "name": "census",
+   "args": {
+    "type": "object",
+    "properties": {
+     "radius_m": {
+      "type": "number"
+     },
+     "max": {
+      "type": "integer"
+     }
+    }
+   },
+   "kind": "probe",
+   "llm": false,
+   "timeout_s": 10,
+   "description": "sense.census: raw perception buckets."
+  },
+  {
+   "name": "combat_orders",
+   "args": {
+    "type": "object",
+    "properties": {
+     "heal_hp": {
+      "minimum": 0,
+      "type": "number",
+      "maximum": 1
+     },
+     "defense": {
+      "type": "string",
+      "enum": [
+       "auto",
+       "parry",
+       "block",
+       "dodge",
+       "none"
+      ]
+     },
+     "allow_jump": {
+      "type": "boolean"
+     },
+     "flee_hp": {
+      "minimum": 0,
+      "type": "number",
+      "maximum": 1
+     },
+     "reengage_hp": {
+      "minimum": 0,
+      "type": "number",
+      "maximum": 1
+     },
+     "avoid": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "stance": {
+      "type": "string",
+      "enum": [
+       "defensive",
+       "aggressive",
+       "passive",
+       "flee"
+      ]
+     },
+     "disengage": {
+      "type": "boolean"
+     }
+    }
+   },
+   "kind": "waiter",
+   "duration_s": 0,
+   "moves": false,
+   "llm": true,
+   "timeout_s": 5,
+   "description": "Set your standing combat policy (kept until changed): stance defensive|aggressive|passive|flee, defense auto|parry|block|dodge|none, allow_jump, disengage (back off and eat when hurt), heal_hp and reengage_hp (HP fractions), flee_hp, avoid (creature names never to fight)."
+  },
+  {
+   "name": "combat_status",
+   "args": {
+    "type": "object",
+    "properties": {}
+   },
+   "kind": "probe",
+   "llm": false,
+   "timeout_s": 5,
+   "description": "Combat state (debug)."
+  },
+  {
+   "name": "come_to",
+   "args": {
+    "properties": {
+     "distance": {
+      "default": 2,
+      "maximum": 10,
+      "type": "number",
+      "minimum": 1,
+      "description": "Stop this close, metres."
+     },
+     "player": {
+      "type": "string",
+      "description": "The player's exact name."
+     }
+    },
+    "type": "object",
+    "required": [
+     "player"
+    ]
+   },
+   "duration_s": 15,
+   "llm": false,
+   "timeout_s": 120,
+   "kind": "action",
+   "reasons": [
+    "unknown_target",
+    "path_blocked",
+    "timeout",
+    "interrupted"
+   ],
+   "moves": true,
+   "detail_is_speech": true,
+   "priority": "command",
+   "description": "Walk to a player and stop next to them (persistent follow until near). (Compound kept for debugging; the model composes the primitives instead.)"
+  },
+  {
+   "name": "consume",
+   "args": {
+    "properties": {
+     "item": {
+      "type": "string",
+      "description": "The carried item's name or id, or just 'food' / 'drink' / 'potion' (its kind)."
+     }
+    },
+    "type": "object",
+    "required": [
+     "item"
+    ]
+   },
+   "duration_s": 3,
+   "llm": true,
+   "timeout_s": 30,
+   "kind": "action",
+   "ground": {
+    "item": "carried"
+   },
+   "moves": false,
+   "reasons": [
+    "in_bag",
+    "not_in_inventory",
+    "not_consumable",
+    "verification_failed"
+   ],
+   "detail_is_speech": true,
+   "priority": "command",
+   "description": "Eat or drink one item from your HOTBAR, then check the stat it restores went up. Items in the bag must be moved to the hotbar first (move_item); items on the ground picked up first (interact)."
+  },
+  {
+   "name": "craft",
+   "args": {
+    "type": "object",
+    "properties": {
+     "fuel": {
+      "type": "string",
+      "description": "Optional, processing stations: which carried fuel to burn (name or id). Without it the station's own fuel is used if it has enough, else the one fuel you carry."
+     },
+     "recipe": {
+      "type": "string",
+      "description": "A recipe id from recipes/craft_plan, to pick one when an item has several recipes."
+     },
+     "count": {
+      "default": 1,
+      "maximum": 50,
+      "type": "integer",
+      "minimum": 1,
+      "description": "With item: how many items; with recipe: how many crafts."
+     },
+     "item": {
+      "type": "string",
+      "description": "What to make, by name or item id (e.g. 'Bronze Bar')."
+     },
+     "station": {
+      "type": "string",
+      "description": "Optional: a station id from stations (else the nearest of the right type)."
+     }
+    }
+   },
+   "preconditions": [
+    "the recipe is unlocked",
+    "you carry all inputs",
+    "a station of its type is within 60 m"
+   ],
+   "duration_s": 15,
+   "llm": true,
+   "timeout_s": 300,
+   "kind": "action",
+   "reasons": [
+    "missing_materials",
+    "not_unlocked",
+    "nothing_in_range",
+    "ambiguous_target",
+    "unknown_recipe",
+    "station_busy",
+    "inventory_full",
+    "not_interactable",
+    "path_blocked",
+    "too_far",
+    "verification_failed",
+    "timeout",
+    "craft_failed",
+    "not_implemented",
+    "interrupted"
+   ],
+   "moves": true,
+   "ground": {
+    "station": "thing",
+    "item": "item"
+   },
+   "detail_is_speech": true,
+   "priority": "command",
+   "description": "Craft ONE recipe at a real station from what you carry: walks to the nearest station of the right type (bench, forge, furnace, campfire, ...), opens it and makes it there (processing stations: loads the inputs and fuel, starts it, waits and picks up the result). Never gathers or crafts the ingredients itself: use craft_plan to see what a goal needs and do those steps first."
+  },
+  {
+   "name": "craft_plan",
+   "args": {
+    "type": "object",
+    "properties": {
+     "count": {
+      "default": 1,
+      "minimum": 1,
+      "type": "integer",
+      "description": "How many of the goal item."
+     },
+     "item": {
+      "type": "string",
+      "description": "The goal item, by name or id."
+     },
+     "recipe": {
+      "type": "string",
+      "description": "Or a recipe id."
+     }
+    }
+   },
+   "duration_s": 0.5,
+   "llm": true,
+   "timeout_s": 15,
+   "kind": "read",
+   "moves": false,
+   "reasons": [
+    "unknown_recipe",
+    "ambiguous_target",
+    "invalid_args",
+    "state_unavailable"
+   ],
+   "description": "Plan how to make something: a tree from the game's recipes over what you carry, with the steps in order (gather X, craft Y at station Z, unlock, find a station, obtain) and every alternative recipe. Read only: it does nothing; you decide which steps to do."
+  },
+  {
+   "name": "drop",
+   "args": {
+    "properties": {
+     "count": {
+      "minimum": 1,
+      "type": "integer",
+      "description": "How many."
+     },
+     "item": {
+      "type": "string",
+      "description": "A carried item: its name (e.g. 'Oak Logs') or item id from inventory."
+     },
+     "at": {
+      "enum": [
+       "feet"
+      ],
+      "default": "feet",
+      "type": "string",
+      "description": "Only 'feet'."
+     }
+    },
+    "type": "object",
+    "required": [
+     "item",
+     "count"
+    ]
+   },
+   "duration_s": 1,
+   "llm": true,
+   "timeout_s": 10,
+   "kind": "waiter",
+   "ground": {
+    "item": "carried"
+   },
+   "moves": false,
+   "reasons": [
+    "not_in_inventory",
+    "verification_failed",
+    "invalid_args"
+   ],
+   "description": "Drop carried items on the ground at your own feet (the inventory's drop). To hand items to a player use give."
+  },
+  {
+   "name": "equip",
+   "args": {
+    "properties": {
+     "item": {
+      "type": "string",
+      "description": "A carried item's name or id."
+     }
+    },
+    "type": "object",
+    "required": [
+     "item"
+    ]
+   },
+   "duration_s": 1,
+   "llm": true,
+   "timeout_s": 10,
+   "kind": "waiter",
+   "detail_is_speech": true,
+   "reasons": [
+    "not_in_inventory",
+    "verification_failed"
+   ],
+   "moves": false,
+   "ground": {
+    "item": "carried"
+   },
+   "description": "Equip a carried weapon, tool or armour piece (hotbar key or inventory use); checks it is in your hands or worn."
+  },
+  {
+   "name": "fetch",
+   "args": {
+    "type": "object",
+    "properties": {
+     "count": {
+      "default": 1,
+      "maximum": 20,
+      "type": "integer",
+      "minimum": 1,
+      "description": "How many items."
+     },
+     "item": {
+      "type": "string",
+      "description": "What to pick up, by name or item id."
+     },
+     "target": {
+      "type": "string",
+      "description": "An id from situation or look (a world item or ground pickup)."
+     }
+    }
+   },
+   "duration_s": 8,
+   "llm": false,
+   "timeout_s": 120,
+   "kind": "action",
+   "reasons": [
+    "unknown_target",
+    "nothing_in_range",
+    "not_interactable",
+    "too_far",
+    "path_blocked",
+    "verification_failed",
+    "timeout"
+   ],
+   "moves": true,
+   "detail_is_speech": true,
+   "priority": "command",
+   "description": "Pick up items lying on the ground by name or id (find, walk, face, use, verify; repeats for count). (Compound kept for debugging; the model composes the primitives instead.)"
+  },
+  {
+   "name": "follow",
+   "args": {
+    "properties": {
+     "distance": {
+      "default": 3,
+      "minimum": 1,
+      "type": "number",
+      "description": "Distance to keep, metres."
+     },
+     "player": {
+      "type": "string",
+      "description": "The player's exact name as in command.player or players."
+     }
+    },
+    "type": "object",
+    "required": [
+     "player"
+    ]
+   },
+   "preconditions": [
+    "the player is in the world"
+   ],
+   "duration_s": 0,
+   "llm": true,
+   "timeout_s": 10,
+   "kind": "action",
+   "reasons": [
+    "unknown_target",
+    "companion_down",
+    "invalid_args"
+   ],
+   "ground": {
+    "player": "player"
+   },
+   "moves": true,
+   "priority": "command",
+   "description": "Follow a player and keep following (persistent: if he goes somewhere you can't reach, you wait, keep watching and resume) until stopped or given another job."
+  },
+  {
+   "name": "gather",
+   "args": {
+    "properties": {
+     "style": {
+      "type": "string",
+      "description": "One of the tool's actions by style (primary, special) or name (e.g. \"Overhead Chop\"); omit for the default."
+     },
+     "stumps": {
+      "type": "boolean",
+      "description": "Also chop stumps (only when asked)."
+     },
+     "count": {
+      "minimum": 1,
+      "type": "integer",
+      "description": "How many more to gather."
+     },
+     "resource": {
+      "type": "string",
+      "description": "Resource kind, e.g. 'oak', 'ash', 'stone', 'log'."
+     },
+     "radius": {
+      "maximum": 120,
+      "minimum": 1,
+      "type": "number",
+      "description": "Search radius in metres (default 30)."
+     }
+    },
+    "type": "object",
+    "required": [
+     "resource",
+     "count"
+    ]
+   },
+   "preconditions": [
+    "a tool of the right kind in your inventory (axe for trees, pickaxe for rocks)"
+   ],
+   "duration_s": 120,
+   "llm": true,
+   "timeout_s": 1800,
+   "kind": "action",
+   "reasons": [
+    "nothing_in_range",
+    "wrong_tool",
+    "path_blocked",
+    "inventory_full",
+    "interrupted",
+    "timeout",
+    "unknown_target",
+    "invalid_args",
+    "not_unlocked"
+   ],
+   "moves": true,
+   "detail_is_speech": true,
+   "priority": "task",
+   "description": "Harvest a resource kind (resource = a profile key, e.g. oak, ash, stone) until you have `count` MORE of it in your inventory. It finds standing trees, felled trunks, logs, stumps (only with stumps=true), rocks and ground resources itself, nearest first, equips the right tool you carry, and fails naming the tool it needs. style picks one of the held tool's own actions (see held_actions, e.g. an axe's Chop or Overhead Chop)."
+  },
+  {
+   "name": "gather_status",
+   "args": {
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+   },
+   "kind": "probe",
+   "llm": false,
+   "timeout_s": 5,
+   "description": "Gather job state."
+  },
+  {
+   "name": "get_state",
+   "args": {
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+   },
+   "kind": "probe",
+   "moves": false,
+   "llm": false,
+   "timeout_s": 10,
+   "description": "Position, health, vitals, inventory, nearby players/creatures/resources/items (the brain's state)."
+  },
+  {
+   "name": "give",
+   "args": {
+    "properties": {
+     "count": {
+      "minimum": 1,
+      "type": "integer",
+      "description": "How many."
+     },
+     "player": {
+      "type": "string",
+      "description": "The player's exact name."
+     },
+     "item": {
+      "type": "string",
+      "description": "A carried item's name or id."
+     }
+    },
+    "type": "object",
+    "required": [
+     "player",
+     "item",
+     "count"
+    ]
+   },
+   "duration_s": 15,
+   "llm": false,
+   "timeout_s": 120,
+   "kind": "action",
+   "reasons": [
+    "not_in_inventory",
+    "not_enough_resources",
+    "path_blocked",
+    "unknown_target",
+    "verification_failed",
+    "timeout"
+   ],
+   "moves": true,
+   "detail_is_speech": true,
+   "priority": "command",
+   "description": "Walk to a player and drop carried items at their feet. (Compound kept for debugging; the model composes the primitives instead.)"
+  },
+  {
+   "name": "go_to",
+   "args": {
+    "properties": {
+     "target": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "items": {
+         "type": "number"
+        },
+        "minItems": 2,
+        "type": "array",
+        "maxItems": 3
+       }
+      ],
+      "description": "A player name, an id from situation/look, a place name, or [x, y, z] metres."
+     }
+    },
+    "type": "object",
+    "required": [
+     "target"
+    ]
+   },
+   "duration_s": 20,
+   "llm": true,
+   "timeout_s": 120,
+   "kind": "action",
+   "reasons": [
+    "path_blocked",
+    "verification_failed",
+    "interrupted",
+    "timeout",
+    "companion_down"
+   ],
+   "moves": true,
+   "priority": "command",
+   "description": "Walk to a player (his name: stops within about 3 m of him), a thing's id from situation/look, a named place from notes, or [x, y, z] metres. Answers when you arrive or with why you can't get there."
+  },
+  {
+   "name": "held_actions",
+   "args": {
+    "type": "object",
+    "properties": {}
+   },
+   "kind": "read",
+   "duration_s": 0,
+   "moves": false,
+   "llm": true,
+   "timeout_s": 5,
+   "description": "The actions of what you are holding, from the item's own data: style, display name (e.g. Chop, Overhead Chop), input, whether a perk is needed and unlocked, damage and stamina."
+  },
+  {
+   "name": "inspect",
+   "args": {
+    "properties": {
+     "target": {
+      "type": "string",
+      "description": "An id from look."
+     }
+    },
+    "type": "object",
+    "required": [
+     "target"
+    ]
+   },
+   "ground": {
+    "target": "thing"
+   },
+   "llm": true,
+   "timeout_s": 15,
+   "kind": "read",
+   "moves": false,
+   "duration_s": 0.3,
+   "description": "Details of one thing from look: what it gives, what it needs, its contents (graves, chests). Read-only."
+  },
+  {
+   "name": "interact",
+   "args": {
+    "properties": {
+     "target": {
+      "type": "string",
+      "description": "The id of ONE perceived thing (from situation or look) whose actions include interact: a world item, a ground pickup ('fol:...'), a gravestone, a bed/shelter, a station, a chest. Not a name, not coordinates."
+     },
+     "secondary": {
+      "default": false,
+      "type": "boolean",
+      "description": "Use the thing's SECOND action instead (the F key), when look/inspect shows one, e.g. collect-all on a dropped stack picks up every nearby stack of that kind at once."
+     }
+    },
+    "type": "object",
+    "required": [
+     "target"
+    ]
+   },
+   "duration_s": 6,
+   "llm": true,
+   "kind": "action",
+   "timeout_s": 110,
+   "ground": {
+    "target": "thing"
+   },
+   "moves": true,
+   "detail_is_speech": true,
+   "reasons": [
+    "unknown_target",
+    "not_interactable",
+    "too_far",
+    "path_blocked",
+    "verification_failed",
+    "timeout"
+   ],
+   "aliases": [
+    "pickup"
+   ],
+   "priority": "command",
+   "description": "Use one thing like a player pressing E: walks to it, faces it until the game targets it, presses use and checks something changed. Picks up an item stack lying on the ground (into your inventory), takes everything from a gravestone ('Take All'), lies down in a bed or shelter (Sleep / Rest), opens, talks, collects plants. One id per call. While lying in a bed, interact on that bed (its id) gets you up again."
+  },
+  {
+   "name": "inventory",
+   "args": {
+    "type": "object",
+    "properties": {
+     "raw": {
+      "default": false,
+      "type": "boolean",
+      "description": "Debug: raw listing."
+     }
+    }
+   },
+   "kind": "read",
+   "duration_s": 0.2,
+   "moves": false,
+   "llm": true,
+   "timeout_s": 10,
+   "description": "Your full inventory: worn (by slot), held, hotbar (with durability and use: food/drink) and bag. Only hotbar food/drink can be consumed. Read-only."
+  },
+  {
+   "name": "look",
+   "args": {
+    "type": "object",
+    "properties": {
+     "max": {
+      "default": 15,
+      "maximum": 40,
+      "type": "integer",
+      "minimum": 1,
+      "description": "At most this many things."
+     },
+     "radius": {
+      "default": 20,
+      "maximum": 80,
+      "type": "number",
+      "minimum": 1,
+      "description": "Metres."
+     },
+     "about": {
+      "type": "string",
+      "description": "What the player named, in their words (e.g. 'sticks'); ranks matches first."
+     }
+    }
+   },
+   "kind": "read",
+   "duration_s": 0.3,
+   "moves": false,
+   "llm": true,
+   "timeout_s": 15,
+   "description": "Look around: every world item, ground plant, resource, creature, player and usable thing nearby, by in-game name, with ids, distance and what you can do with it. Read-only: does not interrupt."
+  },
+  {
+   "name": "me",
+   "args": {
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+   },
+   "kind": "probe",
+   "llm": false,
+   "timeout_s": 5,
+   "description": "sense.me: own pawn facts."
+  },
+  {
+   "name": "move_item",
+   "args": {
+    "properties": {
+     "item": {
+      "type": "string",
+      "description": "A carried item's name or id."
+     },
+     "slot": {
+      "minimum": 0,
+      "type": "integer",
+      "description": "Optional slot number in that page (default: first free)."
+     },
+     "to": {
+      "enum": [
+       "hotbar",
+       "bag"
+      ],
+      "type": "string",
+      "description": "Where to put it."
+     }
+    },
+    "type": "object",
+    "required": [
+     "item",
+     "to"
+    ]
+   },
+   "duration_s": 1,
+   "llm": true,
+   "timeout_s": 10,
+   "kind": "waiter",
+   "detail_is_speech": true,
+   "reasons": [
+    "not_in_inventory",
+    "inventory_full",
+    "verification_failed",
+    "invalid_args"
+   ],
+   "moves": false,
+   "ground": {
+    "item": "carried"
+   },
+   "description": "Move a carried item between your bag and your hotbar (as dragging it in the inventory). Only hotbar food/drink can be eaten, so move food there first."
+  },
+  {
+   "name": "move_status",
+   "args": {
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+   },
+   "kind": "probe",
+   "llm": false,
+   "timeout_s": 5,
+   "description": "move.lua status."
+  },
+  {
+   "name": "ping",
+   "args": {
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+   },
+   "kind": "probe",
+   "llm": false,
+   "timeout_s": 5,
+   "description": "Liveness and latency."
+  },
+  {
+   "name": "recipes",
+   "args": {
+    "type": "object",
+    "properties": {
+     "near_only": {
+      "default": false,
+      "type": "boolean",
+      "description": "Craftable-now list: only stations near you."
+     },
+     "count": {
+      "default": 1,
+      "minimum": 1,
+      "type": "integer",
+      "description": "With item: how many you want."
+     },
+     "item": {
+      "type": "string",
+      "description": "An item name or id: list every recipe that makes it."
+     },
+     "limit": {
+      "default": 25,
+      "minimum": 1,
+      "type": "integer",
+      "maximum": 50
+     },
+     "station": {
+      "type": "string",
+      "description": "A station type or name (e.g. 'Furnace') or a station id: list what it makes."
+     }
+    }
+   },
+   "duration_s": 0.5,
+   "llm": true,
+   "timeout_s": 15,
+   "kind": "read",
+   "moves": false,
+   "reasons": [
+    "unknown_recipe",
+    "ambiguous_target",
+    "unknown_target",
+    "state_unavailable"
+   ],
+   "description": "Recipes: what you can craft right now (default), every recipe for an item (with item: each one's status, missing inputs, station and how it unlocks), or what a station type makes (with station)."
+  },
+  {
+   "name": "recover_grave",
+   "args": {
+    "type": "object",
+    "properties": {}
+   },
+   "duration_s": 20,
+   "llm": false,
+   "timeout_s": 120,
+   "kind": "action",
+   "reasons": [
+    "nothing_in_range",
+    "ambiguous_target",
+    "path_blocked",
+    "not_interactable",
+    "verification_failed",
+    "timeout"
+   ],
+   "moves": true,
+   "detail_is_speech": true,
+   "priority": "command",
+   "description": "Go to your own gravestone, Take All, verify, re-equip the last held tool. (Compound kept for debugging; the model composes the primitives instead.)"
+  },
+  {
+   "name": "say",
+   "args": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "description": "The chat line."
+     }
+    },
+    "type": "object",
+    "required": [
+     "text"
+    ]
+   },
+   "kind": "waiter",
+   "duration_s": 1,
+   "moves": false,
+   "llm": false,
+   "timeout_s": 10,
+   "description": "Type one line into the game chat (the brain's Controller owns all speech)."
+  },
+  {
+   "name": "set_vitals_policy",
+   "args": {
+    "type": "object",
+    "properties": {
+     "drink_below_pct": {
+      "maximum": 95,
+      "minimum": 10,
+      "type": "number",
+      "description": "Drink when hydration is below this % of max."
+     },
+     "eat_below_pct": {
+      "maximum": 95,
+      "minimum": 10,
+      "type": "number",
+      "description": "Eat when food is below this % of max."
+     },
+     "reserve_warn": {
+      "maximum": 20,
+      "minimum": 0,
+      "type": "integer",
+      "description": "Warn when fewer usable items than this."
+     },
+     "heal_below_pct": {
+      "maximum": 95,
+      "minimum": 0,
+      "type": "number",
+      "description": "Also eat healing food when HP is below this % (0 = never eat just to heal)."
+     }
+    }
+   },
+   "duration_s": 0,
+   "llm": true,
+   "timeout_s": 10,
+   "kind": "waiter",
+   "moves": false,
+   "reasons": [
+    "invalid_args"
+   ],
+   "description": "Set WHEN your stay-fed reflex eats, drinks and heals by itself (percent of each maximum). Decide it from your vitals, your food/drink stock, threats and the job: e.g. top up before a fight, save food when stock is low, eat to heal after a fight. A safety floor (10%) always applies."
+  },
+  {
+   "name": "skills_status",
+   "args": {
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+   },
+   "kind": "probe",
+   "llm": false,
+   "timeout_s": 5,
+   "description": "Composite skill state."
+  },
+  {
+   "name": "spells",
+   "args": {
+    "type": "object",
+    "properties": {
+     "compact": {
+      "default": true,
+      "type": "boolean",
+      "description": "Ignored (rows are already compact)."
+     },
+     "all": {
+      "default": false,
+      "type": "boolean",
+      "description": "Also list spells you haven't unlocked yet."
+     }
+    }
+   },
+   "kind": "read",
+   "duration_s": 0.2,
+   "moves": false,
+   "llm": true,
+   "timeout_s": 10,
+   "description": "Your spells: each one's name, what it does (the game's description), cast type, rune cost vs what you carry, cooldown left, and whether you can cast it now (and why not). all=true also lists locked spells with the skill level that unlocks them. Read-only."
+  },
+  {
+   "name": "stations",
+   "args": {
+    "type": "object",
+    "properties": {
+     "radius": {
+      "default": 60,
+      "maximum": 120,
+      "type": "number",
+      "minimum": 5,
+      "description": "Search radius, metres."
+     }
+    }
+   },
+   "duration_s": 0.5,
+   "llm": true,
+   "timeout_s": 15,
+   "kind": "read",
+   "moves": false,
+   "reasons": [
+    "state_unavailable"
+   ],
+   "description": "Crafting and processing stations near you: type, distance, how many recipes you've unlocked there, what you can make there now, and a furnace/kiln/campfire's state (running, contents, fuel, output)."
+  },
+  {
+   "name": "stop",
+   "args": {
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+   },
+   "duration_s": 0,
+   "llm": true,
+   "timeout_s": 10,
+   "kind": "action",
+   "reasons": [],
+   "moves": true,
+   "priority": "command",
+   "description": "Stop whatever you are doing (following, walking, using something, a commanded fight) and stand still where you are until told otherwise."
+  },
+  {
+   "name": "unequip",
+   "args": {
+    "properties": {
+     "slot": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "integer"
+       }
+      ],
+      "description": "HeldRight, Body, ... or index"
+     }
+    },
+    "type": "object",
+    "required": [
+     "slot"
+    ]
+   },
+   "kind": "action",
+   "duration_s": 1,
+   "moves": false,
+   "llm": false,
+   "timeout_s": 10,
+   "description": "Unequip a loadout slot. Debug."
+  },
+  {
+   "name": "use_action",
+   "args": {
+    "type": "object",
+    "properties": {
+     "style": {
+      "type": "string",
+      "description": "One of the held item's own actions, by style (primary, special, secondary, jump) or by its name from held_actions / situation (e.g. the axe's \"Overhead Chop\"). Omit for the default."
+     }
+    }
+   },
+   "duration_s": 2,
+   "llm": true,
+   "timeout_s": 8,
+   "kind": "action",
+   "reasons": [
+    "invalid_args",
+    "not_unlocked",
+    "not_implemented",
+    "verification_failed",
+    "interrupted",
+    "companion_down"
+   ],
+   "moves": true,
+   "detail_is_speech": true,
+   "priority": "command",
+   "description": "Use one of your held item's actions once (a single swing, block or the special), e.g. to show the player or when asked for a specific move. Lists of actions: held_actions."
+  }
+ ],
+ "aliases": {
+  "pickup": "interact"
+ },
+ "source": "logs/brain-live-20261025-220403-6472.jsonl capabilities answer, build 26161880, 2026-10-25"
+}

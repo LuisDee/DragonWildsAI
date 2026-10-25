@@ -572,6 +572,23 @@ local function read_attack(comp, owner, class_id)
         info.flags = flags
         info.unblockable = (flags & 1) ~= 0 or nil
         info.unparryable = (flags & 2) ~= 0 or nil
+        info.special = (flags & 4) ~= 0 or nil
+        info.finisher = (flags & 8) ~= 0 or nil
+        info.force_blast = (flags & 16) ~= 0 or nil
+        -- what the client can see ahead of the hit: the montage (and its length), root-motion scaling
+        -- (lunges move the attacker with root motion), leaving the navmesh, the combo's next attack
+        local mon = U.try(function() return ad.Montage end)
+        if U.valid(mon) then
+            info.montage = U.short(mon)
+            info.montage_s = num(U.try(function() return mon:GetPlayLength() end))
+        end
+        info.root_motion_scale = num(U.try(function() return ad.MaximumRootMotionScaling end))
+        info.leaves_navmesh = U.try(function() return ad.bLeaveNavMesh end) == true or nil
+        local nxt = U.try(function() return ad.NextAttack end)
+        info.combo_next = U.valid(nxt) and U.short(nxt) or nil
+        local nd = 0
+        pcall(function() ad.Damage:ForEach(function() nd = nd + 1 end) end)
+        info.hits = nd > 0 and nd or nil
         pcall(function()
             ad.Damage:ForEach(function(_, e)
                 if info.shape_raw then return true end
@@ -747,6 +764,7 @@ local function result_of(F, ok, reason, data)
     data.looted = F.looted
     data.phase_log = F.phase_log
     data.defense = { parries = F.n_parried or 0, blocks = F.n_blocked or 0, dodges = F.n_dodges or 0, jumps = F.n_jumps or 0,
+                     abilities = F.n_abilities,
                      avoided = F.n_avoided or 0, hits_taken = F.n_hit or 0, heals = F.n_heals or 0 }
     data.damage_taken = F.dmg_taken or 0
     return { ok = ok, reason = reason, data = data }
@@ -1007,6 +1025,44 @@ local function away_dir(me, tp, side)
 end
 M.away_dir = away_dir
 
+-- Defensive abilities are cast through the spells module (the player's own spell inputs). Contract
+-- (docs/design/defense-abilities.md): spells.ability_status(asset) -> {available, why, latency_s,
+-- cooldown_s, runes_ok}; spells.cast_now(log, asset, {owner_token}) -> job with poll() -> nil | {ok,
+-- cast_t, reason}. Without them the abilities are simply unavailable (reported, never faked).
+M.spell_api = {
+    status = function(asset)
+        local sp = mod("spells")
+        if sp and type(sp.ability_status) == "function" then
+            local ok, r = pcall(sp.ability_status, asset)
+            if ok and type(r) == "table" then return r end
+        end
+        return { available = false, why = "no_fast_cast_route" }
+    end,
+    cast = function(F, asset)
+        local sp = mod("spells")
+        if sp and type(sp.cast_now) == "function" then
+            local ok, job = pcall(sp.cast_now, F.log, asset, { owner_token = F.token })
+            if ok then return job end
+        end
+        return nil
+    end,
+}
+
+local function ability_ctx(F)
+    if F.ab_ctx and F.t - (F.ab_ctx_t or -9) < 2 then return F.ab_ctx end
+    local D = mod("defense")
+    local out = {}
+    local c = C()
+    for name, def in pairs(D and D.abilities() or {}) do
+        local st = M.spell_api.status(def.spell_asset) or {}
+        out[name] = { available = st.available == true, why = st.why,
+                      latency_s = (c.ability_latency or {})[def.spell_asset] or st.latency_s }
+    end
+    F.ab_ctx, F.ab_ctx_t = out, F.t
+    return out
+end
+M._ability_ctx = ability_ctx
+
 local function start_defend(F, me, attacker_id, tt, info)
     local c = C()
     local D = mod("defense")
@@ -1017,11 +1073,13 @@ local function start_defend(F, me, attacker_id, tt, info)
     local ctx = { dist_cm = (apos and me.pos) and U.dist2d(apos, me.pos) or nil, latency_s = F.latency or 0.03,
                   stamina = me.stamina, can_parry = cap.can_parry, can_block = cap.can_block,
                   parry_cost = cap.parry_cost, block_cost = cap.block_cost, evade_cost = c.evade_cost or 15,
-                  hp_frac = (me.max_hp and me.max_hp > 0) and (me.hp or 0) / me.max_hp or 1, heal_hp = M.orders.heal_hp }
+                  hp_frac = (me.max_hp and me.max_hp > 0) and (me.hp or 0) / me.max_hp or 1, heal_hp = M.orders.heal_hp,
+                  max_hp = me.max_hp, abilities = ability_ctx(F) }
     info = info or { key = "?:unknown" }
     local plan = D and D.plan(info, ctx, M.orders)
         or { action = "block", at_s = M.react_delay(), hold_s = 0.9, impact_s = 0.6, why = "no defense module" }
     F.def = { plan = plan, tel_t = tt, key = info.key, attacker = attacker_id, apos = apos, hp0 = me.hp, st0 = me.stamina,
+              apos_tel = apos and { X = apos.X, Y = apos.Y, Z = apos.Z },
               me_seq0 = c.me_seq or 0, blk_seq0 = c.block_seq or 0, info = info }
     F.last_tele = tt
     if F.following then mcall("move", "stop", F.log); F.following = false end
@@ -1040,9 +1098,16 @@ local function finish_defend(F)
     elseif (d.hit_amt or 0) > 0 then outcome = "hit"
     elseif d.blocked then outcome = "blocked"
     elseif (act == "dodge" or act == "jump" or act == "retreat") and (d.impact_t or d.evaded) then outcome = "avoided"
+    elseif d.cast and d.cast.result and d.cast.result.ok and d.impact_t then outcome = "avoided"
+    elseif d.cast and (d.cast.failed or (d.cast.result and not d.cast.result.ok)) then outcome = "whiff"; d.cast_failed = true
     else outcome = "whiff" end
     if d.impact_t and D then D.observe(d.key, d.impact_t - d.tel_t) end
-    if D then D.feedback(d.key, act, outcome) end
+    -- how far the attacker came during the attack (a lunge), measured on Claude's own perception
+    if D and d.apos_tel and d.apos_end then
+        local dx, dy = d.apos_end.X - d.apos_tel.X, d.apos_end.Y - d.apos_tel.Y
+        D.observe_lunge(d.key, math.sqrt(dx * dx + dy * dy))
+    end
+    if D then D.feedback(d.key, act, outcome, d.hit_amt) end
     if act == "dodge" and d.pos0 and d.apos0 and F.me_pos then
         local fx, fy = d.apos0.X - d.pos0.X, d.apos0.Y - d.pos0.Y
         local l = math.max(math.sqrt(fx * fx + fy * fy), 1)
@@ -1083,11 +1148,19 @@ local function defend_act(F, pawn, acts)
     local d = F.def
     if not d or d.started then return end
     local plan = d.plan
-    if F.t - d.tel_t < (plan.at_s or 0) then return end
+    if F.t - d.tel_t < (plan.cast_at_s or plan.at_s or 0) then return end
     local me = F.me_last or {}
     d.started = F.t
     d.started_rel = F.t - d.tel_t
     local a = plan.action
+    if plan.spell_asset then
+        -- a defensive ability: cast it now (the spells module drives the real spell inputs)
+        d.cast = { t = F.t, asset = plan.spell_asset, job = M.spell_api.cast(F, plan.spell_asset) }
+        F.n_abilities = F.n_abilities or {}
+        F.n_abilities[a] = (F.n_abilities[a] or 0) + 1
+        if not d.cast.job then d.cast.failed = "no_cast_route" end
+        return
+    end
     if (a == "parry" or a == "block") and acts.secondary then
         F.hold, F.hold_until = acts.secondary, F.t + (plan.hold_s or 0.9)
         inject(acts.secondary) -- this very frame
@@ -1123,6 +1196,47 @@ local function defend_act(F, pawn, acts)
     end
 end
 M._defend_act = defend_act
+
+-- Per frame after an ability was cast: its follow-up input (Phase Dash = the evade while the dash
+-- window is open; Tempest Shield = keep blocking) and the cast's verdict (latency learned per spell).
+local function defend_followup(F, pawn, acts)
+    local d = F.def
+    if not (d and d.cast) then return end
+    local plan, rel = d.plan, F.t - d.tel_t
+    local job = d.cast.job
+    if job and not d.cast.result and type(job.poll) == "function" then
+        local ok, r = pcall(job.poll, job)
+        if ok and r then
+            d.cast.result = r
+            if r.ok and r.cast_t then
+                local c = C()
+                c.ability_latency = c.ability_latency or {}
+                local lat = math.max(0, r.cast_t - d.cast.t)
+                local old = c.ability_latency[d.cast.asset]
+                c.ability_latency[d.cast.asset] = old and (old * 0.7 + lat * 0.3) or lat
+            end
+        end
+    end
+    if plan.evade_at_s and not d.evade_done and rel >= plan.evade_at_s and acts.evade then
+        d.evade_done = true
+        local me = F.me_last or {}
+        local tp = d.apos or F.target_pos
+        if tp and me.pos then
+            pcall(function() F.pc:SetControlRotation({ Pitch = 0, Yaw = math.deg(math.atan(tp.Y - me.pos.Y, tp.X - me.pos.X)), Roll = 0 }) end)
+        end
+        if acts.movement then
+            local sx = (plan.dir == "left" and -1) or (plan.dir == "right" and 1) or 0
+            F.move_inject, F.move_until = (M.cfg.move_axes == "yx" and { X = 0, Y = sx } or { X = sx, Y = 0 }), F.t + 0.35
+        end
+        tap(F, acts.evade, 4, "phase_dash")
+        F.n_dodges = (F.n_dodges or 0) + 1
+    end
+    if plan.action == "tempest_shield" and not d.block_done and rel >= (plan.at_s or 0) and acts.secondary then
+        d.block_done = true
+        F.hold, F.hold_until = acts.secondary, F.t + (plan.hold_s or 0.9)
+    end
+end
+M._defend_followup = defend_followup
 
 local function step_defend(F, pawn, me, acts)
     local d = F.def
@@ -1161,6 +1275,12 @@ local function step_defend(F, pawn, me, acts)
         local ai = U.try(function() return pawn.Mesh:GetAnimInstance() end)
         local m = U.valid(ai) and U.short(U.try(function() return ai:GetCurrentActiveMontage() end)) or nil
         if m and m:find("Parry", 1, true) then d.parried, d.impact_t, d.montage = true, d.impact_t or F.t, m end
+    end
+    -- the attacker's position when the hit resolves (lunge learning)
+    if d.impact_t and not d.apos_end then
+        local a = d.attacker == F.target_id and F.target or find_creature(d.attacker)
+        local p = a and U.loc(a)
+        if p then d.apos_end = { X = p.X, Y = p.Y, Z = p.Z } end
     end
     -- a new telegraph (a combo's next swing) closes this one
     for id, tt in pairs(c.telegraphs) do
@@ -1521,6 +1641,7 @@ local function frame(F)
     if not U.valid(pawn) then return finish(F, result_of(F, false, "companion_down")) end
     F.t = now(pawn)
     if F.def and not F.def.started then defend_act(F, pawn, actions(pawn)) end
+    if F.def and F.def.cast then defend_followup(F, pawn, actions(pawn)) end
     F.frame_n = (F.frame_n or 0) + 1
     if F.rg then ranged_frame(F, pawn) end
     -- per frame: held movement keys first (a directional evade samples them), then the queued taps
@@ -1831,6 +1952,9 @@ function M.set_orders(t)
         if k == "avoid" and type(v) == "table" then
             M.orders.avoid = {}
             for _, n in ipairs(v) do M.orders.avoid[tostring(n):lower()] = true end
+        elseif k == "abilities" and type(v) == "table" then
+            M.orders.abilities = M.orders.abilities or {}
+            for name, on in pairs(v) do M.orders.abilities[name] = on end
         elseif M.orders[k] ~= nil or k == "stance" or k == "flee_hp" or k == "protect" then M.orders[k] = v end
     end
     return { ok = true, orders = M.orders }
@@ -2030,6 +2154,104 @@ function M.use_action(log, style, opts)
     return { ok = true, pending = U_ }
 end
 
+-- ------------------------------------------------------------------ combat brief (facts for the model)
+-- Everything the model needs to PREPARE for a fight, as information only (the model decides the prep:
+-- weapon, shield, enchant, buffs, food, or not fighting at all). Sources, strongest first:
+-- live game data -> what Claude learned from his own hits -> the game's journal entry (Weaknesses)
+-- -> the creature_priors data file (wiki research). Nothing is decided here.
+local function journal_weaknesses(name)
+    if not name then return nil end
+    local want = name:lower()
+    for _, j in ipairs(U.find_all("JournalEntryWorldData", { skip_defaults = true })) do
+        local dn = text(U.try(function() return j.DisplayName end))
+        if dn and (dn:lower() == want or dn:lower():find(want, 1, true)) then
+            local w = {}
+            pcall(function() j.Weaknesses:ForEach(function(_, t) local x = text(U.try(function() return t:get() end)); if x then w[#w + 1] = x end end) end)
+            return w, dn
+        end
+    end
+    return nil
+end
+
+function M.combat_brief(log, target, ctx)
+    local pc = local_pc()
+    local pawn = pc and U.try(function() return pc.Pawn end)
+    if not U.valid(pawn) then return { ok = false, reason = "companion_down" } end
+    local origin = U.loc(pawn)
+    local actor = M.resolve_target(target, origin)
+    if not actor then return { ok = false, reason = "unknown_target", data = { target = tostring(target) } } end
+    local cr = read_creature(actor, origin)
+    local me = read_me(pawn, pc)
+    local out = { ok = true, data = {} }
+    local d = out.data
+    d.creature = { id = cr.id, name = cr.name, power_level = cr.pl, hp = cr.hp, max_hp = cr.max_hp, boss = cr.boss,
+                   attitude = ({ [0] = "hostile", "defensive", "passive", "bird", "neutral_until_attacked" })[cr.archetype or -1],
+                   in_combat = cr.in_combat or nil, distance_m = cr.distance_m and math.floor(cr.distance_m * 10) / 10 }
+    d.me = { power_level = me.pl, hp = me.hp, max_hp = me.max_hp, stamina = me.stamina }
+    -- weaknesses / resistances by source
+    local wk = { live = read_affinities(actor), learned = C().learned[(cr.name or ""):lower()] }
+    local jw, jname = journal_weaknesses(cr.name)
+    if jw then wk.journal = jw; wk.journal_entry = jname end
+    for key, pr in pairs(M.PRIORS) do
+        if (cr.name or ""):lower():find(key, 1, true) then wk.priors = pr end
+    end
+    d.weaknesses = wk
+    -- his weapons vs this creature
+    local list = mcall("inventory", "list", log) or {}
+    local items = M.weapons().items or {}
+    d.weapons = {}
+    for _, where in ipairs({ "loadout", "hotbar", "bag" }) do
+        for _, e in ipairs(list[where] or {}) do
+            local p = e.item and items[e.item]
+            if p and (p.role == "weapon" or p.role == "shield") then
+                local aff = {}
+                for _, tag in ipairs(p.types or {}) do aff[tag] = M.affinity({ name = cr.name, affinities = wk.live }, tag, C().learned) or "neutral" end
+                d.weapons[#d.weapons + 1] = { item = e.item, name = p.name, kind = p.kind, role = p.role, power_level = p.pl,
+                    damage_types = p.types, vs_target = aff, dps = M.dps(p) and math.floor(M.dps(p) * 10) / 10 or nil,
+                    block = p.block, ammo = p.ammo, where = where }
+            end
+        end
+    end
+    -- spells that buff, defend or fight (from the spells module's own list, when the bridge api is there)
+    local sp = mod("spells")
+    if sp and sp.HANDLERS and sp.HANDLERS.spells and ctx and ctx.api then
+        local ok, r = pcall(sp.HANDLERS.spells, log, {}, ctx)
+        local roles = sp.catalog_roles and sp.catalog_roles() or {}
+        if ok and type(r) == "table" and r.data and r.data.spells then
+            d.spells = {}
+            for _, row in ipairs(r.data.spells) do
+                local role = row.role or roles[row.id or ""]
+                if role == "weapon_buff" or role == "combat_defence" or role == "combat_cc" or role == "combat_damage" then
+                    d.spells[#d.spells + 1] = { name = row.name, role = role, use_when = row.use_when, castable = row.castable,
+                                                reason = row.reason, remaining_s = row.remaining_s }
+                end
+            end
+        end
+    end
+    -- food that heals
+    d.food = {}
+    for _, where in ipairs({ "hotbar", "bag" }) do
+        for _, e in ipairs(list[where] or {}) do
+            if e.consumable == "food" and (e.heal or 0) > 0 then d.food[#d.food + 1] = { item = e.item, name = e.name, heal = e.heal, count = e.count } end
+        end
+    end
+    -- the estimate, as information
+    local a = M.assess({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = 12 }, { cr }, { reflexonly = true }, nil, M.cfg)
+    d.assessment = { verdict = a.verdict, est_s_to_kill = a.my_ttk and math.floor(a.my_ttk), est_s_to_die = a.their_ttk and math.floor(a.their_ttk),
+                     pl_gap = a.pl_gap }
+    -- what Claude has learned about this creature's attacks (per attack key)
+    local D = mod("defense")
+    d.attacks_learned = {}
+    for key, r in pairs(D and D.status().attacks or {}) do
+        if key:find((cr.name or "?") .. ":", 1, true) == 1 then
+            d.attacks_learned[#d.attacks_learned + 1] = { attack = key, impact_s = r.impact_s, damage = r.damage, lunge_cm = r.lunge_cm,
+                parried = r.parried, blocked = r.blocked, hit = r.hit, avoided = r.avoided }
+        end
+    end
+    d.orders = M.orders
+    return out
+end
+
 -- get_state extras (client_bridge calls state_extras on every module): what his hands can do.
 -- Cached 3 s, or until the held item changes, so get_state stays cheap.
 function M.state_extras(api, data)
@@ -2078,6 +2300,12 @@ M.HANDLERS = {
     combat_status = function() return M.status() end,
     combat_orders = function(log, args) return M.set_orders(args) end,
     held_actions = function() return M.held_actions() end,
+    combat_brief = function(log, args, ctx)
+        if type(args.target) ~= "string" or args.target == "" then
+            return { ok = false, reason = "invalid_args", data = { detail = "target is required (creature id or name)" } }
+        end
+        return M.combat_brief(log, args.target, ctx)
+    end,
     use_action = function(log, args, ctx)
         local r = M.use_action(log, args.style or "primary", args)
         if not r.ok then return r end
@@ -2089,48 +2317,46 @@ M.HANDLERS = {
 }
 
 -- Capability contract entries for these tools (they win over manifest.lua's; see its header).
+-- Kept short (prompt budget: about 350 characters per tool); tips and edge cases are in failure details.
 do
     local OBJ = { __jsontype = "object" }
     local function obj(t) return setmetatable(t or {}, OBJ) end
-    local STYLE = { type = "string", description = "One of the held item's own actions, by style (primary, special, secondary, "
-        .. "jump) or by its name from held_actions / situation (e.g. the axe's \"Overhead Chop\"). Omit for the default." }
+    local STYLE = { type = "string", description = "A held item's action: primary, special, secondary, jump, or its name (held_actions)." }
     M.MANIFEST = {
         attack = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 30, timeout_s = 150,
             detail_is_speech = true,
-            description = "Fight a creature until it is dead, the way a player does: picks the best weapon you carry, attacks with "
-                .. "real button presses, answers its attacks (parry/block/dodge/jump per your combat_orders), backs off to eat when "
-                .. "hurt (heal_hp), flees only below your flee_hp, loots, then re-equips your tool. It never refuses a creature: "
-                .. "the reply carries data.assessment (verdict likely_win|likely_lose|too_strong|boss|outnumbered, est_s_to_kill, "
-                .. "est_s_to_die) so you can warn the player or call it off with stop. Never players.",
+            description = "Fight a creature until it dies, defending per combat_orders (never players). data.assessment estimates the fight.",
             args = { type = "object", required = { "target" }, properties = obj({
-                target = { type = "string", description = "Creature id from situation or look (or its name: the nearest one)." },
+                target = { type = "string", description = "Creature id, or a name (nearest)." },
+                weapon = { type = "string", description = "Carried item to fight with, e.g. a crossbow; default best melee." },
                 style = STYLE,
-                weapon = { type = "string", description = "Item (name or id) you carry to fight with, e.g. a crossbow to shoot from range; "
-                    .. "omit to pick the best melee weapon (a held ranged weapon is kept)." },
-                force = { type = "boolean", default = false, description = "Also ignore your flee_hp for this fight (fight to the end)." } }) },
+                force = { type = "boolean", default = false, description = "Ignore flee_hp for this fight." } }) },
             ground = obj({ target = "creature" }),
-            reasons = { "unsafe", "unknown_target", "too_far", "interrupted", "timeout", "not_unlocked", "invalid_args", "companion_down", "body_error" } },
+            reasons = { "unknown_target", "too_far", "interrupted", "timeout", "not_unlocked", "invalid_args", "not_enough_resources", "companion_down", "body_error" } },
         use_action = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 2, timeout_s = 8,
             detail_is_speech = true,
-            description = "Use one of your held item's actions once (a single swing, block or the special), e.g. to show the player "
-                .. "or when asked for a specific move. Lists of actions: held_actions.",
+            description = "Use one of your held item's actions once (a swing, a block, the special), e.g. to show the player.",
             args = { type = "object", properties = obj({ style = STYLE }) },
             reasons = { "invalid_args", "not_unlocked", "not_implemented", "verification_failed", "interrupted", "companion_down" } },
         held_actions = { kind = "read", llm = true, moves = false, duration_s = 0, timeout_s = 5,
-            description = "The actions of what you are holding, from the item's own data: style, display name (e.g. Chop, "
-                .. "Overhead Chop), input, whether a perk is needed and unlocked, damage and stamina.",
+            description = "The actions of what you hold, from item data: style, name (e.g. Chop, Overhead Chop), perk, unlocked, damage.",
             args = { type = "object", properties = obj() } },
         combat_orders = { kind = "waiter", llm = true, moves = false, duration_s = 0, timeout_s = 5,
-            description = "Set your standing combat policy (kept until changed): stance defensive|aggressive|passive|flee, "
-                .. "defense auto|parry|block|dodge|none, allow_jump, disengage (back off and eat when hurt), heal_hp and "
-                .. "reengage_hp (HP fractions), flee_hp, avoid (creature names never to fight).",
+            description = "Set your standing combat policy, kept until changed.",
             args = { type = "object", properties = obj({
                 stance = { type = "string", enum = { "defensive", "aggressive", "passive", "flee" } },
                 defense = { type = "string", enum = { "auto", "parry", "block", "dodge", "none" } },
-                allow_jump = { type = "boolean" }, disengage = { type = "boolean" },
+                abilities = { type = "object", description = "Spells the reflex may use: {phase_dash, windstep, tempest_shield} true/false." },
+                allow_jump = { type = "boolean" }, disengage = { type = "boolean", description = "Back off and eat when hurt." },
                 heal_hp = { type = "number", minimum = 0, maximum = 1 }, reengage_hp = { type = "number", minimum = 0, maximum = 1 },
-                flee_hp = { type = "number", minimum = 0, maximum = 1 },
+                flee_hp = { type = "number", minimum = 0, maximum = 1 }, protect = { type = "string" },
                 avoid = { type = "array", items = { type = "string" } } }) } },
+        combat_brief = { kind = "read", llm = true, moves = false, duration_s = 0.3, timeout_s = 10,
+            description = "Facts to prepare a fight: power levels, the creature's weaknesses, your weapons vs it, usable buff/defence "
+                .. "spells, healing food, the estimate, its learned attacks.",
+            args = { type = "object", required = { "target" }, properties = obj({
+                target = { type = "string", description = "Creature id, or a name (nearest)." } }) },
+            ground = obj({ target = "creature" }) },
         combat_status = { kind = "probe", llm = false, timeout_s = 5, description = "Combat state (debug).", args = { type = "object", properties = obj() } },
     }
 end

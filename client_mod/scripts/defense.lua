@@ -20,6 +20,7 @@
 -- REACH the server inside [T - window, T], so it is sent at  t_tel + T - 2L - window/2 + offset.
 -- T is observed directly as (damage/block event time - telegraph time): both arrive L late, so their
 -- difference is the server's T.
+local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
 local D = {}
 
 D.cfg = {
@@ -38,6 +39,15 @@ D.cfg = {
     reach_margin_cm = 120,
     default_reach_cm = 400,
     low_top_cm = 60,        -- a shape whose top is below this (above the attacker's feet) is a low sweep
+    lunge_cm = 150,         -- a learned approach this long during an attack makes it a "lunge"
+    danger_frac = 0.3,      -- an attack expected to take this share of max HP is fully dangerous
+    unknown_danger = 0.3,
+    prior_strength = 4,     -- pseudo-observations behind the rule prior
+    prior_rule = 0.75, prior_alt = 0.5, prior_fit = 0.6, prior_misfit = 0.3,
+    danger_bonus = 0.3,     -- a fitting ability's prior grows by this x danger
+    ability_cost = 0.35,    -- runes/cooldown cost, scaled by (1 - danger)
+    ability_latency_s = 0.6, -- spell cast latency until measured (the spells module reports it)
+    ability_margin_s = 0.15,
 }
 
 local function S()
@@ -95,16 +105,69 @@ function D.impact_delay(key, info)
     return D.cfg.prior_impact_s, "prior"
 end
 
+-- ------------------------------------------------------------------ the threat (data + learned)
+-- What this attack will do, from its data and from what it did before (all per attack key, never per
+-- creature): impact time, reach incl. learned lunge, expected damage, flags.
+function D.threat(info, max_hp)
+    local key = info.key or "?"
+    local r = S().attacks[key] or {}
+    local reach = (info.shape and info.shape.reach_cm) or D.cfg.default_reach_cm
+    local lunge = r.lunge_cm or 0
+    local th = { key = key, reach_cm = reach + lunge, lunge_cm = lunge, damage = r.damage, unblockable = info.unblockable,
+                 unparryable = info.unparryable, low = info.shape and info.shape.low, aoe = info.shape and info.shape.aoe }
+    local frac = (th.damage and max_hp and max_hp > 0) and th.damage / max_hp or nil
+    th.danger = frac and math.min(1, frac / D.cfg.danger_frac) or D.cfg.unknown_danger
+    th.tags = {}
+    if th.unblockable then th.tags.unblockable = true end
+    if th.unparryable then th.tags.unparryable = true end
+    if th.low then th.tags.low = true end
+    if th.aoe then th.tags.aoe = true end
+    if lunge >= D.cfg.lunge_cm then th.tags.lunge = true end
+    th.tags.melee = true
+    return th
+end
+
+-- ------------------------------------------------------------------ learning which answer works (bandit)
+-- Thompson sampling over Beta posteriors per (attack key, response), with a prior from the rules.
+-- Reward: avoided / parried = 1, blocked = 0.75, hit = scaled by the damage taken, whiff = no update.
+-- (UCB1 can lock onto an early winner; Thompson keeps exploring in proportion to doubt, which suits a
+-- small, changing action set: research record in docs/design/defense-abilities.md.)
+local function probit(u) -- inverse normal CDF approximation (Tukey lambda); probit(0.5) = 0
+    u = clamp(u, 1e-6, 1 - 1e-6)
+    return 4.91 * (u ^ 0.14 - (1 - u) ^ 0.14)
+end
+
+local function arm(key, resp)
+    local r = rec(key)
+    r.arms = r.arms or {}
+    local a = r.arms[resp]
+    if not a then a = { s = 0, f = 0, n = 0 }; r.arms[resp] = a end
+    return a
+end
+D.arm = arm
+
+-- Beta(alpha, beta) sample from one uniform (normal approximation, clamped).
+local function beta_sample(alpha, beta, u)
+    local m = alpha / (alpha + beta)
+    local sd = math.sqrt(alpha * beta / ((alpha + beta) ^ 2 * (alpha + beta + 1)))
+    return clamp(m + probit(u) * sd, 0, 1)
+end
+D.beta_sample = beta_sample
+
+-- ------------------------------------------------------------------ choosing the answer
 -- Plan the answer to one telegraph.
 --   info = {key, dmg_time, unblockable, unparryable, shape = shape_info, ...}
 --   ctx  = {dist_cm, latency_s (one way), stamina, can_parry, can_block, parry_cost, block_cost, evade_cost,
---           hp_frac, heal_hp}
---   orders = {defense = auto|parry|block|dodge|none, allow_jump}
--- -> {action = parry|block|dodge|jump|retreat|none, at_s (after the telegraph), hold_s, impact_s, why, src}
+--           hp_frac, max_hp, heal_hp,
+--           abilities = {phase_dash = {available, latency_s, why}, windstep = {...}, tempest_shield = {...}}}
+--   orders = {defense = auto|parry|block|dodge|none, allow_jump, abilities = {name = false to forbid}}
+-- -> {action = parry|block|dodge|jump|phase_dash|windstep|tempest_shield|retreat|none, at_s, hold_s,
+--     cast_at_s (abilities), evade_at_s (phase dash), impact_s, why, src, dir, candidates, threat}
 function D.plan(info, ctx, orders, rng)
     rng = rng or rnd
     orders = orders or {}
     info = info or {}
+    ctx = ctx or {}
     local cfg = D.cfg
     S().counts.plans = S().counts.plans + 1
     local key = info.key or "?"
@@ -112,20 +175,20 @@ function D.plan(info, ctx, orders, rng)
     local L = clamp(ctx.latency_s or 0.03, 0, 0.25)
     local react = cfg.react_s[1] + rng() * (cfg.react_s[2] - cfg.react_s[1])
     local err = (rng() * 2 - 1) * cfg.jitter_s
-    local p = { impact_s = T, src = src, key = key }
+    local th = D.threat(info, ctx.max_hp)
+    local p = { impact_s = T, src = src, key = key, threat = th }
     local style = orders.defense or "auto"
     if style == "none" then p.action, p.why = "none", "orders"; return p end
-    local reach = (info.shape and info.shape.reach_cm) or cfg.default_reach_cm
-    if ctx.dist_cm and ctx.dist_cm > reach + cfg.reach_margin_cm then p.action, p.why = "none", "out_of_reach"; return p end
+    if ctx.dist_cm and ctx.dist_cm > th.reach_cm + cfg.reach_margin_cm then p.action, p.why = "none", "out_of_reach"; return p end
     local st = ctx.stamina or 0
     local blockable = not info.unblockable
     local parryable = blockable and not info.unparryable
-    local low_or_aoe = info.shape and (info.shape.low or info.shape.aoe)
-    local can_jump = orders.allow_jump ~= false and low_or_aoe
+    local can_jump = orders.allow_jump ~= false and (th.low or th.aoe)
     local can_dodge = st >= (ctx.evade_cost or 15)
     local can_parry = ctx.can_parry and parryable and st >= (ctx.parry_cost or 10)
     local can_block = ctx.can_block and blockable and st >= (ctx.block_cost or 10)
     local low_hp = ctx.hp_frac and ctx.heal_hp and ctx.hp_frac < ctx.heal_hp
+    -- 1. the rule choice (also the prior)
     local pick
     if style == "parry" then pick = can_parry and "parry" or can_block and "block" or can_dodge and "dodge"
     elseif style == "block" then pick = can_block and "block" or can_dodge and "dodge"
@@ -142,16 +205,62 @@ function D.plan(info, ctx, orders, rng)
     pick = pick or "retreat"
     local r = S().attacks[key]
     local off = r and r.offset or 0
-    if pick == "parry" then
-        local at = T - 2 * L - cfg.parry_window_s / 2 + off + err
-        if at < react then
-            -- too fast to time a parry from the telegraph: a human would just raise the block
-            pick, p.why = can_block and "block" or (can_dodge and "dodge" or "retreat"), "too_fast_to_parry"
-        else
-            p.at_s, p.hold_s = at, math.max(cfg.min_block_s, T - at + cfg.block_tail_s)
+    -- a parry the telegraph leaves no time for becomes a block (a human would just raise the shield)
+    local parry_at = T - 2 * L - cfg.parry_window_s / 2 + off + err
+    if pick == "parry" and parry_at < react then
+        pick, p.why = can_block and "block" or (can_dodge and "dodge" or "retreat"), "too_fast_to_parry"
+    end
+    -- 2. candidates: the plain answers that are possible now, plus abilities that are available and fit
+    --    in the time the telegraph leaves (style "auto" only: an explicit style is the model's order)
+    local cands = { [pick] = cfg.prior_rule }
+    if style == "auto" then
+        if can_parry and parry_at >= react then cands.parry = cands.parry or cfg.prior_alt end
+        if can_block then cands.block = cands.block or cfg.prior_alt end
+        if can_dodge then cands.dodge = cands.dodge or cfg.prior_alt end
+        if can_jump then cands.jump = cands.jump or cfg.prior_alt end
+        local AB = D.abilities()
+        for name, ab in pairs(ctx.abilities or {}) do
+            local def = AB[name]
+            local allowed = not (orders.abilities and orders.abilities[name] == false)
+            if def and allowed and ab.available then
+                local lead = (ab.latency_s or cfg.ability_latency_s) + (def.then_input == "evade" and cfg.evade_lead_s or cfg.ability_margin_s)
+                if T - L - lead >= react then
+                    -- prior: higher when the ability is made for this kind of attack
+                    local fit = false
+                    for _, tag in ipairs(def.avoids or {}) do if th.tags[tag] then fit = true end end
+                    -- a fitting ability is worth more the more dangerous the attack (learned damage)
+                    cands[name] = fit and math.min(0.95, cfg.prior_fit + cfg.danger_bonus * th.danger) or cfg.prior_misfit
+                end
+            end
         end
     end
-    if pick == "block" then
+    -- 3. Thompson sampling with a cost: runes / cooldowns are worth spending on dangerous attacks only
+    -- no outcome seen for this attack yet: act on the priors (what a sensible player does first);
+    -- once there is evidence, sample (explore in proportion to doubt)
+    local tried = 0
+    for _, a in pairs((r and r.arms) or {}) do tried = tried + a.n end
+    local best, best_score
+    p.candidates = {}
+    for resp, prior in pairs(cands) do
+        local a = arm(key, resp)
+        local alpha = 1 + cfg.prior_strength * prior + a.s
+        local beta = 1 + cfg.prior_strength * (1 - prior) + a.f
+        local sample = tried > 0 and beta_sample(alpha, beta, rng()) or alpha / (alpha + beta)
+        local cost = 0
+        if D.abilities()[resp] then cost = cfg.ability_cost * (1 - th.danger) end
+        local score = sample - cost
+        p.candidates[#p.candidates + 1] = { action = resp, score = math.floor(score * 1000) / 1000, n = a.n }
+        if not best_score or score > best_score + 1e-9 or (math.abs(score - best_score) <= 1e-9 and resp == pick) then
+            best, best_score = resp, score
+        end
+    end
+    table.sort(p.candidates, function(x, y) return x.score > y.score end)
+    if best ~= pick then p.why = p.why or "learned" end
+    pick = best
+    -- 4. timing of the chosen answer
+    if pick == "parry" then
+        p.at_s, p.hold_s = parry_at, math.max(cfg.min_block_s, T - parry_at + cfg.block_tail_s)
+    elseif pick == "block" then
         p.at_s = react
         p.hold_s = math.max(cfg.min_block_s, T - react + cfg.block_tail_s)
     elseif pick == "dodge" then
@@ -163,6 +272,24 @@ function D.plan(info, ctx, orders, rng)
         p.hold_s = 0.25
     elseif pick == "retreat" then
         p.at_s, p.hold_s = react, 0.8
+    else -- an ability: cast early enough that it is active at the impact
+        local ab = (ctx.abilities or {})[pick] or {}
+        local def = D.abilities()[pick] or {}
+        local lat = ab.latency_s or cfg.ability_latency_s
+        if def.then_input == "evade" then
+            p.evade_at_s = math.max(react + lat, T - L - cfg.evade_lead_s + err)
+            p.cast_at_s = math.max(react, p.evade_at_s - lat)
+            p.dir = (rng() < 0.5) and "left" or "right"
+            p.at_s, p.hold_s = p.cast_at_s, 0.35
+        elseif def.then_input == "block" then
+            p.cast_at_s = react
+            p.at_s = react + lat
+            p.hold_s = math.max(cfg.min_block_s, T - p.at_s + cfg.block_tail_s)
+        else
+            p.cast_at_s = math.max(react, T - L - lat - cfg.ability_margin_s + err)
+            p.at_s, p.hold_s = p.cast_at_s, 0.3
+        end
+        p.spell_asset = def.spell_asset
     end
     p.action = pick
     p.why = p.why or (style == "auto" and (not blockable and "unblockable" or low_hp and "low_hp" or "auto") or style)
@@ -179,8 +306,21 @@ function D.observe(key, dt)
     r.last_dt = dt
 end
 
--- Outcome of a planned defence: parried | blocked | hit | avoided | whiff. Adapts the parry offset.
-function D.feedback(key, action, outcome)
+-- How far the attacker travelled between its telegraph and the impact (a lunge), and the damage it did.
+function D.observe_lunge(key, cm)
+    if not key or not cm or cm < 0 or cm > 3000 then return end
+    local r = rec(key)
+    r.lunge_cm = r.lunge_cm and (r.lunge_cm + D.cfg.ema * (cm - r.lunge_cm)) or cm
+end
+function D.observe_damage(key, amount)
+    if not key or not amount or amount <= 0 then return end
+    local r = rec(key)
+    r.damage = r.damage and math.max(r.damage * 0.8, r.damage + D.cfg.ema * (amount - r.damage)) or amount
+end
+
+-- Outcome of a planned defence: parried | blocked | hit | avoided | whiff. Adapts the parry offset
+-- and the bandit arm of the chosen response. damage = what Claude took (for the hit reward).
+function D.feedback(key, action, outcome, damage)
     local r = rec(key)
     local s = S()
     if r[outcome] then r[outcome] = r[outcome] + 1 end
@@ -191,8 +331,26 @@ function D.feedback(key, action, outcome)
     elseif action == "dodge" and outcome == "hit" then
         r.dodge_hits = (r.dodge_hits or 0) + 1
     end
+    if damage and damage > 0 then D.observe_damage(key, damage) end
+    if outcome ~= "whiff" and action and action ~= "none" then
+        local reward = (outcome == "parried" or outcome == "avoided") and 1 or (outcome == "blocked" and 0.75) or 0
+        if outcome == "hit" and damage and r.damage and r.damage > 0 then reward = clamp(0.3 * (1 - damage / r.damage), 0, 0.3) end
+        local a = arm(key, action)
+        a.s, a.f, a.n = a.s + reward, a.f + (1 - reward), a.n + 1
+    end
     r.last = { action = action, outcome = outcome, t = os.time() }
 end
+
+-- The defensive abilities table (data file client_mod/scripts/defense_abilities.lua).
+local AB
+function D.abilities()
+    if not AB then
+        local ok, d = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/defense_abilities.lua"))() end)
+        AB = ok and type(d) == "table" and d or {}
+    end
+    return AB
+end
+function D.set_abilities(t) AB = t end
 
 function D.status()
     local s = S()

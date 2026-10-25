@@ -12,6 +12,9 @@ $ClientManifest = 'C:\Program Files (x86)\Steam\steamapps\appmanifest_1374490.ac
 $ClientArgs    = @('-nullrhi', '-nosound', '-unattended', '-nosplash', '-log')
 # DW_CLIENT_* overrides exist for offline tests (a fake client: tests/test_client_ops.py).
 $ClientProcName = if ($env:DW_CLIENT_PROC) { $env:DW_CLIENT_PROC } else { 'RSDragonwilds-Win64-Shipping' }
+# With DW_CLIENT_PROC overridden (tests: a fake client) the tree is ONLY that process, never the real
+# launcher/crash reporter, so a test watchdog or stop_client can't see or kill the live game.
+$ClientTreeNames = if ($env:DW_CLIENT_PROC) { @($ClientProcName) } else { @($ClientProcName, 'RSDragonwilds', 'CrashReportClient') }
 $ClientGameLog = if ($env:DW_CLIENT_GAME_LOG) { $env:DW_CLIENT_GAME_LOG } else { Join-Path $env:LOCALAPPDATA 'RSDragonwilds\Saved\Logs\RSDragonwilds.log' }
 $ClientModLog  = if ($env:DW_CLIENT_MOD_LOG) { $env:DW_CLIENT_MOD_LOG } else { Join-Path $RepoRoot 'logs\client\client.log' }
 $ClientDumpDir = if ($env:DW_CLIENT_DUMP_DIR) { $env:DW_CLIENT_DUMP_DIR } else { Join-Path $ClientWin64 'ue4ss' }
@@ -35,7 +38,7 @@ function Get-ClientProcess {
 # Everything that belongs to one client instance: the shipping exe, its launcher stub, the crash reporter.
 function Get-ClientProcessTree {
     Get-Process -ErrorAction SilentlyContinue | Where-Object {
-        $_.ProcessName -in @($ClientProcName, 'RSDragonwilds', 'CrashReportClient') }
+        $_.ProcessName -in $ClientTreeNames }
 }
 function Get-ClientBuildId {
     if (Test-Path $ClientManifest) { (Select-String -Path $ClientManifest -Pattern '"buildid"\s+"(\d+)"').Matches[0].Groups[1].Value }

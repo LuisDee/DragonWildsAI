@@ -265,7 +265,7 @@ local function reset_world()
     INV.equips, INV.uses, INV.interacts = {}, {}, 0
     held.right, held.left = nil, "ITEM_Logging_Axe_Mithril"
     pawn.loc, pawn.hp, stamina, special = { X = 0, Y = 0, Z = 0 }, 100, 80, 100
-    _G.DWCombat, _G.DWArbiter = nil, nil
+    _G.DWCombat, _G.DWArbiter, _G.DWDefense = nil, nil, nil
     Cm.orders.stance, Cm.orders.force, Cm.orders.avoid = "defensive", false, {}
 end
 
@@ -816,6 +816,132 @@ do
     inv_list.hotbar[#inv_list.hotbar] = nil
     pc.PlayerCameraManager, pc.SetControlRotation = nil, function() end
     A.reset(nil)
+end
+
+-- ================================================================ 14. defensive abilities: learn what avoids a lunge (bandit)
+do
+    _G.DWDefense = nil
+    local function ctxf() return { dist_cm = 300, latency_s = 0.03, stamina = 60, can_parry = false, can_block = true, block_cost = 10,
+        evade_cost = 15, hp_frac = 1, max_hp = 100, heal_hp = 0.5,
+        abilities = { phase_dash = { available = true, latency_s = 0.4 }, tempest_shield = { available = true, latency_s = 0.4 },
+                      windstep = { available = false, why = "no runes" } } } end
+    local info = { key = "Dragon:ATK_Lunge", dmg_time = 1.6 }
+    local first = Dm.plan(info, ctxf(), { defense = "auto" }, function() return 0.5 end)
+    check("abilities: with no history the rule answer comes first (block)", first.action == "block", first.action)
+    check("abilities: unavailable ability not offered", (function() for _, c in ipairs(first.candidates) do if c.action == "windstep" then return false end end return true end)())
+    Dm.observe_lunge("Dragon:ATK_Lunge", 450)
+    check("threat: a learned lunge extends reach and tags it", Dm.threat(info, 100).tags.lunge and Dm.threat(info, 100).reach_cm >= 450 + 300)
+    -- the fake world: a lunge hurts unless answered with Phase Dash (or a shield + block)
+    local function outcome_of(action)
+        if action == "phase_dash" or action == "tempest_shield" then return "avoided", 0 end
+        return "hit", 40
+    end
+    local picks = {}
+    math.randomseed(3)
+    for i = 1, 25 do
+        local p = Dm.plan(info, ctxf(), { defense = "auto" })
+        local o, dmg = outcome_of(p.action)
+        Dm.feedback(info.key, p.action, o, dmg)
+        picks[#picks + 1] = p.action
+    end
+    local late_ok = 0
+    for i = 16, 25 do if picks[i] == "phase_dash" or picks[i] == "tempest_shield" then late_ok = late_ok + 1 end end
+    check("bandit: learns an ability avoids the lunge (>= 8 of the last 10)", late_ok >= 8, table.concat(picks, ","))
+    check("bandit: learned the lunge's damage", (Dm.rec(info.key).damage or 0) > 30, Dm.rec(info.key).damage)
+    local p2 = Dm.plan(info, ctxf(), { defense = "auto", abilities = { phase_dash = false, tempest_shield = false } }, function() return 0.5 end)
+    check("orders: the model can forbid abilities", p2.action ~= "phase_dash" and p2.action ~= "tempest_shield", p2.action)
+    local pd = Dm.plan(info, (function() local c = ctxf(); c.abilities.tempest_shield = nil; return c end)(), { defense = "auto" }, function() return 0.5 end)
+    if pd.action == "phase_dash" then
+        check("phase dash timing: cast before the evade, evade before impact", pd.cast_at_s < pd.evade_at_s and pd.evade_at_s < 1.6 and pd.spell_asset == "USD_PhaseDash")
+    else
+        check("phase dash chosen when it is the learned answer", false, pd.action)
+    end
+    local tooshort = Dm.plan({ key = "Rat:Bite", dmg_time = 0.4 }, ctxf(), {}, function() return 0.5 end)
+    check("abilities: a too-short telegraph leaves no time to cast", (function() for _, c in ipairs(tooshort.candidates) do if c.action == "phase_dash" then return false end end return true end)())
+    _G.DWDefense = nil
+end
+
+-- ================================================================ 15. live-like: a lunging attack, Phase Dash through the spells contract
+reset_world()
+do
+    _G.DWDefense = nil
+    PERKS.unlocked = {}
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local casts = {}
+    local fake_spells = {
+        ability_status = function(asset) return { available = asset ~= "USD_Windstep", latency_s = 0.35 } end,
+        cast_now = function(log, asset, opts)
+            casts[#casts + 1] = { asset = asset, t = T, owner = opts and opts.owner_token }
+            world.active_spell = { asset = asset, t = T }
+            local job = { t = T }
+            function job.poll(self) if T - self.t >= 0.3 then return { ok = true, cast_t = self.t + 0.3 } end end
+            return job
+        end,
+    }
+    Cm.set_modules({ spells = fake_spells })
+    local drake = new_creature("BP_AI_Drake_C_1", "Drake", { X = 600, Y = 0, Z = 0 }, { hp = 50000, pl = 2, arch = 0 })
+    check("lunge: fight starts", Cm._start_fight(nil, drake, { mode = "attack", force = true }).ok)
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 6)
+    local results = {}
+    for i = 1, 12 do
+        world.resolved, world.result = nil, nil
+        -- telegraph: a 1.6 s lunge; the server resolves it at impact
+        local shape = obj({ Depth = 250, ZHeight = 150, TopAngle = 60, Offset = { X = 0, Z = 0 } }, "DominionShape_Wedge /Game/x.Shape")
+        local ad = obj({ AttackPropertyFlags = 0, GetDamageTime = function() return 1.6 end, GetLastDamageTime = function() return 1.6 end,
+                         GetDuration = function() return 2.5 end, Damage = { ForEach = function(_, f) f(1, { get = function() return { Time = 1.6, Shape = shape } end }) end } },
+                       "ATK_Drake_Lunge_C /Game/AI/Drake/ATK_Drake_Lunge.Default__ATK_Drake_Lunge_C")
+        local comp = obj({ GetOwner = function() return drake end, CurrentAttack = { AttackData = ad } }, "C /x")
+        hooks["/Script/Dominion.AiAttackComponent:Multicast_PerformAttackOnSimulatedProxies"]({ get = function() return comp end }, { get = function() return 3 end })
+        drake.loc.X = pawn.loc.X + 500 -- it rears back, then lunges 3.5 m
+        local impact, start_x = T + 1.6, drake.loc.X
+        world.on_step = function()
+            -- the lunge: the drake closes 4 m during the wind-up
+            if T < impact then drake.loc.X = math.max(pawn.loc.X + 150, drake.loc.X - 2.5) end
+            if T >= impact and not world.resolved then
+                world.resolved = true
+                local sp = world.active_spell
+                local phasing = sp and sp.asset == "USD_PhaseDash" and T - sp.t < 2.0 and world.evading_until and world.evading_until > T
+                local shielded = sp and sp.asset == "USD_TempestShield" and world.block_last and T - world.block_last < 0.05
+                if phasing or shielded then world.result = "avoided"
+                else
+                    pawn.hp = pawn.hp - 30
+                    multicast(pawn, drake, 30)
+                    world.result = "hit"
+                end
+                world.active_spell = nil
+            end
+        end
+        run_until(function() local f = Cm._state().fight; return world.resolved and f and f.phase ~= "defend" end, 4)
+        results[#results + 1] = world.result
+        pawn.hp = 100 -- keep the fight going (heal between rounds)
+        drake.loc.X = start_x
+        step(80)
+    end
+    local late = 0
+    for i = 8, 12 do if results[i] == "avoided" then late = late + 1 end end
+    check("lunge: learns to avoid it with an ability (>= 4 of the last 5)", late >= 4, table.concat(results, ","))
+    check("lunge: abilities cast through the spells contract with the fight's arbiter token", #casts >= 4 and casts[1].owner ~= nil, #casts)
+    check("lunge: lunge distance learned", (Dm.rec("Drake:ATK_Drake_Lunge").lunge_cm or 0) > 200, Dm.rec("Drake:ATK_Drake_Lunge").lunge_cm)
+    Cm.stop(nil, "test")
+    Cm.set_modules({ spells = false })
+    A.reset(nil)
+end
+
+-- ================================================================ 16. combat_brief: facts for the model
+reset_world()
+do
+    new_creature("BP_AI_RuntGoblin_Character_C_br", "Goblin Runt", { X = 800, Y = 0, Z = 0 }, { hp = 156, pl = 1, arch = 0 })
+    local b = Cm.HANDLERS.combat_brief(nil, { target = "Goblin Runt" }, {})
+    check("brief: ok", b.ok, b.reason)
+    local d = b.data or {}
+    check("brief: creature and power levels", d.creature and d.creature.power_level == 1 and d.me.power_level == 2)
+    check("brief: wiki prior weakness (Fire) from the data file", d.weaknesses.priors and d.weaknesses.priors.weak["DamageType.Magical.Fire"])
+    local dag
+    for _, w in ipairs(d.weapons or {}) do if w.item == "ITEM_Dagger_Bone" then dag = w end end
+    check("brief: his weapons with damage types vs the target", dag and dag.vs_target["DamageType.Physical.Stab"] == "neutral" and dag.dps)
+    check("brief: healing food listed", d.food and #d.food >= 1 and d.food[1].heal == 10)
+    check("brief: estimate as information", d.assessment and d.assessment.verdict ~= nil)
+    check("brief: invalid args", Cm.HANDLERS.combat_brief(nil, {}, {}).reason == "invalid_args")
 end
 
 print(string.format("combat/arbiter tests: %d passed, %d failed", pass, failn))
