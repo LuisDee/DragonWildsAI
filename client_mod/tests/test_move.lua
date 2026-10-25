@@ -631,6 +631,7 @@ _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .
 walls = { { 900, 1000, -300, 300, true } }; raised = {}; oracle = nil; lakes = {}
 pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 90000, Y = 90000, Z = 0 }
 profile_not_found = 0
+_G.DW_TRACE_PROFILE = nil
 local MP = dofile(MOVE)
 MP.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 60 })
 run(400)
@@ -640,6 +641,7 @@ check("profile: a validated preset is used", s.trace_profile == "Player", tostri
 check("profile: planning works (arrives round the wall)", s.result and s.result.status == "arrived", s.result and s.result.status)
 MP.stop(log)
 VALID_PROFILES = {} -- a game with neither preset: fall back to Visibility, still plans
+_G.DW_TRACE_PROFILE = nil -- a new client run re-validates
 _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
 pawn.loc = { X = 0, Y = 0, Z = 0 }
 local MP2 = dofile(MOVE)
@@ -653,6 +655,14 @@ VALID_PROFILES = { Player = true, Pawn = true }
 walls = {}
 
 _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+-- 21. MAIN MENU: the controller's pawn is a DefaultPawn (no CharacterMovement) -> refuse / pause
+local real_cm = pawn.CharacterMovement
+pawn.CharacterMovement = nil
+local MM = dofile(MOVE)
+local rr = MM.go_to(log, { 5, 0, 0 }, {})
+check("menu: refuses to drive a non-character pawn", rr.ok == false, rr.error)
+pawn.CharacterMovement = real_cm
+
 -- 7. arbiter hooks: actor target ({actor=obj}), snapshot/restore, face_when_near
 walls = {}; pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 1500, Y = 0, Z = 0 }; oracle = nil
 M.follow(log, { actor = luis }, 2, { sprint = true, face_when_near = true })

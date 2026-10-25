@@ -252,22 +252,60 @@ end
 -- bBlockingHit and reads true on clean floor hits), so "started inside geometry" = Distance 0.
 local KSL
 local C0 = { R = 0, G = 0, B = 0, A = 0 }
--- Traces use the pawn capsule's OWN collision profile (LineTraceSingleByProfile, "Player" on
--- Claude, read live), i.e. exactly what blocks his movement; the Visibility channel also hits
--- decorative clutter he walks through. Falls back to Visibility if the profile call fails.
-local PROFILE
+-- Traces use a real collision PRESET for a pawn (LineTraceSingleByProfile), i.e. what blocks a
+-- character; the Visibility channel also hits decorative clutter he walks through.
+-- NOT the capsule's own profile name: with per-channel responses UE reports it as "Custom", which is
+-- not a preset, so the engine logs "COLLISION PROFILE [Custom] is not found" and returns NO hit
+-- (live 2026-10-25 21:33+: 27k log lines, blind local planner). Candidates are the game's "Player"
+-- preset (Claude's capsule used it earlier) and the engine default "Pawn"; each is VALIDATED with one
+-- downward trace beside Claude that must find the floor Visibility finds. Else: Visibility.
+local PROFILE, PROFILE_NAME
+M.PROFILE_CANDIDATES = { "Player", "Pawn" }
+local function pick_profile(ctx)
+    KSL = KSL or StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+    local okl, me = pcall(function() return ctx:K2_GetActorLocation() end)
+    local okh, hh = pcall(function() return ctx.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
+    if not (okl and me) then return false end
+    hh = (okh and tonumber(hh)) or 90
+    local x, y = me.X + 80, me.Y -- beside Claude: his own gear blocks traces
+    local a, b = { X = x, Y = y, Z = me.Z - hh + 100 }, { X = x, Y = y, Z = me.Z - hh - 300 }
+    local ov = {}
+    local vis = KSL:LineTraceSingle(ctx, a, b, 0, false, {}, 0, ov, true, C0, C0, 0.0) == true
+    for _, n in ipairs(M.PROFILE_CANDIDATES) do
+        local okf, fn = pcall(function() return FName(n) end)
+        if okf and fn then
+            local op = {}
+            local okt, hit = pcall(function() return KSL:LineTraceSingleByProfile(ctx, a, b, fn, false, {}, 0, op, true, C0, C0, 0.0) end)
+            if okt and hit == true and (not vis or not op.ImpactPoint or not ov.ImpactPoint
+                or math.abs(op.ImpactPoint.Z - ov.ImpactPoint.Z) < 150) then
+                PROFILE_NAME = n
+                return fn
+            end
+        end
+    end
+    PROFILE_NAME = "visibility"
+    return false
+end
 local function raw_trace(ctx, a, b)
     KSL = KSL or StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
     local out = {}
     if PROFILE == nil then
-        local okp, name = pcall(function() return ctx.CapsuleComponent:GetCollisionProfileName():ToString() end)
-        local okf, fn = pcall(function() return FName(okp and name ~= "" and name or "Pawn") end)
-        PROFILE = okf and fn or false
+        -- shared by every load of this file (status, bridge, commands): validated once per client run
+        local g = rawget(_G, "DW_TRACE_PROFILE")
+        if g and g.name then
+            PROFILE_NAME = g.name
+            PROFILE = (g.name ~= "visibility") and FName(g.name) or false
+        else
+            local okp, fn = pcall(pick_profile, ctx)
+            PROFILE = okp and fn or false
+            _G.DW_TRACE_PROFILE = { name = PROFILE_NAME or "visibility" }
+        end
     end
     if PROFILE then
         local ok, hit = pcall(function() return KSL:LineTraceSingleByProfile(ctx, a, b, PROFILE, false, {}, 0, out, true, C0, C0, 0.0) end)
         if ok then return hit == true, out end
-        PROFILE = false
+        PROFILE, PROFILE_NAME = false, "visibility"
+        _G.DW_TRACE_PROFILE = { name = "visibility" }
         out = {}
     end
     local hit = KSL:LineTraceSingle(ctx, a, b, 0, false, {}, 0, out, true, C0, C0, 0.0)
@@ -668,13 +706,21 @@ end
 -- access violation), so while paused, or with an invalid controller/pawn, the loop does NOTHING.
 local function paused() return rawget(_G, "DW_PAUSE") == true end
 
+-- Only a real player CHARACTER may be driven: in the main menu (L_FrontEnd) the controller owns a
+-- DefaultPawn at (0,0,0) (live 23:10: a go_to "drove" it). A player character has CharacterMovement.
+local function is_character(pawn)
+    if not (pawn and pawn:IsValid()) then return false end
+    local ok, mc = pcall(function() return pawn.CharacterMovement end)
+    return ok and mc ~= nil and mc:IsValid()
+end
+
 local function tick(st, gen, log)
     if st.gen ~= gen then return "stale" end
     if paused() then st.status = "paused"; return end
     local pc, pawn = st.pc, nil
     if not (pc and pc:IsValid()) then st.status = "paused"; return end
     pawn = pc.Pawn
-    if not (pawn and pawn:IsValid()) then st.status = "paused"; return end
+    if not is_character(pawn) then st.status = "paused"; st.prog_t = nil; return end
     local t = now(pawn)
     local dt = st.last_t and (t - st.last_t) or 0
     st.last_t = t
@@ -1634,7 +1680,7 @@ local function start(log, mode, opts)
     if st.handle then pcall(CancelDelayedAction, st.handle) end
     local pc = local_pc()
     local pawn = pc and pc.Pawn
-    if not (pawn and pawn:IsValid()) then return { ok = false, error = "no pawn" } end
+    if not is_character(pawn) then return { ok = false, error = "no player character (main menu / loading?)" } end
     if st.mode ~= "idle" then pcall(mem_flush, st, log, "interrupted") end
     local gen = st.gen + 1
     local keep = { gen = gen, nav_id = st.nav_id, eis = st.eis, pts = st.pts }
@@ -1802,7 +1848,7 @@ function M.status()
         stuck_n = st.stuck_n, stuck_total = st.stuck_total, jumps = st.jumps, double_jumps = st.double_jumps,
         last_stuck = st.last_stuck, ticks = st.ticks, self_edges = st.self_edges,
         prefetched = st.prefetched, lp_stand_s = st.lp_stand_s, unstuck = _G.DW_UNSTUCK,
-        hops = st.hops, water_entries = st.water_entries, in_water = st.in_water,
+        hops = st.hops, water_entries = st.water_entries, in_water = st.in_water, trace_profile = PROFILE_NAME or (rawget(_G, "DW_TRACE_PROFILE") and _G.DW_TRACE_PROFILE.name),
         bug2 = st.bug and { dir = st.bug.dir, travel_m = math.floor(st.bug.travel) / 100 } or nil,
         lead = st.lead and { helper = st.lead.name, phase = st.lead.phase or "waiting" } or nil,
         memory = st.mpath and { src = st.msrc, wp = st.mwp, n = #st.mpath } or nil, trip_pts = st.trip and #st.trip,

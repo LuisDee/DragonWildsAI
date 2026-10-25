@@ -907,6 +907,11 @@ Service: `client_mod/scripts/move.lua` (go_to / follow / stop / status). Command
   - Water cells cost ×8; segment targets prefer dry ground; known water ahead triggers a re-plan.
   - UNVERIFIED live: whether any channel sees the real water surface.
 - **Wall-point blocking fix:** a recorded wall hit blocks an edge only if it lies ahead along the edge (projection 0.1-1). A hit at the start cell had blocked every edge leaving it.
+- **Trace profile bug (2026-10-25 21:33+, fixed 23:09):** Claude's capsule reports `GetCollisionProfileName()` = **"Custom"** (per-channel responses). "Custom" is a label, not a preset, so `LineTraceSingleByProfile(..., "Custom")` logs `COLLISION PROFILE [Custom] is not found` and returns NO hit: 27k log lines, a blind local planner.
+  - Now: try the game's preset **"Player"**, then the engine's "Pawn", each validated by one downward trace beside Claude against the Visibility floor. Otherwise use the Visibility channel. The choice is shared in `_G.DW_TRACE_PROFILE` and shown as `status().trace_profile`.
+  - Live on the dev world (23:14-23:15): "Player" validated; 0 profile errors; a 15.9 m go_to with 775 traces arrived in 6.3 s.
+  - The offline fake had ignored profile names, which hid the bug. It now rejects unknown names like the engine (regression scenario 20).
+- **Main menu pawn:** in `L_FrontEnd` the controller owns a `DefaultPawn` at (0,0,0). A go_to issued during a relaunch "drove" it. move.lua now requires a pawn with CharacterMovement: start() refuses, and ticks pause.
 - **The game's Unstuck crashed the client (20:49:34 UTC):** move.lua requested it twice via the pause menu (20:49:25 and 20:49:33) while Claude was on top of the shelter.
   - Crash: an access violation in UE4SS `LuaType::push_arrayproperty` (a Lua loop reading a TArray on an object being replaced after the teleport). Same class as the 18:08 disconnect crash. Dump `ue4ss\crash_2026_10_25_21_49_34.5457439.dmp`, stack `logs/client/hang_unstuck_8712.txt`.
   - Unstuck is now DISABLED by default (opt-in per call only; if used, it holds `_G.DW_PAUSE` across the teleport).
