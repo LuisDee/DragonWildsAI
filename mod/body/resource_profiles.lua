@@ -65,8 +65,8 @@ local function tree(species, item_id, min_tier, aliases, verified)
         settle = { class = "FelledTree", match = "FelledTree_" .. species, max_ms = 10000 },
         children = {
             { name = "splittable", class = "SplittableTreeLog", match = "SplittableLog_" .. species, filter = "alive",
-              attack = "special", reach_cm = 200 },
-            { name = "log", class = "TreeLog", match = "^BP_Log_" .. species, filter = "alive", attack = "special", reach_cm = 200 },
+              attack = "special", reach_cm = 220 },
+            { name = "log", class = "TreeLog", match = "^BP_Log_" .. species, filter = "alive", attack = "special", reach_cm = 220 },
             { name = "stump", class = "FellableTree", match = "Tree_" .. species, exclude = "Sapling", filter = "stump",
               attack = "special", reach_cm = 160, bonus = true, at_root = true },
         },

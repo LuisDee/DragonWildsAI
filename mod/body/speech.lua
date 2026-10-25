@@ -57,6 +57,10 @@ M.ECHO_PREFIX = "[Claude] "
 M.QUEUE_MAX = 5     -- pending relay lines kept (oldest dropped)
 M.QUEUE_TTL_S = 60  -- a queued line older than this is dropped, not said late
 M.FLUSH_MAX = 3     -- lines sent per triggering chat message
+-- direct: fill FChatPlayerFilterData.ReceiverIds with every connected player's PlayerState.UniqueID
+-- (TArray element assignment from a live struct: arr[i] = ud, value at stack index 1 = safe, not
+-- R15). Set from the genuine-filter capture (experiments/speech_direct capture).
+M.DIRECT_FILL_RECEIVERS = true
 
 -- Shared across module reloads (debug_run loads experiments with loadfile; the hook must be
 -- registered once per server run).
@@ -252,7 +256,13 @@ function M._direct_patch(ctx, msg_param, filter_param)
     local sd = m.SenderData
     sd.PrimaryNetId = job.acct.NetIdPrimary     -- __newindex: CopyCompleteValue from the live PS
     sd.SecondaryNetId = job.acct.NetIdSecondary
-    filter_param:get().SenderId = job.uid
+    local f = filter_param:get()
+    f.SenderId = job.uid
+    if job.receivers then
+        local arr = f.ReceiverIds
+        for i, rid in ipairs(job.receivers) do arr[i] = rid end -- AddZeroed + CopyCompleteValue per element
+        job.receivers_set = U.try(function() return arr:GetArrayNum() end)
+    end
     job.patched = true
 end
 
@@ -297,6 +307,14 @@ function M.send_direct(log, text)
     M.register_names(log)
     local msg, filter = M.direct_message(ps, text)
     local job = { acct = acct, uid = uid }
+    if M.DIRECT_FILL_RECEIVERS then
+        job.receivers = {}
+        for _, rpc in ipairs(U.player_controllers()) do
+            local rps = U.try(function() return rpc.PlayerState end)
+            local rid = U.alive(rps) and U.try(function() return rps.UniqueID end)
+            if rid and struct_ud(rid) then job.receivers[#job.receivers + 1] = rid end
+        end
+    end
     s.direct_job, s.relaying = job, true -- our send passes every chat hook: never a template/command
     local ok, err = U.call(log, "speech.direct_Server_SendChatMessage", { pc = U.short(pc), len = #text }, function()
         chat:Server_SendChatMessage(msg, filter)
@@ -308,7 +326,8 @@ function M.send_direct(log, text)
         return false, "unpatched: " .. s.direct_disabled
     end
     if ok then s.sent = s.sent + 1 end
-    U.event(log, "speech_direct", { ok = ok, err = (not ok) and tostring(err) or nil, text = text })
+    U.event(log, "speech_direct", { ok = ok, err = (not ok) and tostring(err) or nil, text = text,
+                                    receivers = job.receivers_set })
     return ok, (not ok) and tostring(err) or nil
 end
 

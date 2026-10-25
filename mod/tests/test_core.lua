@@ -284,6 +284,11 @@ test("speech direct: scalar-only call, net ids patched in by the pre-hook from t
     function w.chat:Server_SendChatMessage(msg, filter)
         -- what UE4SS receives from Lua: no userdata anywhere in the tables (the nested-userdata crash)
         assert(msg.SenderData.PrimaryNetId == nil and msg.SenderData.SecondaryNetId == nil and filter.SenderId == nil)
+        assert(filter.ReceiverIds == nil, "the call's own filter table is empty")
+        -- the UE param buffer: a zeroed TArray the pre-hook fills by element assignment
+        local items = {}
+        filter.ReceiverIds = setmetatable({ GetArrayNum = function() return #items end, items = items },
+                                          { __newindex = function(_, k, v) items[k] = v end })
         if run_pre then for _, h in ipairs(w.hooks) do if h.pre then h.pre(param(self), param(msg), param(filter)) end end end
         captured[#captured + 1] = { msg = msg, filter = filter }
         return orig(self, msg, filter)
@@ -295,6 +300,7 @@ test("speech direct: scalar-only call, net ids patched in by the pre-hook from t
     local c = captured[1]
     assert(c.msg.SenderData.PrimaryNetId == prim and c.msg.SenderData.SecondaryNetId == sec and c.filter.SenderId == uid)
     assert(c.msg.SenderData.PlayerId == 256)
+    assert(#c.filter.ReceiverIds.items == 1 and c.filter.ReceiverIds.items[1] == uid, "receivers = each player's live UniqueID")
     assert(#w.registered == 1, "names registered once")
     assert(not speech.is_relaying())
     assert(#w.hooks == 1 and w.hooks[1].fn == speech.CHAT_FN and speech.status().direct_armed)

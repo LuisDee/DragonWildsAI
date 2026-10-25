@@ -181,6 +181,7 @@ local function send(log, args)
     local text = type(args.text) == "string" and args.text ~= "" and args.text or "Hello, it's Claude."
     local speech = fresh_speech()
     if type(speech.send_direct) ~= "function" then return { ok = false, error = "body/speech.lua has no send_direct" } end
+    if args.receivers ~= nil then speech.DIRECT_FILL_RECEIVERS = args.receivers == true end
     local ok, err = speech.send_direct(log, text)
     st().sends = st().sends + 1
     return { ok = ok, err = err, text = text, status = speech.status() }

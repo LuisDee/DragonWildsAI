@@ -50,7 +50,7 @@ M.DEFAULT_RADIUS_CM = 3000
 M.MAX_RADIUS_CM = 12000
 M.WIDEN = 1.5
 M.ACCEPT_CM = 50                -- MoveToActor acceptance (the navmesh stops at the trunk anyway)
-M.PICKUP_CM = 200               -- take a drop from this close
+M.PICKUP_CM = 300               -- take a drop from this close (a player's ItemMagnet range is 350)
 M.APPROACH_REISSUE_MS = 1500
 M.STUCK_MS = 4000
 M.STUCK_MOVE_CM = 50
@@ -58,12 +58,13 @@ M.MAX_REISSUE = 3
 M.STUCK_SWING_SLACK_CM = 90     -- stuck but this close beyond reach: try swinging anyway
 M.APPROACH_ANGLES = { 0, 72, -72, 144, -144 } -- stand points tried around the target (degrees)
 M.REPOSITION_MS = 1500          -- after swings with no contact, walk to another side for this long
+M.OFFSPRING_CM = 1500           -- new pieces within this of a felled tree belong to it
 M.LEFTOVER_MAX_CM = 3000        -- logs left lying around within this radius are finished first
 M.APPROACH_MAX_MS = 25000       -- give a target up if we cannot reach it in this long
 M.STATUS_MIN_MS = 3000          -- gather_status events at most this often per phase
 M.DMG_SLACK_MS = 150            -- check the HP this long after the swing's damage point
 M.NO_EFFECT_SWINGS = 6          -- swings in a row with no HP change -> target is bad
-M.BAD_STREAK = 3                -- bad targets in a row -> fail (path_blocked)
+M.BAD_STREAK = 4                -- bad targets in a row (no hit or pickup in between) -> fail (path_blocked)
 M.TOOL_RECHECK_MS = 3000
 M.PROGRESS_MIN_MS = 2000
 M.DROP_SETTLE_MS = 1500         -- after the last break, wait this long for drops to land
@@ -152,6 +153,20 @@ function M.swing_for(held, kind)
              next_ms = st.next_ms or rs.next_ms or M.FALLBACK_NEXT_MS, label = set.name or kind, kind = kind }
 end
 
+-- {id = actor} of every piece (child stages, not at_root) and the settle class within OFFSPRING_CM.
+function M.piece_ids(profile, at)
+    local out = {}
+    local specs = {}
+    for _, spec in ipairs(profile.children or {}) do if not spec.at_root then specs[#specs + 1] = spec end end
+    if profile.settle then specs[#specs + 1] = profile.settle end
+    for _, spec in ipairs(specs) do
+        for _, e in ipairs(sense.census({ class = spec.class, match = spec.match }, { origin = at, radius_cm = M.OFFSPRING_CM })) do
+            out[e.id] = e.actor
+        end
+    end
+    return out
+end
+
 -- ------------------------------------------------------------------ result
 local function result_data(a, extra)
     local d = {
@@ -172,7 +187,7 @@ function M.new_action(key, profile, args, deps, base)
         kind = "gather", key = key, profile = profile, item = profile.item, item_id = profiles.item_id(profile.item),
         want = math.floor(args.count), base = base or 0, have = 0, total = base or 0,
         radius_cm = math.min((tonumber(args.radius) or M.DEFAULT_RADIUS_CM / 100) * 100, M.MAX_RADIUS_CM),
-        bonus = args.bonus ~= false, sites = 0, swings = 0, native_hits = 0, emulated_hits = 0, picked = 0,
+        bonus = args.bonus ~= false, pieces_only = args.pieces_only == true, sites = 0, swings = 0, native_hits = 0, emulated_hits = 0, picked = 0,
         bad = {}, taken = {}, bad_streak = 0, site = nil, target = nil, deps = deps,
         timeout_ms = math.min(M.TIMEOUT_BASE_MS + M.TIMEOUT_PER_UNIT_MS * math.floor(args.count), M.TIMEOUT_MAX_MS),
     }
@@ -233,7 +248,8 @@ function M.tree(deps)
         local verdict = hitcheck.armed() and hitcheck.check(U.short(a.p), sw.seq, sw.hp, hp_now) or nil
         if sw.hp and hp_now and hp_now < sw.hp then
             a.native_hits = a.native_hits + 1
-            t.no_effect = 0
+            t.no_effect, t.hits = 0, (t.hits or 0) + 1
+            a.bad_streak = 0
             lg("gather_hit", { target = t.id, mode = "native", before = sw.hp, after = hp_now })
             return
         end
@@ -246,6 +262,7 @@ function M.tree(deps)
             if ok and (after == nil or not sw.hp or after < sw.hp) then
                 a.emulated_hits = a.emulated_hits + 1
                 t.no_effect, t.hits = 0, (t.hits or 0) + 1
+                a.bad_streak = 0
                 lg("gather_hit", { target = t.id, mode = "emulated", verdict = verdict, amount = amount, before = sw.hp, after = after })
                 return
             end
@@ -314,6 +331,12 @@ function M.tree(deps)
             end
         end
         lg("gather_target", { target = entry.id, stage = stage, dist_m = U.cm_to_m(entry.dist), hp = entry.state and entry.state.hp })
+        a.steps = (a.steps or 0) + 1
+        local pending = a.site and a.site.offspring and 0 or nil
+        if pending then for id, act in pairs(a.site.offspring) do if U.alive(act) then pending = pending + 1 else a.site.offspring[id] = nil end end end
+        deps.emit("gather_step", { task_id = a.id, n = a.steps, stage = stage, target = entry.id,
+                                   class = U.class_word(entry.actor) or entry.class, hp = entry.state and entry.state.hp,
+                                   distance_m = U.cm_to_m(entry.dist), pending_pieces = pending })
         status(a, stage == "drop" and "collecting" or (stage == "root" and "walking_to_resource" or "working_" .. stage),
                { target = entry.id, distance_m = U.cm_to_m(entry.dist) })
         return true
@@ -321,6 +344,22 @@ function M.tree(deps)
 
     local function site_spec_entry(a, spec)
         local site = a.site
+        if not spec.at_root and site.offspring then -- pending offspring of this fell first, nearest first
+            local best, bd
+            local here = U.loc(a.p)
+            for id, act in pairs(site.offspring) do
+                if not U.alive(act) then
+                    site.offspring[id] = nil
+                elseif sense.matches(spec, act) and not a.bad[sense.key(U.loc(act)) .. "/" .. spec.name] then
+                    local st = sense.state_of(act)
+                    if (sense.FILTERS[spec.filter or "any"] or sense.FILTERS.any)(st, act) then
+                        local d = U.dist(here, U.loc(act))
+                        if not bd or d < bd then best, bd = { actor = act, id = id, loc = U.loc(act), dist = d, state = st }, d end
+                    end
+                end
+            end
+            if best then return best end
+        end
         if spec.at_root then
             local e = sense.nearest(spec, { origin = site.loc, radius_cm = 200 })
             if e and a.bad[sense.key(e.loc) .. "/" .. spec.name] then return nil end
@@ -399,6 +438,11 @@ function M.tree(deps)
                 end
             end
         end
+        -- pieces_only: clear up what lies around (logs, drops), never fell a new tree
+        if a.pieces_only then
+            if a.have > 0 then deps.finish(a, true, nil, result_data(a, { detail = "no pieces left" })); return S_ end
+            return fail(a, "nothing_in_range", { radius_m = U.cm_to_m(a.radius_cm), detail = "no pieces left" })
+        end
         -- SCAN for a new root, widening the radius on failure
         local spec = a.profile.root
         if a.profile.foliage then deps.convert(p, here, a.radius_cm) end
@@ -413,7 +457,7 @@ function M.tree(deps)
             lg("gather_widen", { radius_m = U.cm_to_m(a.radius_cm) })
             return S_
         end
-        a.site = { loc = e.loc, id = e.id, started = now() }
+        a.site = { loc = e.loc, id = e.id, started = now(), before = M.piece_ids(a.profile, e.loc) }
         a.sites = a.sites + 1
         if set_target(a, e, spec, "root") then return S_ end
         return S_
@@ -441,7 +485,14 @@ function M.tree(deps)
         a.target, a.move = nil, nil
         if t.stage ~= "drop" then
             if (t.hits or 0) > 0 or (a.native_hits + a.emulated_hits) > 0 then a.bad_streak = 0 end
-            if a.site then a.site.last_break = now() end
+            if a.site then
+                a.site.last_break = now()
+                -- the fell's offspring: pieces that were not there before (diff of two censuses)
+                a.site.offspring = a.site.offspring or {}
+                for id, act in pairs(M.piece_ids(a.profile, a.site.loc)) do
+                    if not (a.site.before or {})[id] then a.site.offspring[id] = act end
+                end
+            end
         end
         lg("gather_target_done", { target = t.id, stage = t.stage, hits = t.hits })
         return S_
@@ -513,6 +564,7 @@ function M.tree(deps)
         local r = deps.store.pickup(deps.log_mod, t.info or t)
         if r and r.ok then
             if t.id then a.taken[t.id] = true end -- it lingers ~0.1 s (SetLifeSpan): never take it twice
+            a.bad_streak = 0
             a.picked = a.picked + (tonumber(r.data and r.data.count) or 1)
             a.target = nil
             lg("gather_pickup", { item = a.item_id, count = r.data and r.data.count, world_item = t.id })
@@ -541,7 +593,7 @@ function M.tree(deps)
             return pickup(a, t)
         end
         -- reach is horizontal, to the aim point (a log's midpoint, a tree's trunk base)
-        local aim = sense.aim(t.actor) or U.loc(t.actor)
+        local aim = sense.aim(t.actor, here) or U.loc(t.actor)
         local origin = U.loc(t.actor)
         t.aim, t.use_aim = aim, origin ~= nil and U.dist2d(aim, origin) > 100
         local d = U.dist2d(here, aim)

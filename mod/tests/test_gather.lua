@@ -318,15 +318,27 @@ test("oak: fells, chops the logs and the stump, collects, goal verified from the
     local last = F.emits[#F.emits]
     eq(last.name, "gather_progress"); eq(last.data.want, 8); truthy(last.data.have >= 8)
     truthy((F.converts or 0) > 0, "foliage converted before the scan")
+    -- order (Luis): tree, then the fell's pieces until they are drops, the drops, and the stump LAST
+    local order = {}
+    for _, e in ipairs(F.emits) do if e.name == "gather_step" then order[#order + 1] = e.data.stage end end
+    eq(order[1], "root")
+    local last_piece, stump_at = 0, nil
+    for i, st in ipairs(order) do
+        if st == "splittable" or st == "log" then last_piece = i end
+        if st == "stump" and not stump_at then stump_at = i end
+    end
+    truthy(last_piece > 1, "pieces worked")
+    truthy(stump_at and stump_at > last_piece, "stump after every piece: " .. table.concat(order, ","))
 end)
 
-test("logs are worked from their midpoint, not the pivot end", function()
+test("logs are worked from the nearest point of their axis, not the pivot end", function()
     reset()
     local lg = spawn.log(1000, 0)
+    F.puppet.loc = { X = 1700, Y = 900, Z = 0 } -- beside the middle of the 12 m log
     local res = run("oak", 6, { bonus = false })
     eq(res.ok, true, tostring(res.reason))
     eq(lg._valid, false, "log chopped")
-    truthy((F.loc_moves or 0) > 0, "walked to a stand point by the midpoint")
+    truthy((F.loc_moves or 0) > 0, "walked to a stand point on the axis")
 end)
 
 test("no contact: the bot repositions around the target before giving up", function()
