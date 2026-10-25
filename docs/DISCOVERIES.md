@@ -1539,3 +1539,17 @@ Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probe
     - Without the spell: 3.2 m peak horizontal, then the server **snapped him back to the start** (0 m net).
     - Right after casting: **8.4 m dash, kept**.
   - **Runes survive death.** Claude starved at 21:25:56. The hotbar and bag went to the gravestone, but the rune page stayed (Air 6589 …).
+
+### Ranged aim: crossbows, bows and projectile spells (from the dump, build 26161880; NOT yet read live). Design: docs/design/ranged-aim.md
+- **Flight parameters:** `URangedAmmoData.ProjectileData` (`FProjectileData`: `LaunchSpeed`, `OverrideGravityZ`, **`TimeWithoutGravity`** (a straight segment first), `MaxSimulationTime`, `LookAhead`). The equipped ammo comes from `PlayerRangedAttackComponent:GetEquippedRangedAmmoDataForCurrentWeapon()`. Charge: `PlayerRangedAttackCollection.LaunchSpeedCurve` / `OverrideGravityZCurve` (UCurveFloat by charge), `MaxChargeUpDuration`, `TimeBeforeFullAccuracy`.
+- **Accuracy:** `BaseInaccuracy`, `GetCurrentArrowInaccuracy()`, `HasReachedFullAccuracy`, `IsAimModeActive()`, `HasRequiredAmmoEquipped()`. The aim is a camera trace (`AimOffsetTraceChannel`, `MaxProjectileTraceDistance`). The shot leaves the weapon actor's `ProjectileSocketName` (`AHeldRangedEquipmentActor`, `OwnedProjectiles`, `LoadedProjectile`).
+- **Fired projectile:** `ADominionProjectile` (replicated `LaunchInfo {StartPosition, StartDirection, LaunchSpeed, OverrideGravityZ, LaunchTime}`, `ParentEquipmentActor`, `Multicast_OnProjectileHit`). Spell projectiles: `ADominionSpellProjectile.ProjectileMovement` (`InitialSpeed`, `ProjectileGravityScale`).
+- **Catalog:** Adamant Crossbow primary "Shoot", special "Heavy Bolt" (32 damage, 50 charge), reload 2.0 s, ammo `CrossbowBolts`, projectile class `BP_Arrow_Base_C`. Crossbow `max_charge_up` 0.75 s; bow 1.55 s.
+- **Engine helpers reflected:** `UGameplayStatics:BlueprintSuggestProjectileVelocity`, `SuggestProjectileVelocity_CustomArc`, `SuggestProjectileVelocity_MovingTarget`, `Blueprint_PredictProjectilePath_ByTraceChannel`. Not used: no straight segment, no learned parameters.
+- **Built offline** (`client_mod/scripts/ranged.lua`, combat ranged engage; 29 + 8 checks):
+  - The solver is a 1-D root search on flight time with lead and the straight segment.
+  - The camera is aimed so its ray passes through `muzzle + dir·50 m`.
+  - Firing: hold aim, wait for full accuracy, fire, reload.
+  - Each real bolt is fitted (speed, gravity, straight time); learning keeps a capped pitch/yaw bias; hit/miss comes from our damage multicast.
+  - Metrics by distance and target speed.
+  - Fake-game result: 2 misses, then 5 hits, against a goblin strafing at 3 m/s at 20 m, starting from wrong seeds.

@@ -90,7 +90,7 @@ function eis:InjectInputVectorForAction(action, v)
     if rising and name == "IA_Player_Evade" then world.evading_until = T + 0.5; world.evade_start = T end
     if rising and name == "IA_SecondaryAction" then world.block_start = T end
     if name == "IA_SecondaryAction" then world.block_last = T end
-    if rising and (name == "IA_PrimaryAction" or name == "IA_SpecialAction") and not world.inputs_dead then
+    if rising and (name == "IA_PrimaryAction" or name == "IA_SpecialAction") and not world.inputs_dead and not world.ranged then
         stamina = stamina - (name == "IA_PrimaryAction" and 10 or 0)
         if name == "IA_SpecialAction" then special = special - 25 end
         pending_hits[#pending_hits + 1] = { t = T + 0.3, amount = name == "IA_PrimaryAction" and 12 or 21 }
@@ -715,6 +715,106 @@ do
     check("use_action released the pawn", A.owner() == nil)
     PERKS.unlocked = {}
     pawn.PlayerEquipmentComponent = nil
+    A.reset(nil)
+end
+
+-- ================================================================ 13. ranged: crossbow vs a moving goblin, learning the real bolt
+reset_world()
+do
+    local Rg = assert(loadfile(root .. "/client_mod/scripts/ranged.lua"))()
+    _G.DWRanged = nil
+    Cm.set_modules({ ranged = Rg })
+    world.ranged = true
+    held.right, held.left = "ITEM_Crossbow_Adamant", nil
+    local truth = { speed = 5600, gz = -1700, t0 = 0.1 }
+    local projs = {}
+    local ammo = obj({ ProjectileData = { LaunchSpeed = 4000, OverrideGravityZ = 0, TimeWithoutGravity = 0, MaxSimulationTime = 3 } },
+                     "RangedAmmoData /Game/Ammo/ITEM_Ammo_Bolts_Bone.ITEM_Ammo_Bolts_Bone")
+    local wactor = obj({}, "BP_Crossbow_Adamant_C /Game/L.L:PersistentLevel.BP_Crossbow_Adamant_C_1")
+    function wactor:K2_GetActorLocation() return { X = pawn.loc.X, Y = pawn.loc.Y, Z = pawn.loc.Z + 60 } end
+    local rcomp = obj({ GetOwner = function() return pawn end, GetEquippedRangedAmmoDataForCurrentWeapon = function() return ammo end,
+                        IsAimModeActive = function() return world.block_last and T - world.block_last < 0.05 end,
+                        HasRequiredAmmoEquipped = function() return true end, RangedWeaponActor = wactor,
+                        GetCurrentArrowInaccuracy = function() return 0 end }, "PlayerRangedAttackComponent /x.RC")
+    rcomp.HasReachedFullAccuracy = false
+    local cam_mgr = obj({ GetCameraLocation = function() return { X = pawn.loc.X - 250, Y = pawn.loc.Y + 40, Z = pawn.loc.Z + 130 } end }, "PCM /x")
+    pc.PlayerCameraManager = cam_mgr
+    pc.SetControlRotation = function(_, r) world.ctrl_rot = { Pitch = r.Pitch, Yaw = r.Yaw } end
+    local real_find = FindAllOf
+    FindAllOf = function(cls)
+        if cls == "PlayerRangedAttackComponent" then return { rcomp } end
+        if cls == "DominionProjectile" then
+            local out = {}
+            for _, pr in ipairs(projs) do if not pr._dead_obj then out[#out + 1] = pr end end
+            return out
+        end
+        return real_find(cls)
+    end
+    inv_list.hotbar[#inv_list.hotbar + 1] = { item = "ITEM_Crossbow_Adamant", slot = 4 }
+    local gob = new_creature("BP_AI_RuntGoblin_Character_C_rng", "Goblin Runt", { X = 2000, Y = 0, Z = 0 }, { hp = 150, pl = 1, arch = 0 })
+    local dirY = 1
+    local aim_started
+    local nshots = 0
+    world.on_step = function()
+        -- the goblin strafes at 3 m/s between Y = -400 and +400
+        gob.loc.Y = gob.loc.Y + dirY * 3
+        if math.abs(gob.loc.Y) > 400 then dirY = -dirY end
+        -- aim mode: full accuracy 0.5 s after the aim key is held
+        local aiming = world.block_last and T - world.block_last < 0.05
+        if aiming then aim_started = aim_started or T else aim_started = nil end
+        rcomp.HasReachedFullAccuracy = aim_started ~= nil and T - aim_started >= 0.5
+        -- fly the bolts with the TRUE parameters
+        for _, pr in ipairs(projs) do
+            if not pr._dead_obj then
+                local ft = T - pr.t0
+                pr.loc = Rg.position(pr.m, pr.dir, truth, ft)
+                local gp = { X = gob.loc.X, Y = gob.loc.Y, Z = gob.loc.Z }
+                local dx, dy, dz = pr.loc.X - gp.X, pr.loc.Y - gp.Y, pr.loc.Z - gp.Z
+                if math.sqrt(dx * dx + dy * dy + dz * dz) < 60 and gob.hp > 0 then
+                    gob.hp = math.max(0, gob.hp - 30)
+                    multicast(gob, pawn, 30)
+                    pr._dead_obj = true
+                elseif ft > 2.5 or pr.loc.Z < -500 then pr._dead_obj = true end
+            end
+        end
+    end
+    -- the game fires on the primary press while aiming: from the muzzle toward the crosshair point
+    local real_inject = eis.InjectInputVectorForAction
+    eis.InjectInputVectorForAction = function(self, action, vv, a, b)
+        local name = action:GetFullName():match("%.([%w_]+)$")
+        local rising = last_inject[name] ~= frame_n - 1
+        real_inject(self, action, vv, a, b)
+        if name == "IA_PrimaryAction" and rising and world.ctrl_rot then
+            nshots = nshots + 1
+            local cam = cam_mgr:GetCameraLocation()
+            local m = wactor:K2_GetActorLocation()
+            local r = world.ctrl_rot
+            local fwd = { X = math.cos(math.rad(r.Pitch)) * math.cos(math.rad(r.Yaw)), Y = math.cos(math.rad(r.Pitch)) * math.sin(math.rad(r.Yaw)), Z = math.sin(math.rad(r.Pitch)) }
+            local tp = { X = cam.X + fwd.X * 6000 - m.X, Y = cam.Y + fwd.Y * 6000 - m.Y, Z = cam.Z + fwd.Z * 6000 - m.Z }
+            local pr = obj({ m = m, dir = Rg.vec.norm(tp), t0 = T, loc = m }, "BP_Arrow_Base_C /Game/L.L:PersistentLevel.BP_Arrow_Base_C_" .. nshots)
+            function pr:K2_GetActorLocation() return { X = self.loc.X, Y = self.loc.Y, Z = self.loc.Z } end
+            projs[#projs + 1] = pr
+        end
+    end
+    local r = Cm.attack(nil, "Goblin Runt", { force = true })
+    check("ranged: fight starts", r.ok, r.reason)
+    run_until(function() return Cm._state().fight == nil end, 90)
+    eis.InjectInputVectorForAction = real_inject
+    FindAllOf = real_find
+    local res = Cm._state().last.result
+    local key = "ITEM_Crossbow_Adamant|ITEM_Ammo_Bolts_Bone"
+    local p = Rg.profile(key)
+    local m = Rg.metrics()[key]
+    check("ranged: kept the crossbow (no melee swap)", INV.equips[1] == nil or INV.equips[1] == "ITEM_Crossbow_Adamant", INV.equips[1])
+    check("ranged: shots fired", nshots >= 5, nshots)
+    check("ranged: the goblin died", gob.hp <= 0 and res.ok, tostring(gob.hp) .. " " .. tostring(res.reason))
+    check("ranged: learned the bolt speed from the real flight", math.abs(p.speed - truth.speed) / truth.speed < 0.08, p.speed)
+    check("ranged: learned gravity", math.abs(p.gz - truth.gz) / math.abs(truth.gz) < 0.15, p.gz)
+    check("ranged: metrics by distance and speed", m and m.shots >= 5 and next(m.by_dist) ~= nil and next(m.by_speed) ~= nil)
+    check("ranged: hit rate improves (later shots hit)", m and m.hits >= 5, m and (m.hits .. "/" .. m.shots))
+    world.ranged = nil
+    inv_list.hotbar[#inv_list.hotbar] = nil
+    pc.PlayerCameraManager, pc.SetControlRotation = nil, function() end
     A.reset(nil)
 end
 

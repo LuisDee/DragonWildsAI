@@ -110,6 +110,10 @@ def build(catalog: dict) -> dict:
             "can_block": sec.get("kind") == "block",
             # the block action class: its CDO says whether it can parry and which perk that needs
             "block_action": sec.get("action") if sec.get("kind") == "block" else None,
+            # ranged: the ammo kind it shoots and its reload (client_mod/scripts/ranged.lua reads the rest live)
+            "ammo": item.get("ammo") if item.get("ammo") not in (None, "None") else None,
+            "reload_s": stats.get("reload_duration") or None,
+            "requires_reload": stats.get("requires_reload") or None,
         }
     return out
 

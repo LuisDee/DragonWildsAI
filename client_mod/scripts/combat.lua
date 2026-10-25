@@ -55,7 +55,12 @@ M.cfg = {
     special_gap_s = 6,
     telegraph_m = 6, telegraph_fresh_s = 1.0,
     disengage_m = 10,        -- back off this far to eat (orders.disengage)
-    move_axes = "xy",        -- IA_Movement axes: "xy" = X right, Y forward (UE template); "yx" swaps them
+    move_axes = "xy",
+    ranged_max_m = 25,       -- ranged: shoot from up to this far (shrinks when out of the projectile's range)
+    ranged_keep_m = 12,      -- ... and close in to about this when farther
+    ranged_min_m = 4,
+    ranged_aim_s = 1.0,      -- aim this long when the game's full-accuracy flag is unreadable
+    ranged_aim_z = 0,        -- aim height above the target's actor origin (capsule centre), cm        -- IA_Movement axes: "xy" = X right, Y forward (UE template); "yx" swaps them
     disengage_s = 25,        -- give the heal this long before re-assessing
     lock_on = true,
     nudge = true,            -- turn the body toward the target with a short movement nudge when standing
@@ -825,11 +830,25 @@ local function step_equip(F, pawn)
         local list = mcall("inventory", "list", F.log) or {}
         local enemy = { name = F.target_name, affinities = F.affinities }
         local pick = M.best_weapon(list, enemy, nil, C().learned)
+        local items = M.weapons().items or {}
+        if F.weapon_pref then
+            -- the model chose the weapon (attack.weapon): name or id of an item he carries
+            local inv = mod("inventory")
+            local e = inv and inv.find and inv.find(list, F.weapon_pref)
+            if not e then return finish(F, result_of(F, false, "not_in_inventory", { why = "weapon_not_carried", weapon = F.weapon_pref })) end
+            pick = { weapon = { entry = e, profile = items[e.item] or {}, score = 0 }, shield = pick.shield }
+        else
+            -- already holding a ranged weapon: keep it (the player or the model armed him with it)
+            local hr, hl = held_items(pawn)
+            local hp = (hr and items[hr]) or (hl and items[hl])
+            local hid = (hr and items[hr]) and hr or hl
+            if hp and hp.kind == "ranged" then pick = { weapon = { entry = { item = hid }, profile = hp, score = 0 } } end
+        end
         F.equip_plan = { weapon = pick.weapon and pick.weapon.entry.item, shield = nil, sent = {}, t = F.t }
         if pick.weapon then
             F.profile = pick.weapon.profile
             F.weapon_score = pick.weapon.score
-            if pick.shield and pick.weapon.profile.slot ~= "two_handed" then F.equip_plan.shield = pick.shield.entry.item end
+            if pick.shield and pick.weapon.profile.slot ~= "two_handed" and pick.weapon.profile.kind ~= "ranged" then F.equip_plan.shield = pick.shield.entry.item end
         end
         F.prev_right, F.prev_left = held_items(pawn)
         -- a two-handed tool (the Mithril Logging Axe) is reported in the LEFT hand only (DISCOVERIES R2):
@@ -981,8 +1000,9 @@ local function away_dir(me, tp, side)
     local dx, dy = tp.X - me.X, tp.Y - me.Y
     local l = math.max(math.sqrt(dx * dx + dy * dy), 1)
     dx, dy = dx / l, dy / l
-    if side == "left" then return { X = -dy, Y = dx, Z = 0 } end
-    if side == "right" then return { X = dy, Y = -dx, Z = 0 } end
+    -- UE is left-handed: X forward, Y right. Right of forward (dx, dy) is (-dy, dx).
+    if side == "left" then return { X = dy, Y = -dx, Z = 0 } end
+    if side == "right" then return { X = -dy, Y = dx, Z = 0 } end
     return { X = -dx, Y = -dy, Z = 0 } -- back
 end
 M.away_dir = away_dir
@@ -1028,7 +1048,7 @@ local function finish_defend(F)
         local l = math.max(math.sqrt(fx * fx + fy * fy), 1)
         fx, fy = fx / l, fy / l
         local mx, my = F.me_pos.X - d.pos0.X, F.me_pos.Y - d.pos0.Y
-        d.moved = { toward_cm = math.floor(mx * fx + my * fy), right_cm = math.floor(mx * fy - my * fx), dir = d.plan.dir }
+        d.moved = { toward_cm = math.floor(mx * fx + my * fy), right_cm = math.floor(-mx * fy + my * fx), dir = d.plan.dir }
     end
     if outcome == "parried" then F.n_parried = (F.n_parried or 0) + 1
     elseif outcome == "blocked" then F.n_blocked = (F.n_blocked or 0) + 1
@@ -1205,6 +1225,137 @@ local function step_disengage(F, pawn, me, acts)
     end
 end
 
+-- Ranged engage (crossbow / bow; ranged.lua does the maths). Keep distance, hold aim (the weapon's
+-- secondary input), point the camera every frame at ranged.lua's lead solution, release (primary) once
+-- the game says full accuracy, then follow the real bolt to learn speed/gravity/bias and score the shot.
+local function ranged_setup(F, pawn, pc)
+    local Rg = mod("ranged")
+    if not Rg then return false, "no ranged module" end
+    local comp = Rg.ranged_component(pawn)
+    if not comp then return false, "no_ranged_component" end
+    local prm = Rg.read_weapon_params(pawn) or {}
+    local right, left = held_items(pawn)
+    local key = tostring(right or left or "?") .. "|" .. tostring(prm.ammo or "?")
+    local seed = prm.speed and { speed = prm.speed, gz = prm.gz or Rg.cfg.default_gz, t0 = prm.t0 or 0, source = "game_data" } or nil
+    F.rg = { R = Rg, comp = comp, key = key, aimer = Rg.new_aimer(key, seed), seed = prm, shots = 0, hits = 0, misses = 0 }
+    F.reach, F.follow = M.cfg.ranged_max_m, M.cfg.ranged_keep_m
+    say(F.log, string.format("ranged: %s speed %s gz %s t0 %s (%s) full-accuracy %ss ammo ok %s", key, tostring(F.rg.aimer.p.speed),
+        tostring(F.rg.aimer.p.gz), tostring(F.rg.aimer.p.t0), tostring(F.rg.aimer.p.source), tostring(prm.full_accuracy_s), tostring(prm.has_ammo)))
+    if prm.has_ammo == false then return false, "no_ammo" end
+    return true
+end
+M._ranged_setup = ranged_setup
+
+-- Per frame: aim the camera and follow a flying shot.
+local function ranged_frame(F, pawn)
+    local g = F.rg
+    if not g then return end
+    local Rg, aimer = g.R, g.aimer
+    if g.aiming and F.target then
+        local muzzle = Rg.muzzle(pawn, g.comp)
+        local cam = Rg.camera_location(F.pc)
+        local rot, sol, info = aimer:solve(muzzle, cam, { aim_z = M.cfg.ranged_aim_z })
+        g.sol, g.sol_why, g.sol_info, g.muzzle = sol, (not rot) and sol or nil, info, muzzle
+        if rot then
+            pcall(function() F.pc:SetControlRotation(rot) end)
+            g.sol = sol
+        else g.sol = nil end
+    end
+    local shot = aimer.shot
+    if shot then
+        if not shot.proj and (F.frame_n or 0) % 2 == 0 then
+            for id, a in pairs(Rg.projectile_ids()) do
+                if not shot.ids_before[id] then shot.proj, shot.proj_id = a, id; break end
+            end
+        end
+        local pp = shot.proj and U.alive(shot.proj) and U.loc(shot.proj) or nil
+        local tp = U.alive(F.target) and U.loc(F.target) or nil
+        local done = aimer:sample(F.t, pp, tp)
+        if shot.proj and not pp then done = true end
+        if not shot.proj and F.t - shot.t > 1.0 then done = true; shot.no_projectile = true end
+        -- the server's verdict (our damage multicast on the target) can trail the bolt's end: wait a bit
+        if done and not shot.no_projectile then
+            shot.gone_t = shot.gone_t or F.t
+            if F.t - shot.gone_t < 0.3 then done = false end
+        end
+        if done then
+            local hit = false
+            for _, h in ipairs(C().my_hits) do
+                if h.seq > (shot.hit_seq0 or 0) and h.victim == F.target_id then hit = true end
+            end
+            if shot.no_projectile then
+                F.unverified_run = F.unverified_run + 1
+                aimer.shot = nil
+                say(F.log, "ranged: no projectile seen after the shot")
+            else
+                F.unverified_run = 0
+                F.verified = F.verified + 1
+                local res = aimer:finish(hit)
+                g.shots = g.shots + 1
+                if hit then g.hits = g.hits + 1 else g.misses = g.misses + 1 end
+                local mi = res and res.miss
+                g.last = { hit = hit, miss_cm = mi and math.floor(mi.dist_cm), vertical_cm = mi and math.floor(mi.vertical_cm or 0),
+                           lateral_cm = mi and math.floor(mi.lateral_cm or 0), fit = res and res.fit and { speed = res.fit.speed, gz = res.fit.gz, t0 = res.fit.t0 },
+                           profile = { speed = aimer.p.speed, gz = aimer.p.gz, t0 = aimer.p.t0, pitch_bias = aimer.p.pitch_bias, yaw_bias = aimer.p.yaw_bias } }
+                say(F.log, string.format("ranged shot %d %s miss %s cm (v %s, lat %s) fit speed %s gz %s -> profile %.0f/%.0f/%.2f",
+                    g.shots, hit and "HIT" or "miss", tostring(g.last.miss_cm), tostring(g.last.vertical_cm), tostring(g.last.lateral_cm),
+                    tostring(res and res.fit and math.floor(res.fit.speed or 0)), tostring(res and res.fit and math.floor(res.fit.gz or 0)),
+                    aimer.p.speed, aimer.p.gz, aimer.p.t0))
+            end
+        end
+    end
+end
+M._ranged_frame = ranged_frame
+
+local function step_ranged(F, pawn, me, acts, tgt)
+    local cfg = M.cfg
+    local g = F.rg
+    local c = C()
+    -- an attacker right next to us: stop aiming and defend (the melee answers apply)
+    for id, tt in pairs(c.telegraphs) do
+        if F.t - tt <= cfg.telegraph_fresh_s and tt > (F.last_tele or 0) then
+            local a = id == F.target_id and F.target or find_creature(id)
+            local p = a and U.loc(a)
+            if p and me.pos and U.dist(p, me.pos) <= cfg.telegraph_m * 100 then
+                g.aiming, F.hold = false, nil
+                return M._start_defend(F, me, id, tt, (c.tele_info or {})[id])
+            end
+        end
+    end
+    local d = F.dist_m or 99
+    if tgt and tgt.pos then g.aimer:observe(F.t, tgt.pos) end
+    if d > F.reach or (g.sol == nil and g.sol_why == "out_of_range" and g.aiming) then
+        -- too far (or out of the projectile's range): close in without aiming
+        g.aiming, F.hold, g.aim_t0 = false, nil, nil
+        if g.sol_why == "out_of_range" then F.reach = math.max(cfg.ranged_min_m + 2, d * 0.75); g.sol_why = nil end
+        if not F.following then follow_target(F, F.follow, d > 15) end
+        return
+    end
+    if F.following then mcall("move", "stop", F.log); F.following = false end
+    -- hold aim (IA_SecondaryAction for crossbows/bows) while engaged
+    if acts.secondary then F.hold, F.hold_until = acts.secondary, F.t + 0.3 end
+    if not g.aiming then g.aiming, g.aim_t0 = true, F.t end
+    if g.aimer.shot then return end -- a bolt is in the air
+    if F.unverified_run >= cfg.verify_presses then
+        return finish(F, result_of(F, false, "body_error", { why = "shots_not_firing", detail = "ranged presses spawned no projectile" }))
+    end
+    if F.t < (F.next_press or 0) or not g.sol then return end
+    local prm = g.R.read_weapon_params(pawn) or {}
+    local ready = prm.full_accuracy or (F.t - g.aim_t0) >= (g.seed.full_accuracy_s or cfg.ranged_aim_s)
+    if not ready then return end
+    if prm.has_ammo == false then
+        return finish(F, result_of(F, false, "not_enough_resources", { why = "no_ammo", detail = "no ammunition equipped for this weapon" }))
+    end
+    tap(F, acts.primary, cfg.tap_frames, "shoot")
+    local shot = g.aimer:fired(F.t, g.sol, g.R.projectile_ids(), g.muzzle)
+    shot.hits0, shot.hit_seq0 = F.hits, C().counts.hits
+    F.presses = F.presses + 1
+    C().counts.presses = C().counts.presses + 1
+    local prof = F.profile or {}
+    F.next_press = F.t + (prof.reload_s or 1.0) + 0.3 + jitter(cfg.press_jitter_ms)
+end
+M._step_ranged = step_ranged
+
 local function step_engage(F, pawn, me, acts, tgt)
     local cfg = M.cfg
     local d_m = F.dist_m
@@ -1370,6 +1521,8 @@ local function frame(F)
     if not U.valid(pawn) then return finish(F, result_of(F, false, "companion_down")) end
     F.t = now(pawn)
     if F.def and not F.def.started then defend_act(F, pawn, actions(pawn)) end
+    F.frame_n = (F.frame_n or 0) + 1
+    if F.rg then ranged_frame(F, pawn) end
     -- per frame: held movement keys first (a directional evade samples them), then the queued taps
     if F.move_inject then
         if F.t < (F.move_until or 0) then
@@ -1489,6 +1642,13 @@ local function frame(F)
         if step_equip(F, pawn) then
             local r, l = held_items(pawn)
             F.cap = M.capabilities(pc, r, l)
+            if F.profile and F.profile.kind == "ranged" then
+                local ok, why = ranged_setup(F, pawn, pc)
+                if not ok then
+                    return finish(F, result_of(F, false, why == "no_ammo" and "not_enough_resources" or "body_error",
+                        { why = why, detail = "ranged weapon not ready: " .. tostring(why) }))
+                end
+            end
             if F.style and F.style ~= "auto" then
                 local a, bad = M.check_style(F.style, pawn, pc)
                 if not a then return finish(F, bad) end
@@ -1506,7 +1666,7 @@ local function frame(F)
         if not F.following then follow_target(F, F.follow, (F.dist_m or 0) > 8) end
         if F.dist_m and F.dist_m <= F.reach then set_phase(F, "engage") end
     elseif F.phase == "engage" then
-        step_engage(F, pawn, me, acts, tgt)
+        if F.rg then step_ranged(F, pawn, me, acts, tgt) else step_engage(F, pawn, me, acts, tgt) end
         if F.dist_m and F.dist_m > F.reach * 3 then set_phase(F, "approach", "target moved away") end
     elseif F.phase == "defend" then
         step_defend(F, pawn, me, acts)
@@ -1570,7 +1730,7 @@ local function start_fight(log, actor, opts)
                 t0 = t, t = t, phase_t = t, inputs = {}, presses = 0, hits = 0, kills = 0, verified = 0, unverified_run = 0,
                 hit_seq = c.counts.hits, phase_log = {}, items_before = {}, loot_skip = {}, why = opts.why,
                 by = opts.by or (opts.mode == "reflex" and "reflex" or "debug"), hp_start = tgt.hp, loot_names = {},
-                style = opts.style }
+                style = opts.style, weapon_pref = opts.weapon }
     for _, w in ipairs(U.find_all("WorldItem", { skip_defaults = true })) do F.items_before[U.short(w) or "?"] = true end
     -- distances are centre to centre: a big creature (a cow's capsule) keeps us farther away, so
     -- reach and follow distance grow with its capsule radius beyond a Kebbit-sized one
@@ -1601,7 +1761,8 @@ function M.attack(log, target, opts)
     if not U.valid(pawn) then return { ok = false, reason = "companion_down" } end
     local actor = M.resolve_target(target, U.loc(pawn))
     if not actor then return { ok = false, reason = "unknown_target", data = { target = tostring(target) } } end
-    return start_fight(log, actor, { mode = "attack", force = opts.force, why = "commanded", by = opts.by or "debug", style = opts.style })
+    return start_fight(log, actor, { mode = "attack", force = opts.force, why = "commanded", by = opts.by or "debug", style = opts.style,
+                                     weapon = opts.weapon })
 end
 
 function M.stop(log, why)
@@ -1682,7 +1843,9 @@ function M.status()
     if f then
         fs = { mode = f.mode, phase = f.phase, reach = f.reach, radius_cm = f.target_radius_cm, target = f.target_name, target_id = f.target_id, dist_m = f.dist_m and math.floor(f.dist_m * 10) / 10,
                target_hp = f.target_hp, presses = f.presses, verified = f.verified, hits = f.hits, dmg = f.dmg, face_err = f.face_err and math.floor(f.face_err),
-               weapon = f.equip_plan and f.equip_plan.weapon, assessment = f.assessment, injected = f.injected, phase_log = f.phase_log,
+               weapon = f.equip_plan and f.equip_plan.weapon, assessment = f.assessment,
+               ranged = f.rg and { key = f.rg.key, shots = f.rg.shots, hits = f.rg.hits, last = f.rg.last, aiming = f.rg.aiming,
+                                   solution = f.rg.sol and { tau = f.rg.sol.tau, pitch = f.rg.sol.pitch, range_m = f.rg.sol.range_cm and f.rg.sol.range_cm / 100 } or f.rg.sol_why } or nil, injected = f.injected, phase_log = f.phase_log,
                age_s = f.t and f.t0 and math.floor((f.t - f.t0) * 10) / 10 }
     end
     local learned = {}
@@ -1900,7 +2063,7 @@ M.HANDLERS = {
         if type(args.target) ~= "string" or args.target == "" then
             return { ok = false, reason = "invalid_args", data = { detail = "target is required (entity id or creature name)" } }
         end
-        local r = M.attack(log, args.target, { force = args.force == true, by = "brain", style = args.style })
+        local r = M.attack(log, args.target, { force = args.force == true, by = "brain", style = args.style, weapon = args.weapon })
         if not r.ok then return r end
         local F = C().fight
         local a = { kind = "attack", id = ctx and ctx.id, timeout_s = M.cfg.fight_timeout_s + 15 }
@@ -1942,6 +2105,8 @@ do
             args = { type = "object", required = { "target" }, properties = obj({
                 target = { type = "string", description = "Creature id from situation or look (or its name: the nearest one)." },
                 style = STYLE,
+                weapon = { type = "string", description = "Item (name or id) you carry to fight with, e.g. a crossbow to shoot from range; "
+                    .. "omit to pick the best melee weapon (a held ranged weapon is kept)." },
                 force = { type = "boolean", default = false, description = "Also ignore your flee_hp for this fight (fight to the end)." } }) },
             ground = obj({ target = "creature" }),
             reasons = { "unsafe", "unknown_target", "too_far", "interrupted", "timeout", "not_unlocked", "invalid_args", "companion_down", "body_error" } },
