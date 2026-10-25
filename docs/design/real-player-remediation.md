@@ -88,3 +88,40 @@ levels up, or he is started from an existing high-level character on the throwaw
 - Dragonwilds client UE4SS installs: https://deltiasgaming.com/?p=207256 ; https://shockbyte.com/help/knowledgebase/articles/how-to-add-mods-to-your-runescape-dragonwilds-server
 - RPC ownership rules (Client RPCs with no owning connection run on the server): https://dev.epicgames.com/documentation/en-us/unreal-engine/remote-procedure-calls-in-unreal-engine
 - Prior research: docs/research/2026-10-25-player-like-bots.md (sections 1.3, 1.4, 3), docs/research/2026-10-25-humanoid-companion-dump.md (A.4, A.5)
+
+## Hosting feasibility (2026-10-25)
+
+**This VM, measured:**
+- QEMU guest, 4 vCPU AMD EPYC, load about 10%.
+- **8 GB RAM**, 2.3 GB free while the server runs. The server uses about 1.3 GB, Claude Code about 0.6 GB, Defender about 0.4 GB.
+- **No GPU**: only the Microsoft Basic/Remote Display adapters.
+- 66 GB disk free.
+
+**Client needs** (2025 pre-1.0 listings, so check the Steam page):
+- 8 GB RAM minimum, 16 GB recommended.
+- GTX 1060 6 GB, DX12, 25 GB disk.
+- Sources: primagames.com/?p=310331 ; corsair.com Dragonwilds requirements page.
+
+**Headless:**
+- `-nullrhi` (with `-nosound -unattended`, FPS capped) skips the GPU entirely, which is the only way to run the client on this VM.
+- It is reported working for UE headless clients, but it is not an official client mode. UI or render-target code can assert (Noesis UE5.7 report; lightmap CI report).
+- It cannot be tested until a client is installed. The client app (1374490) needs an account that owns it, and the Steam client running, for SteamAPI and EOS login.
+
+**Same box:**
+- CPU is probably fine headless.
+- RAM is the constraint: about 1.3 GB server plus about 1 GB per player, the headless client (estimated 3-5 GB, unmeasured), and the OS. So 8 GB is very tight and **16 GB is the realistic target**.
+
+**Linux + Wine (if the bigger box is Linux):**
+- The client would run under Wine/Proton, with Steam for Windows in Wine.
+- UE4SS Lua mods run under Wine (CLAUDE.md section 3).
+- With `-nullrhi` no graphics API is needed, which removes the usual DXVK/VKD3D risk.
+- Still unverified, so test before committing to it.
+
+**Server needs nothing:**
+- In R2 all mod code runs on Claude's client and the brain runs beside it. The server can be **unmodified**, including the Shockbyte world later.
+- Open checks for that move:
+  - whether a secure/vanilla-mode server rejects a client running UE4SS;
+  - client-side navigation: clients may not ship a navmesh, so we may need `bAllowClientSideNavigation` in Claude's client Engine.ini, or our own pathing;
+  - perception limited to what replicates to Claude's client (nearby actors);
+  - a player slot for Claude.
+- Dev testing still happens on this VM's throwaway world (CLAUDE.md section 1).
