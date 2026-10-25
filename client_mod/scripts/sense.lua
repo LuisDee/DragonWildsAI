@@ -259,10 +259,22 @@ local function describe_creature(a, origin)
     return d
 end
 
+-- inventory.lua's consumable_kind (food | drink | potion by the item DATA CLASS), loaded lazily: loading
+-- inventory.lua has no side effects beyond its own _G state table.
+local INV
+local function consumable_kind(data)
+    if INV == nil then
+        local ok, m = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/inventory.lua"))() end)
+        INV = ok and m or false
+    end
+    return INV and INV.consumable_kind and U.try(function() return INV.consumable_kind(data) end) or nil
+end
+
 local function describe_item(a, origin)
     local d = base(a, origin)
     local data = U.try(function() return a.ItemData end)
     d.name, d.item = item_name(data) or clean_class(d.class), item_id(data)
+    d.consumable = consumable_kind(data) -- perception: "Pumpkin Spice Infusion (drink)"
     d.count = num(U.try(function() return a:GetStackSize() end))
     local mag = U.try(function() return a.MagneticComponentGrantItem end)
     if U.valid(mag) then
@@ -701,8 +713,23 @@ function M.vitals_start(log)
     local p = M.local_pawn()
     V.me_id = p and U.short(p) or V.me_id
     V.last_hp = p and num(U.health(p)) or V.last_hp
+    -- Hooks registered at the main menu (client boot) or for an earlier pawn never delivered a damage
+    -- row (vitals.jsonl: damage rows only from the 17:53 in-world start; none after the boot-time starts
+    -- at 19:29/19:33/19:38 although he took 36 damage at 19:43:53). So once a pawn exists, hooks from
+    -- another pawn (or none) are dropped and registered again; the bridge's supervisor calls this again
+    -- when vitals_status().hooked_pawn differs from the current pawn. (Re-registering is the fix being
+    -- tried; UNVERIFIED until a damage row appears after a boot.)
+    local me = p and U.short(p) or nil
+    if me and V.hooked_pawn ~= me and next(V.hooks) then
+        for path, ids in pairs(V.hooks) do
+            if UnregisterHook then pcall(UnregisterHook, path, ids.pre, ids.post) end
+            V.hooks[path] = nil
+        end
+        if log then pcall(log, "vitals: hooks re-registered for pawn " .. me .. " (were for " .. tostring(V.hooked_pawn) .. ")") end
+    end
     local hooks = {}
     for _, h in ipairs(M.VITALS_HOOKS) do hooks[h.path:match(":(.+)$")] = register(h, log) end
+    if me then V.hooked_pawn = me end
     if not V.loop then
         V.loop = LoopInGameThreadWithDelay(1000, function()
             local f = _G.DWVitals and _G.DWVitals.poll
@@ -726,7 +753,8 @@ end
 function M.vitals_status()
     local n = 0
     for _ in pairs(V.hooks) do n = n + 1 end
-    return { running = V.loop ~= nil, hooks = n, counts = V.counts, last_hp = V.last_hp, me = V.me_id, dead = V.dead }
+    return { running = V.loop ~= nil, hooks = n, counts = V.counts, last_hp = V.last_hp, me = V.me_id, dead = V.dead,
+             hooked_pawn = V.hooked_pawn }
 end
 
 return M

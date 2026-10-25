@@ -843,8 +843,9 @@ M.MANIFEST = {
         args = { type = "object", properties = obj({
             target = str("An id from situation or look (a world item or ground pickup)."),
             item = str("What to pick up, by name or item id (e.g. 'Pumpkin Spice Infusion'); set it whenever the player names it."),
-            count = { type = "integer", minimum = 1, maximum = 20, default = 1, description = "How many items." } }),
-            anyOf = { { required = { "target" } }, { required = { "item" } } } },
+            count = { type = "integer", minimum = 1, maximum = 20, default = 1, description = "How many items." } }) },
+        -- (no top-level anyOf "target or item": model APIs reject it in tool schemas; the body and the
+        --  brain's FetchArgs check it instead)
         preconditions = { "the thing is on the ground within 60 m and reachable on foot" },
         ground = obj({ target = "item", item = "item" }),
         reasons = { "unknown_target", "nothing_in_range", "not_interactable", "too_far", "path_blocked", "verification_failed", "timeout" } },

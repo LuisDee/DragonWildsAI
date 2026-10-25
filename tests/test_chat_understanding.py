@@ -106,11 +106,17 @@ def test_burst_is_decided_once(rig):
     agent.handle_event(ChatHeard(player="Bob", text="brb"))
     agent.flush_chat()  # the fourth line forces a decision on the burst
     ds = rig.decisions()
-    assert sum(1 for d in ds if d[1] == "merged") == 3 and ("brb", "ignored", "model: not meant for me") in ds
+    # one run with all four lines (streamline step 3): the command text is the whole burst
+    assert sum(1 for d in ds if d[1] == "merged") == 3
+    assert ("lol / that was close / ok whatever / brb", "ignored", "model: not meant for me") in ds
 
 
 def test_unreachable_speaks_the_real_reason_and_found_you_after(rig):
-    rig.agent.handle_event(Unreachable(reason="leader_windstepped", detail="dz=6.9m", leader_pos=[1, 2, 9], my_pos=[1, 2, 3]))
+    """A body situation: one model-phrased line (the dry run says the template), per episode and reason."""
+    rig.hear("Luis", "claude follow me")
+    rig.game.players["Luis"].pos = [40.0, 0.0, 9.0]  # he went up where Claude can't follow
+    rig.agent.handle_event(Unreachable(reason="leader_windstepped", detail="dz=6.9m", leader_pos=[40, 0, 9],
+                                       my_pos=[1, 2, 3], mode="follow"))
     assert "Windstep" in rig.said()[-1]
     rig.agent.handle_event(Unreachable(reason="leader_windstepped"))  # same episode reported twice: once
     assert sum("Windstep" in s for s in rig.said()) == 1

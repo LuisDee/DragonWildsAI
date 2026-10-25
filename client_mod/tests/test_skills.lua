@@ -178,6 +178,7 @@ test("manifest: one entry per implemented tool, llm flags, schemas, legacy alias
     assert(not by.pickup and not by.attack and not by.gather, "tools the body lacks are absent")
     assert(r.data.aliases.pickup == "fetch", json.encode(r.data.aliases))
     assert(r.data.manifest_version == 1)
+    write(base .. "/capabilities.json", json.encode(r.data), "wb") -- for tests/test_skills_contract.py
     -- the raw JSON keeps empty schemas as objects
     write(IN, "")
     local raw = read(OUT)
@@ -407,6 +408,49 @@ test("death and respawn rows from the vitals watcher -> get_state.last_death", f
     B.step()
     local s = rpc("get_state")
     assert(s.data.last_death and s.data.last_death.ago_s >= 60 and s.data.last_death.respawned == true, json.encode(s.data.last_death))
+end)
+
+test("activity.jsonl lines are forwarded as activity events (kind and fields kept)", function()
+    reset()
+    write(base .. "/activity.jsonl", "") -- tail starts at the end: create it, then append
+    B.stop()
+    B = assert(loadfile(REPO .. "/client_mod/scripts/client_bridge.lua"))()
+    B.RELOAD_CHECK_S = 0
+    B.clock = function() return T end
+    B.start({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = base .. "/chat.jsonl", vitals_events = base .. "/vitals.jsonl",
+              move_events = base .. "/move.jsonl", gather_events = base .. "/gather.jsonl", activity_events = base .. "/activity.jsonl",
+              jlog = H.log, no_loop = true })
+    drain()
+    write(base .. "/activity.jsonl", json.encode({ type = "activity", kind = "combat_end", by = "reflex", target = "Goblin Runt",
+                                                   outcome = "killed", loot = { { name = "Goblin Pack", count = 1 } } }) .. "\n")
+    write(base .. "/activity.jsonl", "not json\n")
+    B.step()
+    local evs = {}
+    for _, m in ipairs(drain()) do if m.type == "event" and m.event.type == "activity" then evs[#evs + 1] = m.event end end
+    assert(#evs == 1 and evs[1].kind == "combat_end" and evs[1].outcome == "killed" and evs[1].loot[1].name == "Goblin Pack",
+           json.encode(evs))
+end)
+
+test("vitals service: hooks registered at the menu (no pawn) are re-armed once a pawn exists", function()
+    reset()
+    local sense = B.module("sense")
+    local st0, start0 = sense.vitals_status, sense.vitals_start
+    local hooked
+    sense.vitals_status = function() return { running = true, hooks = 4, me = "BP_PlayerCharacter_C_1", hooked_pawn = hooked } end
+    sense.vitals_start = function() F.vitals_starts = (F.vitals_starts or 0) + 1; hooked = "BP_PlayerCharacter_C_1"; return { ok = true } end
+    local S = B._state()
+    S.services_on, S.services = true, {}
+    F.vitals_starts = 0
+    B._supervise(true)
+    assert(F.vitals_starts == 1 and S.services.vitals.state == "running", json.encode(S.services.vitals))
+    T = T + B.SERVICE_CHECK_S
+    B._supervise(false)
+    assert(F.vitals_starts == 1, "healthy now: not restarted again")
+    hooked = "BP_PlayerCharacter_C_OLD" -- a rejoin: new pawn, hooks for the old one
+    T = T + B.SERVICE_CHECK_S
+    B._supervise(false)
+    assert(F.vitals_starts == 2, "re-armed for the new pawn")
+    sense.vitals_status, sense.vitals_start, S.services_on = st0, start0, false
 end)
 
 -- ------------------------------------------------------------------ run

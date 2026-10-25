@@ -38,6 +38,16 @@
 -- "detail"}; reasons: leader_windstepped | leader_double_jumped | leader_above_jump_height | no_route,
 -- and {"type":"reachable_again"} when it resumes. go_to keeps its give-up (failed/stuck|unreachable).
 -- Unstuck (the game's, teleports to start) is used only when Claude himself cannot move at all.
+-- NAVIGATION MEMORY (scripts/navmem.lua, streamline-plan step 5): Claude's successful trips and the
+-- leader's walked trail are stored per world as routes (flushed when a move ends, also when a new
+-- command interrupts it); Dijkstra over them is the first-choice router for long trips; known TRAPS
+-- (seeded: the church start pit) put their exit first; a stuck spot that was later left becomes a
+-- learned trap with that exit, and the failed direction is tabooed. M.escape_trap(log) for respawns.
+-- Escape ladder at give-up: memory route -> learned link -> BUG2 wall-following (bounded) -> (wedged:
+-- the game's Unstuck) -> unreachable. With a player near, it ASKS FOR HELP once per episode
+-- ({"type":"stuck","ask":"lead_me","where":...}); a go_to then WAITS for the lead (status
+-- "waiting_for_lead", up to lead_wait_s): when the helper moves, it walks his trail out and, once
+-- clear of the stuck spot, carries on to its goal (one command, one result).
 --   M.snapshot() -> {mode, goal, distance_m, opts} | nil    M.restore(log, snap)   (arbiter suspend/resume)
 -- Units: metres on the API (wire units), centimetres inside.
 local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
@@ -46,12 +56,13 @@ local NAV_RESP = ROOT .. "/client_io/nav/resp.lua"
 local NAV_ALIVE = ROOT .. "/client_io/nav/alive.lua"
 local LP_PATH = ROOT .. "/client_mod/scripts/localplan.lua"
 local TL_PATH = ROOT .. "/client_mod/scripts/traverse_learn.lua" -- learned traversal links (traversal agent)
+local NM_PATH = ROOT .. "/client_mod/scripts/navmem.lua"
 
 local M = {}
 
 M.cfg = {
     wp_radius_cm = 120,        -- waypoint / crumb reached (2D)
-    lp_radius_cm = 70,         -- local-plan point reached (cells are 1 m)
+    lp_radius_cm = 45,         -- local-plan point reached (cells are 1 m; 70 cut wall corners)
     sprint_on_cm = 1000,       -- sprint when the remaining distance is above this
     sprint_off_cm = 500,       -- ... and stop asking below this
     sprint_retry_s = 1.0,      -- toggle sprint: wait this long for the server ack before pressing again
@@ -92,6 +103,15 @@ M.cfg = {
     probe_ahead_cm = 150,
     probe_wall_nz = 0.7,       -- hit normal Z below this = wall (WalkableFloorAngle ~45 deg)
     follow_hysteresis_cm = 100,
+    bug_side_s = 12,           -- Bug2: time per side (left-hand, then right-hand)
+    bug_side_cm = 3500,        -- Bug2: distance per side
+    help_player_cm = 4000,     -- ask for help when a player is this close
+    lead_clear_cm = 1500,      -- led this far from the stuck spot -> carry on to the goal ourselves
+    lead_wait_s = 60,          -- a go_to waits this long for someone to lead it out
+    trip_spacing_cm = 250,     -- trip recording resolution (navmem routes)
+    mem_min_trip_cm = 3000,    -- use a remembered route only for trips longer than this
+    trap_leave_cm = 1500,      -- leaving a stuck spot by this much makes the path since then its exit ...
+    trap_extend_cm = 1000,     -- ... and the exit keeps growing for this much more walking (well clear)
     oracle_primary_cm = 1000,  -- beyond this (or above jump height) the oracle route leads; the local
                                -- planner only handles the obstacle in front of the next waypoint
     unreachable_check_s = 1.5, -- while unreachable: re-check this often
@@ -138,6 +158,25 @@ local function player_pawn(name, me)
             end
         end
     end
+end
+
+-- Nearest other player's (name, pawn, distance cm) within max_cm of p, or nil.
+local function nearest_player(me_pawn, p, max_cm)
+    local best, bn, bp = max_cm or math.huge, nil, nil
+    for _, ps in ipairs(FindAllOf("PlayerState") or {}) do
+        if ps:IsValid() and not ps:GetFullName():find("Default__") then
+            local okp, pw = pcall(function() return ps.PawnPrivate end)
+            if okp and pw and pw:IsValid() and pw ~= me_pawn then
+                local okl, l = pcall(function() return pw:K2_GetActorLocation() end)
+                local okn, n = pcall(function() return ps:GetPlayerName():ToString() end)
+                if okl and okn then
+                    local dd = math.sqrt((l.X - p.X) ^ 2 + (l.Y - p.Y) ^ 2)
+                    if dd < best then best, bn, bp = dd, n, pw end
+                end
+            end
+        end
+    end
+    return bn, bp, bn and best or nil
 end
 
 -- Actor by entity id (U.short name as the sense census reports it), or nil.
@@ -352,6 +391,7 @@ local function record_crumb(st, p)
     if #c > M.cfg.crumb_cap then
         table.remove(c, 1)
         if st.trail_i then st.trail_i = math.max(1, st.trail_i - 1) end
+        if st.crumb_mark then st.crumb_mark = math.max(0, st.crumb_mark - 1) end
     end
 end
 
@@ -415,6 +455,60 @@ local function tl_module()
         TL_MOD = (okm and type(mod) == "table" and mod.best_link) and mod or false
     end
     return TL_MOD
+end
+
+local NM_MOD
+local function nm_module()
+    if NM_MOD == nil then
+        local okc, chunk = pcall(loadfile, NM_PATH)
+        local okm, mod = false, nil
+        if okc and chunk then okm, mod = pcall(chunk) end
+        NM_MOD = (okm and type(mod) == "table" and mod.plan) and mod or false
+    end
+    return NM_MOD
+end
+
+-- The per-world navigation memory (cached in _G.DW_NAVMEM across reloads of this file).
+local function nav_mem()
+    local NMm = nm_module()
+    if not NMm then return nil end
+    local TL = tl_module()
+    local world = "shockbyte"
+    if TL and TL.world_id then local okw, w = pcall(TL.world_id); if okw and w then world = w end end
+    local m = rawget(_G, "DW_NAVMEM")
+    if not m or m._world ~= world then
+        local okl, loaded = pcall(NMm.load, ROOT, world, "L_World")
+        m = okl and loaded or nil
+        _G.DW_NAVMEM = m
+    end
+    return m, NMm
+end
+
+local function feet_of(st, p) return { X = p.X, Y = p.Y, Z = p.Z - (st.half_h or 90) } end
+
+-- Persist what this move learned: Claude's own trip (only if it got somewhere: arrived, or a follow
+-- that reached the leader) and the leader's walked trail (human-proven). Called when a move ends,
+-- including when a new command interrupts it (live 19:42: a follow's demo trail was lost that way).
+local function mem_flush(st, log, why)
+    local mem, NMm = nav_mem()
+    if not mem then return end
+    local changed = false
+    if st.trip and #st.trip >= 2 and st.trip_ok then
+        local okr, r, how = pcall(NMm.add_route, mem, st.trip, { src = "self" })
+        if okr and r then changed = true; if log then log("move: memory: self route " .. tostring(r.id) .. " " .. tostring(how)) end end
+    end
+    if st.target_kind == "player" and st.crumbs and #st.crumbs - (st.crumb_mark or 0) >= 2 then
+        local pts = {}
+        for k = math.max(1, st.crumb_mark or 1), #st.crumbs do
+            local c = st.crumbs[k]
+            if not c.air and not c.gap then pts[#pts + 1] = { X = c.X, Y = c.Y, Z = c.Z - (st.half_h or 90) } end
+        end
+        st.crumb_mark = #st.crumbs
+        local okr, r, how = pcall(NMm.add_route, mem, pts, { src = "demo:" .. tostring(st.target_name) })
+        if okr and r then changed = true; if log then log("move: memory: leader route " .. tostring(r.id) .. " " .. tostring(how)) end end
+    end
+    if changed then pcall(NMm.save, mem) end
+    st.trip, st.trip_ok = nil, nil
 end
 
 local LP_MOD
@@ -492,6 +586,8 @@ end
 
 -- ------------------------------------------------------------------ the loop
 local function finish(st, result, log)
+    if result and result.status == "arrived" then st.trip_ok = true end
+    pcall(mem_flush, st, log, result and result.status)
     st.result = result
     st.mode = "idle"
     if st.handle then pcall(CancelDelayedAction, st.handle) end
@@ -551,8 +647,11 @@ local function tick(st, gen, log)
                 end
                 st.l_air = nil
             end
+            -- jump count CHANGES only: the replicated value stays stale after landing (traversal agent)
             local okj, jc = pcall(function() return st.target.ReplicatedJumpCurrentCount end)
-            if okj and tonumber(jc) and tonumber(jc) >= 2 then st.leader_dj_t = t end
+            jc = okj and tonumber(jc) or nil
+            if jc and st.l_jc and jc >= 2 and st.l_jc < 2 and st.l_air then st.leader_dj_t = t end
+            st.l_jc = jc
         end
         st.target_pos = goal
     else
@@ -569,6 +668,7 @@ local function tick(st, gen, log)
         local hold = st.idle and (st.tol_cm + M.cfg.follow_hysteresis_cm) or st.tol_cm
         if dist <= hold then
             st.idle, st.status = true, "near"
+            if st.trip and #st.trip >= 4 then st.trip_ok = true; pcall(mem_flush, st, log, "near"); st.trip = { feet_of(st, me) } end
             if st.unreach then
                 pcall(emit_move_event, "reachable_again", { leader_pos = goal, my_pos = me, after_s = math.floor((t - st.unreach.since) * 10) / 10 })
                 st.unreach = nil
@@ -612,6 +712,119 @@ local function tick(st, gen, log)
         if not okg or g ~= false then
             sc[#sc + 1] = v(me)
             if #sc > M.cfg.self_cap then table.remove(sc, 1) end
+        end
+    end
+
+    -- trip recording (navmem routes) and trap learning
+    local fe = feet_of(st, me)
+    st.trip = st.trip or {}
+    local tp = st.trip
+    if not tp[#tp] or d2(fe, tp[#tp]) >= M.cfg.trip_spacing_cm then
+        local okg2, g2 = pcall(function() return pawn.CharacterMovement:IsMovingOnGround() end)
+        if not okg2 or g2 ~= false then
+            tp[#tp + 1] = fe
+            if #tp > 2000 then table.remove(tp, 1) end
+        end
+    end
+    local cand = rawget(_G, "DW_TRAP_CAND")
+    if cand then
+        -- the candidate keeps its OWN escape path (global: survives new commands and trip flushes)
+        cand.path = cand.path or {}
+        local cp = cand.path
+        if (cp[#cp] and d2(fe, cp[#cp]) > 1000) or os.time() - (cand.t or 0) > 600 then
+            -- a teleport (respawn, Unstuck, lodestone) or a stale candidate: not an escape route
+            _G.DW_TRAP_CAND, cand = nil, nil
+        elseif not cp[#cp] or d2(fe, cp[#cp]) >= M.cfg.trip_spacing_cm then
+            cp[#cp + 1] = fe
+            if #cp > 400 then table.remove(cp, 1) end
+        end
+    end
+    if cand and d2(fe, cand.at) > M.cfg.trap_leave_cm and math.abs(fe.Z - cand.at.Z) < 400 then
+        -- we got away from where we were stuck: the path since we were last there is its exit
+        local cp = cand.path or {}
+        local k0 = nil
+        for k = #cp, 1, -1 do if d2(cp[k], cand.at) < 400 then k0 = k; break end end
+        local mem, NMm = nav_mem()
+        if k0 and mem and #cp - k0 >= 2 then
+            local ex = {}
+            for k = k0, #cp do ex[#ex + 1] = cp[k] end
+            local okt, trap, how = pcall(NMm.learn_trap, mem, cand.at, ex, { src = "learned" })
+            if cand.toward and not cand.learned then pcall(NMm.taboo, mem, cand.at, cand.toward, "failed approach") end
+            pcall(NMm.save, mem)
+            if log and not cand.learned then log(string.format("move: memory: trap %s %s, exit %d pts", tostring(okt and trap and trap.id), tostring(how), #ex)) end
+            -- keep extending the exit for a while (until well clear), then close the candidate
+            local walked = 0
+            for k = k0 + 1, #cp do walked = walked + d2(cp[k - 1], cp[k]) end
+            cand.learned = true
+            cand.extend_to = cand.extend_to or (walked + M.cfg.trap_extend_cm)
+            if walked >= cand.extend_to then _G.DW_TRAP_CAND = nil end
+        else
+            _G.DW_TRAP_CAND = nil
+        end
+    end
+
+    -- go_to waiting for / being led out by a helper (after asking "lead me")
+    local ld = st.lead
+    if ld then
+        local okl, hl = pcall(function() return ld.pawn:K2_GetActorLocation() end)
+        if not (okl and ld.pawn:IsValid()) or t - ld.since > M.cfg.lead_wait_s and not ld.phase then
+            st.lead, st.lead_done = nil, true
+            return finish(st, { status = "failed", reason = "unreachable", why = ld.why, detail = ld.detail, asked = ld.name,
+                dist_m = dist / 100 }, log)
+        end
+        -- the helper's walked trail (grounded samples), as leader breadcrumbs
+        local c = st.crumbs
+        if not c[#c] or d2(hl, c[#c]) >= M.cfg.crumb_spacing_cm then
+            local okg4, g4 = pcall(function() return ld.pawn.CharacterMovement:IsMovingOnGround() end)
+            if not okg4 or g4 ~= false then c[#c + 1] = v(hl) end
+            if #c > M.cfg.crumb_cap then table.remove(c, 1) end
+        end
+        if not ld.phase then
+            if d2(hl, ld.leader_pos) > 300 then
+                ld.phase = "trail"
+                if log then log("move: " .. ld.name .. " is leading; following his trail out") end
+                st.prog_t, st.prog_pos, st.move_acc, st.bt_tested, st.stuck_n = t, v(me), 0, nil, 0
+            else
+                st.status = "waiting_for_lead"
+                if st.prog_t then st.prog_t = st.prog_t + dt end
+                st.win_t, st.win_pos = t, v(me)
+                pc:SetControlRotation({ Pitch = 0, Yaw = math.deg(math.atan(hl.Y - me.Y, hl.X - me.X)), Roll = 0 })
+                return
+            end
+        end
+        if ld.phase == "trail" then
+            if d2(me, ld.from) > M.cfg.lead_clear_cm then
+                if log then log("move: led clear of the stuck spot; carrying on to the goal") end
+                pcall(emit_move_event, "led_out", { my_pos = me, helper = ld.name })
+                st.lead, st.lead_done, st.trail_i = nil, true, nil
+                st.prog_t, st.prog_pos, st.move_acc, st.bt_tested, st.stuck_n, st.nav_force = t, v(me), 0, nil, 0, true
+                st.bug_tried, st.mem_retry, st.link_tries = false, false, 0
+            else
+                if not st.trail_i and #st.crumbs >= 2 then st.trail_i = nearest_crumb(st.crumbs, me) or 1 end
+                -- trail steering below follows st.crumbs from st.trail_i
+            end
+        end
+    end
+
+    -- memory routing, once per move (needs our position): a known trap's exit first; else a
+    -- remembered route for long trips (human-proven / self routes, Dijkstra)
+    if not st.mem_checked then
+        st.mem_checked = true
+        local mem, NMm = nav_mem()
+        if mem then
+            local gfe = feet_of(st, goal)
+            local okt, trap = pcall(NMm.trap_at, mem, fe)
+            local okg3, gtrap = pcall(NMm.trap_at, mem, gfe)
+            if okt and trap and not (okg3 and gtrap and gtrap.id == trap.id) then
+                st.mpath, st.mwp, st.msrc = NMm.trap_exit(trap), 1, "trap:" .. tostring(trap.id)
+                if log then log("move: memory: in trap " .. tostring(trap.id) .. ", taking its exit first") end
+            elseif dist > M.cfg.mem_min_trip_cm then
+                local okp, pts = pcall(NMm.plan, mem, fe, gfe, { max_factor = 2.5 })
+                if okp and pts then
+                    st.mpath, st.mwp, st.msrc = pts, 1, "memory"
+                    if log then log(string.format("move: memory: remembered route, %d pts", #pts)) end
+                end
+            end
         end
     end
 
@@ -729,7 +942,55 @@ local function tick(st, gen, log)
         end
         if st.link_exec then idx_progress = true end -- executing a link is progress (no give-up mid-run)
     end
-    if lx and st.link_exec then
+    local bug = st.bug
+    if bug and not (lx and st.link_exec) then
+        -- BUG2 wall-following (automaticaddison.com/the-bug2-algorithm-for-robot-motion-planning ;
+        -- cs.columbia.edu/~allen/F19/NOTES/Chap2-Bug.pdf): keep the obstacle on one side until we
+        -- cross the start->goal line closer to the goal than where we hit it. Probes every 3rd frame.
+        src = "bug2"
+        idx_progress = true
+        bug.travel = bug.travel + (bug.last and d2(me, bug.last) or 0)
+        bug.last = v(me)
+        local function blocked_dir(yaw)
+            local hx, hy = math.cos(math.rad(yaw)), math.sin(math.rad(yaw))
+            local knee = me.Z - (st.half_h or 90) + 50
+            local okp, hit, out = pcall(raw_trace, pawn, { X = me.X + hx * 60, Y = me.Y + hy * 60, Z = knee },
+                { X = me.X + hx * 170, Y = me.Y + hy * 170, Z = knee })
+            st.traces = (st.traces or 0) + 1
+            return okp and hit and ((out.ImpactNormal and out.ImpactNormal.Z or 0) < M.cfg.probe_wall_nz)
+        end
+        if st.ticks % 3 == 0 then
+            if blocked_dir(bug.yaw) then bug.yaw = bug.yaw + bug.dir * 35
+            elseif not blocked_dir(bug.yaw - bug.dir * 90) then bug.yaw = bug.yaw - bug.dir * 25 end
+            -- leave: on the m-line, closer to the goal than the hit point, and the way to the goal is open
+            local sx, sy, gx, gy = bug.s.X, bug.s.Y, goal.X, goal.Y
+            local lx2, ly2 = gx - sx, gy - sy
+            local ll = math.max(math.sqrt(lx2 * lx2 + ly2 * ly2), 1)
+            local off = math.abs((me.X - sx) * ly2 - (me.Y - sy) * lx2) / ll
+            if off < 80 and d2(me, goal) < bug.hit_d - 100 and bug.travel > 150 then
+                local gyaw = math.deg(math.atan(gy - me.Y, gx - me.X))
+                if not blocked_dir(gyaw) then
+                    if log then log(string.format("move: bug2 left the wall after %.0f cm", bug.travel)) end
+                    st.bug, st.nav_force = nil, true
+                    st.prog_t, st.prog_pos, st.move_acc, st.bt_tested, st.stuck_n = t, v(me), 0, nil, 0
+                end
+            end
+        end
+        if st.bug and (t - bug.t0 > M.cfg.bug_side_s or bug.travel > M.cfg.bug_side_cm) then
+            if not bug.switched then
+                if log then log("move: bug2 switching sides") end
+                bug.switched, bug.dir, bug.t0, bug.travel, bug.yaw = true, -bug.dir, t, 0, bug.yaw + 180
+            else
+                if log then log("move: bug2 gave up") end
+                st.bug, st.bug_failed = nil, true
+                st.prog_t = t - M.cfg.give_up_s - 1 -- straight back to the give-up decision
+            end
+        end
+        if st.bug then aim = { X = me.X + math.cos(math.rad(bug.yaw)) * 300, Y = me.Y + math.sin(math.rad(bug.yaw)) * 300, Z = me.Z } end
+    end
+    if bug and st.bug then
+        -- steering point chosen by Bug2
+    elseif lx and st.link_exec then
         -- steering point chosen above
     elseif st.backtrack_until and t < st.backtrack_until and st.backtrack_pt then
         aim, src = st.backtrack_pt, "backtrack"
@@ -794,7 +1055,30 @@ local function tick(st, gen, log)
                 end
             end
         end
-        if not st.lpath and not st.trail_i and path then
+        if not st.lpath and not st.trail_i and st.mpath then
+            local i0 = st.mwp
+            st.mwp = advance(st.mpath, st.mwp, me, M.cfg.wp_radius_cm, math.max((st.env and st.env.step or 45) + 20, 60), st.half_h or 90)
+            if st.mwp > i0 then idx_progress = true end
+            if st.mwp > #st.mpath then
+                if log then log("move: memory route done (" .. tostring(st.msrc) .. ")") end
+                st.mpath, st.nav_force = nil, true
+            else
+                local mp = st.mpath[st.mwp]
+                aim, src = { X = mp.X, Y = mp.Y, Z = mp.Z + (st.half_h or 90) }, "memory"
+                local prevp = st.mpath[st.mwp - 1]
+                if (mp.act == "jump" or mp.act == "djump") and prevp then
+                    st.mem_jumped = st.mem_jumped or {}
+                    local last = st.mem_jumped[st.mwp]
+                    if d2(me, prevp) < 60 and (not last or t - last > 1.5) then
+                        st.mem_jumped[st.mwp] = t
+                        start_jump(st, t, pawn, false)
+                    elseif d2(me, prevp) >= 60 and not last and d2(me, mp) > d2(prevp, mp) then
+                        aim = { X = prevp.X, Y = prevp.Y, Z = prevp.Z + (st.half_h or 90) }
+                    end
+                end
+            end
+        end
+        if not st.lpath and not st.trail_i and not st.mpath and path then
             local i0 = st.wp
             st.wp = advance(path, st.wp, me, M.cfg.wp_radius_cm, math.max((st.env and st.env.step or 45) + 20, 60), st.half_h or 90)
             if st.wp > i0 then idx_progress = true end
@@ -831,6 +1115,12 @@ local function tick(st, gen, log)
         if st.trail_i then
             return st.crumbs[math.min(#st.crumbs, st.trail_i + M.cfg.trail_lookahead)]
         end
+        if st.mpath and st.mwp and st.mwp <= #st.mpath then
+            local k = st.mwp
+            while k < #st.mpath and d2(me, st.mpath[k]) < 600 do k = k + 1 end
+            local q = st.mpath[k]
+            return { X = q.X, Y = q.Y, Z = q.Z + (st.half_h or 90) }
+        end
         if st.path and st.wp and st.wp <= #st.path then
             -- the oracle knows the way round (cliffs, hills): plan locally only to its next waypoints
             local k = st.wp
@@ -860,7 +1150,7 @@ local function tick(st, gen, log)
     end
 
     -- forward wall probe (cheap, a few per second): a steep hit at knee height ahead -> plan
-    if st.use_lp and not st.lpath and src ~= "backtrack" and src ~= "link" and t - (st.probe_t or 0) > M.cfg.probe_every_s
+    if st.use_lp and not st.lpath and src ~= "backtrack" and src ~= "link" and src ~= "bug2" and t - (st.probe_t or 0) > M.cfg.probe_every_s
         and t - (st.lp_fail_t or -100) > M.cfg.lp_cooldown_s and st.lp_plans_np < M.cfg.lp_max_plans then
         st.probe_t = t
         local hh = st.half_h or 90
@@ -1001,9 +1291,40 @@ local function tick(st, gen, log)
             local un = nil
             if M.cfg.allow_unstuck and st.allow_unstuck ~= false then un = M.unstuck(log) end
             pcall(emit_move_event, "stuck", { my_pos = me, leader_pos = goal, unstuck = un and (un.ok and "requested" or un.error) })
+            _G.DW_TRAP_CAND = { at = feet_of(st, me), toward = st.aim and feet_of(st, st.aim) or nil, t = os.time() }
             return finish(st, { status = "failed", reason = "stuck", dist_m = dist / 100, unstuck = un and (un.ok and "requested" or un.error), at_m = at }, log)
         end
-        -- we can move but cannot get closer. First: a learned traversal link toward the goal?
+        -- we can move but cannot get closer. First: a remembered route (once per move)?
+        if not st.mem_retry then
+            st.mem_retry = true
+            local mem, NMm = nav_mem()
+            if mem then
+                local okt, trap = pcall(NMm.trap_at, mem, feet_of(st, me))
+                local pts = okt and trap and NMm.trap_exit(trap) or nil
+                if not pts then
+                    local okp, pp = pcall(NMm.plan, mem, feet_of(st, me), feet_of(st, goal), { max_factor = 3 })
+                    pts = okp and pp or nil
+                end
+                if pts then
+                    st.mpath, st.mwp, st.msrc = pts, 1, okt and trap and ("trap:" .. tostring(trap.id)) or "memory"
+                    st.prog_t, st.prog_pos, st.move_acc, st.bt_tested = t, v(me), 0, nil
+                    st.lpath, st.trail_i = nil, nil
+                    if log then log("move: memory: retrying via " .. st.msrc) end
+                    return
+                end
+            end
+        end
+        -- Next: Bug2 wall-following (bounded), once per move
+        if not st.bug_tried and st.use_lp then
+            st.bug_tried = true
+            st.bug = { s = v(me), hit_d = dist, t0 = t, travel = 0, dir = 1, switched = false,
+                yaw = math.deg(math.atan(goal.Y - me.Y, goal.X - me.X)) + 35 }
+            st.prog_t, st.prog_pos, st.move_acc = t, v(me), 0
+            st.lpath, st.trail_i, st.mpath = nil, nil, nil
+            if log then log("move: bug2 wall-following from " .. fmt(me)) end
+            return
+        end
+        -- Next: a learned traversal link toward the goal?
         local TL = tl_module()
         local needs = nil
         if TL and (st.link_tries or 0) < M.cfg.link_max_tries then
@@ -1028,14 +1349,39 @@ local function tick(st, gen, log)
         else reason = "no_route" end
         local detail = string.format("dz=%.1fm d=%.1fm lp_fail=%s", (goal.Z - me.Z) / 100, dist / 100, tostring(st.lp_fail))
         if log then log("move: unreachable: " .. reason .. " " .. detail) end
+        -- ask for help (once per episode) when a player is near enough to lead us out
+        local hname, hpawn, hd = nearest_player(pawn, me, M.cfg.help_player_cm)
+        local where = nil
+        do
+            local mem, NMm = nav_mem()
+            local okt, trap = false, nil
+            if mem then okt, trap = pcall(NMm.trap_at, mem, feet_of(st, me)) end
+            where = (okt and trap and (trap.name or trap.id)) or string.format("at (%.0f, %.0f, %.0f)", me.X / 100, me.Y / 100, me.Z / 100)
+        end
+        if hname and not st.asked_help then
+            st.asked_help = true
+            pcall(emit_move_event, "stuck", { ask = "lead_me", where = where, helper = hname, reason = reason, my_pos = me, detail = detail })
+            if log then log("move: asking " .. hname .. " to lead me (" .. where .. ")") end
+        end
         if st.mode == "follow" then
             st.unreach = { reason = reason, since = t, check_t = t, leader_pos = v(goal), my_pos = v(me), detail = detail }
             st.unreach_episodes = (st.unreach_episodes or 0) + 1
             pcall(emit_move_event, "unreachable", { reason = reason, leader_pos = goal, my_pos = me, detail = detail, mode = "follow" })
+            _G.DW_TRAP_CAND = { at = feet_of(st, me), toward = st.aim and feet_of(st, st.aim) or nil, t = os.time() }
             st.status = "unreachable"
             return
         end
         pcall(emit_move_event, "unreachable", { reason = reason, leader_pos = goal, my_pos = me, detail = detail, mode = "go_to" })
+        _G.DW_TRAP_CAND = { at = feet_of(st, me), toward = st.aim and feet_of(st, st.aim) or nil, t = os.time() }
+        if hname and hpawn and not st.lead_done then
+            -- a player is near: wait for them to lead us out (their trail), then carry on
+            local okl, hl = pcall(function() return hpawn:K2_GetActorLocation() end)
+            st.lead = { pawn = hpawn, name = hname, from = v(me), since = t, leader_pos = okl and v(hl) or v(me),
+                why = reason, detail = detail }
+            st.crumbs, st.crumb_mark, st.trail_i = {}, 0, nil
+            st.status = "waiting_for_lead"
+            return
+        end
         return finish(st, { status = "failed", reason = "unreachable", why = reason, detail = detail, dist_m = dist / 100, at_m = at }, log)
     end
 
@@ -1054,6 +1400,7 @@ local function start(log, mode, opts)
     local pc = local_pc()
     local pawn = pc and pc.Pawn
     if not (pawn and pawn:IsValid()) then return { ok = false, error = "no pawn" } end
+    if st.mode ~= "idle" then pcall(mem_flush, st, log, "interrupted") end
     local gen = st.gen + 1
     local keep = { gen = gen, nav_id = st.nav_id, eis = st.eis, pts = st.pts }
     for k in pairs(st) do st[k] = nil end
@@ -1071,6 +1418,7 @@ local function start(log, mode, opts)
     st.allow_unstuck = opts.allow_unstuck
     if opts.sprint_m then M.cfg.sprint_on_cm = opts.sprint_m * 100; M.cfg.sprint_off_cm = math.min(M.cfg.sprint_off_cm, opts.sprint_m * 50) end
     st.face_when_near = opts.face_when_near
+
     local g = opts.goal
     if type(g) == "table" and not g.actor then
         st.goal = { X = g[1] * 100, Y = g[2] * 100, Z = g[3] * 100 }
@@ -1113,6 +1461,7 @@ end
 function M.stop(log)
     local st = S()
     local was = st.mode
+    if was ~= "idle" then pcall(mem_flush, st, log, "stopped") end
     st.gen = st.gen + 1 -- any running loop exits on its next frame even if the cancel misses
     finish(st, { status = "stopped" }, log)
     pcall(function() local pc = local_pc(); if pc and pc.Pawn then pc.Pawn:StopJumping() end end)
@@ -1148,6 +1497,28 @@ function M.unstuck(log)
         end)
     end)
     return { ok = true }
+end
+
+-- After a respawn/rejoin: if Claude stands in a known trap (e.g. the church start pit), walk its
+-- recorded exit. Returns go_to's reply, or {ok=false, error="not_in_trap"}.
+function M.escape_trap(log, opts)
+    if paused() then return { ok = false, error = "paused (world changing)" } end
+    local pc = local_pc()
+    local pawn = pc and pc.Pawn
+    if not (pawn and pawn:IsValid()) then return { ok = false, error = "no pawn" } end
+    local mem, NMm = nav_mem()
+    if not mem then return { ok = false, error = "no navmem" } end
+    local hh = tonumber((pcall(function() return pawn.CapsuleComponent:GetScaledCapsuleHalfHeight() end))
+        and pawn.CapsuleComponent:GetScaledCapsuleHalfHeight()) or 90
+    local me = pawn:K2_GetActorLocation()
+    local trap = NMm.trap_at(mem, { X = me.X, Y = me.Y, Z = me.Z - hh })
+    if not trap then return { ok = false, error = "not_in_trap" } end
+    local ex = NMm.trap_exit(trap)
+    if not ex then return { ok = false, error = "trap has no exit", trap = trap.id } end
+    local last = ex[#ex]
+    local r = M.go_to(log, { last.X / 100, last.Y / 100, (last.Z + hh) / 100 }, opts or { tolerance_m = 1.5 })
+    r.trap = trap.id
+    return r
 end
 
 function M.snapshot()
@@ -1186,6 +1557,9 @@ function M.status()
         stuck_n = st.stuck_n, stuck_total = st.stuck_total, jumps = st.jumps, double_jumps = st.double_jumps,
         last_stuck = st.last_stuck, ticks = st.ticks, self_edges = st.self_edges,
         prefetched = st.prefetched, lp_stand_s = st.lp_stand_s, unstuck = _G.DW_UNSTUCK,
+        bug2 = st.bug and { dir = st.bug.dir, travel_m = math.floor(st.bug.travel) / 100 } or nil,
+        lead = st.lead and { helper = st.lead.name, phase = st.lead.phase or "waiting" } or nil,
+        memory = st.mpath and { src = st.msrc, wp = st.mwp, n = #st.mpath } or nil, trip_pts = st.trip and #st.trip,
         unreachable = st.unreach and { reason = st.unreach.reason, detail = st.unreach.detail,
             leader_pos = m3(st.unreach.leader_pos), my_pos = m3(st.unreach.my_pos) } or nil,
         unreach_episodes = st.unreach_episodes,

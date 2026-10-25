@@ -6,9 +6,12 @@ local dir = assert(arg[1], "usage: lua test_move.lua <empty_dir>"):gsub("\\", "/
 os.execute('mkdir "' .. (dir .. "/client_io/nav"):gsub("/", "\\") .. '" 2>nul')
 os.execute('mkdir "' .. (dir .. "/client_mod/scripts"):gsub("/", "\\") .. '" 2>nul')
 local here = (debug.getinfo(1, "S").source:match("^@(.*)[/\\][^/\\]*$")) or "."
-do -- move.lua loads <root>/client_mod/scripts/localplan.lua
-    local src = assert(io.open(here .. "/../scripts/localplan.lua", "rb")):read("a")
-    local f = assert(io.open(dir .. "/client_mod/scripts/localplan.lua", "wb")); f:write(src); f:close()
+do -- move.lua loads <root>/client_mod/scripts/{localplan,navmem,dkjson}.lua
+    for _, n in ipairs({ "localplan.lua", "navmem.lua", "dkjson.lua" }) do
+        local src = assert(io.open(here .. "/../scripts/" .. n, "rb")):read("a")
+        local f = assert(io.open(dir .. "/client_mod/scripts/" .. n, "wb")); f:write(src); f:close()
+    end
+    os.execute('mkdir "' .. (dir .. "/data/nav"):gsub("/", "\\") .. '" 2>nul')
 end
 package.path = here .. "/?.lua;" .. package.path
 
@@ -197,7 +200,7 @@ run(5)
 local n = 0; for _ in pairs(loops) do n = n + 1 end
 check("no loops left after stop from a fresh load", n == 0, n)
 
-_G.DW_LP_CACHE = nil
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
 -- 5. breadcrumbs: a tall wall the dev navmesh doesn't know; nav gives a partial path into it;
 --    the leader walks around the wall's end; Claude must retrace the leader's trail
 walls = { { 900, 1100, -2000, 600, true } }
@@ -223,22 +226,23 @@ check("breadcrumbs or local planner routed around it", (s.trail_entries or 0) >=
 M.stop(log)
 frame_hook = nil
 
-_G.DW_LP_CACHE = nil
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
 -- 6. bounded give-up: walled in, no trail -> stops with "stuck" after > 5 s, not a loop
 walls = { { 300, 400, -5000, 5000, true } }
 pawn.loc = { X = 0, Y = 0, Z = 0 }; oracle = nil
+luis.loc = { X = 90000, Y = 90000, Z = 0 } -- nobody near to lead us out
 local t_start = T
 M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1, timeout_s = 120 })
-run(300)
+run(1200)
 s = M.status()
 check("go_to gives up (stuck or unreachable)", s.result and (s.result.reason == "stuck" or s.result.reason == "unreachable"), s.result and s.result.reason)
-check("gives up within 5-9 s of no progress", s.result and (T - t_start) > 5, T - t_start)
+check("gives up after > 5 s, bounded (ladder incl. Bug2 both sides)", s.result and (T - t_start) > 5, T - t_start)
 check("tried the local planner / backtrack before giving up", (s.backtracks or 0) >= 1 or (s.lp_runs or 0) >= 2, s.lp_runs)
 local stuck_logged = false
 for _, l in ipairs(logs) do if l:find("move: stuck n=") and l:find("aim=") then stuck_logged = true end end
 check("stuck events log me/aim/goal/waypoints", stuck_logged)
 
-_G.DW_LP_CACHE = nil
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
 -- 8. leader on a 6 m plateau reached by a ramp ~23 m away (outside the 9 m planner window):
 --    the local plan must fail as "unreachable", and Claude must retrace the leader's trail up
 walls = {}; oracle = nil
@@ -270,7 +274,7 @@ M.stop(log)
 frame_hook = nil
 raised = {}
 
-_G.DW_LP_CACHE = nil
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
 -- 9. persistent follow: the leader Windsteps onto a plateau Claude can't reach (no ramp), so
 --    follow goes "unreachable" (once, with reason leader_windstepped), then he jumps back down
 --    and follow resumes by itself
@@ -314,7 +318,7 @@ M.stop(log)
 luis.CharacterMovement = nil
 raised = {}
 
-_G.DW_LP_CACHE = nil
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
 -- 10. oracle path with an auto-generated nav LINK (a 1 m step up): jump from the take-off point.
 --     Local planner off so only the nav-link logic can get us up.
 walls = {}
@@ -329,7 +333,7 @@ check("nav link: jumped up the step and arrived", s.result and s.result.status =
     tostring(s.result and s.result.status) .. " link_jumps=" .. tostring(s.link_jumps))
 raised = {}; oracle = nil
 
-_G.DW_LP_CACHE = nil
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
 -- 11. world-teardown guard: while _G.DW_PAUSE is set, the loop makes no engine calls at all
 walls = {}; oracle = nil
 pawn.loc = { X = 0, Y = 0, Z = 0 }
@@ -344,10 +348,11 @@ check("paused: start() refuses", not M.go_to(log, { 1, 1, 0 }, {}).ok)
 _G.DW_PAUSE = nil
 M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1 })
 run(100)
+if os.getenv("DBG11") then for i = math.max(1, #logs - 12), #logs do print("  " .. logs[i]) end; print("POS", pawn.loc.X, pawn.loc.Y, "walls", #walls, "raised", #raised) end
 check("unpaused: moves again", M.status().result and M.status().result.status == "arrived", M.status().status)
 pawn.AddMovementInput = real_add
 
-_G.DW_LP_CACHE = nil
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
 -- 12. learned traversal links (traverse_learn.lua API): Luis on a 6 m plateau, no ramp; a learned
 --     "jump" link exists at x = 9 m (only there can you get up). Expect: give-up -> best_link ->
 --     approach -> jump at link.from -> landing verified -> record_attempt(ok) -> follow reaches him.
@@ -388,7 +393,7 @@ M4.stop(log)
 os.remove(dir .. "/client_mod/scripts/traverse_learn.lua")
 raised, portals = {}, {}
 
-_G.DW_LP_CACHE = nil
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
 -- 13. self-collision regression (live 19:22): with Claude's gear blocking traces, an open-field
 --     go_to must not see "walls" around him (no endless wall_ahead plans, no "walls everywhere")
 GEAR = true
@@ -410,7 +415,7 @@ check("gear: no 'walls everywhere', few plans", not everywhere and plans <= 3, "
 GEAR = false
 walls = {}
 
-_G.DW_LP_CACHE = nil
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
 -- 14. cliff + far ramp, plain go_to (no leader trail): the ORACLE route around must lead; the local
 --     planner may only handle the obstacle in front of the next waypoint (live 19:44: it fought the cliff)
 walls = {}
@@ -425,7 +430,125 @@ check("cliff: go_to reaches the plateau via the oracle route", s.result and s.re
     tostring(s.result and s.result.status) .. " " .. tostring(s.result and s.result.reason))
 raised = {}; oracle = nil
 
-_G.DW_LP_CACHE = nil
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+-- 15. NAVIGATION MEMORY: a walled pit (respawn trap) whose only exit is 15 m north, outside the
+--     9 m planner window; the goal is east, beyond the east wall.
+local PIT = { { 300, 400, -2000, 1500, true }, { -400, -300, -2000, 1500, true }, { -400, 400, -400, -300, true } }
+local function pit_world() walls = PIT; raised = {}; oracle = nil; pawn.loc = { X = 0, Y = 0, Z = 0 }; _G.DW_LP_CACHE = nil end
+local seedf = dir .. "/data/nav/L_World_seeds.json"
+local memf = dir .. "/data/skills/shockbyte/nav_memory.json"
+os.remove(memf); _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil
+-- (a) seeded trap: the seed's exit gets him out
+do local f = io.open(seedf, "w"); f:write([==[{"v":1,"traps":[{"id":"pit","center":[0,0,-0.9],"radius_m":5,"z_max":0.5,"z_min":-3,
+  "exit":[[0,8,-0.9],[0,16,-0.9],[0,18,-0.9]]}],"taboos":[],"routes":[]}]==]); f:close() end
+pit_world()
+local MN = dofile(MOVE)
+MN.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 120 })
+run(500)
+s = MN.status()
+if os.getenv("DBG15") then for i = math.max(1, #logs - 30), #logs do print("  " .. logs[i]) end end
+check("memory (a): seeded trap exit gets him out of the pit", s.result and s.result.status == "arrived", tostring(s.result and s.result.status) .. " " .. tostring(s.result and s.result.reason))
+MN.stop(log)
+-- (b) no seed: go_to fails; Luis leads him out (follow); the exit is learned; then go_to works alone
+os.remove(seedf); os.remove(memf); _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil
+pit_world()
+luis.loc = { X = 90000, Y = 90000, Z = 0 } -- nobody near to lead (else the go_to waits for a lead)
+local MB = dofile(MOVE)
+MB.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 60 })
+run(400)
+s = MB.status()
+check("memory (b1): without memory the pit go_to fails", s.result and s.result.status == "failed", s.result and s.result.status)
+check("memory (b1): a trap candidate was noted", _G.DW_TRAP_CAND ~= nil)
+luis.loc = { X = 0, Y = 200, Z = 0 }
+local route3 = { { 0, 200 }, { 0, 1800 }, { 1500, 1800 }, { 2000, 0 } }
+local seg3 = 1
+frame_hook = function()
+    local tgt = route3[seg3 + 1]
+    if not tgt then return end
+    local dx, dy = tgt[1] - luis.loc.X, tgt[2] - luis.loc.Y
+    local d = math.sqrt(dx * dx + dy * dy)
+    local sp = 350 * DT
+    if d <= sp then luis.loc.X, luis.loc.Y = tgt[1], tgt[2]; seg3 = seg3 + 1
+    else luis.loc.X, luis.loc.Y = luis.loc.X + dx / d * sp, luis.loc.Y + dy / d * sp end
+end
+MB.follow(log, "Zezima", 3)
+run(500)
+frame_hook = nil
+MB.stop(log)
+local learned_trap = false
+for _, l in ipairs(logs) do if l:find("memory: trap") then learned_trap = true end end
+if os.getenv("DBG15") then for i = math.max(1, #logs - 30), #logs do print("  " .. logs[i]) end; print("CAND", _G.DW_TRAP_CAND and _G.DW_TRAP_CAND.at.X, _G.DW_TRAP_CAND and _G.DW_TRAP_CAND.at.Y, "pawn", pawn.loc.X, pawn.loc.Y) end
+check("memory (b2): following him out learned the trap exit", learned_trap)
+local fm = io.open(memf)
+check("memory (b2): saved to data/skills/<world>/nav_memory.json", fm ~= nil)
+if fm then fm:close() end
+-- (b3) back in the pit, fresh module + memory reloaded from disk: go_to gets out unaided
+_G.DW_NAVMEM = nil
+pit_world()
+local MB2 = dofile(MOVE)
+MB2.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 120 })
+run(500)
+s = MB2.status()
+if os.getenv("DBG15") then for i = math.max(1, #logs - 14), #logs do print("  " .. logs[i]) end; local fm2 = io.open(memf); if fm2 then print("MEM", (fm2:read("a"):gsub("%s+", " "):sub(1, 900))); fm2:close() end end
+check("memory (b3): learned exit -> unaided go_to out of the pit", s.result and s.result.status == "arrived", tostring(s.result and s.result.status) .. " " .. tostring(s.result and s.result.reason))
+MB2.stop(log)
+walls = {}; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(memf)
+
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+-- 16. BUG2: a 34 m tall wall across the way, its north end 14 m off (outside the 9 m planner window),
+--     no oracle, no memory, nobody to ask: wall-following rounds it and the go_to arrives
+walls = { { 500, 600, -2000, 1400, true } }
+raised = {}; oracle = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil
+luis.loc = { X = 90000, Y = 90000, Z = 0 }
+pawn.loc = { X = 0, Y = 0, Z = 0 }
+local MB2b = dofile(MOVE)
+MB2b.go_to(log, { 15, 0, 0 }, { tolerance_m = 1.5, timeout_s = 120 })
+run(900)
+s = MB2b.status()
+local bug_used = false
+for _, l in ipairs(logs) do if l:find("bug2 wall%-following") then bug_used = true end end
+check("bug2: rounds a long wall and arrives", s.result and s.result.status == "arrived" and bug_used,
+    tostring(s.result and s.result.status) .. " bug=" .. tostring(bug_used))
+MB2b.stop(log)
+walls = {}
+
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+-- 17. ASK FOR HELP: in the pit with Luis near: "lead_me" event, go_to waits, Luis walks out, Claude
+--     follows his trail, then carries on to the goal by himself (one go_to, one result)
+local evf = dir .. "/client_io/events/move.jsonl"
+os.execute('mkdir "' .. (dir .. "/client_io/events"):gsub("/", "\\") .. '" 2>nul')
+os.remove(evf)
+walls = PIT; raised = {}; oracle = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(memf)
+pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = -150, Y = 300, Z = 0 }
+local MH = dofile(MOVE)
+MH.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 300 })
+local waited = false
+for _ = 1, 160 do run(5); if MH.status().status == "waiting_for_lead" then waited = true; break end end
+check("help: go_to waits for a lead", waited, MH.status().status)
+local nask = 0
+local fe2 = io.open(evf)
+if fe2 then for l in fe2:lines() do if l:find('"type":"stuck"') and l:find('"ask":"lead_me"') then nask = nask + 1 end end; fe2:close() end
+check("help: one lead_me event", nask == 1, nask)
+local route4 = { { -150, 300 }, { 0, 1800 }, { 1500, 1800 }, { 2000, 0 } }
+local seg4 = 1
+frame_hook = function()
+    local tgt = route4[seg4 + 1]
+    if not tgt then return end
+    local dx, dy = tgt[1] - luis.loc.X, tgt[2] - luis.loc.Y
+    local d = math.sqrt(dx * dx + dy * dy)
+    local sp = 300 * DT
+    if d <= sp then luis.loc.X, luis.loc.Y = tgt[1], tgt[2]; seg4 = seg4 + 1
+    else luis.loc.X, luis.loc.Y = luis.loc.X + dx / d * sp, luis.loc.Y + dy / d * sp end
+end
+run(700)
+frame_hook = nil
+s = MH.status()
+check("help: led out, then the same go_to arrives", s.result and s.result.status == "arrived",
+    tostring(s.result and s.result.status) .. " " .. tostring(s.status))
+MH.stop(log)
+walls = {}; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(memf)
+
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
 -- 7. arbiter hooks: actor target ({actor=obj}), snapshot/restore, face_when_near
 walls = {}; pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 1500, Y = 0, Z = 0 }; oracle = nil
 M.follow(log, { actor = luis }, 2, { sprint = true, face_when_near = true })

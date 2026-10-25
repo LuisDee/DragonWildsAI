@@ -22,22 +22,20 @@ def offered(call: dict) -> set[str]:
 # --------------------------------------------------------------------------- the sticks example
 
 
-def test_sticks_absent_says_it_cant_see_any_and_picks_nothing_up(rig):
-    """'pick up the sticks', only oak logs around: look finds no sticks; the model then (wrongly)
-    reaches for the nearest item; grounding refuses it in code. No substitution, a clear reply."""
+def test_sticks_absent_the_model_says_so(rig):
+    """'pick up the sticks', only oak logs around: look finds no sticks and the MODEL says so. The look
+    ran read-only and its result went back to the model as a tool message (PRINCIPLES.md #2: the code
+    informs, the model decides)."""
     rig.game.add_ground_item("oak_log", 2, [1, 0, 0])
     rig.game.player_say("pick up the sticks")
     rig.controller_llm.push(
         FakeLLM.say("Let me look.", FakeLLM.call("look", about="sticks")),
-        FakeLLM.say("Grabbing them.", FakeLLM.call("pickup", target="nearest")),
+        FakeLLM.say("I can't see any sticks here, only some Oak Logs."),
     )
     rig.agent.step()
     assert rig.calls("pickup") == [] and rig.game.inventory["oak_log"] == 0
-    said = rig.companion_said()
-    assert len(said) == 1 and said[0].startswith("I can't see any sticks around here, only ")
-    assert "Oak Log" in said[0]
+    assert rig.companion_said() == ["I can't see any sticks here, only some Oak Logs."]
     assert len(rig.controller_llm.calls) == 2
-    # the look ran read-only: no interrupt, and its result went back to the model as a tool message
     second = rig.controller_llm.calls[1]["messages"]
     assert second[-2]["role"] == "assistant" and second[-2]["tool_calls"][0]["function"]["name"] == "look"
     tool_msg = next(m for m in second if m["role"] == "tool")
@@ -45,13 +43,31 @@ def test_sticks_absent_says_it_cant_see_any_and_picks_nothing_up(rig):
     assert json.loads(tool_msg["content"])["data"]["matched"] is False
 
 
-def test_sticks_absent_pickup_by_name_is_refused_without_look(rig):
+def test_code_never_vetoes_the_models_choice(rig):
+    """Live 2026-10-25: "here man pick these runes up" -> the model's correct pickup was vetoed by a
+    code check on the player's words ("I can't see any man runes"). The model's call now reaches the
+    body exactly as the model made it, whatever the words were."""
+    rig.game.add_ground_item("oak_log", 2, [1, 0, 0])
+    rig.game.player_say("here man pick these sticks up dsgrab smh")
+    rig.controller_llm.push(FakeLLM.say("Got them.", FakeLLM.call("pickup", target="nearest", item="oak")))
+    rig.agent.step()
+    assert rig.calls("pickup") == [{"target": "nearest", "item": "oak", "limit": 1}]
+    assert rig.game.inventory["oak_log"] == 2 and rig.companion_said() == ["Got them."]
+
+
+def test_failed_pickup_result_goes_back_to_the_model(rig):
+    """The body reports the outcome truthfully; the model gets it and decides what to say (or asks)."""
     rig.game.add_ground_item("oak_log", 2, [1, 0, 0])
     rig.game.player_say("pick up the sticks")
-    rig.controller_llm.push(FakeLLM.say("On it.", FakeLLM.call("pickup", target="nearest", item="sticks")))
+    rig.controller_llm.push(FakeLLM.say("On it.", FakeLLM.call("pickup", target="nearest", item="sticks")),
+                            FakeLLM.say("There are no sticks here, only Oak Logs. Want those instead?"))
     rig.agent.step()
-    assert rig.calls("pickup") == []
-    assert rig.companion_said() == ["I can't see any sticks around here, only Oak Log, tree (log), rock (stone)."]
+    assert rig.calls("pickup") == [{"target": "nearest", "item": "sticks", "limit": 1}]
+    assert rig.game.inventory["oak_log"] == 0
+    follow = rig.controller_llm.calls[1]["messages"]
+    result = json.loads(next(m for m in reversed(follow) if m["role"] == "tool")["content"])
+    assert result["ok"] is False and result["reason"]
+    assert rig.companion_said() == ["There are no sticks here, only Oak Logs. Want those instead?"]
 
 
 def test_sticks_present_look_then_interact(rig):
@@ -70,11 +86,12 @@ def test_sticks_present_look_then_interact(rig):
     assert rig.store.progress_path.read_text(encoding="utf-8").count("task interact done") == 1
 
 
-def test_interact_on_an_unperceived_id_is_refused(rig):
+def test_interact_on_an_unknown_id_reaches_the_body_and_its_answer_is_said(rig):
     rig.game.player_say("grab the berries")
     rig.controller_llm.push(FakeLLM.say("Sure.", FakeLLM.call("interact", target="bush_99")))
-    rig.agent.step()
-    assert rig.calls("interact") == [] and rig.companion_said()[0].startswith("I can't see any bush")
+    rig.agent.step()  # no follow-up scripted: the model call fails, the truthful template still says why
+    assert rig.calls("interact") == [{"target": "bush_99", "secondary": False}]
+    assert rig.companion_said() and rig.companion_said()[0] != "Sure."
 
 
 def test_unknown_word_answered_without_action(rig):
@@ -120,20 +137,30 @@ def test_look_does_not_interrupt_the_active_job(rig):
 # --------------------------------------------------------------------------- grounding of names
 
 
-def test_attack_by_name_resolves_to_the_perceived_id(rig):
+def test_attack_args_are_never_rewritten(rig):
     wolf = rig.game.add_entity("wolf", [5, 0, 0], hp=20, hostile=True)
     rig.game.player_say("kill that wolf")
-    rig.controller_llm.push(FakeLLM.say("Going for it.", FakeLLM.call("attack", target="wolf")))
+    rig.controller_llm.push(FakeLLM.say("Going for it.", FakeLLM.call("attack", target=wolf)))
     rig.agent.step()
     assert rig.calls("attack") == [{"target": wolf}] and not rig.game.entities[wolf].alive
 
 
-def test_give_what_it_does_not_carry_says_so(rig):
+def test_attacking_a_player_is_refused_by_the_safety_rule(rig):
+    """The only code gate on the model's calls: Luis's explicit safety rules (never attack a player)."""
+    rig.game.player_say("attack me")
+    rig.controller_llm.push(FakeLLM.say("Here I come!", FakeLLM.call("attack", target="Luis")))
+    rig.agent.step()
+    assert rig.calls("attack") == [] and rig.companion_said() == ["That's not safe, so I won't."]
+
+
+def test_give_what_it_does_not_carry_the_body_says_so(rig):
     rig.game.inventory["log"] = 3
     rig.game.player_say("give me 2 stone")
-    rig.controller_llm.push(FakeLLM.say("Here.", FakeLLM.call("give", player="Luis", item="stone", count=2)))
+    rig.controller_llm.push(FakeLLM.say("Here.", FakeLLM.call("give", player="Luis", item="stone", count=2)),
+                            FakeLLM.say("I don't have any stone on me, only 3 logs."))
     rig.agent.step()
-    assert rig.calls("give") == [] and rig.companion_said() == ["I don't have any stone on me."]
+    assert rig.calls("give") == [{"player": "Luis", "item": "stone", "count": 2}]
+    assert rig.companion_said() == ["I don't have any stone on me, only 3 logs."]
 
 
 def test_pickup_of_a_perceived_item_by_name_works(rig):
@@ -300,7 +327,8 @@ def test_body_look_shape_absent_and_present(tmp_path):
     rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("look", about="sticks")),
                             FakeLLM.say("On it.", FakeLLM.call("pickup", target="BP_RuntimeSpawnedWorldItem_C_1")))
     d = rig.controller.decide("Luis", "pick up the sticks", game.get_state()["data"], None)
-    assert not d.actions and d.refusals[0][1] == Reason.NOT_PERCEIVED and d.refusals[0][2]["what"] == "sticks"
+    # the model's choice stands (no veto); the look's "matched: false" was stated plainly to it
+    assert [a.name for a in d.actions] == ["pickup"] and not d.refusals
     tool_msg = json.loads(next(m for m in rig.controller_llm.calls[1]["messages"] if m["role"] == "tool")["content"])
     assert tool_msg["data"]["matched"] is False  # stated plainly for the model
 

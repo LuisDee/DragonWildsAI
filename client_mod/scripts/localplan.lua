@@ -44,7 +44,7 @@ function LP.new(o)
     -- his gear -> "walls everywhere". Cells within self_r use his feet height (he stands there),
     -- and wall checks skip the part of a segment within self_r of him.
     self.self_pos = o.self_pos
-    self.self_r = o.self_r or 80
+    self.self_r = o.self_r or 55 -- gear is within ~50 cm; larger hides real walls near him (corner cutting)
     self.now = o.now or os.clock
     self.cache_hits = 0
     self.r = math.floor((o.radius_m or 12) * 100 / self.cell)
@@ -280,6 +280,26 @@ end
 -- Returns "ok", "blocked" (call plan() again), or "verifying" (budget used up; call again).
 function LP:verify(pts, budget)
     local used = 0
+    -- the segment we actually walk first: from where Claude stands (not the cell centre) to the
+    -- first waypoint; it can clip a wall corner the cell-centre edges miss
+    local sp = self.self_pos
+    if sp and pts[2] and not self.first_ok then
+        local b = pts[2]
+        local L = math.sqrt((b.X - sp.X) ^ 2 + (b.Y - sp.Y) ^ 2)
+        if L > self.self_r + 10 then
+            local f = self.self_r / L
+            local a0 = { X = sp.X + (b.X - sp.X) * f, Y = sp.Y + (b.Y - sp.Y) * f }
+            local z = math.max(self.feet, b.Z) + 50
+            local hit, hp = self.trace({ X = a0.X, Y = a0.Y, Z = z }, { X = b.X, Y = b.Y, Z = z }, true)
+            used, self.traces = used + 1, self.traces + 1
+            if hit then
+                if type(hp) == "table" and hp.X then self.wall_pts[#self.wall_pts + 1] = { X = hp.X, Y = hp.Y, Z = z } end
+                self.blocked[ekey(pts[1].node, pts[2].node)] = true
+                return "blocked"
+            end
+        end
+        self.first_ok = true
+    end
     for k = 2, #pts do
         local a, b = pts[k - 1], pts[k]
         local ek = ekey(a.node, b.node)

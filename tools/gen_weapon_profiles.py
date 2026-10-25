@@ -14,7 +14,8 @@ Per item: {name, cat, role, pl (catalog power level), tier, types = {DamageType 
 (damage_multiplier), block (blocking_damage_negation), slot, kind (primary attack kind: melee |
 ranged | magic | ...), prim = {name, dmg = mean chain damage, n, stam = mean stamina cost,
 next_ms = mean "press again" time (input window end, >= damage point + 0.2 s), dmg_ms},
-spec = {name, dmg, cost (special charge), next_ms}, can_block}.
+spec = {name, dmg, cost (special charge), next_ms, action}, can_block, block_action (class path)}.
+Action class paths let the client read the action CDO (RequiredPerk, bCanParry, SkillPerkRequiredToParry).
 """
 from __future__ import annotations
 
@@ -78,6 +79,7 @@ def attack_profile(atk: dict | None, attacks: dict) -> dict | None:
         "cost": round(max(t[3] for t in times), 2) or None,
         "next_ms": int(sum(t[0] for t in times) / n),
         "dmg_ms": times[0][1],
+        "action": atk.get("action"),
     }
 
 
@@ -106,6 +108,8 @@ def build(catalog: dict) -> dict:
             "prim": prim and {k: v for k, v in prim.items() if k != "kind"},
             "spec": spec and {k: v for k, v in spec.items() if k not in ("kind", "n", "stam")},
             "can_block": sec.get("kind") == "block",
+            # the block action class: its CDO says whether it can parry and which perk that needs
+            "block_action": sec.get("action") if sec.get("kind") == "block" else None,
         }
     return out
 

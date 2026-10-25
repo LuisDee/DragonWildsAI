@@ -706,6 +706,36 @@ test("foliage in look (trees as instanced foliage) and interact on a fol: id ver
     end
 end)
 
+test("move v10: lead_me / led_out events with target_kind; escape_trap after respawn and rejoin", function()
+    local MV = base .. "/move.jsonl"
+    write(MV, json.encode({ type = "stuck", ask = "lead_me", where = "in the church pit", helper = "Zezima", reason = "no_route",
+                            target = "Zezima", target_kind = "player" }) .. "\n")
+    write(MV, json.encode({ type = "led_out", helper = "Zezima", target = "point", target_kind = "point" }) .. "\n")
+    write(MV, json.encode({ type = "unreachable", reason = "no_route", target = "point", target_kind = "point" }) .. "\n")
+    step()
+    local out = drain()
+    local un, re = events(out, "unreachable"), events(out, "resumed")
+    assert(un[1].reason == "lead_me" and un[1].where == "in the church pit" and un[1].helper == "Zezima" and un[1].target_kind == "player")
+    assert(un[2].reason == "no_route" and un[2].target_kind == "point")
+    assert(re[1].reason == "led_out" and re[1].helper == "Zezima")
+    -- escape_trap: after a respawn (vitals "revive") once, not again until the next spawn
+    install("move", FAKES.move .. [[
+
+function M.escape_trap(log) _G.FAKE.escapes = (_G.FAKE.escapes or 0) + 1; return { ok = false, error = "not_in_trap" } end
+return M
+]])
+    FAKE.escapes = 0
+    write(base .. "/vitals.jsonl", json.encode({ type = "revive", hp = 100 }) .. "\n")
+    step(); step()
+    assert(FAKE.escapes == 1, "escape_trap after the respawn: " .. tostring(FAKE.escapes))
+    _G.DW_PAUSE = true -- a rejoin
+    step()
+    T = T + B.PAUSE_SETTLE_S + B.PAUSE_CLEAR_S + 2
+    step(); T = T + B.PAUSE_CLEAR_S + 1; step(); step()
+    assert(_G.DW_PAUSE == nil and FAKE.escapes == 2, "escape_trap after the rejoin: " .. tostring(FAKE.escapes))
+    install("move")
+end)
+
 test("module-declared HANDLERS dispatch", function()
     local r = rpc("inv_debug", { x = 7 })
     assert(r.ok and r.data.echo == 7)

@@ -241,12 +241,17 @@ function M.interact_target(pawn)
     if not U.valid(ic) then return { none = true } end
     local a = U.try(function() return ic:GetOwner() end)
     local data = U.valid(a) and U.try(function() return a.ItemData end)
+    local sec = U.try(function() return ic.bHasSecondaryInteraction end) == true
     return { actor = U.short(a), class = U.class_word(a), prompt = text(U.try(function() return ic.InteractionPrompt end)),
-             item = item_id(data), name = U.valid(data) and text(U.try(function() return data.Name end)) or nil }
+             item = item_id(data), name = U.valid(data) and text(U.try(function() return data.Name end)) or nil,
+             -- the thing's second action (UInteractionComponent.SecondaryInteractionPrompt), e.g. a stack's
+             -- collect-all (UItemDeveloperSettings.CollectAllRadius / bCollectAllCollectsOnlySameType)
+             secondary = sec and (text(U.try(function() return ic.SecondaryInteractionPrompt end)) or "secondary") or nil }
 end
 
--- Press the interact key once (one frame of IA_Interact), as a human pressing E.
-function M.press_interact(log)
+-- Press the interact key once (one frame of IA_Interact), as a human pressing E. opts.secondary: the
+-- secondary-interact key instead (PlayerInteractionManager.SecondaryInteractAction), e.g. collect-all.
+function M.press_interact(log, opts)
     local pawn = M.pawn()
     local mgr = pawn and U.try(function() return pawn.InteractionManager end)
     if not U.valid(mgr) then
@@ -255,8 +260,9 @@ function M.press_interact(log)
             if U.valid(o) and U.short(o) == U.short(pawn) then mgr = c end
         end
     end
-    local ia = U.valid(mgr) and U.try(function() return mgr.InteractAction end)
-    if not U.valid(ia) then return { ok = false, reason = "no IA_Interact" } end
+    local secondary = type(opts) == "table" and opts.secondary == true
+    local ia = U.valid(mgr) and U.try(function() return secondary and mgr.SecondaryInteractAction or mgr.InteractAction end)
+    if not U.valid(ia) then return { ok = false, reason = secondary and "no secondary interact action" or "no IA_Interact" } end
     local sub = U.find_first("EnhancedInputLocalPlayerSubsystem")
     local fn = U.find_object(M.IA_INTERACT_FN)
     if not (sub and fn) then return { ok = false, reason = "no input subsystem / inject function" } end
@@ -378,6 +384,28 @@ function M.unequip(log, slot, opts)
     say(log, string.format("HandleInternalDragAndDrop(%d, Loadout, %d, InventoryItems)", idx, to))
     local ok, err = pcall(function() api:HandleInternalDragAndDrop(idx, SLOT_TYPE.Loadout, to, SLOT_TYPE.InventoryItems) end)
     return { ok = ok, reason = (not ok) and tostring(err) or nil, from = M.LOADOUT_SLOTS[idx], to_slot = to }
+end
+
+-- Move `what` to another page ("hotbar" = QuickAction, "bag" = InventoryItems), as dragging it in the
+-- inventory UI (InventoryUIAPI:HandleInternalDragAndDrop, the same call unequip uses). to_slot nil = the
+-- first free slot of that page. Returns at once; the caller verifies with M.list.
+M.MOVE_PAGES = { hotbar = "QuickAction", bag = "InventoryItems" }
+function M.move(log, what, to, to_slot)
+    local page = M.MOVE_PAGES[tostring(to or ""):lower()]
+    if not page then return { ok = false, reason = "invalid_args", detail = "to must be hotbar or bag" } end
+    local l = M.list(log)
+    if not l.ok then return l end
+    local d, where = M.find(l, what)
+    if not d then return { ok = false, reason = "not in inventory: " .. tostring(what) } end
+    if where == "loadout" then return { ok = false, reason = "invalid_args", detail = "it is equipped: unequip it first" } end
+    if d.slot_type == page then return { ok = true, already = true, item = d } end
+    local slot = tonumber(to_slot) or M.free_slot(page)
+    if not slot then return { ok = false, reason = "inventory_full", detail = "no free " .. tostring(to) .. " slot" } end
+    local api = M.ui_api()
+    if not api then return { ok = false, reason = "no InventoryUIAPI" } end
+    say(log, string.format("HandleInternalDragAndDrop(%d, %s, %d, %s) %s", d.slot, tostring(d.slot_type), slot, page, tostring(d.item)))
+    local ok, err = pcall(function() api:HandleInternalDragAndDrop(d.slot, SLOT_TYPE[d.slot_type], slot, SLOT_TYPE[page]) end)
+    return { ok = ok, reason = (not ok) and tostring(err) or nil, item = d, to = page, to_slot = slot }
 end
 
 -- Drop `count` of `what` on the ground, as the inventory UI's drop. count nil = the whole stack.

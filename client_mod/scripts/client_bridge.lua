@@ -36,7 +36,7 @@ local M = {}
 
 M.POLL_MS = 100            -- bridge poll + action tick + waiters + chat tail (game thread)
 M.RELOAD_CHECK_S = 2       -- re-read a module file at most this often
-M.GOTO_TIMEOUT_S = 110     -- brain gives up at 120 s (move.lua's own timeout is 120 s)
+M.GOTO_TIMEOUT_S = 290     -- brain gives up at 300 s (move.lua may wait 60 s for a lead out of a trap, then walk on)
 M.GOTO_TOL_M = 3.0         -- arrival tolerance reported to the brain for coordinates (move.lua stops at 1.5 m)
 M.SAY_ECHO_S = 4           -- wait this long for the server's echo of a chat line
 M.DROP_WAIT_S = 5          -- wait this long for the inventory to show a drop
@@ -479,7 +479,8 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
         end
         if res.status == "failed" then
             return fail(reason_code(res.reason or "path_blocked"), { detail = res.why or res.detail or res.reason,
-                                                                      why = res.why, position = here, dist_m = res.dist_m })
+                                                                      why = res.why, asked = res.asked, position = here,
+                                                                      dist_m = res.dist_m })
         end
         if res.status == "stopped" or self.polls > 3 then
             return fail("interrupted", { detail = "the move ended without arriving (" .. tostring(res.status) .. ")",
@@ -1083,6 +1084,7 @@ local function forward_vitals()
             if m.type == "death" then life.died_at, life.respawned_at = tonumber(m.ts) or now_s(), nil
             else life.respawned_at = tonumber(m.ts) or now_s() end
         end
+        if ok and type(m) == "table" and m.type == "revive" then S.escape_pending = "respawn" end
         if ok and type(m) == "table" and m.type == "damage" and type(m.instigator) == "table" and not m.instigator.self then
             local by = m.instigator.id or m.instigator.name or m.instigator.player or "?"
             local t = now_s()
@@ -1104,16 +1106,28 @@ local function forward_moves()
     for _, raw in ipairs(S.move_tail:read()) do
         local ok, m = pcall(S.jsonutil.decode, raw)
         if ok and type(m) == "table" then
+            local who = { target = m.target, target_kind = m.target_kind }
             if m.type == "unreachable" then
                 S.bridge.emit_event("unreachable", { reason = tostring(m.reason or "no_route"), detail = m.detail,
-                                                     leader_pos = m.leader_pos, my_pos = m.my_pos, mode = m.mode })
+                                                     leader_pos = m.leader_pos, my_pos = m.my_pos, mode = m.mode,
+                                                     target = who.target, target_kind = who.target_kind })
                 S.stats.unreachable = S.stats.unreachable + 1
             elseif m.type == "reachable_again" then
-                S.bridge.emit_event("resumed", { reason = "reachable_again", after_s = m.after_s })
-            elseif m.type == "stuck" then
-                S.bridge.emit_event("unreachable", { reason = "stuck", detail = m.unstuck and ("unstuck " .. tostring(m.unstuck)) or nil,
-                                                     leader_pos = m.leader_pos, my_pos = m.my_pos })
+                S.bridge.emit_event("resumed", { reason = "reachable_again", after_s = m.after_s, target = who.target,
+                                                 target_kind = who.target_kind })
+            elseif m.type == "stuck" and m.ask == "lead_me" then -- a player is near: ask him to lead the way out
+                S.bridge.emit_event("unreachable", { reason = "lead_me", where = m.where, helper = m.helper,
+                                                     detail = m.detail, my_pos = m.my_pos, target = who.target,
+                                                     target_kind = who.target_kind })
                 S.stats.unreachable = S.stats.unreachable + 1
+            elseif m.type == "stuck" then
+                S.bridge.emit_event("unreachable", { reason = "stuck", detail = m.unstuck and ("unstuck " .. tostring(m.unstuck)) or m.detail,
+                                                     leader_pos = m.leader_pos, my_pos = m.my_pos, target = who.target,
+                                                     target_kind = who.target_kind })
+                S.stats.unreachable = S.stats.unreachable + 1
+            elseif m.type == "led_out" then
+                S.bridge.emit_event("resumed", { reason = "led_out", helper = m.helper, target = who.target,
+                                                 target_kind = who.target_kind })
             end
         end
     end
@@ -1132,6 +1146,32 @@ local function forward_gather()
         end
     end
     rotate(S.gather_tail)
+end
+
+-- activity{kind, by, ts, ...} from client_io/events/activity.jsonl: one line per COMPLETED body episode
+-- (combat.lua: combat_end, fled, healed; others later), forwarded as is (episodic memory, never spoken
+-- by itself; brain/interface.py Activity keeps unknown kinds and fields).
+local function forward_activity()
+    if not S.activity_tail then return end
+    for _, raw in ipairs(S.activity_tail:read()) do
+        local ok, m = pcall(S.jsonutil.decode, raw)
+        if ok and type(m) == "table" and type(m.kind) == "string" then
+            m.type = nil
+            S.bridge.emit_event("activity", m)
+        end
+    end
+    rotate(S.activity_tail)
+end
+
+-- move.escape_trap (main's decision): after every respawn / rejoin, before other moves. It walks a
+-- recorded exit when Claude stands in a known trap (the church start pit), else not_in_trap.
+local function escape_after_spawn()
+    if not S.escape_pending then return end
+    local why = S.escape_pending
+    S.escape_pending = nil
+    local r = call("move", "escape_trap")
+    ev("client_escape_trap", { after = why, ok = r.ok, reason = r.reason, detail = r.data and (r.data.detail or r.data.error) })
+    S.stats.escapes = (S.stats.escapes or 0) + (r.ok and 1 or 0)
 end
 
 local function check_vitals()
@@ -1216,7 +1256,10 @@ M.SERVICES = {
     { name = "vitals", module = "sense", start = "vitals_start",
       healthy = function(mod)
           local st = type(mod.vitals_status) == "function" and mod.vitals_status() or {}
+          -- hooks must belong to the CURRENT pawn: registered at the menu (hooked_pawn nil while the
+          -- poll already sees a pawn) or for an earlier pawn -> not healthy -> vitals_start re-registers
           return st.running == true and (st.hooks or 0) >= #(mod.VITALS_HOOKS or {})
+              and (st.me == nil or st.hooked_pawn == st.me)
       end },
     { name = "combat_guard", module = "combat", start = "guard_start", off_env = "DW_COMBAT_REFLEX",
       healthy = function(mod)
@@ -1322,7 +1365,7 @@ local function check_unpause()
     P.pawn_since = P.pawn_since or t
     if t - P.pawn_since >= M.PAUSE_CLEAR_S then
         _G.DW_PAUSE = nil
-        S.pause, S.rearm = nil, true
+        S.pause, S.rearm, S.escape_pending = nil, true, "rejoin"
         ev("client_unpaused", { pawn = name })
         text_log("bridge: pause cleared (pawn in world for " .. M.PAUSE_CLEAR_S .. " s); re-arming services")
     end
@@ -1360,6 +1403,10 @@ function M.step()
     if not ok then ev("client_moves_forward_error", { err = tostring(err) }) end
     ok, err = pcall(forward_gather)
     if not ok then ev("client_gather_forward_error", { err = tostring(err) }) end
+    ok, err = pcall(escape_after_spawn)
+    if not ok then ev("client_escape_error", { err = tostring(err) }) end
+    ok, err = pcall(forward_activity)
+    if not ok then ev("client_activity_forward_error", { err = tostring(err) }) end
     ok, err = pcall(supervise, S.rearm == true)
     if not ok then ev("client_supervise_error", { err = tostring(err) }) end
 end
@@ -1471,6 +1518,8 @@ function M.start(opts)
     S.move_tail = bridge.new_tail(S.move_path)
     S.gather_path = opts.gather_events or (root .. "/client_io/events/gather.jsonl")
     S.gather_tail = bridge.new_tail(S.gather_path)
+    S.activity_path = opts.activity_events or (root .. "/client_io/events/activity.jsonl")
+    S.activity_tail = bridge.new_tail(S.activity_path)
     S.services, S.services_on = {}, opts.start_modules == true
     if S.services_on then pcall(supervise, true) end -- now, then every SERVICE_CHECK_S from step()
     if not opts.no_loop then

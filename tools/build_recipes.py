@@ -453,6 +453,9 @@ def lua_data(cat: dict) -> dict:
             rec["fuel"] = [[f["path"], f["count"]] for f in r["fuel_override"]]
         if r.get("extra") and (r["extra"].get("chance") or 0) > 0:
             rec["extra"] = {"chance": r["extra"]["chance"], "items": [[x["path"], x["count"]] for x in r["extra"]["items"]]}
+        queries = [b.get("query") for b in (r.get("unlock") or {}).get("bundles") or [] if b.get("query")]
+        if queries:  # unlock rules (FProgressionBundleRow.UnlockQueryString), e.g. "ALL ITEMS[ Iron Ore ] AND ..."
+            rec["uq"] = [" ".join(q.split()) for q in queries]
         if r.get("vendor_reputation"):
             rec["rep"] = [r["vendor_reputation"].get("tag"), r["vendor_reputation"].get("amount")]
         for lst in (rec["inputs"], rec["outputs"], rec.get("fuel") or [], (rec.get("extra") or {}).get("items") or []):
@@ -509,7 +512,13 @@ def main() -> None:
     ap.add_argument("--wiki-refresh", action="store_true", help="re-download the wiki table (else the cache)")
     ap.add_argument("--out", help="default data/recipes_<build>.json")
     ap.add_argument("--no-lua", action="store_true", help="do not regenerate mod/body/recipe_data.lua")
+    ap.add_argument("--lua-only", action="store_true",
+                    help="only regenerate mod/body/recipe_data.lua from the existing data/recipes_<build>.json")
     a = ap.parse_args()
+    if a.lua_only:
+        src = Path(a.out) if a.out else REPO_ROOT / "data" / f"recipes_{a.build}.json"
+        print(f"wrote {write_lua(json.loads(src.read_text(encoding='utf-8')))}")
+        return
     a.stages = [s for s in a.stages.split(",") if s]
     bad = [s for s in a.stages if s not in STAGES]
     if bad:

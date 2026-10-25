@@ -54,8 +54,8 @@ M.cfg = {
     special_hp_factor = 2,   -- use the special only on targets with >= this many normal swings of HP
     special_gap_s = 6,
     telegraph_m = 6, telegraph_fresh_s = 1.0,
-    block_hold_s = 0.9,      -- MinimumBlockDuration 0.75 s on Claude's PlayerBlockingComponent
-    block_stamina = 15, evade_stamina = 15,
+    disengage_m = 10,        -- back off this far to eat (orders.disengage)
+    disengage_s = 25,        -- give the heal this long before re-assessing
     lock_on = true,
     nudge = true,            -- turn the body toward the target with a short movement nudge when standing
     face_err_deg = 35,
@@ -70,7 +70,14 @@ M.cfg = {
 --           "aggressive" (also engage Aggressive hostiles that come near),
 --           "passive" (never start a fight by reflex; flee when attacked), "flee" (always flee).
 --   avoid:  {name=true} creatures never to fight; force: commanded attacks ignore the vetoes.
-M.orders = { stance = "defensive", avoid = {}, force = false }
+--   defense / allow_jump / disengage / heal_hp / reengage_hp / flee_hp: the fighting policy (below).
+M.orders = { stance = "defensive", avoid = {}, force = false,
+             defense = "auto",   -- auto | parry | block | dodge | none (how to answer an enemy attack)
+             allow_jump = true,  -- jump out of low sweeps / area attacks when the shape says so
+             disengage = true,   -- low HP mid-fight: back off, eat to heal, then re-engage or flee
+             heal_hp = 0.5,      -- disengage and eat below this HP fraction
+             reengage_hp = 0.8,  -- ... and go back in at or above this
+             flee_hp = nil }     -- nil = cfg.flee_hp
 
 -- Provisional weakness priors by creature name (docs/research/2026-10-25-spells-and-weaknesses.md;
 -- wiki/gamever, MEDIUM confidence). Live DamageTypeAffinities (empty on the client for Kebbits) and
@@ -243,7 +250,7 @@ function M.assess(me, enemies, orders, current, cfg)
     if not orders.force then
         if worst_gap >= cfg.pl_gap_flee then return veto("too_strong") end
         if #enemies > cfg.max_hostiles then return veto("outnumbered") end
-        if hp_frac < cfg.flee_hp then return veto("low_hp") end
+        if hp_frac < (orders.flee_hp or cfg.flee_hp) then return veto("low_hp") end
     end
     local my_dps = math.max((me.dps or 5) * (1.25 ^ (-worst_gap)), 0.1)
     r.my_ttk = total_hp / my_dps
@@ -430,6 +437,9 @@ M.HOOKS = {
     { path = "/Script/Dominion.DamageComponent:Multicast_ApplyPointDamageFromGameplayEffect", handler = "on_damage" },
     { path = "/Script/Dominion.AiAttackComponent:Multicast_PerformAttackOnSimulatedProxies", handler = "on_ai_attack" },
     { path = "/Script/Dominion.AiRangedAttackComponent:Multicast_PerformAttackOnSimulatedProxies", handler = "on_ai_attack" },
+    -- the server's verdict on Claude's block (PlayerBlockingComponent, NetMulticast; params not read)
+    { path = "/Script/Dominion.PlayerBlockingComponent:Multicast_NotifyActorsToDamagePendingParriedAttack", handler = "on_parried" },
+    { path = "/Script/Dominion.PlayerBlockingComponent:Multicast_NotifyActorsToDamagePendingBlockedAttack", handler = "on_blocked" },
 }
 
 local function trim_map(m, t, keep_s)
@@ -461,6 +471,15 @@ function M.on_damage(ctx, ev)
                                           src_class = U.valid(src) and U.class_word(src) or nil, mine = mine_i }
         if #c.on_target > 12 then table.remove(c.on_target, 1) end
     end
+    if vid == me then
+        -- every damage event on Claude (defence outcomes, damage_taken)
+        c.me_seq = (c.me_seq or 0) + 1
+        c.me_dmg = c.me_dmg or {}
+        c.me_dmg[#c.me_dmg + 1] = { seq = c.me_seq, t = t, amount = amount, inst = iid,
+                                    absorbed = num(U.try(function() return e.AmountAbsorbedByShield end)) }
+        if #c.me_dmg > 20 then table.remove(c.me_dmg, 1) end
+        if f then f.dmg_taken = (f.dmg_taken or 0) + amount end
+    end
     if vid == me and iid and not mine_i then
         c.attackers[iid] = t
         local data = U.try(function() return inst.LoadedData end)
@@ -491,16 +510,84 @@ function M.on_damage(ctx, ev)
     end
 end
 
-function M.on_ai_attack(ctx)
+-- What the starting AI attack is (read-only, at the telegraph): its data object's damage time(s),
+-- property flags (Unblockable 1, Unparryable 2) and first damage shape (DISCOVERIES, UAiAttackData).
+local function read_shape(sh)
+    if not U.valid(sh) then return nil end
+    local function f(k) return num(U.try(function() return sh[k] end)) end
+    local d = { class = U.class_word(sh), radius = f("Radius"), depth = f("Depth"), zheight = f("ZHeight"),
+                top_angle = f("TopAngle"), half_height = f("HalfHeight") }
+    local off = U.try(function() return sh.Offset end)
+    if off then d.offset_x, d.offset_z = num(U.try(function() return off.X end)), num(U.try(function() return off.Z end)) end
+    local ext = U.try(function() return sh.Extent end) or U.try(function() return sh.BoxExtent end)
+    if ext then d.extent = { x = num(U.try(function() return ext.X end)), y = num(U.try(function() return ext.Y end)), z = num(U.try(function() return ext.Z end)) } end
+    return d
+end
+M.read_shape = read_shape
+
+local function read_attack(comp, owner, class_id)
+    local info = { class_id = class_id }
+    local ad = U.try(function() return comp.CurrentAttack.AttackData end)
+    if U.valid(ad) then
+        info.name = (U.short(ad) or ""):gsub("^Default__", ""):gsub("_C$", "")
+        info.dmg_time = num(U.try(function() return ad:GetDamageTime() end))
+        info.last_dmg_time = num(U.try(function() return ad:GetLastDamageTime() end))
+        info.duration = num(U.try(function() return ad:GetDuration() end))
+        local flags = num(U.try(function() return ad.AttackPropertyFlags end)) or 0
+        info.flags = flags
+        info.unblockable = (flags & 1) ~= 0 or nil
+        info.unparryable = (flags & 2) ~= 0 or nil
+        pcall(function()
+            ad.Damage:ForEach(function(_, e)
+                if info.shape_raw then return true end
+                local dd = e:get()
+                info.dmg_time = info.dmg_time or num(U.try(function() return dd.Time end))
+                info.shape_raw = read_shape(U.try(function() return dd.Shape end)) or false
+            end)
+        end)
+        if info.shape_raw == false then info.shape_raw = nil end
+    end
+    local data = U.try(function() return owner.LoadedData end)
+    local who = U.valid(data) and text(U.try(function() return data.AIName end)) or "?"
+    info.key = who .. ":" .. (info.name or ("class" .. tostring(class_id)))
+    local D = mod("defense")
+    local hh = num(U.try(function() return owner.CapsuleComponent:GetScaledCapsuleHalfHeight() end))
+    if D and info.shape_raw then info.shape = D.shape_info(info.shape_raw, hh) end
+    return info
+end
+M.read_attack = read_attack
+
+function M.on_ai_attack(ctx, class_id)
     if _G.DW_PAUSE then return end
     local c = C()
     local comp = ctx:get()
     local a = U.try(function() return comp:GetOwner() end)
     if not U.valid(a) then return end
     local id = U.short(a)
-    c.telegraphs[id] = now(a)
+    local t = now(a)
+    c.telegraphs[id] = t
     c.counts.telegraphs = c.counts.telegraphs + 1
+    -- only attacks near Claude are worth reading
+    local f = c.fight
+    if f and (id == f.target_id or (f.me_pos and U.loc(a) and U.dist(U.loc(a), f.me_pos) < 800)) then
+        local ok, info = pcall(read_attack, comp, a, class_id and U.try(function() return class_id:get() end))
+        if ok and info then info.t = t; c.tele_info = c.tele_info or {}; c.tele_info[id] = info end
+    end
 end
+
+local function on_block_event(ctx, kind)
+    if _G.DW_PAUSE then return end
+    local c = C()
+    local comp = ctx:get()
+    local o = U.try(function() return comp:GetOwner() end)
+    if not (U.valid(o) and U.short(o) == c.me_id) then return end
+    c.block_seq = (c.block_seq or 0) + 1
+    c.block_events = c.block_events or {}
+    c.block_events[#c.block_events + 1] = { seq = c.block_seq, kind = kind, t = now(o) }
+    if #c.block_events > 20 then table.remove(c.block_events, 1) end
+end
+function M.on_parried(ctx) on_block_event(ctx, "parried") end
+function M.on_blocked(ctx) on_block_event(ctx, "blocked") end
 
 function M.hooks_start(log)
     local c = C()
@@ -508,7 +595,7 @@ function M.hooks_start(log)
     if p then c.me_id = U.short(p) end
     local pc0 = local_pc()
     if pc0 then c.pc_id = U.short(pc0) end
-    c.handlers = { on_damage = M.on_damage, on_ai_attack = M.on_ai_attack }
+    c.handlers = { on_damage = M.on_damage, on_ai_attack = M.on_ai_attack, on_parried = M.on_parried, on_blocked = M.on_blocked }
     local res = {}
     for _, h in ipairs(M.HOOKS) do
         if c.hooks[h.path] then res[h.handler .. ":" .. h.path:match(":(.+)$")] = "kept"
@@ -543,6 +630,80 @@ function M.set_reach(F, actor)
     F.follow = M.cfg.follow_m + extra
 end
 
+-- Activity events for the brain (client_io/events/activity.jsonl; the bridge forwards each line as
+-- an "activity" event). One combat_end per fight, plus fled / healed while it runs.
+M.ACTIVITY_PATH = ROOT .. "/client_io/events/activity.jsonl"
+local json_mod
+function M.emit_activity(ev)
+    json_mod = json_mod or U.try(function() return assert(loadfile(ROOT .. "/client_mod/scripts/dkjson.lua"))() end)
+    if not json_mod then return end
+    ev.type = "activity"
+    ev.ts = os.time()
+    ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts)
+    local line = U.try(function() return json_mod.encode(ev) end)
+    if not line then return end
+    local fh = io.open(M.ACTIVITY_PATH, "a")
+    if fh then fh:write(line, "\n"); fh:close() end
+end
+
+local function cdo_of(class_path)
+    if type(class_path) ~= "string" then return nil end
+    local pkg, name = class_path:match("^(.*)%.([%w_]+)$")
+    return pkg and U.find_object(pkg .. ".Default__" .. name) or nil
+end
+
+-- What the held gear lets him do (the game's own action data): parry (block action bCanParry +
+-- SkillPerkRequiredToParry unlocked), block costs, the special (its action's RequiredPerk unlocked).
+-- Claude at Attack 1 has neither PerkV2_Attack_Parry (Attack 5) nor PerkV2_Attack_MeleeSpecialAttacks.
+function M.capabilities(pc, right, left)
+    local items = M.weapons().items or {}
+    local spc = U.try(function() return pc.SkillPerkComponent end)
+    local function unlocked(perk)
+        if not U.valid(perk) then return true end
+        if not U.valid(spc) then return false end
+        local ok, v = pcall(function() return spc:IsPerkUnlocked(perk) end)
+        return ok and v == true
+    end
+    local cap = { can_block = false, can_parry = false }
+    local blocker = (left and items[left] and items[left].can_block and items[left]) or (right and items[right] and items[right].can_block and items[right])
+    if blocker then
+        cap.can_block = true
+        cap.block_item = blocker.name
+        local cdo = cdo_of(blocker.block_action)
+        if cdo then
+            cap.block_cost = num(U.try(function() return cdo.BlockStaminaCost end))
+            cap.parry_cost = num(U.try(function() return cdo.ParryStaminaCost end))
+            local cp = U.try(function() return cdo.bCanParry end) == true
+            local perk = U.try(function() return cdo.SkillPerkRequiredToParry end)
+            cap.parry_perk = U.valid(perk) and U.short(perk) or nil
+            cap.can_parry = cp and unlocked(perk)
+        end
+    end
+    local w = right and items[right] or (left and items[left])
+    local spec = w and w.spec
+    if spec and spec.action then
+        local cdo = cdo_of(spec.action)
+        local perk = cdo and U.try(function() return cdo.RequiredPerk end)
+        cap.special_perk = U.valid(perk) and U.short(perk) or nil
+        cap.special_ok = cdo ~= nil and unlocked(perk)
+    else
+        cap.special_ok = spec ~= nil
+    end
+    return cap
+end
+
+local function outcome_of(F, res)
+    if res.ok and F.kills > 0 then return "killed" end
+    local d = res.data or {}
+    if d.fled then return "fled" end
+    if d.died then return "died" end
+    local r = res.reason
+    if r == "unknown_target" or r == "too_far" then return "lost" end
+    if r == "timeout" then return "timeout" end
+    if r == "unsafe" then return "fled" end
+    return res.ok and "done" or "interrupted"
+end
+
 local function result_of(F, ok, reason, data)
     data = data or {}
     data.target = F.target_name
@@ -550,6 +711,9 @@ local function result_of(F, ok, reason, data)
     data.presses, data.hits, data.kills = F.presses, F.hits, F.kills
     data.looted = F.looted
     data.phase_log = F.phase_log
+    data.defense = { parries = F.n_parried or 0, blocks = F.n_blocked or 0, dodges = F.n_dodges or 0, jumps = F.n_jumps or 0,
+                     avoided = F.n_avoided or 0, hits_taken = F.n_hit or 0, heals = F.n_heals or 0 }
+    data.damage_taken = F.dmg_taken or 0
     return { ok = ok, reason = reason, data = data }
 end
 
@@ -566,6 +730,16 @@ local function tap(F, action, frames, label)
     if not action then return false end
     F.inputs[#F.inputs + 1] = { act = action, frames = frames or M.cfg.tap_frames, label = label }
     return true
+end
+
+function M.emit_combat_end(F, res)
+    local d = res.data or {}
+    M.emit_activity({ kind = "combat_end", by = F.by or "unknown", dur_s = F.t and F.t0 and math.floor((F.t - F.t0) * 10) / 10 or nil,
+        target = F.target_name, target_id = F.target_id, outcome = outcome_of(F, res), reason = res.reason,
+        damage_taken = F.dmg_taken or 0, damage_dealt = math.max(0, (F.hp_start or 0) - (F.target_hp or 0)),
+        hp_end = F.hp_now, loot = F.loot_names, parries = F.n_parried or 0, blocks = F.n_blocked or 0,
+        dodges = F.n_dodges or 0, jumps = F.n_jumps or 0, heals = F.n_heals or 0, presses = F.presses, why = F.why,
+        fled_why = d.why })
 end
 
 local function finish(F, res)
@@ -585,6 +759,7 @@ local function finish(F, res)
     F.result = res
     c.last = { result = res, mode = F.mode, ended = os.date("!%Y-%m-%dT%H:%M:%SZ") }
     if c.fight == F then c.fight = nil end
+    M.emit_combat_end(F, res)
     local arb = mod("arbiter")
     if arb and F.token then pcall(arb.release, F.log, F.token, res.ok and "done" or res.reason) end
     say(F.log, string.format("fight end ok=%s reason=%s presses=%d hits=%d", tostring(res.ok), tostring(res.reason), F.presses, F.hits))
@@ -674,6 +849,7 @@ local function begin_flee(F, why)
     F.decision = "flee"
     F.inputs = {}
     set_phase(F, "flee", why)
+    M.emit_activity({ kind = "fled", by = F.by or "unknown", from = F.target_name, from_id = F.target_id, why = why, hp = F.hp_now })
     local luis = M.cfg.protect
     local r = luis and mcall("move", "follow", F.log, luis, 3, { sprint = true })
     if r and r.ok ~= false and (r.target_visible ~= false) then F.flee_to = luis
@@ -692,24 +868,60 @@ local function begin_flee(F, why)
     F.safe_since = nil
 end
 
-local function try_eat(F, me)
-    if not me.max_hp or me.max_hp <= 0 or (me.hp or 0) / me.max_hp >= M.cfg.eat_hp then return end
-    if F.next_eat and F.t < F.next_eat then return end
-    F.next_eat = F.t + 8
-    local list = mcall("inventory", "list", F.log) or {}
+-- Eat the food that heals most, the way a player does (its hotbar key / the inventory UI's use).
+-- Respects the game's eating limits when inventory.lua exposes them (eat_status: can_eat, cooldown_s,
+-- fullness); otherwise our own cooldown. The heal is verified from the HP that follows (healed event).
+local function best_heal_food(list)
     local pick
     for _, where in ipairs({ "hotbar", "bag" }) do
         for _, e in ipairs(list[where] or {}) do
             if e.consumable == "food" and (e.heal or 0) > 0 and (not pick or (e.heal or 0) > (pick.heal or 0)) then pick = e end
         end
     end
-    pick = pick or mcall("inventory", "best_consumable", list, "food")
-    if pick then
-        local r = mcall("inventory", "use", F.log, pick.item)
-        say(F.log, "eat " .. tostring(pick.item) .. " hp=" .. tostring(me.hp) .. " -> " .. tostring(r and (r.via or r.reason)))
-        F.ate = (F.ate or 0) + 1
-    end
+    return pick
 end
+M.best_heal_food = best_heal_food
+
+local function eat_allowed(F)
+    if F.next_eat and F.t < F.next_eat then return false, "cooldown" end
+    local st = mcall("inventory", "eat_status")
+    if type(st) == "table" and st.can_eat == false then
+        if st.cooldown_s then F.next_eat = F.t + st.cooldown_s end
+        return false, st.reason or "game_refuses"
+    end
+    return true
+end
+
+local function try_eat(F, me, force)
+    if not me.max_hp or me.max_hp <= 0 then return end
+    -- verify the previous bite: HP went up -> healed event
+    local hp_ = F.heal_pending
+    if hp_ and F.t - hp_.t >= 2.5 then
+        F.heal_pending = nil
+        if (me.hp or 0) > hp_.hp0 + 0.5 then
+            F.n_heals = (F.n_heals or 0) + 1
+            M.emit_activity({ kind = "healed", by = F.by or "unknown", food = hp_.food, hp_before = hp_.hp0, hp_after = me.hp })
+            say(F.log, string.format("healed %.0f -> %.0f (%s)", hp_.hp0, me.hp or -1, tostring(hp_.food)))
+        else
+            F.eat_fails = (F.eat_fails or 0) + 1
+        end
+    end
+    if F.heal_pending then return end
+    local frac = (me.hp or 0) / me.max_hp
+    if not force and frac >= M.cfg.eat_hp then return end
+    local ok, why = eat_allowed(F)
+    if not ok then return false, why end
+    local list = mcall("inventory", "list", F.log) or {}
+    local pick = best_heal_food(list) or mcall("inventory", "best_consumable", list, "food")
+    if not pick then F.no_food = true; return false, "no_food" end
+    F.next_eat = F.t + 8
+    local r = mcall("inventory", "use", F.log, pick.item)
+    say(F.log, "eat " .. tostring(pick.item) .. " hp=" .. tostring(me.hp) .. " -> " .. tostring(r and (r.via or r.reason)))
+    F.ate = (F.ate or 0) + 1
+    F.heal_pending = { t = F.t, hp0 = me.hp or 0, food = pick.name or pick.item }
+    return true
+end
+M._try_eat = try_eat
 
 local function step_flee(F, pawn, me)
     try_eat(F, me)
@@ -730,43 +942,212 @@ local function step_flee(F, pawn, me)
     end
 end
 
-local function step_defend(F, pawn, me, acts)
-    if F.t < (F.defend_at or 0) then return end
-    if not F.defend_mode then
-        local right, left = held_items(pawn)
-        local items = M.weapons().items or {}
-        local can_block = (left and items[left] and items[left].can_block) or (right and items[right] and items[right].can_block)
-        if can_block and (me.stamina or 0) >= M.cfg.block_stamina and acts.secondary then
-            F.defend_mode = "block"
-            F.defend_until = F.t + M.cfg.block_hold_s
-            C().counts.blocks = C().counts.blocks + 1
-        elseif acts.evade and (me.stamina or 0) >= M.cfg.evade_stamina then
-            F.defend_mode = "evade"
-            F.defend_until = F.t + 0.5
-            -- directional roll sideways (a short neutral evade keeps us close; sideways leaves the attack arc)
-            local tp = F.target_pos
-            if tp and me.pos then
-                local dx, dy = tp.X - me.pos.X, tp.Y - me.pos.Y
-                local l = math.max(math.sqrt(dx * dx + dy * dy), 1)
-                local s = rnd() < 0.5 and 1 or -1
-                F.evade_dir = { X = -dy / l * s, Y = dx / l * s, Z = 0 }
-            end
-            tap(F, acts.evade, 4, "evade")
-            C().counts.evades = C().counts.evades + 1
-        else
-            F.defend_mode = "none"
-            F.defend_until = F.t
+-- Defence against one telegraphed attack. defense.lua plans it (parry / block / dodge / jump /
+-- retreat, timed from the attack's own data and learned per attack); it is executed here and the
+-- outcome is read from the server's verdicts: Claude's PlayerBlockingComponent parried / blocked
+-- multicasts, damage multicasts on Claude, his evade component, the current montage (*Parry*).
+local function away_dir(me, tp, side)
+    if not (me and tp) then return nil end
+    local dx, dy = tp.X - me.X, tp.Y - me.Y
+    local l = math.max(math.sqrt(dx * dx + dy * dy), 1)
+    dx, dy = dx / l, dy / l
+    if side == "left" then return { X = -dy, Y = dx, Z = 0 } end
+    if side == "right" then return { X = dy, Y = -dx, Z = 0 } end
+    return { X = -dx, Y = -dy, Z = 0 } -- back
+end
+M.away_dir = away_dir
+
+local function start_defend(F, me, attacker_id, tt, info)
+    local c = C()
+    local D = mod("defense")
+    local apos
+    if attacker_id == F.target_id then apos = F.target_pos
+    else local a = find_creature(attacker_id); apos = a and U.loc(a) end
+    local cap = F.cap or {}
+    local ctx = { dist_cm = (apos and me.pos) and U.dist2d(apos, me.pos) or nil, latency_s = F.latency or 0.03,
+                  stamina = me.stamina, can_parry = cap.can_parry, can_block = cap.can_block,
+                  parry_cost = cap.parry_cost, block_cost = cap.block_cost, evade_cost = c.evade_cost or 15,
+                  hp_frac = (me.max_hp and me.max_hp > 0) and (me.hp or 0) / me.max_hp or 1, heal_hp = M.orders.heal_hp }
+    info = info or { key = "?:unknown" }
+    local plan = D and D.plan(info, ctx, M.orders)
+        or { action = "block", at_s = M.react_delay(), hold_s = 0.9, impact_s = 0.6, why = "no defense module" }
+    F.def = { plan = plan, tel_t = tt, key = info.key, attacker = attacker_id, apos = apos, hp0 = me.hp, st0 = me.stamina,
+              me_seq0 = c.me_seq or 0, blk_seq0 = c.block_seq or 0, info = info }
+    F.last_tele = tt
+    if F.following then mcall("move", "stop", F.log); F.following = false end
+    set_phase(F, "defend", string.format("%s %s impact %.2fs %s (%s)", plan.action, tostring(info.key), plan.impact_s or -1,
+        tostring(plan.src), tostring(plan.why)))
+end
+M._start_defend = start_defend
+
+local function finish_defend(F)
+    local d = F.def
+    if not d then return end
+    local D = mod("defense")
+    local act = d.plan.action
+    local outcome
+    if d.parried then outcome = "parried"
+    elseif (d.hit_amt or 0) > 0 then outcome = "hit"
+    elseif d.blocked then outcome = "blocked"
+    elseif (act == "dodge" or act == "jump" or act == "retreat") and (d.impact_t or d.evaded) then outcome = "avoided"
+    else outcome = "whiff" end
+    if d.impact_t and D then D.observe(d.key, d.impact_t - d.tel_t) end
+    if D then D.feedback(d.key, act, outcome) end
+    if outcome == "parried" then F.n_parried = (F.n_parried or 0) + 1
+    elseif outcome == "blocked" then F.n_blocked = (F.n_blocked or 0) + 1
+    elseif outcome == "hit" then F.n_hit = (F.n_hit or 0) + 1
+    elseif outcome == "avoided" then F.n_avoided = (F.n_avoided or 0) + 1 end
+    local c = C()
+    c.counts[outcome] = (c.counts[outcome] or 0) + 1
+    say(F.log, string.format("defence %s -> %s (key %s, impact %s, dmg %s, evaded %s, montage %s)", act, outcome, tostring(d.key),
+        d.impact_t and string.format("%.2fs", d.impact_t - d.tel_t) or "-", tostring(d.hit_amt or 0), tostring(d.evaded), tostring(d.montage)))
+    F.last_defence = { action = act, outcome = outcome, key = d.key, impact_s = d.impact_t and (d.impact_t - d.tel_t) or nil,
+                       plan_at = d.plan.at_s, why = d.plan.why }
+    F.def, F.hold, F.evade_dir, F.evade_until = nil, nil, nil, nil
+    set_phase(F, "engage", "defended " .. outcome)
+end
+
+local function my_evading(pawn)
+    local c = C()
+    local comp = U.try(function() return pawn.EvadeComponent end)
+    if not U.valid(comp) then
+        for _, x in ipairs(U.find_all("PlayerEvadeComponent", { skip_defaults = true })) do
+            local o = U.try(function() return x:GetOwner() end)
+            if U.valid(o) and U.short(o) == c.me_id then comp = x end
         end
-        say(F.log, "defend: " .. F.defend_mode .. " stamina=" .. tostring(me.stamina))
     end
-    if F.defend_mode == "block" and not F.hold then
-        -- hold the block key: injected every frame until hold_until (IA_SecondaryAction, InputTriggerDown)
-        F.hold, F.hold_until = acts.secondary, F.defend_until
+    return U.valid(comp) and U.try(function() return comp:IsEvading() end) == true
+end
+
+-- Start the planned defence at its moment. Called EVERY FRAME (a parry window is 100 ms; the
+-- 100 ms decision tick would be too coarse) and from step_defend. Uses the last decision's reads.
+local function defend_act(F, pawn, acts)
+    local d = F.def
+    if not d or d.started then return end
+    local plan = d.plan
+    if F.t - d.tel_t < (plan.at_s or 0) then return end
+    local me = F.me_last or {}
+    d.started = F.t
+    d.started_rel = F.t - d.tel_t
+    local a = plan.action
+    if (a == "parry" or a == "block") and acts.secondary then
+        F.hold, F.hold_until = acts.secondary, F.t + (plan.hold_s or 0.9)
+        inject(acts.secondary) -- this very frame
+    elseif a == "dodge" and acts.evade then
+        F.evade_dir = away_dir(me.pos, d.apos or F.target_pos, plan.dir)
+        F.evade_until = F.t + (plan.hold_s or 0.35)
+        tap(F, acts.evade, 4, "evade")
+        F.n_dodges = (F.n_dodges or 0) + 1
+        d.st_dodge = me.stamina
+    elseif a == "jump" then
+        pcall(function() pawn:Jump() end)
+        d.jump_release = F.t + (plan.hold_s or 0.25)
+        F.n_jumps = (F.n_jumps or 0) + 1
+    elseif a == "retreat" then
+        F.evade_dir = away_dir(me.pos, d.apos or F.target_pos, "back")
+        F.evade_until = F.t + (plan.hold_s or 0.8)
     end
-    if F.t >= (F.defend_until or 0) then
-        F.defend_mode, F.hold, F.evade_dir = nil, nil, nil
-        F.defended = (F.defended or 0) + 1
-        set_phase(F, "engage", "defended")
+end
+M._defend_act = defend_act
+
+local function step_defend(F, pawn, me, acts)
+    local d = F.def
+    if not d then return set_phase(F, "engage", "no plan") end
+    local c = C()
+    local plan = d.plan
+    local rel = F.t - d.tel_t
+    defend_act(F, pawn, acts)
+    if F.evade_until and F.t >= F.evade_until then F.evade_dir, F.evade_until = nil, nil end
+    if d.jump_release and F.t >= d.jump_release then pcall(function() pawn:StopJumping() end); d.jump_release = nil end
+    if d.started and plan.action == "dodge" and not d.evaded and F.t - d.started < 0.6 then d.evaded = my_evading(pawn) end
+    if d.st_dodge and d.started and F.t - d.started > 0.6 and me.stamina then
+        local cost = d.st_dodge - me.stamina
+        if cost > 1 and cost < 60 then c.evade_cost = c.evade_cost and (c.evade_cost * 0.7 + cost * 0.3) or cost end
+        d.st_dodge = nil
+    end
+    -- evidence: the server's verdicts since the telegraph
+    for _, e in ipairs(c.block_events or {}) do
+        if e.seq > d.blk_seq0 then
+            d.blk_seq0 = e.seq
+            if e.kind == "parried" then d.parried = true else d.blocked = true end
+            d.impact_t = d.impact_t or e.t
+        end
+    end
+    for _, e in ipairs(c.me_dmg or {}) do
+        if e.seq > d.me_seq0 then
+            d.me_seq0 = e.seq
+            if e.inst == d.attacker or e.inst == nil then
+                d.hit_amt = (d.hit_amt or 0) + (e.amount or 0)
+                d.impact_t = d.impact_t or e.t
+                if (e.absorbed or 0) > 0 then d.blocked = true end
+            end
+        end
+    end
+    if F.hold and not d.parried then
+        local ai = U.try(function() return pawn.Mesh:GetAnimInstance() end)
+        local m = U.valid(ai) and U.short(U.try(function() return ai:GetCurrentActiveMontage() end)) or nil
+        if m and m:find("Parry", 1, true) then d.parried, d.impact_t, d.montage = true, d.impact_t or F.t, m end
+    end
+    -- a new telegraph (a combo's next swing) closes this one
+    for id, tt in pairs(c.telegraphs) do
+        if d.started and tt > d.tel_t + 0.2 and (id == d.attacker or id == F.target_id) then
+            finish_defend(F)
+            return start_defend(F, me, id, tt, (c.tele_info or {})[id])
+        end
+    end
+    local window_end = d.tel_t + (plan.impact_s or 0.6) + 0.6
+    local hold_done = not F.hold or F.t >= (F.hold_until or 0)
+    if (F.t >= window_end and hold_done) or (d.impact_t and F.t >= d.impact_t + 0.2 and hold_done) or rel > 4 then
+        finish_defend(F)
+    end
+end
+
+-- Low HP mid-fight: back off out of reach, keep the enemy in view, eat to heal, then re-engage
+-- (fight-or-flight re-assessed) or flee. Thresholds are the model's standing orders.
+local function step_disengage(F, pawn, me, acts)
+    local g = F.dis
+    local o = M.orders
+    if g.step == "back" then
+        if (F.dist_m or 99) < 3.5 and acts.evade and (me.stamina or 0) >= (C().evade_cost or 15) then
+            F.evade_dir = away_dir(me.pos, F.target_pos, "back")
+            F.evade_until = F.t + 0.35
+            tap(F, acts.evade, 4, "evade_back")
+            F.n_dodges = (F.n_dodges or 0) + 1
+        end
+        local dir = away_dir(me.pos, F.target_pos, "back")
+        if dir and me.pos then
+            local far = M.cfg.disengage_m * 100
+            local goal = { (me.pos.X + dir.X * far) / 100, (me.pos.Y + dir.Y * far) / 100, me.pos.Z / 100 }
+            mcall("move", "go_to", F.log, goal, { sprint = true, tolerance_m = 2, timeout_s = 8 })
+            F.drove_move, F.following = true, false
+        end
+        g.step, g.t = "move", F.t
+        return
+    end
+    if g.step == "move" then
+        local st = mcall("move", "status")
+        if F.t - g.t > 6 or (F.dist_m or 0) >= M.cfg.disengage_m - 1 or (type(st) == "table" and st.mode == "idle" and F.t - g.t > 0.5) then
+            mcall("move", "stop", F.log)
+            g.step, g.t = "eat", F.t
+        end
+        return
+    end
+    -- eat: face the enemy (control rotation; move is idle) and eat while it keeps its distance
+    if F.target_pos and me.pos then
+        pcall(function() F.pc:SetControlRotation({ Pitch = 0, Yaw = math.deg(math.atan(F.target_pos.Y - me.pos.Y, F.target_pos.X - me.pos.X)), Roll = 0 }) end)
+    end
+    local frac = (me.max_hp and me.max_hp > 0) and (me.hp or 0) / me.max_hp or 1
+    try_eat(F, me, true)
+    local done_why
+    if frac >= (o.reengage_hp or 0.8) and not F.heal_pending then done_why = "healed"
+    elseif F.no_food and not F.heal_pending then done_why = "no_food"
+    elseif (F.eat_fails or 0) >= 3 then done_why = "eating_failed"
+    elseif F.t - g.t > M.cfg.disengage_s then done_why = "timeout"
+    elseif (F.dist_m or 99) < 4 then done_why = "enemy_closed_in" end
+    if done_why then
+        F.dis = nil
+        F.assess_t = -9 -- re-assess at once: fight on (approach) or flee
+        set_phase(F, "approach", "disengage done: " .. done_why)
     end
 end
 
@@ -786,13 +1167,7 @@ local function step_engage(F, pawn, me, acts, tgt)
                 local p = a and U.loc(a)
                 close = p and me.pos and U.dist(p, me.pos) <= cfg.telegraph_m * 100
             end
-            if close then
-                F.last_tele = tt
-                F.defend_at = F.t + M.react_delay()
-                if F.following then mcall("move", "stop", F.log); F.following = false end
-                set_phase(F, "defend", "telegraph " .. id)
-                return
-            end
+            if close then return start_defend(F, me, id, tt, (c.tele_info or {})[id]) end
         end
     end
     if d_m > F.reach then return end
@@ -828,7 +1203,7 @@ local function step_engage(F, pawn, me, acts, tgt)
     local prof = F.profile or {}
     local prim, spec = prof.prim or {}, prof.spec
     -- special: charge covers it, target is worth it, not too often
-    if spec and spec.cost and acts.special and (me.special or 0) >= spec.cost and F.t - (F.last_special or -99) >= cfg.special_gap_s
+    if spec and spec.cost and acts.special and F.cap and F.cap.special_ok and (me.special or 0) >= spec.cost and F.t - (F.last_special or -99) >= cfg.special_gap_s
         and (F.target_hp or 0) >= cfg.special_hp_factor * (prim.dmg or 10) then
         tap(F, acts.special, cfg.tap_frames, "special")
         F.last_special = F.t
@@ -852,7 +1227,10 @@ local function step_loot(F, pawn, me)
     local inv = mod("inventory")
     -- current loot item: a world item that appeared near the kill since the fight began
     if not F.loot_item or not U.alive(F.loot_item.actor) then
-        if F.loot_item then F.looted = (F.looted or 0) + 1; C().counts.loot = C().counts.loot + 1 end
+        if F.loot_item then
+            F.looted = (F.looted or 0) + 1; C().counts.loot = C().counts.loot + 1
+            F.loot_names[#F.loot_names + 1] = { name = F.loot_item.name or F.loot_item.id, count = F.loot_item.count or 1 }
+        end
         F.loot_item = nil
         local best, bd
         for _, w in ipairs(U.find_all("WorldItem", { skip_defaults = true })) do
@@ -860,7 +1238,11 @@ local function step_loot(F, pawn, me)
             local p = U.loc(w)
             if id and p and not F.items_before[id] and not F.loot_skip[id] and F.death_pos and U.dist(p, F.death_pos) <= cfg.loot_radius_m * 100 then
                 local d = me.pos and U.dist(p, me.pos) or 0
-                if not bd or d < bd then best, bd = { actor = w, id = id, pos = p, t = F.t, presses = 0 }, d end
+                if not bd or d < bd then
+                    best, bd = { actor = w, id = id, pos = p, t = F.t, presses = 0,
+                                 name = text(U.try(function() return w.ItemData.Name end)),
+                                 count = num(U.try(function() return w:GetStackSize() end)) }, d
+                end
             end
         end
         if not best then return set_phase(F, "restore", "no loot") end
@@ -907,6 +1289,7 @@ local function abort_paused(F)
     F.result = result_of(F, false, "interrupted", { detail = "world teardown (DW_PAUSE)" })
     c.last = { result = F.result, mode = F.mode, ended = os.date("!%Y-%m-%dT%H:%M:%SZ") }
     if c.fight == F then c.fight = nil end
+    M.emit_combat_end(F, F.result) -- a file write only
     local arb = mod("arbiter")
     if arb and F.token then pcall(arb.release, nil, F.token, "paused") end -- pause-aware: no move calls
 end
@@ -919,6 +1302,7 @@ local function frame(F)
     local pawn = pc and U.valid(pc) and U.try(function() return pc.Pawn end)
     if not U.valid(pawn) then return finish(F, result_of(F, false, "companion_down")) end
     F.t = now(pawn)
+    if F.def and not F.def.started then defend_act(F, pawn, actions(pawn)) end
     -- per frame: inputs + nudge/evade direction
     local keep = {}
     for _, inp in ipairs(F.inputs) do
@@ -930,6 +1314,7 @@ local function frame(F)
     if F.hold then
         if F.t < (F.hold_until or 0) then inject(F.hold) else F.hold = nil end
     end
+    if F.evade_until and F.t >= F.evade_until then F.evade_dir, F.evade_until = nil, nil end
     if F.evade_dir then pcall(function() pawn:AddMovementInput(F.evade_dir, 1.0, false) end)
     elseif F.nudge and F.t < (F.nudge_until or 0) then pcall(function() pawn:AddMovementInput(F.nudge, 0.3, false) end) end
     if F.t - (F.dec_t or -1) < M.DECIDE_S then return end
@@ -941,7 +1326,12 @@ local function frame(F)
         arb.renew(F.token)
     end
     local me = read_me(pawn, pc)
-    F.me_pos = me.pos
+    F.me_pos, F.hp_now, F.me_last = me.pos, me.hp, me
+    if not F.lat_t or F.t - F.lat_t > 5 then -- one-way latency for timed defence
+        F.lat_t = F.t
+        local ping = num(U.try(function() return pc.PlayerState:GetPingInMilliseconds() end))
+        if ping and ping > 0 then F.latency = ping / 2000 end
+    end
     if me.dead then return finish(F, result_of(F, false, "companion_down", { died = true })) end
     if F.t - F.t0 > M.cfg.fight_timeout_s then return finish(F, result_of(F, false, "timeout")) end
     local acts = actions(pawn)
@@ -995,15 +1385,41 @@ local function frame(F)
         F.assess_t = F.t
         local profile = F.profile
         local a = M.assess({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = M.dps(profile) }, enemies_for_assess(F, me.pos),
-            F.mode == "attack" and { stance = "defensive", force = F.force, avoid = {} } or M.orders, F.decision, M.cfg)
+            F.mode == "attack" and { stance = "defensive", force = F.force, avoid = {}, flee_hp = M.orders.flee_hp } or M.orders, F.decision, M.cfg)
         F.assessment = a
         if a.decision == "flee" then return begin_flee(F, a.why) end
         F.decision = "fight"
+        -- low HP but winnable: back off and eat first (the model's policy: orders.disengage / heal_hp)
+        local frac = (me.max_hp and me.max_hp > 0) and (me.hp or 0) / me.max_hp or 1
+        if M.orders.disengage ~= false and not F.dis and (F.phase == "engage" or F.phase == "approach")
+            and frac < (M.orders.heal_hp or 0.5) and not F.no_food and (F.eat_fails or 0) < 3 and F.t - (F.dis_end or -99) > 10 then
+            local list = mcall("inventory", "list", F.log) or {}
+            if M.best_heal_food(list) then
+                F.dis = { step = "back", t = F.t }
+                F.n_disengage = (F.n_disengage or 0) + 1
+                return set_phase(F, "disengage", string.format("hp %.0f%% < %.0f%%", frac * 100, (M.orders.heal_hp or 0.5) * 100))
+            end
+            F.no_food = true
+        end
+    end
+    if F.phase == "approach" or F.phase == "disengage" then
+        for id, tt in pairs(c.telegraphs) do
+            if F.t - tt <= M.cfg.telegraph_fresh_s and tt > (F.last_tele or 0) and id == F.target_id and (F.dist_m or 99) <= M.cfg.telegraph_m then
+                F.dis = nil
+                return M._start_defend(F, me, id, tt, (c.tele_info or {})[id])
+            end
+        end
     end
     if F.phase == "react" then
         if F.t >= F.react_until then set_phase(F, "equip") end
     elseif F.phase == "equip" then
-        if step_equip(F, pawn) then set_phase(F, "approach") end
+        if step_equip(F, pawn) then
+            local r, l = held_items(pawn)
+            F.cap = M.capabilities(pc, r, l)
+            say(F.log, string.format("can block %s (%s) parry %s (perk %s) special %s (perk %s)", tostring(F.cap.can_block), tostring(F.cap.block_item),
+                tostring(F.cap.can_parry), tostring(F.cap.parry_perk), tostring(F.cap.special_ok), tostring(F.cap.special_perk)))
+            set_phase(F, "approach")
+        end
     elseif F.phase == "approach" then
         if tgt and tgt.distance_m and tgt.distance_m > M.cfg.lost_m then
             F.far_since = F.far_since or F.t
@@ -1016,6 +1432,9 @@ local function frame(F)
         if F.dist_m and F.dist_m > F.reach * 3 then set_phase(F, "approach", "target moved away") end
     elseif F.phase == "defend" then
         step_defend(F, pawn, me, acts)
+    elseif F.phase == "disengage" then
+        step_disengage(F, pawn, me, acts)
+        if not F.dis then F.dis_end = F.t end
     elseif F.phase == "flee" then
         step_flee(F, pawn, me)
     elseif F.phase == "loot" then
@@ -1071,7 +1490,8 @@ local function start_fight(log, actor, opts)
                 target = actor, target_id = tgt.id, target_name = tgt.name, target_hp = tgt.hp, target_pos = tgt.pos,
                 dist_m = tgt.distance_m or 99, affinities = read_affinities(actor),
                 t0 = t, t = t, phase_t = t, inputs = {}, presses = 0, hits = 0, kills = 0, verified = 0, unverified_run = 0,
-                hit_seq = c.counts.hits, phase_log = {}, items_before = {}, loot_skip = {}, why = opts.why }
+                hit_seq = c.counts.hits, phase_log = {}, items_before = {}, loot_skip = {}, why = opts.why,
+                by = opts.by or (opts.mode == "reflex" and "reflex" or "debug"), hp_start = tgt.hp, loot_names = {} }
     for _, w in ipairs(U.find_all("WorldItem", { skip_defaults = true })) do F.items_before[U.short(w) or "?"] = true end
     -- distances are centre to centre: a big creature (a cow's capsule) keeps us farther away, so
     -- reach and follow distance grow with its capsule radius beyond a Kebbit-sized one
@@ -1099,7 +1519,7 @@ function M.attack(log, target, opts)
     if not U.valid(pawn) then return { ok = false, reason = "companion_down" } end
     local actor = M.resolve_target(target, U.loc(pawn))
     if not actor then return { ok = false, reason = "unknown_target", data = { target = tostring(target) } } end
-    return start_fight(log, actor, { mode = "attack", force = opts.force, why = "commanded" })
+    return start_fight(log, actor, { mode = "attack", force = opts.force, why = "commanded", by = opts.by or "debug" })
 end
 
 function M.stop(log, why)
@@ -1197,7 +1617,7 @@ M.HANDLERS = {
         if type(args.target) ~= "string" or args.target == "" then
             return { ok = false, reason = "invalid_args", data = { detail = "target is required (entity id or creature name)" } }
         end
-        local r = M.attack(log, args.target, { force = args.force == true })
+        local r = M.attack(log, args.target, { force = args.force == true, by = "brain" })
         if not r.ok then return r end
         local F = C().fight
         local a = { kind = "attack", id = ctx and ctx.id, timeout_s = M.cfg.fight_timeout_s + 15 }

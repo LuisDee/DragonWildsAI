@@ -24,7 +24,9 @@ function LoopInGameThreadWithDelay(ms, fn) nid = nid + 1; loops[nid] = { fn = fn
 function CancelDelayedAction(h) loops[h] = nil end
 local hooks = {}
 function RegisterHook(path, pre, post) hooks[path] = post; return 1, 2 end
-function StaticFindObject() return nil end
+local CDOS = {}
+function StaticFindObject(path) return CDOS[path] end
+local PERKS = { unlocked = {} }
 
 local world = { creatures = {}, items = {}, pcs = {}, injected = {} }
 local pawn, pc
@@ -47,6 +49,8 @@ local function new_pawn()
     }
     pawn.LockOnTargetingComponent = obj({ ToggleLockOnInput = obj({}, "InputAction /Game/IA_ToggleLockOnTargeting.IA_ToggleLockOnTargeting") }, "C /x")
     pc = obj({ Pawn = pawn, IsLocalController = function() return true end }, "BP_PlayerController_C /Game/L.L:PersistentLevel.BP_PlayerController_C_1")
+    pc.SkillPerkComponent = obj({ IsPerkUnlocked = function(_, p) return PERKS.unlocked[p:GetFullName():match("([%w_]+)$")] == true end }, "C /x")
+    pawn.EvadeComponent = obj({ IsEvading = function() return (world.evading_until or -1) > T end }, "C /x")
 end
 new_pawn()
 
@@ -80,6 +84,9 @@ function eis:InjectInputVectorForAction(action, v)
     world.injected[name] = (world.injected[name] or 0) + 1
     local rising = last_inject[name] ~= frame_n - 1
     last_inject[name] = frame_n
+    if rising and name == "IA_Player_Evade" then world.evading_until = T + 0.5; world.evade_start = T end
+    if rising and name == "IA_SecondaryAction" then world.block_start = T end
+    if name == "IA_SecondaryAction" then world.block_last = T end
     if rising and (name == "IA_PrimaryAction" or name == "IA_SpecialAction") and not world.inputs_dead then
         stamina = stamina - (name == "IA_PrimaryAction" and 10 or 0)
         if name == "IA_SpecialAction" then special = special - 25 end
@@ -172,8 +179,26 @@ local A = assert(loadfile(root .. "/client_mod/scripts/arbiter.lua"))()
 A.set_move(fake_move)
 A.clock = function() return T end
 local Cm = assert(loadfile(root .. "/client_mod/scripts/combat.lua"))()
+local tmpdir = os.getenv("TEMP") or os.getenv("TMP") or "."
+Cm.ACTIVITY_PATH = (tmpdir .. "/test_combat_activity.jsonl"):gsub("\\", "/")
+os.remove(Cm.ACTIVITY_PATH)
+local Dm = assert(loadfile(root .. "/client_mod/scripts/defense.lua"))()
 Cm.clock = function() return T end
-Cm.set_modules({ move = fake_move, inventory = fake_inv, arbiter = A })
+Cm.set_modules({ move = fake_move, inventory = fake_inv, arbiter = A, defense = Dm })
+-- the game's action CDOs (combat.capabilities): perk-gated special and parry
+local function perk(name) return obj({}, "SkillPerkData /Game/PerksV2/" .. name .. "." .. name) end
+CDOS["/Game/Gameplay/Character/Player/Attacks/Dagger/PA_Attack_Dagger_Special.Default__PA_Attack_Dagger_Special_C"] =
+    obj({ RequiredPerk = perk("PerkV2_Attack_MeleeSpecialAttacks") }, "PA_C /x")
+CDOS["/Game/Gameplay/Character/Player/Abilities/Block/PA_Block_Shield_Kite_Iron.Default__PA_Block_Shield_Kite_Iron_C"] =
+    obj({ bCanParry = true, SkillPerkRequiredToParry = perk("PerkV2_Attack_Parry"), BlockStaminaCost = 10, ParryStaminaCost = 10 }, "PA_C /x")
+local function read_activity()
+    local out = {}
+    local f = io.open(Cm.ACTIVITY_PATH, "r")
+    if not f then return out end
+    for line in f:lines() do out[#out + 1] = line end
+    f:close()
+    return out
+end
 
 -- world step: frame pump at 100 Hz; move "physics"; pending server hits
 local function resolve(goal)
@@ -353,7 +378,10 @@ do
     check("equipped dagger then shield", INV.equips[1] == "ITEM_Dagger_Bone" and INV.equips[2] == "ITEM_Shield_Bronze", table.concat(INV.equips, ","))
     check("restored the axe", held.left == "ITEM_Logging_Axe_Mithril" and held.right == nil and INV.equips[#INV.equips] == "ITEM_Logging_Axe_Mithril")
     check("pressed primary", (world.injected.IA_PrimaryAction or 0) >= 3)
-    check("used the special once (charge 100, Lacerate costs 25)", (world.injected.IA_SpecialAction or 0) >= 1)
+    check("no special without PerkV2_Attack_MeleeSpecialAttacks", (world.injected.IA_SpecialAction or 0) == 0)
+    local acts = read_activity()
+    check("combat_end activity written", #acts >= 1 and acts[#acts]:find('"kind":"combat_end"', 1, true) and acts[#acts]:find('"outcome":"killed"', 1, true)
+          and acts[#acts]:find('"by":"debug"', 1, true), acts[#acts])
     check("locked on", (world.injected.IA_ToggleLockOnTargeting or 0) == 1)
     check("hits verified via damage multicast", res and res.data.hits >= 3, res and res.data.hits)
     check("looted the drop", res and res.data.looted == 1 and INV.interacts >= 1, res and (tostring(res.data.looted) .. " i=" .. INV.interacts .. " " .. table.concat(res.data.phase_log, " | ")))
@@ -492,6 +520,136 @@ do
     Cm.guard_stop(nil)
     _G.DW_PAUSE = nil
     local _ = task
+end
+
+-- ================================================================ 9. defense.lua: planning, timing, learning
+do
+    _G.DWDefense = nil
+    local fixed = function() return 0.5 end -- rng: mid reaction (0.225 s), zero timing error
+    local function with(k, v) local c = {}; for a, b in pairs({ dist_cm = 150, latency_s = 0.03, stamina = 60, can_parry = true, can_block = true,
+        parry_cost = 10, block_cost = 10, evade_cost = 15, hp_frac = 1, heal_hp = 0.5 }) do c[a] = b end; if k then c[k] = v end; return c end
+    local ctx = with()
+    local info = { key = "Goblin:ATK_Slash", dmg_time = 0.8, shape = Dm.shape_info({ class = "DominionShape_Wedge", depth = 200, zheight = 150, top_angle = 90 }, 90) }
+    local p = Dm.plan(info, ctx, { defense = "auto" }, fixed)
+    check("plan: parry when able", p.action == "parry" and p.src == "attack_data", p.action)
+    check("plan: parry press = T - 2L - window/2", math.abs(p.at_s - (0.8 - 0.06 - 0.05)) < 1e-6, p.at_s)
+    check("plan: parry hold covers impact", p.at_s + p.hold_s >= 0.8 + 0.3)
+    local fast = Dm.plan({ key = "Rat:Bite", dmg_time = 0.25 }, ctx, {}, fixed)
+    check("plan: too fast to parry -> block", fast.action == "block" and fast.why == "too_fast_to_parry", fast.action .. " " .. tostring(fast.why))
+    check("plan: no parry perk -> block", Dm.plan(info, with("can_parry", false), {}, fixed).action == "block")
+    local unb = Dm.plan({ key = "Troll:Slam", dmg_time = 1.0, unblockable = true }, ctx, {}, fixed)
+    check("plan: unblockable -> dodge", unb.action == "dodge" and unb.at_s > 0.5 and unb.dir ~= nil)
+    local slam = Dm.shape_info({ class = "DominionShape_Sphere", radius = 350, offset_x = 0, offset_z = -80 }, 90)
+    check("shape: centred big sphere = aoe", slam.aoe and slam.reach_cm == 350)
+    local sweep = Dm.shape_info({ class = "DominionShape_Box", extent = { x = 250, y = 100, z = 20 }, offset_z = -80 }, 90)
+    check("shape: flat box near the feet = low", sweep.low == true, sweep.top_cm)
+    check("plan: unblockable low sweep -> jump", Dm.plan({ key = "Troll:Sweep", dmg_time = 1.0, unblockable = true, shape = sweep }, ctx, { allow_jump = true }, fixed).action == "jump")
+    check("plan: jump disallowed by orders -> dodge", Dm.plan({ key = "Troll:Sweep", dmg_time = 1.0, unblockable = true, shape = sweep }, ctx, { allow_jump = false }, fixed).action == "dodge")
+    local far = Dm.plan(info, with("dist_cm", 900), {}, fixed)
+    check("plan: out of reach -> none", far.action == "none" and far.why == "out_of_reach")
+    check("plan: orders dodge", Dm.plan(info, ctx, { defense = "dodge" }, fixed).action == "dodge")
+    check("plan: orders none", Dm.plan(info, ctx, { defense = "none" }, fixed).action == "none")
+    check("plan: low hp prefers dodge", Dm.plan(info, with("hp_frac", 0.3), {}, fixed).action == "dodge")
+    check("plan: no stamina -> retreat", Dm.plan(info, with("stamina", 5), {}, fixed).action == "retreat")
+    Dm.observe("Goblin:ATK_Slash", 0.9); Dm.observe("Goblin:ATK_Slash", 0.9)
+    local t1, src = Dm.impact_delay("Goblin:ATK_Slash", info)
+    check("learn: observed impact replaces prior", src == "learned" and t1 > 0.85, t1)
+    Dm.feedback("Goblin:ATK_Slash", "parry", "blocked")
+    check("learn: blocked-not-parried = too early -> press later", Dm.rec("Goblin:ATK_Slash").offset > 0)
+    Dm.feedback("Goblin:ATK_Slash", "parry", "hit"); Dm.feedback("Goblin:ATK_Slash", "parry", "hit")
+    check("learn: hit = too late -> press earlier", Dm.rec("Goblin:ATK_Slash").offset < 0)
+    _G.DWDefense = nil
+end
+
+-- fake AI attack: the telegraph multicast + the server's resolution at impact time
+local function goblin_attack(goblin, dmg_time, opts)
+    opts = opts or {}
+    local shape = obj({ Depth = 200, ZHeight = 150, TopAngle = 90, Offset = { X = 0, Z = 0 } }, "DominionShape_Wedge /Game/x.Shape")
+    local ad = obj({ AttackPropertyFlags = opts.flags or 0, GetDamageTime = function() return dmg_time end,
+                     GetLastDamageTime = function() return dmg_time end, GetDuration = function() return 2 end,
+                     Damage = { ForEach = function(_, f) f(1, { get = function() return { Time = dmg_time, Shape = shape } end }) end } },
+                   "ATK_Goblin_Slash_C /Game/AI/Goblin/ATK_Goblin_Slash.Default__ATK_Goblin_Slash_C")
+    local comp = obj({ GetOwner = function() return goblin end, CurrentAttack = { AttackData = ad } }, "C /x")
+    local hook = hooks["/Script/Dominion.AiAttackComponent:Multicast_PerformAttackOnSimulatedProxies"]
+    hook({ get = function() return comp end }, { get = function() return 7 end })
+    world.block_start = nil
+    local impact = T + dmg_time
+    world.on_step = function()
+        if T >= impact and not world.resolved then
+            world.resolved = true
+            local own = obj({ GetOwner = function() return pawn end }, "C /x")
+            local blocking = world.block_last and T - world.block_last < 0.05
+            -- the server sees the press 2 x one-way latency (0.03 s default) later than the client's telegraph clock
+            local seen = world.block_start and (world.block_start + 0.06)
+            if blocking and seen and impact - seen <= 0.10 + 1e-6 and impact - seen >= -1e-6 then
+                hooks["/Script/Dominion.PlayerBlockingComponent:Multicast_NotifyActorsToDamagePendingParriedAttack"]({ get = function() return own end })
+                world.result = "parried"
+            elseif blocking then
+                hooks["/Script/Dominion.PlayerBlockingComponent:Multicast_NotifyActorsToDamagePendingBlockedAttack"]({ get = function() return own end })
+                world.result = "blocked"
+            elseif world.evading_until and world.evading_until > T then
+                world.result = "dodged"
+            else
+                pawn.hp = pawn.hp - 15
+                multicast(pawn, goblin, 15)
+                world.result = "hit"
+            end
+        end
+    end
+end
+
+-- ================================================================ 10. fights: parry (perk), block (no perk), dodge (orders)
+for _, case in ipairs({
+    { name = "parry with the perk", perks = { PerkV2_Attack_Parry = true }, defense = "auto", want_action = "parry", want = "parried" },
+    { name = "block without the perk", perks = {}, defense = "auto", want_action = "block", want = "blocked" },
+    { name = "dodge by orders", perks = {}, defense = "dodge", want_action = "dodge", want = "dodged" },
+}) do
+    reset_world()
+    PERKS.unlocked = case.perks
+    Cm.set_orders({ defense = case.defense })
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local gob = new_creature("BP_AI_RuntGoblin_Character_C_" .. case.want, "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    check(case.name .. ": fight starts", Cm._start_fight(nil, gob, { mode = "attack", force = true }).ok)
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    world.resolved, world.result = nil, nil
+    goblin_attack(gob, 0.8)
+    run_until(function() local f = Cm._state().fight; return world.resolved and f and f.phase == "engage" end, 3)
+    local f = Cm._state().fight
+    local ld = f and f.last_defence or {}
+    check(case.name .. ": planned " .. case.want_action, ld.action == case.want_action, tostring(ld.action) .. " " .. tostring(ld.why))
+    check(case.name .. ": server result " .. case.want, world.result == case.want, world.result)
+    local want_outcome = case.want == "dodged" and "avoided" or case.want
+    check(case.name .. ": verified outcome " .. want_outcome, ld.outcome == want_outcome, ld.outcome)
+    check(case.name .. ": no damage taken", pawn.hp == 100, pawn.hp)
+    if case.want == "parried" then
+        local r = Dm.rec("Goblin Runt:ATK_Goblin_Slash")
+        check("parry: impact time learned from the verdict", r.n == 1 and math.abs(r.impact_s - 0.8) < 0.05, r.impact_s)
+    end
+    Cm.stop(nil, "test")
+    A.reset(nil)
+end
+PERKS.unlocked = {}
+Cm.set_orders({ defense = "auto" })
+
+-- ================================================================ 11. low HP: disengage, eat to heal, re-engage
+reset_world()
+do
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local gob = new_creature("BP_AI_RuntGoblin_Character_C_heal", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    check("heal: fight starts", Cm._start_fight(nil, gob, { mode = "attack", force = true }).ok)
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    pawn.hp = 40
+    check("heal: disengages below heal_hp", run_until(function() local f = Cm._state().fight; return f and f.phase == "disengage" end, 2))
+    local backed = run_until(function() return MV.mode == "go_to" end, 2)
+    check("heal: backs off (go_to away from the enemy)", backed and type(MV.goal) == "table" and MV.goal[1] < 0, MV.goal and MV.goal[1])
+    check("heal: eats the healing food", run_until(function() return #INV.uses >= 1 end, 10) and INV.uses[1] == "ITEM_Food_Sandwich", INV.uses[1])
+    local back = run_until(function() local f = Cm._state().fight; return f and (f.phase == "approach" or f.phase == "engage") and pawn.hp >= 80 end, 60)
+    check("heal: re-engages once healed", back, pawn.hp)
+    local healed = 0
+    for _, l in ipairs(read_activity()) do if l:find('"kind":"healed"', 1, true) then healed = healed + 1 end end
+    check("heal: healed activity events", healed >= 3, healed)
+    Cm.stop(nil, "test")
+    A.reset(nil)
 end
 
 print(string.format("combat/arbiter tests: %d passed, %d failed", pass, failn))

@@ -858,6 +858,32 @@ Service: `client_mod/scripts/move.lua` (go_to / follow / stop / status). Command
   - Cells 1 m apart on a walkable slope (up to 45.5°) differ by more than the 45 cm step. Before, they became jump edges, so Claude jumped up a 30° ramp five times.
   - Now |dz| ≤ 0.9 × run is a provisional walk. The lazy check takes ONE downward trace at the edge midpoint: a profile within 30 % of linear is a slope; otherwise it is a step, and that edge is re-planned as a jump/drop.
   - Offline: the 30° ramp is walked and a 90 cm step is jumped (`test_localplan.lua`, 13 checks).
+- **Self-collision of traces (19:22 live root cause):**
+  - `bIgnoreSelf` ignores Claude's pawn but NOT his attached gear actors (platebody, cowl, axe), which block traces. Every lazy wall check leaving his own cell hit his gear ("walls everywhere" / verify_exhausted), and so did the forward probe that started at his centre (constant "wall_ahead").
+  - Fixes: the probe starts 60 cm out; wall checks are clipped within 55 cm of him (80 cm hid real walls next to him and caused corner cutting); his own cell uses his feet height.
+- **Traces now use the pawn capsule's own collision profile:** `LineTraceSingleByProfile(ctx, a, b, FName("Player"), ...)`. `CapsuleComponent:GetCollisionProfileName()` = "Player". It is identical to Visibility at the spot tested, but it is the right semantics.
+- **Ramp over dead space:** two surfaces less than head clearance apart are one walkable surface, the UPPER one (the lower has no headroom). Before, the ground under a ramp won and the ramp was dropped.
+- **Oracle projection:** ±1.5 m vertical first, then ±6 m. With ±6 m a start under the church floor snapped onto the floor above it. Afterwards the pit → Luis (57.6, 1880.6) path was complete (26.6 m).
+- **Lazy-check refinements:**
+  - the first segment is checked from Claude's real position, not the cell centre (it can clip corners);
+  - a wall hit point blocks every nearby crossing edge (one hit, not one re-plan per edge);
+  - the local waypoint arrival radius is 45 cm (70 cm cut corners).
+- **Oracle as primary router (19:44 live):** a 20 m cliff at (440, 1820, -37) below the grave plateau (441.6, 1829.1, -16.7) saw nav_requests = 1. The local planner suppressed oracle requests and fought the cliff toward the final goal.
+  - Now: goals beyond 10 m (or above jump height) always get oracle routes; the oracle is re-queried after every local-plan failure; the local planner aims at the oracle route's next waypoint.
+- **Corridor streaming (dev oracle):** trips over 120 m spawn streaming-source anchors every 120 m to the goal (at most 5), answering "loading" while they settle (10 s; the helper retries for up to 25 s). The goal area also gets its link rebuild.
+  - Start area (100, 1830, -30.7) → grave area (442.6, 1836.5, -15.6): **complete 346.6 m, 13-point path**.
+  - The 19:22/19:39 "357 m no_path" was really the START: the church pit is a navmesh island, so every path from it is partial.
+- **Church start pit (Luis):** "a ramp in the middle to exit; he goes round the side of it, under the floor". Under-floor feet level is about -35.5 m and the church floor -32.1 m. The dev navmesh connects pit → ramp → upper floor only via an auto-link (73.9, 1874.0, -33.95) → (74.26, 1875.46, -32.1), and the upper floor does not connect to the doorway (89.5, 1851.2, -31.4).
+  - The trap is seeded as **provisional** in `data/nav/L_World_seeds.json` (with a taboo toward the alcove), pending a recorded demo walk.
+- **Lesson (19:41):** Claude got out of the pit by FOLLOWING Luis's breadcrumbs where go_to failed. But the trail was lost when the next command reset the move. Trails are now flushed to memory whenever a move ends or is interrupted.
+- **Human-proven hill route:** Claude's own trail while following Luis up the grassy hill to the grave plateau (19:45), 27 points, route `grave_hill_up` in the seeds.
+- **Navigation memory (`client_mod/scripts/navmem.lua`, tests `test_navmem.lua` 21/21, integration scenarios in `test_move.lua` 46/46):**
+  - Per-world routes (self trips; the leader's walked trail as `demo:<name>`) in `data/skills/<world>/nav_memory.json`, plus map seeds. Dijkstra over route points, join edges (4 m), learned links as one-way edges, and taboo penalties (×10).
+  - Traps: inside one with the goal outside, its exit comes first. A stuck spot that is later left by 15 m becomes a learned trap whose exit keeps growing for 10 more metres. Teleports (a jump of more than 10 m between samples) and candidates over 10 min old are discarded. The failed direction is tabooed.
+  - `move.escape_trap()` / `commands/move_escape.lua` is for respawn/rejoin.
+- **Escape ladder (v10):** memory route → learned link → **Bug2 wall-following** (left-hand, then right-hand, 12 s / 35 m per side, probes every 3rd frame) → (wedged: the game's Unstuck) → unreachable.
+  - With a player within 40 m: one `{"type":"stuck","ask":"lead_me","where","helper"}` event. A go_to then waits (`waiting_for_lead`, up to 60 s), follows the helper's trail out, and carries on to its goal (`led_out`).
+- **Leader double-jump detection:** use CHANGES of `ReplicatedJumpCurrentCount` (the replicated value stays stale after landing; traversal agent).
 
 ## Client perception + inventory (R2) (2026-10-25, 17:30-18:00 UTC, client build 26162923, Shockbyte world)
 Modules: `client_mod/scripts/sense.lua` (census + me), `client_mod/scripts/inventory.lua` (list, collect, equip, unequip, drop). Commands: `client_mod/commands/sense_*.lua`, `inv_*.lua`. Both reuse the dependency-free `mod/body/util.lua` via `loadfile` (works unchanged on the client).
