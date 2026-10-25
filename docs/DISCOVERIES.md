@@ -714,3 +714,8 @@ Luis's direction change (binding, `docs/design/real-player-remediation.md`): no 
 - **PlayerGuid = the Steam profile (persona) name** (`SetNameAndPlayerIdFromLocalUsername` → `Server_SetPlayerGuid [<persona>]`). Two accounts with the same persona collide: the server rejects the second with `Connection Failed for reason [DuplicateChar]`. bootymaxer had persona "luisdeburnaybastos"; it is now "Claude".
 - **A new character plays the narrative intro first** (input mode `DIM_NarrativeIntro`, a Bink video that never ends under NullRHI). The pawn only spawns after it. `WBP_NarrativeIntro_C:OnOutAnimationFinished()` completes it, and the `BP_PlayerCharacter_C` pawn appears within seconds.
 - Before the intro: `Remote Character load complete slot[Claude]` → `Started player profile stream` → `Connection to server has completed [success]`.
+- **Client locomotion (Shockbyte, 17:22 UTC):**
+  - The headless client has **no NavigationSystem** (`FindFirstOf("NavigationSystemV1")` = nil), so `AIBlueprintHelperLibrary:SimpleMoveToLocation(pc, goal)` does nothing.
+  - **`pawn:AddMovementInput(dir, 1.0)` called every frame** (`LoopInGameThreadWithDelay(1, …)`) plus `pc:SetControlRotation` walked 13 m to 2.9 m in about 3 s. Luis confirmed he "ran towards me".
+  - A 50 ms cadence leaves most frames without input, and the character jitters on the spot.
+  - `pawn:Jump()` + `StopJumping()` jump visibly (Luis confirmed). `IsLocallyControlled()` = true.
