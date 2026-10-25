@@ -6,7 +6,7 @@ return function(log)
     for _, kind in ipairs({ "drink", "food" }) do
         for _, where in ipairs({ "hotbar", "bag" }) do
             for _, d in ipairs(l[where] or {}) do
-                if d.consumable == kind and not out[kind] then out[kind] = I.use(log, d.item) end
+                if d.consumable == kind and not out[kind] then out[kind] = I.use(log, d.item, { require = kind }) end
             end
         end
     end

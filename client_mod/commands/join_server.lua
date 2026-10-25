@@ -7,6 +7,10 @@ local function b64(s)
         .. ({ '', '==', '=' })[#s % 3 + 1])
 end
 return function(log)
+    -- Pause every game-thread loop (vitals, reflex, move, bridge) before the world tears down:
+    -- a loop touching objects mid-teardown crashed the client (DISCOVERIES). The bridge clears it
+    -- once a new pawn exists.
+    _G.DW_PAUSE = true
     local root = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
     local f = assert(io.open(root .. "/client_io/secrets/server.txt", "r"))
     local addr = (f:read("*l") or ""):gsub("%s+$", ""); local pw = (f:read("*l") or ""):gsub("%s+$", ""); f:close()

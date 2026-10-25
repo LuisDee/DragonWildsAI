@@ -60,6 +60,8 @@ return function(log)
             local nodes, layers2 = 0, 0
             for _, l in pairs(P.nodes) do nodes = nodes + #l; if #l > 1 then layers2 = layers2 + 1 end end
             res.nodes, res.two_layer_cells, res.traces, res.replans, res.expanded = nodes, layers2, P.traces, rounds, P.expanded
+            res.block_log = P.block_log
+            if pts then res.best_end = { math.floor(pts[#pts].X), math.floor(pts[#pts].Y), math.floor(pts[#pts].Z) } end
             res.s = math.floor((gs:GetRealTimeSeconds(pawn) - t0) * 100) / 100
             log("plandry: " .. tostring(res.state) .. " acts=" .. tostring(res.acts) .. " traces=" .. P.traces .. " s=" .. res.s)
             CancelDelayedAction(_G.DW_PLANDRY_H); _G.DW_PLANDRY_H = nil
