@@ -107,3 +107,18 @@ Module `mod/scripts/puppet_test.lua`, run through `debug_run`.
    - **Luis confirmed it walked to him.**
 - **Conclusion:** a `BP_PlayerCharacter_C` controlled by an AIController spawns, replicates, path-finds on the navmesh and animates on a vanilla client.
 - **Next:** equipment and armour on the puppet, combat, loot, and how it looks (blank vs geared).
+
+## BLOCKER (investigating): unpossessing an AI-controlled player character freezes the server (2026-10-25)
+- **Symptom:** the game thread deadlocks. CPU use drops to 0, the log stops, and the bridge stops answering, right after `LogDominionPlayerCharacter: Character [BP_PlayerCharacter_C_*] unpossessed`.
+- **Bisect results** (each run on a fresh server; `DW_NO_HOOKS=1` and `DW_NO_COMPANION=1` turn our hooks and companion loop off):
+  - A: spawn, then destroy without possessing → **OK**.
+  - B: spawn, possess (SpawnDefaultController → AIController), destroy, with hooks and companion off → **hangs**. So it is not our code.
+  - C: possess, then `AIController:UnPossess()`, nothing destroyed → **hangs**.
+  - D: possess, then destroy only the pawn (the controller is kept) → **hangs**.
+  - E: possess via an AIController with `bWantsPlayerState=true` (the UE bot pattern), then destroy → **hangs**.
+  - Both `K2_DestroyActor` and `SetLifeSpan` trigger it, because both unpossess.
+- **Conclusion:** Dominion's unpossess path for `BP_PlayerCharacter_C` blocks when the controller is not a client-backed `DominionPlayerController`. Hypothesis: it waits on a client exchange such as the character-profile save stream.
+- **Workaround:** keep one puppet alive for the server's lifetime and never unpossess it. Its death may trigger the same path; untested.
+- **Next:**
+  - Find the unpossess and death code paths in the dump (`ReceiveUnpossessed`, `OnUnPossess` and their overrides).
+  - Optionally take a native stack dump of the frozen process, which needs Luis's OK (CLAUDE.md rule on native tooling).
