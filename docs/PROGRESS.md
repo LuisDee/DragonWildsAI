@@ -48,3 +48,4 @@
 - **Goal clarified by Luis:** the companion must be a HUMANOID that acts like another player: switch weapons, kill enemies, pick up loot, talk, in real time. A following animal proves the mechanism but is not the body.
   - New task P4.H. Two research agents launched: dump analysis of player-pawn dependencies and factions, and web research on player-like bots in UE.
 - Fixed: `debug_run` now loads modules with `loadfile`. `package.loaded` + `require` did not pick up redeployed files under UE4SS.
+- Written down so nothing is lost: `docs/research/2026-10-25-voice-discord.md` (Discord voice and realtime-voice research) and `docs/research/2026-10-25-humanoid-goal-and-routes.md` (clarified goal, three routes, experiment order). Route 1 experiment module: `mod/scripts/puppet_test.lua`.
