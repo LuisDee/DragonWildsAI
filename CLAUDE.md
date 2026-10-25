@@ -40,6 +40,7 @@ The companion ("Claude") is a **humanoid that is basically another player**.
 - **Target world is the group's Shockbyte server** (Luis's explicit choice; overrides "throwaway world only" for the client). The server stays vanilla: nothing is installed server-side. Keep risky experiments short; never touch other players' characters.
 - **The local dev server is retired** (stopped with `stop_server.ps1 -Hold`; watchdog and nav oracle stopped). The server-side puppet mod (`mod/`) is legacy, to be deleted skill by skill as client replacements are verified.
 - Boot sequence for Claude's client: `tools/client_headless_test.ps1` → `client_mod/commands/pick_char.lua` → `join_server.lua` (address/password in gitignored `client_io/secrets/server.txt`) → (new character only) `skip_intro.lua`; the bridge autostarts; then `chat_start.lua`, `sense_vitals_start.lua`. Brain: `tools/start_brain.ps1 -Body client` with `DW_PLAYER_NAME=Zezima`, `DW_WORLD_GUID=shockbyte`.
+- **Communication is paramount** (Luis): Claude always tells the player what he is doing, what he can't do and *why* (e.g. "can't get in there, you Windstepped over and I can't yet"). Every skill/movement failure must surface a specific, truthful reason to the brain so it can say it in chat; follow never silently ends.
 - Claude has real survival needs (hydration/sustenance kill at 0); the stay-fed reflex must be running.
 
 ### Building principles (Luis's, binding)
