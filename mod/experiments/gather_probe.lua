@@ -85,6 +85,13 @@ local function describe(cls, a, d)
         r.drops = drops(U.try(function() return a.ItemDropOnDestructionComponent end))
     elseif cls == "TreeLog" or cls == "SplittableTreeLog" then
         r.item = U.path_of(U.try(function() return a.PrimaryAssociatedItemData end))
+        r.mods = modifiers(U.try(function() return a.DamageComponent.DamageModifiers end))
+        r.can_take = U.try(function() return a.DamageComponent.bCanTakeDamage end)
+        r.drops = drops(U.try(function() return a.ItemDropOnDestructionComponent end))
+        local mid = {}
+        local okm = pcall(function() a:GetMidPointWorldLocation(mid) end)
+        r.mid = okm and mid.X and U.to_wire(mid) or nil
+        r.height = U.try(function() return a:GetLogHeight() end)
         r.log_type = U.try(function() return a:GetLogType() end)
     elseif cls == "RuntimeSpawnedWorldItem" then
         r.item = U.path_of(U.try(function() return a.ItemData end))

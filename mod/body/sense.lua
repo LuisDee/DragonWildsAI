@@ -99,6 +99,24 @@ function M.nearest(spec, opts)
     return M.census(spec, o)[1]
 end
 
+-- Where to stand/aim at an actor: a tree log's pivot is at one END (verified live 2026-10-25:
+-- BP_SplittableLog_Oak_C origin 6.5 m from GetMidPointWorldLocation; a swing at the pivot end
+-- never touched the trunk), so logs use their midpoint (out-param struct, read OK). Else the origin.
+function M.aim(a)
+    if U.try(function() return a.GetMidPointWorldLocation ~= nil end) then
+        local mid = {}
+        local ok = pcall(function() a:GetMidPointWorldLocation(mid) end)
+        if ok and type(mid.X) == "number" and (mid.X ~= 0 or mid.Y ~= 0) then return { X = mid.X, Y = mid.Y, Z = mid.Z } end
+    end
+    return U.loc(a)
+end
+
+-- Stand point `r_cm` from `at`, on the side facing `from`, rotated by `deg` degrees.
+function M.ring_point(at, from, r_cm, deg)
+    local ang = math.atan((from.Y - at.Y), (from.X - at.X)) + math.rad(deg or 0)
+    return { X = at.X + math.cos(ang) * r_cm, Y = at.Y + math.sin(ang) * r_cm, Z = at.Z }
+end
+
 -- Stable key of a position (1 m grid): remembers a resource across foliage re-conversion.
 function M.key(loc)
     if not loc then return "?" end

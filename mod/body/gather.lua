@@ -56,6 +56,8 @@ M.STUCK_MS = 4000
 M.STUCK_MOVE_CM = 50
 M.MAX_REISSUE = 3
 M.STUCK_SWING_SLACK_CM = 90     -- stuck but this close beyond reach: try swinging anyway
+M.APPROACH_ANGLES = { 0, 72, -72, 144, -144 } -- stand points tried around the target (degrees)
+M.REPOSITION_MS = 1500          -- after a swing with no contact, walk to another side for this long
 M.DMG_SLACK_MS = 150            -- check the HP this long after the swing's damage point
 M.NO_EFFECT_SWINGS = 4          -- swings in a row with no HP change -> target is bad
 M.BAD_STREAK = 3                -- bad targets in a row -> fail (path_blocked)
@@ -238,6 +240,7 @@ function M.tree(deps)
         end
         t.no_effect = (t.no_effect or 0) + 1
         t.last_verdict = verdict
+        if verdict == "no_contact" or verdict == nil then t.reposition = true end
         lg("gather_hit", { target = t.id, mode = "none", verdict = verdict, before = sw.hp, after = hp_now, dist_cm = sw.dist })
     end
 
@@ -351,6 +354,20 @@ function M.tree(deps)
                 set_target(a, d, { name = "drop", reach_cm = M.PICKUP_CM }, "drop"); return S_
             end
         end
+        -- leftover pieces of an earlier break (logs on the ground) open a site where they lie
+        for _, spec in ipairs(a.profile.children or {}) do
+            if not spec.at_root and not (spec.bonus and not a.bonus) then
+                local skip = {}
+                for k in pairs(a.bad) do local pos, stage = k:match("^(.-)/(.*)$"); if stage == spec.name then skip[pos] = true end end
+                local e = sense.nearest(spec, { origin = here, radius_cm = a.profile.collect_radius_cm or 1200, skip = skip })
+                if e then
+                    a.site = { loc = e.loc, id = e.id, started = now(), leftover = true }
+                    a.sites = a.sites + 1
+                    set_target(a, e, spec, spec.name)
+                    return S_
+                end
+            end
+        end
         -- SCAN for a new root, widening the radius on failure
         local spec = a.profile.root
         if a.profile.foliage then deps.convert(p, here, a.radius_cm) end
@@ -399,24 +416,41 @@ function M.tree(deps)
         return S_
     end
 
-    local function approach(a, t, d)
+    local function move_state(a, t, here)
         local m = a.move
-        local here = U.loc(a.p)
         if not m or m.key ~= t.key then
-            m = { key = t.key, reissues = 0, last_pos = here, last_progress = now(), issued = nil }
+            m = { key = t.key, reissues = 0, angle_i = 0, last_pos = here, last_progress = now(), issued = nil }
             a.move = m
         end
+        return m
+    end
+
+    -- Walk to the target. First MoveToActor (trees: the navmesh stops at the trunk); targets whose aim
+    -- point is not their origin (logs: midpoint), and every retry after getting stuck, walk to a stand
+    -- point at reach-60 cm from the aim point, rotated by M.APPROACH_ANGLES[angle_i].
+    local function approach(a, t, aim, reach)
+        local here = U.loc(a.p)
+        local m = move_state(a, t, here)
         if not m.last_pos or U.dist(here, m.last_pos) > M.STUCK_MOVE_CM then
             m.last_pos, m.last_progress = here, now()
         elseif now() - m.last_progress >= M.STUCK_MS then
-            m.reissues, m.last_progress, m.issued = m.reissues + 1, now(), nil
+            m.reissues, m.angle_i, m.last_progress, m.issued = m.reissues + 1, m.angle_i + 1, now(), nil
             if m.reissues > M.MAX_REISSUE then return mark_bad(a, "path_blocked") end
         end
         if not m.issued or now() - m.issued >= M.APPROACH_REISSUE_MS then
             m.issued = now()
             local c = U.controller_of(a.p)
-            local r = c and deps.move_to_actor(c, t.actor, M.ACCEPT_CM) or 0
-            if r == 0 then m.reissues = m.reissues + 1; if m.reissues > M.MAX_REISSUE then return mark_bad(a, "path_blocked") end end
+            local r = 0
+            if c and m.angle_i == 0 and not t.use_aim then
+                r = deps.move_to_actor(c, t.actor, M.ACCEPT_CM)
+            elseif c then
+                local ang = M.APPROACH_ANGLES[(m.angle_i % #M.APPROACH_ANGLES) + 1]
+                r = deps.move_to_location(c, sense.ring_point(aim, here, math.max(80, reach - 60), ang), 30)
+            end
+            if r == 0 then
+                m.reissues, m.angle_i = m.reissues + 1, m.angle_i + 1
+                if m.reissues > M.MAX_REISSUE then return mark_bad(a, "path_blocked") end
+            end
         end
         return S_
     end
@@ -424,7 +458,7 @@ function M.tree(deps)
     local function swing(a, t, d)
         local sw = M.swing_for(a.held, t.spec.attack or "primary")
         if not sw then return fail(a, "wrong_tool", { detail = "attack set not loaded", held = a.held and profiles.item_id(a.held) or jsonutil.null }) end
-        deps.face(a.p, t.actor)
+        deps.face(a.p, t.aim or U.loc(t.actor))
         local seq = hitcheck.seq()
         local hp0 = U.health(t.actor) -- before the swing: native damage may land at once
         local ok = deps.perform(a.p, sw, t.actor, { target = t.id, stage = t.stage, n = a.swings + 1, label = sw.label })
@@ -459,22 +493,37 @@ function M.tree(deps)
         local t = a.target
         if not t then return F_ end
         if not refresh(a) then return target_done(a) end
-        local d = U.actor_dist(a.p, t.actor)
         local reach = t.spec.reach_cm or 170
+        local here = U.loc(a.p)
         if t.stage == "drop" then
-            if d > reach then return approach(a, t, d) end
+            local at = U.loc(t.actor)
+            if U.dist(here, at) > reach then return approach(a, t, at, reach) end
             return pickup(a, t)
         end
+        -- reach is horizontal, to the aim point (a log's midpoint, a tree's trunk base)
+        local aim = sense.aim(t.actor) or U.loc(t.actor)
+        local origin = U.loc(t.actor)
+        t.aim, t.use_aim = aim, origin ~= nil and U.dist2d(aim, origin) > 100
+        local d = U.dist2d(here, aim)
         if (t.no_effect or 0) >= M.NO_EFFECT_SWINGS then
             if t.last_verdict == "gate_tier" or t.last_verdict == "gate_category" then
                 return fail(a, "wrong_tool", { detail = t.last_verdict, target = t.id })
             end
             return mark_bad(a, "swing_no_effect:" .. tostring(t.last_verdict))
         end
+        if t.reposition then -- the last swing made no contact: try another side
+            t.reposition = false
+            local m = move_state(a, t, here)
+            m.angle_i, m.issued = m.angle_i + 1, nil
+            m.last_pos, m.last_progress = here, now()
+            approach(a, t, aim, reach)
+            a.ready_at = now() + M.REPOSITION_MS
+            return S_
+        end
         if d > reach then
             local m = a.move
             local stuck_close = m and m.reissues > 0 and d <= reach + M.STUCK_SWING_SLACK_CM
-            if not stuck_close then return approach(a, t, d) end
+            if not stuck_close then return approach(a, t, aim, reach) end
         end
         return swing(a, t, d)
     end
@@ -483,8 +532,8 @@ function M.tree(deps)
 end
 
 -- ------------------------------------------------------------------ live deps and the handler
-local function face(log, p, actor)
-    local pl, tl = U.loc(p), U.loc(actor)
+local function face(log, p, tl)
+    local pl = U.loc(p)
     if not (pl and tl) then return end
     local yaw = math.deg(math.atan(tl.Y - pl.Y, tl.X - pl.X))
     U.call(log, "gather.K2_SetActorRotation", { yaw = U.round(yaw, 1) }, function()
@@ -514,11 +563,17 @@ function M.live_deps(opts)
         log_mod = log_mod,
         store = opts.store,
         held = function(p) return gear.read(p).right end,
-        face = function(p, actor) face(log_mod, p, actor) end,
+        face = function(p, at) face(log_mod, p, at) end,
         perform = function(p, sw, actor, crumb) return (combat.perform(log_mod, p, sw.obj, sw.act, actor, crumb)) end,
         move_to_actor = opts.move_to_actor or (skills and skills._move_to_actor) or function(c, actor, accept)
             local ok, r = U.call(log_mod, "MoveToActor", { goal = U.short(actor), accept = accept }, function()
                 return c:MoveToActor(actor, accept, true, true, true, nil, true)
+            end)
+            return ok and (tonumber(r) or 2) or 0
+        end,
+        move_to_location = opts.move_to_location or (skills and skills._move_to_location) or function(c, dest, accept)
+            local ok, r = U.call(log_mod, "MoveToLocation", { dest = U.to_wire(dest), accept = accept }, function()
+                return c:MoveToLocation(dest, accept, true, true, true, false, nil, true)
             end)
             return ok and (tonumber(r) or 2) or 0
         end,

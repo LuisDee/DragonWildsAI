@@ -101,7 +101,11 @@ spawn = {
     splittable = function(x, y)
         return actor("BP_SplittableLog_Oak_C", { TreeLog = true, SplittableTreeLog = true }, x, y, 105)
     end,
-    log = function(x, y) return actor("BP_Log_Oak_C", { TreeLog = true }, x, y, 105) end,
+    log = function(x, y)
+        -- pivot at one end, midpoint 600 cm along +X (as live: GetMidPointWorldLocation(out))
+        return actor("BP_Log_Oak_C", { TreeLog = true }, x, y, 105, {
+            GetMidPointWorldLocation = function(self, out) out.X, out.Y, out.Z = self.loc.X + 600, self.loc.Y, 0 end })
+    end,
     stone = function(x, y)
         return actor("BP_OreNode_Stone_C", { DestructibleMiningRock = true }, x, y, 75,
             { bIsHidden = false, DamageComponent = { DamageModifiers = arr({ gate(1, "Item.Equipment.Tool.Pickaxe") }) } })
@@ -197,6 +201,12 @@ local function deps()
             if not F.move_ok then return 0 end
             local t = target:K2_GetActorLocation()
             F.puppet.loc = { X = t.X - 80, Y = t.Y, Z = t.Z } -- arrive next to it
+            return 2
+        end,
+        move_to_location = function(_, dest)
+            if not F.move_ok then return 0 end
+            F.loc_moves = (F.loc_moves or 0) + 1
+            F.puppet.loc = { X = dest.X, Y = dest.Y, Z = dest.Z }
             return 2
         end,
         decrease_health = function(actor, amount)
@@ -308,6 +318,26 @@ test("oak: fells, chops the logs and the stump, collects, goal verified from the
     local last = F.emits[#F.emits]
     eq(last.name, "gather_progress"); eq(last.data.want, 8); truthy(last.data.have >= 8)
     truthy((F.converts or 0) > 0, "foliage converted before the scan")
+end)
+
+test("logs are worked from their midpoint, not the pivot end", function()
+    reset()
+    local lg = spawn.log(1000, 0)
+    local res = run("oak", 6, { bonus = false })
+    eq(res.ok, true, tostring(res.reason))
+    eq(lg._valid, false, "log chopped")
+    truthy((F.loc_moves or 0) > 0, "walked to a stand point by the midpoint")
+end)
+
+test("no contact: the bot repositions around the target before giving up", function()
+    reset(); spawn.oak(1500, 0)
+    rawget(_G, "__dw_hitcheck").armed = true -- armed but no events: every swing is no_contact
+    local res = run("oak", 3)
+    eq(res.ok, false)
+    truthy((F.loc_moves or 0) >= 2, "tried other stand points")
+    local bad = false
+    for _, l in ipairs(F.logs) do if l.name == "gather_bad_target" and tostring(l.data.why):find("no_contact") then bad = true end end
+    truthy(bad, "marked bad with swing_no_effect:no_contact")
 end)
 
 test("oak: bonus=false leaves the stump standing", function()

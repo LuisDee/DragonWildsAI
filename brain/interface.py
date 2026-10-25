@@ -125,7 +125,10 @@ class GiveArgs(BaseModel):
 
 class PickupArgs(BaseModel):
     target: str = Field(description="World item id from state nearby_items, or 'nearest'.")
-    item: str | None = Field(None, description="Only items whose id or name contains this, e.g. 'oak'.")
+    item: str | None = Field(None, description=(
+        "Only items whose id or name contains this, e.g. 'oak'. ALWAYS set this when the player names "
+        "what to pick up. Never pick up a different item than the one named: if nothing matching is in "
+        "nearby_items, don't call pickup; say you can't see any."))
     limit: int = Field(1, ge=1, le=20, description="Pick up this many world items (nearest matching first).")
 
 

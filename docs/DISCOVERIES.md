@@ -507,3 +507,13 @@ Modules: `mod/experiments/gather_probe.lua` (discovery), services `mod/body/sens
 
 ## Drop verified in game (2026-10-25, about 15:20 UTC, Luis via GFN)
 - `UItemHelperLibrary:SpawnAndLaunchItem_Sync` (route `spawn_sync`; scalar-only params plus a Lua table for the Out param) dropped one `ITEM_Resources_Wood_Oak` as `BP_RuntimeSpawnedWorldItem_NoExpiry_C` near the bot. **Luis saw it and picked it up normally**; his client stayed responsive. `items.ROUTES.spawn_sync.verified = true`.
+
+## Pick up + give verified; item-substitution bug (2026-10-25, about 15:25 UTC, Luis via GFN)
+- `pickup` and `give` work live: the bot collected the dropped oak logs and gave 2 to Luis at his feet (`give` result: world item spawned at the player).
+- **Bug:** "claude pick up the sticks". Sticks are ground gatherables (`BP_Spawner_AshBranch_*`, BaseInteractableResource), not in `nearby_items`, so Haiku picked up the only visible item (the logs it had just given Luis).
+  - Fix (brain): `PickupArgs.item` must be set to what the player named; never substitute; say "I can't see any X".
+  - Fix (body, gather agent): sense ground gatherables plus a pickup route for them.
+- Luis's woodcutting observations of the gather agent's self-test:
+  - The tree WAS felled. It used only Overhead Chop.
+  - It ignored the felled trunk and logs and went to a new tree; it did chop the stump; then it idled far away.
+  - All forwarded to the gather agent.
