@@ -1,0 +1,174 @@
+"""Benchmark leaves v2 (goal-cases review 2026-10-26: C1, C2, C3, T-2, L-7, B-2, B-4, L-2, L-4, C5)."""
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from brain import predicates as P
+from evals.bench import leaves, spec
+from evals.bench.observer import Observation, Record, evidence_ctx
+
+COAL = "ITEM_Resources_Coal"
+
+
+def ctx_of(referee=(), observations=(), supports=("item_change", "damage", "death", "teleport", "defended", "telegraph"),
+           probe0=None, probe1=None):
+    rec = Record(observations=list(observations), referee=list(referee), probe0=probe0 or {}, probe1=probe1 or {})
+    return evidence_ctx(rec, {}, leaves.default_spells(), 0.0, referee_supports=set(supports))
+
+
+def ev(pred, ctx, state=None):
+    return P.evaluate(P.validate(pred), state or {}, ctx)
+
+
+def ic(t, who, item, delta):
+    return {"kind": "item_change", "t": t, "who": who, "item": item, "delta": delta}
+
+
+# ------------------------------------------------------------------ C1 delivery from outflow
+
+
+def test_gather_then_give_passes_although_his_bag_is_empty_at_both_ends():
+    ref = [ic(10, "self", COAL, 25), ic(20, "self", COAL, 25), ic(30, "self", COAL, -50), ic(31, "Tester", COAL, 50)]
+    r = ev({"delivered": {"to": "Tester", "item": COAL, "at_least": 50}}, ctx_of(ref),
+           {"inventory": {}})
+    assert r.passed is True, r.detail
+
+
+def test_dropping_without_the_receiver_getting_it_is_not_delivery():
+    ref = [ic(10, "self", COAL, 50), ic(30, "self", COAL, -50)]  # dropped somewhere; Tester gains nothing
+    ref.append(ic(200, "Tester", "ITEM_Torch", 1))  # the receiver IS observed
+    assert ev({"delivered": {"to": "Tester", "item": COAL, "at_least": 1}}, ctx_of(ref)).passed is False
+
+
+def test_receiver_not_observed_is_a_perception_gap():
+    ref = [ic(10, "self", COAL, 50), ic(30, "self", COAL, -50)]
+    r = ev({"delivered": {"to": "Tester", "item": COAL, "at_least": 1}}, ctx_of(ref))
+    assert r.passed is None and r.missing == ["receiver"]
+
+
+def test_delivery_pairing_from_probes_on_targets_without_an_item_stream():
+    b = {"t": 0, "inventory": {COAL: 50}, "players": [{"name": "Tester", "position": [0, 0, 0], "inventory": {}}], "ground": []}
+    a = {"t": 1, "inventory": {}, "players": [{"name": "Tester", "position": [0, 0, 0], "inventory": {COAL: 50}}], "ground": []}
+    o = Observation(1, "give", {}, 0, 1, 0, 1, b, a, {"ok": True})
+    r = ev({"delivered": {"to": "Tester", "item": COAL, "at_least": 50}}, ctx_of(observations=[o], supports=()))
+    assert r.passed is True
+
+
+def test_trips_count_batches_separated_by_more_gathering():
+    one = [ic(10, "self", COAL, 50), ic(30, "self", COAL, -25), ic(31, "Tester", COAL, 25),
+           ic(40, "self", COAL, -25), ic(41, "Tester", COAL, 25)]  # two hand-overs, no gathering between
+    two = [ic(10, "self", COAL, 25), ic(30, "self", COAL, -25), ic(31, "Tester", COAL, 25),
+           ic(50, "self", COAL, 25), ic(60, "self", COAL, -25), ic(61, "Tester", COAL, 25)]
+    pred = {"trips": {"to": "Tester", "item": COAL, "at_least": 2}}
+    assert ev(pred, ctx_of(one)).passed is False
+    assert ev(pred, ctx_of(two)).passed is True
+
+
+# ------------------------------------------------------------------ C2 missing evidence -> None
+
+
+def test_damage_type_without_attribution_or_types_is_a_gap_not_a_failure():
+    pred = {"damage_type_dealt": {"target_kind_id": "G", "types": ["DamageType.Magical.Fire"]}}
+    assert ev(pred, ctx_of([{"kind": "damage", "t": 1, "kind_id": "G", "amount": 8}])).missing == ["referee:damage.by"]
+    r = ev(pred, ctx_of([{"kind": "damage", "t": 1, "kind_id": "G", "amount": 8, "by": "self"}]))
+    assert r.passed is None and r.missing == ["referee:damage.damage_type"]
+    assert ev(pred, ctx_of(supports=())).passed is None
+
+
+def test_disengaged_without_probed_creatures_is_a_gap():
+    o = Observation(1, "go_to", {}, 0, 1, 0, 1, {"t": 0}, {"t": 1, "position": [0, 0, 0]}, {"ok": True})
+    r = ev({"disengaged": {"target_kind_id": "G"}}, ctx_of(observations=[o]))
+    assert r.passed is None and r.missing == ["probe:creatures"]
+
+
+# ------------------------------------------------------------------ L-7 min_share
+
+
+def test_one_fire_hit_in_a_farm_is_not_the_right_weapon():
+    hits = [{"kind": "damage", "t": i, "kind_id": "G", "amount": 10, "by": "self",
+             "damage_type": "DamageType.Magical.Fire" if i == 0 else "DamageType.Physical.Slash"} for i in range(20)]
+    pred = {"damage_type_dealt": {"target_kind_id": "G", "types": ["DamageType.Magical.Fire"], "min_share": 0.6}}
+    assert ev(pred, ctx_of(hits)).passed is False
+    for h in hits[:15]:
+        h["damage_type"] = "DamageType.Magical.Fire"
+    assert ev(pred, ctx_of(hits)).passed is True
+
+
+# ------------------------------------------------------------------ T-2 prepared anchored to the target, all / at_least
+
+
+def _obs(t, snap):
+    return Observation(t, "x", {}, t, t + 0.5, t, t + 0.5, {"t": t, **snap}, {"t": t + 0.5, **snap}, {"ok": True})
+
+
+def test_prepared_snapshots_before_the_first_damage_with_the_target():
+    ref = [{"kind": "damage", "t": 5, "kind_id": "RAT", "amount": 1},  # a rat on the way: not the anchor
+           {"kind": "damage", "t": 50, "kind_id": "BOSS", "amount": 1}]
+    obs = [_obs(1, {"inventory": {}, "tags": []}), _obs(20, {"inventory": {"ANTI": 1}, "tags": ["Shield"]})]
+    pred = {"prepared": {"target_kind_id": "BOSS", "all": [{"item": "ANTI"}, {"tag": "Shield"}]}}
+    assert ev(pred, ctx_of(ref, obs)).passed is True
+    no_anchor = {"prepared": {"all": [{"item": "ANTI"}, {"tag": "Shield"}]}}  # the rat at t=5 comes first
+    assert ev(no_anchor, ctx_of(ref, obs)).passed is False
+
+
+def test_prepared_at_least_k_and_unobservable_options():
+    ref = [{"kind": "damage", "t": 50, "kind_id": "BOSS", "amount": 1}]
+    obs = [_obs(20, {"inventory": {"ANTI": 1}, "tags": [], "gaps": ["held_effects"]})]
+    base = [{"item": "ANTI"}, {"tag": "Shield"}, {"enchant_type": "DamageType.Magical.Air"}]
+    one = ev({"prepared": {"target_kind_id": "BOSS", "any": base, "at_least": 1}}, ctx_of(ref, obs))
+    two = ev({"prepared": {"target_kind_id": "BOSS", "any": base, "at_least": 2}}, ctx_of(ref, obs))
+    assert one.passed is True and two.passed is None and two.missing == ["probe:prep"]
+    three = ev({"prepared": {"target_kind_id": "BOSS", "any": base[:2], "at_least": 2}}, ctx_of(ref, obs))
+    assert three.passed is False
+
+
+# ------------------------------------------------------------------ B-2 dodges, L-4 teleports
+
+
+def test_dodges_need_outcome_dodged_direction_and_rate():
+    d = lambda t, **k: {"kind": "defended", "t": t, "how": "dodge", "outcome": "dodged", "telegraphed": True,  # noqa: E731
+                        "direction_ok": True, **k}
+    tele = [{"kind": "telegraph", "t": t, "target": "self"} for t in range(10)]
+    good = [d(1), d(2), d(3)]
+    missed = [d(1, outcome="missed"), d(2), d(3)]
+    wrong_dir = [d(1, direction_ok=False), d(2), d(3)]
+    pred = {"defended": {"kind": "dodge", "against": "telegraph", "at_least": 3}}
+    assert ev(pred, ctx_of(good)).passed is True
+    assert ev(pred, ctx_of(missed)).passed is False and ev(pred, ctx_of(wrong_dir)).passed is False
+    rated = {"defended": {"kind": "dodge", "against": "telegraph", "at_least": 3, "min_rate": 0.5}}
+    assert ev(rated, ctx_of(good + tele)).passed is False  # 3 of 10 telegraphs
+    assert ev(rated, ctx_of(good + [d(4), d(5)] + tele[:6])).passed is True
+
+
+def test_a_respawn_jump_is_not_a_teleport_and_via_needs_the_referee():
+    ref = [{"kind": "death", "t": 100, "who": "self"}, {"kind": "teleport", "t": 105, "who": "self", "via": "respawn"},
+           {"kind": "teleport", "t": 300, "who": "self", "via": "lodestone"}]
+    assert ev({"teleports": {"via": "lodestone", "at_least": 1}}, ctx_of(ref)).passed is True
+    assert ev({"teleports": {"at_least": 2}}, ctx_of(ref)).passed is False
+    nov = [{"kind": "teleport", "t": 300, "who": "self"}]
+    assert ev({"teleports": {"via": "lodestone", "at_least": 1}}, ctx_of(nov)).missing == ["referee:teleport.via"]
+
+
+# ------------------------------------------------------------------ C5 snapshot content hashing, required evidence
+
+
+def test_editing_a_snapshot_changes_the_case_hash(tmp_path, monkeypatch):
+    monkeypatch.setattr(spec, "SNAPSHOTS", tmp_path)
+    (tmp_path / "s1").mkdir()
+    (tmp_path / "s1" / "manifest.json").write_text(json.dumps({"bag": []}), encoding="utf-8")
+    c = spec.Case.model_validate({"id": "x", "tier": "T1", "family": "misc", "chat": [{"text": "hi there"}],
+                                  "success": {"have": {"item": "ITEM_Torch", "at_least": 1}},
+                                  "fixtures": {"state_snapshot": "s1"}})
+    h1 = spec.case_hash(c)
+    (tmp_path / "s1" / "manifest.json").write_text(json.dumps({"bag": ["antipoison"]}), encoding="utf-8")
+    assert spec.case_hash(c) != h1
+    missing = c.model_copy(update={"fixtures": c.fixtures.model_copy(update={"state_snapshot": "nope"}), "status": "suite"})
+    assert any("no manifest" in p for p in spec.lint(missing))
+
+
+def test_required_evidence_is_derived_from_the_predicates():
+    p = P.validate({"all": [{"delivered": {"to": "Tester", "item": COAL, "at_least": 1}},
+                            {"no_event": {"kind": "death", "who": "self"}}]})
+    assert leaves.required_evidence(p) == ["referee:item_change(receiver)", "referee:death"]

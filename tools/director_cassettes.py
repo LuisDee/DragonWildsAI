@@ -29,7 +29,7 @@ from brain.jsonl_log import JsonlLogger
 from brain.llm import LiteLLMClient, LLMResponse
 
 CASSETTES = paths.REPO_ROOT / "tests" / "fixtures" / "director_cassettes"
-SONNET_CAP = 24
+SONNET_CAP = 15
 HAIKU_CAP = 15
 EVAL_LINES = [
     "can you make yourself a better pickaxe",
@@ -77,7 +77,7 @@ def record(jobs: list[str], yes: bool) -> int:
     unknown = [j for j in jobs if j not in JOBS]
     if unknown:
         raise SystemExit(f"unknown jobs {unknown}; known: {sorted(JOBS)}")
-    print(f"record {len(jobs)} job(s) with {model}: expected ~3 requests each, hard cap {SONNET_CAP} in total")
+    print(f"record {len(jobs)} job(s) with {model}: ~3 requests each (2 research rounds + the answer), hard cap {SONNET_CAP} in total")
     if not yes:
         print("dry run: pass --yes to make the calls")
         return 0
@@ -97,10 +97,11 @@ def record(jobs: list[str], yes: bool) -> int:
             rig = JobRig(Path(tmp), [], open_tasks=open_task, knowledge=knowledge, director_llm=llm, director_log=log)
             setup(rig)
             rig.say(chat)
-            for _ in range(3):
+            for _ in range(3):  # stop once the job's first decision is applied (no prerequisite decisions)
                 rig.steps(1, dt=1.0)
-                if rig.director.ops.b.awaiting_decision is None and rig.director._future is None \
-                        and rig.director.ops.b.tasks and llm.n:
+                ids = {t.id for t in rig.director.ops.b.tasks}
+                if any(r.get("kind") in ("director_decision", "director_decision_failed") and r.get("task") in ids
+                       for r in log.read_all()):
                     break
             rows = [r for r in log.read_all() if r.get("task") in {t.id for t in rig.director.ops.b.tasks}]
             task = rig.director.ops.b.tasks[0] if rig.director.ops.b.tasks else None

@@ -22,6 +22,7 @@ Claude's client runs `-nullrhi`, so the logs are our only eyes. Until now, "read
 .venv\Scripts\python.exe -m tools.obs spend [--today | --day 2026-10-25] [--json]     # dw_obs_spend/1
 .venv\Scripts\python.exe -m tools.obs otel --since 20:54 --out logs\traces.otlp.json [--push http://127.0.0.1:6006/v1/traces]
 ```
+- **Benchmark and eval sessions:** `--brain-log <path|glob>[,...]` (repeatable) on every subcommand reads those brain JSONL files instead of the live scan, e.g. `obs episode --brain-log logs/evals/<date>/<run>/work/<case>/brain.jsonl -v`. Chat then comes from that log's own `chat_heard` events; the live chat, body, vitals and watchdog files are not read. The default scan is only `logs/brain-live-*.jsonl` at the top of `logs/`, so nothing under `logs/evals/` ever counts toward live latency, exposure or anomaly targets. Spend still counts those files, because the cap is global.
 - Times are UTC, like `tools/timeline.py` (`--local` switches to local time, `--date` sets the day for bare HH:MM).
 - Python API:
   - `from tools.obs import spend_today, spent_today_usd` (used by the brain's budget guard and the eval runners).

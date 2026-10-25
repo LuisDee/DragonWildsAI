@@ -332,11 +332,14 @@ def test_spend_preflight_fails_closed(monkeypatch):
 
 
 def test_kills_come_from_the_referee_not_the_body_claim():
+    """Review C3: a referee death counts as HIS kill only when attributed (by == self); unattributed deaths are a
+    perception gap; the body's own combat_end claim is ignored when the referee covers deaths."""
     from evals.bench.observer import Record
-    rec = Record(referee=[{"kind": "death", "who": "BP_AI_RuntGoblin_Character_C_1", "kind_id": "BP_AI_RuntGoblin_Character_C"}],
-                 episodes=[{"kind": "combat_end", "outcome": "killed", "target": "Goblin Runt", "target_class": "BP_AI_Cow_Character_C"}])
-    ctx = evidence_ctx(rec, {}, SPELLS, 0.0, referee_supports={"death"})
     p = P.validate({"killed": {"kind": "Goblin Runt", "kind_id": "BP_AI_RuntGoblin_Character_C", "at_least": 1}})
-    assert P.evaluate(p, {}, ctx).passed is True
-    p2 = P.validate({"killed": {"kind": "Cow", "kind_id": "BP_AI_Cow_Character_C", "at_least": 1}})
-    assert P.evaluate(p2, {}, ctx).passed is False  # the body's own claim is ignored when the referee covers deaths
+    body_claim = [{"kind": "combat_end", "outcome": "killed", "target": "Goblin Runt", "target_class": "BP_AI_RuntGoblin_Character_C"}]
+    mine = Record(referee=[{"kind": "death", "who": "g1", "kind_id": "BP_AI_RuntGoblin_Character_C", "by": "self"}], episodes=body_claim)
+    other = Record(referee=[{"kind": "death", "who": "g1", "kind_id": "BP_AI_RuntGoblin_Character_C", "by": "BP_AI_Wolf_C_3"}],
+                   episodes=body_claim)
+    unattributed = Record(referee=[{"kind": "death", "who": "g1", "kind_id": "BP_AI_RuntGoblin_Character_C"}], episodes=body_claim)
+    ev = lambda rec: P.evaluate(p, {}, evidence_ctx(rec, {}, SPELLS, 0.0, referee_supports={"death"})).passed  # noqa: E731
+    assert ev(mine) is True and ev(other) is False and ev(unattributed) is None

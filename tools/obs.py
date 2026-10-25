@@ -23,6 +23,7 @@ Times are UTC (like tools/timeline.py); --local reads and shows local time.
 from __future__ import annotations
 
 import argparse
+import glob as _glob
 import hashlib
 import json
 import re
@@ -112,15 +113,28 @@ def session_sha(root: Path, start_rec: dict | None, start: float) -> dict:
     return {"companion_sha": sha, "dirty": None, "sha_source": "git_log_before_start" if sha else None}
 
 
+def expand_logs(patterns: Iterable[str]) -> list[Path]:
+    """--brain-log values: paths or globs (** allowed), comma-separated or repeated."""
+    out: list[Path] = []
+    for pat in patterns:
+        for part in [x.strip() for x in str(pat).split(",") if x.strip()]:
+            hits = sorted(_glob.glob(part, recursive=True)) or ([part] if Path(part).exists() else [])
+            out += [Path(h) for h in hits if Path(h).is_file() and Path(h) not in out]
+    return out
+
+
 def load(root: Path, since: float | None, until: float | None, pad: float = 300.0,
-         companion_sha: str | None = None) -> Corpus:
+         companion_sha: str | None = None, brain_logs: list[Path] | None = None) -> Corpus:
     """Everything that can touch [since, until]; brain records padded so an episode that started just before
     the window still has its trigger. ``companion_sha``: only brain sessions at that commit (prefix), and only the
     chat/body/vitals/watchdog rows inside those sessions."""
     c = Corpus(since=since, until=until, companion_sha=companion_sha)
     lo = since - pad if since is not None else None
     hi = until + pad if until is not None else None
-    for f in _overlapping((root / "logs").glob("brain-live-*.jsonl"), lo, hi):
+    # The default scan is the live brain only (logs/brain-live-*.jsonl at the top level). Benchmark and eval
+    # sessions under logs/evals/ never count toward live metrics; read them explicitly with brain_logs.
+    files = brain_logs if brain_logs is not None else (root / "logs").glob("brain-live-*.jsonl")
+    for f in _overlapping(files, lo, hi):
         recs = [d for d in jsonl(f) if isinstance(parse_ts(d.get("ts")), float)]
         if not recs:
             continue
@@ -136,6 +150,11 @@ def load(root: Path, since: float | None, until: float | None, pad: float = 300.
                 d["_file"] = f.name
                 c.brain.append(d)
     c.brain.sort(key=lambda d: d["ts"])
+    if brain_logs is not None:  # an explicit (eval/benchmark) brain log: the live chat/body/vitals files are not its world
+        c.chat = [{"ts": parse_ts((d.get("event") or {}).get("ts")) or d["ts"], "type": "chat", "self": False,
+                   "from": (d.get("event") or {}).get("player"), "text": (d.get("event") or {}).get("text", "")}
+                  for d in c.brain if d.get("kind") == "event" and (d.get("event") or {}).get("type") in ("chat_heard", "command_received")]
+        return c
     for d in jsonl(root / "client_io" / "events" / "chat.jsonl"):
         t = parse_ts(d.get("ts") or d.get("iso"))
         if t is not None and (lo is None or t >= lo) and (hi is None or t <= hi):
@@ -1215,7 +1234,7 @@ def to_otlp(eps: list[Episode]) -> dict:
 def _window(a, tz) -> tuple[float | None, float | None]:
     day = date.fromisoformat(a.date) if a.date else datetime.now(tz).date()
     since, until = parse_when(a.since, tz, day), parse_when(a.until, tz, day)
-    if since is None and getattr(a, "last", None):
+    if since is None and getattr(a, "last", None) and not getattr(a, "brain_log", None):
         since = time.time() - 6 * 3600
     return since, until
 
@@ -1243,8 +1262,8 @@ def spend_anomalies(root: Path, since: float | None, until: float | None, now: f
 
 
 def analyse(root: Path, since: float | None, until: float | None, now: float | None = None,
-            companion_sha: str | None = None):
-    c = load(root, since, until, companion_sha=companion_sha)
+            companion_sha: str | None = None, brain_logs: list[Path] | None = None):
+    c = load(root, since, until, companion_sha=companion_sha, brain_logs=brain_logs)
     eps = build_episodes(c)
     anomalies = sorted(detect(c, eps, now=now) + spend_anomalies(root, since, until, now), key=lambda a: a["ts"])
     return c, eps, anomalies
@@ -1293,6 +1312,9 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--local", action="store_true")
         p.add_argument("--root", default=str(ROOT), help=argparse.SUPPRESS)
         p.add_argument("--now", type=float, help=argparse.SUPPRESS)
+        p.add_argument("--brain-log", action="append", help="read these brain JSONL files instead of the live "
+                       "logs/brain-live-*.jsonl (path or glob, repeatable or comma-separated; e.g. a benchmark case's "
+                       "logs/evals/<date>/<run>/work/<case>/brain.jsonl). Live chat/body/vitals files are then not read.")
         p.add_argument("--companion-sha", help="only brain sessions at these commits: comma-separated sha prefixes (any matches); see metrics --json companion")
         if name == "episode":
             p.add_argument("--last", type=int, help="only the last N episodes (default window: 6 h)")
@@ -1328,7 +1350,11 @@ def main(argv: list[str] | None = None) -> int:
             time.sleep(a.interval)
 
     since, until = _window(a, tz)
-    c, eps, anomalies = analyse(root, since, until, now=a.now, companion_sha=a.companion_sha)
+    brain_logs = expand_logs(a.brain_log) if getattr(a, "brain_log", None) else None
+    if brain_logs is not None and not brain_logs:
+        print(f"no brain log matches {a.brain_log}")
+        return 2
+    c, eps, anomalies = analyse(root, since, until, now=a.now, companion_sha=a.companion_sha, brain_logs=brain_logs)
     if a.cmd == "episode":
         if a.kind:
             keep = {k.strip() for k in a.kind.split(",")}

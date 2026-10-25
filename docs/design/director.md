@@ -509,3 +509,18 @@ Cassettes are in `tests/fixtures/director_cassettes/` (better_pickaxe, coal_mult
 - Next: the `add_task` description and the persona lines need a clearer "a job of several steps or long duration goes on the board" (information, not a rule). Then re-check with a ≤15-call eval.
 
 **Validator:** every recorded answer validated on its first JSON. No predicate errors. The only repair was the dummy-tool artefact.
+
+**Wave 5b (2026-10-26; 15 Sonnet + 10 Haiku requests, within the approved ≤15 + ≤15):**
+- **Cassettes recorded:** farm_mob_drop, quest, gear_self_initiated (4 requests each), with 2 research rounds per decision.
+  - desert_weed's decision was cut off by the 15-request cap; its cassette has no decision and the replay skips it.
+- **Farm drop:** real Sonnet noticed that the wiki's Giant Rat drop table has no Animal Bone (the mock's drop was my fixture). It planned a kill-and-check loop and would ask after no bones. It also claimed a "gap" that is knowledge, not a body primitive ("read drop tables"). The gap cross-check only tests tool names, so the claim was logged.
+- **Quest:** it set the job test to `quest{completed}`, which can never be checked, and the validator accepted it, because only steps were checked for null. **Fixed:** an uncheckable job test now goes back for repair (test `test_a_job_test_that_can_never_be_checked_goes_back_for_repair`); its replay is now an expected rejection. Its first step used `near{thing: <name>}`, which only resolves once that thing is in sight. It declared quest-state and NPC-dialogue gaps.
+- **Gear on his own initiative:** a sensible open-task curriculum (craft a Bronze Pickaxe, then mine for XP), with correct test semantics.
+- **Haiku add_task re-eval:** after the information-only changes (the add_task description, the persona line that says start_goal → add_task while the board is on, and board context that says when it is empty):
+  - with start_goal offered: the pickaxe line went to add_task, the coal line to gather;
+  - with start_goal hidden: both long lines went to add_task, and every single action stayed single.
+  - `Director.for_session` now hides start_goal. Sample: one run per line.
+- **Other fixes in this round:**
+  - knowledge.py game cards are cut by whole fields (recipe quantities kept, "N more way(s)"), with tests in `tests/test_knowledge_cards.py`;
+  - GearWorld rock gates come from `data/wiki/derived/rock_gates.json`: the wiki node infoboxes resolved to catalog tool tiers (`tools/build_rock_gates.py`; gitignored with the mirror; the live gate wins in game);
+  - decisions use 2 research rounds.

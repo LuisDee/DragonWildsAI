@@ -28,10 +28,10 @@ from typing import Any, Iterable
 
 from .paths import REPO_ROOT, _env_path
 
-SCHEMA = 5  # bump when the doc format changes (forces a rebuild)
+SCHEMA = 6  # bump when the doc format changes (forces a rebuild)
 GAME_K, WIKI_K = 3, 2  # results per tier
 POOL = 200  # BM25 candidates per tier for the title re-rank
-SNIPPET = {0: 500, 1: 520}  # characters per snippet, by tier
+SNIPPET = {0: 900, 1: 520}  # characters per snippet, by tier (game cards are cut by whole fields: _clip_card)
 NOTE = ("Game data (authoritative=true) is read from this game build and wins over the wiki. Wiki text is "
         "community-written and may be outdated; say so if it matters. Answer only from these results.")
 # Function words only (English, not game facts): they carry no meaning for BM25 over names.
@@ -86,6 +86,48 @@ def _clip(text: str, limit: int) -> str:
     if len(t) <= limit:
         return t
     return t[: limit - 1].rsplit(" ", 1)[0] + "…"
+
+
+NL = chr(10)  # game cards hold one field per line
+HOW = "How to get: "
+OR = " | OR | "
+
+
+def _clip_card(body: str, limit: int) -> str:
+    """A game-data card within ``limit`` characters WITHOUT cutting a field: structured facts (recipe inputs and
+    counts, stations, unlocks) are never cut mid-way. In order: shorten the "Used in" list, drop the flavour
+    description, keep whole recipe alternatives (saying how many more exist), then drop trailing facts."""
+    if len(body) <= limit:
+        return body
+    lines = body.split(NL)
+
+    def total() -> int:
+        return sum(len(x) + 1 for x in lines)
+    for i, ln in enumerate(lines):
+        if ln.startswith("Used in ") and ": " in ln:
+            head, rest = ln.split(": ", 1)
+            names = rest.rstrip("…").split(", ")
+            lines[i] = f"{head}: {', '.join(names[:4])}" + ("…" if len(names) > 4 else "")
+    if total() > limit:
+        lines = [x for x in lines if not x.startswith("Description: ")]
+    for i, ln in enumerate(lines):
+        if total() <= limit or not ln.startswith(HOW):
+            continue
+        alts = ln[len(HOW):].split(OR)
+        other = total() - len(ln) - 1
+        keep: list[str] = []
+        for a in alts:
+            if keep and other + len(HOW + OR.join(keep + [a])) + 60 > limit:
+                break
+            keep.append(a)
+        more = len(alts) - len(keep)
+        lines[i] = HOW + OR.join(keep) + (f"{OR}{more} more way(s): look up its recipes" if more else "")
+    while total() > limit and len(lines) > 2:  # trailing facts go last; the first line and How to get stay
+        drop = next((j for j in range(len(lines) - 1, 0, -1) if not lines[j].startswith(HOW)), None)
+        if drop is None:
+            break
+        lines.pop(drop)
+    return NL.join(lines)
 
 
 def _newest(directory: Path, prefix: str) -> Path | None:
@@ -213,7 +255,7 @@ def game_docs(data: Path) -> tuple[list[dict], str | None]:
             parts.append(f"Used in {len(uses)} recipe(s): " + ", ".join(uses[:8]) + ("…" if len(uses) > 8 else ""))
         tags = f"item {cat} {it.get('category') or ''}" + (" recipe craft make" if crafted else "")
         docs.append({"tier": 0, "kind": "item", "title": it["name"], "tags": tags,
-                     "body": ". ".join(parts), "ref": iid})
+                     "body": NL.join(parts), "ref": iid})  # one field per line: cut by whole fields
 
     # ---- stations
     for sid, st in stations.items():
@@ -251,7 +293,7 @@ def game_docs(data: Path) -> tuple[list[dict], str | None]:
         elif (u.get("wiki") or {}).get("level"):
             parts.append(f"Unlock: {u['wiki'].get('skill')} level {u['wiki']['level']} (per the wiki)")
         docs.append({"tier": 0, "kind": "spell", "title": name, "tags": f"spell magic {u.get('role') or ''}",
-                     "body": ". ".join(parts), "ref": sid})
+                     "body": NL.join(parts), "ref": sid})
     spell_names = {v.get("asset") or k: v.get("name") for k, v in (spells.get("spells") or {}).items()}
     for pid, pk in perks.items():
         if not pk.get("name"):
@@ -444,7 +486,7 @@ class Knowledge:
             for r in ranked[:k]:
                 item = {"source": f"game data (build {self.build})" if tier == 0 else "wiki",
                         "authoritative": tier == 0, "kind": r["kind"], "title": r["title"],
-                        "text": _clip(r["body"], SNIPPET[tier])}
+                        "text": _clip_card(r["body"], SNIPPET[0]) if tier == 0 else _clip(r["body"], SNIPPET[tier])}
                 if tier == 1:
                     if r["heading"]:
                         item["section"] = r["heading"]

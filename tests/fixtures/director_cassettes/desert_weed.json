@@ -1,0 +1,100 @@
+{
+ "job": "desert_weed",
+ "chat": "can you farm some desert weed at our farm? we need a stack of it",
+ "open": false,
+ "model": "anthropic/claude-sonnet-5-5",
+ "recorded_at": "2026-10-25T23:19:53Z",
+ "requests": 3,
+ "responses": [
+  {
+   "content": null,
+   "usage": {
+    "prompt": 3422,
+    "completion": 145,
+    "cached": 2982,
+    "cache_write": 0
+   },
+   "tool_calls": [
+    {
+     "name": "recall",
+     "arguments": {
+      "query": "desert weed farm"
+     },
+     "id": "toolu_01241JeGPp7ULC4yfA1PEEX5"
+    },
+    {
+     "name": "lookup",
+     "arguments": {
+      "query": "desert weed"
+     },
+     "id": "toolu_01LtBYjf93Sc8STuTUUKZxia"
+    },
+    {
+     "name": "map_memory",
+     "arguments": {
+      "name": "our farm"
+     },
+     "id": "toolu_01D6fZJNzy8WWRVuvkiBCCiW"
+    }
+   ]
+  },
+  {
+   "content": null,
+   "usage": {
+    "prompt": 4649,
+    "completion": 198,
+    "cached": 2982,
+    "cache_write": 0
+   },
+   "tool_calls": [
+    {
+     "name": "craft_plan",
+     "arguments": {
+      "item": "Desert Weed Seeds"
+     },
+     "id": "toolu_01TpWS1NWx9bxjXLcL5HQYoR"
+    },
+    {
+     "name": "map_memory",
+     "arguments": {
+      "kind": "farming plot"
+     },
+     "id": "toolu_01KkRstqGDf1rKAcFeKEnLjw"
+    },
+    {
+     "name": "lookup",
+     "arguments": {
+      "query": "Desert Weed Seeds how to obtain"
+     },
+     "id": "toolu_01ADgLXBqkvZsjEjvozid6Bd"
+    }
+   ]
+  },
+  {
+   "content": "{\"description\":\"Harvest desert weed at our farm until we have a stack of it\",\"explanation\":\"Desert Weed Seeds can't be crafted, and I found no source for them. I have no seeds and no farm location in memory. I'll go to the farm and try to gather the desert weed growing there. If nothing is ready to harvest, I'll need seeds from Zezima.\",\"facts\":[{\"fact\":\"Desert Weed is a gathered material that stacks to 99. It comes from Desert Weeds plants or from farming plots.\",\"for_step\":\"Gather desert weed\",\"status\":\"known\",\"source\":\"game data and wiki\",\"confidence\":\"high\"},{\"fact\":\"Desert Weed Seeds have no recipe. Their source is unknown, and I carry none.\",\"for_step\":\"Gather desert weed\",\"status\":\"unknown\",\"source\":\"craft_plan and lookup showed no source\",\"confidence\":\"high\"},{\"fact\":\"Where 'our farm' is, and whether desert weed is already planted or ripe there, is unknown. No plots are in memory.\",\"for_step\":\"Go to our farm\",\"status\":\"unknown\",\"source\":\"map_memory is empty; the place name is only on the job board\",\"confidence\":\"medium\"},{\"fact\":\"Desert weed grows best in a yew plot. Each growth stage has a 40% chance of disease if it isn't watered.\",\"for_step\":\"Gather desert weed\",\"status\":\"known\",\"source\":\"wiki\",\"confidence\":\"medium\"}],\"task_success\":{\"have\":{\"item\":\"Desert Weed\",\"at_least\":20}},\"steps\":[{\"title\":\"Go to our farm\",\"why\":\"The weed has to be harvested at the farm plots.\",\"hints\":\"go_to the place 'our farm'. Look for farming plots and for any desert weed plants that are grown.\",\"success\":{\"near\":{\"place\":\"our farm\",\"within_m\":15}},\"risk\":null,\"abort_if\":null,\"escape\":null,\"needs\":[\"go_to\"],\"group\":null},{\"title\":\"Gather desert weed\",\"why\":\"This produces the stack the player asked for.\",\"hints\":\"Use gather with kind 'Desert Weed' and count 20. If the farm has no ripe plants and answers that nothing is nearby, stop and ask Zezima for desert weed seeds.\",\"success\":{\"gained\":{\"item\":\"Desert Weed\",\"at_least\":20}},\"risk\":null,\"abort_if\":{\"elapsed\":{\"seconds\":600}},\"escape\":\"Stay at the farm and ask Zezima where to get Desert Weed Seeds.\",\"needs\":[\"gather\"],\"group\":\"harvest\"}],\"loops\":{\"harvest\":{\"until\":{\"have\":{\"item\":\"Desert Weed\",\"at_least\":20}}}},\"add_tasks\":[],\"capability_gaps\":[{\"primitive\":\"plant_seed / water_plot\",\"why\":\"There is no body tool to plant seeds or water plots. If the farm has no ripe weed, I can't grow it myself.\",\"workaround\":\"Ask Zezima to plant and water the seeds, or harvest wild Desert Weeds in the Umbral Sands.\"}],\"ask_help\":null,\"done\":false}",
+   "usage": {
+    "prompt": 6069,
+    "completion": 1441,
+    "cached": 2982,
+    "cache_write": 0
+   },
+   "tool_calls": []
+  }
+ ],
+ "outcome": {
+  "status": "active",
+  "success": null,
+  "steps": [],
+  "help": null,
+  "gaps": [],
+  "events": [
+   {
+    "ts": 1792970393.519,
+    "kind": "director_decision_failed",
+    "task": "3d66084d",
+    "why": "planning call failed: CapReached('call cap 3 reached')",
+    "n": 1
+   }
+  ]
+ }
+}

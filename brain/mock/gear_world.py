@@ -2,7 +2,8 @@
 
 What it adds over MockGame, all from data/items_<build>.json and data/recipes_<build>.json (never per item name):
 - items are real item ids; names, slots, tool categories and tiers come from the item catalog;
-- resource nodes yield a catalog item, gated by a tool category and tier; gathering gives skill XP;
+- resource nodes yield a catalog item, gated by a tool category and tier (the derived rock-gate table:
+  wiki node infoboxes resolved to catalog tool tiers, tools/build_rock_gates.py); gathering gives skill XP;
 - stations of real station types (recipes' ``stations``); ``craft`` uses the real recipe inputs/outputs/yields and
   the recipe's own skill XP; a processing station shows ``running`` while it works;
 - ``equip`` (catalog slot), gear in ``gear``, a bag in slots (``inventory_full``), ``inventory_items`` rows;
@@ -32,6 +33,29 @@ from .game import Entity, MockGame, ResourceNode
 STATION_REACH_M = 60.0
 DEFAULT_BAG_SLOTS = 24
 STACK = 99
+
+
+FROM_DATA = object()  # add_resource: take the node's gate from the rock-gate table
+
+
+@lru_cache(maxsize=1)
+def rock_gates() -> dict[str, dict]:
+    """item id -> {category, min_tier, manual_xp, node} for nodes whose guaranteed drop is that item.
+    From data/wiki/derived/rock_gates.json (tools/build_rock_gates.py; gitignored like the wiki mirror). Empty when
+    absent: then nodes are ungated unless a test gives the gate."""
+    f = paths.REPO_ROOT / "data" / "wiki" / "derived" / "rock_gates.json"
+    try:
+        nodes = json.loads(f.read_text(encoding="utf-8")).get("nodes") or []
+    except (OSError, ValueError):
+        return {}
+    out: dict[str, dict] = {}
+    for n in nodes:
+        always = [d for d in n.get("drops") or [] if str(d.get("rarity")).lower() == "always"] or (n.get("drops") or [])[:1]
+        for d in always:
+            for iid in d.get("items") or []:
+                out.setdefault(iid, {"category": n.get("category"), "min_tier": n.get("min_tier"),
+                                     "manual_xp": n.get("manual_xp"), "node": n.get("node")})
+    return out
 
 
 @lru_cache(maxsize=2)
@@ -128,8 +152,17 @@ class GearWorld(MockGame):
         cur += xp
         self.skills[key] = [1.0 + cur // 100.0, cur]  # mock curve: a level per 100 xp
 
-    def add_resource(self, item: str, pos, remaining: int, tool: str | None = None, min_tier: int = 1,
-                     skill: str | None = None, xp: float = 10.0) -> str:
+    def add_resource(self, item: str, pos, remaining: int, tool: str | None | object = FROM_DATA,
+                     min_tier: int | None = None, skill: str | None = None, xp: float | None = None) -> str:
+        """A node that yields ``item``. Its tool gate comes from the derived rock-gate table (the wiki's node
+        infobox resolved to catalog tiers, tools/build_rock_gates.py) unless given; no table row = no gate."""
+        gate = rock_gates().get(item)
+        if tool is FROM_DATA:
+            tool = gate["category"] if gate else None
+        if min_tier is None:
+            min_tier = int(gate["min_tier"]) if gate and gate.get("min_tier") else 1
+        if xp is None:
+            xp = float(gate["manual_xp"]) if gate and str(gate.get("manual_xp") or "").isdigit() else 10.0
         nid = self.add_node(item, pos, remaining)
         self.node_meta[nid] = {"item": item, "tool": tool, "min_tier": min_tier, "skill": skill, "xp": xp}
         return nid

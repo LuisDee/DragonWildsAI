@@ -13,7 +13,8 @@ import json
 from brain import predicates as P
 from brain.llm import LLMResponse, ToolCall
 from brain.mock.gear_jobs import (ASH, BAR, BONE, BRONZE_PICK, BRONZE_SWORD, COAL, COPPER, LEATHER, OAK, PLAYER,
-                                  STONE, STONE_PICK, TIN, FakeKnowledge, JobRig, call, pickaxe_world, plan, st)
+                                  STONE, STONE_PICK, TIN, BONE_PICK, IRON_PICK, FakeKnowledge, JobRig, call,
+                                  pickaxe_world, plan, st)
 from brain.mock.gear_world import GearWorld
 
 # ------------------------------------------------------------------ T3: a better pickaxe (autonomy ladder 1)
@@ -44,7 +45,7 @@ def test_t3_better_pickaxe_from_research_to_a_verified_tier_upgrade(tmp_path):
     assert t.status == "done", (t.status, t.end_reason, [(s.title, s.status, s.failures) for s in t.steps])
     assert [s.status for s in t.steps] == ["done"] * 5
     assert rig.game.gear["held_right"] == BRONZE_PICK
-    assert "Bronze Pickaxe 3 vs Stone Pickaxe 1" in t.end_reason  # tool tier 1 -> 3, from the item catalog
+    assert "Bronze Pickaxe 3 vs Bone Pickaxe 2" in t.end_reason  # tool tier 2 -> 3, from the item catalog
     # research went through the proxied client planner and the catalog comparison
     tools_seen = [m.get("name") for c in rig.director_llm.calls for m in c["messages"] if m.get("role") == "tool"]
     assert tools_seen == ["craft_plan", "compare_gear"]
@@ -63,7 +64,7 @@ def test_t3_negative_control_do_nothing_body_never_finishes_the_pickaxe(tmp_path
     t = rig.task()
     assert t.status == "waiting_help" and all(s.status != "done" for s in t.steps)
     assert rig.director.gaps.gaps["gather"]["count"] >= 1  # not_implemented became a gap
-    assert rig.game.gear["held_right"] == STONE_PICK
+    assert rig.game.gear["held_right"] == BONE_PICK
 
 
 # ------------------------------------------------------------------ T3: coal over several trips
@@ -111,7 +112,7 @@ def test_t3_coal_multitrip_tallies_verified_deliveries_and_logs_the_deposit_gap(
         loops={"trip": {"until": until}})])
     rig.store.remember_place("coal spot", spot)
     rig.store.remember_place("base", base)
-    rig.game.carry(STONE_PICK)
+    rig.game.carry(IRON_PICK)  # coal nodes need an iron pickaxe or better (rock gates)
     rig.game.add_resource(COAL, [82, 2, 0], 200, tool="pickaxe", skill="Mining", xp=10)
     rig.say("get me a load of coal")
     rig.steps(25)
@@ -132,7 +133,7 @@ def test_t3_coal_pickups_of_his_own_drops_never_inflate_the_tally(tmp_path):
                st("drop", {"lost": {"item": "Coal", "at_least": 5}}, [call("drop", item="Coal", count=5)]),
                st("pick it back up", {"gained": {"item": "Coal", "at_least": 5}}, [call("pickup", target="ground_1")])]),
         plan(ask_help="I seem to be going round in circles with the coal; what should I do with it?")])
-    rig.game.carry(STONE_PICK)
+    rig.game.carry(IRON_PICK)
     rig.game.add_resource(COAL, [5, 0, 0], 50, tool="pickaxe")
     rig.say("get me ten coal")
     rig.steps(10)
@@ -266,6 +267,7 @@ def bring_plan(drop_at):
 def bring_world(rig, player_at=(2.0, 0.0, 0.0)):
     g = rig.game
     g.players[PLAYER].pos = list(player_at)
+    g.carry(STONE_PICK)  # stone boulders need a pickaxe (any tier)
     g.add_resource(ASH, [8, 0, 0], 40, skill="Woodcutting")
     g.add_resource(STONE, [-8, 0, 0], 40, skill="Mining")
 
@@ -332,3 +334,22 @@ def test_must_not_fake_keep_the_furnace_going_reads_the_station_state(tmp_path):
     rig2.say("keep the furnace going")
     rig2.steps(6)
     assert rig2.task().status == "waiting_help"  # an idle furnace never passes
+
+
+
+def test_rock_gates_make_the_mock_as_strict_as_the_game():
+    """Copper needs a tier-2 pickaxe, coal a tier-4 one (the derived rock-gate table); without the table (no wiki
+    mirror on this machine) nodes are ungated and this test only checks that."""
+    from brain.mock.gear_world import rock_gates
+    g = GearWorld()
+    g.carry(STONE_PICK)
+    g.add_resource(COPPER, [3, 0, 0], 10)
+    if not rock_gates():
+        assert g.gather("copper", 1)["ok"]
+        return
+    r = g.gather("copper", 1)
+    assert (r["ok"], r["reason"], r["data"]["tier"]) == (False, "wrong_tool", 2)
+    g.carry(BONE_PICK)
+    assert g.gather("copper", 1)["ok"]
+    g.add_resource(COAL, [4, 0, 0], 10)
+    assert g.gather("coal", 1)["reason"] == "wrong_tool"

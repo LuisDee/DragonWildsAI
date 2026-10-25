@@ -419,3 +419,32 @@ def test_companion_sha_filter_takes_a_comma_list(tmp_path):
     c, eps, an = obs.analyse(r, t0 - 60, t0 + 6 * 3600, companion_sha="aaa, ccc333")
     g = obs.goal_metrics(c, eps, an, obs.metrics(c, eps, an))
     assert g["companion"]["shas"] == ["aaa111", "ccc333"] and g["exposure"]["sessions"] == 2
+
+
+def test_brain_log_reads_a_benchmark_case_and_is_out_of_the_live_scan(tmp_path, capsys):
+    r = tmp_path / "r"
+    t0 = at("10:00")
+    _session(r, "brain-live-a.jsonl", t0, "aaa111", chat=True, act=True)
+    case = r / "logs" / "evals" / "20261026" / "run1" / "work" / "case1"
+    case.mkdir(parents=True)
+    rows = [{"ts": t0 + 100, "kind": "session_start", "world": "dev"},
+            {"ts": t0 + 101, "kind": "event", "event": {"type": "chat_heard", "player": "Tester", "text": "cast Splinter", "ts": t0 + 101}},
+            {"ts": t0 + 102, "kind": "prompt", "component": "controller", "model": "anthropic/claude-haiku-5-5",
+             "messages": [{"role": "user", "content": json.dumps({"command": {"player": "Tester", "text": "cast Splinter", "addressed": True}})}]},
+            {"ts": t0 + 104, "kind": "llm_response", "component": "controller", "content": None,
+             "tool_calls": [{"name": "cast", "arguments": {"spell": "Splinter"}, "id": "x"}]},
+            {"ts": t0 + 105, "kind": "tool_call", "task_id": "c1", "tool": "cast", "args": {"spell": "Splinter"}, "attempt": 1},
+            {"ts": t0 + 106, "kind": "tool_result", "task_id": "c1", "tool": "cast",
+             "result": {"ok": False, "reason": "not_enough_resources", "data": {"detail": "Splinter needs 5 Nature Rune"}}}]
+    (case / "brain.jsonl").write_text("\n".join(json.dumps(x) for x in rows) + "\n", encoding="utf-8")
+    # the default (live) scan never sees the case
+    c, eps, _ = obs.analyse(r, None, None)
+    assert [s["file"] for s in c.sessions] == ["brain-live-a.jsonl"]
+    # --brain-log reads only the case (glob), with its own chat lines and no live files
+    assert obs.main(["episode", "--root", str(r), "--brain-log", str(r / "logs" / "evals" / "**" / "brain.jsonl")]) == 0
+    out = capsys.readouterr().out
+    assert 'Tester: "cast Splinter"' in out and "FAIL not_enough_resources" in out and "Zezima" not in out
+    assert obs.main(["metrics", "--json", "--root", str(r), "--brain-log", str(case / "brain.jsonl")]) == 0
+    g = json.loads(capsys.readouterr().out)
+    assert g["source"] == "dev" and g["exposure"]["sessions"] == 1 and g["exposure"]["player_chat_lines"] == 1
+    assert obs.main(["episode", "--root", str(r), "--brain-log", str(r / "nope*.jsonl")]) == 2

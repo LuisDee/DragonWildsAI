@@ -59,7 +59,18 @@ GOAL.md revisions (c6d9c90, after rev 1) are folded in: spell **use** (§5.2), c
 | goal_check v2 | All of §9, M1–M6, the gates and the exact lines (25 tests) |
 | `tools/hooks/judge_guard.py` | 21 tests; main installs it |
 
-**A decision rule that can't be met (for Luis).**
+**Dev verification (2026-10-25 22:47–23:10 UTC, ClaudeDev on the local dev server; DISCOVERIES):**
+
+| Part | Status |
+|---|---|
+| `bench_probe` | verified (clock, position, health, vitals, inventory, 12 skills with xp, GE, tags, cooldowns, spell actors) |
+| Referee | verified: item_change, damage (amount only), death (kind_id). Teleport, damage types and parry/dodge are not covered |
+| Fixtures | `spawn` (SpawnActor) verified; `grant`/`grant_runes` (AddItemByData with a copied live tag container) verified; `unlock` (ProgressComponent:UnlockSpells) verified; `teleport` (K2_TeleportTo) returned false with ClaudeDev at 1 HP, retest pending; `set_time` and `reset_skills` have no safe route yet (struct-by-copy research: XP event row handles exist on live objects). The game's dom* cheats are compiled out of shipping |
+| Dev positive control | T0 Windstep passed (probe-judged; the reply agreed) |
+
+**Decision (main):** spells use k = 2 trials per case (`trials_per_case`), so 78 trials; the craft sample is n ≥ 35.
+
+**A decision rule that can't be met (for Luis; resolved by k = 2).**
 - With a Wilson 95% lower bound, a 95% target needs about 74 all-pass trials, but the spell manifest has 39 spells. Even 39/39 gives a lower bound of about 91%, so `spells_effect_coverage_pct` can never be MET as written.
 - Options:
   - (a) count k = 2 repeats per spell as trials (78/78 → lower bound 95.3%);

@@ -44,7 +44,8 @@ from .knowledge_memory import Efficiency, KnowledgeMemory, matches_unknown, reca
 from .llm_json import BudgetStop, DecisionError, extract_json, json_decision
 
 MAX_REPLANS = 6
-MAX_REQUESTS = 6  # per decision: up to 3 research rounds + the answer + 2 repairs
+RESEARCH_ROUNDS = 2  # wave 5: real Sonnet used every round it was given and batched 2-4 calls per round
+MAX_REQUESTS = 5  # per decision: the research rounds + the answer + 2 repairs
 MAX_STEPS = 12
 RESUME_IDLE_S = 30.0
 DECISION_TIMEOUT_S = 90.0
@@ -66,9 +67,11 @@ def _fn(name: str, description: str, props: dict, required: list[str] | None = N
 
 
 BOARD_TOOLS = [
-    _fn("add_task", "Put a job on your task board: something that takes several steps or a long time, which you "
-        "then plan and work through by yourself (researching, gathering, crafting, travelling, repeating trips), "
-        "pausing whenever a player needs you. Describe the job in plain words as the player meant it.",
+    _fn("add_task", "Put a job on your task board, then plan and do it by yourself, step by step, each step checked "
+        "in the game, pausing whenever a player needs you. A job belongs here when it needs more than a couple of "
+        "your tools in a row, research (recipes, where things are, what something is weak to), crafting chains, "
+        "travel, repeated trips, or minutes to hours of work, or when the player leaves it to you. Starting such "
+        "a job with one tool call does only its first step. Describe the job in plain words as the player meant it.",
         {"text": {"type": "string", "description": "The job, in plain words."},
          "when": {"type": "string", "enum": ["now", "next", "later"],
                   "description": "now = start it now (the current job waits), next = after the current job, "
@@ -92,8 +95,9 @@ BOARD_TOOL_NAMES = tuple(t["function"]["name"] for t in BOARD_TOOLS)
 _SCHEMAS = {t["function"]["name"]: t["function"]["parameters"] for t in BOARD_TOOLS}
 
 PERSONA_LINES = """Your task board (board in your context; the board tools):
-- A job that takes several steps or a long time goes on your board with add_task; you then plan and work it
-  yourself. "board" tells you what you are doing and why when someone asks.
+- While your board is on, a longer job (several tools in a row, research, crafting chains, trips, or a long
+  time) goes on your board with add_task, where the rules above say start_goal; you then plan and work it
+  yourself. A single quick action is still one tool call. "board" tells you what you are doing and why.
 - body_event board_step: a step of your OWN current board job, not a player's request. Work it with your tools.
   The board checks in the game when it is done. If you are blocked, call report_step(blocked, the specific reason).
   If resumed is true and the player had told you to stop, wait or stay, call pause_board instead of working.
@@ -517,9 +521,15 @@ class Validator:
         out["task_success"], out["task_success_trivial"] = None, False
         if ts is not None:
             out["task_success"] = self._pred(ts, "task_success", errs)
-            if out["task_success"] and P.evaluate(out["task_success"], self.state, fresh).passed is True:
+            tr = P.evaluate(out["task_success"], self.state, fresh) if out["task_success"] else None
+            if tr is not None and tr.passed is True:
                 out["task_success_trivial"] = True
                 info.append("task_success is already true now")
+            elif tr is not None and tr.passed is None and not any(m in ("baseline", "clock", "tallies")
+                                                                   for m in tr.missing):
+                # wave 5 (quest): a job whose done test can never be checked would never end; say why instead
+                errs.append(f"task_success can't be checked from what the body reports (missing: "
+                            f"{', '.join(tr.missing)}); choose a checkable test, or ask_help and name the gap")
         steps = []
         for i, s in enumerate((raw.get("steps") or [])[:MAX_STEPS]):
             if not isinstance(s, dict) or not str(s.get("title") or "").strip():
@@ -643,7 +653,8 @@ class Director:
             tools = {n: "" for n in getattr(caps, "tools", [])}
         d = cls(AgentPort(agent, player), llm, store.dir, name=name, knowledge=knowledge, body_tools=tools,
                 budget=budget, log=log, map_memory=getattr(agent, "map_memory", None), skills=skills,
-                skills_registry=store.skills, places=store.places)
+                skills_registry=store.skills, places=store.places,
+                hides_start_goal=True)  # wave 5 eval: with start_goal hidden Haiku put both long jobs on the board
         debug = [n for n, e in manifest.items() if e.get("kind") in ("action", "waiter") and not e.get("llm")]
         d.gaps.seed(missing=getattr(caps, "missing", None), debug_tools=debug, known=[
             ("perceive:region_positions", "perception", "no region coordinates yet (data/regions_<build>.json)"),
@@ -681,8 +692,10 @@ class Director:
         return ""
 
     def brief(self) -> dict | None:
-        if not self.ops.b.tasks:
-            return None
+        """The Controller's "current task" context: the board, or that it is empty (information for "what are you
+        doing?" and for deciding whether a new job goes on it)."""
+        if not any(t.status not in ENDED for t in self.ops.b.tasks):
+            return {"tasks": [], "note": "your task board is empty"}
         return self.ops.brief(self._last_state or None, self.places())
 
     def handle_tool(self, name: str, args: dict, player: str) -> dict:
@@ -920,7 +933,7 @@ class Director:
                       task=snap["task"]["id"], messages=messages)
             try:
                 dec.value, info = json_decision(self.llm, messages, validator, tools=research.tools(),
-                                                run_tool=research.run, max_tool_rounds=3, max_repairs=2,
+                                                run_tool=research.run, max_tool_rounds=RESEARCH_ROUNDS, max_repairs=2,
                                                 before_request=before, on_response=on_response)
                 dec.tool_calls = info["tool_calls"]
             except BudgetStop as exc:

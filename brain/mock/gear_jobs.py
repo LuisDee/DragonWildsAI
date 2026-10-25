@@ -27,6 +27,7 @@ COPPER, TIN, COAL = "ITEM_Resources_CopperOre", "ITEM_Resources_TinOre", "ITEM_R
 OAK, LEATHER, STONE = "ITEM_Resources_Wood_Oak", "ITEM_Resources_Leather", "ITEM_Resources_Stone"
 ASH, BONE, BAR = "ITEM_Resources_Wood_Ash", "ITEM_Resources_AnimalBone", "ITEM_Resources_BronzeBar"
 STONE_PICK, BRONZE_PICK, BRONZE_SWORD = "ITEM_Pickaxe_Stone", "ITEM_Pickaxe_Bronze", "ITEM_Sword_Bronze"
+BONE_PICK, IRON_PICK = "ITEM_Pickaxe_Bone", "ITEM_Pickaxe_Iron"
 
 
 class Clock:
@@ -150,9 +151,10 @@ def call(tool, **args):
 
 
 def pickaxe_world(rig):
+    """He holds a Bone Pickaxe (tier 2): copper and tin need tier 2 (the rock gates), so the Bronze route is open."""
     g = rig.game
-    g.carry(STONE_PICK)
-    g.equip(STONE_PICK)
+    g.carry(BONE_PICK)
+    g.equip(BONE_PICK)
     g.carry(OAK, 4)
     g.carry(LEATHER, 2)
     g.set_skill("Mining", 1)
@@ -166,7 +168,7 @@ def pickaxe_world(rig):
 
 
 def coal_world(rig):
-    rig.game.carry(STONE_PICK)
+    rig.game.carry(STONE_PICK)  # coal needs an iron pickaxe (tier 4): the job needs an upgrade first
 
 
 def rats_world(rig):

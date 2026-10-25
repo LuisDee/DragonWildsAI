@@ -725,3 +725,15 @@ def test_only_one_prerequisite_is_taken_per_decision(tmp_path):
     d.handle_tool("add_task", {"text": "copper"}, "Zezima")
     ticks(d, 2)
     assert [t.text for t in d.ops.b.tasks if t.by == "self"] == ["a"]
+
+
+def test_a_job_test_that_can_never_be_checked_goes_back_for_repair(tmp_path):
+    d, port, world, llm, clock = make(tmp_path, None, [
+        decision(task_success={"quest": {"name": "Some Quest", "completed": True}}, steps=[step("go", have(COPPER, 1))]),
+        decision(ask_help="I can't see quest progress; want me to do something else?")])
+    d.handle_tool("add_task", {"text": "do the quest"}, "Zezima")
+    ticks(d, 2)
+    assert "task_success can't be checked from what the body reports (missing: quests)" in \
+        llm.calls[1]["messages"][-1]["content"]
+    t = d.ops.b.tasks[0]
+    assert t.success is None and t.status == "waiting_help"
