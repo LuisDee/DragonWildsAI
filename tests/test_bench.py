@@ -343,3 +343,19 @@ def test_kills_come_from_the_referee_not_the_body_claim():
     unattributed = Record(referee=[{"kind": "death", "who": "g1", "kind_id": "BP_AI_RuntGoblin_Character_C"}], episodes=body_claim)
     ev = lambda rec: P.evaluate(p, {}, evidence_ctx(rec, {}, SPELLS, 0.0, referee_supports={"death"})).passed  # noqa: E731
     assert ev(mine) is True and ev(other) is False and ev(unattributed) is None
+
+
+def test_goal_drafts_validate_lint_and_keep_method_words_out_of_scored_chat():
+    from evals.bench import goal_drafts
+    groups = [goal_drafts.long_tasks(), goal_drafts.combat_basics(), goal_drafts.tactics_and_knowledge(),
+              goal_drafts.every_skill(), goal_drafts.capstone()]
+    cases = [c for g in groups for c in g]
+    assert len({c.id for c in cases}) == len(cases)
+    for c in cases:
+        assert lint(c) == [], (c.id, lint(c))
+        for p in [c.success, *c.guards]:
+            assert P.errors(p) == [], (c.id, P.errors(p))
+        assert c.oracle.get("dev"), c.id  # a dev positive control is named for every GOAL case
+    coal = next(c for c in cases if c.id == "goal_gather_coal_multitrip")
+    assert "wiki" not in coal.chat[0].text.lower() and "lodestone" not in coal.chat[0].text.lower()
+    assert all(c.skill in goal_drafts.skill_names() for c in cases if c.family == "skill_train")

@@ -21,7 +21,8 @@ RESULTS = ("pass", "fail", "unverifiable", "skip", "error", "invalid")
 TARGETS = ("mock", "dev", "live_confirm")
 # Families feed goal_targets.json metrics through the manifest's selector table (design §8.1).
 FAMILIES = ("spell_cast", "spell_use", "station", "craft", "combat", "combat_basic", "tactics", "adversarial",
-            "knowledge", "efficiency", "long_task", "gather", "skill_train", "capstone_stage", "capstone", "stress", "misc")
+            "knowledge", "efficiency", "long_task", "gather", "skill_train", "capstone_stage", "capstone", "stress",
+            "tactics_prep", "tactics_trend", "tactics_telegraph", "misc")
 ASSET_ID = re.compile(r"\b(?:USD|ITEM|BP|DA|RECIPE|PerkV2|GE|SKILL)_[A-Za-z0-9_]+")
 # A tool name the way code writes it: snake_case with an underscore (go_to, set_reflex_rule) or call syntax (cast(...)).
 # Plain English verbs that happen to be tool names ("follow me", "drop it") are allowed: players say them.
@@ -147,6 +148,8 @@ def lint(case: Case) -> list[str]:
         if m := TOOL_CALL.search(t):
             probs.append(f"tool call syntax {m.group(0)!r} in player text {t!r}")
         low = t.lower()
+        if t in case.hints.ladder:  # the hint ladder may carry the answer (L3 = the answer, review finding 20)
+            continue
         for term in case.forbid_terms:
             if term and re.search(rf"\b{re.escape(term.lower())}\b", low):
                 probs.append(f"forbidden term {term!r} in player text {t!r}")
@@ -161,6 +164,8 @@ def lint(case: Case) -> list[str]:
         probs.append("a suite case scored on dev needs a dev oracle (positive control)")
     if case.status == "suite" and re.search(r"<[^<>]+>", json.dumps(case.model_dump(by_alias=True, exclude={"provenance"}))):
         probs.append("a suite case still has <...> placeholders (a dev fact is missing)")
+    if case.status == "suite" and snapshot_digest(case.fixtures.state_snapshot) == "missing":
+        probs.append(f"state snapshot {case.fixtures.state_snapshot!r} has no manifest (evals/bench/state_snapshots/<name>/manifest.json)")
     if case.canary != CANARY:
         probs.append("canary missing or changed")
     return probs
@@ -173,9 +178,26 @@ def _canon(obj: Any) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
 
 
+SNAPSHOTS = Path(__file__).resolve().parent / "state_snapshots"
+
+
+def snapshot_digest(name: str) -> str:
+    """sha256 of a state snapshot's manifest (review C5): editing a snapshot changes every case that uses it.
+    "empty" = no snapshot; a missing manifest hashes as "missing" (and fails the lint for suite cases)."""
+    if not name or name == "empty":
+        return "empty"
+    f = SNAPSHOTS / name / "manifest.json"
+    try:
+        return hashlib.sha256(f.read_bytes()).hexdigest()[:16]
+    except OSError:
+        return "missing"
+
+
 def case_hash(case: Case) -> str:
-    """Changes whenever anything that affects scoring changes (text, predicates, fixtures, controls, limits, oracle)."""
+    """Changes whenever anything that affects scoring changes (text, predicates, fixtures incl. the CONTENT of the
+    state snapshot, controls, limits, oracle)."""
     d = case.model_dump(by_alias=True, exclude={"status", "provenance", "heldout"})
+    d["_snapshot_digest"] = snapshot_digest(case.fixtures.state_snapshot)
     return hashlib.sha256(_canon(d).encode("utf-8")).hexdigest()[:16]
 
 

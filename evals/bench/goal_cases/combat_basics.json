@@ -9,7 +9,12 @@
    "basic": "dodge_directional",
    "authored_by": "human",
    "status": "draft",
-   "tags": {},
+   "tags": {
+    "evidence": [
+     "referee:defended",
+     "referee:telegraph"
+    ]
+   },
    "chat": [
     {
      "at_s": 0.0,
@@ -17,7 +22,11 @@
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "dodge",
+    "roll",
+    "evade"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
@@ -40,7 +49,8 @@
     "defended": {
      "kind": "dodge",
      "against": "telegraph",
-     "at_least": 3
+     "at_least": 3,
+     "min_rate": 0.5
     }
    },
    "guards": [
@@ -52,7 +62,19 @@
     }
    ],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "block instead of dodging"
+     }
+    ],
+    "alt_means": [
+     {
+      "note": "walk out of range: attacks miss, no dodge"
+     }
+    ],
+    "na": {
+     "partial": "one outcome; cutting the oracle short is do_nothing"
+    }
    },
    "limits": {
     "wall_s": 300.0,
@@ -68,9 +90,13 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:dodge_runt_v1"
+   },
    "provenance": {
-    "note": "referee: telegraphed attacks resolved as dodged (needs the referee defence events)"
+    "notes": [
+     "check on dev that the runt telegraphs >= 3 times in 300 s (no weapon: it survives)"
+    ]
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -83,15 +109,22 @@
    "basic": "parry",
    "authored_by": "human",
    "status": "draft",
-   "tags": {},
+   "tags": {
+    "evidence": [
+     "referee:defended",
+     "referee:telegraph"
+    ]
+   },
    "chat": [
     {
      "at_s": 0.0,
-     "text": "block its hits, don't just tank them",
+     "text": "parry its swings, don't just tank them",
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "block"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
@@ -118,12 +151,28 @@
    "success": {
     "defended": {
      "kind": "parry",
-     "at_least": 3
+     "at_least": 3,
+     "min_rate": 0.4
     }
    },
-   "guards": [],
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "hold block the whole time"
+     }
+    ],
+    "na": {
+     "partial": "one outcome; cutting the oracle short is do_nothing",
+     "alt_means": "no other means of a parry"
+    }
    },
    "limits": {
     "wall_s": 300.0,
@@ -139,7 +188,9 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:parry_runt_v1"
+   },
    "provenance": {},
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -152,15 +203,27 @@
    "basic": "disengage_heal",
    "authored_by": "human",
    "status": "draft",
-   "tags": {},
+   "tags": {
+    "evidence": [
+     "probe:creatures",
+     "referee:damage.by",
+     "referee:item_change"
+    ]
+   },
    "chat": [
     {
-     "at_s": 0.0,
+     "at_s": 30.0,
      "text": "you're getting hammered, sort yourself out",
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "eat",
+    "food",
+    "run",
+    "retreat",
+    "heal"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
@@ -196,6 +259,10 @@
       "verb": "grant",
       "item": "ITEM_Consumable_Fish_Anchovies",
       "count": 5
+     },
+     {
+      "verb": "set_health",
+      "pct": 40
      }
     ],
     "scene": {},
@@ -204,8 +271,11 @@
    },
    "success": {
     "disengaged": {
-     "target": "$foe.id",
+     "target_kind_id": "BP_AI_RuntGoblin_Character_C",
      "aggro_m": 15,
+     "food": [
+      "ITEM_Consumable_Fish_Anchovies"
+     ],
      "reengaged": true
     }
    },
@@ -218,6 +288,16 @@
     }
    ],
    "controls": {
+    "alt_means": [
+     {
+      "note": "eat in place without disengaging"
+     }
+    ],
+    "partial": [
+     {
+      "note": "no re-engage"
+     }
+    ],
     "na": {}
    },
    "limits": {
@@ -234,8 +314,15 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
-   "provenance": {},
+   "oracle": {
+    "dev": "scripted:disengage_runts_v1"
+   },
+   "provenance": {
+    "notes": [
+     "health set to 40% by fixture so the chat is true when said",
+     "measure: does 15 m break runt aggro?"
+    ]
+   },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   }

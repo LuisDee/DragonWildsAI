@@ -1636,3 +1636,13 @@ Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probe
   - So it is a **game-side crash on the 3rd front-end return within one client process**: blueprint UI code dereferences a null object.
   - Each front-end load also logs `UMainMenuUIAPI::MainMenuWidget Called but a MainMenuWidget is already registered!`, so a menu widget is apparently re-registered every visit.
   - The 19:08 and 21:49 crashes are different: both are Lua-side (a UFunction call and a TArray read during teardown).
+- **Probe v2 (client, read-only, verified live 2026-10-26 ~00:2x UTC on ClaudeDev):**
+  - gear from `pawn.PlayerEquipmentComponent`: `CurrentBody/Legs/Head/CapeWearable` give `ITEM_Armour_T1_Body_Adventurers` and `ITEM_Armour_T1_Legs_Adventurers`; held items from `GetHeldEquipmentDataRight/Left()`;
+  - held effects from `HeldEquipmentActorRight.Magical/PhysicalHeldEquipmentEffectInfo.EffectData` (empty: nothing held);
+  - quests from `pc.QuestProgressComponent.Quests[]` (`Data` asset, display name, `State` EQuestState 0 Ungiven / 1 Given / 2 Complete, `CurrentObjective`). Example: First Steps (`Quest_FTUE_GS`) state 1 at Objective1; Dragon Slayer, Withering Heights and Black Knight Fortress state 0;
+  - creatures from `FindAllOf("BP_DominionAICharacter_C")` within 40 m (3 seen);
+  - world items from `FindAllOf("BP_RuntimeSpawnedWorldItem_C")` (`ItemData`, `GetStackSize()`);
+  - other players: none.
+- **Fixture `set_health` (verified):** `HealthComponent:SetHealth(80, "bench_fixture")` read back 80 server-side. It replicated (the client probe saw 66 seconds later, after starvation damage).
+- **Fixture `teleport` (verified):** `pawn:K2_TeleportTo({X,Y,Z},{Pitch,Yaw,Roll})` returned true and moved ClaudeDev 5 m server-side; the client probe read the new position.
+  - The earlier attempts returned false while he was at 1 HP and starving, so a near-dead pawn refuses to teleport.

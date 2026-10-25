@@ -21,26 +21,28 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Agility",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
     "xp_gained": {
      "skill": "Agility",
-     "at_least": 1
+     "at_least": 100
     }
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 1200.0,
@@ -56,9 +58,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_agility_v1"
+   },
    "provenance": {
-    "source": "https://dragonwilds.runescape.wiki/w/Agility"
+    "source": "https://dragonwilds.runescape.wiki/w/Agility",
+    "incidental_xp": true
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -80,34 +85,48 @@
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "Agility"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
      {
-      "verb": "reset_skills",
-      "skill": "Agility",
-      "level": 1
-     },
-     {
-      "verb": "raise_other_skills",
+      "verb": "raise_skills",
       "except": "Agility",
       "level": 10
      }
     ],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
-    "xp_gained": {
-     "skill": "Agility",
-     "at_least": 1
-    }
+    "all": [
+     {
+      "xp_gained": {
+       "skill": "Agility",
+       "at_least": 100
+      }
+     },
+     {
+      "xp_top": {
+       "skill": "Agility"
+      }
+     }
+    ]
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 2400.0,
@@ -123,9 +142,11 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_agility_v1"
+   },
    "provenance": {
-    "note": "Agility is reset to 1 and the others raised to 10: the open task should pick it by itself"
+    "note": "Agility stays at its fresh level; the others are raised to 10 (raise_skills: route unverified)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -150,15 +171,9 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Agility",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
@@ -169,7 +184,19 @@
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "partial": [
+     {
+      "note": "+4 levels"
+     }
+    ],
+    "na": {
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -185,8 +212,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
-   "provenance": {},
+   "oracle": {
+    "dev": "scripted:train_agility_v1"
+   },
+   "provenance": {
+    "note": "min(5, next gate) once the per-skill gates are confirmed (proposal item 2)"
+   },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
@@ -210,26 +241,28 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Artisan",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
     "xp_gained": {
      "skill": "Artisan",
-     "at_least": 1
+     "at_least": 100
     }
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 1200.0,
@@ -245,9 +278,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_artisan_v1"
+   },
    "provenance": {
-    "source": "https://dragonwilds.runescape.wiki/w/Artisan"
+    "source": "https://dragonwilds.runescape.wiki/w/Artisan",
+    "incidental_xp": false
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -269,34 +305,48 @@
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "Artisan"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
      {
-      "verb": "reset_skills",
-      "skill": "Artisan",
-      "level": 1
-     },
-     {
-      "verb": "raise_other_skills",
+      "verb": "raise_skills",
       "except": "Artisan",
       "level": 10
      }
     ],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
-    "xp_gained": {
-     "skill": "Artisan",
-     "at_least": 1
-    }
+    "all": [
+     {
+      "xp_gained": {
+       "skill": "Artisan",
+       "at_least": 100
+      }
+     },
+     {
+      "xp_top": {
+       "skill": "Artisan"
+      }
+     }
+    ]
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 2400.0,
@@ -312,9 +362,11 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_artisan_v1"
+   },
    "provenance": {
-    "note": "Artisan is reset to 1 and the others raised to 10: the open task should pick it by itself"
+    "note": "Artisan stays at its fresh level; the others are raised to 10 (raise_skills: route unverified)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -339,15 +391,9 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Artisan",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
@@ -358,7 +404,19 @@
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "partial": [
+     {
+      "note": "+4 levels"
+     }
+    ],
+    "na": {
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -374,8 +432,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
-   "provenance": {},
+   "oracle": {
+    "dev": "scripted:train_artisan_v1"
+   },
+   "provenance": {
+    "note": "min(5, next gate) once the per-skill gates are confirmed (proposal item 2)"
+   },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
@@ -399,26 +461,28 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Attack",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
     "xp_gained": {
      "skill": "Attack",
-     "at_least": 1
+     "at_least": 100
     }
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 1200.0,
@@ -434,9 +498,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_attack_v1"
+   },
    "provenance": {
-    "source": "https://dragonwilds.runescape.wiki/w/Attack"
+    "source": "https://dragonwilds.runescape.wiki/w/Attack",
+    "incidental_xp": true
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -458,34 +525,48 @@
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "Attack"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
      {
-      "verb": "reset_skills",
-      "skill": "Attack",
-      "level": 1
-     },
-     {
-      "verb": "raise_other_skills",
+      "verb": "raise_skills",
       "except": "Attack",
       "level": 10
      }
     ],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
-    "xp_gained": {
-     "skill": "Attack",
-     "at_least": 1
-    }
+    "all": [
+     {
+      "xp_gained": {
+       "skill": "Attack",
+       "at_least": 100
+      }
+     },
+     {
+      "xp_top": {
+       "skill": "Attack"
+      }
+     }
+    ]
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 2400.0,
@@ -501,9 +582,11 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_attack_v1"
+   },
    "provenance": {
-    "note": "Attack is reset to 1 and the others raised to 10: the open task should pick it by itself"
+    "note": "Attack stays at its fresh level; the others are raised to 10 (raise_skills: route unverified)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -528,15 +611,9 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Attack",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
@@ -547,7 +624,19 @@
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "partial": [
+     {
+      "note": "+4 levels"
+     }
+    ],
+    "na": {
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -563,8 +652,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
-   "provenance": {},
+   "oracle": {
+    "dev": "scripted:train_attack_v1"
+   },
+   "provenance": {
+    "note": "min(5, next gate) once the per-skill gates are confirmed (proposal item 2)"
+   },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
@@ -588,26 +681,28 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Construction",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
     "xp_gained": {
      "skill": "Construction",
-     "at_least": 1
+     "at_least": 100
     }
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 1200.0,
@@ -623,9 +718,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_construction_v1"
+   },
    "provenance": {
-    "source": "https://dragonwilds.runescape.wiki/w/Construction"
+    "source": "https://dragonwilds.runescape.wiki/w/Construction",
+    "incidental_xp": false
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -647,34 +745,48 @@
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "Construction"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
      {
-      "verb": "reset_skills",
-      "skill": "Construction",
-      "level": 1
-     },
-     {
-      "verb": "raise_other_skills",
+      "verb": "raise_skills",
       "except": "Construction",
       "level": 10
      }
     ],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
-    "xp_gained": {
-     "skill": "Construction",
-     "at_least": 1
-    }
+    "all": [
+     {
+      "xp_gained": {
+       "skill": "Construction",
+       "at_least": 100
+      }
+     },
+     {
+      "xp_top": {
+       "skill": "Construction"
+      }
+     }
+    ]
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 2400.0,
@@ -690,9 +802,11 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_construction_v1"
+   },
    "provenance": {
-    "note": "Construction is reset to 1 and the others raised to 10: the open task should pick it by itself"
+    "note": "Construction stays at its fresh level; the others are raised to 10 (raise_skills: route unverified)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -717,15 +831,9 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Construction",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
@@ -736,7 +844,19 @@
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "partial": [
+     {
+      "note": "+4 levels"
+     }
+    ],
+    "na": {
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -752,8 +872,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
-   "provenance": {},
+   "oracle": {
+    "dev": "scripted:train_construction_v1"
+   },
+   "provenance": {
+    "note": "min(5, next gate) once the per-skill gates are confirmed (proposal item 2)"
+   },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
@@ -777,26 +901,28 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Cooking",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
     "xp_gained": {
      "skill": "Cooking",
-     "at_least": 1
+     "at_least": 100
     }
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 1200.0,
@@ -812,9 +938,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_cooking_v1"
+   },
    "provenance": {
-    "source": "https://dragonwilds.runescape.wiki/w/Cooking"
+    "source": "https://dragonwilds.runescape.wiki/w/Cooking",
+    "incidental_xp": false
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -836,34 +965,48 @@
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "Cooking"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
      {
-      "verb": "reset_skills",
-      "skill": "Cooking",
-      "level": 1
-     },
-     {
-      "verb": "raise_other_skills",
+      "verb": "raise_skills",
       "except": "Cooking",
       "level": 10
      }
     ],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
-    "xp_gained": {
-     "skill": "Cooking",
-     "at_least": 1
-    }
+    "all": [
+     {
+      "xp_gained": {
+       "skill": "Cooking",
+       "at_least": 100
+      }
+     },
+     {
+      "xp_top": {
+       "skill": "Cooking"
+      }
+     }
+    ]
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 2400.0,
@@ -879,9 +1022,11 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_cooking_v1"
+   },
    "provenance": {
-    "note": "Cooking is reset to 1 and the others raised to 10: the open task should pick it by itself"
+    "note": "Cooking stays at its fresh level; the others are raised to 10 (raise_skills: route unverified)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -906,15 +1051,9 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Cooking",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
@@ -925,7 +1064,19 @@
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "partial": [
+     {
+      "note": "+4 levels"
+     }
+    ],
+    "na": {
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -941,8 +1092,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
-   "provenance": {},
+   "oracle": {
+    "dev": "scripted:train_cooking_v1"
+   },
+   "provenance": {
+    "note": "min(5, next gate) once the per-skill gates are confirmed (proposal item 2)"
+   },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
@@ -966,26 +1121,28 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Farming",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
     "xp_gained": {
      "skill": "Farming",
-     "at_least": 1
+     "at_least": 100
     }
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 1200.0,
@@ -1001,9 +1158,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_farming_v1"
+   },
    "provenance": {
-    "source": "https://dragonwilds.runescape.wiki/w/Farming"
+    "source": "https://dragonwilds.runescape.wiki/w/Farming",
+    "incidental_xp": false
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -1025,34 +1185,48 @@
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "Farming"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
      {
-      "verb": "reset_skills",
-      "skill": "Farming",
-      "level": 1
-     },
-     {
-      "verb": "raise_other_skills",
+      "verb": "raise_skills",
       "except": "Farming",
       "level": 10
      }
     ],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
-    "xp_gained": {
-     "skill": "Farming",
-     "at_least": 1
-    }
+    "all": [
+     {
+      "xp_gained": {
+       "skill": "Farming",
+       "at_least": 100
+      }
+     },
+     {
+      "xp_top": {
+       "skill": "Farming"
+      }
+     }
+    ]
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 2400.0,
@@ -1068,9 +1242,11 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_farming_v1"
+   },
    "provenance": {
-    "note": "Farming is reset to 1 and the others raised to 10: the open task should pick it by itself"
+    "note": "Farming stays at its fresh level; the others are raised to 10 (raise_skills: route unverified)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -1095,15 +1271,9 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Farming",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
@@ -1114,7 +1284,19 @@
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "partial": [
+     {
+      "note": "+4 levels"
+     }
+    ],
+    "na": {
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -1130,8 +1312,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
-   "provenance": {},
+   "oracle": {
+    "dev": "scripted:train_farming_v1"
+   },
+   "provenance": {
+    "note": "min(5, next gate) once the per-skill gates are confirmed (proposal item 2)"
+   },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
@@ -1155,26 +1341,28 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Fishing",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
     "xp_gained": {
      "skill": "Fishing",
-     "at_least": 1
+     "at_least": 100
     }
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 1200.0,
@@ -1190,9 +1378,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_fishing_v1"
+   },
    "provenance": {
-    "source": "https://dragonwilds.runescape.wiki/w/Fishing"
+    "source": "https://dragonwilds.runescape.wiki/w/Fishing",
+    "incidental_xp": false
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -1214,34 +1405,48 @@
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "Fishing"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
      {
-      "verb": "reset_skills",
-      "skill": "Fishing",
-      "level": 1
-     },
-     {
-      "verb": "raise_other_skills",
+      "verb": "raise_skills",
       "except": "Fishing",
       "level": 10
      }
     ],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
-    "xp_gained": {
-     "skill": "Fishing",
-     "at_least": 1
-    }
+    "all": [
+     {
+      "xp_gained": {
+       "skill": "Fishing",
+       "at_least": 100
+      }
+     },
+     {
+      "xp_top": {
+       "skill": "Fishing"
+      }
+     }
+    ]
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 2400.0,
@@ -1257,9 +1462,11 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_fishing_v1"
+   },
    "provenance": {
-    "note": "Fishing is reset to 1 and the others raised to 10: the open task should pick it by itself"
+    "note": "Fishing stays at its fresh level; the others are raised to 10 (raise_skills: route unverified)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -1284,15 +1491,9 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Fishing",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
@@ -1303,7 +1504,19 @@
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "partial": [
+     {
+      "note": "+4 levels"
+     }
+    ],
+    "na": {
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -1319,8 +1532,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
-   "provenance": {},
+   "oracle": {
+    "dev": "scripted:train_fishing_v1"
+   },
+   "provenance": {
+    "note": "min(5, next gate) once the per-skill gates are confirmed (proposal item 2)"
+   },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
@@ -1344,26 +1561,28 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Magic",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
     "xp_gained": {
      "skill": "Magic",
-     "at_least": 1
+     "at_least": 100
     }
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 1200.0,
@@ -1379,9 +1598,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_magic_v1"
+   },
    "provenance": {
-    "source": "https://dragonwilds.runescape.wiki/w/Magic"
+    "source": "https://dragonwilds.runescape.wiki/w/Magic",
+    "incidental_xp": true
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -1403,34 +1625,48 @@
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "Magic"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
      {
-      "verb": "reset_skills",
-      "skill": "Magic",
-      "level": 1
-     },
-     {
-      "verb": "raise_other_skills",
+      "verb": "raise_skills",
       "except": "Magic",
       "level": 10
      }
     ],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
-    "xp_gained": {
-     "skill": "Magic",
-     "at_least": 1
-    }
+    "all": [
+     {
+      "xp_gained": {
+       "skill": "Magic",
+       "at_least": 100
+      }
+     },
+     {
+      "xp_top": {
+       "skill": "Magic"
+      }
+     }
+    ]
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 2400.0,
@@ -1446,9 +1682,11 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_magic_v1"
+   },
    "provenance": {
-    "note": "Magic is reset to 1 and the others raised to 10: the open task should pick it by itself"
+    "note": "Magic stays at its fresh level; the others are raised to 10 (raise_skills: route unverified)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -1473,15 +1711,9 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Magic",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
@@ -1492,7 +1724,19 @@
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "partial": [
+     {
+      "note": "+4 levels"
+     }
+    ],
+    "na": {
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -1508,8 +1752,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
-   "provenance": {},
+   "oracle": {
+    "dev": "scripted:train_magic_v1"
+   },
+   "provenance": {
+    "note": "min(5, next gate) once the per-skill gates are confirmed (proposal item 2)"
+   },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
@@ -1533,26 +1781,28 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Mining",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
     "xp_gained": {
      "skill": "Mining",
-     "at_least": 1
+     "at_least": 100
     }
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 1200.0,
@@ -1568,9 +1818,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_mining_v1"
+   },
    "provenance": {
-    "source": "https://dragonwilds.runescape.wiki/w/Mining"
+    "source": "https://dragonwilds.runescape.wiki/w/Mining",
+    "incidental_xp": true
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -1592,34 +1845,48 @@
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "Mining"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
      {
-      "verb": "reset_skills",
-      "skill": "Mining",
-      "level": 1
-     },
-     {
-      "verb": "raise_other_skills",
+      "verb": "raise_skills",
       "except": "Mining",
       "level": 10
      }
     ],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
-    "xp_gained": {
-     "skill": "Mining",
-     "at_least": 1
-    }
+    "all": [
+     {
+      "xp_gained": {
+       "skill": "Mining",
+       "at_least": 100
+      }
+     },
+     {
+      "xp_top": {
+       "skill": "Mining"
+      }
+     }
+    ]
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 2400.0,
@@ -1635,9 +1902,11 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_mining_v1"
+   },
    "provenance": {
-    "note": "Mining is reset to 1 and the others raised to 10: the open task should pick it by itself"
+    "note": "Mining stays at its fresh level; the others are raised to 10 (raise_skills: route unverified)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -1662,15 +1931,9 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Mining",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
@@ -1681,7 +1944,19 @@
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "partial": [
+     {
+      "note": "+4 levels"
+     }
+    ],
+    "na": {
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -1697,8 +1972,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
-   "provenance": {},
+   "oracle": {
+    "dev": "scripted:train_mining_v1"
+   },
+   "provenance": {
+    "note": "min(5, next gate) once the per-skill gates are confirmed (proposal item 2)"
+   },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
@@ -1722,26 +2001,28 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Ranged",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
     "xp_gained": {
      "skill": "Ranged",
-     "at_least": 1
+     "at_least": 100
     }
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 1200.0,
@@ -1757,9 +2038,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_ranged_v1"
+   },
    "provenance": {
-    "source": "https://dragonwilds.runescape.wiki/w/Ranged"
+    "source": "https://dragonwilds.runescape.wiki/w/Ranged",
+    "incidental_xp": false
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -1781,34 +2065,48 @@
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "Ranged"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
      {
-      "verb": "reset_skills",
-      "skill": "Ranged",
-      "level": 1
-     },
-     {
-      "verb": "raise_other_skills",
+      "verb": "raise_skills",
       "except": "Ranged",
       "level": 10
      }
     ],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
-    "xp_gained": {
-     "skill": "Ranged",
-     "at_least": 1
-    }
+    "all": [
+     {
+      "xp_gained": {
+       "skill": "Ranged",
+       "at_least": 100
+      }
+     },
+     {
+      "xp_top": {
+       "skill": "Ranged"
+      }
+     }
+    ]
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 2400.0,
@@ -1824,9 +2122,11 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_ranged_v1"
+   },
    "provenance": {
-    "note": "Ranged is reset to 1 and the others raised to 10: the open task should pick it by itself"
+    "note": "Ranged stays at its fresh level; the others are raised to 10 (raise_skills: route unverified)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -1851,15 +2151,9 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Ranged",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
@@ -1870,7 +2164,19 @@
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "partial": [
+     {
+      "note": "+4 levels"
+     }
+    ],
+    "na": {
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -1886,8 +2192,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
-   "provenance": {},
+   "oracle": {
+    "dev": "scripted:train_ranged_v1"
+   },
+   "provenance": {
+    "note": "min(5, next gate) once the per-skill gates are confirmed (proposal item 2)"
+   },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
@@ -1911,26 +2221,28 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Runecrafting",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
     "xp_gained": {
      "skill": "Runecrafting",
-     "at_least": 1
+     "at_least": 100
     }
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 1200.0,
@@ -1946,9 +2258,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_runecrafting_v1"
+   },
    "provenance": {
-    "source": "https://dragonwilds.runescape.wiki/w/Runecrafting"
+    "source": "https://dragonwilds.runescape.wiki/w/Runecrafting",
+    "incidental_xp": false
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -1970,34 +2285,48 @@
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "Runecrafting"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
      {
-      "verb": "reset_skills",
-      "skill": "Runecrafting",
-      "level": 1
-     },
-     {
-      "verb": "raise_other_skills",
+      "verb": "raise_skills",
       "except": "Runecrafting",
       "level": 10
      }
     ],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
-    "xp_gained": {
-     "skill": "Runecrafting",
-     "at_least": 1
-    }
+    "all": [
+     {
+      "xp_gained": {
+       "skill": "Runecrafting",
+       "at_least": 100
+      }
+     },
+     {
+      "xp_top": {
+       "skill": "Runecrafting"
+      }
+     }
+    ]
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 2400.0,
@@ -2013,9 +2342,11 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_runecrafting_v1"
+   },
    "provenance": {
-    "note": "Runecrafting is reset to 1 and the others raised to 10: the open task should pick it by itself"
+    "note": "Runecrafting stays at its fresh level; the others are raised to 10 (raise_skills: route unverified)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -2040,15 +2371,9 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Runecrafting",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
@@ -2059,7 +2384,19 @@
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "partial": [
+     {
+      "note": "+4 levels"
+     }
+    ],
+    "na": {
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -2075,8 +2412,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
-   "provenance": {},
+   "oracle": {
+    "dev": "scripted:train_runecrafting_v1"
+   },
+   "provenance": {
+    "note": "min(5, next gate) once the per-skill gates are confirmed (proposal item 2)"
+   },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
@@ -2100,26 +2441,28 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Woodcutting",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
     "xp_gained": {
      "skill": "Woodcutting",
-     "at_least": 1
+     "at_least": 100
     }
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 1200.0,
@@ -2135,9 +2478,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_woodcutting_v1"
+   },
    "provenance": {
-    "source": "https://dragonwilds.runescape.wiki/w/Woodcutting"
+    "source": "https://dragonwilds.runescape.wiki/w/Woodcutting",
+    "incidental_xp": true
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -2159,34 +2505,48 @@
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "Woodcutting"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
      {
-      "verb": "reset_skills",
-      "skill": "Woodcutting",
-      "level": 1
-     },
-     {
-      "verb": "raise_other_skills",
+      "verb": "raise_skills",
       "except": "Woodcutting",
       "level": 10
      }
     ],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
-    "xp_gained": {
-     "skill": "Woodcutting",
-     "at_least": 1
-    }
+    "all": [
+     {
+      "xp_gained": {
+       "skill": "Woodcutting",
+       "at_least": 100
+      }
+     },
+     {
+      "xp_top": {
+       "skill": "Woodcutting"
+      }
+     }
+    ]
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "na": {
+     "partial": "XP is continuous",
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 2400.0,
@@ -2202,9 +2562,11 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:train_woodcutting_v1"
+   },
    "provenance": {
-    "note": "Woodcutting is reset to 1 and the others raised to 10: the open task should pick it by itself"
+    "note": "Woodcutting stays at its fresh level; the others are raised to 10 (raise_skills: route unverified)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -2229,15 +2591,9 @@
    "forbid_terms": [],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "reset_skills",
-      "skill": "Woodcutting",
-      "level": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
@@ -2248,7 +2604,19 @@
    },
    "guards": [],
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "train a different skill"
+     }
+    ],
+    "partial": [
+     {
+      "note": "+4 levels"
+     }
+    ],
+    "na": {
+     "alt_means": "XP has no other source"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -2264,8 +2632,12 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
-   "provenance": {},
+   "oracle": {
+    "dev": "scripted:train_woodcutting_v1"
+   },
+   "provenance": {
+    "note": "min(5, next gate) once the per-skill gates are confirmed (proposal item 2)"
+   },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   }

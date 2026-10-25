@@ -123,7 +123,7 @@ def t0_cases(spells: dict | None = None, catalog: dict | None = None) -> tuple[l
         desc = ((catalog or {}).get(sid, {}).get("usage") or {}).get("use_when") or ""
         c = Case(id=f"t0_cast_{sid.removeprefix('USD_').lower()}", tier="T0", family="spell_cast", authored_by="data",
                  status="suite", tags={"spell": sid, "cast_type": sp.get("cast_type"), "confidence": sp.get("confidence")},
-                 chat=[{"at_s": 0, "text": f"hey, use {name} for me"}],
+                 chat=[{"at_s": 0, "text": f"Claude, use {name} for me"}],
                  phrasing_heldout=f"go on then, let's see {name}",
                  fixtures={"setup": setup, "state_snapshot": "empty"},
                  success={"spell_effect": {"spell": sid}}, controls=controls,

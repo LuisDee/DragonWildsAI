@@ -240,3 +240,87 @@ function Get-JoinFailure([datetime]$SinceUtc) {
 function Get-Cdb {
     Get-ChildItem 'C:\Program Files\WindowsApps\Microsoft.WinDbg_*\amd64\cdb.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
 }
+
+# ------------------------------------------------------------------ front-end returns (BUGS L24)
+# The game crashes on the 3rd return to L_FrontEnd within ONE client process (null+0x250 in blueprint UI code
+# right after LoadMap(L_FrontEnd); A/B 2026-10-25: with our hooks, without them, and without UE4SS's engine
+# hooks alike). So a process may return to the front end at most $ClientMaxFrontEndReturns (2) times: before an
+# action that would need another visit (a disconnect for a target switch, a rejoin from the menu) the client is
+# relaunched instead (Restart-ClientProcess), which starts the count again at 0.
+# Count per client process = the larger of
+#   - the game log: LoadMap lines for /Game/Maps/L_FrontEnd after the startup one (only when the log belongs to
+#     this process: its "Log file open" stamp is not older than the process), and
+#   - logs/state/client_frontend_returns.json: {pid, start, returns}, raised by Register-FrontEndReturn whenever
+#     a tool sends disconnect.lua (the game log can stall: L23).
+$ClientMaxFrontEndReturns = if ($env:DW_CLIENT_MAX_FE_RETURNS) { [int]$env:DW_CLIENT_MAX_FE_RETURNS } else { 2 }
+$ClientFrontEndFile = Join-Path $ClientStateDir 'client_frontend_returns.json'
+function Get-ProcStartIso($Proc) { try { $Proc.StartTime.ToUniversalTime().ToString('o') } catch { '' } }
+function Get-FrontEndReturnsFromLog($Proc) {
+    if (-not $Proc -or -not (Test-Path $ClientGameLog)) { return $null }
+    $head = Get-Content $ClientGameLog -TotalCount 1 -ErrorAction SilentlyContinue
+    if ($head -match 'Log file open, (\d\d/\d\d/\d\d \d\d:\d\d:\d\d)') {
+        try {
+            $opened = [datetime]::ParseExact($Matches[1], 'MM/dd/yy HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
+            if ($opened -lt $Proc.StartTime.AddSeconds(-120)) { return $null }   # an older process's log
+        } catch { }
+    }
+    $maps = @(Select-String -Path $ClientGameLog -Pattern 'LogLoad: LoadMap: \S*/Game/Maps/' -ErrorAction SilentlyContinue)
+    if (-not $maps.Count) { return 0 }
+    $fe = @($maps | Where-Object { $_.Line -match 'LoadMap: \S*/Game/Maps/L_FrontEnd' }).Count
+    if ($maps[0].Line -match '/Game/Maps/L_FrontEnd') { $fe-- }   # the startup load is not a return
+    [math]::Max(0, $fe)
+}
+function Read-FrontEndRecord($Proc) {
+    if (-not $Proc -or -not (Test-Path $ClientFrontEndFile)) { return 0 }
+    try { $r = Get-Content $ClientFrontEndFile -Raw -ErrorAction Stop | ConvertFrom-Json } catch { return 0 }
+    # pid AND start time: a reused pid is another process
+    if ([int]$r.pid -ne $Proc.Id -or ([string]$r.start -and [string]$r.start -ne (Get-ProcStartIso $Proc))) { return 0 }
+    [int]$r.returns
+}
+function Write-FrontEndRecord($Proc, [int]$Returns, [string]$Why) {
+    New-Item -ItemType Directory -Force $ClientStateDir | Out-Null
+    $o = [ordered]@{ pid = $Proc.Id; start = Get-ProcStartIso $Proc; returns = $Returns; max = $ClientMaxFrontEndReturns
+                     why = $Why; ts = (Get-Date).ToUniversalTime().ToString('o') }
+    $tmp = "$ClientFrontEndFile.tmp"
+    ($o | ConvertTo-Json -Compress) | Set-Content -Encoding utf8 $tmp
+    Move-Item $tmp $ClientFrontEndFile -Force
+}
+# {pid, returns, log, recorded, max, needs_relaunch}; returns 0 when no client runs.
+function Get-FrontEndReturns($Proc = (Get-ClientProcess)) {
+    if (-not $Proc) { return [pscustomobject][ordered]@{ pid = $null; returns = 0; log = $null; recorded = 0; max = $ClientMaxFrontEndReturns; needs_relaunch = $false } }
+    $log = Get-FrontEndReturnsFromLog $Proc
+    $rec = Read-FrontEndRecord $Proc
+    $n = [math]::Max([int]$rec, [int]$log)
+    if ($n -gt $rec) { Write-FrontEndRecord $Proc $n 'game log' }
+    [pscustomobject][ordered]@{ pid = $Proc.Id; returns = $n; log = $log; recorded = $rec; max = $ClientMaxFrontEndReturns
+                                needs_relaunch = ($n -ge $ClientMaxFrontEndReturns) }
+}
+# Would another front-end visit (a disconnect, or a rejoin from the menu that a later leave must undo) be one too many?
+function Test-ClientNeedsRelaunch($Proc = (Get-ClientProcess)) { [bool](Get-FrontEndReturns $Proc).needs_relaunch }
+# A tool just sent disconnect.lua (or saw the client fall back to the menu): count it now, before the log shows it.
+function Register-FrontEndReturn([string]$Why, $Proc = (Get-ClientProcess)) {
+    if (-not $Proc) { return 0 }
+    $n = (Get-FrontEndReturns $Proc).returns + 1
+    Write-FrontEndRecord $Proc $n $Why
+    $n
+}
+
+# Start the client the way the game is started (Steam -applaunch). DW_CLIENT_LAUNCH (tests: the fake client's exe,
+# args in DW_CLIENT_LAUNCH_ARGS) replaces it so an offline test can relaunch without Steam or the game.
+function Start-ClientProcess {
+    if ($env:DW_CLIENT_LAUNCH) {
+        $sp = @{ FilePath = $env:DW_CLIENT_LAUNCH; WindowStyle = 'Hidden' }
+        if ($env:DW_CLIENT_LAUNCH_ARGS) { $sp.ArgumentList = $env:DW_CLIENT_LAUNCH_ARGS }
+        Start-Process @sp | Out-Null
+    } else {
+        & $SteamExe -applaunch $ClientAppId @ClientArgs
+    }
+}
+# Kill the client process tree (tools/stop_client.ps1 without -Hold); the character is saved server-side.
+function Stop-ClientProcess {
+    $tree = @(Get-ClientProcessTree)
+    if (-not $tree) { return @() }
+    $tree | Stop-Process -Force -ErrorAction SilentlyContinue
+    $tree | ForEach-Object { try { $_.WaitForExit(30000) | Out-Null } catch {} }
+    @($tree | ForEach-Object { "$($_.ProcessName)($($_.Id))" })
+}

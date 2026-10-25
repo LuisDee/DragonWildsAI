@@ -1,11 +1,17 @@
-"""DRAFTS of the GOAL-required cases (review finding 10a): hand-specified by the Eval agent from GOAL.md, the wiki
-mirror and the game data, for main's and Luis's review. Nothing here is scored until Luis approves a case and its
-hash is pinned in docs/goal_targets.json goal_cases.pinned_by_hash.
+"""DRAFTS of the GOAL-required cases, rev 2 after docs/reviews/2026-10-26-goal-cases-review.md.
+
+Hand-specified by the Eval agent from GOAL.md, the wiki mirror, the catalogs and dev facts, for main's and Luis's review.
+Nothing is scored until Luis approves a case and its hash is pinned (goal_targets.json goal_cases.pinned_by_hash).
 
   .venv\\Scripts\\python.exe -m evals.bench.goal_drafts      # writes evals/bench/goal_cases/*.json (status draft)
 
-Placeholders "<...>" are values that need a dev-world fact (a class id, a place) before the case can run; the lint
-keeps such cases at status draft. Wiki sources are in each case's provenance.
+Rev 2 rules applied to every case (review C1-C10):
+- scored chat names no method or answer (C8); forbid_terms list the answer words (C9);
+- every predicate reads harness evidence (probe / dev referee); missing evidence is a perception gap, never a pass;
+- kills, damage and delivery are attributed to him (C1, C3); gathering is proven by XP, crafting by Artisan XP;
+- controls: alt_means / wrong_action / partial per case, with `na` reasons; a dev oracle named `scripted:<file>`
+  (evals/bench/oracles/, written when the case is validated on dev);
+- open questions for Luis are in docs/proposals/2026-10-26-goal-targets-changes.md.
 """
 from __future__ import annotations
 
@@ -18,7 +24,12 @@ from .spec import Case, dump_cases
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "evals" / "bench" / "goal_cases"
 WIKI = "https://dragonwilds.runescape.wiki/w/"
-P = "Tester"  # the harness's test player on dev
+P = "Tester"  # the harness's test-player body on dev (review C4; spawn_tester, pending verification)
+RUNT = "BP_AI_RuntGoblin_Character_C"
+VELGAR = "BP_AI_DragonVelgar_Character_C"
+FIRE = "DamageType.Magical.Fire"
+DEATH_GUARD = {"no_event": {"kind": "death", "who": "self"}}
+NA_ORACLE = {"partial": "one outcome; cutting the oracle short is do_nothing"}
 
 
 def _c(**kw) -> Case:
@@ -27,187 +38,314 @@ def _c(**kw) -> Case:
     return Case.model_validate(base)
 
 
+def _catalog() -> dict:
+    f = sorted((ROOT / "data").glob("items_*.json"))
+    return json.loads(f[-1].read_text(encoding="utf-8")).get("items") or {} if f else {}
+
+
+def entitlement_items() -> list[str]:
+    """Data-derived n/a for gear upgrades: items that need an entitlement (review L-11)."""
+    return sorted(k for k, v in _catalog().items() if (v.get("requirements") or {}).get("entitlement_required"))
+
+
+def gear_upgrade_predicate() -> dict:
+    """Any armour slot better EQUIPPED, or any weapon/tool category better CARRIED, than at the start (review L-10),
+    generated from the catalog's slots and categories (no item names)."""
+    cat = _catalog()
+    slots = sorted({v.get("slot") for v in cat.values() if v.get("role") == "armour" and v.get("slot") in ("head", "body", "legs")})
+    cats = sorted({v.get("category") for v in cat.values() if v.get("role") in ("weapon", "shield")
+                   and v.get("category") not in (None, "test")})
+    alts = [{"gear_better": {"slot": s, "stat": "power_level", "where": "equipped", "than": "start"}} for s in slots]
+    alts += [{"gear_better": {"category": c, "stat": "power_level", "where": "carried", "than": "start"}} for c in cats]
+    return {"any": alts}
+
+
 def long_tasks() -> list[Case]:
     k3 = {"repeat": 3}
+    ent_guard = [{"not": {"have": {"item": i, "at_least": 1}}} for i in entitlement_items()]
     return [
         _c(id="goal_gather_coal_multitrip", tier="T3", family="long_task", long_task="gather_coal_multitrip",
-           tags={"skills": ["Mining"], "uses": ["wiki", "lodestone", "storage"]},
-           chat=[{"text": "can you get me 50 coal? check the wiki for where it is, and use the lodestones if it's far"}],
-           phrasing_heldout="need a load of coal for the blast furnace, fifty-ish, sort it out?",
+           tags={"skills": ["Mining"], "uses": ["lodestone"], "evidence": ["referee:item_change(receiver)", "referee:teleport.via"]},
+           chat=[{"text": "can you get me 50 coal? I'm back at the base"}],
+           phrasing_heldout="need fifty coal for the blast furnace, can you sort it?",
+           forbid_terms=["Fellhollow", "Dowdun", "Umbral", "lodestone", "wiki"],
            fixtures={"setup": [{"verb": "grant", "item": "ITEM_Rune_Law", "count": 30},
-                               {"verb": "grant", "item": "ITEM_Pickaxe_Iron", "count": 1}],
+                               {"verb": "grant", "item": "ITEM_Pickaxe_Iron", "count": 1},
+                               {"verb": "spawn_tester", "as": "tester", "offset_m": [3, 0, 0]}],
                      "state_snapshot": "fresh_dev_v1", "player_body": True},
            success={"all": [{"delivered": {"to": P, "item": "Coal", "at_least": 50}},
-                            {"trips": {"deposits_at_least": 2}}, {"teleports": {"via": "lodestone", "at_least": 1}}]},
-           guards=[{"no_event": {"kind": "death", "who": "self"}}],
-           needs_fact={"kind": "location", "truth": "coal node regions from the wiki (Fellhollow, Dowdun Reach, Umbral Sands)"},
-           controls={"alt_means": [{"setup": "grant_to_ground", "item": "ITEM_Resources_Coal", "count": 50}]},
-           limits={"wall_s": 5400, "hints_max": 1, "idle_s": 180, **k3},
-           hints={"ladder": ["any luck with the coal?", "coal's in rocky places, the wiki lists the regions",
-                             "Fellhollow has coal nodes, an iron pickaxe will do"]},
-           provenance={"sources": [WIKI + "Coal", WIKI + "Coal_Node", WIKI + "Lodestone"]}),
+                            {"xp_gained": {"skill": "Mining", "at_least": 500}},
+                            {"teleports": {"via": "lodestone", "at_least": 1}}]},
+           guards=[DEATH_GUARD],
+           needs_fact={"kind": "location", "truth": "Fellhollow|Dowdun Reach|Umbral Sands"},
+           controls={"alt_means": [{"setup": "grant", "item": "ITEM_Resources_Coal", "count": 50},
+                                   {"tool": "give", "args": {"player": P, "item": "ITEM_Resources_Coal", "count": 50}}],
+                     "partial": [{"note": "deliver 49"}], "na": {}},
+           limits={"wall_s": 5400, "hints_max": 1, "idle_s": 240, **k3},
+           hints={"ladder": ["any luck with the coal?", "it's not around here, it's in the further regions",
+                             "Fellhollow has coal nodes; an iron pickaxe will do"]},
+           oracle={"dev": "scripted:coal_trip_v1"},
+           provenance={"sources": [WIKI + "Coal", WIKI + "Coal_Node", WIKI + "Lodestone"],
+                       "notes": ["multi-trip can't be forced (coal stacks 99): see the proposal 5.1",
+                                 "Mining XP threshold 500 is a placeholder: calibrate on dev (67 XP per node hit, wiki)"]}),
         _c(id="goal_farm_mob_drop", tier="T3", family="long_task", long_task="farm_mob_drop",
-           tags={"uses": ["wiki", "weakness", "trips"]},
-           chat=[{"text": "I need 20 goblin packs, can you farm them off the goblin runts? gear up for them first"}],
-           fixtures={"state_snapshot": "fresh_dev_v1", "player_body": True},
+           tags={"uses": ["weakness"], "evidence": ["referee:damage.by", "referee:damage.damage_type", "referee:death.by"]},
+           chat=[{"text": "I need 20 goblin packs off the goblin runts, can you farm them for me?"}],
+           forbid_terms=["fire", "burn", "weak", "flame"],
+           fixtures={"setup": [{"verb": "spawn_tester", "as": "tester", "offset_m": [3, 0, 0]}],
+                     "state_snapshot": "fresh_dev_v1", "player_body": True},
            success={"all": [{"delivered": {"to": P, "item": "ITEM_Consumable_GoblinPack", "at_least": 20}},
-                            {"damage_type_dealt": {"target_kind_id": "BP_AI_RuntGoblin_Character_C", "types": ["DamageType.Magical.Fire"]}},
-                            {"trips": {"deposits_at_least": 2}}]},
-           guards=[{"no_event": {"kind": "damage_to_player"}}],
+                            {"killed": {"kind": "Goblin Runt", "kind_id": RUNT, "at_least": 20}},
+                            {"damage_type_dealt": {"target_kind_id": RUNT, "types": [FIRE], "min_share": 0.6}}]},
+           guards=[DEATH_GUARD],
            needs_fact={"kind": "weakness", "truth": "Fire"},
-           controls={"alt_means": [{"setup": "grant_to_ground", "item": "ITEM_Consumable_GoblinPack", "count": 20}]},
-           limits={"wall_s": 5400, "hints_max": 1, "idle_s": 180, **k3},
+           controls={"alt_means": [{"setup": "grant", "item": "ITEM_Consumable_GoblinPack", "count": 20},
+                                   {"tool": "give", "args": {"player": P, "item": "ITEM_Consumable_GoblinPack", "count": 20}}],
+                     "wrong_action": [{"note": "the oracle with a non-fire weapon"}],
+                     "partial": [{"note": "deliver 19"}], "na": {}},
+           limits={"wall_s": 5400, "hints_max": 1, "idle_s": 240, **k3},
            hints={"ladder": ["how's the farming going?", "check what they're weak to", "fire works on them"]},
-           provenance={"note": "Goblin Runt: weakness Fire, drops Goblin Pack (Always)", "sources": [WIKI + "Goblin_Runt"]}),
+           oracle={"dev": "scripted:runt_farm_fire_v1"},
+           provenance={"sources": [WIKI + "Goblin_Runt"], "notes": ["Goblin Runt: PL1 60 HP, weakness Fire, drops Goblin Pack (Always)"]}),
         _c(id="goal_gear_upgrade_self_initiated", tier="T3", family="long_task", long_task="gear_upgrade_self_initiated",
            chat=[{"text": "go level up and sort yourself out, I'll be back in a bit"}],
+           forbid_terms=["gear", "armour", "armor", "weapon", "pickaxe", "upgrade", "craft"],
            fixtures={"state_snapshot": "fresh_dev_v1"},
-           success={"any": [{"gear_better": {"slot": "body", "stat": "power_level", "where": "equipped", "than": "start"}},
-                            {"gear_better": {"category": "pickaxe", "stat": "tool_tier", "where": "equipped", "than": "start"}},
-                            {"gear_better": {"category": "sword", "stat": "power_level", "where": "equipped", "than": "start"}}]},
+           success=gear_upgrade_predicate(), guards=ent_guard + [DEATH_GUARD],
+           controls={"partial": [{"note": "craft the better item but never equip or carry it"}],
+                     "alt_means": [{"note": "a better item in a shared chest: does it count? (proposal 5.3)"}], "na": {}},
            limits={"wall_s": 7200, "hints_max": 1, "idle_s": 300, **k3},
-           hints={"ladder": ["how's it going?", "your gear's pretty weak", "a bronze pickaxe would help"]},
-           provenance={"note": "his own initiative: the chat never names gear; one tier up on any slot or tool counts"}),
+           hints={"ladder": ["how's it going?", "your kit's pretty basic", "a bronze pickaxe or some bronze armour would help"]},
+           oracle={"dev": "scripted:bronze_upgrade_v1"},
+           provenance={"notes": ["start gear: Adventurer's T1 body + legs (probe)", "entitlement items excluded (data-derived)"]}),
         _c(id="goal_brynmoor_quest_chain", tier="T3", family="long_task", long_task="brynmoor_quest_chain",
-           chat=[{"text": "let's do the Brynmoor quests, can you start on Goblin Diplomacy? the wiki has the steps"}],
+           tags={"evidence": ["probe:quests"]},
+           chat=[{"text": "let's do the Brynmoor quests, start with Goblin Diplomacy"}],
+           forbid_terms=["Zanik", "wiki", "Rune Mysteries"],
            fixtures={"state_snapshot": "fresh_dev_v1"},
-           success={"quest": {"name": "Goblin Diplomacy", "completed": True}},
+           success={"all": [{"quest": {"name": "Rune Mysteries", "completed": True}},
+                            {"quest": {"name": "Goblin Diplomacy", "completed": True}}]},
+           guards=[DEATH_GUARD],
+           needs_fact={"kind": "quest_step", "truth": "Rune Mysteries first; Zanik on the ridge in Bramblemead Valley"},
+           controls={"partial": [{"note": "Rune Mysteries only"}], "na": {"alt_means": "quest state has no other means",
+                                                                      "wrong_action": "no sibling quest action"}},
            limits={"wall_s": 7200, "hints_max": 1, "idle_s": 300, **k3},
-           hints={"ladder": ["how far along are you?", "Zanik starts it in Bramblemead Valley", "Zanik is on the ridge in Bramblemead Valley, over the Whispering Swamp"]},
-           provenance={"note": "quest{} evaluates null until quest perception lands (a perception gap, never a pass)",
-                       "sources": [WIKI + "Goblin_Diplomacy", WIKI + "Quests"]}),
+           hints={"ladder": ["how far along are you?", "Goblin Diplomacy needs Rune Mysteries done first",
+                             "Zanik is on the ridge in Bramblemead Valley, over the Whispering Swamp"]},
+           oracle={"dev": "scripted:quest_chain_v1"},
+           provenance={"sources": [WIKI + "Goblin_Diplomacy", WIKI + "Rune_Mysteries", WIKI + "Quests"]}),
         _c(id="goal_farm_desert_weed", tier="T3", family="long_task", long_task="farm_desert_weed",
-           chat=[{"text": "can you farm some desert weed at our farm? we need a stack of it"}],
+           chat=[{"text": "can you farm some desert weed at our farm? twenty-odd would do"}],
+           forbid_terms=["yew", "plot", "seed", "water"],
            fixtures={"setup": [{"verb": "place", "name": "our farm", "at": "<farm plots position on dev>"}],
-                     "state_snapshot": "fresh_dev_v1", "player_body": True},
-           success={"all": [{"gained": {"item": "Desert Weed", "at_least": 20}}, {"near": {"place": "our farm", "within_m": 30}}]},
-           controls={"alt_means": [{"setup": "grant_to_ground", "item": "ITEM_Resources_Weed_Desert", "count": 20}]},
-           limits={"wall_s": 7200, "hints_max": 1, "idle_s": 300, **k3},
-           hints={"ladder": ["how's the farm?", "you need desert weed seeds and a plot", "desert weed seeds grow best in a yew farming plot"]},
-           provenance={"sources": [WIKI + "Desert_Weed_(Farming)", WIKI + "Desert_Weed_Seeds"]}),
+                     "state_snapshot": "fresh_dev_v1"},
+           success={"all": [{"gained_at": {"item": "ITEM_Resources_Weed_Desert", "at_least": 20, "place": "our farm", "within_m": 15}},
+                            {"gained_at": {"item": "ITEM_Farming_Seed_Weed_Desert", "at_least": 0, "place": "our farm"}}]},
+           guards=[DEATH_GUARD],
+           controls={"alt_means": [{"note": "wild gather in Umbral Sands, then walk to the farm: must fail (gains not at the plots)"},
+                                   {"setup": "grant", "item": "ITEM_Resources_Weed_Desert", "count": 20}], "na": {}},
+           limits={"wall_s": 7200, "hints_max": 1, "idle_s": 900, **k3},
+           hints={"ladder": ["how's the farm?", "you need seeds and a plot", "desert weed seeds grow best in a yew farming plot"]},
+           oracle={"dev": "scripted:desert_weed_v1"},
+           provenance={"sources": [WIKI + "Desert_Weed_(Farming)", WIKI + "Desert_Weed_Seeds"],
+                       "notes": ["idle_s 900: crop stage times to be measured on dev", "farm position: Luis (proposal 5.4)"]}),
     ]
 
 
 def combat_basics() -> list[Case]:
+    r3 = {"repeat": 3}
     return [
         _c(id="goal_basic_dodge_directional", tier="T1", family="combat_basic", basic="dodge_directional",
-           chat=[{"text": "watch out for its big swings"}],
-           fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": "BP_AI_RuntGoblin_Character_C", "offset_m": [6, 0, 0]}]},
-           success={"defended": {"kind": "dodge", "against": "telegraph", "at_least": 3}},
-           guards=[{"no_event": {"kind": "death", "who": "self"}}], limits={"wall_s": 300, "repeat": 3},
-           provenance={"note": "referee: telegraphed attacks resolved as dodged (needs the referee defence events)"}),
+           tags={"evidence": ["referee:defended", "referee:telegraph"]},
+           chat=[{"text": "watch out for its big swings"}], forbid_terms=["dodge", "roll", "evade"],
+           fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": RUNT, "offset_m": [6, 0, 0]}], "state_snapshot": "empty"},
+           success={"defended": {"kind": "dodge", "against": "telegraph", "at_least": 3, "min_rate": 0.5}},
+           guards=[DEATH_GUARD],
+           controls={"alt_means": [{"note": "walk out of range: attacks miss, no dodge"}],
+                     "wrong_action": [{"note": "block instead of dodging"}], "na": NA_ORACLE},
+           limits={"wall_s": 300, "idle_s": 60, **r3}, oracle={"dev": "scripted:dodge_runt_v1"},
+           provenance={"notes": ["check on dev that the runt telegraphs >= 3 times in 300 s (no weapon: it survives)"]}),
         _c(id="goal_basic_parry", tier="T1", family="combat_basic", basic="parry",
-           chat=[{"text": "block its hits, don't just tank them"}],
-           fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": "BP_AI_RuntGoblin_Character_C", "offset_m": [6, 0, 0]},
-                               {"verb": "grant", "item": "ITEM_Shield_Wood", "count": 1}]},
-           success={"defended": {"kind": "parry", "at_least": 3}}, limits={"wall_s": 300, "repeat": 3}),
+           tags={"evidence": ["referee:defended", "referee:telegraph"]},
+           chat=[{"text": "parry its swings, don't just tank them"}], forbid_terms=["block"],
+           fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": RUNT, "offset_m": [6, 0, 0]},
+                               {"verb": "grant", "item": "ITEM_Shield_Wood", "count": 1}], "state_snapshot": "empty"},
+           success={"defended": {"kind": "parry", "at_least": 3, "min_rate": 0.4}}, guards=[DEATH_GUARD],
+           controls={"wrong_action": [{"note": "hold block the whole time"}], "na": {**NA_ORACLE, "alt_means": "no other means of a parry"}},
+           limits={"wall_s": 300, "idle_s": 60, **r3}, oracle={"dev": "scripted:parry_runt_v1"}),
         _c(id="goal_basic_disengage_heal", tier="T1", family="combat_basic", basic="disengage_heal",
-           chat=[{"text": "you're getting hammered, sort yourself out"}],
-           fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": "BP_AI_RuntGoblin_Character_C", "offset_m": [4, 0, 0]},
-                               {"verb": "spawn", "class": "BP_AI_RuntGoblin_Character_C", "offset_m": [5, 2, 0]},
-                               {"verb": "spawn", "class": "BP_AI_RuntGoblin_Character_C", "offset_m": [5, -2, 0]},
-                               {"verb": "grant", "item": "ITEM_Consumable_Fish_Anchovies", "count": 5}]},
-           success={"disengaged": {"target": "$foe.id", "aggro_m": 15, "reengaged": True}},
-           guards=[{"no_event": {"kind": "death", "who": "self"}}], limits={"wall_s": 300, "repeat": 3}),
+           tags={"evidence": ["probe:creatures", "referee:damage.by", "referee:item_change"]},
+           chat=[{"at_s": 30, "text": "you're getting hammered, sort yourself out"}],
+           forbid_terms=["eat", "food", "run", "retreat", "heal"],
+           fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": RUNT, "offset_m": [4, 0, 0]},
+                               {"verb": "spawn", "class": RUNT, "offset_m": [5, 2, 0]},
+                               {"verb": "spawn", "class": RUNT, "offset_m": [5, -2, 0]},
+                               {"verb": "grant", "item": "ITEM_Consumable_Fish_Anchovies", "count": 5},
+                               {"verb": "set_health", "pct": 40}], "state_snapshot": "empty"},
+           success={"disengaged": {"target_kind_id": RUNT, "aggro_m": 15, "food": ["ITEM_Consumable_Fish_Anchovies"], "reengaged": True}},
+           guards=[DEATH_GUARD],
+           controls={"alt_means": [{"note": "eat in place without disengaging"}], "partial": [{"note": "no re-engage"}], "na": {}},
+           limits={"wall_s": 300, "idle_s": 60, **r3}, oracle={"dev": "scripted:disengage_runts_v1"},
+           provenance={"notes": ["health set to 40% by fixture so the chat is true when said", "measure: does 15 m break runt aggro?"]}),
     ]
 
 
 def tactics_and_knowledge() -> list[Case]:
     return [
-        _c(id="goal_tactics_prep_hard_fight", tier="T2", family="tactics",
-           chat=[{"text": "that thing over there is nasty, take it out when you're ready"}],
-           fixtures={"setup": [{"verb": "spawn", "as": "boss", "class": "BP_AI_RuntGoblin_Character_C", "offset_m": [30, 0, 0]}]},
-           success={"prepared": {"any": [{"tag": "Player.Status.TempestShield"}, {"enchant_type": "DamageType.Magical.Fire"},
-                                         {"item": "ITEM_Consumable_Fish_Anchovies", "at_least": 1}]}},
-           limits={"wall_s": 900}, provenance={"sources": [WIKI + "Velgar/Strategies", WIKI + "Goblin_Runt"],
-                                               "note": "hard = the creature's PL above his gear PL: a fresh ClaudeDev (no gear) vs a PL 1 runt"}),
-        _c(id="goal_tactics_damage_trend", tier="T2", family="tactics",
+        _c(id="goal_tactics_prep_hard_fight", tier="T2", family="tactics_prep",
+           chat=[{"text": "that one over there is nasty, take it out when you're ready"}],
+           forbid_terms=["shield", "enchant", "fire", "food", "potion"],
+           fixtures={"setup": [{"verb": "spawn", "as": "boss", "class": "<a creature PL >= gear PL + 2 near the start (data)>",
+                                "offset_m": [30, 0, 0]}], "state_snapshot": "fresh_dev_v1"},
+           success={"prepared": {"target_kind_id": "<the boss class>", "at_least": 2,
+                                 "any": [{"tag": "Player.Status.TempestShield"}, {"enchant_type": "<the boss weakness damage type>"},
+                                         {"items_any": ["ITEM_Consumable_Fish_Anchovies", "ITEM_Consumable_BerryDrizzle_Pan-Seared"],
+                                          "at_least": 3},
+                                         {"predicate": {"gear_better": {"slot": "body", "stat": "power_level", "where": "equipped",
+                                                                        "than": "start"}}}]}},
+           guards=[DEATH_GUARD],
+           controls={"partial": [{"note": "fight without preparing"}], "na": {"alt_means": "preparation is the capability"}},
+           limits={"wall_s": 1200}, oracle={"dev": "scripted:prep_fight_v1"},
+           provenance={"notes": ["GOAL: a dragon-class fight; a runt (PL1) is not hard (review T-1): pick from the data"]}),
+        _c(id="goal_tactics_damage_trend", tier="T2", family="tactics_trend",
            chat=[{"text": "keep fighting these until you've got them figured out"}],
-           fixtures={"setup": [{"verb": "spawn", "class": "BP_AI_RuntGoblin_Character_C", "offset_m": [8, 0, 0]}]},
-           success={"killed": {"kind": "Goblin Runt", "kind_id": "BP_AI_RuntGoblin_Character_C", "at_least": 1}}, limits={"wall_s": 600, "repeat": 5},
-           provenance={"note": "process metric damage_taken per repeat (referee), slope over 5 fights"}),
+           fixtures={"setup": [{"verb": "spawn", "class": "<a creature that hurts a fresh character, with telegraphs>",
+                                "offset_m": [8, 0, 0]}], "state_snapshot": "fresh_dev_v1",
+                     "respawn_between": {"count": 5, "note": "the next spawn only after the previous died (memory kept in the case)"}},
+           success={"killed": {"kind": "<creature>", "kind_id": "<class>", "at_least": 5}}, guards=[DEATH_GUARD],
+           controls={"na": {"alt_means": "kills are the capability", "wrong_action": "n/a", "partial": "4 kills"}},
+           limits={"wall_s": 1800}, oracle={"dev": "scripted:trend_fights_v1"},
+           provenance={"notes": ["process metric: damage_taken per fight (referee damage to self), slope over 5 fights"]}),
+        _c(id="goal_tactics_telegraph_dodges", tier="T2", family="tactics_telegraph",
+           chat=[{"text": "that thing hits hard, don't let it touch you"}], forbid_terms=["dodge", "dash", "roll", "evade"],
+           fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": "<a creature with >= 2 distinct telegraphed attacks>",
+                                "offset_m": [10, 0, 0]}], "state_snapshot": "fresh_dev_v1"},
+           success={"defended": {"kind": "dodge", "against": "telegraph", "at_least": 5, "min_rate": 0.7}}, guards=[DEATH_GUARD],
+           controls={"alt_means": [{"note": "stay out of range"}], "na": NA_ORACLE},
+           limits={"wall_s": 600}, oracle={"dev": "scripted:telegraph_dodges_v1"},
+           provenance={"notes": ["telegraph_dodge_success_pct = dodged/telegraphs per attack_id (process fields)"]}),
         _c(id="goal_knowledge_recipe", tier="T1", family="knowledge",
-           chat=[{"text": "make yourself a bronze pickaxe"}], needs_fact={"kind": "recipe", "truth": "Bronze Bar"},
-           success={"have": {"item": "Bronze Pickaxe", "at_least": 1}}, limits={"wall_s": 1800}),
+           chat=[{"text": "make yourself a bronze pickaxe"}], forbid_terms=["bar", "smelt", "furnace", "copper", "tin"],
+           needs_fact={"kind": "recipe", "truth": "Bronze Bar"}, fixtures={"state_snapshot": "fresh_dev_v1"},
+           success={"all": [{"have": {"item": "Bronze Pickaxe", "at_least": 1}}, {"xp_gained": {"skill": "Artisan", "at_least": 1}}]},
+           controls={"alt_means": [{"setup": "grant", "item": "ITEM_Pickaxe_Bronze", "count": 1}], "na": NA_ORACLE},
+           limits={"wall_s": 1800}, oracle={"dev": "scripted:bronze_pickaxe_v1"}),
         _c(id="goal_knowledge_weakness", tier="T1", family="knowledge",
-           chat=[{"text": "kill that one, use whatever hurts it most"}],
+           chat=[{"text": "kill that one, use whatever hurts it most"}], forbid_terms=["fire", "burn", "flame"],
            needs_fact={"kind": "weakness", "truth": "Fire"},
-           fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": "BP_AI_RuntGoblin_Character_C"}]},
-           success={"damage_type_dealt": {"target_kind_id": "BP_AI_RuntGoblin_Character_C", "types": ["DamageType.Magical.Fire"]}}, limits={"wall_s": 600}),
+           fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": RUNT},
+                               {"verb": "grant", "item": "<a sword>", "count": 1}, {"verb": "grant", "item": "<a staff>", "count": 1},
+                               {"verb": "grant_runes", "runes": {"Fire": 100, "Water": 100, "Air": 100}}],
+                     "state_snapshot": "fresh_dev_v1"},
+           success={"all": [{"killed": {"kind": "Goblin Runt", "kind_id": RUNT, "at_least": 1}},
+                            {"damage_type_dealt": {"target_kind_id": RUNT, "types": [FIRE], "min_share": 0.6}}]},
+           controls={"wrong_action": [{"note": "the oracle with water runes"}], "na": {**NA_ORACLE, "alt_means": "n/a"}},
+           limits={"wall_s": 600}, oracle={"dev": "scripted:runt_fire_v1"}),
         _c(id="goal_knowledge_location", tier="T1", family="knowledge",
-           chat=[{"text": "find us some clay"}], needs_fact={"kind": "location", "truth": "Whispering Swamp"},
-           success={"gained": {"item": "Clay", "at_least": 5}}, limits={"wall_s": 1800}),
+           chat=[{"text": "go get some clay"}], forbid_terms=["swamp", "Whispering"],
+           needs_fact={"kind": "location", "truth": "Whispering Swamp"},
+           fixtures={"setup": [{"verb": "teleport", "at": "<a spot with no clay within census range>"}], "state_snapshot": "fresh_dev_v1"},
+           success={"all": [{"gained": {"item": "Clay", "at_least": 5}}, {"xp_gained": {"skill": "Mining", "at_least": 1}}]},
+           controls={"alt_means": [{"setup": "grant", "item": "ITEM_Resources_Clay", "count": 5}], "na": NA_ORACLE},
+           limits={"wall_s": 1800}, oracle={"dev": "scripted:clay_v1"},
+           provenance={"notes": ["confirm clay is only in the Whispering Swamp (wiki Clay Node lists only it)"]}),
         _c(id="goal_knowledge_no_lookup_needed", tier="T1", family="knowledge",
-           chat=[{"text": "pick up those logs next to you"}], needs_fact={"kind": "none"},
-           fixtures={"setup": [{"verb": "ground_item", "item": "ITEM_Resources_Wood_Ash", "count": 3, "at": [2, 0, 0]}]},
-           success={"gained": {"item": "Ash Logs", "at_least": 3}}, limits={"wall_s": 300}, targets=["mock", "dev"],
-           oracle={"mock": [{"pickup_all": "ITEM_Resources_Wood_Ash"}], "dev": [{"pickup_all": "ITEM_Resources_Wood_Ash"}]}),
+           chat=[{"text": "grab those logs over there"}], needs_fact={"kind": "none"},
+           fixtures={"setup": [{"verb": "ground_item", "item": "ITEM_Resources_Wood_Ash", "count": 3, "at": [7, 0, 0]}]},
+           success={"gained": {"item": "Ash Logs", "at_least": 3}}, limits={"wall_s": 300, "idle_s": 60}, targets=["mock", "dev"],
+           controls={"na": {**NA_ORACLE, "alt_means": "n/a", "wrong_action": "n/a"}},
+           oracle={"mock": [{"pickup_all": "ITEM_Resources_Wood_Ash"}], "dev": "scripted:pick_logs_v1"},
+           provenance={"notes": ["logs at 7 m: beyond the loot-pickup reflex radius, so ambient must fail"]}),
     ]
 
 
 def skill_names(root: Path = ROOT) -> list[str]:
-    names: set[str] = set()
-    for f in sorted((root / "data").glob("*_*.json")):
-        if re.fullmatch(r"(spells|recipes)_\d+\.json", f.name):
-            names.update(re.findall(r"SKILL_([A-Za-z]+)", f.read_text(encoding="utf-8", errors="replace")))
-    return sorted(names)
+    """The frozen M3 skill list (proposal item 2); data scan only as a cross-check."""
+    return ["Agility", "Artisan", "Attack", "Construction", "Cooking", "Farming", "Fishing", "Magic", "Mining", "Ranged",
+            "Runecrafting", "Woodcutting"]
+
+
+INCIDENTAL = {"Agility", "Mining", "Woodcutting", "Magic", "Attack"}  # wiki: XP from walking, floor pickups, any cast, any hit
 
 
 def every_skill() -> list[Case]:
-    """M3: per skill x {asked, initiative, plus5}. The chat never names a method (no "mine copper")."""
+    """M3: per skill x {asked, initiative, plus5}; method-free chat; thresholds to calibrate vs ambient (review M-1)."""
     out = []
     for s in skill_names():
         low = s.lower()
-        reset = [{"verb": "reset_skills", "skill": s, "level": 1}]
+        thr = 100  # placeholder: calibrated per skill on dev against an ambient run of the same wall_s
+        ctl = {"na": {"partial": "XP is continuous", "alt_means": "XP has no other source"},
+               "wrong_action": [{"note": "train a different skill"}]}
         out += [
             _c(id=f"m3_{low}_asked", tier="T1", family="skill_train", skill=s, mode="asked",
-               chat=[{"text": f"can you get some {s} levelling done?"}], fixtures={"setup": reset},
-               success={"xp_gained": {"skill": s, "at_least": 1}}, limits={"wall_s": 1200, "idle_s": 120},
-               provenance={"source": f"{WIKI}{s}"}),
+               chat=[{"text": f"can you get some {s} levelling done?"}], fixtures={"state_snapshot": "fresh_dev_v1"},
+               success={"xp_gained": {"skill": s, "at_least": thr}}, controls=ctl, limits={"wall_s": 1200, "idle_s": 120},
+               oracle={"dev": f"scripted:train_{low}_v1"},
+               provenance={"source": f"{WIKI}{s}", "incidental_xp": s in INCIDENTAL}),
             _c(id=f"m3_{low}_initiative", tier="T2", family="skill_train", skill=s, mode="initiative",
-               chat=[{"text": "go level up whatever you think needs it, I'll check back later"}],
-               fixtures={"setup": reset + [{"verb": "raise_other_skills", "except": s, "level": 10}]},
-               success={"xp_gained": {"skill": s, "at_least": 1}}, limits={"wall_s": 2400, "idle_s": 300},
-               provenance={"note": f"{s} is reset to 1 and the others raised to 10: the open task should pick it by itself"}),
+               chat=[{"text": "go level up whatever you think needs it, I'll check back later"}], forbid_terms=[s],
+               fixtures={"setup": [{"verb": "raise_skills", "except": s, "level": 10}], "state_snapshot": "fresh_dev_v1"},
+               success={"all": [{"xp_gained": {"skill": s, "at_least": thr}}, {"xp_top": {"skill": s}}]},
+               controls=ctl, limits={"wall_s": 2400, "idle_s": 300}, oracle={"dev": f"scripted:train_{low}_v1"},
+               provenance={"note": f"{s} stays at its fresh level; the others are raised to 10 (raise_skills: route unverified)"}),
             _c(id=f"m3_{low}_plus5", tier="T3", family="skill_train", skill=s, mode="plus5",
-               chat=[{"text": f"get your {s} up five levels, take your time"}], fixtures={"setup": reset},
-               success={"skill_gain": {"name": s, "levels": 5}}, limits={"wall_s": 7200, "idle_s": 300}),
+               chat=[{"text": f"get your {s} up five levels, take your time"}], fixtures={"state_snapshot": "fresh_dev_v1"},
+               success={"skill_gain": {"name": s, "levels": 5}},
+               controls={**ctl, "partial": [{"note": "+4 levels"}], "na": {"alt_means": "XP has no other source"}},
+               limits={"wall_s": 7200, "idle_s": 300}, oracle={"dev": f"scripted:train_{low}_v1"},
+               provenance={"note": "min(5, next gate) once the per-skill gates are confirmed (proposal item 2)"}),
         ]
     return out
 
 
 def capstone() -> list[Case]:
+    neutral = "let's keep going with the Velgar stuff, what's next?"
     stages = [
-        ("shelter", "build a shelter with a bed and claim it", {"quest": {"name": "Dragon Slayer", "stage": "shelter"}}),
-        ("growing_pains", "do the Growing Pains quest", {"quest": {"name": "Growing Pains", "completed": True}}),
-        ("shrimp_catcher", "do Shrimp Catcher", {"quest": {"name": "Shrimp Catcher", "completed": True}}),
-        ("restless_ghosts", "do Restless Ghosts", {"quest": {"name": "Restless Ghosts", "completed": True}}),
-        ("goblin_diplomacy", "do Goblin Diplomacy", {"quest": {"name": "Goblin Diplomacy", "completed": True}}),
-        ("highlighting_the_problem", "do Highlighting the Problem", {"quest": {"name": "Highlighting the Problem", "completed": True}}),
-        ("iron_tools", "get yourself an iron pickaxe and an iron logging axe",
-         {"all": [{"have": {"item": "Iron Pickaxe", "at_least": 1}}, {"have": {"item": "Iron Logging Axe", "at_least": 1}}]}),
-        ("challenge_horn", "make the challenge horn for Velgar", {"have": {"item": "Challenge Horn", "at_least": 1}}),
-        ("pl4_gear", "gear up to power level 4 before Velgar",
-         {"gear_better": {"slot": "body", "stat": "power_level", "where": "equipped", "than": 3, "op": ">="}}),
+        ("shelter", {"quest": {"name": "Dragon Slayer", "stage": "<the shelter objective key from quest data>"}}),
+        ("growing_pains", {"quest": {"name": "Growing Pains", "completed": True}}),
+        ("shrimp_catcher", {"quest": {"name": "Shrimp Catcher", "completed": True}}),
+        ("restless_ghosts", {"quest": {"name": "Restless Ghosts", "completed": True}}),
+        ("highlighting_the_problem", {"quest": {"name": "Highlighting the Problem", "completed": True}}),
+        ("iron_tools", {"all": [{"have": {"item": "Iron Pickaxe", "at_least": 1}}, {"have": {"item": "Iron Logging Axe", "at_least": 1}},
+                                {"xp_gained": {"skill": "Artisan", "at_least": 1}}]}),
+        ("challenge_horn", {"all": [{"have": {"item": "ITEM_Masterworks_Challenge_Horn", "at_least": 1}},
+                                    {"xp_gained": {"skill": "Artisan", "at_least": 1}}]}),
+        ("pl4_gear", {"all": [{"gear_better": {"slot": s, "stat": "power_level", "where": "equipped", "than": 3, "op": ">"}}
+                              for s in ("head", "body", "legs")]}),
     ]
-    out = [_c(id=f"capstone_stage_{i + 1}_{sid}", tier="T3", family="capstone_stage", chat=[{"text": text}],
-              success=pred, limits={"wall_s": 7200, "idle_s": 300},
-              provenance={"sources": [WIKI + "Dragon_Slayer", WIKI + "Quests", WIKI + "Brynmoor"],
-                          "note": "stage order from the wiki (Dragon Slayer walkthrough, Brynmoor secondary quests); "
-                                  "quest stages evaluate null until quest perception lands"})
-           for i, (sid, text, pred) in enumerate(stages)]
+    out = []
+    for i, (sid, pred) in enumerate(stages):
+        prev = f"capstone_after_{stages[i - 1][0]}" if i else "fresh_dev_v1"
+        out.append(_c(id=f"capstone_stage_{i + 1}_{sid}", tier="T3", family="capstone_stage", capstone="brynmoor_progression",
+                      chat=[{"text": neutral}], fixtures={"state_snapshot": prev}, success=pred, guards=[DEATH_GUARD],
+                      controls={"na": {"alt_means": "stage state", "wrong_action": "n/a", "partial": "the stage's own progress"}},
+                      limits={"wall_s": 7200, "idle_s": 300}, oracle={"dev": f"scripted:capstone_{sid}_v1"},
+                      provenance={"sources": [WIKI + "Dragon_Slayer", WIKI + "Quests", WIKI + "Brynmoor"],
+                                  "note": "chained snapshot: starts from the previous stage's verified end state (review V-8)"}))
     out.append(_c(id="capstone_slay_velgar_solo", tier="T3", family="capstone", capstone="slay_velgar_solo",
-                  chat=[{"text": "time to take on Velgar. read up on him, get ready properly, and do it on your own"}],
-                  fixtures={"setup": [{"verb": "grant", "item": "ITEM_Masterworks_Challenge_Horn", "count": 1}], "state_snapshot": "capstone_v1"},
-                  success={"all": [{"killed": {"kind": "Velgar", "kind_id": "BP_AI_DragonVelgar_Character_C", "at_least": 1}},
-                                   {"prepared": {"any": [{"item": "ITEM_Consumable_Potion_T2_Lesser_Antipoison", "at_least": 1},
-                                                         {"tag": "Player.Status.TempestShield"}, {"enchant_type": "DamageType.Magical.Air"}]}}]},
-                  guards=[{"no_event": {"kind": "death", "who": "self"}}],
-                  needs_fact={"kind": "weakness", "truth": "immune to poison and burning; poison breath -> antipoison"},
-                  limits={"wall_s": 5400, "idle_s": 300, "hints_max": 0},
+                  tags={"evidence": ["referee:damage.by", "referee:death.by", "referee:defended", "probe:held_effects"]},
+                  chat=[{"text": "Velgar's next. Get yourself ready and take him on by yourself"}],
+                  forbid_terms=["antipoison", "poison", "shield", "enchant", "air", "food", "potion"],
+                  fixtures={"state_snapshot": "capstone_v1"},
+                  success={"all": [{"killed": {"kind": "Velgar", "kind_id": VELGAR, "at_least": 1}},
+                                   {"solo": {"target_kind_id": VELGAR}},
+                                   {"prepared": {"target_kind_id": VELGAR, "all": [
+                                       {"item": "ITEM_Consumable_Potion_T2_Lesser_Antipoison", "at_least": 1, "gained_since_start": True},
+                                       {"items_any": ["ITEM_Consumable_BerryDrizzle_Pan-Seared", "ITEM_Consumable_Fish_Anchovies"],
+                                        "at_least": 3},
+                                       {"predicate": {"gear_better": {"slot": "body", "stat": "power_level", "where": "equipped",
+                                                                      "than": 3, "op": ">"}}},
+                                       {"any_of": [{"tag": "Player.Status.TempestShield"},
+                                                   {"enchant_type": "DamageType.Magical.Air"}]}]}},
+                                   {"defended": {"kind": "dodge", "against": "telegraph", "at_least": 5}}]},
+                  guards=[DEATH_GUARD],
+                  needs_fact={"kind": "weakness", "truth": "no weakness; immune to poison and burning; poison breath -> antipoison"},
+                  controls={"partial": [{"note": "fight unprepared"}], "na": {"alt_means": "the kill is the capability",
+                                                                              "wrong_action": "n/a"}},
+                  limits={"wall_s": 5400, "idle_s": 300, "hints_max": 0, "repeat": 3}, oracle={"dev": "scripted:velgar_v1"},
                   provenance={"sources": [WIKI + "Velgar", WIKI + "Velgar/Strategies", WIKI + "Dragon_Slayer"],
-                              "note": "SOLO on dev: no player help; PL 4, 6000 HP; telegraphed attacks: poison spray, poison "
-                                      "puddle bombs, leg stomp spikes, bite and head swipe; flies off at 3/4, 1/2, 1/4 HP"}))
+                              "notes": ["SOLO on dev; PL4, 6000 HP; telegraphed: poison spray, puddle bombs, leg-stomp spikes, bite, "
+                                        "head swipe; flies off at 3/4, 1/2, 1/4 HP", "'levelled gear' not checkable (proposal 5.5)"]}))
     return out
 
 
@@ -218,7 +356,8 @@ def write(out: Path = OUT) -> list[str]:
     lines = []
     for name, cases in groups.items():
         dump_cases(cases, out / name)
-        lines.append(f"{name}: {len(cases)} draft cases")
+        holes = sum(bool(re.search(r"<[^<>]+>", json.dumps(c.model_dump(exclude={"provenance"})))) for c in cases)
+        lines.append(f"{name}: {len(cases)} draft cases ({holes} still need a dev fact)")
     return lines
 
 

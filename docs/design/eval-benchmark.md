@@ -68,6 +68,24 @@ GOAL.md revisions (c6d9c90, after rev 1) are folded in: spell **use** (§5.2), c
 | Fixtures | `spawn` (SpawnActor) verified; `grant`/`grant_runes` (AddItemByData with a copied live tag container) verified; `unlock` (ProgressComponent:UnlockSpells) verified; `teleport` (K2_TeleportTo) returned false with ClaudeDev at 1 HP, retest pending; `set_time` and `reset_skills` have no safe route yet (struct-by-copy research: XP event row handles exist on live objects). The game's dom* cheats are compiled out of shipping |
 | Dev positive control | T0 Windstep passed (probe-judged; the reply agreed) |
 
+**Goal-cases review (2026-10-26) applied:**
+- **Leaves v2 (`tests/test_bench_leaves.py`):**
+  - `delivered` and `trips` count gross hand-overs paired with the receiver's inflow (C1);
+  - missing evidence returns None and is named in `missing` (C2; `damage_type_dealt` and `disengaged` included);
+  - kills count only with referee `by == self`, and unattributed deaths are a gap (C3);
+  - `prepared` is anchored to the target, with `all`, or `any` plus `at_least` (T-2);
+  - `damage_type_dealt` takes `min_share` (L-7);
+  - `defended` checks outcome, direction and `min_rate`, and a missing `how` is a gap (B-2);
+  - `disengaged` needs eating plus re-engaging by referee evidence (B-4);
+  - teleports exclude respawn jumps (L-4);
+  - new leaves: `gained_at`, `xp_top`, `solo`.
+- **Snapshot manifests** are hashed into `case_hash` (C5).
+- **Referee v1:** hooks for damage by/type, telegraphs and attack outcomes, still unverified.
+- **Probe v2:** gear, held effects, quests, creatures, ground items, players.
+- **New fixture verbs:** `set_health` and `teleport`, both verified.
+- **The GOAL drafts were rewritten** per the review (method-free chat, `forbid_terms`, controls, a named dev oracle per case).
+- **Changes to `goal_targets.json`** are collected for Luis in `docs/proposals/2026-10-26-goal-targets-changes.md`.
+
 **Decision (main):** spells use k = 2 trials per case (`trials_per_case`), so 78 trials; the craft sample is n ≥ 35.
 
 **A decision rule that can't be met (for Luis; resolved by k = 2).**

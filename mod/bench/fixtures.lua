@@ -14,8 +14,9 @@
 -- answers {ok=false, error="unverified"} until its route is probed read-only and verified on dev, one at a time,
 -- with main's go-ahead. Unverified verbs make the case `skip: precondition`, never a fake pass.
 local M = { VERSION = 0 }
-M.VERBS = { "grant", "grant_runes", "unlock", "set_time", "spawn", "reset_skills", "teleport", "clear_area" }
-M.VERIFIED = { spawn = true, grant = true, grant_runes = true, unlock = true }  -- live on dev 2026-10-25 (DISCOVERIES "Benchmark referee + fixtures")
+M.VERBS = { "grant", "grant_runes", "unlock", "set_time", "spawn", "reset_skills", "teleport", "clear_area",
+            "set_health", "raise_skills", "grant_to_ground", "spawn_tester" }
+M.VERIFIED = { spawn = true, grant = true, grant_runes = true, unlock = true, set_health = true, teleport = true }  -- live on dev 2026-10-25 (DISCOVERIES "Benchmark referee + fixtures")
 
 local root = (rawget(_G, "__dw_bench_root") or os.getenv("DW_MOD_ROOT") or "."):gsub("\\", "/")
 local U = assert(loadfile(root .. "/body/util.lua"))()
@@ -166,6 +167,25 @@ function M.run(log, args)
         return { ok = true, results = out }
     end
     if verb == "unlock" then return unlock(target, args.paths) end
+    if verb == "set_health" then  -- HealthComponent:SetHealth(value, Context): a server-local call with an FString
+        local hc = U.try(function() return target.HealthComponent end)
+        if not U.valid(hc) then return { ok = false, error = "no_health_component" } end
+        local mx = U.try(function() return hc:GetMaxHealth() end) or 100
+        local v = tonumber(args.value) or (mx * (tonumber(args.pct) or 50) / 100)
+        local ok, err = pcall(function() hc:SetHealth(v, "bench_fixture") end)
+        local now = U.try(function() return hc:GetAuthoritativeHealth() end)
+        return { ok = ok and now ~= nil and math.abs(now - v) < 1, error = (not ok) and tostring(err) or nil, health = now, want = v }
+    end
+    if verb == "teleport" then  -- server-side K2_TeleportTo on the benchmark character (vectors, like SpawnActor)
+        local at = args.at or {}
+        local x, y, z = (tonumber(at[1]) or 0) * 100, (tonumber(at[2]) or 0) * 100, (tonumber(at[3]) or 0) * 100
+        local before = U.loc(target)
+        local ok, res = pcall(function() return target:K2_TeleportTo({ X = x, Y = y, Z = z }, { Pitch = 0, Yaw = 0, Roll = 0 }) end)
+        local after = U.loc(target)
+        return { ok = ok and res ~= false, error = (not ok) and tostring(res) or nil, returned = ok and res or nil,
+                 before = before and { before.X / 100, before.Y / 100, before.Z / 100 } or nil,
+                 after = after and { after.X / 100, after.Y / 100, after.Z / 100 } or nil }
+    end
     -- every other verb goes through the game's own cheat functions on the target's (constructed) CheatManager
     local cm, err = cheat_manager(target, "construct")
     if not cm then return { ok = false, error = err or "no_cheat_manager" } end

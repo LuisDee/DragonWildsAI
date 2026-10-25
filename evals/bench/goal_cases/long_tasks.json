@@ -14,20 +14,28 @@
      "Mining"
     ],
     "uses": [
-     "wiki",
-     "lodestone",
-     "storage"
+     "lodestone"
+    ],
+    "evidence": [
+     "referee:item_change(receiver)",
+     "referee:teleport.via"
     ]
    },
    "chat": [
     {
      "at_s": 0.0,
-     "text": "can you get me 50 coal? check the wiki for where it is, and use the lodestones if it's far",
+     "text": "can you get me 50 coal? I'm back at the base",
      "from": "player"
     }
    ],
-   "phrasing_heldout": "need a load of coal for the blast furnace, fifty-ish, sort it out?",
-   "forbid_terms": [],
+   "phrasing_heldout": "need fifty coal for the blast furnace, can you sort it?",
+   "forbid_terms": [
+    "Fellhollow",
+    "Dowdun",
+    "Umbral",
+    "lodestone",
+    "wiki"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
@@ -40,6 +48,15 @@
       "verb": "grant",
       "item": "ITEM_Pickaxe_Iron",
       "count": 1
+     },
+     {
+      "verb": "spawn_tester",
+      "as": "tester",
+      "offset_m": [
+       3,
+       0,
+       0
+      ]
      }
     ],
     "scene": {},
@@ -56,8 +73,9 @@
       }
      },
      {
-      "trips": {
-       "deposits_at_least": 2
+      "xp_gained": {
+       "skill": "Mining",
+       "at_least": 500
       }
      },
      {
@@ -78,14 +96,27 @@
    ],
    "needs_fact": {
     "kind": "location",
-    "truth": "coal node regions from the wiki (Fellhollow, Dowdun Reach, Umbral Sands)"
+    "truth": "Fellhollow|Dowdun Reach|Umbral Sands"
    },
    "controls": {
     "alt_means": [
      {
-      "setup": "grant_to_ground",
+      "setup": "grant",
       "item": "ITEM_Resources_Coal",
       "count": 50
+     },
+     {
+      "tool": "give",
+      "args": {
+       "player": "Tester",
+       "item": "ITEM_Resources_Coal",
+       "count": 50
+      }
+     }
+    ],
+    "partial": [
+     {
+      "note": "deliver 49"
      }
     ],
     "na": {}
@@ -94,26 +125,32 @@
     "wall_s": 5400.0,
     "model_calls": {},
     "hints_max": 1,
-    "idle_s": 180.0,
+    "idle_s": 240.0,
     "repeat": 3
    },
    "hints": {
     "ladder": [
      "any luck with the coal?",
-     "coal's in rocky places, the wiki lists the regions",
-     "Fellhollow has coal nodes, an iron pickaxe will do"
+     "it's not around here, it's in the further regions",
+     "Fellhollow has coal nodes; an iron pickaxe will do"
     ]
    },
    "targets": [
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:coal_trip_v1"
+   },
    "provenance": {
     "sources": [
      "https://dragonwilds.runescape.wiki/w/Coal",
      "https://dragonwilds.runescape.wiki/w/Coal_Node",
      "https://dragonwilds.runescape.wiki/w/Lodestone"
+    ],
+    "notes": [
+     "multi-trip can't be forced (coal stacks 99): see the proposal 5.1",
+     "Mining XP threshold 500 is a placeholder: calibrate on dev (67 XP per node hit, wiki)"
     ]
    },
    "heldout": false,
@@ -129,22 +166,40 @@
    "status": "draft",
    "tags": {
     "uses": [
-     "wiki",
-     "weakness",
-     "trips"
+     "weakness"
+    ],
+    "evidence": [
+     "referee:damage.by",
+     "referee:damage.damage_type",
+     "referee:death.by"
     ]
    },
    "chat": [
     {
      "at_s": 0.0,
-     "text": "I need 20 goblin packs, can you farm them off the goblin runts? gear up for them first",
+     "text": "I need 20 goblin packs off the goblin runts, can you farm them for me?",
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "fire",
+    "burn",
+    "weak",
+    "flame"
+   ],
    "fixtures": {
     "requires": [],
-    "setup": [],
+    "setup": [
+     {
+      "verb": "spawn_tester",
+      "as": "tester",
+      "offset_m": [
+       3,
+       0,
+       0
+      ]
+     }
+    ],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
     "player_body": true
@@ -159,16 +214,19 @@
       }
      },
      {
+      "killed": {
+       "kind": "Goblin Runt",
+       "kind_id": "BP_AI_RuntGoblin_Character_C",
+       "at_least": 20
+      }
+     },
+     {
       "damage_type_dealt": {
        "target_kind_id": "BP_AI_RuntGoblin_Character_C",
        "types": [
         "DamageType.Magical.Fire"
-       ]
-      }
-     },
-     {
-      "trips": {
-       "deposits_at_least": 2
+       ],
+       "min_share": 0.6
       }
      }
     ]
@@ -176,7 +234,8 @@
    "guards": [
     {
      "no_event": {
-      "kind": "damage_to_player"
+      "kind": "death",
+      "who": "self"
      }
     }
    ],
@@ -185,11 +244,29 @@
     "truth": "Fire"
    },
    "controls": {
+    "wrong_action": [
+     {
+      "note": "the oracle with a non-fire weapon"
+     }
+    ],
     "alt_means": [
      {
-      "setup": "grant_to_ground",
+      "setup": "grant",
       "item": "ITEM_Consumable_GoblinPack",
       "count": 20
+     },
+     {
+      "tool": "give",
+      "args": {
+       "player": "Tester",
+       "item": "ITEM_Consumable_GoblinPack",
+       "count": 20
+      }
+     }
+    ],
+    "partial": [
+     {
+      "note": "deliver 19"
      }
     ],
     "na": {}
@@ -198,7 +275,7 @@
     "wall_s": 5400.0,
     "model_calls": {},
     "hints_max": 1,
-    "idle_s": 180.0,
+    "idle_s": 240.0,
     "repeat": 3
    },
    "hints": {
@@ -212,11 +289,15 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:runt_farm_fire_v1"
+   },
    "provenance": {
-    "note": "Goblin Runt: weakness Fire, drops Goblin Pack (Always)",
     "sources": [
      "https://dragonwilds.runescape.wiki/w/Goblin_Runt"
+    ],
+    "notes": [
+     "Goblin Runt: PL1 60 HP, weakness Fire, drops Goblin Pack (Always)"
     ]
    },
    "heldout": false,
@@ -238,7 +319,15 @@
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "gear",
+    "armour",
+    "armor",
+    "weapon",
+    "pickaxe",
+    "upgrade",
+    "craft"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [],
@@ -258,9 +347,137 @@
      },
      {
       "gear_better": {
-       "category": "pickaxe",
-       "stat": "tool_tier",
+       "slot": "head",
+       "stat": "power_level",
        "where": "equipped",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "slot": "legs",
+       "stat": "power_level",
+       "where": "equipped",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "axe",
+       "stat": "power_level",
+       "where": "carried",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "bow",
+       "stat": "power_level",
+       "where": "carried",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "club",
+       "stat": "power_level",
+       "where": "carried",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "crossbow",
+       "stat": "power_level",
+       "where": "carried",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "dagger",
+       "stat": "power_level",
+       "where": "carried",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "greataxe",
+       "stat": "power_level",
+       "where": "carried",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "greatsword",
+       "stat": "power_level",
+       "where": "carried",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "hammer",
+       "stat": "power_level",
+       "where": "carried",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "mace",
+       "stat": "power_level",
+       "where": "carried",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "pickaxe",
+       "stat": "power_level",
+       "where": "carried",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "scimitar",
+       "stat": "power_level",
+       "where": "carried",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "shield",
+       "stat": "power_level",
+       "where": "carried",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "shortbow",
+       "stat": "power_level",
+       "where": "carried",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "spade",
+       "stat": "power_level",
+       "where": "carried",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "staff",
+       "stat": "power_level",
+       "where": "carried",
        "than": "start"
       }
      },
@@ -268,14 +485,167 @@
       "gear_better": {
        "category": "sword",
        "stat": "power_level",
-       "where": "equipped",
+       "where": "carried",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "thrown",
+       "stat": "power_level",
+       "where": "carried",
+       "than": "start"
+      }
+     },
+     {
+      "gear_better": {
+       "category": "wand",
+       "stat": "power_level",
+       "where": "carried",
        "than": "start"
       }
      }
     ]
    },
-   "guards": [],
+   "guards": [
+    {
+     "not": {
+      "have": {
+       "item": "ITEM_Armour_Head_EarlyAdopter",
+       "at_least": 1
+      }
+     }
+    },
+    {
+     "not": {
+      "have": {
+       "item": "ITEM_Armour_T1_Body_GildedPaladin",
+       "at_least": 1
+      }
+     }
+    },
+    {
+     "not": {
+      "have": {
+       "item": "ITEM_Armour_T1_Head_GildedPaladin",
+       "at_least": 1
+      }
+     }
+    },
+    {
+     "not": {
+      "have": {
+       "item": "ITEM_Armour_T1_Legs_GildedPaladin",
+       "at_least": 1
+      }
+     }
+    },
+    {
+     "not": {
+      "have": {
+       "item": "ITEM_Armour_T3_Head_BlackMed",
+       "at_least": 1
+      }
+     }
+    },
+    {
+     "not": {
+      "have": {
+       "item": "ITEM_Armour_T3_Head_BronzeMed",
+       "at_least": 1
+      }
+     }
+    },
+    {
+     "not": {
+      "have": {
+       "item": "ITEM_Armour_T3_Head_WhiteMed",
+       "at_least": 1
+      }
+     }
+    },
+    {
+     "not": {
+      "have": {
+       "item": "ITEM_Armour_T4_Head_IronMed",
+       "at_least": 1
+      }
+     }
+    },
+    {
+     "not": {
+      "have": {
+       "item": "ITEM_Armour_T5_Head_SteelMed",
+       "at_least": 1
+      }
+     }
+    },
+    {
+     "not": {
+      "have": {
+       "item": "ITEM_Armour_T6_Head_MithrilMed",
+       "at_least": 1
+      }
+     }
+    },
+    {
+     "not": {
+      "have": {
+       "item": "ITEM_Armour_T7_Head_AdamantMed",
+       "at_least": 1
+      }
+     }
+    },
+    {
+     "not": {
+      "have": {
+       "item": "ITEM_Armour_T8_Head_RuneMed",
+       "at_least": 1
+      }
+     }
+    },
+    {
+     "not": {
+      "have": {
+       "item": "ITEM_Cape_AlphaTest",
+       "at_least": 1
+      }
+     }
+    },
+    {
+     "not": {
+      "have": {
+       "item": "ITEM_Cape_EarlyAdopter",
+       "at_least": 1
+      }
+     }
+    },
+    {
+     "not": {
+      "have": {
+       "item": "ITEM_Cape_GildedPaladin",
+       "at_least": 1
+      }
+     }
+    },
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
    "controls": {
+    "alt_means": [
+     {
+      "note": "a better item in a shared chest: does it count? (proposal 5.3)"
+     }
+    ],
+    "partial": [
+     {
+      "note": "craft the better item but never equip or carry it"
+     }
+    ],
     "na": {}
    },
    "limits": {
@@ -288,17 +658,22 @@
    "hints": {
     "ladder": [
      "how's it going?",
-     "your gear's pretty weak",
-     "a bronze pickaxe would help"
+     "your kit's pretty basic",
+     "a bronze pickaxe or some bronze armour would help"
     ]
    },
    "targets": [
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:bronze_upgrade_v1"
+   },
    "provenance": {
-    "note": "his own initiative: the chat never names gear; one tier up on any slot or tool counts"
+    "notes": [
+     "start gear: Adventurer's T1 body + legs (probe)",
+     "entitlement items excluded (data-derived)"
+    ]
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -311,15 +686,23 @@
    "long_task": "brynmoor_quest_chain",
    "authored_by": "human",
    "status": "draft",
-   "tags": {},
+   "tags": {
+    "evidence": [
+     "probe:quests"
+    ]
+   },
    "chat": [
     {
      "at_s": 0.0,
-     "text": "let's do the Brynmoor quests, can you start on Goblin Diplomacy? the wiki has the steps",
+     "text": "let's do the Brynmoor quests, start with Goblin Diplomacy",
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "Zanik",
+    "wiki",
+    "Rune Mysteries"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [],
@@ -328,14 +711,43 @@
     "player_body": false
    },
    "success": {
-    "quest": {
-     "name": "Goblin Diplomacy",
-     "completed": true
-    }
+    "all": [
+     {
+      "quest": {
+       "name": "Rune Mysteries",
+       "completed": true
+      }
+     },
+     {
+      "quest": {
+       "name": "Goblin Diplomacy",
+       "completed": true
+      }
+     }
+    ]
    },
-   "guards": [],
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
+   "needs_fact": {
+    "kind": "quest_step",
+    "truth": "Rune Mysteries first; Zanik on the ridge in Bramblemead Valley"
+   },
    "controls": {
-    "na": {}
+    "partial": [
+     {
+      "note": "Rune Mysteries only"
+     }
+    ],
+    "na": {
+     "alt_means": "quest state has no other means",
+     "wrong_action": "no sibling quest action"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -347,7 +759,7 @@
    "hints": {
     "ladder": [
      "how far along are you?",
-     "Zanik starts it in Bramblemead Valley",
+     "Goblin Diplomacy needs Rune Mysteries done first",
      "Zanik is on the ridge in Bramblemead Valley, over the Whispering Swamp"
     ]
    },
@@ -355,11 +767,13 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:quest_chain_v1"
+   },
    "provenance": {
-    "note": "quest{} evaluates null until quest perception lands (a perception gap, never a pass)",
     "sources": [
      "https://dragonwilds.runescape.wiki/w/Goblin_Diplomacy",
+     "https://dragonwilds.runescape.wiki/w/Rune_Mysteries",
      "https://dragonwilds.runescape.wiki/w/Quests"
     ]
    },
@@ -378,11 +792,16 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "can you farm some desert weed at our farm? we need a stack of it",
+     "text": "can you farm some desert weed at our farm? twenty-odd would do",
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "yew",
+    "plot",
+    "seed",
+    "water"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
@@ -394,29 +813,42 @@
     ],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": true
+    "player_body": false
    },
    "success": {
     "all": [
      {
-      "gained": {
-       "item": "Desert Weed",
-       "at_least": 20
+      "gained_at": {
+       "item": "ITEM_Resources_Weed_Desert",
+       "at_least": 20,
+       "place": "our farm",
+       "within_m": 15
       }
      },
      {
-      "near": {
-       "place": "our farm",
-       "within_m": 30
+      "gained_at": {
+       "item": "ITEM_Farming_Seed_Weed_Desert",
+       "at_least": 0,
+       "place": "our farm"
       }
      }
     ]
    },
-   "guards": [],
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
    "controls": {
     "alt_means": [
      {
-      "setup": "grant_to_ground",
+      "note": "wild gather in Umbral Sands, then walk to the farm: must fail (gains not at the plots)"
+     },
+     {
+      "setup": "grant",
       "item": "ITEM_Resources_Weed_Desert",
       "count": 20
      }
@@ -427,13 +859,13 @@
     "wall_s": 7200.0,
     "model_calls": {},
     "hints_max": 1,
-    "idle_s": 300.0,
+    "idle_s": 900.0,
     "repeat": 3
    },
    "hints": {
     "ladder": [
      "how's the farm?",
-     "you need desert weed seeds and a plot",
+     "you need seeds and a plot",
      "desert weed seeds grow best in a yew farming plot"
     ]
    },
@@ -441,11 +873,17 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:desert_weed_v1"
+   },
    "provenance": {
     "sources": [
      "https://dragonwilds.runescape.wiki/w/Desert_Weed_(Farming)",
      "https://dragonwilds.runescape.wiki/w/Desert_Weed_Seeds"
+    ],
+    "notes": [
+     "idle_s 900: crop stage times to be measured on dev",
+     "farm position: Luis (proposal 5.4)"
     ]
    },
    "heldout": false,

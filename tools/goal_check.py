@@ -358,7 +358,7 @@ def metric_from_cases(d: Data, name: str, key: str, want_v: float, at_most: bool
 def damage_trend(d: Data, name: str, spec: str) -> Row:
     need = next((int(w) for w in str(spec).split() if w.isdigit()), 5)
     series = [((c.get("process") or {}).get("fight_i", c.get("repeat_i", 0)), float((c.get("process") or {})["damage_taken"])) for _, c in
-              _cases(d, lambda c: c.get("family") == "tactics" and "damage_taken" in (c.get("process") or {}))]
+              _cases(d, lambda c: c.get("family") == "tactics_trend" and "damage_taken" in (c.get("process") or {}))]
     if len(series) < need:
         return _no_runs_row(d, name, f"falling over {need}") if not series else \
             Row(name, NOT_MET, f"{len(series)} fights", f"falling over {need}", "-", None, f"needs {need} fights")
@@ -485,7 +485,7 @@ def rows_for(d: Data, key: str) -> list[Row]:
         cfg = t.get(key) or {}
         out = []
         if "prep_before_hard_fight_pct" in cfg:
-            out.append(family_target(d, f"{key}:prep_before_hard_fight_pct", "tactics", float(cfg["prep_before_hard_fight_pct"])))
+            out.append(family_target(d, f"{key}:prep_before_hard_fight_pct", "tactics_prep", float(cfg["prep_before_hard_fight_pct"])))
         if "telegraph_dodge_success_pct" in cfg:
             out.append(metric_from_cases(d, f"{key}:telegraph_dodge_success_pct", "", float(cfg["telegraph_dodge_success_pct"]),
                                          ratio=("dodged", "telegraphs")))

@@ -7,159 +7,159 @@
   "spell_cast": [
    {
     "id": "t0_cast_accesspersonalchest",
-    "hash": "c0835c948a6135d5"
+    "hash": "f7db82dd650fe450"
    },
    {
     "id": "t0_cast_axtralprojection",
-    "hash": "b4b4bde07fb945f7"
+    "hash": "7038b3a748f0603a"
    },
    {
     "id": "t0_cast_bonestopeaches",
-    "hash": "27dc38eded7b4ff3"
+    "hash": "b47527de8fb2158b"
    },
    {
     "id": "t0_cast_confuse",
-    "hash": "f0e7c1b6f0d550a0"
+    "hash": "682b4d8377ad6cc0"
    },
    {
     "id": "t0_cast_corruptionarrows",
-    "hash": "6f3113a0866c9e84"
+    "hash": "e6b6834719f5529b"
    },
    {
     "id": "t0_cast_detectanimavents",
-    "hash": "1a0ce15bc9e69431"
+    "hash": "8ff4aaa7938dca4a"
    },
    {
     "id": "t0_cast_detectore",
-    "hash": "8c2e8505df96d6f3"
+    "hash": "e1cb3238dceb52f0"
    },
    {
     "id": "t0_cast_divinerock",
-    "hash": "eeafc5d362c0d09b"
+    "hash": "81a6ec2b1d6cff53"
    },
    {
     "id": "t0_cast_enchantweapon_air",
-    "hash": "5e6f1b7b63e98dc4"
+    "hash": "c5534cb7c18ae4de"
    },
    {
     "id": "t0_cast_enchantweapon_fire",
-    "hash": "c305c7553a3275c2"
+    "hash": "15242017524351ea"
    },
    {
     "id": "t0_cast_enchantweapon_water",
-    "hash": "11f19ffa64922ccf"
+    "hash": "2a59a30f7ed98124"
    },
    {
     "id": "t0_cast_enfeeble",
-    "hash": "e656d52dd1a288e1"
+    "hash": "c52691eb09a56946"
    },
    {
     "id": "t0_cast_eyeofoculus",
-    "hash": "915ea7581b258b89"
+    "hash": "21684e3322f3ba59"
    },
    {
     "id": "t0_cast_farming_compost",
-    "hash": "f2a81437cde50625"
+    "hash": "775bb07397c75480"
    },
    {
     "id": "t0_cast_farming_rapidgrowth",
-    "hash": "3e8f92b3c226d558"
+    "hash": "6f3586872c48e22c"
    },
    {
     "id": "t0_cast_ferociousfurnace",
-    "hash": "fdbf562cb2fd8483"
+    "hash": "089408c8bfe687e9"
    },
    {
     "id": "t0_cast_firespirit",
-    "hash": "cd147589100031f3"
+    "hash": "befd9f92cbd3692c"
    },
    {
     "id": "t0_cast_fishcyclone",
-    "hash": "aafd57083baf79d3"
+    "hash": "78d2bd0edc60d72d"
    },
    {
     "id": "t0_cast_fishingfrenzy",
-    "hash": "762ff8e236349b17"
+    "hash": "cdbf1fd04872ab70"
    },
    {
     "id": "t0_cast_harvest",
-    "hash": "86ccb904726e439a"
+    "hash": "48dc2cb7ab11f225"
    },
    {
     "id": "t0_cast_hometeleport",
-    "hash": "50dd09f2baff535b"
+    "hash": "942bbacfcedc1ae4"
    },
    {
     "id": "t0_cast_humidify",
-    "hash": "6530a5a75162ac64"
+    "hash": "b18ebf73ade6ec32"
    },
    {
     "id": "t0_cast_infernalrod",
-    "hash": "f570f5053633f308"
+    "hash": "a3ceaf6655dacfed"
    },
    {
     "id": "t0_cast_internalalchemy",
-    "hash": "f98cab94d7d8207e"
+    "hash": "981c7281cc558248"
    },
    {
     "id": "t0_cast_magicalmending",
-    "hash": "2514add4b0aef8f8"
+    "hash": "554fe5934a51f323"
    },
    {
     "id": "t0_cast_phasedash",
-    "hash": "33335c45c7601331"
+    "hash": "06c9dc0a821fcb74"
    },
    {
     "id": "t0_cast_pileemup",
-    "hash": "00ee2977ced399ac"
+    "hash": "f532a8be8876d35b"
    },
    {
     "id": "t0_cast_recall",
-    "hash": "ac323b54c5c9bba0"
+    "hash": "9645f6581d953978"
    },
    {
     "id": "t0_cast_rocksplosion",
-    "hash": "77229edfdee46058"
+    "hash": "a7772d02331bc5da"
    },
    {
     "id": "t0_cast_runestoruneessence",
-    "hash": "27db9e7e66fa3cbe"
+    "hash": "b20e282334177f1e"
    },
    {
     "id": "t0_cast_snaretrap",
-    "hash": "49f598221780fb25"
+    "hash": "7685fca46e5b35da"
    },
    {
     "id": "t0_cast_speedupstation",
-    "hash": "3266056f4bf1ae94"
+    "hash": "6f61bfcaa235a5b7"
    },
    {
     "id": "t0_cast_splinter",
-    "hash": "06443a721eeafe15"
+    "hash": "67331584975de3a9"
    },
    {
     "id": "t0_cast_summonshelter",
-    "hash": "ead9ca2a90c3eed2"
+    "hash": "38fbcfd5e65ba102"
    },
    {
     "id": "t0_cast_surge",
-    "hash": "12066fb86b0b6ace"
+    "hash": "f2c47ce6272dffbb"
    },
    {
     "id": "t0_cast_tempestshield",
-    "hash": "a3f7759effd5d032"
+    "hash": "4deb470b81380613"
    },
    {
     "id": "t0_cast_treequipment",
-    "hash": "a20ab86647594b62"
+    "hash": "237aa47da34e1713"
    },
    {
     "id": "t0_cast_vengeance",
-    "hash": "e6e7aa772a2a4f56"
+    "hash": "c5e88847d3e5a76d"
    },
    {
     "id": "t0_cast_windstep",
-    "hash": "19a4b8d07f0f919d"
+    "hash": "7bd3bc093532aa10"
    }
   ],
   "spell_use": [

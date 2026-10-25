@@ -16,7 +16,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Personal Chest for me",
+     "text": "Claude, use Personal Chest for me",
      "from": "player"
     }
    ],
@@ -129,7 +129,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Axtral Projection for me",
+     "text": "Claude, use Axtral Projection for me",
      "from": "player"
     }
    ],
@@ -242,7 +242,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Bones to Peaches for me",
+     "text": "Claude, use Bones to Peaches for me",
      "from": "player"
     }
    ],
@@ -355,7 +355,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Confuse for me",
+     "text": "Claude, use Confuse for me",
      "from": "player"
     }
    ],
@@ -467,7 +467,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Spectral Arrows for me",
+     "text": "Claude, use Spectral Arrows for me",
      "from": "player"
     }
    ],
@@ -590,7 +590,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Summon Elemental Spirits for me",
+     "text": "Claude, use Summon Elemental Spirits for me",
      "from": "player"
     }
    ],
@@ -703,7 +703,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Summon Stone Spirits for me",
+     "text": "Claude, use Summon Stone Spirits for me",
      "from": "player"
     }
    ],
@@ -816,7 +816,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Divine Rock for me",
+     "text": "Claude, use Divine Rock for me",
      "from": "player"
     }
    ],
@@ -929,7 +929,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Enchant Weapon: Air for me",
+     "text": "Claude, use Enchant Weapon: Air for me",
      "from": "player"
     }
    ],
@@ -1052,7 +1052,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Enchant Weapon: Fire for me",
+     "text": "Claude, use Enchant Weapon: Fire for me",
      "from": "player"
     }
    ],
@@ -1175,7 +1175,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Enchant Weapon: Water for me",
+     "text": "Claude, use Enchant Weapon: Water for me",
      "from": "player"
     }
    ],
@@ -1298,7 +1298,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Enfeeble for me",
+     "text": "Claude, use Enfeeble for me",
      "from": "player"
     }
    ],
@@ -1410,7 +1410,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Eye Of Oculus for me",
+     "text": "Claude, use Eye Of Oculus for me",
      "from": "player"
     }
    ],
@@ -1522,7 +1522,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Mucksplosion for me",
+     "text": "Claude, use Mucksplosion for me",
      "from": "player"
     }
    ],
@@ -1635,7 +1635,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Rapid Growth for me",
+     "text": "Claude, use Rapid Growth for me",
      "from": "player"
     }
    ],
@@ -1748,7 +1748,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Superheat for me",
+     "text": "Claude, use Superheat for me",
      "from": "player"
     }
    ],
@@ -1861,7 +1861,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Fire Spirit for me",
+     "text": "Claude, use Fire Spirit for me",
      "from": "player"
     }
    ],
@@ -1973,7 +1973,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Fishnado for me",
+     "text": "Claude, use Fishnado for me",
      "from": "player"
     }
    ],
@@ -2091,7 +2091,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Fishing Frenzy for me",
+     "text": "Claude, use Fishing Frenzy for me",
      "from": "player"
     }
    ],
@@ -2204,7 +2204,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Uproot for me",
+     "text": "Claude, use Uproot for me",
      "from": "player"
     }
    ],
@@ -2317,7 +2317,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Home Teleport for me",
+     "text": "Claude, use Home Teleport for me",
      "from": "player"
     }
    ],
@@ -2429,7 +2429,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Humidify for me",
+     "text": "Claude, use Humidify for me",
      "from": "player"
     }
    ],
@@ -2541,7 +2541,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Infernal Rod for me",
+     "text": "Claude, use Infernal Rod for me",
      "from": "player"
     }
    ],
@@ -2663,7 +2663,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Internal Alchemy for me",
+     "text": "Claude, use Internal Alchemy for me",
      "from": "player"
     }
    ],
@@ -2775,7 +2775,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Magical Mending for me",
+     "text": "Claude, use Magical Mending for me",
      "from": "player"
     }
    ],
@@ -2888,7 +2888,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Phase Dash for me",
+     "text": "Claude, use Phase Dash for me",
      "from": "player"
     }
    ],
@@ -3012,7 +3012,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Trunk Totem for me",
+     "text": "Claude, use Trunk Totem for me",
      "from": "player"
     }
    ],
@@ -3125,7 +3125,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Recall for me",
+     "text": "Claude, use Recall for me",
      "from": "player"
     }
    ],
@@ -3220,7 +3220,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Rocksplosion for me",
+     "text": "Claude, use Rocksplosion for me",
      "from": "player"
     }
    ],
@@ -3338,7 +3338,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Runes To Rune Essence for me",
+     "text": "Claude, use Runes To Rune Essence for me",
      "from": "player"
     }
    ],
@@ -3451,7 +3451,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Snare for me",
+     "text": "Claude, use Snare for me",
      "from": "player"
     }
    ],
@@ -3564,7 +3564,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Overdrive for me",
+     "text": "Claude, use Overdrive for me",
      "from": "player"
     }
    ],
@@ -3677,7 +3677,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Splinter for me",
+     "text": "Claude, use Splinter for me",
      "from": "player"
     }
    ],
@@ -3796,7 +3796,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Summon Shelter for me",
+     "text": "Claude, use Summon Shelter for me",
      "from": "player"
     }
    ],
@@ -3909,7 +3909,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Surge for me",
+     "text": "Claude, use Surge for me",
      "from": "player"
     }
    ],
@@ -4022,7 +4022,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Tempest Shield for me",
+     "text": "Claude, use Tempest Shield for me",
      "from": "player"
     }
    ],
@@ -4134,7 +4134,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Bark to Bones for me",
+     "text": "Claude, use Bark to Bones for me",
      "from": "player"
     }
    ],
@@ -4247,7 +4247,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Vengeance for me",
+     "text": "Claude, use Vengeance for me",
      "from": "player"
     }
    ],
@@ -4360,7 +4360,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "hey, use Windstep for me",
+     "text": "Claude, use Windstep for me",
      "from": "player"
     }
    ],

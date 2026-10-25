@@ -31,7 +31,7 @@ def case(cid: str, family: str, result: str = "pass", **kw) -> dict:
             "hints_used": 0, "repeat_i": 0, "entry_hash": "", **kw}
 
 
-SIZES = {"spell_cast": 80, "craft": 40, "spell_use": 20, "combat": 20, "adversarial": 20, "tactics": 20}  # LB needs n
+SIZES = {"spell_cast": 80, "craft": 40, "spell_use": 20, "combat": 20, "adversarial": 20, "tactics_prep": 20}  # LB needs n
 
 
 def full_suite() -> list[dict]:
@@ -40,11 +40,12 @@ def full_suite() -> list[dict]:
     out += [case(f"basic_{b}", "combat_basic", basic=b) for b in TARGETS["combat_basics_live_proven"]]
     out += [case(f"skill_{s}_{m}", "skill_train", skill=s, mode=m) for s in SKILLS for m in ("asked", "initiative", "plus5")]
     out += [case("cap_velgar", "capstone", capstone="slay_velgar_solo"), case("capstone_stage_1", "capstone_stage")]
+    out += [case(f"trend_{i}", "tactics_trend") for i in range(5)]
     for i, c in enumerate(out):
         c["process"] = {"shots": 10, "hits": 9, "telegraphs": 10, "dodged": 9, "efficiency_pct": 85.0,
                         "lookup_when_needed": True, "fact_correct": True, "needless_lookup": False,
-                        **({"damage_taken": 100.0 - 10 * c["repeat_i"]} if c["family"] == "tactics" else {})}
-    for k, c in enumerate(x for x in out if x["family"] == "tactics"):
+                        }
+    for k, c in enumerate(x for x in out if x["family"] == "tactics_trend"):
         c["process"]["fight_i"] = k
         c["process"]["damage_taken"] = 200.0 - 5 * k
     return out

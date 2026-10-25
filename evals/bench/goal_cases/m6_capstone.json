@@ -6,13 +6,14 @@
    "version": 1,
    "tier": "T3",
    "family": "capstone_stage",
+   "capstone": "brynmoor_progression",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
    "chat": [
     {
      "at_s": 0.0,
-     "text": "build a shelter with a bed and claim it",
+     "text": "let's keep going with the Velgar stuff, what's next?",
      "from": "player"
     }
    ],
@@ -21,18 +22,29 @@
     "requires": [],
     "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
     "quest": {
      "name": "Dragon Slayer",
-     "stage": "shelter"
+     "stage": "<the shelter objective key from quest data>"
     }
    },
-   "guards": [],
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
    "controls": {
-    "na": {}
+    "na": {
+     "alt_means": "stage state",
+     "wrong_action": "n/a",
+     "partial": "the stage's own progress"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -48,14 +60,16 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:capstone_shelter_v1"
+   },
    "provenance": {
     "sources": [
      "https://dragonwilds.runescape.wiki/w/Dragon_Slayer",
      "https://dragonwilds.runescape.wiki/w/Quests",
      "https://dragonwilds.runescape.wiki/w/Brynmoor"
     ],
-    "note": "stage order from the wiki (Dragon Slayer walkthrough, Brynmoor secondary quests); quest stages evaluate null until quest perception lands"
+    "note": "chained snapshot: starts from the previous stage's verified end state (review V-8)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -65,13 +79,14 @@
    "version": 1,
    "tier": "T3",
    "family": "capstone_stage",
+   "capstone": "brynmoor_progression",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
    "chat": [
     {
      "at_s": 0.0,
-     "text": "do the Growing Pains quest",
+     "text": "let's keep going with the Velgar stuff, what's next?",
      "from": "player"
     }
    ],
@@ -80,7 +95,7 @@
     "requires": [],
     "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "capstone_after_shelter",
     "player_body": false
    },
    "success": {
@@ -89,9 +104,20 @@
      "completed": true
     }
    },
-   "guards": [],
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
    "controls": {
-    "na": {}
+    "na": {
+     "alt_means": "stage state",
+     "wrong_action": "n/a",
+     "partial": "the stage's own progress"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -107,14 +133,16 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:capstone_growing_pains_v1"
+   },
    "provenance": {
     "sources": [
      "https://dragonwilds.runescape.wiki/w/Dragon_Slayer",
      "https://dragonwilds.runescape.wiki/w/Quests",
      "https://dragonwilds.runescape.wiki/w/Brynmoor"
     ],
-    "note": "stage order from the wiki (Dragon Slayer walkthrough, Brynmoor secondary quests); quest stages evaluate null until quest perception lands"
+    "note": "chained snapshot: starts from the previous stage's verified end state (review V-8)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -124,13 +152,14 @@
    "version": 1,
    "tier": "T3",
    "family": "capstone_stage",
+   "capstone": "brynmoor_progression",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
    "chat": [
     {
      "at_s": 0.0,
-     "text": "do Shrimp Catcher",
+     "text": "let's keep going with the Velgar stuff, what's next?",
      "from": "player"
     }
    ],
@@ -139,7 +168,7 @@
     "requires": [],
     "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "capstone_after_growing_pains",
     "player_body": false
    },
    "success": {
@@ -148,9 +177,20 @@
      "completed": true
     }
    },
-   "guards": [],
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
    "controls": {
-    "na": {}
+    "na": {
+     "alt_means": "stage state",
+     "wrong_action": "n/a",
+     "partial": "the stage's own progress"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -166,14 +206,16 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:capstone_shrimp_catcher_v1"
+   },
    "provenance": {
     "sources": [
      "https://dragonwilds.runescape.wiki/w/Dragon_Slayer",
      "https://dragonwilds.runescape.wiki/w/Quests",
      "https://dragonwilds.runescape.wiki/w/Brynmoor"
     ],
-    "note": "stage order from the wiki (Dragon Slayer walkthrough, Brynmoor secondary quests); quest stages evaluate null until quest perception lands"
+    "note": "chained snapshot: starts from the previous stage's verified end state (review V-8)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -183,13 +225,14 @@
    "version": 1,
    "tier": "T3",
    "family": "capstone_stage",
+   "capstone": "brynmoor_progression",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
    "chat": [
     {
      "at_s": 0.0,
-     "text": "do Restless Ghosts",
+     "text": "let's keep going with the Velgar stuff, what's next?",
      "from": "player"
     }
    ],
@@ -198,7 +241,7 @@
     "requires": [],
     "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "capstone_after_shrimp_catcher",
     "player_body": false
    },
    "success": {
@@ -207,9 +250,20 @@
      "completed": true
     }
    },
-   "guards": [],
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
    "controls": {
-    "na": {}
+    "na": {
+     "alt_means": "stage state",
+     "wrong_action": "n/a",
+     "partial": "the stage's own progress"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -225,30 +279,33 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:capstone_restless_ghosts_v1"
+   },
    "provenance": {
     "sources": [
      "https://dragonwilds.runescape.wiki/w/Dragon_Slayer",
      "https://dragonwilds.runescape.wiki/w/Quests",
      "https://dragonwilds.runescape.wiki/w/Brynmoor"
     ],
-    "note": "stage order from the wiki (Dragon Slayer walkthrough, Brynmoor secondary quests); quest stages evaluate null until quest perception lands"
+    "note": "chained snapshot: starts from the previous stage's verified end state (review V-8)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
   {
-   "id": "capstone_stage_5_goblin_diplomacy",
+   "id": "capstone_stage_5_highlighting_the_problem",
    "version": 1,
    "tier": "T3",
    "family": "capstone_stage",
+   "capstone": "brynmoor_progression",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
    "chat": [
     {
      "at_s": 0.0,
-     "text": "do Goblin Diplomacy",
+     "text": "let's keep going with the Velgar stuff, what's next?",
      "from": "player"
     }
    ],
@@ -257,66 +314,7 @@
     "requires": [],
     "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
-    "player_body": false
-   },
-   "success": {
-    "quest": {
-     "name": "Goblin Diplomacy",
-     "completed": true
-    }
-   },
-   "guards": [],
-   "controls": {
-    "na": {}
-   },
-   "limits": {
-    "wall_s": 7200.0,
-    "model_calls": {},
-    "hints_max": 0,
-    "idle_s": 300.0,
-    "repeat": 1
-   },
-   "hints": {
-    "ladder": []
-   },
-   "targets": [
-    "dev"
-   ],
-   "risk": "low",
-   "oracle": {},
-   "provenance": {
-    "sources": [
-     "https://dragonwilds.runescape.wiki/w/Dragon_Slayer",
-     "https://dragonwilds.runescape.wiki/w/Quests",
-     "https://dragonwilds.runescape.wiki/w/Brynmoor"
-    ],
-    "note": "stage order from the wiki (Dragon Slayer walkthrough, Brynmoor secondary quests); quest stages evaluate null until quest perception lands"
-   },
-   "heldout": false,
-   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
-  },
-  {
-   "id": "capstone_stage_6_highlighting_the_problem",
-   "version": 1,
-   "tier": "T3",
-   "family": "capstone_stage",
-   "authored_by": "human",
-   "status": "draft",
-   "tags": {},
-   "chat": [
-    {
-     "at_s": 0.0,
-     "text": "do Highlighting the Problem",
-     "from": "player"
-    }
-   ],
-   "forbid_terms": [],
-   "fixtures": {
-    "requires": [],
-    "setup": [],
-    "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "capstone_after_restless_ghosts",
     "player_body": false
    },
    "success": {
@@ -325,9 +323,20 @@
      "completed": true
     }
    },
-   "guards": [],
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
    "controls": {
-    "na": {}
+    "na": {
+     "alt_means": "stage state",
+     "wrong_action": "n/a",
+     "partial": "the stage's own progress"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -343,30 +352,33 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:capstone_highlighting_the_problem_v1"
+   },
    "provenance": {
     "sources": [
      "https://dragonwilds.runescape.wiki/w/Dragon_Slayer",
      "https://dragonwilds.runescape.wiki/w/Quests",
      "https://dragonwilds.runescape.wiki/w/Brynmoor"
     ],
-    "note": "stage order from the wiki (Dragon Slayer walkthrough, Brynmoor secondary quests); quest stages evaluate null until quest perception lands"
+    "note": "chained snapshot: starts from the previous stage's verified end state (review V-8)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
   {
-   "id": "capstone_stage_7_iron_tools",
+   "id": "capstone_stage_6_iron_tools",
    "version": 1,
    "tier": "T3",
    "family": "capstone_stage",
+   "capstone": "brynmoor_progression",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
    "chat": [
     {
      "at_s": 0.0,
-     "text": "get yourself an iron pickaxe and an iron logging axe",
+     "text": "let's keep going with the Velgar stuff, what's next?",
      "from": "player"
     }
    ],
@@ -375,7 +387,7 @@
     "requires": [],
     "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "capstone_after_highlighting_the_problem",
     "player_body": false
    },
    "success": {
@@ -391,12 +403,29 @@
        "item": "Iron Logging Axe",
        "at_least": 1
       }
+     },
+     {
+      "xp_gained": {
+       "skill": "Artisan",
+       "at_least": 1
+      }
      }
     ]
    },
-   "guards": [],
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
    "controls": {
-    "na": {}
+    "na": {
+     "alt_means": "stage state",
+     "wrong_action": "n/a",
+     "partial": "the stage's own progress"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -412,30 +441,33 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:capstone_iron_tools_v1"
+   },
    "provenance": {
     "sources": [
      "https://dragonwilds.runescape.wiki/w/Dragon_Slayer",
      "https://dragonwilds.runescape.wiki/w/Quests",
      "https://dragonwilds.runescape.wiki/w/Brynmoor"
     ],
-    "note": "stage order from the wiki (Dragon Slayer walkthrough, Brynmoor secondary quests); quest stages evaluate null until quest perception lands"
+    "note": "chained snapshot: starts from the previous stage's verified end state (review V-8)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
   {
-   "id": "capstone_stage_8_challenge_horn",
+   "id": "capstone_stage_7_challenge_horn",
    "version": 1,
    "tier": "T3",
    "family": "capstone_stage",
+   "capstone": "brynmoor_progression",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
    "chat": [
     {
      "at_s": 0.0,
-     "text": "make the challenge horn for Velgar",
+     "text": "let's keep going with the Velgar stuff, what's next?",
      "from": "player"
     }
    ],
@@ -444,18 +476,39 @@
     "requires": [],
     "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "capstone_after_iron_tools",
     "player_body": false
    },
    "success": {
-    "have": {
-     "item": "Challenge Horn",
-     "at_least": 1
-    }
+    "all": [
+     {
+      "have": {
+       "item": "ITEM_Masterworks_Challenge_Horn",
+       "at_least": 1
+      }
+     },
+     {
+      "xp_gained": {
+       "skill": "Artisan",
+       "at_least": 1
+      }
+     }
+    ]
    },
-   "guards": [],
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
    "controls": {
-    "na": {}
+    "na": {
+     "alt_means": "stage state",
+     "wrong_action": "n/a",
+     "partial": "the stage's own progress"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -471,30 +524,33 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:capstone_challenge_horn_v1"
+   },
    "provenance": {
     "sources": [
      "https://dragonwilds.runescape.wiki/w/Dragon_Slayer",
      "https://dragonwilds.runescape.wiki/w/Quests",
      "https://dragonwilds.runescape.wiki/w/Brynmoor"
     ],
-    "note": "stage order from the wiki (Dragon Slayer walkthrough, Brynmoor secondary quests); quest stages evaluate null until quest perception lands"
+    "note": "chained snapshot: starts from the previous stage's verified end state (review V-8)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
   {
-   "id": "capstone_stage_9_pl4_gear",
+   "id": "capstone_stage_8_pl4_gear",
    "version": 1,
    "tier": "T3",
    "family": "capstone_stage",
+   "capstone": "brynmoor_progression",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
    "chat": [
     {
      "at_s": 0.0,
-     "text": "gear up to power level 4 before Velgar",
+     "text": "let's keep going with the Velgar stuff, what's next?",
      "from": "player"
     }
    ],
@@ -503,21 +559,54 @@
     "requires": [],
     "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "capstone_after_challenge_horn",
     "player_body": false
    },
    "success": {
-    "gear_better": {
-     "slot": "body",
-     "stat": "power_level",
-     "where": "equipped",
-     "than": 3,
-     "op": ">="
-    }
+    "all": [
+     {
+      "gear_better": {
+       "slot": "head",
+       "stat": "power_level",
+       "where": "equipped",
+       "than": 3,
+       "op": ">"
+      }
+     },
+     {
+      "gear_better": {
+       "slot": "body",
+       "stat": "power_level",
+       "where": "equipped",
+       "than": 3,
+       "op": ">"
+      }
+     },
+     {
+      "gear_better": {
+       "slot": "legs",
+       "stat": "power_level",
+       "where": "equipped",
+       "than": 3,
+       "op": ">"
+      }
+     }
+    ]
    },
-   "guards": [],
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
    "controls": {
-    "na": {}
+    "na": {
+     "alt_means": "stage state",
+     "wrong_action": "n/a",
+     "partial": "the stage's own progress"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -533,14 +622,16 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:capstone_pl4_gear_v1"
+   },
    "provenance": {
     "sources": [
      "https://dragonwilds.runescape.wiki/w/Dragon_Slayer",
      "https://dragonwilds.runescape.wiki/w/Quests",
      "https://dragonwilds.runescape.wiki/w/Brynmoor"
     ],
-    "note": "stage order from the wiki (Dragon Slayer walkthrough, Brynmoor secondary quests); quest stages evaluate null until quest perception lands"
+    "note": "chained snapshot: starts from the previous stage's verified end state (review V-8)"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -553,24 +644,33 @@
    "capstone": "slay_velgar_solo",
    "authored_by": "human",
    "status": "draft",
-   "tags": {},
+   "tags": {
+    "evidence": [
+     "referee:damage.by",
+     "referee:death.by",
+     "referee:defended",
+     "probe:held_effects"
+    ]
+   },
    "chat": [
     {
      "at_s": 0.0,
-     "text": "time to take on Velgar. read up on him, get ready properly, and do it on your own",
+     "text": "Velgar's next. Get yourself ready and take him on by yourself",
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "antipoison",
+    "poison",
+    "shield",
+    "enchant",
+    "air",
+    "food",
+    "potion"
+   ],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "grant",
-      "item": "ITEM_Masterworks_Challenge_Horn",
-      "count": 1
-     }
-    ],
+    "setup": [],
     "scene": {},
     "state_snapshot": "capstone_v1",
     "player_body": false
@@ -585,19 +685,55 @@
       }
      },
      {
+      "solo": {
+       "target_kind_id": "BP_AI_DragonVelgar_Character_C"
+      }
+     },
+     {
       "prepared": {
-       "any": [
+       "target_kind_id": "BP_AI_DragonVelgar_Character_C",
+       "all": [
         {
          "item": "ITEM_Consumable_Potion_T2_Lesser_Antipoison",
-         "at_least": 1
+         "at_least": 1,
+         "gained_since_start": true
         },
         {
-         "tag": "Player.Status.TempestShield"
+         "items_any": [
+          "ITEM_Consumable_BerryDrizzle_Pan-Seared",
+          "ITEM_Consumable_Fish_Anchovies"
+         ],
+         "at_least": 3
         },
         {
-         "enchant_type": "DamageType.Magical.Air"
+         "predicate": {
+          "gear_better": {
+           "slot": "body",
+           "stat": "power_level",
+           "where": "equipped",
+           "than": 3,
+           "op": ">"
+          }
+         }
+        },
+        {
+         "any_of": [
+          {
+           "tag": "Player.Status.TempestShield"
+          },
+          {
+           "enchant_type": "DamageType.Magical.Air"
+          }
+         ]
         }
        ]
+      }
+     },
+     {
+      "defended": {
+       "kind": "dodge",
+       "against": "telegraph",
+       "at_least": 5
       }
      }
     ]
@@ -612,17 +748,25 @@
    ],
    "needs_fact": {
     "kind": "weakness",
-    "truth": "immune to poison and burning; poison breath -> antipoison"
+    "truth": "no weakness; immune to poison and burning; poison breath -> antipoison"
    },
    "controls": {
-    "na": {}
+    "partial": [
+     {
+      "note": "fight unprepared"
+     }
+    ],
+    "na": {
+     "alt_means": "the kill is the capability",
+     "wrong_action": "n/a"
+    }
    },
    "limits": {
     "wall_s": 5400.0,
     "model_calls": {},
     "hints_max": 0,
     "idle_s": 300.0,
-    "repeat": 1
+    "repeat": 3
    },
    "hints": {
     "ladder": []
@@ -631,14 +775,19 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:velgar_v1"
+   },
    "provenance": {
     "sources": [
      "https://dragonwilds.runescape.wiki/w/Velgar",
      "https://dragonwilds.runescape.wiki/w/Velgar/Strategies",
      "https://dragonwilds.runescape.wiki/w/Dragon_Slayer"
     ],
-    "note": "SOLO on dev: no player help; PL 4, 6000 HP; telegraphed attacks: poison spray, poison puddle bombs, leg stomp spikes, bite and head swipe; flies off at 3/4, 1/2, 1/4 HP"
+    "notes": [
+     "SOLO on dev; PL4, 6000 HP; telegraphed: poison spray, puddle bombs, leg-stomp spikes, bite, head swipe; flies off at 3/4, 1/2, 1/4 HP",
+     "'levelled gear' not checkable (proposal 5.5)"
+    ]
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"

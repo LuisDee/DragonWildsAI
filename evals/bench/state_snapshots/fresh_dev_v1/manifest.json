@@ -1,0 +1,24 @@
+{
+  "schema": "dw_bench_snapshot/1",
+  "name": "fresh_dev_v1",
+  "status": "draft",
+  "describes": "A freshly created ClaudeDev on the dev world: no gear in any slot, all 12 skills at level 1 with 0 XP, no quests beyond the automatic tutorial start, no lodestones built (only the inactive Temple lodestone), spawn at the church start area.",
+  "character": {
+    "gear": {"head": null, "body": null, "legs": null, "cape": null, "right": null, "left": null},
+    "bag": {"ITEM_Torch": 1},
+    "skills_level": 1,
+    "quests_completed": [],
+    "lodestones": {"built": [], "active": []},
+    "spawn": [62.6, 1881.5, -35.4]
+  },
+  "brain_seed": [],
+  "setup": [],
+  "requires": [
+    {"skill": {"name": "Mining", "at_least": 1}},
+    {"not": {"have": {"item": "ITEM_Pickaxe_Iron", "at_least": 1}}}
+  ],
+  "open_questions": [
+    "No reset verb exists yet: a used ClaudeDev is not fresh. Needs a new dev character per suite run, or a verified reset route (reset_skills / inventory clear).",
+    "Lodestone state and quest state must be read by the probe (quests: v2 reads QuestProgressComponent; lodestones: not yet)."
+  ]
+}

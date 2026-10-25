@@ -175,10 +175,14 @@ def evidence_ctx(rec: Record, baseline_state: dict, spells: dict, now: float, pl
     sup = referee_supports if referee_supports is not None else set()
     episodes = list(rec.episodes)
     if "death" in sup:  # kills come from the referee (harness-owned), never from the body's own combat_end claims
+        deaths = [e for e in rec.referee if e.get("kind") == "death" and e.get("who") != "self"]
         episodes = [e for e in episodes if e.get("kind") != "combat_end"]
-        episodes += [{"kind": "combat_end", "outcome": "killed", "target": e.get("kind_id"), "target_id": e.get("who"),
-                      "target_class": e.get("kind_id"), "by": "referee", "t": e.get("t")}
-                     for e in rec.referee if e.get("kind") == "death" and e.get("who") != "self"]
+        if deaths and not any("by" in e for e in deaths):
+            episodes = None  # the referee can't attribute kills yet: 'killed' is a perception gap, never a pass (C3)
+        else:
+            episodes += [{"kind": "combat_end", "outcome": "killed", "target": e.get("kind_id"), "target_id": e.get("who"),
+                          "target_class": e.get("kind_id"), "by": "referee", "t": e.get("t")}
+                         for e in deaths if e.get("by") == "self"]
     return {"baseline": snapshot(baseline_state, t=(rec.probe0 or {}).get("t", 0.0)) if baseline_state else None,
             "now": now, "places": places or {},
             "episodes": episodes, "results": [{"t": o.t1, "tool": o.tool, "args": o.args,

@@ -298,7 +298,7 @@ class BenchWorld(MockGame):
             self._ref("damage", target=target, kind_id=getattr(e, "kind_id", e.kind), amount=(hp0 or 0) - max(e.hp, 0),
                       damage_type=dtype, by="self")
             if not e.alive:
-                self._ref("death", who=target, kind_id=getattr(e, "kind_id", e.kind), killer="self")
+                self._ref("death", who=target, kind_id=getattr(e, "kind_id", e.kind), by="self")
                 self._events.append(_activity("combat_end", target=e.kind, target_id=e.id, outcome="killed",
                                               target_class=getattr(e, "kind_id", e.kind)))
         return res

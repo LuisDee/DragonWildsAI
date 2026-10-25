@@ -104,6 +104,9 @@ def probe_state(probe: dict | None) -> dict:
             "skills": [{"skill": k, "level": (v or {}).get("level"), "xp": (v or {}).get("xp")}
                        for k, v in (p.get("skills") or {}).items()] if isinstance(p.get("skills"), dict) else p.get("skills"),
             "gear": p.get("gear"), "bag": p.get("bag"),
+            # quests from the probe (QuestProgressComponent): EQuestState 2 = Complete
+            "quests": [{"name": q.get("name") or q.get("asset"), "asset": q.get("asset"), "stage": q.get("objective"),
+                        "completed": q.get("state") == 2} for q in p.get("quests") or []] if "quests" in p else None,
             "hydration": (p.get("vitals") or {}).get("hydration"), "sustenance": (p.get("vitals") or {}).get("sustenance")}
 
 

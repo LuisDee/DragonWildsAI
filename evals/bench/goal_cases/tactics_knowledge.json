@@ -5,25 +5,31 @@
    "id": "goal_tactics_prep_hard_fight",
    "version": 1,
    "tier": "T2",
-   "family": "tactics",
+   "family": "tactics_prep",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
    "chat": [
     {
      "at_s": 0.0,
-     "text": "that thing over there is nasty, take it out when you're ready",
+     "text": "that one over there is nasty, take it out when you're ready",
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "shield",
+    "enchant",
+    "fire",
+    "food",
+    "potion"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
      {
       "verb": "spawn",
       "as": "boss",
-      "class": "BP_AI_RuntGoblin_Character_C",
+      "class": "<a creature PL >= gear PL + 2 near the start (data)>",
       "offset_m": [
        30,
        0,
@@ -32,31 +38,60 @@
      }
     ],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
     "prepared": {
+     "target_kind_id": "<the boss class>",
+     "at_least": 2,
      "any": [
       {
        "tag": "Player.Status.TempestShield"
       },
       {
-       "enchant_type": "DamageType.Magical.Fire"
+       "enchant_type": "<the boss weakness damage type>"
       },
       {
-       "item": "ITEM_Consumable_Fish_Anchovies",
-       "at_least": 1
+       "items_any": [
+        "ITEM_Consumable_Fish_Anchovies",
+        "ITEM_Consumable_BerryDrizzle_Pan-Seared"
+       ],
+       "at_least": 3
+      },
+      {
+       "predicate": {
+        "gear_better": {
+         "slot": "body",
+         "stat": "power_level",
+         "where": "equipped",
+         "than": "start"
+        }
+       }
       }
      ]
     }
    },
-   "guards": [],
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
    "controls": {
-    "na": {}
+    "partial": [
+     {
+      "note": "fight without preparing"
+     }
+    ],
+    "na": {
+     "alt_means": "preparation is the capability"
+    }
    },
    "limits": {
-    "wall_s": 900.0,
+    "wall_s": 1200.0,
     "model_calls": {},
     "hints_max": 0,
     "idle_s": 60.0,
@@ -69,13 +104,13 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:prep_fight_v1"
+   },
    "provenance": {
-    "sources": [
-     "https://dragonwilds.runescape.wiki/w/Velgar/Strategies",
-     "https://dragonwilds.runescape.wiki/w/Goblin_Runt"
-    ],
-    "note": "hard = the creature's PL above his gear PL: a fresh ClaudeDev (no gear) vs a PL 1 runt"
+    "notes": [
+     "GOAL: a dragon-class fight; a runt (PL1) is not hard (review T-1): pick from the data"
+    ]
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -84,7 +119,7 @@
    "id": "goal_tactics_damage_trend",
    "version": 1,
    "tier": "T2",
-   "family": "tactics",
+   "family": "tactics_trend",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
@@ -101,7 +136,7 @@
     "setup": [
      {
       "verb": "spawn",
-      "class": "BP_AI_RuntGoblin_Character_C",
+      "class": "<a creature that hurts a fresh character, with telegraphs>",
       "offset_m": [
        8,
        0,
@@ -110,26 +145,41 @@
      }
     ],
     "scene": {},
-    "state_snapshot": "empty",
-    "player_body": false
+    "state_snapshot": "fresh_dev_v1",
+    "player_body": false,
+    "respawn_between": {
+     "count": 5,
+     "note": "the next spawn only after the previous died (memory kept in the case)"
+    }
    },
    "success": {
     "killed": {
-     "kind": "Goblin Runt",
-     "kind_id": "BP_AI_RuntGoblin_Character_C",
-     "at_least": 1
+     "kind": "<creature>",
+     "kind_id": "<class>",
+     "at_least": 5
     }
    },
-   "guards": [],
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
    "controls": {
-    "na": {}
+    "na": {
+     "alt_means": "kills are the capability",
+     "wrong_action": "n/a",
+     "partial": "4 kills"
+    }
    },
    "limits": {
-    "wall_s": 600.0,
+    "wall_s": 1800.0,
     "model_calls": {},
     "hints_max": 0,
     "idle_s": 60.0,
-    "repeat": 5
+    "repeat": 1
    },
    "hints": {
     "ladder": []
@@ -138,9 +188,103 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:trend_fights_v1"
+   },
    "provenance": {
-    "note": "process metric damage_taken per repeat (referee), slope over 5 fights"
+    "notes": [
+     "process metric: damage_taken per fight (referee damage to self), slope over 5 fights"
+    ]
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "goal_tactics_telegraph_dodges",
+   "version": 1,
+   "tier": "T2",
+   "family": "tactics_telegraph",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {},
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "that thing hits hard, don't let it touch you",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "dodge",
+    "dash",
+    "roll",
+    "evade"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "spawn",
+      "as": "foe",
+      "class": "<a creature with >= 2 distinct telegraphed attacks>",
+      "offset_m": [
+       10,
+       0,
+       0
+      ]
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "fresh_dev_v1",
+    "player_body": false
+   },
+   "success": {
+    "defended": {
+     "kind": "dodge",
+     "against": "telegraph",
+     "at_least": 5,
+     "min_rate": 0.7
+    }
+   },
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
+   "controls": {
+    "alt_means": [
+     {
+      "note": "stay out of range"
+     }
+    ],
+    "na": {
+     "partial": "one outcome; cutting the oracle short is do_nothing"
+    }
+   },
+   "limits": {
+    "wall_s": 600.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 60.0,
+    "repeat": 1
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "dev": "scripted:telegraph_dodges_v1"
+   },
+   "provenance": {
+    "notes": [
+     "telegraph_dodge_success_pct = dodged/telegraphs per attack_id (process fields)"
+    ]
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -160,19 +304,35 @@
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "bar",
+    "smelt",
+    "furnace",
+    "copper",
+    "tin"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
-    "have": {
-     "item": "Bronze Pickaxe",
-     "at_least": 1
-    }
+    "all": [
+     {
+      "have": {
+       "item": "Bronze Pickaxe",
+       "at_least": 1
+      }
+     },
+     {
+      "xp_gained": {
+       "skill": "Artisan",
+       "at_least": 1
+      }
+     }
+    ]
    },
    "guards": [],
    "needs_fact": {
@@ -180,7 +340,16 @@
     "truth": "Bronze Bar"
    },
    "controls": {
-    "na": {}
+    "alt_means": [
+     {
+      "setup": "grant",
+      "item": "ITEM_Pickaxe_Bronze",
+      "count": 1
+     }
+    ],
+    "na": {
+     "partial": "one outcome; cutting the oracle short is do_nothing"
+    }
    },
    "limits": {
     "wall_s": 1800.0,
@@ -196,7 +365,9 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:bronze_pickaxe_v1"
+   },
    "provenance": {},
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -216,7 +387,11 @@
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "fire",
+    "burn",
+    "flame"
+   ],
    "fixtures": {
     "requires": [],
     "setup": [
@@ -224,19 +399,49 @@
       "verb": "spawn",
       "as": "foe",
       "class": "BP_AI_RuntGoblin_Character_C"
+     },
+     {
+      "verb": "grant",
+      "item": "<a sword>",
+      "count": 1
+     },
+     {
+      "verb": "grant",
+      "item": "<a staff>",
+      "count": 1
+     },
+     {
+      "verb": "grant_runes",
+      "runes": {
+       "Fire": 100,
+       "Water": 100,
+       "Air": 100
+      }
      }
     ],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
-    "damage_type_dealt": {
-     "target_kind_id": "BP_AI_RuntGoblin_Character_C",
-     "types": [
-      "DamageType.Magical.Fire"
-     ]
-    }
+    "all": [
+     {
+      "killed": {
+       "kind": "Goblin Runt",
+       "kind_id": "BP_AI_RuntGoblin_Character_C",
+       "at_least": 1
+      }
+     },
+     {
+      "damage_type_dealt": {
+       "target_kind_id": "BP_AI_RuntGoblin_Character_C",
+       "types": [
+        "DamageType.Magical.Fire"
+       ],
+       "min_share": 0.6
+      }
+     }
+    ]
    },
    "guards": [],
    "needs_fact": {
@@ -244,7 +449,15 @@
     "truth": "Fire"
    },
    "controls": {
-    "na": {}
+    "wrong_action": [
+     {
+      "note": "the oracle with water runes"
+     }
+    ],
+    "na": {
+     "partial": "one outcome; cutting the oracle short is do_nothing",
+     "alt_means": "n/a"
+    }
    },
    "limits": {
     "wall_s": 600.0,
@@ -260,7 +473,9 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
+   "oracle": {
+    "dev": "scripted:runt_fire_v1"
+   },
    "provenance": {},
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -276,23 +491,41 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "find us some clay",
+     "text": "go get some clay",
      "from": "player"
     }
    ],
-   "forbid_terms": [],
+   "forbid_terms": [
+    "swamp",
+    "Whispering"
+   ],
    "fixtures": {
     "requires": [],
-    "setup": [],
+    "setup": [
+     {
+      "verb": "teleport",
+      "at": "<a spot with no clay within census range>"
+     }
+    ],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
-    "gained": {
-     "item": "Clay",
-     "at_least": 5
-    }
+    "all": [
+     {
+      "gained": {
+       "item": "Clay",
+       "at_least": 5
+      }
+     },
+     {
+      "xp_gained": {
+       "skill": "Mining",
+       "at_least": 1
+      }
+     }
+    ]
    },
    "guards": [],
    "needs_fact": {
@@ -300,7 +533,16 @@
     "truth": "Whispering Swamp"
    },
    "controls": {
-    "na": {}
+    "alt_means": [
+     {
+      "setup": "grant",
+      "item": "ITEM_Resources_Clay",
+      "count": 5
+     }
+    ],
+    "na": {
+     "partial": "one outcome; cutting the oracle short is do_nothing"
+    }
    },
    "limits": {
     "wall_s": 1800.0,
@@ -316,8 +558,14 @@
     "dev"
    ],
    "risk": "low",
-   "oracle": {},
-   "provenance": {},
+   "oracle": {
+    "dev": "scripted:clay_v1"
+   },
+   "provenance": {
+    "notes": [
+     "confirm clay is only in the Whispering Swamp (wiki Clay Node lists only it)"
+    ]
+   },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
@@ -332,7 +580,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "pick up those logs next to you",
+     "text": "grab those logs over there",
      "from": "player"
     }
    ],
@@ -345,7 +593,7 @@
       "item": "ITEM_Resources_Wood_Ash",
       "count": 3,
       "at": [
-       2,
+       7,
        0,
        0
       ]
@@ -366,7 +614,11 @@
     "kind": "none"
    },
    "controls": {
-    "na": {}
+    "na": {
+     "partial": "one outcome; cutting the oracle short is do_nothing",
+     "alt_means": "n/a",
+     "wrong_action": "n/a"
+    }
    },
    "limits": {
     "wall_s": 300.0,
@@ -389,13 +641,13 @@
       "pickup_all": "ITEM_Resources_Wood_Ash"
      }
     ],
-    "dev": [
-     {
-      "pickup_all": "ITEM_Resources_Wood_Ash"
-     }
+    "dev": "scripted:pick_logs_v1"
+   },
+   "provenance": {
+    "notes": [
+     "logs at 7 m: beyond the loot-pickup reflex radius, so ambient must fail"
     ]
    },
-   "provenance": {},
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   }
