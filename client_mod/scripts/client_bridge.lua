@@ -498,7 +498,8 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
     -- every id that look / get_state return resolves (BUGS L8): a perceived thing's position, except
     -- creatures and players, which move.lua tracks as moving actors
     if not coords and type(target) == "string" then
-        local t = M.API.find_thing(target, M.LOOK_MAX_RADIUS_M)
+        -- go_to reaches as far as a known actor is (a fishing node 134 m off, live 2026-10-26), not only look's 80 m
+        local t = M.API.find_thing(target, M.GOTO_FIND_M)
         if t and t.position and t.category ~= "creatures" and t.category ~= "players" then coords = to_m(t.position) end
     end
     local r = call("move", "go_to", coords or tostring(target), { tolerance_m = tonumber(args.tolerance) })
@@ -652,6 +653,7 @@ R.move_status = { needs = { { "move", "status" } }, fn = function() return call(
 -- Built on sense.census (generic: every category the client can see; no hand lists). One "thing" =
 -- a census row plus category, kind, verb and the actions the CLIENT can do on it now.
 M.LOOK_RADIUS_M, M.LOOK_MAX_RADIUS_M, M.LOOK_MAX = 20, 80, 15
+M.GOTO_FIND_M = 500 -- go_to resolves a perceived id this far (census rows, live actors by id)
 M.INTERACT_REACH_M = 2.0     -- walk closer than this before pressing interact (the detector traces 6 m)
 M.INTERACT_APPROACH_M = 1.0  -- move.go_to tolerance for the approach (graves: 0.6-1.2 m works)
 M.INTERACT_AIM_S = 2         -- re-aim until the game's detector targets the thing
@@ -756,7 +758,8 @@ local function find_actor_by_id(id, radius_m)
     if rawget(_G, "DW_PAUSE") == true then return nil end
     local s = M.module("sense")
     local U = s and s.U
-    local cls = tostring(id):match("^([%w_]-)_%d+$")
+    -- placed level actors are "<Class>_UAID_<hex>_<n>" (live 2026-10-26: BP_FishingNodeV2_Net_Brynmoor_C_UAID_..._1131309019)
+    local cls = tostring(id):match("^([%w_]-)_UAID_%x+_%d+$") or tostring(id):match("^([%w_]-)_%d+$")
     if not (U and cls and cls ~= "") then return nil end
     for _, a in ipairs(U.find_all(cls, { skip_defaults = true }) or {}) do
         if U.short(a) == id then

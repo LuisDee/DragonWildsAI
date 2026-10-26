@@ -422,6 +422,11 @@ test("any live actor id a read hands out resolves (a fishing node the census doe
     step()
     local done = results(drain(), id)[1]
     assert(done and done.ok, done and done.reason)
+    -- a placed level actor's UAID name (<Class>_UAID_<hex>_<n>) resolves too
+    local placed = { id = "BP_FishingNodeV2_Net_Brynmoor_C_UAID_DC97BA249CD4FDC402_1131309019", class = "BP_FishingNodeV2_Net_Brynmoor_C", position = { 20, 5, 3 } }
+    FAKE.actors_only = { node, placed }
+    r = rpc("inspect", { target = placed.id })
+    assert(r.ok and r.data.position[1] == 20, json.encode(r))
     -- an id whose class has no such live instance is still unknown_target (never invented)
     r = rpc("inspect", { target = "BP_FishingNodeV2_Net_C_999" })
     assert(r.reason == "unknown_target", json.encode(r))

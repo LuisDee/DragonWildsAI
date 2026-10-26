@@ -313,7 +313,7 @@ M.cfg.water_reach_m = 2.0
 -- a water volume's census point is its ORIGIN, deep in the middle (live 2026-10-26: the start pond's origin read
 -- 85 m off while its bank was much nearer), so search wider than look's 80 m
 M.cfg.water_search_m = 150
-M.cfg.water_wades = 0  -- wade steps disabled until the 2026-10-26 18:26 client crash is analysed (stepping into water may be the cause)
+M.cfg.water_wades = 3  -- wade steps on: both 2026-10-26 crashes were the reflex drinking Dirty Water (L38), not wading
 function W.is_water(thing)
     if type(thing) ~= "table" then return false end
     if tostring(thing.class or thing.id or ""):find("WaterVolume", 1, true) then return true end
