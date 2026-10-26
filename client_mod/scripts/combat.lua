@@ -55,6 +55,7 @@ M.cfg = {
     special_gap_s = 6,
     telegraph_m = 6, telegraph_fresh_s = 1.0,
     disengage_m = 10,        -- back off this far to eat (orders.disengage)
+    approach_stall_s = 12, approach_gain_m = 0.5, -- approach: no 0.5 m gain for 12 s = blocked (path_blocked)
     impact_attrib_s = 0.8, max_retargets = 4, -- an HP drop this soon after a creature's impact event is its hit
     conversation_retry_s = 2.0, conversation_leave_s = 5.0, -- leaving an NPC dialogue for a fight (talk finding 8)
     move_axes = "xy",
@@ -794,6 +795,34 @@ function M.leave_conversation(F, attempt)
                           talk_reason = type(r) == "table" and not r.ok and (r.reason or (r.data and r.data.why)) or nil })
     end
     return via
+end
+
+-- An approach that cannot get there ends at once with the reason (BUGS L34; live 09:34: a Kebbit behind a
+-- wall, move said "unreachable: no_route" after 50 s and the fight still ran to its 120 s timeout).
+-- Two signals: move's own verdict (follow sets status "unreachable" with a reason), and no progress: the
+-- distance has not improved by approach_gain_m for approach_stall_s. -> nil or the failure data
+function M.approach_blocked(F, ms)
+    local cfg = M.cfg
+    local d = F.dist_m
+    if F.appr_phase_t ~= F.phase_t then F.appr_phase_t, F.appr_best, F.appr_best_t = F.phase_t, nil, nil end -- a new approach
+    if d and (not F.appr_best or d < F.appr_best - cfg.approach_gain_m) then F.appr_best, F.appr_best_t = d, F.t end
+    F.appr_best_t = F.appr_best_t or F.t
+    local un = type(ms) == "table" and (ms.unreachable or (ms.status == "unreachable" and {})) or nil
+    local stalled = F.t - F.appr_best_t > cfg.approach_stall_s
+    if not (un or stalled) then return nil end
+    local why = un and un.reason or "no_progress"
+    local walls = type(ms) == "table" and (ms.lp_fail == "verify_exhausted" or ms.lp_fail == "unreachable_in_window" or (ms.stuck_n or 0) > 0)
+    local name = tostring(F.target_name or "it")
+    local words = {
+        no_route = "there's no way through to it from here",
+        target_above_jump_height = "it's higher up than I can jump",
+        wedged = "I'm wedged and can't move",
+        no_progress = walls and "something is in the way (I keep bumping into it)" or "I'm not getting any closer",
+    }
+    return { why = why, target = F.target_name, target_id = F.target_id, dist_m = d and math.floor(d * 10) / 10,
+             stalled_s = math.floor((F.t - F.appr_best_t) * 10) / 10, walls = walls or nil,
+             move = type(ms) == "table" and { lp_fail = ms.lp_fail, stuck_n = ms.stuck_n, unreachable = ms.unreachable } or nil,
+             detail = string.format("I can't reach the %s: %s.", name, words[why] or why) }
 end
 
 local function cdo_of(class_path)
@@ -2084,7 +2113,11 @@ local function frame(F)
             if F.t - F.far_since > M.cfg.lost_s then return finish(F, result_of(F, false, "too_far", { dist_m = tgt.distance_m })) end
         else F.far_since = nil end
         if not F.following then follow_target(F, F.follow, (F.dist_m or 0) > 8) end
-        if F.dist_m and F.dist_m <= F.reach then set_phase(F, "engage") end
+        if F.dist_m and F.dist_m <= F.reach then set_phase(F, "engage")
+        else
+            local blocked = M.approach_blocked(F, mcall("move", "status"))
+            if blocked then return finish(F, result_of(F, false, "path_blocked", blocked)) end
+        end
     elseif F.phase == "engage" then
         if F.rg then step_ranged(F, pawn, me, acts, tgt) else step_engage(F, pawn, me, acts, tgt) end
         if F.dist_m and F.dist_m > F.reach * 3 then set_phase(F, "approach", "target moved away") end
@@ -2641,7 +2674,7 @@ do
                 style = STYLE,
                 force = { type = "boolean", default = false, description = "Ignore flee_hp for this fight." } }) },
             ground = obj({ target = "creature" }),
-            reasons = { "unknown_target", "too_far", "interrupted", "timeout", "not_unlocked", "invalid_args", "not_enough_resources", "companion_down", "body_error" } },
+            reasons = { "unknown_target", "too_far", "path_blocked", "interrupted", "timeout", "not_unlocked", "invalid_args", "not_enough_resources", "companion_down", "body_error" } },
         use_action = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 2, timeout_s = 8,
             detail_is_speech = true,
             description = "Use one of your held item's actions once (a swing, a block, the special), e.g. to show the player.",

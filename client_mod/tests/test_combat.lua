@@ -140,7 +140,11 @@ function fake_move.follow(log, goal, dist, opts)
     return { ok = true, mode = "follow", target_visible = goal ~= "Nobody" }
 end
 function fake_move.stop() MV.calls[#MV.calls + 1] = "stop"; MV.mode = "idle"; return { ok = true } end
-function fake_move.status() return { mode = MV.mode, target = type(MV.goal) == "string" and MV.goal or nil } end
+function fake_move.status()
+    local r = { mode = MV.mode, target = type(MV.goal) == "string" and MV.goal or nil }
+    for k, v in pairs(MV.extra or {}) do r[k] = v end
+    return r
+end
 function fake_move.snapshot() if MV.mode == "idle" then return nil end return { mode = MV.mode, goal = MV.goal, distance_m = MV.dist, opts = { tolerance_m = MV.dist } } end
 function fake_move.restore(log, s) MV.calls[#MV.calls + 1] = "restore:" .. tostring(s.goal); MV.mode, MV.goal, MV.dist = s.mode, s.goal, s.distance_m; return { ok = true } end
 
@@ -229,6 +233,7 @@ local function step(n)
                 if d > tol then
                     local sp = math.min(5, d - tol)
                     pawn.loc.X, pawn.loc.Y = pawn.loc.X + dx / d * sp, pawn.loc.Y + dy / d * sp
+                    if world.wall_x and pawn.loc.X > world.wall_x then pawn.loc.X = world.wall_x end -- a wall across +X
                     pawn.yaw = math.deg(math.atan(dy, dx))
                 elseif MV.mode == "go_to" then MV.mode = "idle" end
             end
@@ -682,6 +687,39 @@ do
     for _, l in ipairs(read_activity()) do if l:find('"kind":"healed"', 1, true) then healed = healed + 1 end end
     check("heal: healed activity events", healed >= 3, healed)
     Cm.stop(nil, "test")
+    A.reset(nil)
+end
+
+-- ================================================================ 10c. an approach that can't get there (BUGS L34, live 09:34: a Kebbit behind a wall)
+reset_world()
+do
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    -- (a) no progress: a wall 1 m ahead, the target 6 m away behind it
+    world.wall_x = 100
+    local k = new_creature("BP_AI_Kebbit_Character_02_C_wall", "Kebbit", { X = 600, Y = 0, Z = 0 }, { hp = 30, pl = 1, arch = 1 })
+    local t0 = T
+    check("wall: fight starts", Cm._start_fight(nil, k, { mode = "attack", force = true, by = "brain" }).ok)
+    run_until(function() return Cm._state().fight == nil end, 60)
+    local res = Cm._state().last.result
+    check("wall: ends path_blocked, not a timeout", res and res.reason == "path_blocked", res and res.reason)
+    check("wall: ends fast (no 0.5 m gain for 12 s)", T - t0 < 16, T - t0)
+    check("wall: says what and why", res and res.data.why == "no_progress" and res.data.target == "Kebbit" and res.data.detail:find("Kebbit", 1, true)
+          and res.data.dist_m and res.data.dist_m > 4, res and res.data and res.data.detail)
+    world.wall_x = nil
+    A.reset(nil)
+    -- (b) move's own verdict: follow says unreachable (no_route) -> at once, with its reason
+    reset_world()
+    world.wall_x = 100
+    local k2 = new_creature("BP_AI_Kebbit_Character_02_C_wall2", "Kebbit", { X = 600, Y = 0, Z = 0 }, { hp = 30, pl = 1, arch = 1 })
+    check("unreach: fight starts", Cm._start_fight(nil, k2, { mode = "attack", force = true, by = "brain" }).ok)
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "approach" end, 3)
+    local t1 = T
+    MV.extra = { status = "unreachable", unreachable = { reason = "no_route", detail = "dz=-0.3m d=4.3m lp_fail=unreachable_in_window" }, lp_fail = "unreachable_in_window" }
+    run_until(function() return Cm._state().fight == nil end, 10)
+    local r2 = Cm._state().last.result
+    check("unreach: move's verdict ends it at once", r2 and r2.reason == "path_blocked" and r2.data.why == "no_route" and T - t1 < 1, r2 and r2.data and r2.data.why)
+    check("unreach: the detail is a sentence he can say", r2 and r2.data.detail == "I can't reach the Kebbit: there's no way through to it from here.", r2 and r2.data.detail)
+    MV.extra, world.wall_x = nil, nil
     A.reset(nil)
 end
 
