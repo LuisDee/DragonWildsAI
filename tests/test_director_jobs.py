@@ -495,7 +495,7 @@ def test_gained_and_lost_of_one_item_in_one_test_go_back_for_repair(tmp_path):
 
 # ------------------------------------------------------------------ GOAL long tasks (M2/M4), scripted plans
 
-from brain.mock.gear_jobs import (ASH_LOGS, BREAD, FLOUR, JOBS, WHEAT, WHEAT_SEED, farm_bread_world,  # noqa: E402
+from brain.mock.gear_jobs import (ASH_LOGS, BREAD, FLOUR, JOBS, SPADE, WHEAT, WHEAT_SEED, farm_bread_world,  # noqa: E402
                                   home_chest_world)
 
 HOME_CHEST_PLAN = [plan(
@@ -552,7 +552,9 @@ FARM_PLAN = [plan(
     task_success={"all": [{"structure": {"name": "Farm Plot", "new": True}}, {"tally": {"item": WHEAT, "at_least": 1}},
                           {"have": {"item": BREAD, "at_least": 1}}]},
     steps=[st("build a farm plot", {"structure": {"name": "Farm Plot", "new": True}}, [call("build", piece="Farm Plot")]),
-           st("plant wheat", {"lost": {"item": WHEAT_SEED, "at_least": 1}}, [call("tend", item=WHEAT_SEED)]),
+           # a new plot has weeds (wiki "Farming"): check the soil, dig it with the spade, then plant
+           st("dig the weeds and plant wheat", {"lost": {"item": WHEAT_SEED, "at_least": 1}},
+              [call("farm_plots"), call("tend", item=SPADE, times=3), call("tend", item=WHEAT_SEED)]),
            st("let it grow", {"elapsed": {"seconds": 150}}),
            st("harvest", {"gained": {"item": WHEAT, "at_least": 3}}, [call("tend")]),
            st("build a grinder and a kiln", {"all": [{"structure": {"name": "Grinder", "new": True}},
@@ -588,3 +590,16 @@ def test_goal_farm_harvesting_too_early_is_honest_and_costs_budget_not_a_fake_ha
     assert harvest.status == "failed" and t.tallies.get(WHEAT) is None
     reasons = [r.get("reason") for r in rig.log_rows("tool_result") if r.get("tool") == "tend"]
     assert t.status == "waiting_help", (t.status, reasons)
+
+
+def test_goal_farm_seeds_on_a_new_weedy_plot_fail_truthfully_until_he_digs():
+    """A freshly built plot starts with weeds (wiki "Farming"); a seed changes nothing and the result says why."""
+    g = GearWorld()
+    farm_bread_world(type("R", (), {"game": g})())
+    g.build("Farm Plot")
+    pid = next(iter(g.plots))
+    assert g.farm_plots()["data"]["plots"][0]["soil"] == "weeds"
+    r = g.tend(item=WHEAT_SEED)
+    assert not r["ok"] and r["reason"] == "verification_failed" and "the plot says: weeds" in r["data"]["detail"]
+    assert g.tend(item=SPADE)["data"]["changed"]["soil"]["to"] == "clear"
+    assert g.tend(item=WHEAT_SEED)["ok"] and g.plots[pid]["crop"] == WHEAT

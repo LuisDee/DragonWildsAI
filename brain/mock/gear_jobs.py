@@ -205,6 +205,7 @@ def nothing(rig):
 
 ASH_LOGS, IRON, WHEAT_SEED = "ITEM_Resources_Wood_Ash", "ITEM_Resources_IronOre", "ITEM_Farming_Seed_Wheat"
 WHEAT, FLOUR, BREAD = "ITEM_Resources_Wheat", "ITEM_Resources_Ground_Wheat", "ITEM_Consumable_Bread"
+SPADE = "ITEM_Spade_T1_Wood"
 
 
 def home_chest_world(rig):
@@ -219,13 +220,15 @@ def home_chest_world(rig):
 
 
 def farm_bread_world(rig):
-    """GOAL long task farm_and_process_crop: plot, grinder and kiln are buildable; he carries wheat seeds."""
+    """GOAL long task farm_and_process_crop: plot, grinder and kiln are buildable; he carries wheat seeds and a
+    wooden spade (a new ash plot starts with weeds: see GearWorld's docstring for the wiki sources)."""
     g = rig.game
+    g.carry(SPADE)
     g.carry(WHEAT_SEED, 2)
     g.carry(ASH_LOGS, 6)
     g.carry(STONE, 10)
     g.set_skill("Farming", 1)
-    g.add_buildable("Farm Plot", {ASH_LOGS: 4}, kind="plot", crops={WHEAT_SEED: (WHEAT, 3)})
+    g.add_buildable("Farm Plot", {ASH_LOGS: 4}, kind="plot", crops={WHEAT_SEED: (WHEAT, 3)}, spade_tier=2, weed_layers=1)
     g.add_buildable("Grinder", {STONE: 4}, kind="station", station="Grinder")
     g.add_buildable("Kiln", {STONE: 6}, kind="station", station="Kiln")
 

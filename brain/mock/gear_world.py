@@ -16,9 +16,13 @@ What it adds over MockGame, all from data/items_<build>.json and data/recipes_<b
   materials, kind = station | container | plot | other), cost real catalog items and give Construction XP; placed
   pieces show in ``structures`` (id, name, piece, position, distance) like the client's get_state.structures;
 - containers (``store``/``take``, skills.lua's result shape: item, count, container, container_name, inside_now);
-- farm plots (``tend``, farm.lua's shape: use a carried seed on an empty plot = plant; use nothing on a grown one =
-  harvest) with growth over game time; ``farm_plots`` reads them. Seed -> crop is harness data (``add_buildable``
-  ``crops``), never a table in the brain;
+- farm plots (``tend``, farm.lua's shape) with growth over game time; ``farm_plots`` reads them (soil weeds|clear,
+  farm.lua M.SOIL = EFarmSlotSoilState). A NEW plot starts with a layer of weeds that a spade of the plot's tier
+  must dig before seeds go in (wiki "Farming": "When farming plots are first placed, they have a layer of weeds";
+  "Ash Farming Plot": a wooden spade or higher digs it; "Farming Plot": "After clearing a farming plot using a
+  spade, seeds can be planted"; spade tiers from the item catalog, category spade). Then a carried seed plants it
+  and using nothing on a grown crop harvests it. Seed -> crop, the plot's spade tier and the weed layers are harness
+  data (``add_buildable``), never a table in the brain;
 - primitives can be switched off (``remove_tool``) to provoke capability gaps; there is no teleport or quest
   primitive and no quest perception (gaps the board must log, never fake).
 The Director and the benchmark only ever see get_state and tool results, like on the real body.
@@ -205,11 +209,14 @@ class GearWorld(MockGame):
         return eid
 
     def add_buildable(self, name: str, materials: dict[str, int], kind: str = "other", station: str | None = None,
-                      crops: dict[str, tuple[str, int]] | None = None, xp: float = 20.0) -> None:
+                      crops: dict[str, tuple[str, int]] | None = None, xp: float = 20.0, spade_tier: int = 2,
+                      weed_layers: int = 1) -> None:
         """A piece he can build (unlocked). kind: station (a ``station`` type from the recipes), container or plot
-        (``crops``: seed item id -> (crop item id, yield))."""
+        (``crops``: seed item id -> (crop item id, yield); a new plot has ``weed_layers`` of weeds that a spade of
+        catalog tier >= ``spade_tier`` digs, one layer per press)."""
         self.buildables[name] = {"materials": dict(materials), "kind": kind, "station": station,
-                                 "crops": dict(crops or {}), "xp": xp}
+                                 "crops": dict(crops or {}), "xp": xp, "spade_tier": spade_tier,
+                                 "weed_layers": weed_layers}
 
     def remove_tool(self, name: str) -> None:
         self.removed.add(name)
@@ -408,7 +415,8 @@ class GearWorld(MockGame):
         elif b["kind"] == "container":
             self.containers[sid] = Counter()
         elif b["kind"] == "plot":
-            self.plots[sid] = {"crop": None, "planted_at": None, "crops": b["crops"]}
+            self.plots[sid] = {"crop": None, "planted_at": None, "crops": b["crops"], "weeds": b["weed_layers"],
+                               "spade_tier": b["spade_tier"]}
         self._xp("Construction", b["xp"])
         self._advance(5.0)
         return ok(piece=name, name=name, structure=sid, spent=dict(b["materials"]), evidence="mock")  # build.lua shape
@@ -447,7 +455,7 @@ class GearWorld(MockGame):
         """farm.lua farm_plots row shape: soil, harvestable, diseased, watered (+ what grows, for the mock)."""
         p = self.plots[pid]
         grown = p["crop"] is not None and self.time - p["planted_at"] >= self.grow_s
-        return {"id": pid, "soil": "clear", "harvestable": grown, "diseased": False, "watered": False,
+        return {"id": pid, "soil": "weeds" if p["weeds"] > 0 else "clear", "harvestable": grown, "diseased": False, "watered": False,
                 "growing": self.name_of(p["crop"]) if p["crop"] and not grown else None,
                 "distance": round(math.dist(self.structures[pid]["position"], self.pos), 1)}
 
@@ -469,8 +477,19 @@ class GearWorld(MockGame):
             iid = self.resolve_item(item) or item
             if self._carried(iid) < 1:
                 return fail(Reason.NOT_IN_INVENTORY, why="no_item", detail=f"I don't have {item}.")
-        says = "ready to harvest" if row["harvestable"] else (f"{row['growing']} growing" if row["growing"] else "empty")
-        if iid is not None and p["crop"] is None and iid in p["crops"]:
+        says = "weeds" if p["weeds"] > 0 else ("ready to harvest" if row["harvestable"] else (
+            f"{row['growing']} growing" if row["growing"] else "clear"))
+        e = self.cat.get(iid) or {} if iid else {}
+        if iid is not None and p["weeds"] > 0 and e.get("category") == "spade":
+            if int(e.get("tier") or 0) < p["spade_tier"]:
+                return fail(Reason.VERIFICATION_FAILED, why="no_change", plot=pid,
+                            detail=f"I dug with the {self.name_of(iid)} but nothing changed; this plot needs a better spade.")
+            presses = min(int(times or 1), p["weeds"])
+            p["weeds"] -= presses
+            self._xp("Farming", 3.0 * presses)
+            return ok(plot=pid, presses=presses, changed={"soil": {"from": "weeds", "to": "clear" if p["weeds"] == 0 else "weeds"}},
+                      inventory={}, xp={"Farming": {"xp": 3.0 * presses}})
+        if iid is not None and p["weeds"] == 0 and p["crop"] is None and iid in p["crops"]:
             self.inventory[iid] -= 1
             p["crop"], p["planted_at"], p["seed"] = p["crops"][iid][0], self.time, iid
             self._xp("Farming", 5.0)
