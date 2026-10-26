@@ -206,8 +206,6 @@ REASON_PHRASES = {
     Reason.UNKNOWN_RECIPE: "I don't know that recipe",
     Reason.NOT_INTERACTABLE: "there's nothing to do with it",
     Reason.BODY_ERROR: "something glitched in my body",
-    # the verifier's own words carry metres ("still 3.3m from target"): for the model, not for chat
-    Reason.VERIFICATION_FAILED: "it didn't work out when I checked",
 }
 
 
@@ -925,6 +923,10 @@ class Controller:
             why = next((x for x in (reason, detail) if isinstance(x, str) and " " in x.strip()), None)  # a sentence
             why = re.sub(r"^[a-z_]+:\s*", "", why) if why else why  # "verification_failed: not following" -> the words
             why = player_words(why, name) if why else why
+            if reason_base == Reason.VERIFICATION_FAILED:
+                # the verifier's words are the brain's own measurement ("still 3.3m from target", L36): they go
+                # to the model in the tool result; chat gets the plain skill line
+                why = None
             self.say(f"Sorry, I couldn't {SKILL_PHRASES.get(tool, tool.replace('_', ' '))}"
                      + (f": {why.strip().rstrip('.')}." if why else "."))
 

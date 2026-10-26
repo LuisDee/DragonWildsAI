@@ -46,4 +46,4 @@ def test_replay_2219_go_to_is_verified_ok(tmp_path):
 def test_a_verification_failure_template_says_no_metres(tmp_path):
     r = Replay(tmp_path, STATES[5])
     r.controller.report_failure("go_to", "verification_failed: still 3.3m from target", {})
-    assert r.body.said == ["I couldn't go to: it didn't work out when I checked."]
+    assert r.body.said == ["Sorry, I couldn't walk somewhere."]
