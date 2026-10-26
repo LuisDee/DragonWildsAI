@@ -17,13 +17,17 @@ docs/ARCHITECTURE.md 8.4b). Decision: build (a 200-line JSON store; no library f
 """
 from __future__ import annotations
 
+import heapq
 import json
 import math
-import os
+import threading
 import time
-import uuid
+from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Callable, Iterable
+
+from .fileio import atomic_write, read_json
+from .geom import dist
 
 # STABLE record fields (the Director reads them): kind, name, item, position, last_seen, extra.power_level.
 # Renaming any of them is a schema change: bump SCHEMA and tell the Director's owner first.
@@ -39,17 +43,12 @@ TRANSIENT = {"item": 1800.0, "creature": 900.0}  # world items / creatures move 
 
 def load(path: str | Path) -> dict:
     """Pure: the file as a plain dict ({schema, sightings: [...], negative: [...]}), {} when absent/bad."""
-    try:
-        d = json.loads(Path(path).read_text(encoding="utf-8"))
-        return d if isinstance(d, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    d = read_json(Path(path), {})
+    return d if isinstance(d, dict) else {}
 
 
 def _dist(a, b) -> float | None:
-    if not (isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)) and len(a) >= 2 and len(b) >= 2):
-        return None
-    return math.hypot(a[0] - b[0], a[1] - b[1])
+    return dist(a, b, planar=True)  # map distances are on the ground plane
 
 
 def direction(frm, to) -> str:
@@ -61,7 +60,10 @@ def direction(frm, to) -> str:
 
 
 class MapMemory:
-    def __init__(self, path: str | Path, clock: Callable[[], float] = time.time, debounce_s: float = DEBOUNCE_S):
+    def __init__(self, path: str | Path, clock: Callable[[], float] = time.time, debounce_s: float = DEBOUNCE_S,
+                 background: bool = False):
+        """``background``: the debounced write happens on a daemon writer thread, never on the get_state
+        path that calls observe() (the live session turns it on; direct users and tests write inline)."""
         self.path = Path(path)
         self.clock = clock
         self.debounce_s = debounce_s
@@ -70,6 +72,10 @@ class MapMemory:
         self.negative: list[dict] = [r for r in d.get("negative") or [] if isinstance(r, dict)]
         self._dirty = False
         self._saved_at = self.clock()
+        self._lock = threading.RLock()  # mutations (main thread) vs the writer's snapshot
+        self._wake = threading.Event()
+        self._writer: threading.Thread | None = None
+        self.background = background
 
     # ------------------------------------------------------------ writing
     @staticmethod
@@ -82,6 +88,10 @@ class MapMemory:
         """Fold one get_state census into the store (cheap; the file is written at most every debounce_s)."""
         if not isinstance(state, dict) or state.get("unavailable"):
             return
+        with self._lock:
+            self._observe(state)
+
+    def _observe(self, state: dict) -> None:
         now = self.clock()
         for bucket, default_kind in BUCKETS:
             for row in state.get(bucket) or []:
@@ -89,15 +99,11 @@ class MapMemory:
                     continue
                 if bucket == "nearby_entities" and row.get("alive") is False:
                     continue
-                rec = {"kind": row.get("kind") if bucket == "interactables" else (row.get("kind") or default_kind),
-                       "name": row.get("name"), "class": row.get("class"), "position": [round(float(v), 2) for v in row["position"][:3]]}
+                # interactables keep their own kind (bed, chest, station...); the other buckets are their bucket's kind
+                rec = {"kind": default_kind or row.get("kind"), "name": row.get("name"), "class": row.get("class"),
+                       "position": [round(float(v), 2) for v in row["position"][:3]]}
                 if bucket == "nearby_resources":
-                    rec["kind"] = "resource"
                     rec["resource_kind"] = row.get("kind")
-                if bucket == "nearby_items":
-                    rec["kind"] = "item"
-                if bucket == "nearby_entities":
-                    rec["kind"] = "creature"
                 for f in ("id", "item", "prompt"):
                     if row.get(f) is not None:
                         rec[f] = row[f]
@@ -119,14 +125,33 @@ class MapMemory:
                 self._dirty = True
         self._prune(now)
         if self._dirty and now - self._saved_at >= self.debounce_s:
-            self.flush()
+            if self.background:
+                self._kick()  # the writer thread does the JSON + file work, off the state path
+            else:
+                self.flush()
+
+    def _kick(self) -> None:
+        if self._writer is None or not self._writer.is_alive():
+            self._writer = threading.Thread(target=self._write_loop, name="map-memory-writer", daemon=True)
+            self._writer.start()
+        self._wake.set()
+
+    def _write_loop(self) -> None:
+        while True:
+            self._wake.wait()
+            self._wake.clear()
+            try:
+                self.flush()
+            except Exception:  # a failed write is retried on the next debounce; never kills the brain
+                pass
 
     def note_negative(self, item: str | None, position, why: str, kind: str = "depleted") -> None:
         """A spot found empty / depleted (gather nothing_in_range, a mined-out node)."""
-        self.negative.append({"kind": kind, "item": item, "position": list(position) if position else None,
-                              "at": self.clock(), "why": why})
-        self.negative = self.negative[-500:]
-        self._dirty = True
+        with self._lock:
+            self.negative.append({"kind": kind, "item": item, "position": list(position) if position else None,
+                                  "at": self.clock(), "why": why})
+            self.negative = self.negative[-500:]
+            self._dirty = True
 
     def _prune(self, now: float) -> None:
         for k in [k for k, r in self.sightings.items() if r.get("kind") in TRANSIENT and now - float(r.get("last_seen") or 0) > TRANSIENT[r["kind"]]]:
@@ -136,26 +161,26 @@ class MapMemory:
                 del self.sightings[k]
 
     def flush(self) -> None:
-        if not self._dirty:
-            return
+        with self._lock:
+            if not self._dirty:
+                return
+            snap = self.snapshot()
+            self._dirty = False
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_name(f"{self.path.name}.{uuid.uuid4().hex[:8]}.tmp")
-        tmp.write_text(json.dumps(self.snapshot(), ensure_ascii=False), encoding="utf-8")
-        for attempt in range(5):
-            try:
-                os.replace(tmp, self.path)
-                break
-            except PermissionError:  # a reader has it open on Windows: retry briefly
-                time.sleep(0.05 * (attempt + 1))
-        else:
-            tmp.unlink(missing_ok=True)
+        try:
+            atomic_write(self.path, json.dumps(snap, ensure_ascii=False))  # unique temp + os.replace, Windows retry
+        except PermissionError:  # still locked after the retries: try again on the next debounce
+            with self._lock:
+                self._dirty = True
             return
-        self._dirty, self._saved_at = False, self.clock()
+        with self._lock:
+            self._saved_at = self.clock()
 
     # ------------------------------------------------------------ reading (pure over the records)
     def snapshot(self) -> dict:
-        return {"schema": SCHEMA, "saved_at": self.clock(), "sightings": [dict(r) for r in self.sightings.values()],
-                "negative": [dict(r) for r in self.negative]}
+        with self._lock:
+            return {"schema": SCHEMA, "saved_at": self.clock(), "sightings": [dict(r) for r in self.sightings.values()],
+                    "negative": [dict(r) for r in self.negative]}
 
     def query(self, kind: str | None = None, name: str | None = None, item: str | None = None, near=None,
               max_age_s: float | None = None, limit: int = 10, where: Callable[[dict], bool] | None = None) -> list[dict]:
@@ -190,14 +215,38 @@ def query(snap: dict, kind=None, name=None, item=None, near=None, max_age_s=None
     return out[:limit]
 
 
+@lru_cache(maxsize=4096)
+def _words(text: str) -> frozenset[str]:
+    return frozenset(w for w in "".join(c.lower() if c.isalpha() else " " for c in text).split() if len(w) > 3)
+
+
 def words(text) -> set[str]:
-    return {w for w in "".join(c.lower() if c.isalpha() else " " for c in str(text or "")).split() if len(w) > 3}
+    return set(_words(str(text or "")))
 
 
-def need_matchers(cat: dict) -> dict[str, Callable[[dict], bool]]:
-    """For each consumable kind, a test 'does this remembered thing give it?', from GAME DATA only:
-    resources/items whose item data class is that kind, and interactables whose prompt shares a word
-    with the names of that kind's items (e.g. a "Collect Water" prompt vs the "Dirty Water" drink)."""
+def _item_kinds(cat: dict) -> dict:
+    from .needs import _index  # item -> food|drink|potion, built once per catalog
+    return _index(cat)["kinds"]
+
+
+def _consumable_of(r: dict, cat: dict, kinds: dict | None = None) -> str | None:
+    """The body's own consumable kind when the sighting carries it, else the item data class."""
+    own = (r.get("extra") or {}).get("consumable")
+    if isinstance(own, str):
+        return own
+    return (kinds if kinds is not None else _item_kinds(cat)).get(r["item"]) if r.get("item") else None
+
+
+_VOCAB: dict[int, tuple[dict, dict]] = {}
+NOT_PLACES = ("item", "resource", "creature")  # sightings matched by their item, not by a prompt
+
+
+def need_vocab(cat: dict) -> dict[str, frozenset[str]]:
+    """Per consumable kind, the words of that kind's item names minus words shared with another kind
+    (game data), built once per catalog: a prompt sharing one ("Collect Water" vs "Dirty Water") gives it."""
+    hit = _VOCAB.get(id(cat))
+    if hit is not None and hit[0] is cat:
+        return hit[1]
     from .needs import item_kind
     vocab: dict[str, set[str]] = {"food": set(), "drink": set(), "potion": set()}
     for iid, e in (cat.get("items") or {}).items():
@@ -206,16 +255,29 @@ def need_matchers(cat: dict) -> dict[str, Callable[[dict], bool]]:
             vocab[k] |= words(e.get("name"))
     # a word that names items of several kinds says nothing about one of them
     common = (vocab["food"] & vocab["drink"]) | (vocab["food"] & vocab["potion"]) | (vocab["drink"] & vocab["potion"])
-    out = {}
-    for k in vocab:
-        v = vocab[k] - common
-
-        def test(r, k=k, v=v):
-            if r.get("item") and item_kind(r["item"], cat) == k:
-                return True
-            return r.get("kind") not in ("item", "resource", "creature") and bool(words(r.get("prompt")) & v)
-        out[k] = test
+    out = {k: frozenset(v - common) for k, v in vocab.items()}
+    if len(_VOCAB) > 4:
+        _VOCAB.clear()
+    _VOCAB[id(cat)] = (cat, out)
     return out
+
+
+def _gives(r: dict, cat: dict, kinds: dict | None = None, vocab: dict | None = None) -> set[str]:
+    """The consumable kinds a sighting gives: its item's kind, or (a place) a prompt word of that kind."""
+    ck = _consumable_of(r, cat, kinds) if r.get("item") else None
+    out = {ck} if ck else set()
+    if r.get("kind") not in NOT_PLACES:
+        pw = _words(str(r.get("prompt") or ""))
+        if pw:
+            out |= {k for k, v in (vocab if vocab is not None else need_vocab(cat)).items() if pw & v}
+    return out
+
+
+def need_matchers(cat: dict) -> dict[str, Callable[[dict], bool]]:
+    """For each consumable kind, a test 'does this remembered thing give it?', from GAME DATA only:
+    resources/items whose item data class is that kind, and interactables whose prompt shares a word
+    with the names of that kind's items (e.g. a "Collect Water" prompt vs the "Dirty Water" drink)."""
+    return {k: (lambda r, k=k: k in _gives(r, cat)) for k in need_vocab(cat)}
 
 
 def annotate(state: dict, mem: MapMemory | dict, cat: dict | None = None, beyond_m: float = 40.0, per_kind: int = 2) -> dict:
@@ -223,21 +285,34 @@ def annotate(state: dict, mem: MapMemory | dict, cat: dict | None = None, beyond
     the nearest remembered options BEYOND sight (the needs digest shows them). Returns the state."""
     from .needs import catalog
     cat = cat if cat is not None else catalog()
-    snap = mem.snapshot() if isinstance(mem, MapMemory) else mem
     me = state.get("position")
     if not isinstance(me, list):
         return state
-    now = mem.clock() if isinstance(mem, MapMemory) else time.time()
+    if isinstance(mem, MapMemory):
+        with mem._lock:  # no copy of every record (it was 5 full scans with copy + sort per get_state)
+            records = list(mem.sightings.values())
+        now = mem.clock()
+    else:
+        records, now = list(mem.get("sightings") or []), time.time()
+    places = {"bed": ("bed", "resting_area"), "station": ("crafting_station", "processing_station")}
+    kinds, vocab = _item_kinds(cat), need_vocab(cat)
+    found: dict[str, list[tuple[float, int, dict]]] = {k: [] for k in (*vocab, *places)}
+    for n, r in enumerate(records):  # ONE pass: distance and the kinds it gives, once per record
+        d = _dist(me, r.get("position"))
+        if d is None or d <= beyond_m:
+            continue
+        for k in _gives(r, cat, kinds, vocab):
+            found[k].append((d, n, r))
+        for k, place_kinds in places.items():
+            if r.get("kind") in place_kinds:
+                found[k].append((d, n, r))
     rem = {}
-    tests = need_matchers(cat)
-    tests["bed"] = lambda r: r.get("kind") in ("bed", "resting_area")
-    tests["station"] = lambda r: r.get("kind") in ("crafting_station", "processing_station")
-    for k, test in tests.items():
-        rows = [r for r in query(snap, near=me, limit=200, where=test, now=now) if (r.get("distance") or 0) > beyond_m]
-        if rows:
+    for k, rows in found.items():
+        best = heapq.nsmallest(per_kind, rows)  # nearest first; ties keep the store's order (n)
+        if best:
             rem[k] = [{"name": r.get("name"), "id": r.get("id"), "prompt": r.get("prompt"), "position": r.get("position"),
-                       "distance": round(r["distance"]), "direction": direction(me, r["position"]),
-                       "age_min": round((now - float(r.get("last_seen") or now)) / 60)} for r in rows[:per_kind]]
+                       "distance": round(d), "direction": direction(me, r["position"]),
+                       "age_min": round((now - float(r.get("last_seen") or now)) / 60)} for d, _, r in best]
     if rem:
         state["remembered"] = rem
     return state

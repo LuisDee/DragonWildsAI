@@ -18,10 +18,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
-from . import item_stats, needs
+from . import item_stats
 
 REPO = Path(__file__).resolve().parents[1]
-MAX_LINES = 16
+MAX_LINES = 18  # +skills, +module extras (2026-10-26)
 MAX_GROUPS = 6  # per line
 LINE_CHARS = 240
 
@@ -127,6 +127,11 @@ def _item_note(g: dict) -> str | None:
         age = g.get("seen_s")
         bits.append(f"dropped by {g['dropped_by']}" + (f" {int(age)} s ago" if isinstance(age, (int, float)) and age < 600 else ""))
     return ", ".join(bits) or None
+
+
+def num(v) -> float | None:
+    """A real number (not a bool), else None."""
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
 def _num(v) -> float | None:
@@ -406,16 +411,104 @@ def stations(state: dict) -> list[str]:
     return out
 
 
-def consumables(state: dict) -> list[str]:
-    """Food and drink he carries, with where it is (only hotbar items can be used), from item data."""
+def consumable_rows(state: dict, kinds: Iterable[str] | None = None, kind_of=None,
+                    heal_only: bool = False) -> list[tuple[str, dict]]:
+    """(kind, row) for every carried hotbar/bag item that is a consumable: the body's own ``consumable``
+    field first, else ``kind_of(item)`` (game data, e.g. needs.item_kind). ``kinds`` filters; ``heal_only``
+    keeps food only when it heals. Shared by the digest's Food/drink line and the needs digest."""
+    want = set(kinds) if kinds is not None else None
     out = []
     for r in state.get("inventory_items") or []:
-        if isinstance(r, dict) and isinstance(r.get("consumable"), str) and r.get("where") in ("hotbar", "bag"):
-            facts = [r["consumable"], r["where"]]
-            for k, label in (("hydration", "water"), ("sustenance", "food"), ("heal", "heals")):
-                if r.get(k) not in (None, "", "None"):
-                    facts.append(f"{label} {r[k]}")
-            out.append(f"{r.get('name') or r.get('item')} x{r.get('count') or 1} ({', '.join(facts)})")
+        if not isinstance(r, dict) or r.get("where") not in ("hotbar", "bag"):
+            continue
+        k = r.get("consumable") if isinstance(r.get("consumable"), str) else (kind_of(r.get("item")) if kind_of else None)
+        if not k or (want is not None and k not in want) or (heal_only and k == "food" and not r.get("heal")):
+            continue
+        out.append((k, r))
+    return out
+
+
+def consumable_facts(r: dict, order=(("hydration", "water"), ("sustenance", "food"), ("heal", "heals"))) -> list[str]:
+    return [f"{label} {r[k]}" for k, label in order if r.get(k) not in (None, "", "None")]
+
+
+def consumables(state: dict) -> list[str]:
+    """Food and drink he carries, with where it is (only hotbar items can be used), from item data."""
+    return [f"{r.get('name') or r.get('item')} x{r.get('count') or 1} ({', '.join([k, r['where'], *consumable_facts(r)])})"
+            for k, r in consumable_rows(state)]
+
+
+def skills_line(state: dict) -> str | None:
+    """'Skills (lowest first): Artisan 1, Cooking 1 (40 xp to next), ..., Attack 3' from get_state.skills
+    (a list of {skill, level, xp, xp_to_next?} or a {name: {level, xp}} dict). Lowest first, so "level up
+    whatever's lowest" can be answered from the digest (skills-coverage eval 2026-10-26)."""
+    raw = state.get("skills")
+    if isinstance(raw, dict):
+        rows = [{"skill": k, **v} for k, v in raw.items() if isinstance(v, dict)]
+    elif isinstance(raw, list):
+        rows = [r for r in raw if isinstance(r, dict)]
+    else:
+        return None
+    rows = [r for r in rows if (r.get("skill") or r.get("name")) and num(r.get("level")) is not None]
+    if not rows:
+        return None
+    rows.sort(key=lambda r: (num(r.get("level")), str(r.get("skill") or r.get("name"))))
+    parts = []
+    for r in rows:
+        nxt = num(r.get("xp_to_next"))
+        parts.append(f"{r.get('skill') or r.get('name')} {num(r['level']):g}" + (f" ({nxt:g} xp to next)" if nxt else ""))
+    return ("Skills (lowest first): " + ", ".join(parts))[:LINE_CHARS]
+
+
+# get_state keys the digest (or the needs digest) already renders, or the body's internals. Every OTHER
+# key a client module adds through state_extras (fishing_spots_nearby, ...) is rendered generically by
+# extras_lines, so a new module shows up without a brain edit.
+COVERED_KEYS = frozenset({
+    "action", "activity", "bag", "body", "dead", "death_memory", "endurance", "endurance_max", "exhausted", "fight",
+    "following", "gear", "graves_remembered", "health", "held", "held_actions", "held_item", "hydration",
+    "hydration_max", "interactables", "inventory", "inventory_items", "last_death", "last_held", "max_health",
+    "max_stamina", "my_grave", "name", "nearby_entities", "nearby_items", "nearby_resources", "not_implemented",
+    "other_graves", "pawn", "places", "players", "players_online", "position", "recipes_unlocked", "remembered",
+    "skills", "sleeping", "stamina", "stations_nearby", "structures", "surroundings", "survival", "sustenance",
+    "sustenance_max", "time_of_day", "tool_need", "total_level", "unavailable", "vitals_policy", "vitals_rate", "yaw",
+    "spells", "spells_locked_n", "extras_keys", "world_guid", "puppet", "spell_cooldowns", "time",
+})
+EXTRAS_LINES, EXTRAS_ITEMS = 3, 4
+
+
+def _extra_item(v) -> str:
+    if isinstance(v, dict):
+        name = v.get("name") or v.get("kind") or v.get("id") or "?"
+        d = num(v.get("distance_m", v.get("distance")))
+        bits = [f"{d:.0f} m" if d is not None else "", f"id {v['id']}" if v.get("id") and v.get("name") else ""]
+        bits += [f"{k} {v[k]}" for k in ("level", "method", "kind", "count") if v.get(k) not in (None, "") and k != "name"
+                 and not (k == "kind" and name == v.get("kind"))][:2]
+        return f"{name} ({', '.join(b for b in bits if b)})" if any(bits) else str(name)
+    return str(v)
+
+
+def extras_lines(state: dict) -> list[str]:
+    """Generic lines for module state_extras (keys not in COVERED_KEYS, or the body's own extras_keys list):
+    'Fishing spots nearby: Net Fishing Spot (4 m, id ..., level 2, method net); ...' top-N, nearest first."""
+    keys = state.get("extras_keys") if isinstance(state.get("extras_keys"), list) else \
+        sorted(k for k in state if k not in COVERED_KEYS)
+    out = []
+    for k in keys:
+        v = state.get(k)
+        if isinstance(v, list) and v:
+            items = sorted(v, key=lambda x: num(x.get("distance_m", x.get("distance"))) if isinstance(x, dict) and
+                           num(x.get("distance_m", x.get("distance"))) is not None else 1e9)
+            text = "; ".join(_extra_item(x) for x in items[:EXTRAS_ITEMS]) + (
+                f"; +{len(v) - EXTRAS_ITEMS} more" if len(v) > EXTRAS_ITEMS else "")
+        elif isinstance(v, dict) and v:
+            text = ", ".join(f"{a} {_extra_item(b)}" for a, b in list(v.items())[:EXTRAS_ITEMS])
+        elif isinstance(v, (str, int, float)) and not isinstance(v, bool) and v != "":
+            text = str(v)
+        else:
+            continue
+        out.append(f"{k.replace('_', ' ').capitalize()}: {text}"[:LINE_CHARS])
+        if len(out) >= EXTRAS_LINES:
+            break
     return out
 
 
@@ -447,6 +540,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     if state.get("sleeping"):
         me.append("asleep")
     lines.append("You: " + (", ".join(me) or "ok"))
+    from . import needs  # lazy: needs imports helpers from this module
     lines.extend(needs.lines(state))  # pressing needs -> the options the game offers (brain/needs.py)
     lines.extend(needs.activity_lines(state))  # current activity: spells/actions for it + rate vs best
     lines.extend(recent_life(state))
@@ -459,6 +553,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     lines.append(_line("Carrying", carry) or "Carrying: nothing")
     lines.append(_line("Food/drink", consumables(state)))
     lines.append(_line("Spare gear", item_stats.describe_carried(state)))
+    lines.append(skills_line(state))
     lines.append(hands(state))
     lines.append(world_line(state))
     lines.append(vitals_policy(state))
@@ -493,4 +588,5 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
 
     known = sorted(set(state.get("places") or []) | set(places))
     lines.append(_line("Places", known))
+    lines.extend(extras_lines(state))  # what client modules add (state_extras): last, lowest priority
     return [line for line in lines if line][:MAX_LINES]

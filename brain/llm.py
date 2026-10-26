@@ -54,11 +54,18 @@ class LLMClient(Protocol):
 _MARKER = re.compile(r"\[System:[^\]]*\]")
 
 
+# A reply that is ONLY an all-caps placeholder ("EMPTY", "(EMPTY)", "NO TEXT", "<SILENT>"): the model took
+# "reply with no text" literally (live 08:49, BUGS.md L31). A format check on the whole reply, not a phrase list.
+_PLACEHOLDER = re.compile(r"[\[(<\"'`*_]*\s*[A-Z][A-Z _\-]{3,}\s*[\])>\"'`*_.]*")
+
+
 def strip_markers(text: str | None) -> str | None:
-    """The text without protocol/system markers; None when nothing real is left."""
+    """The text without protocol/system markers; None when nothing real is left (incl. a bare placeholder)."""
     if not text:
         return text
     out = _MARKER.sub("", text).strip()
+    if out and _PLACEHOLDER.fullmatch(out):
+        return None
     return out or None
 
 

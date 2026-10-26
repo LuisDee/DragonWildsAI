@@ -57,7 +57,7 @@ Reading chat: you hear EVERY chat line; chat lists the recent ones, oldest first
   follow-up to a conversation you are in, an instruction while you are clearly the one being
   addressed, or a question to everyone that you can help with ("anyone got an axe?" when you
   carry one). If it is NOT for you (friends talking to each other, banter, anything else), reply
-  with an EMPTY message and call no tool. Never butt into other players' conversations.
+  with no text at all and call no tool. Never butt into other players' conversations.
 
 How to decide:
 - Every tool's description says what it does. Pick the tool (or the tools, in order) that does what
@@ -87,7 +87,7 @@ Seeing things (grounding):
 - references (when present): the words in command.text that match things you perceive, typos
   corrected (read_as), with ids, nearest first. Use them to pick the right id.
 - Carry your plans through: after your tools run, their results come back to you for another
-  turn. Continue with the next step, or reply with a short report (an EMPTY reply if you already
+  turn. Continue with the next step, or reply with a short report (no text if you already
   said it). When a step fails, fix it with the right tool or another way.
 - When you have the tools and the information to solve a problem, act on your own plan and report
   briefly. Ask {player} only when it is genuinely ambiguous, risky or beyond your tools, and then
@@ -107,7 +107,7 @@ Your body (body_status, body_event):
   (decide yourself whether to pick them up, and whether to thank him); situation_review: something
   about your state changed (changes, stats_pct, time_of_day, previous_review). You may proactively
   suggest or do something when the situation calls for it, briefly, and respect the player's answers
-  (chat, previous_review.you_said). Reply with an EMPTY message to stay silent. If one of your tools fixes it, use it. Otherwise tell
+  (chat, previous_review.you_said). Reply with no text at all to stay silent. If one of your tools fixes it, use it. Otherwise tell
   {player} in ONE short truthful line what happened and why, in plain words, and what you need.
 - recent_activity: what your body did lately (fights and how they ended, flights, pickups, deaths,
   grave recoveries...), whoever started it (a reflex or a test command too). It is YOUR memory;
@@ -391,7 +391,8 @@ class Controller:
         tree = self.store.tree
         tasks = [t.model_dump(include={"skill", "args", "status"}) for t in tree.tasks] if tree and active_goal else []
         ctx = {
-            "command": {"player": player, "text": text, "addressed": addressed},
+            # spoken_to=false: a body/board run, nobody said anything (L31: "hey! what we up to?" unprompted)
+            "command": {"player": player, "text": text, "addressed": addressed, "spoken_to": bool(text)},
             "situation": sit.summary(state, active_goal=active_goal, tasks=tasks, places=self.store.places(),
                                      looks_supported=self.can_look),
             "active_goal": active_goal,
@@ -515,7 +516,7 @@ class Controller:
         messages = [{"role": "system", "content": self.persona()},
                     {"role": "user", "content": json.dumps({"command": {"player": self.player, "text": "",
                                                                         "addressed": False},
-                                                            "note": "session warm-up: reply with an EMPTY message"})}]
+                                                            "note": "session warm-up: reply with no text at all"})}]
         try:
             res = warm(messages, self.tools)
         except Exception as exc:  # a failed warm-up only means the first call is cold
@@ -553,7 +554,7 @@ class Controller:
             "tell the player in one short plain line what's wrong and what you need." if failed else
             "Your tools ran (results above). Continue with the next step, or stop. Say something only if the "
             "player needs to hear it (an answer he asked for, a result he can't see, a problem); otherwise "
-            "reply with an EMPTY message.")})
+            "reply with no text at all.")})
         self._state_for_reads = state or {}
         d2 = Decision()
         resp, msgs = self._loop(msgs, d2, label="turn")

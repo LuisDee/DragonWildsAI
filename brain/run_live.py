@@ -43,7 +43,7 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from . import paths, worlds
 from .agent import Agent, GoalResult
 from .bridge_client import BridgeClient
-from .budget import Budget, default_cap_usd, default_spend_fn
+from .budget import Budget, default_spend_fn
 from .capabilities import Capabilities, discover
 from .map_memory import MapMemory, annotate
 from .controller import Controller
@@ -348,7 +348,7 @@ class LiveSession:
         self.store = StateStore(state_dir, self.caps.registry())
         # per-world map / resource memory (BUGS L21): every census feeds it; get_state carries the nearest
         # remembered options beyond sight (state["remembered"]); the Director reads the same file
-        self.map = MapMemory(Path(state_dir) / "map_memory.json")
+        self.map = MapMemory(Path(state_dir) / "map_memory.json", background=True)  # writes off the state path
         self.client.state_hooks.append(lambda data: (self.map.observe(data), annotate(data, self.map)))
         self.executor = Executor(self.client, self.store, self.log)
         self.planner = Planner(planner_llm, self.store.skills, self.log)
@@ -361,8 +361,9 @@ class LiveSession:
                                self.log, prefixes=opts.prefixes, skills=self.skills,
                                calls_per_min=opts.chat_calls_per_min, debounce_s=opts.chat_debounce_s)
         self.agent.body_self_defends = "combat_status" in self.caps.extras
-        self.agent.budget = Budget(None if opts.dry_run else default_spend_fn(), cap_usd=default_cap_usd(),
-                                   log=self.log)  # Luis's daily $ cap (shared with tools/spend.py)
+        # Luis's daily $ cap (cap from tools/spend.py). The reader runs on its own thread (started now, so the
+        # cold first read overlaps the model warm-up below); allows() never waits for it.
+        self.agent.budget = Budget(None if opts.dry_run else default_spend_fn(), log=self.log, background=True).start()
         self.director = None
         if opts.director:
             from .director import Director  # docs/design/director.md
@@ -379,6 +380,7 @@ class LiveSession:
                      migrated=migrated, learned_skills=self.skills.names(), skills_dir=str(self.skills.dir),
                      knowledge=self.knowledge.stats() if self.knowledge else None,
                      director=self.director is not None, controller_effort=getattr(controller_llm, "effort", None),
+                     world_kind=worlds.world_kind(),  # live | dev | bench | unknown, from the joined address
                      **code_version())
         self.out(self.banner(controller_llm.model, planner_llm.model))
         # L27: the cold start (litellm import, TLS, first cache write: 11.2 s live) is paid here, not by

@@ -20,11 +20,12 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
 
-from . import paths
+from . import knowledge
+from .map_memory import lines_for
+from .situation import consumable_facts, consumable_rows, item_names, num as _num
+from .spells import effects as _spell_effects
 
-DATA_DIR = paths.REPO_ROOT / "data"
 MAX_OPTIONS = 4  # per source, per need (craft: 3)
 NEAR_M = 40.0
 LINE_CHARS = 560
@@ -32,22 +33,19 @@ LINE_CHARS = 560
 
 @lru_cache(maxsize=2)
 def catalog(path: str | None = None) -> dict:
+    """The newest data/recipes_<build>.json (honours DW_DATA_DIR via knowledge.data_dir), {} when absent."""
     if path is None:
-        files = sorted(DATA_DIR.glob("recipes_*.json"))
-        if not files:
+        newest = knowledge.newest(knowledge.data_dir(), "recipes")
+        if newest is None:
             return {}
-        path = str(files[-1])
+        path = str(newest)
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
 
 
-def item_kind(item: str | None, cat: dict | None = None) -> str | None:
-    """'food' | 'drink' | 'potion' | None from the item data CLASS (game data), never the name."""
-    if not item:
-        return None
-    e = ((cat if cat is not None else catalog()).get("items") or {}).get(item) or {}
+def _kind_from_class(e: dict) -> str | None:
     cls = str(e.get("class") or "")
     for kind, word in (("food", "Food"), ("drink", "Drink"), ("potion", "Potion")):
         if f"Consumables_{word}" in cls:
@@ -55,8 +53,38 @@ def item_kind(item: str | None, cat: dict | None = None) -> str | None:
     return None
 
 
-def _num(v) -> float | None:
-    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+_INDEX: dict[int, tuple[dict, dict]] = {}  # id(catalog) -> (catalog, index); a few catalogs at most
+
+
+def _index(cat: dict) -> dict:
+    """Per catalog, built once: item -> kind, and the recipes with a consumable output in catalog order
+    as (rid, recipe, [(output, kind), ...]). The needs digest runs on every prompt (it used to scan all
+    1,232 recipes with item_kind per output, per pressing need)."""
+    hit = _INDEX.get(id(cat))
+    if hit is not None and hit[0] is cat:
+        return hit[1]
+    kinds = {}
+    for iid, e in (cat.get("items") or {}).items():
+        k = _kind_from_class(e) if isinstance(e, dict) else None
+        if k:
+            kinds[iid] = k
+    recipes = []
+    for rid, r in (cat.get("recipes") or {}).items():
+        outs = [(o, kinds.get(o.get("item"))) for o in r.get("outputs") or []]
+        if any(k for _, k in outs):
+            recipes.append((rid, r, outs))
+    idx = {"kinds": kinds, "recipes": recipes}
+    if len(_INDEX) > 4:
+        _INDEX.clear()
+    _INDEX[id(cat)] = (cat, idx)
+    return idx
+
+
+def item_kind(item: str | None, cat: dict | None = None) -> str | None:
+    """'food' | 'drink' | 'potion' | None from the item data CLASS (game data), never the name."""
+    if not item:
+        return None
+    return _index(cat if cat is not None else catalog())["kinds"].get(item)
 
 
 def _pct(cur, mx) -> float | None:
@@ -76,12 +104,10 @@ def pressing(state: dict) -> list[dict]:
         cur, r = _num(state.get(stat)), _num(rate.get(per_min_key))
         return round(cur / r) if cur is not None and r and r > 0 else None
 
-    food = _pct(state.get("sustenance"), state.get("sustenance_max"))
-    if food is not None and food < float(pol.get("eat_below_pct") or 40) + 10:
-        out.append({"need": "food", "kinds": ["food"], "pct": food, "zero_min": to_zero("sustenance", "sustenance_per_min")})
-    drink = _pct(state.get("hydration"), state.get("hydration_max"))
-    if drink is not None and drink < float(pol.get("drink_below_pct") or 40) + 10:
-        out.append({"need": "drink", "kinds": ["drink"], "pct": drink, "zero_min": to_zero("hydration", "hydration_per_min")})
+    for need, stat, policy in (("food", "sustenance", "eat_below_pct"), ("drink", "hydration", "drink_below_pct")):
+        pct = _pct(state.get(stat), state.get(f"{stat}_max"))
+        if pct is not None and pct < float(pol.get(policy) or 40) + 10:
+            out.append({"need": need, "kinds": [need], "pct": pct, "zero_min": to_zero(stat, f"{stat}_per_min")})
     hp = _pct(state.get("health"), state.get("max_health"))
     if hp is not None and hp < float(pol.get("heal_below_pct") or 50):
         out.append({"need": "health", "kinds": ["potion", "food"], "pct": hp, "heal": True})
@@ -96,16 +122,8 @@ def pressing(state: dict) -> list[dict]:
 
 def _carried(state: dict, kinds: list[str], cat: dict, heal: bool = False) -> list[str]:
     out = []
-    for r in state.get("inventory_items") or []:
-        if not isinstance(r, dict) or r.get("where") not in ("hotbar", "bag"):
-            continue
-        k = r.get("consumable") or item_kind(r.get("item"), cat)
-        if k not in kinds or (heal and k == "food" and not r.get("heal")):
-            continue
-        facts = [r["where"]]
-        for key, label in (("heal", "heals"), ("hydration", "water"), ("sustenance", "food")):
-            if r.get(key) not in (None, "", "None"):
-                facts.append(f"{label} {r[key]}")
+    for _, r in consumable_rows(state, kinds, kind_of=lambda item: item_kind(item, cat), heal_only=heal):
+        facts = [r["where"], *consumable_facts(r, (("heal", "heals"), ("hydration", "water"), ("sustenance", "food")))]
         if r.get("use_verb"):
             facts.append(str(r["use_verb"]))
         out.append(f"{r.get('name') or r.get('item')} x{r.get('count') or 1} ({', '.join(facts)})")
@@ -152,11 +170,11 @@ def _craft(state: dict, kinds: list[str], cat: dict, heal: bool = False) -> list
         if isinstance(g, dict) and g.get("item"):
             around.setdefault(g["item"], g)
     options = []
-    for rid, r in (cat.get("recipes") or {}).items():
+    for rid, r, kinded in _index(cat)["recipes"]:  # only recipes with a consumable output, catalog order
         sids = r.get("stations") or []
         if not sids or (unlocked is not None and rid not in unlocked):
             continue
-        outs = [o for o in r.get("outputs") or [] if item_kind(o.get("item"), cat) in kinds]
+        outs = [o for o, k in kinded if k in kinds]
         if not outs:
             continue
         st = (cat.get("stations") or {})
@@ -245,7 +263,6 @@ def lines(state: dict, cat: dict | None = None) -> list[str]:
                                       if n.get("pct") is not None else "")
         parts = []
         if n["need"] == "rest":
-            from .map_memory import lines_for
             parts.append("rest: " + ("; ".join(_rest(state) + lines_for(state, ["bed"])[:1]) or "no bed or shelter near"))
         elif n["need"] == "tool":
             parts.extend(_tool(state, n["tool"], cat))
@@ -255,7 +272,6 @@ def lines(state: dict, cat: dict | None = None) -> list[str]:
             near = _nearby(state, n["kinds"], cat)
             if near:
                 parts.append("nearby: " + "; ".join(near))
-            from .map_memory import lines_for
             rem = lines_for(state, [k for k in n["kinds"] if k != "food" or not n.get("heal")])
             if rem:  # remembered beyond sight (per-world map memory, BUGS L21)
                 parts.append("remembered: " + "; ".join(rem[:2]))
@@ -279,20 +295,13 @@ def lines(state: dict, cat: dict | None = None) -> list[str]:
 # plus the item/XP rate now vs the best seen. Information only: the model decides whether a spell helps.
 
 
-@lru_cache(maxsize=2)
 def spell_catalog(path: str | None = None) -> dict:
-    p = Path(path) if path else DATA_DIR / "spell_effects.json"
-    try:
-        return json.loads(p.read_text(encoding="utf-8")).get("spells") or {}
-    except (OSError, ValueError):
-        return {}
+    """data/spell_effects.json spells (the one loader: brain.spells.effects)."""
+    return _spell_effects(path)
 
 
 def _item_name(item: str, state: dict, cat: dict) -> str:
-    for r in state.get("inventory_items") or []:
-        if isinstance(r, dict) and r.get("item") == item and r.get("name"):
-            return str(r["name"])
-    return str(((cat.get("items") or {}).get(item) or {}).get("name") or item)
+    return str(item_names(state).get(item) or ((cat.get("items") or {}).get(item) or {}).get("name") or item)
 
 
 def activity_lines(state: dict, cat: dict | None = None, spells: dict | None = None) -> list[str]:

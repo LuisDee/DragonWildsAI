@@ -40,7 +40,7 @@ ANNOUNCE_FIRST = {"go_to", "come_to", *LONG_ACTIONS}
 # A turn of only these is a standing behaviour, not a step of a plan: no continuation turn.
 STANDING = {"follow", "stop"}
 PROMISE_NOTE = ("You replied without calling any tool. If your reply says you will do something now, call the "
-                "tool(s) for it now, in order. Otherwise reply with an EMPTY message.")
+                "tool(s) for it now, in order. Otherwise reply with no text at all.")
 # Body situations (unreachable, resumed, vitals_low) are triaged by broker.EventBroker and phrased by
 # the Controller model; broker.fallback_line is the template safety net (streamline step 3).
 
@@ -275,9 +275,12 @@ class Agent:
         outcome = self.executor.run_task(task)
         self.broker.action_finished(task.skill, task.args, outcome.ok, outcome.reason, outcome.data)
         if self._directed is not None:
-            self._directed.append({"tool": task.skill, "args": dict(task.args), "ok": outcome.ok,
-                                   "reason": outcome.reason, "data": outcome.data, "interrupt": outcome.interrupt,
-                                   "origin": self._directed_origin})
+            rec = {"tool": task.skill, "args": dict(task.args), "ok": outcome.ok, "reason": outcome.reason,
+                   "data": outcome.data, "interrupt": outcome.interrupt, "origin": self._directed_origin}
+            effects = (outcome.data or {}).get("effects") if isinstance(outcome.data, dict) else None
+            if isinstance(effects, dict):  # the body's own uniform effects block (director.effects_of uses it)
+                rec["effects"] = effects
+            self._directed.append(rec)
         return outcome
 
     def _on_progress(self, event: Event) -> None:
@@ -401,7 +404,7 @@ class Agent:
         if body_events and said:
             self.broker.voiced(body_events, text=" ".join(lines) or d.speech)
         if self.director is not None and event.text and (ran_all or d.goal or d.skill):
-            self.director.on_player_command(event.player, ran_all + (["run_skill"] if d.skill else []))
+            self.director.on_player_command(event.player, ran_all + (["run_skill"] if d.skill else []), event.text)
         if d.goal and not d.skill:
             self.pending_goal = d.goal
         if self.pending_goal:

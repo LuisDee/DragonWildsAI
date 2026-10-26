@@ -41,7 +41,7 @@ def test_persona_renders_with_exactly_the_known_placeholders():
 def test_persona_keeps_every_functional_instruction():
     """The rewrite may shorten them, never drop them (the brief: keep every functional instruction)."""
     out = persona_file.render(persona_file.template(persona_file.DEFAULT_PATH), **VALUES)
-    for anchor in ["addressed=true", "addressed=false", "EMPTY", "Never butt into", "in ONE message",
+    for anchor in ["addressed=true", "addressed=false", "no text", "Never butt into", "in ONE message",
                    "never pair an action with stop", "run_skill", "start_goal", "list_skills", "remember",
                    '"place:<name>"', "at=self", "at=player", "never substitute", "references", "read_as",
                    "command.player", "body_status", "unreachable", "resumed", "follow_ended", "vitals_low",

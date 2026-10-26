@@ -130,9 +130,13 @@ def _clip_card(body: str, limit: int) -> str:
     return NL.join(lines)
 
 
-def _newest(directory: Path, prefix: str) -> Path | None:
-    files = sorted(directory.glob(f"{prefix}_*.json"))
+def newest(directory: Path, prefix: str) -> Path | None:
+    """The newest <prefix>_<build>.json in ``directory`` (builds sort by name), or None."""
+    files = sorted(Path(directory).glob(f"{prefix}_*.json"))
     return files[-1] if files else None
+
+
+_newest = newest  # older callers
 
 
 def _deprecated(rec: dict) -> bool:

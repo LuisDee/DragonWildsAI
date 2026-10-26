@@ -119,3 +119,42 @@ def prepare_skills_dir(skills_root: Path, guid: str) -> Path:
     d = skills_root / guid
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+# --------------------------------------------------------------------------- which kind of world (obs/goal_check)
+
+REPO = Path(__file__).resolve().parents[1]
+# The join targets (client_lib.ps1 "join targets"): line 1 of each file is the server address.
+TARGET_FILES = {"live": "server.txt", "dev": "server_dev.txt"}
+
+
+def _first_line(path: Path) -> str | None:
+    try:
+        line = path.read_text(encoding="utf-8-sig").splitlines()[0].strip()
+    except (OSError, IndexError):
+        return None
+    return line or None
+
+
+def world_kind(addr: str | None = None, *, secrets_dir: Path | None = None, last_join: Path | None = None,
+               bench: bool | None = None) -> str:
+    """"live" (the group's Shockbyte world), "dev" (the dev server), "bench" (a harness session) or "unknown",
+    from the JOINED ADDRESS compared with the join-target files, never from the world's name.
+    The address comes from ``addr`` or logs/state/last_join.json (written by tools/client_boot.ps1 at join);
+    a harness says it is one (``bench`` or DW_BENCH=1). The address itself is never logged (it's a secret)."""
+    if bench or (bench is None and os.environ.get("DW_BENCH") == "1"):
+        return "bench"
+    if addr is None:
+        import json
+        try:
+            p = last_join or REPO / "logs" / "state" / "last_join.json"
+            addr = (json.loads(Path(p).read_text(encoding="utf-8-sig")) or {}).get("addr")
+        except (OSError, ValueError, AttributeError):
+            addr = None
+    if not addr:
+        return "unknown"
+    d = Path(secrets_dir) if secrets_dir else REPO / "client_io" / "secrets"
+    for kind, name in TARGET_FILES.items():
+        if _first_line(d / name) == str(addr).strip():
+            return kind
+    return "unknown"

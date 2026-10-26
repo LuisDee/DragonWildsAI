@@ -16,7 +16,7 @@ Without a spend function the guard is off (``allows()`` is always True), and the
 """
 from __future__ import annotations
 
-import os
+import threading
 import time
 from typing import Callable
 
@@ -25,15 +25,21 @@ BLIND_LINE = ("I can't check my thinking budget right now, so I'll stick to refl
               "defending myself and following you.")
 OUT_REPEAT_S = 600.0
 CHAT_GRACE_S = 1800.0  # player chat keeps working this long while the spend reader fails
-CHAT_KINDS = {"chat"}  # everything else (review, situation, director, planner, ...) is autonomous
+CHAT_KINDS = {"chat", "warmup"}  # everything else (review, situation, director, planner, ...) is autonomous
 
 
 class Budget:
     def __init__(self, spend_fn: Callable[[], float] | None, cap_usd: float | None = None, log=None,
                  clock: Callable[[], float] = time.monotonic, warn_at: float = 0.8, check_s: float = 30.0,
-                 chat_grace_s: float = CHAT_GRACE_S):
+                 chat_grace_s: float = CHAT_GRACE_S, background: bool = False):
+        """``background``: a daemon thread reads the spend every ``check_s`` (call ``start()``) and
+        ``allows()`` only reads the cached result, so the chat and pump paths never wait for the reader.
+        Without it the read happens inline (tests, simple tools). The cap's single source is
+        ``tools.spend.cap_usd`` (DW_SPEND_CAP_USD, then DW_DAILY_CAP_USD, then 10)."""
         self.spend_fn = spend_fn
-        self.cap = float(cap_usd if cap_usd is not None else os.environ.get("DW_DAILY_CAP_USD", "10"))
+        self.cap = float(cap_usd if cap_usd is not None else (default_cap_usd() or 10.0))
+        self.background = background
+        self._thread: threading.Thread | None = None
         self.log, self.clock, self.warn_at, self.check_s = log, clock, warn_at, check_s
         self.chat_grace_s = chat_grace_s
         self._at: float | None = None
@@ -50,9 +56,29 @@ class Budget:
         if self.log is not None:
             self.log.log(kind, **f)
 
+    def start(self) -> "Budget":
+        """Start the background reader (background mode only); the first read starts at once."""
+        if self.background and self.spend_fn is not None and self._thread is None:
+            self._thread = threading.Thread(target=self._read_loop, name="budget-reader", daemon=True)
+            self._thread.start()
+        return self
+
+    def _read_loop(self) -> None:
+        while True:
+            self._read()
+            time.sleep(max(1.0, self.check_s))
+
     def spent(self) -> float:
+        if not self.background:
+            now = self.clock()
+            if self.spend_fn is not None and (self._at is None or now - self._at >= self.check_s):
+                self._read()
+        return self._spent
+
+    def _read(self) -> None:
+        """One read of the spend reader; updates the cached spend and the error streak."""
         now = self.clock()
-        if self.spend_fn is not None and (self._at is None or now - self._at >= self.check_s):
+        if self.spend_fn is not None:
             self._at = now
             try:
                 self._spent = float(self.spend_fn() or 0.0)
@@ -70,13 +96,14 @@ class Budget:
             if self.cap > 0 and self._spent >= self.warn_at * self.cap and self._warned_day != day:
                 self._warned_day = day
                 self._log("budget_warning", spent_usd=round(self._spent, 3), cap_usd=self.cap)
-        return self._spent
 
     def allows(self, kind: str = "model") -> bool:
         """May the brain make a model call of this kind (chat, situation, review, director, planner)?"""
         if self.spend_fn is None or self.cap <= 0:
             return True
         spent = self.spent()
+        if self.background and self._at is None and kind not in CHAT_KINDS:
+            return False  # the first background read hasn't finished: autonomous calls wait (fail closed)
         if self._error_since is not None:  # can't read the spend
             blind_for = self.clock() - self._error_since
             ok = kind in CHAT_KINDS and blind_for < self.chat_grace_s

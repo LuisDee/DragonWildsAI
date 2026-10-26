@@ -864,7 +864,7 @@ def test_l2a_an_addressed_line_stops_the_wait_for_a_running_tool(monkeypatch, tm
     assert [e.text for e in client.poll_events()] == ["claude get out of the shelter"]  # the line is kept for the agent
     # an unaddressed line does not interrupt
     t2 = StubTransport(push=[{"v": 1, "type": "event", "event": {"type": "chat_heard", "player": "Bob", "text": "lol"}}],
-                       beats=[{"pong": True, "started": 7, "action": {"id": "x"}}])
+                       beats=[{"pong": True, "started": 7, "action": {"id": "x"}, "waiters": []}] * 2)
     c2 = _client(t2, monkeypatch, tmp_path)
     c2._started = 7
     c2.interrupt_check = lambda ev: getattr(ev, "text", "").startswith("claude")
@@ -884,12 +884,12 @@ def test_l2b_a_bridge_restart_or_a_dropped_command_fails_the_request_at_once(mon
     def beat_with_our_id(msg, orig=t2.send):
         orig(msg)
         if msg["tool"] == "go_to":
-            t2.beats = [{"pong": True, "started": 100, "action": {"id": msg["id"], "kind": "go_to"}}] * 2 + \
-                       [{"pong": True, "started": 100, "action": None}]
+            t2.beats = [{"pong": True, "started": 100, "action": {"id": msg["id"], "kind": "go_to"}, "waiters": []}] * 2 + \
+                       [{"pong": True, "started": 100, "action": None, "waiters": []}] * 2
     t2.send = beat_with_our_id
     res2 = client2.request("go_to", {"target": "Zezima"}, timeout=125)
-    assert res2["reason"] == "lost_by_body"  # it worked on it for two beats, then the slot was empty, no reply
-    assert [m["tool"] for m in t2.sent].count("ping") == 3
+    assert res2["reason"] == "lost_by_body"  # it worked on it for two beats, then two beats without it, no reply
+    assert [m["tool"] for m in t2.sent].count("ping") == 4
 
 
 def test_l2c_timeouts_and_restarts_are_not_retried_blindly(tmp_path):
@@ -1156,6 +1156,7 @@ def test_director_is_off_unless_dw_director_is_1(tmp_path, monkeypatch):
         assert start["director"] is False
         # the benchmark ties each session to the exact code (obs/goal_check)
         assert len(start["companion_sha"] or "") == 40 and isinstance(start["dirty"], bool)
+        assert start["world_kind"] in ("live", "dev", "bench", "unknown") and "addr" not in start
         s.step()  # pump with the hooks in place: no director, nothing breaks
     finally:
         body.stop()
@@ -1236,3 +1237,135 @@ def test_move_reasons_for_points_and_players_are_told_truthfully(tmp_path):
                   "target_kind": "player", "mode": "follow"})
     r2.at(0).step()
     assert r2.body.said == ["I can't find a way to you from here (blocked by walls). Can you come back towards me?"]
+
+
+
+def test_l2b_a_long_waiter_action_is_never_declared_lost_while_the_body_lists_it(monkeypatch, tmp_path):
+    """2026-10-26: a ~10 s Internal Alchemy cast (a waiter, outside the action slot) came back lost_by_body
+    although the body was still working on it. A command is lost only when the body lists its action slot AND
+    its waiters and our id is in neither, twice in a row; a body without the waiters list is never judged."""
+    t = StubTransport()
+    client = _client(t, monkeypatch, tmp_path)
+    client._started = 100
+    pings = {"n": 0}
+    orig = t.send
+
+    def send(msg):
+        if msg["tool"] == "cast":
+            t.cast_id = msg["id"]
+        if msg["tool"] == "ping":
+            pings["n"] += 1
+            # ~10 s of heartbeats: the slot is busy with something else, our cast sits in the waiters
+            t.beats = [{"pong": True, "started": 100, "action": {"id": "someone-else", "kind": "follow"},
+                        "waiters": [t.cast_id]}]
+        orig(msg)
+        if msg["tool"] == "ping" and pings["n"] == 10:  # the cast settles and answers
+            t.push.append({"v": 1, "type": "result", "id": t.cast_id, "ok": True, "reason": None,
+                           "data": {"spell": "Internal Alchemy"}})
+    t.send = send
+    res = client.request("cast", {"spell": "Internal Alchemy"}, timeout=60)
+    assert res["ok"] is True and res["data"]["spell"] == "Internal Alchemy" and pings["n"] >= 10
+    # an older body: no waiters list -> never judged lost (only a restart would fail it)
+    t2 = StubTransport(beats=[{"pong": True, "started": 100, "action": None}] * 3)
+    c2 = _client(t2, monkeypatch, tmp_path)
+    c2._started = 100
+    assert c2.request("cast", {"spell": "x"}, timeout=0.05)["reason"] == "timeout"
+
+
+def test_world_kind_comes_from_the_joined_address_not_the_world_name(tmp_path, monkeypatch):
+    """obs/goal_check tell live / dev / bench sessions apart from session_start.world_kind, derived from the
+    address the client joined (logs/state/last_join.json, written at join with a BOM by PowerShell)
+    compared with the join-target files; never from the world's name. The address is never logged."""
+    from brain.worlds import world_kind
+    sec = tmp_path / "secrets"
+    sec.mkdir()
+    (sec / "server.txt").write_text("203.0.113.7:7777\npw\n", encoding="utf-8")
+    (sec / "server_dev.txt").write_text("10.0.0.5:7777\n", encoding="utf-8")
+    join = tmp_path / "last_join.json"
+    monkeypatch.delenv("DW_BENCH", raising=False)
+    join.write_text('{"addr": "203.0.113.7:7777", "ts": "x"}', encoding="utf-8-sig")
+    assert world_kind(secrets_dir=sec, last_join=join) == "live"
+    join.write_text('{"addr": "10.0.0.5:7777"}', encoding="utf-8-sig")
+    assert world_kind(secrets_dir=sec, last_join=join) == "dev"
+    assert world_kind("198.51.100.1:7777", secrets_dir=sec) == "unknown"
+    assert world_kind(secrets_dir=sec, last_join=tmp_path / "missing.json") == "unknown"
+    monkeypatch.setenv("DW_BENCH", "1")
+    assert world_kind(secrets_dir=sec, last_join=join) == "bench"
+
+
+def test_digest_has_a_skills_line_lowest_first_and_renders_new_module_extras():
+    """Skills-coverage eval 2026-10-26: "go level up whatever's lowest" got no tool because the digest had no
+    skill levels. And module state_extras (fishing_spots_nearby, ...) must reach the model without brain edits."""
+    st = copy.deepcopy(STATES[5])
+    st["skills"] = [{"skill": "Attack", "level": 3, "xp": 71}, {"skill": "Cooking", "level": 1, "xp": 0, "xp_to_next": 40},
+                    {"skill": "Agility", "level": 3, "xp": 90}, {"skill": "Artisan", "level": 1, "xp": 0}]
+    st["fishing_spots_nearby"] = [{"name": "Net Fishing Spot", "id": "fish_2", "distance_m": 9.6, "level": 2, "method": "net"},
+                                  {"name": "Net Fishing Spot", "id": "fish_1", "distance_m": 3.6, "level": 2, "method": "net"}]
+    st["brand_new_module_things"] = [{"name": "Shiny Thing", "distance": 12.0, "id": "s1"}]
+    lines = sit.summary(st)
+    skills = next(line for line in lines if line.startswith("Skills"))
+    assert skills == "Skills (lowest first): Artisan 1, Cooking 1 (40 xp to next), Agility 3, Attack 3"
+    fish = next(line for line in lines if line.startswith("Fishing spots nearby"))
+    assert fish.startswith("Fishing spots nearby: Net Fishing Spot (4 m, id fish_1")  # nearest first
+    assert any(line.startswith("Brand new module things: Shiny Thing (12 m, id s1)") for line in lines)
+    assert not any(line.lower().startswith(("inventory items:", "nearby items:", "pawn:")) for line in lines)
+    assert len(lines) <= sit.MAX_LINES
+    # the dict form of skills (another body) works the same
+    assert sit.skills_line({"skills": {"Mining": {"level": 2, "xp": 5}, "Fishing": {"level": 1, "xp": 0}}}) == \
+        "Skills (lowest first): Fishing 1, Mining 2"
+
+
+def test_l31_a_bare_placeholder_reply_is_silence_and_body_runs_say_nobody_spoke(tmp_path):
+    """BUGS.md L31 (Director live smoke 08:49): Haiku replied "EMPTY" and it was said in chat 3 times; and
+    "hey! what we up to?" opened unprompted board runs. A reply that is only an all-caps placeholder is
+    silence (a format check, like the L18 markers); prompts say "no text"; a body-initiated run tells the
+    model nobody spoke (spoken_to=false)."""
+    from brain.llm import strip_markers
+    for sentinel in ("EMPTY", "(EMPTY)", "NO TEXT", "<SILENT>", "EMPTY."):
+        assert strip_markers(sentinel) is None, sentinel
+    for real in ("OK", "hey! what we up to?", "Got 4 logs.", "LOL nice"):
+        assert strip_markers(real) == real
+    r = Replay(tmp_path, STATES[5])
+    r.model.body_reply = lambda ctx: FakeLLM.say("EMPTY")
+    r.body.emit({"type": "vitals_low", "stat": "hydration", "value": 3.0, "max": 75.0})
+    r.at(0).step()
+    assert not any("EMPTY" in s for s in r.body.said)
+    ctx = r.model.contexts[-1]
+    assert ctx["command"]["spoken_to"] is False and ctx["command"]["text"] == ""
+    persona = r.model.calls[-1]["messages"][0]["content"]
+    assert "EMPTY" not in persona and "never greet him" in persona and "no text" in persona
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude hi"})
+    r.at(5).step()
+    assert r.model.contexts[-1]["command"]["spoken_to"] is True
+
+
+def test_director_hooks_get_the_players_line_and_the_bodys_effects_block(tmp_path):
+    """The Director's hook requests: on_player_command(player, tools, text), and a body effects block reaching
+    the board's action records unchanged (director.effects_of reads it before its own fallback)."""
+    seen = {}
+
+    class Board:
+        tool_names, read_tool_names, running, hides_start_goal = (), (), False, False
+
+        def on_player_command(self, player, tools, text=None):
+            seen["cmd"] = (player, tools, text)
+
+        def tick(self):
+            pass
+
+        def observe_activity(self, ev):
+            pass
+    r = Replay(tmp_path, STATES[5])
+    r.agent.director = Board()
+    r.body.act("go_to", ok(target="Zezima", effects={"items_in": [], "items_out": [], "spots_empty": []}))
+    r.model.replies["come here"] = FakeLLM.say("", FakeLLM.call("go_to", target="Zezima"))
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude come here"})
+    r.at(0).step()
+    assert seen["cmd"] == ("Zezima", ["go_to"], "claude come here")
+    r.agent._directed = []
+    r.body.act("go_to", ok(target="Zezima", effects={"items_in": [{"item": "ITEM_X", "count": 1}], "items_out": [],
+                                                     "spots_empty": []}))
+    from brain.state_store import Task
+    r.agent._run_task(Task(skill="go_to", args={"target": "Zezima"}))
+    assert r.agent._directed[0]["effects"]["items_in"] == [{"item": "ITEM_X", "count": 1}]
+    r.agent._directed = None
