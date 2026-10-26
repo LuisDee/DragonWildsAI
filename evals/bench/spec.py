@@ -143,6 +143,9 @@ def calls_cap(case: Case) -> dict[str, int]:
 def lint(case: Case) -> list[str]:
     """Problems that make a case unusable (design §3). Empty = clean."""
     probs = []
+    from brain.predicates import net_conflicts
+    for item in net_conflicts(case.success):
+        probs.append(f"success tests {item!r} as both gained and lost in one 'all': unsatisfiable (one net delta)")
     for t in case.texts():
         if m := ASSET_ID.search(t):
             probs.append(f"asset id {m.group(0)!r} in player text {t!r}")

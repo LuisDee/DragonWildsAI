@@ -102,16 +102,15 @@ LIVE = {
     },
     "USD_AccessPersonalChest": {
         "effect": [{"kind": "spell_state", "state": "PersonalInventorySpell"},
-                   {"kind": "spell_state", "state": "PersonalInventoryToggle"},
                    {"kind": "input_mode", "contains": "FocussedInGameUI"}],
-        "evidence": "2026-10-26 07:35Z dev (unlocked as evidence setup): Law -20 Astral -15, cooldown, settled; the personal-storage screen opened (input mode DIM_FocussedInGameUI) and a DominionSpellActor spawned; no GE/tag. input.lua closes the orphaned container screen",
+        "evidence": "2026-10-26 07:35Z dev (unlocked as evidence setup): Law -20 Astral -15, cooldown, settled; the personal-storage screen opened (input mode DIM_FocussedInGameUI) and a DominionSpellActor spawned; no GE/tag. input.lua closes the orphaned container screen. Referee (server) 08:58Z: spell_state PersonalInventorySpell fired via the OpenPersonalInventory post-hook (Method=1 Spell); the Client_TogglePersonalInventory hook did NOT fire; T0 passed (2.19 s, 2 Haiku calls)",
     },
     "USD_EyeOfOculus": {
         "effect": [{"kind": "spell_state", "state": "OculusActive"},
                    {"kind": "view_target", "class": "BP_OculusCamera_C"},
                    {"kind": "spell_actor", "class": "DominionSpellActor", "near": "self"},
                    {"kind": "input_mode", "contains": "SpellcastingMode"}],
-        "evidence": "2026-10-26 07:2xZ dev: Astral -3, cooldown; no GE/tag; a DominionSpellActor spawned, input mode DIM_SpellcastingMode then DIM_OculusBuildMenu, view target BP_OculusCamera_C, OculusComponent:IsOculusActive() true. Left via OculusComponent:RequestExitOculusMode (L29)",
+        "evidence": "2026-10-26 07:2xZ dev: Astral -3, cooldown; no GE/tag; a DominionSpellActor spawned, input mode DIM_SpellcastingMode then DIM_OculusBuildMenu, view target BP_OculusCamera_C, OculusComponent:IsOculusActive() true. Left via OculusComponent:RequestExitOculusMode (L29). Referee (server) 08:58Z: spell_state OculusActive fired via OculusPawn:Multicast_OnOculusActivated AND the IsOculusActive poll; T0 passed (2.37 s, 2 Haiku calls)",
     },
     "USD_DetectOre": {
         "effect": [{"kind": "spell_actor", "class": "DominionSpellActor", "near": "self"},

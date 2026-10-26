@@ -1,7 +1,7 @@
 {
  "version": 1,
  "build": "26161880",
- "generated_at": "2026-10-26T07:48:14Z",
+ "generated_at": "2026-10-26T09:01:16Z",
  "source": [
   "data/spells_26161880.json",
   "tools/gen_spell_effects.py LIVE (DISCOVERIES 'Client spells (R2)')",
@@ -143,11 +143,6 @@
       "observable": "referee"
      },
      {
-      "kind": "spell_state",
-      "state": "PersonalInventoryToggle",
-      "observable": "referee"
-     },
-     {
       "kind": "input_mode",
       "contains": "FocussedInGameUI",
       "observable": "cast_reply"
@@ -160,7 +155,7 @@
     ]
    },
    "confidence": "live",
-   "evidence": "2026-10-26 07:35Z dev (unlocked as evidence setup): Law -20 Astral -15, cooldown, settled; the personal-storage screen opened (input mode DIM_FocussedInGameUI) and a DominionSpellActor spawned; no GE/tag. input.lua closes the orphaned container screen",
+   "evidence": "2026-10-26 07:35Z dev (unlocked as evidence setup): Law -20 Astral -15, cooldown, settled; the personal-storage screen opened (input mode DIM_FocussedInGameUI) and a DominionSpellActor spawned; no GE/tag. input.lua closes the orphaned container screen. Referee (server) 08:58Z: spell_state PersonalInventorySpell fired via the OpenPersonalInventory post-hook (Method=1 Spell); the Client_TogglePersonalInventory hook did NOT fire; T0 passed (2.19 s, 2 Haiku calls)",
    "modules": [
     "Cast",
     "CostItems",
@@ -1411,7 +1406,7 @@
     ]
    },
    "confidence": "live",
-   "evidence": "2026-10-26 07:2xZ dev: Astral -3, cooldown; no GE/tag; a DominionSpellActor spawned, input mode DIM_SpellcastingMode then DIM_OculusBuildMenu, view target BP_OculusCamera_C, OculusComponent:IsOculusActive() true. Left via OculusComponent:RequestExitOculusMode (L29)",
+   "evidence": "2026-10-26 07:2xZ dev: Astral -3, cooldown; no GE/tag; a DominionSpellActor spawned, input mode DIM_SpellcastingMode then DIM_OculusBuildMenu, view target BP_OculusCamera_C, OculusComponent:IsOculusActive() true. Left via OculusComponent:RequestExitOculusMode (L29). Referee (server) 08:58Z: spell_state OculusActive fired via OculusPawn:Multicast_OnOculusActivated AND the IsOculusActive poll; T0 passed (2.37 s, 2 Haiku calls)",
    "modules": [
     "Cast",
     "CostItems",
