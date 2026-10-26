@@ -153,7 +153,8 @@ do
     check("a build screen open: never fires", res.reason == "interrupted" and res.data.why == "screen_open" and (Wd.shots_fired or 0) == 0, tostring(res.reason))
 end
 do
-    check("manifest action", S.MANIFEST.shoot.kind == "action" and S.MANIFEST.shoot.moves and S.MANIFEST.shoot.llm)
+    -- llm = false until live-verified (main, 2026-10-26); the bridge still treats it as an action tool
+    check("manifest action", S.MANIFEST.shoot.kind == "action" and S.MANIFEST.shoot.moves and S.MANIFEST.shoot.llm == false)
     local src = assert(io.open(root .. "/client_mod/scripts/shoot.lua", "rb")):read("*a"):gsub("%-%-[^\n]*", "")
     check("no server RPC calls", not src:find("[:.]Server_%w+%s*%("))
     check("no item names in logic", not src:find("ITEM_", 1, true) and not src:find("Essence", 1, true))

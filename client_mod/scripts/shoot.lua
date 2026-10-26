@@ -373,7 +373,7 @@ do
     local OBJ = { __jsontype = "object" }
     local function obj(t) return setmetatable(t or {}, OBJ) end
     M.MANIFEST = {
-        shoot = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 6, timeout_s = 135, detail_is_speech = true,
+        shoot = { kind = "action", llm = false, moves = true, priority = "command", duration_s = 6, timeout_s = 135, detail_is_speech = true,
             description = "Shoot a thing that isn't a creature (e.g. a floating rock, something out of reach) with the bow, crossbow "
                 .. "or staff you hold (equip it first): gets in range, aims, fires, and checks it fell, broke or took damage. "
                 .. "For creatures use attack.",
