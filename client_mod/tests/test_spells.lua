@@ -172,7 +172,9 @@ W.inject = function(_, a)
         local s = spell_by(G.wheel[G.page * 12 + slot + 1])
         G.selected = s and s.asset
         if not s then G.mode = "DIM_Gameplay"; return true end
-        if s.two_step_fake then -- Recall (live 17:35): 1st = the beacon (runes + cooldown + a spell actor); 2nd = back to it
+        if s.hold_fake then -- Recall (live 17:35): opens a placement mode he can move in; place = finish it
+            G.mode, G.placing, G.hold_start = "DIM_SpellPlacementModeAdvancedMovement", s, { G.pos[1], G.pos[2], G.pos[3] }
+        elseif s.two_step_fake then -- Recall (live 17:35): 1st = the beacon (runes + cooldown + a spell actor); 2nd = back to it
             G.mode = "DIM_Gameplay"
             if not G.beacon then
                 local bk = { G.pos[1], G.pos[2], G.pos[3] }
@@ -196,6 +198,12 @@ W.inject = function(_, a)
             G.mode, G.placing = "DIM_SpellPlacementMode", s
         end
     elseif a.n == "place" then
+        if G.mode == "DIM_SpellPlacementModeAdvancedMovement" and G.placing and G.placing.hold_fake then
+            local s, hs = G.placing, G.hold_start
+            G.mode = "DIM_SpellcastingMode"
+            at(0.4, function() if not G.hold_no_return then G.pos = { hs[1], hs[2], hs[3] } end; effect(s); G.mode = "DIM_Gameplay" end)
+            return true
+        end
         if G.mode == "DIM_SpellPlacementMode" then
             local s, aim = G.placing, G.aimed or { 3, 0, 0 }
             local off = G.land_offset or 0
@@ -656,6 +664,51 @@ do
     check("Recall step 2 without the teleport: not_returned, says how far from the beacon", res.reason == "verification_failed" and res.data.why == "not_returned",
           tostring(res.reason) .. " " .. tostring(res.data and res.data.detail))
     G.recall_broken = nil
+end
+
+-- Recall hold-and-walk (wiki: a runic marker, recast returns; cast type AllowMovementThenCastInstant; live 17:35: it opens
+-- a placement mode he can move in): cast {spell, walk_to} opens it, walks while it is held, finishes it, judged by position
+do
+    local HOLD = spell({ asset = "USD_TestHold", name = "Recall", desc = "Place a temporary beacon.", cast_type = 3, hold_fake = true,
+                         cost = { { item = AIR, name = "Air Rune", count = 30 } }, perk = { level = 57, skill = "SKILL_Agility", skill_name = "Agility" } })
+    local R = { move_go_to = W.move_go_to, move_status = W.move_status, move_stop = W.move_stop }
+    local mv = {}
+    W.move_go_to = function(_, target) mv.goal, mv.mode, mv.status = target.position, "go_to", nil end
+    W.move_stop = function() mv.mode = "idle" end
+    W.move_status = function() return { mode = mv.mode or "idle", result = { status = mv.status } } end
+    local function during()
+        if mv.mode == "go_to" and mv.goal then
+            local dx = mv.goal[1] - G.pos[1]
+            local step = math.min(0.4, math.abs(dx))
+            G.pos = { G.pos[1] + (dx > 0 and step or -step), G.pos[2], G.pos[3] }
+            if math.abs(mv.goal[1] - G.pos[1]) < 0.01 then mv.mode, mv.status = "idle", "arrived" end
+        end
+    end
+    reset({ unlocked = { HOLD }, wheel = { "USD_TestHold" }, all = { HOLD } })
+    G.pos = { 0, 0, 0 }
+    local res = run_cast({ spell = "Recall", walk_to = { 12, 0, 0 } }, { during = during })
+    local jp = table.concat(res.data and res.data.presses or {}, ",")
+    check("hold-and-walk: opened, walked 12 m while held, finished, back where opened", res.ok and res.data.returned == true
+          and (res.data.walked_m or 0) >= 11 and jp:find("hold_walk", 1, true) and jp:find("place", 1, true),
+          tostring(res.reason) .. " " .. jp .. " " .. tostring(res.data and res.data.detail))
+    check("hold-and-walk: the reply says it brought him back", tostring(res.data.detail):find("brought me back", 1, true) ~= nil, res.data.detail)
+    -- finished but no teleport: truthful "didn't bring me back", with the distance
+    reset({ unlocked = { HOLD }, wheel = { "USD_TestHold" }, all = { HOLD } })
+    G.pos, G.hold_no_return, mv = { 0, 0, 0 }, true, {}
+    res = run_cast({ spell = "Recall", walk_to = { 12, 0, 0 } }, { during = during })
+    check("hold-and-walk without a return: says it didn't bring me back, how far", res.ok and res.data.returned == false
+          and tostring(res.data.detail):find("didn't bring me back", 1, true) ~= nil, tostring(res.data and res.data.detail))
+    G.hold_no_return = nil
+    -- walk_to on a spell that can't be held: refused up front, nothing pressed
+    reset({})
+    res = run_cast({ spell = "Windstep", walk_to = { 12, 0, 0 } })
+    check("walk_to on an ordinary spell: invalid_args, nothing pressed", res.reason == "invalid_args" and presses() == "", tostring(res.reason) .. " " .. presses())
+    -- without walk_to: finished at once, as before (no hold)
+    reset({ unlocked = { HOLD }, wheel = { "USD_TestHold" }, all = { HOLD } })
+    G.pos, mv = { 0, 0, 0 }, {}
+    res = run_cast({ spell = "Recall" }, { during = during })
+    check("no walk_to: finished at once, no hold", res.ok and not table.concat(res.data.presses or {}, ","):find("hold_walk", 1, true), tostring(res.reason))
+    for k, v in pairs(R) do W[k] = v end
 end
 
 -- Luis 2026-10-26 (Confuse "too_far", the magpie moved on): ONE cast call walks into reach of a MOVING creature,

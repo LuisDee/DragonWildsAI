@@ -49,6 +49,12 @@ M.cfg = {
     -- TWO-STEP spells (data/spell_mechanics.json two_step; Recall: Luis + wiki 2026-10-26): a verified first cast
     -- places the beacon (its spell actor); a later cast is judged by where he ends up.
     beacon_arrive_m = 4,    -- step 2 verified: he ends this close to the beacon after the cast
+    -- HOLD-AND-WALK (cast type instant_after_move = the game's AllowMovementThenCastInstant; Recall: wiki "Leaves a runic
+    -- marker on the ground; recasting teleports you back", live 17:35: the spell opens a placement mode you can MOVE in):
+    -- cast {spell, walk_to}: open it, walk to walk_to while it is held open, then finish it; the result says where he
+    -- ended relative to where it was opened (a jump back there = the return, by position).
+    hold_walk_budget_s = 25,  -- the walk while held open; then finish it where he is
+    hold_return_m = 4,        -- finished within this of the opening point after walking away = returned
     select_wait_s = 1.0,    -- after the quick key: wait for a spell mode or the cast to start
     verify_s = 4.0,         -- after the cast input: runes / cooldown must change within this ...
     cast_max_s = 12,
@@ -956,7 +962,17 @@ local function new_cast(api, args)
     end
     local icon_of = {}
     for a, o in pairs(snap.objects or {}) do local so = W.static(o); icon_of[a] = so and so.icon end
-    local job = { api = api, row = row, st = st, d = d, acts = acts, slot = slot, target = tg, placed = placed,
+    local walk_to
+    if args.walk_to ~= nil then
+        if row.cast_type ~= "instant_after_move" then
+            d.why, d.detail = "walk_to_not_supported", row.name .. " can't be held open while I walk; only spells that let you move while casting can."
+            return nil, api.fail("invalid_args", d)
+        end
+        local wt, wf = target_of(api, args.walk_to, snap)
+        if not wt or wt.kind == "self" then return nil, wf or api.fail("invalid_args", { detail = "walk_to must be a place or a thing" }) end
+        walk_to = wt
+    end
+    local job = { api = api, row = row, st = st, d = d, acts = acts, slot = slot, target = tg, placed = placed, walk_to = walk_to,
                   pages = M.page_count(snap.radials, #(snap.wheel or {}), per),
                   per = per, icon_of = icon_of,
                   before = snap, phase = "own", t0 = api.now(), presses = {} }
@@ -1197,6 +1213,19 @@ local function verified_result(job, df, snap)
         d.why = "landed_elsewhere"
         d.detail = "I cast " .. job.row.name .. " but it landed " .. math.floor(d.landed_dist_m + 0.5) .. " m from where you wanted."
         return { ok = false, reason = "verification_failed", data = d }
+    end
+    if job.hold and job.hold.start and snap and snap.position then
+        local from_open = d3(snap.position, job.hold.start)
+        d.from_opened_m = math.floor(from_open * 10 + 0.5) / 10
+        d.returned = (job.d.walked_m or 0) > M.cfg.hold_return_m and from_open <= M.cfg.hold_return_m
+        if d.returned then
+            d.detail = string.format("I opened %s, walked %d m, and finishing it brought me back to where I opened it.",
+                job.row.name, math.floor((job.d.walked_m or 0) + 0.5))
+        else
+            d.detail = string.format("I opened %s, walked %d m and finished it, but it didn't bring me back: I'm still %d m from where I opened it.",
+                job.row.name, math.floor((job.d.walked_m or 0) + 0.5), math.floor(from_open + 0.5))
+        end
+        return { ok = true, data = d }
     end
     local mech = M.mechanics(job.row.id)
     local b = mech and mech.two_step and M.beacon(job.row.id) or nil
@@ -1581,6 +1610,26 @@ local function step(job)
         end
         return nil
     end
+    if job.phase == "hold_walk" then
+        local h = job.hold
+        if not in_spell_mode(mode) then
+            W.move_stop(api)
+            return failed(job, "verification_failed", "hold_closed", job.row.name .. " closed while I was walking (I'd gone "
+                .. math.floor(((snap.position and h.start) and d3(snap.position, h.start) or 0) + 0.5) .. " m), so it never finished.")
+        end
+        local st = W.move_status(api) or {}
+        local res = type(st.result) == "table" and st.result or {}
+        local pv = type(st.progress) == "table" and st.progress or {}
+        local done = res.status == "arrived" or (st.mode == "idle" and t - h.t0 > 1) or pv.verdict == "stalled"
+            or t - h.t0 > cfg.hold_walk_budget_s
+        if not done then return nil end
+        W.move_stop(api)
+        job.walked = true
+        job.d.walked_m = (snap.position and h.start) and math.floor(d3(snap.position, h.start) * 10 + 0.5) / 10 or nil
+        job.d.walk_result = res.status or pv.verdict or "budget"
+        job.phase, job.until_t = "select", t + cfg.select_wait_s -- the select phase now finishes it (validated spot search)
+        return nil
+    end
     if job.phase == "select" then
         if in_spell_mode(mode) then
             mark(job, "spell_mode", t)
@@ -1600,6 +1649,14 @@ local function step(job)
             -- live 17:37 (Recall): DIM_SpellPlacementModeAdvancedMovement is a ground placement too; a place press on an
             -- invalid spot does nothing (12 s "prepared"), so it goes through the same validated spot search
             local ground_mode = mode == "DIM_SpellPlacementModeAdvancedMovement"
+            if ground_mode and job.walk_to and not job.walked then
+                job.hold = { t0 = t, start = snap.position }
+                job.d.opened_at = snap.position
+                job.phase = "hold_walk"
+                W.move_go_to(api, job.walk_to, { tolerance_m = 1.5, progress = { stall_s = 8, budget_s = cfg.hold_walk_budget_s } })
+                job.presses[#job.presses + 1] = "hold_walk"
+                return nil
+            end
             if job.row.cast_type == "placed" or mode == "DIM_SpellPlacementMode" or ground_mode or W.preview(api) then
                 job.aim_mode = job.row.cast_type ~= "placed" and not ground_mode
                 job.ground_ok = job.row.cast_type == "placed" or ground_mode
@@ -1948,7 +2005,7 @@ function M.state_extras(api)
             local bc = mech and mech.two_step and M.beacon(r.id) or nil
             out[#out + 1] = { id = r.id, name = r.name, school = st.perk and st.perk.skill_name or nil, castable = r.castable == true,
                               reason = (not r.castable) and r.reason or nil, runes = next(runes) and runes or nil, runes_short = short,
-                              how = mech and mech.how or nil,
+                              how = mech and mech.how or nil, cast_type = r.cast_type,
                               beacon = bc and { position = bc.position, placed_s_ago = math.floor(M.wall() - bc.at + 0.5) } or nil }
         end
     end
@@ -1977,6 +2034,9 @@ M.MANIFEST = {
             .. "`how` in state.spells works in steps (e.g. cast once to set a beacon, again to return). Never at players.",
         args = { type = "object", required = { "spell" }, properties = obj({
             spell = { type = "string", description = "Exact name from castable_spells." },
+            walk_to = { description = "Only spells with cast_type instant_after_move (you can move while casting): walk here "
+                .. "(look id or [x,y,z] m) while it is held open, then finish it.",
+                        anyOf = { { type = "string" }, { type = "array", items = { type = "number" }, minItems = 2, maxItems = 3 } } },
             target = { description = "Placed/aimed: look id or [x,y,z] m; omit to choose.",
                        anyOf = { { type = "string" }, { type = "array", items = { type = "number" }, minItems = 2, maxItems = 3 } } } }) },
         preconditions = { "the spell is unlocked and on your spell wheel", "you carry its runes", "it is not on cooldown" },

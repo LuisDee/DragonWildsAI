@@ -134,6 +134,19 @@ function M.risk_of(item)
     return RISKS and type(item) == "string" and RISKS[item] or nil
 end
 
+-- CRASH-SAFETY RULE (BUGS L38, main 2026-10-26; like "never attack players"): an item whose known risk is a crash
+-- (data/consumable_risks.json, risk containing "crash") is never used or equipped, by anyone: 3 of 5 Dirty Water uses
+-- crashed the client (game code, null read after HandleSlotUseEvent), one of them the model's own consume.
+-- -> nil | {ok = false, reason = "unsafe", risk, detail} (the truthful refusal)
+function M.crash_refusal(item, name, kind)
+    local rk = M.risk_of(item)
+    if not (rk and tostring(rk.risk or ""):find("crash", 1, true)) then return nil end
+    local verb = (kind == "food" and "eat") or (kind == "drink" and "drink") or "use"
+    local instead = rk.instead and (rk.instead:sub(1, 1):upper() .. rk.instead:sub(2) .. " first.") or ""
+    return { ok = false, reason = "unsafe", risk = rk.risk, item = item,
+             detail = string.format("I won't %s %s: it crashes my game.%s", verb, tostring(name or item), instead ~= "" and (" " .. instead) or "") }
+end
+
 function M.describe_item(it)
     if not U.valid(it) then return nil end
     local data = U.try(function() return it.ItemData end)
@@ -322,6 +335,8 @@ function M.equip(log, what)
     local d, where = M.find(l, what)
     if not d then return { ok = false, reason = "not in inventory: " .. tostring(what) } end
     if where == "loadout" then return { ok = true, reason = "already equipped", item = d } end
+    local refuse = M.crash_refusal(d.item, d.name, d.consumable) -- its hotbar key would consume it
+    if refuse then say(log, "equip refused (crash-safety): " .. tostring(d.item)); return refuse end
     -- A held hotbar item is ALSO referenced by the loadout; pressing its key again would put it away.
     for _, e in ipairs(l.loadout or {}) do
         if e.item == d.item then return { ok = true, reason = "already equipped", item = e } end
@@ -393,6 +408,8 @@ function M.use(log, what, opts)
     if not l.ok then return l end
     local d, where = M.find(l, what)
     if not d or where == "loadout" then return { ok = false, reason = "not in hotbar/bag: " .. tostring(what) } end
+    local refuse = M.crash_refusal(d.item, d.name, d.consumable)
+    if refuse then say(log, "use refused (crash-safety): " .. tostring(d.item)); return refuse end
     -- Fresh check of the exact slot about to be pressed: the item there must be this item and,
     -- when opts.require is set, of that consumable class. Equipment is never "used" here.
     local pc = M.pc()

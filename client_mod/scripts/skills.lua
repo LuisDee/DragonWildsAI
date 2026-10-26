@@ -777,6 +777,12 @@ local function start_consume(api, args, ctx)
             return api.fail("not_consumable", { item = r.item, name = r.name,
                 detail = "I can't eat or drink the " .. tostring(r.name) .. "." })
         end
+        -- crash-safety rule (BUGS L38): refused with the truthful reason, before any move or press
+        local inv = api.module and api.module("inventory")
+        local refuse = inv and type(inv.crash_refusal) == "function" and inv.crash_refusal(r.item, r.name, r.consumable) or nil
+        if refuse then
+            return api.fail("unsafe", { item = r.item, name = r.name, risk = refuse.risk, detail = refuse.detail })
+        end
         if r.where ~= "hotbar" then
             return api.fail("in_bag", { item = r.item, name = r.name, offer = "move_item",
                 detail = "The " .. tostring(r.name) .. " is in my bag, not on my hotbar; I can only use things from the hotbar." })

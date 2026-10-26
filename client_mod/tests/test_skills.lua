@@ -286,13 +286,30 @@ test("consume from the hotbar: verified by the stat rising", function()
     assert(r and r.ok and r.data.item == "ITEM_Consumable_Water_Clean" and r.data.count_left == 0, json.encode(r))
 end)
 
-test("consume: the model may drink a risky item, and the reply carries its known risk (BUGS L38)", function()
+test("consume: crash-safety rule (BUGS L38): a crash-risk item is refused with the truthful reason, nothing used", function()
     reset()
+    local inv = mods()
+    local real = inv.crash_refusal
+    -- the real rule lives in inventory.lua (data/consumable_risks.json; tested in test_inventory_reflex); here: skills honours it
+    inv.crash_refusal = function(item, name, kind)
+        if item ~= "ITEM_Consumable_Water_Dirty" then return nil end
+        return { ok = false, reason = "unsafe", risk = "client_crash",
+                 detail = "I won't drink " .. name .. ": it crashes my game. Boil it at a campfire into Clean Water first." }
+    end
     F.cons = { { name = "Dirty Water", item = "ITEM_Consumable_Water_Dirty", count = 2, consumable = "drink", where = "hotbar",
-                 stat = "hydration", amount = 10, risk = "drinking Dirty Water has crashed my game twice today" } }
+                 stat = "hydration", amount = 10 } }
+    local uses0 = F.uses or 0
     local r0, id = rpc("consume", { item = "Dirty Water" })
     local r = r0 or run(id, 10)
-    assert(r and r.ok and r.data.risk and r.data.risk:find("crashed my game", 1, true), json.encode(r))
+    assert(r and not r.ok and r.reason == "unsafe" and r.data.detail == "I won't drink Dirty Water: it crashes my game. Boil it at a campfire into Clean Water first."
+           and (F.uses or 0) == uses0, json.encode(r))
+    -- an ordinary drink is unaffected
+    F.cons = { { name = "Clean Water", item = "ITEM_Consumable_Water_Clean", count = 2, consumable = "drink", where = "hotbar",
+                 stat = "hydration", amount = 25 } }
+    r0, id = rpc("consume", { item = "Clean Water" })
+    r = r0 or run(id, 10)
+    assert(r and r.ok, json.encode(r))
+    inv.crash_refusal = real
 end)
 
 test("consume: in the bag -> in_bag + offer; not carried -> not_in_inventory; no stat change -> verification_failed", function()

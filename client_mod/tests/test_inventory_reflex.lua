@@ -377,5 +377,20 @@ do
     I._input_gate = g0
 end
 
+-- crash-safety rule (BUGS L38: 3 of 5 Dirty Water uses crashed the client, one the model's own consume): use() and
+-- equip() refuse a crash-risk item with the truthful sentence, and press nothing
+do
+    hotbar_items = { item(DATA.dirty, 3), item(DATA.clean, 1) }; bag_items = {}; refresh()
+    S.presses = {}
+    local rr = I.crash_refusal("ITEM_Consumable_Water_Dirty", "Dirty Water", "drink")
+    check(rr and rr.reason == "unsafe" and rr.detail == "I won't drink Dirty Water: it crashes my game. Boil it at a campfire into Clean Water first.",
+          "crash_refusal: the exact truthful sentence (" .. tostring(rr and rr.detail) .. ")")
+    local r1 = I.use(nil, "Dirty Water", { require = "drink" })
+    check(r1.ok == false and r1.reason == "unsafe" and #S.presses == 0, "use(Dirty Water): refused, nothing pressed")
+    local r2 = I.equip(nil, "Dirty Water")
+    check(r2.ok == false and r2.reason == "unsafe" and #S.presses == 0, "equip(Dirty Water): refused (its key would drink it), nothing pressed")
+    check(I.crash_refusal("ITEM_Consumable_Water_Clean", "Clean Water", "drink") == nil, "Clean Water: no refusal")
+end
+
 print(fails == 0 and "ALL PASS" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)
