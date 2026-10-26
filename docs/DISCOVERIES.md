@@ -2013,3 +2013,26 @@ Quick fixtures, logged as quick and not M3 cases: Coarse Net and Ash Rod were gr
   - He fought a Kebbit, and that fight looked well (dodge, Tempest Shield, hits).
 - **Replan:** "find a woodcutting tool" first. The Director did not learn that the sticks route exists, because gather's failure said "can't get to the sticks" and the plan read it as "no hatchet". Information for the model: the gather detail now names sticks.
 - **obs task:** wall 317 s, idle 2%, longest idle 0.7 s. Lead-in 15.6 s (14.6 s of Sonnet thinking). Only one step ran, so there are no step gaps.
+
+## Drinkable water for a fresh character (research 2026-10-26, game data build 26161880 + wiki + our live logs; Director run 3 question)
+- **No container is needed, and there is no direct "Drink" from water.**
+  - Water bodies are interactables `BP_WaterVolume_C` / `BP_WaterVolume_NoSlow_C`, and the census reads their prompt as **"Collect Water"** (live 2026-10-25, e.g. `BP_WaterVolume_NoSlow_C_UAID_00BE4395530E3F5202_1116071179`, 14 m from the start crate).
+  - Game data lists "Get Water" as a world interaction (filling from a source), not a wheel spell.
+  - The wiki: Dirty Water "can be collected from ponds or any accessible body of water" (dragonwilds.runescape.wiki/w/Dirty_Water, /w/Hydration).
+  - No other water prompt has been seen. No waterskin, bottle or water bucket exists in the item or recipe data: the only "containers" are farming Watering Cans (`RECIPE_Tool_WateringCan_Wood`: 4 Ash Logs + 1 Coarse Thread) and Compost Buckets.
+- **The water itself:**
+  - `ITEM_Consumable_Water_Dirty` (DrinkItemData, stacks to 99): +10 hydration, +20 Soulscourge (damage over time at 100), so a few are fine and many are not.
+  - Clean Water (+25 hydration, no Soulscourge) comes from `RECIPE_Consumable_Water_Clean_From_Water_Dirty`: 1 Dirty Water at a **Campfire or Grill** (processing station: load + fuel, 4 s, collect), Cooking XP.
+  - The recipe is unlocked by owning Dirty Water (`ALL ITEMS[ Dirty Water ]`, DT_Progression_Food_Drink), so it appears after the first collect.
+  - The Campfire is buildable from the start (build primitive verified live 2026-10-26), and crafting.lua's processing path already handles campfire recipes.
+- **Bootstrap chain:** collect Dirty Water ("Collect Water", interact key, one per press), then drink one only if desperate (Soulscourge), then build or use a Campfire with fuel, boil, and drink Clean Water.
+- **Body gap: water-source interact fails.**
+  - Every live `interact` on a Water Volume (2026-10-25/26, about 10 tries) ended `too_far`, "I can't get close enough to the Water Volume", at **0.88–0.97 m** from the chosen spot after 6 spots.
+  - Cause (skills.lua go_to/near check): the approach spots for the volume's surface point lie at or in the water. move.lua's water avoidance ("entered water, re-planning round it") stops him at the edge, and `near` requires `d <= spot tol + 0.3`.
+  - **SPEC (skills.lua, capability owner):** a target whose census kind is a water volume (data: class/prompt from the census, no name list):
+    - **(1) Approach:** the nearest DRY standing point within `reach_m` (2 m) of the surface point; arrival = 2D distance to the surface point <= reach_m (`tight` off).
+    - **(2) Face** the surface point with the camera pitched down (W.face(ipoint)), so the interaction detector targets the volume (check `interact_target` reads the volume / "Collect Water" before pressing).
+    - **(3) Press** interact once and verify a +1 `ITEM_Consumable_Water_Dirty` within verify_s.
+    - **(4)** `count` > 1 repeats the press (the source never depletes, per the wiki), stopping at inventory_full.
+    - **(5) Failure reasons stay truthful:** `not_interactable` ("the water doesn't take", with what the detector targets), and `too_far` only when no dry point within reach exists.
+  - **Stay-fed reflex:** it should NOT drink Dirty Water above the safety floor (Soulscourge); below the floor, Dirty Water beats death. The brain gets `no_drink` and decides to collect and boil.
