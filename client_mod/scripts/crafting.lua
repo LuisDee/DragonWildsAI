@@ -652,13 +652,27 @@ function W.runecrafting_open(api)
     end
     return false
 end
+-- Then the game's own HUD close, InputManagerUIAPI:CloseWidgetIfOpen (input.close_screens), for every station
+-- panel still open plus its coupled Inventory (BUGS B-stuck-focused-ui, live 2026-10-26: HideCraftingUI(15) is a
+-- no-op for a Campfire's Processing panel; Processing 15 + Inventory 11 stayed open -> DIM_FocussedInGameUI until a
+-- client restart. CloseWidgetIfOpen(15) closed both, mode -> DIM_Gameplay). -> true when no station panel is left
+M.STATION_WIDGETS = { 15, 6, 36, 11 } -- Processing, Crafting, Runecrafting, Inventory (EWidgetType)
 function W.close(api, kind)
     local ui = ui_object(api, "CraftingUIAPI")
-    if not ui then return false end
-    local t = kind == "processing" and 15 or 6
-    local ok = pcall(function() ui:HideCraftingUI(t) end)
-    if kind ~= "processing" and W.runecrafting_open(api) then
-        ok = pcall(function() ui:HideCraftingUI(M.RUNECRAFTING_WIDGET) end) and ok
+    local ok = ui ~= nil
+    if ui and kind ~= "processing" then
+        ok = pcall(function() ui:HideCraftingUI(6) end)
+        if W.runecrafting_open(api) then
+            ok = pcall(function() ui:HideCraftingUI(M.RUNECRAFTING_WIDGET) end) and ok
+        end
+    end
+    local IN = api.module("input")
+    if IN and type(IN.close_screens) == "function" then
+        local okc, closed, left = pcall(IN.close_screens, M.STATION_WIDGETS)
+        if okc and closed then
+            if #closed > 0 then api.log("crafting: closed [" .. table.concat(closed, ",") .. "] (InputManagerUIAPI:CloseWidgetIfOpen)") end
+            ok = #left == 0
+        end
     end
     return ok
 end
@@ -914,6 +928,8 @@ local function open_poll(api, job, t)
     else -- opening
         if W.open_station(api, row.kind) == row.id then
             job.ui_open = true
+            local IN = api.module("input") -- this screen is MEANT to be open: input's stray-screen guard leaves it
+            if IN and IN.claim then pcall(IN.claim, "screen", "craft") end
             return true
         end
         if t >= e.open_until then
@@ -1323,6 +1339,8 @@ local function action(api, ctx, job)
                 timeout_s = 120 + math.floor((job.plan.seconds or 0) * M.cfg.proc_slack + M.cfg.proc_extra_s) }
     local function finish(why)
         if job.ui_open and not paused() then pcall(W.close, api, job.plan.kind); job.ui_open = false end
+        local IN = api.module("input")
+        if IN and IN.release then pcall(IN.release, "screen") end
         release(api, job, why)
     end
     a.cancel = function()

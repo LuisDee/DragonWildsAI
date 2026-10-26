@@ -106,8 +106,16 @@ function W.map_open(api)
     if not U.valid(m.map_api) then return nil end
     return U.try(function() return m.map_api:IsShowingMap() end) == true
 end
-function W.close_map(api) -- the UI's own back key (IA_UI_GenericBack), as Esc closes the map
+-- The game's own HUD close for the Map widget (InputManagerUIAPI:CloseWidgetIfOpen, EWidgetType Map 13, via
+-- input.close_screens: the close verified live on the Processing panel, BUGS B-stuck-focused-ui); the UI's own
+-- back key (IA_UI_GenericBack, as Esc) only when that API is missing.
+M.MAP_WIDGET = 13
+function W.close_map(api)
     local IN = api.module("input")
+    if IN and type(IN.close_screens) == "function" then
+        local ok, closed = pcall(IN.close_screens, { M.MAP_WIDGET })
+        if ok and closed then return true end
+    end
     local a = U.find_object("/Game/Gameplay/Inputs/Actions/UI/IA_UI_GenericBack.IA_UI_GenericBack")
     if IN and a then return IN.raw_inject(a) end
     return false
@@ -211,7 +219,12 @@ M.HANDLERS.teleport = function(log, args, ctx)
     W.arm_hook(api)
     local job = { kind = "teleport", phase = "use", from = from, to = to, start = here }
     job.ep = sk._new_episode(api, stone, { label = "lodestone" })
-    local function close() if not paused() and W.map_open(api) then W.close_map(api) end end
+    local IN = api.module("input") -- the map is MEANT to be open during this job (input's stray-screen guard)
+    if IN and IN.claim then pcall(IN.claim, "screen", "teleport") end
+    local function close()
+        if IN and IN.release then pcall(IN.release, "screen") end
+        if not paused() and W.map_open(api) then W.close_map(api) end
+    end
     local function fail_close(reason, d) close(); return api.fail(reason, d) end
     job.cleanup = close
     job.on_resume = function() if job.phase == "use" then job.ep.phase, job.ep.moving = "approach", false end end

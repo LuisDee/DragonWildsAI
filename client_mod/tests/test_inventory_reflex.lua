@@ -311,6 +311,13 @@ do
     hotbar_items = { item(DATA.tea, 48) }; refresh()
     for _ = 1, 3 do R.tick_fn(nil) end
     check(leaves == 0, "conversation at the floor: not touched by the reflex")
+    -- a stray HUD screen (a Campfire's Processing + Inventory, BUGS B-stuck-focused-ui) IS left at the floor
+    modal, leaves = { kind = "screen", mode = "DIM_FocussedInGameUI", screens = { "Processing", "Inventory" } }, 0
+    R.floor_leaves = nil
+    I._input_leave = function(m) leaves = leaves + 1; modal = nil; return m.kind == "screen" end
+    S.presses, S.hyd, R.last, R.pending = {}, 5, {}, nil
+    R.tick_fn(nil); R.tick_fn(nil)
+    check(leaves == 1 and #S.presses == 1, "stray screen at the floor: left once, then drinks (leaves " .. leaves .. ", presses " .. #S.presses .. ")")
     I._input_gate, I._input_leave = g0, l0
 end
 

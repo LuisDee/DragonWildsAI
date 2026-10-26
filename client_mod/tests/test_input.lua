@@ -168,6 +168,97 @@ do
     FindAllOf, eis.InjectInputVectorForAction = fa0, inj0
 end
 
+-- 6e. a stray HUD screen (BUGS B-stuck-focused-ui, live 2026-10-26): a Campfire craft left Processing (15) +
+-- Inventory (11) open -> DIM_FocussedInGameUI for good. The game's InputManagerUIAPI says what is open and closes it.
+do
+    local open, closes, logs = {}, {}, {}
+    local mgr = uobj("InputManagerUIAPI /Engine/Transient.InputManagerUIAPI_1", {
+        IsOpen = function(_, p, t) return p == pc and open[t] == true end,
+        CloseWidgetIfOpen = function(_, p, t, outside, pause_block)
+            closes[#closes + 1] = t
+            if outside ~= false or pause_block ~= false then error("unexpected flags") end
+            open[t] = nil
+            if t == 15 then open[11] = nil end -- the coupled Inventory closes with its station panel (live)
+            if next(open) == nil then W.input_mode = "DIM_Gameplay" end
+        end })
+    local fa0 = FindAllOf
+    FindAllOf = function(c) if c == "InputManagerUIAPI" then return { mgr } end return fa0(c) end
+    _G.DWInput = nil
+    I = assert(loadfile(root .. "/client_mod/scripts/input.lua"))()
+    I.clock = function() return T end
+    local function campfire_left_open() open[15], open[11] = true, true; W.input_mode = "DIM_FocussedInGameUI" end
+    local function logf(m) logs[#logs + 1] = m end
+
+    campfire_left_open()
+    local m6 = I.modal()
+    check("stray screen: kind screen, names both panels", m6 and m6.kind == "screen" and m6.mode == "DIM_FocussedInGameUI"
+        and table.concat(m6.screens, ",") == "Processing,Inventory", m6 and (m6.kind .. ":" .. table.concat(m6.screens or {}, ",")))
+    W.injected = {}
+    local okb6, mb = I.inject(attack)
+    check("stray screen: a reflex press is refused", okb6 == false and mb.kind == "screen" and #W.injected == 0)
+
+    -- the crafting job owns it while it runs: never closed under it
+    I.claim("screen", "craft")
+    T = 500; I.gate(); T = 503; I.gate(); T = 506; I.gate()
+    check("claimed screen (a craft in progress): never closed", #closes == 0 and open[15] == true)
+    -- any other claim (a conversation, a container job, the agility banner) also means 'a UI is meant'
+    I.release("screen"); I.claim("agility_banner", "agility")
+    T = 510; I.gate(); T = 513; I.gate()
+    check("another module's claim: screen left alone", #closes == 0)
+    I.release("agility_banner")
+
+    -- the action ended (its claim is stale even if an exit path forgot it): closed at once, the game's own close
+    I.claim("screen", "craft")
+    local rec = I.after_action("craft", logf)
+    check("after_action: Processing closed with CloseWidgetIfOpen(PC, 15, false, false), Inventory with it",
+        rec and table.concat(rec.closed, ",") == "Processing" and #rec.left == 0 and #closes == 1 and closes[1] == 15
+        and open[11] == nil, rec and table.concat(rec.closed or {}, ","))
+    check("after_action: mode back to DIM_Gameplay, logged, stale claim dropped",
+        rec.after == "DIM_Gameplay" and W.input_mode == "DIM_Gameplay" and #logs == 1 and logs[1]:find("Processing", 1, true)
+        and I.owner("screen") == nil, logs[1])
+    check("after_action in gameplay: nothing to do", I.after_action("follow", logf) == nil and #logs == 1)
+    check("status reports the last cleanup", (I.status().last_screen_cleanup or {}).why == "after craft")
+
+    -- an orphan between actions (a bridge restart, a pause): the sweep closes it after orphan_s, bounded
+    campfire_left_open(); closes = {}
+    T = 600; I.gate()
+    check("orphan screen: not closed before orphan_s", #closes == 0)
+    T = 601.2; I.gate()
+    check("orphan screen: closed by the sweep", #closes == 1 and W.input_mode == "DIM_Gameplay" and I.gate() == nil)
+
+    -- only the INVENTORY open (no station): closed too
+    open[11], W.input_mode, closes = true, "DIM_MainInventoryMenu", {}
+    rec = I.after_action("consume", logf)
+    check("inventory menu alone: closed", rec and table.concat(rec.closed, ",") == "Inventory" and W.input_mode == "DIM_Gameplay")
+
+    -- a screen mode but the game says nothing is open: logged, never a guessed close
+    W.input_mode, closes = "DIM_FocussedInGameUI", {}
+    check("focused mode, no open screen: kind mode", (I.modal() or {}).kind == "mode")
+    rec = I.after_action("consume", logf)
+    check("focused mode, no open screen: logged, no close", rec and #rec.closed == 0 and #closes == 0 and rec.after == "DIM_FocussedInGameUI")
+
+    -- spell / fishing modes are never treated as screens (their owners' exits), even with a widget reported open
+    W.input_mode, open[20] = "DIM_SpellcastingMode", true
+    check("spell mode: stays kind mode", (I.modal() or {}).kind == "mode" and I.after_action("cast", logf) == nil and #closes == 0)
+    open[20] = nil
+
+    -- the stay-fed floor's leave step closes a screen
+    campfire_left_open(); closes = {}
+    check("leave_modal_step(screen) closes it", I.leave_modal_step(I.modal()) == true and closes[1] == 15)
+
+    -- paused: no game call
+    campfire_left_open(); closes = {}
+    _G.DW_PAUSE = true
+    check("paused: after_action does nothing", I.after_action("craft", logf) == nil and #closes == 0)
+    _G.DW_PAUSE = nil
+    I.close_screens()
+    W.input_mode = "DIM_Gameplay"
+    FindAllOf = fa0
+    _G.DWInput = nil
+    I = assert(loadfile(root .. "/client_mod/scripts/input.lua"))()
+    I.clock = function() return T end
+end
+
 -- 7. pause: no game call at all
 _G.DW_PAUSE = true
 W.mode, W.injected = 2, {}

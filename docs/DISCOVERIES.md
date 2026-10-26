@@ -2074,3 +2074,23 @@ Quick fixtures, logged as quick and not M3 cases: Coarse Net and Ash Rod were gr
   - Wiki revision https://dragonwilds.runescape.wiki/?diff=58751: "Leaves a runic marker on the ground; recasting teleports you back to it. Taking a fatal fall while tethered teleports you back safely and consumes the tether."
   - The marker's lifetime is not stated anywhere found (wiki, metaforge 403).
 - **Next live test** (prepared in the scratchpad, applied after the freeze): `cast {spell: "Recall", walk_to}` opens it, walks while it is held, then finishes it, judged by position. It tests whether the mark is where the cast is opened and finishing it brings him back.
+
+## HUD screens and the input mode: InputManagerUIAPI (2026-10-26 19:02–19:18 UTC, dev, ClaudeDev; BUGS B-stuck-focused-ui)
+Builds: client 26162923, dump 26161880.
+
+### The API
+- **`UInputManagerUIAPI`** (Dominion.hpp l.24430) owns HUD widgets by `EWidgetType` (Dominion_enums.hpp: Crafting 6, Inventory 11, Map 13, Processing 15, LorePopup 31, Runecrafting 36, …).
+  - `IsOpen(PC, Type)` → bool.
+  - `CloseWidgetIfOpen(PC, Type, bIsTriggeredByOutsideWidget, bShouldCheckPauseBlock)` and `OpenWidgetIfClosed(...)`. Plain enum/bool arguments, no structs.
+  - `CurrentlyActiveWidgetForController` names the focused panel.
+  - The PC's input mode (`CurrentInputMode`, DominionInputMode assets under `/Game/Gameplay/Inputs/Modes/`) follows the open widgets.
+
+### Verified live
+- **The stuck state:** after a Campfire craft, IsOpen gave {10 InteractionPrompt, 11 Inventory, 15 Processing}, active = `WBP_Inventory_MainPanel_C`, mode `DIM_FocussedInGameUI`.
+  - `CraftingUIAPI:HideCraftingUI(15)` changed nothing.
+  - IA_UI_GenericBack/Accept/UnFocusRequirements and `RefreshInputMode()` did nothing either (earlier agent).
+- **The close:** `CloseWidgetIfOpen(PC, 15, false, false)` closed 15 AND 11 (coupled), and the mode read `DIM_Gameplay` in the same call.
+- **Opening Inventory:** `OpenWidgetIfClosed(PC, 11, false, false)` gives `DIM_MainInventoryMenu`, and `CloseWidgetIfOpen(PC, 11, …)` returns to `DIM_Gameplay`.
+- **Screen input modes** (object dump): DIM_FocussedInGameUI, DIM_UnfocussedInGameUI, DIM_FullScreenUI, DIM_FullScreenUIMap, DIM_MainInventoryMenu, DIM_CraftingMenu, DIM_AgilityCourseUI.
+- **Used by:** `input.lua` (`close_screens`, `open_screens`, the `"screen"` modal, `after_action`), `crafting.W.close` and `lodestone.W.close_map`.
+- **CommonUI idiom** (the Epic "Input fundamentals for CommonUI" doc): close or deactivate the widget through its owner and let the input config follow. Never call SetInputMode directly.

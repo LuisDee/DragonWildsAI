@@ -69,12 +69,17 @@ function INV.press_interact()
 end
 function INV.list() return { ok = true, data = { hotbar = F.inv, bag = {} } } end
 
+-- input.lua's claim/release (the stray-screen guard, BUGS B-stuck-focused-ui): records what the craft claims
+INPUTF = { owners = {}, claims = 0 }
+function INPUTF.claim(kind, owner) INPUTF.owners[kind] = owner; INPUTF.claims = INPUTF.claims + 1 end
+function INPUTF.release(kind) INPUTF.owners[kind] = nil end
 local SENSE = { local_pawn = function() return { AddMovementInput = function() end } end, local_pc = function() return {} end }
 
 local api = {
     module = function(n)
         if n == "skills" then return SK elseif n == "move" then return MOVE elseif n == "inventory" then return INV
-        elseif n == "sense" then return SENSE elseif n == "gather_profiles" then return GP end
+        elseif n == "sense" then return SENSE elseif n == "gather_profiles" then return GP
+        elseif n == "input" then return INPUTF end
     end,
     call = function(mod, fn, ...)
         local m = ({ move = MOVE, inventory = INV })[mod]
@@ -341,6 +346,21 @@ do
     hidden, panel_up = {}, false
     C2.W.close(api, "crafting")
     check("close: plain bench -> only 6", #hidden == 1 and hidden[1] == 6, table.concat(hidden, ","))
+    -- BUGS B-stuck-focused-ui: a processing station (Campfire) is closed with the game's InputManagerUIAPI close
+    -- (input.close_screens) for the station panels + coupled Inventory; HideCraftingUI(15) was a live no-op
+    local asked, logged = nil, {}
+    local left = {}
+    local IN = { close_screens = function(types) asked = types; return { "Processing" }, left end }
+    local api2 = { log = function(m) logged[#logged + 1] = m end,
+                   module = function(n) if n == "sense" then return { U = Uf, local_pc = function() return nil end } elseif n == "input" then return IN end end }
+    hidden = {}
+    local okc = C2.W.close(api2, "processing")
+    check("close: processing -> no HideCraftingUI, CloseWidgetIfOpen for 15/6/36/11", okc == true and #hidden == 0 and asked
+        and table.concat(asked, ",") == "15,6,36,11" and logged[1] and logged[1]:find("Processing", 1, true), table.concat(asked or {}, ","))
+    left = { "Inventory" }
+    check("close: a panel still open -> false (truthful)", C2.W.close(api2, "processing") == false)
+    left, hidden = {}, {}
+    check("close: bench -> HideCraftingUI(6) then the input close", C2.W.close(api2, "crafting") == true and hidden[1] == 6)
 end
 
 -- Runecrafting (M3): the Rune Altar is a crafting station (CraftingStation component, prompt Craft); its recipes are
@@ -422,6 +442,7 @@ do -- ambiguous recipe (two viable) -> candidates; one viable -> recipe_chosen +
     check("proc: fuel_used reported (mine)", r.data.fuel_used and r.data.fuel_used.source == "mine")
     check("proc: started via the UI button once", F.toggles == 1)
     check("proc: UI closed", F.closed == 1)
+    check("proc: the open station screen was claimed, and released at the end", INPUTF.claims >= 1 and INPUTF.owners.screen == nil)
     check("proc: inputs + fuel dragged (3 moves)", F.drags == 3, F.drags)
 end
 do -- station's own fuel (allowed) + stored outputs (quick transfer)

@@ -207,6 +207,15 @@ local function finish(a, res)
     a.done = true
     if S.action == a then S.action = nil end
     ev("client_action_end", { kind = a.kind, id = a.id, ok = res.ok, reason = res.reason })
+    -- the general stray-screen guard (input.after_action, BUGS B-stuck-focused-ui): an action that left a HUD
+    -- screen open (a Campfire's Processing + Inventory panels) must not leave him in DIM_FocussedInGameUI
+    local inp = M.module("input")
+    if type(inp) == "table" and type(inp.after_action) == "function" then
+        local okg, rec = pcall(inp.after_action, a.kind, S.text_log)
+        if okg and type(rec) == "table" then
+            ev("client_stray_screen", { kind = a.kind, mode = rec.mode, closed = rec.closed, left = rec.left, after = rec.after })
+        end
+    end
     local ch = a.chan or S.bridge -- answer on the channel the request came from (main or debug)
     if not a.replied then
         a.replied = true

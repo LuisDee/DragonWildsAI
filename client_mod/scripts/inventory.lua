@@ -776,7 +776,9 @@ function R.tick(log)
     -- Safety floor: a build or container screen never starves him. With a usable drink/food on the hotbar he
     -- leaves that screen himself (input.leave_modal_step: build Cancel / the container's own close), one step
     -- per tick, at most cfg.floor_leaves per blocked episode, then drinks on a later tick once the gate is clear.
-    if blocked and R.floor_hit and not pend and (blocked.kind == "build" or blocked.kind == "container") then
+    -- A HUD screen (input kind "screen": a station's Processing/Inventory panels, BUGS B-stuck-focused-ui) too:
+    -- its leave step is the game's own InputManagerUIAPI:CloseWidgetIfOpen.
+    if blocked and R.floor_hit and not pend and (blocked.kind == "build" or blocked.kind == "container" or blocked.kind == "screen") then
         local usable
         for _, need in ipairs({ { thirsty, "drink" }, { hungry, "food" } }) do
             if need[1] and best(carried or M.list(log), need[2], R.bad, cfg.allow_bag and { "hotbar", "bag" } or { "hotbar" }) then
@@ -798,7 +800,9 @@ function R.tick(log)
     if blocked then
         if not R.blocked_at or t - R.blocked_at >= 60 then
             R.blocked_at = t
-            reflex_emit({ action = "blocked", kind = blocked.kind, mode = blocked.mode, reason = "a " .. tostring(blocked.kind) .. " screen is open" })
+            reflex_emit({ action = "blocked", kind = blocked.kind, mode = blocked.mode,
+                          reason = blocked.screens and ("the " .. table.concat(blocked.screens, " + ") .. " screen is open")
+                              or ("a " .. tostring(blocked.kind) .. " screen is open") })
         end
         return
     end

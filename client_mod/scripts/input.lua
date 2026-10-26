@@ -18,6 +18,12 @@
 --     opts.modal = "mode"; nothing here exits it.
 --   * a conversation (DIM_ConversationUI) is its own kind, "conversation" (owner talk.lua, opts.modal =
 --     "conversation"): spells' "mode" does not pass it. An orphan is handed to talk.sweep_orphan.
+--   * a HUD SCREEN (BUGS B-stuck-focused-ui): a non-gameplay input mode while the game's own
+--     InputManagerUIAPI:IsOpen reports one of M.SCREENS (Processing, Inventory, Crafting, Map, ...) is kind
+--     "screen". Its opener claims "screen" while it means it to be open (crafting, lodestone). Unclaimed (no
+--     owner of ANY kind) for cfg.orphan_s it is closed with the game's own InputManagerUIAPI:CloseWidgetIfOpen;
+--     and M.after_action (client_bridge's action finish) closes a stray screen at once when an action ends.
+--     Live 2026-10-26: a Campfire craft left Processing(15)+Inventory(11) open -> DIM_FocussedInGameUI for good.
 -- Never any game call under DW_PAUSE (gate answers "paused"; nothing is read or pressed).
 -- Reads are cached (the player controller, the HUD API objects, the input subsystem) and re-validated per
 -- call: no find_all per check (review finding 10).
@@ -99,6 +105,68 @@ function M.input_mode()
     return pc and U.short(U.try(function() return pc.CurrentInputMode end)) or nil
 end
 
+-- ------------------------------------------------------------------ HUD screens (BUGS B-stuck-focused-ui)
+-- EWidgetType values (dump 26161880 Dominion_enums.hpp) that are focused SCREENS: open, they put the PC in a
+-- menu input mode (live: Processing 15 + Inventory 11 -> DIM_FocussedInGameUI). Left out on purpose: the HUD
+-- itself (Compass, VitalsBars, InteractionPrompt, ...), modes with their own owner/exit (Spellcasting 21,
+-- Fishing 35, QuickAccessRadial 39, Emotes 28, Conversation 27, Resting 16), the container path (WorldInventory 26,
+-- Container 33: close_container), Building 1 (build.lua) and Pause/Settings/Server (front-end menus).
+-- Closed in this ORDER: the station panels first (closing Processing also closes its coupled Inventory, live),
+-- Inventory last.
+M.SCREENS = { { 15, "Processing" }, { 6, "Crafting" }, { 36, "Runecrafting" }, { 8, "Enchanting" }, { 34, "Composter" },
+              { 13, "Map" }, { 12, "Journal" }, { 31, "LorePopup" }, { 30, "Sign" }, { 19, "Skills" }, { 20, "SpellBook" },
+              { 41, "QuestList" }, { 37, "AgilityCourseInfo" }, { 29, "TopBarMenu" }, { 5, "CompositeVariableMenu" },
+              { 11, "Inventory" } }
+-- The menu input modes a screen puts the PC in (the DominionInputMode assets, object dump 26161880). Only these
+-- are checked for screens: the spell, build, fishing and radial modes keep kind "mode" (their owners' own exits).
+M.SCREEN_MODES = { DIM_FocussedInGameUI = true, DIM_UnfocussedInGameUI = true, DIM_FullScreenUI = true,
+                   DIM_FullScreenUIMap = true, DIM_MainInventoryMenu = true, DIM_CraftingMenu = true, DIM_AgilityCourseUI = true }
+function M.input_manager()
+    return cached("input_mgr", function()
+        for _, a in ipairs(U.find_all("InputManagerUIAPI", { skip_defaults = true }) or {}) do return a end
+    end)
+end
+local function screen_open(api, pc, t)
+    local ok, v = pcall(function() return api:IsOpen(pc, t) end)
+    return ok and v == true
+end
+-- The screens the game itself says are open: {{type, name}, ...} | nil (no API / paused).
+function M.open_screens()
+    if paused() then return nil end
+    local api, pc = M.input_manager(), M.pc()
+    if not (api and pc) then return nil end
+    local out = {}
+    for _, e in ipairs(M.SCREENS) do
+        if screen_open(api, pc, e[1]) then out[#out + 1] = { type = e[1], name = e[2] } end
+    end
+    return out
+end
+-- The game's own close for every open screen (or only the EWidgetTypes in the list `types`), in M.SCREENS
+-- order, re-reading IsOpen before each close (a coupled widget closes with its parent).
+-- InputManagerUIAPI:CloseWidgetIfOpen(PC, Type, bIsTriggeredByOutsideWidget=false, bShouldCheckPauseBlock=false):
+-- plain enum/bool args, no structs (live 2026-10-26: closes Processing + its Inventory, mode -> DIM_Gameplay).
+-- -> closed names, still-open names (nil, nil when the API is unavailable or paused)
+function M.close_screens(types)
+    if paused() then return nil, nil end
+    local api, pc = M.input_manager(), M.pc()
+    if not (api and pc) then return nil, nil end
+    local only
+    if types then only = {}; for _, t in ipairs(types) do only[t] = true end end
+    local closed, left = {}, {}
+    for _, e in ipairs(M.SCREENS) do
+        if (not only or only[e[1]]) and screen_open(api, pc, e[1]) then
+            pcall(function() api:CloseWidgetIfOpen(pc, e[1], false, false) end)
+            if screen_open(api, pc, e[1]) then left[#left + 1] = e[2] else closed[#closed + 1] = e[2] end
+        end
+    end
+    return closed, left
+end
+local function names(list)
+    local out = {}
+    for _, e in ipairs(list or {}) do out[#out + 1] = e.name end
+    return out
+end
+
 -- Which modal is open now: nil | {kind = "build", mode} | {kind = "container", owner} |
 -- {kind = "mode", mode = DIM_...} (a non-gameplay input mode: spell wheel/placement, Oculus) | {kind = "paused"}
 function M.modal()
@@ -115,7 +183,11 @@ function M.modal()
         local npc = pc and U.short(U.try(function() return pc.ConversationComponent.CurrentNPC end))
         return { kind = "conversation", mode = im, npc = npc }
     end
-    if im and not M.is_gameplay_mode(im) then return { kind = "mode", mode = im } end
+    if im and not M.is_gameplay_mode(im) then
+        local scr = M.SCREEN_MODES[im] and M.open_screens() or nil
+        if scr and #scr > 0 then return { kind = "screen", mode = im, screens = names(scr) } end
+        return { kind = "mode", mode = im }
+    end
     return nil
 end
 
@@ -152,6 +224,7 @@ function M.leave_modal_step(m)
     if paused() or type(m) ~= "table" then return false end
     if m.kind == "build" then return M.leave_build_step() ~= nil end
     if m.kind == "container" then return M.close_container() == true end
+    if m.kind == "screen" then local c = M.close_screens(); return c ~= nil and #c > 0 end
     return false
 end
 
@@ -181,6 +254,21 @@ function M.leave_conversation_step(press)
     return true
 end
 
+-- A screen cleanup record: kept in state (input_status.last_screen_cleanup) and written to the text log.
+local function note(rec, log)
+    rec.at = M.clock()
+    st().last_screen = rec
+    local msg = string.format("input: stray screen (%s): mode %s, closed [%s]%s -> %s", tostring(rec.why), tostring(rec.mode),
+        table.concat(rec.closed or {}, ","), (rec.left and #rec.left > 0) and (" still open [" .. table.concat(rec.left, ",") .. "]") or "",
+        tostring(rec.after))
+    if not log then
+        local inst = rawget(_G, "__dwc_bridge")
+        local api = inst and inst.module and inst.module.API
+        log = api and api.log
+    end
+    if type(log) == "function" then pcall(log, msg) end
+end
+
 -- A modal open with no live owner for cfg.orphan_s is cleaned up (a dead job, a bridge restart, a pause):
 -- one step per orphan_s, at most cfg.cancels steps per episode, then it is left alone and reported.
 -- A conversation: talk.lua's sweep when talk is enabled (a try counts only when IT pressed Cancel; talk review
@@ -189,7 +277,10 @@ local function sweep(m)
     local s = st()
     s.orphan_tries = s.orphan_tries or {}
     if not m or m.kind == "paused" then s.orphan_since, s.orphan_tries = {}, {}; return end
-    if s.owners[m.kind] then s.orphan_since[m.kind], s.orphan_tries[m.kind] = nil, nil; return end
+    if s.owners[m.kind] or (m.kind == "screen" and next(s.owners) ~= nil) then -- a screen: ANY claim means "meant"
+        s.orphan_since[m.kind], s.orphan_tries[m.kind] = nil, nil
+        return
+    end
     if m.kind == "mode" then return end -- an input mode has no generic exit here: block and report, never guess
     local t = M.clock()
     s.orphan_since[m.kind] = s.orphan_since[m.kind] or t
@@ -214,9 +305,35 @@ local function sweep(m)
     end
     s.orphan_tries[m.kind] = (s.orphan_tries[m.kind] or 0) + 1
     s.cleanups = s.cleanups + 1
-    if m.kind == "build" then M.leave_build_step() else M.close_container() end
+    if m.kind == "screen" then
+        local closed, left = M.close_screens()
+        note({ why = "orphan", mode = m.mode, closed = closed, left = left, after = M.input_mode() })
+    elseif m.kind == "build" then M.leave_build_step() else M.close_container() end
 end
 M._sweep = sweep
+
+-- The general guard (BUGS B-stuck-focused-ui): client_bridge calls it when ANY action ends. If the PC is left
+-- in a non-gameplay input mode, nobody claims a modal, and the game says a screen is open, that screen is
+-- stray: close it now with the game's own close and log it. A screen mode (M.SCREEN_MODES) with no open screen
+-- is only logged (no guessing); other modes (spells, fishing, build) are left to their owners.
+-- -> the record {why, mode, closed, left, after} | nil (nothing to do)
+function M.after_action(why, log)
+    if paused() then return nil end
+    local s = st()
+    -- a "screen" claim lives only as long as the action that opened the screen (crafting, lodestone): the action
+    -- has ended, so the claim is stale even when an exit path (a failure step, an interrupt) didn't release it
+    s.owners.screen = nil
+    if next(s.owners) ~= nil then return nil end
+    local im = M.input_mode()
+    if im == nil or not M.SCREEN_MODES[im] then return nil end
+    local bm = M.build_mode()
+    if (bm and bm ~= "None") or M.world_inventory() then return nil end -- their own sweeps (build / container)
+    local closed, left = M.close_screens()
+    local rec = { why = "after " .. tostring(why), mode = im, closed = closed, left = left, after = M.input_mode() }
+    if closed and #closed > 0 then s.cleanups = s.cleanups + 1 end
+    note(rec, log)
+    return rec
+end
 
 -- ------------------------------------------------------------------ the gate + injection
 -- nil = gameplay input may go out now; else {kind, mode/owner} = the modal that blocks it.
@@ -254,7 +371,8 @@ function M.status()
     local s = st()
     local owners = {}
     for k, v in pairs(s.owners) do owners[k] = v.owner end
-    return { modal = M.modal(), owners = owners, cleanups = s.cleanups, refused = s.refused, stuck = s.stuck }
+    return { modal = M.modal(), owners = owners, cleanups = s.cleanups, refused = s.refused, stuck = s.stuck,
+             last_screen_cleanup = s.last_screen }
 end
 M.HANDLERS = { input_status = function() return { ok = true, data = M.status() } end }
 
