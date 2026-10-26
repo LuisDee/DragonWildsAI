@@ -187,6 +187,12 @@ Other run-2 counts, old → new:
   - silence check 22/30.
   - Caveat: the 90-call cap was reached, so some late samples had their reads or continuation cut by the budget reserve. A 110-call cap would remove that bias.
 
+- **Corrected baseline at 03c93df** (honest-option notes; cap 120, 119 used, no continuation skipped; `logs/voice-eval-20261026-115430.jsonl`):
+  - **score 0.80**, set by human 4.00/5 (the min); k-mean, per sample 0.822 / 0.756 / 0.816, sd 0.036;
+  - checks pass at 0.955; silence 4.20, match 4.04; promise_has_tool 5/7; 21 continuations ran, 5 of which added an action;
+  - held-out: human 3.67, silence 4.56, match 4.61.
+  - The 0.73 above was a measurement artefact: the 90-call cap had starved the continuations.
+
 ### Open items (voice)
 1. **Over-silence on direct questions** (v18 "why are you casting Splinter near me?" → silent gather; h2 "fancy a job" → silent start_goal). The persona rule "a direct question gets a short answer" doesn't hold under effort low. Options:
    - move the rule into the few-shots, with a question → answer + action pair;

@@ -56,7 +56,7 @@ CASES = HERE / "voice_cases.jsonl"
 MANIFEST = HERE / "fixtures" / "voice_manifest.json"
 PERSONAS = {"old": HERE / "fixtures" / "persona_old.md", "new": persona_file.DEFAULT_PATH}
 JUDGE_BATCH = 13  # cases per judge call (25 cases -> 2 calls per persona)
-MAX_CALLS = 90  # the budget main agreed for one full run (k=3 x 25 cases of the live persona + the judge)
+MAX_CALLS = 120  # one full run: k=3 x 25 cases (75) + reads + continuations (the 90 cap starved samples 1-2) + judge
 K_SAMPLES = 3  # samples per case: the GOAL score is the k-mean; fewer samples are never a GOAL score
 MAX_CHARS = 150
 MAX_STEPS = 3  # the live Controller's max_calls: read-only tools run inline, then it must act or reply
@@ -230,15 +230,16 @@ def continue_like_live(case: dict, first: dict, system: str, ctl: Controller, ll
     (and a further line, said after it). A follow-up turn (history) -> Controller._talk_only_check
     (TALK_ONLY_NOTE): calls -> they run with the (possibly reworded) line; no calls -> the line stands.
     Returns (effective reply, continuation reply or None, its usages)."""
-    if not first["speech"] or first["calls"] or not budget.can(reserve):
+    if not first["speech"] or first["calls"]:
         return first, None, []
+    if not budget.can(reserve):  # the live loop WOULD continue here: flag it, never score it silently
+        return first, {"skipped": "budget"}, []
     note = TALK_ONLY_NOTE if case.get("history") else PROMISE_NOTE
     start = state["msgs"] + [assistant_message(state["resp"]), {"role": "user", "content": note}]
     cont, reads, usages = decide(case, system, ctl, llm, budget, reserve=reserve, on_call=on_call, start=start)
     cont = {**cont, "reads": reads}
     if case.get("history"):
-        eff = {"speech": (cont["speech"] or first["speech"]) if cont["calls"] else first["speech"],
-               "calls": cont["calls"]}
+        eff = {"speech": cont["speech"] or first["speech"], "calls": cont["calls"]}  # live: the corrected line
     else:
         eff = {"speech": " ".join(x for x in (first["speech"], cont["speech"]) if x), "calls": cont["calls"]}
     return eff, cont, usages
@@ -389,6 +390,7 @@ def run(variants: list[str], cases: list[dict], ctl_llm, judge_llm, workdir: Pat
         summary[v] = summarize(rows)  # over all k samples: the k-mean
         summary[v]["first_reply"] = first_reply_diagnostic(rows)
         summary[v]["spread"] = spread(rows)
+        summary[v]["continuation_skipped"] = sum(1 for r in rows if (r.get("continuation") or {}).get("skipped"))
         for split in sorted({r["split"] for r in rows}):
             summary[f"{v}/{split}"] = summarize([r for r in rows if r["split"] == split])
     return {"results": results, "summary": summary, "calls": budget.used, "k": k}
@@ -401,7 +403,7 @@ def first_reply_diagnostic(rows: list[dict]) -> dict:
                "judge": None} for r in rows if r.get("first")]
     sm = summarize(firsts) if firsts else {}
     return {"checks_pass_rate": sm.get("checks_pass_rate"), "acted": sm.get("acted"), "silent": sm.get("silent"),
-            "continued": sum(1 for r in rows if r.get("continuation")),
+            "continued": sum(1 for r in rows if r.get("continuation") and not r["continuation"].get("skipped")),
             "continuation_added_action": sum(1 for r in rows if (r.get("continuation") or {}).get("calls"))}
 
 
@@ -547,7 +549,12 @@ def main(argv: list[str] | None = None) -> int:
         log.log("voice_results", results=out["results"])  # rows with the judge's scores and reasons
         log.log("voice_summary", summary=out["summary"], plan=plan, calls=out["calls"])
         print(f"\nlog: {log.path}")
-        full = not a.ids and not a.limit and not a.no_judge and LIVE_PERSONA in variants and a.k >= K_SAMPLES
+        skipped = (out["summary"].get(LIVE_PERSONA) or {}).get("continuation_skipped", 0)
+        if skipped:
+            print(f"WARNING: {skipped} sample(s) lost their live continuation to the call cap: not a GOAL score "
+                  f"(raise --max-calls)")
+        full = (not a.ids and not a.limit and not a.no_judge and LIVE_PERSONA in variants and a.k >= K_SAMPLES
+                and not skipped)
         row = scoreboard_row(out["summary"].get(LIVE_PERSONA) or {}, Path(log.path), Path(log.path).stem,
                              time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())) if full else None
         if row:

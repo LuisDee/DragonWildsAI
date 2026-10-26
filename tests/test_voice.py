@@ -313,3 +313,16 @@ def test_voice_fixtures_refresh_truncated_bag_and_redraw_heldout(tmp_path):
     a = vf.redraw_heldout(cs, {"c1", "c2"}, 3, seed=7)
     b = vf.redraw_heldout([{"id": f"c{i}"} for i in range(10)], {"c1", "c2"}, 3, seed=7)
     assert a == b and not {"c1", "c2"} & set(a) and sum(c["split"] == "held_out" for c in cs) == 3
+
+
+def test_a_continuation_lost_to_the_cap_is_flagged_and_followups_use_the_corrected_line(tmp_path):
+    def talk(msgs, _tools):
+        if msgs[-1]["content"] == ve.TALK_ONLY_NOTE:
+            return LLMResponse(content="corrected line")  # new text, no calls: live says the corrected line
+        return LLMResponse(content="I'll do it")
+    cs = cases()[:1]
+    out = ve.run(["new"], cs, FakeLLM([talk] * 5), None, tmp_path, k=1, max_calls=1)  # no room to continue
+    assert out["summary"]["new"]["continuation_skipped"] == 1 and out["results"]["new"][0]["continuation"] == {"skipped": "budget"}
+    follow = [{**c, "history": [{"tool": "look"}], "note": "go on"} for c in cases()[:1]]
+    out = ve.run(["new"], follow, FakeLLM([talk] * 5), None, tmp_path, k=1, max_calls=5)
+    assert out["results"]["new"][0]["speech"] == "corrected line"
