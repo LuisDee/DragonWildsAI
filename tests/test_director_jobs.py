@@ -555,7 +555,7 @@ FARM_PLAN = [plan(
            # a new plot has weeds (wiki "Farming"): check the soil, dig it with the spade, then plant
            st("dig the weeds and plant wheat", {"lost": {"item": WHEAT_SEED, "at_least": 1}},
               [call("farm_plots"), call("tend", item=SPADE, times=3), call("tend", item=WHEAT_SEED)]),
-           st("let it grow", {"elapsed": {"seconds": 150}}),
+           st("let it grow", {"elapsed": {"seconds": 150}}, wait=True),
            st("harvest", {"gained": {"item": WHEAT, "at_least": 3}}, [call("tend")]),
            st("build a grinder and a kiln", {"all": [{"structure": {"name": "Grinder", "new": True}},
                                                      {"structure": {"name": "Kiln", "new": True}}]},

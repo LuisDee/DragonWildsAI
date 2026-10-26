@@ -659,6 +659,11 @@ class Validator:
             trivial = r.passed is True and not steps
             if trivial:
                 info.append(f"steps[{i}] '{s['title']}': its test is already true now ({r.detail}).")
+            if s.get("wait") is not True and {k for k, _ in P.leaves(pred)} <= {"elapsed"}:
+                # live smoke run 2: "recover the gravestone" / "set vitals policy" tested only elapsed time and
+                # passed after the tools failed; information, the model may keep it
+                info.append(f"steps[{i}] '{s['title']}': its test only counts time, so it passes whatever happens; "
+                            f"test what the step changes, or make it a wait step (wait: true).")
             if r.passed is None:
                 errs.append(f"steps[{i}] '{s['title']}': its test can't be checked from what the body reports "
                             f"(missing: {', '.join(r.missing)}); choose a checkable test or name the gap")

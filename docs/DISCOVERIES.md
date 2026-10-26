@@ -1959,3 +1959,23 @@ Quick fixtures, logged as quick and not M3 cases: Coarse Net and Ash Rod were gr
   - that the success RPC hook fires;
   - that IA_UI_GenericBack closes the map;
   - that two lodestones are both unlocked anywhere on dev (DISCOVERIES l.584: proving CanTeleport true needs a second built lodestone).
+
+## Director live smoke, run 2 (2026-10-26 14:54-14:57 UTC, dev, ClaudeDev fresh, client build 26162923; Director agent)
+- **Setup:**
+  - bridge_start first; build is listed.
+  - World dev_director_r2; job "make yourself a wooden shield" via the CLI.
+  - Hard guard at 20 Haiku / 10 Sonnet. The guard stopped the brain at 20 Haiku calls; Sonnet made 7 requests.
+  - Log: `logs/brain-live-20261026-155436-3456.jsonl`.
+- **Not finished (no shield).** The task is still active at "Gather 14 Ash Logs".
+- **What Sonnet got right from data:**
+  - Wooden Shield = 10 Ash Logs at a Crafting Table, unlocked by holding ash logs with a table near;
+  - the Crafting Table costs 4 Ash Logs (buildables);
+  - the trader route (30 Garou Chit per log) was rejected;
+  - his near-death state (0.5 HP, hydration 0) came first.
+  - On the replan it found the real chicken-and-egg: no axe; Stone Logging Axe = 8 Ash Logs + 6 Stone at a Crafting Table, which itself needs ash logs.
+- **Findings:**
+  1. **The client crashed** at 14:56:19 (crash dump `crash_2026_10_26_15_56_19.0234266.dmp`, pid 7080) during `explore`. Free RAM was about 1.5 GB. The watchdog relaunched it (boot ok 14:57:10). The board run got `body_restarted` on explore and go_to, and said so truthfully.
+  2. **Hallucinated fact:** the first plan listed "I have a Stone Logging Axe" as known. He carried no tools; the replan corrected it.
+  3. **Steps tested only by elapsed time** ("Recover the gravestone", "Set vitals policy") passed although their tools failed. Fixed offline: the Validator now gives one advisory for a working step tested only by time (information; the model may keep it).
+  4. **The first-axe bootstrap** is the open "sticks" question. The wiki says logs can be collected from the floor; gather_profiles `sticks` has no item yet. This must be probed live.
+- **obs task:** wall 183 s, idle 7%, longest idle 3.8 s. Lead-in 26 s (25 s of Sonnet thinking). Gaps p50 0.13 s, p90 0.56 s, all dead time, under 1 s each.

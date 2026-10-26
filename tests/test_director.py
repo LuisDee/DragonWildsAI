@@ -846,3 +846,15 @@ def test_a_first_call_must_name_one_of_his_tools(tmp_path):
     d.handle_tool("add_task", {"text": "copper"}, "Zezima")
     ticks(d, 1)
     assert "first_call: tool must be one of your tools" in llm.calls[1]["messages"][-1]["content"]
+
+
+def test_a_working_step_tested_only_by_elapsed_time_gets_one_advisory(tmp_path):
+    """Live smoke run 2: steps tested only by elapsed time passed although their tools failed. The model hears it
+    once (information) and may keep the plan."""
+    d, port, world, llm, clock = make(tmp_path, None, [
+        decision(task_success=have(COPPER, 1), steps=[step("set my policy", P.validate({"elapsed": {"seconds": 3}}))]),
+        decision(task_success=have(COPPER, 1), steps=[step("set my policy", P.validate({"elapsed": {"seconds": 3}}))])])
+    d.handle_tool("add_task", {"text": "copper"}, "Zezima")
+    ticks(d, 1)
+    assert "only counts time" in llm.calls[1]["messages"][-1]["content"]
+    assert d.ops.b.tasks[0].steps and d.ops.b.tasks[0].steps[0].title == "set my policy"
