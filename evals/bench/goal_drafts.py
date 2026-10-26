@@ -168,41 +168,93 @@ def long_tasks() -> list[Case]:
     ]
 
 
+def foods() -> list[str]:
+    """Every food item (catalog category Item.Food): data-derived, so the leaf credits whatever food he made or found."""
+    f = sorted((ROOT / "data").glob("recipes_*.json"))
+    items = (json.loads(f[-1].read_text(encoding="utf-8")).get("items") or {}) if f else {}
+    return sorted(k for k, v in items.items() if v.get("category") == "Item.Food")
+
+
+def quick(main: Case, *, setup: list[dict], chat: list[dict] | None = None, wall_s: int | None = None,
+          note: str = "") -> Case:
+    """The quick variant of a main case (Luis 2026-10-26): grants that isolate the one skill, for development only.
+    Tagged quick and never counted for GOAL (goal_check drops variant=quick)."""
+    d = main.model_dump(by_alias=True)
+    d.update(id=main.id + "_quick", variant="quick", tier="T1",
+             tags={**(main.tags or {}), "quick": True},
+             fixtures={**d["fixtures"], "setup": setup, "state_snapshot": "empty"},
+             provenance={**(main.provenance or {}), "variant": f"quick of {main.id}: {note}".rstrip(": ")})
+    if chat is not None:
+        d["chat"] = chat
+    if wall_s is not None:
+        d["limits"] = {**d["limits"], "wall_s": wall_s}
+    return Case.model_validate(d)
+
+
 def combat_basics() -> list[Case]:
+    """Main variants grant NO items (Luis 2026-10-26): the chat states the end objective and his Director must plan
+    the prerequisites (a shield from logs, food) and do them. Spawned creatures are the scene, not a grant; they stand
+    40 m off so preparing is possible. Each grant-using case has a `_quick` twin for isolating the skill."""
     r3 = {"repeat": 3}
+    FOOD = foods()
+    dodge = _c(id="goal_basic_dodge_directional", tier="T1", family="combat_basic", basic="dodge_directional",
+               tags={"evidence": ["referee:defended", "referee:telegraph"]},
+               chat=[{"text": "watch out for its big swings"}], forbid_terms=["dodge", "roll", "evade"],
+               fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": RUNT, "offset_m": [6, 0, 0]}],
+                         "state_snapshot": "fresh_dev_v1"},
+               success={"defended": {"kind": "dodge", "against": "telegraph", "at_least": 3, "min_rate": 0.5}},
+               guards=[DEATH_GUARD],
+               controls={"alt_means": [{"note": "walk out of range: attacks miss, no dodge"}],
+                         "wrong_action": [{"note": "block instead of dodging"}], "na": NA_ORACLE},
+               limits={"wall_s": 300, "idle_s": 60, **r3}, oracle={"dev": "scripted:dodge_runt_v1"},
+               provenance={"notes": ["no prerequisites: a dodge needs no item, so there is no quick twin",
+                                     "check on dev that the runt telegraphs >= 3 times in 300 s (no weapon: it survives)"]})
+    parry = _c(id="goal_basic_parry", tier="T2", family="combat_basic", basic="parry",
+               tags={"evidence": ["referee:defended", "referee:telegraph"], "prerequisites": ["ITEM_Shield_Wood"]},
+               chat=[{"text": "let's practise parrying on those goblins over there"}],
+               forbid_terms=["shield", "log", "wood", "craft", "make", "block"],
+               fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": RUNT, "offset_m": [40, 0, 0]}],
+                         "state_snapshot": "fresh_dev_v1"},
+               success={"defended": {"kind": "parry", "at_least": 3, "min_rate": 0.4}}, guards=[DEATH_GUARD],
+               controls={"wrong_action": [{"note": "hold block the whole time"}],
+                         "partial": [{"note": "makes the shield, never parries"}],
+                         "na": {"alt_means": "no other means of a parry"}},
+               limits={"wall_s": 1800, "idle_s": 180, "hints_max": 1, **r3},
+               hints={"ladder": ["how's the practice going?", "you'll want something to parry with",
+                                 "ten ash logs make a wooden shield"]},
+               oracle={"dev": "scripted:parry_runt_v1"},
+               provenance={"source": WIKI + "Wooden_Shield",
+                           "notes": ["parry needs an off-hand shield: RECIPE_Shield_Wood = 10 Ash Logs (recipes catalog)",
+                                     "dev fact: the runt at 40 m must not aggro before he engages (measure the aggro radius)"]})
+    dis = _c(id="goal_basic_disengage_heal", tier="T2", family="combat_basic", basic="disengage_heal",
+             tags={"evidence": ["probe:creatures", "referee:damage.by", "referee:item_change"], "prerequisites": ["food"]},
+             chat=[{"text": "let's take on that pack of runts over there, and don't you dare die on me"}],
+             forbid_terms=["eat", "food", "run", "retreat", "heal", "cook", "fish", "berr"],
+             fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": RUNT, "offset_m": [40, 0, 0]},
+                                 {"verb": "spawn", "class": RUNT, "offset_m": [41, 2, 0]},
+                                 {"verb": "spawn", "class": RUNT, "offset_m": [41, -2, 0]}],
+                       "state_snapshot": "fresh_dev_v1"},
+             success={"disengaged": {"target_kind_id": RUNT, "aggro_m": 15, "food": FOOD, "reengaged": True}},
+             guards=[DEATH_GUARD],
+             controls={"alt_means": [{"note": "eat in place without disengaging"}], "partial": [{"note": "no re-engage"}], "na": {}},
+             limits={"wall_s": 1800, "idle_s": 180, "hints_max": 1, **r3},
+             hints={"ladder": ["how are you holding up?", "three at once will hurt, have something to fall back on"]},
+             oracle={"dev": "scripted:disengage_runts_v1"},
+             provenance={"notes": ["food = every catalog Item.Food (data-derived): whatever he cooked, picked or looted",
+                                   "measure: does 15 m break runt aggro? do three runts take a fresh character low?"]})
     return [
-        _c(id="goal_basic_dodge_directional", tier="T1", family="combat_basic", basic="dodge_directional",
-           tags={"evidence": ["referee:defended", "referee:telegraph"]},
-           chat=[{"text": "watch out for its big swings"}], forbid_terms=["dodge", "roll", "evade"],
-           fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": RUNT, "offset_m": [6, 0, 0]}], "state_snapshot": "empty"},
-           success={"defended": {"kind": "dodge", "against": "telegraph", "at_least": 3, "min_rate": 0.5}},
-           guards=[DEATH_GUARD],
-           controls={"alt_means": [{"note": "walk out of range: attacks miss, no dodge"}],
-                     "wrong_action": [{"note": "block instead of dodging"}], "na": NA_ORACLE},
-           limits={"wall_s": 300, "idle_s": 60, **r3}, oracle={"dev": "scripted:dodge_runt_v1"},
-           provenance={"notes": ["check on dev that the runt telegraphs >= 3 times in 300 s (no weapon: it survives)"]}),
-        _c(id="goal_basic_parry", tier="T1", family="combat_basic", basic="parry",
-           tags={"evidence": ["referee:defended", "referee:telegraph"]},
-           chat=[{"text": "parry its swings, don't just tank them"}], forbid_terms=["block"],
-           fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": RUNT, "offset_m": [6, 0, 0]},
-                               {"verb": "grant", "item": "ITEM_Shield_Wood", "count": 1}], "state_snapshot": "empty"},
-           success={"defended": {"kind": "parry", "at_least": 3, "min_rate": 0.4}}, guards=[DEATH_GUARD],
-           controls={"wrong_action": [{"note": "hold block the whole time"}], "na": {**NA_ORACLE, "alt_means": "no other means of a parry"}},
-           limits={"wall_s": 300, "idle_s": 60, **r3}, oracle={"dev": "scripted:parry_runt_v1"}),
-        _c(id="goal_basic_disengage_heal", tier="T1", family="combat_basic", basic="disengage_heal",
-           tags={"evidence": ["probe:creatures", "referee:damage.by", "referee:item_change"]},
-           chat=[{"at_s": 30, "text": "you're getting hammered, sort yourself out"}],
-           forbid_terms=["eat", "food", "run", "retreat", "heal"],
-           fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": RUNT, "offset_m": [4, 0, 0]},
-                               {"verb": "spawn", "class": RUNT, "offset_m": [5, 2, 0]},
-                               {"verb": "spawn", "class": RUNT, "offset_m": [5, -2, 0]},
-                               {"verb": "grant", "item": "ITEM_Consumable_Fish_Anchovies", "count": 5},
-                               {"verb": "set_health", "pct": 40}], "state_snapshot": "empty"},
-           success={"disengaged": {"target_kind_id": RUNT, "aggro_m": 15, "food": ["ITEM_Consumable_Fish_Anchovies"], "reengaged": True}},
-           guards=[DEATH_GUARD],
-           controls={"alt_means": [{"note": "eat in place without disengaging"}], "partial": [{"note": "no re-engage"}], "na": {}},
-           limits={"wall_s": 300, "idle_s": 60, **r3}, oracle={"dev": "scripted:disengage_runts_v1"},
-           provenance={"notes": ["health set to 40% by fixture so the chat is true when said", "measure: does 15 m break runt aggro?"]}),
+        dodge, parry,
+        quick(parry, setup=[{"verb": "spawn", "as": "foe", "class": RUNT, "offset_m": [6, 0, 0]},
+                            {"verb": "grant", "item": "ITEM_Shield_Wood", "count": 1, "purpose": "quick: isolate the parry"}],
+              chat=[{"text": "parry its swings, don't just tank them"}], wall_s=300, note="shield granted, runt at 6 m"),
+        dis,
+        quick(dis, setup=[{"verb": "spawn", "as": "foe", "class": RUNT, "offset_m": [4, 0, 0]},
+                          {"verb": "spawn", "class": RUNT, "offset_m": [5, 2, 0]},
+                          {"verb": "spawn", "class": RUNT, "offset_m": [5, -2, 0]},
+                          {"verb": "grant", "item": "ITEM_Consumable_Fish_Anchovies", "count": 5, "purpose": "quick: food"},
+                          {"verb": "set_health", "pct": 40}],
+              chat=[{"at_s": 30, "text": "you're getting hammered, sort yourself out"}], wall_s=300,
+              note="food granted, health set to 40% so the chat is true when said"),
     ]
 
 
@@ -250,13 +302,16 @@ def tactics_and_knowledge() -> list[Case]:
            chat=[{"text": "kill that one, use whatever hurts it most"}], forbid_terms=["fire", "burn", "flame"],
            needs_fact={"kind": "weakness", "truth": "Fire"},
            fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": RUNT},
-                               {"verb": "grant", "item": "<a sword>", "count": 1}, {"verb": "grant", "item": "<a staff>", "count": 1},
-                               {"verb": "grant_runes", "runes": {"Fire": 100, "Water": 100, "Air": 100}}],
+                               {"verb": "grant", "item": "<a staff>", "count": 1, "purpose": "minimal: a caster (not what the case is about)"},
+                               {"verb": "grant_runes", "runes": {"Fire": 100, "Water": 100, "Air": 100},
+                                "purpose": "minimal: three elements so the choice is his"}],
                      "state_snapshot": "fresh_dev_v1"},
            success={"all": [{"killed": {"kind": "Goblin Runt", "kind_id": RUNT, "at_least": 1}},
                             {"damage_type_dealt": {"target_kind_id": RUNT, "types": [FIRE], "min_share": 0.6}}]},
            controls={"wrong_action": [{"note": "the oracle with water runes"}], "na": {**NA_ORACLE, "alt_means": "n/a"}},
-           limits={"wall_s": 600}, oracle={"dev": "scripted:runt_fire_v1"}),
+           limits={"wall_s": 600}, oracle={"dev": "scripted:runt_fire_v1"},
+           provenance={"notes": ["grants kept minimal (Luis 2026-10-26): the case is about the weakness fact, not "
+                                 "runecrafting or making a staff; the sword grant was dropped (fists are the non-fire option)"]}),
         _c(id="goal_knowledge_location", tier="T1", family="knowledge",
            chat=[{"text": "go get some clay"}], forbid_terms=["swamp", "Whispering"],
            needs_fact={"kind": "location", "truth": "Whispering Swamp"},
@@ -362,6 +417,11 @@ def capstone() -> list[Case]:
                   provenance={"sources": [WIKI + "Velgar", WIKI + "Velgar/Strategies", WIKI + "Dragon_Slayer"],
                               "notes": ["SOLO on dev; PL4, 6000 HP; telegraphed: poison spray, puddle bombs, leg-stomp spikes, bite, "
                                         "head swipe; flies off at 3/4, 1/2, 1/4 HP", "'levelled gear' not checkable (proposal 5.5)"]}))
+    velgar = out[-1]
+    out.append(quick(velgar, setup=[
+        {"verb": "grant", "item": "ITEM_Masterworks_Challenge_Horn", "count": 1, "purpose": "quick: skip stages 1-8"},
+        {"verb": "teleport", "at": "<Velgar's Rise on dev>", "purpose": "quick: start at the arena"}],
+        note="horn granted and teleported to the arena; preparation still his"))
     return out
 
 

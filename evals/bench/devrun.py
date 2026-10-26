@@ -88,6 +88,17 @@ def build_dev_companion(game, workdir: Path, caps_cap: dict[str, int], log_name:
     agent = LiveAgent(game, controller, Planner(pln, store.skills, log), executor, store, log,
                       prefixes=["claude ", "claude,", "@claude "], calls_per_min=1000, debounce_s=0.0)
     agent.body_self_defends = "combat_status" in caps.extras
+    if os.environ.get("DW_DIRECTOR") == "1":  # Luis 2026-10-26: main variants run with the task board + Director
+        from brain.director import Director
+        from brain.skill_library import SkillLibrary
+        os.environ["DW_WORLD_GUID"] = "dev_bench"  # belt and braces: nothing here may resolve to the shockbyte world
+        # the board, learned skills and knowledge memory live in this case's fresh directory: no carry-over between
+        # cases, never the shockbyte world folder (director.md §14 precondition 3)
+        d = Director.for_session(agent, pln, store=store, skills=SkillLibrary(workdir / "skills", log),
+                                 knowledge=controller.knowledge, caps=caps, budget=None, log=log, player="Tester")
+        log.log("bench_director", on=True, board_dir=str(store.dir))
+        agent.director = d
+        controller.attach_director(d)
     if not _WARMED["done"] and hasattr(controller, "warm_up"):
         try:
             controller.warm_up()  # primes the provider's prompt cache so case 1's latency isn't a cold start
@@ -112,6 +123,7 @@ def run_case_dev(case: Case, dev: DevTarget, workdir: Path, calls_cap_: dict[str
         for step in case.fixtures.setup:
             s = dict(step)
             verb, name = s.pop("verb"), s.pop("as", None)
+            s["purpose"] = f"case {case.id} ({case.variant}): " + str(s.get("purpose") or "setup")
             out = dev.setup(verb, **s)
             if name:
                 bindings[name] = out
@@ -201,19 +213,22 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cases", required=True)
     ap.add_argument("--only", required=True, help="comma list of case ids (a dev run is always partial before the judge tag)")
     ap.add_argument("--calls", type=int, default=6, help="Haiku calls per case (cap)")
+    ap.add_argument("--sonnet", type=int, default=0, help="Sonnet (Director) calls per case (cap); needs DW_DIRECTOR=1")
     ap.add_argument("--yes", action="store_true")
     ap.add_argument("--switch", action="store_true",
                     help="first move the client onto dev via client_boot.ps1 -Target dev (relaunches instead of a 3rd "
                          "front-end return, BUGS L24)")
     a = ap.parse_args(argv)
+    if os.environ.get("DW_DIRECTOR") == "1" and a.sonnet <= 0:
+        ap.error("DW_DIRECTOR=1 runs the Sonnet Director: pass --sonnet N (its per-case call cap) so the plan states it")
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except AttributeError:
         pass
     want = [x.strip() for x in a.only.split(",")]
     cases = [c for c in load_cases(Path(a.cases)) if c.id in want]
-    cap = {"haiku": a.calls, "sonnet": 0}
-    total = {"haiku": a.calls * len(cases), "sonnet": 0}
+    cap = {"haiku": a.calls, "sonnet": a.sonnet}
+    total = {"haiku": a.calls * len(cases), "sonnet": a.sonnet * len(cases)}
     user_env()
     models = {"haiku": os.environ.get("DW_CONTROLLER_MODEL", ""), "sonnet": os.environ.get("DW_PLANNER_MODEL", "")}
     print(f"{len(cases)} cases on DEV, model-call ceiling {total} ({models['haiku']})")

@@ -7,6 +7,7 @@
    "tier": "T3",
    "family": "capstone_stage",
    "capstone": "brynmoor_progression",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
@@ -80,6 +81,7 @@
    "tier": "T3",
    "family": "capstone_stage",
    "capstone": "brynmoor_progression",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
@@ -153,6 +155,7 @@
    "tier": "T3",
    "family": "capstone_stage",
    "capstone": "brynmoor_progression",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
@@ -226,6 +229,7 @@
    "tier": "T3",
    "family": "capstone_stage",
    "capstone": "brynmoor_progression",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
@@ -299,6 +303,7 @@
    "tier": "T3",
    "family": "capstone_stage",
    "capstone": "brynmoor_progression",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
@@ -372,6 +377,7 @@
    "tier": "T3",
    "family": "capstone_stage",
    "capstone": "brynmoor_progression",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
@@ -461,6 +467,7 @@
    "tier": "T3",
    "family": "capstone_stage",
    "capstone": "brynmoor_progression",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
@@ -544,6 +551,7 @@
    "tier": "T3",
    "family": "capstone_stage",
    "capstone": "brynmoor_progression",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
@@ -642,6 +650,7 @@
    "tier": "T3",
    "family": "capstone",
    "capstone": "slay_velgar_solo",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {
@@ -788,6 +797,177 @@
      "SOLO on dev; PL4, 6000 HP; telegraphed: poison spray, puddle bombs, leg-stomp spikes, bite, head swipe; flies off at 3/4, 1/2, 1/4 HP",
      "'levelled gear' not checkable (proposal 5.5)"
     ]
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "capstone_slay_velgar_solo_quick",
+   "version": 1,
+   "tier": "T1",
+   "family": "capstone",
+   "capstone": "slay_velgar_solo",
+   "variant": "quick",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {
+    "evidence": [
+     "referee:damage.by",
+     "referee:death.by",
+     "referee:defended",
+     "probe:held_effects"
+    ],
+    "quick": true
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "Velgar's next. Get yourself ready and take him on by yourself",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "antipoison",
+    "poison",
+    "shield",
+    "enchant",
+    "air",
+    "food",
+    "potion"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "grant",
+      "item": "ITEM_Masterworks_Challenge_Horn",
+      "count": 1,
+      "purpose": "quick: skip stages 1-8"
+     },
+     {
+      "verb": "teleport",
+      "at": "<Velgar's Rise on dev>",
+      "purpose": "quick: start at the arena"
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "empty",
+    "player_body": false
+   },
+   "success": {
+    "all": [
+     {
+      "killed": {
+       "kind": "Velgar",
+       "kind_id": "BP_AI_DragonVelgar_Character_C",
+       "at_least": 1
+      }
+     },
+     {
+      "solo": {
+       "target_kind_id": "BP_AI_DragonVelgar_Character_C"
+      }
+     },
+     {
+      "prepared": {
+       "target_kind_id": "BP_AI_DragonVelgar_Character_C",
+       "all": [
+        {
+         "item": "ITEM_Consumable_Potion_T2_Lesser_Antipoison",
+         "at_least": 1,
+         "gained_since_start": true
+        },
+        {
+         "items_any": [
+          "ITEM_Consumable_BerryDrizzle_Pan-Seared",
+          "ITEM_Consumable_Fish_Anchovies"
+         ],
+         "at_least": 3
+        },
+        {
+         "predicate": {
+          "gear_better": {
+           "slot": "body",
+           "stat": "power_level",
+           "where": "equipped",
+           "than": 3,
+           "op": ">"
+          }
+         }
+        },
+        {
+         "any_of": [
+          {
+           "tag": "Player.Status.TempestShield"
+          },
+          {
+           "enchant_type": "DamageType.Magical.Air"
+          }
+         ]
+        }
+       ]
+      }
+     },
+     {
+      "defended": {
+       "kind": "dodge",
+       "against": "telegraph",
+       "at_least": 5
+      }
+     }
+    ]
+   },
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
+   "needs_fact": {
+    "kind": "weakness",
+    "truth": "no weakness; immune to poison and burning; poison breath -> antipoison"
+   },
+   "controls": {
+    "partial": [
+     {
+      "note": "fight unprepared"
+     }
+    ],
+    "na": {
+     "alt_means": "the kill is the capability",
+     "wrong_action": "n/a"
+    }
+   },
+   "limits": {
+    "wall_s": 5400.0,
+    "model_calls": {},
+    "hints_max": 0,
+    "idle_s": 300.0,
+    "repeat": 3
+   },
+   "hints": {
+    "ladder": []
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "dev": "scripted:velgar_v1"
+   },
+   "provenance": {
+    "sources": [
+     "https://dragonwilds.runescape.wiki/w/Velgar",
+     "https://dragonwilds.runescape.wiki/w/Velgar/Strategies",
+     "https://dragonwilds.runescape.wiki/w/Dragon_Slayer"
+    ],
+    "notes": [
+     "SOLO on dev; PL4, 6000 HP; telegraphed: poison spray, puddle bombs, leg-stomp spikes, bite, head swipe; flies off at 3/4, 1/2, 1/4 HP",
+     "'levelled gear' not checkable (proposal 5.5)"
+    ],
+    "variant": "quick of capstone_slay_velgar_solo: horn granted and teleported to the arena; preparation still his"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"

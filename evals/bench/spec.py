@@ -83,6 +83,9 @@ class Case(BaseModel):
     skill: str | None = None  # every_skill (M3): the skill asset name, e.g. "Mining"
     mode: str | None = None  # every_skill: asked | initiative | plus5
     capstone: str | None = None  # M6: slay_velgar_solo | ...
+    # main = he obtains every prerequisite himself (Luis 2026-10-26: no item grants; the Director plans them);
+    # quick = grants that isolate one skill, for development only: never counted for GOAL
+    variant: Literal["main", "quick"] = "main"
     authored_by: Literal["generator", "human", "data"] = "data"
     status: Literal["draft", "candidate", "suite"] = "candidate"
     tags: dict[str, Any] = Field(default_factory=dict)

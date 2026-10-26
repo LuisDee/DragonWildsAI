@@ -2,16 +2,37 @@
   "schema": "dw_bench_snapshot/1",
   "name": "capstone_v1",
   "status": "draft",
-  "describes": "The start of the Vel'gar fight case. Per the review (V-4) it holds NONE of the items the prep predicate checks: no antipoison, no healing food, no PL4 gear and no enchant. It holds only materials and access, so preparation must be gained after the baseline.",
+  "describes": "The start of the Vel'gar fight case: the verified end state of capstone stage 8 (chained snapshot, review V-8). Nothing is granted: he crafted the Challenge Horn himself in stage 7. Per review V-4 it holds NONE of the items the prep predicate checks (no antipoison, no healing food, no enchant); preparation must be gained after the baseline.",
   "character": {
     "gear": "whatever the end state of capstone stage 8 verified (chained snapshot, review V-8)",
-    "bag": {"ITEM_Masterworks_Challenge_Horn": 1},
-    "forbidden_items": ["ITEM_Consumable_Potion_T2_Lesser_Antipoison", "ITEM_Consumable_BerryDrizzle_Pan-Seared"],
-    "position": "next to Velgar's Rise (teleport fixture)"
+    "bag": "whatever stage 8 verified, including the ITEM_Masterworks_Challenge_Horn he crafted in stage 7",
+    "forbidden_items": [
+      "ITEM_Consumable_Potion_T2_Lesser_Antipoison",
+      "ITEM_Consumable_BerryDrizzle_Pan-Seared"
+    ],
+    "position": "wherever stage 8 ended: getting to Velgar's Rise is part of the case"
   },
-  "setup": [{"verb": "grant", "item": "ITEM_Masterworks_Challenge_Horn", "count": 1}],
+  "setup": [],
   "requires": [
-    {"not": {"have": {"item": "ITEM_Consumable_Potion_T2_Lesser_Antipoison", "at_least": 1}}}
+    {
+      "have": {
+        "item": "ITEM_Masterworks_Challenge_Horn",
+        "at_least": 1
+      }
+    },
+    {
+      "not": {
+        "have": {
+          "item": "ITEM_Consumable_Potion_T2_Lesser_Antipoison",
+          "at_least": 1
+        }
+      }
+    }
   ],
-  "open_questions": ["Velgar's Rise position on dev; a chained start from stage 8's verified end state"]
+  "open_questions": [
+    "Velgar's Rise position on dev (quick variant teleport)",
+    "a chained start from stage 8's verified end state"
+  ],
+  "grant_policy": "Luis 2026-10-26: main variants grant NO items; he obtains every prerequisite himself (his Director plans them). Grant-using setups belong only to *_quick cases (variant quick, never counted for GOAL).",
+  "quick_variant": "capstone_slay_velgar_solo_quick: grants the horn and teleports to the arena (dev aid, not GOAL)"
 }

@@ -48,6 +48,10 @@ return function(log)
     p.position = m(U.try(function() return pawn:K2_GetActorLocation() end))
     p.health = U.health(pawn)
     p.max_health = U.try(function() return pawn.HealthComponent:GetMaxHealth() end) or U.max_health(pawn)
+    -- camera view target and input mode (read-only; the spells agent verified pc:GetViewTarget() and pc.CurrentInputMode
+    -- live: Eye of Oculus switches the view to BP_OculusCamera_C; casting enters DIM_SpellcastingMode)
+    p.view_target = U.class_word(U.try(function() return pc:GetViewTarget() end))
+    p.input_mode = U.short(U.try(function() return pc.CurrentInputMode end))
     for key, spec in pairs({ sustenance = { "SustenanceComponent", "GetCurrentSustenance" },
                              hydration = { "HydrationComponent", "GetCurrentHydration" } }) do
         local c = U.try(function() return pawn[spec[1]] end)

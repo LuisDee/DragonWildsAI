@@ -7,6 +7,7 @@
    "tier": "T3",
    "family": "long_task",
    "long_task": "mining_run_home_chest",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {
@@ -135,6 +136,7 @@
    "tier": "T3",
    "family": "long_task",
    "long_task": "farm_mob_drop",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {
@@ -275,6 +277,7 @@
    "tier": "T3",
    "family": "long_task",
    "long_task": "gear_upgrade_self_initiated",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {
@@ -686,6 +689,7 @@
    "tier": "T3",
    "family": "long_task",
    "long_task": "brynmoor_quest_chain",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {
@@ -789,6 +793,7 @@
    "tier": "T3",
    "family": "long_task",
    "long_task": "farm_and_process_crop",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {

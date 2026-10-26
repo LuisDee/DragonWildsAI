@@ -24,6 +24,7 @@ from .hashes import ROOT
 from .observer import Abort
 
 REFEREE_LOG = ROOT / "logs" / "bench" / "referee.jsonl"
+SETUP_LOG = ROOT / "logs" / "bench" / "fixture_setup.jsonl"  # every fixture call on dev, with its purpose (main 2026-10-26)
 PROBE_CMD = ROOT / "client_mod" / "commands" / "bench_probe.lua"
 # verified kinds (DISCOVERIES 2026-10-25/26): damage carries by + damage_type (v1.1 hooks), deaths by, telegraphs;
 # defended events carry `how` only for dodges seen with the evade tag / parry / block hooks (else a gap); teleport is
@@ -146,7 +147,7 @@ class DevTarget:
         return out
 
     # ---------------------------------------------------------------- fixtures (harness only; dev only)
-    def setup(self, verb: str, **a) -> dict:
+    def setup(self, verb: str, purpose: str = "case setup", **a) -> dict:
         self.guard("setup", a)
         args: dict[str, Any] = {"part": "fixtures", "verb": verb, "character_guid": self.character_guid}
         if verb == "grant":
@@ -162,7 +163,14 @@ class DevTarget:
             args.update(a)
         r = self.server_debug(args)
         res = (r.get("data") or {}).get("result") or {}
-        self.setup_log.append({"t": time.time(), "verb": verb, "args": a, "ok": bool(res.get("ok")), "error": res.get("error")})
+        row = {"t": time.time(), "verb": verb, "args": a, "purpose": purpose, "ok": bool(res.get("ok")), "error": res.get("error")}
+        self.setup_log.append(row)
+        try:
+            SETUP_LOG.parent.mkdir(parents=True, exist_ok=True)
+            with open(SETUP_LOG, "a", encoding="utf-8") as f:
+                f.write(json.dumps(row, default=str) + "\n")
+        except OSError:
+            pass
         if not res.get("ok"):
             raise Abort(f"fixture {verb} failed: {res.get('error')}")
         return res

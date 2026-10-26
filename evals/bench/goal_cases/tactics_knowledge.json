@@ -6,6 +6,7 @@
    "version": 1,
    "tier": "T2",
    "family": "tactics_prep",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
@@ -120,6 +121,7 @@
    "version": 1,
    "tier": "T2",
    "family": "tactics_trend",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
@@ -204,6 +206,7 @@
    "version": 1,
    "tier": "T2",
    "family": "tactics_telegraph",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
@@ -294,6 +297,7 @@
    "version": 1,
    "tier": "T1",
    "family": "knowledge",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
@@ -377,6 +381,7 @@
    "version": 1,
    "tier": "T1",
    "family": "knowledge",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
@@ -402,13 +407,9 @@
      },
      {
       "verb": "grant",
-      "item": "<a sword>",
-      "count": 1
-     },
-     {
-      "verb": "grant",
       "item": "<a staff>",
-      "count": 1
+      "count": 1,
+      "purpose": "minimal: a caster (not what the case is about)"
      },
      {
       "verb": "grant_runes",
@@ -416,7 +417,8 @@
        "Fire": 100,
        "Water": 100,
        "Air": 100
-      }
+      },
+      "purpose": "minimal: three elements so the choice is his"
      }
     ],
     "scene": {},
@@ -476,7 +478,11 @@
    "oracle": {
     "dev": "scripted:runt_fire_v1"
    },
-   "provenance": {},
+   "provenance": {
+    "notes": [
+     "grants kept minimal (Luis 2026-10-26): the case is about the weakness fact, not runecrafting or making a staff; the sword grant was dropped (fists are the non-fire option)"
+    ]
+   },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
@@ -485,6 +491,7 @@
    "version": 1,
    "tier": "T1",
    "family": "knowledge",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {},
@@ -574,6 +581,7 @@
    "version": 1,
    "tier": "T1",
    "family": "knowledge",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {},

@@ -50,6 +50,10 @@ def _key(e: dict) -> str | None:
         return "ge:" + str(e.get("class") or e.get("class_contains"))
     if e.get("kind") == "spell_actor":
         return "actor:" + str(e.get("class"))
+    if e.get("kind") == "view_target":
+        return "view:" + str(e.get("class"))
+    if e.get("kind") == "input_mode":
+        return "mode:" + str(e.get("contains") or e.get("mode"))
     return None
 
 
@@ -117,6 +121,15 @@ def _effect(e: dict, o, target: Any, ctx: dict | None = None) -> bool | None:
         seen = [x for x in (ctx or {}).get("referee") or [] if x.get("kind") == "spell_actor" and x.get("class") == e.get("class")
                 and o.wall0 - 1 <= float(x.get("t", 0)) <= o.wall1 + 3]
         return True if seen else False
+    if k == "view_target":  # the camera switched to the spell's view actor (probe v2.1: pc:GetViewTarget())
+        if "view_target" not in a:
+            return None
+        return a.get("view_target") == e.get("class") and b.get("view_target") != e.get("class")
+    if k == "input_mode":  # generic (every spell wheel enters it): specific_effects rejects it when shared
+        if "input_mode" not in a:
+            return None
+        want = str(e.get("contains") or e.get("mode") or "")
+        return bool(want) and want in str(a.get("input_mode") or "") and want not in str(b.get("input_mode") or "")
     if k == "jump_apex_gain_m":
         ba, aa = b.get("jump_apex_m"), a.get("jump_apex_m")
         return None if ba is None or aa is None else aa - ba >= float(e.get("min", 1.0))

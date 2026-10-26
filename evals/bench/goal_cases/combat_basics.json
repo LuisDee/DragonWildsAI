@@ -7,6 +7,7 @@
    "tier": "T1",
    "family": "combat_basic",
    "basic": "dodge_directional",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {
@@ -42,7 +43,7 @@
      }
     ],
     "scene": {},
-    "state_snapshot": "empty",
+    "state_snapshot": "fresh_dev_v1",
     "player_body": false
    },
    "success": {
@@ -95,6 +96,7 @@
    },
    "provenance": {
     "notes": [
+     "no prerequisites: a dodge needs no item, so there is no quick twin",
      "check on dev that the runt telegraphs >= 3 times in 300 s (no weapon: it survives)"
     ]
    },
@@ -104,16 +106,133 @@
   {
    "id": "goal_basic_parry",
    "version": 1,
-   "tier": "T1",
+   "tier": "T2",
    "family": "combat_basic",
    "basic": "parry",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {
     "evidence": [
      "referee:defended",
      "referee:telegraph"
+    ],
+    "prerequisites": [
+     "ITEM_Shield_Wood"
     ]
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "let's practise parrying on those goblins over there",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "shield",
+    "log",
+    "wood",
+    "craft",
+    "make",
+    "block"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "spawn",
+      "as": "foe",
+      "class": "BP_AI_RuntGoblin_Character_C",
+      "offset_m": [
+       40,
+       0,
+       0
+      ]
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "fresh_dev_v1",
+    "player_body": false
+   },
+   "success": {
+    "defended": {
+     "kind": "parry",
+     "at_least": 3,
+     "min_rate": 0.4
+    }
+   },
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
+   "controls": {
+    "wrong_action": [
+     {
+      "note": "hold block the whole time"
+     }
+    ],
+    "partial": [
+     {
+      "note": "makes the shield, never parries"
+     }
+    ],
+    "na": {
+     "alt_means": "no other means of a parry"
+    }
+   },
+   "limits": {
+    "wall_s": 1800.0,
+    "model_calls": {},
+    "hints_max": 1,
+    "idle_s": 180.0,
+    "repeat": 3
+   },
+   "hints": {
+    "ladder": [
+     "how's the practice going?",
+     "you'll want something to parry with",
+     "ten ash logs make a wooden shield"
+    ]
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "dev": "scripted:parry_runt_v1"
+   },
+   "provenance": {
+    "source": "https://dragonwilds.runescape.wiki/w/Wooden_Shield",
+    "notes": [
+     "parry needs an off-hand shield: RECIPE_Shield_Wood = 10 Ash Logs (recipes catalog)",
+     "dev fact: the runt at 40 m must not aggro before he engages (measure the aggro radius)"
+    ]
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "goal_basic_parry_quick",
+   "version": 1,
+   "tier": "T1",
+   "family": "combat_basic",
+   "basic": "parry",
+   "variant": "quick",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {
+    "evidence": [
+     "referee:defended",
+     "referee:telegraph"
+    ],
+    "prerequisites": [
+     "ITEM_Shield_Wood"
+    ],
+    "quick": true
    },
    "chat": [
     {
@@ -123,6 +242,11 @@
     }
    ],
    "forbid_terms": [
+    "shield",
+    "log",
+    "wood",
+    "craft",
+    "make",
     "block"
    ],
    "fixtures": {
@@ -141,7 +265,8 @@
      {
       "verb": "grant",
       "item": "ITEM_Shield_Wood",
-      "count": 1
+      "count": 1,
+      "purpose": "quick: isolate the parry"
      }
     ],
     "scene": {},
@@ -169,20 +294,28 @@
       "note": "hold block the whole time"
      }
     ],
+    "partial": [
+     {
+      "note": "makes the shield, never parries"
+     }
+    ],
     "na": {
-     "partial": "one outcome; cutting the oracle short is do_nothing",
      "alt_means": "no other means of a parry"
     }
    },
    "limits": {
     "wall_s": 300.0,
     "model_calls": {},
-    "hints_max": 0,
-    "idle_s": 60.0,
+    "hints_max": 1,
+    "idle_s": 180.0,
     "repeat": 3
    },
    "hints": {
-    "ladder": []
+    "ladder": [
+     "how's the practice going?",
+     "you'll want something to parry with",
+     "ten ash logs make a wooden shield"
+    ]
    },
    "targets": [
     "dev"
@@ -191,16 +324,24 @@
    "oracle": {
     "dev": "scripted:parry_runt_v1"
    },
-   "provenance": {},
+   "provenance": {
+    "source": "https://dragonwilds.runescape.wiki/w/Wooden_Shield",
+    "notes": [
+     "parry needs an off-hand shield: RECIPE_Shield_Wood = 10 Ash Logs (recipes catalog)",
+     "dev fact: the runt at 40 m must not aggro before he engages (measure the aggro radius)"
+    ],
+    "variant": "quick of goal_basic_parry: shield granted, runt at 6 m"
+   },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
   {
    "id": "goal_basic_disengage_heal",
    "version": 1,
-   "tier": "T1",
+   "tier": "T2",
    "family": "combat_basic",
    "basic": "disengage_heal",
+   "variant": "main",
    "authored_by": "human",
    "status": "draft",
    "tags": {
@@ -208,7 +349,292 @@
      "probe:creatures",
      "referee:damage.by",
      "referee:item_change"
+    ],
+    "prerequisites": [
+     "food"
     ]
+   },
+   "chat": [
+    {
+     "at_s": 0.0,
+     "text": "let's take on that pack of runts over there, and don't you dare die on me",
+     "from": "player"
+    }
+   ],
+   "forbid_terms": [
+    "eat",
+    "food",
+    "run",
+    "retreat",
+    "heal",
+    "cook",
+    "fish",
+    "berr"
+   ],
+   "fixtures": {
+    "requires": [],
+    "setup": [
+     {
+      "verb": "spawn",
+      "as": "foe",
+      "class": "BP_AI_RuntGoblin_Character_C",
+      "offset_m": [
+       40,
+       0,
+       0
+      ]
+     },
+     {
+      "verb": "spawn",
+      "class": "BP_AI_RuntGoblin_Character_C",
+      "offset_m": [
+       41,
+       2,
+       0
+      ]
+     },
+     {
+      "verb": "spawn",
+      "class": "BP_AI_RuntGoblin_Character_C",
+      "offset_m": [
+       41,
+       -2,
+       0
+      ]
+     }
+    ],
+    "scene": {},
+    "state_snapshot": "fresh_dev_v1",
+    "player_body": false
+   },
+   "success": {
+    "disengaged": {
+     "target_kind_id": "BP_AI_RuntGoblin_Character_C",
+     "aggro_m": 15,
+     "food": [
+      "ITEM_Consumable_Beast_Flank",
+      "ITEM_Consumable_Beast_Flank_Burnt",
+      "ITEM_Consumable_Beltfish_Broth",
+      "ITEM_Consumable_BerryDrizzle_Pan-Seared",
+      "ITEM_Consumable_Bread",
+      "ITEM_Consumable_Bread_Burnt",
+      "ITEM_Consumable_Cabbage_Burnt",
+      "ITEM_Consumable_Cabbage_Fried",
+      "ITEM_Consumable_Cake_VictoriaSpongeCake",
+      "ITEM_Consumable_Crunchies_Dwellberry",
+      "ITEM_Consumable_Crunchies_Dwellberry_OLD",
+      "ITEM_Consumable_Crunchies_Fortifying_OLD",
+      "ITEM_Consumable_Crunchies_Hearty_OLD",
+      "ITEM_Consumable_Crunchies_Redberry",
+      "ITEM_Consumable_Crunchies_Redberry_OLD",
+      "ITEM_Consumable_Egg_Burnt",
+      "ITEM_Consumable_Egg_Fried",
+      "ITEM_Consumable_Eggs_Royale",
+      "ITEM_Consumable_Farm_Steak",
+      "ITEM_Consumable_Farm_Steak_Burnt",
+      "ITEM_Consumable_Fish_Anchovies",
+      "ITEM_Consumable_Fish_Anchovies_Burnt",
+      "ITEM_Consumable_Fish_ArmouredCatfish",
+      "ITEM_Consumable_Fish_ArmouredCatfish_Burnt",
+      "ITEM_Consumable_Fish_Beltfish",
+      "ITEM_Consumable_Fish_Beltfish_Burnt",
+      "ITEM_Consumable_Fish_DesertSole",
+      "ITEM_Consumable_Fish_DesertSole_Burnt",
+      "ITEM_Consumable_Fish_Fry",
+      "ITEM_Consumable_Fish_GiantKrill",
+      "ITEM_Consumable_Fish_GiantKrill_Burnt",
+      "ITEM_Consumable_Fish_Herring",
+      "ITEM_Consumable_Fish_Herring_Burnt",
+      "ITEM_Consumable_Fish_InfernalEel",
+      "ITEM_Consumable_Fish_InfernalEel_Burnt",
+      "ITEM_Consumable_Fish_Lobster",
+      "ITEM_Consumable_Fish_Lobster_Burnt",
+      "ITEM_Consumable_Fish_Monkfish",
+      "ITEM_Consumable_Fish_Monkfish_Burnt",
+      "ITEM_Consumable_Fish_Salmon",
+      "ITEM_Consumable_Fish_Salmon_Burnt",
+      "ITEM_Consumable_Fish_Sardine",
+      "ITEM_Consumable_Fish_Sardine_Burnt",
+      "ITEM_Consumable_Fish_Shrimp",
+      "ITEM_Consumable_Fish_Shrimp_Burnt",
+      "ITEM_Consumable_Fish_Trout",
+      "ITEM_Consumable_Fish_Trout_Burnt",
+      "ITEM_Consumable_Fish_Trout_Burnt_QUEST",
+      "ITEM_Consumable_Fish_Trout_QUEST",
+      "ITEM_Consumable_Fish_UndeadBass",
+      "ITEM_Consumable_Fish_UndeadBass_Burnt",
+      "ITEM_Consumable_Fish_UndeadEel",
+      "ITEM_Consumable_Fish_UndeadEel_Burnt",
+      "ITEM_Consumable_Fruit_Berry_Compote_OLD",
+      "ITEM_Consumable_Fruit_Cadavaberry",
+      "ITEM_Consumable_Fruit_Cadavaberry_Burnt",
+      "ITEM_Consumable_Fruit_Dried_Cadavaberry",
+      "ITEM_Consumable_Fruit_Dried_Dwellberry",
+      "ITEM_Consumable_Fruit_Dried_Redberry",
+      "ITEM_Consumable_Fruit_Dwellberry",
+      "ITEM_Consumable_Fruit_Dwellberry_Burnt",
+      "ITEM_Consumable_Fruit_Peach",
+      "ITEM_Consumable_Fruit_Peach_Burnt",
+      "ITEM_Consumable_Fruit_Peach_Dried",
+      "ITEM_Consumable_Fruit_Redberry",
+      "ITEM_Consumable_Fruit_Redberry_Burnt",
+      "ITEM_Consumable_Fryup_Cheeky",
+      "ITEM_Consumable_Fryup_Vegan",
+      "ITEM_Consumable_Glazed_Dwellberry_Roast_Flank_OLD",
+      "ITEM_Consumable_Glazed_Dwellberry_Roast_Meat_OLD",
+      "ITEM_Consumable_Glazed_Redberry_Roast_Flank_OLD",
+      "ITEM_Consumable_Glazed_Redberry_Roast_Meat_OLD",
+      "ITEM_Consumable_HerbBaked_Trout",
+      "ITEM_Consumable_Iconic_Kebab",
+      "ITEM_Consumable_Iconic_Pie_Wild",
+      "ITEM_Consumable_Iconic_Pizza_Meat",
+      "ITEM_Consumable_Meat_Fillet",
+      "ITEM_Consumable_Meat_Fillet_Burnt",
+      "ITEM_Consumable_Meat_Haunch",
+      "ITEM_Consumable_Meat_Haunch_Burnt",
+      "ITEM_Consumable_Meat_Mixed_Grill",
+      "ITEM_Consumable_Meat_Mixed_Platter_OLD",
+      "ITEM_Consumable_Meat_Rat_Roast",
+      "ITEM_Consumable_Meat_Rat_Roast_Burnt",
+      "ITEM_Consumable_Monkfish_Skewers",
+      "ITEM_Consumable_Mushroom_Burnt",
+      "ITEM_Consumable_Mushroom_Grilled",
+      "ITEM_Consumable_Omelette_Pungent",
+      "ITEM_Consumable_Omelette_Shrimp",
+      "ITEM_Consumable_Onion_Burnt",
+      "ITEM_Consumable_Onion_Fried",
+      "ITEM_Consumable_Pie_Fruit",
+      "ITEM_Consumable_Pie_Meat_Dubious",
+      "ITEM_Consumable_Pie_Swabbie",
+      "ITEM_Consumable_Potato_Burnt",
+      "ITEM_Consumable_Potato_Jacket",
+      "ITEM_Consumable_Pumpkin_Burnt",
+      "ITEM_Consumable_Pumpkin_Roast",
+      "ITEM_Consumable_Redberry_Roast_Rat",
+      "ITEM_Consumable_RoastDinner",
+      "ITEM_Consumable_Sandwich_Glazed_Pumpkin_Roast",
+      "ITEM_Consumable_Sandwich_Meat",
+      "ITEM_Consumable_Sandwich_Meat_Double",
+      "ITEM_Consumable_Sandwich_Steak",
+      "ITEM_Consumable_Sandwich_Veggie",
+      "ITEM_Consumable_Sausage_Squeaking",
+      "ITEM_Consumable_Sauteed_Sardines",
+      "ITEM_Consumable_Soup_Fortifying_OLD",
+      "ITEM_Consumable_Soup_Hearty_Fortifying_OLD",
+      "ITEM_Consumable_Soup_Hearty_OLD",
+      "ITEM_Consumable_Soup_Pumpkin",
+      "ITEM_Consumable_Soup_Vegetable",
+      "ITEM_Consumable_SteakAndEggs",
+      "ITEM_Consumable_Steak_Cactus_Burnt",
+      "ITEM_Consumable_Steak_Cactus_Cooked",
+      "ITEM_Consumable_Steak_Undead",
+      "ITEM_Consumable_Steak_Undead_Burnt",
+      "ITEM_Consumable_Stew_BeefTomato",
+      "ITEM_Consumable_Stew_Fortifying_OLD",
+      "ITEM_Consumable_Stew_Hearty_OLD",
+      "ITEM_Consumable_Stew_Meat",
+      "ITEM_Consumable_Stir-Fry",
+      "ITEM_Consumable_Stuffed_Catfish",
+      "ITEM_Consumable_Syrup_Maple",
+      "ITEM_Consumable_Syrup_Maple_Burnt",
+      "ITEM_Consumable_Tea_Strong",
+      "ITEM_Consumable_Tea_Strong_Sweet",
+      "ITEM_Consumable_Toastie_Maple",
+      "ITEM_Consumable_Tomato_Burnt",
+      "ITEM_Consumable_Tomato_Grilled",
+      "ITEM_Consumable_Umbral_Kebab",
+      "ITEM_Consumable_Undead_Delight",
+      "ITEM_Consumable_Vegball_Sweet",
+      "ITEM_Consumable_Watermelon_Burnt",
+      "ITEM_Consumable_Watermelon_Jerky",
+      "ITEM_Consumable_v3_Stew_Meat",
+      "ITEM_Resources_Cabbage",
+      "ITEM_Resources_Egg",
+      "ITEM_Resources_Meat_Bestial",
+      "ITEM_Resources_Meat_Bird",
+      "ITEM_Resources_Meat_Farm",
+      "ITEM_Resources_Meat_Game",
+      "ITEM_Resources_Meat_Undead",
+      "ITEM_Resources_Mushroom",
+      "ITEM_Resources_Onion",
+      "ITEM_Resources_Potato",
+      "ITEM_Resources_Pumpkin",
+      "ITEM_Resources_Raw_Stringy_Meat",
+      "ITEM_Resources_Tomato",
+      "ITEM_Resources_Watermelon"
+     ],
+     "reengaged": true
+    }
+   },
+   "guards": [
+    {
+     "no_event": {
+      "kind": "death",
+      "who": "self"
+     }
+    }
+   ],
+   "controls": {
+    "alt_means": [
+     {
+      "note": "eat in place without disengaging"
+     }
+    ],
+    "partial": [
+     {
+      "note": "no re-engage"
+     }
+    ],
+    "na": {}
+   },
+   "limits": {
+    "wall_s": 1800.0,
+    "model_calls": {},
+    "hints_max": 1,
+    "idle_s": 180.0,
+    "repeat": 3
+   },
+   "hints": {
+    "ladder": [
+     "how are you holding up?",
+     "three at once will hurt, have something to fall back on"
+    ]
+   },
+   "targets": [
+    "dev"
+   ],
+   "risk": "low",
+   "oracle": {
+    "dev": "scripted:disengage_runts_v1"
+   },
+   "provenance": {
+    "notes": [
+     "food = every catalog Item.Food (data-derived): whatever he cooked, picked or looted",
+     "measure: does 15 m break runt aggro? do three runts take a fresh character low?"
+    ]
+   },
+   "heldout": false,
+   "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
+  },
+  {
+   "id": "goal_basic_disengage_heal_quick",
+   "version": 1,
+   "tier": "T1",
+   "family": "combat_basic",
+   "basic": "disengage_heal",
+   "variant": "quick",
+   "authored_by": "human",
+   "status": "draft",
+   "tags": {
+    "evidence": [
+     "probe:creatures",
+     "referee:damage.by",
+     "referee:item_change"
+    ],
+    "prerequisites": [
+     "food"
+    ],
+    "quick": true
    },
    "chat": [
     {
@@ -222,7 +648,10 @@
     "food",
     "run",
     "retreat",
-    "heal"
+    "heal",
+    "cook",
+    "fish",
+    "berr"
    ],
    "fixtures": {
     "requires": [],
@@ -258,7 +687,8 @@
      {
       "verb": "grant",
       "item": "ITEM_Consumable_Fish_Anchovies",
-      "count": 5
+      "count": 5,
+      "purpose": "quick: food"
      },
      {
       "verb": "set_health",
@@ -274,7 +704,156 @@
      "target_kind_id": "BP_AI_RuntGoblin_Character_C",
      "aggro_m": 15,
      "food": [
-      "ITEM_Consumable_Fish_Anchovies"
+      "ITEM_Consumable_Beast_Flank",
+      "ITEM_Consumable_Beast_Flank_Burnt",
+      "ITEM_Consumable_Beltfish_Broth",
+      "ITEM_Consumable_BerryDrizzle_Pan-Seared",
+      "ITEM_Consumable_Bread",
+      "ITEM_Consumable_Bread_Burnt",
+      "ITEM_Consumable_Cabbage_Burnt",
+      "ITEM_Consumable_Cabbage_Fried",
+      "ITEM_Consumable_Cake_VictoriaSpongeCake",
+      "ITEM_Consumable_Crunchies_Dwellberry",
+      "ITEM_Consumable_Crunchies_Dwellberry_OLD",
+      "ITEM_Consumable_Crunchies_Fortifying_OLD",
+      "ITEM_Consumable_Crunchies_Hearty_OLD",
+      "ITEM_Consumable_Crunchies_Redberry",
+      "ITEM_Consumable_Crunchies_Redberry_OLD",
+      "ITEM_Consumable_Egg_Burnt",
+      "ITEM_Consumable_Egg_Fried",
+      "ITEM_Consumable_Eggs_Royale",
+      "ITEM_Consumable_Farm_Steak",
+      "ITEM_Consumable_Farm_Steak_Burnt",
+      "ITEM_Consumable_Fish_Anchovies",
+      "ITEM_Consumable_Fish_Anchovies_Burnt",
+      "ITEM_Consumable_Fish_ArmouredCatfish",
+      "ITEM_Consumable_Fish_ArmouredCatfish_Burnt",
+      "ITEM_Consumable_Fish_Beltfish",
+      "ITEM_Consumable_Fish_Beltfish_Burnt",
+      "ITEM_Consumable_Fish_DesertSole",
+      "ITEM_Consumable_Fish_DesertSole_Burnt",
+      "ITEM_Consumable_Fish_Fry",
+      "ITEM_Consumable_Fish_GiantKrill",
+      "ITEM_Consumable_Fish_GiantKrill_Burnt",
+      "ITEM_Consumable_Fish_Herring",
+      "ITEM_Consumable_Fish_Herring_Burnt",
+      "ITEM_Consumable_Fish_InfernalEel",
+      "ITEM_Consumable_Fish_InfernalEel_Burnt",
+      "ITEM_Consumable_Fish_Lobster",
+      "ITEM_Consumable_Fish_Lobster_Burnt",
+      "ITEM_Consumable_Fish_Monkfish",
+      "ITEM_Consumable_Fish_Monkfish_Burnt",
+      "ITEM_Consumable_Fish_Salmon",
+      "ITEM_Consumable_Fish_Salmon_Burnt",
+      "ITEM_Consumable_Fish_Sardine",
+      "ITEM_Consumable_Fish_Sardine_Burnt",
+      "ITEM_Consumable_Fish_Shrimp",
+      "ITEM_Consumable_Fish_Shrimp_Burnt",
+      "ITEM_Consumable_Fish_Trout",
+      "ITEM_Consumable_Fish_Trout_Burnt",
+      "ITEM_Consumable_Fish_Trout_Burnt_QUEST",
+      "ITEM_Consumable_Fish_Trout_QUEST",
+      "ITEM_Consumable_Fish_UndeadBass",
+      "ITEM_Consumable_Fish_UndeadBass_Burnt",
+      "ITEM_Consumable_Fish_UndeadEel",
+      "ITEM_Consumable_Fish_UndeadEel_Burnt",
+      "ITEM_Consumable_Fruit_Berry_Compote_OLD",
+      "ITEM_Consumable_Fruit_Cadavaberry",
+      "ITEM_Consumable_Fruit_Cadavaberry_Burnt",
+      "ITEM_Consumable_Fruit_Dried_Cadavaberry",
+      "ITEM_Consumable_Fruit_Dried_Dwellberry",
+      "ITEM_Consumable_Fruit_Dried_Redberry",
+      "ITEM_Consumable_Fruit_Dwellberry",
+      "ITEM_Consumable_Fruit_Dwellberry_Burnt",
+      "ITEM_Consumable_Fruit_Peach",
+      "ITEM_Consumable_Fruit_Peach_Burnt",
+      "ITEM_Consumable_Fruit_Peach_Dried",
+      "ITEM_Consumable_Fruit_Redberry",
+      "ITEM_Consumable_Fruit_Redberry_Burnt",
+      "ITEM_Consumable_Fryup_Cheeky",
+      "ITEM_Consumable_Fryup_Vegan",
+      "ITEM_Consumable_Glazed_Dwellberry_Roast_Flank_OLD",
+      "ITEM_Consumable_Glazed_Dwellberry_Roast_Meat_OLD",
+      "ITEM_Consumable_Glazed_Redberry_Roast_Flank_OLD",
+      "ITEM_Consumable_Glazed_Redberry_Roast_Meat_OLD",
+      "ITEM_Consumable_HerbBaked_Trout",
+      "ITEM_Consumable_Iconic_Kebab",
+      "ITEM_Consumable_Iconic_Pie_Wild",
+      "ITEM_Consumable_Iconic_Pizza_Meat",
+      "ITEM_Consumable_Meat_Fillet",
+      "ITEM_Consumable_Meat_Fillet_Burnt",
+      "ITEM_Consumable_Meat_Haunch",
+      "ITEM_Consumable_Meat_Haunch_Burnt",
+      "ITEM_Consumable_Meat_Mixed_Grill",
+      "ITEM_Consumable_Meat_Mixed_Platter_OLD",
+      "ITEM_Consumable_Meat_Rat_Roast",
+      "ITEM_Consumable_Meat_Rat_Roast_Burnt",
+      "ITEM_Consumable_Monkfish_Skewers",
+      "ITEM_Consumable_Mushroom_Burnt",
+      "ITEM_Consumable_Mushroom_Grilled",
+      "ITEM_Consumable_Omelette_Pungent",
+      "ITEM_Consumable_Omelette_Shrimp",
+      "ITEM_Consumable_Onion_Burnt",
+      "ITEM_Consumable_Onion_Fried",
+      "ITEM_Consumable_Pie_Fruit",
+      "ITEM_Consumable_Pie_Meat_Dubious",
+      "ITEM_Consumable_Pie_Swabbie",
+      "ITEM_Consumable_Potato_Burnt",
+      "ITEM_Consumable_Potato_Jacket",
+      "ITEM_Consumable_Pumpkin_Burnt",
+      "ITEM_Consumable_Pumpkin_Roast",
+      "ITEM_Consumable_Redberry_Roast_Rat",
+      "ITEM_Consumable_RoastDinner",
+      "ITEM_Consumable_Sandwich_Glazed_Pumpkin_Roast",
+      "ITEM_Consumable_Sandwich_Meat",
+      "ITEM_Consumable_Sandwich_Meat_Double",
+      "ITEM_Consumable_Sandwich_Steak",
+      "ITEM_Consumable_Sandwich_Veggie",
+      "ITEM_Consumable_Sausage_Squeaking",
+      "ITEM_Consumable_Sauteed_Sardines",
+      "ITEM_Consumable_Soup_Fortifying_OLD",
+      "ITEM_Consumable_Soup_Hearty_Fortifying_OLD",
+      "ITEM_Consumable_Soup_Hearty_OLD",
+      "ITEM_Consumable_Soup_Pumpkin",
+      "ITEM_Consumable_Soup_Vegetable",
+      "ITEM_Consumable_SteakAndEggs",
+      "ITEM_Consumable_Steak_Cactus_Burnt",
+      "ITEM_Consumable_Steak_Cactus_Cooked",
+      "ITEM_Consumable_Steak_Undead",
+      "ITEM_Consumable_Steak_Undead_Burnt",
+      "ITEM_Consumable_Stew_BeefTomato",
+      "ITEM_Consumable_Stew_Fortifying_OLD",
+      "ITEM_Consumable_Stew_Hearty_OLD",
+      "ITEM_Consumable_Stew_Meat",
+      "ITEM_Consumable_Stir-Fry",
+      "ITEM_Consumable_Stuffed_Catfish",
+      "ITEM_Consumable_Syrup_Maple",
+      "ITEM_Consumable_Syrup_Maple_Burnt",
+      "ITEM_Consumable_Tea_Strong",
+      "ITEM_Consumable_Tea_Strong_Sweet",
+      "ITEM_Consumable_Toastie_Maple",
+      "ITEM_Consumable_Tomato_Burnt",
+      "ITEM_Consumable_Tomato_Grilled",
+      "ITEM_Consumable_Umbral_Kebab",
+      "ITEM_Consumable_Undead_Delight",
+      "ITEM_Consumable_Vegball_Sweet",
+      "ITEM_Consumable_Watermelon_Burnt",
+      "ITEM_Consumable_Watermelon_Jerky",
+      "ITEM_Consumable_v3_Stew_Meat",
+      "ITEM_Resources_Cabbage",
+      "ITEM_Resources_Egg",
+      "ITEM_Resources_Meat_Bestial",
+      "ITEM_Resources_Meat_Bird",
+      "ITEM_Resources_Meat_Farm",
+      "ITEM_Resources_Meat_Game",
+      "ITEM_Resources_Meat_Undead",
+      "ITEM_Resources_Mushroom",
+      "ITEM_Resources_Onion",
+      "ITEM_Resources_Potato",
+      "ITEM_Resources_Pumpkin",
+      "ITEM_Resources_Raw_Stringy_Meat",
+      "ITEM_Resources_Tomato",
+      "ITEM_Resources_Watermelon"
      ],
      "reengaged": true
     }
@@ -303,12 +882,15 @@
    "limits": {
     "wall_s": 300.0,
     "model_calls": {},
-    "hints_max": 0,
-    "idle_s": 60.0,
+    "hints_max": 1,
+    "idle_s": 180.0,
     "repeat": 3
    },
    "hints": {
-    "ladder": []
+    "ladder": [
+     "how are you holding up?",
+     "three at once will hurt, have something to fall back on"
+    ]
    },
    "targets": [
     "dev"
@@ -319,9 +901,10 @@
    },
    "provenance": {
     "notes": [
-     "health set to 40% by fixture so the chat is true when said",
-     "measure: does 15 m break runt aggro?"
-    ]
+     "food = every catalog Item.Food (data-derived): whatever he cooked, picked or looted",
+     "measure: does 15 m break runt aggro? do three runts take a fresh character low?"
+    ],
+    "variant": "quick of goal_basic_disengage_heal: food granted, health set to 40% so the chat is true when said"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"

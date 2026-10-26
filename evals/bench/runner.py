@@ -67,6 +67,7 @@ class CaseResult:
     mode: str | None = None
     capstone: str | None = None
     spell: str | None = None
+    variant: str = "main"
     entry_hash: str = ""
     heldout: bool = False
     hints_used: int = 0
@@ -137,6 +138,7 @@ def build_world(case: Case, world_factory=BenchWorld) -> tuple[BenchWorld, dict]
     for step in case.fixtures.setup:
         s = dict(step)
         verb, name = s.pop("verb"), s.pop("as", None)
+        s.pop("purpose", None)  # a log label for the dev setup log only
         out = world.setup(verb, **s)
         if name:
             bindings[name] = out
@@ -167,7 +169,7 @@ def entry_hash(case: Case, spells: dict | None = None) -> str:
 def new_result(case: Case, agent: str, target: str, repeat_i: int = 0) -> CaseResult:
     return CaseResult(case.id, case_hash(case), case.family, case.tier, agent, target, "skip", None, "", repeat_i=repeat_i,
                       long_task=case.long_task, basic=case.basic, skill=case.skill, mode=case.mode, capstone=case.capstone,
-                      spell=(case.tags or {}).get("spell"),
+                      spell=(case.tags or {}).get("spell"), variant=case.variant,
                       entry_hash=entry_hash(case), heldout=case.heldout)
 
 
