@@ -1,0 +1,28 @@
+{
+ "id": "consume_food_input_mode",
+ "owner": "inventory",
+ "commit": "22b71d0",
+ "area": "skills.lua consume (hotbar use) + input.lua after_action sweep: eating must leave the input mode at DIM_Gameplay",
+ "why": "Live 2026-10-26 18:43 the PC sat in DIM_FocussedInGameUI after eating bread; root-caused to the Campfire craft, this checks a plain consume on its own.",
+ "preconditions": {
+  "fixtures": [
+   {"verb": "grant", "item": "ITEM_Consumable_Bread", "count": 1}
+  ],
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {"probe": true, "save": "before"},
+  {"bridge": "move_item", "args": {"item": "Bread", "to": "hotbar"}, "timeout_s": 15, "save": "move"},
+  {"bridge": "consume", "args": {"item": "Bread"}, "timeout_s": 40, "save": "eat"},
+  {"sleep_s": 2},
+  {"probe": true, "save": "after"}
+ ],
+ "pass": [
+  {"ref": "eat.ok", "eq": true, "why": "consume answered ok (verified by the count falling)"},
+  {"delta": ["before.inventory.ITEM_Consumable_Bread", "after.inventory.ITEM_Consumable_Bread"], "lte": -1, "why": "one bread fewer"},
+  {"ref": "after.input_mode", "eq": "DIM_Gameplay", "why": "no stuck focused-UI mode after eating"}
+ ],
+ "observe": ["move.ok", "move.reason", "eat.reason", "eat.data.detail", "before.vitals", "after.vitals"],
+ "timeout_s": 120,
+ "max_retries": 1
+}

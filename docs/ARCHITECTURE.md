@@ -555,6 +555,7 @@ Root cause R2 of the 19:22–19:26 episode was that the brain's tool list was ha
 | Real-model eval of the tool list (states its call budget; `--yes` spends it) | `.venv\Scripts\python.exe -m evals.manifest_eval --yes` |
 | Scenario runner (fake body + ops: dry run read-only, live switch/run/switch back, failed leg, crash, preflight abort, Lua prefix compiles) | `.venv\Scripts\python.exe -m pytest tests/test_scenario_run.py` |
 | Timeline (synthetic logs: zones, window, noise, collapse, redaction, CLI/HTML/JSONL) | `.venv\Scripts\python.exe -m pytest tests/test_timeline.py` |
+| Live validation queue (fake env + the real client_slot: check-file validation, templates, criteria, slot taken/renewed/released, hold, guard, crash wait + bridge_start, stuck input mode sweep, retries, blocked/error caps, observe-only, timeout, single instance, `--if-free`, dry run) | `.venv\Scripts\python.exe -m pytest tests/test_live_queue.py` |
 | Join targets + lease + wrong-server watchdog (fake client) | `.venv\Scripts\python.exe -m pytest tests/test_client_ops.py -k "target or lease or wrong_server"` |
 | Front-end limit, BUGS L24 (fake client: counted returns, a switch after 2 relaunches instead of disconnecting, menu rejoin, watchdog event) | `.venv\Scripts\python.exe -m pytest tests/test_client_ops.py -k "frontend or returns or relaunch or counted"` |
 
@@ -584,6 +585,68 @@ Root cause R2 of the 19:22–19:26 episode was that the brain's tool list was ha
 
 **Timeline** (`tools/timeline.py`): one reader per source (chat, brain-live, move, vitals, activity episodes, other events, client watchdog, boot.log, client.log, mod_*.jsonl, the client game log filtered to joins/travel/failures, scenario reports) → `Row(ts, src, kind, text, level, noise, key)` → merged by time, noise hidden unless `--all`, adjacent identical keys collapsed into one `(xN)` line, passwords redacted. Every source's own zone is honoured (event files UTC, brain-live names local, boot.log `+01:00`). **Add a source** = a reader function plus one line in `discover()`. `--jsonl` writes normalised rows for lnav (`tools/lnav/dw_timeline.json`); `--html` writes a self-contained filterable page. The scenario runner writes the run's timeline beside its report.
 
+
+### 8.7 How to queue a live check (live validation queue, 2026-10-26)
+
+Offline-tested client changes used to wait hours for a live run on the one client (main messaging agents one by one,
+stale reservations). Now an agent **writes one file** and the queue runs it the next time the client is free.
+
+1. Write `tools/live_checks/<id>.json` (the file name is the id; copy a seed check). Fields:
+   - `id` (`[a-z0-9_]+`), `owner` (your agent/area), `commit` and/or `area`, `why`;
+   - `preconditions`: `fixtures` (dev-server harness grants through `DevTarget.setup`: `grant {item, count}`,
+     `grant_runes {runes}`, `unlock {spell}`, `teleport {at}`, `spawn`, `set_time`, ...), `set_health {pct}`, and
+     `input_mode` (e.g. `DIM_Gameplay`, read with `bench_probe.lua`; a mismatch = **blocked**, nothing acts);
+   - `steps`, in order, each one of: `{"bridge": tool, "args": {...}, "timeout_s", "save"}` (the body's own tool on the
+     bridge **debug** channel, like `tools.bridge_cmd`), `{"client_cmd": "client_mod/commands/x.lua", "args", "save"}`
+     (the DWClient runner, `local ARGS` prefixed), `{"probe": true, "save"}` (read-only `bench_probe.lua`: position,
+     input_mode, inventory by item id, vitals), `{"sleep_s": n}`, `{"fixture": verb, ...}`. Args may use templates:
+     `{"$ref": "start.position"}`, `{"$offset": ["start.position", [12, 0, 0]]}`,
+     `{"$find": {"in": "stations.data.stations", "match": {"name": "ampfire"}, "get": "id"}}` (unresolved = blocked);
+   - `pass`: criteria over the saved values, all must hold: left side `ref` (dotted path into saved replies/probes),
+     `delta: [ref_before, ref_after]` (missing = 0), `dist: [ref_a, ref_b]` (2-D metres), or
+     `log: {source: client|game|vitals|activity, regex}` (match count in lines written DURING the check); one operator
+     `eq ne gt gte lt lte in contains exists truthy falsy regex`; optional `why`;
+   - `observe`: refs/expressions recorded as evidence only (`{"name": ..., "dist": [...]}` names one);
+     `observe_only: true` = an exploratory run whose verdict is **observed** (criteria recorded, not gating);
+   - `timeout_s` (whole check, including setup) and `max_retries` (re-runs after failed/error in the same sitting).
+2. Validate offline: `.venv\Scripts\python.exe -m tools.live_queue run --dry-run` (structure, command files, catalog
+   item/spell ids, bridge tool names present in `client_mod/scripts`). No game call, no slot.
+3. That's it. The Scheduled Task `DragonwildsLiveQueue` (`tools/register_live_queue_task.ps1`) calls
+   `live_queue.py run --if-free` every 5 min; it drains when the client slot is free (and nobody is queued in
+   `client_slot`), no hold file exists and something is pending. Main can drain at once, detached:
+   `Start-Process -WindowStyle Hidden -WorkingDirectory C:\gameserver C:\gameserver\.venv\Scripts\python.exe -ArgumentList '-m','tools.live_queue','run'`.
+4. Read the verdict: `live_queue.py list` / `status`; evidence (every step reply, probe, criterion with its actual
+   value, observations) in `logs/live_queue/<date>.jsonl`; state in `logs/state/live_queue.json`.
+   `live_queue.py requeue <id>` re-runs a finished check; editing the file re-queues it automatically (hash).
+
+**What a run does** (`tools/live_queue.py`): OS file lock (one instance; a second exits 0) → refuse on
+`logs/client.hold`/`client.stopped` → `client_slot take live-queue` (renewed per check, released in a `finally`) →
+precheck (watchdog status `in_world` and fresh, `DevTarget.guard`: loopback dev server only, never a forbidden target,
+`run_live` not running; bridge ping) → `bridge_start.lua` → each pending check → **recovery** after each: a crashed or
+relaunching client is waited for (up to 8 min; the client watchdog relaunches it, the queue never launches, kills,
+boots or rejoins the client and never touches Steam), then `bridge_start.lua` again; a non-Gameplay input mode gets one
+`input_gate_once.lua` (the modal gate's own sweep) and is reported if it stays. A hold file appearing stops the run
+between checks. Verdicts: passed | failed (stays failed until edited/requeued) | observed | blocked / error (no verdict;
+retried on later drains, at most 3 runs).
+
+**Decision (search-before-building):**
+- Need: run queued live checks on one shared device when it is free.
+- Searched: device-test schedulers (LAVA, labgrid), Task Scheduler repetition + MultipleInstances docs.
+- Found: LAVA is the canonical "job queue over a device pool, with health checks between jobs" design. It is a
+  Debian/Django service with device dictionaries, far too heavy for one Windows game client, and its scheduler does
+  not compose with an external lock (the lava-users labgrid threads). Task Scheduler: a `-Once` trigger with
+  `-RepetitionInterval` repeats forever, and `MultipleInstances IgnoreNew` skips a trigger while a run is active.
+- Decision: **adapt.** Borrow LAVA's model (queued jobs, a health check before and between jobs, an infra error kept
+  apart from a test failure). Reuse what the repo has: `client_slot` (the device lock), `DevTarget` (the dev guard and
+  fixtures), `BridgeClient` on the debug channel, `run_client_cmd`, `bench_probe.lua` and `input_gate_once.lua`.
+  Trigger with **Task Scheduler** (the project already registers `DragonwildsClientWatchdog` this way) rather than a
+  hook in `client_slot release`. An expired lock, from an agent that died, never calls release. A timer covers both
+  cases and needs no daemon.
+- Sources: https://lavalab.nxp.com/static/docs/v2/naming-conventions.html ,
+  https://op-lists.linaro.org/archives/list/lava-users@lists.lavasoftware.org/message/YRC7VKVJ2X77ARUJRGULKOS3Q26YI5HH/ ,
+  https://technet.microsoft.com/en-us/library/jj649821(v=wps.630) ,
+  https://forums.powershell.org/t/how-do-powershell-scheduled-task-repetitionduration-indefinitely/13850 ,
+  https://www.powershellgallery.com/packages/Eigenverft.Manifested.Drydock/1.20264.12396/Content/Eigenverft.Manifested.Drydock.ScheduledTask.ps1
 
 > **Deploy note (L28, 2026-10-26):** the game loads the DEPLOYED `ue4ss\Mods\DWClient\scripts\main.lua`, not the repo copy. Other modules are loaded from the repo by path. So a change to `main.lua` must be redeployed (`tools/install_client_ue4ss.ps1`) and the client restarted. The command runner now reads `client_io/cmd/queue.txt` (no process spawning on the game thread).
 

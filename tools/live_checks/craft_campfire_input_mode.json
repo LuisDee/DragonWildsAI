@@ -1,0 +1,35 @@
+{
+ "id": "craft_campfire_input_mode",
+ "owner": "crafting",
+ "commit": "22b71d0",
+ "area": "crafting.lua W.close -> input.close_screens (BUGS B-stuck-focused-ui): after a Campfire (processing station) craft the input mode must return to DIM_Gameplay",
+ "why": "Regression check for the stuck DIM_FocussedInGameUI after a Campfire craft (fixed 2026-10-26 19:17 UTC).",
+ "preconditions": {
+  "fixtures": [
+   {"verb": "grant", "item": "ITEM_Consumable_Water_Dirty", "count": 1},
+   {"verb": "grant", "item": "ITEM_Resources_Wood_Ash", "count": 2}
+  ],
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {"probe": true, "save": "before"},
+  {"bridge": "stations", "args": {"radius": 120}, "timeout_s": 20, "save": "stations"},
+  {"bridge": "craft", "args": {"item": "Clean Water", "count": 1,
+    "station": {"$find": {"in": "stations.data.stations", "match": {"name": "ampfire"}, "get": "id"}}},
+   "timeout_s": 200, "save": "craft"},
+  {"sleep_s": 2},
+  {"probe": true, "save": "after"}
+ ],
+ "pass": [
+  {"ref": "craft.ok", "eq": true, "why": "the craft answered ok (verdict from Client_OnCraftingResultHandler)"},
+  {"ref": "after.input_mode", "eq": "DIM_Gameplay", "why": "no stuck focused-UI mode after the craft"},
+  {"log": {"source": "client", "regex": "crafting: closed"}, "gte": 1, "why": "the game's own CloseWidgetIfOpen ran"}
+ ],
+ "observe": [
+  "craft.reason", "craft.data.detail",
+  {"name": "clean_water_delta", "delta": ["before.inventory.ITEM_Consumable_Water_Clean", "after.inventory.ITEM_Consumable_Water_Clean"]},
+  {"name": "dirty_water_delta", "delta": ["before.inventory.ITEM_Consumable_Water_Dirty", "after.inventory.ITEM_Consumable_Water_Dirty"]}
+ ],
+ "timeout_s": 300,
+ "max_retries": 1
+}

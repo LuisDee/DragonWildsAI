@@ -1,0 +1,36 @@
+{
+ "id": "recall_hold_walk",
+ "owner": "spells",
+ "commit": "752b71a",
+ "area": "client_mod/scripts/spells.lua: cast {spell, walk_to} holds Recall's placement mode open while walking (hold_walk phase)",
+ "why": "First live run of the hold-and-walk cast. Whether finishing Recall after the walk brings him back is NOT known (wiki: recast teleports back), so this is observation-only: record walked_m, from_opened_m, returned and where he ended.",
+ "observe_only": true,
+ "preconditions": {
+  "fixtures": [
+   {"verb": "unlock", "spell": "USD_Recall"},
+   {"verb": "grant_runes", "runes": {"Air": 30, "Law": 15}}
+  ],
+  "set_health": {"pct": 100},
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {"probe": true, "save": "start"},
+  {"bridge": "cast", "args": {"spell": "Recall", "walk_to": {"$offset": ["start.position", [12, 0, 0]]}}, "timeout_s": 90, "save": "cast"},
+  {"sleep_s": 2},
+  {"probe": true, "save": "end"}
+ ],
+ "pass": [
+  {"ref": "cast.ok", "eq": true, "why": "the cast answered ok (verified by position in spells.lua)"},
+  {"ref": "cast.data.walked_m", "gte": 9, "why": "he walked most of the 12 m while the placement was held open"},
+  {"ref": "end.input_mode", "eq": "DIM_Gameplay", "why": "the spell mode closed afterwards"}
+ ],
+ "observe": [
+  "cast.reason", "cast.data.why", "cast.data.detail", "cast.data.walked_m", "cast.data.walk_result",
+  "cast.data.from_opened_m", "cast.data.returned", "cast.data.opened_at",
+  {"name": "end_from_start_m", "dist": ["start.position", "end.position"]},
+  "end.input_mode",
+  {"name": "recall_log_lines", "log": {"source": "client", "regex": "(?i)recall|hold_walk"}}
+ ],
+ "timeout_s": 180,
+ "max_retries": 0
+}

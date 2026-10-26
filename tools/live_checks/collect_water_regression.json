@@ -1,0 +1,25 @@
+{
+ "id": "collect_water_regression",
+ "owner": "skills",
+ "commit": "1fd8f14",
+ "area": "skills.lua collect_water (move.shore_point waterline, water_wades = 3): live-verified 2026-10-26, now llm=true",
+ "why": "Regression: 2 Dirty Water from the nearest water (dev pond at about (157, 1914) m), and no stuck input mode after.",
+ "preconditions": {
+  "set_health": {"pct": 100},
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {"probe": true, "save": "before"},
+  {"bridge": "collect_water", "args": {"count": 2}, "timeout_s": 240, "save": "water"},
+  {"sleep_s": 2},
+  {"probe": true, "save": "after"}
+ ],
+ "pass": [
+  {"ref": "water.ok", "eq": true, "why": "collect_water answered ok (verified by the inventory)"},
+  {"delta": ["before.inventory.ITEM_Consumable_Water_Dirty", "after.inventory.ITEM_Consumable_Water_Dirty"], "gte": 1, "why": "Dirty Water came in"},
+  {"ref": "after.input_mode", "eq": "DIM_Gameplay"}
+ ],
+ "observe": ["water.reason", "water.data.why", "water.data.detail", {"name": "moved_m", "dist": ["before.position", "after.position"]}],
+ "timeout_s": 300,
+ "max_retries": 1
+}
