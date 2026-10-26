@@ -15,6 +15,19 @@
 --
 -- Hot-reload safe: state lives in _G.DWChat; hooks are registered once and dispatch to the newest
 -- handlers, so loadfile()+start() again swaps the code without stacking hooks.
+-- L28: never spawn a process on a hot path. A directory is created only if it is really missing
+-- (an open-for-append probe), and only once per load (cached).
+local DIRS_OK = {}
+local function ensure_dir(d)
+    d = tostring(d):gsub("\\", "/")
+    if DIRS_OK[d] then return end
+    local probe = d .. "/.dwclient_probe"
+    local f = io.open(probe, "a")
+    if f then f:close(); os.remove(probe); DIRS_OK[d] = true; return end
+    if package.config:sub(1, 1) == "\\" then os.execute('mkdir "' .. d:gsub("/", "\\") .. '" 2>nul')
+    else os.execute('mkdir -p "' .. d .. '"') end
+    DIRS_OK[d] = true
+end
 local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
 local EVENTS_DIR = ROOT .. "/client_io/events"
 local EVENTS_PATH = EVENTS_DIR .. "/chat.jsonl"
@@ -166,7 +179,7 @@ end
 
 -- Install the receive hooks (idempotent). Returns {ok, reason, data}.
 function M.start(log)
-    os.execute('mkdir "' .. EVENTS_DIR:gsub("/", "\\") .. '" 2>nul')
+    ensure_dir(EVENTS_DIR)
     local results = {
         receive = register(F_RECV, "on_receive", log),
         player_event = register(F_EVENT, "on_event", log),

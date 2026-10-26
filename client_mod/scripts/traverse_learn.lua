@@ -27,6 +27,19 @@
 --   opts.env = { double_jump=bool, air_dash=bool, windstep=bool }; default = Claude today (none).
 -- Commands: client_mod/commands/learn_start.lua, learn_status.lua, learn_stop.lua.
 -- Loops honour _G.DW_PAUSE and an invalid controller/pawn (no UObject access then).
+-- L28: never spawn a process on a hot path. A directory is created only if it is really missing
+-- (an open-for-append probe), and only once per load (cached).
+local DIRS_OK = {}
+local function ensure_dir(d)
+    d = tostring(d):gsub("\\", "/")
+    if DIRS_OK[d] then return end
+    local probe = d .. "/.dwclient_probe"
+    local f = io.open(probe, "a")
+    if f then f:close(); os.remove(probe); DIRS_OK[d] = true; return end
+    if package.config:sub(1, 1) == "\\" then os.execute('mkdir "' .. d:gsub("/", "\\") .. '" 2>nul')
+    else os.execute('mkdir -p "' .. d .. '"') end
+    DIRS_OK[d] = true
+end
 local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
 
 local M = {}
@@ -120,8 +133,7 @@ local function try(f) local ok, x = pcall(f); if ok then return x end; return ni
 local function valid(o) return o ~= nil and try(function() return o:IsValid() end) == true end
 
 local function mkdir(p)
-    if package.config:sub(1, 1) == "\\" then os.execute('mkdir "' .. p:gsub("/", "\\") .. '" 2>nul')
-    else os.execute('mkdir -p "' .. p .. '"') end
+    ensure_dir(p)
 end
 
 -- ------------------------------------------------------------------ world id and files

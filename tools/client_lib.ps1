@@ -158,8 +158,9 @@ function Get-JoinedServer {
     $logAddr
 }
 
-# Run one client_mod command through the DWClient runner (client_mod/scripts/main.lua polls
-# client_io/cmd every 2 s on the game thread). Same protocol as tools/client_cmd.sh. -Name lets a
+# Run one client_mod command through the DWClient runner (client_mod/scripts/main.lua reads
+# client_io/cmd/queue.txt every 500 ms on the game thread). Same protocol as tools/client_cmd.sh:
+# write <name>.lua (rename), then append "<name>" to the queue. -Name lets a
 # caller use its own file name so it never collides with another agent's command of the same name.
 # Returns the parsed {ok, result | error} object, or $null on timeout (runner not loaded or game thread busy).
 function Invoke-ClientCmd {
@@ -172,6 +173,8 @@ function Invoke-ClientCmd {
     $tmp = Join-Path $cmdDir "$Name.tmp"
     Copy-Item $Path $tmp -Force
     Move-Item $tmp (Join-Path $cmdDir "$Name.lua") -Force   # rename: the runner never sees a half-written file
+    # then queue it: the runner reads client_io/cmd/queue.txt (no directory listing on the game thread, L28)
+    [IO.File]::AppendAllText((Join-Path $cmdDir 'queue.txt'), "$Name`n", [Text.Encoding]::ASCII)
     $deadline = (Get-Date).AddSeconds($TimeoutS)
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Milliseconds 250

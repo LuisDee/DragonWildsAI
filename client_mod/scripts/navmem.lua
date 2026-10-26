@@ -13,6 +13,19 @@
 --  * Storage (data, not code): learned per world  -> <root>/data/skills/<world>/nav_memory.json
 --                              map seeds (static) -> <root>/data/nav/<map>_seeds.json
 --    Points are METRES in the files ({x,y,z} feet level) and centimetres in this API.
+-- L28: never spawn a process on a hot path. A directory is created only if it is really missing
+-- (an open-for-append probe), and only once per load (cached).
+local DIRS_OK = {}
+local function ensure_dir(d)
+    d = tostring(d):gsub("\\", "/")
+    if DIRS_OK[d] then return end
+    local probe = d .. "/.dwclient_probe"
+    local f = io.open(probe, "a")
+    if f then f:close(); os.remove(probe); DIRS_OK[d] = true; return end
+    if package.config:sub(1, 1) == "\\" then os.execute('mkdir "' .. d:gsub("/", "\\") .. '" 2>nul')
+    else os.execute('mkdir -p "' .. d .. '"') end
+    DIRS_OK[d] = true
+end
 local NM = {}
 
 NM.cfg = {
@@ -50,7 +63,7 @@ local function read(path)
     local s = f:read("a"); f:close(); return s
 end
 
-local function mkdir(p) os.execute('mkdir "' .. p:gsub("/", "\\") .. '" 2>nul') end
+local function mkdir(p) ensure_dir(p) end
 
 function NM.paths(root, world, map)
     return {
