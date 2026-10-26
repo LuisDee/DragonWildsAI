@@ -20,9 +20,10 @@ M.cfg = {
     max_m = 30, keep_m = 14, min_m = 3,  -- shoot from up to max_m; walk to about keep_m when farther
     aim_s = 1.0,                          -- aim hold when the game's full-accuracy time can't be read
     fire_frames = 2, shots = 6,           -- presses per shot; shots per call
+    proj_search_frames = 30,              -- look for the new projectile only this many frames after a shot
     verify_s = 2.5,                       -- after a shot: wait this long for the target to react
     fell_cm = 80,                         -- the target dropped at least this much = knocked down
-    approach_timeout_s = 45, lease_s = 5, decide_s = 0.05, timeout_s = 120,
+    approach_timeout_s = 45, stall_s = 12, lease_s = 5, decide_s = 0.05, timeout_s = 120, -- approach: budget / stall
 }
 
 local function C()
@@ -39,29 +40,16 @@ local function say(log, msg)
     if #c.lines > 40 then table.remove(c.lines, 1) end
 end
 local function num(v) return type(v) == "number" and v or nil end
-local function d3(a, b) if not (a and b) then return math.huge end return math.sqrt((a.X - b.X) ^ 2 + (a.Y - b.Y) ^ 2 + (a.Z - b.Z) ^ 2) end
 
-M.mods = {}
-function M.set_modules(t) for k, v in pairs(t) do M.mods[k] = v end end
-local function mod(name)
-    if not M.mods[name] then
-        local ok, m = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/" .. name .. ".lua"))() end)
-        if ok then M.mods[name] = m end
-    end
-    return M.mods[name]
-end
-local function mcall(name, fn, ...)
-    local m = mod(name)
-    if not (m and m[fn]) then return nil, "no " .. name .. "." .. fn end
-    local ok, r = pcall(m[fn], ...)
-    if not ok then return nil, tostring(r) end
-    return r
-end
+local L = U.loader(ROOT) -- the shared sibling-module loader (mod/body/util.lua)
+M.mods, M.set_modules = L.mods, L.set_modules
+local mod, mcall = L.mod, L.mcall
 
 -- ------------------------------------------------------------------ engine touches
 local W = {}
 M.W = W
 local GS
+-- The game's sub-second clock (the bridge's api.now is whole seconds, BUGS L15; the aim hold is ~0.5 s).
 function W.now(ctx)
     if M.clock then return M.clock() end
     if not ctx then return nil end
@@ -70,11 +58,7 @@ function W.now(ctx)
     return (ok and type(t) == "number") and t or nil
 end
 function W.pc() local s = mod("sense"); return s and s.local_pc and s.local_pc() or nil end
-function W.pawn(pc)
-    if not U.valid(pc) then return nil end
-    local p = U.try(function() return pc.Pawn end)
-    return U.alive(p) and p or nil
-end
+function W.pawn() local s = mod("sense"); return s and s.local_pawn and s.local_pawn() or nil end
 function W.loc(a) return U.loc(a) end
 function W.dead(pawn) return U.try(function() return pawn.HealthComponent:IsDead() end) == true end
 function W.actions(pawn) return mcall("combat", "actions", pawn) or {} end
@@ -112,7 +96,13 @@ function W.target_state(actor)
     if not U.alive(actor) then return { alive = false } end
     return { alive = true, pos = U.loc(actor), hp = num(U.health(actor)) }
 end
-function W.go_to(log, p, tol_m) return mcall("move", "go_to", log, { p.X / 100, p.Y / 100, p.Z / 100 }, { tolerance_m = tol_m, timeout_s = M.cfg.approach_timeout_s }) end
+-- go_to with move's shared approach-progress tracker (measured to the TARGET; stalled = no 0.5 m gain for stall_s,
+-- too_long past budget_s) instead of a flat timer (simplify review 2026-10-26)
+function W.go_to(log, p, tol_m, to)
+    return mcall("move", "go_to", log, { p.X / 100, p.Y / 100, p.Z / 100 }, { tolerance_m = tol_m, timeout_s = M.cfg.approach_timeout_s + 15,
+        progress = { to = to and { to.X / 100, to.Y / 100, to.Z / 100 } or nil, stall_s = M.cfg.stall_s, budget_s = M.cfg.approach_timeout_s } })
+end
+function W.why_words(why, thing) local m = mod("move"); return m and m.why_words and m.why_words(why, thing) or "I can't find a way there" end
 function W.move_status() return mcall("move", "status") or {} end
 function W.move_stop(log) return mcall("move", "stop", log) end
 function W.ranged() return mod("ranged") end
@@ -125,18 +115,19 @@ local function result_of(J, ok, reason, data)
     data.last_miss_cm = J.last_miss_cm
     return { ok = ok == true, reason = reason, data = data }
 end
-local function finish(J, res)
+-- opts.paused: world teardown, no game call at all (only the Lua-side release)
+local function finish(J, res, opts)
     if J.done then return end
     J.done = true
     local c = C()
     if J.handle then pcall(CancelDelayedAction, J.handle) end
     J.handle, J.hold, J.fire = nil, nil, nil
-    if J.moving and not paused() then pcall(W.move_stop, J.log); J.moving = false end
+    if J.moving and not (opts and opts.paused) and not paused() then pcall(W.move_stop, J.log); J.moving = false end
     J.result = res
     c.last = { result = res, ended = os.date("!%Y-%m-%dT%H:%M:%SZ") }
     if c.job == J then c.job = nil end
-    local arb = mod("arbiter")
-    if arb and J.token and not J.released then J.released = true; pcall(arb.release, J.log, J.token, res.ok and "done" or res.reason) end
+    local SK = mod("skills")
+    if SK and SK._release and J.api then pcall(SK._release, J.api, J, (opts and opts.paused) and "paused" or (res.ok and "done" or tostring(res.reason))) end
     say(J.log, string.format("done %s %s: %s", tostring(res.ok), tostring(res.reason or ""), tostring(res.data and res.data.detail or "")))
 end
 local function fail(J, reason, why, detail) return finish(J, result_of(J, false, reason, { why = why, detail = detail })) end
@@ -154,18 +145,12 @@ local function frame(J)
     local c = C()
     if J.gen ~= c.gen or J.done then return end
     if paused() then
-        J.done = true
-        if J.handle then pcall(CancelDelayedAction, J.handle) end
-        J.result = result_of(J, false, "interrupted", { why = "world_teardown", detail = "The world is reloading." })
-        if c.job == J then c.job = nil end
-        local arb = mod("arbiter")
-        if arb and J.token then J.released = true; pcall(arb.release, nil, J.token, "paused") end
-        return
+        return finish(J, result_of(J, false, "interrupted", { why = "world_teardown", detail = "The world is reloading." }), { paused = true })
     end
-    local pawn = W.pawn(J.pc)
+    local pawn = W.pawn()
     if not pawn then return finish(J, result_of(J, false, "companion_down", { why = "no_pawn" })) end
     J.t = W.now(pawn) or J.t
-    if J.suspended then return end
+    if J.own == "suspended" or J.own == "waiting" then return end
     local ts = W.target_state(J.actor)
     -- per frame: aim at the target while aiming; hold / fire inputs (own input modes allowed: the bow's aim mode)
     local me = W.loc(pawn)
@@ -174,15 +159,17 @@ local function frame(J)
         local rot, sol = J.aimer:solve(W.muzzle(pawn), W.camera(J.pc), { aim_z = 0 })
         if rot then W.face(J.pc, rot); J.sol = sol; J.sol_why = nil else J.sol = nil; J.sol_why = sol end
     end
-    local modal = W.gate()
-    local blocked = modal and modal.kind ~= "mode"
-    if blocked and (J.hold or J.fire) then
-        return fail(J, "interrupted", "screen_open", string.format("A %s screen is open, so I can't shoot.", tostring(modal.kind)))
+    if J.hold or J.fire then -- the gate only when an input is about to go out
+        local modal = W.gate()
+        if modal and modal.kind ~= "mode" then
+            return fail(J, "interrupted", "screen_open", string.format("A %s screen is open, so I can't shoot.", tostring(modal.kind)))
+        end
     end
     if J.hold then W.inject(J.hold) end
     if J.fire then W.inject(J.fire.act); J.fire.frames = J.fire.frames - 1; if J.fire.frames <= 0 then J.fire = nil end end
     if J.shot then -- sample the projectile for learning
-        if not J.shot.proj then
+        J.shot.frames = (J.shot.frames or 0) + 1
+        if not J.shot.proj and J.shot.frames <= M.cfg.proj_search_frames then
             for id, a in pairs(W.projectiles()) do if not J.shot.ids_before[id] then J.shot.proj = a; break end end
         end
         local pp = J.shot.proj and U.alive(J.shot.proj) and U.loc(J.shot.proj) or nil
@@ -190,21 +177,18 @@ local function frame(J)
     end
     if J.t - (J.dec_t or -1) < M.cfg.decide_s then return end
     J.dec_t = J.t
-    local arb = mod("arbiter")
-    if arb and J.token then
-        if not arb.holds(J.token) then
-            if arb.is_suspended and arb.is_suspended(J.token) then J.suspended = true; J.hold, J.fire, J.aiming = nil, nil, false; return end
-            return finish(J, result_of(J, false, "interrupted", { why = "preempted", detail = "Something else took over, so I stopped shooting." }))
-        end
-        arb.renew(J.token)
-    end
+    local SK = mod("skills")
+    local h = SK and SK._hold and SK._hold(J.api, J, J)
+    if h == false then J.hold, J.fire, J.aiming = nil, nil, false; return end -- a reflex has the pawn, or waiting for it
+    if type(h) == "table" then return finish(J, h) end
+    if h == "resumed" then J.moving = false; set_phase(J, "approach", "resumed"); return end
     if W.dead(pawn) then return fail(J, "companion_down", "died", "I died.") end
     if J.t - J.t0 > M.cfg.timeout_s then return fail(J, "timeout", "timeout", "I've been shooting for two minutes; giving up.") end
     if not ts.alive and J.phase ~= "verify" then
         if (J.hits or 0) > 0 then return finish(J, result_of(J, true, nil, { outcome = "destroyed", detail = "It broke." })) end
         return fail(J, "unknown_target", "target_gone", string.format("The %s is gone.", tostring(J.thing.name or "target")))
     end
-    local dist = (me and ts.pos) and d3(me, ts.pos) / 100 or nil
+    local dist = (me and ts.pos) and U.dist(me, ts.pos) / 100 or nil
     if J.phase == "approach" then
         if dist and dist <= M.cfg.max_m and dist >= M.cfg.min_m and J.sol_why ~= "out_of_range" then
             if J.moving then W.move_stop(J.log); J.moving = false end
@@ -215,15 +199,18 @@ local function frame(J)
             if dist and dist < M.cfg.min_m and me then -- too close: step back along the line
                 goal = { X = me.X + (me.X - ts.pos.X), Y = me.Y + (me.Y - ts.pos.Y), Z = me.Z }
             end
-            W.go_to(J.log, goal, M.cfg.keep_m)
+            W.go_to(J.log, goal, M.cfg.keep_m, ts.pos)
             J.moving, J.move_t = true, J.t
         end
         local st = W.move_status() or {}
         local res = st.result or {}
-        if res.status == "failed" or J.t - (J.move_t or J.t) > M.cfg.approach_timeout_s then
+        local pv = type(st.progress) == "table" and st.progress or {}
+        if res.status == "failed" or pv.verdict == "stalled" or pv.verdict == "unreachable" then
             J.moving = false
-            return fail(J, "path_blocked", "cant_get_in_range", string.format("I can't get within %d m of the %s (it's %.0f m away).",
-                M.cfg.max_m, tostring(J.thing.name or "target"), dist or -1))
+            if pv.verdict == "stalled" then W.move_stop(J.log) end
+            local why = pv.why or res.reason or res.why
+            return fail(J, "path_blocked", "cant_get_in_range", string.format("I can't get within %d m of the %s (it's %.0f m away): %s.",
+                M.cfg.max_m, tostring(J.thing.name or "target"), dist or -1, W.why_words(why, "the " .. tostring(J.thing.name or "target"))))
         end
         if res.status == "arrived" then J.moving = false end
         return
@@ -271,7 +258,7 @@ local function frame(J)
                 return fail(J, "verification_failed", "missed", string.format("All %d of my shots missed the %s%s.", J.shots, tostring(J.thing.name or "target"),
                     J.last_miss_cm and string.format(" (closest about %.1f m off)", J.last_miss_cm / 100) or ""))
             end
-            if J.weapon.kind == "ranged" and J.prm_now then
+            if J.weapon.kind == "ranged" then
                 local p = W.params(pawn)
                 if p and p.has_ammo == false then return fail(J, "not_enough_resources", "no_ammo", "I'm out of ammunition.") end
             end
@@ -289,7 +276,7 @@ function M.start(log, args, ctx)
         return { ok = false, reason = "invalid_args", data = { detail = "target (an id from look) is required" } }
     end
     local pc = W.pc()
-    local pawn = W.pawn(pc)
+    local pawn = W.pawn()
     if not pawn then return { ok = false, reason = "companion_down", data = { why = "no_pawn" } } end
     local thing = api and api.find_thing and api.find_thing(args.target, 80)
     local actor = thing and api.actor_of and api.actor_of(thing)
@@ -313,26 +300,21 @@ function M.start(log, args, ctx)
     if not Rg then return { ok = false, reason = "not_implemented", data = { detail = "My aiming module isn't loaded." } } end
     local c = C()
     if c.job then finish(c.job, result_of(c.job, false, "interrupted", { why = "new_shoot", detail = "A new shot started." })) end
-    local J
-    local arb = mod("arbiter")
-    local token
-    if arb then
-        local r = arb.request(log, { name = "shoot", level = "command", resumable = true, uses_move = true, lease_s = M.cfg.lease_s,
-            on_suspend = function() if J then J.suspended = true; J.hold, J.fire, J.aiming = nil, nil, false end end,
-            on_resume = function() if J and not J.done then J.suspended, J.moving = false, false; set_phase(J, "approach", "resumed"); return true end return false end,
-            on_stop = function(_, _, why) if J and not J.done then J.released = true; finish(J, result_of(J, false, "interrupted", { why = tostring(why), detail = "I was told to do something else." })) end end })
-        if not r.ok then return { ok = false, reason = "interrupted", data = { why = "pawn_busy", owner = r.owner, detail = "I'm busy with something else." } } end
-        token = r.token
+    local SK = mod("skills")
+    if not (SK and SK._acquire and SK._hold and SK._release) then
+        return { ok = false, reason = "not_implemented", data = { detail = "My shared action routine (skills) isn't loaded." } }
     end
     c.gen = c.gen + 1
     c.counts.jobs = c.counts.jobs + 1
     local t = W.now(pawn) or 0
     local key = tostring(wpn.item) .. "|" .. tostring(prm.ammo or "?")
     local seed = prm.speed and { speed = prm.speed, gz = prm.gz or Rg.cfg.default_gz, t0 = prm.t0 or 0, source = "game_data" } or nil
-    J = { gen = c.gen, log = log, pc = pc, thing = thing, actor = actor, weapon = wpn, prm = prm, prm_now = true, acts = acts, token = token,
+    local J = { gen = c.gen, log = log, pc = pc, api = api, kind = "shoot", level = "command", thing = thing, actor = actor, weapon = wpn, prm = prm, acts = acts,
           aimer = Rg.new_aimer(key, seed), t0 = t, t = t, phase_t = t, shots = 0, hits = 0,
           max_shots = math.max(1, math.min(math.floor(tonumber(args.shots) or M.cfg.shots), 12)) }
+    J.on_suspend = function() J.hold, J.fire, J.aiming, J.moving = nil, nil, false, false end
     c.job = J
+    SK._acquire(api, J)
     set_phase(J, "approach", string.format("%s at %s with %s", tostring(thing.name), tostring(thing.id), tostring(wpn.name)))
     J.handle = LoopInGameThreadWithDelay(1, function()
         local ok, err = pcall(frame, J)
@@ -368,7 +350,7 @@ M.HANDLERS = {
     end,
     shoot_status = function() return M.status() end,
 }
-M.NEEDS = { shoot = { { "sense", "local_pc" }, { "combat", "actions" }, { "move", "go_to" }, { "move", "status" } } }
+M.NEEDS = { shoot = { { "sense", "local_pawn" }, { "combat", "actions" }, { "move", "go_to" }, { "move", "status" }, { "skills", "_hold" } } }
 do
     local OBJ = { __jsontype = "object" }
     local function obj(t) return setmetatable(t or {}, OBJ) end

@@ -97,22 +97,9 @@ local function d2(a, b) if not (a and b) then return math.huge end return math.s
 local function text(v) local s = U.str(v); if s and s ~= "" and s ~= "None" then return s end end
 local function num(v) return type(v) == "number" and v or nil end
 
-M.mods = {}
-function M.set_modules(t) for k, v in pairs(t) do M.mods[k] = v end end
-local function mod(name)
-    if not M.mods[name] then
-        local ok, m = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/" .. name .. ".lua"))() end)
-        if ok then M.mods[name] = m end
-    end
-    return M.mods[name]
-end
-local function mcall(name, fn, ...)
-    local m = mod(name)
-    if not (m and m[fn]) then return nil, "no " .. name .. "." .. fn end
-    local ok, r = pcall(m[fn], ...)
-    if not ok then return nil, tostring(r) end
-    return r
-end
+local L = U.loader(ROOT) -- the shared sibling-module loader (mod/body/util.lua)
+M.mods, M.set_modules = L.mods, L.set_modules
+local mod, mcall = L.mod, L.mcall
 
 -- ------------------------------------------------------------------ pure: data -> decisions
 -- The fishing method of a node or tool, from its gameplay tag's last segment ("Item.Equipment.Tool.Fishing.Net"

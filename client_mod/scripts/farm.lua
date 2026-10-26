@@ -45,22 +45,9 @@ local function r1(x) return type(x) == "number" and math.floor(x * 10 + 0.5) / 1
 local function d2(a, b) if not (a and b) then return math.huge end return math.sqrt((a.X - b.X) ^ 2 + (a.Y - b.Y) ^ 2) end
 local function text(v) local s = U.str(v); if s and s ~= "" and s ~= "None" then return s end end
 
-M.mods = {}
-function M.set_modules(t) for k, v in pairs(t) do M.mods[k] = v end end
-local function mod(name)
-    if not M.mods[name] then
-        local ok, m = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/" .. name .. ".lua"))() end)
-        if ok then M.mods[name] = m end
-    end
-    return M.mods[name]
-end
-local function mcall(name, fn, ...)
-    local m = mod(name)
-    if not (m and m[fn]) then return nil, "no " .. name .. "." .. fn end
-    local ok, r = pcall(m[fn], ...)
-    if not ok then return nil, tostring(r) end
-    return r
-end
+local L = U.loader(ROOT) -- the shared sibling-module loader (mod/body/util.lua)
+M.mods, M.set_modules = L.mods, L.set_modules
+local mod, mcall = L.mod, L.mcall
 
 -- ------------------------------------------------------------------ pure
 M.SOIL = { [0] = "weeds", [1] = "clear" } -- EFarmSlotSoilState

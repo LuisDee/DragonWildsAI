@@ -269,7 +269,7 @@ test("fetch failures carry a reason and a sayable detail", function()
     T = T + 1; B.step()
     F.move.mode, F.move.result = "idle", { status = "failed", reason = "no_route", dist_m = 12 }
     rr = run(id, 5)
-    assert(rr and rr.reason == "path_blocked" and rr.data.why == "no_route" and rr.data.detail:find("no way I can walk"), json.encode(rr))
+    assert(rr and rr.reason == "path_blocked" and rr.data.why == "no_route" and rr.data.detail:find("no way through", 1, true), json.encode(rr)) -- move.why_words (one word table)
 end)
 
 test("consume from the hotbar: verified by the stat rising", function()

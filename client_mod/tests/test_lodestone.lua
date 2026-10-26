@@ -25,7 +25,8 @@ local function reset(opts)
         { key = "bbbb", guid = { A = 2 }, position = { 2100, 400, 10 }, respawn = { 2101, 401, 10 } },
     } end
     W.can_teleport = function(_, f, t) return G.can end
-    W.cost = function() return 3, G.afford, "Law Rune" end
+    W.cost = function() return 3, G.afford end
+    W.cost_item = function() return { item = "ITEM_Rune_Law", name = "Law Rune" } end
     W.map_open = function() return G.map end
     W.close_map = function() G.closes = G.closes + 1; G.map = false; return true end
     W.try_teleport = function(_, f, t)
@@ -35,7 +36,6 @@ local function reset(opts)
         return true
     end
     W.arm_hook = function() return true end
-    W.region_name = function(_, p) if p and p[1] > 1000 then return "Manafem Plains" end return "Temple Woods" end
 end
 local api = {
     null = "NULL",
@@ -48,6 +48,13 @@ local api = {
     log = function() end,
 }
 local SK = {
+    -- skills.run_job's contract: {pending = {poll, cancel, timeout_s}}; pause = no step (as hold() does)
+    run_job = function(_, _, job)
+        local a = { timeout_s = 100 }
+        a.poll = function() if _G.DW_PAUSE then return nil end return job.step(T) end
+        a.cancel = function() if job.cleanup then job.cleanup() end end
+        return { pending = a }
+    end,
     _new_episode = function(_, thing) return { thing = thing, phase = "approach" } end,
     _episode_poll = function(_, e, t)
         G.ep_polls = G.ep_polls + 1
@@ -62,10 +69,11 @@ local function teleport(args, n)
     for _ = 1, n or 100 do T = T + 1; local r = h.pending:poll(); if r then return r end end
 end
 
--- happy path by region name
+-- happy path by position (the brain resolves its own place names to positions)
 reset()
-local r = teleport({ to = "Manafem Plains" })
-check("teleport by region: ok, arrived, success signal", r and r.ok and r.data.to == "lodestone:bbbb" and r.data.travelled_m > 1000, r and r.reason)
+local r = teleport({ to = { 2100, 400, 10 } })
+check("teleport to the lodestone nearest a point: ok, arrived, success signal", r and r.ok and r.data.to == "lodestone:bbbb" and r.data.travelled_m > 1000
+    and r.data.cost.item == "Law Rune", r and r.reason)
 check("TryTeleport used the registry's ids (from the nearest, to the asked)", #G.tries == 1 and G.tries[1][1] == "aaaa" and G.tries[1][2] == "bbbb")
 
 -- by id
@@ -83,8 +91,8 @@ check("can't afford the runes: missing_materials with the cost", r.reason == "mi
 reset()
 r = teleport({ to = "lodestone:aaaa" })
 check("the one I'm at: already_there", r.reason == "already_there")
-r = teleport({ to = "Atlantis" })
-check("unknown place: unknown_target", r.reason == "unknown_target")
+r = teleport({ to = "Manafem Plains" })
+check("a name is not resolved here (no false promise): unknown_target", r.reason == "unknown_target")
 
 -- the map never opens -> verification_failed, no teleport
 reset({ no_map = true })
@@ -115,8 +123,8 @@ check("after the pause it goes on", res and res.ok)
 -- the read tool
 reset()
 local lr = L.HANDLERS.lodestones(nil, {}, { api = api })
-check("lodestones: nearest first, the far one reachable with its cost and region", lr.ok and lr.data.lodestones[1].here == true
-    and lr.data.lodestones[2].reachable == true and lr.data.lodestones[2].cost.count == 3 and lr.data.lodestones[2].region == "Manafem Plains")
+check("lodestones: nearest first, the far one reachable with the cost item the game names", lr.ok and lr.data.lodestones[1].here == true
+    and lr.data.lodestones[2].reachable == true and lr.data.lodestones[2].cost.count == 3 and lr.data.lodestones[2].cost.item == "Law Rune")
 
 print(string.format("%d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

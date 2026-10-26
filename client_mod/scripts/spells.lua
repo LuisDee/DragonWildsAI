@@ -263,18 +263,8 @@ local function U()
     if not Uc then Uc = assert(loadfile((os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/") .. "/mod/body/util.lua"))() end
     return Uc
 end
-local function unwrap(e)
-    if type(e) == "userdata" then
-        local ok, v = pcall(function() return e:get() end)
-        if ok and v ~= nil then return v end
-    end
-    return e
-end
-local function each(arr, fn, cap)
-    if arr == nil then return end
-    local n = 0
-    pcall(function() arr:ForEach(function(a, b) n = n + 1; if n > (cap or 256) then return true end; fn(unwrap(b), unwrap(a)) end) end)
-end
+local function unwrap(e) return U().unwrap(e) end
+local function each(arr, fn, cap) return U().each(arr, function(v, k) fn(v, k) end, cap) end -- the shared iterator (mod/body/util.lua)
 local function to_m(v)
     local ok, x, y, z = pcall(function() return v.X, v.Y, v.Z end)
     if ok and type(x) == "number" then return { x / 100, y / 100, (z or 0) / 100 } end

@@ -322,4 +322,54 @@ function U.call(log, label, data, fn)
     return ok, res
 end
 
+-- ------------------------------------------------------------------ containers + sibling modules (shared)
+-- Iterate a UE4SS TArray / TSet / TMap (its ForEach), bounded: fn(value, key, n) with each RemoteUnrealParam
+-- unwrapped (:get()); fn returning true stops. Never under DW_PAUSE (world teardown). (simplify review 2026-10-26:
+-- one copy instead of one per module.)
+local function unwrap(e)
+    local t = type(e)
+    if t == "userdata" or (t == "table" and type(rawget(e, "get")) == "function") then
+        local ok, v = pcall(function() return e:get() end)
+        if ok and v ~= nil then return v end
+    end
+    return e
+end
+U.unwrap = unwrap
+function U.each(c, fn, cap)
+    if c == nil or rawget(_G, "DW_PAUSE") == true then return end
+    local n = 0
+    pcall(function()
+        c:ForEach(function(a, b)
+            n = n + 1
+            if n > (cap or 256) then return true end
+            if b == nil then return fn(unwrap(a), n, n) end
+            return fn(unwrap(b), unwrap(a), n)
+        end)
+    end)
+end
+
+-- One sibling-module loader per module (replaces the M.mods / set_modules / mod / mcall copies):
+--   local L = U.loader(ROOT); M.set_modules = L.set_modules; local mod, mcall = L.mod, L.mcall
+-- mod(name) loadfiles client_mod/scripts/<name>.lua once (or the injected one); mcall(name, fn, ...) pcalls it and
+-- returns the result | nil, why.
+function U.loader(root)
+    local L = { mods = {} }
+    function L.set_modules(t) for k, v in pairs(t) do L.mods[k] = v end end
+    function L.mod(name)
+        if not L.mods[name] then
+            local ok, m = pcall(function() return assert(loadfile(root .. "/client_mod/scripts/" .. name .. ".lua"))() end)
+            if ok then L.mods[name] = m end
+        end
+        return L.mods[name]
+    end
+    function L.mcall(name, fn, ...)
+        local m = L.mod(name)
+        if not (m and m[fn]) then return nil, "no " .. name .. "." .. fn end
+        local ok, r = pcall(m[fn], ...)
+        if not ok then return nil, tostring(r) end
+        return r
+    end
+    return L
+end
+
 return U

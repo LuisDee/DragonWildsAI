@@ -203,20 +203,22 @@ local function hold(api, job, a)
 end
 
 -- ------------------------------------------------------------------ sentences
-local WHY_WORDS = {
-    no_route = "there's no way I can walk there",
-    leader_above_jump_height = "it's higher up than I can jump",
-    leader_windstepped = "you Windstepped over somewhere I can't follow yet",
-    leader_double_jumped = "you double-jumped somewhere I can't follow yet",
-    stuck = "I keep getting stuck on the way",
-    unreachable = "I can't find a way there",
-    timeout = "it's taking far too long to get there",
-}
-local function why_words(why)
-    why = tostring(why or "")
-    if WHY_WORDS[why] then return WHY_WORDS[why] end
-    local mv = why:match("^needs:(%w+)")
-    if mv then return "I'd need " .. mv:gsub("(%l)(%u)", "%1 %2") .. " to get there, and I can't do that yet" end
+-- ONE table of movement words: move.lua's why_words(why, thing) (simplify review 2026-10-26). `thing` = what he can't
+-- reach ("the Workbench"). M.why_words keeps its old one-argument form for build/crafting.
+local MOVE_MOD
+local function move_mod(api)
+    local m = api and api.module and api.module("move")
+    if m and m.why_words then return m end
+    if MOVE_MOD == nil then
+        local root = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
+        local ok, mm = pcall(function() return assert(loadfile(root .. "/client_mod/scripts/move.lua"))() end)
+        MOVE_MOD = ok and mm or false
+    end
+    return MOVE_MOD or nil
+end
+local function why_words(why, thing, api)
+    local m = move_mod(api)
+    if m and m.why_words then return m.why_words(why, thing) end
     return "I can't find a way there"
 end
 M.why_words = why_words
@@ -225,7 +227,7 @@ local function move_failure(api, res, what, data)
     local why = res.reason or res.why or "path_blocked"
     local d = copy(data)
     d.why, d.dist_m = why, res.dist_m
-    d.detail = "I can't get to " .. what .. ": " .. why_words(why) .. "."
+    d.detail = "I can't get to " .. what .. ": " .. why_words(why, what, api) .. "."
     local code = api.reason_code(why)
     if code == "body_error" or code == why and not (code == "path_blocked" or code == "timeout") then code = "path_blocked" end
     return api.fail(code, d)
@@ -415,7 +417,7 @@ local function episode_poll(api, e, t)
                 return api.fail("path_blocked", { target = th.id, why = why, dist_m = math.floor(dth * 10 + 0.5) / 10,
                     no_progress_s = M.cfg.no_progress_s, spots_tried = e.spots and e.spot_i,
                     detail = string.format("I can't get to the %s: %s (I got no closer than %.0f m in %d s).", e.label,
-                        why_words(why), e.best_d or dth, M.cfg.no_progress_s) })
+                        why_words(why, "the " .. e.label, api), e.best_d or dth, M.cfg.no_progress_s) })
             end
         end
         local bed = W.resting_in(api)
@@ -441,12 +443,17 @@ local function episode_poll(api, e, t)
             end
             -- never the game's Unstuck (pause menu, teleports to the start point): live 20:49, it fired twice
             -- while he stood on a tent roof and the client stopped answering right after
-            local mr = api.call("move", "go_to", goal, { tolerance_m = e.tol, timeout_s = 60, allow_unstuck = false })
+            -- move's shared approach-progress tracker measures to the THING (not the standing spot); its window restarts
+            -- with each go_to, so the episode keeps the cross-spot window above (the 101 s case cycled 6 spots)
+            local mr = api.call("move", "go_to", goal, { tolerance_m = e.tol, timeout_s = 60, allow_unstuck = false,
+                                                        progress = { to = e.ipoint, stall_s = M.cfg.no_progress_s, gain_m = M.cfg.progress_m } })
             if not mr.ok then return mr end
             e.moving, e.approaches = true, e.approaches + 1
             return nil
         end
         local st = api.move_status()
+        local pv = type(st.progress) == "table" and st.progress or nil
+        if pv and (pv.verdict == "stalled" or pv.verdict == "unreachable") and pv.why then e.last_move_why = pv.why end
         if st.mode == "go_to" then return nil end
         e.moving = false
         local res = type(st.result) == "table" and st.result or {}
@@ -600,6 +607,14 @@ local function action(api, ctx, job)
     end
     return { pending = a }
 end
+
+-- Shared pawn-ownership plumbing for other modules (simplify review 2026-10-26; shoot.lua, lodestone.lua):
+--   _acquire(api, job) / _release(api, job, why) / _hold(api, job, a) -> nil (carry on) | false (wait: paused, a
+--   reflex owns the pawn, suspended; the action timer a.started is held) | result (stop now: stopped, busy for
+--   cfg.busy_wait_s naming the real owner) | "resumed";  job = {kind, level?, on_suspend?, cleanup?, stopped?}
+--   run_job(api, ctx, job) -> {pending}: the whole wrapper (job.step(t) -> nil | result; on_resume?, cleanup?,
+--   verify_final?), timeout cfg.timeout_s[kind] or 100.
+M._acquire, M._release, M._hold, M.run_job = acquire, release, hold, action
 
 local function resume_episode(job) return function() if job.ep then job.ep.phase, job.ep.moving = "approach", false end end end
 

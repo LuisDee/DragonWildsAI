@@ -18,29 +18,9 @@ local function paused() return rawget(_G, "DW_PAUSE") == true end
 local function text(v) local s = U.str(v); if s and s ~= "" and s ~= "None" then return s end end
 local function num(v) return type(v) == "number" and v or nil end
 
-M.mods = {}
-function M.set_modules(t) for k, v in pairs(t) do M.mods[k] = v end end
-local function mod(name)
-    if not M.mods[name] then
-        local ok, m = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/" .. name .. ".lua"))() end)
-        if ok then M.mods[name] = m end
-    end
-    return M.mods[name]
-end
-
-local function each(arr, fn, cap)
-    if paused() or not arr then return end
-    local n = 0
-    pcall(function()
-        arr:ForEach(function(k, v)
-            n = n + 1
-            if n > (cap or M.cfg.cap) then return true end
-            local kk = U.try(function() return k:get() end) or k
-            local vv = v ~= nil and (U.try(function() return v:get() end) or v) or nil
-            fn(kk, vv)
-        end)
-    end)
-end
+local L = U.loader(ROOT) -- the shared sibling-module loader (mod/body/util.lua)
+M.mods, M.set_modules = L.mods, L.set_modules
+local mod = L.mod
 
 -- ------------------------------------------------------------------ engine touches
 local W = {}
@@ -51,33 +31,41 @@ function W.pc()
     local s = mod("sense")
     return s and s.local_pc and s.local_pc() or nil
 end
--- -> rows {quest, state, objective_key, objective, sub, hint, description, ints = {}, bools = {}} | nil
-function W.rows(pc)
+-- -> rows {quest, state, objective_key, objective, sub, hint, description, main, ints = {}, bools = {}} | nil.
+-- State is read first; the objective text, counters, flags and description only for GIVEN quests (or opts.all):
+-- an ungiven or completed quest is just its name and state (simplify review: no needless per-quest reads).
+function W.rows(pc, opts)
+    opts = opts or {}
     local qc = pc and U.try(function() return pc.QuestProgressComponent end)
     if not U.valid(qc) or paused() then return nil end
     local out = {}
-    each(U.try(function() return qc.Quests end), function(_, q)
-        q = q or _
+    U.each(U.try(function() return qc.Quests end), function(q)
         local d = U.try(function() return q.Data end)
         if not U.valid(d) then return end
         local r = { quest = text(U.try(function() return d.QuestName end)) or U.short(d), asset = U.short(d),
                     state = M.STATE[num(U.try(function() return q.State end)) or -1] or "unknown",
-                    objective_key = text(U.try(function() return q.CurrentObjective end)),
-                    description = text(U.try(function() return d.QuestDescription end)),
-                    main = U.try(function() return d.bIsMainQuest end) == true or nil, ints = {}, bools = {} }
-        if r.objective_key then
-            -- the step in the game's own words: Objectives[CurrentObjective]
-            each(U.try(function() return d.Objectives end), function(k, v)
-                if r.objective then return end
-                if text(k) == r.objective_key and v then
-                    r.objective = text(U.try(function() return v.Description end))
-                    r.sub = text(U.try(function() return v.SubobjectiveDescription end))
-                    r.hint = text(U.try(function() return v.Hint end))
-                end
+                    objective_key = text(U.try(function() return q.CurrentObjective end)), ints = {}, bools = {} }
+        if r.state == "given" or opts.all then
+            r.description = text(U.try(function() return d.QuestDescription end))
+            r.main = U.try(function() return d.bIsMainQuest end) == true or nil
+            if r.objective_key then
+                -- the step in the game's own words: Objectives[CurrentObjective]
+                U.each(U.try(function() return d.Objectives end), function(v, k)
+                    if text(k) == r.objective_key and v then
+                        r.objective = text(U.try(function() return v.Description end))
+                        r.sub = text(U.try(function() return v.SubobjectiveDescription end))
+                        r.hint = text(U.try(function() return v.Hint end))
+                        return true
+                    end
+                end, M.cfg.field_cap)
+            end
+            U.each(U.try(function() return q.QuestInts end), function(x)
+                local k = text(U.try(function() return x.Name end)); if k then r.ints[k] = num(U.try(function() return x.Value end)) end
+            end, M.cfg.field_cap)
+            U.each(U.try(function() return q.QuestBools end), function(x)
+                local k = text(U.try(function() return x.Name end)); if k then r.bools[k] = U.try(function() return x.Value end) == true end
             end, M.cfg.field_cap)
         end
-        each(U.try(function() return q.QuestInts end), function(_, x) x = x or _; local k = text(U.try(function() return x.Name end)); if k then r.ints[k] = num(U.try(function() return x.Value end)) end end, M.cfg.field_cap)
-        each(U.try(function() return q.QuestBools end), function(_, x) x = x or _; local k = text(U.try(function() return x.Name end)); if k then r.bools[k] = U.try(function() return x.Value end) == true end end, M.cfg.field_cap)
         out[#out + 1] = r
     end, M.cfg.cap)
     return out
@@ -107,7 +95,7 @@ end
 -- ------------------------------------------------------------------ tool + perception
 local function quests_tool(log, args)
     if paused() then return { ok = false, reason = "companion_down", data = { detail = "I'm not in the world right now." } } end
-    local rows = W.rows(W.pc())
+    local rows = W.rows(W.pc(), { all = args and args.all == true })
     if not rows then return { ok = false, reason = "state_unavailable", data = { detail = "I can't read my quest log right now." } } end
     return { ok = true, data = M.summary(rows, { all = args and args.all == true }) }
 end

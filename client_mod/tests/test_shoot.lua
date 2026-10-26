@@ -28,7 +28,10 @@ end
 
 local fake_move = {}
 function fake_move.go_to(log, pos) Wd.goal = { X = pos[1] * 100, Y = pos[2] * 100, Z = pos[3] * 100 }; Wd.move_res = nil; return { ok = true } end
-function fake_move.status() if Wd.move_res then return { mode = "idle", result = Wd.move_res } end; return { mode = Wd.goal and "goto" or "idle" } end
+function fake_move.status()
+    if Wd.stall then return { mode = "go_to", progress = { verdict = "stalled", why = "no_route" } } end
+    if Wd.move_res then return { mode = "idle", result = Wd.move_res } end; return { mode = Wd.goal and "goto" or "idle" }
+end
 function fake_move.stop() Wd.goal = nil; return { ok = true } end
 function fake_move.snapshot() end
 function fake_move.restore() return true end
@@ -39,7 +42,8 @@ A.set_move(fake_move)
 local S = assert(loadfile(root .. "/client_mod/scripts/shoot.lua"))()
 local Rg = assert(loadfile(root .. "/client_mod/scripts/ranged.lua"))()
 S.clock = function() return T end
-S.set_modules({ move = fake_move, arbiter = A, ranged = Rg })
+local SKm = assert(loadfile(root .. "/client_mod/scripts/skills.lua"))()
+S.set_modules({ move = fake_move, arbiter = A, ranged = Rg, skills = SKm })
 local W = S.W
 local ACT = { primary = { n = "primary" }, secondary = { n = "secondary" } }
 W.pc = function() return {} end
@@ -57,7 +61,10 @@ W.gate = function() return Wd.modal end
 W.inject = function(a) Wd.held_now = Wd.held_now or {}; Wd.held_now[a.n] = true; return true end
 W.target_state = function() local r = Wd.rock; if not r.alive then return { alive = false } end; return { alive = true, pos = { X = r.X, Y = r.Y, Z = r.Z }, hp = r.hp } end
 local api = { find_thing = function(id) if id == "rock_1" then return { id = id, name = "Rune Essence", category = Wd.cat } end end,
-              actor_of = function(t) return t and Wd.rock or nil end }
+              actor_of = function(t) return t and Wd.rock or nil end,
+              -- the bridge API the shared ownership (skills._acquire/_hold/_release) uses
+              module = function(n) if n == "arbiter" then return A end end, now = function() return T end, log = function() end,
+              fail = function(r, d) return { ok = false, reason = r, data = d or {} } end, reflex_owns_pawn = function() return false end }
 
 local function step(dt)
     local g = Wd.goal
@@ -119,6 +126,13 @@ do
     reset({ dist = 5000 })
     local res = run({ target = "rock_1" })
     check("far: walked into range then shot", res.ok == true and math.abs(Wd.pawn.X) > 100, tostring(res.reason) .. " " .. tostring(Wd.pawn.X))
+end
+do -- move's shared progress tracker says stalled: stop, say why (no flat timer)
+    reset({ dist = 5000 })
+    Wd.stall = true
+    local res = run({ target = "rock_1" })
+    check("stalled approach: path_blocked with the words", res.reason == "path_blocked" and res.data.why == "cant_get_in_range"
+          and res.data.detail:find("can't", 1, true) ~= nil, tostring(res.reason) .. " " .. tostring(res.data and res.data.detail))
 end
 do
     reset({ aim_err = 10 }) -- the game's shots land off to the side every time

@@ -69,15 +69,9 @@ end
 local function text(v) local s = U.str(v); if s and s ~= "" and s ~= "None" then return s end end
 local function num(v) return type(v) == "number" and v or nil end
 
-M.mods = {}
-function M.set_modules(t) for k, v in pairs(t) do M.mods[k] = v end end
-local function mod(name)
-    if not M.mods[name] then
-        local ok, m = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/" .. name .. ".lua"))() end)
-        if ok then M.mods[name] = m end
-    end
-    return M.mods[name]
-end
+local L = U.loader(ROOT) -- the shared sibling-module loader (mod/body/util.lua)
+M.mods, M.set_modules = L.mods, L.set_modules
+local mod = L.mod
 
 -- ------------------------------------------------------------------ pure
 -- Is this input mode the dialogue's own? (finding 7 / 5c; a name check on the game's mode asset)
@@ -233,18 +227,7 @@ local function same(a, b) -- R1 + V3: wrappers never compare with ==; the FULL n
     return fa ~= nil and fa == U.fullname(b)
 end
 M._same = same
-local function each(arr, fn, cap)
-    if paused() or not arr then return end
-    local n = 0
-    pcall(function()
-        arr:ForEach(function(_, e)
-            n = n + 1
-            if n > (cap or M.cfg.each_cap) then return true end
-            local v = U.try(function() return e:get() end) or e
-            fn(v, n)
-        end)
-    end)
-end
+local function each(c, fn, cap) return U.each(c, fn, cap or M.cfg.each_cap) end -- the shared iterator (mod/body/util.lua)
 local function participant(pc)
     local comp = pc and U.try(function() return pc.ConversationComponent end)
     local part = U.valid(comp) and U.try(function() return comp.DomConversationParticipant end)
@@ -318,21 +301,13 @@ function W.read(pc)
     end
     return st
 end
+-- The quest log through quests.lua's ONE reader (simplify review): {quest, state, objective = the FName key, ints, bools}
 function W.quests(pc)
-    local qc = pc and U.try(function() return pc.QuestProgressComponent end)
-    if not U.valid(qc) or paused() then return nil end
+    local Q = mod("quests")
+    local rows = Q and Q.W and Q.W.rows and Q.W.rows(pc)
+    if not rows then return nil end
     local out = {}
-    each(U.try(function() return qc.Quests end), function(q)
-        local d = U.try(function() return q.Data end)
-        if U.valid(d) then
-            local r = { quest = text(U.try(function() return d.QuestName end)) or U.short(d),
-                        state = M.QUEST[num(U.try(function() return q.State end)) or -1] or tostring(U.try(function() return q.State end)),
-                        objective = U.str(U.try(function() return q.CurrentObjective end)), ints = {}, bools = {} }
-            each(U.try(function() return q.QuestInts end), function(x) local k = U.str(U.try(function() return x.Name end)); if k then r.ints[k] = num(U.try(function() return x.Value end)) end end, M.cfg.each_cap_quest_fields)
-            each(U.try(function() return q.QuestBools end), function(x) local k = U.str(U.try(function() return x.Name end)); if k then r.bools[k] = U.try(function() return x.Value end) == true end end, M.cfg.each_cap_quest_fields)
-            out[#out + 1] = r
-        end
-    end, 128)
+    for i, r in ipairs(rows) do out[i] = { quest = r.quest, state = r.state, objective = r.objective_key, ints = r.ints or {}, bools = r.bools or {} } end
     return out
 end
 -- A UI press through the input gate: allowed only while the open modal is the dialogue itself (finding 7b).
