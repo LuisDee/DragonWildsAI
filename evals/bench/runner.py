@@ -88,6 +88,15 @@ class CaseResult:
 # ------------------------------------------------------------------ the evidence view of the world
 
 
+def quest_log(rows: list[dict]) -> dict:
+    """bench_probe quests (QuestProgressComponent: asset, name, state, objective; EQuestState 2 = Complete) ->
+    the quest log the predicates read."""
+    name = lambda q: q.get("name") or q.get("asset")  # noqa: E731
+    return {"active": [{"quest": name(q), "step": q.get("objective"), "asset": q.get("asset")}
+                       for q in rows if q.get("state") != 2],
+            "complete": [name(q) for q in rows if q.get("state") == 2]}
+
+
 def probe_state(probe: dict | None) -> dict:
     """A get_state-shaped dict built ONLY from the harness probe (core leaves read this, never the companion's own
     get_state: review finding 1)."""
@@ -107,8 +116,8 @@ def probe_state(probe: dict | None) -> dict:
                        for k, v in (p.get("skills") or {}).items()] if isinstance(p.get("skills"), dict) else p.get("skills"),
             "gear": p.get("gear"), "bag": p.get("bag"),
             # quests from the probe (QuestProgressComponent): EQuestState 2 = Complete
-            "quests": [{"name": q.get("name") or q.get("asset"), "asset": q.get("asset"), "stage": q.get("objective"),
-                        "completed": q.get("state") == 2} for q in p.get("quests") or []] if "quests" in p else None,
+            # in brain/predicates' quest-log shape (client quests.lua: {active: [{quest, step}], complete: [names]})
+            "quests": quest_log(p.get("quests") or []) if "quests" in p else None,
             "hydration": (p.get("vitals") or {}).get("hydration"), "sustenance": (p.get("vitals") or {}).get("sustenance")}
 
 

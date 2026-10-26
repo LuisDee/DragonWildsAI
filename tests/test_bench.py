@@ -387,3 +387,14 @@ def test_lint_rejects_gained_and_lost_of_one_item_in_one_all():
                                "success": {"all": [{"gained": {"item": "Ash Logs", "at_least": 5}},
                                                    {"lost": {"item": "Ash Logs", "at_least": 5}}]}})
     assert any("both gained and lost" in p for p in lint(bad))
+
+
+def test_probe_quests_feed_the_quest_log_predicates():
+    """brain/predicates quest leaves read {active: [{quest, step}], complete: [names]} (Director 2026-10-26);
+    bench_probe reports QuestProgressComponent rows (EQuestState 2 = Complete)."""
+    from evals.bench.runner import quest_log
+    log = quest_log([{"asset": "QD_RuneMysteries", "name": "Rune Mysteries", "state": 2},
+                     {"asset": "QD_GoblinDiplomacy", "name": "Goblin Diplomacy", "state": 1, "objective": "Talk to Zanik"}])
+    st = {"quests": log}
+    assert P.evaluate({"quest": {"name": "Rune Mysteries", "completed": True}}, st, {}).passed is True
+    assert P.evaluate({"quest": {"name": "Goblin Diplomacy", "completed": True}}, st, {}).passed is False
