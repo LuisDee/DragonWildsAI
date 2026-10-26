@@ -814,3 +814,35 @@ def test_a_wait_that_never_ends_fails_the_attempt_for_a_replan(tmp_path):
     ticks(d, 1)
     s = d.ops.b.tasks[0].steps[0]
     assert s.status == "failed" and "waited 30 min" in s.failures[-1]["reason"]
+
+
+def test_a_plans_first_call_runs_before_the_controller_and_a_passed_step_needs_no_turn(tmp_path):
+    d, port, world, llm, clock = make(tmp_path, mine(COPPER, 1), [
+        decision(task_success=have(COPPER, 20), steps=[
+            step("first", gained(COPPER, 1)),
+            {**step("second", gained(COPPER, 1)), "first_call": {"tool": "gather", "args": {"resource": "x", "count": 1}}},
+            {**step("third", gained(COPPER, 5)), "first_call": {"tool": "gather", "args": {"resource": "x", "count": 1}}}])])
+    calls = []
+
+    def first_call(call):
+        calls.append(call)
+        world.add(COPPER, 1)
+        return {"tool": call["tool"], "args": call["args"], "ok": True, "reason": None, "data": {"item": COPPER},
+                "interrupt": False, "origin": "board"}
+    port.first_call = first_call
+    d.handle_tool("add_task", {"text": "copper"}, "Zezima")
+    ticks(d, 1)
+    runs = [e for e in port.events if e["type"] == "board_step"]
+    assert len(calls) == 2  # "second" and "third" started with the plan's own call
+    assert [e["step"]["title"] for e in runs] == ["first", "third"]  # "second" passed on its first call
+    assert runs[1]["first_call_result"]["ok"] is True  # the Controller carries on from it
+
+
+def test_a_first_call_must_name_one_of_his_tools(tmp_path):
+    d, port, world, llm, clock = make(tmp_path, None, [
+        decision(task_success=have(COPPER, 1), steps=[
+            {**step("mine", gained(COPPER, 1)), "first_call": {"tool": "teleport", "args": {}}}]),
+        decision(task_success=have(COPPER, 1), steps=[step("mine", gained(COPPER, 1))])])
+    d.handle_tool("add_task", {"text": "copper"}, "Zezima")
+    ticks(d, 1)
+    assert "first_call: tool must be one of your tools" in llm.calls[1]["messages"][-1]["content"]

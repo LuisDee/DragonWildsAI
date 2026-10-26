@@ -124,7 +124,8 @@ STEP_INSTRUCTIONS = ("This is a step of your own current job from your task boar
                      "blocked, call report_step with outcome blocked and the specific reason. Talk only when it "
                      "helps the player: when you start a new job (say what done will mean), worthwhile facts in "
                      "just_completed, and each tell_player item once. If resumed is true, preempted_by says what "
-                     "the player said and did: if they wanted you to stop, wait or stay, call pause_board instead.")
+                     "the player said and did: if they wanted you to stop, wait or stay, call pause_board instead. "
+                     "first_call_result: what your plan's first call for this step already did; carry on from it.")
 NOTICE_INSTRUCTIONS = ("Tell the player this about your task board once, briefly, in your own words "
                        "(and nothing else unless they asked).")
 
@@ -172,7 +173,9 @@ OUTPUT_DOC = """{"description": str, "explanation": str|null,
  "steps": [{"title": str, "why": str, "hints": str, "success": <test>, "risk": "fight"|"trip"|null,
             "abort_if": <test>|null, "escape": str|null, "needs": [primitive]|[], "group": str|null,
             "wait": bool (true: nothing to do but let time pass, e.g. a crop growing or a furnace smelting; his
-                    body stays free and the test is re-checked by itself; give it a test that ends the wait)}],
+                    body stays free and the test is re-checked by itself; give it a test that ends the wait),
+            "first_call": {"tool": <one of his tools>, "args": {...}}|null (the step's first action when you know
+                    it exactly: it runs at once, then his controller carries on from its result)}],
  "loops": {"<group>": {"until": <test>}},
  "add_tasks": [{"text": str, "because": str}], "capability_gaps": [{"primitive": str, "kind": "action"|"perception"|"knowledge", "why": str, "workaround": str|null}],
  "ask_help": str|null, "done": bool (open-ended jobs only: true when you choose to end it)}"""
@@ -223,6 +226,9 @@ class AgentPort:
 
     def body_read(self, tool: str, args: dict) -> dict:
         return self.agent.game.call(tool, args)
+
+    def first_call(self, call: dict) -> dict:
+        return self.agent.run_first_call(call, self.player)
 
     def busy(self) -> bool:
         a = self.agent
@@ -551,7 +557,8 @@ class Validator:
     one advisory round (llm_json, simplify item 4)."""
 
     def __init__(self, kind: str, state: dict, task: dict, items: P.Items | None = None, places: dict | None = None,
-                 research_left: Callable[[], bool] = lambda: True):
+                 research_left: Callable[[], bool] = lambda: True, tools: set[str] | None = None):
+        self.tools = set(tools or ())  # his body tools (a first_call must name one)
         self.kind, self.state, self.task = kind, state, task
         self.research_left = research_left  # unknown facts are worth an advisory only while he can still look
         self.places = places or {}
@@ -605,6 +612,13 @@ class Validator:
             if pred is None and s.get("success") is None:
                 errs.append(f"steps[{i}]: needs a success test")
             abort = self._pred(s.get("abort_if"), f"steps[{i}].abort_if", errs)
+            first = s.get("first_call") if isinstance(s.get("first_call"), dict) else None
+            if first is not None and (not isinstance(first.get("tool"), str) or
+                                      (self.tools and first["tool"] not in self.tools)):
+                errs.append(f"steps[{i}].first_call: tool must be one of your tools ({first.get('tool')!r} is not)")
+                first = None
+            if first is not None:
+                first = {"tool": first["tool"], "args": first.get("args") if isinstance(first.get("args"), dict) else {}}
             if pred is None:
                 continue
             r = P.evaluate(pred, self.state, fresh)
@@ -620,7 +634,7 @@ class Validator:
                           "hints": str(s.get("hints") or "")[:500], "success": pred, "abort_if": abort,
                           "escape": s.get("escape"), "risk": s.get("risk") if s.get("risk") in ("fight", "trip") else None,
                           "needs": [str(n) for n in s.get("needs") or []][:5], "group": s.get("group") or None,
-                          "wait": s.get("wait") is True,
+                          "wait": s.get("wait") is True, "first_call": first,
                           "trivial": trivial})
         out["steps"] = steps
         out["loops"] = {}
@@ -1003,7 +1017,8 @@ class Director:
                       usage=resp.usage)
 
         validator = Validator(snap["kind"], snap["state"], snap["task"], self.items, places=snap.get("places"),
-                              research_left=lambda: bool(research.tools()) and rounds[0] < RESEARCH_ROUNDS)
+                              research_left=lambda: bool(research.tools()) and rounds[0] < RESEARCH_ROUNDS,
+                              tools=set(self.body_tools))
         with self._episode("director"):
             messages = self._messages(snap)
             self._log("prompt", component="director", model=getattr(self.llm, "model", "?"), decision=snap["kind"],
@@ -1105,7 +1120,7 @@ class Director:
         for s in v.get("steps", []):
             old = existing.get((s["title"], json.dumps(s["success"], sort_keys=True)))
             if old is not None:  # the same pending step again keeps its attempts; the new plan's details win
-                for f in ("why", "hints", "abort_if", "escape", "risk", "needs", "group", "trivial", "wait"):
+                for f in ("why", "hints", "abort_if", "escape", "risk", "needs", "group", "trivial", "wait", "first_call"):
                     setattr(old, f, s.get(f, getattr(old, f)))
                 old.prepared = old.prepared or kind == "prepare" or not old.risk
                 new_steps.append(old)
@@ -1239,7 +1254,7 @@ class Director:
         self._in_run = True
         try:
             with self._episode("board"):
-                res = self.port.run(event)
+                res = self._run_with_first_call(task, step, event, places)
         finally:
             self._in_run = False
         state1 = self._fresh_state()
@@ -1294,6 +1309,36 @@ class Director:
             return
         if step.no_progress_runs >= 2:  # the DEPS trigger: the model replans with what happened
             self._fail_attempt(task, step, f"no progress: {r.detail}", r)
+
+    def _run_with_first_call(self, task: Task, step: Step, event: dict, places: dict) -> dict:
+        """The plan's first call (if any, on the step's first run) runs at once; the step may already pass on it
+        (no Controller turn needed), else the Controller run carries on from its result."""
+        call = step.first_call if step.runs == 0 and not step.uncounted_runs else None
+        runner = getattr(self.port, "first_call", None)
+        if not call or runner is None:
+            return self.port.run(event)
+        try:
+            rec = runner(call)
+        except Exception as exc:  # the step still runs through the Controller
+            self._log("board_first_call_error", task=task.id, step_id=step.id, error=repr(exc)[:300])
+            return self.port.run(event)
+        if rec.get("skipped"):
+            return self.port.run(event)
+        self._log("board_first_call", task=task.id, step_id=step.id, tool=rec.get("tool"), ok=rec.get("ok"),
+                  reason=rec.get("reason"))
+        state = self._fresh_state()
+        r = P.evaluate(step.success, state, self.ops.step_ctx(task, step, state, places, include_open=True))
+        spoke_for_job = any(s.status == "done" for s in task.steps)  # the job's first run is always voiced
+        if rec.get("interrupt") or (r.passed is True and spoke_for_job and not event.get("tell_player")
+                                    and not event.get("resumed") and not event.get("note")):
+            # nothing for the player to hear: the step passed on the plan's own call
+            return {"actions": [rec], "ended": "interrupted" if rec.get("interrupt") else "normal", "said": False}
+        event["first_call_result"] = {k: rec.get(k) for k in ("tool", "args", "ok", "reason")} | {
+            "data": {k: v for k, v in (rec.get("data") or {}).items() if k in ("detail", "item", "count", "gathered",
+                                                                              "crafted", "missing", "why")}}
+        event["step_progress"] = r.detail
+        res = self.port.run(event)
+        return {**res, "actions": [rec] + list(res.get("actions") or [])}
 
     def _uncheckable(self, task: Task, step: Step, r: P.Result) -> None:
         self.gaps.from_uncheckable(r.missing, task=task.text, step=step.title)

@@ -263,3 +263,15 @@
   - Result: 41 Haiku calls. Real Sonnet (3 requests) used wait:true for "Let the wheat grow" (cassette farm_and_process_crop).
 - Gaps after the fix: p50 2.0 s, p90 2.25 s, all of it the Controller's first turn on each step. Idle is 26%, all of it the crop growing.
 - Next gap lever, not built: let the Director give a step's first call, run before the Controller turn (needs an Agent.run_directed hook). Ordering work during waits is the model's choice.
+- First calls (same session, simulated time; brain/mock/sim_session.py):
+  - The Director's plan may give a step's `first_call`. It runs at once through Agent.run_first_call, which uses the Controller's own gates: offered tools, schema, safety.
+  - When the step already passes on that call, there's no Controller turn, except on the job's first step or when something must be said.
+  - Otherwise the Controller carries on from `first_call_result`.
+
+  | | gap p50 | gap p90 | Haiku calls | Sonnet requests | wall |
+  |---|---|---|---|---|---|
+  | before (no wait, no first_call) | 2.0 s | 2.25 s | 99 | 4 | 504.5 s |
+  | wait steps only | 2.0 s | 2.25 s | 41 | 4 | 504.2 s |
+  | wait steps + first_call | 0.0 s | 2.0 s | 11 | 4 | 444.2 s |
+
+  - Idle is 30%, all of it the crop growing; longest non-wait idle 0.25 s. Wait steps count as `step wait` in obs, not dead time (observability agent).

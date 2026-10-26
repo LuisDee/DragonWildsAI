@@ -137,9 +137,10 @@ Luis wants long jobs (Director board jobs, benchmark T2/T3 cases) to become seam
   - **waiting (queue)**: another episode's work (chat, situation reviews) or the Director deciding for another task;
   - **waiting (budget)**: the task in `waiting_budget` (from `board_task_status`), or a budget notice until the next dispatch;
   - **waiting (decision pickup)**: a Director decision already made but not yet applied (it is collected at the next agent tick);
+  - **waiting (step wait)**: a wait step (`board_wait_start` → `board_step_end`, a model-chosen `wait: true` such as a crop growing; the board re-checks its test each tick and makes no Controller run). The wait is the step's own duration, so it never lands in a gap, and it is reported as `idle.step_wait_s` and left out of "longest idle". Overlap with a gap (should it ever happen) goes to `waiting_step_s`;
   - **body**: this job's own trivial actions;
   - **dead**: nothing at all happening.
-  Order of precedence: thinking, queue, budget, pickup, body, dead.
+  Order of precedence: thinking, queue, budget, pickup, step wait, body, dead.
 - **Idle** = the share of the task's wall time with **no body action in progress and no model call in flight** (any episode). Also reported: the longest idle stretch, its times, and the rows on each side ("after board_run 'mine tin' passed, before prompt board_step 'smelt bronze bars' run 1").
 - **`obs metrics --json`** adds `task_gap_p50`, `task_gap_p90`, `idle_share` and `longest_idle_s` at the top level, plus a `long_tasks` block: tasks, steps, gaps, the gap split in seconds, and the longest idle with its task and place. `obs task --json` gives `dw_obs_tasks/1`, with every task's steps, gaps and idle.
 - **Log rows** (added by the Director agent at my request, pinned by `tests/test_director_jobs.py::test_board_rows_for_the_observability_metrics`):

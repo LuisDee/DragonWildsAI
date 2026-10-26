@@ -99,6 +99,7 @@ class Step(BaseModel):
     tally_gain: float = 0.0  # tally gains this step's segments added
     trivial: bool = False
     wait: bool = False  # nothing to do but let time pass: re-checked each tick, no Controller run
+    first_call: dict | None = None  # {tool, args} the plan starts the step with (run before the Controller)
     status: StepStatus = "pending"
     attempts: int = 0
     runs: int = 0  # counted runs
@@ -575,10 +576,15 @@ class BoardOps:
         self.save()
         return gains
 
-    def effective_baseline(self, step: Step, state: dict) -> dict:
+    def effective_baseline(self, step: Step, state: dict, include_open: bool = False) -> dict:
         """The baseline predicates see for a step: now minus what board runs changed (inventory and skills), with
-        gear / position / time from the activation snapshot (docs/design/director.md section 2.1)."""
+        gear / position / time from the activation snapshot (docs/design/director.md section 2.1). With
+        ``include_open`` the run in progress counts too (its segment's start stands in for now)."""
         base = copy.deepcopy(step.activation) if step.activation else P.snapshot(state)
+        seg = step.open_segment if include_open else None
+        if seg is not None and seg.baseline:
+            state = {**state, "inventory": seg.baseline.get("inventory") or {},
+                     **({"skills": seg.baseline["skills"]} if isinstance(seg.baseline.get("skills"), list) else {})}
         inv = _inventory(state)
         base["inventory"] = {i: inv.get(i, 0.0) - step.accumulated.get(i, 0.0)
                              for i in set(inv) | set(step.accumulated)}
@@ -598,8 +604,8 @@ class BoardOps:
             base["skills"] = out
         return base
 
-    def step_ctx(self, t: Task, step: Step, state: dict, places: dict | None = None) -> dict:
-        return {"baseline": self.effective_baseline(step, state), "tallies": dict(t.tallies), "places": places or {},
+    def step_ctx(self, t: Task, step: Step, state: dict, places: dict | None = None, include_open: bool = False) -> dict:
+        return {"baseline": self.effective_baseline(step, state, include_open), "tallies": dict(t.tallies), "places": places or {},
                 "episodes": list(step.kills), "now": self.clock(),
                 "stored": [r for r in t.stored if r.get("step") == step.id]}
 
@@ -675,7 +681,8 @@ class BoardOps:
         lp.last_measures = dict(res.measures)
         lp.done += 1
         t.steps.extend(Step(title=s.title, why=s.why, hints=s.hints, success=s.success, abort_if=s.abort_if,
-                            escape=s.escape, risk=s.risk, needs=s.needs, group=g, loop_iter=it + 1, wait=s.wait)
+                            escape=s.escape, risk=s.risk, needs=s.needs, group=g, loop_iter=it + 1, wait=s.wait,
+                            first_call=s.first_call)
                        for s in group if s.loop_iter == it)  # one pass of the group, in order
         self.save()
         return "requeued", gained

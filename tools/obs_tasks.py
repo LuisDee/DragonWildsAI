@@ -9,7 +9,8 @@ Vocabulary (adapted from process mining: cycle time = processing + waiting + idl
                        and their read tools
              waiting   queue: another episode's work (chat, situation reviews) / budget: the task waiting for the
                        Director's call window (board_task_status waiting_budget, or a budget notice until the next
-                       dispatch)
+                       dispatch) / decision pickup / step wait: a wait step (board_wait_start -> board_step_end, e.g.
+                       a crop growing) that the board re-checks each tick
              body      this job's own body actions that don't count as a first action (stop, say, ...)
              dead      nothing at all happening
   idle     share of the task's wall time with no body action in progress and no model call in flight (any episode),
@@ -84,10 +85,13 @@ class StepT:
     outcome: str | None = None          # done | failed | aborted | parked | dropped | unfinished
     reason: str | None = None
     end: float | None = None            # predicate done (or the step's end row / last run end)
+    wait_from: float | None = None      # a wait step (board_wait_start): no runs, the board re-checks its test each tick
 
     @property
     def start(self) -> float:
-        return self.runs[0].start if self.runs else (self.end or 0.0)
+        if self.runs:
+            return min(self.runs[0].start, self.wait_from or self.runs[0].start)
+        return self.wait_from if self.wait_from is not None else (self.end or 0.0)
 
     def first_world_action(self) -> float | None:
         return next((a["ts"] for r in self.runs for a in r.actions if a["tool"] not in TRIVIAL_ACTIONS), None)
@@ -104,6 +108,7 @@ class TaskT:
     steps: list[StepT] = field(default_factory=list)
     decisions: list[dict] = field(default_factory=list)   # [{kind, start, end, outcome, steps}]
     budget: list[tuple[float, float]] = field(default_factory=list)
+    waits: list[tuple[float, float]] = field(default_factory=list)  # wait steps: board_wait_start -> board_step_end
     gaps: list[dict] = field(default_factory=list)
     lead_in: dict | None = None
     idle: dict | None = None
@@ -295,9 +300,17 @@ def build(rows: list[dict], goals: dict | None = None) -> tuple[list[TaskT], dic
                 s.outcome, s.end = "done", ts
             t.end = max(t.end or ts, ts)
             continue
+        if k == "board_wait_start":
+            t = task(str(r.get("task")), ts, r.get("_file"))
+            s = step_of(t, str(r.get("step")), r.get("step_id"))
+            s.wait_from = s.wait_from or ts
+            s.reason = s.reason or (f"waiting: {r.get('until')}" if r.get("until") else None)
+            continue
         if k == "board_step_end":
             t = task(str(r.get("task")), ts, r.get("_file"))
             s = step_of(t, str(r.get("step")), r.get("step_id"), any_outcome=True)
+            if s.wait_from is not None:
+                t.waits.append((s.wait_from, ts))
             s.outcome = s.outcome if s.outcome == "done" else str(r.get("status"))
             s.reason, s.end = r.get("reason"), s.end or ts
             t.end = max(t.end or ts, ts)
@@ -323,6 +336,9 @@ def build(rows: list[dict], goals: dict | None = None) -> tuple[list[TaskT], dic
                 s.end = s.runs[-1].end
         if t.id in budget_open and t.end:
             t.budget.append((budget_open[t.id], t.end))
+        for s in t.steps:  # a wait still open when the log ends
+            if s.wait_from is not None and not any(a == s.wait_from for a, _ in t.waits):
+                t.waits.append((s.wait_from, max(t.end or s.wait_from, s.end or s.wait_from)))
     return [tasks[i] for i in order], iv
 
 
@@ -354,6 +370,7 @@ def analyse(rows: list[dict], goals: dict | None = None) -> list[TaskT]:
         if t.start is None or t.end is None:
             continue
         budget = union(t.budget)
+        waits = union(t.waits)
         own_dir = union(iv["director_model"].get(t.id, []))
         others_dir = union([x for k, v in iv["director_model"].items() if k != t.id for x in v] +
                            [x for k, v in iv["director_window"].items() if k != t.id for x in v])
@@ -366,13 +383,15 @@ def analyse(rows: list[dict], goals: dict | None = None) -> list[TaskT]:
             qu = minus(clip(que, a, b), th)
             bu = minus(minus(clip(budget, a, b), th), qu)
             de = minus(minus(minus(clip(pickup, a, b), th), qu), bu)
-            bo = minus(minus(minus(minus(clip(acts, a, b), th), qu), bu), de)
+            wa = minus(minus(minus(minus(clip(waits, a, b), th), qu), bu), de)
+            bo = minus(minus(minus(minus(minus(clip(acts, a, b), th), qu), bu), de), wa)
             total = max(0.0, b - a)
             parts = {"thinking_s": length(th), "waiting_queue_s": length(qu), "waiting_budget_s": length(bu),
-                     "waiting_decision_s": length(de), "body_s": length(bo)}
+                     "waiting_decision_s": length(de), "waiting_step_s": length(wa), "body_s": length(bo)}
             parts["dead_s"] = max(0.0, total - sum(parts.values()))
             return {"seconds": round(total, 3), **{k: round(v, 3) for k, v in parts.items()},
-                    "waiting_s": round(parts["waiting_queue_s"] + parts["waiting_budget_s"] + parts["waiting_decision_s"], 3)}
+                    "waiting_s": round(parts["waiting_queue_s"] + parts["waiting_budget_s"] + parts["waiting_decision_s"]
+                                       + parts["waiting_step_s"], 3)}
         if t.steps:
             first = t.steps[0].first_world_action() or t.steps[0].start
             t.lead_in = {"from": t.start, "to": first, **split(t.start, max(t.start, first))}
@@ -385,8 +404,10 @@ def analyse(rows: list[dict], goals: dict | None = None) -> list[TaskT]:
                            "from_outcome": a.outcome, **split(t0, t1)})
         wall = max(0.0, t.end - t.start)
         idle_iv = minus([(t.start, t.end)], busy)
-        longest = max(idle_iv, key=lambda x: x[1] - x[0], default=None)
+        # a wait step (crop growing) is idle by design: reported as step_wait_s, never the "longest idle" stretch
+        longest = max(minus(idle_iv, waits), key=lambda x: x[1] - x[0], default=None)
         t.idle = {"wall_s": round(wall, 3), "idle_s": round(length(idle_iv), 3),
+                  "step_wait_s": round(length(clip(union(t.waits), t.start, t.end)), 3),  # idle by design (a wait step)
                   "share": round(length(idle_iv) / wall, 3) if wall > 0 else None,
                   "longest_s": round(longest[1] - longest[0], 3) if longest else 0.0,
                   "longest_from": longest[0] if longest else None, "longest_to": longest[1] if longest else None,
@@ -434,7 +455,7 @@ def summary(tasks: list[TaskT]) -> dict:
     wall = sum(i["wall_s"] for i in walls)
     longest = max(((t, t.idle) for t in tasks if t.idle), key=lambda x: x[1]["longest_s"], default=(None, None))
     split = {k: round(sum(g[k] for g in gaps), 2) for k in ("thinking_s", "waiting_queue_s", "waiting_budget_s",
-                                                             "waiting_decision_s", "body_s", "dead_s")}
+                                                             "waiting_decision_s", "waiting_step_s", "body_s", "dead_s")}
     return {"tasks": len(tasks), "steps": sum(len(t.steps) for t in tasks), "gaps": len(gaps),
             "task_gap_p50": pct([g["seconds"] for g in gaps], 50), "task_gap_p90": pct([g["seconds"] for g in gaps], 90),
             "gap_split_s": split,
@@ -485,7 +506,8 @@ def render(t: TaskT, hms) -> str:
 def _split_text(g: dict) -> str:
     bits = [f"{g['seconds']:.1f} s ="]
     for k, label in (("thinking_s", "thinking"), ("waiting_queue_s", "waiting(queue)"), ("waiting_budget_s", "waiting(budget)"),
-                     ("waiting_decision_s", "waiting(decision pickup)"), ("body_s", "body"), ("dead_s", "dead")):
+                     ("waiting_decision_s", "waiting(decision pickup)"), ("waiting_step_s", "waiting(step wait)"),
+                     ("body_s", "body"), ("dead_s", "dead")):
         if g.get(k):
             bits.append(f"{label} {g[k]:.1f}")
     return " ".join(bits) if len(bits) > 1 else f"{g['seconds']:.1f} s"

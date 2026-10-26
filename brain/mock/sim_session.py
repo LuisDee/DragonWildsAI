@@ -26,7 +26,15 @@ HAIKU_S = 2.0  # one Controller model call (live smoke 2026-10-26: 1.6-2.8 s)
 SONNET_S = 4.0  # one Director request (live: 9-14 s per decision of ~3 requests)
 POLL_S = 0.25  # run_live's bridge poll
 WAIT_GROW_S = 130.0
-WAIT_STEPS = True  # the stand-in marks pure waits (the Director's "wait" step field)  # the stand-in's wait for a crop (GearWorld.grow_s = 120)
+WAIT_STEPS = True  # the stand-in marks pure waits (the Director's "wait" step field)
+FIRST_CALLS = True  # the stand-in gives each step its first call (the Director's "first_call" step field)
+
+
+def _st(title, success, do=(), **kw):
+    out = st(title, success, do, **kw)
+    if FIRST_CALLS and do:
+        out["first_call"] = dict(do[0])
+    return out  # the stand-in's wait for a crop (GearWorld.grow_s = 120)
 
 
 class SimWorld(GearWorld):
@@ -108,36 +116,36 @@ def brynmoor_curriculum(seen: list):
         built = {r.get("name") for r in (user.get("me") or {}).get("structures") or []}
         if "store copper in the chest" not in titles:
             steps = [] if "Wooden Chest" in built else [
-                st("chop ash for a chest", {"gained": {"item": ASH_LOGS, "at_least": 10}},
+                _st("chop ash for a chest", {"gained": {"item": ASH_LOGS, "at_least": 10}},
                    [call("gather", resource=ASH_LOGS, count=10)]),
-                st("build a chest at home", {"structure": {"name": "Wooden Chest", "new": True}},
+                _st("build a chest at home", {"structure": {"name": "Wooden Chest", "new": True}},
                    [call("build", piece="Wooden Chest")])]
-            steps += [st("walk to the copper rocks", {"near": {"place": "copper rocks", "within_m": 8}},
+            steps += [_st("walk to the copper rocks", {"near": {"place": "copper rocks", "within_m": 8}},
                          [call("go_to", target="copper rocks")], group="trip"),
-                     st("mine copper", {"gained": {"item": COPPER, "at_least": 20}},
+                     _st("mine copper", {"gained": {"item": COPPER, "at_least": 20}},
                         [call("gather", resource=COPPER, count=20)], group="trip"),
-                     st("store copper in the chest", {"stored": {"item": COPPER, "at_least": 20}},
+                     _st("store copper in the chest", {"stored": {"item": COPPER, "at_least": 20}},
                         [call("store", item=COPPER, container="Wooden Chest")], group="trip")]
             return LLMResponse(content=json.dumps({
                 "description": "home first: a chest, then fill it with copper over trips", "steps": steps,
                 "loops": {"trip": {"until": {"stored": {"item": COPPER, "at_least": 60}}}}}))
         if "bake bread" not in titles:
-            steps = [st("chop ash for a plot", {"gained": {"item": ASH_LOGS, "at_least": 4}},
+            steps = [_st("chop ash for a plot", {"gained": {"item": ASH_LOGS, "at_least": 4}},
                         [call("gather", resource=ASH_LOGS, count=4)]),
-                     st("build a farm plot", {"structure": {"name": "Farm Plot", "new": True}},
+                     _st("build a farm plot", {"structure": {"name": "Farm Plot", "new": True}},
                         [call("build", piece="Farm Plot")]),
-                     st("dig the weeds and plant wheat", {"lost": {"item": WHEAT_SEED, "at_least": 1}},
+                     _st("dig the weeds and plant wheat", {"lost": {"item": WHEAT_SEED, "at_least": 1}},
                         [call("farm_plots"), call("tend", item=SPADE, times=3), call("tend", item=WHEAT_SEED)]),
-                     st("get stone for a grinder and a kiln", {"gained": {"item": STONE, "at_least": 10}},
+                     _st("get stone for a grinder and a kiln", {"gained": {"item": STONE, "at_least": 10}},
                         [call("gather", resource=STONE, count=10)]),
-                     st("build a grinder and a kiln", {"all": [{"structure": {"name": "Grinder", "new": True}},
+                     _st("build a grinder and a kiln", {"all": [{"structure": {"name": "Grinder", "new": True}},
                                                                {"structure": {"name": "Kiln", "new": True}}]},
                         [call("build", piece="Grinder"), call("build", piece="Kiln")]),
-                     st("let the wheat grow", {"elapsed": {"seconds": WAIT_GROW_S}}, [], wait=WAIT_STEPS),
-                     st("harvest the wheat", {"gained": {"item": WHEAT, "at_least": 3}}, [call("tend")]),
-                     st("grind the wheat", {"have": {"item": FLOUR, "at_least": 3}},
+                     _st("let the wheat grow", {"elapsed": {"seconds": WAIT_GROW_S}}, [], wait=WAIT_STEPS),
+                     _st("harvest the wheat", {"gained": {"item": WHEAT, "at_least": 3}}, [call("tend")]),
+                     _st("grind the wheat", {"have": {"item": FLOUR, "at_least": 3}},
                         [call("craft", item=FLOUR, count=3)]),
-                     st("bake bread", {"have": {"item": BREAD, "at_least": 1}}, [call("craft", item=BREAD, count=1)])]
+                     _st("bake bread", {"have": {"item": BREAD, "at_least": 1}}, [call("craft", item=BREAD, count=1)])]
             steps = [x for x in steps if x["title"] not in titles]  # replans keep what is already done
             return LLMResponse(content=json.dumps({"description": "a farm at home, wheat to bread", "steps": steps}))
         return LLMResponse(content=json.dumps({"description": "base, mining run and bread done", "steps": [],

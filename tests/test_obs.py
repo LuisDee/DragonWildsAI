@@ -618,3 +618,28 @@ def test_a_director_decision_with_research_rounds_is_all_thinking():
     c = obs.Corpus(brain=[{**r, "_file": "x"} for r in rows])
     (d,) = [ep for ep in obs.build_episodes(c) if ep.kind == "director"]
     assert [m["latency"] for m in d.model_calls] == pytest.approx([3.1, 3.3, 7.4])  # each round from the previous one
+
+
+def test_a_wait_step_is_step_wait_not_dead_time():
+    """Director 2026-10-26 (sim_session: 'let the wheat grow', 130 s): board_wait_start -> board_step_end has no runs;
+    it is the wait step's own time, never dead time in a gap, and never the "longest idle"."""
+    from tools import obs_tasks as OT
+    t0 = at("13:58")
+
+    def run(step, sid, a, tool):
+        return [{"ts": a, "kind": "board_run_start", "task": "T", "step_id": sid, "step": step, "run": 1},
+                {"ts": a + 1, "kind": "tool_call", "task_id": sid, "tool": tool, "episode_id": "board-" + sid},
+                {"ts": a + 3, "kind": "tool_result", "task_id": sid, "tool": tool, "result": {"ok": True}, "episode_id": "board-" + sid},
+                {"ts": a + 4, "kind": "board_run", "task": "T", "step_id": sid, "step": step, "run": 1, "passed": True},
+                {"ts": a + 4, "kind": "board_step_end", "task": "T", "step_id": sid, "step": step, "status": "done"}]
+    rows = run("plant wheat", "s1", t0, "tend") + [
+        {"ts": t0 + 6, "kind": "board_wait_start", "task": "T", "step_id": "s2", "step": "let the wheat grow", "until": "0/130 s"},
+        {"ts": t0 + 136, "kind": "board_step_end", "task": "T", "step_id": "s2", "step": "let the wheat grow", "status": "done"},
+    ] + run("harvest the wheat", "s3", t0 + 138, "tend")
+    (t,) = OT.analyse(rows)
+    assert [(s.title, len(s.runs), s.outcome) for s in t.steps] == [
+        ("plant wheat", 1, "done"), ("let the wheat grow", 0, "done"), ("harvest the wheat", 1, "done")]
+    wait = t.steps[1]
+    assert wait.start == pytest.approx(t0 + 6) and wait.end - wait.start == pytest.approx(130)
+    assert [g["seconds"] for g in t.gaps] == pytest.approx([2.0, 3.0])          # was 130 s of dead time
+    assert t.idle["step_wait_s"] == pytest.approx(130) and t.idle["longest_s"] <= 3.0

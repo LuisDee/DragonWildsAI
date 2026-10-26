@@ -50,6 +50,8 @@ def controller_policy(open_tasks=False, drop_at="player"):
         if be.get("type") == "board_step":
             hints = be["step"].get("hints") or ""
             plan = json.loads(hints).get("do", []) if hints.startswith("{") else []
+            if be.get("first_call_result") and plan:  # the board already ran the plan's first call
+                plan = plan[1:]
             return LLMResponse(content=None, tool_calls=[ToolCall(c["tool"], c.get("args", {}), f"c{i}")
                                                          for i, c in enumerate(plan)])
         if be.get("type") == "board_notice":

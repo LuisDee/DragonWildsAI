@@ -512,6 +512,43 @@ class Agent:
             self._directed = None
         return {"actions": actions, "ended": ended}
 
+    def run_first_call(self, call: dict, player: str) -> dict:
+        """A board step's first call, chosen by the Director's plan (a model decision), run before the Controller's
+        turn so a step starts without a model round trip. It passes the Controller's own gates (offered tools,
+        aliases, the argument schema, Luis's safety rules) and the executor, and is recorded like any board-run
+        action: {tool, args, ok, reason, data, interrupt, origin: board}. Nothing here decides what comes next."""
+        from .controller import Decision
+        from .llm import ToolCall
+        d = Decision()
+        state = self._fresh_state()
+        self.controller._collect([ToolCall(str(call.get("tool") or ""), dict(call.get("args") or {}), "first")], d, state)
+        if d.refusals:
+            tool, reason, data = d.refusals[0]
+            return {"tool": tool, "args": dict(call.get("args") or {}), "ok": False, "reason": reason,
+                    "data": data or {}, "interrupt": False, "origin": "board", "refused": True}
+        if not d.actions:  # a read tool (or nothing to act on): the Controller's turn does it
+            return {"tool": call.get("tool"), "args": dict(call.get("args") or {}), "skipped": True}
+        c = d.actions[0]
+        self._directed, self._directed_origin = [], "board"
+        try:
+            if c.name in LONG_ACTIONS:
+                self.controller.job_started()
+            self._run_task(Task(skill=c.name, args=c.arguments))
+            rec = self._directed[-1]
+        except Exception as exc:
+            self.log.log("first_call_error", tool=c.name, error=repr(exc))
+            rec = {"tool": c.name, "args": c.arguments, "ok": False, "reason": Reason.BODY_ERROR,
+                   "data": {"error": repr(exc)[:200]}, "interrupt": False, "origin": "board"}
+        finally:
+            self._directed = None
+        batch, self._stash = self._stash + self.game.poll_events(), []  # kills/pickups reach the board first
+        for ev in batch:
+            if isinstance(ev, Activity):
+                self.handle_event(ev)
+            else:
+                self._stash.append(ev)
+        return rec
+
     def _player_spoke(self) -> bool:
         """Has a chat line arrived since this request started? (peeked, kept for the next pump)"""
         self._stash.extend(self.game.poll_events())
