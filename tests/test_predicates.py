@@ -428,3 +428,13 @@ def test_a_store_result_is_a_stored_effect_and_take_brings_items_in():
     assert st["items_out"][0]["count"] == 5 and not st["items_in"]
     tk = effects_of({"tool": "take", "ok": True, "data": data})
     assert tk["items_in"] == [{"item": data["item"], "count": 5}] and not tk["stored"]
+
+
+def test_a_tend_result_reports_signed_inventory_changes_as_effects():
+    """farm.lua tend: data.inventory = {item: signed delta} (a planted seed -1, a harvest +n)."""
+    from brain.director import effects_of
+    plant = effects_of({"tool": "tend", "ok": True, "args": {"item": "Wheat Seeds"},
+                        "data": {"plot": "p1", "presses": 1, "inventory": {"ITEM_Farming_Seed_Wheat": -1}}})
+    assert not plant["items_in"] and plant["items_out"][0]["item"] == "ITEM_Farming_Seed_Wheat"
+    crop = effects_of({"tool": "tend", "ok": True, "args": {}, "data": {"inventory": {"ITEM_Resources_Wheat": 4}}})
+    assert crop["items_in"] == [{"item": "ITEM_Resources_Wheat", "count": 4, "world_items": []}]

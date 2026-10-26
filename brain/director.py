@@ -307,6 +307,14 @@ def effects_of(rec: dict) -> dict:
         else:
             out["items_in"].append({"item": row["item"], "count": row["count"]})
         return out
+    if rec.get("ok") and isinstance(data.get("spent"), dict):  # materials a build used (build.lua)
+        out["items_out"] += [{"item": i, "count": n, "world_items": []} for i, n in data["spent"].items() if n]
+        return out
+    if rec.get("ok") and isinstance(data.get("inventory"), dict):  # signed per-item changes (farm.lua tend)
+        for item, d in data["inventory"].items():
+            if isinstance(d, (int, float)) and d:
+                out["items_in" if d > 0 else "items_out"].append({"item": item, "count": abs(d), "world_items": []})
+        return out
     picked = [p for p in data.get("picked") or [] if isinstance(p, dict)]
     if picked:
         out["items_in"] += [{"item": p.get("item"), "count": p.get("count") or 1, "world_item": p.get("world_item")}

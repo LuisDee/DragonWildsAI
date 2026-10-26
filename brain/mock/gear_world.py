@@ -411,7 +411,7 @@ class GearWorld(MockGame):
             self.plots[sid] = {"crop": None, "planted_at": None, "crops": b["crops"]}
         self._xp("Construction", b["xp"])
         self._advance(5.0)
-        return ok(piece=name, id=sid, position=pos)
+        return ok(piece=name, name=name, structure=sid, spent=dict(b["materials"]), evidence="mock")  # build.lua shape
 
     def _transfer(self, item: str, container: str, count: int | None, deposit: bool) -> ActionResult:
         if container not in self.containers:  # a name, as find_thing resolves one: the nearest such container
@@ -444,42 +444,48 @@ class GearWorld(MockGame):
         return self._transfer(item, container, count, False)
 
     def _plot_row(self, pid: str) -> dict:
+        """farm.lua farm_plots row shape: soil, harvestable, diseased, watered (+ what grows, for the mock)."""
         p = self.plots[pid]
-        if p["crop"] is None:
-            phase = "empty"
-        else:
-            phase = "ready" if self.time - p["planted_at"] >= self.grow_s else "growing"
-        return {"id": pid, "phase": phase, "crop": self.name_of(p["crop"]) if p["crop"] else None,
+        grown = p["crop"] is not None and self.time - p["planted_at"] >= self.grow_s
+        return {"id": pid, "soil": "clear", "harvestable": grown, "diseased": False, "watered": False,
+                "growing": self.name_of(p["crop"]) if p["crop"] and not grown else None,
                 "distance": round(math.dist(self.structures[pid]["position"], self.pos), 1)}
 
     def farm_plots(self) -> ActionResult:
-        return ok(plots=[self._plot_row(pid) for pid in self.plots])
+        rows = [self._plot_row(pid) for pid in self.plots]
+        return ok(plots=rows, total=len(rows), radius_m=30)
 
-    def tend(self, plot: str | None = None, item: str | None = None) -> ActionResult:
+    def tend(self, plot: str | None = None, item: str | None = None, times: int = 1) -> ActionResult:
+        """farm.lua's result shape: {plot, presses, changed, inventory: {item: signed delta}, xp: {skill: {xp}}};
+        a press that changes nothing is verification_failed (why no_change) with what the plot says."""
         pid = plot or min(self.plots, key=lambda k: math.dist(self.structures[k]["position"], self.pos), default=None)
         if pid not in self.plots:
-            return fail(Reason.UNKNOWN_TARGET, plot=plot, detail="no farm plot near me")
+            return fail(Reason.UNKNOWN_TARGET if plot else Reason.NOTHING_IN_RANGE, plot=plot,
+                        detail="I can't see a farm plot near me.")
         p, row = self.plots[pid], self._plot_row(pid)
         self._walk(self.structures[pid]["position"], 1.0)
+        iid = None
         if item is not None:
             iid = self.resolve_item(item) or item
             if self._carried(iid) < 1:
-                return fail(Reason.NOT_IN_INVENTORY, item=item)
-            if row["phase"] != "empty" or iid not in p["crops"]:
-                return fail(Reason.NOT_INTERACTABLE, plot=pid, phase=row["phase"],
-                            detail=f"nothing happened using {self.name_of(iid)} on a {row['phase']} plot")
+                return fail(Reason.NOT_IN_INVENTORY, why="no_item", detail=f"I don't have {item}.")
+        says = "ready to harvest" if row["harvestable"] else (f"{row['growing']} growing" if row["growing"] else "empty")
+        if iid is not None and p["crop"] is None and iid in p["crops"]:
             self.inventory[iid] -= 1
             p["crop"], p["planted_at"], p["seed"] = p["crops"][iid][0], self.time, iid
             self._xp("Farming", 5.0)
-            return ok(plot=pid, phase="growing", planted=self.name_of(iid))
-        if row["phase"] != "ready":
-            return fail(Reason.NOT_INTERACTABLE, plot=pid, phase=row["phase"],
-                        detail=f"the plot is {row['phase']}" + (", not ready yet" if row["phase"] == "growing" else ""))
-        crop, n = p["crops"][p["seed"]]
-        self.inventory[crop] += n
-        p["crop"] = p["planted_at"] = None
-        self._xp("Farming", 15.0)
-        return ok(plot=pid, phase="empty", item=crop, count=n)
+            return ok(plot=pid, presses=1, changed={"growing": {"from": None, "to": self.name_of(p["crop"])}},
+                      inventory={iid: -1}, xp={"Farming": {"xp": 5.0}})
+        if iid is None and row["harvestable"]:
+            crop, n = p["crops"][p["seed"]]
+            self.inventory[crop] += n
+            p["crop"] = p["planted_at"] = None
+            self._xp("Farming", 15.0)
+            return ok(plot=pid, presses=1, changed={"harvestable": {"from": True, "to": False}},
+                      inventory={crop: n}, xp={"Farming": {"xp": 15.0}})
+        used = self.name_of(iid) if iid else "nothing"
+        return fail(Reason.VERIFICATION_FAILED, why="no_change", plot=pid,
+                    detail=f"I used {used} on the plot but nothing changed; the plot says: {says}.")
 
     def equip(self, item: str) -> ActionResult:
         iid = self.resolve_item(item)
