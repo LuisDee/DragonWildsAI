@@ -173,7 +173,9 @@ OUTPUT_DOC = """{"description": str, "explanation": str|null,
 KIND_NOTES = {
     "plan": "Plan the next steps of the current job.",
     "curriculum": ("This is an open-ended job. Propose the next 1-2 achievable steps that make the most "
-                   "progress from where he is now (use curriculum facts: upgrades, skills, what he can make, "
+                   "progress from where he is now (curriculum.skills lists his skills lowest first, with how each is "
+                   "trained and what of his trains it; a lagging skill his tools can't train is a capability gap to "
+                   "name, never progress to fake; also upgrades, what he can make, "
                    "and the history: don't repeat what just failed)."),
     "replan": ("A step failed. 1. description: what was executed and what happened (from failed). 2. explanation: "
                "the most likely cause. 3. steps: a new plan for the remaining work that avoids it, or ask_help if "
@@ -381,7 +383,8 @@ RESEARCH_TOOLS = [
         "nearest first, and spots found empty or mined out.",
         {"kind": {"type": "string"}, "name": {"type": "string"}, "item": {"type": "string"},
          "limit": {"type": "integer"}}),
-    _fn("skills_progress", "His skills (level, xp) and, per skill, the recipes that award its XP.", {}),
+    _fn("skills_progress", "His skills, lowest first: level, xp, how each is trained (wiki), the recipes that award "
+        "its XP and his tools that name it.", {}),
     _fn("learned_skills", "Routines he learned before (learned skills) that match the words.",
         {"query": {"type": "string"}}),
 ]
@@ -427,7 +430,7 @@ class Research:
             neg = [n for n in mem.get("negative") or [] if not args.get("item") or n.get("item") == args.get("item")]
             return {"seen": rows, "empty_or_mined_out": neg[-8:]}
         if name == "skills_progress":
-            return skills_progress(self.snap["state"])
+            return skills_progress(self.snap["state"], self.snap.get("body_tools"))
         if name == "learned_skills":
             q = P.tokens(str(args.get("query") or ""))
             return {"skills": [s for s in self.snap.get("learned", []) if not q or q & P.tokens(json.dumps(s))]}
@@ -482,7 +485,13 @@ def compare_gear(state: dict, category: str | None, slot: str | None, limit: int
     return {"yours": best, "options": rows[:limit]}
 
 
-def skills_progress(state: dict) -> dict:
+def skills_progress(state: dict, body_tools: dict[str, str] | None = None) -> dict:
+    """His skills, lowest level first, each with how it is trained: the wiki skill page's in-game line
+    (knowledge.skill_pages), the recipes that award its XP (game data), and his body tools whose own description
+    names the skill (the manifest). Nothing here maps a skill to an activity; a skill with none of these is one
+    to research (lookup "<skill> training") or to name as a gap."""
+    from .knowledge import skill_pages
+    pages = skill_pages()
     by_skill: dict[str, list[dict]] = {}
     for iid, recs in recipes_by_output().items():
         for r in recs:
@@ -491,10 +500,23 @@ def skills_progress(state: dict) -> dict:
                     {"makes": (item_stats.stats(iid) or {}).get("name") or iid, "xp": r["xp"], "at": r["stations"]})
     rows = []
     for r in state.get("skills") or []:
-        if isinstance(r, dict):
-            recs = by_skill.get(P._skill_key(r.get("skill")), [])
-            rows.append({"skill": r.get("skill"), "level": r.get("level"), "xp": r.get("xp"),
-                         "recipes_awarding_xp": sorted(recs, key=lambda x: -(x["xp"] or 0))[:5]})
+        if not isinstance(r, dict):
+            continue
+        key = P._skill_key(r.get("skill"))
+        page = pages.get(key) or {}
+        recs = sorted(by_skill.get(key, []), key=lambda x: -(x["xp"] or 0))
+        word = P.tokens(str(r.get("skill") or ""))
+        tools = sorted(n for n, d in (body_tools or {}).items() if word and word <= P.tokens(d or ""))
+        row = {"skill": r.get("skill"), "level": r.get("level"), "xp": r.get("xp"), "how": page.get("how"),
+               "recipes_awarding_xp": recs[:5], "recipes_total": len(recs), "your_tools_naming_it": tools}
+        if page.get("training_page"):
+            row["wiki_training_page"] = f"{page['name']} training"
+        rows.append(row)
+    rows.sort(key=lambda x: (x["level"] if isinstance(x["level"], (int, float)) else 1e9, x["xp"] or 0))
+    if rows and isinstance(rows[0]["level"], (int, float)):
+        low = rows[0]["level"]
+        for x in rows:
+            x["lowest"] = x["level"] == low or None
     return {"skills": rows}
 
 
@@ -925,7 +947,7 @@ class Director:
                 "board": board, "state": copy.deepcopy(state), "compact": _compact_state(state),
                 "map": self.map_memory.snapshot() if self.map_memory is not None else {},
                 "facts": self.memory.snapshot(), "learned": learned, "gaps": self.gaps.rows()[:12],
-                "places": copy.deepcopy(self.places()), "now": self.clock()}
+                "places": copy.deepcopy(self.places()), "now": self.clock(), "body_tools": dict(self.body_tools)}
 
     def _messages(self, snap: dict) -> list[dict]:
         tools = "\n".join(f"- {n}: {d}" for n, d in sorted(self.body_tools.items())) or "- (unknown)"
@@ -942,7 +964,7 @@ class Director:
                 "board": snap["board"], "me": snap["compact"], "known_gaps": snap["gaps"],
                 "learned_skills": snap["learned"], "places": list((snap.get("places") or {}).keys())[:20]}
         if snap["kind"] == "curriculum":
-            user["curriculum"] = {"skills": skills_progress(snap["state"])["skills"]}
+            user["curriculum"] = {"skills": skills_progress(snap["state"], self.body_tools)["skills"]}
         return [{"role": "system", "content": system},
                 {"role": "user", "content": json.dumps(user, default=str, ensure_ascii=False)}]
 

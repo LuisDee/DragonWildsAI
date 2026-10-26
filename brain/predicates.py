@@ -89,7 +89,8 @@ SCHEMA_DOC = """Success predicates (JSON, one key per object; checked by code on
   (gained and lost of the SAME item in one "all" can never both hold: they read one net delta. Use tally + on_ground)
 - {"on_ground": {"item": ..., "at_least": n, "player"|"place"|"position": ..., "within_m": m}}  lying near there now
 - {"tally": {"item": ..., "at_least": n}}                verified total gained over this task (all trips)
-- {"skill": {"name": <skill>, "at_least": level}} / {"skill_gain": {"name": ..., "levels": n}}
+- {"skill": {"name": <skill>, "at_least": level}} / {"skill_gain": {"name": ..., "levels": n}} (or "xp": n instead
+   of levels: XP gained since this step started)
 - {"equipped": {"item": ...}}                            worn, or held IN HAND right now (tools flicker: see gear_better)
 - {"gear_better": {"category" or "slot": ..., "stat": power_level|tool_tier|damage_multiplier|max_durability|weight,
    "where": "equipped"|"carried", "than": "start" or a number, "op": ">"}}   best matching item's catalog stat vs
@@ -316,7 +317,10 @@ def _validate_builtin(k: str, a: dict, items: Items) -> dict:
         a["at_least"] = _num(a.get("at_least"), "skill.at_least", 1)
     elif k == "skill_gain":
         a["name"] = _str(a.get("name"), "skill_gain.name")
-        a["levels"] = _num(a.get("levels", 1), "skill_gain.levels", 1)
+        if a.get("xp") is not None:
+            a["xp"] = _num(a["xp"], "skill_gain.xp", 1)
+        else:
+            a["levels"] = _num(a.get("levels", 1), "skill_gain.levels", 1)
     elif k == "gear_better":
         if not (a.get("category") or a.get("slot")):
             raise PredicateError("gear_better needs category or slot")
@@ -601,6 +605,12 @@ def _skill_gain(a, state, ctx, cat):
     d = now[key] - then[key]
     row, row0 = _skill_rows(state)[key], _skill_rows(base)[key]
     xp = f", +{row[1] - row0[1]:g} xp" if row[1] is not None and row0[1] is not None else ""
+    if a.get("xp") is not None:  # an XP amount instead of levels (a level can take hours)
+        if row[1] is None or row0[1] is None:
+            return Result(None, f"{a['name']}: the body reports no xp", 0.0, [f"skills.xp:{a['name']}"])
+        dx = row[1] - row0[1]
+        return Result(dx >= a["xp"], f"{a['name']} +{dx:g}/{a['xp']:g} xp", _ratio(dx, a["xp"]),
+                      measures=_xp_measure(key, row))
     return Result(d >= a["levels"], f"{a['name']} {then[key]:g} -> {now[key]:g} (+{d:g}/{a['levels']:g}{xp})",
                   _ratio(d, a["levels"]), measures=_xp_measure(key, row))
 
@@ -914,7 +924,8 @@ def describe(p: dict) -> str:
         "gained": lambda: f"gain {a.get('at_least', 1):g} {item}",
         "tally": lambda: f"collect {a.get('at_least', 1):g} {item} in total",
         "skill": lambda: f"{a['name']} level {a['at_least']:g}",
-        "skill_gain": lambda: f"+{a.get('levels', 1):g} {a['name']} level(s)",
+        "skill_gain": lambda: (f"+{a['xp']:g} {a['name']} xp" if a.get("xp") is not None
+                               else f"+{a.get('levels', 1):g} {a['name']} level(s)"),
         "equipped": lambda: f"{item} equipped",
         "gear_better": lambda: f"a {a.get('category') or a.get('slot')} with {a['stat']} {a.get('op', '>')} "
                                f"{'what you had at the start' if a.get('than', 'start') == 'start' else a['than']}"

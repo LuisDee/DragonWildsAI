@@ -351,6 +351,43 @@ def _fts_ok() -> bool:
         return False
 
 
+_SKILL_PAGES: dict[str, dict[str, dict]] = {}
+
+
+def skill_pages(root: Path | None = None) -> dict[str, dict]:
+    """skill key ('attack') -> {name, how, about, url, training_page} from the wiki mirror's skill pages (infobox
+    Skill; ``how`` = the infobox description, the in-game line, e.g. "Defeat enemies with melee weapons to level
+    this skill."). Data only: which skills exist and how each is trained come from the pages, never a table here."""
+    root = Path(root) if root else wiki_dir()
+    key = str(root)
+    if key in _SKILL_PAGES:
+        return _SKILL_PAGES[key]
+    out: dict[str, dict] = {}
+    titles: set[str] = set()
+    pages = root / "pages"
+    files = sorted(pages.glob("*.json")) if pages.is_dir() else []
+    for f in files:
+        try:
+            d = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        titles.add(str(d.get("title") or ""))
+        if str(d.get("infobox") or "").lower() != "skill":
+            continue
+        lead = next((x.get("text") or "" for x in d.get("sections") or [] if not x.get("heading")), "")
+        name = re.search(r"^name:\s*(.+)$", lead, re.M)
+        how = re.search(r"^description:\s*(.+)$", lead, re.M)
+        body = re.sub(r"^(name|description):.*$", "", lead, flags=re.M).strip()
+        nm = (name.group(1) if name else d.get("title") or "").strip()
+        out[re.sub(r"[^a-z0-9]", "", nm.lower())] = {
+            "name": nm, "how": how.group(1).strip() if how else None, "about": " ".join(body.split())[:400],
+            "url": d.get("url")}
+    for v in out.values():
+        v["training_page"] = f"{v['name']} training" in titles
+    _SKILL_PAGES[key] = out
+    return out
+
+
 class Knowledge:
     """``lookup(query, kind)`` over game data + wiki. Thread-safe for reads."""
 

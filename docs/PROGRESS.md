@@ -233,3 +233,19 @@
 - Chained transitions (≤8 per tick, never during chat): the step-to-step gap is under 1 s at 1/30/300 s ticks (test).
 - Live smoke run 1 on dev: see DISCOVERIES "Director live smoke, run 1". Research, plan, verified runs, replan and the budget window all work. The job never finished: its done test was unsatisfiable (gained+lost). That is now a repair, and Haiku runs ahead of the step (instruction added).
 - Next: smoke run 2 after the voice fixes ("EMPTY" spoken).
+
+## 2026-10-26 Director: M3 curriculum facts (every skill on his own initiative)
+- The curriculum facts list his skills lowest first. Each skill comes with how it is trained, its XP recipes and the tools that name it, all from data:
+  - how it is trained: the wiki skill page's in-game line (`knowledge.skill_pages`);
+  - its XP recipes: from the game data;
+  - the tools that name it: the body manifest's own descriptions.
+- `skill_gain` now takes an `xp` option.
+- GearWorld got XP for every skill, using the catalog `range_type` for combat skills, plus fish and agility_course with the real descriptions.
+- Results:
+  - All 12 frozen skills pass on the mock (tests/test_director_skills.py), with the lagging skill gaining the most XP.
+  - With a tool missing, the lagging skill becomes a named gap.
+  - Real Sonnet, 10 requests, picked the lagging skill in all 3 cases:
+    - Ranged: makes arrows first;
+    - Runecrafting: at the altar;
+    - Agility: on a course.
+    The cassettes are in tests/fixtures/director_cassettes/m3_*.

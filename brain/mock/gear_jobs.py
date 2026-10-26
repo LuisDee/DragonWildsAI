@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from .. import director as D
+from .. import director as D, paths
 from ..agent import Agent
 from ..capabilities import Capabilities
 from ..controller import Controller
@@ -78,11 +78,13 @@ class FakeKnowledge:
 class JobRig:
     def __init__(self, tmp_path, director_script, open_tasks=False, knowledge=None, world_cls=GearWorld,
                  director_llm=None, director_log=None, controller_llm=None, hides_start_goal=False,
-                 sync_game_time=False):
+                 sync_game_time=False, without=()):
         self.sync_game_time = sync_game_time  # game time follows the rig clock (crops grow while he waits)
         self.game = g = world_cls()
         g.players[PLAYER] = Player(PLAYER, [2.0, 0.0, 0.0])
-        man = manifest()
+        man = {n: e for n, e in manifest().items() if n not in without}  # a body without some tools
+        for n in without:
+            g.remove_tool(n)
         caps = Capabilities(tools=list(man), source="capabilities", manifest=man)
         self.log = JsonlLogger(tmp_path / "logs" / "brain.jsonl")
         self.store = StateStore(tmp_path / "state" / "worlds" / "dev", caps.registry())
@@ -233,6 +235,36 @@ def farm_bread_world(rig):
     g.add_buildable("Kiln", {STONE: 6}, kind="station", station="Kiln")
 
 
+def _m3_world(target, means):
+    """GOAL M3 initiative case: every frozen skill at 10 except ``target`` (1), plus the means for it."""
+    def setup(rig):
+        goal = json.loads((paths.REPO_ROOT / "docs" / "goal_targets.json").read_text(encoding="utf-8"))
+        for s in goal["every_skill"]["skills_frozen"]:
+            rig.game.set_skill(s, 1 if s == target else 10, 0.0 if s == target else 1000.0)
+        means(rig.game)
+    return setup
+
+
+def _ranged_means(g):
+    g.carry("ITEM_Shortbow_Oak")
+    g.carry("ITEM_Sword_Bronze")
+    g.equip("ITEM_Sword_Bronze")
+    for i in range(3):
+        g.add_creature("Giant Rat", "BP_GiantRat_C", [15 + i, 0, 0], hp=20, power_level=2, drops=[])
+
+
+def _runecrafting_means(g):
+    g.carry("ITEM_Rune_Essence", 10)
+    g.add_station("RuneAltar", [6, 0, 0])
+
+
+def _agility_means(g):
+    g.add_course("Chasm Dash", [10, 0, 0])
+
+
+M3_LINE = "go level up whatever you think needs it, I'll check back later"
+
+
 # name -> (chat line, open-ended?, world setup). Chat lines follow evals/bench goal_cases drafts where one exists.
 JOBS = {
     "better_pickaxe": ("can you make yourself a better pickaxe", False, pickaxe_world),
@@ -245,6 +277,9 @@ JOBS = {
     "desert_weed": ("can you farm some desert weed at our farm? we need a stack of it", False, farm_world),
     "mining_run_home_chest": ("set yourself up a proper home with a chest, then go stock it up with ore from round "
                               "here", False, home_chest_world),
+    "m3_ranged_initiative": (M3_LINE, True, _m3_world("Ranged", _ranged_means)),
+    "m3_runecrafting_initiative": (M3_LINE, True, _m3_world("Runecrafting", _runecrafting_means)),
+    "m3_agility_initiative": (M3_LINE, True, _m3_world("Agility", _agility_means)),
     "farm_and_process_crop": ("get a little farm going at home and bake us some bread from what you grow", False,
                               farm_bread_world),
 }

@@ -23,6 +23,10 @@ What it adds over MockGame, all from data/items_<build>.json and data/recipes_<b
   spade, seeds can be planted"; spade tiers from the item catalog, category spade). Then a carried seed plants it
   and using nothing on a grown crop harvests it. Seed -> crop, the plot's spade tier and the weed layers are harness
   data (``add_buildable``), never a table in the brain;
+- skill XP like the game's own rules (simulated here, not known to the brain): gathering gives the node's skill,
+  crafting the recipe's skill (game data), building Construction, tending Farming, ``fish`` Fishing,
+  ``agility_course`` Agility, a ``cast`` Magic, and ``attack`` the skill of the held weapon's style (item catalog
+  range_type: melee -> Attack, ranged -> Ranged, magic -> Magic); fishing spots and courses are harness data;
 - primitives can be switched off (``remove_tool``) to provoke capability gaps; there is no teleport or quest
   primitive and no quest perception (gaps the board must log, never fake).
 The Director and the benchmark only ever see get_state and tool results, like on the real body.
@@ -109,11 +113,18 @@ def manifest() -> dict[str, dict]:
                         kind="read"),
         "tend": a("Work a farm plot once: use a carried item on it (a seed plants it) or nothing (harvests a grown "
                   "crop). Trains Farming.", {"plot": s, "item": s}),
+        "fish": a("Fish at a fishing spot (ripples in the water) until you catch count more: walks there, takes out the "
+                  "net or rod that spot needs, trawls. Trains Fishing.", {"count": i, "spot": s}, ["count"]),
+        "agility_course": a("Run an agility course: walks to its start, starts it, and runs through its orbs to the "
+                            "finish. Trains Agility (walking anywhere also gives a little Agility XP).", {"course": s}),
+        "cast": a("Cast one of your spells (wheel, then cast); verified by runes and cooldown.",
+                  {"spell": s, "target": s}, ["spell"]),
     }
 
 
 class GearWorld(MockGame):
-    manifest_tools = frozenset({"equip", "craft_plan", "buildables", "build", "store", "take", "farm_plots", "tend"})
+    manifest_tools = frozenset({"equip", "craft_plan", "buildables", "build", "store", "take", "farm_plots", "tend",
+                                "fish", "agility_course"})
     grow_s = 120.0  # game seconds from planting to harvest
 
     def __init__(self) -> None:
@@ -132,6 +143,8 @@ class GearWorld(MockGame):
         self.structures: dict[str, dict] = {}
         self.containers: dict[str, Counter] = {}
         self.plots: dict[str, dict] = {}
+        self.fishing_spots: dict[str, dict] = {}  # harness data: id -> {position, item, tool_category}
+        self.courses: dict[str, dict] = {}  # harness data: id -> {name, position, xp}
         self._names: dict[str, str] | None = None
 
     # ------------------------------------------------------------------ catalog helpers
@@ -217,6 +230,16 @@ class GearWorld(MockGame):
         self.buildables[name] = {"materials": dict(materials), "kind": kind, "station": station,
                                  "crops": dict(crops or {}), "xp": xp, "spade_tier": spade_tier,
                                  "weed_layers": weed_layers}
+
+    def add_fishing_spot(self, pos, item: str, tool_category: str | None = None) -> str:
+        sid = self._new_id("spot")
+        self.fishing_spots[sid] = {"position": list(map(float, pos)), "item": item, "tool": tool_category}
+        return sid
+
+    def add_course(self, name: str, pos, xp: float = 60.0) -> str:
+        cid = self._new_id("course")
+        self.courses[cid] = {"name": name, "position": list(map(float, pos)), "xp": xp}
+        return cid
 
     def remove_tool(self, name: str) -> None:
         self.removed.add(name)
@@ -382,8 +405,48 @@ class GearWorld(MockGame):
         if tool == "craft_plan":
             return self.craft_plan(**args)
         fn = {"buildables": self.list_buildables, "build": self.build, "store": self.store, "take": self.take,
-              "farm_plots": self.farm_plots, "tend": self.tend}.get(tool)
+              "farm_plots": self.farm_plots, "tend": self.tend, "fish": self.fish,
+              "agility_course": self.agility_course}.get(tool)
         return fn(**args) if fn else fail(Reason.NOT_IMPLEMENTED, tool=tool)
+
+    # ------------------------------------------------------------------ skill tools: fishing, agility, combat XP
+
+    def fish(self, count: int, spot: str | None = None) -> ActionResult:
+        spots = [(math.dist(v["position"], self.pos), k, v) for k, v in self.fishing_spots.items()
+                 if spot in (None, k)]
+        if not spots:
+            return fail(Reason.NOTHING_IN_RANGE, detail="I can't see a fishing spot near me.")
+        _, sid, sp = min(spots, key=lambda x: x[0])
+        if sp.get("tool") and not self._tool_ok(sp["tool"], 1):
+            return fail(Reason.WRONG_TOOL, needs=sp["tool"], detail=f"this spot needs a {sp['tool']}")
+        self._walk(sp["position"], 2.0)
+        self.inventory[sp["item"]] += count
+        self._xp("Fishing", 20.0 * count)
+        self._advance(4.0 * count)
+        return ok(item=sp["item"], caught=count, spot=sid)
+
+    def agility_course(self, course: str | None = None) -> ActionResult:
+        rows = [(math.dist(v["position"], self.pos), k, v) for k, v in self.courses.items()
+                if course in (None, k) or str(course).lower() == v["name"].lower()]
+        if not rows:
+            return fail(Reason.NOTHING_IN_RANGE, detail="I can't see an agility course near me.")
+        _, cid, c = min(rows, key=lambda x: x[0])
+        self._walk(c["position"], 1.0)
+        self._xp("Agility", c["xp"])
+        self._advance(30.0)
+        return ok(course=cid, name=c["name"], finished=True)
+
+    def _combat_skill(self) -> str:
+        """The held weapon's combat style from the item catalog's range_type (melee | ranged | magic)."""
+        held = self.gear.get("held_right") or next((v for k, v in self.gear.items() if k.startswith("held")), None)
+        style = str((self.cat.get(held) or {}).get("range_type") or "melee") if held else "melee"
+        return {"melee": "Attack", "ranged": "Ranged", "magic": "Magic"}.get(style, "Attack")
+
+    def cast(self, spell: str, target=None) -> ActionResult:
+        res = super().cast(spell, target)
+        if res.get("ok"):
+            self._xp("Magic", 25.0)
+        return res
 
     # ------------------------------------------------------------------ building, containers, farming
 
@@ -590,6 +653,7 @@ class GearWorld(MockGame):
                                              target_class=m["class"], outcome="died"))
                 return fail(Reason.COMPANION_DOWN)
         e.hp, e.alive = 0, False
+        self._xp(self._combat_skill(), 4.0 * max(1, int(m.get("power_level") or 1)) * 10)
         loot = []
         for iid, n in m.get("drops") or []:  # the body's loot reflex picks drops up (or leaves them when full)
             if self._room_for(iid, n):
