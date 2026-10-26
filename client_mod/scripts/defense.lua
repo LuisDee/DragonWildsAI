@@ -118,7 +118,9 @@ function D.threat(info, max_hp)
     local r = S().attacks[key] or {}
     local reach = (info.shape and info.shape.reach_cm) or D.cfg.default_reach_cm
     local lunge = r.lunge_cm or 0
-    local th = { key = key, reach_cm = reach + lunge, lunge_cm = lunge, damage = r.damage, unblockable = info.unblockable,
+    -- a hit taken from farther away than that ("none, out_of_reach" and still hit: live 08:17, a Kebbit
+    -- chasing Claude's retreat) is direct evidence of the reach
+    local th = { key = key, reach_cm = math.max(reach + lunge, r.hit_from_cm or 0), lunge_cm = lunge, damage = r.damage, unblockable = info.unblockable,
                  unparryable = info.unparryable, low = info.shape and info.shape.low, aoe = info.shape and info.shape.aoe }
     local frac = (th.damage and max_hp and max_hp > 0) and th.damage / max_hp or nil
     th.danger = frac and math.min(1, frac / D.cfg.danger_frac) or D.cfg.unknown_danger
@@ -181,7 +183,7 @@ function D.plan(info, ctx, orders, rng)
     local react = cfg.react_s[1] + rng() * (cfg.react_s[2] - cfg.react_s[1])
     local err = (rng() * 2 - 1) * cfg.jitter_s
     local th = D.threat(info, ctx.max_hp)
-    local p = { impact_s = T, src = src, key = key, threat = th }
+    local p = { impact_s = T, src = src, key = key, threat = th, dist_cm = ctx.dist_cm }
     local style = orders.defense or "auto"
     if style == "none" then p.action, p.why = "none", "orders"; return p end
     if ctx.dist_cm and ctx.dist_cm > th.reach_cm + cfg.reach_margin_cm then p.action, p.why = "none", "out_of_reach"; return p end
@@ -350,8 +352,9 @@ end
 
 -- Outcome of a planned defence: parried | blocked | hit | avoided | whiff. Adapts the parry offset
 -- and the bandit arm of the chosen response. damage = what Claude took (for the hit reward).
-function D.feedback(key, action, outcome, damage)
+function D.feedback(key, action, outcome, damage, dist_cm)
     local r = rec(key)
+    if outcome == "hit" and dist_cm and dist_cm > 0 and dist_cm < 3000 then r.hit_from_cm = math.max(r.hit_from_cm or 0, dist_cm) end
     local s = S()
     if r[outcome] then r[outcome] = r[outcome] + 1 end
     if s.counts[outcome] then s.counts[outcome] = s.counts[outcome] + 1 end

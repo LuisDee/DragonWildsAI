@@ -55,6 +55,7 @@ M.cfg = {
     special_gap_s = 6,
     telegraph_m = 6, telegraph_fresh_s = 1.0,
     disengage_m = 10,        -- back off this far to eat (orders.disengage)
+    conversation_retry_s = 2.0, conversation_leave_s = 5.0, -- leaving an NPC dialogue for a fight (talk finding 8)
     move_axes = "xy",
     ranged_max_m = 25,       -- ranged: shoot from up to this far (shrinks when out of the projectile's range)
     ranged_keep_m = 12,      -- ... and close in to about this when farther
@@ -742,6 +743,58 @@ function M.emit_activity(ev)
     if fh then fh:write(line, "\n"); fh:close() end
 end
 
+-- Leaving an NPC conversation because a fight needs the controls (talk review finding 8). Through the talk
+-- module, the conversation's owner: talk.stop(why) ends a running talk job with that reason (its result says
+-- why), then talk.start{leave = true} presses the dialogue panel's own Cancel as the modal's owner and verifies
+-- it closed. Without talk: the panel's CancelInputAction through input.inject as the "conversation" modal.
+-- Never IA_UI_GenericBack. One "conversation_interrupted" activity event (first attempt) says who and why.
+local function talk_mod()
+    local inst = rawget(_G, "__dwc_bridge")
+    local api = inst and inst.module and inst.module.API
+    local t = api and api.module and U.try(function() return api.module("talk") end)
+    if type(t) == "table" then return t end
+    return mod("talk")
+end
+M._talk_mod = talk_mod
+function M.leave_conversation(F, attempt)
+    local pc = F.pc
+    local npc = pc and U.short(U.try(function() return pc.ConversationComponent.CurrentNPC end))
+    F.conv_npc = F.conv_npc or npc
+    local why = (F.by == "reflex" or F.mode == "reflex") and "attacked" or "fight_ordered"
+    local talk = talk_mod()
+    local via, r
+    if type(talk) == "table" and type(talk.start) == "function" then
+        if type(talk.stop) == "function" then
+            pcall(talk.stop, F.log, why == "attacked" and ("attacked by " .. tostring(F.target_name)) or ("fight ordered: " .. tostring(F.target_name)))
+        end
+        local ok, rr = pcall(talk.start, F.log, { leave = true })
+        r = ok and rr or { ok = false, reason = tostring(rr) }
+        via = "talk"
+    end
+    if not (type(r) == "table" and r.ok) then
+        local inp = mod("input")
+        local panel
+        for _, p in ipairs(U.find_all("ConversationMainPanel", { skip_defaults = true }) or {}) do if U.valid(p) then panel = p; break end end
+        local cancel = panel and U.try(function() return panel.CancelInputAction end)
+        if U.valid(cancel) and inp and inp.inject then
+            if inp.claim then pcall(inp.claim, "conversation", "combat") end
+            local ok, pressed = pcall(inp.inject, cancel, nil, { modal = "conversation" })
+            if inp.release then pcall(inp.release, "conversation") end
+            via = (ok and pressed) and "panel_cancel" or via or "none"
+        else
+            via = via or "none"
+        end
+    end
+    F.conv_via = via
+    say(F.log, string.format("conversation with %s: leaving (%s, attempt %d, via %s)", tostring(F.conv_npc), why, attempt or 1, tostring(via)))
+    if (attempt or 1) == 1 then
+        M.emit_activity({ kind = "conversation_interrupted", by = F.by or "unknown", why = why, npc = F.conv_npc,
+                          attacker = F.target_name, attacker_id = F.target_id, via = via,
+                          talk_reason = type(r) == "table" and not r.ok and (r.reason or (r.data and r.data.why)) or nil })
+    end
+    return via
+end
+
 local function cdo_of(class_path)
     if type(class_path) ~= "string" then return nil end
     local pkg, name = class_path:match("^(.*)%.([%w_]+)$")
@@ -893,7 +946,12 @@ local function step_equip(F, pawn)
         local enemy = { name = F.target_name, affinities = F.affinities }
         local pick = M.best_weapon(list, enemy, nil, C().learned)
         local items = M.weapons().items or {}
-        if F.weapon_pref then
+        if F.weapon_pref == "held" then
+            -- fight with whatever is in his hands now (bare hands included): no swap
+            local hr, hl = held_items(pawn)
+            local hid = hr or hl
+            pick = { weapon = hid and { entry = { item = hid }, profile = items[hid] or {}, score = 0 } or nil }
+        elseif F.weapon_pref then
             -- the model chose the weapon (attack.weapon): name or id of an item he carries
             local inv = mod("inventory")
             local e = inv and inv.find and inv.find(list, F.weapon_pref)
@@ -1215,7 +1273,7 @@ local function finish_defend(F)
         local dx, dy = d.apos_end.X - d.apos_tel.X, d.apos_end.Y - d.apos_tel.Y
         D.observe_lunge(d.key, math.sqrt(dx * dx + dy * dy))
     end
-    if D then D.feedback(d.key, act, outcome, d.hit_amt) end
+    if D then D.feedback(d.key, act, outcome, d.hit_amt, d.plan.dist_cm) end
     if act == "dodge" and d.pos0 and d.apos0 and F.me_pos then
         local fx, fy = d.apos0.X - d.pos0.X, d.apos0.Y - d.pos0.Y
         local l = math.max(math.sqrt(fx * fx + fy * fy), 1)
@@ -1235,7 +1293,7 @@ local function finish_defend(F)
                        plan_at = d.plan.at_s, why = d.plan.why, moved = d.moved }
     if d.moved then say(F.log, string.format("dodge %s moved toward %+dcm right %+dcm", tostring(d.moved.dir), d.moved.toward_cm, d.moved.right_cm)) end
     F.def, F.hold, F.evade_dir, F.evade_until, F.move_inject = nil, nil, nil, nil, nil
-    set_phase(F, "engage", "defended " .. outcome)
+    set_phase(F, F.dis and "disengage" or "engage", "defended " .. outcome)
 end
 
 local function my_evading(pawn)
@@ -1349,7 +1407,7 @@ local function step_defend(F, pawn, me, acts)
     if F.evade_until and F.t >= F.evade_until then F.evade_dir, F.evade_until = nil, nil end
     if d.jump_release and F.t >= d.jump_release then pcall(function() pawn:StopJumping() end); d.jump_release = nil end
     if d.started and (plan.input or plan.action) == "dodge" and not d.evaded and F.t - d.started < 0.6 then d.evaded = my_evading(pawn) end
-    if d.st_dodge and d.started and F.t - d.started > 0.6 and me.stamina then
+    if d.st_dodge and d.started and F.t - d.started > 0.3 and me.stamina then
         local cost = d.st_dodge - me.stamina
         if cost > 1 and cost < 60 then c.evade_cost = c.evade_cost and (c.evade_cost * 0.7 + cost * 0.3) or cost end
         d.st_dodge = nil
@@ -1602,6 +1660,19 @@ local function step_ranged(F, pawn, me, acts, tgt)
 end
 M._step_ranged = step_ranged
 
+-- Stamina kept back for the defence the orders and gear allow (live dev 08:01-08:02: with 40 max
+-- stamina, attacking down to the fixed reserve left no stamina for the next dodge -> "retreat" -> hit).
+function M.defence_reserve(F)
+    local c = C()
+    local r = M.cfg.stamina_reserve
+    local d = M.orders.defense or "auto"
+    local cap = F.cap or {}
+    local dodge_first = d == "dodge" or (d == "auto" and not cap.can_block and not cap.can_parry)
+    if dodge_first then r = math.max(r, (c.evade_cost or 15) + 5) end
+    if (d == "block" or d == "parry" or d == "auto") and cap.can_block then r = math.max(r, (cap.block_cost or 10) + 5) end
+    return r
+end
+
 local function step_engage(F, pawn, me, acts, tgt)
     local cfg = M.cfg
     local d_m = F.dist_m
@@ -1645,6 +1716,13 @@ local function step_engage(F, pawn, me, acts, tgt)
         local pp = F.pending_press
         F.pending_press = nil
         local spent = pp.stamina and me.stamina and me.stamina < pp.stamina - 0.5
+        if spent then -- what a swing really costs with this weapon (bare hands have no catalog row)
+            local cost = pp.stamina - me.stamina
+            local c = C()
+            c.press_cost = c.press_cost or {}
+            local k = (F.profile and F.profile.name) or "hands"
+            c.press_cost[k] = c.press_cost[k] and (c.press_cost[k] * 0.7 + cost * 0.3) or cost
+        end
         local hit = F.hits > pp.hits
         if spent or hit then F.verified, F.unverified_run = F.verified + 1, 0
         else F.unverified_run = F.unverified_run + 1 end
@@ -1673,7 +1751,8 @@ local function step_engage(F, pawn, me, acts, tgt)
         tap(F, acts.special, cfg.tap_frames, "special")
         F.last_special = F.t
         F.next_press = F.t + (spec.next_ms or 1200) / 1000 + jitter(cfg.press_jitter_ms)
-    elseif (me.stamina or 0) >= cfg.stamina_reserve + (prim.stam or 0) and acts.primary then
+    elseif (me.stamina or 0) >= M.defence_reserve(F) + (prim.stam or ((C().press_cost or {})[(F.profile and F.profile.name) or "hands"]) or 10)
+        and acts.primary then
         tap(F, acts.primary, cfg.tap_frames, "primary")
         F.next_press = F.t + (prim.next_ms or 900) / 1000 + jitter(cfg.press_jitter_ms)
     else
@@ -1818,11 +1897,27 @@ local function frame(F)
         if ping and ping > 0 then F.latency = ping / 2000 end
     end
     if me.dead then return finish(F, result_of(F, false, "companion_down", { died = true })) end
+    if F.heal_pending and F.t - F.heal_pending.t >= 2.5 and F.phase ~= "disengage" and F.phase ~= "flee" then
+        M._try_eat(F, me, false) -- (verifies the pending bite; eats again only below eat_hp)
+    end
     if F.t - F.t0 > M.cfg.fight_timeout_s then return finish(F, result_of(F, false, "timeout")) end
     local acts = actions(pawn)
     local mode = U.short(U.try(function() return pc.CurrentInputMode end))
     F.input_mode = mode
-    if mode and mode ~= "DIM_Gameplay" and not F.casting then
+    local in_conv = mode and mode:find("Conversation", 1, true) ~= nil
+    if in_conv and not F.casting then
+        -- a dialogue (talk review finding 8): never the generic back key; leave through talk (its own verified
+        -- leave: the panel's Cancel as the conversation's owner), at most twice, and say why
+        F.mode_bad_since = F.mode_bad_since or F.t
+        if (F.conv_leaves or 0) < 2 and F.t - (F.conv_leave_t or -9) >= M.cfg.conversation_retry_s then
+            F.conv_leave_t, F.conv_leaves = F.t, (F.conv_leaves or 0) + 1
+            M.leave_conversation(F, F.conv_leaves)
+        end
+        if F.t - F.mode_bad_since > M.cfg.conversation_leave_s then
+            return finish(F, result_of(F, false, "body_error", { why = "conversation_blocked", mode = mode, npc = F.conv_npc,
+                via = F.conv_via, detail = "the conversation did not close, so gameplay inputs do not work" }))
+        end
+    elseif mode and mode ~= "DIM_Gameplay" and not F.casting then
         F.mode_bad_since = F.mode_bad_since or F.t
         if F.t - (F.mode_press_t or -9) >= 0.5 and (F.mode_presses or 0) < 4 then
             -- leave it the way a player does: the mode's own back/cancel key (Escape)
@@ -1842,7 +1937,13 @@ local function frame(F)
             return finish(F, result_of(F, false, "body_error", { why = "input_mode_blocked", mode = mode,
                 detail = "stuck in " .. tostring(mode) .. "; gameplay inputs do not work there" }))
         end
-    else F.mode_bad_since, F.mode_presses = nil, 0 end
+    else
+        if F.conv_leaves and not F.conv_closed then
+            F.conv_closed = true
+            say(F.log, "conversation closed (" .. tostring(F.conv_via) .. ")")
+        end
+        F.mode_bad_since, F.mode_presses = nil, 0
+    end
     if F.following then -- the follow may have ended on its own (stuck, target lost): start it again when needed
         local st = mcall("move", "status")
         if type(st) == "table" and st.mode ~= "follow" then F.following = false end
@@ -1941,8 +2042,7 @@ local function frame(F)
     if F.phase == "approach" or F.phase == "disengage" then
         for id, tt in pairs(c.telegraphs) do
             if F.t - tt <= M.cfg.telegraph_fresh_s and tt > (F.last_tele or 0) and id == F.target_id and (F.dist_m or 99) <= M.cfg.telegraph_m then
-                F.dis = nil
-                return M._start_defend(F, me, id, tt, (c.tele_info or {})[id])
+                return M._start_defend(F, me, id, tt, (c.tele_info or {})[id]) -- F.dis is kept: back to it after
             end
         end
     end
@@ -2517,7 +2617,7 @@ do
             description = "Fight a creature until it dies, defending per combat_orders (never players). data.assessment estimates the fight.",
             args = { type = "object", required = { "target" }, properties = obj({
                 target = { type = "string", description = "Creature id, or a name (nearest)." },
-                weapon = { type = "string", description = "Carried item to fight with, e.g. a crossbow; default best melee." },
+                weapon = { type = "string", description = "Carried item to fight with (e.g. a crossbow), or held = what is in hand now; default best melee." },
                 style = STYLE,
                 force = { type = "boolean", default = false, description = "Ignore flee_hp for this fight." } }) },
             ground = obj({ target = "creature" }),

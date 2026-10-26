@@ -1738,6 +1738,20 @@ Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probe
 - **ClaudeDev:** total level 12 (Attack 1), so `PerkV2_Attack_Parry` (Attack 5) and the specials (Attack 8) are locked.
 - **The Stone Logging Axe's block action (`PA_Block_PickAxe`) cannot parry.**
 
+### Dev-world combat live M1 (2026-10-26 07:55-08:21 UTC, client build 26162923, server build 26161880, ClaudeDev vs spawned Kebbits; combat agent; docs/design/combat-basics-live.md §4)
+- **Equip check:** shield goes to the left hand; dagger to the right, actor `BP_Dagger_Bone_C`; the Stone Logging Axe (two-handed) shows in **HeldLeft**, actor `BP_Logging_Axe_Stone_C`. `unequip {slot = HeldRight}` was verified. `unequip {item}` through the bridge hit the bridge's own `R.unequip` route, not skills' verified `HANDLERS.unequip`.
+- **Dodges (server `PredictPointDamage ... evaded`):** run 1 evaded 2/4 (both directions measured: left gives right_cm about -250, right about +200), run 5 evaded 23/24, run 7 evaded 10/14. Runs 2-4 had too few attacks, or he retreated when stamina ran low (max stamina 40). Fixed by `defence_reserve`, which keeps stamina for the next dodge, plus the learned swing cost.
+- **Disengage + eat (orders `{defense="auto", disengage=true, heal_hp=0.5, reengage_hp=0.8}`, HP set to 40%), 3 passes:**
+  - 08:0x: healed 33 -> 63 -> 93 and re-engaged.
+  - 08:17: a telegraph arrived mid-disengage, so he defended, went back to the disengage, ate, and the heal 33 -> 63 was verified during the loot phase.
+  - 08:20: healed 40 -> 63, then won.
+  - **Bug found and fixed:** live at 08:11, a defence started from the disengage cleared `F.dis`, so the bite was never verified. Now the disengage survives a defence, and a pending bite is verified on every tick in any phase (test 11b).
+  - On a Kebbit, the disengage usually ends with `enemy_closed_in`, because a chasing Kebbit keeps up.
+- **First server-confirmed block:** `will receive 0.000000 damage` at 08:20 (the Tempest Shield follow-up). Tempest Shield was cast live through `spells.cast_now` (abilities `{tempest_shield: 1}`) in runs 1 and 3.
+- **Reach underestimate:** a "none (out_of_reach)" plan was hit twice while retreating, because the Kebbit chases. `defense.feedback` now records `hit_from_cm`, and `threat.reach_cm` is at least that distance.
+- **Parry perk:** `PerkV2_Attack_Parry` read as unlocked at 08:16 (total level 32).
+- **False "hangs" (ops, not combat):** the client watchdog (pid 4228, started 2026-10-25 23:09 UTC) kept the **old** `Invoke-ClientCmd` in memory. That version writes `wd_boot_probe.lua` but never appends it to `client_io/cmd/queue.txt`; the queue runner went live at 07:41 UTC. So every watchdog probe timed out, and about 4 minutes after each boot it declared a hang and killed a healthy client: 08:04-08:08, 08:13:10 and 08:17:54, with `mod_log_age_s` 0-2 s. Evidence: no `ran wd_boot_probe` in client.log between boots, while `m1_*` commands ran. Fix: restart the watchdog (`tools/start_client_watchdog.ps1`) so it loads the current `client_lib.ps1`.
+
 ## Skills probe P1: fishing, agility, runecrafting actors (2026-10-26 ~08:45 UTC, dev world, client build 26162923, ClaudeDev; read-only `client_mod/commands/skills_probe_p1.lua`; design `docs/design/every-skill-coverage.md`)
 **Fishing nodes.**
 - 11 `FishingNodeV2` actors were in client relevance. Classes are `BP_FishingNodeV2_Net_Brynmoor_C` / `BP_FishingNodeV2_Rod_Brynmoor_C`; the nearest was 27 m from the spawn area.

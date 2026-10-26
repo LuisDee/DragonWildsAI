@@ -568,6 +568,13 @@ do
     check("plan: jump disallowed by orders -> dodge", Dm.plan({ key = "Troll:Sweep", dmg_time = 1.0, unblockable = true, shape = sweep }, ctx, { allow_jump = false }, fixed).action == "dodge")
     local far = Dm.plan(info, with("dist_cm", 900), {}, fixed)
     check("plan: out of reach -> none", far.action == "none" and far.why == "out_of_reach")
+    do -- "none, out_of_reach" and still hit from there: the reach grows to that distance (live 08:17)
+        local hop = { key = "Kebbit:Hop", dmg_time = info.dmg_time, shape = info.shape }
+        local p1 = Dm.plan(hop, with("dist_cm", 900), {}, fixed)
+        Dm.feedback(hop.key, p1.action, "hit", 7, p1.dist_cm)
+        local p2 = Dm.plan(hop, with("dist_cm", 900), {}, fixed)
+        check("plan: a hit taken from 9 m makes 9 m in reach", p1.why == "out_of_reach" and p2.action ~= "none", p2.action .. " " .. tostring(p2.why))
+    end
     check("plan: orders dodge", Dm.plan(info, ctx, { defense = "dodge" }, fixed).action == "dodge")
     check("plan: orders none", Dm.plan(info, ctx, { defense = "none" }, fixed).action == "none")
     check("plan: low hp prefers dodge", Dm.plan(info, with("hp_frac", 0.3), {}, fixed).action == "dodge")
@@ -674,6 +681,27 @@ do
     local healed = 0
     for _, l in ipairs(read_activity()) do if l:find('"kind":"healed"', 1, true) then healed = healed + 1 end end
     check("heal: healed activity events", healed >= 3, healed)
+    Cm.stop(nil, "test")
+    A.reset(nil)
+end
+
+-- ================================================================ 11b. a telegraph mid-disengage: defend, then back to the disengage (live 08:11 dropped it)
+reset_world()
+do
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local gob = new_creature("BP_AI_RuntGoblin_Character_C_heal2", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    check("heal+defend: fight starts", Cm._start_fight(nil, gob, { mode = "attack", force = true }).ok)
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    pawn.hp = 40
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "disengage" end, 2)
+    world.resolved, world.result = nil, nil
+    goblin_attack(gob, 0.9)
+    check("heal+defend: defends the telegraph", run_until(function() local f = Cm._state().fight; return f and f.phase == "defend" end, 1))
+    run_until(function() return world.resolved end, 3)
+    local f = Cm._state().fight
+    local back = run_until(function() local g = Cm._state().fight; return g and g.phase ~= "defend" end, 3)
+    check("heal+defend: back to the disengage after the defence", back and (Cm._state().fight.phase == "disengage" or pawn.hp >= 80), Cm._state().fight and Cm._state().fight.phase)
+    check("heal+defend: re-engages once healed", run_until(function() local g = Cm._state().fight; return g and (g.phase == "approach" or g.phase == "engage") and pawn.hp >= 80 end, 60), pawn.hp)
     Cm.stop(nil, "test")
     A.reset(nil)
 end
@@ -1102,6 +1130,67 @@ do
     pc.CurrentInputMode = nil
     StaticFindObject = real_sfo
     Cm.set_modules({ input = false })
+    A.reset(nil)
+end
+
+-- ================================================================ 20b. attacked mid-conversation (talk review finding 8): leave through talk, say why
+reset_world()
+do
+    _G.DWInput = nil
+    local inp = assert(loadfile(root .. "/client_mod/scripts/input.lua"))()
+    local back = obj({}, "InputAction /Game/Gameplay/Inputs/Actions/UI/IA_UI_GenericBack.IA_UI_GenericBack")
+    local real_sfo = StaticFindObject
+    StaticFindObject = function(path) if path:find("IA_UI_GenericBack", 1, true) then return back end return real_sfo(path) end
+    local TK = { stops = {}, leaves = 0 }
+    local fake_talk = {
+        stop = function(_, why) TK.stops[#TK.stops + 1] = why; return { ok = true } end,
+        start = function(_, args)
+            if args and args.leave then TK.leaves = TK.leaves + 1; if TK.refuse then return { ok = false, reason = "not_implemented", data = { why = "no_dialogue_ui" } } end
+                pc.CurrentInputMode = nil; return { ok = true } end
+            return { ok = false }
+        end }
+    Cm.set_modules({ input = inp, talk = fake_talk })
+    local function converse()
+        pc.CurrentInputMode = obj({}, "DominionInputMode /Game/Inputs/DIM_ConversationUI")
+        pc.ConversationComponent = { CurrentNPC = obj({}, "BP_NPC_C /Game/L.L:PersistentLevel.BP_NPC_Ilya_C_1") }
+    end
+    converse()
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local gob = new_creature("BP_AI_RuntGoblin_Character_C_conv", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 60, pl = 1, arch = 0 })
+    local n0 = #read_activity()
+    check("conv: fight starts", Cm._start_fight(nil, gob, { mode = "attack", force = true, by = "reflex" }).ok)
+    run_until(function() return Cm._state().fight == nil end, 20)
+    local res = Cm._state().last.result
+    check("conv: never the generic back key in a dialogue", (world.injected.IA_UI_GenericBack or 0) == 0, world.injected.IA_UI_GenericBack)
+    check("conv: the talk job is stopped with the reason", TK.stops[1] == "attacked by Goblin Runt", TK.stops[1])
+    check("conv: left through talk's own leave, once", TK.leaves == 1, TK.leaves)
+    local ev
+    local acts = read_activity()
+    for i = n0 + 1, #acts do if acts[i]:find('"kind":"conversation_interrupted"', 1, true) then ev = acts[i] end end
+    check("conv: a conversation_interrupted event says why and with whom", ev and ev:find('"why":"attacked"', 1, true) and ev:find('"npc":"BP_NPC_Ilya_C_1"', 1, true)
+          and ev:find('"via":"talk"', 1, true) and ev:find('"attacker":"Goblin Runt"', 1, true), ev)
+    check("conv: then the fight goes on and wins", res and res.ok and gob.hp <= 0, res and res.reason)
+    -- talk cannot leave: the panel's own Cancel (as the conversation modal), then a truthful failure if it stays open
+    reset_world()
+    converse()
+    TK.refuse, TK.leaves, TK.stops = true, 0, {}
+    local cancel = obj({}, "InputAction /Game/UI/Conversation/IA_Conversation_Cancel.IA_Conversation_Cancel")
+    local panel = obj({ CancelInputAction = cancel }, "ConversationMainPanel_C /Engine/Transient.ConversationMainPanel_C_1")
+    local real_find = FindAllOf
+    FindAllOf = function(cls) if cls == "ConversationMainPanel" then return { panel } end return real_find(cls) end
+    local gob2 = new_creature("BP_AI_RuntGoblin_Character_C_conv2", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 60, pl = 1, arch = 0 })
+    check("conv2: fight starts", Cm._start_fight(nil, gob2, { mode = "attack", force = true, by = "brain" }).ok)
+    run_until(function() return Cm._state().fight == nil end, 12)
+    local res2 = Cm._state().last.result
+    check("conv2: the panel's Cancel is pressed (no generic back)", (world.injected.IA_Conversation_Cancel or 0) >= 1 and (world.injected.IA_UI_GenericBack or 0) == 0,
+          tostring(world.injected.IA_Conversation_Cancel) .. " " .. tostring(world.injected.IA_UI_GenericBack))
+    check("conv2: a stuck dialogue fails loudly", res2 and res2.reason == "body_error" and res2.data.why == "conversation_blocked" and res2.data.npc == "BP_NPC_Ilya_C_1", res2 and res2.data and res2.data.why)
+    check("conv2: a commanded fight says fight_ordered", TK.stops[1] == "fight ordered: Goblin Runt", TK.stops[1])
+    check("conv2: no attack while the dialogue stays open", (world.injected.IA_PrimaryAction or 0) == 0)
+    FindAllOf = real_find
+    pc.CurrentInputMode, pc.ConversationComponent = nil, nil
+    StaticFindObject = real_sfo
+    Cm.set_modules({ input = false, talk = false })
     A.reset(nil)
 end
 
