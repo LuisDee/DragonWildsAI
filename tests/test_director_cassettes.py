@@ -32,6 +32,8 @@ REJECTED_SINCE = {
     "better_pickaxe": "kind must be one of action, perception, knowledge",
     "coal_multitrip": "kind must be one of action, perception, knowledge",
     "farm_mob_drop": "kind must be one of action, perception, knowledge",
+    # recorded when the prompt listed tools without their argument names: Sonnet guessed gather(kind=...)
+    "mining_run_home_chest": "first_call args don't fit gather",
 }
 
 

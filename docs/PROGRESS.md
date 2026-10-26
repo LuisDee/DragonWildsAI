@@ -275,3 +275,28 @@
   | wait steps + first_call | 0.0 s | 2.0 s | 11 | 4 | 444.2 s |
 
   - Idle is 30%, all of it the crop growing; longest non-wait idle 0.25 s. Wait steps count as `step wait` in obs, not dead time (observability agent).
+
+## 2026-10-26 Director: first_call with real Sonnet + preconditions from a fresh character
+- **Real Sonnet** (5 requests; cassette mining_run_home_chest):
+  - It set first_call on 2 of 4 steps: buildables (a read, so the Controller turn does it) and gather {"kind": "Copper Ore"}.
+  - The gather args are wrong: the arg is `resource`.
+  - Root cause: the Director's tool list had descriptions only, with no argument names.
+  - Fixes:
+    - the tool list now shows each tool's args from the manifest (`gather(resource*, count*, …)`);
+    - the Validator checks first_call args against the tool's schema and sends a mismatch back for repair with the reason.
+  - The cassette replays as "rejected since".
+- **Preconditions on a fresh dev character**, checked against the real knowledge index (tests/test_director_preconditions.py).
+  - Reachable from data:
+    - Crafting Table: 4 Ash Logs;
+    - Stone Pickaxe;
+    - Bone Pickaxe for copper and tin (tier 2);
+    - Wooden Spade: Ash Logs + Coarse Thread;
+    - Coarse Thread: Spinning Wheel, flax or coarse fur;
+    - Spinning Wheel: unlocked by the first flax;
+    - Farming: opened by Growing Pains;
+    - Kiln costs: clay, fire runes;
+    - Grindstone costs: granite, iron bars.
+  - Gaps, as strict xfails:
+    - the kiln and grindstone unlock sentences don't reach the top 5;
+    - no data names the home-chest storage piece or its unlock (dev: no chest unlocked).
+  - buildables is now readable during Director research (PROXIED_READS).

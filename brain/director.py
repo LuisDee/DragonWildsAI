@@ -60,7 +60,7 @@ REVIEW_EVERY_S = 300.0
 REFLECT_RATIO = 0.7
 REFLECT_EVERY_LOOPS = 3
 LEARN_MIN_WINDOW = 0.3  # skill learning only with >= 30 % of the hour's window left
-PROXIED_READS = ("craft_plan", "recipes", "stations")
+PROXIED_READS = ("craft_plan", "recipes", "stations", "buildables")
 # What spends the task's progress budget (brain/board.PROGRESS_BUDGET): work that moved nothing.
 SPEND = {"run": 1.0, "uncounted_run": 0.25, "failed": 1.0, "decision": 1.0, "loop_no_gain": 2.0}
 NO_CURRENT_STEP = "no_current_step"  # report_step outside a board run
@@ -345,6 +345,15 @@ def effects_of(rec: dict) -> dict:
     return out
 
 
+def _arg_list(schema: dict | None) -> str:
+    """'(resource*, count*, radius)' from a tool's argument schema (* = required), for the prompt's tool list."""
+    props = (schema or {}).get("properties") if isinstance(schema, dict) else None
+    if not isinstance(props, dict) or not props:
+        return "()" if schema else ""
+    req = set(schema.get("required") or [])
+    return "(" + ", ".join(f"{k}{'*' if k in req else ''}" for k in props) + ")"
+
+
 def _progress_measures(meas: dict[str, float]) -> dict[str, float]:
     """No-progress uses the step's own work measures; a carried count (have:) only when nothing else exists
     (re-check 9: a drop and pick-up of the same items is not progress)."""
@@ -416,6 +425,9 @@ PROXY_TOOL_DOCS = {
     "recipes": _fn("recipes", "Recipes: for an item (every recipe and its status) or a station type.",
                    {"item": {"type": "string"}, "station": {"type": "string"}}),
     "stations": _fn("stations", "Crafting and processing stations near him and their state.", {}),
+    "buildables": _fn("buildables", "Pieces he can build now (unlocked): name, material cost, what he still lacks. A "
+                      "station he needs and doesn't have is often a piece to build.",
+                      {"about": {"type": "string"}, "can_build_now": {"type": "boolean"}}),
 }
 
 
@@ -557,8 +569,10 @@ class Validator:
     one advisory round (llm_json, simplify item 4)."""
 
     def __init__(self, kind: str, state: dict, task: dict, items: P.Items | None = None, places: dict | None = None,
-                 research_left: Callable[[], bool] = lambda: True, tools: set[str] | None = None):
+                 research_left: Callable[[], bool] = lambda: True, tools: set[str] | None = None,
+                 tool_args: dict[str, dict] | None = None):
         self.tools = set(tools or ())  # his body tools (a first_call must name one)
+        self.tool_args = dict(tool_args or {})
         self.kind, self.state, self.task = kind, state, task
         self.research_left = research_left  # unknown facts are worth an advisory only while he can still look
         self.places = places or {}
@@ -619,6 +633,14 @@ class Validator:
                 first = None
             if first is not None:
                 first = {"tool": first["tool"], "args": first.get("args") if isinstance(first.get("args"), dict) else {}}
+                schema = self.tool_args.get(first["tool"])
+                if schema:
+                    try:  # the body's own argument schema (the gate it will meet anyway): the model hears why now
+                        jsonschema.validate(first["args"], schema)
+                    except jsonschema.ValidationError as exc:
+                        errs.append(f"steps[{i}].first_call args don't fit {first['tool']}{_arg_list(schema)}: "
+                                    f"{exc.message[:200]}")
+                        first = None
             if pred is None:
                 continue
             r = P.evaluate(pred, self.state, fresh)
@@ -671,12 +693,14 @@ class Director:
                  body_tools: dict[str, str] | None = None, budget=None, log=None, gaps: GapLog | None = None,
                  map_memory=None, skills=None, skills_registry=None, places: Callable[[], dict] | None = None,
                  per_hour: int | None = None, executor=None, clock: Callable[[], float] = time.time,
-                 hides_start_goal: bool = False, build: str | None = None, items: P.Items | None = None):
+                 hides_start_goal: bool = False, build: str | None = None, items: P.Items | None = None,
+                 tool_args: dict[str, dict] | None = None):
         self.port = port
         self.llm = llm
         self.name = name
         self.knowledge = knowledge
         self.body_tools = dict(body_tools or {})  # name -> description (the body's manifest, for the prompt)
+        self.tool_args = dict(tool_args or {})  # name -> the tool's argument JSON schema (the manifest's own)
         self.budget = budget
         self.log = log
         self.clock = clock
@@ -731,7 +755,9 @@ class Director:
         tools = {n: (e.get("description") or "") for n, e in manifest.items() if e.get("llm") or n in PROXIED_READS}
         if not tools and caps is not None:
             tools = {n: "" for n in getattr(caps, "tools", [])}
-        d = cls(AgentPort(agent, player), llm, store.dir, name=name, knowledge=knowledge, body_tools=tools,
+        args = {n: (manifest.get(n) or {}).get("args") for n in tools
+                if isinstance((manifest.get(n) or {}).get("args"), dict)}
+        d = cls(AgentPort(agent, player), llm, store.dir, name=name, knowledge=knowledge, body_tools=tools, tool_args=args,
                 budget=budget, log=log, map_memory=getattr(agent, "map_memory", None), skills=skills,
                 skills_registry=store.skills, places=store.places,
                 hides_start_goal=True)  # wave 5 eval: with start_goal hidden Haiku put both long jobs on the board
@@ -980,7 +1006,8 @@ class Director:
                 "places": copy.deepcopy(self.places()), "now": self.clock(), "body_tools": dict(self.body_tools)}
 
     def _messages(self, snap: dict) -> list[dict]:
-        tools = "\n".join(f"- {n}: {d}" for n, d in sorted(self.body_tools.items())) or "- (unknown)"
+        tools = "\n".join(f"- {n}{_arg_list(self.tool_args.get(n))}: {d}"
+                          for n, d in sorted(self.body_tools.items())) or "- (unknown)"
         system = SYSTEM.format(name=self.name, tools=tools, predicates=P.SCHEMA_DOC, output=OUTPUT_DOC)
         task = snap["task"]
         user = {"decision": snap["kind"], "what_to_do": KIND_NOTES.get(snap["kind"], KIND_NOTES["plan"]),
@@ -1018,7 +1045,7 @@ class Director:
 
         validator = Validator(snap["kind"], snap["state"], snap["task"], self.items, places=snap.get("places"),
                               research_left=lambda: bool(research.tools()) and rounds[0] < RESEARCH_ROUNDS,
-                              tools=set(self.body_tools))
+                              tools=set(self.body_tools), tool_args=self.tool_args)
         with self._episode("director"):
             messages = self._messages(snap)
             self._log("prompt", component="director", model=getattr(self.llm, "model", "?"), decision=snap["kind"],
