@@ -1884,3 +1884,8 @@ Quick fixtures, logged as quick and not M3 cases: Coarse Net and Ash Rod were gr
 **Starvation.**
 - ClaudeDev died of hunger and thirst at 09:24:08 UTC (sustenance and hydration 0) during this slot. He carried no edible food: the Raw Shrimp are not edible.
 - He respawned at the FTUE start area with 25/75 food and drink.
+- **Fixture `set_time` (verified on dev at 10:4x UTC):** on the server, `BP_InGameTimeActor_C` (`AInGameTimeActor`, implements `IInGameTimeProvider`) provides `GetInGameTime()` → FTimespan `{Ticks}` (1 tick = 100 ns) and `SetInGameTime({Ticks=n})`.
+  - The value is TOTAL in-game time (day 53 at hour 1.1), not the hour of the day. Crop timers are stamped in it, so the fixture only moves the clock forward.
+  - Measured 01:07 → 01:30: `SetInGameTime` took effect immediately, and the clock read 01:35 five seconds later.
+  - The server log at 2026-10-25 22:47 showed `DominionInGameTimeSubsystem: Failed to find an actor that implements IWorldTimeProvider` (a different interface).
+  - Not yet checked: whether the change replicates to the client (`bench_probe.game_hour`).

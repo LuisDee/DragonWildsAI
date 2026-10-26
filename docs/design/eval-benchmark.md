@@ -111,6 +111,19 @@ GOAL.md revisions (c6d9c90, after rev 1) are folded in: spell **use** (§5.2), c
   - All other cases run on ClaudeDev, which is kept as the long-lived main character for M4–M6.
   - `chain:<case>` (capstone stages 2–8 and Velgar) continues a previous case's character. It needs route B (a snapshot/restore of the dev save plus the character JSON, with the server stopped), which is not built, so until then those cases read as a fixture gap.
   - Any character or setup failure gives `unverifiable / fixture_gap`, never a fail.
+- **Fixture `set_time` (verified on dev, 2026-10-26 10:4x UTC):** the server's `BP_InGameTimeActor_C`: `GetInGameTime()` / `SetInGameTime({Ticks})`. FTimespan is the TOTAL in-game time (crop timers are stamped in it), so the clock only moves FORWARD, to the next occurrence of the wanted hour. Verified 01:07 → 01:30, day 53. The probe now reads the client's `game_hour` to check replication; that is confirmed in the next slot.
+- **Fresh state, route B design (snapshot / restore, for capstone chains; not built):**
+  - **What a snapshot is:** `logs/bench/snapshots/<name>/` holds the dev world `.sav`, the character `SaveCharacters/<name>.json` and a manifest (sha256 of both, build, character name and GUID, UTC time, the case that verified it).
+  - **Taking one** (after a stage passes): stop the client, so the character JSON is final. Stop the dev server with `stop_server.ps1`, so the `.sav` is final and not mid-autosave. Copy both, then restart both. That is one server restart per stage, announced on the coordination channel because it ends every agent's dev session.
+  - **Restoring** (before a `chain:` case):
+    1. Stop the client and the server.
+    2. Back up the current folder to `logs/bench/snapshots/_pre_restore_<ts>/`.
+    3. Empty `SaveGames`. Hosts report that the server loads the NEWEST `.sav`, so a stray newer file would win.
+    4. Copy the snapshot `.sav` and the character JSON back, then start the server and boot the client.
+    5. Verify by hash: the character JSON after boot is unchanged, and the referee probe shows the character with its stage-end skills. Any mismatch reads as a fixture gap.
+  - **Risk 1, Steam Cloud:** it keeps only the newest copy and can overwrite a restored character JSON on launch, with or without a conflict prompt. Mitigations: per-game cloud sync OFF for bootymaxer (a Steam client setting: decision for main), and in every case the post-boot hash check.
+  - **Risk 2, world state:** restoring the world `.sav` rolls back everything on dev, including other agents' bases. So restores happen only in an announced dev "capstone window", or on a second dev server instance on port 7778 with its own SaveGames folder, which is cleaner and costs about 1 GB of RAM. Decision for main.
+  - **Reuse:** host panels do exactly this file-level backup and restore (stop, replace, start); there is no in-game save API to call, so this is a copy plus hash script, not a game feature.
 - **M3 `_initiative` (main, 2026-10-26):** `raise_skills` raises the OTHER skills to 10, as scene setup logged with its purpose. The target skill is never touched: devtarget refuses a reply that names it. The predicate stays `xp_gained` + `xp_top`.
 - **Director:** with `DW_DIRECTOR=1`, `evals.bench.devrun` attaches the Director as LiveSession does (director.md §14), with its board, learned skills and knowledge memory in the case's own state directory, and with `DW_WORLD_GUID=dev_bench`. In that mode `--sonnet N` (the Sonnet cap per case) is required, so the plan states it.
 
@@ -524,4 +537,8 @@ Caps exist for cost safety. A case stopped by a cap is `error: budget`, not a ca
   - ImpossibleBench (cheating rate on impossible tasks): https://arxiv.org/abs/2510.20270
   - SWE-bench Verified: https://openai.com/index/introducing-swe-bench-verified/
   - Claude Code `/goal` (the evaluator reads the transcript, runs no commands): https://code.claude.com/docs/en/goal
+  - Dragonwilds server saves (the newest .sav is loaded; stop, replace, start): https://www.gameserverkings.com/knowledge-base/runescape-dragonwilds/worlds-saves-and-backups/
+  - Host Havoc, Dragonwilds backups and restore: https://hosthavoc.com/wiki/game-servers/runescape-dragonwilds/manage-backups
+  - LOGIC Servers, restoring a Dragonwilds server from a backup: https://my.logicservers.com/knowledgebase/650/How-to-restore-your-Dragonwilds-Server-from-a-backup.html
+  - Steam Cloud keeps only the latest save and can overwrite restored files: https://steamcommunity.com/app/1336490/discussions/0/7340374598289299722
 - Decision: **adapt.** Spec from Mindcraft and MineDojo; generator from MCU and OMNI-EPIC; scoring from Crafter, BALROG and τ-bench with Wilson bounds; validity from ABC; contamination control from LiveBench and BIG-bench; judge integrity from the METR and ImpossibleBench lessons. The thin harness is **built** on scenario_run, timeline, the brain JSONL logs and tools.obs. Inspect AI is not adopted: our solver is a whole game session, and Inspect would add a dependency without removing any of our code. Its vocabulary is reused.

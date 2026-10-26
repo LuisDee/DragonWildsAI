@@ -52,6 +52,10 @@ return function(log)
     -- live: Eye of Oculus switches the view to BP_OculusCamera_C; casting enters DIM_SpellcastingMode)
     p.view_target = U.class_word(U.try(function() return pc:GetViewTarget() end))
     p.input_mode = U.short(U.try(function() return pc.CurrentInputMode end))
+    -- in-game hour of day as the CLIENT sees it (the set_time fixture moves the server clock; this checks it replicated)
+    local ta = U.find_all("InGameTimeActor", { skip_defaults = true })[1]
+    local tk = ta and U.try(function() return ta:GetInGameTime().Ticks end)
+    if type(tk) == "number" then p.game_hour = (tk % 864000000000) / 36000000000 end
     for key, spec in pairs({ sustenance = { "SustenanceComponent", "GetCurrentSustenance" },
                              hydration = { "HydrationComponent", "GetCurrentHydration" } }) do
         local c = U.try(function() return pawn[spec[1]] end)

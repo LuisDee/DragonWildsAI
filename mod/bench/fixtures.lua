@@ -16,7 +16,7 @@
 local M = { VERSION = 0 }
 M.VERBS = { "grant", "grant_runes", "unlock", "set_time", "spawn", "reset_skills", "teleport", "clear_area",
             "set_health", "raise_skills", "grant_to_ground", "spawn_tester" }
-M.VERIFIED = { spawn = true, grant = true, grant_runes = true, unlock = true, set_health = true, teleport = true,
+M.VERIFIED = { spawn = true, grant = true, grant_runes = true, unlock = true, set_health = true, teleport = true, set_time = true,
                raise_skills = true }  -- raise_skills: dev 2026-10-26 (Attack 2 -> 3), QUICK variants only  -- live on dev 2026-10-25 (DISCOVERIES "Benchmark referee + fixtures")
 
 local root = (rawget(_G, "__dw_bench_root") or os.getenv("DW_MOD_ROOT") or "."):gsub("\\", "/")
@@ -157,6 +157,32 @@ local function raise_skills(target, args)
     return { ok = all_ok, pending = not all_ok, results = results }
 end
 
+-- set_time (UNVERIFIED until a live run): the server's own time actor. BP_InGameTimeActor_C (AInGameTimeActor, it
+-- implements IInGameTimeProvider) :GetInGameTime() -> FTimespan {Ticks}, :SetInGameTime(FTimespan). FTimespan is the
+-- TOTAL in-game time (crop timers store PlantedInGameTime / NextStageInGameTime in it), so the clock only ever moves
+-- FORWARD: to the next occurrence of the wanted hour of day. A plain {Ticks=n} table is the parameter (a server-local
+-- call, never a Client_* RPC; CLAUDE.md principle 4); 1 tick = 100 ns.
+local TICKS_PER_HOUR = 36000000000
+local function set_time(args)
+    local actor = U.find_all("InGameTimeActor", { skip_defaults = true })[1]
+    if not U.valid(actor) then return { ok = false, error = "no_time_actor" } end
+    local now = U.try(function() return actor:GetInGameTime() end)
+    local ticks = now and U.try(function() return now.Ticks end)
+    if type(ticks) ~= "number" then return { ok = false, error = "time_unreadable" } end
+    local day = 24 * TICKS_PER_HOUR
+    if args.read then return { ok = true, hour = (ticks % day) / TICKS_PER_HOUR, day = math.floor(ticks / day) } end
+    local want = tonumber(args.hours)
+    if not want or want < 0 or want >= 24 then return { ok = false, error = "hours must be in [0, 24)" } end
+    local base = ticks - (ticks % day)
+    local target = base + math.floor(want * TICKS_PER_HOUR)
+    if target <= ticks then target = target + day end
+    local ok, err = pcall(function() actor:SetInGameTime({ Ticks = target }) end)
+    local after = U.try(function() return actor:GetInGameTime().Ticks end)
+    return { ok = ok and type(after) == "number" and after >= target - TICKS_PER_HOUR / 60, error = (not ok) and tostring(err) or nil,
+             before_h = (ticks % day) / TICKS_PER_HOUR, after_h = after and (after % day) / TICKS_PER_HOUR or nil,
+             advanced_h = after and (after - ticks) / TICKS_PER_HOUR or nil }
+end
+
 local function unlock(target, paths)
     local pc = U.controller_of(target)
     local prog = U.valid(pc) and U.try(function() return pc.ProgressComponent end) or nil
@@ -231,6 +257,7 @@ function M.run(log, args)
     end
     if verb == "unlock" then return unlock(target, args.paths) end
     if verb == "raise_skills" then return raise_skills(target, args) end
+    if verb == "set_time" then return set_time(args) end
     if verb == "set_health" then  -- HealthComponent:SetHealth(value, Context): a server-local call with an FString
         local hc = U.try(function() return target.HealthComponent end)
         if not U.valid(hc) then return { ok = false, error = "no_health_component" } end
