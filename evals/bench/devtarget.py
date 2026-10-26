@@ -22,14 +22,17 @@ from typing import Any, Callable
 
 from .hashes import ROOT
 from .observer import Abort
+from .serverlog import ServerLogReferee, merge
 
 REFEREE_LOG = ROOT / "logs" / "bench" / "referee.jsonl"
+RAISE_ROUNDS = 6  # raise_skills: each round closes ~90% of the XP gap (dev, 2026-10-26)
 SETUP_LOG = ROOT / "logs" / "bench" / "fixture_setup.jsonl"  # every fixture call on dev, with its purpose (main 2026-10-26)
 PROBE_CMD = ROOT / "client_mod" / "commands" / "bench_probe.lua"
 # verified kinds (DISCOVERIES 2026-10-25/26): damage carries by + damage_type (v1.1 hooks), deaths by, telegraphs;
 # defended events carry `how` only for dodges seen with the evade tag / parry / block hooks (else a gap); teleport is
 # polled (no `via` yet -> a gap for teleports{via})
-REFEREE_SUPPORTS = frozenset({"item_change", "damage", "death", "telegraph", "defended", "teleport", "spell_actor"})
+REFEREE_SUPPORTS = frozenset({"item_change", "damage", "death", "telegraph", "defended", "teleport", "spell_actor",
+                              "spell_state"})
 RECIPES_GLOB = "recipes_*.json"
 SPELLS_GLOB = "spells_*.json"
 
@@ -61,6 +64,14 @@ def spell_actor_classes() -> list[str]:
             path = m.get("actor_class") or m.get("utility_spell_class")
             if path:
                 out.add(str(path).rsplit(".", 1)[-1])
+    try:  # view actors a spell switches the camera to (Eye of Oculus' BP_OculusCamera_C): short-lived, so polled too
+        eff = json.loads((ROOT / "data" / "spell_effects.json").read_text(encoding="utf-8"))
+        for sp in (eff.get("spells") or eff).values():
+            for e in ((sp or {}).get("proof") or {}).get("effect") or []:
+                if e.get("kind") == "view_target" and e.get("class"):
+                    out.add(str(e["class"]))
+    except (OSError, ValueError, AttributeError):
+        pass
     return sorted(out)
 
 
@@ -95,6 +106,7 @@ class DevTarget:
     referee_log: Path = REFEREE_LOG
     _ref_off: int = 0
     setup_log: list[dict] = field(default_factory=list)
+    server_log: ServerLogReferee = field(default_factory=ServerLogReferee)  # server-authoritative dodges (serverlog.py)
 
     # ---------------------------------------------------------------- guards
     def guard(self, tool: str = "", args: dict | None = None) -> None:
@@ -122,8 +134,10 @@ class DevTarget:
         self._ref_off = self.referee_log.stat().st_size if self.referee_log.exists() else 0
         r = self.server_debug({"part": "referee", "action": "start", "watch": "ClaudeDev",
                                "spell_actor_classes": spell_actor_classes()})
-        if not (r.get("data") or {}).get("result", {}).get("ok"):
+        res = (r.get("data") or {}).get("result") or {}
+        if not res.get("ok"):
             raise Abort(f"referee did not start: {r}")
+        self.server_log.start(res.get("pawn"))  # no pawn name (older referee): the hook events stay the only source
 
     def referee_stop(self) -> None:
         self.server_debug({"part": "referee", "action": "stop"})
@@ -131,7 +145,7 @@ class DevTarget:
     def referee_events(self) -> list[dict]:
         """New referee lines since the last call, in the leaves' shape (`self` = the benchmark character)."""
         if not self.referee_log.exists():
-            return []
+            return merge([], self.server_log.read(), self.server_log.active)
         with open(self.referee_log, "rb") as f:
             f.seek(self._ref_off)
             data = f.read()
@@ -144,7 +158,7 @@ class DevTarget:
                 continue
             if e.get("kind") in REFEREE_SUPPORTS:
                 out.append(e)
-        return out
+        return merge(out, self.server_log.read(), self.server_log.active)
 
     # ---------------------------------------------------------------- fixtures (harness only; dev only)
     def setup(self, verb: str, purpose: str = "case setup", **a) -> dict:
@@ -163,6 +177,11 @@ class DevTarget:
             args.update(a)
         r = self.server_debug(args)
         res = (r.get("data") or {}).get("result") or {}
+        for _ in range(RAISE_ROUNDS if verb == "raise_skills" else 0):  # one step per call: the XP lands a tick later
+            if res.get("ok") or not res.get("pending") or any((x or {}).get("error") for x in (res.get("results") or {}).values()):
+                break
+            time.sleep(1.5)
+            res = ((self.server_debug(args).get("data") or {}).get("result")) or {}
         row = {"t": time.time(), "verb": verb, "args": a, "purpose": purpose, "ok": bool(res.get("ok")), "error": res.get("error")}
         self.setup_log.append(row)
         try:

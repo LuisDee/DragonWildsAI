@@ -1,7 +1,7 @@
 {
  "version": 1,
  "build": "26161880",
- "generated_at": "2026-10-26T07:37:51Z",
+ "generated_at": "2026-10-26T07:48:14Z",
  "source": [
   "data/spells_26161880.json",
   "tools/gen_spell_effects.py LIVE (DISCOVERIES 'Client spells (R2)')",
@@ -25,7 +25,8 @@
   "needs_live_observation": "no observable module in the spell data (Blueprint-only): watch tags / GE / position / targets on a live cast, then add a LIVE entry",
   "view_target": "the camera view target switches to class `class` while the spell is active (data.effects.view_target)",
   "input_mode": "the player input mode while the spell is active contains `contains` (data.effects.mode)",
-  "dodge_distance_gain_m": "a ground dodge travels at least `min` m farther than without the spell (probe not built yet)"
+  "dodge_distance_gain_m": "a ground dodge travels at least `min` m farther than without the spell (probe not built yet)",
+  "spell_state": "the eval referee (server side) emits spell_state `state` inside the cast window (referee v1.4: OculusActive = OculusComponent:IsOculusActive() poll / OculusPawn:Multicast_OnOculusActivated; PersonalInventorySpell = PersonalInventoryComponent:OpenPersonalInventory with Method 1 = Spell; PersonalInventoryToggle = Client_TogglePersonalInventory)"
  },
  "observable": {
   "runes_spent": "cast_reply",
@@ -44,7 +45,8 @@
   "needs_live_observation": false,
   "view_target": "cast_reply",
   "input_mode": "cast_reply",
-  "dodge_distance_gain_m": false
+  "dodge_distance_gain_m": false,
+  "spell_state": "referee"
  },
  "probes": {
   "client_mod/commands/smoke_jump.lua": {
@@ -135,6 +137,16 @@
      }
     ],
     "effect": [
+     {
+      "kind": "spell_state",
+      "state": "PersonalInventorySpell",
+      "observable": "referee"
+     },
+     {
+      "kind": "spell_state",
+      "state": "PersonalInventoryToggle",
+      "observable": "referee"
+     },
      {
       "kind": "input_mode",
       "contains": "FocussedInGameUI",
@@ -1370,6 +1382,11 @@
      }
     ],
     "effect": [
+     {
+      "kind": "spell_state",
+      "state": "OculusActive",
+      "observable": "referee"
+     },
      {
       "kind": "view_target",
       "class": "BP_OculusCamera_C",

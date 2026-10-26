@@ -112,6 +112,7 @@ function M.poll(watch)
         end
     end
     pcall(poll_spell_actors, s, anchor)
+    pcall(M.poll_states, s, anchor)
     if anchor then
         local here = U.loc(anchor)
         for _, a in ipairs(U.find_all(M.CREATURE_CLASS, { skip_defaults = true })) do
@@ -542,6 +543,76 @@ function M.register_hooks_v12()
     return s.hooks3
 end
 
+-- ---------------------------------------------------------------- v1.4: server-visible spell states (spells agent)
+-- Eye of Oculus: the camera actor is client-only, but the pawn's OculusComponent / OculusPawn state replicates; the cast
+-- leaves Oculus 3-5 s later, so it is polled (M.poll) and hooked (Multicast_OnOculusActivated runs on the server too).
+-- Personal Chest: UPersonalInventoryComponent:OpenPersonalInventory(Method, Chest) with Method 1 = Spell
+-- (EPersonalInventoryOpenMethod {Manual=0, Spell=1}), then Client_TogglePersonalInventory goes out to his client.
+--   -> spell_state {who, state = "OculusActive" | "PersonalInventorySpell" | "PersonalInventoryToggle", via}
+M.HOOKS_V13 = {
+    oculus_on = "/Script/Dominion.OculusPawn:Multicast_OnOculusActivated",
+    pinv_open = "/Script/Dominion.PersonalInventoryComponent:OpenPersonalInventory",
+    pinv_toggle = "/Script/Dominion.PersonalInventoryComponent:Client_TogglePersonalInventory",
+}
+
+local function owner_player_name(obj)  -- a component or actor -> the player character it belongs to (owner chain)
+    local o = obj
+    for _ = 1, 4 do
+        if not U.valid(o) then return nil end
+        local cw = U.class_word(o) or ""
+        if cw:find("PlayerCharacter", 1, true) then return U.player_name(o) end
+        local pawn = U.try(function() return o.Pawn end)
+        if U.valid(pawn) then return U.player_name(pawn) end
+        o = U.try(function() return o:GetOwner() end)
+    end
+end
+
+local function state_event(s, obj, state, via)
+    local n = owner_player_name(obj)
+    if n == nil then return end
+    emit("spell_state", { who = n == s.watch and "self" or n, state = state, via = via })
+end
+
+function D.oculus_on(ctx)
+    local s = S()
+    state_event(s, U.try(function() return ctx:get() end), "OculusActive", "hook")
+end
+
+function D.pinv_open(ctx, method_p)
+    local s = S()
+    local m = U.try(function() return method_p:get() end)
+    state_event(s, U.try(function() return ctx:get() end), tonumber(m) == 1 and "PersonalInventorySpell" or "PersonalInventoryManual", "hook")
+end
+
+function D.pinv_toggle(ctx)
+    local s = S()
+    state_event(s, U.try(function() return ctx:get() end), "PersonalInventoryToggle", "hook")
+end
+
+function M.poll_states(s, pawn)
+    if not U.valid(pawn) then return end
+    local oc = U.try(function() return pawn.OculusComponent end)
+    local on = U.valid(oc) and U.try(function() return oc:IsOculusActive() end) == true or false
+    if on and not s.oculus_on then emit("spell_state", { who = "self", state = "OculusActive", via = "poll" }) end
+    s.oculus_on = on
+end
+
+function M.register_hooks_v13()
+    local s = S()
+    if s.hooks4_registered then return s.hooks4 end
+    s.hooks4 = {}
+    for k, path in pairs(M.HOOKS_V13) do
+        local ok, err = pcall(RegisterHook, path, function(ctx, ...)
+            local st = rawget(_G, "__dw_bench_referee")
+            local d = rawget(_G, "__dw_bench_ref_dispatch")
+            if st and st.active2 and d and d[k] then pcall(d[k], ctx, ...) end
+        end)
+        s.hooks4[k] = ok and "ok" or tostring(err)
+    end
+    s.hooks4_registered = true
+    return s.hooks4
+end
+
 rawset(_G, "__dw_bench_ref_dispatch", D)
 
 function M.register_hooks_v11()
@@ -580,9 +651,9 @@ function M.run(log, args)
         end
         return { ok = true, version = M.VERSION, players = players, creatures = creatures, supported = M.SUPPORTED }
     elseif args.action == "hooks" then  -- register the v1.1 hooks (once per server process; dispatch is reloadable)
-        return { ok = true, hooks = M.register_hooks_v11(), hooks_v12 = M.register_hooks_v12() }
+        return { ok = true, hooks = M.register_hooks_v11(), hooks_v12 = M.register_hooks_v12(), hooks_v13 = M.register_hooks_v13() }
     elseif args.action == "start" then
-        if s.handle then return { ok = true, already = true } end
+        if s.handle then return { ok = true, already = true, pawn = U.short(watched_pawn(s.watch)) } end
         s.watch = tostring(args.watch or "Claude")
         s.stop = false
         s.active = false  -- v1 hooks (superseded) stay silent
@@ -597,8 +668,9 @@ function M.run(log, args)
             if s.stop or rawget(_G, "DW_PAUSE") then return end
             pcall(M.poll, s.watch)
         end)
-        emit("referee_start", { watch = s.watch, version = M.VERSION })
-        return { ok = true, started = true }
+        local pawn = U.short(watched_pawn(s.watch))  -- his object name, for the server-log reader (evals/bench/serverlog.py)
+        emit("referee_start", { watch = s.watch, version = M.VERSION, pawn = pawn })
+        return { ok = true, started = true, pawn = pawn }
     elseif args.action == "stop" then
         s.stop = true
         s.active = false

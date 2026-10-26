@@ -16,7 +16,8 @@
 local M = { VERSION = 0 }
 M.VERBS = { "grant", "grant_runes", "unlock", "set_time", "spawn", "reset_skills", "teleport", "clear_area",
             "set_health", "raise_skills", "grant_to_ground", "spawn_tester" }
-M.VERIFIED = { spawn = true, grant = true, grant_runes = true, unlock = true, set_health = true, teleport = true }  -- live on dev 2026-10-25 (DISCOVERIES "Benchmark referee + fixtures")
+M.VERIFIED = { spawn = true, grant = true, grant_runes = true, unlock = true, set_health = true, teleport = true,
+               raise_skills = true }  -- raise_skills: dev 2026-10-26 (Attack 2 -> 3), QUICK variants only  -- live on dev 2026-10-25 (DISCOVERIES "Benchmark referee + fixtures")
 
 local root = (rawget(_G, "__dw_bench_root") or os.getenv("DW_MOD_ROOT") or "."):gsub("\\", "/")
 local U = assert(loadfile(root .. "/body/util.lua"))()
@@ -94,6 +95,68 @@ local function grant(target, path, count)
              path = path, before = before, after = after }
 end
 
+-- raise_skills (QUICK variants only; main cases make him level himself - Luis 2026-10-26).
+-- Route: the server's own SkillComponent:AddXpFromEvent(XPEventRowHandle, Context, Multiplier, bIgnoreModifier) on his
+-- controller, with the row handle READ from the live SkillData.DamageXPEvent property (a copy of a live engine struct,
+-- CLAUDE.md principle 4; never a hand-built handle). Verified on dev 2026-10-26: the XP lands on a later tick (not
+-- readable in the same call) at ~0.8 XP per multiplier unit (Attack: x1 -> +1, x10 -> +8). So the verb is ONE STEP:
+-- it reports the current level/xp and, when below the wanted level, adds (needed - current) * 1.15 multiplier units;
+-- the harness repeats it until every skill reports ok (devtarget.setup, bounded rounds).
+local function skill_rows(sk)
+    local out = {}
+    local arr = U.try(function() return sk.Skills end)
+    if not arr then return out end
+    pcall(function()
+        arr:ForEach(function(_, el)
+            local x = el:get()
+            local d = U.try(function() return x.SkillData end)
+            if U.valid(d) then
+                out[#out + 1] = { name = (U.short(d) or "?"):gsub("^SKILL_", ""), data = d, xp = U.try(function() return x.CurrentXP end) }
+            end
+        end)
+    end)
+    return out
+end
+
+local function raise_skills(target, args)
+    local pc = U.try(function() return target.Controller end)
+    local sk = U.valid(pc) and U.try(function() return pc.SkillComponent end) or nil
+    if not U.valid(sk) then return { ok = false, error = "no_skill_component" } end
+    local want_of = function(name)
+        if type(args.skills) == "table" and args.skills[name] then return tonumber(args.skills[name]) end
+        if args.level and name ~= args.except then return tonumber(args.level) end
+    end
+    local results, all_ok = {}, true
+    for _, r in ipairs(skill_rows(sk)) do
+        local want = want_of(r.name)
+        if want then
+            local d = r.data
+            local res = { level = U.try(function() return sk:GetSkillLevel(d) end), xp = r.xp, want = want }
+            res.ok = (res.level or 0) >= want
+            if not res.ok then
+                local handle = U.try(function() return d.DamageXPEvent end)
+                local need = U.try(function() return sk:GetTotalXPNeededForLevel(want) end)
+                res.need_total = need
+                local mult = tonumber(args.multiplier)
+                if not mult and need and r.xp then mult = math.max(1, math.ceil((need - r.xp) * 1.15)) end
+                if not handle then
+                    res.error = "no_xp_event_handle"
+                elseif not mult then
+                    res.error = "no_xp_target"
+                else
+                    local ok1, e1 = pcall(function() sk:AddXpFromEvent(handle, "bench_fixture", mult + 0.0, true) end)
+                    res.added = ok1 and mult or nil
+                    res.error = (not ok1) and tostring(e1) or nil
+                end
+            end
+            all_ok = all_ok and res.ok
+            results[r.name] = res
+        end
+    end
+    if next(results) == nil then return { ok = false, error = "no_matching_skill", skills = args.skills } end
+    return { ok = all_ok, pending = not all_ok, results = results }
+end
+
 local function unlock(target, paths)
     local pc = U.controller_of(target)
     local prog = U.valid(pc) and U.try(function() return pc.ProgressComponent end) or nil
@@ -167,6 +230,7 @@ function M.run(log, args)
         return { ok = true, results = out }
     end
     if verb == "unlock" then return unlock(target, args.paths) end
+    if verb == "raise_skills" then return raise_skills(target, args) end
     if verb == "set_health" then  -- HealthComponent:SetHealth(value, Context): a server-local call with an FString
         local hc = U.try(function() return target.HealthComponent end)
         if not U.valid(hc) then return { ok = false, error = "no_health_component" } end

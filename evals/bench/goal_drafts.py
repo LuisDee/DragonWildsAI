@@ -210,7 +210,8 @@ def combat_basics() -> list[Case]:
                provenance={"notes": ["no prerequisites: a dodge needs no item, so there is no quick twin",
                                      "check on dev that the runt telegraphs >= 3 times in 300 s (no weapon: it survives)"]})
     parry = _c(id="goal_basic_parry", tier="T2", family="combat_basic", basic="parry",
-               tags={"evidence": ["referee:defended", "referee:telegraph"], "prerequisites": ["ITEM_Shield_Wood"]},
+               tags={"evidence": ["referee:defended", "referee:telegraph"],
+                     "prerequisites": ["ITEM_Shield_Wood", "Attack 5 (PerkV2_Attack_Parry)"]},
                chat=[{"text": "let's practise parrying on those goblins over there"}],
                forbid_terms=["shield", "log", "wood", "craft", "make", "block"],
                fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": RUNT, "offset_m": [40, 0, 0]}],
@@ -219,12 +220,14 @@ def combat_basics() -> list[Case]:
                controls={"wrong_action": [{"note": "hold block the whole time"}],
                          "partial": [{"note": "makes the shield, never parries"}],
                          "na": {"alt_means": "no other means of a parry"}},
-               limits={"wall_s": 1800, "idle_s": 180, "hints_max": 1, **r3},
-               hints={"ladder": ["how's the practice going?", "you'll want something to parry with",
-                                 "ten ash logs make a wooden shield"]},
+               limits={"wall_s": 5400, "idle_s": 300, "hints_max": 1, **r3},
+               hints={"ladder": ["how's the practice going?", "you'll want something to parry with, and the know-how",
+                                 "ten ash logs make a wooden shield; parrying comes with Attack 5"]},
                oracle={"dev": "scripted:parry_runt_v1"},
                provenance={"source": WIKI + "Wooden_Shield",
                            "notes": ["parry needs an off-hand shield: RECIPE_Shield_Wood = 10 Ash Logs (recipes catalog)",
+                                     "and the PerkV2_Attack_Parry perk at Attack 5 (combat-basics-live.md §1-2): he levels "
+                                     "Attack himself first",
                                      "dev fact: the runt at 40 m must not aggro before he engages (measure the aggro radius)"]})
     dis = _c(id="goal_basic_disengage_heal", tier="T2", family="combat_basic", basic="disengage_heal",
              tags={"evidence": ["probe:creatures", "referee:damage.by", "referee:item_change"], "prerequisites": ["food"]},
@@ -244,9 +247,11 @@ def combat_basics() -> list[Case]:
                                    "measure: does 15 m break runt aggro? do three runts take a fresh character low?"]})
     return [
         dodge, parry,
-        quick(parry, setup=[{"verb": "spawn", "as": "foe", "class": RUNT, "offset_m": [6, 0, 0]},
+        quick(parry, setup=[{"verb": "raise_skills", "skills": {"Attack": 5}, "purpose": "quick: the parry perk level"},
+                            {"verb": "spawn", "as": "foe", "class": RUNT, "offset_m": [6, 0, 0]},
                             {"verb": "grant", "item": "ITEM_Shield_Wood", "count": 1, "purpose": "quick: isolate the parry"}],
-              chat=[{"text": "parry its swings, don't just tank them"}], wall_s=300, note="shield granted, runt at 6 m"),
+              chat=[{"text": "parry its swings, don't just tank them"}], wall_s=300,
+              note="Attack raised to 5 and shield granted, runt at 6 m (check on dev that XP-raised Attack 5 grants the perk)"),
         dis,
         quick(dis, setup=[{"verb": "spawn", "as": "foe", "class": RUNT, "offset_m": [4, 0, 0]},
                           {"verb": "spawn", "class": RUNT, "offset_m": [5, 2, 0]},

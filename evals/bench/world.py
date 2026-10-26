@@ -50,6 +50,7 @@ class BenchWorld(MockGame):
         self.unlocked = set()
         self.tags: dict[str, float] = {}  # tag -> expires at
         self.view_target, self.view_until = "BP_PlayerCharacter_C", -1.0  # camera view actor (Eye of Oculus)
+        self.input_mode, self.mode_until = "DIM_Gameplay", -1.0
         self.ges: dict[str, float] = {}  # GE class -> expires at
         self.cooldowns: dict[str, float] = {}  # spell id -> last cast time (LastCastTimeBySpellData)
         self.actors: list[dict] = []  # spell actors and scene things (felled logs, ledges)
@@ -136,7 +137,7 @@ class BenchWorld(MockGame):
                 "skills": {k: dict(v) for k, v in self.skills.items()},
                 "jump_apex_m": self._jump_apex(),
                 "view_target": self.view_target if self.view_until > now else "BP_PlayerCharacter_C",
-                "input_mode": "DIM_Gameplay"}
+                "input_mode": self.input_mode if self.mode_until > now else "DIM_Gameplay"}
 
     def _jump_apex(self) -> float:
         return NORMAL_JUMP_M + (5.0 if self.tags.get("_jump_boost", -1) > self.time else 0.0)
@@ -271,6 +272,8 @@ class BenchWorld(MockGame):
                 data.update(spell_actor=a["id"], landed_at=a["position"])
             elif k == "view_target":
                 self.view_target, self.view_until = e.get("class"), until
+            elif k == "input_mode":
+                self.input_mode, self.mode_until = "DIM_" + str(e.get("contains") or e.get("mode") or "Gameplay"), until
             elif k == "jump_apex_gain_m":
                 self.tags["_jump_boost"] = self.time + JUMP_BOOST_S
             elif k in ("air_dash_m", "moved_m"):
@@ -290,7 +293,7 @@ class BenchWorld(MockGame):
                     self._ref("damage", target=target, kind_id=getattr(ent, "kind_id", ent.kind), amount=10,
                               damage_type="DamageType.Magical", by="self", source=sid)
             elif k == "held_item_effect":
-                self.held.setdefault("effects", []).extend(e.get("damage_types") or [])
+                self.held.setdefault("effects", []).extend([e["effect"]] if e.get("effect") else e.get("damage_types") or [])
         return data
 
     # ------------------------------------------------------------------ combat with the referee

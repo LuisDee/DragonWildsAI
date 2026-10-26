@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 RUNE_PREFIX = "ITEM_Rune_"
 # Base classes every GE derives from: matching them proves nothing about WHICH spell (review finding 4).
 GENERIC_GE = frozenset({"GameplayEffect", "DominionGameplayEffect", "DominionStatusEffect", "GE_"})
-UNOBSERVABLE = frozenset({"held_item_effect", "world_module", "needs_live_observation"})
+UNOBSERVABLE = frozenset({"world_module", "needs_live_observation"})
 TRAVEL_MAX_S = 15.0  # a travel/dash displacement must happen within the cast call (with the cast animation)
 TELEPORT_MIN_M = 300.0
 
@@ -52,6 +52,10 @@ def _key(e: dict) -> str | None:
         return "actor:" + str(e.get("class"))
     if e.get("kind") == "view_target":
         return "view:" + str(e.get("class"))
+    if e.get("kind") == "spell_state":
+        return "state:" + str(e.get("state"))
+    if e.get("kind") == "held_item_effect":
+        return "held:" + str(e.get("effect") or e.get("damage_types"))
     if e.get("kind") == "input_mode":
         return "mode:" + str(e.get("contains") or e.get("mode"))
     return None
@@ -121,15 +125,36 @@ def _effect(e: dict, o, target: Any, ctx: dict | None = None) -> bool | None:
         seen = [x for x in (ctx or {}).get("referee") or [] if x.get("kind") == "spell_actor" and x.get("class") == e.get("class")
                 and o.wall0 - 1 <= float(x.get("t", 0)) <= o.wall1 + 3]
         return True if seen else False
-    if k == "view_target":  # the camera switched to the spell's view actor (probe v2.1: pc:GetViewTarget())
-        if "view_target" not in a:
-            return None
-        return a.get("view_target") == e.get("class") and b.get("view_target") != e.get("class")
+    if k == "view_target":  # the camera switched to the spell's view actor (probe: pc:GetViewTarget())
+        if a.get("view_target") == e.get("class") and b.get("view_target") != e.get("class"):
+            return True
+        # Oculus leaves its view inside the cast (~3-5 s, spells L29): the dev referee polls the view actor's class
+        seen = [x for x in (ctx or {}).get("referee") or [] if x.get("kind") == "spell_actor" and x.get("class") == e.get("class")
+                and o.wall0 - 1 <= float(x.get("t", 0)) <= o.wall1 + 3]
+        if seen:
+            return True
+        return None  # transient (the view returns inside the cast): absence after the cast proves nothing
     if k == "input_mode":  # generic (every spell wheel enters it): specific_effects rejects it when shared
         if "input_mode" not in a:
             return None
         want = str(e.get("contains") or e.get("mode") or "")
-        return bool(want) and want in str(a.get("input_mode") or "") and want not in str(b.get("input_mode") or "")
+        if want and want in str(a.get("input_mode") or "") and want not in str(b.get("input_mode") or ""):
+            return True
+        return None  # transient (screens close / modes end within ~1 s): absence proves nothing
+    if k == "spell_state":  # a server-visible state the spell enters (dev referee v1.4: OculusActive, PersonalInventorySpell)
+        ev = [x for x in (ctx or {}).get("referee") or [] if x.get("kind") == "spell_state"]
+        if not ev and "spell_state" not in ((ctx or {}).get("referee_supports") or ()):
+            return None
+        return any(x.get("who") == "self" and x.get("state") == e.get("state") and o.wall0 - 1 <= float(x.get("t", 0)) <= o.wall1 + 3
+                   for x in ev) or None  # missed by a 250 ms poll is "can't tell", never a fail
+    if k == "held_item_effect":  # the held weapon's effect data asset (probe v2: Held*Actor.*HeldEquipmentEffectInfo)
+        ha, hb = a.get("held"), b.get("held") or {}
+        if not isinstance(ha, dict) or "held_effects" in (a.get("gaps") or []):
+            return None
+        want = e.get("effect")
+        if want:
+            return want in (ha.get("effects") or []) and want not in (hb.get("effects") or [])
+        return None
     if k == "jump_apex_gain_m":
         ba, aa = b.get("jump_apex_m"), a.get("jump_apex_m")
         return None if ba is None or aa is None else aa - ba >= float(e.get("min", 1.0))
