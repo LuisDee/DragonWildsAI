@@ -349,6 +349,27 @@ do
         check("odds: an easy creature", odds.k1 and odds.k1.verdict == "likely_win", odds.k1 and odds.k1.verdict)
         check("odds: a hard creature says so, with the gap and times", odds.d1 and odds.d1.verdict == "too_strong" and odds.d1.pl_gap == 5 and odds.d1.die_s ~= nil, odds.d1 and odds.d1.verdict)
         check("odds: out of sight / followers skipped", odds.far == nil and odds.f1 == nil)
+        -- prepared odds: only what he owns and can cast, each use named with its source
+        local drake = { id = "d1", name = "Grey Drake", hp = 900, max_hp = 900, power_level = 6 }
+        local known = { ["DamageType.Physical.Stab"] = { v = "weak", src = "journal" } }
+        local list = { loadout = {}, hotbar = { { item = "ITEM_Sword_Bronze", count = 1 }, { item = "ITEM_Consumable_Fish_Anchovies", count = 4, consumable = "food", heal = 30 } },
+                       bag = { { item = "ITEM_Dagger_Iron", count = 1 } } }
+        local now = odds.d1
+        local p = Cm.prepared_odds(me, drake, list, { tempest = true, enchant = {} }, known, 1)
+        local uses = table.concat(p.uses, " | ")
+        check("prep: the stab-weak dagger he owns is used, with the source", uses:find("Iron Dagger vs stab-weak (journal)", 1, true) ~= nil, uses)
+        check("prep: Tempest Shield's shield (50 + 7.5 x Attack)", uses:find("Tempest Shield (+57 shield)", 1, true) ~= nil, uses)
+        check("prep: carried healing food counted", uses:find("4 food (+120 HP)", 1, true) ~= nil, uses)
+        check("prep: better odds than now", p.die_s > now.die_s and p.kill_s < now.kill_s, tostring(p.die_s) .. "/" .. tostring(p.kill_s))
+        local none = Cm.prepared_odds(me, drake, { loadout = {}, hotbar = {}, bag = {} }, { enchant = {} }, nil, 1)
+        check("prep: nothing owned -> no uses, same as now", #none.uses == 0 and none.die_s == now.die_s)
+        local enc = Cm.prepared_odds(me, { name = "Goblin Brute", hp = 420, max_hp = 420, power_level = 4 },
+            { hotbar = { { item = "ITEM_Sword_Bronze", count = 1 } } }, { enchant = { ["DamageType.Magical.Fire"] = true } },
+            { ["DamageType.Magical.Fire"] = { v = "weak", src = "prior" } }, 1)
+        check("prep: a castable enchant of a type it is weak to", table.concat(enc.uses, "|"):find("Enchant Weapon (Fire) vs fire-weak (prior)", 1, true) ~= nil, table.concat(enc.uses, "|"))
+        local ka = Cm.known_affinities("Goblin Runt")
+        check("known: prior weakness with its source", ka and ka["DamageType.Magical.Fire"] and ka["DamageType.Magical.Fire"].src == "prior")
+        check("known: a journal word maps to the full tag", Cm.norm_tag("Fire") == "DamageType.Magical.Fire" and Cm.norm_tag("Stab") == "DamageType.Physical.Stab")
     end
     do -- any shield he owns, from data (the parry cases need the Wooden Shield he crafts himself)
         local only_wood = { loadout = {}, hotbar = { { item = "ITEM_Dagger_Bone", slot = 1 } }, bag = { { item = "ITEM_Shield_Wood", slot = 3 } } }

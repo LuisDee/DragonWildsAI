@@ -18,7 +18,10 @@ STATE = {
          "hp": 30, "max_hp": 30, "power_level": 1, "alive": True},
     ],
     "fight_odds": {
-        "BP_AI_GreyDrake_C_7": {"verdict": "too_strong", "kill_s": 75, "die_s": 20, "pl_gap": 5},
+        "BP_AI_GreyDrake_C_7": {"verdict": "too_strong", "kill_s": 75, "die_s": 20, "pl_gap": 5,
+                                "known": {"Stab": {"v": "weak", "src": "journal"}},
+                                "prepared": {"verdict": "likely_lose", "kill_s": 50, "die_s": 41,
+                                             "uses": ["Iron Dagger vs stab-weak (journal)", "Tempest Shield (+57 shield)", "4 food (+120 HP)"]}},
         "BP_AI_Kebbit_Character_02_C_3": {"verdict": "likely_win", "kill_s": 3, "die_s": 60, "pl_gap": 0},
     },
     "inventory": {"ITEM_Consumable_Fish_Anchovies": 4, "ITEM_Staff_Fire": 1},
@@ -36,16 +39,23 @@ def line(prefix):
 def test_a_hard_creature_shows_its_level_and_the_odds():
     c = line("Creatures")
     assert "Grey Drake" in c and "PL 6" in c
-    assert "odds: much stronger (PL +5; kills you ~20 s; you it ~75 s)" in c
+    assert "odds now: much stronger (PL +5; kills you ~20 s; you it ~75 s)" in c
+
+
+def test_known_weakness_and_prepared_odds_with_sources():
+    c = line("Creatures")
+    assert "known: weak to Stab (journal)" in c
+    assert ("odds prepared: likely lose (kills you ~41 s; you it ~50 s) with Iron Dagger vs stab-weak (journal), "
+            "Tempest Shield (+57 shield), 4 food (+120 HP)") in c
 
 
 def test_an_easy_creature_shows_easy_odds():
-    assert "odds: likely win" in line("Creatures")
+    assert "odds now: likely win" in line("Creatures")
 
 
 def test_the_odds_say_what_they_assume():
     """Truthful scope: the estimate counts only what he holds now (no shield, buff, enchant, food)."""
-    assert line("Creatures").startswith("Creatures (odds: you alone, as equipped now; no spell, shield, enchant or food counted): ")
+    assert line("Creatures").startswith("Creatures (the body's odds, you alone: 'now' = as equipped; 'prepared' = with what you own and can cast; blocking, dodging and armour not counted): ")
 
 
 def test_his_own_level_is_beside_them():

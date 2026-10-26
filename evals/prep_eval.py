@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -28,73 +29,81 @@ from brain.controller import Controller
 from brain.interface import ok
 from brain.jsonl_log import JsonlLogger
 from brain.state_store import StateStore
-from evals.manifest_eval import CapsClient, EvalBody, base_state, carry, real_manifest
+from evals.manifest_eval import CapsClient, EvalBody, base_state, carry, lua, real_manifest
 
 MAX_CALLS = 3  # a read (combat_brief / look), then the decision, then one continuation
 
 DRAKE = {"id": "BP_AI_GreyDrake_C_2147401234", "name": "Grey Drake", "kind": "Grey Drake", "distance": 28.0, "hostile": True,
          "hp": 900, "max_hp": 900, "power_level": 6, "alive": True}
 BRUTE = {"id": "BP_AI_GoblinBrute_C_2147405555", "name": "Goblin Brute", "kind": "Goblin Brute", "distance": 18.0, "hostile": True,
-         "hp": 420, "max_hp": 420, "power_level": 4, "alive": True}
+         "hp": 300, "max_hp": 300, "power_level": 3, "alive": True}
+WOLF = {"id": "BP_AI_GreyWolf_C_2147406666", "name": "Grey Wolf", "kind": "Grey Wolf", "distance": 15.0, "hostile": True,
+        "hp": 300, "max_hp": 300, "power_level": 3, "alive": True}
 KEBBIT = {"id": "BP_AI_Kebbit_Character_02_C_2147442096", "name": "Kebbit", "kind": "Kebbit", "distance": 6.0, "hostile": False,
           "hp": 30, "max_hp": 30, "power_level": 1, "alive": True}
-ODDS = {DRAKE["id"]: {"verdict": "too_strong", "kill_s": 75, "die_s": 20, "pl_gap": 5},
-        BRUTE["id"]: {"verdict": "too_strong", "kill_s": 35, "die_s": 25, "pl_gap": 3},
-        KEBBIT["id"]: {"verdict": "likely_win", "kill_s": 3, "die_s": 60, "pl_gap": 0}}
 SPELLS = [{"name": "Tempest Shield", "role": "combat_defence", "castable": True,
            "use_when": "before a hard fight: a shield that absorbs hits for 60 s"},
           {"name": "Enchant Weapon (Fire)", "role": "weapon_buff", "castable": True,
            "use_when": "hit harder with fire damage; best against fire-weak enemies"}]
+CAST_ALL = {"tempest": True, "enchant": {"DamageType.Magical.Fire": True}}
+KNOWN = {BRUTE["id"]: {"DamageType.Magical.Fire": {"v": "weak", "src": "prior"}},
+         WOLF["id"]: {"DamageType.Physical.Stab": {"v": "weak", "src": "journal"}},
+         DRAKE["id"]: {"DamageType.Physical.Stab": {"v": "weak", "src": "journal"},
+                       "DamageType.Magical.Fire": {"v": "resist", "src": "journal"}}}
 
 
-def fighter(st: dict, *creatures) -> dict:
-    st["power_level"] = 1
-    st["held"] = "Bronze Sword"
-    st["nearby_entities"] = [dict(c) for c in creatures]
-    st["fight_odds"] = {c["id"]: ODDS[c["id"]] for c in creatures}
-    return st
+def body_odds(st: dict, cast: dict) -> dict:
+    """The body's own numbers (evals/prep_odds.lua runs combat.fight_odds + combat.prepared_odds on the case)."""
+    rows = st["inventory_items"]
+    lst = {"loadout": [], "hotbar": [], "bag": []}
+    for r in rows:
+        lst[r["where"]].append({k: v for k, v in r.items() if k in ("item", "count", "consumable", "heal")})
+    case = {"me": {"hp": st["health"], "max_hp": 100, "pl": st["power_level"]}, "held": st.get("_held_id"),
+            "entities": st["nearby_entities"], "list": lst, "cast": cast,
+            "known": {e["id"]: KNOWN[e["id"]] for e in st["nearby_entities"] if e["id"] in KNOWN}, "attack": 1}
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+        json.dump(case, f)
+    out = subprocess.run([lua(), str(paths.REPO_ROOT / "evals/prep_odds.lua"), f.name], capture_output=True, text=True, timeout=30)
+    os.unlink(f.name)
+    if out.returncode != 0:
+        raise SystemExit(out.stderr)
+    return json.loads(out.stdout)
 
 
-def s_drake_full():
-    st = fighter(base_state(), DRAKE, KEBBIT)
+def fighter(*creatures, health=100, food=8, dagger=False, spells=True) -> dict:
+    st = base_state()
+    st["health"], st["power_level"] = health, 1
+    st["held"], st["_held_id"] = "Bronze Sword", "ITEM_Sword_Bronze"
     carry(st, "hotbar", "Bronze Sword", "ITEM_Sword_Bronze", 1)
-    carry(st, "hotbar", "Seared Anchovies", "ITEM_Consumable_Fish_Anchovies", 8, consumable="food", heal="30")
+    if food:
+        carry(st, "hotbar", "Seared Anchovies", "ITEM_Consumable_Fish_Anchovies", food, consumable="food", heal="30")
     carry(st, "bag", "Iron Shield", "ITEM_Shield_Iron", 1)
-    st["_spells"] = SPELLS
+    if dagger:
+        carry(st, "bag", "Iron Dagger", "ITEM_Dagger_Iron", 1)
+    st["nearby_entities"] = [dict(c) for c in creatures]
+    st["_spells"] = SPELLS if spells else []
+    st["fight_odds"] = body_odds(st, CAST_ALL if spells else {"enchant": {}})
     return st
 
 
-def s_drake_hurt():
-    st = s_drake_full()
-    st["health"] = 55
-    st["nearby_entities"][0]["hostile"] = False
-    return st
+def s_brute():        # hard now, a likely win prepared (fire-weak + Fire enchant + Tempest Shield + food)
+    return fighter(BRUTE, KEBBIT)
 
 
-def s_drake_bare():
-    st = fighter(base_state(), DRAKE, KEBBIT)
-    carry(st, "bag", "Forager's Sandwich", "ITEM_Consumable_Sandwich_Veggie", 6, consumable="food", heal="15")
-    st["_spells"] = []
-    return st
+def s_brute_hurt():
+    return fighter(BRUTE, KEBBIT, health=55)
 
 
-def s_brute():
-    st = fighter(base_state(), BRUTE, KEBBIT)
-    carry(st, "hotbar", "Bronze Sword", "ITEM_Sword_Bronze", 1)
-    carry(st, "bag", "Fire Staff", "ITEM_Staff_Fire", 1)
-    carry(st, "bag", "Fire Rune", "ITEM_Rune_Fire", 120)
-    carry(st, "hotbar", "Seared Anchovies", "ITEM_Consumable_Fish_Anchovies", 5, consumable="food", heal="30")
-    st["_spells"] = SPELLS
-    return st
+def s_wolf():         # hard now, better prepared with the stab-weak Iron Dagger he carries
+    return fighter(WOLF, KEBBIT, dagger=True)
+
+
+def s_drake():        # hopeless even prepared: declining is a fine answer, attacking blind is not
+    return fighter(DRAKE, KEBBIT, dagger=True)
 
 
 def s_kebbit_only():
-    st = fighter(base_state(), KEBBIT)
-    carry(st, "hotbar", "Bronze Sword", "ITEM_Sword_Bronze", 1)
-    carry(st, "hotbar", "Seared Anchovies", "ITEM_Consumable_Fish_Anchovies", 8, consumable="food", heal="30")
-    carry(st, "bag", "Iron Shield", "ITEM_Shield_Iron", 1)
-    st["_spells"] = SPELLS
-    return st
+    return fighter(KEBBIT)
 
 
 def brief_for(st: dict, target: str) -> dict:
@@ -103,17 +112,17 @@ def brief_for(st: dict, target: str) -> dict:
     if not cr:
         return {"ok": False, "reason": "unknown_target", "data": {"target": target}}
     o = st["fight_odds"][cr["id"]]
-    weak = {"Grey Drake": {"journal": {"Stab": "weak", "Fire": "resist"}}, "Goblin Brute": {"journal": {"Fire": "weak"}}}.get(cr["name"], {})
     weapons = [{"item": r["item"], "name": r["name"], "where": r["where"]} for r in st["inventory_items"]
-               if any(w in r["item"] for w in ("Sword", "Staff", "Shield"))]
+               if any(w in r["item"] for w in ("Sword", "Dagger", "Shield"))]
     food = [{"item": r["item"], "name": r["name"], "heal": r.get("heal"), "count": r["count"]} for r in st["inventory_items"]
             if r.get("consumable") == "food"]
     return ok(creature={"id": cr["id"], "name": cr["name"], "power_level": cr["power_level"], "hp": cr["hp"], "max_hp": cr["max_hp"],
                         "attitude": "hostile" if cr["hostile"] else "neutral_until_attacked", "distance_m": cr["distance"]},
               me={"power_level": st["power_level"], "hp": st["health"], "max_hp": 100},
-              weaknesses=weak, weapons=weapons, spells=[{"name": s["name"], "role": s["role"], "castable": True} for s in st["_spells"]],
-              food=food, assessment={"verdict": o["verdict"], "est_s_to_kill": o["kill_s"], "est_s_to_die": o["die_s"], "pl_gap": o["pl_gap"]},
-              history={"fights": 0, "first_encounter": True}, attacks_learned=[])
+              weaknesses={"known": o.get("known")}, weapons=weapons,
+              spells=[{"name": s["name"], "role": s["role"], "castable": True} for s in st["_spells"]], food=food,
+              assessment={"verdict": o["verdict"], "est_s_to_kill": o.get("kill_s"), "est_s_to_die": o.get("die_s"), "pl_gap": o.get("pl_gap")},
+              prepared=o.get("prepared"), history={"fights": 0, "first_encounter": True}, attacks_learned=[])
 
 
 class PrepBody(EvalBody):
@@ -135,7 +144,7 @@ def _attack_idx(calls, word):
     return next((i for i, c in enumerate(calls) if c["tool"] == "attack" and word in json.dumps(c["args"]).lower()), None)
 
 
-def score_hard(word):
+def score_hard(word, decline_ok=False):
     def score(calls, speech, reads):
         a = _attack_idx(calls, word)
         seq = reads + [c["tool"] for c in calls]
@@ -144,7 +153,7 @@ def score_hard(word):
         if prepped:
             return "PASS", "before attacking: " + ",".join(prepped)
         if a is None:
-            return "PARTIAL", "did not attack; no prep or brief (spoke only)"
+            return ("PASS" if decline_ok else "PARTIAL"), "did not attack; no prep or brief (spoke only)"
         return "FAIL", "attacked the hard one without looking or preparing"
     return score
 
@@ -160,10 +169,10 @@ def score_easy(calls, speech, reads):
 
 
 CASES = [
-    ("drake_full", "claude, let's take that drake out", s_drake_full, score_hard("drake")),
-    ("drake_hurt", "claude, let's take that drake out", s_drake_hurt, score_hard("drake")),
-    ("drake_bare", "claude, let's take that drake out", s_drake_bare, score_hard("drake")),
     ("brute", "claude, let's take that goblin brute out", s_brute, score_hard("brute")),
+    ("brute_hurt", "claude, let's take that goblin brute out", s_brute_hurt, score_hard("brute")),
+    ("wolf", "claude, let's take that wolf out", s_wolf, score_hard("wolf")),
+    ("drake_hopeless", "claude, let's take that drake out", s_drake, score_hard("drake", decline_ok=True)),
     ("kebbit_control", "claude, let's take that kebbit out", s_kebbit_only, score_easy),
 ]
 

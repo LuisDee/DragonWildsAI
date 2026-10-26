@@ -55,7 +55,7 @@ M.cfg = {
     special_gap_s = 6,
     telegraph_m = 6, telegraph_fresh_s = 1.0,
     disengage_m = 10,        -- back off this far to eat (orders.disengage)
-    odds_m = 40, odds_max = 6, -- get_state fight_odds: creatures in sight
+    odds_m = 40, odds_max = 6, odds_prep_s = 10, -- get_state fight_odds: creatures in sight
     memory_enabled = true, history_max = 10, steam_manifest = "C:/Program Files (x86)/Steam/steamapps/appmanifest_1374490.acf",
     chase_moved_m = 3, -- a stall while the target itself moved this far = it is running, not a wall
     chase_max_s = 30, -- approaching (all episodes) this long without landing a hit: too_far, cant_catch
@@ -2728,6 +2728,9 @@ end
 -- live game data -> what Claude learned from his own hits -> the game's journal entry (Weaknesses)
 -- -> the creature_priors data file (wiki research). Nothing is decided here.
 local function journal_weaknesses(name)
+    return M._journal_weaknesses(name)
+end
+function M._journal_weaknesses(name)
     if not name then return nil end
     local want = name:lower()
     for _, j in ipairs(U.find_all("JournalEntryWorldData", { skip_defaults = true })) do
@@ -2854,9 +2857,170 @@ function M.state_extras(api, data)
         local items = M.weapons().items or {}
         local w = items[r] or items[l]
         local dps = (w and w.role == "weapon" and M.dps(w)) or 12
-        c.odds = { t = t, pl = me.pl, v = M.fight_odds(me, dps, data and data.nearby_entities) }
+        local odds = M.fight_odds(me, dps, data and data.nearby_entities)
+        -- a fight that is not an easy win: what he knows about the creature, and the odds with what he
+        -- OWNS and CAN CAST (information; prep eval 2026-10-26). The inventory / spell / journal reads
+        -- happen only then, and at most every odds_prep_s.
+        local hard = false
+        for _, o in pairs(odds) do if o.verdict ~= "likely_win" then hard = true end end
+        if hard then
+            if not (c.prep_ctx and t - c.prep_ctx.t < M.cfg.odds_prep_s) then
+                c.prep_ctx = { t = t, list = mcall("inventory", "list", nil) or {}, cast = M.castable_prep(),
+                               attack = M.skill_level("Attack") }
+            end
+            for _, e in ipairs(type(data and data.nearby_entities) == "table" and data.nearby_entities or {}) do
+                local o = e.id and odds[e.id]
+                if o then
+                    o.known = M.known_affinities(e.name)
+                    if o.verdict ~= "likely_win" then
+                        o.prepared = M.prepared_odds(me, e, c.prep_ctx.list, c.prep_ctx.cast, o.known, c.prep_ctx.attack)
+                    end
+                end
+            end
+        end
+        c.odds = { t = t, pl = me.pl, v = odds }
     end
     return { held_actions = c.extras.v, power_level = c.odds.pl, fight_odds = c.odds.v }
+end
+
+-- What he knows about a creature's damage-type affinities, each with its source:
+-- learned (his own hits) > journal (the game's journal entry he has) > prior (creature_priors data) >
+-- prior:family (a learned creature sharing a name token). -> {tag = {v = weak|resist|immune, src}} or nil
+function M.known_affinities(name)
+    if not name then return nil end
+    local c = C()
+    local key = tostring(name):lower()
+    local out, n = {}, 0
+    local function put(tag, v, src) if v and v ~= "neutral" and not out[tag] then out[tag] = { v = v, src = src }; n = n + 1 end end
+    for tag, v in pairs(c.learned[key] or {}) do put(tag, v, "learned") end
+    c.journal_cache = c.journal_cache or {}
+    local jc = c.journal_cache[key]
+    if jc == nil then
+        local okj, jw = pcall(M._journal_weaknesses, name)
+        jc = (okj and jw) or false
+        c.journal_cache[key] = jc
+    end
+    for _, tag in ipairs(jc or {}) do put(M.norm_tag(tag), "weak", "journal") end
+    for k, pr in pairs(M.PRIORS) do
+        if key:find(k, 1, true) then
+            for tag in pairs(pr.weak or {}) do put(tag, "weak", "prior") end
+            for tag in pairs(pr.resist or {}) do put(tag, "resist", "prior") end
+            for tag in pairs(pr.immune or {}) do put(tag, "immune", "prior") end
+        end
+    end
+    local fam = M.family_affinity(name)
+    for tag, v in pairs(fam and fam.verdicts or {}) do put(tag, v, "prior:family") end
+    return n > 0 and out or nil
+end
+
+-- A skill level from sense.me() (read-only; the game's own SkillComponent read lives there).
+function M.skill_level(name)
+    local me = mcall("sense", "me")
+    local sk = type(me) == "table" and me.skills or nil
+    if type(sk) ~= "table" then return nil end
+    for k, v in pairs(sk) do
+        if type(v) == "table" and (v.skill == name or v.name == name or k == name) then return tonumber(v.level) end
+    end
+    return nil
+end
+
+-- Castable prep spells right now (the spells module's own availability: unlocked, runes, cooldown).
+M.ENCHANTS = { ["DamageType.Magical.Fire"] = "USD_EnchantWeapon_Fire", ["DamageType.Magical.Air"] = "USD_EnchantWeapon_Air",
+                ["DamageType.Magical.Water"] = "USD_EnchantWeapon_Water" }
+local function short_tag(tag) return tostring(tag):match("([^%.]+)$") or tostring(tag) end
+M.short_tag = short_tag
+-- A journal weakness may be a bare word ("Fire"): the full damage-type tag from the weapon data that ends with it.
+function M.norm_tag(x)
+    x = tostring(x or "")
+    if x:find(".", 1, true) then return x end
+    local want = "." .. x:lower()
+    for _, p in pairs(M.weapons().items or {}) do
+        for _, t in ipairs(p.types or {}) do if t:lower():sub(-#want) == want then return t end end
+    end
+    for tag in pairs(M.ENCHANTS) do if tag:lower():sub(-#want) == want then return tag end end
+    return x
+end
+function M.castable_prep()
+    local sp = mod("spells")
+    local out = { enchant = {} }
+    if not (sp and sp.ability_status) then return out end
+    local function avail(asset) local ok, st = pcall(sp.ability_status, asset); return ok and type(st) == "table" and st.available == true end
+    out.tempest = avail("USD_TempestShield")
+    for tag, asset in pairs(M.ENCHANTS) do if avail(asset) then out.enchant[tag] = true end end
+    return out
+end
+
+local AFF_MULT = { weak = 1.5, resist = 0.6, immune = 0.05 }
+-- The odds with his best preparation from what he owns and can cast (an estimate, labelled as such):
+--   his best weapon against what is KNOWN of the creature (any weapon kind with a known DPS; magic/ranged
+--   only with its ammo carried), an enchant he can cast whose type it is weak to (melee), Tempest Shield's
+--   shield health (game data: 50 + 7.5 x Attack level), and the healing food he carries (capped at 2x max HP).
+-- Not counted: blocking/parrying/dodging, his armour, a second fighter. -> {verdict, kill_s, die_s, uses = {...}}
+function M.prepared_odds(me, e, list, cast, known, attack_level)
+    local items = M.weapons().items or {}
+    local function mult(types)
+        local m, why = 1, nil
+        for _, tag in ipairs(types or {}) do
+            local k = known and known[tag]
+            if k and AFF_MULT[k.v] then m = m * AFF_MULT[k.v]; why = why or (short_tag(tag):lower() .. "-" .. k.v .. " (" .. k.src .. ")") end
+        end
+        return m, why
+    end
+    local carried = {}
+    for _, where in ipairs({ "loadout", "hotbar", "bag" }) do
+        for _, it in ipairs((list or {})[where] or {}) do if it.item then carried[it.item] = (carried[it.item] or 0) + (it.count or 1) end end
+    end
+    local function has_ammo(p)
+        if not p.ammo then return p.kind == "melee" end
+        for id in pairs(carried) do if id:find(p.ammo, 1, true) or (p.kind == "magic" and id:find("Rune", 1, true)) then return true end end
+        return false
+    end
+    local best, bdps, bwhy
+    for id in pairs(carried) do
+        local p = items[id]
+        if p and p.role == "weapon" and M.dps(p) and has_ammo(p) then
+            local m, why = mult(p.types)
+            local d = M.dps(p) * (M.TOOL_FACTOR[p.cat] or 1) * m
+            if not bdps or d > bdps then best, bdps, bwhy = p, d, why end
+        end
+    end
+    local uses = {}
+    local dps = bdps or 12
+    if best then uses[#uses + 1] = best.name .. (bwhy and (" vs " .. bwhy) or "") end
+    if best and best.kind == "melee" and cast and cast.enchant then
+        for tag in pairs(cast.enchant) do
+            local k = known and known[tag]
+            if k and k.v == "weak" and not bwhy then
+                dps = dps * AFF_MULT.weak
+                uses[#uses + 1] = "Enchant Weapon (" .. short_tag(tag) .. ") vs " .. short_tag(tag):lower() .. "-weak (" .. k.src .. ")"
+                break
+            end
+        end
+    end
+    local hp = me.hp or 100
+    if cast and cast.tempest then
+        local sh = 50 + 7.5 * (attack_level or 1)
+        hp = hp + sh
+        uses[#uses + 1] = string.format("Tempest Shield (+%d shield)", math.floor(sh))
+    end
+    local heal, nfood = 0, 0
+    for _, where in ipairs({ "hotbar", "bag" }) do
+        for _, it in ipairs((list or {})[where] or {}) do
+            local h = tonumber(it.heal)
+            if it.consumable == "food" and h and h > 0 then heal = heal + h * (it.count or 1); nfood = nfood + (it.count or 1) end
+        end
+    end
+    heal = math.min(heal, 2 * (me.max_hp or 100))
+    if heal > 0 then hp = hp + heal; uses[#uses + 1] = string.format("%d food (+%d HP)", nfood, math.floor(heal)) end
+    local en = { name = e.name, hp = tonumber(e.hp or e.health), max_hp = tonumber(e.max_hp or e.max_health),
+                 pl = tonumber(e.power_level or e.pl), boss = e.boss == true }
+    local ok, a = pcall(M.assess, { hp = hp, max_hp = hp, pl = me.pl, dps = dps }, { en }, { reflexonly = true }, nil, M.cfg)
+    if not (ok and a) then return nil end
+    -- the times decide here (the PL-gap label "too_strong" would hide what the preparation changes)
+    local verdict = a.verdict
+    if verdict == "too_strong" then verdict = (a.u_fight or 0) >= M.cfg.fight_enter and "likely_win" or "likely_lose" end
+    return { verdict = verdict, kill_s = a.my_ttk and math.floor(a.my_ttk), die_s = a.their_ttk and math.floor(a.their_ttk), uses = uses,
+             not_counted = "blocking, dodging, armour, staff/wand spell damage, a second fighter" }
 end
 
 -- {id -> {verdict, kill_s, die_s, pl_gap}} for up to cfg.odds_max living, non-follower creatures within cfg.odds_m.

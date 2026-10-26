@@ -24,7 +24,7 @@ REPO = Path(__file__).resolve().parents[1]
 MAX_LINES = 18  # +skills, +module extras (2026-10-26)
 MAX_GROUPS = 6  # per line
 LINE_CHARS = 240
-CREATURE_LINE_CHARS = 400  # with the body's fight odds per creature (prep eval 2026-10-26: 240 cut the second one)
+CREATURE_LINE_CHARS = 640  # with the body's fight odds per creature (prep eval 2026-10-26: 240 cut the second one)
 
 # Words that never identify a thing on their own ("pick up the sticks" -> "sticks").
 STOP_WORDS = {"the", "a", "an", "some", "any", "all", "of", "my", "your", "me", "you", "it", "that", "this",
@@ -187,7 +187,18 @@ def _creature_note(e: dict, odds: dict) -> str | None:
                 t.append(f"you it ~{o['kill_s']:g} s")
         if _num(o.get("pl_gap")) and o["verdict"] != "likely_win":
             t.insert(0, f"PL +{o['pl_gap']:g}")
-        bits.append(f"odds: {ODDS_WORDS.get(o['verdict'], o['verdict'])}" + (f" ({'; '.join(t)})" if t else ""))
+        bits.append(f"odds now: {ODDS_WORDS.get(o['verdict'], o['verdict'])}" + (f" ({'; '.join(t)})" if t else ""))
+        known = o.get("known") if isinstance(o.get("known"), dict) else {}
+        if known:  # what he knows of its damage-type affinities, each with its source (learned/journal/prior)
+            bits.append("known: " + ", ".join(f"{v.get('v')} to {str(k).rsplit('.', 1)[-1]} ({v.get('src')})" for k, v in sorted(known.items())
+                                             if isinstance(v, dict)))
+        p = o.get("prepared") if isinstance(o.get("prepared"), dict) else None
+        if p and p.get("verdict"):
+            pt = [f"kills you ~{p['die_s']:g} s" if _num(p.get("die_s")) is not None else "",
+                  f"you it ~{p['kill_s']:g} s" if _num(p.get("kill_s")) is not None else ""]
+            uses = ", ".join(str(u) for u in (p.get("uses") or []))
+            bits.append(f"odds prepared: {ODDS_WORDS.get(p['verdict'], p['verdict'])} ({'; '.join(x for x in pt if x)})"
+                        + (f" with {uses}" if uses else " (nothing you own or can cast changes it)"))
     return ", ".join(bits) or None
 
 
@@ -626,10 +637,11 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     # hostiles first, then by distance (the nearest threat leads the line)
     # (a creature the body rates hard counts as a threat for the order: it must not be cut off the line)
     def _hard(g):
-        return bool(g.note) and any(f"odds: {w}" in g.note for w in ("much stronger", "a boss", "likely lose", "outnumbered"))
+        return bool(g.note) and any(f"odds now: {w}" in g.note for w in ("much stronger", "a boss", "likely lose", "outnumbered"))
     creatures = sorted(_group([t for t in things if t.kind == "creature"]),
                        key=lambda g: (not (g.hostile or _hard(g)), g.distance if g.distance is not None else 1e9))
-    odds_note = " (odds: you alone, as equipped now; no spell, shield, enchant or food counted)" if state.get("fight_odds") else ""
+    odds_note = (" (the body's odds, you alone: 'now' = as equipped; 'prepared' = with what you own and can cast;"
+                 " blocking, dodging and armour not counted)") if state.get("fight_odds") else ""
     lines.append(_line("Creatures" + odds_note, [("hostile " if g.hostile else "") + g.label() for g in creatures],
                        CREATURE_LINE_CHARS if odds_note else LINE_CHARS))
 
