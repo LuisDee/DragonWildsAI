@@ -33,14 +33,18 @@ Goal: one fresh window at the current companion hash that `tools/goal_check.py` 
    - then `tools\start_watchdog.ps1`.
 3. Claude's client: `tools\client_boot.ps1 -Target dev`, then `tools\start_client_watchdog.ps1` (interactive session).
 4. Server bridge alive: `.venv\Scripts\python.exe -m tools.bridge_cmd ping --body server`.
-5. Chat channel proof (D1, once per server run):
-   - a. Run `debug_run speech_direct {action:"prove"}` and check that it passed.
-   - b. Send ONE line by hand: `debug_run speech_direct {action:"send", confirm:true, text:"claude hi"}`.
-   - c. Check all three:
-     - chat.jsonl has a row `from="Tester"`, `self=false`;
-     - the client bridge emitted `chat_heard`;
-     - the brain (step 6) logged `command_received` from Tester.
-   - d. Any failure, or a client hang: stop and report. Never use `say_test.lua`.
+5. Chat channel proof (D1, once per server run, with the brain already running):
+   - a. Run `debug_run speech_direct {action:"prove"}`. It is read-only, and it must pass.
+   - b. `.venv\Scripts\python.exe -m tools.m1_session proof --confirm` sends ONE line that says it is a test ("claude this is a test line from the Tester account, please ignore"), then watches Claude's client for 60 s. It passes only if every check holds:
+     - the line is in chat.jsonl;
+     - `from == "Tester"` exactly, and never a real player's name (Zezima/Luis) or Claude's;
+     - `self == false`;
+     - the brain logged a `chat_decision` from Tester;
+     - Claude's client answered a bridge ping every 10 s for 60 s;
+     - the client mod log was written in the last 30 s;
+     - the client watchdog logged no hang, crash or restart.
+   - c. `chat --sender speech_direct` refuses to run unless the session log holds a passed proof.
+   - d. Any failed check, or any client hang, means stop and report. Never use `say_test.lua`.
 6. Survival: the stay-fed reflex service is running, and the hotbar has food and drink. A dev fixture grant is allowed on the dev world if needed, since the Clean Water reflex failure is known (DISCOVERIES 1833). Record what was granted.
 7. Board jobs (self-directed, no deliveries to a player), e.g. via `tools.board add "<job>" --world dev_director`:
    - "chop ash logs and keep them in your bag";

@@ -38,3 +38,41 @@ def test_phases_and_plan():
     assert m.phases(rs) == [("A1", 10.0, 20.0), ("B1", 20.0, None)]
     est = m.estimate(2.0, 30)
     assert est["chat_lines"] == 60 and est["usd_estimate"] <= est["usd_limit"]
+
+
+GOOD_ROW = {"type": "chat", "from": "Tester", "self": False, "text": m.PROOF_LINE}
+
+
+def test_proof_checks_pass_only_when_every_condition_holds():
+    ok = m.proof_checks(GOOD_ROW, True, [True] * 6, 3.0, [])
+    assert all(ok.values())
+    assert not m.proof_checks({**GOOD_ROW, "from": "Zezima"}, True, [True] * 6, 3.0, [])["not_a_real_player_name"]
+    assert not m.proof_checks({**GOOD_ROW, "from": "Claude"}, True, [True] * 6, 3.0, [])["from_is_the_test_name"]
+    assert not m.proof_checks({**GOOD_ROW, "self": True}, True, [True] * 6, 3.0, [])["non_self"]
+    assert not m.proof_checks(GOOD_ROW, True, [True, False, True], 3.0, [])["client_answered_every_ping"]
+    assert not m.proof_checks(GOOD_ROW, True, [True] * 6, 90.0, [])["client_log_fresh"]
+    assert not m.proof_checks(GOOD_ROW, True, [True] * 6, 3.0, ["client_hang"])["no_watchdog_hang_or_crash"]
+    assert not m.proof_checks(None, False, [], None, [])["logged_in_chat"]
+
+
+def test_proof_needs_confirm_and_chat_needs_a_passed_proof(tmp_path, monkeypatch):
+    _env(tmp_path, monkeypatch, [1.0, 1.0])
+    assert m.main(["proof"]) == 2
+    assert m.main(["mark", "A1"]) == 0
+    assert m.main(["chat", "--sender", "speech_direct", "--confirm"]) == 2  # no passed proof in the log
+
+
+def test_proof_run_records_its_checks(tmp_path, monkeypatch):
+    _env(tmp_path, monkeypatch, [1.0])
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(m.time, "time", lambda: clock["t"])
+    monkeypatch.setattr(m.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
+    monkeypatch.setattr(m, "send_speech_direct", lambda text: (True, "ok"))
+    monkeypatch.setattr(m, "_chat_rows_since", lambda t0: [GOOD_ROW])
+    monkeypatch.setattr(m, "_brain_heard_since", lambda t0, who: True)
+    monkeypatch.setattr(m, "client_ping", lambda: True)
+    monkeypatch.setattr(m, "mod_log_age_s", lambda: 2.0)
+    monkeypatch.setattr(m, "watchdog_trouble_since", lambda t0: [])
+    assert m.main(["proof", "--confirm"]) == 0
+    row = [r for r in m.rows() if r["kind"] == "proof"][-1]
+    assert row["passed"] and len(row["pings"]) == m.HEALTH_WATCH_S // m.HEALTH_EVERY_S

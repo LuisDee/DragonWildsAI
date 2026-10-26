@@ -2,6 +2,7 @@ r"""Driver for an observed M1 dev-world session (docs/RUNBOOK-m1-session.md): te
 markers for the addressed-effort A/B, a session spend guard, and the per-phase report from tools/obs.py.
 
     .venv\Scripts\python.exe -m tools.m1_session plan                         # schedule + call/cost estimate, no side effects
+    .venv\Scripts\python.exe -m tools.m1_session proof --confirm             # preflight: ONE test line + 60 s health watch
     .venv\Scripts\python.exe -m tools.m1_session mark A1 --note "effort off"  # at each brain (re)start
     .venv\Scripts\python.exe -m tools.m1_session chat --sender speech_direct --confirm [--per-hour 30] [--minutes 120]
     .venv\Scripts\python.exe -m tools.m1_session report [--json]
@@ -14,6 +15,7 @@ send_direct, which must have passed its own `prove` in this server run; Luis's g
 from __future__ import annotations
 
 import argparse
+import calendar
 import json
 import random
 import subprocess
@@ -24,6 +26,12 @@ from pathlib import Path
 from brain import paths
 
 LOG_NAME = "m1_session.jsonl"
+TEST_SENDER = "Tester"  # the dev server's DW_COMPANION_NAME for the session: a test name, never a real player's
+NOT_TESTER = ("Zezima", "Luis", "Claude", "ClaudeDev")  # names a test line must never carry (Luis's, Claude's)
+PROOF_LINE = "claude this is a test line from the Tester account, please ignore"
+HEALTH_WATCH_S = 60
+HEALTH_EVERY_S = 10
+MOD_LOG_FRESH_S = 30
 SPEND_LIMIT_USD = 3.0  # the session's own spend (today's spend at the first mark is the baseline)
 # Generic co-play lines a player would type to a mate who is out doing his own thing. Written for this driver, not
 # taken from any eval or benchmark case. Mostly requests that need an action (the latency metric is chat -> first
@@ -88,6 +96,101 @@ def send_speech_direct(text: str, timeout: float = 30.0) -> tuple[bool, str]:
     return out.returncode == 0 and '"ok": true' in out.stdout.replace("'", '"').lower(), (out.stdout or out.stderr)[-300:]
 
 
+def _chat_rows_since(t0: float) -> list[dict]:
+    f = paths.REPO_ROOT / "client_io" / "events" / "chat.jsonl"
+    if not f.exists():
+        return []
+    out = []
+    for line in f.read_text(encoding="utf-8", errors="replace").splitlines()[-200:]:
+        try:
+            r = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(r.get("ts"), (int, float)) and r["ts"] >= t0 - 2:
+            out.append(r)
+    return out
+
+
+def _brain_heard_since(t0: float, sender: str) -> bool:
+    logs = sorted(paths.log_dir().glob("brain-live-*.jsonl"), key=lambda q: q.stat().st_mtime)
+    for line in (logs[-1].read_text(encoding="utf-8", errors="replace").splitlines()[-500:] if logs else []):
+        try:
+            r = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if r.get("kind") == "chat_decision" and r.get("player") == sender and float(r.get("ts") or 0) >= t0 - 2:
+            return True
+    return False
+
+
+def client_ping() -> bool:
+    out = subprocess.run([sys.executable, "-m", "tools.bridge_cmd", "ping", "--body", "client", "--timeout", "8"],
+                         capture_output=True, text=True)
+    return out.returncode == 0
+
+
+def mod_log_age_s() -> float | None:
+    logs = list((paths.log_dir() / "client").glob("mod_*.jsonl"))
+    return (time.time() - max(q.stat().st_mtime for q in logs)) if logs else None
+
+
+def watchdog_trouble_since(t0: float) -> list[str]:
+    f = paths.log_dir() / "client_watchdog.jsonl"
+    bad = []
+    for line in (f.read_text(encoding="utf-8", errors="replace").splitlines()[-200:] if f.exists() else []):
+        try:
+            r = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        ev = str(r.get("event") or "")
+        ts = r.get("ts")
+        when = calendar.timegm(time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S")) if isinstance(ts, str) else 0
+        if when >= t0 - 2 and any(k in ev for k in ("hang", "crash", "restart", "recover")):
+            bad.append(ev)
+    return bad
+
+
+def proof_checks(row: dict | None, heard: bool, pings: list[bool], mod_age: float | None, trouble: list[str]) -> dict:
+    """Every condition the single proof line must meet (pure; the IO is in cmd_proof)."""
+    sender = (row or {}).get("from")
+    return {
+        "logged_in_chat": row is not None,
+        "from_is_the_test_name": sender == TEST_SENDER,
+        "not_a_real_player_name": sender is not None and sender not in NOT_TESTER,
+        "non_self": row is not None and row.get("self") is False,
+        "brain_heard_it": heard,
+        "client_answered_every_ping": bool(pings) and all(pings),
+        "client_log_fresh": mod_age is not None and mod_age <= MOD_LOG_FRESH_S,
+        "no_watchdog_hang_or_crash": not trouble,
+    }
+
+
+def cmd_proof(a) -> int:
+    """Preflight: ONE test line, then 60 s of client health. Pass only if every check holds."""
+    if not a.confirm:
+        print("refusing: proof sends one real chat line on the dev server; pass --confirm (after Luis's go-ahead)")
+        return 2
+    t0 = time.time()
+    ok, detail = send_speech_direct(PROOF_LINE)
+    write({"kind": "proof_send", "ok": ok, "detail": detail[-200:], "text": PROOF_LINE})
+    if not ok:
+        print(f"FAIL: the send itself failed: {detail[-200:]}")
+        return 4
+    pings, row = [], None
+    while time.time() - t0 < HEALTH_WATCH_S:
+        if row is None:
+            row = next((r for r in _chat_rows_since(t0) if r.get("text") == PROOF_LINE), None)
+        pings.append(client_ping())
+        time.sleep(HEALTH_EVERY_S)
+    checks = proof_checks(row, _brain_heard_since(t0, TEST_SENDER), pings, mod_log_age_s(), watchdog_trouble_since(t0))
+    passed = all(checks.values())
+    write({"kind": "proof", "passed": passed, "checks": checks, "chat_row": row, "pings": pings})
+    for k, v in checks.items():
+        print(f"  {'ok  ' if v else 'FAIL'} {k}")
+    print("PROOF PASSED" if passed else "PROOF FAILED: do not run the session; report it")
+    return 0 if passed else 5
+
+
 def cmd_chat(a) -> int:
     if a.sender == "speech_direct" and not a.confirm:
         print("refusing: --sender speech_direct needs --confirm (and Luis's go-ahead before its first use)")
@@ -95,6 +198,9 @@ def cmd_chat(a) -> int:
     marks = [r for r in rows() if r.get("kind") == "mark"]
     if not marks:
         print("refusing: run `mark <phase>` first (it records the spend baseline)")
+        return 2
+    if a.sender == "speech_direct" and not any(r.get("kind") == "proof" and r.get("passed") for r in rows()):
+        print("refusing: no passed `proof` in the session log (the one-line test + 60 s client health watch)")
         return 2
     base = marks[0].get("spent_usd")
     rng = random.Random(a.seed)
@@ -179,6 +285,8 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("plan")
     p.add_argument("--hours", type=float, default=2.0)
     p.add_argument("--per-hour", type=int, default=30)
+    pf = sub.add_parser("proof")
+    pf.add_argument("--confirm", action="store_true")
     m = sub.add_parser("mark")
     m.add_argument("phase")
     m.add_argument("--note", default="")
@@ -194,7 +302,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "plan":
         print(json.dumps(estimate(a.hours, a.per_hour), indent=1))
         return 0
-    return {"mark": cmd_mark, "chat": cmd_chat, "report": cmd_report}[a.cmd](a)
+    return {"mark": cmd_mark, "chat": cmd_chat, "report": cmd_report, "proof": cmd_proof}[a.cmd](a)
 
 
 if __name__ == "__main__":
