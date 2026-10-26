@@ -732,6 +732,28 @@ MR.stop(log)
 walls = {}; raised = {}
 
 _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+-- 24. Windows refuses the request file's rename (AV/indexer handle; made test 1 flaky under load):
+--     the oracle request must still be sent (direct write) and its waypoints used
+walls = { { 900, 1100, -500, 500 } }; raised = {}; lakes = {}; portals = {}
+oracle = function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{5,6,0},{12,6,0},{20,0,0}}}"):format(id) end
+pump_oracle()
+local real_rename = os.rename
+os.rename = function(a, b) if tostring(b):find("req%.json$") then return nil, "Permission denied" end return real_rename(a, b) end
+pawn.loc = { X = 0, Y = 0, Z = 0 }
+local nlog24 = #logs
+local MQ = dofile(MOVE)
+MQ.go_to(log, { 20, 0, 0 }, { tolerance_m = 1 })
+run(150)
+os.rename = real_rename
+s = MQ.status()
+local saw_nav24 = false
+for i = nlog24 + 1, #logs do if logs[i]:find("src=nav") then saw_nav24 = true end end
+check("refused rename: oracle request still sent, waypoints used, arrives", s.result and s.result.status == "arrived" and saw_nav24 and (s.nav_requests or 0) >= 1,
+    tostring(s.result and s.result.status) .. " nav=" .. tostring(saw_nav24))
+MQ.stop(log)
+walls = {}; oracle = nil
+
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
 -- 7. arbiter hooks: actor target ({actor=obj}), snapshot/restore, face_when_near
 walls = {}; pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 1500, Y = 0, Z = 0 }; oracle = nil
 M.follow(log, { actor = luis }, 2, { sprint = true, face_when_near = true })

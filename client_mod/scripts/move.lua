@@ -396,13 +396,26 @@ end
 
 local function nav_request(st, from, to)
     st.nav_id = (st.nav_id or 0) + 1
+    local body = string.format('{"id":%d,"from":[%.2f,%.2f,%.2f],"to":[%.2f,%.2f,%.2f]}',
+        st.nav_id, from.X / 100, from.Y / 100, from.Z / 100, to.X / 100, to.Y / 100, to.Z / 100)
     local f = io.open(NAV_REQ .. ".tmp", "w")
     if not f then return false end
-    f:write(string.format('{"id":%d,"from":[%.2f,%.2f,%.2f],"to":[%.2f,%.2f,%.2f]}',
-        st.nav_id, from.X / 100, from.Y / 100, from.Z / 100, to.X / 100, to.Y / 100, to.Z / 100))
+    f:write(body)
     f:close()
-    os.remove(NAV_REQ)
-    os.rename(NAV_REQ .. ".tmp", NAV_REQ)
+    -- Windows can refuse a rename for a moment (an AV/indexer handle on the fresh file): retry, then
+    -- write in place (the helper tolerates a half-read file and re-reads); report failure so the
+    -- caller retries next tick instead of waiting out the oracle timeout for a request never sent
+    local sent = false
+    for _ = 1, 3 do
+        os.remove(NAV_REQ)
+        if os.rename(NAV_REQ .. ".tmp", NAV_REQ) then sent = true; break end
+    end
+    if not sent then
+        local g = io.open(NAV_REQ, "w")
+        if g then g:write(body); g:close(); sent = true end
+        os.remove(NAV_REQ .. ".tmp")
+    end
+    if not sent then return false end
     st.nav_pending, st.nav_goal = st.nav_id, v(to)
     return true
 end
