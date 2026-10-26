@@ -1,0 +1,5 @@
+{
+  "_note": "Known dev-world spots by case need (measured on dev 2026-10-26 with a logged teleport + the body's look; a harness fact, never companion knowledge).",
+  "standing_trees": {"at": [100.0, 1892.0, -31.0], "facing": "two Ash Trees ~8 m north-east at [105.7, 1898.3] and [108.4, 1894.8]",
+                     "lodestone_m": 49.4, "why": "Axtral Projection T0: standing trees in front, >= 40 m from a lodestone"}
+}

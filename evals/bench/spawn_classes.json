@@ -1,0 +1,5 @@
+{
+  "_note": "Full object paths for creature classes the dev spawn fixture may need to LOAD first (not every class is loaded on a fresh dev world). From docs/research and the reflection dump.",
+  "BP_AI_RuntGoblin_Character_C": "/Game/Gameplay/AI/GoblinFaction/MeleeGoblin/RuntGoblinVariant/BP_AI_RuntGoblin_Character.BP_AI_RuntGoblin_Character_C",
+  "BP_AI_MeleeGoblin_Character_C": "/Game/Gameplay/AI/GoblinFaction/MeleeGoblin/BP_AI_MeleeGoblin_Character.BP_AI_MeleeGoblin_Character_C"
+}

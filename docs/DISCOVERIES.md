@@ -1903,3 +1903,13 @@ Quick fixtures, logged as quick and not M3 cases: Coarse Net and Ash Rod were gr
   - Measured 01:07 → 01:30: `SetInGameTime` took effect immediately, and the clock read 01:35 five seconds later.
   - The server log at 2026-10-25 22:47 showed `DominionInGameTimeSubsystem: Failed to find an actor that implements IWorldTimeProvider` (a different interface).
   - Not yet checked: whether the change replicates to the client (`bench_probe.game_hour`).
+- **Slot results, 2026-10-26 09:45–09:55 UTC (dev, Eval agent):**
+  - **Axtral Projection T0 passed** at the standing-trees spot `evals/bench/dev_places.json` `[100, 1892, -31]`: two Ash Trees about 8 m away, the lodestone 49 m away. Evidence: `spell_actor BP_Spell_AxtralProjection_C`, 3.9 s, 2 Haiku calls.
+  - **Route A (fresh character per case) verified live.** `CD_m3w05d8_sure0` was created through `create_char.lua`: first boot stops at the menu, create, second boot picks it by name and joins dev with the client relaunched (L24). The server GUID `F201088A…` came from the referee probe.
+  - **`raise_skills`, all-but-Woodcutting to 10, on that character:**
+    - 8 skills reached 10.
+    - Mining overshot to 19: its DamageXPEvent gives about 3 XP per multiplier unit, against Attack's about 0.8.
+    - Fishing, Magic and Agility stayed at 0 XP, because their DamageXPEvent gives NO XP.
+    - Fixed offline, not yet re-run live: an adaptive step (a quarter of the gap first, then the measured ratio, aiming at 97%), plus skill-specific live row handles: Magic `PlayerMagicComponent.SpellDamageXpEvent`, Agility `SprintComponent.SprintXpEvent`, Fishing `CatchableFishSpeciesData.Info.NormalDrop.OnFishingXpEvent`.
+  - **Enchant Weapon (Fire) T0:** the hold setup (the body's `equip` on the granted sword) succeeded. The cast then answered "couldn't find Enchant Weapon: Fire on my spell wheel's pages" (verification_failed) after the unlock. That is a body/spell-wheel issue.
+  - **Runt spawn (M1):** the spawn fixture now loads a not-yet-loaded class with UE4SS `LoadAsset(<full path>)` + `StaticFindObject`. The paths are in `evals/bench/spawn_classes.json` (runt: `/Game/Gameplay/AI/GoblinFaction/MeleeGoblin/RuntGoblinVariant/BP_AI_RuntGoblin_Character.BP_AI_RuntGoblin_Character_C`). It is deployed but not verified: the fixture needs the character in the world, and the client is down (BUGS L35).

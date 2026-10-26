@@ -43,14 +43,21 @@ local function spawn(target, args)
         local inst = U.find_all(tostring(args.class or ""), { skip_defaults = true })[1]  -- FindFirstOf may return the CDO
         cls = U.valid(inst) and U.try(function() return inst:GetClass() end) or nil
     end
-    if not U.valid(cls) then return { ok = false, error = "unknown_class", class = args.class } end
+    local loaded = nil
+    if not U.valid(cls) and args.class_path and type(LoadAsset) == "function" then
+        -- a class nothing has loaded yet (the runt on a fresh dev world, M1 blocker): UE4SS LoadAsset on the game
+        -- thread, then find it by its full object path (the same route as mod/body/sleep.lua's shelter class)
+        loaded = pcall(LoadAsset, tostring(args.class_path))
+        cls = U.try(StaticFindObject, tostring(args.class_path))
+    end
+    if not U.valid(cls) then return { ok = false, error = "unknown_class", class = args.class, load_attempted = loaded } end
     local here = U.loc(target)
     local off = args.offset_m or { 5, 0, 0 }
     local at = { X = here.X + off[1] * 100, Y = here.Y + off[2] * 100, Z = here.Z + off[3] * 100 }
     local world = U.try(function() return target:GetWorld() end)
     local a = world and U.try(function() return world:SpawnActor(cls, at, { Pitch = 0, Yaw = 0, Roll = 0 }) end)
     if not U.valid(a) then return { ok = false, error = "spawn_failed" } end
-    return { ok = true, id = U.short(a), class = U.class_word(a) }
+    return { ok = true, id = U.short(a), class = U.class_word(a), loaded = loaded }
 end
 
 -- Read-only: which setup routes exist for the target (the game's own UDominionCheatManager dom* functions are the
@@ -118,6 +125,28 @@ local function skill_rows(sk)
     return out
 end
 
+-- Per-skill XP-event sources (live 2026-10-26: SkillData.DamageXPEvent gives NO XP for Fishing, Magic, Agility).
+-- Each is a READ of a live row handle the game itself uses for that skill (reflection dump, build 26161880).
+local function component_of(actor, cls)
+    for _, c in ipairs(U.find_all(cls, { skip_defaults = true })) do
+        if U.try(function() return c:GetOwner() end) == actor then return c end
+    end
+end
+local XP_SOURCES = {
+    Magic = function(target)  -- UPlayerMagicComponent.SpellDamageXpEvent
+        local c = component_of(target, "PlayerMagicComponent")
+        return c and U.try(function() return c.SpellDamageXpEvent end)
+    end,
+    Agility = function(target)  -- ADominionPlayerCharacter.SprintComponent -> USprintComponent.SprintXpEvent
+        local c = U.try(function() return target.SprintComponent end)
+        return U.valid(c) and U.try(function() return c.SprintXpEvent end) or nil
+    end,
+    Fishing = function()  -- UCatchableFishSpeciesData.Info.NormalDrop.OnFishingXpEvent (any loaded species)
+        local d = U.find_all("CatchableFishSpeciesData", { skip_defaults = true })[1]
+        return d and U.try(function() return d.Info.NormalDrop.OnFishingXpEvent end)
+    end,
+}
+
 local function raise_skills(target, args)
     local pc = U.try(function() return target.Controller end)
     local sk = U.valid(pc) and U.try(function() return pc.SkillComponent end) or nil
@@ -126,6 +155,12 @@ local function raise_skills(target, args)
         if type(args.skills) == "table" and args.skills[name] then return tonumber(args.skills[name]) end
         if args.level and name ~= args.except then return tonumber(args.level) end
     end
+    -- adaptive step (live 2026-10-26: XP per multiplier unit differs per event: Attack ~0.8, Mining ~3, so a fixed
+    -- factor overshot Mining to 19): the first call adds a quarter of the gap; later calls use the ratio observed
+    -- since the previous call (the XP lands a tick later, so it is measured across calls), aiming at 97% of the gap
+    local mem = rawget(_G, "__dw_bench_raise") or {}
+    rawset(_G, "__dw_bench_raise", mem)
+    local guid = tostring(args.character_guid or "")
     local results, all_ok = {}, true
     for _, r in ipairs(skill_rows(sk)) do
         local want = want_of(r.name)
@@ -133,13 +168,25 @@ local function raise_skills(target, args)
             local d = r.data
             local res = { level = U.try(function() return sk:GetSkillLevel(d) end), xp = r.xp, want = want }
             res.ok = (res.level or 0) >= want
+            local key = guid .. ":" .. r.name
+            local prev = mem[key]
+            if prev and prev.added and r.xp and prev.xp and r.xp > prev.xp then prev.ratio = (r.xp - prev.xp) / prev.added end
             if not res.ok then
-                local handle = U.try(function() return d.DamageXPEvent end)
+                local src = XP_SOURCES[r.name]
+                local handle = (src and src(target)) or U.try(function() return d.DamageXPEvent end)
+                res.source = src and "skill_specific" or "DamageXPEvent"
                 local need = U.try(function() return sk:GetTotalXPNeededForLevel(want) end)
                 res.need_total = need
                 local mult = tonumber(args.multiplier)
-                if not mult and need and r.xp then mult = math.max(1, math.ceil((need - r.xp) * 1.15)) end
-                if not handle then
+                if not mult and need and r.xp then
+                    local gap = need - r.xp
+                    local ratio = prev and prev.ratio
+                    mult = math.max(1, math.ceil(ratio and (gap * 0.97 / ratio) or (gap * 0.25)))
+                    res.ratio = ratio
+                end
+                if prev and prev.added and r.xp == prev.xp and (prev.calls or 0) >= 3 then
+                    res.error = "no_xp_from_event"  -- three calls, no XP: this row gives this skill nothing
+                elseif not handle then
                     res.error = "no_xp_event_handle"
                 elseif not mult then
                     res.error = "no_xp_target"
@@ -147,7 +194,11 @@ local function raise_skills(target, args)
                     local ok1, e1 = pcall(function() sk:AddXpFromEvent(handle, "bench_fixture", mult + 0.0, true) end)
                     res.added = ok1 and mult or nil
                     res.error = (not ok1) and tostring(e1) or nil
+                    mem[key] = { xp = r.xp, added = ok1 and mult or nil, ratio = prev and prev.ratio,
+                                 calls = ((prev and r.xp == prev.xp) and (prev.calls or 0) or 0) + 1 }
                 end
+            else
+                mem[key] = nil
             end
             all_ok = all_ok and res.ok
             results[r.name] = res

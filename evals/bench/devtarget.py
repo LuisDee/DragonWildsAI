@@ -25,7 +25,7 @@ from .observer import Abort
 from .serverlog import ServerLogReferee, merge
 
 REFEREE_LOG = ROOT / "logs" / "bench" / "referee.jsonl"
-RAISE_ROUNDS = 6  # raise_skills: each round closes ~90% of the XP gap (dev, 2026-10-26)
+RAISE_ROUNDS = 12  # raise_skills: round 1 adds a quarter of the gap, later rounds ~97% by the measured ratio
 SETUP_LOG = ROOT / "logs" / "bench" / "fixture_setup.jsonl"  # every fixture call on dev, with its purpose (main 2026-10-26)
 PROBE_CMD = ROOT / "client_mod" / "commands" / "bench_probe.lua"
 # verified kinds (DISCOVERIES 2026-10-25/26): damage carries by + damage_type (v1.1 hooks), deaths by, telegraphs;
@@ -73,6 +73,13 @@ def spell_actor_classes() -> list[str]:
     except (OSError, ValueError, AttributeError):
         pass
     return sorted(out)
+
+
+def spawn_class_paths() -> dict:
+    try:
+        return json.loads((ROOT / "evals" / "bench" / "spawn_classes.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
 
 
 def dev_places() -> dict:
@@ -215,7 +222,10 @@ class DevTarget:
         elif verb == "unlock":
             args["paths"] = [spell_path(a["spell"])]
         elif verb == "spawn":
-            args.update({"class": a.get("class") or a.get("kind_id"), "offset_m": a.get("offset_m") or a.get("at") or [5, 0, 0]})
+            cls = a.get("class") or a.get("kind_id")
+            args.update({"class": cls, "offset_m": a.get("offset_m") or a.get("at") or [5, 0, 0]})
+            if spawn_class_paths().get(str(cls)):
+                args["class_path"] = spawn_class_paths()[str(cls)]  # loaded first if nothing has loaded it yet
         else:
             args.update(a)
         r = self.server_debug(args)
