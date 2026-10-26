@@ -1514,6 +1514,10 @@ M.SERVICES = {
     -- deadlock the GameThread, so tickguard gives it a 1 h TickInterval on every new world instance.
     { name = "tickguard", module = "tickguard", start = "start",
       healthy = function(mod) return type(mod.healthy) == "function" and mod.healthy() == true end },
+    -- Client-crash fix (BUGS L38): on -nullrhi every Niagara spawn is NULL, and the player character
+    -- stores and later dereferences it (LocalFX); fxguard empties the trigger table on every pawn.
+    { name = "fxguard", module = "fxguard", start = "start",
+      healthy = function(mod) return type(mod.healthy) == "function" and mod.healthy() == true end },
 }
 
 local function supervise(force)

@@ -2094,3 +2094,44 @@ Builds: client 26162923, dump 26161880.
 - **Screen input modes** (object dump): DIM_FocussedInGameUI, DIM_UnfocussedInGameUI, DIM_FullScreenUI, DIM_FullScreenUIMap, DIM_MainInventoryMenu, DIM_CraftingMenu, DIM_AgilityCourseUI.
 - **Used by:** `input.lua` (`close_screens`, `open_screens`, the `"screen"` modal, `after_action`), `crafting.W.close` and `lodestone.W.close_map`.
 - **CommonUI idiom** (the Epic "Input fundamentals for CommonUI" doc): close or deactivate the widget through its owner and let the input config follow. Never call SetInputMode directly.
+
+## Client crash L38: -nullrhi makes every Niagara spawn NULL; the player character stores and dereferences it (2026-10-26 19:30–20:35 UTC, client build 26162923, dev, ClaudeDev; cdb on the UE4SS dumps + static reading of the shipped exe + live reflection; read-only except the fix)
+- **All 8 dumps of the family are one bug.** They are the 2026-10-26 18_08_10, 18_26_17, 19_04_07, 19_11_08, 19_20_03 and 19_24_52 dumps (local time, `Win64/ue4ss/crash_*.dmp`), plus the repros 20_24_07 and 20_25_57. Each shows the AV at `exe+0x64AEC4A`: `mov rax,[rcx]` with rcx=0, then `call [rax+2C0h]`.
+  - The function (`exe+0x64AEAE0`) is **`ADominionPlayerCharacter::RemoveNiagaraSystemWithLocalTag(Tag)`**. It looks Tag up in `LocalFX` (`TMap<FGameplayTag, UNiagaraComponent*>` at pawn+0x1748; the CXX dump gives that offset), then calls the component's virtual (Deactivate), `DestroyComponent` (dl=1) and `Remove`. It has no null check.
+  - Its caller (`exe+0x64AEE40`) is the tag-changed handler. It looks the changed tag up in `TaggedLocalNiagaraSystems` (`TMap<FGameplayTag, FDominionTaggedLocalNiagaraSystem>` at +0x1798, 0x38-byte elements) and calls Remove with the row's `LocalVFXTag`. It runs from a delegate thunk inside a multicast broadcast during the world tick.
+  - In every dump, LocalFX holds exactly one element whose value is NULL. TaggedLocalNiagaraSystems holds one row whose key FName index (0x1f737) is the same across all runs.
+- **The adder never checks.** `AddNiagaraSystemAttachedWithLocalTag(System, Tag, AttachPointName)` is at `exe+0x648D450`. It returns early when the tag is already held, or when the net mode is a dedicated server. Otherwise it calls `UNiagaraFunctionLibrary::SpawnSystemAttached(System, Mesh, AttachPoint, 0, 0, KeepRelativeOffset, bAutoDestroy=false, bAutoActivate=true, Pooling None, bPreCullCheck=true)` and does `LocalFX.Add(Tag, result)` **unconditionally**, even when the result is NULL.
+- **The row (live read, `client_mod/commands/l38_fx_probe.lua`):** `Environment.SoulScourge` → `{LocalVFXTag = Player.Vfx.SoulScourge, System = /Game/Art/VFX/Library/Character/StatusEffect/NS_SoulScorge_PlayerEffect_Buildup, AttachPointName = spine_03}`. This is the Soulscourge build-up glow. Dirty Water (+20 Soulscourge) is the only consumable used so far that raises Soulscourge, and that is why only it crashed (0 of 31 other uses did).
+- **Why the result is NULL (a headless client):** on Claude's -nullrhi client, `SpawnSystemAttached(NS_SoulScorge…Buildup, Mesh, "spine_03", …)` returns **NULL both with bPreCullCheck=true and with false** (`client_mod/commands/l38_spawn_test.lua`, live). So scalability pre-culling is not the cause. `fx.Niagara.Scalability.VisibilityCulling 0` did not help either (repro 2 still crashed).
+  - In the shipped exe, `SpawnSystemAttachedWithParams` (`exe+0x50B96C0`) reaches `CreateNiagaraSystem` (`exe+0x50A09D0`). That function returns NULL before it creates anything, on `if (A && !B) return null; if (C) return null`, where A, B and C are three global bytes. That is the shape of `FApp::CanEverRender()`: `(!IsRunningCommandlet() || IsAllowCommandletRendering()) && !GUsingNullRHI`. The engine docs describe CanEverRender as the check for apps that never render or run headless with NullRHI.
+  - Conclusion: with -nullrhi, **every** Niagara spawn returns NULL on this client.
+  - Players (who render) and dedicated servers (Add returns early) never store a NULL, which is why this is a Claude-only crash.
+- **Repro (dev, slot `l38`, 20:22–20:26 local):** fixture grant of Dirty Water, then `client_mod/commands/l38_drink.lua`, which runs inventory.lua's use path with crash_refusal bypassed in its own module instance only. A per-frame watcher (`client_mod/commands/l38_fx_watch.lua`) recorded:
+  - the drink GE;
+  - within 30 ms, `LocalFX = {Player.Vfx.SoulScourge = NULL}` with **no NiagaraComponent created** (NotifyOnNewObject saw none);
+  - then the crash in the next frame.
+  - Result: 2 of 2 crashed (dumps 20_24_07, 20_25_57). Why the Remove sometimes follows at once (the 16:55 and 16:58 drinks did not crash) is UNPROVEN, and the fix makes it irrelevant.
+- **Fix (`client_mod/scripts/fxguard.lua`, client_bridge service `fxguard`, built like tickguard):** empty `TaggedLocalNiagaraSystems` on every live `DominionPlayerCharacter` on Claude's client: his own pawn and other players' pawns, whose tag events also run on his client. The tag handler then finds no row and never adds or removes a NULL. This covers every row, including any a patch adds. It is client-local and cosmetic, since a -nullrhi client never draws the effect. New pawns (respawn, join, other players) are caught by the 10 s service check.
+  - Verified live: `fxguard_apply` emptied 1 row (`Environment.SoulScourge`) on `BP_PlayerCharacter_C_2147473178`. Then **3 Dirty Water drinks in a row on the same process (pid 1412) did not crash**, LocalFX stayed empty, and the Soulscourge status GE applied as normal. After a bridge restart, boot_probe shows `fxguard: running`.
+  - Offline test: `client_mod/tests/test_fxguard.lua` (14/14).
+- **Alternatives weighed:**
+  - Rendering for real (dropping -nullrhi, e.g. -RenderOffScreen on WARP, since there is no GPU) would make CanEverRender true and fix every such site at once. It was not tried: it needs a software-rendered UE5.6 scene on a 4-vCPU VM with ~1.5 GB free.
+  - Patching the NullRHI flag in memory would make the renderer call an RHI that does not exist, and needs approval anyway.
+  - Culling cvars do not help: the NULL comes before culling.
+- **The general rule this exposes:** on Claude's client, *any* game C++ that keeps a spawned VFX component without a null check is a latent crash. Native holders of UNiagaraComponent* from the CXX dump that are at risk:
+  - `UTagActivatedFX.ActiveFXMap/ParticleSystems` (the same tag-driven pattern; the next guard candidate: its `FXSettingsMap`);
+  - `AHeldEquipmentActor.FXSourceToAppliedFX` (enchant FX on held gear);
+  - `UDominionStatusEffect.SpawnedVFX`;
+  - `UDrainEffectManagerComponent.DrainVFX/BeamVFX` (spells);
+  - `UDetectOreGameplayEffectInstance` ping VFX map and set (ore detection);
+  - `UPlayerEnvironmentFXExtension.MoveThroughWater/PassThroughVFXComponent` (wading has been fine so far);
+  - `ADominionProjectile` arrow head and trail;
+  - `AFelledTree.CanopyCollapseVFXComponent` (woodcutting has been fine so far);
+  - `UFarmSlotComponent` state VFX;
+  - `ASwitchableTrap`, `ASaplingBase`, `ALightSourceBase`, `ADelayedDamage`, `AFireSpirit`/`UFireSpiritGameplayEffectInstance`, `UStationUpgradeComponent.NearbyCandidates`, `UAIBlockingComponent`, `APoolablePersistentVFXActor`.
+  - Blueprint-only holders (e.g. BP_ScarabVolume) log "Accessed None" instead of crashing.
+  - A new crash whose stack has a null `this` right after an effect or VFX trigger should be checked against this list first. Then add a `fxguard.GUARDS` row (the trigger table to empty), with a live repro.
+- **Search (search-before-building):**
+  - Searched "UE5 nullrhi Niagara spawn null", "RequestAsyncLoad null assets" and "CanEverRender Niagara": nothing documents this exact crash.
+  - The `RequestAsyncLoad() called with empty or only null assets!` line comes in the same frame as the Dirty Water drinks (probably a soft-asset request of the Soulscourge status). It is not the crash: the NULL is the Niagara spawn, as the spawn test proves directly. Its origin is unverified.
+  - Sources: dev.epicgames.com/documentation/unreal-engine/API/Runtime/Core/FApp/CanEverRender; docs.unrealengine.com/4.27/en-US/API/Plugins/Niagara/UNiagaraFunctionLibrary/SpawnSystemAttached; dev.epicgames.com/documentation/unreal-engine/API/Plugins/Niagara/FNiagaraWorldManager/ShouldPreCull; noesisengine.com/bugs/view.php?id=4987 (another NullRHI crash for want of a CanEverRender/GUsingNullRHI check).
