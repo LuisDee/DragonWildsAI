@@ -310,6 +310,10 @@ M._spots_around = spots_around
 -- A water source (pond, river), from census data: a WaterVolume class family or the game's own "Collect Water"
 -- prompt (DISCOVERIES "Drinkable water for a fresh character"). No name list.
 M.cfg.water_reach_m = 2.0
+-- a water volume's census point is its ORIGIN, deep in the middle (live 2026-10-26: the start pond's origin read
+-- 85 m off while its bank was much nearer), so search wider than look's 80 m
+M.cfg.water_search_m = 150
+M.cfg.water_wades = 0  -- wade steps disabled until the 2026-10-26 18:26 client crash is analysed (stepping into water may be the cause)
 function W.is_water(thing)
     if type(thing) ~= "table" then return false end
     if tostring(thing.class or thing.id or ""):find("WaterVolume", 1, true) then return true end
@@ -429,7 +433,7 @@ end
 
 local function episode_poll(api, e, t)
     local th = e.thing
-    local goal = e.spots and e.spots[e.spot_i] or th.position
+    local goal = (e.wading and e.wade_goal) or (e.spots and e.spots[e.spot_i]) or th.position
     if e.phase == "approach" then
         -- fail-fast progress watchdog (like combat's L34): the approach must get closer to the THING (not to the
         -- current standing spot); a poll gap (suspended by a reflex, then resumed) restarts the window
@@ -461,7 +465,8 @@ local function episode_poll(api, e, t)
             and not (e.tight and d > M.cfg.close_m + 0.3)
         -- water: on the bank within reach of the surface point counts as there, whichever spot he stopped at
         -- (move's water avoidance halts him at the edge, 0.9 m short of a wet spot: live too_far x10)
-        if e.water and here and e.ipoint and dist2d(here, e.ipoint) <= M.cfg.water_reach_m then near = true end
+        if e.water and not e.wading and here and e.ipoint and dist2d(here, e.ipoint) <= M.cfg.water_reach_m then near = true end
+        if e.wading then near = d and d <= 0.6 end
         if near and not on_top then
             e.phase, e.face_until, e.moving = "face", t + M.cfg.face_s, false
             W.face(api, e.ipoint, false) -- look at it first (the camera), as a player turns to what he wants
@@ -477,7 +482,7 @@ local function episode_poll(api, e, t)
             -- while he stood on a tent roof and the client stopped answering right after
             -- move's shared approach-progress tracker measures to the THING (not the standing spot); its window restarts
             -- with each go_to, so the episode keeps the cross-spot window above (the 101 s case cycled 6 spots)
-            local mr = api.call("move", "go_to", goal, { tolerance_m = e.tol, timeout_s = 60, allow_unstuck = false,
+            local mr = api.call("move", "go_to", goal, { tolerance_m = e.wading and 0.4 or e.tol, timeout_s = 60, allow_unstuck = false,
                                                         progress = { to = e.ipoint, stall_s = M.cfg.no_progress_s, gain_m = M.cfg.progress_m } })
             if not mr.ok then return mr end
             e.moving, e.approaches = true, e.approaches + 1
@@ -488,6 +493,8 @@ local function episode_poll(api, e, t)
         if pv and (pv.verdict == "stalled" or pv.verdict == "unreachable") and pv.why then e.last_move_why = pv.why end
         if st.mode == "go_to" then return nil end
         e.moving = false
+        -- a wade step ends where move let him go (its water avoidance may stop him at the very edge): face from there
+        if e.wading then e.phase, e.face_until = "face", t + M.cfg.face_s; W.face(api, e.ipoint, true); return nil end
         local res = type(st.result) == "table" and st.result or {}
         if res.status == "arrived" then return nil end -- re-check the distance next tick
         if res.status == "stopped" then return nil end -- e.g. suspended by a reflex and resumed: walk again
@@ -508,7 +515,24 @@ local function episode_poll(api, e, t)
         end
         W.face(api, e.ipoint, true)
         if t >= e.face_until then
-            if next_spot(e, api) then return nil end -- the detector won't take it from here: another side
+            -- water (live 2026-10-26 19:2x): from the bank 3 m above the pond the game's detector targets nothing (or
+            -- a branch on the bank); one step nearer the water's edge and it reads the volume ("Collect Water").
+            -- Step toward the surface point, 1 m at a time, at most cfg.water_wades times, then try the next spot.
+            if e.water and (e.wades or 0) < M.cfg.water_wades then
+                local here = api.my_position()
+                if here and e.ipoint then
+                    local dx, dy = e.ipoint[1] - here[1], e.ipoint[2] - here[2]
+                    local l = math.sqrt(dx * dx + dy * dy)
+                    if l > 0.3 then
+                        local step = math.min(1.0, l)
+                        e.wades, e.wading = (e.wades or 0) + 1, true
+                        e.wade_goal = { here[1] + dx / l * step, here[2] + dy / l * step, here[3] }
+                        e.phase, e.moving, e.approaches = "approach", false, 0
+                        return nil
+                    end
+                end
+            end
+            if next_spot(e, api) then e.wading = false; return nil end -- the detector won't take it from here: another side
             local here = api.my_position()
             local dd = here and dist2d(here, e.ipoint)
             if not e.spots and not e.tight and dd and dd > M.cfg.close_m + 0.2 then -- small things: one tighter approach
@@ -1688,16 +1712,16 @@ local function start_collect_water(api, args, ctx)
     local t0, src
     if need_str(args.target) then
         local r
-        src, r = api.find_thing(args.target)
+        src, r = api.find_thing(args.target, M.cfg.water_search_m)
         if not src then return api.fail("unknown_target", { target = args.target, detail = "I can't see that water anywhere near me." }) end
         if not W.is_water(src) then
             return api.fail("not_interactable", { target = args.target, detail = "The " .. tostring(src.name or "thing") .. " isn't water I can collect." })
         end
     else
-        for _, t in ipairs(api.census_things(60, 40) or {}) do
+        for _, t in ipairs(api.census_things(M.cfg.water_search_m, 40) or {}) do
             if W.is_water(t) and (not src or (t.distance or 1e9) < (src.distance or 1e9)) then src = t end
         end
-        if not src then return api.fail("nothing_in_range", { radius_m = 60, detail = "I can't see any water I could collect near me." }) end
+        if not src then return api.fail("nothing_in_range", { radius_m = M.cfg.water_search_m, detail = "I can't see any water I could collect near me." }) end
     end
     local job = { kind = "collect_water", got = 0, item = nil }
     local function begin() job.ep = new_episode(api, src, { label = src.name or "water" }); job.ep.need_gain = true end
