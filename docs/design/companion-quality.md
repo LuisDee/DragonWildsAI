@@ -204,6 +204,11 @@ Other run-2 counts, old → new:
   - checks pass at 0.933; silence 4.17, match 3.91; promise_has_tool 2/6.
   - The h1–h6 cases now carry the live broker's body_status, replayed from the log (follow Zezima, standing still, the gathers). recent_activity is genuinely empty in that session's log, and each case is flagged `fixture_gaps`.
 
+- **CLEAN baseline: the whole companion at 94b3c5e** (a detached HEAD worktree; persona sha256 515ca0c2…; `logs/voice-eval-20261026-124424.jsonl`; 122 of 150 calls; no continuation skipped; scoreboard row with `measured_commit` 94b3c5e395b7…, companion hash db359558534bd36b, clean):
+  - **score 0.78**, set by human 3.90/5; per sample 0.848 / 0.734 / 0.744, k-mean 0.775, sd 0.063;
+  - checks pass at 0.963; silence 4.16, match 3.96; promise_has_tool 5/7; 21 continuations ran, 5 of which added an action.
+  - Below the 0.8 target. The spread is wide (sd 0.063), so one sample can swing about 0.1. The re-measure comes at the judge-freeze commit.
+
 ### Open items (voice)
 1. **Over-silence on direct questions** (v18 "why are you casting Splinter near me?" → silent gather; h2 "fancy a job" → silent start_goal). The persona rule "a direct question gets a short answer" doesn't hold under effort low. Options:
    - move the rule into the few-shots, with a question → answer + action pair;

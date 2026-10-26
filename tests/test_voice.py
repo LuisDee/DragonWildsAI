@@ -375,3 +375,10 @@ def test_refresh_status_replays_the_live_broker_and_flags_what_the_log_lacks(tmp
     vf.refresh_status([case], root=tmp_path)
     assert any("gather" in ln and "ok" in ln for ln in case["context"]["body_status"])  # what he really did
     assert case["context"]["recent_activity"] == [] and case["fixture_gaps"] == ["recent_activity"]
+
+
+def test_each_head_run_gets_its_own_worktree_dir(tmp_path):
+    a = ve.snapshot_dir(tmp_path, "94b3c5e395b71c19", now=1793000000.0, pid=10)
+    b = ve.snapshot_dir(tmp_path, "94b3c5e395b71c19", now=1793000001.0, pid=10)
+    c = ve.snapshot_dir(tmp_path, "94b3c5e395b71c19", now=1793000000.0, pid=11)
+    assert len({a, b, c}) == 3 and a.parent == tmp_path / "logs" / "tmp" and a.name.startswith("voice-94b3c5e395b7-")

@@ -494,6 +494,13 @@ HOME = Path(os.environ.get("DW_VOICE_HOME") or paths.REPO_ROOT)
 SCOREBOARD = HOME / "logs" / "evals" / "scoreboard.jsonl"
 
 
+def snapshot_dir(root: Path, sha: str, now: float | None = None, pid: int | None = None) -> Path:
+    """logs/tmp/voice-<sha12>-<UTC stamp>-<pid>: unique per run (live 12:43: re-adding the same path right after
+    removing it left a worktree without evals/fixtures/voice_manifest.json, a Windows handle race)."""
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime(time.time() if now is None else now))
+    return root / "logs" / "tmp" / f"voice-{sha[:12]}-{stamp}-{os.getpid() if pid is None else pid}"
+
+
 def run_in_snapshot(ref: str, argv: list[str]) -> int:
     """main 2026-10-26: --persona-ref HEAD pinned only persona.md while brain/controller.py had an uncommitted A/B
     edit. A HEAD run therefore re-executes this eval inside `git worktree add --detach <tmp> <ref>` (under
@@ -502,17 +509,20 @@ def run_in_snapshot(ref: str, argv: list[str]) -> int:
     import subprocess
     root = paths.REPO_ROOT
     sha = subprocess.run(["git", "rev-parse", ref], cwd=root, capture_output=True, text=True, check=True).stdout.strip()
-    snap = root / "logs" / "tmp" / f"voice-{sha[:12]}"
+    snap = snapshot_dir(root, sha)  # unique per run: never re-adds a path a previous run is still releasing
     snap.parent.mkdir(parents=True, exist_ok=True)
-    if snap.exists():
-        subprocess.run(["git", "worktree", "remove", "--force", str(snap)], cwd=root, capture_output=True)
+    subprocess.run(["git", "worktree", "prune"], cwd=root, capture_output=True)  # stale entries from a crash
     subprocess.run(["git", "worktree", "add", "--detach", str(snap), sha], cwd=root, capture_output=True, check=True)
     env = {**os.environ, "DW_VOICE_SNAPSHOT": sha, "DW_VOICE_HOME": str(root), "DW_LOG_DIR": str(root / "logs")}
     print(f"measuring the whole companion at {ref} = {sha[:12]} (temporary worktree {snap})")
     try:
         return subprocess.run([sys.executable, "-m", "evals.voice_eval", *argv], cwd=snap, env=env).returncode
-    finally:
+    finally:  # always: no stale checkouts under logs/tmp, even on an exception or Ctrl-C
         subprocess.run(["git", "worktree", "remove", "--force", str(snap)], cwd=root, capture_output=True)
+        if snap.exists():
+            import shutil
+            shutil.rmtree(snap, ignore_errors=True)
+        subprocess.run(["git", "worktree", "prune"], cwd=root, capture_output=True)
 
 
 def voice_score(summary: dict) -> float | None:
