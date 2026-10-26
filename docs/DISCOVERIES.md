@@ -2001,3 +2001,15 @@ Quick fixtures, logged as quick and not M3 cases: Coarse Net and Ash Rod were gr
   - **Fix:** the conversation input mode also counts as active.
   - **Retry:** it opened, read 3 lines, and `hook_count` went 1 → 4 with content changes (counter proven). `leave` ended it (node inactive, no input owner left).
   - **Options:** the node offers "Yes please [Begin Tutorial]" / "I can work it out [Skip Tutorial]". Both change quest state, so no "harmless choose" exists here; that is left for P3 on a fresh devchar. The reply's `options` list was empty while the node signature listed both (to check).
+
+## Director live smoke, run 3 (2026-10-26 16:05-16:10 UTC, dev, ClaudeDev; Director agent)
+- **Setup:** bridge_start first; the sticks profile fix (18a2626) was in. World dev_director_r3; job "make yourself a wooden shield". The guard stopped the brain at 20 Haiku calls; Sonnet made 7 requests. Log: `logs/brain-live-20261026-170459-9940.jsonl`. memory_low 0; free RAM about 1.27 GB; no client crash.
+- **Not finished.** The job is active; 0 Ash Logs.
+- **The bootstrap route resolved correctly:** `gather {resource: ash, count: 14}` with no axe went to `resource: sticks`, item ITEM_Resources_Wood_Ash.
+- **But he could not reach the branches:** `path_blocked` after 120.9 s. The phase log shows 3 approaches (21.8 m, 11.8 m, 16.3 m), each `scan unreachable timeout` after 40 s ("I can't get to the sticks (timeout), and the last 3 I tried were blocked too"). This is a locomotion gap at that spawn (for the move/locomotion owner).
+- **Survival took over:**
+  - Hydration was low. He found a pond (BP_WaterVolume) and tried `interact` on it 4 times, always `too_far`.
+  - He said truthfully that he had no bottle or bucket and asked the player for a waterskin.
+  - He fought a Kebbit, and that fight looked well (dodge, Tempest Shield, hits).
+- **Replan:** "find a woodcutting tool" first. The Director did not learn that the sticks route exists, because gather's failure said "can't get to the sticks" and the plan read it as "no hatchet". Information for the model: the gather detail now names sticks.
+- **obs task:** wall 317 s, idle 2%, longest idle 0.7 s. Lead-in 15.6 s (14.6 s of Sonnet thinking). Only one step ran, so there are no step gaps.
