@@ -712,6 +712,26 @@ MD2.stop(log)
 os.remove(envf); HAS_DJ = false; raised = {}
 
 _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+-- 23. TRUTHFUL REASON (live 07:05): on a 3 m plateau, a tall wall across its whole width (it runs
+--     past the plateau's edges); the goal is level with us beyond the wall. The escape must not walk
+--     him off the plateau (Bug2 did), and the reason must be "no_route" (walls), not "above jump height"
+walls = {}; oracle = nil; lakes = {}; portals = {}
+raised = { { 500, 600, -1500, 1500, 1200, 1200 },      -- the wall (12 m high), wider than the plateau
+           { -1000, 1500, -1000, 1000, 300, 300 } }    -- the plateau, 3 m up
+luis.loc = { X = 90000, Y = 90000, Z = 0 }
+pawn.loc = { X = 0, Y = 0, Z = 300 }
+local nlog23 = #logs
+local MR = dofile(MOVE)
+MR.go_to(log, { 12, 0, 3.0 }, { tolerance_m = 1.5, timeout_s = 120 })
+run(1500)
+s = MR.status()
+check("reason: stays on the plateau (no wall-following off the ledge)", pawn.loc.Z >= 290, pawn.loc.Z)
+check("reason: truthful 'no_route' for a level goal behind walls", s.result and s.result.status == "failed" and s.result.why == "no_route",
+    tostring(s.result and s.result.status) .. " " .. tostring(s.result and s.result.why) .. " " .. tostring(s.result and s.result.detail))
+MR.stop(log)
+walls = {}; raised = {}
+
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
 -- 7. arbiter hooks: actor target ({actor=obj}), snapshot/restore, face_when_near
 walls = {}; pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 1500, Y = 0, Z = 0 }; oracle = nil
 M.follow(log, { actor = luis }, 2, { sprint = true, face_when_near = true })

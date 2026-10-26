@@ -789,6 +789,7 @@ local function tick(st, gen, log)
     end
     local dist = d2(me, goal)
     st.dist_cm = dist
+    if st.dz0 == nil then st.dz0 = goal.Z - me.Z end
     if st.mode == "follow" and dist > M.cfg.leader_far_cm then
         if not st.far then
             st.far = true
@@ -1163,7 +1164,16 @@ local function tick(st, gen, log)
             local okp, hit, out = pcall(raw_trace, pawn, { X = me.X + hx * 60, Y = me.Y + hy * 60, Z = knee },
                 { X = me.X + hx * 170, Y = me.Y + hy * 170, Z = knee })
             st.traces = (st.traces or 0) + 1
-            return okp and hit and ((out.ImpactNormal and out.ImpactNormal.Z or 0) < M.cfg.probe_wall_nz)
+            if okp and hit and ((out.ImpactNormal and out.ImpactNormal.Z or 0) < M.cfg.probe_wall_nz) then return true end
+            if goal.Z > me.Z - 150 then
+                -- don't wall-follow off a ledge when the goal is level or above (it only makes it worse)
+                local fx, fy = me.X + hx * 130, me.Y + hy * 130
+                local feet = me.Z - (st.half_h or 90)
+                local okd, hitd, outd = pcall(raw_trace, pawn, { X = fx, Y = fy, Z = feet + 60 }, { X = fx, Y = fy, Z = feet - 400 })
+                st.traces = (st.traces or 0) + 1
+                if okd and (not hitd or (outd.ImpactPoint and outd.ImpactPoint.Z < feet - 150)) then return true end
+            end
+            return false
         end
         if st.ticks % 3 == 0 then
             if blocked_dir(bug.yaw) then bug.yaw = bug.yaw + bug.dir * 35
@@ -1626,9 +1636,20 @@ local function tick(st, gen, log)
         if needs then reason = needs                                -- e.g. "needs:DoubleJump" (a known link needs a move we lack)
         elseif st.leader_superjump_t and t - st.leader_superjump_t < 30 then reason = "leader_windstepped"
         elseif st.leader_dj_t and t - st.leader_dj_t < 30 and not (st.env and st.env.double_jump) then reason = "leader_double_jumped"
-        elseif goal.Z - me.Z > ((st.env and st.env.jump or 165) + 60) then reason = "leader_above_jump_height"
-        else reason = "no_route" end
-        local detail = string.format("dz=%.1fm d=%.1fm lp_fail=%s", (goal.Z - me.Z) / 100, dist / 100, tostring(st.lp_fail))
+        else
+            -- the height gap counts only if the goal was ALREADY out of jump reach when we started; a
+            -- gap we created by dropping down during the escape (live 07:05: Bug2 walked him off a
+            -- ledge) is not the cause; the walls that blocked the way on our level are
+            local jump_reach = (st.env and st.env.jump or 165) + 60
+            local high_now = goal.Z - me.Z > jump_reach
+            local high_at_start = st.dz0 and st.dz0 > jump_reach
+            local who = (st.target_kind == "player") and "leader" or "target"
+            if high_now and (high_at_start or st.dz0 == nil) then reason = who .. "_above_jump_height"
+            else reason = "no_route" end
+        end
+        local walls = (st.lp_fail == "verify_exhausted") and " blocked by walls" or ""
+        local detail = string.format("dz=%.1fm d=%.1fm lp_fail=%s%s%s", (goal.Z - me.Z) / 100, dist / 100, tostring(st.lp_fail), walls,
+            (st.dz0 and math.abs((goal.Z - me.Z) - st.dz0) > 150) and string.format(" (height gap was %.1fm at start)", st.dz0 / 100) or "")
         if log then log("move: unreachable: " .. reason .. " " .. detail) end
         -- ask for help (once per episode) when a player is near enough to lead us out
         local hname, hpawn, hd = nearest_player(pawn, me, M.cfg.help_player_cm)
