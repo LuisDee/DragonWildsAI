@@ -258,3 +258,245 @@ Sources (web):
 - [Using CommonUI with Enhanced Input in Unreal Engine (Epic docs)](https://dev.epicgames.com/documentation/en-us/unreal-engine/using-commonui-with-enhnaced-input-in-unreal-engine)
 - [UE forum: CommonUI/EnhancedInput "Triggering Enhanced Input Action"](https://forums.unrealengine.com/t/contentexamples-ui-commonui-enhancedinput-triggering-enhanced-input-action-inputaction/2675277)
 - [UE forum: CommonUI buttons triggering Enhanced Input Action](https://forums.unrealengine.com/t/any-way-for-commonui-buttons-triggering-enhanced-input-action-to-trigger-pressed-visuals/2800624)
+
+---
+
+# Re-review (v2), 2026-10-26
+
+Reviewer: the same fresh-context agent, cold on the code (I did not write it).
+
+**Read:**
+- `client_mod/scripts/talk.lua` (all 783 lines), `client_mod/tests/test_talk.lua`, `docs/design/talk-primitive.md` rev 2 §8;
+- the committed `input.lua` (conversation kind, `sweep`) and `skills.lua` (`press_signals`, `conversation_npc`, verify, `_new_episode`);
+- `inventory.lua` / `combat.lua` gates, `sense.local_pc`, `client_bridge` (`api.now`, `MODULES`, `__dwc_bridge`), `hookhub.on`;
+- DISCOVERIES l.254, 785, 1773;
+- dump: `FConversationNodeHandle`, and `UConversationParticipantComponent` (no delegate properties).
+
+**Ran:**
+- `test_talk.lua`: 50/50 pass. `test_input.lua`: 19/19 pass.
+- Two scratch repros, outside the repo:
+  - `C:\Users\ADMINI~1\AppData\Local\Temp\claude\C--gameserver\e0d45239-de5c-445e-af07-0109fe4fa4e3\scratchpad\talk_probe.lua`;
+  - `C:\Users\ADMINI~1\AppData\Local\Temp\claude\C--gameserver\e0d45239-de5c-445e-af07-0109fe4fa4e3\scratchpad\talk_recursion.lua` (the real `input.lua` + `talk.lua`).
+
+## Verdict: CHANGES NEEDED. No-go for P2/P3. P1 only as a standalone read-only probe, with `talk.lua` NOT deployed.
+
+- `client_bridge.MODULES` already lists `"talk"`, and the committed `input.lua` sweep already calls `talk.sweep_orphan`. Copying this `talk.lua` to the client therefore activates R2–R4 the moment any conversation opens on Claude's client.
+- The offline suite passes because it fakes exactly the parts that fail:
+  - `W.ui_press`, `W.read`, `W.scalars`, `W.claim`/`W.release` and the clock are all replaced;
+  - the fakes are Lua tables, where `==` is identity.
+
+## Must-fix status
+
+| # | Status | Notes |
+|---|---|---|
+| 1 Continue | **Implemented** | `step_read` presses Continue only on a same-tick read with no user option with text, an empty `AllOptions` and a Continue key. One press per update (the counter or a signature change). Tested ("race"). The panel lookup is broken, though (R1). |
+| 2 Two-step | **Implemented, unsafe without the hook** | Confirms only if `CurrentSelectedOption` text == the chosen text. See R6 and R7. |
+| 3 Stale options | **Implemented, with a hole** | Signature re-read before injecting; `options_changed` returns the new options. Tested. But the signature's node part is always `"nil"` (R8), and a conversation talk did not open itself can never be answered (R4). |
+| 5 Verification | **5a, 5c done; 5b unproven** | Opened = `ConversationsActive > 0` and `U.short(CurrentNPC) == target id`, checked before each `_episode_poll`. The mode is cross-checked. The counter's hook target may never fire (R6). |
+| 9 Orphan | **Broken** | Recursion (R2), mixed clocks (R3), it cancels the model's own conversation (R4), and abandoned dialogues are never swept (R5). |
+| 13 Episode reuse | **Done in skills.lua** | `press_signals.conversation`, `changed = "conversation"`, no second press while one is open, `_new_episode` exported. talk uses `_new_episode`/`_episode_poll`. The talk side misses adoption (R4). |
+| 18a Fallback | **Done** | Order recorded; step 2 behind `ui_handler_fallback = false`; `input_not_reaching_ui` stops. The search record now cites Epic's CommonUI page and `chsami/Microbot`. |
+| 11 Fed reflex | **Done** (inventory) | `R.tick` now gates. |
+
+## Findings
+
+**R1. BLOCKER: UObject wrappers are compared with `==`, so the panel is never found.**
+- DISCOVERIES l.1773 (verified live): "Wrapper objects of one SkillData do not compare equal with `==`, so match on the short name."
+- `W.panel` does this in both its cache check and its search:
+
+  ```lua
+  U.try(function() return p.DomConversationParticipant end) == part
+  ```
+
+  It is always false live, so `st.panel` is nil, and every talk returns `no_dialogue_ui`. `leave` returns "no dialogue window to close", and `sweep_orphan` returns `no_cancel_key`, so nothing can close the dialogue either.
+- `W.read` matches `k.a == a` (the `InputAction` against `OptionSelectInputActions`). It is always false, so `n` silently falls back to `AllOptions` order: finding 4's numbering is not really implemented.
+- **Fix:**
+  - compare `U.short`/`U.fullname` (or the address, if UE4SS exposes one; unverified);
+  - make the fakes return a fresh wrapper table per read, so a regression fails offline.
+
+**R2. BLOCKER: `sweep_orphan` recurses through the gate, and one call injected Cancel 197 times.**
+- The path: `sweep_orphan` → `W.ui_press(cancel)` → `input.inject(.., {modal = "conversation"})` → `gate` → `sweep` → the conversation is unowned → `talk.sweep_orphan` → …
+- `o.cancels` and `o.last` are only set *after* the press, so every level passes the timing checks again.
+- The C-stack overflow is swallowed by the `pcall` in `sweep`. Each level then returns and injects.
+- With the real `input.lua` (`talk_recursion.lua`), one call produced **197 Cancel injections, 197 full payload+panel reads and `orphan_cancels = 197`**, all in one game-thread frame.
+- **Fix:**
+  - a re-entrancy guard;
+  - set `o.cancels`/`o.last` before pressing;
+  - press as the modal's owner (claim `"conversation"` around the press, then release). Do not route back through the sweep.
+- Add an integration test that uses the real `input.lua`.
+
+**R3. BLOCKER: two clocks.**
+- The job uses `W.now(pawn)` (`GetRealTimeSeconds(pawn)`, game seconds). `sweep_orphan` calls `W.now()` with **no world context** (l.694), against DISCOVERIES l.785 ("use `GetRealTimeSeconds(pawn)`").
+- Live there are two possible outcomes:
+  - (a) it returns 0. Then `now - o.since` is always 0, and **an orphan is never cancelled**;
+  - (b) the call errors. Then it falls back to `os.time()` (epoch seconds), which is compared against `cv.last_call` in game seconds. **Every recorded conversation then looks abandoned**: the first talk call between turns marks it `orphan_seen`, and the next call presses Cancel on the conversation the model is in the middle of.
+- The tests set `K.clock`, so neither outcome is visible offline.
+- **Fix:** one clock: `W.now(W.pawn(pc))` everywhere, or one module clock. Add a test where the clock has a non-zero offset.
+
+**R4. BLOCKER: a conversation talk did not open is never adopted.** It cannot be answered, and talk's own sweep cancels it.
+- `interact` now reports `changed = "conversation"`. The model's natural next step is `talk {}`.
+- That read job never creates `C().conv`; only the start path and the `{target == current npc}` path do.
+- The repro shows:
+  - `talk {}` → ok with 4 options;
+  - `choose 2` → `options_changed`, every time, because `cv` is nil and is never set;
+  - and the `sweep_orphan` at the top of that choose call **pressed Cancel and closed the dialogue** (`orphan_cancels = 1`, active → false).
+- **Fix:**
+  - every successful read of an open conversation adopts it (`conv = {npc = sc.npc, base = quests now, pawn_id, last_call}`), and `finish` stores the signature into it;
+  - add a test: "opened by interact → `{}` → choose by number".
+
+**R5. MUST: an abandoned dialogue blocks gated input indefinitely.** Cleanup also leaks on pause.
+- `finish` keeps `input.claim("conversation", "talk")` for as long as the conversation is open. `input.sweep` returns early for any owned kind (l.139), so the gate **never** calls `talk.sweep_orphan` while that claim stands.
+- If the model walks away from a dialogue, only a later talk call can clean it up, after `abandon_s` = 300 s. Until then, gather, farm, fishing, agility and build refuse, and combat's `inject` is gated (only its raw GenericBack escape gets out).
+- The pause branch of `frame` (l.445-452) clears `conv`. But it calls neither `W.release()` nor the arbiter release, both Lua-only and safe under pause. The stale claim then makes the *next* unowned conversation look owned.
+- **Fix:**
+  - for the `"conversation"` kind, let `input.sweep` always ask `talk.sweep_orphan` (talk alone decides ownership), or hold the input claim only while a talk job runs;
+  - release on the pause path;
+  - choose a shorter abandonment window, or one tied to brain turns, and record the choice in the design.
+
+**R6. MUST before any choose: the counter's hook may never fire.**
+- `UConversationParticipantComponent` has no delegate UPROPERTY in the dump. Compare `UQuestProgressComponent.OnQuestStateChangedDynamic`. So its update delegate is native, and Dominion's `HandleConversationUpdated` is probably invoked by a direct C++ call, which a UE4SS hook (ProcessEvent/Func path) does not see.
+- **[Hypothesis]**, to settle in P1/P2.
+- If the counter never moves:
+  - identical hub payloads give "stopped moving on" and false `input_not_reaching_ui` (finding 5 regresses);
+  - worse, the finding-2 confirm path can run after a pick that *worked* and returned an identical hub with the highlight still on that option. Continue is then pressed, and that may pick the option a second time.
+- **Fix:**
+  - count on `/Script/CommonConversationRuntime.ConversationParticipantComponent:ClientUpdateConversation` (an incoming client RPC, dispatched through ProcessEvent; hooked count-only, never called), or on `PlayerConversationComponent:BP_HandleConversationUpdated` (a BlueprintImplementableEvent);
+  - P2's first step proves the counter rises on a real update;
+  - until then, `cfg.hook_verified = false` disables the confirm path, and replies carry `hook_armed`/`hook_count`.
+
+**R7. SHOULD: confirm only a highlight the key press caused.**
+- If the list auto-highlights option 1 when it opens, `choose 1` with a deaf key is confirmed by Continue. The 18a failure is then hidden, and Continue's unverified semantics become the selection path without anyone knowing.
+- **Fix:**
+  - record `selected` before the press, and confirm only if it changed to the chosen text;
+  - put `picked_via = "key" | "key+confirm"` in the reply, as P2 evidence.
+
+**R8. SHOULD: the node part of the signature is empty.**
+- `FConversationNodeHandle` has only `NodeGuid` (an FGuid). `U.str(struct)` has no `ToString` and returns nil, and `NodeIndex` does not exist. So `st.node` is always nil.
+- **Fix:** read `NodeGuid.A/B/C/D` as numbers. Otherwise two different nodes with the same line and options are indistinguishable.
+
+**R9. SHOULD: a FindAllOf per frame.**
+- While an unowned conversation is open, `sweep_orphan` runs on every `input.gate` call (combat calls it every frame). Each call starts with `W.pc()` → `sense.local_pc()` → `FindAllOf("BP_PlayerController_C")`.
+- `state_extras` does the same on every `get_state`.
+- **Fix:** use `input.pc()` (cached and re-validated), per the build review's finding-10 rule.
+
+**R10. MINOR.**
+- The quest stop compares the *number* of changed quests, so a second change to an already-changed quest does not stop the auto-continue.
+- The nested `each_cap = 16` truncates `QuestInts`/`QuestBools` silently.
+- `W.quests` runs on every `step_read` and `finish` (bounded, per call, not per tick).
+
+## Crash-risk check (CLAUDE.md)
+
+- **Per-tick reads:** OK in the job. Per frame it reads `pc.Pawn` and `GetRealTimeSeconds`; at 10 Hz the scalars only. Payload and panel reads happen on change, bounded, with `ChoiceText`/`ChoiceType` only. The exceptions are R2 (about 200 full reads in one frame) and R9.
+- **Struct building:** none. No advance RPC, no `Server_*` call, no `HideConversationUI`. Injection is the proven `InjectInputVectorForAction(sub, ia, {X,Y,Z}, {}, {})`, through `input.inject`.
+- **DW_PAUSE:** no game call. `frame`, `start`, `sweep_orphan`, `scalars`, `read`, `quests`, `each` and `state_extras` all check pause. Only the Lua-side releases are missing (R5).
+- **Hook:** goes through `hookhub` (paused-aware, idempotent); registered at the first talk call. Confirm it is harmless in P1 as planned, with R6's target.
+
+## Before P2
+
+1. Fix R1–R5. Add R6's `hook_verified` gate.
+2. Add tests:
+   - the real `input.lua` + `talk.lua` orphan path (no recursion, at most 1 Cancel per `orphan_s`);
+   - fresh wrapper objects per read (R1);
+   - a clock offset (R3);
+   - interact-opened → `{}` → choose (R4);
+   - an abandoned claim swept through `input.gate` (R5);
+   - pause releases the claim (R5).
+3. A cold look at the diff, then P1 (read-only, with the hook registration), then P2 with the counter proven.
+
+Sources (web): [Using CommonUI with Enhanced Input (Epic docs)](https://dev.epicgames.com/documentation/en-us/unreal-engine/using-commonui-with-enhnaced-input-in-unreal-engine). A search for UE4SS UObject `==` semantics found no UE4SS documentation, so R1 rests on the repo's own live finding (DISCOVERIES l.1773).
+
+---
+
+# Re-review (v3), 2026-10-26
+
+Reviewer: the same fresh-context agent, cold on the rev 3 code.
+
+**Read:**
+- the `talk.lua` diff `b13b1b8..3f319fa` (all of it);
+- `test_talk.lua` and the new `test_talk_engine.lua`;
+- design §9;
+- the `input.lua` diff from `974faca` (re-entrancy guard, conversation in the bounded sweep) and the `client_bridge.lua` `DW_ENABLE_TALK` opt-in;
+- `skills.lua` verify and press signals.
+
+**Ran:**
+
+| Test | Result |
+|---|---|
+| `test_talk.lua` | 52/52 |
+| `test_talk_engine.lua` | 20/20, plus one `PENDING` line |
+| `test_input.lua` | 22/22 |
+| `test_skills.lua` | 44/44 |
+| scratch `talk_recursion.lua` (real `input.lua` + `talk.lua`) | **1** Cancel injection, `orphan_cancels = 1`; was 197 |
+| scratch `talk_probe.lua` | interact-opened → `{}` → `choose 2` now **ok**, with 0 Cancels from talk's own sweep; was `options_changed` and a Cancel. After 400 s idle, `claimed = false` (was true). |
+
+The probe's last scenario now raises in *my* script: it reads `.data.why` on what is now a pending (successful) reply. That is not a talk bug.
+
+## Verdict: GO for the standalone P1 probe and for P2. Dev world, ClaudeDev, `DW_ENABLE_TALK` opt-in only.
+
+Conditions:
+- **V2** (below) is fixed, or explicitly accepted, before the live companion's client next restarts with this `skills.lua` and `input.lua`. V2 is not a talk bug and does not block P1/P2 on dev.
+- **V1** lands before talk is enabled by default.
+- **P3** follows only after P2's evidence.
+
+## R1–R10 verified in the code
+
+| # | Verified |
+|---|---|
+| R1 | `same()` compares `U.short` names. Used for the panel's participant (cache and search) and the option key → on-screen number. The engine test uses fresh wrapper tables per property read, and a reversed panel list, so both a `==` regression and list-order numbering fail offline. ✓ |
+| R2 | `c.in_sweep` guard. `o.cancels`/`o.last` are set before the press. `W.ui_press` claims `"conversation"` around its own press (so input's sweep returns early for an owned kind). `input.gate` has its own `s.sweeping` guard with an error catch. Repro: 1 Cancel. Engine test: ≤ 1 per `orphan_s`, ≤ 3 total, with 50 gate calls per "frame". ✓ |
+| R3 | `W.now(ctx)` returns nil without a context and never falls back to `os.time()`. `sweep_orphan` uses `W.now(pawn)` and skips on nil. The engine test runs the real `W.now` against a fake `GetRealTimeSeconds` with a 5000 s offset (no `K.clock`). ✓ |
+| R4 | `step_read` adopts any open conversation (new or different NPC). `finish` adopts and stores the signature/options. Engine test: opened by interact → `{}` → choose 2 → ok, `picked_via = "key"`, and no Cancel. ✓ |
+| R5 | The claim is taken in `new_job` and released in every `finish`, and in the pause branch (Lua-only, with the arbiter release). No claim between turns (engine test). `abandon_s` = 120. **But the sweep bound in input.lua still defeats it: see V1.** |
+| R6 | Hooks on `ConversationParticipantComponent:ClientUpdateConversation` and `PlayerConversationComponent:BP_HandleConversationUpdated`, count only. `hook_proven` is set only when the counter moved *and* the signature changed. The confirm path requires `hook_verified` or `hook_proven`. Unproven + unchanged node → `no_visible_change`, which says it cannot tell a hub from a deaf key. Tested. ✓ |
+| R7 | `selected0` is recorded before the key. Confirm only if the highlight changed to the chosen text. `picked_via` is in the reply. ✓ |
+| R8 | `NodeGuid.A-D` as numbers (`1-2-3-10` in the engine test). ✓ |
+| R9 | `W.pc` uses the cached `input.pc()`, with sense as the fallback. ✓ |
+| R10 | `diff_key` content key; quest-field cap 64. ✓ |
+| — | `answer_pending` blocks a second choose on one node. ✓ |
+
+**Crash-risk recheck:**
+- No struct building. No `Server_*`, advance RPC or `HideConversationUI` (the test greps for them).
+- No game call under `DW_PAUSE`.
+- Per tick: `pc.Pawn`, `GetRealTimeSeconds(pawn)`, then scalars at 10 Hz.
+- Payload and panel reads happen on change and are bounded.
+- The orphan path is now one read and one press per `orphan_s`.
+- One new path: `J.t` can be nil if the clock is unreadable. The frame then errors and ends `body_error` after 5 errors. That is safe.
+
+## Remaining findings
+
+**V1. SHOULD (before talk is on by default): input.lua's sweep bound still strands an abandoned dialogue.** This is the "remaining dependency".
+- `input.sweep` handles the `"conversation"` kind with the same counters as build and container: one try per `orphan_s`, `cfg.cancels = 3`, then `s.stuck`. A try is counted whether or not talk pressed anything.
+- So after the model's last talk call, input asks `talk.sweep_orphan` three times in about 3 s. Talk answers `owned` (inside `abandon_s`). Input then sets `stuck = "conversation"` and **never asks again** while the modal stays up: the tries reset only when the modal closes or someone claims it.
+- When `abandon_s` expires, only a later talk call can close the dialogue. The engine test reproduces exactly this and prints `PENDING R5 via input.gate`.
+- **Fix (input.lua owner):** for the conversation kind, count a try only when `sweep_orphan` returns `state == "cancel_pressed"`, or skip input's counters and let talk's own bound (≤ 3 Cancels) apply. Then turn the `PENDING` branch into a hard check.
+- Not blocking P2: every P2 step ends with `leave` or a natural end, and the dev world has no other users.
+
+**V2. MUST for the deployed body, not talk: with talk disabled, the generic `interact` strands Claude in a dialogue.**
+- `skills.lua` now reports `changed = "conversation"` and never presses twice, which is correct.
+- But with `DW_ENABLE_TALK` unset (the default), `input.sweep` returns without any cleanup for the conversation kind, and nothing else closes the dialogue. Combat's raw GenericBack escape runs only during a fight.
+- The census lists NPCs (Wise Old Man, Doric) with the action `interact`, and the `interact` description says it "talks". So the live brain can open a dialogue and then find every gated action refused: gather, farm, fishing, agility, build, combat's inject, the fed reflex's presses, and spells (`busy_on_modal`).
+- This predates rev 3; it is my original finding 13. It matters now because the files load straight from the repo (`DW_CLIENT_ROOT`).
+- **Fix:** while talk is disabled, the interact episode that opened the conversation leaves it at once, with the panel's own `CancelInputAction`. It is the modal's opener, so this is a player's Esc and not the RPC. It then reports truthfully, e.g. "they started talking, but I can't hold a conversation yet, so I said goodbye".
+- Alternatively, keep NPC interaction out of the `interact` description until talk ships.
+
+**V3. MINOR: `same()` by short name.**
+- An NPC's `DomConversationParticipant` component and the player's could share a short name. Only the panel's participant is compared, and there is one panel on this client, so this is harmless today.
+- `U.fullname`/`U.path_of` would be exact, at the same cost.
+
+**V4. MINOR: hot reload mid-job.**
+- `_G.DWTalk.claimed` and input's `owners.conversation` survive a reload. If a job was running, `claimed` stays true: `ui_press` then skips its claim, and the gate never sweeps the conversation.
+- Recursion is still impossible, thanks to the two guards.
+- On module load with no live job: clear `claimed` and release `"conversation"`.
+
+## Live plan
+
+1. **P1 (standalone, read-only):**
+   - read the components, `LastMessage`, quests and the panel's input actions;
+   - register both hook paths through hookhub, and confirm the client stays healthy for a few minutes. These are hooks on an incoming client RPC and a BP event: count only, nothing sent;
+   - check that `same(panel.DomConversationParticipant, ours)` is true live.
+2. **P2 (`DW_ENABLE_TALK = true`, ClaudeDev):**
+   - talk → read → confirm `hook_count` rose with a content change (`hook_proven`);
+   - leave → confirm inactive, and no claim left;
+   - then one harmless choose, recording `picked_via`.
+   - If the option key does not reach the panel (`input_not_reaching_ui` / `no_visible_change`), stop: this is the 18a decision point.
+3. **P3** only after P2's evidence, with the quest before/after snapshot logged.
