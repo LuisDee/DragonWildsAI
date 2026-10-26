@@ -164,6 +164,18 @@ Combat fills the zones from a hazard census and the hooks (the projectile multic
 | S4 | Green Dragon PL 5 (breath, weak to Water), optional | a dragon's melee plus breath at higher PL | 1, 2, 5 |
 | S5 | Vel'gar arena attempts, repeated (memory on) | phases, flight hold, full prep | 1–7 |
 
+**S1 is ready offline (2026-10-26).** Pack handling in `combat.lua`, test §10f:
+- When two pack members swing, the one that lands first is answered first, and the other is queued for right after.
+- A disengage backs away from the pack's centroid.
+- When the target runs off while another creature is biting him in reach, he fights that one.
+- `combat_end` reports `pack`, `kills` and `multi_swings`. The "outnumbered" verdict (more than 2 hostiles) stays information for commanded fights.
+
+The live driver is `tools/combat_s1.py`:
+- `survey` is read-only: creatures within 200 m with their classes, his state, food, memory and history.
+- `fights --kind Wolf --n 5 [--spawn <loaded class>] [--pack 2] [--restart-at 3]` runs the fights. It writes each fight's damage and the server's evidence, then the damage-taken slope across fights. `--restart-at` checks the memory reload after a client restart.
+- Its offline test is `tests/test_combat_s1.py`.
+- Spawning works only for classes loaded on the dev world (the survey shows them). Wolf and Thug paths for `evals/bench/spawn_classes.json` are the eval agent's.
+
 **Gear and level milestones for the Director** (from the wiki and item data; he must craft or earn each himself):
 
 - **M6-a. PL 4 kit.** A PL 4 armour set (Iron helmet, platebody, platelegs; or studded leather or Dark Mage) and a PL 4 weapon in his chosen style. The Iron Mace is the wiki's melee pick; ascended gear is better.

@@ -920,6 +920,68 @@ do
     A.reset(nil)
 end
 
+-- ================================================================ 10f. packs (S1: wolves, thugs): two or three on him at once
+reset_world()
+do
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local w1 = new_creature("BP_AI_Wolf_C_1", "Wolf", { X = 150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    local w2 = new_creature("BP_AI_Wolf_C_2", "Wolf", { X = 0, Y = 150, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    Cm._start_fight(nil, w1, { mode = "attack", force = true, by = "brain" })
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    -- (a) w1 swings (lands late), then w2 swings and lands first: answer w2 now
+    world.resolved = nil
+    goblin_attack(w1, 1.4)
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "defend" end, 1)
+    step(10)
+    goblin_attack(w2, 0.5)
+    local switched = run_until(function() local f = Cm._state().fight; return f and f.def and f.def.attacker == "BP_AI_Wolf_C_2" end, 1)
+    check("pack: the swing that lands first is answered first", switched, Cm._state().fight.def and Cm._state().fight.def.attacker)
+    check("pack: simultaneous swings counted", (Cm._state().fight.n_multi or 0) >= 1)
+    run_until(function() local f = Cm._state().fight; return f and f.phase ~= "defend" end, 5)
+    -- (b) w1 swings early, w2 later: w2 is queued and answered right after
+    world.resolved = nil
+    goblin_attack(w1, 0.5)
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "defend" and f.def.attacker == "BP_AI_Wolf_C_1" end, 1)
+    step(5)
+    hooks["/Script/Dominion.AiAttackComponent:Multicast_PerformAttackOnSimulatedProxies"]({ get = function()
+        return obj({ GetOwner = function() return w2 end, CurrentAttack = { AttackData = obj({ GetDamageTime = function() return 1.6 end,
+            AttackPropertyFlags = 0, GetLastDamageTime = function() return 1.6 end, GetDuration = function() return 2 end,
+            Damage = { ForEach = function() end } }, "ATK_Wolf_Bite_C /Game/AI/Wolf/ATK_Wolf_Bite.Default__ATK_Wolf_Bite_C") } }, "C /x") end },
+        { get = function() return 7 end })
+    local queued = run_until(function() local f = Cm._state().fight; return f and f.phase == "defend" and f.def.attacker == "BP_AI_Wolf_C_2" end, 4)
+    check("pack: the later swing is queued and answered after", queued, Cm._state().fight.def and Cm._state().fight.def.attacker)
+    run_until(function() local f = Cm._state().fight; return f and f.phase ~= "defend" end, 5)
+    -- (c) low HP with the pack on him: back away from the PACK (both wolves), not just the target
+    local o0 = { defense = Cm.orders.defense, disengage = Cm.orders.disengage, heal_hp = Cm.orders.heal_hp, reengage_hp = Cm.orders.reengage_hp }
+    Cm.set_orders({ defense = "auto", disengage = true, heal_hp = 0.5, reengage_hp = 0.8 })
+    Cm._state().attackers["BP_AI_Wolf_C_2"] = T
+    pawn.hp = 40
+    run_until(function() return MV.mode == "go_to" end, 3)
+    check("pack: disengages away from both (the centroid)", type(MV.goal) == "table" and MV.goal[1] < 0 and MV.goal[2] < 0,
+          MV.goal and (tostring(MV.goal[1]) .. "," .. tostring(MV.goal[2])))
+    Cm.stop(nil, "test")
+    Cm.set_orders(o0)
+    A.reset(nil)
+    -- (d) the target runs off while another is biting him in reach: fight the one on him
+    reset_world()
+    pawn.hp = 100
+    local w3 = new_creature("BP_AI_Wolf_C_3", "Wolf", { X = 150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    local w4 = new_creature("BP_AI_Wolf_C_4", "Wolf", { X = -120, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    Cm._start_fight(nil, w3, { mode = "attack", force = true, by = "brain" })
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    Cm._state().attackers["BP_AI_Wolf_C_4"] = T
+    w3.loc = { X = 2500, Y = 0, Z = 0 }
+    local re = run_until(function() local f = Cm._state().fight; return f and f.target_id == "BP_AI_Wolf_C_4" end, 3)
+    check("pack: the target ran off; fights the wolf biting him", re, Cm._state().fight and Cm._state().fight.target_id)
+    w3.loc = { X = 300, Y = 0, Z = 0 } -- back, still on him
+    Cm._state().telegraphs["BP_AI_Wolf_C_3"] = T
+    run_until(function() return false end, 1)
+    Cm.stop(nil, "test")
+    local ends = read_activity()
+    check("pack: combat_end reports the pack size", (ends[#ends] or ""):find('"pack":', 1, true) ~= nil, ends[#ends])
+    A.reset(nil)
+end
+
 -- ================================================================ 11a. hit while looting (live 09:41): the impact event names the attacker, he fights back
 reset_world()
 do

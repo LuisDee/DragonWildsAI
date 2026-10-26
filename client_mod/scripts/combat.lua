@@ -1306,6 +1306,7 @@ function M.emit_combat_end(F, res)
         damage_taken = F.dmg_taken or 0, damage_dealt = math.max(0, (F.hp_start or 0) - (F.target_hp or 0)),
         hp_end = F.hp_now, loot = F.loot_names, parries = F.n_parried or 0, blocks = F.n_blocked or 0,
         dodges = F.n_dodges or 0, jumps = F.n_jumps or 0, heals = F.n_heals or 0, cures = F.n_cures or nil, presses = F.presses, why = F.why,
+        pack = (F.max_pack or 0) > 1 and F.max_pack or nil, kills = F.kills, multi_swings = F.n_multi,
         fled_why = d.why })
 end
 
@@ -1677,6 +1678,29 @@ local function away_dir(me, tp, side)
 end
 M.away_dir = away_dir
 
+-- Packs (S1: wolves, thugs): the creatures on him now = the target + every attacker of the last
+-- attacker_memory_s within assist_m. -> list of {id, pos, name}, and their centroid (a disengage backs away
+-- from the pack, not from one of them).
+function M.pack(F, me)
+    local c = C()
+    local out = {}
+    local seen = {}
+    if F.target_pos then out[#out + 1] = { id = F.target_id, pos = F.target_pos, name = F.target_name }; seen[F.target_id or "?"] = true end
+    for _, cr in ipairs(creatures_near(me.pos, M.cfg.assist_m)) do
+        local hit = c.attackers[cr.id]
+        local tele = c.telegraphs[cr.id]
+        if not cr.dead and not seen[cr.id] and ((hit and F.t - hit <= M.cfg.attacker_memory_s) or (tele and F.t - tele <= M.cfg.attacker_memory_s)) then
+            seen[cr.id] = true
+            out[#out + 1] = { id = cr.id, pos = cr.pos or (cr.actor and U.loc(cr.actor)), name = cr.name }
+        end
+    end
+    local sx, sy, n = 0, 0, 0
+    for _, e in ipairs(out) do if e.pos then sx, sy, n = sx + e.pos.X, sy + e.pos.Y, n + 1 end end
+    local centroid = n > 0 and { X = sx / n, Y = sy / n, Z = me.pos and me.pos.Z or 0 } or F.target_pos
+    if #out > (F.max_pack or 0) then F.max_pack = #out end
+    return out, centroid
+end
+
 -- Defensive abilities are cast through the spells module (the player's own spell inputs). Contract
 -- (docs/design/defense-abilities.md): spells.ability_status(asset) -> {available, why, latency_s,
 -- cooldown_s, runes_ok}; spells.cast_now(log, asset, {owner_token}) -> job with poll() -> nil | {ok,
@@ -1843,6 +1867,12 @@ local function finish_defend(F)
                        plan_at = d.plan.at_s, why = d.plan.why, moved = d.moved }
     if d.moved then say(F.log, string.format("dodge %s moved toward %+dcm right %+dcm", tostring(d.moved.dir), d.moved.toward_cm, d.moved.right_cm)) end
     F.def, F.hold, F.evade_dir, F.evade_until, F.move_inject = nil, nil, nil, nil, nil
+    local q = F.queued_tele
+    F.queued_tele = nil
+    if q and F.t - q.tt <= 2.5 and F.me_last then
+        say(F.log, "queued swing from " .. tostring(q.id))
+        return start_defend(F, F.me_last, q.id, q.tt, q.info)
+    end
     set_phase(F, F.dis and "disengage" or "engage", "defended " .. outcome)
 end
 
@@ -2001,6 +2031,27 @@ local function step_defend(F, pawn, me, acts)
             return start_defend(F, me, id, tt, (c.tele_info or {})[id])
         end
     end
+    -- another pack member swings meanwhile (S1): when its hit lands BEFORE the one we are answering (or ours has
+    -- landed), answer it now; else queue it for right after (the plan's own timing still applies to each)
+    for id, tt in pairs(c.telegraphs) do
+        if id ~= d.attacker and tt > d.tel_t and tt > (d.other_t or 0) and F.t - tt <= M.cfg.telegraph_fresh_s then
+            local a = find_creature(id)
+            local p = a and U.loc(a)
+            if p and me.pos and U.dist(p, me.pos) <= M.cfg.telegraph_m * 100 then
+                d.other_t = tt
+                local info2 = (c.tele_info or {})[id]
+                local D = mod("defense")
+                local their = tt + ((D and D.impact_delay and D.impact_delay(info2 and info2.key or "?", info2 or {})) or 0.8)
+                local ours = d.tel_t + (plan.impact_s or 0.6)
+                F.n_multi = (F.n_multi or 0) + 1
+                if d.impact_t or their < ours - 0.1 then
+                    finish_defend(F)
+                    return start_defend(F, me, id, tt, info2)
+                end
+                F.queued_tele = { id = id, tt = tt, info = info2 }
+            end
+        end
+    end
     local window_end = d.tel_t + (plan.impact_s or 0.6) + 0.6
     local hold_done = not F.hold or F.t >= (F.hold_until or 0)
     if (F.t >= window_end and hold_done) or (d.impact_t and F.t >= d.impact_t + 0.2 and hold_done) or rel > 4 then
@@ -2014,13 +2065,15 @@ local function step_disengage(F, pawn, me, acts)
     local g = F.dis
     local o = M.orders
     if g.step == "back" then
+        local _, from = M.pack(F, me)
+        from = from or F.target_pos
         if (F.dist_m or 99) < 3.5 and acts.evade and (me.stamina or 0) >= (C().evade_cost or 15) then
-            F.evade_dir = away_dir(me.pos, F.target_pos, "back")
+            F.evade_dir = away_dir(me.pos, from, "back")
             F.evade_until = F.t + 0.35
             tap(F, acts.evade, 4, "evade_back")
             F.n_dodges = (F.n_dodges or 0) + 1
         end
-        local dir = away_dir(me.pos, F.target_pos, "back")
+        local dir = away_dir(me.pos, from, "back")
         if dir and me.pos then
             local far = M.cfg.disengage_m * 100
             local goal = { (me.pos.X + dir.X * far) / 100, (me.pos.Y + dir.Y * far) / 100, me.pos.Z / 100 }
@@ -2600,6 +2653,7 @@ local function frame(F)
         end
     end
     pcall(M.ability_frame, F, me)
+    if F.t - (F.pack_t or -9) >= 0.5 and me.pos then F.pack_t = F.t; pcall(M.pack, F, me) end
     do local okst, err = pcall(M.status_frame, F, pawn, me); if not okst then c.status_err = tostring(err) end end
     if F.phase ~= "defend" then M.boss_frame(F, me) end
     if F.phase == "approach" or F.phase == "disengage" then
@@ -2648,7 +2702,18 @@ local function frame(F)
         end
     elseif F.phase == "engage" then
         if F.rg then step_ranged(F, pawn, me, acts, tgt) else step_engage(F, pawn, me, acts, tgt) end
-        if F.dist_m and F.dist_m > F.reach * 3 then set_phase(F, "approach", "target moved away") end
+        if F.dist_m and F.dist_m > F.reach * 3 then
+            local nxt = M.pick_threats(creatures_near(me.pos, M.cfg.assist_m), c.attackers, c.ally_attackers, M.orders, F.t)[1]
+            if nxt and nxt.id ~= F.target_id and nxt.why == "attacked_me" and (nxt.distance_m or 99) <= F.reach * 1.5
+                and (F.retargets or 0) < M.cfg.max_retargets then
+                F.retargets = (F.retargets or 0) + 1
+                say(F.log, "target moved away; " .. tostring(nxt.name) .. " is on me: fighting it")
+                F.target, F.target_id, F.target_name, F.dead_seen, F.locked, F.following = nxt.actor, nxt.id, nxt.name, false, false, false
+                M.set_reach(F, nxt.actor)
+            else
+                set_phase(F, "approach", "target moved away")
+            end
+        end
     elseif F.phase == "defend" then
         step_defend(F, pawn, me, acts)
     elseif F.phase == "disengage" then
