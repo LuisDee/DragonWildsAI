@@ -823,17 +823,37 @@ local function stand_point(here, pos, d)
     return { pos[1] + dx / l * d, pos[2] + dy / l * d, pos[3] }
 end
 
+-- Other standing spots around a station when the game's detector keeps targeting something else from here
+-- (live 2026-10-26: a sapling next to the Campfire won the focus): stand_m out, rotated around the station
+-- from the side he stood on. -> {{x, y, z}, ...}
+M.cfg.spot_angles = { 90, -90, 180, 45, -45 }
+local function stand_spots(from, pos, d)
+    local dx, dy = from[1] - pos[1], from[2] - pos[2]
+    local l = math.sqrt(dx * dx + dy * dy)
+    if l < 0.01 then dx, dy, l = 1, 0, 1 end
+    dx, dy = dx / l, dy / l
+    local out = {}
+    for _, deg in ipairs(M.cfg.spot_angles) do
+        local r = math.rad(deg)
+        local cx, cy = dx * math.cos(r) - dy * math.sin(r), dx * math.sin(r) + dy * math.cos(r)
+        out[#out + 1] = { pos[1] + cx * d, pos[2] + cy * d, pos[3] }
+    end
+    return out
+end
+M._stand_spots = stand_spots
+
 local function open_poll(api, job, t)
     local e, row = job.open, job.station
     if e.phase == "approach" then
         local here = api.my_position()
         local d = here and dist2d(here, row.position)
-        if d and d <= M.cfg.reach_m then e.phase, e.face_until = "face", t + M.cfg.face_s; return nil end
+        local at_goal = e.goal and here and dist2d(here, e.goal) <= 0.8
+        if (not e.goal and d and d <= M.cfg.reach_m) or at_goal then e.phase, e.face_until = "face", t + M.cfg.face_s; return nil end
         if not e.moving then
             if e.approaches >= M.cfg.approaches then
                 return api.fail("too_far", { station = row.id, distance = d and r1(d), detail = "I can't get close enough to the " .. tostring(row.name) .. "." })
             end
-            local mr = api.call("move", "go_to", stand_point(here or row.position, row.position, M.cfg.stand_m),
+            local mr = api.call("move", "go_to", e.goal or stand_point(here or row.position, row.position, M.cfg.stand_m),
                                 { tolerance_m = M.cfg.approach_tol_m, timeout_s = 60 })
             if not mr.ok then return mr end
             e.moving, e.approaches = true, e.approaches + 1
@@ -846,7 +866,14 @@ local function open_poll(api, job, t)
         if res.status == "arrived" or res.status == "stopped" then return nil end
         -- a failed approach that still ended within reach is fine (stations are big): next tick checks
         local here2 = api.my_position()
-        if here2 and dist2d(here2, row.position) <= M.cfg.reach_m then return nil end
+        if here2 and dist2d(here2, row.position) <= M.cfg.reach_m and not e.goal then return nil end
+        -- a side spot he can't reach: try the next side (or face from where he got to)
+        if e.goal then
+            e.spot_i = e.spot_i + 1
+            if e.spots[e.spot_i] then e.goal, e.moving, e.approaches = e.spots[e.spot_i], false, 0; return nil end
+            e.goal, e.phase, e.face_until = nil, "face", t + M.cfg.face_s
+            return nil
+        end
         local sk = api.module("skills")
         local words = sk and sk.why_words and sk.why_words(res.reason) or "I can't find a way there"
         return api.fail(api.reason_code(res.reason or "path_blocked") == "body_error" and "path_blocked" or api.reason_code(res.reason or "path_blocked"),
@@ -864,8 +891,23 @@ local function open_poll(api, job, t)
         if SW and SW.face then SW.face(api, row.position, true) else api.aim_at(row.position) end
         if t >= e.face_until then
             local other = det and not det.none and (det.name or det.actor)
-            return api.fail("not_interactable", { station = row.id, detector = det,
-                detail = other and ("I can't get the game to target the " .. tostring(row.name) .. ", it keeps picking " .. tostring(other) .. ".")
+            -- something else holds the game's focus from here: stand on another side of the station first
+            if not e.spots then
+                local here = api.my_position()
+                e.spots, e.spot_i = stand_spots(here or row.position, row.position, M.cfg.stand_m), 0
+                e.blockers = {}
+            end
+            if other then e.blockers[#e.blockers + 1] = other end
+            e.spot_i = e.spot_i + 1
+            if e.spots[e.spot_i] then
+                e.goal, e.phase, e.moving, e.approaches = e.spots[e.spot_i], "approach", false, 0
+                return nil
+            end
+            local sides = e.spots and #e.spots + 1 or 1
+            local word = other and (tostring(other):gsub("^BP_", ""):gsub("_C$", ""):gsub("_%d+$", ""):gsub("_", " ")) or nil
+            return api.fail("not_interactable", { station = row.id, detector = det, blockers = e.blockers, sides_tried = sides,
+                detail = other and ("I can't get the game to target the " .. tostring(row.name) .. " from any of the " .. sides
+                    .. " sides I tried; it keeps picking the " .. word .. " next to it.")
                     or ("I can't get the game to let me use the " .. tostring(row.name) .. ".") })
         end
         return nil

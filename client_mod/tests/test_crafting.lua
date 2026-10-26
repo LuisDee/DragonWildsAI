@@ -306,6 +306,23 @@ do
     check("bench: UI closed", F.closed == 1, F.closed)
     check("bench: station returned", r.data and r.data.station_id == "bench_1")
 end
+-- live 2026-10-26: a sapling next to the Campfire won the game's focus from the first standing spot ->
+-- stand on another side of the station; the detector must name the STATION before the press
+do
+    reset({ stations = { TABLE() }, have = { ITEM_Resources_Wood_Ash = 6, ITEM_Resources_Stone = 8 }, unlocked = U({ "RECIPE_Pickaxe_Stone" }),
+            items = { { id = "BP_BM_Sapling_Ash_01_C_1", name = "Ash Sapling", position = { 8.0, 0, 0 } } } })
+    local r = run({ item = "Stone Pickaxe", count = 1 })
+    check("sapling in front: another side, then crafted", r.ok and F.sent and F.sent.count == 1, tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+    check("sapling in front: never pressed while the sapling had the focus", #F.items == 1 and F.presses == 1, F.presses)
+    -- every side blocked: a truthful reason naming the blocker in words (no raw class), and the sides tried
+    reset({ stations = { TABLE() }, have = { ITEM_Resources_Wood_Ash = 6, ITEM_Resources_Stone = 8 }, unlocked = U({ "RECIPE_Pickaxe_Stone" }) })
+    local det0 = INV.interact_target
+    INV.interact_target = function() return { actor = "BP_BM_Sapling_Ash_01_C_1", name = nil } end
+    r = run({ item = "Stone Pickaxe", count = 1 }, 800)
+    INV.interact_target = det0
+    check("every side blocked: not_interactable, the sides tried, blocker in words", r.reason == "not_interactable" and r.data.sides_tried == 6
+        and r.data.detail:find("BM Sapling Ash") and not r.data.detail:find("BP_", 1, true) and (F.presses or 0) == 0, tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+end
 -- the REAL W.close: the altar's own panel (EWidgetType 36) is closed too when it is up; a plain bench closes only 6
 do
     local C2 = assert(loadfile(root .. "/client_mod/scripts/crafting.lua"))()
