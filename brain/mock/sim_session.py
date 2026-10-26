@@ -66,7 +66,7 @@ class Latency:
     def calls(self):
         return self.inner.calls
 
-    def complete(self, messages, tools=None):
+    def complete(self, messages, tools=None, effort=None):
         self.n += 1
         self.clock.t += self.seconds
         return self.inner.complete(messages, tools)

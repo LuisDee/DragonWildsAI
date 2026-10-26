@@ -46,7 +46,10 @@ class LLMResponse:
 class LLMClient(Protocol):
     model: str
 
-    def complete(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse: ...
+    def complete(self, messages: list[dict], tools: list[dict] | None = None,
+                 effort: str | None = None) -> LLMResponse:
+        """``effort``: this call's effort level, overriding the client's default (None = the default)."""
+        ...
 
 
 # Protocol markers a model or a proxy can put into the text ("[System: Empty message content
@@ -124,7 +127,7 @@ class LiteLLMClient:
         """The effort actually sent (output_config.effort), for the logs (BUGS.md L27 #2)."""
         return ((self.kwargs.get("output_config") or {}).get("effort")) if isinstance(self.kwargs, dict) else None
 
-    def warm(self, messages: list[dict], tools: list[dict] | None = None) -> dict:
+    def warm(self, messages: list[dict], tools: list[dict] | None = None, effort: str | None = None) -> dict:
         """L27: pay the cold start before the first chat line, not in it. Imports litellm (~5 s here),
         opens the TLS connection and writes the prompt cache for the real prefix (tools + system), with a
         tiny reply. Returns {s, usage}; raises like complete()."""
@@ -132,15 +135,18 @@ class LiteLLMClient:
         saved = self.kwargs
         self.kwargs = {**saved, "max_tokens": 64}
         try:
-            resp = self.complete(messages, tools)
+            resp = self.complete(messages, tools) if effort is None else self.complete(messages, tools, effort=effort)
         finally:
             self.kwargs = saved
         return {"s": round(time.monotonic() - t0, 2), "usage": resp.usage}
 
-    def complete(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
+    def complete(self, messages: list[dict], tools: list[dict] | None = None,
+                 effort: str | None = None) -> LLMResponse:
         import litellm
 
         params = dict(self.kwargs)
+        if effort and self.model.startswith("anthropic/"):  # one call at another level (output_config.effort)
+            params["output_config"] = {**(params.get("output_config") or {}), "effort": effort}
         if tools:
             # Several tool calls per response are allowed (PRINCIPLES 4b: the model composes primitives, e.g.
             # go_to then drop): the agent runs them IN ORDER, each verified, stopping at the first failure.
@@ -216,8 +222,9 @@ class FakeLLM:
     def push(self, *items: LLMResponse | str | Responder) -> None:
         self.script.extend(items)
 
-    def complete(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
-        self.calls.append({"messages": messages, "tools": tools})
+    def complete(self, messages: list[dict], tools: list[dict] | None = None,
+                 effort: str | None = None) -> LLMResponse:
+        self.calls.append({"messages": messages, "tools": tools, "effort": effort})
         if not self.script:
             raise AssertionError("FakeLLM script exhausted")
         item = self.script.pop(0)

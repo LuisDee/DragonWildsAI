@@ -27,7 +27,6 @@ import os
 import re
 import time
 from collections import deque
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -526,8 +525,7 @@ class Controller:
         d = Decision()
         if addressed and (text or "").strip() and body_event is None:
             d.effort = self.addressed_effort  # a player's line to him: think a little more (latency budget M1)
-        with self._effort(d.effort):
-            resp, messages = self._loop(messages, d)
+        resp, messages = self._loop(messages, d)
         d.speech = strip_markers(resp.content)
         d.messages = messages + [assistant_message(resp)]
         self._collect(resp.tool_calls, d, state)
@@ -547,8 +545,8 @@ class Controller:
             tag = f"{label}{step}" if label else step
             self.log.log("prompt", component="controller", model=self.llm.model, step=tag,
                          messages=messages if step == 0 and not label else messages[-2:],
-                         effort=self._sent_effort())  # the effort actually sent (L27)
-            resp = self.llm.complete(messages, tools=self.tools)
+                         effort=self._sent_effort(d))  # the effort actually sent (L27)
+            resp = self._complete(messages, self.tools, d)
             d.model_calls += 1
             self.log.log("llm_response", component="controller", step=tag, content=resp.content,
                          tool_calls=[vars(c) for c in resp.tool_calls], usage=resp.usage)
@@ -580,9 +578,9 @@ class Controller:
         messages.append({"role": "user", "content": FINAL_PASS_NOTE})
         tools = [t for t in self.tools if t["function"]["name"] not in self.read_tools]
         self.log.log("prompt", component="controller", model=self.llm.model, step=f"{tag}final", messages=messages[-2:],
-                     effort=self._sent_effort())
+                     effort=self._sent_effort(d))
         try:
-            final = self.llm.complete(messages, tools=tools)
+            final = self._complete(messages, tools, d)
         except Exception as exc:  # the turn ends as before (nothing done), the error is logged
             self.log.log("controller_final_pass", ok=False, error=repr(exc))
             return resp, base
@@ -593,26 +591,15 @@ class Controller:
                      speech=strip_markers(final.content))
         return final, messages
 
-    def _sent_effort(self) -> str | None:
-        """The effort the next call sends (the client's output_config.effort), for the logs (L27)."""
-        kw = getattr(self.llm, "kwargs", None)
-        cfg = kw.get("output_config") if isinstance(kw, dict) else None
-        return cfg.get("effort") if isinstance(cfg, dict) else getattr(self.llm, "effort", None)
+    def _sent_effort(self, d: Decision | None = None) -> str | None:
+        """The effort a call sends: the request's own level, else the client's default (logged, L27)."""
+        return (d.effort if d is not None else None) or getattr(self.llm, "effort", None)
 
-    @contextmanager
-    def _effort(self, level: str | None):
-        """Run the calls inside at ``level`` (the client's output_config.effort, restored after). Only for a
-        client that already sends an effort (anthropic/ models via LiteLLMClient); a no-op otherwise."""
-        kw = getattr(self.llm, "kwargs", None)
-        cfg = kw.get("output_config") if isinstance(kw, dict) else None
-        if not level or not isinstance(cfg, dict) or cfg.get("effort") == level:
-            yield
-            return
-        kw["output_config"] = {**cfg, "effort": level}
-        try:
-            yield
-        finally:
-            kw["output_config"] = cfg
+    def _complete(self, messages: list[dict], tools: list[dict], d: Decision) -> LLMResponse:
+        """One model call at the request's effort (passed only when it overrides the client's default)."""
+        if d.effort:
+            return self.llm.complete(messages, tools=tools, effort=d.effort)
+        return self.llm.complete(messages, tools=tools)
 
     def warm_up(self) -> dict | None:
         """L27 (dev run 23:32:58: the session's first model call took 11.2 s: litellm's ~5 s import, a
@@ -631,15 +618,12 @@ class Controller:
             self.log.log("llm_warmup", ok=False, error=repr(exc))
             return None
         self.log.log("llm_warmup", ok=True, model=self.llm.model, effort=self._sent_effort(), **res)
-        kw = getattr(self.llm, "kwargs", None)
-        swappable = isinstance(kw, dict) and isinstance(kw.get("output_config"), dict)
-        if swappable and self.addressed_effort and self._sent_effort() not in (None, self.addressed_effort):
-            with self._effort(self.addressed_effort):  # the addressed-chat level has its own cache entry
-                try:
-                    more = warm(messages, self.tools)
-                    self.log.log("llm_warmup", ok=True, model=self.llm.model, effort=self.addressed_effort, **more)
-                except Exception as exc:
-                    self.log.log("llm_warmup", ok=False, effort=self.addressed_effort, error=repr(exc))
+        if self.addressed_effort and self.addressed_effort != self._sent_effort():
+            try:  # the addressed-chat level has its own cache entry (top-level effort is part of the prompt)
+                more = warm(messages, self.tools, effort=self.addressed_effort)
+                self.log.log("llm_warmup", ok=True, model=self.llm.model, effort=self.addressed_effort, **more)
+            except Exception as exc:
+                self.log.log("llm_warmup", ok=False, effort=self.addressed_effort, error=repr(exc))
         return res
 
     def arg_help(self, tool: str) -> dict[str, str]:
@@ -674,12 +658,11 @@ class Controller:
             "reply with no text at all.")})
         self._state_for_reads = state or {}
         d2 = Decision(effort=d.effort)  # the same request keeps its effort (and its cache entry)
-        with self._effort(d2.effort):
-            resp, msgs = self._loop(msgs, d2, label="turn")
-            msgs = msgs + [assistant_message(resp)]
-            speech = strip_markers(resp.content)
-            if speech and not resp.tool_calls and note is None and self.check_talk_only:
-                resp, msgs, speech = self._talk_only_check(msgs, d2, speech)
+        resp, msgs = self._loop(msgs, d2, label="turn")
+        msgs = msgs + [assistant_message(resp)]
+        speech = strip_markers(resp.content)
+        if speech and not resp.tool_calls and note is None and self.check_talk_only:
+            resp, msgs, speech = self._talk_only_check(msgs, d2, speech)
         d2.speech = speech
         d2.messages = msgs
         self._collect([c for c in resp.tool_calls if c.name not in self.read_tools], d2, state or {})

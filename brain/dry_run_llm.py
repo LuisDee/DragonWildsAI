@@ -38,7 +38,7 @@ class DryRunController:
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
-    def complete(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
+    def complete(self, messages: list[dict], tools: list[dict] | None = None, effort: str | None = None) -> LLMResponse:
         self.calls.append({"messages": messages, "tools": tools})
         ctx = _context(messages)
         cmd = ctx.get("command") or {}
@@ -117,7 +117,7 @@ class DryRunPlanner:
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
-    def complete(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
+    def complete(self, messages: list[dict], tools: list[dict] | None = None, effort: str | None = None) -> LLMResponse:
         self.calls.append({"messages": messages, "tools": tools})
         return LLMResponse(content=json.dumps({
             "tasks": [], "ask_help": "I'm in dry-run mode, so I can't plan multi-step jobs.",
