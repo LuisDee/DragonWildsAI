@@ -49,6 +49,7 @@ OBSERVABLE = {
     "jump_apex_gain_m": "probe", "air_dash_m": "probe", "drops_spawned": "state",
     "held_item_effect": "cast_reply", "world_module": False, "needs_live_observation": False,
     "view_target": "cast_reply", "input_mode": "cast_reply", "dodge_distance_gain_m": False,
+    "spell_state": "referee",
 }
 PROBES = {
     "client_mod/commands/smoke_jump.lua": {"moves_pawn": True, "note": "one Jump()/StopJumping(); then smoke_jump_read.lua (read-only) gives max_dz_cm"},
@@ -90,6 +91,7 @@ SIGNAL_KINDS = {
     "view_target": "the camera view target switches to class `class` while the spell is active (data.effects.view_target)",
     "input_mode": "the player input mode while the spell is active contains `contains` (data.effects.mode)",
     "dodge_distance_gain_m": "a ground dodge travels at least `min` m farther than without the spell (probe not built yet)",
+    "spell_state": "the eval referee (server side) emits spell_state `state` inside the cast window (referee v1.4: OculusActive = OculusComponent:IsOculusActive() poll / OculusPawn:Multicast_OnOculusActivated; PersonalInventorySpell = PersonalInventoryComponent:OpenPersonalInventory with Method 1 = Spell; PersonalInventoryToggle = Client_TogglePersonalInventory)",
 }
 
 # Live observations (2026-10-25, Shockbyte world, client build 26162923, data build 26161880).
@@ -99,11 +101,14 @@ LIVE = {
         "evidence": "2026-10-26 07:37Z dev (unlocked + sword granted as evidence setup): Fire -15 Astral -5, cooldown, settled; the held BP_Sword_Bronze_C's MagicalHeldEquipmentEffectInfo.EffectData = HEED_EnchantWeaponFire (ServerExpirationTime set); no GE/tag",
     },
     "USD_AccessPersonalChest": {
-        "effect": [{"kind": "input_mode", "contains": "FocussedInGameUI"}],
+        "effect": [{"kind": "spell_state", "state": "PersonalInventorySpell"},
+                   {"kind": "spell_state", "state": "PersonalInventoryToggle"},
+                   {"kind": "input_mode", "contains": "FocussedInGameUI"}],
         "evidence": "2026-10-26 07:35Z dev (unlocked as evidence setup): Law -20 Astral -15, cooldown, settled; the personal-storage screen opened (input mode DIM_FocussedInGameUI) and a DominionSpellActor spawned; no GE/tag. input.lua closes the orphaned container screen",
     },
     "USD_EyeOfOculus": {
-        "effect": [{"kind": "view_target", "class": "BP_OculusCamera_C"},
+        "effect": [{"kind": "spell_state", "state": "OculusActive"},
+                   {"kind": "view_target", "class": "BP_OculusCamera_C"},
                    {"kind": "spell_actor", "class": "DominionSpellActor", "near": "self"},
                    {"kind": "input_mode", "contains": "SpellcastingMode"}],
         "evidence": "2026-10-26 07:2xZ dev: Astral -3, cooldown; no GE/tag; a DominionSpellActor spawned, input mode DIM_SpellcastingMode then DIM_OculusBuildMenu, view target BP_OculusCamera_C, OculusComponent:IsOculusActive() true. Left via OculusComponent:RequestExitOculusMode (L29)",

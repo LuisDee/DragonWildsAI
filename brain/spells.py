@@ -27,11 +27,18 @@ MAX_ROWS = 40  # rows are short; the model needs every castable spell (spells ag
 
 
 @lru_cache(maxsize=1)
-def _effects() -> dict:
+@lru_cache(maxsize=2)
+def effects(path: str | None = None) -> dict:
+    """data/spell_effects.json "spells" (id -> purposes, unlock, cost, cooldown, requirement...): the ONE
+    loader for it (spells rows, the needs digest). {} when missing or bad."""
     try:
-        return json.loads(EFFECTS.read_text(encoding="utf-8")).get("spells") or {}
+        return json.loads(Path(path or EFFECTS).read_text(encoding="utf-8")).get("spells") or {}
     except (OSError, ValueError):
         return {}
+
+
+def _effects() -> dict:
+    return effects()
 
 
 def purpose_of(spell_id: str | None) -> dict:

@@ -47,6 +47,7 @@ local AXTRAL = spell({ asset = "USD_TestAxe", name = "Astral Axe", desc = "Throw
                        special_req = "Logging Axe", cost = { { item = AIR, name = "Air Rune", count = 10 } },
                        perk = { level = 3, skill = "SKILL_Woodcutting", skill_name = "Woodcutting" } })
 local ENCHANT = spell({ asset = "USD_TestEnchant", name = "Enchant Weapon: Air", desc = "Adds air damage to your weapon.", cast_type = 0, harmful = true,
+                        held_effect = "HEED_TestAir",
                         cost = { { item = AIR, name = "Air Rune", count = 15 } }, perk = { level = 3, skill = "SKILL_Attack", skill_name = "Attack" } })
 
 local function reset(o)
@@ -77,6 +78,7 @@ local function effect(s, landed)
     local dl = G.delayed -- replication lag per signal (L25): {runes = s, cooldown = s (false = never)}
     local function runes() for _, c in ipairs(s.cost) do G.items[c.item] = (G.items[c.item] or 0) - c.count end end
     local function cd() G.last_cast[s.asset] = G.server_time end
+    if s.held_effect then G.held = { s.held_effect } end
     if dl then
         if dl.runes then at(dl.runes, runes) end
         if dl.cooldown then at(dl.cooldown, cd) end
@@ -97,7 +99,7 @@ W.hooks_start = function() end
 W.snapshot = function()
     local s = { wheel = {}, unlocked = {}, objects = {}, items = {}, last_cast = {}, ge = {}, tags = {}, actors = {}, skills = G.skills,
                 per_radial = 12, radials = 4, place_max_m = 15, server_time = G.server_time, input_mode = G.mode, falling = G.falling,
-                position = G.pos, casting = G.casting, view_target = G.view or "BP_PlayerCharacter_C" }
+                position = G.pos, casting = G.casting, view_target = G.view or "BP_PlayerCharacter_C", held_effects = G.held or {} }
     for i = 1, 48 do s.wheel[i] = G.wheel[i] or false end
     for _, sp in ipairs(G.unlocked) do s.unlocked[sp.asset] = true; s.objects[sp.asset] = sp end
     for k, v in pairs(G.items) do s.items[k] = v end
@@ -580,6 +582,7 @@ reset({ unlocked = { ENCHANT }, wheel = { "USD_TestEnchant" }, players = { { nam
 do
     local res = run_cast({ spell = "Enchant Weapon: Air" })
     check("self enchant with Luis at 2 m is cast", res.ok, res.reason)
+    check("the held weapon's enchant is in the reply's effects", res.data.effects.held[1] == "HEED_TestAir" and res.data.effect_verified == true)
 end
 
 -- ---------------------------------------------------------------- cast: arbiter
