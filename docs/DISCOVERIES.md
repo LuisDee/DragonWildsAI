@@ -912,6 +912,11 @@ Service: `client_mod/scripts/move.lua` (go_to / follow / stop / status). Command
   - Live on the dev world (23:14-23:15): "Player" validated; 0 profile errors; a 15.9 m go_to with 775 traces arrived in 6.3 s.
   - The offline fake had ignored profile names, which hid the bug. It now rejects unknown names like the engine (regression scenario 20).
 - **Main menu pawn:** in `L_FrontEnd` the controller owns a `DefaultPawn` at (0,0,0). A go_to issued during a relaunch "drove" it. move.lua now requires a pawn with CharacterMovement: start() refuses, and ticks pause.
+- **Client hang L28 (2026-10-26 07:14:32 UTC):** the cdb stack (`logs/client/hang_7368_20261026_081432.txt`, UTF-16) has the GameThread in `NtReadFile` ← `ucrtbase!fgetc` ← UE4SS Lua. That is the DWClient runner's `io.popen('dir /b ...')` pipe read, every 2 s.
+  - Fixed: the runner reads `client_io/cmd/queue.txt` from a saved offset (writers append the name after writing `<name>.lua`). No process is spawned on any poll; module mkdirs go through a probe-and-cache `ensure_dir`.
+  - Live (07:39:54): `DWClient loaded (json=dkjson, runner=queue)`; client_cmd and watchdog probes round-trip; bridge OK.
+  - Design: `docs/design/client-runner-queue.md`. Test: `client_mod/tests/test_runner.lua`.
+- **Deployment gotcha:** the game loads DWClient's `main.lua` from the DEPLOYED copy (`C:/Program Files (x86)/Steam/steamapps/common/RSDragonwilds/RSDragonwilds/Binaries/Win64/ue4ss/Mods/DWClient/scripts/main.lua`, installed by `tools/install_client_ue4ss.ps1`), not from the repo. Every other client module is `loadfile`d from the repo by path. A `main.lua` change must be copied there, then the client restarted.
 - **The game's Unstuck crashed the client (20:49:34 UTC):** move.lua requested it twice via the pause menu (20:49:25 and 20:49:33) while Claude was on top of the shelter.
   - Crash: an access violation in UE4SS `LuaType::push_arrayproperty` (a Lua loop reading a TArray on an object being replaced after the teleport). Same class as the 18:08 disconnect crash. Dump `ue4ss\crash_2026_10_25_21_49_34.5457439.dmp`, stack `logs/client/hang_unstuck_8712.txt`.
   - Unstuck is now DISABLED by default (opt-in per call only; if used, it holds `_G.DW_PAUSE` across the teleport).
@@ -1732,3 +1737,26 @@ Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probe
   - 23:39, 8/8 hits landed through "blocks": a stale `DIM_OculusBuildMenu` input mode delayed the input, and the blocks arrived inside the server BlockDelay.
 - **ClaudeDev:** total level 12 (Attack 1), so `PerkV2_Attack_Parry` (Attack 5) and the specials (Attack 8) are locked.
 - **The Stone Logging Axe's block action (`PA_Block_PickAxe`) cannot parry.**
+
+## Skills probe P1: fishing, agility, runecrafting actors (2026-10-26 ~08:45 UTC, dev world, client build 26162923, ClaudeDev; read-only `client_mod/commands/skills_probe_p1.lua`; design `docs/design/every-skill-coverage.md`)
+**Fishing nodes.**
+- 11 `FishingNodeV2` actors were in client relevance. Classes are `BP_FishingNodeV2_Net_Brynmoor_C` / `BP_FishingNodeV2_Rod_Brynmoor_C`; the nearest was 27 m from the spawn area.
+- `DisplayNameText` reads "Net Fishing Spot" / "Rod Fishing Spot". `PowerLevel` is 2.
+- `CompatibleToolCategory.TagName` is `Item.Equipment.Tool.Fishing.Net` / `...Fishing.Rod`. This is **identical to the item `Category` tag** of the nets and rods (items catalog `category_tag`), so tool ↔ spot matching by tag is verified.
+- `IsDepleted()`, `IsBlocked()` and `IsInUse()` are callable from the client: all false here. They agree with `NodeState.bDepleted`.
+
+**Pawn `FishingComponent`** (`BP_PlayerFishingComponentV2_C`).
+- `Settings.TimeToFullyChargeRod` = 3.0 s and `RodCastLaunchAngle` = 30.
+- `RodChargeFractionToProjectileSpeed` = `Curve_Float_RodChargeFractionToCastSpeed`. `GetFloatValue` is callable: 0 → 800, 0.5 → 1460.5, 1 → 1800.
+- `RodFishingInputActions` are `IA_FishingMiniGame_MoveLeft`, `IA_FishingMiniGame_MoveRight`, `IA_Fishing_Reeling` and `IA_FishingMiniGame_Exit`.
+- Idle `InternalState`: CurrentActivity 0, CastResult 4 (None), FishingResult 3 (None), SessionId 0, TimeOfLastActivityChange 0. These are all readable.
+- `PlayerInputBufferInputActions.PrimaryAction` = `IA_PrimaryAction`.
+
+**Agility.**
+- `Default__AgilitySettings.WalkingXPEventTriggerDistance` = 602 (cm), event "Walking". Passive Agility XP is roughly one event per 6 m walked.
+- No `AgilityCourseStarter`, `AgilityCourseManager` or `AgilityOrb` was within relevance of the spawn. Chasm Dash is NW of Bramblemead Valley (wiki).
+
+**Runecrafting.**
+- 3 `BP_AnimaVent_C` at 64–106 m. `HasAvailableCharges()` is true on all three; one has `IsConcentrated()` true.
+- 5 `RuneEssenceGeyser` at 17–106 m (`BP_RuneEssenceGeyser_{B,C,J}_C`).
+- No farm slots and no kebbit burrows in range.
