@@ -217,3 +217,11 @@ def test_felled_log_is_felled_by_the_body_and_bound_as_the_target(tmp_path, monk
     res = t.setup("felled_log", at=[4, 0, 0])
     assert res["id"] == "BP_SplittableLog_Ash_C_77" and seen == ["gather", "look"] and res["unverified"]
     assert [c.get("verb") for c in calls] == ["teleport", "grant"]
+
+
+def test_built_is_a_supported_referee_kind_and_the_build_gap_is_gone():
+    """Live 2026-10-26 14:59:39Z: the referee recorded {kind: built, by: self, piece_index: 26} (Campfire)."""
+    from evals.bench import goal_drafts
+    assert "built" in dt.REFEREE_SUPPORTS
+    for c in goal_drafts.long_tasks():
+        assert "build_tool" not in str((c.provenance or {}).get("gap") or ""), c.id

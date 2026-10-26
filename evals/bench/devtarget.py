@@ -32,7 +32,7 @@ PROBE_CMD = ROOT / "client_mod" / "commands" / "bench_probe.lua"
 # defended events carry `how` only for dodges seen with the evade tag / parry / block hooks (else a gap); teleport is
 # polled (no `via` yet -> a gap for teleports{via})
 REFEREE_SUPPORTS = frozenset({"item_change", "damage", "death", "telegraph", "defended", "teleport", "spell_actor",
-                              "spell_state", "target_effect", "dash"})
+                              "spell_state", "target_effect", "dash", "built"})  # built: live 2026-10-26 14:59:39Z
 RECIPES_GLOB = "recipes_*.json"
 SPELLS_GLOB = "spells_*.json"
 

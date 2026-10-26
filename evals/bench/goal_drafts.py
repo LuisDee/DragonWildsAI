@@ -70,8 +70,7 @@ def long_tasks() -> list[Case]:
     player; he builds his own base, stations, chests and plots and crafts his own gear. Brynmoor resources only."""
     k3 = {"repeat": 3}
     ent_guard = [{"not": {"have": {"item": i, "at_least": 1}}} for i in entitlement_items()]
-    build_gap = ("building needs a body build tool (capability agent, 2026-10-26); until it lands these cases read "
-                 "as a capability gap (evidence body:build_tool)")
+    # build is live (capability agent, referee-proved 2026-10-26 14:59:39Z: built piece 26 = Campfire, 6 Stone, +12 XP)
     return [
         _c(id="goal_mining_run_home_chest", tier="T3", family="long_task", long_task="mining_run_home_chest",
            tags={"skills": ["Mining", "Construction"], "evidence": ["referee:built", "referee:container_change", "probe:skills"]},
@@ -90,7 +89,7 @@ def long_tasks() -> list[Case]:
            hints={"ladder": ["how's the base coming along?", "you'll want a chest at home and a pickaxe",
                              "there's copper and tin around the valley, iron further out"]},
            oracle={"dev": "scripted:home_chest_mining_v1"},
-           provenance={"definition": "goal_targets long_tasks.definitions.mining_run_home_chest", "gap": build_gap,
+           provenance={"definition": "goal_targets long_tasks.definitions.mining_run_home_chest",
                        "notes": ["Mining XP threshold 300 is a placeholder: calibrate on dev",
                                  "his chest = a container that did not exist at referee start (built in the case)"]}),
         _c(id="goal_farm_mob_drop", tier="T3", family="long_task", long_task="farm_mob_drop",
@@ -166,7 +165,7 @@ def long_tasks() -> list[Case]:
            oracle={"dev": "scripted:wheat_bread_v1"},
            provenance={"definition": "goal_targets long_tasks.definitions.farm_and_process_crop",
                        "recipes": ["RECIPE_Process_Ground_Wheat (Grinder, Artisan)", "RECIPE_Consumable_Bread_From_Flour (Kiln, Cooking)"],
-                       "gap": build_gap, "notes": ["idle_s 900: crop stage times to be measured on dev"]}),
+                       "notes": ["idle_s 900: crop stage times to be measured on dev"]}),
     ]
 
 

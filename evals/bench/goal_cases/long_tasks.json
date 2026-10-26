@@ -121,7 +121,6 @@
    },
    "provenance": {
     "definition": "goal_targets long_tasks.definitions.mining_run_home_chest",
-    "gap": "building needs a body build tool (capability agent, 2026-10-26); until it lands these cases read as a capability gap (evidence body:build_tool)",
     "notes": [
      "Mining XP threshold 300 is a placeholder: calibrate on dev",
      "his chest = a container that did not exist at referee start (built in the case)"
@@ -924,7 +923,6 @@
      "RECIPE_Process_Ground_Wheat (Grinder, Artisan)",
      "RECIPE_Consumable_Bread_From_Flour (Kiln, Cooking)"
     ],
-    "gap": "building needs a body build tool (capability agent, 2026-10-26); until it lands these cases read as a capability gap (evidence body:build_tool)",
     "notes": [
      "idle_s 900: crop stage times to be measured on dev"
     ]
