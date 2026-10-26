@@ -1151,6 +1151,12 @@ function M.state_extras(api, data)
         mem.last_held = { item = data.held_item, name = type(data.held) == "string" and data.held or data.held_item }
     end
     if mem.last_held then out.last_held = mem.last_held.name end
+    -- his active skill perks (read-only; sense.perks caches them)
+    local sense = api.module("sense")
+    if sense and type(sense.perks) == "function" then
+        local okp, pk = pcall(sense.perks)
+        if okp and type(pk) == "table" then out.perks = pk end
+    end
     -- what he carries now (for the death memory) and where he is
     if type(data.inventory_items) == "table" and #data.inventory_items > 0 then
         local rows = {}

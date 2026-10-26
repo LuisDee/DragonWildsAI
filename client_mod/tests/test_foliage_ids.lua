@@ -181,5 +181,24 @@ do
     check("a real interaction point near the actor is used", math.abs(d.position[1] - 21.6) < 0.01 and d.actor_position)
 end
 
+-- perks: active skill perks by property reads (cached)
+do
+    local function ft(s) return { ToString = function() return s end } end
+    local agility = uobj("SkillData /Game/Skills/SD_Agility.SD_Agility", { Name = ft("Agility") })
+    local function perk(id, name, lvl) return uobj("SkillPerkData /Game/Perks/" .. id .. "." .. id,
+        { PerkName = ft(name), PerkDescription = ft(name .. " desc"), PerkUnlockInfo = { AssociatedSkill = agility, RequiredSkillLevel = lvl } }) end
+    local function arr(t) return { ForEach = function(_, f) for i, v in ipairs(t) do f(i, { get = function() return v end }) end end } end
+    local p1, p2 = perk("PERK_Windstep", "Windstep", 5), perk("PERK_Sprint", "Second Wind", 1)
+    pc.SkillPerkComponent = uobj("SkillPerkComponent /Game/L.L:PersistentLevel.PC.SkillPerkComponent", {
+        SkillPerkRuntimeStates = arr({ { AssociatedSkill = agility, ActivePerkDatas = arr({ p1, p2, p1 }) } }) })
+    S._reset_perks()
+    local pk = S.perks(1000)
+    check("perks: deduplicated, sorted by skill then level, with name/skill/level", pk and #pk == 2 and pk[1].name == "Second Wind"
+        and pk[2].name == "Windstep" and pk[2].skill == "Agility" and pk[2].level == 5, pk and #pk)
+    pc.SkillPerkComponent = nil
+    check("perks: cached within the TTL", #S.perks(1010) == 2)
+    S._reset_perks()
+end
+
 print(string.format("%d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

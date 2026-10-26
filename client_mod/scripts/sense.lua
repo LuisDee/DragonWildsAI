@@ -174,6 +174,50 @@ function M.has_privilege(p)
     return v == true
 end
 
+-- His active skill perks (they unlock automatically by skill level; USkillPerkComponent only has reads):
+-- pc.SkillPerkComponent.SkillPerkRuntimeStates[].ActivePerkDatas -> {{name, skill, level, description}}.
+-- Property reads only; cached for M.PERKS_TTL_S (perks change only on a level-up); never under pause.
+M.PERKS_TTL_S = 60
+local perks_cache
+function M.perks(now)
+    if rawget(_G, "DW_PAUSE") then return perks_cache and perks_cache.list or nil end
+    now = now or os.time()
+    if perks_cache and now - perks_cache.t < M.PERKS_TTL_S then return perks_cache.list end
+    local pc = M.local_pc()
+    local comp = pc and U.try(function() return pc.SkillPerkComponent end)
+    if not U.valid(comp) then return nil end
+    local out, seen = {}, {}
+    pcall(function()
+        comp.SkillPerkRuntimeStates:ForEach(function(_, e)
+            local st = U.try(function() return e:get() end) or e
+            local skill_data = U.try(function() return st.AssociatedSkill end)
+            local skill = U.valid(skill_data) and text(U.try(function() return skill_data.Name end)) or nil
+            pcall(function()
+                st.ActivePerkDatas:ForEach(function(_, pe)
+                    local d = U.try(function() return pe:get() end) or pe
+                    local id = U.valid(d) and U.short(d)
+                    if id and not seen[id] then
+                        seen[id] = true
+                        local info = U.try(function() return d.PerkUnlockInfo end)
+                        local sk2 = info and U.try(function() return info.AssociatedSkill end)
+                        out[#out + 1] = { name = text(U.try(function() return d.PerkName end)) or id,
+                                          skill = skill or (U.valid(sk2) and text(U.try(function() return sk2.Name end))) or nil,
+                                          level = num(info and U.try(function() return info.RequiredSkillLevel end)),
+                                          description = text(U.try(function() return d.PerkDescription end)) }
+                    end
+                end)
+            end)
+        end)
+    end)
+    table.sort(out, function(a, b)
+        if (a.skill or "") ~= (b.skill or "") then return (a.skill or "") < (b.skill or "") end
+        return (a.level or 0) < (b.level or 0)
+    end)
+    perks_cache = { t = now, list = out }
+    return out
+end
+function M._reset_perks() perks_cache = nil end
+
 function M.me(log)
     if rawget(_G, "DW_PAUSE") then return { ok = false, reason = "paused" } end -- no reads during world changes
     local pc = M.local_pc()
