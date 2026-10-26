@@ -21,6 +21,8 @@ $env:DW_HEARTBEAT_FILE = Join-Path $stateDir 'heartbeat.txt'
 # Speech: hand-built Client_ReceiveChatMessage / Client_DisplayTextNotification froze Luis's client
 # (2026-10-25). Default to log-only until a speech path is proven safe; override with DW_SAY_MODE.
 if (-not $env:DW_SAY_MODE) { $env:DW_SAY_MODE = 'direct' }
+# The only server this script starts is the local dev server; the bench fixtures/referee refuse without it.
+$env:DW_SERVER_ROLE = 'dev'
 
 $p = Start-Process -FilePath $ServerExe -WorkingDirectory $ServerWin64 -WindowStyle Hidden -PassThru
 Write-Host "Started server pid $($p.Id) (build $(Get-ServerBuildId)). Log: $ServerLog"

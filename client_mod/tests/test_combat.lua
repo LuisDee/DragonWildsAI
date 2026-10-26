@@ -685,6 +685,27 @@ do
     A.reset(nil)
 end
 
+-- ================================================================ 11a. hit while looting (live 09:41): the impact event names the attacker, he fights back
+reset_world()
+do
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    world.drop_on_death = true
+    local a = new_creature("BP_AI_RuntGoblin_Character_C_la", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 20, pl = 1, arch = 0 })
+    local b = new_creature("BP_AI_Kebbit_Character_02_C_lb", "Kebbit", { X = 0, Y = 300, Z = 0 }, { hp = 60, pl = 1, arch = 1 })
+    check("loot-hit: commanded fight starts", Cm._start_fight(nil, a, { mode = "attack", force = true, by = "brain" }).ok)
+    check("loot-hit: loots after the kill", run_until(function() local f = Cm._state().fight; return f and f.phase == "loot" end, 15))
+    -- B's attack lands: its impact event, then the HP drop (no damage multicast reaches the client)
+    local comp = obj({ GetOwner = function() return b end }, "C /x")
+    hooks["/Script/Dominion.AiAttackComponent:Multicast_SendDamageCacheData"]({ get = function() return comp end })
+    pawn.hp = pawn.hp - 7
+    local switched = run_until(function() local f = Cm._state().fight; return f and f.target_id == "BP_AI_Kebbit_Character_02_C_lb" end, 2)
+    check("loot-hit: the hit is attributed and he turns on the attacker", switched)
+    run_until(function() return Cm._state().fight == nil end, 30)
+    check("loot-hit: the attacker is dealt with", b.hp <= 0, b.hp)
+    world.drop_on_death = nil
+    A.reset(nil)
+end
+
 -- ================================================================ 11b. a telegraph mid-disengage: defend, then back to the disengage (live 08:11 dropped it)
 reset_world()
 do

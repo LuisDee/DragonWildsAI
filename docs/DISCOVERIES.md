@@ -1750,6 +1750,20 @@ Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probe
 - **First server-confirmed block:** `will receive 0.000000 damage` at 08:20 (the Tempest Shield follow-up). Tempest Shield was cast live through `spells.cast_now` (abilities `{tempest_shield: 1}`) in runs 1 and 3.
 - **Reach underestimate:** a "none (out_of_reach)" plan was hit twice while retreating, because the Kebbit chases. `defense.feedback` now records `hit_from_cm`, and `threat.reach_cm` is at least that distance.
 - **Parry perk:** `PerkV2_Attack_Parry` read as unlocked at 08:16 (total level 32).
+- **Parry, k=3 passed (09:33-09:44 UTC, Bronze Shield in the left hand, right hand empty, orders `{defense="parry"}`, 4 Kebbits):** 4 of 4 Kebbit attacks were parried. Each has three pieces of evidence:
+  - the client's `PlayerBlockingComponent:Multicast_NotifyActorsToDamagePendingParriedAttack` verdict (combat logs `defence parry -> parried`);
+  - the server's `PredictPointDamage ... will receive 0.000000 damage`;
+  - the server's block timing. The block was active (`START : Block` plus `BlockDelay` 0.116) **0.060 / 0.034 / 0.071 / 0.097 s before the impact**. The impact is the server `AUTH ATTACK : TELEGRAPH` line plus its `TimeUntilEvent`.
+  - For comparison, the plain block at 08:20 went active 0.365 s early and was not a parry. So the parry window is at least about 0.10 s, and the press-time formula `T - 2L - block_delay - window/2` lands inside it.
+  - The server logs no parry line of its own (no "parr" text anywhere). The scratchpad driver's `parry_evidence()` computes the lead from the lines above.
+  - With the Bone Dagger in the right hand, a 30 HP Kebbit dies in 2 hits before it can attack, so the trials fought bare-handed with the shield.
+  - `BP_AI_RuntGoblin_Character_C` is still `unknown_class` to the spawn fixture (not loaded on the dev world).
+  - A Kebbit spawned 5 m in +X was behind a wall, so the approach was stuck until the fight timeout (the local plan reported `unreachable_in_window`). Spawning at -4 m worked.
+- **Hit while looting (09:41):** a second Kebbit hit him 4 times (7 damage each) during the loot and restore phases, and nothing answered it. No damage multicast reaches the client for AI hits, so nothing recorded the Kebbit as an attacker. Fixed:
+  - an HP drop within 0.8 s after a creature's `Multicast_SendDamageCacheData` impact event now records that creature as the attacker;
+  - loot and restore check every 0.5 s for an `attacked_me` threat and fight back;
+  - a commanded fight now also retargets a creature that is hitting him. Self-defence only; a target that is merely near is still not engaged.
+  - Covered by offline test 11a. The live repeat could not reproduce it (the second Kebbit stayed passive).
 - **False "hangs" (ops, not combat):** the client watchdog (pid 4228, started 2026-10-25 23:09 UTC) kept the **old** `Invoke-ClientCmd` in memory. That version writes `wd_boot_probe.lua` but never appends it to `client_io/cmd/queue.txt`; the queue runner went live at 07:41 UTC. So every watchdog probe timed out, and about 4 minutes after each boot it declared a hang and killed a healthy client: 08:04-08:08, 08:13:10 and 08:17:54, with `mod_log_age_s` 0-2 s. Evidence: no `ran wd_boot_probe` in client.log between boots, while `m1_*` commands ran. Fix: restart the watchdog (`tools/start_client_watchdog.ps1`) so it loads the current `client_lib.ps1`.
 
 ## Skills probe P1: fishing, agility, runecrafting actors (2026-10-26 ~08:45 UTC, dev world, client build 26162923, ClaudeDev; read-only `client_mod/commands/skills_probe_p1.lua`; design `docs/design/every-skill-coverage.md`)

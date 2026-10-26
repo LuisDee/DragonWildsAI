@@ -55,6 +55,7 @@ M.cfg = {
     special_gap_s = 6,
     telegraph_m = 6, telegraph_fresh_s = 1.0,
     disengage_m = 10,        -- back off this far to eat (orders.disengage)
+    impact_attrib_s = 0.8, max_retargets = 4, -- an HP drop this soon after a creature's impact event is its hit
     conversation_retry_s = 2.0, conversation_leave_s = 5.0, -- leaving an NPC dialogue for a fight (talk finding 8)
     move_axes = "xy",
     ranged_max_m = 25,       -- ranged: shoot from up to this far (shrinks when out of the projectile's range)
@@ -1889,6 +1890,14 @@ local function frame(F)
         c.me_dmg[#c.me_dmg + 1] = { seq = c.me_seq, t = F.t, amount = F.hp_prev - me.hp, source = "hp_poll" }
         if #c.me_dmg > 20 then table.remove(c.me_dmg, 1) end
         F.dmg_taken = (F.dmg_taken or 0) + (F.hp_prev - me.hp)
+        -- who did it: no damage multicast reaches the client for AI hits, but the attacker's impact event
+        -- (Multicast_SendDamageCacheData) does, just before the HP drop (live 09:41: a second Kebbit hit him
+        -- 4 times while he looted, unanswered, because nothing recorded it as an attacker)
+        local best
+        for _, e in ipairs(c.impacts or {}) do
+            if e.id and F.t - e.t >= -0.2 and F.t - e.t <= M.cfg.impact_attrib_s and (not best or e.t > best.t) then best = e end
+        end
+        if best then c.attackers[best.id] = F.t; c.me_dmg[#c.me_dmg].inst = best.id end
     end
     F.hp_prev = me.hp
     if not F.lat_t or F.t - F.lat_t > 5 then -- one-way latency for timed defence
@@ -1990,7 +1999,8 @@ local function frame(F)
     if F.dead_seen and (F.phase == "engage" or F.phase == "defend" or F.phase == "approach" or F.phase == "equip") then
         -- another attacker still on us? retarget instead of looting
         local nxt = M.pick_threats(creatures_near(me.pos, M.cfg.assist_m), c.attackers, c.ally_attackers, M.orders, F.t)[1]
-        if nxt and nxt.id ~= F.target_id and F.mode == "reflex" then
+        -- self-defence is the reflex's job in any fight: a commanded fight retargets only what is hitting him
+        if nxt and nxt.id ~= F.target_id and (F.mode == "reflex" or nxt.why == "attacked_me") then
             say(F.log, "retarget " .. nxt.id)
             F.target, F.target_id, F.target_name, F.dead_seen, F.locked, F.following = nxt.actor, nxt.id, nxt.name, false, false, false
             M.set_reach(F, nxt.actor)
@@ -2085,10 +2095,20 @@ local function frame(F)
         if not F.dis then F.dis_end = F.t end
     elseif F.phase == "flee" then
         step_flee(F, pawn, me)
-    elseif F.phase == "loot" then
-        step_loot(F, pawn, me)
-    elseif F.phase == "restore" then
-        step_restore(F, pawn)
+    elseif F.phase == "loot" or F.phase == "restore" then
+        -- attacked while looting or putting things back: answer it first
+        local nxt = F.t - (F.loot_threat_t or -9) >= 0.5 and M.pick_threats(creatures_near(me.pos, M.cfg.assist_m), c.attackers, c.ally_attackers, M.orders, F.t)[1]
+        if nxt then F.loot_threat_t = F.t end
+        if nxt and nxt.why == "attacked_me" and (F.retargets or 0) < M.cfg.max_retargets then
+            F.retargets = (F.retargets or 0) + 1
+            say(F.log, "attacked by " .. nxt.id .. " during " .. F.phase .. ": fighting back")
+            mcall("move", "stop", F.log)
+            F.loot_item = nil
+            F.target, F.target_id, F.target_name, F.dead_seen, F.locked, F.following = nxt.actor, nxt.id, nxt.name, false, false, false
+            M.set_reach(F, nxt.actor)
+            return set_phase(F, "approach", "attacked by " .. tostring(nxt.name))
+        end
+        if F.phase == "loot" then step_loot(F, pawn, me) else step_restore(F, pawn) end
     end
 end
 M._frame = frame
