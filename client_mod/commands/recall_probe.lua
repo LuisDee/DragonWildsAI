@@ -10,7 +10,8 @@ return function(log)
     local path = ROOT .. "/client_io/out/recall_probe.jsonl"
     local f0 = io.open(path, "w"); if f0 then f0:close() end
     local n, t0 = 0, os.clock()
-    local api = { module = function() return nil end }
+    local inst = rawget(_G, "__dwc_bridge")
+    local api = inst and inst.module and inst.module.API or { module = function() return nil end }
     LoopInGameThreadWithDelay(500, function()
         n = n + 1
         if n > 80 or rawget(_G, "DW_PAUSE") then return true end

@@ -78,7 +78,7 @@ local function patch()
         for i, c in ipairs(F.cons or {}) do
             if c.count > 0 then
                 local row = { name = c.name, item = c.item, count = c.count, consumable = c.consumable, slot = 10 + i,
-                              slot_type = c.where == "hotbar" and "QuickAction" or "InventoryItems" }
+                              slot_type = c.where == "hotbar" and "QuickAction" or "InventoryItems", risk = c.risk }
                 table.insert(c.where == "hotbar" and l.hotbar or l.bag, row)
             end
         end
@@ -284,6 +284,15 @@ test("consume from the hotbar: verified by the stat rising", function()
     r0, id = rpc("consume", { item = "drink" })
     r = r0 or run(id, 10)
     assert(r and r.ok and r.data.item == "ITEM_Consumable_Water_Clean" and r.data.count_left == 0, json.encode(r))
+end)
+
+test("consume: the model may drink a risky item, and the reply carries its known risk (BUGS L38)", function()
+    reset()
+    F.cons = { { name = "Dirty Water", item = "ITEM_Consumable_Water_Dirty", count = 2, consumable = "drink", where = "hotbar",
+                 stat = "hydration", amount = 10, risk = "drinking Dirty Water has crashed my game twice today" } }
+    local r0, id = rpc("consume", { item = "Dirty Water" })
+    local r = r0 or run(id, 10)
+    assert(r and r.ok and r.data.risk and r.data.risk:find("crashed my game", 1, true), json.encode(r))
 end)
 
 test("consume: in the bag -> in_bag + offer; not carried -> not_in_inventory; no stat change -> verification_failed", function()

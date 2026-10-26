@@ -3,16 +3,15 @@
  "build": "26161880",
  "spells": {
   "USD_Recall": {
-   "how": "Two casts: the first places a beacon where you stand; cast it again within its time limit to teleport back to the beacon. Time limit not known yet.",
+   "how": "Starting Recall marks where you stand and lets you keep moving; finishing the cast brings you back to that mark (within a time limit). The body finishes it at once for now, so it lands where you stand: no return yet.",
    "sources": [
     "wiki https://dragonwilds.runescape.wiki/w/Recall (snapshot data/wiki/pages, 2026-10-26)"
    ],
-   "two_step": true,
-   "window_s": null,
-   "observed": "live re-run 2026-10-26: one cast leaves Recall prepared (SpellBeingPreparedOrCast set), no runes spent, no cooldown",
+   "observed": "live 2026-10-26 17:35-17:39 UTC (ClaudeDev): selecting Recall enters DIM_SpellPlacementModeAdvancedMovement (you can move); the place press spends 30 Air + 15 Law, starts the 75 s cooldown and plays a 1 s DominionSpellActor; pressed at once he stays put (moved 0 m). A second cast after walking 11 m placed again, no teleport; during the cooldown the game refuses it. On an invalid spot the place press does nothing (held open 12 s). Hypothesis (cast type AllowMovementThenCastInstant): the mark is where the cast STARTS; moving while it is open, then pressing place, returns you. Not yet tried.",
    "extra_sources": [
     "Luis (player) 2026-10-26",
-    "game data: cast type AllowMovementThenCastInstant (the only spell of that type)"
+    "game data: cast type AllowMovementThenCastInstant (the only spell of that type)",
+    "live probe client_mod/commands/recall_probe.lua, 2026-10-26"
    ]
   },
   "USD_FishingFrenzy": {

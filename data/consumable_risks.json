@@ -1,0 +1,11 @@
+{
+ "about": "Consumables with a KNOWN body risk (DATA, read by client_mod/scripts/inventory.lua). The stay-fed reflex never uses them; the model's own consume may, and its reply says the risk. Keyed by item id.",
+ "items": {
+  "ITEM_Consumable_Water_Dirty": {
+   "risk": "client_crash",
+   "detail": "drinking Dirty Water has crashed my game twice today",
+   "instead": "boil it at a campfire into Clean Water",
+   "evidence": "BUGS L38 (crash analysis 2026-10-26): 2 of 4 Dirty Water drinks crashed the client (game code, null read on the pawn right after HandleSlotUseEvent), both the stay-fed reflex at the safety floor, 17:08 and 17:26 UTC"
+  }
+ }
+}

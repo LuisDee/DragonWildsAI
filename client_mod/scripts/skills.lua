@@ -828,12 +828,14 @@ local function start_consume(api, args, ctx)
         local used = now_n < job.before_n
         if rose or (used and t >= job.until_t - M.cfg.consume_verify_s / 2) then
             return { ok = true, data = { item = job.row.item, name = job.row.name, kind = job.row.consumable, stat = job.stat,
-                before = job.before, after = now_v, stat_rose = rose == true, count_left = now_n, fetched = job.fetched == true } }
+                before = job.before, after = now_v, stat_rose = rose == true, count_left = now_n, fetched = job.fetched == true,
+                risk = job.row.risk } }
         end
         if t >= job.until_t then
             if used then
                 return { ok = true, data = { item = job.row.item, name = job.row.name, kind = job.row.consumable, stat = job.stat,
-                    before = job.before, after = now_v, stat_rose = false, count_left = now_n, fetched = job.fetched == true } }
+                    before = job.before, after = now_v, stat_rose = false, count_left = now_n, fetched = job.fetched == true,
+                    risk = job.row.risk } }
             end
             return api.fail("verification_failed", { item = job.row.item, stat = job.stat, before = job.before, after = now_v,
                 detail = "I tried to use the " .. tostring(job.row.name) .. " but my " .. tostring(job.stat) .. " didn't go up." })

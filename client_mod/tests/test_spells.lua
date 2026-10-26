@@ -172,12 +172,15 @@ W.inject = function(_, a)
         local s = spell_by(G.wheel[G.page * 12 + slot + 1])
         G.selected = s and s.asset
         if not s then G.mode = "DIM_Gameplay"; return true end
-        if s.two_step_fake then -- Recall-like: 1st = beacon (prepared, nothing spent); 2nd = back to it (runes + cooldown)
+        if s.two_step_fake then -- Recall (live 17:35): 1st = the beacon (runes + cooldown + a spell actor); 2nd = back to it
             G.mode = "DIM_Gameplay"
-            if not G.beacon then G.beacon, G.casting = { G.pos[1], G.pos[2], G.pos[3] }, s.asset
+            if not G.beacon then
+                local bk = { G.pos[1], G.pos[2], G.pos[3] }
+                G.beacon = bk
+                at(0.4, function() effect(s, bk) end)
             else
                 local bk = G.beacon
-                at(0.4, function() if not G.recall_broken then G.pos = { bk[1], bk[2], bk[3] } end; G.beacon, G.casting = nil, nil; effect(s) end)
+                at(0.4, function() if not G.recall_broken then G.pos = { bk[1], bk[2], bk[3] } end; G.beacon = nil; G.server_time = G.server_time + 100; effect(s) end)
             end
         elseif s.cast_type == 0 and G.stay_in_mode then
             G.mode = "DIM_SpellcastingMode" -- e.g. a camera mode the spell keeps open
@@ -230,6 +233,7 @@ local api = {
     census_things = function() return G.players end,
     find_thing = function(id)
         if id == "BP_Log_1" then return { id = id, name = "Oak Log", position = { 6, 0, 0 } } end
+        if id == "BP_AI_Deer_C_1" then return { id = id, name = "Deer", position = { 6, 0, 0 }, category = "creatures" } end
         return nil, { ok = false, reason = "unknown_target", data = { target = id } }
     end,
 }
@@ -693,6 +697,17 @@ do
     check("stopped walking before casting", M1.stopped >= 1)
     check("aim re-read at release: within 1 m of where the creature is", G.aimed and math.abs(G.aimed[1] - G.creature[1]) < 1.5,
           tostring(G.aimed and G.aimed[1]) .. " vs " .. tostring(G.creature[1]))
+    -- live 17:3x: reach is measured from the CAMERA, ~5.5 m behind him: the approach closes until the VIEW is in reach
+    reset({ unlocked = { AXTRAL }, wheel = { "USD_TestAxe" } })
+    local M5, during5 = rig(0.5, 4.0)
+    local realcam = W.cam_dist
+    W.cam_dist = function(_, p) return math.sqrt((p[1] - G.pos[1]) ^ 2 + (p[2] - G.pos[2]) ^ 2) + 5.5 end
+    local realaim2 = W.aim
+    W.aim = function(_, pos) G.aimed = pos; G.aims = (G.aims or 0) + 1; return math.sqrt((pos[1] - G.pos[1]) ^ 2 + (pos[2] - G.pos[2]) ^ 2) + 5.5 end
+    res = run_cast({ spell = "Astral Axe", target = "BP_AI_Magpie_C_1" }, { during = during5 })
+    check("camera 5.5 m behind: walks until the VIEW is within reach, then casts (no too_far)", res.ok and res.data.approach_view_m
+          and res.data.approach_view_m <= 14, tostring(res.reason) .. " " .. tostring(res.data and res.data.detail) .. " view " .. tostring(res.data and res.data.approach_view_m))
+    W.cam_dist, W.aim = realcam, realaim2
     -- it bolts 20 m while the wheel opens: the spell is put away, he walks again, then casts (one call)
     reset({ unlocked = { AXTRAL }, wheel = { "USD_TestAxe" } })
     local M4, during4 = rig(0, 4.0)
@@ -719,6 +734,18 @@ do
     for k, v in pairs(R) do W[k] = v end
     W.aim = realaim
     G.creature = nil
+end
+
+-- live 17:34 (Confuse on a deer): the game's aimed preview is valid but sits where its trace meets the creature,
+-- 5 m short of the body -> accepted for a creature target; never for a thing (it must land on it)
+reset({ unlocked = { AXTRAL }, wheel = { "USD_TestAxe" }, preview_off = 5 })
+do
+    local res = run_cast({ spell = "Astral Axe", target = "BP_AI_Deer_C_1" })
+    check("aimed at a creature: a valid preview short of its body is cast", res.ok, tostring(res.reason) .. " " .. tostring(res.data and res.data.detail))
+    reset({ unlocked = { AXTRAL }, wheel = { "USD_TestAxe" }, preview_off = 5 })
+    res = run_cast({ spell = "Astral Axe", target = "BP_Log_1" })
+    check("aimed at a thing: the same 5 m miss is refused (preview_off_target)", res.reason == "verification_failed" and res.data.why == "no_valid_aim",
+          tostring(res.reason) .. " " .. tostring(res.data and res.data.why))
 end
 
 -- L15: a placed spell aimed at an OBJECT (Splinter on a log): aim at the object, never flat-ground spots

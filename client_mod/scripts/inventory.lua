@@ -118,6 +118,22 @@ function M.soulscourge_of(name)
     return e and tonumber(e.soulscourge) or nil
 end
 
+-- Known body risks per item id (data/consumable_risks.json; BUGS L38: Dirty Water drinks crashed the client).
+-- -> {risk, detail, instead} | nil
+local RISKS
+function M.risk_of(item)
+    if RISKS == nil then
+        RISKS = false
+        local okj, json = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/dkjson.lua"))() end)
+        local f = okj and io.open(ROOT .. "/data/consumable_risks.json", "rb")
+        if f then
+            local doc = json.decode(f:read("a")); f:close()
+            if type(doc) == "table" and type(doc.items) == "table" then RISKS = doc.items end
+        end
+    end
+    return RISKS and type(item) == "string" and RISKS[item] or nil
+end
+
 function M.describe_item(it)
     if not U.valid(it) then return nil end
     local data = U.try(function() return it.ItemData end)
@@ -143,6 +159,8 @@ function M.describe_item(it)
     end
     if d.consumable then
         d.soulscourge = M.soulscourge_of(d.name) -- amount (data), nil = unknown
+        local rk = M.risk_of(d.item)
+        if rk then d.risk = rk.detail end
         d.use_verb = text(U.try(function() return data.UseVerb end))
     end
     local mw = num(U.try(function() return it.NumMasterworkUpgradesApplied end))
@@ -618,7 +636,7 @@ local function best(list, kind, bad, wheres)
     local pick
     for _, where in ipairs(wheres or { "hotbar", "bag" }) do
         for _, d in ipairs(list[where] or {}) do
-            if d.consumable == kind and not (bad and bad[d.item]) then
+            if d.consumable == kind and not (bad and bad[d.item]) and not M.risk_of(d.item) then
                 -- clean first (no Soulscourge, or unknown), then the least Soulscourge
                 local s, ps = tonumber(d.soulscourge) or 0, pick and (tonumber(pick.soulscourge) or 0)
                 if not pick or s < ps then pick = d end
@@ -709,7 +727,21 @@ function R.tick(log)
     if (thirsty or hungry) and not pend then
         carried = M.list(log)
         for _, need in ipairs({ { thirsty, "drink", hyd, hyd_max }, { hungry, "food", sus, sus_max } }) do
-            if need[1] and not best(carried, need[2], R.bad, { "hotbar", "bag" }) then
+            local risky
+            for _, where in ipairs({ "hotbar", "bag" }) do
+                for _, x in ipairs(carried[where] or {}) do if x.consumable == need[2] and M.risk_of(x.item) then risky = risky or x end end
+            end
+            if need[1] and not best(carried, need[2], R.bad, { "hotbar", "bag" }) and risky then
+                -- BUGS L38: never drunk by the reflex, even at the floor (it crashed the client twice); the brain is told
+                R.warned = R.warned or {}
+                local key = "held_back_" .. need[2]
+                if not R.warned[key] or t - R.warned[key] >= 60 then
+                    R.warned[key] = t
+                    local rk = M.risk_of(risky.item)
+                    reflex_emit({ action = key, kind = need[2], item = risky.item, name = risky.name, stat = need[3], floor = R.floor_hit == true,
+                                  risk = rk.risk, reason = "only " .. tostring(risky.name) .. ": " .. tostring(rk.instead or "find a safe one") })
+                end
+            elseif need[1] and not best(carried, need[2], R.bad, { "hotbar", "bag" }) then
                 local failed = best(carried, need[2], nil, { "hotbar", "bag" }) ~= nil
                 R.warned = R.warned or {}
                 local key = "no_" .. need[2]

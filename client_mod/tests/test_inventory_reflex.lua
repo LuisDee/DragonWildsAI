@@ -15,6 +15,8 @@ end
 copy("/mod/body/util.lua"); copy("/client_mod/scripts/dkjson.lua")
 copy("/client_mod/scripts/input.lua") -- the REAL modal gate (L32 integration)
 copy("/client_mod/scripts/consumable_wiki.lua") -- the REAL soulscourge data (Dirty Water 20)
+os.execute('mkdir "' .. (dir .. "/data"):gsub("/", "\\") .. '" 2>nul')
+copy("/data/consumable_risks.json") -- the REAL risk data (BUGS L38: Dirty Water crashed the client)
 
 -- ---------------------------------------------------------------- fake engine
 local function trivial() -- what UE4SS returns for a property the object lacks: non-nil, invalid
@@ -356,9 +358,14 @@ do
     R.tick_fn(nil)
     check(#S.presses == 0, "dirty only, thirsty above the floor: not drunk (" .. table.concat(S.presses, ",") .. ")")
     check(events("held_back_drink") == h0 + 1, "dirty only: held_back_drink told (purify / find clean)")
-    S.hyd, R.last = 5, {}
+    S.hyd, R.last, R.warned = 5, {}, nil
+    local h1 = events("held_back_drink")
     R.tick_fn(nil)
-    check(#S.presses == 1 and S.presses[1] == "Dirty Water", "dirty only, below the floor: drunk to survive (" .. table.concat(S.presses, ",") .. ")")
+    check(#S.presses == 0, "L38: dirty only, below the floor: STILL not drunk (it crashed the client) (" .. table.concat(S.presses, ",") .. ")")
+    local _, txt = events("held_back_drink")
+    check(events("held_back_drink") == h1 + 1 and txt:find("only Dirty Water: boil it at a campfire into Clean Water", 1, true) ~= nil,
+          "L38: held_back_drink says to boil it into Clean Water")
+    check(I.risk_of("ITEM_Consumable_Water_Dirty") and I.risk_of("ITEM_Consumable_Water_Clean") == nil, "risk data: Dirty Water only")
     -- both carried (dirty in the first slot): Clean Water first, above or below the floor
     hotbar_items = { item(DATA.dirty, 5), item(DATA.clean, 2) }; refresh()
     S.presses, S.hyd, R.last, R.pending = {}, 30, {}, nil

@@ -46,9 +46,8 @@ M.cfg = {
     approach_budget_s = 20, -- the whole approach; then a truthful "it got away / I can't get there"
     approach_stall_s = 6,   -- no 0.5 m gain on the target for this long = stalled
     reapproach_max = 2,     -- it moved out of reach while the wheel opened: walk again at most this often
-    -- TWO-STEP spells (data/spell_mechanics.json two_step; Recall: Luis + wiki 2026-10-26): the first cast leaves the
-    -- spell PREPARED (SpellBeingPreparedOrCast = it, nothing spent) = the beacon is down; a later cast returns to it.
-    beacon_settle_s = 1.5,  -- prepared this long after the select, nothing spent -> step 1 done (beacon placed)
+    -- TWO-STEP spells (data/spell_mechanics.json two_step; Recall: Luis + wiki 2026-10-26): a verified first cast
+    -- places the beacon (its spell actor); a later cast is judged by where he ends up.
     beacon_arrive_m = 4,    -- step 2 verified: he ends this close to the beacon after the cast
     select_wait_s = 1.0,    -- after the quick key: wait for a spell mode or the cast to start
     verify_s = 4.0,         -- after the cast input: runes / cooldown must change within this ...
@@ -889,7 +888,8 @@ local function target_of(api, target, snap)
     local pos, where = t.position, nil
     local c = W.thing_center(api, t)
     if c then pos, where = c, "midpoint" end
-    return { kind = "thing", position = pos, name = t.name, id = t.id, foliage = target:sub(1, 4) == "fol:" or nil, aim_from = where }
+    return { kind = "thing", position = pos, name = t.name, id = t.id, foliage = target:sub(1, 4) == "fol:" or nil, aim_from = where,
+             category = t.category }
 end
 
 local function arbiter(api) local A = api.module("arbiter"); return A and type(A.request) == "function" and A or nil end
@@ -1198,7 +1198,22 @@ local function verified_result(job, df, snap)
         d.detail = "I cast " .. job.row.name .. " but it landed " .. math.floor(d.landed_dist_m + 0.5) .. " m from where you wanted."
         return { ok = false, reason = "verification_failed", data = d }
     end
-    local b = M.beacon(job.row.id)
+    local mech = M.mechanics(job.row.id)
+    local b = mech and mech.two_step and M.beacon(job.row.id) or nil
+    if mech and mech.two_step and not b then
+        -- step 1 (live 17:35 UTC: Recall opens DIM_SpellPlacementModeAdvancedMovement; the place press spends 30 Air
+        -- + 15 Law, starts the 75 s cooldown and spawns a DominionSpellActor = the beacon)
+        local pos = d.landed_at or (job.before and job.before.position)
+        mem().beacons = mem().beacons or {}
+        mem().beacons[job.row.id] = { position = pos, at = M.wall(), actor = d.spell_actor }
+        d.step, d.beacon = 1, { position = pos, actor = d.spell_actor }
+        local p = pos and string.format("[%.0f, %.0f, %.0f]", pos[1], pos[2], pos[3] or 0) or "here"
+        local window = tonumber(mech.window_s)
+        d.detail = "I placed " .. job.row.name .. "'s beacon at " .. p .. ". Cast " .. job.row.name .. " again "
+            .. (window and ("within " .. math.floor(window) .. " s") or "before it runs out (I don't know its time limit yet)")
+            .. " to come back to it."
+        return { ok = true, data = d }
+    end
     if b then
         local here = snap and snap.position
         local dist = here and d3(here, b.position)
@@ -1264,24 +1279,6 @@ function M.beacon(id)
     if b and life and M.wall() - b.at > life then m.beacons[id] = nil; return nil end
     return b
 end
-function M.beacon_placed(job, snap, mech)
-    local m = mem()
-    m.beacons = m.beacons or {}
-    local pos = job.before.position or snap.position
-    m.beacons[job.row.id] = { position = pos, at = M.wall() }
-    local d = job.d
-    d.verified, d.step, d.beacon = true, 1, { position = pos }
-    d.evidence = "the game holds " .. job.row.name .. " prepared, nothing spent yet (step 1 of 2)"
-    d.timing = M.timing(job, W.clock(job.api) or job.api.now())
-    d.presses = job.presses
-    local p = pos and string.format("[%.0f, %.0f, %.0f]", pos[1], pos[2], pos[3] or 0) or "here"
-    local window = tonumber(mech.window_s)
-    d.detail = "I placed " .. job.row.name .. "'s beacon at " .. p .. ". Cast " .. job.row.name .. " again "
-        .. (window and ("within " .. math.floor(window) .. " s") or "before it runs out (I don't know its time limit yet)")
-        .. " to come back to it."
-    release(job, "done")
-    return { ok = true, data = d }
-end
 
 -- ------------------------------------------------------------------ approach (one call = the whole player motion)
 local function d2(a, b) return math.sqrt((a[1] - b[1]) ^ 2 + (a[2] - b[2]) ^ 2) end
@@ -1302,12 +1299,17 @@ function M.begin_open(job, t, snap)
     if job.target.kind ~= "self" and not job.approached then
         local pos = M.refresh_target(job)
         local me = (snap and snap.position) or (W.snapshot(job.api) or {}).position
-        local stand = math.max(reach_of(job, snap) - cfg.approach_margin_m, 2)
-        if pos and me and d2(pos, me) > stand then
-            job.approach = { t0 = t, stand = stand, from_m = d2(pos, me) }
+        local reach = reach_of(job, snap)
+        local stand = math.max(reach - cfg.approach_margin_m, 2)
+        -- the game measures reach from the CAMERA (live 17:3x: 11.5 m from him was 17 m from the view): judge by it
+        local cam = pos and W.cam_dist(job.api, pos)
+        local far = pos and me and ((cam and cam > reach - 1) or (not cam and d2(pos, me) > stand))
+        if far then
+            job.approach = { t0 = t, stand = stand, reach = reach, from_m = d2(pos, me) }
             job.d.approach_from_m = math.floor(job.approach.from_m * 10 + 0.5) / 10
             job.phase = "approach"
-            W.move_go_to(job.api, job.target, { tolerance_m = math.max(stand - 1, 1),
+            -- walk right up if need be (live 17:3x: the view was 7.4 m farther than him); stopped as soon as the VIEW is in reach
+            W.move_go_to(job.api, job.target, { tolerance_m = 1.5,
                 progress = { stall_s = cfg.approach_stall_s, budget_s = cfg.approach_budget_s } })
             job.presses[#job.presses + 1] = "approach"
             return nil
@@ -1328,7 +1330,9 @@ function M.approach_step(job, t)
     end
     local d = me and d2(pos, me)
     job.d.approach_m = d and math.floor(d * 10 + 0.5) / 10
-    if d and d <= ap.stand then
+    local cam = W.cam_dist(job.api, pos)
+    job.d.approach_view_m = cam and math.floor(cam * 10 + 0.5) / 10
+    if (cam and cam <= ap.reach - 1.5) or (not cam and d and d <= ap.stand) then
         W.move_stop(job.api)
         job.approached, job.d.approached_s = true, math.floor((t - ap.t0) * 10 + 0.5) / 10
         return M.begin_open(job, t, snap)
@@ -1343,8 +1347,10 @@ function M.approach_step(job, t)
         local why = pv.why or res.reason or res.why or (over and "too_long") or "no_progress"
         job.d.approach_why = why
         local words = (why == "cant_catch") and "it keeps getting away from me" or W.why_words(job.api, why, name)
+        local gap = cam and string.format("it's %d m from my view and I can reach about %d m", math.floor(cam + 0.5), math.floor(ap.reach))
+            or string.format("it's %d m away, I need about %d m", math.floor((d or 0) + 0.5), math.floor(ap.stand))
         return failed(job, "too_far", "cant_get_in_range", "I couldn't get within reach of " .. name .. " to cast " .. job.row.name
-            .. " (it's " .. math.floor((d or 0) + 0.5) .. " m away, I need about " .. math.floor(ap.stand) .. " m): " .. words .. ".")
+            .. " (" .. gap .. "): " .. words .. ".")
     end
     return nil
 end
@@ -1591,9 +1597,12 @@ local function step(job)
             -- are added only when the game's own validation tag talks about the ground (not flat /
             -- blocked), or for a placed spell given no target after "straight ahead" was refused.
             -- (L14/L15: one-shot aims threw at nothing; ground spots never validated on a log.)
-            if job.row.cast_type == "placed" or mode == "DIM_SpellPlacementMode" or W.preview(api) then
-                job.aim_mode = job.row.cast_type ~= "placed"
-                job.ground_ok = job.row.cast_type == "placed"
+            -- live 17:37 (Recall): DIM_SpellPlacementModeAdvancedMovement is a ground placement too; a place press on an
+            -- invalid spot does nothing (12 s "prepared"), so it goes through the same validated spot search
+            local ground_mode = mode == "DIM_SpellPlacementModeAdvancedMovement"
+            if job.row.cast_type == "placed" or mode == "DIM_SpellPlacementMode" or ground_mode or W.preview(api) then
+                job.aim_mode = job.row.cast_type ~= "placed" and not ground_mode
+                job.ground_ok = job.row.cast_type == "placed" or ground_mode
                 job.spots = M.target_candidates(job.target, cfg)
                 job.place_deadline = t + cfg.place_budget_s
                 job.spot_i, job.rejects, job.phase, job.next_spot = 0, {}, "place_check", true
@@ -1662,6 +1671,12 @@ local function step(job)
             job.spots = keep
             job.checker = P.checker(W.placement_env(api), job.spots, {
                 match_m = function(sp)
+                    -- an aimed spell at a CREATURE: the game's validity already says it is on an AI character, and its
+                    -- preview sits where the trace meets it, not at the body (live 17:3x Confuse on a deer: valid, 5.3 m
+                    -- short of its origin with the deer 5.6 m away) -> any valid preview not beyond the creature
+                    if sp.aim and job.target.category == "creatures" and job.row.cast_type == "aimed" and snap.position and job.target.position then
+                        return math.max(cfg.aim_match_m, d3(snap.position, job.target.position) + 1)
+                    end
                     return sp.aim and cfg.aim_match_m or (sp.exact and job.row.cast_type == "placed" and cfg.placed_point_match_m) or cfg.preview_match_m
                 end,
                 checks = cfg.preview_checks, wait_s = cfg.preview_wait_s, budget_s = cfg.place_budget_s, on_unreadable = "press_once",
@@ -1704,11 +1719,6 @@ local function step(job)
     -- verify (a placed spell plays its cast animation in a spell input mode first: live, Summon
     -- Shelter spent its runes only after the 4 s window, so keep waiting while the game is casting)
     job.cast_deadline = job.cast_deadline or (t + cfg.cast_max_s)
-    local mech = M.mechanics(job.row.id)
-    if mech and mech.two_step and not M.beacon(job.row.id) and snap.casting == job.row.id
-        and t - (job.marks and job.marks.selected or t) >= cfg.beacon_settle_s then
-        return M.beacon_placed(job, snap, mech)
-    end
     if t >= job.until_t and (in_spell_mode(mode) or (snap.casting and snap.casting == job.row.id)) and t < job.cast_deadline then
         return nil
     end
@@ -1934,7 +1944,8 @@ function M.state_extras(api)
                 runes[tostring(c.name or c.item)] = c.count
                 if (c.have or 0) < (c.count or 0) then short = short or {}; short[tostring(c.name or c.item)] = c.count - (c.have or 0) end
             end
-            local mech, bc = M.mechanics(r.id), M.beacon(r.id)
+            local mech = M.mechanics(r.id)
+            local bc = mech and mech.two_step and M.beacon(r.id) or nil
             out[#out + 1] = { id = r.id, name = r.name, school = st.perk and st.perk.skill_name or nil, castable = r.castable == true,
                               reason = (not r.castable) and r.reason or nil, runes = next(runes) and runes or nil, runes_short = short,
                               how = mech and mech.how or nil,
