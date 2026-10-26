@@ -1,0 +1,121 @@
+{
+ "id": "m3_route_magic_fight",
+ "owner": "m3-skill-gaps",
+ "area": "M3 route audit (docs/research/2026-10-26-m3-skill-gaps.md): one live run of the body's route for a skill not yet live-verified",
+ "why": "Row 10 never passed live (16:15: no combat spell or staff). Fight one Goblin Runt with a granted Ash Battlestaff and read Magic XP (wiki: the weapon's kind decides the skill).",
+ "preconditions": {
+  "fixtures": [
+   {
+    "verb": "grant",
+    "item": "ITEM_Staff_Ash",
+    "count": 1
+   },
+   {
+    "verb": "grant_runes",
+    "runes": {
+     "Air": 40,
+     "Earth": 40,
+     "Fire": 40,
+     "Water": 40
+    }
+   }
+  ],
+  "set_health": {
+   "pct": 100
+  },
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "probe": true,
+   "save": "before"
+  },
+  {
+   "fixture": "spawn",
+   "class": "BP_AI_RuntGoblin_Character_C",
+   "offset_m": [
+    10,
+    0,
+    0
+   ],
+   "save": "sp",
+   "purpose": "live check m3_route_magic_fight: a power-level-1 Goblin Runt to fight"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "bridge": "look",
+   "args": {
+    "about": "goblin",
+    "radius": 30,
+    "max": 10
+   },
+   "timeout_s": 15,
+   "save": "look"
+  },
+  {
+   "bridge": "attack",
+   "args": {
+    "target": {
+     "$find": {
+      "in": "look.data.things",
+      "match": {
+       "name": "oblin"
+      },
+      "get": "id"
+     }
+    },
+    "weapon": "Ash Battlestaff"
+   },
+   "timeout_s": 150,
+   "save": "fight"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "probe": true,
+   "save": "after"
+  }
+ ],
+ "cleanup": [
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "kill",
+    "ids": [
+     {
+      "$ref": "sp.id"
+     }
+    ]
+   }
+  }
+ ],
+ "pass": [
+  {
+   "delta": [
+    "before.skills.Magic.xp",
+    "after.skills.Magic.xp"
+   ],
+   "gt": 0,
+   "why": "Magic XP rose from the fight (harness probe, SkillComponent)"
+  }
+ ],
+ "observe": [
+  {
+   "name": "magic_xp_gain",
+   "delta": [
+    "before.skills.Magic.xp",
+    "after.skills.Magic.xp"
+   ]
+  },
+  "before.skills.Magic.level",
+  "after.skills.Magic.level",
+  "fight.ok",
+  "fight.reason",
+  "fight.data.detail"
+ ],
+ "timeout_s": 600,
+ "max_retries": 1
+}

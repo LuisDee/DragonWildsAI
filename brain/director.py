@@ -526,9 +526,11 @@ def recipes_by_output() -> dict[str, list[dict]]:
         if r.get("test"):
             continue
         st = [(stations.get(s) or {}).get("display_name") or s for s in r.get("stations") or []]
+        ins = [(i.get("name") or i.get("item"), i.get("count") or 1) for i in r.get("inputs") or []]
         for o in r.get("outputs") or []:
             out.setdefault(o.get("item"), []).append({"recipe": rid, "stations": st, "skill": r.get("skill"),
-                                                      "xp": r.get("xp")})
+                                                      "xp": r.get("xp"), "name": o.get("name"), "inputs": ins,
+                                                      "vendor": bool(r.get("vendor_reputation"))})
     return out
 
 
@@ -572,16 +574,23 @@ def skills_progress(state: dict, body_tools: dict[str, str] | None = None) -> di
     by_skill: dict[str, list[dict]] = {}
     for iid, recs in recipes_by_output().items():
         for r in recs:
-            if r.get("skill") and r.get("xp"):
+            # only recipes his craft tool can make: at a station (a station-less recipe answers no_station_type), not
+            # bought from a vendor (M3 audit 2026-10-26: the list led with vendor/top-tier items and raw item ids)
+            if r.get("skill") and r.get("xp") and r["stations"] and not r.get("vendor"):
                 by_skill.setdefault(P._skill_key(r["skill"]), []).append(
-                    {"makes": (item_stats.stats(iid) or {}).get("name") or iid, "xp": r["xp"], "at": r["stations"]})
+                    {"makes": (item_stats.stats(iid) or {}).get("name") or r.get("name") or iid, "xp": r["xp"],
+                     "at": r["stations"], "needs": [f"{n} x{c}" for n, c in r.get("inputs") or []],
+                     "_cost": sum(c for _, c in r.get("inputs") or [])})
     rows = []
     for r in state.get("skills") or []:
         if not isinstance(r, dict):
             continue
         key = P._skill_key(r.get("skill"))
         page = pages.get(key) or {}
-        recs = sorted(by_skill.get(key, []), key=lambda x: -(x["xp"] or 0))
+        # cheapest first (fewest inputs; input-free rows, e.g. capes, last), then the most XP: the first rows are the ones a
+        # new character can start on
+        recs = [{k: v for k, v in x.items() if k != "_cost"}
+                for x in sorted(by_skill.get(key, []), key=lambda x: (x["_cost"] == 0, x["_cost"], -(x["xp"] or 0), str(x["makes"])))]
         word = P.tokens(str(r.get("skill") or ""))
         tools = sorted(n for n, d in (body_tools or {}).items() if word and word <= P.tokens(d or ""))
         row = {"skill": r.get("skill"), "level": r.get("level"), "xp": r.get("xp"), "how": page.get("how"),

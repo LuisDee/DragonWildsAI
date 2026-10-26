@@ -1,0 +1,105 @@
+{
+ "id": "m3_route_cooking_clean_water",
+ "owner": "m3-skill-gaps",
+ "area": "M3 route audit (docs/research/2026-10-26-m3-skill-gaps.md): one live run of the body's route for a skill not yet live-verified",
+ "why": "Row 5 (craft at a Campfire) never passed: 16:15 not_interactable (sapling focus), 19:46 nothing_in_range at 76 m. Standing 3 m from the campfire, boil one Dirty Water (RECIPE_Consumable_Water_Clean_From_Water_Dirty, Cooking).",
+ "preconditions": {
+  "fixtures": [
+   {
+    "verb": "grant",
+    "item": "ITEM_Consumable_Water_Dirty",
+    "count": 2
+   },
+   {
+    "verb": "grant",
+    "item": "ITEM_Resources_Wood_Ash",
+    "count": 2
+   },
+   {
+    "verb": "teleport",
+    "at": [
+     101.0,
+     1869.0,
+     -31.0
+    ]
+   }
+  ],
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "probe": true,
+   "save": "before"
+  },
+  {
+   "bridge": "stations",
+   "args": {
+    "radius": 30
+   },
+   "timeout_s": 20,
+   "save": "stations"
+  },
+  {
+   "bridge": "craft",
+   "args": {
+    "item": "Clean Water",
+    "count": 1,
+    "station": {
+     "$find": {
+      "in": "stations.data.stations",
+      "match": {
+       "name": "ampfire"
+      },
+      "get": "id"
+     }
+    }
+   },
+   "timeout_s": 200,
+   "save": "craft"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "probe": true,
+   "save": "after"
+  }
+ ],
+ "pass": [
+  {
+   "ref": "craft.ok",
+   "eq": true,
+   "why": "the craft answered ok"
+  },
+  {
+   "delta": [
+    "before.skills.Cooking.xp",
+    "after.skills.Cooking.xp"
+   ],
+   "gt": 0,
+   "why": "Cooking XP rose from the campfire craft"
+  }
+ ],
+ "observe": [
+  {
+   "name": "cooking_xp_gain",
+   "delta": [
+    "before.skills.Cooking.xp",
+    "after.skills.Cooking.xp"
+   ]
+  },
+  "before.skills.Cooking.level",
+  "after.skills.Cooking.level",
+  "craft.reason",
+  "craft.data.detail",
+  {
+   "name": "clean_water_delta",
+   "delta": [
+    "before.inventory.ITEM_Consumable_Water_Clean",
+    "after.inventory.ITEM_Consumable_Water_Clean"
+   ]
+  }
+ ],
+ "timeout_s": 600,
+ "max_retries": 1
+}

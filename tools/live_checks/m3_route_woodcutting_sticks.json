@@ -1,0 +1,73 @@
+{
+ "id": "m3_route_woodcutting_sticks",
+ "owner": "m3-skill-gaps",
+ "area": "M3 route audit (docs/research/2026-10-26-m3-skill-gaps.md): one live run of the body's route for a skill not yet live-verified",
+ "why": "A fresh character has no axe; gather falls back to fallen ash branches (Collect, no tool). Does collecting them give Woodcutting XP? gather_profiles.sticks.trains is unmeasured (nil); the wiki line says 'collect logs from the floor'.",
+ "preconditions": {
+  "fixtures": [
+   {
+    "verb": "teleport",
+    "at": [
+     100.0,
+     1892.0,
+     -31.0
+    ]
+   }
+  ],
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "probe": true,
+   "save": "before"
+  },
+  {
+   "bridge": "gather",
+   "args": {
+    "resource": "sticks",
+    "count": 2,
+    "radius": 60
+   },
+   "timeout_s": 240,
+   "save": "g"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "probe": true,
+   "save": "after"
+  }
+ ],
+ "pass": [
+  {
+   "ref": "g.ok",
+   "eq": true,
+   "why": "the gather answered ok (count verified by the inventory)"
+  },
+  {
+   "delta": [
+    "before.skills.Woodcutting.xp",
+    "after.skills.Woodcutting.xp"
+   ],
+   "gt": 0,
+   "why": "Woodcutting XP rose from collecting branches (else: set sticks.trains = false)"
+  }
+ ],
+ "observe": [
+  {
+   "name": "woodcutting_xp_gain",
+   "delta": [
+    "before.skills.Woodcutting.xp",
+    "after.skills.Woodcutting.xp"
+   ]
+  },
+  "before.skills.Woodcutting.level",
+  "after.skills.Woodcutting.level",
+  "g.reason",
+  "g.data.detail",
+  "g.data.trains"
+ ],
+ "timeout_s": 600,
+ "max_retries": 1
+}

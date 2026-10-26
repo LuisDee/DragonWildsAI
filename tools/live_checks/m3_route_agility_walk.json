@@ -1,0 +1,83 @@
+{
+ "id": "m3_route_agility_walk",
+ "owner": "m3-skill-gaps",
+ "area": "M3 route audit (docs/research/2026-10-26-m3-skill-gaps.md): one live run of the body's route for a skill not yet live-verified",
+ "why": "No agility course is within 200 m of the dev spawn (16:15 run). Walking gives passive Agility XP (AgilitySettings.WalkingXPEventTriggerDistance 602 cm): measure what a 2 x 35 m walk gives, against the asked case's 100 XP in 20 min.",
+ "preconditions": {
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "probe": true,
+   "save": "before"
+  },
+  {
+   "bridge": "go_to",
+   "args": {
+    "target": {
+     "$offset": [
+      "before.position",
+      [
+       35,
+       0,
+       0
+      ]
+     ]
+    }
+   },
+   "timeout_s": 90,
+   "save": "w1"
+  },
+  {
+   "bridge": "go_to",
+   "args": {
+    "target": {
+     "$ref": "before.position"
+    }
+   },
+   "timeout_s": 90,
+   "save": "w2"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "probe": true,
+   "save": "after"
+  }
+ ],
+ "pass": [
+  {
+   "delta": [
+    "before.skills.Agility.xp",
+    "after.skills.Agility.xp"
+   ],
+   "gt": 0,
+   "why": "Agility XP rose from walking"
+  }
+ ],
+ "observe": [
+  {
+   "name": "agility_xp_gain",
+   "delta": [
+    "before.skills.Agility.xp",
+    "after.skills.Agility.xp"
+   ]
+  },
+  "before.skills.Agility.level",
+  "after.skills.Agility.level",
+  "w1.ok",
+  "w1.reason",
+  "w2.ok",
+  "w2.reason",
+  {
+   "name": "end_vs_start_m",
+   "dist": [
+    "before.position",
+    "after.position"
+   ]
+  }
+ ],
+ "timeout_s": 600,
+ "max_retries": 1
+}

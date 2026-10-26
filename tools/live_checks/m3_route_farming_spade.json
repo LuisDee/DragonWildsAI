@@ -1,0 +1,84 @@
+{
+ "id": "m3_route_farming_spade",
+ "owner": "m3-skill-gaps",
+ "area": "M3 route audit (docs/research/2026-10-26-m3-skill-gaps.md): one live run of the body's route for a skill not yet live-verified",
+ "why": "Row 9 skipped at 16:15 (no spade). Dig a plot with a Wooden Spade and read Farming XP. Plots near the dev spawn are unknown (none in relevance at the spawn), so no plot = blocked (unresolved template), not failed.",
+ "preconditions": {
+  "fixtures": [
+   {
+    "verb": "grant",
+    "item": "ITEM_Spade_T1_Wood",
+    "count": 1
+   }
+  ],
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "probe": true,
+   "save": "before"
+  },
+  {
+   "bridge": "farm_plots",
+   "args": {
+    "radius": 120
+   },
+   "timeout_s": 20,
+   "save": "plots"
+  },
+  {
+   "bridge": "tend",
+   "args": {
+    "item": "Wooden Spade",
+    "times": 3,
+    "plot": {
+     "$find": {
+      "in": "plots.data.plots",
+      "match": {},
+      "get": "id"
+     }
+    }
+   },
+   "timeout_s": 120,
+   "save": "t"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "probe": true,
+   "save": "after"
+  }
+ ],
+ "pass": [
+  {
+   "ref": "t.ok",
+   "eq": true,
+   "why": "tend answered ok (the plot changed)"
+  },
+  {
+   "delta": [
+    "before.skills.Farming.xp",
+    "after.skills.Farming.xp"
+   ],
+   "gt": 0,
+   "why": "Farming XP rose from working the plot"
+  }
+ ],
+ "observe": [
+  {
+   "name": "farming_xp_gain",
+   "delta": [
+    "before.skills.Farming.xp",
+    "after.skills.Farming.xp"
+   ]
+  },
+  "before.skills.Farming.level",
+  "after.skills.Farming.level",
+  "plots.data",
+  "t.reason",
+  "t.data.detail"
+ ],
+ "timeout_s": 600,
+ "max_retries": 1
+}

@@ -1,0 +1,119 @@
+{
+ "id": "m3_route_artisan_table",
+ "owner": "m3-skill-gaps",
+ "area": "M3 route audit (docs/research/2026-10-26-m3-skill-gaps.md): one live run of the body's route for a skill not yet live-verified",
+ "why": "Row 6 (craft at a CraftingTable) never ran: no table near the dev spawn. Build one from granted materials, then craft a Wooden Shield (RECIPE_Shield_Wood: 10 Ash Logs, Artisan 25) and read Artisan XP.",
+ "preconditions": {
+  "fixtures": [
+   {
+    "verb": "grant",
+    "item": "ITEM_Resources_Wood_Ash",
+    "count": 40
+   },
+   {
+    "verb": "grant",
+    "item": "ITEM_Resources_Stone",
+    "count": 30
+   }
+  ],
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "probe": true,
+   "save": "before"
+  },
+  {
+   "bridge": "buildables",
+   "args": {
+    "about": "crafting table",
+    "max": 5
+   },
+   "timeout_s": 20,
+   "save": "bl"
+  },
+  {
+   "bridge": "build",
+   "args": {
+    "piece": {
+     "$find": {
+      "in": "bl.data.pieces",
+      "match": {
+       "name": "rafting"
+      },
+      "get": "name"
+     }
+    }
+   },
+   "timeout_s": 120,
+   "save": "built"
+  },
+  {
+   "bridge": "stations",
+   "args": {
+    "radius": 30
+   },
+   "timeout_s": 20,
+   "save": "stations"
+  },
+  {
+   "bridge": "craft",
+   "args": {
+    "item": "Wooden Shield",
+    "count": 1,
+    "station": {
+     "$find": {
+      "in": "stations.data.stations",
+      "match": {
+       "name": "rafting"
+      },
+      "get": "id"
+     }
+    }
+   },
+   "timeout_s": 200,
+   "save": "craft"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "probe": true,
+   "save": "after"
+  }
+ ],
+ "pass": [
+  {
+   "ref": "craft.ok",
+   "eq": true,
+   "why": "the craft answered ok"
+  },
+  {
+   "delta": [
+    "before.skills.Artisan.xp",
+    "after.skills.Artisan.xp"
+   ],
+   "gt": 0,
+   "why": "Artisan XP rose from the crafting-table craft"
+  }
+ ],
+ "observe": [
+  {
+   "name": "artisan_xp_gain",
+   "delta": [
+    "before.skills.Artisan.xp",
+    "after.skills.Artisan.xp"
+   ]
+  },
+  "before.skills.Artisan.level",
+  "after.skills.Artisan.level",
+  "bl.data",
+  "built.ok",
+  "built.reason",
+  "built.data.detail",
+  "craft.reason",
+  "craft.data.detail"
+ ],
+ "timeout_s": 600,
+ "max_retries": 1
+}

@@ -4011,7 +4011,8 @@ do
     M.MANIFEST = {
         attack = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 30, timeout_s = 150,
             detail_is_speech = true,
-            description = "Fight a creature until it dies, defending per combat_orders (never players). data.assessment estimates the fight.",
+            description = "Fight a creature until it dies, defending per combat_orders (never players). data.assessment estimates the fight. "
+                .. "The kill trains the skill of the weapon you hold (wiki skill pages: melee Attack, bows Ranged, staffs Magic; `weapon` picks it, default best melee).",
             args = { type = "object", required = { "target" }, properties = obj({
                 target = { type = "string", description = "Creature id, or a name (nearest)." },
                 weapon = { type = "string", description = "Carried item to fight with (e.g. a crossbow), or held = what is in hand now; default best melee." },

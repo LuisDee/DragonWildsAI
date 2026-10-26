@@ -1,0 +1,78 @@
+{
+ "id": "m3_route_woodcutting_axe",
+ "owner": "m3-skill-gaps",
+ "area": "M3 route audit (docs/research/2026-10-26-m3-skill-gaps.md): one live run of the body's route for a skill not yet live-verified",
+ "why": "Checklist row 1 (gather ash with a logging axe) was proven only on the retired server puppet; the 16:15 skill_routes run skipped it (no axe).",
+ "preconditions": {
+  "fixtures": [
+   {
+    "verb": "grant",
+    "item": "ITEM_Logging_Axe_Stone",
+    "count": 1
+   },
+   {
+    "verb": "teleport",
+    "at": [
+     100.0,
+     1892.0,
+     -31.0
+    ]
+   }
+  ],
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "probe": true,
+   "save": "before"
+  },
+  {
+   "bridge": "gather",
+   "args": {
+    "resource": "ash",
+    "count": 2,
+    "radius": 40
+   },
+   "timeout_s": 400,
+   "save": "g"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "probe": true,
+   "save": "after"
+  }
+ ],
+ "pass": [
+  {
+   "ref": "g.ok",
+   "eq": true,
+   "why": "the gather answered ok"
+  },
+  {
+   "delta": [
+    "before.skills.Woodcutting.xp",
+    "after.skills.Woodcutting.xp"
+   ],
+   "gt": 0,
+   "why": "Woodcutting XP rose from chopping"
+  }
+ ],
+ "observe": [
+  {
+   "name": "woodcutting_xp_gain",
+   "delta": [
+    "before.skills.Woodcutting.xp",
+    "after.skills.Woodcutting.xp"
+   ]
+  },
+  "before.skills.Woodcutting.level",
+  "after.skills.Woodcutting.level",
+  "g.reason",
+  "g.data.detail",
+  "g.data.trains"
+ ],
+ "timeout_s": 600,
+ "max_retries": 1
+}

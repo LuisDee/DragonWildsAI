@@ -1169,13 +1169,33 @@ end
 -- ------------------------------------------------------------------ bridge module handlers
 -- gather: an async action ({pending = a}); the bridge pre-empts other actions (gather is in ACTION_TOOLS).
 -- Capability contract entry (wins over manifest.lua's): adds the style argument.
+-- Which skill each profile trains, from the profiles' own `trains` data (M3 audit 2026-10-26: the model could only
+-- learn it AFTER a gather; now the tool list says it up front). Pure: profiles -> "Trains Mining: clay, ...; no XP: ...".
+function M.trains_summary(profiles)
+    local by, none = {}, {}
+    for key, p in pairs((profiles or {}).RESOURCES or {}) do
+        if p.trains == false then none[#none + 1] = key
+        elseif type(p.trains) == "string" then by[p.trains] = by[p.trains] or {}; table.insert(by[p.trains], key) end
+    end
+    local skills = {}
+    for sk, keys in pairs(by) do table.sort(keys); skills[#skills + 1] = sk end
+    table.sort(skills)
+    local parts = {}
+    for _, sk in ipairs(skills) do parts[#parts + 1] = "Trains " .. sk .. ": " .. table.concat(by[sk], ", ") end
+    table.sort(none)
+    if #none > 0 then parts[#parts + 1] = "no XP: " .. table.concat(none, ", ") end
+    return table.concat(parts, "; ")
+end
+
 do
     local OBJ = { __jsontype = "object" }
     local function obj(t) return setmetatable(t or {}, OBJ) end
+    local ok_t, trains = pcall(function() return M.trains_summary(M.profiles()) end)
+    trains = (ok_t and trains ~= "") and (" " .. trains .. " (other profiles: not measured).") or ""
     M.MANIFEST = {
         gather = { kind = "action", llm = true, moves = true, priority = "task", duration_s = 120, timeout_s = 1800,
             detail_is_speech = true,
-            description = "Harvest a resource (a profile key, e.g. oak, ash, copper, stone_boulder, loose_stones) until you have count MORE; finds targets and equips your tool. The result's `trains` names the skill it gave XP to (none = no XP).",
+            description = "Harvest a resource (a profile key, e.g. oak, ash, copper, stone_boulder, loose_stones) until you have count MORE; finds targets and equips your tool. The result's `trains` names the skill it gave XP to (none = no XP)." .. trains,
             args = { type = "object", required = { "resource", "count" }, properties = obj({
                 resource = { type = "string", description = "A resource (oak, copper, stone_boulder = mine a stone boulder with a pickaxe, Mining XP; loose_stones = pick stones up off the ground, no XP) or a kind (ore, rock, logs, stone: the nearest of that kind)." },
                 count = { type = "integer", minimum = 1, description = "How many more." },

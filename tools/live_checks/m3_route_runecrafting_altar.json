@@ -1,0 +1,93 @@
+{
+ "id": "m3_route_runecrafting_altar",
+ "owner": "m3-skill-gaps",
+ "area": "M3 route audit (docs/research/2026-10-26-m3-skill-gaps.md): one live run of the body's route for a skill not yet live-verified",
+ "why": "Row 12 skipped (no essence); open question: does craft drive a rune altar. With 3 Rune Essence granted, craft an Air Rune at the nearest altar the body sees (RECIPE_Process_Altar_Air_Rune). No altar in reach = blocked.",
+ "preconditions": {
+  "fixtures": [
+   {
+    "verb": "grant",
+    "item": "ITEM_Rune_Essence",
+    "count": 3
+   }
+  ],
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "probe": true,
+   "save": "before"
+  },
+  {
+   "bridge": "stations",
+   "args": {
+    "radius": 120
+   },
+   "timeout_s": 20,
+   "save": "stations"
+  },
+  {
+   "bridge": "craft",
+   "args": {
+    "item": "Air Rune",
+    "count": 1,
+    "station": {
+     "$find": {
+      "in": "stations.data.stations",
+      "match": {
+       "name": "ltar"
+      },
+      "get": "id"
+     }
+    }
+   },
+   "timeout_s": 200,
+   "save": "craft"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "probe": true,
+   "save": "after"
+  }
+ ],
+ "pass": [
+  {
+   "ref": "craft.ok",
+   "eq": true,
+   "why": "the craft answered ok"
+  },
+  {
+   "delta": [
+    "before.skills.Runecrafting.xp",
+    "after.skills.Runecrafting.xp"
+   ],
+   "gt": 0,
+   "why": "Runecrafting XP rose from the altar craft"
+  }
+ ],
+ "observe": [
+  {
+   "name": "runecrafting_xp_gain",
+   "delta": [
+    "before.skills.Runecrafting.xp",
+    "after.skills.Runecrafting.xp"
+   ]
+  },
+  "before.skills.Runecrafting.level",
+  "after.skills.Runecrafting.level",
+  "craft.reason",
+  "craft.data.detail",
+  "stations.data.stations",
+  {
+   "name": "air_rune_delta",
+   "delta": [
+    "before.inventory.ITEM_Rune_Air",
+    "after.inventory.ITEM_Rune_Air"
+   ]
+  }
+ ],
+ "timeout_s": 600,
+ "max_retries": 1
+}

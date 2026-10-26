@@ -922,7 +922,8 @@ M.MANIFEST = {
     build = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 12, timeout_s = 120,
         detail_is_speech = true,
         description = "Build one piece by its name from buildables (you need its materials). Walks to a spot, places it "
-            .. "where the game allows, checks it was built; if it can't, the reply says why.",
+            .. "where the game allows, checks it was built; if it can't, the reply says why. Trains Construction (live "
+            .. "2026-10-26: a Campfire gave +12).",
         args = { type = "object", required = { "piece" }, properties = obj({
             piece = { type = "string", description = "The piece's name or id from buildables." },
             at = { description = "Exactly here: [x, y, z] metres or an id." },
