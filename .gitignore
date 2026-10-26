@@ -28,3 +28,4 @@ edited_newguid.json
 data/skills/*/nav_memory.json
 data/skills/*/combat_memory_*.json
 data/skills/dev_*/
+.claude/settings.local.json
