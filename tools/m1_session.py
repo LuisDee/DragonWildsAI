@@ -90,7 +90,8 @@ def estimate(hours: float = 2.0, per_hour: int = 30) -> dict:
 def send_speech_direct(text: str, timeout: float = 30.0) -> tuple[bool, str]:
     """One line via the dev server mod's on-demand chat (debug_run speech_direct send). Refuses itself there
     unless `prove` passed this server run."""
-    args = json.dumps({"module": "speech_direct", "args": {"action": "send", "confirm": True, "text": text}})
+    args = json.dumps({"module": "speech_direct", "args": {"action": "send", "confirm": True, "text": text,
+                                                           "name": TEST_SENDER}})
     out = subprocess.run([sys.executable, "-m", "tools.bridge_cmd", "debug_run", args, "--body", "server",
                           "--timeout", str(timeout)], capture_output=True, text=True)
     return out.returncode == 0 and '"ok": true' in out.stdout.replace("'", '"').lower(), (out.stdout or out.stderr)[-300:]

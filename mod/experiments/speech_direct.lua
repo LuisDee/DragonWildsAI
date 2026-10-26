@@ -20,7 +20,7 @@
 --   prove    READ-ONLY proof that pre-hook edits reach native code (needs a connected player):
 --            name of (empty account, host CharacterGuid) without / with the pre-hook patching in the
 --            host's NetIdPrimary/Secondary, vs the control (host's own OwnerGuid).
---   send     {confirm=true, text=...}: ONE direct message via a fresh load of body/speech.lua's
+--   send     {confirm=true, text=..., name=...}: ONE direct message via a fresh load of body/speech.lua's
 --            send_direct. Refuses unless prove passed this run (or force_unproven=true).
 --            Client-affecting: needs Luis's go-ahead.
 local U = require("body.util")
@@ -182,6 +182,9 @@ local function send(log, args)
     local speech = fresh_speech()
     if type(speech.send_direct) ~= "function" then return { ok = false, error = "body/speech.lua has no send_direct" } end
     if args.receivers ~= nil then speech.DIRECT_FILL_RECEIVERS = args.receivers == true end
+    -- name: the display name the line is sent under (a dev test player, e.g. "Tester"; tools/m1_session.py).
+    -- Default: DW_COMPANION_NAME / "Claude" as before.
+    if type(args.name) == "string" and args.name ~= "" then speech.NAME = args.name end
     local ok, err = speech.send_direct(log, text)
     st().sends = st().sends + 1
     return { ok = ok, err = err, text = text, status = speech.status() }
