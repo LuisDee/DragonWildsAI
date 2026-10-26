@@ -631,12 +631,27 @@ local function nm_module()
 end
 
 -- The per-world navigation memory (cached in _G.DW_NAVMEM across reloads of this file).
+local UTIL_MOD
 local function nav_mem()
     local NMm = nm_module()
     if not NMm then return nil end
-    local TL = tl_module()
-    local world = "shockbyte"
-    if TL and TL.world_id then local okw, w = pcall(TL.world_id); if okw and w then world = w end end
+    -- the world: the shared resolver (mod/body/util.lua U.world_id: explicit, else the joined server, else
+    -- "unknown"; never a silent "shockbyte"), re-resolved at most every 5 s (nav_mem runs per planner cell)
+    local wc = rawget(_G, "DW_MOVE_WORLD")
+    local tw = os.time()
+    if not wc or tw - wc.t >= 5 then
+        if UTIL_MOD == nil then
+            local okc, chunk = pcall(loadfile, ROOT .. "/mod/body/util.lua")
+            local okm, mod = false, nil
+            if okc and chunk then okm, mod = pcall(chunk) end
+            UTIL_MOD = (okm and type(mod) == "table" and mod.world_id) and mod or false
+        end
+        local w = "unknown"
+        if UTIL_MOD then local okw, x = pcall(UTIL_MOD.world_id, ROOT); if okw and x then w = x end end
+        wc = { t = tw, id = w }
+        _G.DW_MOVE_WORLD = wc
+    end
+    local world = wc.id
     local m = rawget(_G, "DW_NAVMEM")
     if not m or m._world ~= world then
         local okl, loaded = pcall(NMm.load, ROOT, world, "L_World")
@@ -698,7 +713,12 @@ local function lp_begin(st, pawn, me, far, why, log)
             if AZm and #zs > 0 then c = c + AZm.cost(zs, x, y, fz, st.lp_clock, M.cfg.avoid_margin_cm) end
             return c
         end,
-        dry_slack = (#avoid().zones > 0) and M.cfg.avoid_dry_slack_cm or nil,
+        -- a goal IN water (a pond to drink from, a ford) is aimed at as it is: no swap for dry ground
+        dry_slack = (function()
+            local mem, NMm = nav_mem()
+            if mem and NMm.is_water(mem, { X = far.X, Y = far.Y }) and d2(me, far) < M.cfg.lp_grid_m * 100 then return -math.huge end
+            return (#avoid().zones > 0) and M.cfg.avoid_dry_slack_cm or nil
+        end)(),
         water_probe = rawget(_G, "DW_WATER_CH") and function(x, y, floor_z)
             local c = rawget(_G, "DW_WATER_CH")
             local ok, hit, out = pcall(trace_with, c, pawn, { X = x, Y = y, Z = floor_z + 300 }, { X = x, Y = y, Z = floor_z - 50 })
@@ -833,25 +853,32 @@ local function progress_view(st)
     local since = (P.last_t and P.best_t) and (P.last_t - P.best_t) or 0
     local moved = (P.best_tpos and P.tpos) and d2(P.best_tpos, P.tpos) or 0
     local verdict, why = "ok", nil
+    local over = P.budget_s and P.elapsed > P.budget_s
+    local stalled = over or since > P.stall_s
+    -- why the approach is not getting closer (also used when a caller's timeout ends the move first:
+    -- live 2026-10-26 16:05, sticks on a ledge 4 m up came back as a bare "timeout")
+    local function stall_why()
+        local walls = st.lp_fail == "verify_exhausted" or st.lp_fail == "unreachable_in_window" or (st.stuck_n or 0) > 0 or st.bug ~= nil
+        local reach = ((st.env and st.env.jump) or 165) + 60
+        if st.status == "target_not_visible" then return "target_not_visible" end
+        if moved > P.moving_cm then return "cant_catch" end
+        -- the goal was out of jump reach from the start, and he got no closer: that height is the reason
+        if st.dz0 and st.dz0 > reach then return (st.target_kind == "player" and "leader" or "target") .. "_above_jump_height" end
+        if over then return "too_long" end
+        return walls and "blocked" or "no_progress"
+    end
     local r = st.result
     if r and r.status == "arrived" then verdict = "ok"
     elseif r and r.status == "failed" then
         verdict = "unreachable"
         why = r.why or r.reason
+        if why == "timeout" and since > math.min(P.stall_s, 5) then why = stall_why() end
     elseif st.unreach then verdict, why = "unreachable", st.unreach.reason
     elseif st.far then verdict, why = "unreachable", "leader_far"
     elseif st.lead and not st.lead.phase then verdict, why = "unreachable", st.lead.why
     elseif st.status == "near" or st.status == "near_zone" then verdict = "ok"
-    else
-        local over = P.budget_s and P.elapsed > P.budget_s
-        if over or since > P.stall_s then
-            verdict = "stalled"
-            local walls = st.lp_fail == "verify_exhausted" or st.lp_fail == "unreachable_in_window" or (st.stuck_n or 0) > 0 or st.bug ~= nil
-            if st.status == "target_not_visible" then why = "target_not_visible"
-            elseif moved > P.moving_cm then why = "cant_catch"
-            elseif over then why = "too_long"
-            else why = walls and "blocked" or "no_progress" end
-        end
+    elseif stalled then
+        verdict, why = "stalled", stall_why()
     end
     local function r1(x) return x and math.floor(x / 10 + 0.5) / 10 or nil end
     return { verdict = verdict, why = why, dist_m = r1(P.dist), best_dist_m = r1(P.best), since_s = math.floor(since * 10) / 10,
@@ -1105,8 +1132,10 @@ local function tick(st, gen, log)
                 water_sense_calibrate(st, pawn, me, fe, hx, hy, log)
                 st.in_water = true
                 st.water_entries = (st.water_entries or 0) + 1
-                if log then log("move: entered water at " .. fmt(me) .. "; re-planning round it") end
-                if st.use_lp and not st.trail_i then st.lpath, st.water_replan = nil, true end
+                -- the goal itself is in the water close by (a pond to use, a ford): wading in is the point
+                local goal_wet = NMm.is_water(mem, feet_of(st, goal)) and dist < M.cfg.lp_grid_m * 100
+                if log then log("move: entered water at " .. fmt(me) .. (goal_wet and "; the goal is in it" or "; re-planning round it")) end
+                if st.use_lp and not st.trail_i and not goal_wet then st.lpath, st.water_replan = nil, true end
             end
         elseif not wet then
             if st.in_water and mem and (st.water_new or 0) > 0 then pcall(NMm.save, mem); st.water_new = 0 end
@@ -2113,10 +2142,12 @@ end
 -- ONE table of truthful words for every movement reason (move's own reasons, the tracker's verdict
 -- whys, escape answers). `thing` = who/what he can't reach: "you" (the leader), "the Kebbit", "it".
 -- Returns a clause for "I can't get to <thing>: <clause>."
+local PLURAL = false -- set per call: "the sticks are", "they keep"
 local function be(thing)
     if thing == "you" then return "you're" end
     if thing == "it" then return "it's" end
-    return thing .. " is"
+    if thing == "they" then return "they're" end
+    return thing .. (PLURAL and " are" or " is")
 end
 local WHY = {
     no_route = function(th) return "there's no way through to " .. th .. " from here" end,
@@ -2130,19 +2161,27 @@ local WHY = {
     stuck = function() return "I keep getting stuck on the way" end,
     blocked = function() return "something is in the way (I keep bumping into it)" end,
     no_progress = function() return "I'm not getting any closer" end,
-    cant_catch = function(th) return (th == "you" and "you keep" or (th .. " keeps")) .. " moving away faster than I can catch up" end,
+    cant_catch = function(th) return ((th == "you" or th == "they" or PLURAL) and (th .. " keep") or (th .. " keeps")) .. " moving away faster than I can catch up" end,
     too_long = function() return "it's taking far too long to get there" end,
     timeout = function() return "it's taking far too long to get there" end,
     unreachable = function() return "I can't find a way there" end,
     no_safe_point = function() return "there's nowhere safe to stand nearby" end,
     too_slow = function() return "I can't get out of the way in time" end,
     paused = function() return "the world is still loading" end,
+    no_shore = function() return "I can't find the water's edge from here" end,
+    no_water_sense = function() return "I can't tell where the water starts from here" end,
 }
-function M.why_words(why, thing)
+-- plural = true for things named in the plural ("the sticks are higher up ...").
+function M.why_words(why, thing, plural)
     thing = (type(thing) == "string" and thing ~= "") and thing or "it"
     why = tostring(why or "")
     local f = WHY[why]
-    if f then return f(thing) end
+    if f then
+        PLURAL = plural == true
+        local ok, w = pcall(f, thing)
+        PLURAL = false
+        if ok then return w end
+    end
     local mv = why:match("^needs:(%w+)")
     if mv then return "I'd need " .. mv:gsub("(%l)(%u)", "%1 %2") .. " to get there, and I can't do that yet" end
     return "I can't find a way there"
@@ -2209,6 +2248,119 @@ function M.avoid_status(st)
         end
     end) end
     return { zones = #A.zones, inside = inside, crossing = (st.mode ~= "idle" and #A.zones > 0) and st.zone_cross or nil }
+end
+
+-- ------------------------------------------------------------------ the water's edge (ponds, rivers)
+-- A water volume's actor origin is deep inside it (live 2026-10-26 16:08: a pond's origin 3.1 m under the
+-- surface; interact from 1.5 m round it failed with too_far x6). Players use water from its EDGE: stand on
+-- the bank, face the surface. M.shore_point finds that edge with real traces: along rays out from the water
+-- point (first toward Claude, then rotated), the last wet sample is the edge (its SURFACE point is what to
+-- face) and the first dry one, nudged inland, is where to stand. Wet = the water channel (learned by
+-- water_sense_calibrate on his first wade) reports a surface above the floor (the pawn profile passes
+-- through water); without that channel, the cells navmem learned by wading.
+--   M.shore_point(log, water = {x,y,z} m | nil (= nearest water toward Claude), opts = {from = {x,y,z} m,
+--       max_m = 30, rays = 5}) -> {ok, stand = {x,y,z} (capsule centre, m), edge = {x,y,z} (surface, m),
+--       dist_m (Claude -> stand), alts = {{stand, edge}, ...}, how = "channel"|"memory"} | {ok=false, why =
+--       "no_water_sense" | "no_shore" | "no_pawn"}
+function M.shore_point(log, water, opts)
+    opts = opts or {}
+    if paused() then return { ok = false, why = "paused" } end
+    local pc = local_pc()
+    local pawn = pc and pc.Pawn
+    if not is_character(pawn) then return { ok = false, why = "no_pawn" } end
+    local hh = half_h(pawn)
+    local me = pawn:K2_GetActorLocation()
+    local from = (type(opts.from) == "table" and tonumber(opts.from[1])) and { X = opts.from[1] * 100, Y = opts.from[2] * 100, Z = (opts.from[3] or me.Z / 100) * 100 } or v(me)
+    local W = (type(water) == "table" and tonumber(water[1])) and { X = water[1] * 100, Y = water[2] * 100, Z = (tonumber(water[3]) or from.Z / 100) * 100 } or nil
+    local ch = rawget(_G, "DW_WATER_CH")
+    local mem, NMm = nav_mem()
+    local has_mem = mem and next(mem.water or {}) ~= nil
+    if not ch and not has_mem then return { ok = false, why = "no_water_sense" } end
+    local zref = from.Z - hh
+    local traces, cap = 0, opts.max_traces or 300
+    -- -> wet (bool), floor_z, surface_z
+    local function probe(x, y)
+        if ch then
+            if traces >= cap then return nil end
+            traces = traces + 2
+            local okf, hf, of = pcall(raw_trace, pawn, { X = x, Y = y, Z = zref + 400 }, { X = x, Y = y, Z = zref - 1200 })
+            local fz = (okf and hf and of.ImpactPoint) and of.ImpactPoint.Z or nil
+            local oks, hs, os_ = pcall(trace_with, ch, pawn, { X = x, Y = y, Z = zref + 400 }, { X = x, Y = y, Z = zref - 1200 })
+            local sz = (oks and hs and os_.ImpactPoint) and os_.ImpactPoint.Z or nil
+            if fz and sz and sz > fz + 15 then return true, fz, sz end
+            return false, fz, sz
+        end
+        local wet = NMm.is_water(mem, { X = x, Y = y })
+        return wet, zref, wet and (zref + 50) or nil
+    end
+    local function ray(ox, oy, dx, dy, maxd)
+        -- out from a wet origin: coarse 1 m steps to the first dry sample, then 25 cm refinement
+        local last_wet = nil
+        local s = 0
+        while s <= maxd do
+            local x, y = ox + dx * s, oy + dy * s
+            local wet, fz, sz = probe(x, y)
+            if wet == nil then return nil end
+            if wet then last_wet = { X = x, Y = y, Z = sz, s = s }
+            elseif last_wet and fz then
+                local lo, hi = last_wet.s, s
+                local edge, dry = last_wet, { X = x, Y = y, Z = fz, s = s }
+                for _ = 1, 2 do
+                    local mid = (lo + hi) / 2
+                    local mx, my = ox + dx * mid, oy + dy * mid
+                    local w2, f2, s2 = probe(mx, my)
+                    if w2 == nil then break end
+                    if w2 then lo, edge = mid, { X = mx, Y = my, Z = s2, s = mid }
+                    elseif f2 then hi, dry = mid, { X = mx, Y = my, Z = f2, s = mid } end
+                end
+                -- stand 40 cm inland of the first dry sample (the bank, not the water line)
+                local inland = dry.s + 40
+                local ix, iy = ox + dx * inland, oy + dy * inland
+                local _, f3 = probe(ix, iy)
+                local stand_floor = f3 or dry.Z
+                return { stand = { X = ix, Y = iy, Z = stand_floor + hh }, edge = { X = edge.X, Y = edge.Y, Z = edge.Z } }
+            end
+            s = s + 100
+        end
+        return nil
+    end
+    -- the water point: given, or the first wet sample walking from Claude toward... nothing: then search
+    local base = W
+    if base then
+        local wet = probe(base.X, base.Y)
+        if not wet then
+            -- the origin is not over water (a volume's pivot can sit on its edge): walk from Claude to it
+            local L = d2(from, base)
+            local hit = nil
+            for s = 0, L, 100 do
+                local f = s / math.max(L, 1)
+                local x, y = from.X + (base.X - from.X) * f, from.Y + (base.Y - from.Y) * f
+                if probe(x, y) then hit = { X = x, Y = y }; break end
+            end
+            base = hit
+        end
+    end
+    if not base then return { ok = false, why = "no_shore", traces = traces } end
+    local bx, by = from.X - base.X, from.Y - base.Y
+    local bl = math.sqrt(bx * bx + by * by)
+    local yaw0 = bl > 1 and math.atan(by, bx) or 0
+    local maxd = (opts.max_m or 30) * 100
+    local found = {}
+    local rays = opts.rays or 5
+    local offs = { 0, 30, -30, 60, -60, 90, -90, 180 }
+    for k = 1, math.min(rays, #offs) do
+        local a = yaw0 + math.rad(offs[k])
+        local r = ray(base.X, base.Y, math.cos(a), math.sin(a), maxd)
+        if r then found[#found + 1] = r end
+    end
+    if #found == 0 then return { ok = false, why = "no_shore", traces = traces } end
+    local function m(p) return { math.floor(p.X) / 100, math.floor(p.Y) / 100, math.floor(p.Z) / 100 } end
+    local best = found[1]
+    local alts = {}
+    for k = 2, #found do alts[#alts + 1] = { stand = m(found[k].stand), edge = m(found[k].edge) } end
+    if log then log(string.format("move: shore point %s (edge %s), %d alternatives, %d traces", fmt(best.stand), fmt(best.edge), #alts, traces)) end
+    return { ok = true, stand = m(best.stand), edge = m(best.edge), dist_m = math.floor(d2(from, best.stand)) / 100,
+             alts = alts, how = ch and "channel" or "memory", traces = traces }
 end
 
 -- Can Claude walk the straight line me -> c? (wall at knee height, holes/ledges, steep climbs)

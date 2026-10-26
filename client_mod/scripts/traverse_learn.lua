@@ -137,23 +137,20 @@ local function mkdir(p)
 end
 
 -- ------------------------------------------------------------------ world id and files
--- The world id: opts.world, _G.DW_WORLD_GUID, env DW_WORLD_GUID, <root>/client_io/world_guid.txt,
--- else "shockbyte" (the only world Claude's client joins today; brain/worlds.py uses the same name
--- via DW_WORLD_GUID). Sanitised like brain/worlds.py sanitize().
-local function sanitize(s)
-    if type(s) ~= "string" then return nil end
-    s = s:gsub("[^%w_%-]", ""):sub(1, 64)
-    return s ~= "" and s or nil
-end
-
+-- The world id: the shared resolver mod/body/util.lua U.world_id (explicit settings, else the server he
+-- actually joined, else "unknown"; never a silent "shockbyte": live 2026-10-26 dev learning was filed there).
+local UTIL
 function M.world_id(opt)
-    local w = sanitize(opt); if w then return w, "opts" end
-    w = sanitize(rawget(_G, "DW_WORLD_GUID")); if w then return w, "global" end
-    w = sanitize(os.getenv("DW_WORLD_GUID")); if w then return w, "env" end
-    local f = io.open(ROOT .. "/client_io/world_guid.txt", "r")
-    if f then w = sanitize((f:read("l") or "")); f:close(); if w then return w, "file" end end
-    return "shockbyte", "fallback"
+    if UTIL == nil then
+        local okc, chunk = pcall(loadfile, ROOT .. "/mod/body/util.lua")
+        local okm, mod = false, nil
+        if okc and chunk then okm, mod = pcall(chunk) end
+        UTIL = (okm and type(mod) == "table" and mod.world_id) and mod or false
+    end
+    if not UTIL then return "unknown", "no_util" end
+    return UTIL.world_id(ROOT, { world = opt })
 end
+function M._reset_world() if UTIL then UTIL.world_reset() end end -- tests: drop the joined-server cache
 
 function M.paths(world)
     return {

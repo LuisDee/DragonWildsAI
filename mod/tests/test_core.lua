@@ -435,6 +435,64 @@ test("bridge: a top-level probe flag reaches the handler as args.probe", functio
     bridge.handlers.probe_check = nil
 end)
 
+test("util.world_id: explicit > joined server (address line only) > server_<host_port> > unknown", function()
+    -- an in-memory file system: path -> content (reading the password line would be a bug: it is poisoned)
+    local files = {}
+    local reads = {}
+    local fs = { open = function(p)
+        local c = files[p]
+        if not c then return nil end
+        local first = true
+        return { read = function()
+            if not first then reads[#reads + 1] = p .. ":2"; return nil end
+            first = false
+            return (c:match("^([^\n]*)"))
+        end, close = function() end }
+    end }
+    local R = "X:/root"
+    local saved_g = rawget(_G, "DW_WORLD_GUID")
+    _G.DW_WORLD_GUID = nil
+    local real_getenv = os.getenv
+    os.getenv = function(k) if k == "DW_WORLD_GUID" then return nil end return real_getenv(k) end
+    local ok, err = pcall(function()
+        local function W(o) U.world_reset(); o = o or {}; o.fs = fs; return U.world_id(R, o) end
+        local id, src = W()
+        assert(id == "unknown" and src == "unknown", "nothing known: " .. tostring(id))
+        files[R .. "/client_io/secrets/server.txt"] = "203.0.113.5:7777\nPASSWORD"
+        files[R .. "/client_io/secrets/server_dev.txt"] = "127.0.0.1:7777\nPASSWORD"
+        files[R .. "/logs/state/last_join.json"] = "\239\187\191{\"addr\":\"127.0.0.1:7777\",\"ts\":\"t\"}"
+        id, src = W(); assert(id == "dev" and src == "joined", "dev: " .. tostring(id))
+        files[R .. "/logs/state/last_join.json"] = "{\"addr\":\"203.0.113.5:7777\"}"
+        id = W(); assert(id == "shockbyte", "shockbyte: " .. tostring(id))
+        files[R .. "/logs/state/last_join.json"] = "{\"addr\":\"10.1.2.3:7778\"}"
+        id, src = W(); assert(id == "server_10_1_2_3_7778" and src == "joined_unknown", "unknown server: " .. tostring(id))
+        -- the default target names another boot file
+        files[R .. "/logs/state/client_default_target.txt"] = "test2\n"
+        files[R .. "/client_io/secrets/server_test2.txt"] = "10.1.2.3:7778\nPASSWORD"
+        id = W(); assert(id == "test2", "default target: " .. tostring(id))
+        -- explicit settings win, sanitised
+        files[R .. "/client_io/world_guid.txt"] = "  my world!\n"
+        id, src = W(); assert(id == "myworld" and src == "world_guid.txt", "world_guid.txt: " .. tostring(id))
+        _G.DW_WORLD_GUID = "g/1"
+        id, src = W(); assert(id == "g1" and src == "global", "global: " .. tostring(id))
+        id, src = W({ world = "opt" }); assert(id == "opt" and src == "opts")
+        _G.DW_WORLD_GUID = nil; files[R .. "/client_io/world_guid.txt"] = nil
+        -- cached joined lookup (cache_s), refreshed after it
+        local t = 1000
+        U.world_reset()
+        local a = U.world_id(R, { fs = fs, now = function() return t end })
+        files[R .. "/logs/state/last_join.json"] = "{\"addr\":\"127.0.0.1:7777\"}"
+        local b = U.world_id(R, { fs = fs, now = function() return t + 10 end })
+        local c = U.world_id(R, { fs = fs, now = function() return t + 61 end })
+        assert(a == "test2" and b == "test2" and c == "dev", "cache: " .. tostring(a) .. tostring(b) .. tostring(c))
+        assert(#reads == 0, "read past the first line of " .. tostring(reads[1]))
+    end)
+    os.getenv = real_getenv
+    _G.DW_WORLD_GUID = saved_g
+    U.world_reset()
+    assert(ok, err)
+end)
+
 -- =============================================================================== run
 for _, t in ipairs(tests) do
     local ok, err = pcall(t[2])

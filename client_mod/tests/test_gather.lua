@@ -149,7 +149,10 @@ function fake_move.go_to(log, goal, opts)
 end
 function fake_move.follow() return { ok = true } end
 function fake_move.stop() MV.mode = "idle"; MV.result = MV.result or { status = "stopped" }; return { ok = true } end
-function fake_move.status() return { mode = MV.mode, result = MV.result } end
+function fake_move.status() return { mode = MV.mode, result = MV.result, progress = MV.progress } end
+-- the real words table (move.lua's why_words is pure)
+local REAL_MOVE = dofile(here .. "/../scripts/move.lua")
+fake_move.why_words = REAL_MOVE.why_words
 local function step_move(dt)
     if MV.mode ~= "go_to" then return end
     local me = Wd.pawn.pos
@@ -157,6 +160,14 @@ local function step_move(dt)
         if T - MV.t0 > 1.0 then MV.mode, MV.result = "idle", { status = "failed", reason = "stuck" } end
         return
     end
+    -- a goal on a ledge above jump height: no progress; the caller's timeout ends it (like live 16:05),
+    -- and move's progress tracker says why
+    if MV.goal.Z - me.Z > 200 then
+        MV.progress = { verdict = "stalled", why = "target_above_jump_height" }
+        if T - MV.t0 > 3.0 then MV.mode, MV.result = "idle", { status = "failed", reason = "timeout" } end
+        return
+    end
+    MV.progress = { verdict = "ok" }
     local d = d2(me, MV.goal)
     if d <= MV.tol then MV.mode, MV.result = "idle", { status = "arrived", dist_m = d / 100 }; return end
     local stepc = math.min(450 * dt, d)
@@ -561,6 +572,34 @@ do
     end
     res = run_job({ resource = "flax", count = 2 }, 120)
     check("pickup flax (item learned)", res.ok == true and res.data.item == "ITEM_Resources_Flax", tostring(res.reason) .. " item=" .. tostring(res.data and res.data.item))
+end
+
+-- ================================================================ 12c. sticks on a ledge (live 2026-10-26 16:05)
+do
+    -- branches 4 m up on a rock (3 of them close) and one at his feet further away: the one at his level first
+    reset({ inv = {} })
+    fake_pc.Pawn = Wd.pawn
+    for i = 1, 3 do
+        Wd.foliage[#Wd.foliage + 1] = { id = "fol:Up:" .. i, class = "BP_Spawner_AshBranch_01_C", _pos = { X = 300 * i, Y = 0, Z = 400 }, name = "Ash Logs",
+                                        kind = "pickup", visible = true, item = "ITEM_Resources_Wood_Ash" }
+    end
+    Wd.foliage[#Wd.foliage + 1] = { id = "fol:Low:1", class = "BP_Spawner_AshBranch_01_C", _pos = { X = -1500, Y = 0, Z = 0 }, name = "Ash Logs",
+                                    kind = "pickup", visible = true, item = "ITEM_Resources_Wood_Ash" }
+    local res = run_job({ resource = "sticks", count = 1 }, 120)
+    check("ledge: the branch at his own level is taken first", res.ok == true and Wd.pawn.pos.X < -1000, tostring(res.reason) .. " x=" .. math.floor(Wd.pawn.pos.X))
+    -- only ledge branches: the goal carries the ledge's height, and the failure names the height, in words
+    reset({ inv = {} })
+    fake_pc.Pawn = Wd.pawn
+    for i = 1, 3 do
+        Wd.foliage[#Wd.foliage + 1] = { id = "fol:Up:" .. i, class = "BP_Spawner_AshBranch_01_C", _pos = { X = 300 * i, Y = 0, Z = 400 }, name = "Ash Logs",
+                                        kind = "pickup", visible = true, item = "ITEM_Resources_Wood_Ash" }
+    end
+    res = run_job({ resource = "sticks", count = 1 }, 300)
+    check("ledge: the approach goal is at the ledge's height", MV.goal and math.abs(MV.goal.Z - 490) < 1, MV.goal and MV.goal.Z)
+    check("ledge: path_blocked with the height reason (not 'timeout')", res.ok == false and res.reason == "path_blocked" and res.data.move == "target_above_jump_height",
+        tostring(res.reason) .. " move=" .. tostring(res.data and res.data.move))
+    check("ledge: said in words", res.data and tostring(res.data.detail):find("they're higher up than I can jump", 1, true), res.data and res.data.detail)
+    check("ledge: no swing/pick from under it", (Wd.inv.ITEM_Resources_Wood_Ash or 0) == 0)
 end
 
 -- ================================================================ 12b. the first-axe bootstrap: ash logs from fallen branches

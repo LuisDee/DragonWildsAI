@@ -238,7 +238,7 @@ run(5)
 local n = 0; for _ in pairs(loops) do n = n + 1 end
 check("no loops left after stop from a fresh load", n == 0, n)
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 5. breadcrumbs: a tall wall the dev navmesh doesn't know; nav gives a partial path into it;
 --    the leader walks around the wall's end; Claude must retrace the leader's trail
 walls = { { 900, 1100, -2000, 600, true } }
@@ -264,7 +264,7 @@ check("breadcrumbs or local planner routed around it", (s.trail_entries or 0) >=
 M.stop(log)
 frame_hook = nil
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 6. bounded give-up: walled in, no trail -> stops with "stuck" after > 5 s, not a loop
 walls = { { 300, 400, -5000, 5000, true } }
 pawn.loc = { X = 0, Y = 0, Z = 0 }; oracle = nil
@@ -280,7 +280,7 @@ local stuck_logged = false
 for _, l in ipairs(logs) do if l:find("move: stuck n=") and l:find("aim=") then stuck_logged = true end end
 check("stuck events log me/aim/goal/waypoints", stuck_logged)
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 8. leader on a 6 m plateau reached by a ramp ~23 m away (outside the 9 m planner window):
 --    the local plan must fail as "unreachable", and Claude must retrace the leader's trail up
 walls = {}; oracle = nil
@@ -312,7 +312,7 @@ M.stop(log)
 frame_hook = nil
 raised = {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 9. persistent follow: the leader Windsteps onto a plateau Claude can't reach (no ramp), so
 --    follow goes "unreachable" (once, with reason leader_windstepped), then he jumps back down
 --    and follow resumes by itself
@@ -356,7 +356,7 @@ M.stop(log)
 luis.CharacterMovement = nil
 raised = {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 10. oracle path with an auto-generated nav LINK (a 1 m step up): jump from the take-off point.
 --     Local planner off so only the nav-link logic can get us up.
 walls = {}
@@ -371,7 +371,7 @@ check("nav link: jumped up the step and arrived", s.result and s.result.status =
     tostring(s.result and s.result.status) .. " link_jumps=" .. tostring(s.link_jumps))
 raised = {}; oracle = nil
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 11. world-teardown guard: while _G.DW_PAUSE is set, the loop makes no engine calls at all
 walls = {}; oracle = nil
 pawn.loc = { X = 0, Y = 0, Z = 0 }
@@ -390,7 +390,7 @@ if os.getenv("DBG11") then for i = math.max(1, #logs - 12), #logs do print("  " 
 check("unpaused: moves again", M.status().result and M.status().result.status == "arrived", M.status().status)
 pawn.AddMovementInput = real_add
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 12. learned traversal links (traverse_learn.lua API): Luis on a 6 m plateau, no ramp; a learned
 --     "jump" link exists at x = 9 m (only there can you get up). Expect: give-up -> best_link ->
 --     approach -> jump at link.from -> landing verified -> record_attempt(ok) -> follow reaches him.
@@ -431,7 +431,7 @@ M4.stop(log)
 os.remove(dir .. "/client_mod/scripts/traverse_learn.lua")
 raised, portals = {}, {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 13. self-collision regression (live 19:22): with Claude's gear blocking traces, an open-field
 --     go_to must not see "walls" around him (no endless wall_ahead plans, no "walls everywhere")
 GEAR = true
@@ -453,7 +453,7 @@ check("gear: no 'walls everywhere', few plans", not everywhere and plans <= 3, "
 GEAR = false
 walls = {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 14. cliff + far ramp, plain go_to (no leader trail): the ORACLE route around must lead; the local
 --     planner may only handle the obstacle in front of the next waypoint (live 19:44: it fought the cliff)
 walls = {}
@@ -468,13 +468,13 @@ check("cliff: go_to reaches the plateau via the oracle route", s.result and s.re
     tostring(s.result and s.result.status) .. " " .. tostring(s.result and s.result.reason))
 raised = {}; oracle = nil
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 15. NAVIGATION MEMORY: a walled pit (respawn trap) whose only exit is 15 m north, outside the
 --     9 m planner window; the goal is east, beyond the east wall.
 local PIT = { { 300, 400, -2000, 1500, true }, { -400, -300, -2000, 1500, true }, { -400, 400, -400, -300, true } }
 local function pit_world() walls = PIT; raised = {}; oracle = nil; pawn.loc = { X = 0, Y = 0, Z = 0 }; _G.DW_LP_CACHE = nil end
 local seedf = dir .. "/data/nav/L_World_seeds.json"
-local memf = dir .. "/data/skills/shockbyte/nav_memory.json"
+local memf = dir .. "/data/skills/unknown/nav_memory.json"
 os.remove(memf); _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil
 -- (a) seeded trap: the seed's exit gets him out
 do local f = io.open(seedf, "w"); f:write([==[{"v":1,"traps":[{"id":"pit","center":[0,0,-0.9],"radius_m":5,"z_max":0.5,"z_min":-3,
@@ -532,7 +532,7 @@ check("memory (b3): learned exit -> unaided go_to out of the pit", s.result and 
 MB2.stop(log)
 walls = {}; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(memf)
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 16. BUG2: a 34 m tall wall across the way, its north end 14 m off (outside the 9 m planner window),
 --     no oracle, no memory, nobody to ask: wall-following rounds it and the go_to arrives
 walls = { { 500, 600, -2000, 1400, true } }
@@ -550,7 +550,7 @@ check("bug2: rounds a long wall and arrives", s.result and s.result.status == "a
 MB2b.stop(log)
 walls = {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 17. ASK FOR HELP: in the pit with Luis near: "lead_me" event, go_to waits, Luis walks out, Claude
 --     follows his trail, then carries on to the goal by himself (one go_to, one result)
 local evf = dir .. "/client_io/events/move.jsonl"
@@ -586,7 +586,7 @@ check("help: led out, then the same go_to arrives", s.result and s.result.status
 MH.stop(log)
 walls = {}; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(memf)
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 18. FELLED LOG: a 50 cm log across the whole way (no way round): hop it, don't plan around it
 walls = { { 900, 960, -5000, 5000 } } -- short wall = jumpable (fake: 80 cm)
 raised = {}; oracle = nil; lakes = {}
@@ -602,7 +602,7 @@ check("log: hops the felled log and arrives quickly", s.result and s.result.stat
 ML.stop(log)
 walls = {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 19. WATER: a lake straight across the way; the first crossing learns the water cells (persisted),
 --     the second trip goes round (less time in water)
 lakes = { { 500, 1500, -500, 500 } }
@@ -631,7 +631,7 @@ check("water: second trip goes round (less wading)", s.result and s.result.statu
 MW2.stop(log)
 lakes = {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 20. TRACE PROFILE regression: the capsule reports "Custom" (not a preset); traces must not use it
 --     (the engine finds no such profile and returns no hit), but a validated preset ("Player"), and
 --     Visibility when no preset validates
@@ -649,7 +649,7 @@ check("profile: planning works (arrives round the wall)", s.result and s.result.
 MP.stop(log)
 VALID_PROFILES = {} -- a game with neither preset: fall back to Visibility, still plans
 _G.DW_TRACE_PROFILE = nil -- a new client run re-validates
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 pawn.loc = { X = 0, Y = 0, Z = 0 }
 local MP2 = dofile(MOVE)
 MP2.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 60 })
@@ -661,7 +661,7 @@ MP2.stop(log)
 VALID_PROFILES = { Player = true, Pawn = true }
 walls = {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 21. MAIN MENU: the controller's pawn is a DefaultPawn (no CharacterMovement) -> refuse / pause
 local real_cm = pawn.CharacterMovement
 pawn.CharacterMovement = nil
@@ -695,7 +695,7 @@ end
 check("dj (a): unmeasured -> the planner never plans a double-jump edge", not planned_d)
 MD.stop(log)
 do local f = io.open(envf, "w"); f:write('{"character":"Claude","measured":"test","jump_up_m":{"stand":1.05},"dj_up_m":2.6,"dj_delay_s":0.33}'); f:close() end
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 pawn.loc = { X = 0, Y = 0, Z = 0 }
 local MD2 = dofile(MOVE)
 MD2.go_to(log, { 15, 0, 2.3 }, { tolerance_m = 1.5, timeout_s = 90 })
@@ -711,7 +711,7 @@ check("dj (b): measured envelope -> planned double jump up the ledge", s.result 
 MD2.stop(log)
 os.remove(envf); HAS_DJ = false; raised = {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 23. TRUTHFUL REASON (live 07:05): on a 3 m plateau, a tall wall across its whole width (it runs
 --     past the plateau's edges); the goal is level with us beyond the wall. The escape must not walk
 --     him off the plateau (Bug2 did), and the reason must be "no_route" (walls), not "above jump height"
@@ -731,7 +731,7 @@ check("reason: truthful 'no_route' for a level goal behind walls", s.result and 
 MR.stop(log)
 walls = {}; raised = {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 24. Windows refuses the request file's rename (AV/indexer handle; made test 1 flaky under load):
 --     the oracle request must still be sent (direct write) and its waypoints used
 walls = { { 900, 1100, -500, 500 } }; raised = {}; lakes = {}; portals = {}
@@ -757,7 +757,7 @@ walls = {}; oracle = nil
 local AZt = dofile(here .. "/../scripts/avoidzones.lua")
 local function zreset()
     _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; _G.DW_AVOID = nil
-    os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+    os.remove(dir .. "/data/skills/unknown/nav_memory.json")
     walls = {}; raised = {}; lakes = {}; portals = {}; oracle = nil; frame_hook = nil
     luis.loc = { X = 90000, Y = 90000, Z = 0 }; pawn.loc = { X = 0, Y = 0, Z = 0 }; sprinting = false
 end
@@ -1016,9 +1016,62 @@ check("words: default thing is it", W("cant_catch") == "it keeps moving away fas
 check("words: windstep (you)", W("leader_windstepped", "you"):find("^you Windstepped") ~= nil)
 check("words: needs:DoubleJump", W("needs:DoubleJump") == "I'd need Double Jump to get there, and I can't do that yet", W("needs:DoubleJump"))
 check("words: unknown reason -> generic, never the raw code", W("zz_weird") == "I can't find a way there")
+check("words: plural", W("target_above_jump_height", "the sticks", true) == "the sticks are higher up than I can jump" and W("cant_catch", "they") == "they keep moving away faster than I can catch up",
+    W("target_above_jump_height", "the sticks", true))
 zreset()
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+-- 45. a goal on a ledge 4 m up (no way up): the caller's timeout ends the go_to; the progress verdict names
+--     the height, not a bare "timeout" (live 2026-10-26 16:05: branches on a rock)
+raised = { { 500, 1500, -1500, 1500, 400, 400 } }
+MZ = dofile(MOVE)
+MZ.go_to(log, { 8, 0, 4.9 }, { tolerance_m = 0.35, timeout_s = 10, progress = { stall_s = 3 } })
+run(150)
+s = MZ.status()
+check("progress: ledge goal -> timeout reported as target_above_jump_height", s.result and s.result.status == "failed" and s.result.reason == "timeout"
+    and s.progress.verdict == "unreachable" and s.progress.why == "target_above_jump_height",
+    tostring(s.result and s.result.reason) .. " " .. tostring(s.progress and s.progress.why))
+MZ.stop(log)
+
+zreset()
+-- 46. a goal IN known water (a pond to use): no swap for dry ground, it walks in and arrives
+lakes = { { 500, 1500, -500, 500 } }
+MZ = dofile(MOVE)
+MZ.go_to(log, { 9, 0, 0 }, { tolerance_m = 1.0, timeout_s = 60 }) -- the first wade learns the cells
+run(300)
+local first46 = MZ.status().result
+MZ.go_to(log, { 2, 0, 0 }, { tolerance_m = 1.0 }); run(100)
+local nlog46 = #logs
+MZ.go_to(log, { 7, 0, 0 }, { tolerance_m = 1.0, timeout_s = 60 })
+run(300)
+s = MZ.status()
+local said46 = false
+for i = nlog46 + 1, #logs do if logs[i]:find("the goal is in it", 1, true) then said46 = true end end
+check("water goal: arrives in the pond (known water), no dry detour", first46 and first46.status == "arrived" and s.result and s.result.status == "arrived" and said46,
+    tostring(first46 and first46.status) .. " " .. tostring(s.result and s.result.status) .. " said=" .. tostring(said46))
+MZ.stop(log)
+
+-- 47. shore_point: the water's edge on Claude's side of the pond, from real traces (water channel)
+pawn.loc = { X = 0, Y = 0, Z = 0 }
+_G.DW_WATER_CH = { name = "vis", ch = 0 }
+_G.DW_TRACE_PROFILE = { name = "Player" } -- the pawn profile passes through water (live); Visibility sees the surface
+MZ = dofile(MOVE)
+local sp = MZ.shore_point(log, { 10, 0, -3 })
+check("shore: stands on the bank facing the pond", sp.ok and sp.stand[1] > 3.8 and sp.stand[1] < 5.0 and math.abs(sp.stand[2]) < 0.5
+    and sp.edge[1] >= 5.0 and sp.edge[1] < 5.6 and math.abs(sp.edge[3] - (-0.4)) < 0.05,
+    sp.ok and (table.concat(sp.stand, ",") .. " edge " .. table.concat(sp.edge, ",")) or tostring(sp.why))
+check("shore: alternatives along the bank", sp.ok and #sp.alts >= 2 and sp.how == "channel", sp.ok and #sp.alts)
+-- a volume pivot on dry land beside the water: found by walking from Claude toward it
+local sp2 = MZ.shore_point(log, { 16, 0, 0 })
+check("shore: pivot off the water -> still the near bank", sp2.ok and sp2.stand[1] < 5.0, sp2.ok and sp2.stand[1] or sp2.why)
+-- no water channel and nothing learned -> says so
+_G.DW_WATER_CH = nil; _G.DW_NAVMEM = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+local sp3 = MZ.shore_point(log, { 10, 0, -3 })
+check("shore: no water sense -> no_water_sense", sp3.ok == false and sp3.why == "no_water_sense", sp3.why)
+check("words: no_shore", W("no_shore") == "I can't find the water's edge from here")
+lakes = {}
+zreset()
+
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 -- 7. arbiter hooks: actor target ({actor=obj}), snapshot/restore, face_when_near
 walls = {}; pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 1500, Y = 0, Z = 0 }; oracle = nil
 M.follow(log, { actor = luis }, 2, { sprint = true, face_when_near = true })

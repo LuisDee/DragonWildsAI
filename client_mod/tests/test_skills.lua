@@ -585,6 +585,38 @@ test("interact on a shelter: walk to the INTERACTION point's open side (not the 
     assert(B.module("move") and true)
 end)
 
+test("interact: a pond (water volume) -> walk to its shore and face the surface, not its deep origin", function()
+    reset()
+    local sk = B.module("skills")
+    local pond = { id = "BP_WaterVolume_C_UAID_1", class = "BP_WaterVolume_C", name = "Water Volume", kind = "interactable",
+                   position = { 40, 40, -3 } }
+    table.insert(F.world.interactables, pond)
+    local mv = B.module("move")
+    local sp0 = mv.shore_point
+    local asked
+    -- the bank is 0.6 m above the surface: standing there is NOT "on top of" the thing
+    mv.shore_point = function(log, w) asked = w; return { ok = true, how = "channel", stand = { 35, 40, 1.5 }, edge = { 36, 40, 0 },
+                                                          alts = { { stand = { 36, 43, 1.5 }, edge = { 37, 42, 0 } } } } end
+    local det0, sig0 = sk.W.detector, sk.W.press_signals
+    local inv = B.module("inventory")
+    local p0 = inv.press_interact
+    local used = false
+    sk.W.detector = function()
+        local p = F.move.position
+        if math.abs(p[1] - 35) < 0.6 and math.abs(p[2] - 40) < 0.6 then return { actor = pond.id, prompt = "Drink", class = pond.class } end
+        return { none = true }
+    end
+    inv.press_interact = function() used = true; return { ok = true } end
+    sk.W.press_signals = function() return { sleeping = used } end -- any "something changed" signal
+    local _, id = rpc("interact", { target = pond.id })
+    local r = run(id, 40)
+    sk.W.detector, sk.W.press_signals, inv.press_interact, mv.shore_point = det0, sig0, p0, sp0
+    assert(asked and asked[1] == 40 and asked[3] == -3, "shore_point asked with the volume's position")
+    local tg = F.move.target
+    assert(math.abs(tg[1] - 35) < 0.01 and tg[2] == 40, "walked to the shore, not round the origin: " .. json.encode(tg))
+    assert(r and r.reason ~= "too_far", json.encode(r)) -- reached and faced it (the water item itself is verified elsewhere)
+end)
+
 test("interact: a blocked side -> the next standing spot", function()
     reset()
     local sk = B.module("skills")
@@ -1056,6 +1088,79 @@ test("store: no OpenChests privilege -> no_permission before any walk or press",
     local r = rpc("store", { item = "Oak Logs", container = "chest_1" })
     sense.has_privilege = hp0
     assert(r.reason == "no_permission" and r.data.detail:find("rights") and #F.move.calls == 0 and F.presses == 0, json.encode(r))
+end)
+
+-- ------------------------------------------------------------------ collect_water (DISCOVERIES "Drinkable water")
+local function water_world()
+    reset()
+    F.world.items, F.world.resources = {}, {}
+    local w = { id = "BP_WaterVolume_NoSlow_C_1", class = "BP_WaterVolume_NoSlow_C", name = "Water Volume", kind = "interactable",
+                prompt = "Collect Water", position = { 50, 2, 3 } }
+    table.insert(F.world.interactables, w)
+    local inv = B.module("inventory")
+    local p0 = inv.press_interact
+    inv.press_interact = function(log)
+        local det = inv.interact_target()
+        if det and det.actor == w.id and not F.water_dead then
+            F.presses = (F.presses or 0) + 1
+            F.extra.ITEM_Consumable_Water_Dirty = (F.extra.ITEM_Consumable_Water_Dirty or 0) + 1
+            return { ok = true }
+        end
+        return p0(log)
+    end
+    return w, function() inv.press_interact = p0 end
+end
+
+test("collect_water: the nearest water, 3 presses, each verified by the Dirty Water it adds", function()
+    local w, restore = water_world()
+    local _, id = rpc("collect_water", { count = 3 })
+    local r = run(id, 120)
+    restore()
+    assert(r and r.ok and r.data.count == 3 and r.data.item == "ITEM_Consumable_Water_Dirty" and F.presses == 3, json.encode(r))
+end)
+
+test("collect_water: stopped by the water's edge 1.9 m from the surface still counts as there (2D reach)", function()
+    local w, restore = water_world()
+    local mv = B.module("move")
+    local go0 = mv.go_to
+    mv.go_to = function(log, goal, opts) -- move's water avoidance halts him on the bank, short of the wet spot
+        local r = go0(log, goal, opts)
+        F.auto_arrive = false
+        F.move.position = { 48.1, 2, 3 }
+        F.move.mode, F.move.result = "idle", { status = "failed", reason = "water_ahead" }
+        return r
+    end
+    local _, id = rpc("collect_water", {})
+    local r = run(id, 120)
+    mv.go_to = go0
+    F.auto_arrive = true
+    restore()
+    assert(r and r.ok and r.data.count == 1, json.encode(r))
+end)
+
+test("collect_water: truthful failures (no water near, the water doesn't take, a partial count)", function()
+    reset()
+    F.world.interactables = {}
+    local r = rpc("collect_water", {})
+    assert(r.reason == "nothing_in_range" and r.data.detail:find("water"), json.encode(r))
+    local w, restore = water_world()
+    local sk = B.module("skills")
+    local det0 = sk.W.detector
+    sk.W.detector = function() return { actor = "BP_Rock_C_9", name = "Rock" } end
+    local _, id = rpc("collect_water", {})
+    r = run(id, 200)
+    sk.W.detector = det0
+    assert(r and r.reason == "not_interactable" and r.data.detail:find("water doesn't take") and r.data.detail:find("Rock"), json.encode(r))
+    -- 2 come in, then the press stops working: a partial result, never a claimed 3
+    local n = 0
+    local inv = B.module("inventory")
+    local pi = inv.press_interact
+    inv.press_interact = function(log) n = n + 1; if n > 2 then F.water_dead = true end; return pi(log) end
+    _, id = rpc("collect_water", { count = 3 })
+    r = run(id, 300)
+    inv.press_interact, F.water_dead = pi, nil
+    restore()
+    assert(r and r.ok and r.data.partial and r.data.count == 2 and r.data.detail:find("2 of 3"), json.encode(r))
 end)
 
 -- ------------------------------------------------------------------ run

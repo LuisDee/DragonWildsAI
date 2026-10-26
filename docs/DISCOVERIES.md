@@ -922,6 +922,16 @@ Service: `client_mod/scripts/move.lua` (go_to / follow / stop / status). Command
   - Unstuck is now DISABLED by default (opt-in per call only; if used, it holds `_G.DW_PAUSE` across the teleport).
   - A wedged Claude reports `{stuck, ask:"lead_me", reason:"wedged"}` instead: a follow waits "unreachable"; a go_to waits for a lead.
   - A perched Claude (floor more than 60 cm below his feet at 3 of 4 points 90 cm round) first steps off: a jump forward, then 8 short pushes.
+- **Two reach failures from Director run 3 (2026-10-26, 16:05-16:09 UTC, diagnosed from `logs/client/client.log`):**
+  - **Sticks on a ledge.** `BP_Spawner_AshBranch_01_C` pickups sat at z ≈ -3160 while Claude stood about 4 m lower (capsule -3496). Every local plan saw floors at about -3216 with walls on top ("walls everywhere", djump edges).
+    - Cause: gather's `stand_point` sent the goal at Claude's OWN height (`Z = me.Z`). So move planned a level walk, its dz0-based reason could never be `target_above_jump_height`, and gather's 40 s approach timeout ended each try as a bare "timeout".
+    - Fix: the goal takes the target's height when it differs by more than 1.5 m. Targets far off his level sort later, and a 2D "close" from under a ledge no longer counts. The failure uses move's progress why (a timeout's stall why now names the height), in words: "they're higher up than I can jump".
+  - **Pond.** A `BP_WaterVolume_C`'s origin is about 3.1 m under the surface (cam surface -3171, origin -3495). Interact's 6 spots round the origin were all in the water, and every one ended too_far.
+    - Fix: `move.shore_point(log, water_m)` traces the water's edge (the water channel against the Player profile floor, or navmem water cells): the bank point to stand on, plus the surface point to face, and alternatives along the bank.
+    - skills.new_episode uses it for water volumes (the bank counts as not "on top").
+    - move also no longer swaps a goal that is IN known water for nearby dry ground.
+- **World id (2026-10-26):** one resolver, `mod/body/util.lua` `U.world_id(root, opts)`. The order is: explicit (`opts.world`, `_G` or env `DW_WORLD_GUID`, `client_io/world_guid.txt`), then the joined server (`logs/state/last_join.json` addr against the FIRST line of `client_io/secrets/server*.txt`; the password line is never read), then `server_<host>_<port>`, else "unknown".
+  - traverse_learn and move's nav memory use it; before, they fell back to "shockbyte", so dev learning was filed there. Note: `data/skills/shockbyte/nav_memory.json` holds dev-world routes learned before this fix.
 - **One approach-progress watchdog (2026-10-26, offline):**
   - Every go_to/follow fills `move.status().progress` = {verdict ok|stalled|unreachable, why, dist_m, best_dist_m, since_s, elapsed_s, target_moved_m}.
   - It is set through `opts.progress` = {stall_s=12, gain_m=0.5, budget_s, moving_m=3, to={x,y,z}}; `move.progress_reset(log[, opts])` restarts the window.

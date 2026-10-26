@@ -376,4 +376,63 @@ function U.loader(root)
     return L
 end
 
+-- ------------------------------------------------------------------ world id (one resolver for every module)
+-- The world Claude's learned data is filed under (traversal, nav memory, combat memory ...). NEVER a silent
+-- "shockbyte" (live 2026-10-26: dev learning was filed under shockbyte because the client process has no
+-- DW_WORLD_GUID). Order:
+--   1. explicit: opts.world, _G.DW_WORLD_GUID (scenario_run sets it), env DW_WORLD_GUID,
+--      <root>/client_io/world_guid.txt;
+--   2. the server he actually JOINED: <root>/logs/state/last_join.json's "addr" (tools/client_boot.ps1)
+--      matched against the boot targets' FIRST line only (the address; the password line is never read):
+--      client_io/secrets/server.txt = "shockbyte", server_<name>.txt = <name> (dev, and the default target);
+--   3. a joined server matching no target -> "server_<host>_<port>"; nothing known -> "unknown".
+-- Sanitised like brain/worlds.py sanitize(). -> id, source ("opts"|"global"|"env"|"world_guid.txt"|"joined"|
+-- "joined_unknown"|"unknown"). opts = {world, fs = {open = io.open}, cache_s = 60, now = os.time}. The
+-- joined-server lookup is cached per root for cache_s (explicit settings are re-read every call: they win).
+function U.world_sanitize(s)
+    if type(s) ~= "string" then return nil end
+    s = s:gsub("^%s+", ""):gsub("%s+$", ""):gsub("[^%w_%-]", ""):sub(1, 64)
+    return s ~= "" and s or nil
+end
+local WORLD_CACHE = {}
+function U.world_reset() WORLD_CACHE = {} end
+function U.world_id(root, opts)
+    opts = opts or {}
+    root = tostring(root or os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
+    local san = U.world_sanitize
+    local open = (opts.fs and opts.fs.open) or io.open
+    local function first_line(path)
+        local okf, f = pcall(open, path, "rb")
+        if not (okf and f) then return nil end
+        local l = f:read("l"); f:close()
+        if not l then return nil end
+        return (l:gsub("^\239\187\191", ""):gsub("%s+$", "")) -- (a UTF-8 BOM from PowerShell)
+    end
+    local w = san(opts.world); if w then return w, "opts" end
+    w = san(rawget(_G, "DW_WORLD_GUID")); if w then return w, "global" end
+    w = san(os.getenv("DW_WORLD_GUID")); if w then return w, "env" end
+    w = san(first_line(root .. "/client_io/world_guid.txt")); if w then return w, "world_guid.txt" end
+    local t = (opts.now or os.time)()
+    local c = WORLD_CACHE[root]
+    if c and t - c.t < (opts.cache_s or 60) then return c.id, c.source end
+    local id, src
+    local j = first_line(root .. "/logs/state/last_join.json") or ""
+    local addr = j:match('"addr"%s*:%s*"([^"]+)"')
+    if addr then
+        if first_line(root .. "/client_io/secrets/server.txt") == addr then id, src = "shockbyte", "joined" end
+        if not id then
+            local names = { "dev" }
+            local def = san(first_line(root .. "/logs/state/client_default_target.txt"))
+            if def and def ~= "dev" and def ~= "shockbyte" then names[#names + 1] = def end
+            for _, n in ipairs(names) do
+                if not id and first_line(root .. "/client_io/secrets/server_" .. n .. ".txt") == addr then id, src = n, "joined" end
+            end
+        end
+        if not id then id, src = "server_" .. (san((addr:gsub("[%.:]", "_"))) or "x"), "joined_unknown" end
+    end
+    if not id then id, src = "unknown", "unknown" end
+    WORLD_CACHE[root] = { t = t, id = id, source = src }
+    return id, src
+end
+
 return U

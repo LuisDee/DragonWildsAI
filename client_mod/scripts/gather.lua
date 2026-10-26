@@ -409,7 +409,13 @@ local function roots_near(J, me, radius_cm)
             end
         end
     end
-    table.sort(out, function(x, y) return x.d < y.d end)
+    -- nearest first, but a target well above or below his level counts as further (a ledge needs a way up:
+    -- prefer the sticks at his feet over the ones on a rock 4 m up, live 2026-10-26 16:05)
+    local function score(x)
+        local dz = (x.pos and x.pos.Z and me.Z) and math.abs((x.pos.Z + 90) - me.Z) or 0
+        return x.d + 3 * math.max(0, dz - M.cfg.stand_dz_cm)
+    end
+    table.sort(out, function(x, y) return score(x) < score(y) end)
     return out
 end
 M._roots_near = roots_near
@@ -483,11 +489,17 @@ local function move_state()
     return "idle", st
 end
 
--- stand point: reach_cm from the aim point, on our side, rotated by deg around the target
+-- stand point: reach_cm from the aim point, on our side, rotated by deg around the target. Its height is the
+-- TARGET's ground (pos is on the ground for pickups/foliage; + capsule half height) when that differs from ours
+-- by more than a step: live 2026-10-26 16:05, branches on a ledge 4 m up were sent as a goal at Claude's own
+-- height, so move planned a level walk under the ledge and could not say "it's higher than I can jump".
+M.cfg.stand_dz_cm = 150
 local function stand_point(T, me, deg)
     local ang = math.atan(me.Y - T.pos.Y, me.X - T.pos.X) + math.rad(deg or 0)
     local r = math.max((T.reach_cm or 130) - 15, 60)
-    return { X = T.pos.X + math.cos(ang) * r, Y = T.pos.Y + math.sin(ang) * r, Z = me.Z }
+    local z = me.Z
+    if T.pos.Z and math.abs((T.pos.Z + 90) - me.Z) > M.cfg.stand_dz_cm then z = T.pos.Z + 90 end
+    return { X = T.pos.X + math.cos(ang) * r, Y = T.pos.Y + math.sin(ang) * r, Z = z }
 end
 M._stand_point = stand_point
 
@@ -649,16 +661,24 @@ local function step_approach(J, pawn, me)
     if ms == "moving" and J.t - (J.move_started or J.t) <= M.cfg.approach_timeout_s + 5 then return end
     J.moving = false
     local res = st and st.result or {}
-    if res.status == "arrived" or d <= reach + M.cfg.near_enough_cm then
+    -- "close" is 2D; a target far above or below him (a ledge) is not in reach from under it
+    local level = not (T.pos.Z and math.abs((T.pos.Z + 90) - me.Z) > M.cfg.stand_dz_cm)
+    if res.status == "arrived" or (level and d <= reach + M.cfg.near_enough_cm) then
         return set_phase(J, "aim", string.format("%.2f m", d / 100))
     end
-    -- could not get there
-    local why = tostring(res.why or res.reason or "stuck")
+    -- could not get there: move's own reason, or (a bare timeout, or our own wait ran out) the shared
+    -- approach-progress verdict, which says WHY it was not getting closer (e.g. target_above_jump_height)
+    local pv = st and type(st.progress) == "table" and st.progress or nil
+    local why = res.why or res.reason
+    if (why == nil or why == "timeout") and pv and pv.why then why = pv.why end
+    why = tostring(why or "stuck")
     mark_bad(J, T, "unreachable: " .. why)
     J.T = nil
     if J.bad_streak >= M.cfg.bad_streak then
-        return fail(J, "path_blocked", "unreachable", string.format("I can't get to the %s (%s), and the last %d I tried were blocked too.",
-            tostring(J.key), why, J.bad_streak), { move = why })
+        local plural = tostring(J.key):sub(-1) == "s"
+        local words = mcall("move", "why_words", why, plural and "they" or "it", plural)
+        return fail(J, "path_blocked", "unreachable", string.format("I can't get to the %s: %s, and the last %d I tried were the same.",
+            tostring(J.key), type(words) == "string" and words or why, J.bad_streak), { move = why, progress = pv })
     end
     return set_phase(J, "scan", "unreachable " .. why)
 end

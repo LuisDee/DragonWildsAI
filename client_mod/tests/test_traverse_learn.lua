@@ -10,6 +10,10 @@ os.execute('mkdir "' .. (dir .. "/client_mod/scripts"):gsub("/", "\\") .. '" 2>n
 do
     local src = assert(io.open(here .. "/../scripts/dkjson.lua", "rb")):read("a")
     local f = assert(io.open(dir .. "/client_mod/scripts/dkjson.lua", "wb")); f:write(src); f:close()
+    -- the shared world resolver (mod/body/util.lua U.world_id)
+    os.execute('mkdir "' .. (dir .. "/mod/body"):gsub("/", "\\") .. '" 2>nul')
+    local us = assert(io.open(here .. "/../../mod/body/util.lua", "rb")):read("a")
+    local fu = assert(io.open(dir .. "/mod/body/util.lua", "wb")); fu:write(us); fu:close()
 end
 local real_getenv = os.getenv
 os.getenv = function(k)
@@ -333,7 +337,18 @@ check("per-world isolation (testB empty)", #L2._state().store.links == 0 and #L2
 
 -- world id fallback order
 _G.DW_WORLD_GUID = nil
-check("world_id fallback is shockbyte", select(1, L2.world_id()) == "shockbyte" and select(2, L2.world_id()) == "fallback")
+check("world_id: nothing known -> unknown (never a silent shockbyte)", select(1, L2.world_id()) == "unknown" and select(2, L2.world_id()) == "unknown",
+    tostring(L2.world_id()))
+-- the joined server decides (shared resolver): last_join.json's addr vs the boot targets' first line
+os.execute('mkdir "' .. (dir .. "/client_io/secrets"):gsub("/", "\\") .. '" 2>nul')
+os.execute('mkdir "' .. (dir .. "/logs/state"):gsub("/", "\\") .. '" 2>nul')
+local function wr(rel, text) local f = assert(io.open(dir .. "/" .. rel, "wb")); f:write(text); f:close() end
+wr("client_io/secrets/server_dev.txt", "127.0.0.1:7777\nhunter2\n")
+wr("client_io/secrets/server.txt", "203.0.113.5:7777\nsecret\n")
+wr("logs/state/last_join.json", "\239\187\191{\"addr\":\"127.0.0.1:7777\",\"ts\":\"x\"}\n")
+L2._reset_world()
+check("world_id: joined the dev server -> dev", select(1, L2.world_id()) == "dev" and select(2, L2.world_id()) == "joined", tostring(L2.world_id()))
+check("world_id: an explicit option still wins", L2.world_id("testA") == "testA")
 _G.DW_WORLD_GUID = "dev/../x y"
 check("world_id sanitised", L2.world_id() == "devxy")
 _G.DW_WORLD_GUID = nil

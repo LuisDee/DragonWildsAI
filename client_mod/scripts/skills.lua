@@ -66,7 +66,7 @@ M.cfg = {
     lease_s = 15,
     busy_wait_s = 20,       -- the pawn held by an equal/higher owner this long (not a fight): fail "busy" naming it
     timeout_s = { fetch = 110, consume = 115, come_to = 105, recover_grave = 110, give = 100, interact = 100, explore = 290,
-                  store = 105, take = 105 },
+                  store = 105, take = 105, collect_water = 115 },
 }
 
 local W = {}
@@ -307,6 +307,15 @@ local function spots_around(ip, origin, fwd)
 end
 M._spots_around = spots_around
 
+-- A water source (pond, river), from census data: a WaterVolume class family or the game's own "Collect Water"
+-- prompt (DISCOVERIES "Drinkable water for a fresh character"). No name list.
+M.cfg.water_reach_m = 2.0
+function W.is_water(thing)
+    if type(thing) ~= "table" then return false end
+    if tostring(thing.class or thing.id or ""):find("WaterVolume", 1, true) then return true end
+    return lower(thing.prompt):find("collect water", 1, true) ~= nil
+end
+
 local function new_episode(api, thing, opts)
     opts = opts or {}
     local e = { thing = thing, phase = "approach", moving = false, approaches = 0, presses = 0, tol = M.cfg.approach_m,
@@ -317,6 +326,26 @@ local function new_episode(api, thing, opts)
         local ip, from, fwd = W.interaction_point(api, thing)
         e.ipoint, e.ipoint_from = ip or thing.position, from or "actor_origin"
         e.spots, e.spot_i = spots_around(e.ipoint, thing.position, fwd), 1
+        -- a water volume (pond, river): its origin is deep inside it (live 2026-10-26 16:08: 3.1 m under the
+        -- surface, too_far x6 from spots round it); players use water from the EDGE, so stand on the bank and
+        -- face the surface there (move.shore_point, real traces). Without water sense yet, the old spots stay
+        -- (wading in calibrates it, and the next try finds the shore).
+        if W.is_water(thing) then
+            -- DISCOVERIES "Drinkable water": arrival = within water_reach_m (2D) of the surface point, the
+            -- game's detector must read THIS volume (or its "Collect Water" prompt); collect_water also requires the
+            -- press to ADD an item (need_gain), plain interact keeps its generic verification
+            e.water = true
+            e.accept = function(det) return det.actor == thing.id or (thing.prompt ~= nil and det.prompt == thing.prompt) end
+            local r = api.call("move", "shore_point", thing.position) -- normalised: {ok, data = {stand, edge, alts, how}}
+            local sp = type(r) == "table" and (type(r.data) == "table" and r.data or r) or nil
+            if sp and r.ok and sp.stand and sp.edge then
+                e.ipoint, e.ipoint_from, e.shore = sp.edge, "shore_" .. tostring(sp.how), true -- (the bank is above the surface: not "on top")
+                e.spots, e.spot_i = { sp.stand }, 1
+                for _, a in ipairs(sp.alts or {}) do e.spots[#e.spots + 1] = a.stand end
+            else
+                e.shore_why = sp and sp.why or nil
+            end
+        end
     elseif small and thing.position then
         e.small = true -- after the plain approach, other sides are tried (spots made on demand, BUGS L7)
     end
@@ -427,9 +456,12 @@ local function episode_poll(api, e, t)
         end
         local here = api.my_position()
         local d = here and goal and dist2d(here, goal)
-        local on_top = here and e.ipoint and e.spots and (here[3] - (e.ipoint[3] or here[3])) > M.cfg.on_top_m
+        local on_top = here and e.ipoint and e.spots and not e.shore and (here[3] - (e.ipoint[3] or here[3])) > M.cfg.on_top_m
         local near = d and d <= math.max(e.spots and (e.tol + 0.3) or M.cfg.reach_m, e.tol + 0.3)
             and not (e.tight and d > M.cfg.close_m + 0.3)
+        -- water: on the bank within reach of the surface point counts as there, whichever spot he stopped at
+        -- (move's water avoidance halts him at the edge, 0.9 m short of a wet spot: live too_far x10)
+        if e.water and here and e.ipoint and dist2d(here, e.ipoint) <= M.cfg.water_reach_m then near = true end
         if near and not on_top then
             e.phase, e.face_until, e.moving = "face", t + M.cfg.face_s, false
             W.face(api, e.ipoint, false) -- look at it first (the camera), as a player turns to what he wants
@@ -486,7 +518,9 @@ local function episode_poll(api, e, t)
             local other = det and not det.none and (det.name or det.actor)
             return api.fail("not_interactable", { target = th.id, detector = det, spots_tried = e.spots and e.spot_i,
                 interaction_point = e.ipoint, interaction_from = e.ipoint_from,
-                detail = other and ("the game targets " .. tostring(other) .. ", not the " .. e.label)
+                detail = (e.water and other and ("the water doesn't take from here: the game targets " .. tostring(other) .. " instead"))
+                    or (e.water and "the water doesn't take from where I can stand on the bank")
+                    or (other and ("the game targets " .. tostring(other) .. ", not the " .. e.label))
                     or ("the game offers no use for the " .. e.label .. " from where I can stand") })
         end
         return nil
@@ -522,7 +556,8 @@ local function episode_poll(api, e, t)
             -- never a second press while a conversation is up: E would advance or close the dialogue
             if e.presses < M.cfg.presses and not W.conversation_npc(api) then e.phase, e.face_until = "face", t + M.cfg.face_s; return nil end
             return api.fail("verification_failed", { target = th.id, prompt = e.detector and e.detector.prompt,
-                detail = "pressed use on the " .. e.label .. "; nothing changed (inventory, the thing, sleep state, its prompt)" })
+                detail = (e.water and e.need_gain) and "I pressed Collect Water but no water came into my inventory"
+                    or ("pressed use on the " .. e.label .. "; nothing changed (inventory, the thing, sleep state, its prompt)") })
         end
         return nil
     end
@@ -1354,6 +1389,7 @@ M.NEEDS = {
     move_item = { { "inventory", "list" }, { "inventory", "move" } },
     explore = { { "sense", "census" }, { "move", "go_to" }, { "move", "status" }, { "move", "stop" } },
     store = plus(FIND, { { "inventory", "inventory_of" }, { "inventory", "external_rows" }, { "inventory", "to_external" } }),
+    collect_water = FIND,
     take = plus(FIND, { { "inventory", "inventory_of" }, { "inventory", "external_rows" }, { "inventory", "from_external" } }),
     set_vitals_policy = { { "inventory", "set_vitals_policy" } },
     equip = { { "inventory", "list" }, { "inventory", "equip" } },
@@ -1642,10 +1678,58 @@ local function start_store(api, args, ctx) return start_transfer(api, args, ctx,
 local function start_take(api, args, ctx) return start_transfer(api, args, ctx, false) end
 M._start_transfer = start_transfer
 
+-- ------------------------------------------------------------------ collect_water (DISCOVERIES "Drinkable water")
+-- collect_water {target?, count = 1}: the nearest water source (census: W.is_water) or the given one; the shared
+-- episode (bank spot from move.shore_point, arrival within water_reach_m of the surface, the detector must read
+-- the volume / "Collect Water", one press, an item must come in), repeated per count (the source never runs
+-- dry). Partial results are reported as such; nothing is claimed without the inventory gain.
+local function start_collect_water(api, args, ctx)
+    local want = math.max(1, math.floor(tonumber(args.count) or 1))
+    local t0, src
+    if need_str(args.target) then
+        local r
+        src, r = api.find_thing(args.target)
+        if not src then return api.fail("unknown_target", { target = args.target, detail = "I can't see that water anywhere near me." }) end
+        if not W.is_water(src) then
+            return api.fail("not_interactable", { target = args.target, detail = "The " .. tostring(src.name or "thing") .. " isn't water I can collect." })
+        end
+    else
+        for _, t in ipairs(api.census_things(60, 40) or {}) do
+            if W.is_water(t) and (not src or (t.distance or 1e9) < (src.distance or 1e9)) then src = t end
+        end
+        if not src then return api.fail("nothing_in_range", { radius_m = 60, detail = "I can't see any water I could collect near me." }) end
+    end
+    local job = { kind = "collect_water", got = 0, item = nil }
+    local function begin() job.ep = new_episode(api, src, { label = src.name or "water" }); job.ep.need_gain = true end
+    begin()
+    job.on_resume = resume_episode(job)
+    job.step = function(t)
+        local res = episode_poll(api, job.ep, t)
+        if not res then return nil end
+        if res.ok and (tonumber(res.data and res.data.count) or 0) > 0 then
+            job.got = job.got + res.data.count
+            job.item = job.item or res.data.item
+            if job.got >= want then
+                return { ok = true, data = { item = job.item, count = job.got, wanted = want, target = src.id } }
+            end
+            begin()
+            return nil
+        end
+        if job.got > 0 then -- some came in, then a press failed: say exactly that
+            local d = copy(res.data or {})
+            d.item, d.count, d.wanted, d.partial = job.item, job.got, want, true
+            d.detail = "I collected " .. job.got .. " of " .. want .. " water, then " .. tostring(res.data and res.data.detail or res.reason) .. "."
+            return { ok = true, data = d }
+        end
+        return res
+    end
+    return job
+end
+
 -- ------------------------------------------------------------------ handlers
 local STARTERS ={ fetch = start_fetch, consume = start_consume, come_to = start_come_to, recover_grave = start_recover_grave,
                    give = start_give, interact = start_interact, explore = start_explore,
-                   store = start_store, take = start_take }
+                   store = start_store, take = start_take, collect_water = start_collect_water }
 M.STARTERS = STARTERS
 
 local function handler(name)
@@ -1837,6 +1921,15 @@ M.MANIFEST = {
             slot = { type = "integer", minimum = 0, description = "Slot in that page (default: first free)." } }) },
         ground = obj({ item = "carried" }),
         reasons = { "not_in_inventory", "inventory_full", "verification_failed", "invalid_args" } },
+    -- llm = false until live-verified (the water approach is the locomotion agent's move.shore_point, in progress)
+    collect_water = { kind = "action", llm = false, moves = true, priority = "command", duration_s = 8, timeout_s = 120,
+        detail_is_speech = SPEAKS,
+        description = "Collect water (Dirty Water) from a pond or river: walks to the bank, uses the water, checks it came in; "
+            .. "repeats for count. Dirty Water is drinkable but unhealthy; boil it at a Campfire for Clean Water.",
+        args = { type = "object", properties = obj({
+            target = str("A water source's id from look (default: the nearest water)."),
+            count = { type = "integer", minimum = 1, maximum = 20, default = 1, description = "How many." } }) },
+        reasons = { "nothing_in_range", "unknown_target", "not_interactable", "too_far", "path_blocked", "verification_failed", "timeout" } },
     store = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 8, timeout_s = 110,
         detail_is_speech = SPEAKS,
         description = "Put carried items into a chest or storage: walks there, opens it, moves them in, checks, closes it.",
