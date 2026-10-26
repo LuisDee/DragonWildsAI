@@ -171,3 +171,49 @@ def test_spawn_passes_verified_paths_and_unverified_candidates(tmp_path, monkeyp
     assert calls[-1]["class_paths"] == ["/Game/R.R_C"]
     t.setup("spawn", **{"class": "BP_AI_Wolf_Character_C"})
     assert calls[-1]["class_paths"] == ["/Game/A.W_C", "/Game/B.W_C"]
+
+
+def test_ground_item_is_granted_and_dropped_by_the_body_on_the_spot(tmp_path):
+    t, calls = make(tmp_path)
+    body = []
+    t.body_call = lambda tool, args: body.append((tool, args)) or {"ok": True}
+    t.probe = lambda: {"position": [10.0, 20.0, 1.0]}
+    t.setup("ground_item", item="ITEM_Rune_Law", count=40, at=[6, 2, 0])
+    verbs = [c.get("verb") for c in calls]
+    assert verbs == ["teleport", "grant", "teleport"] and calls[0]["at"] == [16.0, 22.0, 1.5]
+    assert body == [("drop", {"item": "ITEM_Rune_Law", "count": 40})] and calls[-1]["at"] == [10.0, 20.0, 1.5]
+
+
+def test_full_run_sittings_resume_finished_runs_and_refuse_a_changed_companion(tmp_path, monkeypatch):
+    from evals.bench import devrun, hashes
+    from evals.bench.runner import CaseResult
+    h = {"c": "aaa"}
+    monkeypatch.setattr(hashes, "companion_hash", lambda: h["c"])
+    monkeypatch.setattr(hashes, "judge_hash", lambda: "j")
+    monkeypatch.setattr(hashes, "body_hash", lambda: "b")
+    monkeypatch.setattr(hashes, "game_build", lambda: "26161880")
+    done, why = devrun.sitting_check(tmp_path, True)
+    assert done == {} and why is None
+    r = CaseResult("t0_cast_windstep", "hh", "spell_cast", "T0", "companion", "dev", "pass", None, "", repeat_i=1)
+    devrun.save_partial(tmp_path, r)
+    done, why = devrun.sitting_check(tmp_path, True)
+    assert why is None and done[("t0_cast_windstep", 1)].result == "pass"
+    h["c"] = "bbb"  # someone committed brain code between sittings
+    done, why = devrun.sitting_check(tmp_path, True)
+    assert done == {} and "code changed" in why
+
+
+def test_felled_log_is_felled_by_the_body_and_bound_as_the_target(tmp_path, monkeypatch):
+    t, calls = make(tmp_path)
+    monkeypatch.setattr(dt, "dev_places", lambda: {"standing_trees": {"at": [100.0, 1892.0, -31.0]}})
+    seen = []
+
+    def body(tool, args):
+        seen.append(tool)
+        if tool == "look":
+            return {"ok": True, "data": {"things": [{"id": "BP_SplittableLog_Ash_C_77", "name": "Ash Log"}]}}
+        return {"ok": True}
+    t.body_call = body
+    res = t.setup("felled_log", at=[4, 0, 0])
+    assert res["id"] == "BP_SplittableLog_Ash_C_77" and seen == ["gather", "look"] and res["unverified"]
+    assert [c.get("verb") for c in calls] == ["teleport", "grant"]

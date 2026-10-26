@@ -193,6 +193,10 @@ class DevTarget:
         scene = teleport to a known dev place for what the case needs (evals/bench/dev_places.json)."""
         if verb == "claim_bed":
             return self._claim_bed(purpose, a)
+        if verb == "ground_item":
+            return self._ground_item(purpose, a)
+        if verb == "felled_log":
+            return self._felled_log(purpose, a)
         if verb == "after_cast_move":  # Recall: armed now, run by harness_after() right after his cast of that spell
             self.pending_after_cast = {"spell": a.get("spell"), "offset_m": a.get("offset_m") or [8, 0, 0],
                                        "wait_s": float(a.get("wait_s", 6.0))}
@@ -256,6 +260,52 @@ class DevTarget:
         self._log_setup("claim_bed", a, purpose, res)
         return res
 
+    def _felled_log(self, purpose: str, a: dict) -> dict:
+        """UNVERIFIED (main 2026-10-26: mark it until seen live). A felled log lying near him, the game's own way: at
+        the standing-trees spot (dev_places), the body fells one tree with its own `gather` and the trunk is left
+        lying; the log is found with the body's `look` and bound as the case's target."""
+        if self.body_call is None:
+            res = {"ok": False, "error": "no body channel for gather"}
+        else:
+            place = dev_places().get("standing_trees") or {}
+            if place.get("at"):
+                self.setup("teleport", purpose=f"{purpose} [at the standing trees]", at=place["at"])
+            self.setup("grant", purpose=f"{purpose} [a logging axe to fell with]", item="ITEM_Logging_Axe_Stone", count=1)
+            g = self.body_call("gather", {"resource": "ash", "count": 1}) or {}
+            look = self.body_call("look", {"about": "log", "radius": 15}) or {}
+            things = (look.get("data") or {}).get("things") or []
+            log = next((t for t in things if "SplittableLog" in str(t.get("id") or t.get("class") or "")
+                        or "TreeLog" in str(t.get("class") or "")), None)
+            res = {"ok": bool(log), "id": log and log.get("id"), "gather": g.get("ok"),
+                   "error": None if log else f"no felled log in sight after gather ({g.get('reason')})", "unverified": True}
+        self._log_setup("felled_log", a, purpose, res)
+        if not res.get("ok"):
+            raise Abort(f"fixture felled_log failed: {res.get('error')}")
+        return res
+
+    def _ground_item(self, purpose: str, a: dict) -> dict:
+        """Items lying on the ground `at` (metres from him), the game's own way: stand on the spot (teleport
+        fixture), grant the stack, the body's `drop` at its feet, then back to where he stood. Runs before the
+        referee starts, so the round trip is setup, never part of the case."""
+        if self.body_call is None:
+            res = {"ok": False, "error": "no body channel for drop"}
+        else:
+            here = (self.probe() or {}).get("position")
+            if not here:
+                res = {"ok": False, "error": "no position to measure the spot from"}
+            else:
+                off = list(a.get("at") or [5, 0, 0]) + [0, 0, 0]
+                spot = [here[0] + off[0], here[1] + off[1], here[2] + off[2] + 0.5]
+                self.setup("teleport", purpose=f"{purpose} [stand on the drop spot]", at=spot)
+                self.setup("grant", purpose=f"{purpose} [the stack to drop]", item=a["item"], count=int(a.get("count", 1)))
+                r = self.body_call("drop", {"item": a["item"], "count": int(a.get("count", 1))}) or {}
+                self.setup("teleport", purpose=f"{purpose} [back]", at=[here[0], here[1], here[2] + 0.5])
+                res = {"ok": bool(r.get("ok")), "error": r.get("reason"), "spot": spot}
+        self._log_setup("ground_item", a, purpose, res)
+        if not res.get("ok"):
+            raise Abort(f"fixture ground_item failed: {res.get('error')}")
+        return res
+
     def harness_after(self, tool: str, args: dict, reply: dict, before: dict) -> dict | None:
         """Harness motion inside a case (Recall): right after his cast of the armed spell, WALK him (the body's own
         go_to, never a position write) offset_m away, then wait out the spell; the observation records where he
@@ -289,7 +339,7 @@ class DevTarget:
     # ---------------------------------------------------------------- fixtures (harness only; dev only)
     def setup(self, verb: str, purpose: str = "case setup", **a) -> dict:
         self.guard("setup", a)
-        if verb in ("hold", "scene", "claim_bed", "after_cast_move"):
+        if verb in ("hold", "scene", "claim_bed", "after_cast_move", "ground_item", "felled_log"):
             return self._client_setup(verb, purpose, a)
         args: dict[str, Any] = {"part": "fixtures", "verb": verb, "character_guid": self.character_guid}
         if verb == "grant":

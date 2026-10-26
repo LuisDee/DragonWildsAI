@@ -70,6 +70,45 @@ def default_dev() -> DevTarget:
                      forbidden=forbidden_addresses, brain_running=ops.brain_running, body_call=body_call)
 
 
+def resume_dir(rid: str) -> Path:
+    from .runner import EVALS
+    hits = sorted(EVALS.glob(f"*/{rid}"))
+    if not hits:
+        raise SystemExit(f"no run dir for {rid}")
+    return hits[-1]
+
+
+def sitting_check(d: Path, full: bool) -> tuple[dict, str | None]:
+    """A full run done in sittings must measure ONE companion: every sitting records the companion, judge and body
+    hashes; a resume with any of them changed is refused (the run would mix two companions). Returns the finished
+    (case id, repeat) -> CaseResult and a refusal reason or None."""
+    from . import hashes
+    cur = {"companion_hash": hashes.companion_hash(), "judge_hash": hashes.judge_hash(), "body_hash": hashes.body_hash(),
+           "build": hashes.game_build()}
+    meta = d / "sittings.json"
+    sittings = json.loads(meta.read_text(encoding="utf-8")) if meta.exists() else []
+    if sittings and {k: sittings[0].get(k) for k in cur} != cur:
+        return {}, f"the code changed since the first sitting ({sittings[0]} vs {cur})"
+    sittings.append({**cur, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+    meta.write_text(json.dumps(sittings, indent=1), encoding="utf-8")
+    done = {}
+    part = d / "partial.jsonl"
+    if part.exists():
+        for ln in part.read_text(encoding="utf-8").splitlines():
+            try:
+                row = json.loads(ln)
+                done[(row["case_id"], int(row.get("repeat_i", 0)))] = CaseResult(**row)
+            except (ValueError, TypeError, KeyError):
+                continue
+    return done, None
+
+
+def save_partial(d: Path, res: CaseResult) -> None:
+    from dataclasses import asdict
+    with open(d / "partial.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps(asdict(res), default=str) + "\n")
+
+
 def character_policy(case: Case) -> str:
     """'fresh' = a brand-new dev character for this case (fixtures.character), else 'main' (ClaudeDev)."""
     return str((case.fixtures.model_extra or {}).get("character") or "main")
@@ -232,8 +271,13 @@ def _passed(case: Case, game: ObservedGame, bindings: dict) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--cases", required=True)
-    ap.add_argument("--only", required=True, help="comma list of case ids (a dev run is always partial before the judge tag)")
+    ap.add_argument("--cases", default=str(Path(__file__).resolve().parent / "cases"))
+    ap.add_argument("--only", default=None, help="comma list of case ids (a partial run: never counts for GOAL)")
+    ap.add_argument("--resume", default=None, help="a --full run id to continue (the same run dir, in sittings)")
+    ap.add_argument("--max-runs", type=int, default=None, help="stop this sitting after N new runs (yield the slot)")
+    ap.add_argument("--full", action="store_true",
+                    help="every case of the frozen suite manifest (manifests/<build>/suite_v1.json), each repeated its "
+                         "trials_per_case; written full=True with the manifest ref: the run goal_check counts")
     ap.add_argument("--calls", type=int, default=6, help="Haiku calls per case (cap)")
     ap.add_argument("--sonnet", type=int, default=0, help="Sonnet (Director) calls per case (cap); needs DW_DIRECTOR=1")
     ap.add_argument("--yes", action="store_true")
@@ -247,13 +291,29 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except AttributeError:
         pass
-    want = [x.strip() for x in a.only.split(",")]
-    cases = [c for c in load_cases(Path(a.cases)) if c.id in want]
+    if a.full == bool(a.only):
+        ap.error("pass exactly one of --full or --only")
+    manifest_path, trials = None, {}
+    if a.full:
+        from . import hashes
+        manifest_path = Path(__file__).resolve().parent / "manifests" / str(hashes.game_build()) / "suite_v1.json"
+        man = json.loads(manifest_path.read_text(encoding="utf-8"))
+        ids = {e["id"] for fam in man["families"].values() for e in fam}
+        trials = {f: int(n) for f, n in (man.get("trials_per_case") or {}).items()}
+        cases = [c for c in load_cases(Path(a.cases)) if c.id in ids]
+        missing = ids - {c.id for c in cases}
+        if missing:
+            ap.error(f"{len(missing)} manifest case(s) not found under {a.cases}: {sorted(missing)[:5]}")
+    else:
+        want = [x.strip() for x in a.only.split(",")]
+        cases = [c for c in load_cases(Path(a.cases)) if c.id in want]
+    runs = [(c, i) for c in cases for i in range(max(1, trials.get(c.family, 1)))]
     cap = {"haiku": a.calls, "sonnet": a.sonnet}
-    total = {"haiku": a.calls * len(cases), "sonnet": a.sonnet * len(cases)}
+    total = {"haiku": a.calls * len(runs), "sonnet": a.sonnet * len(runs)}
     user_env()
     models = {"haiku": os.environ.get("DW_CONTROLLER_MODEL", ""), "sonnet": os.environ.get("DW_PLANNER_MODEL", "")}
-    print(f"{len(cases)} cases on DEV, model-call ceiling {total} ({models['haiku']})")
+    print(f"{len(cases)} cases ({len(runs)} runs with trials) on DEV{' FULL' if a.full else ''}, model-call ceiling "
+          f"{total} ({models['haiku']})")
     ok, why = spend_preflight(total, models)
     print(f"spend preflight: {why}")
     if not ok:
@@ -272,11 +332,28 @@ def main(argv: list[str] | None = None) -> int:
         if not b.get("ok"):
             return 4
     dev = default_dev()
-    rid, d = run_dir("dev", "measure")
+    if a.resume:
+        if not a.full:
+            ap.error("--resume continues a --full run")
+        rid, d = a.resume, resume_dir(a.resume)
+    else:
+        rid, d = run_dir("dev", "full" if a.full else "measure")
+    done, why = sitting_check(d, a.full) if a.full else ({}, None)
+    if why:
+        print(f"refusing to resume: {why}")
+        return 5
     from .devchar import MAIN_CHARACTER, default_switch, fresh_name
     switch = default_switch(dev)
     results = []
-    for i, c in enumerate(cases):
+    new = 0
+    for i, (c, rep_i) in enumerate(runs):
+        if (c.id, rep_i) in done:  # finished in an earlier sitting
+            results.append(done[(c.id, rep_i)])
+            continue
+        if a.max_runs is not None and new >= a.max_runs:
+            print(f"sitting done after {new} new runs: resume with --full --resume {rid}")
+            return 0
+        new += 1
         # main 2026-10-26: cases that need a pristine start get their own new character; the rest run on ClaudeDev
         policy = character_policy(c)
         fresh = policy == "fresh"
@@ -288,19 +365,25 @@ def main(argv: list[str] | None = None) -> int:
             info = switch.ensure(name, create=fresh)
             dev.character_guid, dev.character_name = info["guid"], name
         except Abort as exc:
-            res = new_result(c, "companion", "dev")
+            res = new_result(c, "companion", "dev", rep_i)
             res.character, res.result, res.reason, res.detail = name, "unverifiable", "fixture_gap", f"character: {exc}"
             print(f"  [{c.id}] {res.result} ({res.reason}): {res.detail}")
+            if a.full:
+                save_partial(d, res)
             results.append(res)
             continue
         if info.get("relaunched"):
             print(f"  character {name}: {'created and ' if info.get('created') else ''}joined (client relaunched, BUGS L24)")
-        res = run_case_dev(c, dev, d / "work" / c.id, cap)
-        print(f"  [{c.id}] {res.result}{' (' + res.reason + ')' if res.reason else ''}: {res.detail} | latency {res.latency_s} s, "
+        res = run_case_dev(c, dev, d / "work" / f"{c.id}__{rep_i}", cap)
+        res.repeat_i = rep_i
+        if a.full:
+            save_partial(d, res)
+        print(f"  [{c.id}#{rep_i}] {res.result}{' (' + res.reason + ')' if res.reason else ''}: {res.detail} | latency {res.latency_s} s, "
               f"calls {res.calls}, failures {res.failures[:2]}")
         results.append(res)
-    out = write_run(rid, d, "dev", "companion", results, cases, False, extra={"llm": "real", "models": models,
-                                                                              "measurement": "pre-judge-tag"})
+    from .runner import manifest_ref
+    out = write_run(rid, d, "dev", "companion", results, cases, a.full, manifest_ref(manifest_path) if a.full else None,
+                    extra={"llm": "real", "models": models, "measurement": "full suite" if a.full else "pre-judge-tag"})
     print(f"RESULT {out['report']['counts']}  report: {out['dir']}")
     return 0
 
