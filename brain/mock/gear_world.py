@@ -12,8 +12,15 @@ What it adds over MockGame, all from data/items_<build>.json and data/recipes_<b
 - ``drop`` makes world items (ids) at his or a player's feet; ``player_collect`` makes a player take them (the
   stack shows ``magnet_target`` first, then is gone);
 - ``craft_plan``: a small read-only tree over the same recipes (the client's crafting.lua plan_tree is the live one);
-- primitives can be switched off (``remove_tool``) to provoke capability gaps; there is no deposit, teleport,
-  plant or quest primitive and no quest perception (gaps the board must log, never fake).
+- building (``build``, client build.lua's shape): pieces come from harness data (``add_buildable``: name,
+  materials, kind = station | container | plot | other), cost real catalog items and give Construction XP; placed
+  pieces show in ``structures`` (id, name, piece, position, distance) like the client's get_state.structures;
+- containers (``store``/``take``, skills.lua's result shape: item, count, container, container_name, inside_now);
+- farm plots (``tend``, farm.lua's shape: use a carried seed on an empty plot = plant; use nothing on a grown one =
+  harvest) with growth over game time; ``farm_plots`` reads them. Seed -> crop is harness data (``add_buildable``
+  ``crops``), never a table in the brain;
+- primitives can be switched off (``remove_tool``) to provoke capability gaps; there is no teleport or quest
+  primitive and no quest perception (gaps the board must log, never fake).
 The Director and the benchmark only ever see get_state and tool results, like on the real body.
 """
 from __future__ import annotations
@@ -86,11 +93,24 @@ def manifest() -> dict[str, dict]:
         "attack": a("Fight a creature by its id until it is dead.", {"target": s}, ["target"]),
         "craft_plan": a("Plan how to make an item from the game's recipes over what you carry (read-only).",
                         {"item": s, "count": i}, ["item"], kind="read"),
+        "buildables": a("Pieces you can build: name, materials, what you're still missing (read-only).",
+                        {"about": s}, kind="read"),
+        "build": a("Build one piece by its name from buildables (you need its materials), beside you.",
+                   {"piece": s, "near": s}, ["piece"]),
+        "store": a("Put carried items into a chest or storage by its id: walks there, moves them in, checks.",
+                   {"item": s, "container": s, "count": i}, ["item", "container"]),
+        "take": a("Take items out of a chest or storage by its id into your bag.",
+                  {"item": s, "container": s, "count": i}, ["item", "container"]),
+        "farm_plots": a("Farm plots near you: empty, planted (growing) or ready to harvest (read-only).", {},
+                        kind="read"),
+        "tend": a("Work a farm plot once: use a carried item on it (a seed plants it) or nothing (harvests a grown "
+                  "crop). Trains Farming.", {"plot": s, "item": s}),
     }
 
 
 class GearWorld(MockGame):
-    manifest_tools = frozenset({"equip", "craft_plan"})
+    manifest_tools = frozenset({"equip", "craft_plan", "buildables", "build", "store", "take", "farm_plots", "tend"})
+    grow_s = 120.0  # game seconds from planting to harvest
 
     def __init__(self) -> None:
         super().__init__()
@@ -104,6 +124,10 @@ class GearWorld(MockGame):
         self.creature_meta: dict[str, dict] = {}
         self.removed: set[str] = set()
         self.collecting: dict[str, str] = {}  # ground id -> player taking it
+        self.buildables: dict[str, dict] = {}  # harness data: name -> {materials, kind, station, crops, xp}
+        self.structures: dict[str, dict] = {}
+        self.containers: dict[str, Counter] = {}
+        self.plots: dict[str, dict] = {}
         self._names: dict[str, str] | None = None
 
     # ------------------------------------------------------------------ catalog helpers
@@ -180,6 +204,13 @@ class GearWorld(MockGame):
         self.creature_meta[eid] = {"name": name, "class": cls, "power_level": power_level, "drops": list(drops)}
         return eid
 
+    def add_buildable(self, name: str, materials: dict[str, int], kind: str = "other", station: str | None = None,
+                      crops: dict[str, tuple[str, int]] | None = None, xp: float = 20.0) -> None:
+        """A piece he can build (unlocked). kind: station (a ``station`` type from the recipes), container or plot
+        (``crops``: seed item id -> (crop item id, yield))."""
+        self.buildables[name] = {"materials": dict(materials), "kind": kind, "station": station,
+                                 "crops": dict(crops or {}), "xp": xp}
+
     def remove_tool(self, name: str) -> None:
         self.removed.add(name)
 
@@ -213,6 +244,10 @@ class GearWorld(MockGame):
                 near.append({"id": st["id"], "name": st["name"], "station": st["station"], "distance": round(dist, 1),
                              "running": self.time < st["until"]})
         d["stations_nearby"] = sorted(near, key=lambda r: r["distance"])
+        d["structures"] = sorted(({"id": sid, "name": st["name"], "piece": st["name"], "position": st["position"],
+                                   "distance": round(math.dist(st["position"], self.pos), 1)}
+                                  for sid, st in self.structures.items()
+                                  if math.dist(st["position"], self.pos) <= 30.0), key=lambda r: r["distance"])
         for r in d["nearby_resources"]:
             m = self.node_meta.get(r["id"])
             if m:
@@ -339,7 +374,112 @@ class GearWorld(MockGame):
             return self.equip(**args)
         if tool == "craft_plan":
             return self.craft_plan(**args)
-        return fail(Reason.NOT_IMPLEMENTED, tool=tool)
+        fn = {"buildables": self.list_buildables, "build": self.build, "store": self.store, "take": self.take,
+              "farm_plots": self.farm_plots, "tend": self.tend}.get(tool)
+        return fn(**args) if fn else fail(Reason.NOT_IMPLEMENTED, tool=tool)
+
+    # ------------------------------------------------------------------ building, containers, farming
+
+    def _missing(self, materials: dict[str, int]) -> dict[str, int]:
+        return {self.name_of(i): n - self._carried(i) for i, n in materials.items() if self._carried(i) < n}
+
+    def list_buildables(self, about: str | None = None) -> ActionResult:
+        want = tokens(about or "")
+        rows = [{"name": n, "materials": {self.name_of(i): c for i, c in b["materials"].items()},
+                 "missing": self._missing(b["materials"])}
+                for n, b in self.buildables.items() if not want or want & tokens(n)]
+        return ok(pieces=rows)
+
+    def build(self, piece: str, near: str | None = None, at=None) -> ActionResult:
+        name = next((n for n in self.buildables if n.lower() == str(piece).lower()), None)
+        if name is None:
+            return fail(Reason.UNKNOWN_TARGET, piece=piece, detail=f"no buildable piece called {piece}")
+        b = self.buildables[name]
+        missing = self._missing(b["materials"])
+        if missing:
+            return fail(Reason.MISSING_MATERIALS, piece=name, missing=missing)
+        self.inventory -= Counter(b["materials"])
+        pos = [self.pos[0] + 2.0 + len(self.structures), self.pos[1], self.pos[2]]
+        sid = self._new_id("piece")
+        self.structures[sid] = {"name": name, "position": pos, "kind": b["kind"]}
+        if b["kind"] == "station" and b.get("station"):
+            st_id = self.add_station(b["station"], pos)
+            self.structures[sid]["station_id"] = st_id
+        elif b["kind"] == "container":
+            self.containers[sid] = Counter()
+        elif b["kind"] == "plot":
+            self.plots[sid] = {"crop": None, "planted_at": None, "crops": b["crops"]}
+        self._xp("Construction", b["xp"])
+        self._advance(5.0)
+        return ok(piece=name, id=sid, position=pos)
+
+    def _transfer(self, item: str, container: str, count: int | None, deposit: bool) -> ActionResult:
+        if container not in self.containers:  # a name, as find_thing resolves one: the nearest such container
+            named = [k for k in self.containers if self.structures[k]["name"].lower() == str(container).lower()]
+            container = min(named, key=lambda k: math.dist(self.structures[k]["position"], self.pos), default=container)
+        box = self.containers.get(container)
+        if box is None:
+            return fail(Reason.UNKNOWN_TARGET, container=container, detail="I can't see that chest near me.")
+        if math.dist(self.structures[container]["position"], self.pos) > 30.0:
+            return fail(Reason.TOO_FAR, container=container)
+        iid = self.resolve_item(item) or item
+        src = self.inventory if deposit else box
+        have = int(src.get(iid, 0))
+        n = int(count or have)
+        if have < 1 or n > have:
+            return fail(Reason.NOT_IN_INVENTORY if deposit else Reason.NOTHING_IN_RANGE, item=item, have=have)
+        if not deposit and not self._room_for(iid, n):
+            return fail(Reason.INVENTORY_FULL, item=iid)
+        self._walk(self.structures[container]["position"], 1.5)
+        src[iid] -= n
+        (box if deposit else self.inventory)[iid] += n
+        return ok(item=iid, name=self.name_of(iid), count=n, container=container,
+                  container_name=self.structures[container]["name"], inside_now=int(box.get(iid, 0)),
+                  carried_now=self._carried(iid))
+
+    def store(self, item: str, container: str, count: int | None = None) -> ActionResult:
+        return self._transfer(item, container, count, True)
+
+    def take(self, item: str, container: str, count: int | None = None) -> ActionResult:
+        return self._transfer(item, container, count, False)
+
+    def _plot_row(self, pid: str) -> dict:
+        p = self.plots[pid]
+        if p["crop"] is None:
+            phase = "empty"
+        else:
+            phase = "ready" if self.time - p["planted_at"] >= self.grow_s else "growing"
+        return {"id": pid, "phase": phase, "crop": self.name_of(p["crop"]) if p["crop"] else None,
+                "distance": round(math.dist(self.structures[pid]["position"], self.pos), 1)}
+
+    def farm_plots(self) -> ActionResult:
+        return ok(plots=[self._plot_row(pid) for pid in self.plots])
+
+    def tend(self, plot: str | None = None, item: str | None = None) -> ActionResult:
+        pid = plot or min(self.plots, key=lambda k: math.dist(self.structures[k]["position"], self.pos), default=None)
+        if pid not in self.plots:
+            return fail(Reason.UNKNOWN_TARGET, plot=plot, detail="no farm plot near me")
+        p, row = self.plots[pid], self._plot_row(pid)
+        self._walk(self.structures[pid]["position"], 1.0)
+        if item is not None:
+            iid = self.resolve_item(item) or item
+            if self._carried(iid) < 1:
+                return fail(Reason.NOT_IN_INVENTORY, item=item)
+            if row["phase"] != "empty" or iid not in p["crops"]:
+                return fail(Reason.NOT_INTERACTABLE, plot=pid, phase=row["phase"],
+                            detail=f"nothing happened using {self.name_of(iid)} on a {row['phase']} plot")
+            self.inventory[iid] -= 1
+            p["crop"], p["planted_at"], p["seed"] = p["crops"][iid][0], self.time, iid
+            self._xp("Farming", 5.0)
+            return ok(plot=pid, phase="growing", planted=self.name_of(iid))
+        if row["phase"] != "ready":
+            return fail(Reason.NOT_INTERACTABLE, plot=pid, phase=row["phase"],
+                        detail=f"the plot is {row['phase']}" + (", not ready yet" if row["phase"] == "growing" else ""))
+        crop, n = p["crops"][p["seed"]]
+        self.inventory[crop] += n
+        p["crop"] = p["planted_at"] = None
+        self._xp("Farming", 15.0)
+        return ok(plot=pid, phase="empty", item=crop, count=n)
 
     def equip(self, item: str) -> ActionResult:
         iid = self.resolve_item(item)

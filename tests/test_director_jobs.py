@@ -491,3 +491,100 @@ def test_gained_and_lost_of_one_item_in_one_test_go_back_for_repair(tmp_path):
     assert repair and "can never be true" in repair[0] and "tally" in repair[0]
     t = rig.task()
     assert "tally" in json.dumps(t.success["predicate"])
+
+
+# ------------------------------------------------------------------ GOAL long tasks (M2/M4), scripted plans
+
+from brain.mock.gear_jobs import (ASH_LOGS, BREAD, FLOUR, JOBS, WHEAT, WHEAT_SEED, farm_bread_world,  # noqa: E402
+                                  home_chest_world)
+
+HOME_CHEST_PLAN = [plan(
+    description="build a chest at home, then mine copper and store it there over trips",
+    task_success={"all": [{"structure": {"name": "Wooden Chest", "new": True}},
+                          {"stored": {"item": COPPER, "at_least": 40, "trips_at_least": 2}},
+                          {"skill_gain": {"name": "Mining", "levels": 1}}]},
+    steps=[st("chop ash for the chest", {"gained": {"item": ASH_LOGS, "at_least": 10}},
+              [call("gather", resource="ash", count=10)]),
+           st("build the chest", {"structure": {"name": "Wooden Chest", "new": True}}, [call("build", piece="Wooden Chest")]),
+           st("mine copper", {"gained": {"item": COPPER, "at_least": 20}}, [call("gather", resource="copper", count=20)],
+              group="trip"),
+           st("store it in the chest", {"stored": {"item": COPPER, "at_least": 20, "container": "Wooden Chest"}},
+              [call("store", item=COPPER, container="Wooden Chest")], group="trip")],
+    loops={"trip": {"until": {"stored": {"item": COPPER, "at_least": 40}}}})]
+
+
+def test_goal_mining_run_home_chest_builds_mines_and_fills_his_chest_over_two_verified_trips(tmp_path):
+    rig = JobRig(tmp_path, HOME_CHEST_PLAN)
+    home_chest_world(rig)
+    rig.say(JOBS["mining_run_home_chest"][0])
+    rig.steps(10)
+    t = rig.task()
+    assert t.status == "done", (t.status, t.end_reason, [(s.title, s.status, s.failures) for s in t.steps])
+    assert [s.title for s in t.steps].count("store it in the chest") == 2  # the loop requeued one more trip
+    chest = next(iter(rig.game.containers.values()))
+    assert chest[COPPER] == 40  # really in his chest, from his own store results
+    assert len({r["run"] for r in t.stored}) == 2 and sum(r["count"] for r in t.stored) == 40
+    assert len(rig.director_llm.calls) == 1  # trips repeat by code, no model call per trip
+
+
+def test_goal_mining_run_granted_ore_without_trips_never_passes_the_trip_count(tmp_path):
+    """The benchmark's alt_means control: ore stored in ONE run is not two trips (and given ore is no Mining)."""
+    one_trip = [plan(task_success={"stored": {"item": COPPER, "at_least": 40, "trips_at_least": 2}},
+                     steps=[st("store all", {"stored": {"item": COPPER, "at_least": 40}},
+                               [call("store", item=COPPER, container="Wooden Chest")])]),
+                plan(ask_help="I stored it all in one go; should I make another trip?")]
+    rig = JobRig(tmp_path, one_trip)
+    home_chest_world(rig)
+    rig.game.carry(COPPER, 40)
+    rig.game.carry(ASH_LOGS, 10)
+    rig.game.build("Wooden Chest")  # a chest already stands (the control is about trips, not building)
+    rig.say(JOBS["mining_run_home_chest"][0])
+    rig.steps(6)
+    t = rig.task()
+    assert t.status != "done" and t.steps[0].status == "done"
+    r = P.evaluate(t.success["predicate"], rig.game.get_state()["data"],
+                   rig.director.ops.task_ctx(t, rig.game.get_state()["data"]))
+    assert r.passed is False and "1/2 trips" in r.detail
+
+
+FARM_PLAN = [plan(
+    description="plot, plant, wait, harvest, then grinder + kiln for bread",
+    task_success={"all": [{"structure": {"name": "Farm Plot", "new": True}}, {"tally": {"item": WHEAT, "at_least": 1}},
+                          {"have": {"item": BREAD, "at_least": 1}}]},
+    steps=[st("build a farm plot", {"structure": {"name": "Farm Plot", "new": True}}, [call("build", piece="Farm Plot")]),
+           st("plant wheat", {"lost": {"item": WHEAT_SEED, "at_least": 1}}, [call("tend", item=WHEAT_SEED)]),
+           st("let it grow", {"elapsed": {"seconds": 150}}),
+           st("harvest", {"gained": {"item": WHEAT, "at_least": 3}}, [call("tend")]),
+           st("build a grinder and a kiln", {"all": [{"structure": {"name": "Grinder", "new": True}},
+                                                     {"structure": {"name": "Kiln", "new": True}}]},
+              [call("build", piece="Grinder"), call("build", piece="Kiln")]),
+           st("grind the wheat", {"have": {"item": FLOUR, "at_least": 3}}, [call("craft", item=FLOUR, count=3)]),
+           st("bake bread", {"have": {"item": BREAD, "at_least": 1}}, [call("craft", item=BREAD, count=1)])])]
+
+
+def test_goal_farm_and_process_crop_grows_harvests_grinds_and_bakes_at_his_own_stations(tmp_path):
+    rig = JobRig(tmp_path, FARM_PLAN, sync_game_time=True)
+    farm_bread_world(rig)
+    rig.say(JOBS["farm_and_process_crop"][0])
+    rig.steps(14)
+    t = rig.task()
+    assert t.status == "done", (t.status, t.end_reason, [(s.title, s.status, s.failures) for s in t.steps])
+    assert t.tallies.get(WHEAT) == 3.0 and rig.game.inventory[BREAD] >= 1
+    farming = {s["skill"]: s for s in rig.game.get_state()["data"]["skills"]}["Farming"]
+    assert farming["xp"] > 0  # planting and harvesting trained Farming (the benchmark's xp_gained)
+    assert len(rig.director_llm.calls) == 1
+
+
+def test_goal_farm_harvesting_too_early_is_honest_and_costs_budget_not_a_fake_harvest(tmp_path):
+    early = json.loads(FARM_PLAN[0])
+    early["steps"] = [s for s in early["steps"] if s["title"] != "let it grow"]
+    rig = JobRig(tmp_path, [json.dumps(early), plan(ask_help="The wheat isn't ready yet; I'll check it later?")],
+                 sync_game_time=False)  # no game time passes: it never grows
+    farm_bread_world(rig)
+    rig.say(JOBS["farm_and_process_crop"][0])
+    rig.steps(6)
+    t = rig.task()
+    harvest = next(s for s in t.steps if s.title == "harvest")
+    assert harvest.status == "failed" and t.tallies.get(WHEAT) is None
+    reasons = [r.get("reason") for r in rig.log_rows("tool_result") if r.get("tool") == "tend"]
+    assert t.status == "waiting_help", (t.status, reasons)

@@ -284,17 +284,29 @@ class Decision:
     budget_stop: bool = False
 
 
+EFFECT_KEYS = ("items_in", "items_out", "spots_empty", "stored")
+
+
 def effects_of(rec: dict) -> dict:
     """A body action's effects in one shape: {items_in: [{item, count, world_item?}], items_out: [{item, count,
-    world_items}], spots_empty: [{item, why}]}. The Director reads only this (simplify item 2). A result that
-    carries its own ``effects`` block (asked of the bridge client) is used as it is; until every tool sends one,
-    this is the one place that reads the tools' own result fields."""
+    world_items}], spots_empty: [{item, why}], stored: [{item, count, container, container_name}]}. The Director
+    reads only this (simplify item 2). A result that carries its own ``effects`` block (asked of the bridge client)
+    is used as it is; until every tool sends one, this is the one place that reads the tools' own result fields."""
     if isinstance(rec.get("effects"), dict):
         e = rec["effects"]
-        return {k: list(e.get(k) or []) for k in ("items_in", "items_out", "spots_empty")}
+        return {k: list(e.get(k) or []) for k in EFFECT_KEYS}
     args = rec.get("args") if isinstance(rec.get("args"), dict) else {}
     data = rec.get("data") if isinstance(rec.get("data"), dict) else {}
-    out: dict[str, list] = {"items_in": [], "items_out": [], "spots_empty": []}
+    out: dict[str, list] = {k: [] for k in EFFECT_KEYS}
+    if rec.get("ok") and data.get("container") and data.get("count"):  # a verified container transfer
+        row = {"item": data.get("item"), "count": data.get("count"), "container": data.get("container"),
+               "container_name": data.get("container_name")}
+        if rec.get("tool") == "store":  # into the container (take = out of it)
+            out["items_out"].append({"item": row["item"], "count": row["count"], "world_items": []})
+            out["stored"].append(row)
+        else:
+            out["items_in"].append({"item": row["item"], "count": row["count"]})
+        return out
     picked = [p for p in data.get("picked") or [] if isinstance(p, dict)]
     if picked:
         out["items_in"] += [{"item": p.get("item"), "count": p.get("count") or 1, "world_item": p.get("world_item")}
@@ -526,7 +538,7 @@ class Validator:
         out["done"] = bool(raw.get("done"))
         out["facts"] = [f for f in raw.get("facts") or [] if isinstance(f, dict)]
         self.unknown_seen += [f for f in out["facts"] if f.get("status") == "unknown"]
-        fresh = {"baseline": P.snapshot(self.state, t=0), "tallies": {}, "episodes": [], "now": 0,
+        fresh = {"baseline": P.snapshot(self.state, t=0), "tallies": {}, "episodes": [], "stored": [], "now": 0,
                  "places": self.places}
         out["task_success"], out["task_success_trivial"] = None, False
         if raw.get("task_success") is not None:
@@ -1177,6 +1189,7 @@ class Director:
             for e in f["items_out"]:
                 if e.get("world_items"):
                     self.ops.note_drop(task, e["world_items"], e.get("item"), e.get("count"))
+            self.ops.note_stored(task, step, f["stored"])
         gains = self.ops.close_segment(task, step, state1, tainted=tainted, repicked=self.ops.repicked(task, picked))
         step.actions = (step.actions + board_recs)[-40:]
         self._last_results[step.id] = [{"tool": x.get("tool"), "ok": x.get("ok"), "reason": x.get("reason")}

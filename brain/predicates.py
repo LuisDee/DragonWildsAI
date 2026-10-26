@@ -79,7 +79,7 @@ OPS: dict[str, Callable[[float, float], bool]] = {
 DEFAULT_NEAR_M = 5.0
 # fields a predicate may report missing that are board bookkeeping, not body perception (capability_gaps.py and
 # director.py read this; Director agent 2026-10-26)
-BOOKKEEPING_FIELDS = ("baseline", "clock", "tallies")
+BOOKKEEPING_FIELDS = ("baseline", "clock", "tallies", "stored")
 
 # One line per leaf, for model prompts (the Director, eval authors): the format in the model's words.
 SCHEMA_DOC = """Success predicates (JSON, one key per object; checked by code on fresh game state):
@@ -97,6 +97,11 @@ SCHEMA_DOC = """Success predicates (JSON, one key per object; checked by code on
 - {"bag": {"used_pct_at_least": pct}} or {"bag": {"free_at_least": slots}}   bag SLOTS in use (a partial stack
    still takes more; a gather that answers inventory_full is the real "full")
 - {"station": {"station": <type, name or id>, "running": true|false}}       a station in sight (and its state)
+- {"structure": {"name": <piece words or id>, "at_least": n, "new": true, "within_m": m}}   building pieces
+   near you (new = placed since this step started)
+- {"stored": {"item": ..., "at_least": n, "container": <id or name>, "trips_at_least": k}}   put into a
+   container by your own verified store actions (in a step's test: by that step; in the job's: the whole job,
+   all trips; k = separate trips that stored some)
 - {"elapsed": {"seconds": s}}                            time since this step started
 - {"vital": {"stat": "health"|"hydration"|"sustenance"|"endurance"|"stamina", "below_pct": p}} (or "at_least_pct")
 - {"near": {"place"|"player"|"thing": name or id, or "position": [x,y,z], "within_m": m}}
@@ -357,6 +362,21 @@ def _validate_builtin(k: str, a: dict, items: Items) -> dict:
         a["min_m"] = _num(a.get("min_m"), "moved.min_m", 0)
     elif k == "elapsed":
         a["seconds"] = _num(a.get("seconds"), "elapsed.seconds", 0)
+    elif k == "structure":
+        a["name"] = _str(a.get("name"), "structure.name")
+        a["at_least"] = _num(a.get("at_least", 1), "structure.at_least", 1)
+        if "new" in a and not isinstance(a["new"], bool):
+            raise PredicateError("structure.new must be true or false")
+        if a.get("within_m") is not None:
+            a["within_m"] = _num(a["within_m"], "structure.within_m", 0)
+    elif k == "stored":
+        a["ids"] = list(items.resolve(a.get("ids") or a.get("item")))
+        a["item"] = items.name(tuple(a["ids"]))
+        a["at_least"] = _num(a.get("at_least", 1), "stored.at_least", 1)
+        if a.get("trips_at_least") is not None:
+            a["trips_at_least"] = _num(a["trips_at_least"], "stored.trips_at_least", 1)
+        if a.get("container") is not None:
+            a["container"] = _str(a["container"], "stored.container")
     elif k == "station":
         a["station"] = _str(a.get("station"), "station.station")
         if "running" in a and not isinstance(a["running"], bool):
@@ -778,6 +798,43 @@ def _station(a, state, ctx, cat):
     return Result(ok, f"{name} {'running' if row['running'] else 'idle'}", 1.0 if ok else 0.0)
 
 
+def _structure(a, state, ctx, cat):
+    rows = state.get("structures")
+    if not isinstance(rows, list):
+        return Result(None, f"{a['name']}: the body reports no building pieces", 0.0, ["structures"])
+    want = tokens(a["name"])
+    hits = [r for r in rows if isinstance(r, dict) and not r.get("ghosted")
+            and (a["name"] == r.get("id") or (want and want <= (tokens(r.get("name")) | tokens(r.get("piece")))))]
+    if a.get("within_m") is not None:
+        hits = [r for r in hits if isinstance(r.get("distance"), (int, float)) and r["distance"] <= a["within_m"]]
+    if a.get("new"):
+        base = ctx.get("baseline")
+        if not isinstance(base, dict) or not isinstance(base.get("structure_ids"), list):
+            return Result(None, f"{a['name']}: no record of the pieces there before", 0.0, ["baseline"])
+        hits = [r for r in hits if r.get("id") not in set(base["structure_ids"])]
+    n = len(hits)
+    what = f"{a['name']} {'built ' if a.get('new') else ''}{n}/{a['at_least']:g}"
+    return Result(n >= a["at_least"], what, _ratio(n, a["at_least"]),
+                  measures={f"structure:{a['name'].lower()}": float(n)})
+
+
+def _stored(a, state, ctx, cat):
+    rec = ctx.get("stored")
+    if not isinstance(rec, list):
+        return Result(None, f"{a['item']}: no record of stored items", 0.0, ["stored"])
+    want = tokens(a.get("container") or "")
+    rows = [r for r in rec if isinstance(r, dict) and r.get("item") in a["ids"]
+            and (not a.get("container") or a["container"] == r.get("container")
+                 or (want and want <= tokens(r.get("container_name"))))]
+    n = sum(float(r.get("count") or 0) for r in rows)
+    trips = len({r.get("run") for r in rows if r.get("run") is not None})
+    ok = n >= a["at_least"] and trips >= (a.get("trips_at_least") or 0)
+    detail = f"{a['item']} stored {n:g}/{a['at_least']:g}" + (
+        f", {trips}/{a['trips_at_least']:g} trips" if a.get("trips_at_least") else "")
+    parts = [_ratio(n, a["at_least"])] + ([_ratio(trips, a["trips_at_least"])] if a.get("trips_at_least") else [])
+    return Result(ok, detail, min(parts), measures={f"stored:{a['ids'][0]}": n, f"trips:{a['ids'][0]}": float(trips)})
+
+
 def _quest(a, state, ctx, cat):
     rows = state.get("quests")
     if not isinstance(rows, list):
@@ -817,7 +874,8 @@ def register_leaf(name: str, evaluate_fn: Callable[[dict, dict, dict, dict | Non
 for _name, _fn in (("have", _have), ("gained", _gained), ("lost", _lost), ("tally", _tally), ("skill", _skill),
                    ("skill_gain", _skill_gain), ("equipped", _equipped), ("gear_better", _gear_better),
                    ("bag", _bag), ("vital", _vital), ("near", _near), ("moved", _moved), ("killed", _killed),
-                   ("on_ground", _on_ground), ("elapsed", _elapsed), ("station", _station), ("quest", _quest)):
+                   ("on_ground", _on_ground), ("elapsed", _elapsed), ("station", _station), ("quest", _quest),
+                   ("structure", _structure), ("stored", _stored)):
     register_leaf(_name, _fn, lambda a, items, _k=_name: _validate_builtin(_k, a, items))
 BUILTIN_LEAVES = tuple(LEAVES)
 register = register_leaf  # short name for callers (the Eval benchmark)
@@ -833,6 +891,8 @@ def snapshot(state: dict, t: float | None = None) -> dict:
     out = {k: state[k] for k in keep if k in state}
     if t is not None:
         out["t"] = float(t)
+    if isinstance(state.get("structures"), list):  # piece ids only: enough for structure(new)
+        out["structure_ids"] = [r.get("id") for r in state["structures"] if isinstance(r, dict) and r.get("id")]
     if isinstance(out.get("inventory_items"), list):  # item ids only: enough for gear_better(carried)
         out["inventory_items"] = [{"item": r.get("item")} for r in out["inventory_items"]
                                   if isinstance(r, dict) and r.get("item")]
@@ -874,4 +934,8 @@ def describe(p: dict) -> str:
                                                  else ("running" if a["running"] else "idle")),
         "killed": lambda: f"kill {a.get('at_least', 1):g} {a['kind']}",
         "quest": lambda: f"quest {a['name']} " + (f"at stage {a['stage']}" if a.get("stage") is not None else "completed"),
+        "structure": lambda: f"{a.get('at_least', 1):g} {a['name']} " + ("built" if a.get("new") else "nearby"),
+        "stored": lambda: f"store {a.get('at_least', 1):g} {a['item']}" + (
+            f" in {a['container']}" if a.get("container") else "") + (
+            f" over {a['trips_at_least']:g} trips" if a.get("trips_at_least") else ""),
     }[k]()

@@ -390,3 +390,41 @@ def test_recheck8_a_drop_the_player_is_collecting_still_counts():
     assert ev(p, flying).passed is True
     to_me = {**flying, "nearby_items": [{**flying["nearby_items"][0], "magnet_target": "Claude"}]}
     assert ev(p, to_me).passed is False
+
+
+# ------------------------------------------------------------------ structure / stored (GOAL long tasks, Director)
+
+
+def test_structure_reads_the_bodys_pieces_and_new_means_placed_since_the_start():
+    before = {"structures": [{"id": "p1", "name": "Wooden Chest", "piece": "DA_Chest", "distance": 3.0}]}
+    now = {"structures": before["structures"] + [{"id": "p2", "name": "Wooden Chest", "distance": 4.0},
+                                                 {"id": "p3", "name": "Wooden Chest", "distance": 2.0, "ghosted": True}]}
+    ctx = {"baseline": P.snapshot(before)}
+    assert P.evaluate(P.validate({"structure": {"name": "chest"}}), now, ctx).passed is True
+    new2 = P.validate({"structure": {"name": "chest", "new": True, "at_least": 2}})
+    r = P.evaluate(new2, now, ctx)
+    assert r.passed is False and "1/2" in r.detail  # the ghost (a preview) is not built
+    assert P.evaluate(P.validate({"structure": {"name": "chest"}}), {}, ctx).missing == ["structures"]
+    assert P.evaluate(P.validate({"structure": {"name": "chest", "new": True}}), now, {}).passed is None
+
+
+def test_stored_counts_his_verified_store_rows_and_trips():
+    copper = "ITEM_Resources_CopperOre"
+    rows = [{"item": copper, "count": 20, "container": "piece_1", "container_name": "Wooden Chest", "run": "s:1"},
+            {"item": copper, "count": 20, "container": "piece_1", "container_name": "Wooden Chest", "run": "s:1"}]
+    p = P.validate({"stored": {"item": copper, "at_least": 40, "trips_at_least": 2, "container": "chest"}})
+    r = P.evaluate(p, {}, {"stored": rows})
+    assert r.passed is False and "1/2 trips" in r.detail
+    rows[1]["run"] = "s:2"
+    assert P.evaluate(p, {}, {"stored": rows}).passed is True
+    assert P.evaluate(p, {}, {}).missing == ["stored"] and "stored" in P.BOOKKEEPING_FIELDS
+
+
+def test_a_store_result_is_a_stored_effect_and_take_brings_items_in():
+    from brain.director import effects_of
+    data = {"item": "ITEM_Resources_CopperOre", "count": 5, "container": "piece_1", "container_name": "Wooden Chest"}
+    st = effects_of({"tool": "store", "ok": True, "data": data})
+    assert st["stored"] == [{**{k: data[k] for k in ("item", "count", "container", "container_name")}}]
+    assert st["items_out"][0]["count"] == 5 and not st["items_in"]
+    tk = effects_of({"tool": "take", "ok": True, "data": data})
+    assert tk["items_in"] == [{"item": data["item"], "count": 5}] and not tk["stored"]

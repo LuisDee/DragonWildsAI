@@ -145,6 +145,7 @@ class Task(BaseModel):
     success: dict | None = None  # {predicate, set_at, set_by, trivial}
     tallies: dict[str, float] = {}
     my_drops: list[dict] = []  # [{world_item, item, count}] from his own drop results in this task
+    stored: list[dict] = []  # [{item, count, container, container_name, step, run}] his verified store results
     steps: list[Step] = []
     loops: dict[str, Loop] = {}
     spent: float = 0.0  # of the progress budget
@@ -598,18 +599,30 @@ class BoardOps:
 
     def step_ctx(self, t: Task, step: Step, state: dict, places: dict | None = None) -> dict:
         return {"baseline": self.effective_baseline(step, state), "tallies": dict(t.tallies), "places": places or {},
-                "episodes": list(step.kills), "now": self.clock()}
+                "episodes": list(step.kills), "now": self.clock(),
+                "stored": [r for r in t.stored if r.get("step") == step.id]}
 
     def task_ctx(self, t: Task, state: dict, places: dict | None = None) -> dict:
         first = next((s for s in t.steps if s.activation), None)
         return {"baseline": copy.deepcopy(first.activation) if first else P.snapshot(state, t=t.created),
                 "tallies": dict(t.tallies), "places": places or {},
-                "episodes": [k for s in t.steps for k in s.kills], "now": self.clock()}
+                "episodes": [k for s in t.steps for k in s.kills], "now": self.clock(), "stored": list(t.stored)}
 
     def note_kill(self, step: Step, episode: dict) -> None:
         if step.open_segment is not None:
             step.kills.append({k: episode.get(k) for k in ("kind", "target", "target_id", "target_class",
                                                            "target_kind", "outcome") if k in episode})
+
+    def note_stored(self, t: Task, step: Step, rows: list[dict]) -> None:
+        """Items his own store actions put into a container during this run (the tool verified the container's
+        contents itself). One run = one trip for ``stored.trips_at_least``."""
+        run = f"{step.id}:{len(step.segments)}"
+        for r in rows:
+            if r.get("item") and r.get("count"):
+                t.stored.append({"item": r["item"], "count": float(r["count"]), "container": r.get("container"),
+                                 "container_name": r.get("container_name"), "step": step.id, "run": run})
+        if rows:
+            self.save()
 
     def note_drop(self, t: Task, world_items: list, item: str | None, count: int | None) -> None:
         for w in world_items or []:

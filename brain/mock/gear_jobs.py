@@ -77,7 +77,9 @@ class FakeKnowledge:
 
 class JobRig:
     def __init__(self, tmp_path, director_script, open_tasks=False, knowledge=None, world_cls=GearWorld,
-                 director_llm=None, director_log=None, controller_llm=None, hides_start_goal=False):
+                 director_llm=None, director_log=None, controller_llm=None, hides_start_goal=False,
+                 sync_game_time=False):
+        self.sync_game_time = sync_game_time  # game time follows the rig clock (crops grow while he waits)
         self.game = g = world_cls()
         g.players[PLAYER] = Player(PLAYER, [2.0, 0.0, 0.0])
         man = manifest()
@@ -106,6 +108,8 @@ class JobRig:
         for _ in range(n):
             self.agent.step()
             self.clock.t += dt
+            if self.sync_game_time:
+                self.game.time += dt
 
     def task(self):
         return self.director.ops.b.tasks[0]
@@ -199,6 +203,33 @@ def nothing(rig):
     pass
 
 
+ASH_LOGS, IRON, WHEAT_SEED = "ITEM_Resources_Wood_Ash", "ITEM_Resources_IronOre", "ITEM_Farming_Seed_Wheat"
+WHEAT, FLOUR, BREAD = "ITEM_Resources_Wheat", "ITEM_Resources_Ground_Wheat", "ITEM_Consumable_Bread"
+
+
+def home_chest_world(rig):
+    """GOAL long task mining_run_home_chest: a chest is buildable from ash logs; copper is a walk away."""
+    g = rig.game
+    g.carry(BONE_PICK)
+    g.equip(BONE_PICK)
+    g.set_skill("Mining", 1)
+    g.add_buildable("Wooden Chest", {ASH_LOGS: 10}, kind="container")
+    g.add_resource(ASH_LOGS, [-6, 0, 0], 20, skill="Woodcutting")
+    g.add_resource(COPPER, [18, 0, 0], 60, tool="pickaxe", skill="Mining", xp=22)
+
+
+def farm_bread_world(rig):
+    """GOAL long task farm_and_process_crop: plot, grinder and kiln are buildable; he carries wheat seeds."""
+    g = rig.game
+    g.carry(WHEAT_SEED, 2)
+    g.carry(ASH_LOGS, 6)
+    g.carry(STONE, 10)
+    g.set_skill("Farming", 1)
+    g.add_buildable("Farm Plot", {ASH_LOGS: 4}, kind="plot", crops={WHEAT_SEED: (WHEAT, 3)})
+    g.add_buildable("Grinder", {STONE: 4}, kind="station", station="Grinder")
+    g.add_buildable("Kiln", {STONE: 6}, kind="station", station="Kiln")
+
+
 # name -> (chat line, open-ended?, world setup). Chat lines follow evals/bench goal_cases drafts where one exists.
 JOBS = {
     "better_pickaxe": ("can you make yourself a better pickaxe", False, pickaxe_world),
@@ -209,4 +240,8 @@ JOBS = {
     "quest": ("let's do the Brynmoor quests, can you start on Goblin Diplomacy? the wiki has the steps", False, nothing),
     "gear_self_initiated": ("go level up and sort yourself out, I'll be back in a bit", True, open_gear_world),
     "desert_weed": ("can you farm some desert weed at our farm? we need a stack of it", False, farm_world),
+    "mining_run_home_chest": ("set yourself up a proper home with a chest, then go stock it up with ore from round "
+                              "here", False, home_chest_world),
+    "farm_and_process_crop": ("get a little farm going at home and bake us some bread from what you grow", False,
+                              farm_bread_world),
 }
