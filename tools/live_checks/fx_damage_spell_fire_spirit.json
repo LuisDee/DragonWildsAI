@@ -1,0 +1,39 @@
+{
+ "id": "fx_damage_spell_fire_spirit",
+ "owner": "l38",
+ "area": "Damage spells on a -nullrhi client (BUGS L38 at-risk list): Fire Spirit (UFireSpiritGameplayEffectInstance stores its intro VFX unchecked at +0x1F8) and Splinter on a creature (creature UTagActivatedFX / status VFX)",
+ "why": "Every Niagara spawn is NULL on Claude's client. The Fire Spirit effect instance stores its intro VFX without a null check (exe+0x6567771); the creature's tag-activated FX (UTagActivatedFX: its Deactivate loop null-checks) and hit/status VFX run on his client too. Cast both near a runt goblin and prove the same client process survives the effects' whole life.",
+ "preconditions": {
+  "fixtures": [
+   {"verb": "unlock", "spell": "USD_FireSpirit"},
+   {"verb": "unlock", "spell": "USD_Splinter"},
+   {"verb": "grant_runes", "runes": {"Fire": 20, "Earth": 20, "Nature": 10}},
+   {"verb": "spawn", "class": "BP_AI_RuntGoblin_Character_C", "offset_m": [12, 0, 0]}
+  ],
+  "set_health": {"pct": 100},
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {"client_cmd": "client_mod/commands/fx_null_probe.lua", "save": "fx_before"},
+  {"probe": true, "save": "start"},
+  {"bridge": "look", "args": {"about": "goblin", "radius": 30, "max": 10}, "timeout_s": 15, "save": "look"},
+  {"bridge": "cast", "args": {"spell": "Fire Spirit"}, "timeout_s": 60, "save": "cast_spirit"},
+  {"sleep_s": 3},
+  {"client_cmd": "client_mod/commands/fx_null_probe.lua", "save": "fx_spirit"},
+  {"bridge": "cast", "args": {"spell": "Splinter", "target": {"$find": {"in": "look.data.things", "match": {"name": "goblin"}, "get": "id"}}}, "timeout_s": 60, "save": "cast_splinter"},
+  {"sleep_s": 3},
+  {"client_cmd": "client_mod/commands/fx_null_probe.lua", "save": "fx_hit"},
+  {"sleep_s": 25},
+  {"client_cmd": "client_mod/commands/fx_null_probe.lua", "save": "fx_after"},
+  {"probe": true, "save": "end"}
+ ],
+ "pass": [
+  {"ref": "cast_spirit.ok", "eq": true, "why": "Fire Spirit went off (its intro VFX spawn is NULL here)"},
+  {"delta": ["fx_before.runs", "fx_after.runs"], "gte": 3, "why": "the same client process answered through both casts and the effects' end (no crash)"}
+ ],
+ "observe": ["cast_spirit.reason", "cast_spirit.data.detail", "cast_spirit.data.effects", "cast_splinter.ok", "cast_splinter.reason",
+             "cast_splinter.data.detail", "cast_splinter.data.target_health", "fx_spirit.status", "fx_spirit.tag_fx", "fx_hit.tag_fx",
+             "fx_hit.drain", "fx_after.tag_fx", "look.data.things"],
+ "timeout_s": 300,
+ "max_retries": 0
+}

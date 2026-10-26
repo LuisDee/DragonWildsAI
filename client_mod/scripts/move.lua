@@ -77,6 +77,8 @@ local LP_PATH = ROOT .. "/client_mod/scripts/localplan.lua"
 local TL_PATH = ROOT .. "/client_mod/scripts/traverse_learn.lua" -- learned traversal links (traversal agent)
 local NM_PATH = ROOT .. "/client_mod/scripts/navmem.lua"
 local AZ_PATH = ROOT .. "/client_mod/scripts/avoidzones.lua"
+local TM_PATH = ROOT .. "/client_mod/scripts/traversal_moves.lua" -- DATA: double jump / Windstep gates
+local SP_PATH = ROOT .. "/client_mod/scripts/spells.lua"          -- Windstep: its public ability_status / cast_now
 
 local M = {}
 
@@ -401,9 +403,12 @@ local function envelope(pawn, pc)
         or num(function() return mc:GetMaxJumpHeight() end) or 120
     local dj = false
     pcall(function() dj = pc.SkillPerkComponent:IsPerkUnlocked(pawn.DoubleJumpSkillPerk) == true end)
+    -- the perk's own unlock level (game data: USkillPerkData.PerkUnlockInfo.RequiredSkillLevel), for the reason words
+    local dj_level = num(function() return pawn.DoubleJumpSkillPerk.PerkUnlockInfo.RequiredSkillLevel end)
     local safe_drop = num(function() return mc.MinFallDamageHeight end) or 500
     local env = { step = step, jump = apex - 15, djump = apex - 15, -- double-jump edges only once MEASURED
-                  drop = math.min(1000, math.max(150, safe_drop - 50)), apex = apex, double_jump = dj, source = "engine" }
+                  drop = math.min(1000, math.max(150, safe_drop - 50)), apex = apex, double_jump = dj, source = "engine",
+                  dj_level = (dj_level and dj_level > 0) and math.floor(dj_level) or nil }
     -- MEASURED values win (client_mod/commands/move_calib.lua -> data/envelopes/Claude.json)
     local okj, J = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/dkjson.lua"))() end)
     local f = io.open(ROOT .. "/data/envelopes/Claude.json", "rb")
@@ -413,9 +418,13 @@ local function envelope(pawn, pc)
         if okd and type(m) == "table" then
             local ju = type(m.jump_up_m) == "table" and m.jump_up_m.stand or m.jump_up_m
             if tonumber(ju) then env.jump = tonumber(ju) * 100 end
-            if dj and tonumber(m.dj_up_m) then env.djump = tonumber(m.dj_up_m) * 100 end
+            if dj and tonumber(m.dj_up_m) then env.djump = tonumber(m.dj_up_m) * 100; env.dj_measured = true end
             if not dj then env.djump = env.jump end
             if tonumber(m.dj_delay_s) then env.dj_delay_s = tonumber(m.dj_delay_s) end
+            -- the Windstep super-jump rise: planned only while the spell is castable (lp_begin sets env.superjump)
+            if tonumber(m.windstep_up_m) then env.ws_up_cm = tonumber(m.windstep_up_m) * 100 end
+            if tonumber(m.windstep_jump_delay_s) then env.ws_jump_delay_s = tonumber(m.windstep_jump_delay_s) end
+            env.jump_measured = tonumber(ju) ~= nil
             env.source = "measured " .. tostring(m.measured)
         end
     elseif f then f:close() end
@@ -698,12 +707,145 @@ local function lp_module()
     return LP_MOD
 end
 
+-- ------------------------------------------------------------------ traversal moves beyond a jump
+-- (data profile scripts/traversal_moves.lua). Double jump: the perk (envelope) + a MEASURED rise. Windstep
+-- (a super-jump spell): castable now per the spells module (unlock, wheel, runes, cooldown: the game's own
+-- gates, spells.ability_status) + a MEASURED rise. Execution: the player's own cast input (spells.cast_now,
+-- borrowing the pawn: no arbiter hand-over mid-move), then the jump at the take-off point.
+local TM_MOD, SP_MOD
+local function tm_profile()
+    if TM_MOD == nil then
+        local okc, chunk = pcall(loadfile, TM_PATH)
+        local okm, mod = false, nil
+        if okc and chunk then okm, mod = pcall(chunk) end
+        TM_MOD = (okm and type(mod) == "table") and mod or false
+    end
+    return TM_MOD or {}
+end
+local function spells_mod()
+    if SP_MOD == nil then
+        local okc, chunk = pcall(loadfile, SP_PATH)
+        local okm, mod = false, nil
+        if okc and chunk then okm, mod = pcall(chunk) end
+        SP_MOD = (okm and type(mod) == "table" and mod.ability_status) and mod or false
+    end
+    return SP_MOD or nil
+end
+-- tests (and the bridge) may inject the spells module: {ability_status(asset[, api]), cast_now(log, asset, opts)}
+function M.set_spells(m) SP_MOD = m or false end
+
+-- Windstep's state from the spells module -> {state = castable|unlock|runes|cooldown|wheel|busy|unknown, why, detail}
+local WS_STATE = { not_unlocked = "unlock", not_enough_resources = "runes", on_cooldown = "cooldown", not_on_wheel = "wheel",
+                   busy = "busy", requirement = "busy" }
+local function windstep_status(api, now_t)
+    local prof = tm_profile().windstep
+    if not prof or not prof.spell_asset then return { state = "unknown", detail = "no traversal profile" } end
+    local m = rawget(_G, "DW_MOVE_WS")
+    if m and now_t and m.t and math.abs(now_t - m.t) < 1.0 then return m.r end
+    local sp = spells_mod()
+    local r
+    if not sp then r = { state = "unknown", detail = "no spells module" }
+    else
+        local ok, a = pcall(sp.ability_status, prof.spell_asset, api)
+        if not ok or type(a) ~= "table" then r = { state = "unknown", detail = tostring(a) }
+        elseif a.available then r = { state = "castable", cooldown_s = a.cooldown_s }
+        else r = { state = WS_STATE[a.why or ""] or "unknown", why = a.why, detail = a.detail, cooldown_s = a.cooldown_s } end
+    end
+    _G.DW_MOVE_WS = { t = now_t, r = r }
+    return r
+end
+M._windstep_status = windstep_status
+
+-- What he can do to get UP, with heights only from measurements. Pure. -> caps table (also get_state.traversal)
+function M.traverse_caps(env, ws)
+    env, ws = env or {}, ws or { state = "unknown" }
+    local P = tm_profile()
+    local djp, wsp = P.double_jump or {}, P.windstep or {}
+    local function m(cm) return cm and math.floor(cm + 0.5) / 100 or nil end
+    return {
+        jump = { have = true, up_m = m(env.jump), measured = env.jump_measured == true },
+        double_jump = { have = env.double_jump == true, measured = env.dj_measured == true,
+                        up_m = env.dj_measured and m(env.djump) or nil,
+                        unlock = env.dj_level and ("Agility " .. env.dj_level) or djp.unlock,
+                        planned = env.double_jump == true and env.dj_measured == true },
+        windstep = { have = ws.state ~= "unlock" and ws.state ~= "unknown", state = ws.state, castable = ws.state == "castable",
+                     measured = env.ws_up_cm ~= nil, up_m = m(env.ws_up_cm), detail = ws.detail, cooldown_s = ws.cooldown_s,
+                     unlock = (ws.detail and ws.detail:match("needs (%a+ level %d+)") or wsp.unlock or ""):gsub(" level", ""),
+                     planned = ws.state == "castable" and env.ws_up_cm ~= nil },
+        source = env.source,
+    }
+end
+
+-- Why can't he get up a rise of rise_cm? Pure. -> reason | nil (nil: a move he HAS and has MEASURED covers it,
+-- so the height is not the blocker). Reasons: "needs:<Move>:<lack>[:<info>]" (lack = unmeasured | cooldown |
+-- busy | runes | wheel | unlock), "<who>_above_windstep_height" (Windstep measured + castable, still too high),
+-- "<who>_above_jump_height" (no move he has or could get reaches it).
+local LACK_RANK = { unmeasured = 0, cooldown = 1, busy = 1, runes = 2, wheel = 2, unlock = 3 }
+function M.height_verdict(rise_cm, caps, who)
+    who = who or "target"
+    local P = tm_profile()
+    local slack = 60 -- the same slack as the jump reach check (goal tolerance)
+    local jr = ((caps.jump and caps.jump.up_m) or 1.65) * 100 + slack
+    if rise_cm <= jr then return nil end
+    local best, best_rank
+    local function consider(key, c, prof, lack, info)
+        local rank = LACK_RANK[lack]
+        if rank and (not best_rank or rank < best_rank) then
+            best_rank = rank
+            best = "needs:" .. prof.key .. ":" .. lack .. ((info and info ~= "") and (":" .. tostring(info):gsub(":", " ")) or "")
+        end
+    end
+    local function could(c, prof) -- can it plausibly reach? measured -> exactly; else the profile's claim bound
+        if c.measured and c.up_m then return rise_cm <= c.up_m * 100 + slack end
+        local bound = prof.expect_up_m or prof.claim_max_m
+        return bound ~= nil and rise_cm <= bound * 100 + slack
+    end
+    local dj, djp = caps.double_jump or {}, P.double_jump
+    if djp and could(dj, djp) then
+        if not dj.have then consider("double_jump", dj, djp, "unlock", dj.unlock)
+        elseif not dj.measured then consider("double_jump", dj, djp, "unmeasured")
+        else return nil end
+    end
+    local ws, wsp = caps.windstep or {}, P.windstep
+    if wsp and could(ws, wsp) then
+        local st = ws.state
+        if st == "castable" then
+            if ws.measured then return nil end
+            consider("windstep", ws, wsp, "unmeasured")
+        elseif st == "unlock" then consider("windstep", ws, wsp, "unlock", ws.unlock)
+        elseif st == "runes" then
+            local n, what, have = tostring(ws.detail or ""):match("needs (%d+) (.-) and I only have (%d+)")
+            consider("windstep", ws, wsp, "runes", n and (n .. " " .. what .. ", have " .. have) or nil)
+        elseif st == "cooldown" then consider("windstep", ws, wsp, "cooldown", ws.cooldown_s and math.ceil(ws.cooldown_s) or nil)
+        elseif st == "wheel" or st == "busy" then consider("windstep", ws, wsp, st) end
+    end
+    if best then return best end
+    if ws.state == "castable" and ws.measured then return who .. "_above_windstep_height" end
+    return who .. "_above_jump_height"
+end
+
+local function caps_of(st, t)
+    return M.traverse_caps(st.env, windstep_status(nil, t))
+end
+-- the height reason for a move (who = leader|target), nil when the height is not the blocker
+local function height_reason(st, rise_cm, who, t)
+    local okv, r = pcall(M.height_verdict, rise_cm, caps_of(st, t), who)
+    if okv then return r end
+    return who .. "_above_jump_height"
+end
+
 local function lp_begin(st, pawn, me, far, why, log)
     local LP = lp_module()
     if not LP then return false end
     local hh = tonumber((pcall(function() return pawn.CapsuleComponent:GetScaledCapsuleHalfHeight() end))
         and pawn.CapsuleComponent:GetScaledCapsuleHalfHeight()) or 90
     st.env = st.env or envelope(pawn, st.pc)
+    -- a Windstep super-jump edge only while it is castable now AND measured (and not just failed on this move)
+    do
+        local ws = (st.env.ws_up_cm and not st.ws_off) and windstep_status(nil, now(pawn)) or nil
+        st.env.superjump = (ws and ws.state == "castable") and st.env.ws_up_cm or nil
+        st.env.superjump_cost = (tm_profile().windstep or {}).cost
+    end
     st.lp = LP.new({ trace = make_trace(st, pawn), center = v(me), feet_z = me.Z - hh,
         radius_m = M.cfg.lp_grid_m, cell_cm = M.cfg.lp_cell_cm, env = st.env,
         cache = lp_cache(), now = function() return now(pawn) end, self_pos = v(me),
@@ -864,7 +1006,11 @@ local function progress_view(st)
         if st.status == "target_not_visible" then return "target_not_visible" end
         if moved > P.moving_cm then return "cant_catch" end
         -- the goal was out of jump reach from the start, and he got no closer: that height is the reason
-        if st.dz0 and st.dz0 > reach then return (st.target_kind == "player" and "leader" or "target") .. "_above_jump_height" end
+        -- (which move would reach it and what he lacks: double jump / Windstep, height_verdict)
+        if st.dz0 and st.dz0 > reach then
+            local hr = height_reason(st, st.dz0, st.target_kind == "player" and "leader" or "target", t)
+            if hr then return hr end
+        end
         if over then return "too_long" end
         return walls and "blocked" or "no_progress"
     end

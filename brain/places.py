@@ -4,8 +4,12 @@
 Sources, in trust order (every answer says which one it came from and how exact it is):
   1. **Game data** ``data/places_<build>.json`` (tools/build_places.py): the map's 31 regions (``BP_MapRegion_C``:
      name, power level, boundary polygon, or only a bounding box until the polygon dump has run) and ~500
-     landmarks (``AGameplayObjectRegistry.Landmarks``: NPC spots such as "Zanik" (several: it moves with quest
-     stages), shrines, anima vents, courses). Same in every world of a build.
+     landmarks (``AGameplayObjectRegistry.Landmarks``: NPC spots such as "Zanik", shrines, anima vents, courses),
+     and the PROVINCES (the big areas players name: Brynmoor, Ghornfell, Fellhollow, Dowdun Reach, Umbral Sands,
+     Scorned Wilderness = the game's EQuestRegion) with the sub-region -> province mapping (tools/build_places.py;
+     each region says where its mapping came from). Same in every world of a build.
+     An NPC such as Zanik or Vannaka exists as several copies, one in each province (Luis, 2026-10-26): every
+     spot is listed with its province, and the copy in the province he is in comes first.
   2. **What he knows himself**, passed in by the caller: saved places (StateStore.places), map memory sightings
      (map_memory.snapshot), the world's lodestones (the body's ``lodestones`` read).
   3. **The wiki**, only to connect a name the game data lacks to names it has ("Goblin Diplomacy starts: Speak to
@@ -147,6 +151,12 @@ class Places:
             shape = poly or _bbox_poly(r.get("bbox"))
             if r.get("name") and shape:
                 self.regions.append({**r, "_shape": shape, "_exact": poly is not None, "_area": area(shape)})
+        self.provinces: list[dict] = [dict(p) for p in data.get("provinces") or [] if p.get("name")]
+        if not self.provinces:  # older files: provinces only on the regions
+            names = dict.fromkeys(r["province"] for r in self.regions if r.get("province"))
+            self.provinces = [{"name": n} for n in names]
+        for p in self.provinces:
+            p.setdefault("regions", [r["name"] for r in self.regions if r.get("province") == p["name"]])
         self.landmarks: dict[str, list[dict]] = {}
         for lm in data.get("landmarks") or []:
             if lm.get("name") and _pos(lm.get("position")):
@@ -170,6 +180,14 @@ class Places:
         r = self.region_at(pos)
         return r["name"] if r else None
 
+    def province_name(self, pos) -> str | None:
+        """The province of the region at ``pos`` (data/places_<build>.json mapping), or None."""
+        r = self.region_at(pos)
+        return r.get("province") if r else None
+
+    def _in_province(self, pos, province: str) -> bool:
+        return self.province_name(pos) == province
+
     def _in_region(self, pos, region: dict) -> bool:
         r = self.region_at(pos)
         return r is not None and r["name"] == region["name"]
@@ -177,7 +195,9 @@ class Places:
     # ---------------------------------------------------------------- answers
 
     def _spot(self, pos, here, lodestones) -> dict:
-        out: dict[str, Any] = {"position": pos, "region": self.region_name(pos)}
+        r = self.region_at(pos)
+        out: dict[str, Any] = {"position": pos, "region": r["name"] if r else None,
+                               "province": r.get("province") if r else None}
         if here is not None:
             out["distance_m"] = _d(here, pos)
         if lodestones:
@@ -191,24 +211,55 @@ class Places:
         rows = self.landmarks[name]
         spots = [self._spot(_pos(r["position"]), here, lodestones) for r in rows]
         if within:
-            keep = [s for s in spots if s["region"] in {w["name"] for w in within}]
+            names = {w["name"] for w in within}
+            keep = [s for s in spots if s["region"] in names or s["province"] in names]
             spots = keep or spots
         spots.sort(key=lambda s: s.get("distance_m") if s.get("distance_m") is not None else 1e12)
+        mine = self.province_name(here) if here is not None else None
+        first = next((s for s in spots if mine and s["province"] == mine), spots[0])
         ans = {"name": name, "kind": "landmark", "match": how, "source": self.source, "approximate": False,
-               **spots[0], "basis": "a named point in the game's map registry"}
+               **first, "basis": "a named point in the game's map registry"}
+        if mine:
+            ans["your_province"] = mine
         if len(spots) > 1:
+            by: dict[str, int] = {}
+            for s in spots:
+                k = s["province"] or "no province"
+                by[k] = by.get(k, 0) + 1
             ans["spots"] = spots[:SPOTS]
-            ans["basis"] += (f"; the registry has {len(rows)} spots with this name (an NPC moves between them with "
-                             "quest stages): nearest first, which one is live is unknown until you see it")
+            ans["spots_by_province"] = by
+            if len(by) > 1:
+                ans["other_provinces"] = [p for p in by if p != first["province"]]
+                at = lambda s: (f"{s['region']}" + (f", {s['distance_m']} m" if s.get("distance_m") is not None  # noqa: E731
+                                                    else ""))
+                others = [next(s for s in spots if (s["province"] or "no province") == p) for p in ans["other_provinces"]]
+                lead = (f"copy in {mine} (your province) at {at(first)}" if mine and first["province"] == mine
+                        else (f"no copy in {mine} (your province); nearest " if mine
+                              else "nearest " if here is not None else "a ")
+                        + f"copy in {first['province']} at {at(first)}")
+                ans["summary"] = (f"{name}: {lead}; other copies in "
+                                  + ", ".join(f"{s['province'] or 'no province'} ({at(s)})" for s in others))
+                same = by.get(first["province"] or "no province", 0)
+                ans["basis"] += (f"; the registry has {len(rows)} spots with this name across {len(by)} provinces "
+                                 f"({', '.join(f'{p}: {n}' for p, n in by.items())}). An NPC like this exists as "
+                                 "several copies in different provinces: the copy that matters is normally the one "
+                                 "in the province you are in or progressing through"
+                                 + (f"; {same} spots in {first['province']}: which one he is at is unknown until "
+                                    "you see it" if same > 1 else "")
+                                 + ". Spots are listed nearest first, each with its province")
+            else:
+                ans["basis"] += (f"; the registry has {len(rows)} spots with this name, all in {next(iter(by))}: "
+                                 "nearest first, which one is the one you want is unknown until you see it")
         return ans
 
     def _region_answer(self, r: dict, how: str, here, lodestones, known: list[dict]) -> dict:
         ans: dict[str, Any] = {"name": r["name"], "kind": "region", "match": how, "source": self.source,
-                               "power_level": r.get("power")}
+                               "power_level": r.get("power"), "province": r.get("province")}
         if not r["_exact"]:
             ans["shape"] = "bounding box only (the boundary polygon has not been read yet): 'inside' is approximate"
         if here is not None and self._in_region(here, r):
-            ans.update({"you_are_inside": True, "position": _pos(here), "region": r["name"], "distance_m": 0,
+            ans.update({"you_are_inside": True, "position": _pos(here), "region": r["name"],
+                        "province": r.get("province"), "distance_m": 0,
                         "approximate": False,
                         "basis": "you are in it now (by the game's region boundary)" if r["_exact"]
                         else "you are probably in it (by its bounding box)"})
@@ -222,6 +273,7 @@ class Places:
                 cands.sort(key=lambda c: _d(here, c[1]) or 1e12)
             label, p = cands[0]
             ans.update(self._spot(p, here, lodestones))
+            ans["region"], ans["province"] = r["name"], r.get("province")
             ans.update({"approximate": not r["_exact"], "via": label,
                         "basis": f"the nearest known point inside the region ({label})"})
         else:
@@ -231,6 +283,53 @@ class Places:
                                   here, lodestones))
             ans.update({"approximate": True, "basis": "the centre of the region's shape: no known point inside it, "
                         "height unknown, not checked for ground or a path"})
+        return ans
+
+    def _province_answer(self, prov: dict, how: str, here, lodestones, known: list) -> dict:
+        """A province (the big area): its sub-regions, the lodestones and points he knows in it, and its nearest
+        known point (else the game landmark nearest him in it, else a region centre marked approximate)."""
+        name = prov["name"]
+        regions = [r for r in self.regions if r.get("province") == name]
+        ans: dict[str, Any] = {"name": name, "kind": "province", "match": how, "source": self.source,
+                               "regions": [{"name": r["name"], "power_level": r.get("power")} for r in regions]}
+        powers = [r["power"] for r in regions if isinstance(r.get("power"), int) and r["power"] >= 0]
+        if powers:
+            ans["power_levels"] = [min(powers), max(powers)]
+        far = lambda p: (_d(here, p) or 1e12) if here is not None else 0  # noqa: E731
+        lodes_in = sorted((l for l in lodestones if self._in_province(l["position"], name)),
+                          key=lambda l: far(l["position"]))
+        if lodes_in:
+            ans["lodestones"] = [{k: v for k, v in {
+                "id": l.get("id"), "name": l.get("name"), "region": self.region_name(l["position"]),
+                "distance_m": _d(here, l["position"]) if here is not None else None,
+                "reachable": l.get("reachable")}.items() if v is not None} for l in lodes_in[:5]]
+        mine = sorted(((k, p) for k, p in known if self._in_province(p, name) and not k.startswith("lodestone")),
+                      key=lambda c: far(c[1]))
+        if mine:
+            ans["known_points"] = [{"what": k, "position": p, "region": self.region_name(p),
+                                    **({"distance_m": _d(here, p)} if here is not None else {})} for k, p in mine[:5]]
+        if here is not None and self._in_province(here, name):
+            ans.update({"you_are_inside": True, "position": _pos(here), "region": self.region_name(here),
+                        "province": name, "distance_m": 0, "approximate": False,
+                        "basis": "you are in it now (by the game's region boundaries and the province mapping)"})
+            return ans
+        cands, what = sorted(((k, p) for k, p in known if self._in_province(p, name)), key=lambda c: far(c[1])), \
+            "point you know"
+        if not cands:
+            what = "game landmark"
+            cands = sorted(((f"landmark {n}", _pos(x["position"])) for n, rows in self.landmarks.items()
+                            for x in rows if self._in_province(x["position"], name)), key=lambda c: far(c[1]))
+        if cands:
+            label, p = cands[0]
+            ans.update(self._spot(p, here, lodestones))
+            ans.update({"approximate": False, "via": label,
+                        "basis": f"the nearest {what} inside the province ({label})"})
+        elif regions:
+            r = max(regions, key=lambda r: r["_area"])
+            c = centroid(r["_shape"])
+            ans.update(self._spot([round(c[0], 2), round(c[1], 2), 0.0], here, lodestones))
+            ans.update({"approximate": True, "basis": f"the centre of its biggest region {r['name']}: no known point "
+                        "inside the province, height unknown, not checked for ground or a path"})
         return ans
 
     def where(self, query: str, here=None, *, lodestones: Iterable[dict] | None = None,
@@ -280,6 +379,10 @@ class Places:
             how = _match(r["name"], q)
             if how:
                 out.append(self._region_answer(r, how, here, lodes, known))
+        for pv in self.provinces:
+            how = _match(pv["name"], q)
+            if how:
+                out.append(self._province_answer(pv, how, here, lodes, known))
         wiki = None
         if not any(o["match"] in ("exact", "named") for o in out):
             wiki = self._via_wiki(query, q, here, lodes, known)
@@ -291,14 +394,17 @@ class Places:
         data: dict[str, Any] = {"query": query, "found": bool(out), "results": out[:limit], "note": NOTE}
         if here is not None:
             data["you_are_in"] = self.region_name(here)
+            data["you_are_in_province"] = self.province_name(here)
         if wiki and wiki.get("said"):
             data["wiki_said"] = wiki["said"]
         if not out:
             data["note"] = ("No place by that name in the game's map data, your saved places, your map memory or "
                             "the lodestones. Don't go_to it: say you don't know where it is, look it up, or ask.")
             data["regions_known"] = [r["name"] for r in self.regions]
+            data["provinces_known"] = {p["name"]: p.get("regions") or [] for p in self.provinces}
             if lodes:
                 data["lodestones"] = sorted(({"id": l.get("id"), "name": l.get("name"), "region": self.region_name(l["position"]),
+                                              "province": self.province_name(l["position"]),
                                               "distance_m": _d(here, l["position"]) if here else None} for l in lodes),
                                             key=lambda l: l["distance_m"] if l["distance_m"] is not None else 1e12)[:5]
         return {"ok": True, "reason": None, "data": data}
@@ -317,6 +423,7 @@ class Places:
             return {}
         text = "\n".join(p.get("text") or "" for p in pages)
         regions = [r for r in self.regions if re.search(rf"(?<!\w){re.escape(r['name'])}(?!\w)", text)]
+        provs = [p for p in self.provinces if re.search(rf"(?<!\w){re.escape(p['name'])}(?!\w)", text)]
         marks = [n for n in self.landmarks if len(n) > 2 and re.search(rf"(?<!\w){re.escape(n)}(?!\w)", text)]
         said = {"page": pages[0].get("title"), "url": pages[0].get("url"),
                 "mentions": [r["name"] for r in regions] + marks}
@@ -324,7 +431,7 @@ class Places:
         named = ", ".join(said["mentions"])
         results = []
         for n in marks:
-            a = self._landmark_answer(n, "wiki", here, lodes, within=regions)
+            a = self._landmark_answer(n, "wiki", here, lodes, within=regions + provs)
             inr = f" inside {a['region']}" if a.get("region") in {r["name"] for r in regions} else ""
             a.update({"for": query, "source": f"wiki page {title!r} (community) + {self.source}",
                       "basis": f"not {query!r} itself: the wiki page {title!r} names {named}; this is the game's "
@@ -345,9 +452,10 @@ class Places:
 
 WHERE_TOOL = {"type": "function", "function": {
     "name": "where",
-    "description": ("Where a named place, region, NPC or landmark is in the world: its position (from game data, "
-                    "your saved places, map memory or lodestones), how exact it is, the region, your distance, and "
-                    "the lodestone nearest it. Use before go_to / teleport to a name; unknown names say so."),
+    "description": ("Where a named place, province, region, NPC or landmark is in the world: its position (from game "
+                    "data, your saved places, map memory or lodestones), how exact it is, its region and province, "
+                    "your distance, and the lodestone nearest it; an NPC with copies in several provinces lists each "
+                    "copy with its province. Use before go_to / teleport to a name; unknown names say so."),
     "parameters": {"type": "object", "properties": {"place": {"type": "string"}}, "required": ["place"]}}}
 
 

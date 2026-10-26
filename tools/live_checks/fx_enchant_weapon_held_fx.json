@@ -1,0 +1,39 @@
+{
+ "id": "fx_enchant_weapon_held_fx",
+ "owner": "l38",
+ "area": "AHeldEquipmentActor.AddEquipmentFX / RemoveEquipmentFX (FXSourceToAppliedFX) on a -nullrhi client (BUGS L38 at-risk list)",
+ "why": "Enchant Weapon adds a held-equipment FX bundle; on Claude's client its NiagaraComponent is NULL. Static reading (RemoveEquipmentFX at exe+0x65A7CF0) says it checks IsValid before Deactivate and Destroy. Exercise add (cast), re-add (2nd cast: Add removes the old entry first) and unequip, and prove the same client process survives.",
+ "preconditions": {
+  "fixtures": [
+   {"verb": "grant", "item": "ITEM_Sword_Bronze", "count": 1},
+   {"verb": "unlock", "spell": "USD_EnchantWeapon_Fire"},
+   {"verb": "grant_runes", "runes": {"Fire": 30, "Astral": 10}}
+  ],
+  "set_health": {"pct": 100},
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {"client_cmd": "client_mod/commands/fx_null_probe.lua", "save": "fx_before"},
+  {"bridge": "equip", "args": {"item": "Bronze Sword"}, "timeout_s": 20, "save": "equip"},
+  {"sleep_s": 1},
+  {"bridge": "cast", "args": {"spell": "Enchant Weapon: Fire"}, "timeout_s": 60, "save": "cast1"},
+  {"sleep_s": 2},
+  {"client_cmd": "client_mod/commands/fx_null_probe.lua", "save": "fx_enchanted"},
+  {"bridge": "cast", "args": {"spell": "Enchant Weapon: Fire"}, "timeout_s": 60, "save": "cast2"},
+  {"sleep_s": 2},
+  {"client_cmd": "client_mod/commands/fx_null_probe.lua", "save": "fx_recast"},
+  {"bridge": "unequip", "args": {"item": "Bronze Sword"}, "timeout_s": 20, "save": "unequip"},
+  {"sleep_s": 2},
+  {"client_cmd": "client_mod/commands/fx_null_probe.lua", "save": "fx_after"},
+  {"probe": true, "save": "end"}
+ ],
+ "pass": [
+  {"ref": "equip.ok", "eq": true, "why": "the sword is held (an AHeldEquipmentActor exists)"},
+  {"ref": "cast1.ok", "eq": true, "why": "the enchant went off (AddEquipmentFX ran with a NULL Niagara spawn)"},
+  {"delta": ["fx_before.runs", "fx_after.runs"], "gte": 3, "why": "the same client process answered through enchant, re-enchant and unequip (no crash)"}
+ ],
+ "observe": ["cast1.reason", "cast1.data.detail", "cast2.ok", "cast2.reason", "cast2.data.detail", "unequip.ok", "unequip.reason",
+             "fx_enchanted.held", "fx_recast.held", "fx_after.held", "fx_enchanted.status"],
+ "timeout_s": 300,
+ "max_retries": 0
+}

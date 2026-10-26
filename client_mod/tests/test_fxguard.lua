@@ -1,5 +1,5 @@
 -- Offline test for client_mod/scripts/fxguard.lua (BUGS L38): every live player character's
--- TaggedLocalNiagaraSystems is emptied (own and other players' pawns), defaults are skipped, an
+-- TaggedLocalNiagaraSystems is emptied (own and other players' pawns, and the class defaults), an
 -- already-empty map is left alone, a failed Empty() is reported, and healthy() follows the maps.
 -- Fake UE objects only. Usage: lua test_fxguard.lua <empty_dir>
 local dir = assert(arg[1], "usage: lua test_fxguard.lua <empty_dir>"):gsub("\\", "/")
@@ -42,10 +42,10 @@ local r = F.start(function(m) logs[#logs + 1] = m end)
 check(r.ok == true and r.guarded == true, "start(): ok and guarded")
 check(#me.TaggedLocalNiagaraSystems.keys == 0, "own pawn emptied")
 check(#other.TaggedLocalNiagaraSystems.keys == 0, "another player's pawn emptied (its tag events run on this client too)")
-check(#cdo.TaggedLocalNiagaraSystems.keys == 1, "class default object untouched")
-check(#r.applied == 2, "exactly the two pawns with rows applied (empty map left alone)")
+check(#cdo.TaggedLocalNiagaraSystems.keys == 0, "class default object emptied too (a respawned pawn copies it: no 10 s window)")
+check(#r.applied == 3, "exactly the three maps with rows applied (empty map left alone)")
 check(r.applied[2].keys[2] == "Future.Tag", "rows a future patch adds are covered (all keys reported)")
-check(#logs == 2 and logs[1]:find("Environment.SoulScourge", 1, true) ~= nil, "each emptied map is logged with its keys")
+check(#logs == 3 and logs[1]:find("Environment.SoulScourge", 1, true) ~= nil, "each emptied map is logged with its keys")
 check(F.healthy() == true, "after start(): healthy")
 
 -- respawn: a fresh pawn arrives with the default rows -> unhealthy until the service re-applies

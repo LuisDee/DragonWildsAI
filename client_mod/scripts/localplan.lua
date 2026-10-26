@@ -16,9 +16,11 @@
 -- API:
 --   local P = LP.new(opts)          opts.trace(a, b) -> hit_z | nil, start_penetrating   (cm)
 --                                   opts.center {X,Y,Z} (pawn location), opts.radius_m (12),
---                                   opts.cell_cm (100), env = {step, jump, djump, drop} cm
+--                                   opts.cell_cm (100), env = {step, jump, djump, drop, superjump?} cm
+--                                   (superjump = a MEASURED Windstep rise, set by move.lua only while castable)
 --   P:step(budget) -> "sampling" | "ready"       (budget = traces this call)
---   P:plan(goal) -> points {X,Y,Z,act="walk"|"jump"|"djump"|"drop"} | nil, reason
+--   P:plan(goal) -> points {X,Y,Z,act="walk"|"jump"|"djump"|"superjump"|"drop"} | nil, reason
+--                                   P.too_high_cm = the lowest rise no available move could make (for reasons)
 --   P:verify(points, budget) -> "ok" | "blocked" (re-plan) | "verifying"
 --   LP.prefetch(cache, trace, x, y, feet_z, opts) -> traces used (0 if cached): sample one
 --                                   world cell into the cache while moving (no standstill later)
@@ -178,6 +180,10 @@ function LP:edge(a, b)
     if dz > 0 then
         if dz <= e.jump then return "jump", 2 end
         if dz <= e.djump then return "djump", 4 end
+        -- a Windstep super-jump: only when move.lua found it castable AND its rise was measured
+        if e.superjump and dz <= e.superjump then return "superjump", e.superjump_cost or 8 end
+        -- too high for every move we have: remember the lowest such rise (an honest "what would it take")
+        if not self.too_high_cm or dz < self.too_high_cm then self.too_high_cm = dz end
         return nil
     end
     if -dz <= e.drop then return "drop", 1 end
@@ -342,7 +348,7 @@ function LP:verify(pts, budget)
                     return "blocked" -- re-plan: edge() now treats it as a jump/drop
                 end
             end
-            local z = (b.act == "jump" or b.act == "djump") and (math.max(a.Z, b.Z) + 60) or (math.max(a.Z, b.Z) + 50)
+            local z = (b.act == "jump" or b.act == "djump" or b.act == "superjump") and (math.max(a.Z, b.Z) + 60) or (math.max(a.Z, b.Z) + 50)
             -- clip the part of the segment within self_r of Claude (his own gear)
             local ax, ay, bx, by = a.X, a.Y, b.X, b.Y
             local sp = self.self_pos
@@ -357,7 +363,7 @@ function LP:verify(pts, budget)
             if math.sqrt((bx - ax) ^ 2 + (by - ay) ^ 2) > 10 then
                 hit, hp = self.trace({ X = ax, Y = ay, Z = z }, { X = bx, Y = by, Z = z }, true)
             end
-            if hit and b.act ~= "jump" and b.act ~= "djump" then
+            if hit and b.act ~= "jump" and b.act ~= "djump" and b.act ~= "superjump" then
                 -- a LOW obstacle (felled log, fence) is clear at jump height: hop it instead of a wall
                 local zh = math.max(a.Z, b.Z) + (self.env.jump or 165) - 30
                 local hh = self.trace({ X = ax, Y = ay, Z = zh }, { X = bx, Y = by, Z = zh }, true)

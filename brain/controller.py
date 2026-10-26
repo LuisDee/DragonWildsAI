@@ -194,6 +194,31 @@ SKILL_PHRASES = {"fetch": "pick that up", "consume": "eat or drink that", "come_
                  "run_skill": "run that skill"}
 # Actions that leave the current job running (a spell or a standing order is not a new job).
 NON_INTERRUPTING = {"remember", "cast", *RULE_TOOLS}
+
+# Speech is an explicit channel (single voice, design principle 6): only the text of a ``say`` call is ever
+# heard; the model's free text is a private note (logged as controller_note, never spoken). A/B 2026-10-26:
+# with thinking off, Haiku 5.5 wrote its reasoning into the free text ("HP is at 2%, water at 0..."), which
+# the text channel would have said in chat. The say call is not an action: it is collected as the turn's
+# line and then goes through the same single-voice rules (a failure line replaces it, a held line is said
+# when the move is accepted). DW_SPEECH_CHANNEL=text restores the old channel (free text is speech).
+SPEECH_CHANNEL_ENV = "DW_SPEECH_CHANNEL"
+SAY_TOOL = "say"
+SAY_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": SAY_TOOL,
+        "description": ("Say one line in game chat. The ONLY way anyone hears you: text you write outside say is a "
+                        "private note nobody hears. Call it at most once per reply, beside your other tool calls; "
+                        "the line is said when they start (if one fails first, you get to say what went wrong "
+                        "instead). No say call = you stay silent."),
+        "parameters": {"type": "object", "properties": {"text": {"type": "string", "description":
+                       "Exactly what the players read in chat: short, casual, in your own words."}},
+                       "required": ["text"]},
+    },
+}
+# Text-channel sessions only (DW_SPEECH_CHANNEL=text): persona.md describes the say tool, so say how it is here.
+TEXT_CHANNEL_NOTE = ("Speech here: there is no say tool in this session; the text of your reply is what you say in "
+                     "chat, so write only the line itself (no text = silence).")
 # Reasons in words, for "I couldn't X: <why>".
 REASON_PHRASES = {
     Reason.PATH_BLOCKED: "I can't find a way there",
@@ -244,6 +269,10 @@ def player_words(text: str, name: str | None = None) -> str:
     out = re.sub(r"\s*\([^()]*(?:\bid\b|" + ENGINE_ID.pattern + r")[^()]*\)", "", text)
     out = ENGINE_ID.sub(name or "it", out)
     return re.sub(r"\s{2,}", " ", out).strip()
+
+
+# spell_lines: the body's `how` per castable spell, cut to this (bounded prompt growth: one short tail per line)
+SPELL_HOW_CHARS = 150
 
 
 def clip(text: str, limit: int = MAX_SAY) -> str:
@@ -302,6 +331,8 @@ class Controller:
         self.skills = skills  # SkillLibrary | None
         self.max_calls = max(1, max_calls)
         self.addressed_effort = os.environ.get(ADDRESSED_EFFORT_ENV, ADDRESSED_EFFORT_DEFAULT).strip() or None
+        # speech channel: "say" (only say calls are heard; default) or "text" (free text is speech, legacy)
+        self.say_channel = (os.environ.get(SPEECH_CHANNEL_ENV) or "say").strip().lower() != "text"
         self.check_talk_only = True  # TALK_ONLY_NOTE: one extra call for a talk-only follow-up turn
         self.progress_interval = progress_interval
         self.clock = clock
@@ -337,6 +368,8 @@ class Controller:
             if f.get("name") in self.read_tools and READ_ALONE not in (f.get("description") or ""):
                 t = {**t, "function": {**f, "description": (f.get("description") or "").rstrip() + " " + READ_ALONE}}
             out.append(t)
+        if self.say_channel:
+            out.insert(0, SAY_SCHEMA)
         return out
 
     def _schemas(self) -> list[dict]:
@@ -402,7 +435,9 @@ class Controller:
 
     def spell_lines(self) -> list[str]:
         """One line per spell (speed plan §2.2: the JSON rows were ~6k characters): name, role, what it
-        does (80 chars) and why it can't be cast now. ``spells`` (read) has the full rows."""
+        does (80 chars), why it can't be cast now, and HOW it is really used (``how``, body-supplied from
+        data/spell_mechanics.json, SPELL_HOW_CHARS): drop-then-cast (Divine Rock: drop 5 ore), cast-on-a-thing,
+        held open while walking (Recall). ``spells`` (read) has the full rows."""
         out = []
         for s in self.castable_spells():
             bits = [str(s.get("role") or "")]
@@ -415,7 +450,9 @@ class Controller:
             elif s.get("remaining_s"):
                 bits.append(f"cooldown {float(s['remaining_s']):.0f}s")
             use = clip(str(s.get("use_when") or ""), 80)
-            out.append(f"{s.get('name')} ({', '.join(b for b in bits if b)})" + (f": {use}" if use else ""))
+            how = clip(str(s.get("how") or ""), SPELL_HOW_CHARS)
+            out.append(f"{s.get('name')} ({', '.join(b for b in bits if b)})" + (f": {use}" if use else "")
+                       + (f" | how: {how}" if how else ""))
         return out
 
     def castable_spells(self) -> list[dict]:
@@ -506,6 +543,8 @@ class Controller:
                                       triggers=", ".join(SENSABLE_TRIGGERS),
                                       look_rule=LOOK_RULE if self.can_look else NO_LOOK_RULE,
                                       lookup_rule=LOOKUP_RULE if self.knowledge is not None else "")
+        if not self.say_channel:
+            persona += "\n\n" + TEXT_CHANNEL_NOTE
         if self.director is not None:
             persona += "\n\n" + self.director.persona_lines()
         rules = self.house_rules()
@@ -526,7 +565,7 @@ class Controller:
         if addressed and (text or "").strip() and body_event is None:
             d.effort = self.addressed_effort  # a player's line to him: think a little more (latency budget M1)
         resp, messages = self._loop(messages, d)
-        d.speech = strip_markers(resp.content)
+        d.speech = self.speech_of(resp)
         d.messages = messages + [assistant_message(resp)]
         self._collect(resp.tool_calls, d, state)
         # A real action or a new goal pre-empts the current job; remember(), spells, standing
@@ -550,8 +589,9 @@ class Controller:
             d.model_calls += 1
             self.log.log("llm_response", component="controller", step=tag, content=resp.content,
                          tool_calls=[vars(c) for c in resp.tool_calls], usage=resp.usage)
-            reads = [c for c in resp.tool_calls if c.name in self.read_tools and c.name in offered]
-            commits = [c for c in resp.tool_calls if c.name not in self.read_tools]
+            calls = self.acts(resp)
+            reads = [c for c in calls if c.name in self.read_tools and c.name in offered]
+            commits = [c for c in calls if c.name not in self.read_tools]
             if commits or not reads:
                 break  # the first real action ends the turn (reads alongside an action are not run)
             if step == self.max_calls - 1:
@@ -561,6 +601,7 @@ class Controller:
             messages = messages + [assistant_message(resp)]
             for call in reads:
                 messages.append(tool_result_message(call, self._read(call, d)))
+            self._answer_says(messages, resp)
             if step == self.max_calls - 2:
                 messages.append({"role": "user", "content": "Last step: act now on what you found, or reply."})
         return resp, messages
@@ -575,6 +616,7 @@ class Controller:
         messages = messages + [assistant_message(resp)]
         for call in reads:  # the budget is spent: these are answered, not run
             messages.append(tool_result_message(call, {"ok": None, "note": "not run: no more looking this turn"}))
+        self._answer_says(messages, resp)
         messages.append({"role": "user", "content": FINAL_PASS_NOTE})
         tools = [t for t in self.tools if t["function"]["name"] not in self.read_tools]
         self.log.log("prompt", component="controller", model=self.llm.model, step=f"{tag}final", messages=messages[-2:],
@@ -588,8 +630,45 @@ class Controller:
         self.log.log("llm_response", component="controller", step=f"{tag}final", content=final.content,
                      tool_calls=[vars(c) for c in final.tool_calls], usage=final.usage)
         self.log.log("controller_final_pass", ok=True, actions=[c.name for c in final.tool_calls],
-                     speech=strip_markers(final.content))
+                     speech=self.speech_of(final, log=False))
         return final, messages
+
+    # ---------------------------------------------------------------- the speech channel
+
+    def speech_of(self, resp: LLMResponse, log: bool = True) -> str | None:
+        """The reply's line. Say channel: the text of its say call(s) only; the free text is a private note,
+        logged and never spoken. Text channel (legacy): the free text."""
+        if not self.say_channel:
+            return strip_markers(resp.content)
+        note = strip_markers(resp.content)
+        if note and log:
+            self.log.log("controller_note", text=note)  # the model's own words to itself: never chat
+        lines = [strip_markers(str((c.arguments or {}).get("text") or "")) for c in resp.tool_calls
+                 if c.name == SAY_TOOL]
+        return " ".join(x for x in lines if x) or None
+
+    def acts(self, resp: LLMResponse) -> list[ToolCall]:
+        """The reply's tool calls other than say (say is speech, not a tool the body runs)."""
+        if not self.say_channel:
+            return list(resp.tool_calls)
+        return [c for c in resp.tool_calls if c.name != SAY_TOOL]
+
+    @staticmethod
+    def _say_result(failed: bool = False, held: bool = False) -> dict:
+        """What a say call's tool result tells the model (every tool_use needs a tool_result)."""
+        if held:
+            return {"ok": True, "note": "not said yet: only the say in the reply that ends your turn is heard; "
+                                        "call say again then if you still want to say it"}
+        if failed:
+            return {"ok": None, "note": "not said: a step failed first; say what's true now"}
+        return {"ok": True, "note": "said"}
+
+    def _answer_says(self, messages: list[dict], resp: LLMResponse) -> None:
+        """A reply that only looked (its reads run inline) may also have called say: answer it (held)."""
+        if self.say_channel:
+            for call in resp.tool_calls:
+                if call.name == SAY_TOOL:
+                    messages.append(tool_result_message(call, self._say_result(held=True)))
 
     def _sent_effort(self, d: Decision | None = None) -> str | None:
         """The effort a call sends: the request's own level, else the client's default (logged, L27)."""
@@ -648,7 +727,8 @@ class Controller:
             res = results.get(tc.get("id")) or results.get(name) or (
                 {"ok": None, "note": "not run: an earlier step failed"} if failed else
                 {"ok": None, "note": "not run: a read alongside an action is skipped; call it on its own"}
-                if name in self.read_tools else {"ok": None, "note": "not run"})
+                if name in self.read_tools else results.get(SAY_TOOL) or self._say_result(failed)
+                if name == SAY_TOOL and self.say_channel else {"ok": None, "note": "not run"})
             msgs.append(tool_result_message(ToolCall(name or "?", {}, tc.get("id")), res))
         msgs.append({"role": "user", "content": note or (
             "A step did not work (results above). Fix it with the right tool or another way; if you can't, "
@@ -660,12 +740,12 @@ class Controller:
         d2 = Decision(effort=d.effort)  # the same request keeps its effort (and its cache entry)
         resp, msgs = self._loop(msgs, d2, label="turn")
         msgs = msgs + [assistant_message(resp)]
-        speech = strip_markers(resp.content)
-        if speech and not resp.tool_calls and note is None and self.check_talk_only:
+        speech = self.speech_of(resp)
+        if speech and not self.acts(resp) and note is None and self.check_talk_only:
             resp, msgs, speech = self._talk_only_check(msgs, d2, speech)
         d2.speech = speech
         d2.messages = msgs
-        self._collect([c for c in resp.tool_calls if c.name not in self.read_tools], d2, state or {})
+        self._collect([c for c in self.acts(resp) if c.name not in self.read_tools], d2, state or {})
         d2.interrupts = any(a.name not in self.non_interrupting() for a in d2.actions)
         return d2
 
@@ -680,10 +760,10 @@ class Controller:
         except Exception as exc:  # a failed check only means the line is said as it was
             self.log.log("talk_only_check", speech=speech, error=repr(exc))
             return LLMResponse(content=speech), msgs, speech
-        calls = [c.name for c in resp.tool_calls]
-        reworded = strip_markers(resp.content)
+        calls = [c.name for c in self.acts(resp)]
+        reworded = self.speech_of(resp)
         self.log.log("talk_only_check", speech=speech, actions=calls, reworded=reworded)
-        if not resp.tool_calls and not reworded:
+        if not calls and not reworded:
             return LLMResponse(content=speech), msgs, speech
         return resp, out + [assistant_message(resp)], reworded or speech
 
@@ -729,8 +809,8 @@ class Controller:
     def _collect(self, calls: list[ToolCall], d: Decision, state: dict) -> None:
         offered = self.offered()
         for call in calls:
-            if call.name in self.read_tools:
-                continue
+            if call.name in self.read_tools or (call.name == SAY_TOOL and self.say_channel):
+                continue  # say is the turn's line (speech_of), not an action
             if call.name not in offered and self.caps is not None:  # a legacy name (pickup -> fetch)
                 new, args = self.caps.resolve(call.name, call.arguments or {})
                 if new != call.name and new in offered:

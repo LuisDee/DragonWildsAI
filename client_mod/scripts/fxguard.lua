@@ -14,17 +14,25 @@
 -- other players' pawns, whose tag events run here too). The tag handler then finds no row and neither
 -- adds a NULL nor removes one; whatever row a patch adds later is covered too. Purely cosmetic and
 -- client-local (a non-replicated config map): a -nullrhi client never draws those systems anyway.
--- A new pawn (respawn, rejoin, another player joining) gets a fresh map: client_bridge SERVICES calls
--- healthy()/start() every 10 s, and status() lists any instance that still has rows.
+-- A new pawn (respawn, rejoin, another player joining) is built from its class default object, so the
+-- class defaults (Default__BP_PlayerCharacter_C, Default__DominionPlayerCharacter) are emptied too: a pawn
+-- that respawns at the safety floor and drinks Dirty Water at once is covered without waiting for the
+-- next service check. client_bridge SERVICES still calls healthy()/start() every 10 s (a new world can
+-- load a fresh class), and status() lists any instance that still has rows.
 local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
 local U = assert(loadfile(ROOT .. "/mod/body/util.lua"))()
 
 local M = { U = U }
 
 -- One row per game container that maps a trigger to a VFX spawn whose NULL result the game stores and
--- later dereferences on a -nullrhi client. class = FindAllOf short class name, prop = the reflected TMap.
+-- later dereferences on a -nullrhi client. class = FindAllOf short class name, prop = the reflected TMap,
+-- defaults = also empty the class default objects (new instances copy them).
+-- Audited and NOT needed (2026-10-26, DISCOVERIES "Client crash L38"): UTagActivatedFX (Deactivate loop
+-- null-checks each component), AHeldEquipmentActor.FXSourceToAppliedFX (RemoveEquipmentFX checks IsValid),
+-- UDominionStatusEffect.SpawnedVFX (NULL is the normal state for a status without VFX; the toggle checks),
+-- UDrainEffectManagerComponent Drain/Beam (checked before destroy).
 M.GUARDS = {
-    { class = "DominionPlayerCharacter", prop = "TaggedLocalNiagaraSystems",
+    { class = "DominionPlayerCharacter", prop = "TaggedLocalNiagaraSystems", defaults = true,
       why = "AddNiagaraSystemAttachedWithLocalTag stores a NULL Niagara component in LocalFX; RemoveNiagaraSystemWithLocalTag derefs it" },
 }
 
@@ -40,7 +48,7 @@ end
 function M.status()
     local out, all_ok = {}, true
     for _, g in ipairs(M.GUARDS) do
-        for _, o in ipairs(U.find_all(g.class, { skip_defaults = true })) do
+        for _, o in ipairs(U.find_all(g.class, { skip_defaults = not g.defaults })) do
             local n, keys = rows_of(o, g.prop)
             local ok = n == 0
             all_ok = all_ok and ok
@@ -57,7 +65,7 @@ function M.healthy() return M.status().guarded == true end
 function M.apply(log)
     local applied, failed = {}, {}
     for _, g in ipairs(M.GUARDS) do
-        for _, o in ipairs(U.find_all(g.class, { skip_defaults = true })) do
+        for _, o in ipairs(U.find_all(g.class, { skip_defaults = not g.defaults })) do
             local before, keys = rows_of(o, g.prop)
             if before ~= 0 then
                 local okw, err = pcall(function() o[g.prop]:Empty() end)

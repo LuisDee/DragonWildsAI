@@ -18,11 +18,17 @@ return function(log)
         local f = io.open(dir .. "/" .. name, "wb")
         if f then f:write(body); f:close(); written[#written + 1] = name end
     end
-    local with_poly, named = 0, 0
-    for _, r in ipairs(all.regions) do if #(r.polygon or {}) >= 3 then with_poly = with_poly + 1 end end
+    local with_poly, named, with_tag, tags = 0, 0, 0, {}
+    for _, r in ipairs(all.regions) do
+        if #(r.polygon or {}) >= 3 then with_poly = with_poly + 1 end
+        if r.tag and r.tag ~= "" and r.tag ~= "None" then
+            with_tag = with_tag + 1
+            if #tags < 6 then tags[#tags + 1] = tostring(r.name) .. "=" .. r.tag end
+        end
+    end
     for _, l in ipairs(all.landmarks) do if l.desc and l.desc ~= "" then named = named + 1 end end
     return { ok = #written > 0, regions = #all.regions, regions_with_polygon = with_poly,
              landmarks = #all.landmarks, landmarks_named = named, position = all.me.position,
              game_region = all.me.game_region, computed_region = all.computed_region, agrees = all.agrees,
-             written = written }
+             regions_with_tag = with_tag, tags_sample = tags, written = written }
 end

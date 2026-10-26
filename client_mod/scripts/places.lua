@@ -119,6 +119,9 @@ function W.regions()
             id = u.short(r), region_id = tonumber(u.try(function() return r.RegionID end)),
             name = text(u.try(function() return r.RegionName end)) or text(u.try(function() return r:GetRegionName() end)),
             power = tonumber(u.try(function() return r.PowerLevel end)),
+            -- FGameplayTag property reads (no hand-built struct): the tag hierarchy may name the province
+            tag = text(u.try(function() return r.MapRegionTag.TagName end)),
+            quest_tag = text(u.try(function() return r.QuestConversationEntryTag.TagName end)),
             closed = u.valid(spline) and u.try(function() return spline:IsClosedLoop() end) or nil,
             spline_points = n, polygon = poly, z = pts[1] and pts[1][3] or nil, bbox = M.bbox(poly),
         }

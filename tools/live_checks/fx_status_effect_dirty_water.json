@@ -1,0 +1,34 @@
+{
+ "id": "fx_status_effect_dirty_water",
+ "owner": "l38",
+ "area": "client_mod/scripts/fxguard.lua (BUGS L38) + UDominionStatusEffect.SpawnedVFX on a -nullrhi client; data/consumable_risks.json no longer lists Dirty Water",
+ "why": "The model's own consume of Dirty Water must not crash the client any more (L38 fixed by fxguard), and the Soulscourge status effect it applies (SpawnedVFX NULL on -nullrhi; static reading says every consumer null-checks) must survive apply and removal.",
+ "preconditions": {
+  "fixtures": [
+   {"verb": "grant", "item": "ITEM_Consumable_Water_Dirty", "count": 1}
+  ],
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {"client_cmd": "client_mod/commands/fx_null_probe.lua", "save": "fx_before"},
+  {"probe": true, "save": "before"},
+  {"bridge": "move_item", "args": {"item": "Dirty Water", "to": "hotbar"}, "timeout_s": 15, "save": "move"},
+  {"bridge": "consume", "args": {"item": "Dirty Water"}, "timeout_s": 40, "save": "drink"},
+  {"sleep_s": 1},
+  {"client_cmd": "client_mod/commands/fx_null_probe.lua", "save": "fx_during"},
+  {"sleep_s": 8},
+  {"client_cmd": "client_mod/commands/fx_null_probe.lua", "save": "fx_after"},
+  {"probe": true, "save": "after"}
+ ],
+ "pass": [
+  {"ref": "drink.ok", "eq": true, "why": "consume answered ok: no crash_refusal any more, the count fell"},
+  {"delta": ["before.inventory.ITEM_Consumable_Water_Dirty", "after.inventory.ITEM_Consumable_Water_Dirty"], "lte": -1, "why": "one Dirty Water fewer"},
+  {"ref": "fx_before.fxguard.guarded", "eq": true, "why": "the fxguard service had emptied TaggedLocalNiagaraSystems"},
+  {"ref": "fx_during.local_fx", "falsy": true, "why": "no NULL stored in LocalFX (the L38 mechanism)"},
+  {"delta": ["fx_before.runs", "fx_after.runs"], "gte": 2, "why": "the same client process answered before and after (no crash and relaunch)"},
+  {"ref": "after.input_mode", "eq": "DIM_Gameplay"}
+ ],
+ "observe": ["drink.reason", "drink.data.detail", "fx_during.status", "fx_after.status", "fx_during.local_fx", "fx_before.fxguard", "before.vitals", "after.vitals"],
+ "timeout_s": 150,
+ "max_retries": 0
+}

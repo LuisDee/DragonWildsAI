@@ -599,13 +599,18 @@ stale reservations). Now an agent **writes one file** and the queue runs it the 
    - `steps`, in order, each one of: `{"bridge": tool, "args": {...}, "timeout_s", "save"}` (the body's own tool on the
      bridge **debug** channel, like `tools.bridge_cmd`), `{"client_cmd": "client_mod/commands/x.lua", "args", "save"}`
      (the DWClient runner, `local ARGS` prefixed), `{"probe": true, "save"}` (read-only `bench_probe.lua`: position,
-     input_mode, inventory by item id, vitals), `{"sleep_s": n}`, `{"fixture": verb, ...}`. Args may use templates:
+     input_mode, inventory by item id, vitals), `{"sleep_s": n}`, `{"fixture": verb, ...}`,
+     `{"server": "<mod/experiments module>", "args", "save"}` (a dev-server `debug_run` after the dev guard, with the dev
+     character's GUID added; e.g. `bench_creatures` reads spawned creatures' PowerLevel/class path and kills them).
+     Args may use templates:
      `{"$ref": "start.position"}`, `{"$offset": ["start.position", [12, 0, 0]]}`,
      `{"$find": {"in": "stations.data.stations", "match": {"name": "ampfire"}, "get": "id"}}` (unresolved = blocked);
    - `pass`: criteria over the saved values, all must hold: left side `ref` (dotted path into saved replies/probes),
      `delta: [ref_before, ref_after]` (missing = 0), `dist: [ref_a, ref_b]` (2-D metres), or
      `log: {source: client|game|vitals|activity, regex}` (match count in lines written DURING the check); one operator
      `eq ne gt gte lt lte in contains exists truthy falsy regex`; optional `why`;
+   - `cleanup`: steps run after `steps` whatever happened (blocked, error or done), each best effort; a template that
+     does not resolve skips that step (the thing was never made). Use it to remove what the check spawned;
    - `observe`: refs/expressions recorded as evidence only (`{"name": ..., "dist": [...]}` names one);
      `observe_only: true` = an exploratory run whose verdict is **observed** (criteria recorded, not gating);
    - `timeout_s` (whole check, including setup) and `max_retries` (re-runs after failed/error in the same sitting).

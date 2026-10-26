@@ -362,12 +362,14 @@ class Agent:
                 self.controller.report_failure(*t["failure"])
                 said = True
                 break
+            line_said = bool(t["spoken"])  # was this turn's own line heard (the say call's result, next turn)
             if not t["failure"]:
                 text = " ".join(s for s in [None if t["spoken"] else d.speech, *t["extra"]] if s)
                 if text:
                     if self.controller.say(text, kind=kind) is not None:
                         said = True
                         lines.append(text)
+                        line_said = line_said or bool(d.speech)
                 said = said or t["spoken"]
             elif t["failure"][1] in Reason.INTERRUPTS:  # a newer command took over: it speaks
                 break
@@ -391,7 +393,10 @@ class Agent:
             turn += 1
             state = self._fresh_state()
             try:
-                d = self.controller.next_turn(d, t["results"], state, failed=bool(t["failure"]),
+                say_res = {"ok": True, "note": "said"} if line_said else \
+                    {"ok": None, "note": "not said: a step failed first; say what's true now" if t["failure"]
+                     else "not said (too close to a line you just said)"}
+                d = self.controller.next_turn(d, {**t["results"], "say": say_res}, state, failed=bool(t["failure"]),
                                               note=PROMISE_NOTE if promise_check else None)
             except Exception as exc:  # model/provider error: the template still says why
                 self.log.log("next_turn_error", turn=turn, error=repr(exc))

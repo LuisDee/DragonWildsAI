@@ -4,6 +4,7 @@ JSONL bridge."""
 import copy
 import json
 import time
+from pathlib import Path
 
 import pytest
 from conftest import Rig
@@ -345,3 +346,46 @@ def test_for_and_needs_cost_at_most_1500_chars_for_all_unlocked_spells():
         sum(len(f", needs: {r['needs']}") for r in rows if r.get("needs"))
     assert all(r.get("for") for r in rows)
     assert added <= 1500, added
+
+
+def test_spell_lines_render_the_bodys_how_compactly():
+    """M2 gap table: the model never saw drop-then-cast / cast-on-a-thing mechanics (Divine Rock: drop 5 ore; Runes to
+    Rune Essence; Magical Mending). spell_lines now renders the body's `how` (data/spell_mechanics.json), one short
+    tail per spell, cut at SPELL_HOW_CHARS so the prompt stays bounded."""
+    from brain.controller import SPELL_HOW_CHARS, Controller
+    mech = json.loads((Path(__file__).resolve().parents[1] / "data" / "spell_mechanics.json").read_text(encoding="utf-8"))["spells"]
+    body = [{"id": i, "name": n, "role": "placed", "castable": True, "how": mech[i]["how"]}
+            for i, n in (("USD_DivineRock", "Divine Rock"), ("USD_RunesToRuneEssence", "Runes to Rune Essence"),
+                         ("USD_MagicalMending", "Magical Mending"), ("USD_Recall", "Recall"))]
+    body.append({"id": "USD_X", "name": "Plain", "role": "instant", "castable": True})
+    rows = from_body(body)
+    fake = type("C", (), {"castable_spells": lambda self: rows})()
+    lines = {s.split(" (")[0]: s for s in Controller.spell_lines(fake)}
+    assert "drop 5 ore" in lines["Divine Rock"] and "| how: " in lines["Divine Rock"]
+    assert "drop the runes" in lines["Runes to Rune Essence"]
+    assert "drop the worn" in lines["Magical Mending"]
+    assert "how:" not in lines["Plain"]
+    for line in lines.values():  # bounded: the how tail never exceeds its cap
+        if "| how: " in line:
+            assert len(line.split("| how: ", 1)[1]) <= SPELL_HOW_CHARS
+    assert lines["Recall"].split("| how: ", 1)[1].endswith("…")  # the long one is cut, not dropped
+
+
+def test_cast_walk_to_survives_validation_and_reaches_the_body():
+    """Recall is one held-open cast (live 2026-10-26 19:39 UTC): the body needs walk_to. CastArgs had no such field,
+    so validate_args dropped it and the brain could never cast Recall usefully."""
+    assert validate_args("cast", {"spell": "Recall", "walk_to": [1.0, 2.0, 3.0]})["walk_to"] == [1.0, 2.0, 3.0]
+    sent = []
+
+    class Spy(BridgeClient):
+        def __init__(self):
+            pass
+
+        def request(self, tool, args, timeout=None):
+            sent.append((tool, args))
+            return ok()
+    assert Spy().call("cast", {"spell": "Recall", "walk_to": "obj:7"})["ok"]
+    assert sent == [("cast", {"spell": "Recall", "walk_to": "obj:7"})]
+    sent.clear()
+    Spy().call("cast", {"spell": "Windstep"})
+    assert sent == [("cast", {"spell": "Windstep"})]  # unset walk_to never crosses the wire

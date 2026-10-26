@@ -1,0 +1,19 @@
+{
+ "id": "places_region_tags",
+ "owner": "places (A5 provinces)",
+ "area": "client_mod/scripts/places.lua W.regions: also read each BP_MapRegion_C's MapRegionTag / QuestConversationEntryTag (FGameplayTag.TagName), via client_mod/commands/places_dump.lua",
+ "why": "The province level (Brynmoor, Ghornfell, Fellhollow, Dowdun Reach, Umbral Sands, Scorned Wilderness = the game's EQuestRegion) has no reflected parent field on AMapRegion; data/places_<build>.json takes the sub-region -> province mapping from the wiki mirror. If the region tags are hierarchical (e.g. MapRegion.<Province>.<Area>), tools/build_places.py prefers them as the game's own source. Read-only property reads; re-run tools/build_places.py afterwards.",
+ "preconditions": {},
+ "steps": [
+  {"probe": true, "save": "start"},
+  {"client_cmd": "client_mod/commands/places_dump.lua", "timeout_s": 60, "save": "dump"}
+ ],
+ "pass": [
+  {"ref": "dump.result.ok", "eq": true, "why": "the dump (now with region tags) was written to logs/places_raw_latest.json"},
+  {"ref": "dump.result.regions_with_polygon", "gte": 25, "why": "the same polygons as before"},
+  {"ref": "dump.result.regions_with_tag", "gte": 1, "why": "MapRegionTag.TagName reads as text on at least one region"}
+ ],
+ "observe": ["dump.result.tags_sample", "dump.result.regions_with_tag", "dump.result.game_region", "dump.result.agrees"],
+ "timeout_s": 120,
+ "max_retries": 1
+}

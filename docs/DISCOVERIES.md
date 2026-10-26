@@ -586,7 +586,7 @@ Modules: `mod/experiments/gather_probe.lua` (discovery), services `mod/body/sens
   - Luis's `RevealedMapFogComponent`: `CurrentMapRegion` = Temple Woods (RegionID 1), and `RevealedMapRegionsBitmap` = 268435455 (0x0FFFFFFF, 28 bits). The bit-to-RegionID mapping is UNVERIFIED. `RevealedMapIconsComponent.RevealedLandmarkNames` (TSet) read back empty, probably because UE4SS has no TSet ForEach.
 - **Map regions** come from `BP_MapRegion_C` actors in the persistent level, which are always loaded on the server. There are 31 of them, each with `RegionID`, `RegionName` (FText), `PowerLevel` and a closed `BoundarySpline` (6-90 points, read with `GetNumberOfSplinePoints`/`GetLocationAtSplinePoint(i, World=1)`/`GetLocationAtSplineInputKey`).
   - By id: 1 Temple Woods, 2 Bramblemead Valley, 3 Whispering Swamp, 4 Fractured Plains, 5 Stormtouched Highlands, 6 Bloodblight Swamp, 7 Bleakfields Valley, 8 Hope's Fall, 9 Lake of Lost Souls, 10 Coalridge Pass, 11 Silverthorn Keep, 12 Dragons' Run, 13 Witchwillow Range, 14 Emberwood, 15 Forgotten Temple, 16-25 the Dowdun Reach areas (The Approach, Library, Courtyard, Menagerie, Garrison, Nexus, Pastures, Cathedral, Bastion, Grand Hall), 26 Alcarrid Oasis, 27 Dunes of Uzzer, 28 Manafem Plains, 29 The Burning Spire, 30 Rasthin's Rest, 31 Scorned Wilderness.
-  - **There is no "Fellhollow" region in this build.** It is named only in a wiki changelog, so it is probably a newer area or a sub-area name.
+  - **There is no "Fellhollow" region in this build.** It is named only in a wiki changelog, so it is probably a newer area or a sub-area name. **Corrected 2026-10-26:** Fellhollow is a *province*, not a map region; see "Provinces" below.
   - The polygons overlap, so the smallest one containing the point wins (`travel.region_at`). Live: `[2100, 400]` → The Library, `[2200, 1850]` → Manafem Plains, `[-7000, 7000]` → Scorned Wilderness, `[5000, 5000]` → none.
   - `BP_RegionLabelActor_C` (`MapRegionIconComponent.LabelText`) gives 33 map labels (with `\r\n`). Some of their positions are in map space and do not match the region polygons, so they are not used.
   - `AGameplayObjectRegistry.Landmarks` has 558 entries (category 3 = NPC/lore 248, 5 = anima vents 239, 6 = shrines/urns, 8 = kebbit burrows, 11 = agility courses such as "Tower Climb", "Fractured Ruins", 1 = the boss altar). Mostly `InternalName` = None; the useful text is `UserVisibleDescription`.
@@ -609,6 +609,37 @@ Modules: `mod/experiments/gather_probe.lua` (discovery), services `mod/body/sens
   - `TeleportationSubsystem:TeleportWithParams` was rejected: it takes a delegate and drives a PlayerController's loading screen and client RPCs, which the puppet lacks (R1 class). `UBaseTeleportationComponent::Server_TryTeleport` was rejected too: it lives on a PlayerController.
   - Sources: https://dragonwilds.runescape.wiki/w/Lodestone , https://www.whisperofthehouse.com/runescape-dragonwilds/fast-travel , https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/AActor/K2_TeleportTo , https://docs.unrealengine.com/5.1/en-US/PythonAPI/class/WorldPartitionStreamingSourceComponent.html
 - **Built:** `mod/body/travel.lua` (`travel`, `where`, `lodestones`; registered in main.lua's TRAVEL block, so it **needs a restart**). Tests are in `mod/tests/test_travel.lua` (22).
+
+## Provinces: the 31 map regions are sub-regions of 6 provinces; NPCs have one copy per province (build 26161880, 2026-10-26; offline: dump + wiki mirror)
+- **Luis's fact (2026-10-26):** NPCs such as Zanik and Vannaka exist as several copies, one in each big region (province). In Brynmoor you see only one copy, but they also exist in Ghornfell (e.g. Stormtouched Highlands), Fellhollow, Dowdun Reach and so on. This replaces the earlier unverified guess in brain/places.py and build_places.py that "an NPC moves between its spots with quest stages".
+- **Province names = the game's own `EQuestRegion` enum** (`dumps/26161880/luatypes/Dominion_enums.lua`; used by `FQuestData.QuestRegion` and `QuestListItemTooltip.QuestRegionToTextMap`): 1 Brynmoor, 2 Ghornfell, 3 Fellhollow, 4 Dowdun_Reach, 5 Umbral_Sands, 6 Scorned_Wilderness. Asset folders match this split: `/Game/Gameplay/Quests/FH_Quests/` (Fellhollow), `UmS_Quests/` (Umbral Sands, e.g. `Quest_UmS_Vannaka`), `/Game/Gameplay/NPCs/Fellhollow_NPCs/`, the `/DowdunReach/` plugin, and `ScornedWilderness/`.
+- **No reflected parent link:** `AMapRegion` has only RegionID, RegionName, PowerLevel, BoundarySpline, Day/NighttimeExposureValue, `MapRegionTag` and `QuestConversationEntryTag` (both FGameplayTag). There is no province, zone or parent property, and `UMapRegionIconComponent` (the map labels) has only label styling. The two tags have never been read; if `MapRegionTag` is hierarchical (`…<Province>.<Area>`), it is the game's own mapping. Live check `tools/live_checks/places_region_tags.json` (places.lua now reads both tags, read-only; dry-run valid, pending). `tools/build_places.py` prefers a province named in the tag over the wiki.
+- **Sub-region → province mapping (from the wiki mirror, names only):**
+  - Every region has its own infobox `location:` (for example https://dragonwilds.runescape.wiki/w/Temple_Woods), and the lists at https://dragonwilds.runescape.wiki/w/Ashenfall#Brynmoor (and #Ghornfell, #Fellhollow, #Dowdun_Reach, #Umbral_Sands) agree with them.
+  - **Brynmoor:** Temple Woods, Bramblemead Valley, Whispering Swamp.
+  - **Ghornfell:** Fractured Plains, Stormtouched Highlands, Bloodblight Swamp.
+  - **Fellhollow:** Bleakfields Valley, Hope's Fall, Lake of Lost Souls, Coalridge Pass, Silverthorn Keep, Dragons' Run, Witchwillow Range, Emberwood, Forgotten Temple.
+  - **Dowdun Reach:** The Approach, The Library, The Courtyard, The Menagerie, The Garrison, The Nexus, The Pastures, The Cathedral, The Bastion, The Grand Hall.
+  - **Umbral Sands** (from the Ashenfall list; these pages have no infobox): Alcarrid Oasis, Dunes of Uzzer, Manafem Plains, The Burning Spire.
+  - **Scorned Wilderness:** the region of that name (the region is named after the province; the wiki infobox says only "Ashenfall"), plus Rasthin's Rest. Rasthin's Rest is **inferred** from geometry: its polygon overlaps only the Scorned Wilderness polygon, both are power 8 and far off the main continent, and the wiki's Regicide page says that after the Scorned Wilderness gate you "speak to Zilyana in Rasthin's Rest".
+  - **"Stormtouched Highlands" is a sub-region** (of Ghornfell), not a province, even though players name it alongside the provinces.
+  - A cross-check web search agrees (https://dragonwilds.runescape.wiki/w/Brynmoor , https://dragonwilds.runescape.wiki/w/Ghornfell , https://gamever.io/knowledge-base/ashenfalls-five-regions-in-order-power-levels-hazards-and-what-gates-each-one). The wiki counts 5 regions; the game's enum adds Scorned Wilderness (the raid).
+- **The data agrees with Luis:**
+  - **Vannaka:** 4 registry spots, one per province: Temple Woods (Brynmoor), Stormtouched Highlands (Ghornfell), Bleakfields Valley (Fellhollow), The Courtyard (Dowdun Reach). The wiki's Vannaka infobox lists the same areas, except it says The Library.
+  - **Zanik:** 6 spots: Brynmoor 2 (Temple Woods and Bramblemead Valley; the wiki lists both), Fellhollow 1, Dowdun Reach 1 and Umbral Sands 2. So a province can hold more than one spot with the same name. Which one he stands at is unknown until seen.
+  - **Doric:** 4 spots, one each in Brynmoor, Ghornfell, Fellhollow and Dowdun Reach.
+- **Built:**
+  - `tools/build_places.py` writes `provinces` (name, quest_region_id, regions), each region's `province` and `province_source`, and each landmark's `region` and `province` into `data/places_26161880.json`. It was rebuilt from the live client dump `logs/places_raw_latest.json`: 31/31 regions now have polygons, and 31/31 have a province.
+  - `brain/places.py`:
+    - every spot and region carries its province; answers carry `you_are_in_province`;
+    - NPC answers put the copy in his province first and add a `summary` ("Zanik: copy in Brynmoor (your province) at Temple Woods, 143 m; other copies in …"), `spots_by_province` and `other_provinces`, keeping the spot list nearest first;
+    - province names are answerable ("Fellhollow" → its regions, power levels, the lodestones and points he knows in it, and its nearest known point);
+    - a wiki page that names a province narrows the spots to that province.
+  - All of it is data-driven: no NPC names in code.
+- **Search-before-building:**
+  - Need: a province level above the map regions.
+  - Searched: the reflection dump (AMapRegion, MapRegionIconComponent, enums, asset paths), the local wiki mirror, and the web (wiki region pages, third-party guides).
+  - Decision: **adapt.** Use the game enum for names, the wiki for the mapping (names only), and the game tag when it reads hierarchical. There was nothing to reuse beyond the data itself.
 
 ## NIGHT SKIP WORKS: the bot summons a shelter and sleeps (verified 2026-10-25, 15:51 UTC, Luis via GFN)
 - The game counted the bot as a player ("waiting for players to sleep … waiting on Claude").
