@@ -549,7 +549,14 @@ class _Builder:
 
     def on_response(self, rec: dict, ts: float) -> None:
         comp = rec.get("component") or "?"
-        t0, ep, prec = self.open_prompt.pop(comp, (None, self.cur, {}))
+        eid = rec.get("episode_id")
+        if comp in self.open_prompt:
+            t0, ep, prec = self.open_prompt.pop(comp)
+        elif eid in self.by_eid and self.by_eid[eid].model_calls:  # a further round of the same decision (Director research)
+            ep = self.by_eid[eid]
+            t0, prec = ep.model_calls[-1]["end"], {"model": ep.model_calls[-1]["model"]}
+        else:
+            t0, ep, prec = None, self.by_eid.get(eid, self.cur), {}
         u = rec.get("usage") or {}
         calls = [x if isinstance(x, dict) else {"name": str(x)} for x in (rec.get("tool_calls") or [])]  # director: names only
         model = _model_id(prec.get("model") or rec.get("model")) or ""

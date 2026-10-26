@@ -99,7 +99,7 @@ class _FileState:
         self.dry = False
         self.floor = 0.0  # rows before this were evicted
 
-    def update(self, keep_from: float) -> None:
+    def update(self, keep_from: float = 0.0) -> None:  # 0.0: keep every row (no eviction)
         try:
             size = self.path.stat().st_size
         except OSError:

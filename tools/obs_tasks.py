@@ -154,6 +154,7 @@ def build(rows: list[dict], goals: dict | None = None) -> tuple[list[TaskT], dic
     text_to_id: dict[str, str] = {}
     pending_runs: list[dict] = []          # run starts not yet closed by a board_run
     open_prompt: dict[str, tuple[float, str | None]] = {}
+    director_open: dict[str, tuple[float, str]] = {}  # director episode -> (last prompt/response ts, task)
     open_read: tuple[float, str | None] | None = None
     open_actions: dict[str, tuple[float, dict, str | None, Run | None]] = {}
     open_dispatch: dict[str, tuple[float, str]] = {}
@@ -199,7 +200,10 @@ def build(rows: list[dict], goals: dict | None = None) -> tuple[list[TaskT], dic
             if who is not None:
                 owner = who
             comp = r.get("component") or "?"
-            open_prompt[comp] = (ts, owner if comp != "director" else "director:" + str(r.get("task")))
+            if comp == "director":  # one prompt row, then one llm_response per research round
+                director_open[str(r.get("episode_id") or "director")] = (ts, str(r.get("task")))
+                continue
+            open_prompt[comp] = (ts, owner)
             be = (ctx or {}).get("body_event") or {}
             if owner == "board" and isinstance(be, dict) and be.get("type") == "board_step" and who == "board":
                 st = be.get("step") or {}
@@ -215,13 +219,16 @@ def build(rows: list[dict], goals: dict | None = None) -> tuple[list[TaskT], dic
             continue
         if k == "llm_response":
             comp = r.get("component") or "?"
-            if comp in open_prompt:
-                t0, who = open_prompt.pop(comp)
-                if str(who).startswith("director:"):  # the Director's model time belongs to the task it decides for
+            if comp == "director":
+                key = str(r.get("episode_id") or "director")
+                if key in director_open:  # every round, and the research tools between rounds, is this task's thinking
+                    t0, tid = director_open[key]
                     iv["busy"].append((t0, ts))
-                    iv["director_model"].setdefault(who.split(":", 1)[1], []).append((t0, ts))
-                else:
-                    add_iv(t0, ts, who, "model")
+                    iv["director_model"].setdefault(tid, []).append((t0, ts))
+                    director_open[key] = (ts, tid)
+            elif comp in open_prompt:
+                t0, who = open_prompt.pop(comp)
+                add_iv(t0, ts, who, "model")
             continue
         if k == "board_run_start":
             pending_runs.append({"ts": ts, "task": r.get("task"), "step": r.get("step"), "step_id": r.get("step_id"),

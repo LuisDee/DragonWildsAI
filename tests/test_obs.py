@@ -486,24 +486,41 @@ def test_task_timeline_steps_gaps_and_idle_for_a_five_step_job():
     assert [s.title for s in t.steps] == ["mine copper", "mine tin", "smelt bronze bars", "make the pickaxe", "equip it"]
     assert all(s.outcome == "done" and len(s.runs) == 1 for s in t.steps)
     assert [a["tool"] for s in t.steps for r in s.runs for a in r.actions] == ["gather", "gather", "craft", "craft", "equip"]
-    assert len(t.gaps) == 4 and all(27 < g["seconds"] < 30 for g in t.gaps)
-    # the rig advances the board one step per 30 s agent tick: the gap is dead time, not thinking
-    assert all(g["dead_s"] > 25 and g["thinking_s"] < 1 for g in t.gaps)
-    # the plan was decided at once but applied a tick later: decision pickup, not thinking
-    assert t.lead_in["waiting_decision_s"] > 25 and t.lead_in["thinking_s"] < 1
-    assert t.idle["share"] > 0.9 and 25 < t.idle["longest_s"] < 30
-    assert "board_step" in t.idle["longest_where"] or "board_run" in t.idle["longest_where"]
+    # the Director chains steps within a tick (2026-10-26): no tick of dead time between steps any more
+    assert len(t.gaps) == 4 and all(g["seconds"] < 2 for g in t.gaps)
+    assert all(g["thinking_s"] > 0 for g in t.gaps)
+    assert t.lead_in["seconds"] < 5
+    assert t.idle["longest_s"] < 3 and t.idle["longest_where"].startswith("after ")
 
 
-def test_a_chat_interruption_is_queue_time_in_the_gap():
+def test_a_chat_during_a_gap_is_queue_time():
     from tools import obs_tasks as OT
-    rows, goals = _task_rows("pickaxe_chat")
-    tasks = OT.analyse(rows, goals)
-    job = next(t for t in tasks if "pickaxe" in (t.text or ""))
-    g = next(g for g in job.gaps if g["from_step"] == "mine tin")
-    assert g["seconds"] > 80 and g["waiting_queue_s"] > 50 and g["thinking_s"] < 2   # the other task's Director decisions
-    s = OT.summary(tasks)
-    assert s["task_gap_p90"] == pytest.approx(g["seconds"], abs=0.01) and s["gap_split_s"]["waiting_queue_s"] > 50
+    t0 = at("12:00")
+    p = lambda ts, eid, ctx: {"ts": ts, "kind": "prompt", "component": "controller", "episode_id": eid,  # noqa: E731
+                              "messages": [{"role": "user", "content": json.dumps(ctx)}]}
+    rows = [{"ts": t0, "kind": "board_run_start", "task": "T", "step_id": "s1", "step": "a", "run": 1},
+            {"ts": t0 + 1, "kind": "tool_call", "task_id": "x1", "tool": "gather", "episode_id": "board-1"},
+            {"ts": t0 + 2, "kind": "tool_result", "task_id": "x1", "tool": "gather", "result": {"ok": True}, "episode_id": "board-1"},
+            {"ts": t0 + 3, "kind": "board_run", "task": "T", "step_id": "s1", "step": "a", "run": 1, "passed": True},
+            p(t0 + 4, "chat-1", {"command": {"player": "Zezima", "text": "what are you up to?", "addressed": True}}),
+            {"ts": t0 + 6, "kind": "llm_response", "component": "controller", "episode_id": "chat-1"},
+            {"ts": t0 + 6.5, "kind": "tool_call", "task_id": "c1", "tool": "go_to", "episode_id": "chat-1"},
+            {"ts": t0 + 16.5, "kind": "tool_result", "task_id": "c1", "tool": "go_to", "result": {"ok": True}, "episode_id": "chat-1"},
+            {"ts": t0 + 17, "kind": "board_run_start", "task": "T", "step_id": "s2", "step": "b", "run": 1},
+            p(t0 + 17.2, "board-2", {"command": {"player": "Zezima", "text": "", "addressed": True},
+                                     "body_event": {"type": "board_step", "task": "x", "step": {"title": "b"}, "run": 1}}),
+            {"ts": t0 + 18.2, "kind": "llm_response", "component": "controller", "episode_id": "board-2"},
+            {"ts": t0 + 18.5, "kind": "tool_call", "task_id": "x2", "tool": "craft", "episode_id": "board-2"},
+            {"ts": t0 + 20, "kind": "tool_result", "task_id": "x2", "tool": "craft", "result": {"ok": True}, "episode_id": "board-2"},
+            {"ts": t0 + 21, "kind": "board_run", "task": "T", "step_id": "s2", "step": "b", "run": 1, "passed": True}]
+    (t,) = OT.analyse(rows)
+    (g,) = t.gaps
+    assert g["seconds"] == pytest.approx(15.5)
+    assert g["waiting_queue_s"] == pytest.approx(12.0)    # the chat's model call (2 s) and its go_to (10 s)
+    assert g["thinking_s"] == pytest.approx(1.0)          # the board run's own model call
+    assert g["dead_s"] == pytest.approx(15.5 - 12.0 - 1.0)    # incl. the 0.5 s with nothing in flight
+    s = OT.summary([t])
+    assert s["task_gap_p90"] == pytest.approx(15.5) and s["gap_split_s"]["waiting_queue_s"] == pytest.approx(12.0)
 
 
 def test_loop_copies_of_a_step_are_separate_steps():
@@ -569,7 +586,35 @@ def test_cli_task_and_metrics_carry_the_long_task_numbers(capsys):
     assert obs.main(["task", "--json", "--brain-log", str(TASKS / "pickaxe__brain.jsonl")]) == 0
     j = json.loads(capsys.readouterr().out)
     assert j["schema"] == "dw_obs_tasks/1" and j["summary"]["gaps"] == 4 and len(j["tasks"][0]["steps"]) == 5
-    assert obs.main(["metrics", "--json", "--brain-log", str(TASKS / "pickaxe_chat__brain.jsonl")]) == 0
+    assert obs.main(["metrics", "--json", "--brain-log", str(TASKS / "coal_trips__brain.jsonl")]) == 0
     g = json.loads(capsys.readouterr().out)
-    assert g["task_gap_p50"] == pytest.approx(28.6, abs=0.5) and g["task_gap_p90"] > 80
-    assert 0.9 < g["idle_share"] <= 1 and g["longest_idle_s"] > 50 and g["long_tasks"]["tasks"] == 2
+    assert g["task_gap_p50"] < 2 and g["task_gap_p90"] < 2 and g["long_tasks"]["gaps"] == 9
+    assert 0 < g["idle_share"] < 1 and g["longest_idle_s"] > 0 and g["long_tasks"]["tasks"] == 1
+
+
+def test_a_director_decision_with_research_rounds_is_all_thinking():
+    """Live 2026-10-26 07:49:07: one director prompt, three llm_response rows (research rounds), the decision 0.1 s after
+    the last; it used to show 10.8 s of "decision pickup" because only the first response closed the prompt."""
+    from tools import obs_tasks as OT
+    t0 = at("07:49")
+    e = "director-0010-3c46"
+    rows = [{"ts": t0, "kind": "board_run_start", "task": "T", "step_id": "s1", "step": "a", "run": 1},
+            {"ts": t0 + 1, "kind": "tool_call", "task_id": "x1", "tool": "gather", "episode_id": "board-1"},
+            {"ts": t0 + 2, "kind": "tool_result", "task_id": "x1", "tool": "gather", "result": {"ok": True}, "episode_id": "board-1"},
+            {"ts": t0 + 3, "kind": "board_run", "task": "T", "step_id": "s1", "step": "a", "run": 1, "passed": True},
+            {"ts": t0 + 3.2, "kind": "director_dispatch", "task": "T", "decision": "replan"},
+            {"ts": t0 + 3.2, "kind": "prompt", "component": "director", "task": "T", "messages": [], "episode_id": e},
+            {"ts": t0 + 6.3, "kind": "llm_response", "component": "director", "episode_id": e},
+            {"ts": t0 + 9.6, "kind": "llm_response", "component": "director", "episode_id": e},
+            {"ts": t0 + 17.0, "kind": "llm_response", "component": "director", "episode_id": e},
+            {"ts": t0 + 17.1, "kind": "director_decision", "task": "T", "decision": "replan", "steps": ["b"]},
+            {"ts": t0 + 17.3, "kind": "board_run_start", "task": "T", "step_id": "s2", "step": "b", "run": 1},
+            {"ts": t0 + 18.0, "kind": "tool_call", "task_id": "x2", "tool": "craft", "episode_id": "board-2"},
+            {"ts": t0 + 19.0, "kind": "tool_result", "task_id": "x2", "tool": "craft", "result": {"ok": True}, "episode_id": "board-2"},
+            {"ts": t0 + 19.5, "kind": "board_run", "task": "T", "step_id": "s2", "step": "b", "run": 1, "passed": True}]
+    (t,) = OT.analyse(rows)
+    (g,) = t.gaps
+    assert g["thinking_s"] == pytest.approx(13.8) and g["waiting_decision_s"] == pytest.approx(0.1)
+    c = obs.Corpus(brain=[{**r, "_file": "x"} for r in rows])
+    (d,) = [ep for ep in obs.build_episodes(c) if ep.kind == "director"]
+    assert [m["latency"] for m in d.model_calls] == pytest.approx([3.1, 3.3, 7.4])  # each round from the previous one

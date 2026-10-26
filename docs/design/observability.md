@@ -149,12 +149,14 @@ Luis wants long jobs (Director board jobs, benchmark T2/T3 cases) to become seam
   - `board_task_status` {task, from, to, why}, logged at each save, so tick-accurate;
   - board and notice runs wrapped in `board-…` episode ids, and Director decisions in `director-…`.
   Without them, a run's start falls back to the Controller prompt whose `body_event` is the `board_step` (tested). `goals.json` (`--goals`, beside `--brain-log`, or `<state_dir>/worlds/*/goals.json`) adds task text, status and step outcomes.
-- **First finding (GearWorld fixtures, scripted models):**
-  - The board advances **one step per agent tick**. With the rig's 30 s tick, every gap is about 28.5 s, almost all dead (thinking 0.2 s), and idle is about 98 % of wall time.
-  - A plan decided at once is applied one tick later (28 s of decision pickup).
-  - A chat interruption costs the job 58 s of queue in one gap.
-  - Live gap sizes depend on the real agent loop's cadence. Measure them on the first live board job before tuning anything; the fixture tick is the rig's, not the live loop's.
-- **Tests:** a 5-step job; a chat interruption (queue); loop copies (coal trips); the fallback without the new rows; a step_end row without step_id; a synthetic budget wait (60 s budget, 2.5 s thinking, 1 s pickup); CLI and metrics fields. Fixtures: `tests/fixtures/obs_tasks/` (make_fixture.py runs the Director's JobRig scenarios with log ts driven by the rig clock).
+- **Findings:**
+  - **Rig, before chaining:** the board advanced one step per agent tick. At the rig's 30 s tick each gap was about 28.5 s of dead time, and idle was about 98 % of wall time.
+  - **Rig, after chaining:** the Director agent made steps chain within a tick (2026-10-26). Gaps are now about 1 s; that 1 s is the rig's 0.2 s row spacing, not real latency.
+  - **First live board job** (dev, `logs/brain-live-20261026-084634-10200.jsonl`, chop 5 ash logs then drop them, 7 steps over 3 plans):
+    - gaps p50 3.0 s, p90 13.2 s, almost all thinking: Haiku per board run, and Sonnet replans of 9–14 s;
+    - idle share 10 %, longest idle 1.7 s.
+  - **A bug the live job exposed:** a Director decision logs one `prompt` and one `llm_response` per research round. Only the first response used to close the prompt, so 10.8 s of replan thinking showed as "decision pickup". Each round now counts from the previous one, and the whole prompt-to-last-response span is the task's thinking (test: `test_a_director_decision_with_research_rounds_is_all_thinking`).
+- **Tests:** a 5-step job (chained steps); a chat during a gap (queue, explicit rows: a mid-job chat can't be staged in the rig any more); loop copies (coal trips); Director research rounds; the fallback without the new rows; a step_end row without step_id; a synthetic budget wait (60 s budget, 2.5 s thinking, 1 s pickup); CLI and metrics fields. Fixtures: `tests/fixtures/obs_tasks/` (make_fixture.py runs the Director's JobRig scenarios with log ts driven by the rig clock).
 
 ## Generality check
 - No item, creature, spell or place names in the code. Reason codes come from `brain.interface.Reason` plus whatever the logs contain. Tool names come from the logs. Speech patterns are generic English intent and number patterns.

@@ -6,6 +6,8 @@ Each scenario runs the REAL Agent/Controller/executor/Director on the mock (scri
 tests/test_director_jobs.py does. Log timestamps follow the rig's clock: the JsonlLogger's time source is replaced by
 "max(previous row + 0.2 s, rig clock)" (offset to 2026-10-26 10:00 UTC), so each agent tick is 30 s like the live loop
 cadence and rows inside a tick are 0.2 s apart. Writes <scenario>__brain.jsonl and <scenario>__goals.json here.
+Since the Director chains steps within a tick (2026-10-26), a whole job runs in one tick, so a mid-job chat can't be
+staged here; queue time is tested with explicit rows in tests/test_obs.py.
 """
 from __future__ import annotations
 
@@ -85,6 +87,4 @@ COAL_PLAN = [plan(
 if __name__ == "__main__":
     assert GJ  # the scenarios' helpers come from brain/mock/gear_jobs.py
     run("pickaxe", PICKAXE_PLAN, pickaxe_world, "can you make yourself a better pickaxe", 10)
-    run("pickaxe_chat", PICKAXE_PLAN, pickaxe_world, "can you make yourself a better pickaxe", 12,
-        interrupt=(3, "claude, what are you up to?"))
     run("coal_trips", COAL_PLAN, coal_setup, "get me a load of coal", 25)
