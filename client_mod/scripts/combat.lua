@@ -57,6 +57,7 @@ M.cfg = {
     disengage_m = 10,        -- back off this far to eat (orders.disengage)
     boss_windows = 4, boss_flight_s = 20, meteor_dps = 2, poison_dps = 4, poison_uptime = 0.5, breath_share = 0.3,
     dragon_shield_block = 0.7, magic_base_dmg = 10, eat_every_s = 8, attempts_max = 20, -- boss model priors (velgar.md gap 5)
+    hazard_s = 0.25, hazard_idle_s = 2.0, hazard_margin_cm = 40, -- ground hazards (gap 2)
     status_s = 0.5, cure_at = 0.05, -- statuses read every status_s in a fight; a harmful one above cure_at x max -> its cure
     odds_m = 40, odds_max = 6, odds_prep_s = 10, -- get_state fight_odds: creatures in sight
     memory_enabled = true, history_max = 10, steam_manifest = "C:/Program Files (x86)/Steam/steamapps/appmanifest_1374490.acf",
@@ -692,6 +693,7 @@ function M.on_ai_action(ctx, id_p)
     c.ai_actions = c.ai_actions or {}
     c.ai_actions[id] = { t = now(a), comp = comp, owner = a, action_id = type(aid) == "number" and aid or nil, running = true }
     c.counts.ai_actions = (c.counts.ai_actions or 0) + 1
+    c.last_ai_action_t = now(a)
 end
 function M.on_ai_action_stop(ctx)
     if _G.DW_PAUSE then return end
@@ -756,6 +758,75 @@ function M.ability_frame(F, me)
             end
         end
     end
+end
+
+-- ------------------------------------------------------------------ ground hazards -> move.lua avoid zones (gap 2)
+-- The game's damage-on-the-ground actors (client_mod/scripts/hazard_profiles.lua, data) are read by PROPERTY
+-- (radius, telegraph time, landing point) and handed to move.set_avoid_zones (metres; r_cm; until_s on the
+-- GetRealTimeSeconds clock = F.t). Inside a zone with time to spare: move.escape_zones walks out, then
+-- move.restore(prev); too slow: a dodge outward (Phase Dash first when it is ready). Census cadence: every
+-- cfg.hazard_s while hazards were seen lately, a boss fight or a creature ability happened; else every cfg.hazard_idle_s.
+local HAZ
+function M.hazard_profiles()
+    if HAZ == nil then
+        local ok, t = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/hazard_profiles.lua"))() end)
+        HAZ = ok and type(t) == "table" and t or false
+    end
+    return HAZ or {}
+end
+local function first_num(o, names)
+    for _, n in ipairs(names or {}) do
+        local v = num(U.try(function() return o[n] end))
+        if v and v > 0 then return v end
+    end
+end
+function M.hazard_census(F, me)
+    local c = C()
+    c.hazard_seen = c.hazard_seen or {}
+    local zones, n = {}, 0
+    local live = {}
+    for _, hp in ipairs(M.hazard_profiles()) do
+        for _, o in ipairs(U.find_all(hp.class, { skip_defaults = true }) or {}) do
+            if U.valid(o) then
+                local id = U.short(o) or ("?" .. n)
+                local owner = hp.component_is_hazard and U.try(function() return o:GetOwner() end) or o
+                local pos = owner and U.loc(owner)
+                if hp.target then
+                    local tl = U.try(function() return o[hp.target] end)
+                    local tx, ty = tl and num(U.try(function() return tl.X end)), tl and num(U.try(function() return tl.Y end))
+                    if tx and ty and (tx ~= 0 or ty ~= 0) then pos = { X = tx, Y = ty, Z = num(U.try(function() return tl.Z end)) or (pos and pos.Z) or 0 } end
+                end
+                if pos then
+                    live[id] = true
+                    local seen = c.hazard_seen[id]
+                    if not seen then
+                        local tel = hp.telegraph and num(U.try(function() return o[hp.telegraph] end))
+                        seen = { t = F.t, ttl = (tel and tel > 0) and tel or hp.ttl_default, kind = hp.name }
+                        c.hazard_seen[id] = seen
+                    end
+                    local r = first_num(o, hp.radius) or hp.radius_default
+                    local until_s = hp.persistent and (F.t + hp.ttl_default) or (seen.t + seen.ttl + 0.3)
+                    if until_s > F.t then
+                        n = n + 1
+                        zones[#zones + 1] = { id = hp.name .. ":" .. id, kind = "circle", x = pos.X / 100, y = pos.Y / 100, z = pos.Z / 100,
+                                              r_cm = r, until_s = until_s, land_s = math.max(0, (seen.t + seen.ttl) - F.t), hazard = hp.name }
+                    end
+                end
+            end
+        end
+    end
+    for id in pairs(c.hazard_seen) do if not live[id] then c.hazard_seen[id] = nil end end
+    return zones
+end
+
+-- -> the zone he stands in (the one that lands first), or nil
+function M.zone_at(zones, pos, margin_cm)
+    local best
+    for _, z in ipairs(zones or {}) do
+        local dx, dy = pos.X / 100 - z.x, pos.Y / 100 - z.y
+        if math.sqrt(dx * dx + dy * dy) * 100 <= z.r_cm + (margin_cm or 0) and (not best or z.land_s < best.land_s) then best = z end
+    end
+    return best
 end
 
 -- Boss phases (velgar.md gap 3): the arena's replicated phase (APhasedDragonArenaAILevelData.PhaseRuntimeData
@@ -1306,7 +1377,7 @@ function M.emit_combat_end(F, res)
         damage_taken = F.dmg_taken or 0, damage_dealt = math.max(0, (F.hp_start or 0) - (F.target_hp or 0)),
         hp_end = F.hp_now, loot = F.loot_names, parries = F.n_parried or 0, blocks = F.n_blocked or 0,
         dodges = F.n_dodges or 0, jumps = F.n_jumps or 0, heals = F.n_heals or 0, cures = F.n_cures or nil, presses = F.presses, why = F.why,
-        pack = (F.max_pack or 0) > 1 and F.max_pack or nil, kills = F.kills, multi_swings = F.n_multi,
+        pack = (F.max_pack or 0) > 1 and F.max_pack or nil, kills = F.kills, multi_swings = F.n_multi, hazards = F.n_hazards,
         fled_why = d.why })
 end
 
@@ -1324,6 +1395,7 @@ local function finish(F, res)
         if acts and acts.lock then inject(acts.lock) end
     end
     if F.drove_move then mcall("move", "stop", F.log) end
+    if F.zones_set or F.escape then mcall("move", "set_avoid_zones", F.log, {}) end -- the hazards were this fight's
     F.result = res
     c.last = { result = res, mode = F.mode, ended = os.date("!%Y-%m-%dT%H:%M:%SZ") }
     if c.fight == F then c.fight = nil end
@@ -2441,6 +2513,74 @@ local function abort_paused(F)
     if arb and F.token then pcall(arb.release, nil, F.token, "paused") end -- pause-aware: no move calls
 end
 
+-- Per fight tick. Returns true while an escape owns the pawn this tick (the phase step is skipped).
+function M.hazard_frame(F, pawn, me, acts)
+    local c = C()
+    local cfg = M.cfg
+    local busy = F.boss or (F.t - (F.hazard_last or -99) < 10) or (F.t - (c.last_ai_action_t or -99) < 30)
+    local every = busy and cfg.hazard_s or cfg.hazard_idle_s
+    if F.t - (F.hazard_t or -99) >= every and me.pos then
+        F.hazard_t = F.t
+        local zones = M.hazard_census(F, me)
+        if #zones > 0 then F.hazard_last = F.t end
+        local sig = {}
+        for _, z in ipairs(zones) do sig[#sig + 1] = z.id end
+        sig = table.concat(sig, ",")
+        if sig ~= F.zone_sig or #zones > 0 then
+            F.zone_sig = sig
+            local wire = {}
+            for _, z in ipairs(zones) do wire[#wire + 1] = { id = z.id, kind = z.kind, x = z.x, y = z.y, z = z.z, r_cm = z.r_cm, until_s = z.until_s } end
+            mcall("move", "set_avoid_zones", F.log, wire) -- scalars only (R15)
+            F.zones_set = #wire > 0 or nil
+        end
+        F.zones = zones
+    end
+    -- an escape under way: hold until it arrives (move idle) or its time is up, then restore the previous move
+    local e = F.escape
+    if e then
+        local st = mcall("move", "status")
+        if F.t >= e.until_t or (type(st) == "table" and st.mode == "idle" and F.t - e.t > 0.3) then
+            F.escape = nil
+            if e.prev then mcall("move", "restore", F.log, e.prev) end
+            F.following = false -- the fight's own follow starts again
+            say(F.log, "hazard: out of " .. tostring(e.zone) .. " (" .. tostring(e.how) .. ")")
+            return false
+        end
+        return true
+    end
+    if F.phase == "defend" or not me.pos then return false end
+    local z = M.zone_at(F.zones, me.pos, cfg.hazard_margin_cm)
+    if not z then return false end
+    if z.id == F.escaped_zone and F.t - (F.escaped_t or -9) < 1.0 then return false end -- just tried this one
+    F.escaped_zone, F.escaped_t = z.id, F.t
+    F.n_hazards = (F.n_hazards or 0) + 1
+    local r = mcall("move", "escape_zones", F.log, { time_s = z.land_s, bound = c.boss_bound })
+    if type(r) == "table" and r.ok and not r.already_safe then
+        F.escape = { t = F.t, until_t = F.t + (r.eta_s or 1) + 0.6, prev = r.prev, zone = z.id, how = "walked" }
+        F.following = false
+        M.emit_activity({ kind = "hazard", by = F.by or "unknown", hazard = z.hazard, answer = "walk_out", eta_s = r.eta_s, land_s = z.land_s })
+        return true
+    end
+    local why = type(r) == "table" and r.why or "no_move"
+    -- too slow / no safe point / no route: a dodge outward (Phase Dash first when ready)
+    local ab = ability_ctx(F)
+    local D = mod("defense")
+    local pd = D and D.abilities().phase_dash
+    if pd and (ab.phase_dash or {}).available and M.orders.abilities ~= nil and (M.orders.abilities.phase_dash ~= false) then
+        start_cast(F, "phase_dash", pd.spell_asset, "hazard: " .. tostring(z.hazard))
+    end
+    if acts.evade and (me.stamina or 0) >= (c.evade_cost or 15) then
+        local ctr = { X = z.x * 100, Y = z.y * 100, Z = me.pos.Z }
+        F.evade_dir = away_dir(me.pos, ctr, "back")
+        F.evade_until = F.t + 0.35
+        tap(F, acts.evade, 4, "evade_hazard")
+        F.n_dodges = (F.n_dodges or 0) + 1
+    end
+    M.emit_activity({ kind = "hazard", by = F.by or "unknown", hazard = z.hazard, answer = "dodge", why = why, land_s = z.land_s })
+    say(F.log, "hazard " .. tostring(z.id) .. ": " .. tostring(why) .. " -> dodge outward")
+    return false
+end
+
 local function frame(F)
     local c = C()
     if F.gen ~= c.gen or F.done then return end
@@ -2656,6 +2796,10 @@ local function frame(F)
     if F.t - (F.pack_t or -9) >= 0.5 and me.pos then F.pack_t = F.t; pcall(M.pack, F, me) end
     do local okst, err = pcall(M.status_frame, F, pawn, me); if not okst then c.status_err = tostring(err) end end
     if F.phase ~= "defend" then M.boss_frame(F, me) end
+    do
+        local okh, owned = pcall(M.hazard_frame, F, pawn, me, acts)
+        if not okh then c.hazard_err = tostring(owned) elseif owned then return end
+    end
     if F.phase == "approach" or F.phase == "disengage" then
         for id, tt in pairs(c.telegraphs) do
             if F.t - tt <= M.cfg.telegraph_fresh_s and tt > (F.last_tele or 0) and id == F.target_id and (F.dist_m or 99) <= M.cfg.telegraph_m then

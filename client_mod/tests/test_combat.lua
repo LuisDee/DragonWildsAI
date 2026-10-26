@@ -140,6 +140,18 @@ function fake_move.follow(log, goal, dist, opts)
     return { ok = true, mode = "follow", target_visible = goal ~= "Nobody" }
 end
 function fake_move.stop() MV.calls[#MV.calls + 1] = "stop"; MV.mode = "idle"; return { ok = true } end
+function fake_move.set_avoid_zones(log, zones) MV.zone_sets = (MV.zone_sets or 0) + 1; MV.zones = zones; return { ok = true, zones = #zones } end
+function fake_move.escape_zones(log, opts)
+    MV.escapes = (MV.escapes or 0) + 1
+    MV.escape_opts = opts
+    local r = MV.escape_reply or { ok = false, why = "no_route" }
+    if r.ok then
+        local prev = fake_move.snapshot()
+        MV.mode, MV.goal, MV.dist, MV.opts = "go_to", { r.at[1], r.at[2], r.at[3] }, nil, { tolerance_m = 0.4 }
+        return { ok = true, at = r.at, eta_s = r.eta_s, prev = prev, zone = "z" }
+    end
+    return r
+end
 function fake_move.status()
     local r = { mode = MV.mode, target = type(MV.goal) == "string" and MV.goal or nil }
     for k, v in pairs(MV.extra or {}) do r[k] = v end
@@ -979,6 +991,64 @@ do
     Cm.stop(nil, "test")
     local ends = read_activity()
     check("pack: combat_end reports the pack size", (ends[#ends] or ""):find('"pack":', 1, true) ~= nil, ends[#ends])
+    A.reset(nil)
+end
+
+-- ================================================================ 10g. ground hazards -> move's avoid zones (velgar.md gap 2)
+reset_world()
+do
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local gob = new_creature("BP_AI_RuntGoblin_Character_C_haz", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    local meteors = {}
+    local real_find = FindAllOf
+    FindAllOf = function(cls)
+        if cls == "AIMeteorProjectile" then
+            local out = {}
+            for _, m in ipairs(meteors) do if not m._dead_obj then out[#out + 1] = m end end
+            return out
+        end
+        return real_find(cls)
+    end
+    local function meteor(id, at, radius, tel)
+        local m = obj({ Radius = radius, TelegraphTime = tel, loc = at }, "BP_DragonVelgar_MeteorStrike_MeteorProjectile_C /Game/L.L:PersistentLevel." .. id)
+        function m:K2_GetActorLocation() return { X = self.loc.X, Y = self.loc.Y, Z = self.loc.Z } end
+        meteors[#meteors + 1] = m
+        return m
+    end
+    Cm._start_fight(nil, gob, { mode = "attack", force = true, by = "brain" })
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    -- (a) a meteor circle lands on him in 2 s: zones are handed to move, he walks out, then the previous move is restored
+    MV.escape_reply = { ok = true, at = { 6, 0, 0 }, eta_s = 0.8 }
+    local n0 = #read_activity()
+    local m1 = meteor("Meteor_1", { X = pawn.loc.X, Y = pawn.loc.Y, Z = 0 }, 400, 2.0)
+    check("hazard: escape_zones called with the time left",
+          run_until(function() return (MV.escapes or 0) >= 1 end, 3) and MV.escape_opts.time_s > 1 and MV.escape_opts.time_s <= 2, MV.escape_opts and MV.escape_opts.time_s)
+    local z = (MV.zones or {})[1] or {}
+    check("hazard: the zone is in metres with r_cm and an expiry", z.kind == "circle" and math.abs(z.x - pawn.loc.X / 100) < 3 and z.r_cm == 400 and z.until_s ~= nil,
+          z.id)
+    check("hazard: holds the fight while walking out", Cm._state().fight.escape ~= nil)
+    MV.calls = {}
+    local restored = run_until(function() for _, c in ipairs(MV.calls) do if c:find("^restore") then return true end end end, 3)
+    check("hazard: move.restore(prev) once out", restored, table.concat(MV.calls, ","))
+    local ev
+    for i = n0 + 1, #read_activity() do local l = read_activity()[i]; if l:find('"kind":"hazard"', 1, true) then ev = l end end
+    check("hazard: activity says how he answered", ev and ev:find('"answer":"walk_out"', 1, true) and ev:find('"hazard":"meteor"', 1, true), ev)
+    m1._dead_obj = true
+    -- (b) too slow: a dodge outward instead
+    MV.escape_reply = { ok = false, why = "too_slow", eta_s = 1.9 }
+    Cm._state().fight.escaped_zone = nil
+    local ev0 = world.injected.IA_Player_Evade or 0
+    meteor("Meteor_2", { X = pawn.loc.X + 50, Y = pawn.loc.Y, Z = 0 }, 400, 0.6)
+    check("hazard: too_slow -> evade pressed", run_until(function() return (world.injected.IA_Player_Evade or 0) > ev0 end, 2), world.injected.IA_Player_Evade)
+    local dodged
+    for i = n0 + 1, #read_activity() do local l = read_activity()[i]; if l:find('"answer":"dodge"', 1, true) and l:find('"why":"too_slow"', 1, true) then dodged = l end end
+    check("hazard: the dodge is reported with the reason", dodged ~= nil)
+    -- (c) the fight ends: his zones are cleared
+    MV.zones = nil
+    Cm.stop(nil, "test")
+    check("hazard: zones cleared at the fight's end", type(MV.zones) == "table" and #MV.zones == 0)
+    FindAllOf = real_find
+    MV.escape_reply, MV.escapes = nil, nil
     A.reset(nil)
 end
 

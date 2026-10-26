@@ -127,6 +127,14 @@ The data comes from the wiki snapshot `data/wiki/pages` (Velgar, Velgar/Strategi
   - Every hit taken in a fight is attributed: the defence window it fell in (`ability:<kind>` or `melee:<attack class>`), else `poison` while poisoned, else `other`.
   - A boss fight's end records an attempt: phase reached, phases, damage taken, `damage_by`, cause of death (the last threat before dying), boss HP left %, duration, heals, cures.
   - It is persisted in the combat memory (last 20 per boss) and shown in `combat_brief.boss_attempts`, so the damage and phase trend across attempts is measurable.
+- **Gap 2, hazards wired to move.lua's avoid zones** (move API committed by the locomotion agent):
+  - `client_mod/scripts/hazard_profiles.lua` (data) lists `AIGroundProjectile`, `AIMeteorProjectile`, `DelayedDamage` and `PoisonEmitterSphere`, each with its radius, telegraph and target properties and their priors.
+  - `combat.hazard_census` reads them by property: ground projectiles at their `TargetLocation`, clouds kept live while seen. It sends `move.set_avoid_zones` in metres with `r_cm` and `until_s` on the fight clock.
+  - **Cadence:** a census every 0.25 s in a boss fight, after a creature ability, or while hazards were seen in the last 10 s; otherwise every 2 s.
+  - **Inside a zone:** `move.escape_zones {time_s = time to landing}` walks him out while the fight holds, then `move.restore(prev)`. On `too_slow`, `no_safe_point` or `no_route` he dodges outward, casting Phase Dash first when it is ready and allowed by orders.
+  - Each case emits a `hazard` activity event with the answer and the reason. The zones are cleared at the fight's end, and `combat_end` counts `hazards`.
+  - Tests: test_combat §10g (fake meteors and a fake move).
+  - Open: the arena volume as the escape `bound`, not read yet.
 - **Still to verify live** (S2/S3, read-only first):
   - that the multicasts fire on the client for him;
   - that `CurrentAction` is set when read;
