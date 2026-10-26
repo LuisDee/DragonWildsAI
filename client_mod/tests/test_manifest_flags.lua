@@ -28,5 +28,11 @@ local src = assert(io.open(root .. "/client_mod/scripts/client_bridge.lua", "rb"
 for _, n in ipairs({ "build", "quests", "lodestone", "shoot", "input" }) do
     check("client_bridge.MODULES lists " .. n, src:find('"' .. n .. '"', 1, true) ~= nil)
 end
+-- skills.lua's own manifest (source check: skills.lua needs the full fake engine to load)
+do
+    local s = assert(io.open(root .. "/client_mod/scripts/skills.lua", "rb")):read("a")
+    check("skills.collect_water llm=true action moves",
+        s:find('collect_water = { kind = "action", llm = true, moves = true', 1, true) ~= nil)
+end
 print(string.format("%d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

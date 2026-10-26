@@ -1956,8 +1956,8 @@ M.MANIFEST = {
             slot = { type = "integer", minimum = 0, description = "Slot in that page (default: first free)." } }) },
         ground = obj({ item = "carried" }),
         reasons = { "not_in_inventory", "inventory_full", "verification_failed", "invalid_args" } },
-    -- llm = false until live-verified (the water approach is the locomotion agent's move.shore_point, in progress)
-    collect_water = { kind = "action", llm = false, moves = true, priority = "command", duration_s = 8, timeout_s = 120,
+    -- live-verified 2026-10-26 (2 Dirty Water from BP_WaterVolume_C at (157, 1914) m via move.shore_point)
+    collect_water = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 8, timeout_s = 120,
         detail_is_speech = SPEAKS,
         description = "Collect water (Dirty Water) from a pond or river: walks to the bank, uses the water, checks it came in; "
             .. "repeats for count. Dirty Water is drinkable but unhealthy; boil it at a Campfire for Clean Water.",
