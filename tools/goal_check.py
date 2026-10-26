@@ -450,8 +450,9 @@ def voice_row_ok(d: Data, r: dict) -> bool:
     """A voice row counts only if its log exists with the recorded sha256 and the log's own voice_summary re-scores
     to the row's score (evals/voice_eval.py voice_score): a hand-typed row has no such log."""
     log = r.get("log")
-    if not log or not r.get("log_sha256") or r.get("persona_ref") != "HEAD" or not r.get("persona_sha256"):
-        return False  # main 2026-10-26: only a baseline of the COMMITTED persona is a GOAL voice score
+    if (not log or not r.get("log_sha256") or r.get("persona_ref") != "HEAD" or not r.get("persona_sha256")
+            or not r.get("measured_commit")):
+        return False  # main 2026-10-26: only a run of the whole COMMITTED companion (a HEAD worktree) counts
     p = Path(d.root) / log
     if not p.exists() or hashes.sha256_file(p) != r["log_sha256"]:
         return False

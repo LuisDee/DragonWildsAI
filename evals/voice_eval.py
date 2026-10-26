@@ -488,7 +488,31 @@ def summarize(rows: list[dict]) -> dict:
 
 
 LIVE_PERSONA = "new"  # brain/persona.py DEFAULT_PATH: the persona the live brain runs; only it is scored for GOAL
-SCOREBOARD = paths.REPO_ROOT / "logs" / "evals" / "scoreboard.jsonl"
+# HOME = the real checkout (logs, scoreboard). A HEAD run executes inside a temporary git worktree of HEAD
+# (run_in_snapshot), so brain/ and evals/ are imported from the commit, never from someone's uncommitted edits.
+HOME = Path(os.environ.get("DW_VOICE_HOME") or paths.REPO_ROOT)
+SCOREBOARD = HOME / "logs" / "evals" / "scoreboard.jsonl"
+
+
+def run_in_snapshot(ref: str, argv: list[str]) -> int:
+    """main 2026-10-26: --persona-ref HEAD pinned only persona.md while brain/controller.py had an uncommitted A/B
+    edit. A HEAD run therefore re-executes this eval inside `git worktree add --detach <tmp> <ref>` (under
+    logs/tmp, gitignored): every import comes from the commit; logs and the scoreboard row land in HOME; the
+    worktree is removed afterwards."""
+    import subprocess
+    root = paths.REPO_ROOT
+    sha = subprocess.run(["git", "rev-parse", ref], cwd=root, capture_output=True, text=True, check=True).stdout.strip()
+    snap = root / "logs" / "tmp" / f"voice-{sha[:12]}"
+    snap.parent.mkdir(parents=True, exist_ok=True)
+    if snap.exists():
+        subprocess.run(["git", "worktree", "remove", "--force", str(snap)], cwd=root, capture_output=True)
+    subprocess.run(["git", "worktree", "add", "--detach", str(snap), sha], cwd=root, capture_output=True, check=True)
+    env = {**os.environ, "DW_VOICE_SNAPSHOT": sha, "DW_VOICE_HOME": str(root), "DW_LOG_DIR": str(root / "logs")}
+    print(f"measuring the whole companion at {ref} = {sha[:12]} (temporary worktree {snap})")
+    try:
+        return subprocess.run([sys.executable, "-m", "evals.voice_eval", *argv], cwd=snap, env=env).returncode
+    finally:
+        subprocess.run(["git", "worktree", "remove", "--force", str(snap)], cwd=root, capture_output=True)
 
 
 def voice_score(summary: dict) -> float | None:
@@ -531,11 +555,13 @@ def scoreboard_row(summary: dict, log_path: Path, run_id: str, at: str, root: Pa
     score = voice_score(summary)
     if score is None:
         return None
-    root = Path(root or hashes.ROOT)
+    root = Path(root or hashes.ROOT)  # the tree that was MEASURED (the HEAD worktree for a GOAL run)
+    home = HOME
     return {"schema": "dw_scoreboard/1", "kind": "voice", "run_id": run_id, "at": at, "score": score,
             "n": int(summary.get("cases") or 0), "persona": LIVE_PERSONA,
             "components": {k: summary.get(k) for k in ("checks_pass_rate", "judge:human", "judge:silence", "judge:match")},
-            "log": Path(log_path).resolve().relative_to(root.resolve()).as_posix(),
+            "log": Path(log_path).resolve().relative_to(home.resolve()).as_posix(),
+            "measured_commit": os.environ.get("DW_VOICE_SNAPSHOT") or None,
             "log_sha256": hashes.sha256_file(Path(log_path)),
             "persona_ref": persona_ref, "persona_sha256": persona_sha256,
             "companion_hash": hashes.companion_hash(root), "judge_hash": hashes.judge_hash(root)}
@@ -574,6 +600,8 @@ def main(argv: list[str] | None = None) -> int:
                          "'worktree' (an uncommitted A/B edit: never a GOAL score)")
     ap.add_argument("--k", type=int, default=K_SAMPLES, help=f"samples per case (default {K_SAMPLES}; the score is the k-mean)")
     a = ap.parse_args(argv)
+    if a.persona_ref != "worktree" and not os.environ.get("DW_VOICE_SNAPSHOT") and a.yes and not a.plan and not a.dry:
+        return run_in_snapshot(a.persona_ref, list(argv if argv is not None else sys.argv[1:]))
     _OVERRIDE.clear()
     variants = a.persona or [LIVE_PERSONA]
     cases = read_jsonl(CASES)
@@ -639,7 +667,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"WARNING: {skipped} sample(s) lost their live continuation to the call cap: not a GOAL score "
                   f"(raise --max-calls)")
         full = (not a.ids and not a.limit and not a.no_judge and LIVE_PERSONA in variants and a.k >= K_SAMPLES
-                and not skipped and a.persona_ref == "HEAD")
+                and not skipped and a.persona_ref == "HEAD" and bool(os.environ.get("DW_VOICE_SNAPSHOT")))
         row = scoreboard_row(out["summary"].get(LIVE_PERSONA) or {}, Path(log.path), Path(log.path).stem,
                              time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                              persona_ref=a.persona_ref, persona_sha256=persona_sha) if full else None

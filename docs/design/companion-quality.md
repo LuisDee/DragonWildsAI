@@ -199,7 +199,7 @@ Other run-2 counts, old → new:
   - held-out: human 3.80, silence 4.61, match 4.56.
   - The 0.80 rows from 11:54 and 12:13 measured the working-tree persona (the voice agent's uncommitted A/B edit). They carry no persona_ref, so goal_check ignores them.
 
-- **After the h-case status fix (0e97994; `logs/voice-eval-20261026-123332.jsonl`, 129 calls, no continuation skipped):**
+- **POSSIBLY CONTAMINATED: after the h-case status fix (0e97994; `logs/voice-eval-20261026-123332.jsonl`, 129 calls, no continuation skipped).** `--persona-ref HEAD` pinned only persona.md. brain/controller.py had the voice agent's uncommitted effort-medium A/B edit (modified 12:35:53, during the run), so this number may include uncommitted brain code. The same applies to 122105. Superseded by the HEAD-worktree baseline below.
   - **score 0.744**, set by human 3.72; per sample 0.75 / 0.70 / 0.78, sd 0.04. That is within the noise of the 0.758 before.
   - checks pass at 0.933; silence 4.17, match 3.91; promise_has_tool 2/6.
   - The h1–h6 cases now carry the live broker's body_status, replayed from the log (follow Zezima, standing still, the gathers). recent_activity is genuinely empty in that session's log, and each case is flagged `fixture_gaps`.
