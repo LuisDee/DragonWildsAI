@@ -984,7 +984,7 @@ class Director:
                 self._budget_said = key
                 out_today = self._over_daily_cap()
                 self._notice(task, "I'm out of thinking budget for today, so I'll keep to what I already know."
-                             if out_today else f"I'll plan my next step for '{task.text}' in about {self._wait_min()} min.",
+                             if out_today else f"Next step for '{task.text}' once my planning budget frees up, in about {self._wait_min()} min.",
                              {"budget_wait_min": None if out_today else self._wait_min()})
             return
         if task.status == "waiting_budget":

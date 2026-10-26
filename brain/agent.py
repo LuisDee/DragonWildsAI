@@ -152,6 +152,7 @@ class Agent:
             self._fresh_state()
         ep = self.broker.episode
         busy = bool(self.active_goal or self.pending_goal or self._situations or self._chat_waiting()
+                    or self._chat_stashed()
                     or (ep is not None and ep.ended is None and ep.tool != "follow")
                     or (self.director is not None and self.director.running))
         ev = self.broker.review_due(busy=busy)
@@ -220,6 +221,10 @@ class Agent:
         """True while chat lines wait for a Controller run that will take the situations along."""
         return False
 
+    def _chat_stashed(self) -> bool:
+        """A chat line peeked mid-request (``_player_spoke``) and not handled yet: it goes first."""
+        return any(isinstance(e, (ChatHeard, CommandReceived)) for e in self._stash)
+
     def take_situations(self, state: dict | None = None) -> list[dict]:
         """The pending situations still true now (a chat run takes them along: one line for both)."""
         events, self._situations = self._situations, []
@@ -232,8 +237,8 @@ class Agent:
         return still
 
     def flush_situations(self) -> None:
-        if not self._situations or self._chat_waiting():
-            return
+        if not self._situations or self._chat_waiting() or self._chat_stashed():
+            return  # the chat run takes the situations along (M1 17:53:42: a review ran first, the line waited 140 s)
         state = self._fresh_state()
         events = self.take_situations(state)
         if not events:

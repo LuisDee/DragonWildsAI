@@ -138,7 +138,9 @@ class BridgeClient(GameInterface):
         if len(self._sent) > 200:  # bounded: the oldest ids go first
             self._sent.pop(next(iter(self._sent)))
         watch = timeout > WATCH_AFTER_S and tool not in ("ping", protocol.CAPABILITIES)
-        started0, seen, misses = self._started, len(self._events), 0
+        # seen = 0: every event not yet polled counts, also one buffered just before this request started
+        # (M1 2026-10-26 17:57:25/18:02:37: a line that arrived during the model call waited out a 70 s go_to)
+        started0, seen, misses = self._started, 0, 0
         try:
             self.transport.send(msg)
             deadline = time.monotonic() + timeout
@@ -176,6 +178,9 @@ class BridgeClient(GameInterface):
                         started = beat.get("started")
                         if started is not None and started0 is not None and started != started0:
                             self.log.log("bridge_restart_detected", id=req_id, tool=tool, was=started0, now=started)
+                            # the NEW bridge is the reference from now on: only this command was dropped (M1
+                            # 18:05-18:24: after one client relaunch every later command failed body_restarted)
+                            self._started = started
                             return fail(Reason.BODY_RESTARTED, tool=tool, id=req_id,
                                         detail="my body's bridge restarted and dropped the command")
                         started0 = started0 if started0 is not None else started
