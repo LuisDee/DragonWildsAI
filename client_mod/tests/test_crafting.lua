@@ -306,6 +306,37 @@ do
     check("bench: UI closed", F.closed == 1, F.closed)
     check("bench: station returned", r.data and r.data.station_id == "bench_1")
 end
+-- the REAL W.close: the altar's own panel (EWidgetType 36) is closed too when it is up; a plain bench closes only 6
+do
+    local C2 = assert(loadfile(root .. "/client_mod/scripts/crafting.lua"))()
+    local hidden = {}
+    local ui = { IsValid = function() return true end, GetFullName = function() return "CraftingUIAPI /Engine/Transient.CraftingUIAPI_1" end,
+                 HideCraftingUI = function(_, t) hidden[#hidden + 1] = t end }
+    local panel_up = true
+    local panel = { IsValid = function() return true end, GetFullName = function() return "WBP_Runecrafting_MainPanel_C /Engine/Transient.P_1" end,
+                    IsInViewport = function() return panel_up end }
+    local Ureal = assert(loadfile(root .. "/mod/body/util.lua"))()
+    local Uf = setmetatable({ find_all = function(cls) if cls == "CraftingUIAPI" then return { ui } elseif cls == "RunecraftingMainPanel" then return { panel } end return {} end },
+                            { __index = Ureal })
+    local api = { module = function(n) if n == "sense" then return { U = Uf, local_pc = function() return nil end } end end }
+    C2.W.close(api, "crafting")
+    check("close: altar panel up -> types 6 and 36 hidden", #hidden == 2 and hidden[1] == 6 and hidden[2] == 36, table.concat(hidden, ","))
+    hidden, panel_up = {}, false
+    C2.W.close(api, "crafting")
+    check("close: plain bench -> only 6", #hidden == 1 and hidden[1] == 6, table.concat(hidden, ","))
+end
+
+-- Runecrafting (M3): the Rune Altar is a crafting station (CraftingStation component, prompt Craft); its recipes are
+-- RuneRecipeData (1 Rune Essence -> 5 runes). The same bench path drives it: open, SelectRecipe + SendCraftRequest.
+do
+    reset({ stations = { station("RuneAltar", "altar_1", { 8, 0, 0 }) }, have = { ITEM_Rune_Essence = 3 },
+            unlocked = U({ "RECIPE_Process_Altar_Air_Rune" }) })
+    local r = run({ item = "Air Rune", count = 5 })
+    check("altar: ok", r.ok, tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+    check("altar: the altar recipe chosen", r.data and r.data.recipe_chosen == "RECIPE_Process_Altar_Air_Rune", r.data and r.data.recipe_chosen)
+    check("altar: runes in the bag", (inv_counts().ITEM_Rune_Air or 0) >= 5, inv_counts().ITEM_Rune_Air)
+    check("altar: its screen closed", (F.closed or 0) >= 1, F.closed)
+end
 do
     reset({ stations = { TABLE() }, have = { ITEM_Resources_Wood_Ash = 6, ITEM_Resources_Stone = 8 }, unlocked = U({ "RECIPE_Pickaxe_Stone" }), result_code = 2 })
     local r = run({ item = "Stone Pickaxe" })

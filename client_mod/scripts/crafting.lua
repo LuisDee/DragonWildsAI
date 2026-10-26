@@ -640,11 +640,27 @@ function W.send_craft(api, rid, count)
 end
 
 -- Close the station's menu (EWidgetType Crafting 6 / Processing 15) through the crafting UI API.
+-- The Rune Altar (a crafting station too) opens its OWN panel, EWidgetType Runecrafting 36 (URunecraftingMainPanel,
+-- dump l.32462): when that panel is up, close type 36 as well, else the dialogue-like screen stays open and every
+-- gated module refuses (input.lua's modal gate).
+M.RUNECRAFTING_WIDGET = 36
+function W.runecrafting_open(api)
+    local U = sense_U(api)
+    if not U then return false end
+    for _, p in ipairs(U.find_all("RunecraftingMainPanel", { skip_defaults = true }) or {}) do
+        if U.try(function() return p:IsInViewport() end) == true then return true end
+    end
+    return false
+end
 function W.close(api, kind)
     local ui = ui_object(api, "CraftingUIAPI")
     if not ui then return false end
     local t = kind == "processing" and 15 or 6
-    return pcall(function() ui:HideCraftingUI(t) end)
+    local ok = pcall(function() ui:HideCraftingUI(t) end)
+    if kind ~= "processing" and W.runecrafting_open(api) then
+        ok = pcall(function() ui:HideCraftingUI(M.RUNECRAFTING_WIDGET) end) and ok
+    end
+    return ok
 end
 
 -- Inventory UI drag: `amount` from his (slot, slot_type) into slot `to` of an external inventory.
