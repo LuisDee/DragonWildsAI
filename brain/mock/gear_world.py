@@ -233,13 +233,21 @@ class GearWorld(MockGame):
 
     def add_buildable(self, name: str, materials: dict[str, int], kind: str = "other", station: str | None = None,
                       crops: dict[str, tuple[str, int]] | None = None, xp: float = 20.0, spade_tier: int = 2,
-                      weed_layers: int = 1) -> None:
+                      weed_layers: int = 1, category: str = "", unlock: dict | None = None) -> None:
         """A piece he can build (unlocked). kind: station (a ``station`` type from the recipes), container or plot
         (``crops``: seed item id -> (crop item id, yield); a new plot has ``weed_layers`` of weeds that a spade of
         catalog tier >= ``spade_tier`` digs, one layer per press)."""
         self.buildables[name] = {"materials": dict(materials), "kind": kind, "station": station,
                                  "crops": dict(crops or {}), "xp": xp, "spade_tier": spade_tier,
-                                 "weed_layers": weed_layers}
+                                 "weed_layers": weed_layers, "category": category, "unlock": dict(unlock or {})}
+
+    def _unlocked(self, b: dict) -> bool:
+        """Harness data like the game's: a piece unlocks at a skill level (perks are level-gated, SkillPerkData
+        PerkUnlockInfo) and/or once an item has been carried."""
+        u = b.get("unlock") or {}
+        if u.get("skill") and self.skills.get(u["skill"], [1.0])[0] < u.get("level", 1):
+            return False
+        return not u.get("item") or self._carried(u["item"]) > 0
 
     def add_fishing_spot(self, pos, item: str, tool_category: str | None = None) -> str:
         sid = self._new_id("spot")
@@ -525,9 +533,11 @@ class GearWorld(MockGame):
 
     def list_buildables(self, about: str | None = None) -> ActionResult:
         want = tokens(about or "")
-        rows = [{"name": n, "materials": {self.name_of(i): c for i, c in b["materials"].items()},
+        rows = [{"name": n, "category": b.get("category") or None,
+                 "materials": {self.name_of(i): c for i, c in b["materials"].items()},
                  "missing": self._missing(b["materials"])}
-                for n, b in self.buildables.items() if not want or want & tokens(n)]
+                for n, b in self.buildables.items()
+                if self._unlocked(b) and (not want or want & (tokens(n) | tokens(b.get("category") or "")))]
         return ok(pieces=rows)
 
     def build(self, piece: str, near: str | None = None, at=None) -> ActionResult:
@@ -535,6 +545,8 @@ class GearWorld(MockGame):
         if name is None:
             return fail(Reason.UNKNOWN_TARGET, piece=piece, detail=f"no buildable piece called {piece}")
         b = self.buildables[name]
+        if not self._unlocked(b):
+            return fail(Reason.NOT_UNLOCKED, piece=name, detail=f"I haven't unlocked the {name} yet.")
         missing = self._missing(b["materials"])
         if missing:
             return fail(Reason.MISSING_MATERIALS, piece=name, missing=missing)
