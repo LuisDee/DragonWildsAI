@@ -1060,6 +1060,21 @@ do
     check("extras: not castable with the reason and the runes short", by.Windstep.castable == false and by.Windstep.reason == "not_enough_resources"
           and by.Windstep.runes_short and by.Windstep.runes_short["Air Rune"] == 2, by.Windstep.reason)
     check("extras: runes needed listed", by["Summon Shelter"].runes and by["Summon Shelter"].runes["Earth Rune"] == 10)
+    check("extras: no cooldown -> no remaining_s", by.Windstep.remaining_s == nil)
+    do -- cooldown left is perceivable (M2 gap audit 2026-10-26: castable=false/on_cooldown said nothing about how long)
+        local saved = { items = G.items[AIR], lc = G.last_cast.USD_Windstep }
+        G.items[AIR], G.last_cast.USD_Windstep = 821, G.server_time - 1
+        SP.mem().extras = nil
+        local cd
+        for _, r in ipairs(SP.state_extras(api).spells) do if r.name == "Windstep" then cd = r end end
+        check("extras: on cooldown carries remaining_s", cd and cd.reason == "on_cooldown" and cd.remaining_s and cd.remaining_s > 0,
+              cd and tostring(cd.reason) .. " " .. tostring(cd.remaining_s))
+        G.items[AIR], G.last_cast.USD_Windstep = saved.items, saved.lc
+        SP.mem().extras = nil
+        ex = SP.state_extras(api)
+        by = {}
+        for _, r in ipairs(ex.spells or {}) do by[r.name] = r end
+    end
     check("extras: a spell off the wheel is not castable", by["Summon Shelter"].castable == false and by["Summon Shelter"].reason == "not_on_wheel")
     G.items[AIR] = 821
     local cached
@@ -1073,6 +1088,35 @@ do
     _G.DW_PAUSE = true
     check("extras: nothing while paused", next(SP.state_extras(api2)) == nil)
     _G.DW_PAUSE = nil
+end
+
+-- M2 gap audit 2026-10-26: an aimed status spell at a CREATURE reports what it put on the creature (its new GE
+-- classes / tags; Confuse / Enfeeble had no success read at all), and only for creature things
+do
+    check("list_added: multiset difference", table.concat(SP.list_added({ "a", "b" }, { "a", "b", "b", "c" }), ",") == "b,c")
+    local real_fx, real_find = W.effects_of, api.find_thing
+    local CFX = {}
+    W.effects_of = function(a) return { ge = { table.unpack(CFX[a.id] and CFX[a.id].ge or {}) }, tags = { table.unpack(CFX[a.id] and CFX[a.id].tags or {}) } } end
+    api.actor_of = function(t) return { id = t.id, IsValid = function() return true end } end
+    CFX.BP_AI_Deer_C_1 = { ge = { "GE_Bleed_C" }, tags = {} }
+    reset({ unlocked = { AXTRAL }, wheel = { "USD_TestAxe" } })
+    local res = run_cast({ spell = "Astral Axe", target = "BP_AI_Deer_C_1" }, { during = function(n)
+        if n == 3 then CFX.BP_AI_Deer_C_1 = { ge = { "GE_Bleed_C", "GE_Confuse_C" }, tags = { "Status.Confused" } } end end })
+    local te = res.data and res.data.target_effects
+    check("creature target: the new GE + tag on it are reported", res.ok and te and table.concat(te.ge, ",") == "GE_Confuse_C"
+          and table.concat(te.tags, ",") == "Status.Confused", tostring(res.reason) .. " " .. tostring(te and table.concat(te.ge, ",")))
+    reset({ unlocked = { AXTRAL }, wheel = { "USD_TestAxe" } })
+    res = run_cast({ spell = "Astral Axe", target = "BP_Log_1" })
+    check("non-creature thing: no target_effects read", res.ok and res.data.target_effects == nil, tostring(res.reason))
+    check("target_effects: nil for self / points", W.target_effects(api, { kind = "self" }) == nil
+          and W.target_effects(api, { kind = "point", position = { 1, 2, 3 } }) == nil)
+    W.effects_of, api.find_thing, api.actor_of = real_fx, real_find, nil
+    -- the `spells` read carries `how` (data/spell_mechanics.json) so the model sees the real usage, not only the game's line
+    reset()
+    local lr = SP.HANDLERS.spells(nil, {}, ctx)
+    local wrow
+    for _, r in ipairs(lr.data and lr.data.spells or {}) do if r.id == "USD_Windstep" then wrow = r end end
+    check("spells read: a row carries its mechanics `how`", wrow and type(wrow.how) == "string" and #wrow.how > 10, wrow and tostring(wrow.how))
 end
 
 print(string.format("test_spells: %d passed, %d failed", pass, failn))

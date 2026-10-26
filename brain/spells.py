@@ -56,16 +56,31 @@ def compact_row(row: dict) -> dict:
     out = {"name": row.get("name") or row.get("id"), "role": row.get("role", "other"),
            "use_when": (row.get("use_when") or "")[:USE_WHEN_CHARS]}
     out.update(purpose_of(row.get("id")))
+    if row.get("how"):  # how it is really used (spells.lua, from data/spell_mechanics.json): e.g. drop 5 ore, then cast on them
+        out["how"] = row["how"]
     reason = row.get("reason")
     if reason == Reason.ON_COOLDOWN:
         out["note"] = f"on cooldown ({row.get('remaining_s', 0):.0f}s)"
     elif reason == Reason.NOT_ENOUGH:
         out["note"] = "no runes for it"
+    elif reason == REQUIREMENT:
+        # the game's own special requirement is unmet (e.g. "A held melee weapon"): he can fix it himself
+        need = row.get("needs") if isinstance(row.get("needs"), str) else out.get("needs")
+        out["note"] = f"needs {need} first" if need else "its game requirement is not met"
+    if "note" in out:
+        # (M2 gap audit 2026-10-26) the Controller's spell_lines renders castable/reason, not `note`: without
+        # these a spell on cooldown or out of runes read as castable to the model
+        out["castable"], out["reason"] = False, out["note"]
     return out
 
 
+REQUIREMENT = "requirement"  # spells.lua row.reason when the spell's SpecialRequirementsStrategy fails
+# rows kept for the model: castable now, or blocked by something he can fix (wait, runes, hold the right tool)
+FIXABLE = (Reason.ON_COOLDOWN, Reason.NOT_ENOUGH, REQUIREMENT)
+
+
 def from_body(rows: list[dict]) -> list[dict]:
-    keep = [r for r in rows if r.get("castable") or r.get("reason") in (Reason.ON_COOLDOWN, Reason.NOT_ENOUGH)]
+    keep = [r for r in rows if r.get("castable") or r.get("reason") in FIXABLE]
     return [compact_row(r) for r in keep][:MAX_ROWS]
 
 

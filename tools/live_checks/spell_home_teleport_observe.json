@@ -1,0 +1,87 @@
+{
+ "id": "spell_home_teleport_observe",
+ "owner": "spells (M2 gap audit)",
+ "area": "client_mod/scripts/spells.lua cast (instant) + DevTarget claim_bed fixture (UNVERIFIED)",
+ "why": "Home Teleport has no observed effect (needs_live_observation). Expected from the spell text: he ends at his claimed bed. claim_bed puts him 40 m from it; record moved_m and the distance from the start.",
+ "observe_only": true,
+ "preconditions": {
+  "fixtures": [
+   {
+    "verb": "unlock",
+    "spell": "USD_HomeTeleport"
+   },
+   {
+    "verb": "grant_runes",
+    "runes": {
+     "Law": 15
+    }
+   },
+   {
+    "verb": "claim_bed",
+    "away_m": 40
+   }
+  ],
+  "set_health": {
+   "pct": 100
+  },
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "probe": true,
+   "save": "start"
+  },
+  {
+   "bridge": "cast",
+   "args": {
+    "spell": "Home Teleport"
+   },
+   "timeout_s": 60,
+   "save": "cast"
+  },
+  {
+   "sleep_s": 4
+  },
+  {
+   "probe": true,
+   "save": "end"
+  }
+ ],
+ "pass": [
+  {
+   "ref": "cast.ok",
+   "eq": true
+  },
+  {
+   "dist": [
+    "start.position",
+    "end.position"
+   ],
+   "gte": 30,
+   "why": "moved most of the 40 m back to the bed"
+  }
+ ],
+ "observe": [
+  "cast.ok",
+  "cast.reason",
+  "cast.data.why",
+  "cast.data.detail",
+  "cast.data.runes_spent",
+  "cast.data.cooldown_started",
+  "cast.data.effects",
+  "cast.data.effect_verified",
+  "cast.data.spell_actor",
+  "cast.data.landed_at",
+  "cast.data.moved_m",
+  {
+   "name": "moved_from_start_m",
+   "dist": [
+    "start.position",
+    "end.position"
+   ]
+  },
+  "end.input_mode"
+ ],
+ "timeout_s": 300,
+ "max_retries": 0
+}

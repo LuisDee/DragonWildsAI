@@ -1,0 +1,132 @@
+{
+ "id": "spell_confuse_observe",
+ "owner": "spells (M2 gap audit)",
+ "area": "client_mod/scripts/spells.lua cast (aimed at a creature) + the new target_effects read",
+ "why": "Confuse has no observed effect (spell_effects: needs_live_observation; wiki: the target attacks other nearby monsters for 45 s). Two runt goblins, Confuse on one: record what lands on it (target_effects; whether creature GEs replicate to the client is UNVERIFIED) and the goblins' state 10 s later.",
+ "observe_only": true,
+ "preconditions": {
+  "fixtures": [
+   {
+    "verb": "unlock",
+    "spell": "USD_Confuse"
+   },
+   {
+    "verb": "grant_runes",
+    "runes": {
+     "Astral": 25
+    }
+   },
+   {
+    "verb": "spawn",
+    "class": "BP_AI_RuntGoblin_Character_C",
+    "offset_m": [
+     14,
+     0,
+     0
+    ]
+   },
+   {
+    "verb": "spawn",
+    "class": "BP_AI_RuntGoblin_Character_C",
+    "offset_m": [
+     16,
+     3,
+     0
+    ]
+   }
+  ],
+  "set_health": {
+   "pct": 100
+  },
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "probe": true,
+   "save": "start"
+  },
+  {
+   "bridge": "look",
+   "args": {
+    "about": "goblin",
+    "radius": 30,
+    "max": 15
+   },
+   "timeout_s": 15,
+   "save": "look"
+  },
+  {
+   "bridge": "cast",
+   "args": {
+    "spell": "Confuse",
+    "target": {
+     "$find": {
+      "in": "look.data.things",
+      "match": {
+       "name": "goblin"
+      },
+      "get": "id"
+     }
+    }
+   },
+   "timeout_s": 60,
+   "save": "cast"
+  },
+  {
+   "sleep_s": 10
+  },
+  {
+   "bridge": "look",
+   "args": {
+    "about": "goblin",
+    "radius": 40,
+    "max": 15
+   },
+   "timeout_s": 15,
+   "save": "look_after"
+  },
+  {
+   "probe": true,
+   "save": "end"
+  }
+ ],
+ "pass": [
+  {
+   "ref": "cast.ok",
+   "eq": true,
+   "why": "the cast went off (runes + cooldown)"
+  },
+  {
+   "ref": "cast.data.target_effects.ge",
+   "truthy": true,
+   "why": "a status GE landed on the creature (dump: GE_Confuse_C)"
+  }
+ ],
+ "observe": [
+  "cast.ok",
+  "cast.reason",
+  "cast.data.why",
+  "cast.data.detail",
+  "cast.data.runes_spent",
+  "cast.data.cooldown_started",
+  "cast.data.effects",
+  "cast.data.effect_verified",
+  "cast.data.spell_actor",
+  "cast.data.landed_at",
+  "cast.data.moved_m",
+  "cast.data.target",
+  "cast.data.target_effects",
+  "cast.data.target_health",
+  "look.data.things",
+  "look_after.data.things",
+  {
+   "name": "his_hp_change",
+   "delta": [
+    "start.vitals.health",
+    "end.vitals.health"
+   ]
+  }
+ ],
+ "timeout_s": 240,
+ "max_retries": 0
+}

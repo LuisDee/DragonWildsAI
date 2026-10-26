@@ -1,0 +1,121 @@
+{
+ "id": "spell_surge_dodge_distance",
+ "owner": "spells (M2 gap audit)",
+ "area": "client_mod/commands/dodge_distance_test.lua (new probe for proof kind dodge_distance_gain_m)",
+ "why": "Surge's effect is on the next dodges (live 07:3xZ: no GE/tag/actor on cast; wiki: a Surge charge makes a dodge travel 8 m). One ground dodge before and one after the cast, same probe.",
+ "observe_only": true,
+ "preconditions": {
+  "fixtures": [
+   {
+    "verb": "unlock",
+    "spell": "USD_Surge"
+   },
+   {
+    "verb": "grant_runes",
+    "runes": {
+     "Law": 10,
+     "Astral": 10
+    }
+   }
+  ],
+  "set_health": {
+   "pct": 100
+  },
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "client_cmd": "client_mod/commands/dodge_distance_test.lua",
+   "timeout_s": 10,
+   "save": "d0_start"
+  },
+  {
+   "sleep_s": 3
+  },
+  {
+   "client_cmd": "client_mod/commands/dodge_distance_test.lua",
+   "args": {
+    "read": true
+   },
+   "timeout_s": 10,
+   "save": "d0"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "bridge": "cast",
+   "args": {
+    "spell": "Surge"
+   },
+   "timeout_s": 40,
+   "save": "cast"
+  },
+  {
+   "sleep_s": 1
+  },
+  {
+   "client_cmd": "client_mod/commands/dodge_distance_test.lua",
+   "timeout_s": 10,
+   "save": "d1_start"
+  },
+  {
+   "sleep_s": 3
+  },
+  {
+   "client_cmd": "client_mod/commands/dodge_distance_test.lua",
+   "args": {
+    "read": true
+   },
+   "timeout_s": 10,
+   "save": "d1"
+  },
+  {
+   "probe": true,
+   "save": "end"
+  }
+ ],
+ "pass": [
+  {
+   "ref": "cast.ok",
+   "eq": true
+  },
+  {
+   "ref": "d0.result.done",
+   "eq": true
+  },
+  {
+   "ref": "d1.result.done",
+   "eq": true
+  },
+  {
+   "ref": "d1.result.max_h_m",
+   "gte": 6,
+   "why": "wiki: a Surge dodge travels about 8 m (compare d0.result.max_h_m, a plain dodge)"
+  }
+ ],
+ "observe": [
+  "cast.ok",
+  "cast.reason",
+  "cast.data.why",
+  "cast.data.detail",
+  "cast.data.runes_spent",
+  "cast.data.cooldown_started",
+  "cast.data.effects",
+  "cast.data.effect_verified",
+  "cast.data.spell_actor",
+  "cast.data.landed_at",
+  "cast.data.moved_m",
+  "d0_start.result",
+  "d1_start.result",
+  "d0.result.max_h_m",
+  "d0.result.end_h_m",
+  "d0.result.tags",
+  "d1.result.max_h_m",
+  "d1.result.end_h_m",
+  "d1.result.tags",
+  "end.input_mode"
+ ],
+ "timeout_s": 150,
+ "max_retries": 0
+}

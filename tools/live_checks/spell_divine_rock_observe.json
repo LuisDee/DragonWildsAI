@@ -1,0 +1,84 @@
+{
+ "id": "spell_divine_rock_observe",
+ "owner": "spells (M2 gap audit)",
+ "area": "client_mod/scripts/spells.lua cast (placed, no observable module)",
+ "why": "Divine Rock has no observed effect (needs_live_observation; 'a personal ore vein'). Placed on ground in front of him: record the spell actor and what look sees near the landing point afterwards.",
+ "observe_only": true,
+ "preconditions": {
+  "fixtures": [
+   {
+    "verb": "unlock",
+    "spell": "USD_DivineRock"
+   },
+   {
+    "verb": "grant_runes",
+    "runes": {
+     "Earth": 100,
+     "Nature": 100
+    }
+   }
+  ],
+  "set_health": {
+   "pct": 100
+  },
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "probe": true,
+   "save": "start"
+  },
+  {
+   "bridge": "cast",
+   "args": {
+    "spell": "Divine Rock"
+   },
+   "timeout_s": 60,
+   "save": "cast"
+  },
+  {
+   "sleep_s": 5
+  },
+  {
+   "bridge": "look",
+   "args": {
+    "about": "rock ore",
+    "radius": 15,
+    "max": 15
+   },
+   "timeout_s": 15,
+   "save": "look_after"
+  },
+  {
+   "probe": true,
+   "save": "end"
+  }
+ ],
+ "pass": [
+  {
+   "ref": "cast.ok",
+   "eq": true
+  },
+  {
+   "ref": "cast.data.spell_actor",
+   "exists": true,
+   "why": "a spell actor at the landing point"
+  }
+ ],
+ "observe": [
+  "cast.ok",
+  "cast.reason",
+  "cast.data.why",
+  "cast.data.detail",
+  "cast.data.runes_spent",
+  "cast.data.cooldown_started",
+  "cast.data.effects",
+  "cast.data.effect_verified",
+  "cast.data.spell_actor",
+  "cast.data.landed_at",
+  "cast.data.moved_m",
+  "look_after.data.things"
+ ],
+ "timeout_s": 240,
+ "max_retries": 0
+}

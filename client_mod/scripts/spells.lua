@@ -52,7 +52,9 @@ M.cfg = {
     -- HOLD-AND-WALK (cast type instant_after_move = the game's AllowMovementThenCastInstant; Recall: wiki "Leaves a runic
     -- marker on the ground; recasting teleports you back", live 17:35: the spell opens a placement mode you can MOVE in):
     -- cast {spell, walk_to}: open it, walk to walk_to while it is held open, then finish it; the result says where he
-    -- ended relative to where it was opened (a jump back there = the return, by position).
+    -- ended relative to where it was opened (a jump back there = the return, by position). VERIFIED live 19:39 UTC
+    -- (DISCOVERIES "Recall hold-and-walk"): opened at A, walked 10.8 m, the place press teleported him back to A (0.1 m);
+    -- a later plain cast returns nowhere (0 m), so Recall is NOT two_step (no lasting marker between casts).
     hold_walk_budget_s = 25,  -- the walk while held open; then finish it where he is
     hold_return_m = 4,        -- finished within this of the opening point after walking away = returned
     select_wait_s = 1.0,    -- after the quick key: wait for a spell mode or the cast to start
@@ -444,13 +446,8 @@ function W.snapshot(api)
         end
     end
     s.falling = u.try(function() return pawn.CharacterMovement:IsFalling() end) == true
-    local ge = u.try(function() return pawn.GameplayEffectsComponent end)
-    if u.valid(ge) then
-        for _, f in ipairs({ "ReplicatedInstances", "NonReplicatedInstances" }) do
-            each(u.try(function() return ge[f] end), function(x) if u.valid(x) then s.ge[#s.ge + 1] = u.class_word(x) end end, 64)
-        end
-        pcall(function() ge.GameplayTags.GameplayTags:ForEach(function(_, t) s.tags[#s.tags + 1] = u.str(unwrap(t).TagName) end) end)
-    end
+    local fx = W.effects_of(pawn)
+    s.ge, s.tags = fx.ge, fx.tags
     local sk = u.try(function() return pc.SkillComponent end)
     each(sk and u.try(function() return sk.Skills end), function(x)
         local d = u.try(function() return x.SkillData end)
@@ -458,6 +455,31 @@ function W.snapshot(api)
     end, 32)
     s.position = to_m(u.try(function() return pawn:K2_GetActorLocation() end))
     return s
+end
+
+-- GameplayEffect classes + gameplay tags on one actor's GameplayEffectsComponent (the pawn's, or a creature's: an
+-- aimed spell's status lands there, e.g. GE_Confuse_C per the dump). -> {ge = {...}, tags = {...}} (empty when unreadable)
+function W.effects_of(actor)
+    local u = U()
+    local out = { ge = {}, tags = {} }
+    local ge = u.valid(actor) and u.try(function() return actor.GameplayEffectsComponent end)
+    if u.valid(ge) then
+        for _, f in ipairs({ "ReplicatedInstances", "NonReplicatedInstances" }) do
+            each(u.try(function() return ge[f] end), function(x) if u.valid(x) then out.ge[#out.ge + 1] = u.class_word(x) end end, 64)
+        end
+        pcall(function() ge.GameplayTags.GameplayTags:ForEach(function(_, t) out.tags[#out.tags + 1] = u.str(unwrap(t).TagName) end) end)
+    end
+    return out
+end
+
+-- A creature target's effects now (UNVERIFIED on the client: whether creature GEs replicate; the live check
+-- tools/live_checks/spell_confuse_observe.json records it). nil for anything that is not a creature thing.
+function W.target_effects(api, target)
+    if not (target and target.kind == "thing" and target.category == "creatures" and target.id and api.actor_of) then return nil end
+    local t = select(1, api.find_thing(target.id))
+    local a = t and api.actor_of(t)
+    if not U().valid(a) then return nil end
+    return W.effects_of(a)
 end
 
 -- The game's own special-requirement check (L1): the spell's SpecialRequirementsStrategy default object
@@ -826,6 +848,10 @@ local function rows_of(api, snap, all)
         local st = W.static(obj)
         snap.req[id] = W.requirement(api, st)
         out[#out + 1] = M.row(st, snap, m.cast_at[id], now_local)
+        -- how it is really used (drop-then-cast, cast-on-a-thing, charges; data/spell_mechanics.json, wiki-sourced):
+        -- the `spells` read showed only the game's one-line description (M2 gap audit 2026-10-26)
+        local mech = M.mechanics(id)
+        if mech and mech.how then out[#out].how = mech.how end
         seen[id] = true
     end
     local locked_n = 0
@@ -934,6 +960,9 @@ local function new_cast(api, args)
     end
     local tg, tf = target_of(api, args.target, snap)
     if not tg then return nil, tf end
+    -- a creature target's effects before the cast, so the result can say what the spell put on it
+    local okfx, fx0 = pcall(W.target_effects, api, tg)
+    tg.fx_before = okfx and fx0 or nil
     local placed = row.cast_type == "placed" or row.cast_type == "aimed"
     if not placed and tg.kind ~= "self" then d.target_ignored = true; tg = { kind = "self", position = snap.position } end
     local at = tg.position
@@ -1077,6 +1106,15 @@ function M.tag_words(tag)
 end
 
 -- What changed since the cast started (pure on two snapshots).
+-- Entries of `a` not in `b` (a multiset difference: one new GE of a class already present still counts). Pure.
+function M.list_added(b, a, dst)
+    dst = dst or {}
+    local seen = {}
+    for _, x in ipairs(b or {}) do seen[x] = (seen[x] or 0) + 1 end
+    for _, x in ipairs(a or {}) do if (seen[x] or 0) > 0 then seen[x] = seen[x] - 1 else dst[#dst + 1] = x end end
+    return dst
+end
+
 function M.diff(before, after, st)
     local out = { runes_spent = {}, ge_added = {}, tags_added = {}, actors_added = {} }
     for _, c in ipairs(st.cost or {}) do
@@ -1085,11 +1123,7 @@ function M.diff(before, after, st)
     end
     local lb, la = (before.last_cast or {})[st.asset], (after.last_cast or {})[st.asset]
     if la ~= nil and la ~= lb then out.cooldown_started = true end
-    local function added(b, a, dst)
-        local seen = {}
-        for _, x in ipairs(b or {}) do seen[x] = (seen[x] or 0) + 1 end
-        for _, x in ipairs(a or {}) do if (seen[x] or 0) > 0 then seen[x] = seen[x] - 1 else dst[#dst + 1] = x end end
-    end
+    local added = M.list_added
     added(before.ge, after.ge, out.ge_added)
     added(before.tags, after.tags, out.tags_added)
     for id, a in pairs(after.actors or {}) do if not (before.actors or {})[id] then out.actors_added[#out.actors_added + 1] = { id = id, class = a.class, position = a.position } end end
@@ -1204,6 +1238,14 @@ local function verified_result(job, df, snap)
         if not tt and tostring(job.target.id):sub(1, 4) == "fol:" then tt = W.foliage_thing(api, job.target.id) end
         d.target_after = tt and "still_there" or "gone"
         if tt and tt.health then d.target_health = tt.health end
+        if job.target.fx_before then
+            -- what the spell put on the creature (Confuse / Enfeeble / Snare status effects): new GE classes + tags
+            local okfx, fx1 = pcall(W.target_effects, api, job.target)
+            if okfx and fx1 then
+                d.target_effects = { ge = M.list_added(job.target.fx_before.ge, fx1.ge), tags = M.list_added(job.target.fx_before.tags, fx1.tags) }
+                if #d.target_effects.ge + #d.target_effects.tags > 0 then d.effect_verified = true end
+            end
+        end
     end
     d.presses = job.presses
     mem().cast_at[job.row.id] = M.wall()
@@ -2006,6 +2048,7 @@ function M.state_extras(api)
             out[#out + 1] = { id = r.id, name = r.name, school = st.perk and st.perk.skill_name or nil, castable = r.castable == true,
                               reason = (not r.castable) and r.reason or nil, runes = next(runes) and runes or nil, runes_short = short,
                               how = mech and mech.how or nil, cast_type = r.cast_type,
+                              remaining_s = (r.remaining_s or 0) > 0 and r.remaining_s or nil, -- cooldown left (M2 gap audit)
                               beacon = bc and { position = bc.position, placed_s_ago = math.floor(M.wall() - bc.at + 0.5) } or nil }
         end
     end

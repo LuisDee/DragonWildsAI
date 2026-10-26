@@ -1,0 +1,103 @@
+{
+ "id": "spell_internal_alchemy_observe",
+ "owner": "spells (M2 gap audit)",
+ "area": "client_mod/scripts/spells.lua cast (instant; proof kind world_module has no read)",
+ "why": "Internal Alchemy ('refreshing food buffs') has no success read. Eat one Bread first so a food buff exists, then cast: record which GEs/tags the cast diff shows and the vitals.",
+ "observe_only": true,
+ "preconditions": {
+  "fixtures": [
+   {
+    "verb": "unlock",
+    "spell": "USD_InternalAlchemy"
+   },
+   {
+    "verb": "grant_runes",
+    "runes": {
+     "Nature": 10
+    }
+   },
+   {
+    "verb": "grant",
+    "item": "ITEM_Consumable_Bread",
+    "count": 1
+   }
+  ],
+  "set_health": {
+   "pct": 100
+  },
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "bridge": "move_item",
+   "args": {
+    "item": "Bread",
+    "to": "hotbar"
+   },
+   "timeout_s": 15,
+   "save": "move"
+  },
+  {
+   "bridge": "consume",
+   "args": {
+    "item": "Bread"
+   },
+   "timeout_s": 40,
+   "save": "eat"
+  },
+  {
+   "sleep_s": 3
+  },
+  {
+   "probe": true,
+   "save": "start"
+  },
+  {
+   "bridge": "cast",
+   "args": {
+    "spell": "Internal Alchemy"
+   },
+   "timeout_s": 40,
+   "save": "cast"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "probe": true,
+   "save": "end"
+  }
+ ],
+ "pass": [
+  {
+   "ref": "eat.ok",
+   "eq": true
+  },
+  {
+   "ref": "cast.ok",
+   "eq": true
+  },
+  {
+   "ref": "cast.data.effect_verified",
+   "eq": true
+  }
+ ],
+ "observe": [
+  "cast.ok",
+  "cast.reason",
+  "cast.data.why",
+  "cast.data.detail",
+  "cast.data.runes_spent",
+  "cast.data.cooldown_started",
+  "cast.data.effects",
+  "cast.data.effect_verified",
+  "cast.data.spell_actor",
+  "cast.data.landed_at",
+  "cast.data.moved_m",
+  "eat.reason",
+  "start.vitals",
+  "end.vitals"
+ ],
+ "timeout_s": 240,
+ "max_retries": 0
+}

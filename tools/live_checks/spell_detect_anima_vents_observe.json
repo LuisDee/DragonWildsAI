@@ -1,0 +1,74 @@
+{
+ "id": "spell_detect_anima_vents_observe",
+ "owner": "spells (M2 gap audit)",
+ "area": "client_mod/scripts/spells.lua cast (instant, no observable module)",
+ "why": "Summon Elemental Spirits has no observed effect (needs_live_observation). By analogy with Summon Stone Spirits (live): a DominionSpellActor and DIM_SpellcastingMode while active. Record effects, actors and mode.",
+ "observe_only": true,
+ "preconditions": {
+  "fixtures": [
+   {
+    "verb": "unlock",
+    "spell": "USD_DetectAnimaVents"
+   },
+   {
+    "verb": "grant_runes",
+    "runes": {
+     "Earth": 5,
+     "Astral": 5
+    }
+   }
+  ],
+  "set_health": {
+   "pct": 100
+  },
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "probe": true,
+   "save": "start"
+  },
+  {
+   "bridge": "cast",
+   "args": {
+    "spell": "Summon Elemental Spirits"
+   },
+   "timeout_s": 40,
+   "save": "cast"
+  },
+  {
+   "sleep_s": 4
+  },
+  {
+   "probe": true,
+   "save": "end"
+  }
+ ],
+ "pass": [
+  {
+   "ref": "cast.ok",
+   "eq": true
+  },
+  {
+   "ref": "cast.data.effect_verified",
+   "eq": true,
+   "why": "a GE/tag/actor/view change came with the cast"
+  }
+ ],
+ "observe": [
+  "cast.ok",
+  "cast.reason",
+  "cast.data.why",
+  "cast.data.detail",
+  "cast.data.runes_spent",
+  "cast.data.cooldown_started",
+  "cast.data.effects",
+  "cast.data.effect_verified",
+  "cast.data.spell_actor",
+  "cast.data.landed_at",
+  "cast.data.moved_m",
+  "end.input_mode"
+ ],
+ "timeout_s": 240,
+ "max_retries": 0
+}

@@ -207,7 +207,31 @@ def test_spellbook_from_body_rows_and_cache():
     assert len(book.castable()) == 3
     rows = from_body([{"id": "a", "name": "A", "role": "x", "use_when": "u", "castable": False, "reason": "on_cooldown",
                        "remaining_s": 12}, {"id": "b", "name": "B", "castable": False, "reason": "not_implemented"}])
-    assert rows == [{"name": "A", "role": "x", "use_when": "u", "note": "on cooldown (12s)"}]
+    assert rows == [{"name": "A", "role": "x", "use_when": "u", "note": "on cooldown (12s)", "castable": False,
+                     "reason": "on cooldown (12s)"}]
+
+
+def test_blocked_spells_render_as_not_castable_and_requirements_stay_visible():
+    """M2 gap audit 2026-10-26: spell_lines prints castable/reason (not `note`), so a cooling-down or rune-less
+    spell read as castable; and a spell whose game requirement is unmet (enchant without a held melee weapon)
+    vanished, so the model could not know that equipping a weapon would enable it."""
+    from brain.controller import Controller
+    rows = from_body([
+        {"id": "USD_TempestShield", "name": "Tempest Shield", "role": "instant", "castable": False, "reason": "on_cooldown",
+         "remaining_s": 40},
+        {"id": "USD_EnchantWeapon_Fire", "name": "Enchant Weapon: Fire", "role": "instant", "castable": False,
+         "reason": "requirement", "needs": "A held melee weapon"},
+        {"id": "USD_Windstep", "name": "Windstep", "role": "instant", "castable": False, "reason": "not_enough_resources"},
+        {"id": "USD_Recall", "name": "Recall", "role": "instant", "castable": False, "reason": "not_on_wheel"}])
+    by = {r["name"]: r for r in rows}
+    assert set(by) == {"Tempest Shield", "Enchant Weapon: Fire", "Windstep"}
+    assert by["Enchant Weapon: Fire"]["note"] == "needs A held melee weapon first"
+    assert all(r["castable"] is False for r in rows)
+    fake = type("C", (), {"castable_spells": lambda self: rows})()
+    lines = Controller.spell_lines(fake)
+    assert any("Tempest Shield" in s and "NOT castable now: on cooldown (40s)" in s for s in lines)
+    assert any("Windstep" in s and "NOT castable now: no runes for it" in s for s in lines)
+    assert any("Enchant Weapon: Fire" in s and "needs A held melee weapon first" in s for s in lines)
 
 
 def test_spellbook_catalog_fallback_only_lists_verified_unlocked():
