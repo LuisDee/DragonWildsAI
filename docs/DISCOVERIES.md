@@ -1760,3 +1760,30 @@ Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probe
 - 3 `BP_AnimaVent_C` at 64–106 m. `HasAvailableCharges()` is true on all three; one has `IsConcentrated()` true.
 - 5 `RuneEssenceGeyser` at 17–106 m (`BP_RuneEssenceGeyser_{B,C,J}_C`).
 - No farm slots and no kebbit burrows in range.
+
+## Benchmark: raise_skills route, server-log dodges, judge-side spell signals (2026-10-26 07:35-07:55 UTC, server build 26161880, DW_SERVER_ROLE=dev, ClaudeDev; Eval agent)
+
+**Raising skills (fixture `raise_skills`, verified, QUICK variants only).**
+- Route: on the server, `pawn.Controller.SkillComponent:AddXpFromEvent(SkillData.DamageXPEvent, "bench_fixture", Multiplier, true)`. The `FDataTableRowHandle` is read from the live `USkillData.DamageXPEvent` property; it is never built by hand.
+- **The XP lands on a later tick.** A read of `SkillComponent.Skills[i].CurrentXP` in the same call shows no change. This is probably because of `SkillComponent.XPBatches`.
+- Attack amounts: ×1 gave +1 XP and ×10 gave +8 XP (bIgnoreModifier = true), so about 0.8 XP per multiplier unit.
+- `GetTotalXPNeededForLevel(L)` works. The fixture is therefore one step per call: add `(needed − current) × 1.15` units. The harness repeats it (up to 6 rounds, 1.5 s apart) until the level is ≥ the target.
+- Verified: Attack 2 → 3 at 71 XP. Level 2 is reached at XP 33.
+- **Side effect:** ClaudeDev's Attack went from level 1 at 32 XP to level 3 at 71 XP during verification.
+- The XP leaves gain `CurrentXP` and level through `GetSkillLevel(SkillData)`. Wrapper objects of one SkillData do not compare equal with `==`, so match on the short name.
+
+**Dodges are server-authoritative in the dev server log.**
+- The source is `RSDragonwilds.log`, category EvadeAttack, Verbose. Timestamps are UTC.
+- `TryPerformAttack() : [..] <AI> starting attack on authority against player <pawn> with id N` marks a telegraph.
+- `PredictPointDamage() : [..] <pawn> evaded 0.000000 damage at T from <AI>` marks a successful dodge.
+- `... <pawn> will receive D damage ...` marks a hit.
+- `<pawn>` is the object name, for example `BP_PlayerCharacter_C_2147373968`. The referee's `start` reply now returns it.
+- `evals/bench/serverlog.py` tails the log. On dev it is the source for `telegraph` and `defended how=dodge`; the client-hook versions of those are dropped.
+- **Blocks:** the server logs only `DomNetActIntIds: AUTH : Action Accepted : START/STOP : Block` and `AuthorityApplyBlocking() : BlockDelay`. Neither names the player, and no outcome line was seen. The blocks in the logs so far were made without a shield, and every one of those hits did full damage. The wording for a blocked or parried hit is still to be captured on the first shield fight.
+
+**Judge-side spell signals.** The probe reads them (`bench_probe.lua`) and never trusts the cast reply.
+- `pc:GetViewTarget()` returns a class word, and `pc.CurrentInputMode` a DIM_* asset. The spells agent verified both live.
+- Eye of Oculus leaves its view inside the cast, after about 3–5 s (L29). The referee therefore also polls `BP_OculusCamera_C`; it has not yet been confirmed that this actor exists on the server.
+- Transient signals (view target, input mode) evaluate to null when absent, never to fail.
+- Enchant Weapon (Fire) is checked by `held_item_effect` on the probe's `held.effects`, which reads `HeldEquipmentActorRight.MagicalHeldEquipmentEffectInfo.EffectData`, for example `HEED_EnchantWeaponFire`.
+- **Referee v1.4 (registered on dev at 07:58 UTC; not yet seen firing):** RegisterHook succeeded for `/Script/Dominion.OculusPawn:Multicast_OnOculusActivated`, `/Script/Dominion.PersonalInventoryComponent:OpenPersonalInventory` (EPersonalInventoryOpenMethod Manual=0, Spell=1) and `:Client_TogglePersonalInventory`. It also polls `pawn.OculusComponent:IsOculusActive()` every 250 ms. All of these emit `spell_state`.
