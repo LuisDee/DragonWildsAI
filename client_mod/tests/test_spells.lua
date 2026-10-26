@@ -97,7 +97,7 @@ W.hooks_start = function() end
 W.snapshot = function()
     local s = { wheel = {}, unlocked = {}, objects = {}, items = {}, last_cast = {}, ge = {}, tags = {}, actors = {}, skills = G.skills,
                 per_radial = 12, radials = 4, place_max_m = 15, server_time = G.server_time, input_mode = G.mode, falling = G.falling,
-                position = G.pos, casting = G.casting }
+                position = G.pos, casting = G.casting, view_target = G.view or "BP_PlayerCharacter_C" }
     for i = 1, 48 do s.wheel[i] = G.wheel[i] or false end
     for _, sp in ipairs(G.unlocked) do s.unlocked[sp.asset] = true; s.objects[sp.asset] = sp end
     for k, v in pairs(G.items) do s.items[k] = v end
@@ -164,7 +164,7 @@ W.inject = function(_, a)
         if not s then G.mode = "DIM_Gameplay"; return true end
         if s.cast_type == 0 and G.stay_in_mode then
             G.mode = "DIM_SpellcastingMode" -- e.g. a camera mode the spell keeps open
-            at(0.4, function() effect(s) end)
+            at(0.4, function() effect(s); if G.on_cast then G.on_cast() end end)
         elseif s.cast_type == 0 then
             G.mode = "DIM_Gameplay"
             if G.cooldown_then_spend then
@@ -691,6 +691,40 @@ do
     check("L25: own-mode spell: leaves the mode after the settle wait, the cooldown lands, settled", res.ok and res.data.settled == true
         and res.data.left_mode == "DIM_SpellcastingMode" and res.data.cooldown_started == true, tostring(res.data.settled) .. " " .. presses())
 end
+-- L29: a spell's own mode (Eye of Oculus) is left through the game's own exit handler, never left stuck
+local OCULUS = spell({ asset = "USD_TestEye", name = "Mystic Eye", desc = "A builder's camera.", cast_type = 0,
+                       cost = { { item = AST, name = "Astral Rune", count = 3 } }, perk = { level = 1, skill = "SKILL_Construction", skill_name = "Construction" } })
+W.own_modes = function()
+    if G.own_active then return { { component = "EyeComponent", active = "IsActive", exit = "RequestExit" } } end
+    return {}
+end
+W.exit_own_mode = function() G.exits = (G.exits or 0) + 1; at(0.3, function() G.own_active = false; G.mode = "DIM_Gameplay"; G.view = nil end); return true end
+reset({ unlocked = { OCULUS }, wheel = { "USD_TestEye" } })
+do
+    G.stay_in_mode = true
+    G.on_cast = function() G.own_active = true; G.view = "BP_OculusCamera_C" end
+    local res = run_cast({ spell = "Mystic Eye" })
+    check("observability: the view-target switch is in the reply's effects", res.data.effects and res.data.effects.view_target == "BP_OculusCamera_C"
+        and res.data.effect_verified == true, tostring(res.data.effects and res.data.effects.view_target))
+    check("L29: settled, then the own mode is exited by its handler; back to gameplay", res.ok and G.exits == 1 and G.mode == "DIM_Gameplay"
+        and res.data.exited_own_mode and res.data.exited_own_mode[1] == "EyeComponent" and res.data.mode_after == "DIM_Gameplay",
+        tostring(res.reason) .. " exits=" .. tostring(G.exits) .. " mode=" .. tostring(G.mode) .. " " .. presses())
+end
+reset()
+do
+    G.own_active, G.mode = true, "DIM_OculusBuildMenu" -- stuck from an earlier cast / a pause
+    local res = run_cast({ spell = "Windstep" })
+    check("L29: a cast that starts inside an own mode leaves it first, then casts", res.ok and G.exits == 1 and res.data.closed_previous == "EyeComponent"
+        and table.concat(res.data.presses or {}, ","):find("exit:EyeComponent,menu,quick0", 1, true) ~= nil, table.concat(res.data.presses or {}, ","))
+end
+reset({ wheel_broken = true })
+do
+    G.own_active = false
+    local res = run_cast({ spell = "Windstep" })
+    G.own_active = true
+    check("L29: cleanup on a failure path also exits an own mode (none here: no call)", res.ok == false and (G.exits or 0) == 0)
+end
+W.own_modes = function() return {} end
 -- L27: page turns the short way, timing breakdown
 local p3 = {}
 for i = 1, 48 do p3[i] = false end

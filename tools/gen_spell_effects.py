@@ -48,6 +48,7 @@ OBSERVABLE = {
     "spell_actor": "cast_reply", "moved_m": "cast_reply", "target_gone": "cast_reply", "target_health_drop": "cast_reply",
     "jump_apex_gain_m": "probe", "air_dash_m": "probe", "drops_spawned": "state",
     "held_item_effect": False, "world_module": False, "needs_live_observation": False,
+    "view_target": "cast_reply", "input_mode": "cast_reply", "dodge_distance_gain_m": False,
 }
 PROBES = {
     "client_mod/commands/smoke_jump.lua": {"moves_pawn": True, "note": "one Jump()/StopJumping(); then smoke_jump_read.lua (read-only) gives max_dz_cm"},
@@ -86,10 +87,28 @@ SIGNAL_KINDS = {
     "held_item_effect": "the held weapon gains the enchant: its damage types include `damage_types` for `time_limit_s` (pawn PlayerEquipmentComponent held effect; to be read)",
     "world_module": "the spell changes the world through game module `module` (crop growth, water, compost ...); the proof needs a module-specific read (TBD)",
     "needs_live_observation": "no observable module in the spell data (Blueprint-only): watch tags / GE / position / targets on a live cast, then add a LIVE entry",
+    "view_target": "the camera view target switches to class `class` while the spell is active (data.effects.view_target)",
+    "input_mode": "the player input mode while the spell is active contains `contains` (data.effects.mode)",
+    "dodge_distance_gain_m": "a ground dodge travels at least `min` m farther than without the spell (probe not built yet)",
 }
 
 # Live observations (2026-10-25, Shockbyte world, client build 26162923, data build 26161880).
 LIVE = {
+    "USD_EyeOfOculus": {
+        "effect": [{"kind": "view_target", "class": "BP_OculusCamera_C"},
+                   {"kind": "spell_actor", "class": "DominionSpellActor", "near": "self"},
+                   {"kind": "input_mode", "contains": "SpellcastingMode"}],
+        "evidence": "2026-10-26 07:2xZ dev: Astral -3, cooldown; no GE/tag; a DominionSpellActor spawned, input mode DIM_SpellcastingMode then DIM_OculusBuildMenu, view target BP_OculusCamera_C, OculusComponent:IsOculusActive() true. Left via OculusComponent:RequestExitOculusMode (L29)",
+    },
+    "USD_DetectOre": {
+        "effect": [{"kind": "spell_actor", "class": "DominionSpellActor", "near": "self"},
+                   {"kind": "input_mode", "contains": "SpellcastingMode"}],
+        "evidence": "2026-10-26 07:3xZ dev: Earth -5 Astral -5, cooldown, settled; a DominionSpellActor spawned (the guiding spirits), input mode DIM_SpellcastingMode while active; no GE/tag",
+    },
+    "USD_Surge": {
+        "effect": [{"kind": "dodge_distance_gain_m", "min": 1.0}],
+        "evidence": "2026-10-26 07:3xZ dev: Law -10 Astral -10, cooldown, settled; NO GE, tag, actor, view or mode change on cast. Its effect is on the next dodges (longer evade): it needs a dodge-distance probe (not built)",
+    },
     "USD_Windstep": {
         "effect": [{"kind": "tag_added", "tag": "Player.Spell.WindStep"},
                    {"kind": "ge_added", "class_contains": "DominionStatusEffect"},
