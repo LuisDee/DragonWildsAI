@@ -28,7 +28,7 @@ PROBE_CMD = ROOT / "client_mod" / "commands" / "bench_probe.lua"
 # verified kinds (DISCOVERIES 2026-10-25/26): damage carries by + damage_type (v1.1 hooks), deaths by, telegraphs;
 # defended events carry `how` only for dodges seen with the evade tag / parry / block hooks (else a gap); teleport is
 # polled (no `via` yet -> a gap for teleports{via})
-REFEREE_SUPPORTS = frozenset({"item_change", "damage", "death", "telegraph", "defended", "teleport"})
+REFEREE_SUPPORTS = frozenset({"item_change", "damage", "death", "telegraph", "defended", "teleport", "spell_actor"})
 RECIPES_GLOB = "recipes_*.json"
 SPELLS_GLOB = "spells_*.json"
 
@@ -50,6 +50,17 @@ def item_path(item_id: str) -> str | None:
 def spell_path(spell_id: str) -> str | None:
     rec = (_newest(SPELLS_GLOB).get("spells") or {}).get(spell_id)
     return (rec or {}).get("path")
+
+
+def spell_actor_classes() -> list[str]:
+    """Short class names of every actor a spell spawns (SpawnActor / UtilityMagic modules in the spell data)."""
+    out: set[str] = set()
+    for sp in (_newest(SPELLS_GLOB).get("spells") or {}).values():
+        for m in sp.get("modules") or []:
+            path = m.get("actor_class") or m.get("utility_spell_class")
+            if path:
+                out.add(str(path).rsplit(".", 1)[-1])
+    return sorted(out)
 
 
 def normalise_probe(p: dict) -> dict:
@@ -108,7 +119,8 @@ class DevTarget:
     def referee_start(self) -> None:
         self.referee_log.parent.mkdir(parents=True, exist_ok=True)
         self._ref_off = self.referee_log.stat().st_size if self.referee_log.exists() else 0
-        r = self.server_debug({"part": "referee", "action": "start", "watch": "ClaudeDev"})
+        r = self.server_debug({"part": "referee", "action": "start", "watch": "ClaudeDev",
+                               "spell_actor_classes": spell_actor_classes()})
         if not (r.get("data") or {}).get("result", {}).get("ok"):
             raise Abort(f"referee did not start: {r}")
 

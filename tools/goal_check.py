@@ -319,8 +319,10 @@ def k_target(d: Data, name: str, pred: Callable[[dict], bool], k: int, max_hints
     allpass = len(rows) >= k and all(c.get("result") == "pass" and case_valid(d, c)[0] and pinned_ok(d, c)
                                      and (max_hints is None or int(c.get("hints_used") or 0) <= max_hints) for _, c in recent)
     r0 = rows[0][0]
+    gaps = sorted({m for _, c in recent for m in (c.get("missing") or []) if c.get("result") == "unverifiable"})
+    note = "" if allpass else (f"blocked on: {', '.join(gaps)}" if gaps else f"the last {k} must all pass (valid, pinned)")
     return Row(name, MET if allpass else NOT_MET, f"{len(good)}/{len(rows)} good runs", want, str(r0["row"].get("run_id")),
-               age_h(d, r0["row"].get("at")), "" if allpass else f"the last {k} must all pass (valid, pinned)")
+               age_h(d, r0["row"].get("at")), note)
 
 
 def metric_from_cases(d: Data, name: str, key: str, want_v: float, at_most: bool = False, ratio: tuple[str, str] | None = None,
@@ -581,6 +583,19 @@ def score(rows: list[Row]) -> tuple[int, int]:
     return sum(r.status == MET for r in rows), len(rows)
 
 
+def declared_gaps(root: Path = ROOT) -> list[str]:
+    """Capability gaps the GOAL case drafts declare (provenance.gap), shown so a blocked target isn't mistaken for
+    a capability failure (main, 2026-10-26: build-dependent cases read as a capability gap until the build tool lands)."""
+    out = []
+    for f in sorted((root / "evals" / "bench" / "goal_cases").glob("*.json")):
+        data = read_json(f) or {}
+        for c in data.get("cases") or []:
+            gap = (c.get("provenance") or {}).get("gap")
+            if gap:
+                out.append(f"{c.get('id')}: {gap}")
+    return out
+
+
 def gates(d: Data) -> list[Row]:
     out = []
     tag = d.targets.get("judge_tag")
@@ -708,6 +723,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(gr.line())
         for why in d.rejected[-8:]:
             print(f"   (not counted) {why}")
+        for gap in declared_gaps(root):
+            print(f"   (capability gap) {gap}")
     vs = d.validity_summary
     reasons = ", ".join(f"{k}: {v}" for k, v in sorted(vs.get("invalid_reasons", {}).items())) or "none"
     share = f" ({vs['pct']:.0f}%)" if vs.get("pct") is not None else ""

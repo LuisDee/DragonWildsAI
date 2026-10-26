@@ -356,6 +356,7 @@ def test_goal_drafts_validate_lint_and_keep_method_words_out_of_scored_chat():
         for p in [c.success, *c.guards]:
             assert P.errors(p) == [], (c.id, P.errors(p))
         assert c.oracle.get("dev"), c.id  # a dev positive control is named for every GOAL case
-    coal = next(c for c in cases if c.id == "goal_gather_coal_multitrip")
-    assert "wiki" not in coal.chat[0].text.lower() and "lodestone" not in coal.chat[0].text.lower()
+    mining = next(c for c in cases if c.id == "goal_mining_run_home_chest")
+    assert not any(w in mining.chat[0].text.lower() for w in ("copper", "tin", "iron", "lodestone", "wiki"))
+    assert not any(c.fixtures.player_body for c in cases)  # Luis 2026-10-26: nothing is delivered to a player
     assert all(c.skill in goal_drafts.skill_names() for c in cases if c.family == "skill_train")

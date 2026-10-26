@@ -205,3 +205,14 @@
   - Director wave 4;
   - the broker applies the Director hooks;
   - first T0 benchmark run on dev.
+
+
+## 2026-10-26 07:08 UTC: first GOAL-loop iteration (M1, T0 smoke on dev)
+- **Measure → fix → re-measure:** 2/6 → 3/6 pass, with 0 measurement errors. Latency p50 4.2 → 2.7 s and worst case 12.8 → 3.5 s.
+- **Fixes that worked:** L25 (settled cast replies), L26 (stable foliage ids), L27 (cold-start warm-up), and the observer timing fix.
+- **Still open:**
+  - Axtral: the harness can't see its sub-second projectile, so the referee now polls spell actors; re-running.
+  - Phase Dash: honestly unverifiable as a T0 cast; measured in spell-use instead.
+  - Eye of Oculus: needs specific evidence data.
+  - Latency: p50 is 0.2 s above target.
+- **Process change (Luis):** never idle (GOAL §2b), a 2-hourly cadence check, and standing approvals for agents. A 7 h stall overnight was main's blocking question.

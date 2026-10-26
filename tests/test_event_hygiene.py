@@ -1193,3 +1193,46 @@ def test_l27_warm_up_pays_the_cold_start_before_the_first_chat_line(tmp_path):
     r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude hi"})
     r.at(0).step()
     assert all(p.get("effort") == "low" for p in r.records("prompt"))
+
+
+def test_move_reasons_for_points_and_players_are_told_truthfully(tmp_path):
+    """move.lua: target_above_jump_height for a point/actor goal (leader_* is for players only), and no_route
+    whose detail may be words ("blocked by walls"). The model gets the structured facts; the template is
+    used only if it says nothing, and it never reads out raw measurements."""
+    from brain.broker import fallback_line
+    b = EventBroker()
+    b.action_started("go_to", {"target": [90.5, 1881.7, -31.6]})
+    v = b.assess(Unreachable(reason="target_above_jump_height", detail="dz=3.3m d=22.9m lp_fail=verify_exhausted",
+                             leader_pos=[90.5, 1881.7, -31.6], mode="go_to", target="point", target_kind="point"),
+                 _state(40))
+    assert v.action == "decide" and v.event["about"] == "place" and v.event["reason"] == "target_above_jump_height"
+    assert fallback_line([v.event]) == "That spot's higher up than I can jump, so I can't get there."
+    walls = {"type": "unreachable", "reason": "no_route", "about": "player", "detail": "blocked by walls"}
+    assert fallback_line([walls]) == "I can't find a way to you from here (blocked by walls). Can you come back towards me?"
+    assert "dz=" not in fallback_line([{**walls, "detail": "dz=-0.4m d=357.2m"}])
+    # a player target named by the body is about that player even when the positions don't line up
+    b2 = EventBroker()
+    b2.action_started("follow", {"player": "Zezima"})
+    v2 = b2.assess(Unreachable(reason="no_route", detail="blocked by walls", target="Zezima", target_kind="player",
+                               mode="follow"), _state(40))
+    assert v2.action == "decide" and v2.event["about"] == "player" and v2.event["target"] == "Zezima"
+
+    # agent level: the model's own words win; the template only when it says nothing
+    r = Replay(tmp_path, {**copy.deepcopy(STATES[5]), "players": [{"name": "Zezima", "distance": 40.0,
+                                                                   "position": [400.0, 1700.0, -35.0]}]})
+    r.agent.broker.action_started("follow", {"player": "Zezima"})
+    r.model.body_reply = lambda ctx: FakeLLM.say("Can't get to you, walls everywhere. Come round to me?")
+    r.body.emit({"type": "unreachable", "reason": "no_route", "detail": "blocked by walls", "target": "Zezima",
+                 "target_kind": "player", "mode": "follow"})
+    r.at(0).step()
+    ctx = r.model.contexts[-1]
+    assert ctx["body_event"]["reason"] == "no_route" and ctx["body_event"]["detail"] == "blocked by walls"
+    assert r.body.said == ["Can't get to you, walls everywhere. Come round to me?"]
+    r2 = Replay(tmp_path / "silent", {**copy.deepcopy(STATES[5]), "players": [{"name": "Zezima", "distance": 40.0,
+                                                                              "position": [400.0, 1700.0, -35.0]}]})
+    r2.agent.broker.action_started("follow", {"player": "Zezima"})
+    r2.model.body_reply = lambda ctx: FakeLLM.say("")
+    r2.body.emit({"type": "unreachable", "reason": "no_route", "detail": "blocked by walls", "target": "Zezima",
+                  "target_kind": "player", "mode": "follow"})
+    r2.at(0).step()
+    assert r2.body.said == ["I can't find a way to you from here (blocked by walls). Can you come back towards me?"]

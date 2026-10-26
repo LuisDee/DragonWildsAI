@@ -2,86 +2,69 @@
  "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code",
  "cases": [
   {
-   "id": "goal_gather_coal_multitrip",
+   "id": "goal_mining_run_home_chest",
    "version": 1,
    "tier": "T3",
    "family": "long_task",
-   "long_task": "gather_coal_multitrip",
+   "long_task": "mining_run_home_chest",
    "authored_by": "human",
    "status": "draft",
    "tags": {
     "skills": [
-     "Mining"
-    ],
-    "uses": [
-     "lodestone"
+     "Mining",
+     "Construction"
     ],
     "evidence": [
-     "referee:item_change(receiver)",
-     "referee:teleport.via"
+     "referee:built",
+     "referee:container_change",
+     "probe:skills"
     ]
    },
    "chat": [
     {
      "at_s": 0.0,
-     "text": "can you get me 50 coal? I'm back at the base",
+     "text": "set yourself up a proper home with a chest, then go stock it up with ore from round here",
      "from": "player"
     }
    ],
-   "phrasing_heldout": "need fifty coal for the blast furnace, can you sort it?",
+   "phrasing_heldout": "build a base with some storage and fill it with ore, take as many trips as you need",
    "forbid_terms": [
-    "Fellhollow",
-    "Dowdun",
-    "Umbral",
-    "lodestone",
-    "wiki"
+    "copper",
+    "tin",
+    "iron",
+    "pickaxe",
+    "lodestone"
    ],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "grant",
-      "item": "ITEM_Rune_Law",
-      "count": 30
-     },
-     {
-      "verb": "grant",
-      "item": "ITEM_Pickaxe_Iron",
-      "count": 1
-     },
-     {
-      "verb": "spawn_tester",
-      "as": "tester",
-      "offset_m": [
-       3,
-       0,
-       0
-      ]
-     }
-    ],
+    "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": true
+    "player_body": false
    },
    "success": {
     "all": [
      {
-      "delivered": {
-       "to": "Tester",
-       "item": "Coal",
-       "at_least": 50
+      "built": {
+       "at_least": 1
+      }
+     },
+     {
+      "deposited": {
+       "items": [
+        "ITEM_Resources_CopperOre",
+        "ITEM_Resources_TinOre",
+        "ITEM_Resources_IronOre"
+       ],
+       "into": "own",
+       "at_least": 40,
+       "trips_at_least": 2
       }
      },
      {
       "xp_gained": {
        "skill": "Mining",
-       "at_least": 500
-      }
-     },
-     {
-      "teleports": {
-       "via": "lodestone",
-       "at_least": 1
+       "at_least": 300
       }
      }
     ]
@@ -94,45 +77,38 @@
      }
     }
    ],
-   "needs_fact": {
-    "kind": "location",
-    "truth": "Fellhollow|Dowdun Reach|Umbral Sands"
-   },
    "controls": {
     "alt_means": [
      {
       "setup": "grant",
-      "item": "ITEM_Resources_Coal",
-      "count": 50
+      "item": "ITEM_Resources_CopperOre",
+      "count": 40
      },
      {
-      "tool": "give",
-      "args": {
-       "player": "Tester",
-       "item": "ITEM_Resources_Coal",
-       "count": 50
-      }
+      "note": "then deposit them: Mining XP and the trips must fail it"
      }
     ],
     "partial": [
      {
-      "note": "deliver 49"
+      "note": "one trip only"
      }
     ],
-    "na": {}
+    "na": {
+     "wrong_action": "n/a"
+    }
    },
    "limits": {
-    "wall_s": 5400.0,
+    "wall_s": 7200.0,
     "model_calls": {},
     "hints_max": 1,
-    "idle_s": 240.0,
+    "idle_s": 300.0,
     "repeat": 3
    },
    "hints": {
     "ladder": [
-     "any luck with the coal?",
-     "it's not around here, it's in the further regions",
-     "Fellhollow has coal nodes; an iron pickaxe will do"
+     "how's the base coming along?",
+     "you'll want a chest at home and a pickaxe",
+     "there's copper and tin around the valley, iron further out"
     ]
    },
    "targets": [
@@ -140,17 +116,14 @@
    ],
    "risk": "low",
    "oracle": {
-    "dev": "scripted:coal_trip_v1"
+    "dev": "scripted:home_chest_mining_v1"
    },
    "provenance": {
-    "sources": [
-     "https://dragonwilds.runescape.wiki/w/Coal",
-     "https://dragonwilds.runescape.wiki/w/Coal_Node",
-     "https://dragonwilds.runescape.wiki/w/Lodestone"
-    ],
+    "definition": "goal_targets long_tasks.definitions.mining_run_home_chest",
+    "gap": "building needs a body build tool (capability agent, 2026-10-26); until it lands these cases read as a capability gap (evidence body:build_tool)",
     "notes": [
-     "multi-trip can't be forced (coal stacks 99): see the proposal 5.1",
-     "Mining XP threshold 500 is a placeholder: calibrate on dev (67 XP per node hit, wiki)"
+     "Mining XP threshold 300 is a placeholder: calibrate on dev",
+     "his chest = a container that did not exist at referee start (built in the case)"
     ]
    },
    "heldout": false,
@@ -171,13 +144,14 @@
     "evidence": [
      "referee:damage.by",
      "referee:damage.damage_type",
-     "referee:death.by"
+     "referee:death.by",
+     "referee:container_change"
     ]
    },
    "chat": [
     {
      "at_s": 0.0,
-     "text": "I need 20 goblin packs off the goblin runts, can you farm them for me?",
+     "text": "farm 20 goblin packs off the goblin runts and keep them at home",
      "from": "player"
     }
    ],
@@ -189,30 +163,13 @@
    ],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "spawn_tester",
-      "as": "tester",
-      "offset_m": [
-       3,
-       0,
-       0
-      ]
-     }
-    ],
+    "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": true
+    "player_body": false
    },
    "success": {
     "all": [
-     {
-      "delivered": {
-       "to": "Tester",
-       "item": "ITEM_Consumable_GoblinPack",
-       "at_least": 20
-      }
-     },
      {
       "killed": {
        "kind": "Goblin Runt",
@@ -228,6 +185,25 @@
        ],
        "min_share": 0.6
       }
+     },
+     {
+      "any": [
+       {
+        "deposited": {
+         "items": [
+          "ITEM_Consumable_GoblinPack"
+         ],
+         "into": "own",
+         "at_least": 20
+        }
+       },
+       {
+        "have": {
+         "item": "ITEM_Consumable_GoblinPack",
+         "at_least": 20
+        }
+       }
+      ]
      }
     ]
    },
@@ -254,19 +230,11 @@
       "setup": "grant",
       "item": "ITEM_Consumable_GoblinPack",
       "count": 20
-     },
-     {
-      "tool": "give",
-      "args": {
-       "player": "Tester",
-       "item": "ITEM_Consumable_GoblinPack",
-       "count": 20
-      }
      }
     ],
     "partial": [
      {
-      "note": "deliver 19"
+      "note": "19 packs"
      }
     ],
     "na": {}
@@ -293,11 +261,9 @@
     "dev": "scripted:runt_farm_fire_v1"
    },
    "provenance": {
+    "definition": "goal_targets long_tasks.definitions.farm_mob_drop",
     "sources": [
      "https://dragonwilds.runescape.wiki/w/Goblin_Runt"
-    ],
-    "notes": [
-     "Goblin Runt: PL1 60 HP, weakness Fire, drops Goblin Pack (Always)"
     ]
    },
    "heldout": false,
@@ -311,7 +277,12 @@
    "long_task": "gear_upgrade_self_initiated",
    "authored_by": "human",
    "status": "draft",
-   "tags": {},
+   "tags": {
+    "evidence": [
+     "probe:gear",
+     "referee:craft"
+    ]
+   },
    "chat": [
     {
      "at_s": 0.0,
@@ -326,7 +297,10 @@
     "weapon",
     "pickaxe",
     "upgrade",
-    "craft"
+    "craft",
+    "smelt",
+    "bronze",
+    "iron"
    ],
    "fixtures": {
     "requires": [],
@@ -336,173 +310,194 @@
     "player_body": false
    },
    "success": {
-    "any": [
+    "all": [
      {
-      "gear_better": {
-       "slot": "body",
-       "stat": "power_level",
-       "where": "equipped",
-       "than": "start"
+      "any": [
+       {
+        "gear_better": {
+         "slot": "body",
+         "stat": "power_level",
+         "where": "equipped",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "slot": "head",
+         "stat": "power_level",
+         "where": "equipped",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "slot": "legs",
+         "stat": "power_level",
+         "where": "equipped",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "category": "axe",
+         "stat": "power_level",
+         "where": "carried",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "category": "bow",
+         "stat": "power_level",
+         "where": "carried",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "category": "club",
+         "stat": "power_level",
+         "where": "carried",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "category": "crossbow",
+         "stat": "power_level",
+         "where": "carried",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "category": "dagger",
+         "stat": "power_level",
+         "where": "carried",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "category": "greataxe",
+         "stat": "power_level",
+         "where": "carried",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "category": "greatsword",
+         "stat": "power_level",
+         "where": "carried",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "category": "hammer",
+         "stat": "power_level",
+         "where": "carried",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "category": "mace",
+         "stat": "power_level",
+         "where": "carried",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "category": "pickaxe",
+         "stat": "power_level",
+         "where": "carried",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "category": "scimitar",
+         "stat": "power_level",
+         "where": "carried",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "category": "shield",
+         "stat": "power_level",
+         "where": "carried",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "category": "shortbow",
+         "stat": "power_level",
+         "where": "carried",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "category": "spade",
+         "stat": "power_level",
+         "where": "carried",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "category": "staff",
+         "stat": "power_level",
+         "where": "carried",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "category": "sword",
+         "stat": "power_level",
+         "where": "carried",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "category": "thrown",
+         "stat": "power_level",
+         "where": "carried",
+         "than": "start"
+        }
+       },
+       {
+        "gear_better": {
+         "category": "wand",
+         "stat": "power_level",
+         "where": "carried",
+         "than": "start"
+        }
+       }
+      ]
+     },
+     {
+      "crafted": {
+       "roles": [
+        "armour",
+        "weapon",
+        "shield",
+        "tool"
+       ],
+       "at_least": 1
       }
      },
      {
-      "gear_better": {
-       "slot": "head",
-       "stat": "power_level",
-       "where": "equipped",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "slot": "legs",
-       "stat": "power_level",
-       "where": "equipped",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "category": "axe",
-       "stat": "power_level",
-       "where": "carried",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "category": "bow",
-       "stat": "power_level",
-       "where": "carried",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "category": "club",
-       "stat": "power_level",
-       "where": "carried",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "category": "crossbow",
-       "stat": "power_level",
-       "where": "carried",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "category": "dagger",
-       "stat": "power_level",
-       "where": "carried",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "category": "greataxe",
-       "stat": "power_level",
-       "where": "carried",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "category": "greatsword",
-       "stat": "power_level",
-       "where": "carried",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "category": "hammer",
-       "stat": "power_level",
-       "where": "carried",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "category": "mace",
-       "stat": "power_level",
-       "where": "carried",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "category": "pickaxe",
-       "stat": "power_level",
-       "where": "carried",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "category": "scimitar",
-       "stat": "power_level",
-       "where": "carried",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "category": "shield",
-       "stat": "power_level",
-       "where": "carried",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "category": "shortbow",
-       "stat": "power_level",
-       "where": "carried",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "category": "spade",
-       "stat": "power_level",
-       "where": "carried",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "category": "staff",
-       "stat": "power_level",
-       "where": "carried",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "category": "sword",
-       "stat": "power_level",
-       "where": "carried",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "category": "thrown",
-       "stat": "power_level",
-       "where": "carried",
-       "than": "start"
-      }
-     },
-     {
-      "gear_better": {
-       "category": "wand",
-       "stat": "power_level",
-       "where": "carried",
-       "than": "start"
+      "xp_gained": {
+       "skill": "Artisan",
+       "at_least": 1
       }
      }
     ]
@@ -638,12 +633,17 @@
    "controls": {
     "alt_means": [
      {
-      "note": "a better item in a shared chest: does it count? (proposal 5.3)"
+      "setup": "grant",
+      "item": "ITEM_Armour_T3_Body_BronzeMed",
+      "count": 1
+     },
+     {
+      "note": "a given item must fail: no craft by him"
      }
     ],
     "partial": [
      {
-      "note": "craft the better item but never equip or carry it"
+      "note": "crafts the better item but never equips or carries it"
      }
     ],
     "na": {}
@@ -670,9 +670,11 @@
     "dev": "scripted:bronze_upgrade_v1"
    },
    "provenance": {
+    "definition": "goal_targets long_tasks.definitions.gear_upgrade_self_initiated",
     "notes": [
      "start gear: Adventurer's T1 body + legs (probe)",
-     "entitlement items excluded (data-derived)"
+     "entitlement items excluded (data-derived)",
+     "crafted 'any gear' = a referee craft by him whose recipe outputs an armour/weapon/tool item"
     ]
    },
    "heldout": false,
@@ -771,6 +773,7 @@
     "dev": "scripted:quest_chain_v1"
    },
    "provenance": {
+    "definition": "goal_targets long_tasks.definitions.brynmoor_quest_chain",
     "sources": [
      "https://dragonwilds.runescape.wiki/w/Goblin_Diplomacy",
      "https://dragonwilds.runescape.wiki/w/Rune_Mysteries",
@@ -781,36 +784,45 @@
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
   },
   {
-   "id": "goal_farm_desert_weed",
+   "id": "goal_farm_and_process_crop",
    "version": 1,
    "tier": "T3",
    "family": "long_task",
-   "long_task": "farm_desert_weed",
+   "long_task": "farm_and_process_crop",
    "authored_by": "human",
    "status": "draft",
-   "tags": {},
+   "tags": {
+    "skills": [
+     "Farming",
+     "Artisan",
+     "Cooking"
+    ],
+    "evidence": [
+     "referee:built",
+     "referee:planted",
+     "referee:harvested",
+     "referee:craft"
+    ]
+   },
    "chat": [
     {
      "at_s": 0.0,
-     "text": "can you farm some desert weed at our farm? twenty-odd would do",
+     "text": "get a little farm going at home and bake us some bread from what you grow",
      "from": "player"
     }
    ],
+   "phrasing_heldout": "grow your own wheat and turn it into bread",
    "forbid_terms": [
-    "yew",
     "plot",
     "seed",
-    "water"
+    "grinder",
+    "kiln",
+    "flour",
+    "ground wheat"
    ],
    "fixtures": {
     "requires": [],
-    "setup": [
-     {
-      "verb": "place",
-      "name": "our farm",
-      "at": "<farm plots position on dev>"
-     }
-    ],
+    "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
     "player_body": false
@@ -818,18 +830,36 @@
    "success": {
     "all": [
      {
-      "gained_at": {
-       "item": "ITEM_Resources_Weed_Desert",
-       "at_least": 20,
-       "place": "our farm",
-       "within_m": 15
+      "built": {
+       "at_least": 1
       }
      },
      {
-      "gained_at": {
-       "item": "ITEM_Farming_Seed_Weed_Desert",
-       "at_least": 0,
-       "place": "our farm"
+      "planted": {
+       "at_least": 1
+      }
+     },
+     {
+      "harvested": {
+       "at_least": 1
+      }
+     },
+     {
+      "crafted": {
+       "item": "ITEM_Resources_Ground_Wheat",
+       "at_least": 1
+      }
+     },
+     {
+      "crafted": {
+       "item": "ITEM_Consumable_Bread",
+       "at_least": 1
+      }
+     },
+     {
+      "xp_gained": {
+       "skill": "Farming",
+       "at_least": 1
       }
      }
     ]
@@ -845,15 +875,22 @@
    "controls": {
     "alt_means": [
      {
-      "note": "wild gather in Umbral Sands, then walk to the farm: must fail (gains not at the plots)"
+      "setup": "grant",
+      "item": "ITEM_Resources_Wheat",
+      "count": 5
      },
      {
-      "setup": "grant",
-      "item": "ITEM_Resources_Weed_Desert",
-      "count": 20
+      "note": "bread from given wheat: no planting/harvest -> must fail"
      }
     ],
-    "na": {}
+    "partial": [
+     {
+      "note": "harvest but never process"
+     }
+    ],
+    "na": {
+     "wrong_action": "n/a"
+    }
    },
    "limits": {
     "wall_s": 7200.0,
@@ -865,8 +902,8 @@
    "hints": {
     "ladder": [
      "how's the farm?",
-     "you need seeds and a plot",
-     "desert weed seeds grow best in a yew farming plot"
+     "you'll need somewhere to plant and some seeds",
+     "wheat goes through a grinder, then the kiln makes bread"
     ]
    },
    "targets": [
@@ -874,16 +911,17 @@
    ],
    "risk": "low",
    "oracle": {
-    "dev": "scripted:desert_weed_v1"
+    "dev": "scripted:wheat_bread_v1"
    },
    "provenance": {
-    "sources": [
-     "https://dragonwilds.runescape.wiki/w/Desert_Weed_(Farming)",
-     "https://dragonwilds.runescape.wiki/w/Desert_Weed_Seeds"
+    "definition": "goal_targets long_tasks.definitions.farm_and_process_crop",
+    "recipes": [
+     "RECIPE_Process_Ground_Wheat (Grinder, Artisan)",
+     "RECIPE_Consumable_Bread_From_Flour (Kiln, Cooking)"
     ],
+    "gap": "building needs a body build tool (capability agent, 2026-10-26); until it lands these cases read as a capability gap (evidence body:build_tool)",
     "notes": [
-     "idle_s 900: crop stage times to be measured on dev",
-     "farm position: Luis (proposal 5.4)"
+     "idle_s 900: crop stage times to be measured on dev"
     ]
    },
    "heldout": false,

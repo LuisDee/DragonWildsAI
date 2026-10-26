@@ -202,3 +202,57 @@ def test_avoided_attacks_without_how_are_a_gap():
     r = ev({"defended": {"kind": "dodge", "against": "telegraph", "at_least": 1}},
            ctx_of([{"kind": "defended", "t": 1, "outcome": "avoided", "telegraphed": True}]))
     assert r.passed is None and r.missing == ["referee:defended.how"]
+
+
+ORE = "ITEM_Resources_CopperOre"
+
+
+def cc(t, item, n, new=True, by="self"):
+    return {"kind": "container_change", "t": t, "by": by, "item": item, "count": n, "from_player": True, "new_since_start": new}
+
+
+def test_deposits_into_his_own_chest_over_trips():
+    ref = [ic(10, "self", ORE, 20), cc(20, ORE, 20), ic(40, "self", ORE, 20), cc(50, ORE, 20)]
+    pred = {"deposited": {"items": [ORE], "into": "own", "at_least": 40, "trips_at_least": 2}}
+    assert ev(pred, ctx_of(ref, supports=("item_change", "container_change"))).passed is True
+    one_trip = [ic(10, "self", ORE, 40), cc(20, ORE, 20), cc(25, ORE, 20)]
+    assert ev(pred, ctx_of(one_trip, supports=("item_change", "container_change"))).passed is False
+    shared = [ic(10, "self", ORE, 20), cc(20, ORE, 20, new=False), ic(40, "self", ORE, 20), cc(50, ORE, 20, new=False)]
+    assert ev(pred, ctx_of(shared, supports=("item_change", "container_change"))).passed is False  # not HIS chest
+    assert ev(pred, ctx_of(ref, supports=("item_change",))).missing == ["referee:container_change"]
+
+
+def test_crafted_needs_his_own_craft():
+    craft = [{"kind": "craft", "t": 5, "by": "self", "recipe": "RECIPE_Process_Ground_Wheat", "count": 2}]
+    pred = {"crafted": {"item": "ITEM_Resources_Ground_Wheat", "at_least": 2}}
+    assert ev(pred, ctx_of(craft, supports=("craft",))).passed is True
+    other = [dict(craft[0], by="Luis")]
+    assert ev(pred, ctx_of(other, supports=("craft",))).passed is False
+    b = {"t": 0, "inventory": {}}
+    a = {"t": 1, "inventory": {"ITEM_Resources_Ground_Wheat": 2}}
+    o = Observation(1, "craft", {}, 0, 1, 0, 1, b, a, {"ok": True})
+    assert ev(pred, ctx_of(observations=[o], supports=())).passed is True  # probe fallback: gained during HIS craft
+    picked = Observation(1, "interact", {}, 0, 1, 0, 1, b, a, {"ok": True})
+    assert ev(pred, ctx_of(observations=[picked], supports=())).passed is False
+
+
+def test_building_and_planting_need_their_referee_kinds():
+    assert ev({"built": {"at_least": 1}}, ctx_of(supports=())).missing == ["referee:built"]
+    ref = [{"kind": "built", "t": 1, "by": "self", "piece_index": 3, "ghost": True},
+           {"kind": "built", "t": 2, "by": "self", "piece_index": 3, "ghost": False}]
+    assert ev({"built": {"at_least": 2}}, ctx_of(ref, supports=("built",))).passed is False  # a ghost isn't a building
+
+
+def test_air_dash_needs_the_harness_effect_probe_not_the_cast_displacement():
+    sp = leaves.default_spells()["USD_PhaseDash"]
+    cost = {f"ITEM_Rune_{r}": n for r, n in sp["cost"].items()}
+    b = {"t": 0, "inventory": {k: 2 * v for k, v in cost.items()}, "cooldowns": {}, "position": [0, 0, 0], "tags": [], "ge": []}
+    a = {"t": 1, "inventory": {k: v for k, v in cost.items()}, "cooldowns": {"USD_PhaseDash": 5.0}, "position": [20, 0, 0],
+         "tags": [], "ge": []}
+    reply = {"ok": True, "data": {"id": "USD_PhaseDash", "runes_spent": cost, "cooldown_started": True, "effects": {"tags": []}}}
+    o = Observation(1, "cast", {"spell": "Phase Dash"}, 0, 1, 0, 1, b, a, reply)
+    r = ev({"spell_effect": {"spell": "USD_PhaseDash"}}, ctx_of(observations=[o], supports=()))
+    assert r.passed is None  # moved 20 m during the cast proves nothing about the dash window
+    a2 = dict(a, air_dash_m=8.4)
+    o2 = Observation(1, "cast", {"spell": "Phase Dash"}, 0, 1, 0, 1, b, a2, reply)
+    assert ev({"spell_effect": {"spell": "USD_PhaseDash"}}, ctx_of(observations=[o2], supports=())).passed is True

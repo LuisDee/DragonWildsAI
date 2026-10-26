@@ -98,7 +98,7 @@ def _cast_evidence(sid: str, sp: dict, o) -> tuple[bool, bool]:
     return runes, ca is not None and ca != cb
 
 
-def _effect(e: dict, o, target: Any) -> bool | None:
+def _effect(e: dict, o, target: Any, ctx: dict | None = None) -> bool | None:
     k = e.get("kind")
     if k in UNOBSERVABLE or e.get("observable") is False:
         return None
@@ -111,11 +111,19 @@ def _effect(e: dict, o, target: Any) -> bool | None:
         new = [g for g in a.get("ge") or [] if g not in (b.get("ge") or [])]
         return any(g == want if want else (part and part in g) for g in new)
     if k == "spell_actor":
-        return any(x.get("class") == e.get("class") for x in _new(a.get("actors"), b.get("actors")))
+        if any(x.get("class") == e.get("class") for x in _new(a.get("actors"), b.get("actors"))):
+            return True
+        # short-lived actors (projectiles): the dev referee reports each new instance; it must appear during this cast
+        seen = [x for x in (ctx or {}).get("referee") or [] if x.get("kind") == "spell_actor" and x.get("class") == e.get("class")
+                and o.wall0 - 1 <= float(x.get("t", 0)) <= o.wall1 + 3]
+        return True if seen else False
     if k == "jump_apex_gain_m":
         ba, aa = b.get("jump_apex_m"), a.get("jump_apex_m")
         return None if ba is None or aa is None else aa - ba >= float(e.get("min", 1.0))
-    if k in ("air_dash_m", "moved_m"):
+    if k == "air_dash_m":  # the dash happens on a LATER evade inside the spell's window: a harness effect probe
+        v = a.get("air_dash_m")  # (air_dash_test.lua) must have measured it; the cast's own displacement proves nothing
+        return None if v is None else float(v) >= float(e.get("min", 3.0))
+    if k == "moved_m":
         d = math.dist(b.get("position") or [0, 0, 0], a.get("position") or [0, 0, 0])
         return d >= float(e.get("min", 3.0)) and (o.t1 - o.t0) <= TRAVEL_MAX_S
     if k == "target_gone":
@@ -186,7 +194,7 @@ def _spell_effect(a, state, ctx, cat):
             best = best or r
             continue
         target = (c["obs"].args or {}).get("target")
-        vals = [(_effect(e, c["obs"], target), e) for e in good]
+        vals = [(_effect(e, c["obs"], target, ctx), e) for e in good]
         hit = next((e for v, e in vals if v is True), None)
         if hit:
             what = f"{hit.get('kind')} {hit.get('tag') or hit.get('class') or hit.get('class_contains') or ''}".strip()
@@ -604,6 +612,83 @@ def _solo(a, state, ctx, cat):
     return Result(bool(on) and not others, f"{len(on) - len(others)}/{len(on)} hits on it were his", 1.0 if on and not others else 0.0)
 
 
+def _deposited(a, state, ctx, cat):
+    """Items HE moved into a container (referee container_change by self from his inventory); `into: own` = a container
+    built during the case (not there at referee start); trips_at_least = deposit batches separated by gathering
+    (his bag gaining the items again between batches). Long task mining_run_home_chest (Luis 2026-10-26)."""
+    ev = _ref(ctx, "container_change")
+    if ev is None:
+        return _gap("referee:container_change", "no referee container events")
+    ids = set(a.get("ids") or []) or None
+    mine = [e for e in ev if e.get("by") == "self" and e.get("from_player", True)
+            and (a.get("into") != "own" or e.get("new_since_start"))
+            and (ids is None or e.get("item") in ids)]
+    n = sum(float(e.get("count") or 0) for e in mine)
+    want = float(a.get("at_least", 1))
+    detail = f"{n:g}/{want:g} deposited into {'his own' if a.get('into') == 'own' else 'a'} container"
+    if a.get("trips_at_least"):
+        items = _ref(ctx, "item_change") or []
+        gains = [e.get("t", 0) for e in items if e.get("who") == "self" and e.get("delta", 0) > 0 and (ids is None or e.get("item") in ids)]
+        trips, last = 0, None
+        for e in sorted(mine, key=lambda e: e.get("t", 0)):
+            if last is None or any(last < g < e.get("t", 0) for g in gains):
+                trips += 1
+            last = e.get("t", 0)
+        detail += f", {trips} trip(s)"
+        return Result(n >= want and trips >= int(a["trips_at_least"]), detail, P._ratio(n, want))
+    return Result(n >= want, detail, P._ratio(n, want))
+
+
+def _crafted(a, state, ctx, cat):
+    """He crafted it himself (review: found or given items don't count): a referee craft event by self for the recipe,
+    or (targets without craft events) a 'craft' tool observation in which the item entered his bag."""
+    ev = _ref(ctx, "craft")
+    ids = set(a.get("ids") or [])
+    roles = set(a.get("roles") or [])
+    if roles:  # any item of these catalog roles (e.g. gear: armour/weapon/shield/tool)
+        ids |= {k for k, v in _items_catalog().items() if v.get("role") in roles}
+    if ev is not None:
+        mine = [e for e in ev if e.get("by") == "self" and (not a.get("recipe") or e.get("recipe") == a["recipe"])]
+        if ids and mine and not a.get("recipe"):  # recipe -> output ids from the catalog
+            mine = [e for e in mine if set(recipe_outputs(e.get("recipe"))) & ids]
+        n = sum(int(e.get("count") or 1) for e in mine)
+    else:
+        n = 0
+        for o in ctx.get("observations") or []:
+            if o.tool == "craft":
+                n += sum(max(0, _inv(o.after).get(i, 0) - _inv(o.before).get(i, 0)) for i in ids)
+    want = int(a.get("at_least", 1))
+    return Result(n >= want, f"{n}/{want} crafted by him", P._ratio(n, want))
+
+
+@lru_cache(maxsize=1)
+def _items_catalog() -> dict:
+    f = sorted((ROOT / "data").glob("items_*.json"))
+    return json.loads(f[-1].read_text(encoding="utf-8")).get("items") or {} if f else {}
+
+
+@lru_cache(maxsize=1)
+def _recipes() -> dict:
+    f = sorted((ROOT / "data").glob("recipes_*.json"))
+    return json.loads(f[-1].read_text(encoding="utf-8")).get("recipes") or {} if f else {}
+
+
+def recipe_outputs(recipe_id: str | None) -> list[str]:
+    rc = _recipes().get(recipe_id or "") or {}
+    return [o.get("item") for o in rc.get("outputs") or []]
+
+
+def _event_count(kind: str):
+    def leaf(a, state, ctx, cat):
+        ev = _ref(ctx, kind)
+        if ev is None:
+            return _gap(f"referee:{kind}", f"no referee {kind} events")
+        mine = [e for e in ev if e.get("by") == "self" and not e.get("ghost")]
+        want = int(a.get("at_least", 1))
+        return Result(len(mine) >= want, f"{len(mine)}/{want} {kind} by him", P._ratio(len(mine), want))
+    return leaf
+
+
 # The evidence each leaf needs (review C2): a case's needs come from its predicates, so goal_check can say
 # "blocked on referee:deposit" instead of reporting a capability failure.
 EVIDENCE = {
@@ -614,7 +699,9 @@ EVIDENCE = {
     "trips": ["referee:item_change(receiver)"], "delivered": ["referee:item_change(receiver)"],
     "prepared": ["referee:damage", "probe:held_effects"], "disengaged": ["probe:creatures", "referee:damage.by"],
     "station_used": ["referee:craft"], "gained_at": ["probe:inventory", "probe:position"], "xp_top": ["probe:skills"],
-    "solo": ["referee:damage.by"], "killed": ["referee:death.by"], "quest": ["probe:quests"],
+    "solo": ["referee:damage.by"], "deposited": ["referee:container_change"], "crafted": ["referee:craft"],
+    "built": ["referee:built", "body:build_tool"], "planted": ["referee:planted", "body:build_tool"],
+    "harvested": ["referee:harvested"], "killed": ["referee:death.by"], "quest": ["probe:quests"],
     "gear_better": ["probe:gear"], "equipped": ["probe:gear"], "bag": ["probe:bag"],
 }
 
@@ -665,6 +752,12 @@ def _need(*keys: str, any_of: bool = False):
 
 
 LEAVES = {
+    "deposited": (_deposited, lambda a, items: _validate_items(a, items) if not a.get("items") else
+                  {**a, "ids": sorted({i for x in a["items"] for i in items.resolve(x)})}),
+    "crafted": (_crafted, lambda a, items: _validate_items(_need("item", "recipe", "roles", any_of=True)(a, items), items)),
+    "built": (_event_count("built"), None),
+    "planted": (_event_count("planted"), None),
+    "harvested": (_event_count("harvested"), None),
     "gained_at": (_gained_at, lambda a, items: _validate_items(_need("item", "at_least")(a, items), items)),
     "xp_top": (_xp_top, _need("skill")),
     "solo": (_solo, _need("target_kind_id")),

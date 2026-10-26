@@ -39,7 +39,7 @@ end
 local function spawn(target, args)
     local cls = U.find_object(tostring(args.class or ""))
     if not U.valid(cls) then  -- a short class name: take the class of a live instance (loaded classes only)
-        local inst = U.find_first(tostring(args.class or ""))
+        local inst = U.find_all(tostring(args.class or ""), { skip_defaults = true })[1]  -- FindFirstOf may return the CDO
         cls = U.valid(inst) and U.try(function() return inst:GetClass() end) or nil
     end
     if not U.valid(cls) then return { ok = false, error = "unknown_class", class = args.class } end
