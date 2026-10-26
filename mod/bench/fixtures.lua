@@ -91,7 +91,7 @@ local function live_empty_tags(inv)
     return tags
 end
 
-local function grant(target, path, count)
+local function grant(target, path, count, durability_pct)
     local pc = U.controller_of(target)
     local inv = U.valid(pc) and U.try(function() return pc.InventoryComponent end) or nil
     if not U.valid(inv) then return { ok = false, error = "no_inventory" } end
@@ -100,7 +100,10 @@ local function grant(target, path, count)
     local tags = live_empty_tags(inv)
     if not tags then return { ok = false, error = "no_live_empty_tag_container" } end
     local before = U.try(function() return inv:GetNumItemsByData(data) end) or 0
-    local ok, err = pcall(function() inv:AddItemByData(data, math.floor(tonumber(count) or 1), 100.0, tags) end)
+    -- DurabilityPercentage is AddItemByData's own argument (dump: AddItemByData(ItemData, Count, DurabilityPercentage,
+    -- Tags)): a damaged item for Magical Mending is a grant below 100 (unverified live)
+    local dur = math.max(1.0, math.min(100.0, tonumber(durability_pct) or 100.0))
+    local ok, err = pcall(function() inv:AddItemByData(data, math.floor(tonumber(count) or 1), dur, tags) end)
     local after = U.try(function() return inv:GetNumItemsByData(data) end) or 0
     return { ok = ok and after > before, error = (not ok) and tostring(err) or (after <= before and "not_added" or nil),
              path = path, before = before, after = after }
@@ -337,7 +340,7 @@ function M.run(log, args)
     if why then return { ok = false, error = why, detail = target } end
     if not M.VERIFIED[verb] and args.verify_attempt ~= true then return { ok = false, error = "unverified", verb = verb } end
     if verb == "spawn" and not args.via_cheat then return spawn(target, args) end
-    if verb == "grant" then return grant(target, args.path, args.count) end
+    if verb == "grant" then return grant(target, args.path, args.count, args.durability_pct) end
     if verb == "grant_runes" then
         local out = {}
         for _, r in ipairs(args.items or {}) do  -- [{path, count}] resolved by the harness from the catalog

@@ -103,7 +103,7 @@
    },
    {
     "id": "t0_cast_magicalmending",
-    "hash": "0ed472e7abdb96a3"
+    "hash": "810c25e6e39dc4ab"
    },
    {
     "id": "t0_cast_phasedash",
@@ -479,15 +479,15 @@
    },
    {
     "id": "stress_magicalmending_combat",
-    "hash": "650ae322816eaed2"
+    "hash": "d0b1f942c0fc7444"
    },
    {
     "id": "stress_magicalmending_cooldown_pressure",
-    "hash": "ef2396aadc27322a"
+    "hash": "48371ba068dc5085"
    },
    {
     "id": "stress_magicalmending_low_runes",
-    "hash": "e29ce0910af28790"
+    "hash": "b6312c7156f21edc"
    },
    {
     "id": "stress_phasedash_combat",

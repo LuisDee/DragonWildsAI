@@ -225,3 +225,11 @@ def test_built_is_a_supported_referee_kind_and_the_build_gap_is_gone():
     assert "built" in dt.REFEREE_SUPPORTS
     for c in goal_drafts.long_tasks():
         assert "build_tool" not in str((c.provenance or {}).get("gap") or ""), c.id
+
+
+def test_damaged_items_are_granted_below_full_durability(tmp_path):
+    t, calls = make(tmp_path)
+    t.setup("grant", item="ITEM_Sword_Bronze", count=1, durability_pct=40)
+    assert calls[-1]["durability_pct"] == 40.0
+    t.setup("grant", item="ITEM_Sword_Bronze", count=1)
+    assert "durability_pct" not in calls[-1]

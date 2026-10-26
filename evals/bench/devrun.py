@@ -280,7 +280,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--full", action="store_true",
                     help="every case of the frozen suite manifest (manifests/<build>/suite_v1.json), each repeated its "
                          "trials_per_case; written full=True with the manifest ref: the run goal_check counts")
-    ap.add_argument("--calls", type=int, default=6, help="Haiku calls per case (cap)")
+    ap.add_argument("--calls", type=int, default=6, help="Haiku calls per case (cap; 6 for T0 = in spec, main 2026-10-26)")
     ap.add_argument("--sonnet", type=int, default=0, help="Sonnet (Director) calls per case (cap); needs DW_DIRECTOR=1")
     ap.add_argument("--yes", action="store_true")
     ap.add_argument("--switch", action="store_true",

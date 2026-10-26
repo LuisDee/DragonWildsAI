@@ -54,7 +54,7 @@ def with_hypotheses(spells: dict, path: Path | None = None) -> dict:
         eff = [e for e in proof.get("effect") or [] if e.get("kind") != "needs_live_observation"]
         if any(e.get("observable") not in (False, None) for e in eff) and sid != "USD_PhaseDash":
             continue  # it already has a real proof
-        add = [{**e, "confidence": "hypothesis"} for e in h.get("effects") or []]
+        add = [{**e, "confidence": e.get("confidence") or "hypothesis"} for e in h.get("effects") or []]
         proof["effect"] = eff + [e for e in add if e not in eff]
         out[sid] = {**sp, "proof": proof}
     return out
@@ -165,7 +165,7 @@ def _effect(e: dict, o, target: Any, ctx: dict | None = None) -> bool | None:
     if k == "phase_dash":  # the server's OnDash(bWasPhaseDash) for him inside the spell's window (referee v1.5)
         seen = [x for x in (ctx or {}).get("referee") or [] if x.get("kind") == "dash" and x.get("phase")
                 and x.get("who") == "self" and float(x.get("t", 0)) >= o.wall0 - 1]
-        return True if seen else None
+        return True if seen else (None if hyp else False)  # verified live 2026-10-26: absence now counts
     if k == "recall_return":  # the harness walked him away after the cast; Recall must bring him back to the start
         h = (a.get("harness") or {}).get("after_cast_move")
         if not isinstance(h, dict) or not h.get("start") or not h.get("mid") or not a.get("position"):

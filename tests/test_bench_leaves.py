@@ -324,3 +324,16 @@ def test_recall_return_needs_the_walk_away_and_the_return():
     assert _effect(e, O({"position": [0.5, 0, 0], "harness": {"after_cast_move": walk}}), None) is True
     assert _effect(e, O({"position": [8, 0, 0], "harness": {"after_cast_move": walk}}), None) is False  # stayed away
     assert _effect(e, O({"position": [0, 0, 0]}), None) is None  # no harness motion: can't tell
+
+
+def test_phase_dash_signal_is_verified_so_absence_now_fails():
+    """EnablePhaseDashes fired live 2026-10-26 (t0_cast_phasedash pass): promoted from hypothesis."""
+    from evals.bench.leaves import _effect, default_spells
+    e = next(x for x in default_spells()["USD_PhaseDash"]["proof"]["effect"] if x["kind"] == "phase_dash")
+    assert e["confidence"] == "verified"
+
+    class O:
+        def __init__(self):
+            self.before, self.after, self.wall0, self.wall1 = {}, {}, 10.0, 11.0
+    assert _effect(e, O(), None, {"referee": [{"kind": "dash", "phase": True, "who": "self", "t": 10.5}]}) is True
+    assert _effect(e, O(), None, {"referee": []}) is False

@@ -75,8 +75,8 @@ PRECONDITION_SCENES = {
     "dry farm plots": {"verb": "scene", "needs": "farm_plot",
                        "purpose": "the spell's precondition: a dry farm plot (a dev place: none known yet)"},
     "damaged item(s) dropped on the ground near the caster": {
-        "verb": "scene", "needs": "damaged_item_on_ground",
-        "purpose": "the spell's precondition: a damaged item on the ground (no durability fixture yet)"},
+        "verb": "ground_item", "item": "ITEM_Sword_Bronze", "count": 1, "durability_pct": 40, "at": [3, 0, 0],
+        "purpose": "the spell's precondition: a damaged item on the ground (grant at 40% durability, unverified)"},
 }
 CARRY_UNITS = {  # setup_checks carried_<x>_units -> the container the game counts the units in
     "carried_compost_units": {"verb": "grant", "item": "ITEM_Bucket_Compost_Big", "count": 1,

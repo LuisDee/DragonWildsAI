@@ -2853,9 +2853,16 @@
       }
      },
      {
-      "verb": "scene",
-      "needs": "damaged_item_on_ground",
-      "purpose": "the spell's precondition: a damaged item on the ground (no durability fixture yet)"
+      "verb": "ground_item",
+      "item": "ITEM_Sword_Bronze",
+      "count": 1,
+      "durability_pct": 40,
+      "at": [
+       3,
+       0,
+       0
+      ],
+      "purpose": "the spell's precondition: a damaged item on the ground (grant at 40% durability, unverified)"
      },
      {
       "verb": "unlock",

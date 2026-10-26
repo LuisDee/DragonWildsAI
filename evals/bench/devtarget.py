@@ -234,8 +234,23 @@ class DevTarget:
             raise Abort(f"fixture claim_bed failed: {why}")
         beds = self.beds()
         bed = next((b for b in beds if b.get("mine")), None) or next((b for b in beds if not b.get("claimed")), None)
+        if bed is None and self.body_call is not None:
+            # UNVERIFIED plan (main 2026-10-26): no bed on dev, so he builds a Bedroll (BUILDPIECE_Interior_BedRoll is
+            # unlocked on dev, DISCOVERIES 2026-10-26) with his own `build`, materials granted from what `buildables`
+            # says it needs; then the claim proceeds as usual
+            opts = ((self.body_call("buildables", {}) or {}).get("data") or {}).get("pieces") or []
+            roll = next((p for p in opts if "bedroll" in str(p.get("name") or p.get("id") or "").lower()), None)
+            for need in (roll or {}).get("requirements") or (roll or {}).get("cost") or []:
+                item, n = need.get("item"), int(need.get("count") or need.get("need") or 1)
+                if item:
+                    self.setup("grant", purpose=f"{purpose} [Bedroll material]", item=item, count=n)
+            if roll:
+                self.body_call("build", {"piece": roll.get("name") or "Bedroll"})
+                time.sleep(2.0)
+                beds = self.beds()
+                bed = next((b for b in beds if not b.get("claimed")), None)
         if bed is None:
-            return fail("no bed he can claim on the dev world (build or place one first)")
+            return fail("no bed he can claim on the dev world, and building a Bedroll did not produce one")
         if not bed.get("mine"):
             if self.body_call is None:
                 return fail("no body channel for interact")
@@ -297,7 +312,8 @@ class DevTarget:
                 off = list(a.get("at") or [5, 0, 0]) + [0, 0, 0]
                 spot = [here[0] + off[0], here[1] + off[1], here[2] + off[2] + 0.5]
                 self.setup("teleport", purpose=f"{purpose} [stand on the drop spot]", at=spot)
-                self.setup("grant", purpose=f"{purpose} [the stack to drop]", item=a["item"], count=int(a.get("count", 1)))
+                self.setup("grant", purpose=f"{purpose} [the stack to drop]", item=a["item"], count=int(a.get("count", 1)),
+                           **({"durability_pct": a["durability_pct"]} if a.get("durability_pct") is not None else {}))
                 r = self.body_call("drop", {"item": a["item"], "count": int(a.get("count", 1))}) or {}
                 self.setup("teleport", purpose=f"{purpose} [back]", at=[here[0], here[1], here[2] + 0.5])
                 res = {"ok": bool(r.get("ok")), "error": r.get("reason"), "spot": spot}
@@ -344,6 +360,8 @@ class DevTarget:
         args: dict[str, Any] = {"part": "fixtures", "verb": verb, "character_guid": self.character_guid}
         if verb == "grant":
             args.update(path=item_path(a["item"]), count=int(a.get("count", 1)))
+            if a.get("durability_pct") is not None:
+                args["durability_pct"] = float(a["durability_pct"])
         elif verb == "grant_runes":
             args["items"] = [{"path": item_path(r if r.startswith("ITEM_") else f"ITEM_Rune_{r}"), "count": int(n)}
                              for r, n in (a.get("runes") or {}).items()]

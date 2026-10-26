@@ -1,23 +1,102 @@
 {
   "_note": "HYPOTHESES (Eval agent, 2026-10-26; from the reflection dump and the spell data, build 26161880, never from the body's claim). Each becomes a proof entry in data/spell_effects.json with confidence 'hypothesis' (the spells agent's generator). A hypothesis that fires is evidence; one that does not fire reads null (unverifiable), never fail, until it is observed live once and promoted.",
   "spells": {
-    "USD_Confuse": {"effects": [
-      {"kind": "spell_actor", "class": "BP_ConfuseProjectile_C", "observable": "referee", "why": "dump: BP_ConfuseProjectile.hpp; an Aimed spell with a SpellModule_Blueprint: the projectile is short-lived, so the referee polls the class"},
-      {"kind": "target_effect", "effect": "GE_Confuse_C", "observable": "referee", "why": "dump: GE_Confuse_C : UConfuseGameplayEffectData : UDominionStatusEffectData; ADominionAICharacter has ClearConfuse/CanBeConfusedBy: the status lands on the creature's GameplayEffectsComponent"}]},
-    "USD_Enfeeble": {"effects": [
-      {"kind": "spell_actor", "class": "BP_EnfeebleProjectile_C", "observable": "referee", "why": "dump: BP_EnfeebleProjectile.hpp"},
-      {"kind": "target_effect", "effect": "GE_Enfeeble_C", "observable": "referee", "why": "dump: GE_Enfeeble.hpp (a status effect on the target creature)"}]},
-    "USD_DivineRock": {"effects": [
-      {"kind": "spell_actor", "class_contains": "BP_DivineRock_", "exclude": ["BP_DivineRockPreview_C", "BP_DivineRockBase_C"], "observable": "referee", "why": "dump: ADivineRock : ADestructibleWorldActor with BP_DivineRock_<Ore> subclasses (Clay, Coal, Adamantite, ...): the placed rock persists"}]},
-    "USD_PileEmUp": {"effects": [
-      {"kind": "spell_actor", "class": "BP_PileEmUp_Totem_C", "observable": "referee", "why": "dump: ABP_PileEmUp_Totem_C : APileEmUpTotem (Trunk Totem); a placed world actor"}]},
-    "USD_DetectAnimaVents": {"effects": [
-      {"kind": "spell_actor", "class": "BP_DetectionSpellSeeker_AnimaVent_C", "observable": "referee", "why": "dump: BP_DetectionSpellSeeker_AnimaVent / _ConcentratedAnimaVent seekers (Summon Elemental Spirits); the generic DominionSpellActor is not specific, the seeker class is"}]},
-    "USD_HomeTeleport": {"effects": [
-      {"kind": "moved_m", "min": 30.0, "observable": "probe", "why": "BP_SMBG_HomeTeleport_C (Caster: ADominionPlayerCharacter): the caster is moved to his claimed bed; setup needs a claimed bed >= 30 m away (no fixture verb yet: a fixture gap)"}]},
-    "USD_Recall": {"effects": [
-      {"kind": "recall_return", "within_m": 3.0, "observable": "probe+harness", "why": "cast_type AllowMovementThenCastInstant, ExpireAfterDuration 1 s, ADominionPlayerCharacter:GetRecallSpellState: he is returned to where the spell was started after moving; needs the harness to move him between start and expiry (not built: a gap)"}]},
-    "USD_PhaseDash": {"effects": [
-      {"kind": "phase_dash", "observable": "referee", "why": "object dump: the only Dash UFunction on UDominionMovementComponent is EnablePhaseDashes (OnDash(bWasPhaseDash) is a delegate signature: RegisterHook refused it live 2026-10-26). A server post-hook on EnablePhaseDashes for his pawn inside the spell window = the spell turned his phase dashes on; the air_dash_m harness probe stays the measure of the dash itself"}]}
+    "USD_Confuse": {
+      "effects": [
+        {
+          "kind": "spell_actor",
+          "class": "BP_ConfuseProjectile_C",
+          "observable": "referee",
+          "why": "dump: BP_ConfuseProjectile.hpp; an Aimed spell with a SpellModule_Blueprint: the projectile is short-lived, so the referee polls the class"
+        },
+        {
+          "kind": "target_effect",
+          "effect": "GE_Confuse_C",
+          "observable": "referee",
+          "why": "dump: GE_Confuse_C : UConfuseGameplayEffectData : UDominionStatusEffectData; ADominionAICharacter has ClearConfuse/CanBeConfusedBy: the status lands on the creature's GameplayEffectsComponent"
+        }
+      ]
+    },
+    "USD_Enfeeble": {
+      "effects": [
+        {
+          "kind": "spell_actor",
+          "class": "BP_EnfeebleProjectile_C",
+          "observable": "referee",
+          "why": "dump: BP_EnfeebleProjectile.hpp"
+        },
+        {
+          "kind": "target_effect",
+          "effect": "GE_Enfeeble_C",
+          "observable": "referee",
+          "why": "dump: GE_Enfeeble.hpp (a status effect on the target creature)"
+        }
+      ]
+    },
+    "USD_DivineRock": {
+      "effects": [
+        {
+          "kind": "spell_actor",
+          "class_contains": "BP_DivineRock_",
+          "exclude": [
+            "BP_DivineRockPreview_C",
+            "BP_DivineRockBase_C"
+          ],
+          "observable": "referee",
+          "why": "dump: ADivineRock : ADestructibleWorldActor with BP_DivineRock_<Ore> subclasses (Clay, Coal, Adamantite, ...): the placed rock persists"
+        }
+      ]
+    },
+    "USD_PileEmUp": {
+      "effects": [
+        {
+          "kind": "spell_actor",
+          "class": "BP_PileEmUp_Totem_C",
+          "observable": "referee",
+          "why": "dump: ABP_PileEmUp_Totem_C : APileEmUpTotem (Trunk Totem); a placed world actor"
+        }
+      ]
+    },
+    "USD_DetectAnimaVents": {
+      "effects": [
+        {
+          "kind": "spell_actor",
+          "class": "BP_DetectionSpellSeeker_AnimaVent_C",
+          "observable": "referee",
+          "why": "dump: BP_DetectionSpellSeeker_AnimaVent / _ConcentratedAnimaVent seekers (Summon Elemental Spirits); the generic DominionSpellActor is not specific, the seeker class is"
+        }
+      ]
+    },
+    "USD_HomeTeleport": {
+      "effects": [
+        {
+          "kind": "moved_m",
+          "min": 30.0,
+          "observable": "probe",
+          "why": "BP_SMBG_HomeTeleport_C (Caster: ADominionPlayerCharacter): the caster is moved to his claimed bed; setup needs a claimed bed >= 30 m away (no fixture verb yet: a fixture gap)"
+        }
+      ]
+    },
+    "USD_Recall": {
+      "effects": [
+        {
+          "kind": "recall_return",
+          "within_m": 3.0,
+          "observable": "probe+harness",
+          "why": "cast_type AllowMovementThenCastInstant, ExpireAfterDuration 1 s, ADominionPlayerCharacter:GetRecallSpellState: he is returned to where the spell was started after moving; needs the harness to move him between start and expiry (not built: a gap)"
+        }
+      ]
+    },
+    "USD_PhaseDash": {
+      "effects": [
+        {
+          "kind": "phase_dash",
+          "observable": "referee",
+          "why": "object dump: the only Dash UFunction on UDominionMovementComponent is EnablePhaseDashes (OnDash(bWasPhaseDash) is a delegate signature: RegisterHook refused it live 2026-10-26). A server post-hook on EnablePhaseDashes for his pawn inside the spell window = the spell turned his phase dashes on; the air_dash_m harness probe stays the measure of the dash itself",
+          "confidence": "verified",
+          "verified": "live on dev 2026-10-26 16:3x UTC: t0_cast_phasedash passed on this signal (logs/evals/20261026/20261026-163357-dev-measure)"
+        }
+      ]
+    }
   }
 }
