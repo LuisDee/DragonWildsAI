@@ -72,10 +72,14 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"ok": True, "next": nxt}))
         return 0
     if a.cmd == "enqueue":
-        q = [x for x in d.get("queue", []) if x["owner"] != a.owner] + [{"owner": a.owner, "why": a.why, "at": now}]
+        q = d.get("queue", [])
+        pos = next((i for i, x in enumerate(q) if x["owner"] == a.owner), None)
+        if pos is None:   # already queued: keep the place (re-enqueueing must not send you to the back)
+            q.append({"owner": a.owner, "why": a.why, "at": now})
+            pos = len(q) - 1
         d["queue"] = q
         _save(d)
-        print(json.dumps({"ok": True, "position": len(q)}))
+        print(json.dumps({"ok": True, "position": pos + 1}))
         return 0
     print(json.dumps(d.get("queue", [])))
     return 0
