@@ -227,5 +227,114 @@ do
     check(#S.presses == 1, "real gate: gameplay -> drinks (got " .. #S.presses .. ")")
 end
 
+-- live 2026-10-26 15:06: nothing to drink or eat CARRIED -> the reflex was silent while he dehydrated.
+-- Now: a no_drink / no_food event (once a minute), reason names whether none is carried or all failed.
+local function events(action)
+    local fh = io.open(dir .. "/client_io/events/vitals.jsonl", "rb"); local txt = fh and fh:read("a") or ""; if fh then fh:close() end
+    local n = 0
+    for line in txt:gmatch("[^\n]+") do if line:find('"action":"' .. action .. '"', 1, true) then n = n + 1 end end
+    return n, txt
+end
+do
+    I.reflex_start(nil, { verify_s = 0 })
+    R = _G.DWFedReflex
+    local g0 = I._input_gate
+    I._input_gate = function() return nil end
+    hotbar_items = { item(DATA.pick, 1) }; bag_items = {}; refresh()
+    S.presses, S.hyd, S.sus, R.last, R.pending, R.warned = {}, 5, 80, {}, nil, nil
+    local n0 = events("no_drink")
+    R.tick_fn(nil); R.tick_fn(nil)
+    local n1, txt = events("no_drink")
+    check(n1 == n0 + 1, "nothing carried: ONE no_drink event over two ticks (got " .. (n1 - n0) .. ")")
+    check(txt:find("no drink carried, hotbar or bag", 1, true) ~= nil, "no_drink reason: none carried")
+    check(#S.presses == 0, "nothing carried: nothing pressed")
+    -- food carried, but marked bad -> no_food, reason "failed"
+    hotbar_items = { item(DATA.sand, 3) }; refresh()
+    S.hyd, S.sus, R.warned = 80, 5, nil
+    R.bad = { ITEM_Consumable_Sandwich_Veggie = true }
+    local f0 = events("no_food")
+    R.tick_fn(nil)
+    local f1, txt2 = events("no_food")
+    check(f1 == f0 + 1 and txt2:find("every food I carry failed to work", 1, true) ~= nil, "all food bad: no_food, reason 'failed'")
+    -- a drink only in the bag is NOT no_drink (that is no_hotbar_drink)
+    R.bad, R.warned = {}, nil
+    hotbar_items = {}; bag_items = { item(DATA.tea, 3) }; refresh()
+    S.hyd, S.sus = 5, 80
+    local d0 = events("no_drink")
+    R.tick_fn(nil)
+    check(events("no_drink") == d0, "drink in the bag: no no_drink event")
+    I._input_gate = g0
+end
+
+-- live 2026-10-26 14:59: a build screen blocks the drink near 0. At the safety floor, with a usable drink on
+-- the hotbar, the reflex leaves a build/container screen itself (one step per tick, bounded), then drinks.
+do
+    I.reflex_start(nil, { verify_s = 0 })
+    R = _G.DWFedReflex
+    local g0, l0 = I._input_gate, I._input_leave
+    local modal = { kind = "build", mode = "Placement" }
+    local leaves = 0
+    I._input_gate = function() return modal end
+    I._input_leave = function(m) leaves = leaves + 1; if leaves >= 2 then modal = nil end; return m.kind == "build" end
+    hotbar_items = { item(DATA.tea, 48) }; bag_items = {}; refresh()
+    S.effect[DATA.tea:GetFullName()] = { "hyd", 60 }
+    -- above the floor (thirsty by policy, 20 < 40%) -> blocked, no leave
+    S.presses, S.hyd, S.sus, R.last, R.pending = {}, 20, 80, {}, nil
+    R.tick_fn(nil)
+    check(leaves == 0 and #S.presses == 0, "thirsty above the floor: build screen left alone, nothing pressed")
+    S.hyd = 5
+    R.tick_fn(nil)
+    check(leaves == 1 and #S.presses == 0, "below the floor: one leave step, no hotbar press while still blocked")
+    check(events("floor_leave") >= 1, "floor_leave event logged")
+    R.tick_fn(nil) -- second step closes it
+    R.tick_fn(nil) -- gate clear -> drinks
+    check(leaves == 2 and #S.presses == 1 and S.presses[1] == "Pumpkin Spice Infusion", "screen gone: drinks (leaves " .. leaves .. ", presses " .. #S.presses .. ")")
+    check(R.floor_leaves == nil, "leave count reset once unblocked")
+    -- bounded: a screen that never closes gets at most floor_leaves steps
+    modal, leaves = { kind = "build", mode = "Placement" }, -100
+    S.presses, S.hyd, R.last, R.pending = {}, 5, {}, nil
+    for _ = 1, 12 do R.tick_fn(nil) end
+    check(leaves == -100 + 6, "never-closing screen: at most 6 leave steps (got " .. (leaves + 100) .. ")")
+    -- no usable drink -> no point leaving: no step
+    modal, leaves = { kind = "build", mode = "Placement" }, 0
+    R.floor_leaves = nil
+    hotbar_items = {}; refresh()
+    for _ = 1, 3 do R.tick_fn(nil) end
+    check(leaves == 0, "nothing usable: the screen is not left")
+    -- a conversation / input mode is never left by the reflex
+    modal = { kind = "conversation", mode = "DIM_ConversationUI" }
+    hotbar_items = { item(DATA.tea, 48) }; refresh()
+    for _ = 1, 3 do R.tick_fn(nil) end
+    check(leaves == 0, "conversation at the floor: not touched by the reflex")
+    I._input_gate, I._input_leave = g0, l0
+end
+
+-- the same over the REAL input.lua: an OWNED Placement build mode (the build job's claim survives), at the
+-- floor -> the reflex injects the build's own CancelAction; never a hotbar press while it is open
+do
+    I.reflex_start(nil, { verify_s = 0 })
+    R = _G.DWFedReflex
+    _G.DWInput = nil
+    pc.CurrentInputMode = obj("DataAsset /Game/Input/DIM_Gameplay.DIM_Gameplay")
+    local injected = {}
+    local cancel = obj("InputAction /Game/Input/IA_Build_Cancel.IA_Build_Cancel")
+    local bm = obj("BuildModeComponent /Game/x.BM", { CurrentBuildMode = 2, CancelAction = cancel })
+    pc.BuildModeComponent = bm
+    ALL.EnhancedInputLocalPlayerSubsystem = { obj("EnhancedInputLocalPlayerSubsystem /Engine/Transient.EIS", {
+        InjectInputVectorForAction = function(_, a) injected[#injected + 1] = a:GetFullName(); if a == cancel then bm.CurrentBuildMode = 0 end end }) }
+    local IN = assert(loadfile(dir .. "/client_mod/scripts/input.lua"))()
+    IN.claim("build", "build:campfire") -- a live (or leaked) owner: the orphan sweep would not touch it
+    hotbar_items = { item(DATA.tea, 48) }; bag_items = {}; refresh()
+    S.effect[DATA.tea:GetFullName()] = { "hyd", 60 }
+    S.presses, S.hyd, R.last, R.pending = {}, 5, {}, nil
+    R.tick_fn(nil)
+    check(#injected == 1 and injected[1]:find("IA_Build_Cancel", 1, true) and #S.presses == 0,
+          "real input: owned Placement at the floor -> the build's Cancel injected, no hotbar press (" .. table.concat(injected, ",") .. ")")
+    R.tick_fn(nil)
+    check(#S.presses == 1, "real input: build mode None -> drinks (presses " .. #S.presses .. ")")
+    pc.BuildModeComponent = nil
+    ALL.EnhancedInputLocalPlayerSubsystem = nil
+end
+
 print(fails == 0 and "ALL PASS" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

@@ -139,8 +139,17 @@ function M.close_container()
     return pcall(function() wi.api:CloseCurrentInventory() end)
 end
 
--- A modal open with no live owner for cfg.orphan_s is cleaned up (a dead job, a bridge restart, a pause):
--- one step per orphan_s, at most cfg.cancels steps per episode, then it is left alone and reported.
+-- One exit step for a build or container modal, OWNED OR NOT: the stay-fed reflex's safety floor (live
+-- 2026-10-26 14:59: a build screen blocked the drink near hydration 0). Survival beats any build/store job:
+-- that job's own read-back sees the screen gone and fails truthfully. Conversations and input modes are left
+-- to their owners (no generic exit here). -> true when a press/close went out
+function M.leave_modal_step(m)
+    if paused() or type(m) ~= "table" then return false end
+    if m.kind == "build" then return M.leave_build_step() ~= nil end
+    if m.kind == "container" then return M.close_container() == true end
+    return false
+end
+
 -- The conversation panel's own Cancel (ConversationMainPanel.CancelInputAction, the panel of THIS player's
 -- participant), cached and re-validated. One press per call; the caller reads back next tick.
 -- -> true when a press went out (a conversation was open), false when none is open / no key

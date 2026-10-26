@@ -552,7 +552,8 @@ end
 -- bad_after (BUGS L32): an item is given up only after this many FAILED uses in a row. One miss (pressed while
 -- busy: mid-gather 07:48 UTC, hydration fell 29.8 -> 29.5) used to mark Clean Water bad for good, and he
 -- dehydrated to 0 with water on his hotbar. A success clears the count; the per-kind cooldown spaces retries.
-M.REFLEX_CFG = { period_ms = 2000, cooldown_s = 6, verify_s = 4, collect = true, allow_bag = false, bad_after = 3 }
+M.REFLEX_CFG = { period_ms = 2000, cooldown_s = 6, verify_s = 4, collect = true, allow_bag = false, bad_after = 3,
+                 floor_leaves = 6 }
 
 local R = _G.DWFedReflex or {}
 _G.DWFedReflex = R
@@ -637,6 +638,18 @@ local function input_gate()
     return ok and blocked or nil
 end
 M._input_gate = input_gate
+-- The safety floor's exit step and the modal's owner (input.lua; tests replace them)
+M._input_leave = function(m)
+    input_gate() -- loads INPUT_MOD
+    if not INPUT_MOD or type(INPUT_MOD.leave_modal_step) ~= "function" then return false end
+    local ok, r = pcall(INPUT_MOD.leave_modal_step, m)
+    return ok and r == true
+end
+M._input_owner = function(kind)
+    if not INPUT_MOD then return nil end
+    local ok, o = pcall(INPUT_MOD.owner, kind)
+    return ok and type(o) == "table" and o.owner or nil
+end
 
 -- One use outcome for an item: a failure is a strike, `bad_after` strikes in a row mark it bad (no more presses
 -- until the reflex restarts); a success clears its strikes.
@@ -675,8 +688,50 @@ function R.tick(log)
         R.pending = nil
         pend = nil
     end
+    -- Nothing to drink / eat carried at all (live 2026-10-26 15:06: hydration 0, HP falling, and the reflex
+    -- was SILENT because it only warned about bag-only items): tell the brain once a minute, so it fetches some.
+    -- `failed` = carried, but every one is marked bad (failed bad_after uses in a row).
+    local carried
+    if (thirsty or hungry) and not pend then
+        carried = M.list(log)
+        for _, need in ipairs({ { thirsty, "drink", hyd, hyd_max }, { hungry, "food", sus, sus_max } }) do
+            if need[1] and not best(carried, need[2], R.bad, { "hotbar", "bag" }) then
+                local failed = best(carried, need[2], nil, { "hotbar", "bag" }) ~= nil
+                R.warned = R.warned or {}
+                local key = "no_" .. need[2]
+                if not R.warned[key] or t - R.warned[key] >= 60 then
+                    R.warned[key] = t
+                    reflex_emit({ action = key, kind = need[2], stat = need[3], max = need[4], floor = R.floor_hit == true,
+                                  reason = failed and ("every " .. need[2] .. " I carry failed to work")
+                                      or ("no " .. need[2] .. " carried, hotbar or bag") })
+                end
+            end
+        end
+    end
     -- a modal is open: no presses this tick (reported once a minute)
     local blocked = (thirsty or hungry or pol.heal_below_pct) and M._input_gate() or nil
+    -- Safety floor: a build or container screen never starves him. With a usable drink/food on the hotbar he
+    -- leaves that screen himself (input.leave_modal_step: build Cancel / the container's own close), one step
+    -- per tick, at most cfg.floor_leaves per blocked episode, then drinks on a later tick once the gate is clear.
+    if blocked and R.floor_hit and not pend and (blocked.kind == "build" or blocked.kind == "container") then
+        local usable
+        for _, need in ipairs({ { thirsty, "drink" }, { hungry, "food" } }) do
+            if need[1] and best(carried or M.list(log), need[2], R.bad, cfg.allow_bag and { "hotbar", "bag" } or { "hotbar" }) then
+                usable = need[2]
+            end
+        end
+        R.floor_leaves = R.floor_leaves or 0
+        if usable and R.floor_leaves < (cfg.floor_leaves or 6) then
+            R.floor_leaves = R.floor_leaves + 1
+            local pressed = M._input_leave(blocked)
+            local owner = M._input_owner(blocked.kind)
+            reflex_emit({ action = "floor_leave", kind = blocked.kind, mode = blocked.mode, owner = owner, need = usable,
+                          ok = pressed == true, try = R.floor_leaves,
+                          reason = "below the safety floor: leaving the " .. tostring(blocked.kind) .. " screen to " .. usable })
+        end
+    elseif not blocked then
+        R.floor_leaves = nil
+    end
     if blocked then
         if not R.blocked_at or t - R.blocked_at >= 60 then
             R.blocked_at = t
@@ -706,7 +761,7 @@ function R.tick(log)
     end
     if not (thirsty or hungry) then return end -- (after the verify: a successful use ends the need)
     if not pend then
-        local l = M.list(log)
+        local l = carried or M.list(log)
         for _, need in ipairs({ { thirsty, "drink", hyd }, { hungry, "food", sus } }) do
             if not R.pending and need[1] and (not R.last[need[2]] or t - R.last[need[2]] >= cfg.cooldown_s) then
                 -- Hotbar only by default: the client hung right after a bag "use"
@@ -775,7 +830,8 @@ function M.reflex_stop()
 end
 
 function M.reflex_status()
-    return { running = R.loop ~= nil, last = R.last, bad = R.bad, pending = R.pending, err = R.err, cfg = R.cfg }
+    return { running = R.loop ~= nil, last = R.last, bad = R.bad, pending = R.pending, err = R.err, cfg = R.cfg,
+             warned = R.warned, floor_hit = R.floor_hit, floor_leaves = R.floor_leaves }
 end
 
 return M
