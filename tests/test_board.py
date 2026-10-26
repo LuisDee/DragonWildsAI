@@ -325,6 +325,23 @@ def test_loop_requeues_until_the_tally_passes(ops):
     assert _run_trip(ops, t, 8)[0] == "ended" and t.tallies[COPPER] == 24.0
 
 
+def test_a_loop_pass_is_queued_before_the_steps_planned_after_the_loop(ops):
+    """M4 mock run (real Sonnet, goal_farm_mob_drop): a plan [kill (loop), confirm, store] ran 'confirm' after ONE
+    pass because the next pass went to the end of the list. The next pass belongs right after its group."""
+    until = P.validate({"tally": {"item": COPPER, "at_least": 20}})
+    t = ops.add_task("trips then deliver", by="player:Zezima")
+    ops.set_steps(t, [B.Step(title="mine", success=gained(COPPER, 1), group="trip"),
+                      B.Step(title="deliver", success=P.validate({"lost": {"item": COPPER, "at_least": 1}}))],
+                  loops={"trip": B.Loop(until=until)})
+    s = t.steps[0]
+    ops.activate(s, inv(copper=0))
+    ops.open_segment(s, inv(copper=0))
+    ops.close_segment(t, s, inv(copper=8))
+    ops.finish_step(t, s, "done")
+    assert ops.requeue_loop(t, s, inv(copper=8)) == ("requeued", True)
+    assert [(x.title, x.loop_iter) for x in t.pending()] == [("mine", 1), ("deliver", 0)]
+
+
 def test_a_zero_gain_loop_pass_is_reported_not_capped(ops):
     """Simplify item 5: the board never ends a loop by itself; it says the pass gained nothing and the Director
     spends the task's progress budget on it."""

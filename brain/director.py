@@ -152,6 +152,17 @@ Rules:
   since the job began. So compare gear with "start" in the job's done test, and test a step that equips
   something with "equipped".
 - Repeated trips: give the steps a group and a loop with an "until" test; code repeats the group by itself.
+  Steps after the loop (deliver, report) run once the loop's until test passes.
+- An amount the player left open (no number) on a long job is not a token pass: aim for what the job's words
+  describe (a stocked store means several full loads over several trips), and say the total you chose in
+  description.
+- Where the job says the result should end up (a place, a container, his home) is part of its done test. If that
+  place or container doesn't exist or isn't known yet, making or finding it is a step of this job (buildables,
+  map_memory), never a go_to to a name nobody knows.
+- Fights (any step that kills things, risky or not): look up the creature (weakness, resistances, power level)
+  and use a damage type it is weak to when he can (his weapons, an enchant spell, an attack spell), as prep steps
+  before the fight; say in facts which you chose and why.
+- me.resources_near lists what he can gather where he stands now; prefer those over guesses.
 - A step that needs something no body tool can do: name it in capability_gaps (with a workaround if there is
   one) instead of pretending, with its kind: "action" (his body can't do it), "perception" (he can't see or
   sense it in the game), or "knowledge" (a fact you couldn't find or confirm: also list it in facts as unknown).
@@ -363,6 +374,27 @@ def _progress_measures(meas: dict[str, float]) -> dict[str, float]:
     return own or meas
 
 
+def _resources_near(rows: Any, limit: int = 10) -> list[dict]:
+    """get_state.nearby_resources grouped by kind: name (and item id), nodes, nearest distance and the tool the
+    body says it needs. Without it the plan guesses which resource is around (M4 mock run: it planned one that wasn't)."""
+    groups: dict[str, dict] = {}
+    for r in rows if isinstance(rows, list) else []:
+        if not isinstance(r, dict):
+            continue
+        name = r.get("name") or r.get("item") or r.get("resource") or r.get("kind")
+        if not name:
+            continue
+        g = groups.setdefault(str(name), {"name": name, "nodes": 0, "nearest_m": None})
+        for k in ("item", "verb", "tool", "tool_tier"):
+            if r.get(k) is not None and k not in g:
+                g[k] = r[k]
+        g["nodes"] += 1
+        d = r.get("distance")
+        if isinstance(d, (int, float)) and (g["nearest_m"] is None or d < g["nearest_m"]):
+            g["nearest_m"] = round(float(d), 1)
+    return sorted(groups.values(), key=lambda g: g["nearest_m"] if g["nearest_m"] is not None else 1e9)[:limit]
+
+
 def _compact_state(state: dict) -> dict:
     """What a planner needs from get_state: own vitals, skills, gear with stats, carried items, bag, where."""
     cat = item_stats.catalog()
@@ -387,6 +419,12 @@ def _compact_state(state: dict) -> dict:
                               "distance": e.get("distance"), "hostile": e.get("hostile")}
                              for e in [x for x in state.get("nearby_entities") or []  # the living, nearest first
                                        if isinstance(x, dict) and x.get("alive", True) is not False][:8]]
+    if isinstance(state.get("spells"), list) and state["spells"]:  # his spell list (prep: enchants, buffs, attacks)
+        out["spells"] = [{k: r.get(k) for k in ("name", "role", "castable", "reason", "needs") if r.get(k) is not None}
+                         for r in state["spells"][:30] if isinstance(r, dict) and r.get("name")]
+    res = _resources_near(state.get("nearby_resources"))
+    if res:  # what he can gather here, one row per kind, nearest first
+        out["resources_near"] = res
     if state.get("stations_nearby"):
         out["stations_nearby"] = state["stations_nearby"]
     if isinstance(state.get("interactables"), list) and state["interactables"]:  # usable things in sight

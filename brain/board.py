@@ -686,8 +686,11 @@ class BoardOps:
         gained = sum(s.tally_gain for s in group if s.loop_iter == it) > 0 or P.grew(lp.last_measures, res.measures)
         lp.last_measures = dict(res.measures)
         lp.done += 1
-        t.steps.extend(Step(**{f: copy.deepcopy(getattr(s, f)) for f in PLAN_FIELDS}, loop_iter=it + 1)
-                       for s in group if s.loop_iter == it)  # one pass of the group, in order (fresh runtime state)
+        # one pass of the group, in order (fresh runtime state), right after the group's last step: steps the plan
+        # put after the loop (deliver, report) wait until the loop has ended
+        after = max(i for i, s in enumerate(t.steps) if s.group == g) + 1
+        t.steps[after:after] = [Step(**{f: copy.deepcopy(getattr(s, f)) for f in PLAN_FIELDS}, loop_iter=it + 1)
+                                for s in group if s.loop_iter == it]
         self.save()
         return "requeued", gained
 

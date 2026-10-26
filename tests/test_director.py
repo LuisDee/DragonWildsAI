@@ -858,3 +858,29 @@ def test_a_working_step_tested_only_by_elapsed_time_gets_one_advisory(tmp_path):
     ticks(d, 1)
     assert "only counts time" in llm.calls[1]["messages"][-1]["content"]
     assert d.ops.b.tasks[0].steps and d.ops.b.tasks[0].steps[0].title == "set my policy"
+
+
+def test_the_planner_snapshot_shows_what_he_can_gather_here():
+    """M4 mock run (real Sonnet): get_state listed the nodes in reach, but the Director's snapshot dropped them, so the
+    plan guessed a resource that wasn't there. Rows are grouped per kind, nearest first, keeping the body's tool needs."""
+    state = {"nearby_resources": [
+        {"id": "n1", "name": "Rock A", "item": "ITEM_A", "distance": 31.0, "tool": "pickaxe", "tool_tier": 2},
+        {"id": "n2", "name": "Rock A", "item": "ITEM_A", "distance": 18.24},
+        {"id": "n3", "name": "Tree B", "verb": "chop", "distance": 6.0},
+        "junk", {"id": "n4"}]}
+    me = D._compact_state(state)
+    assert me["resources_near"] == [
+        {"name": "Tree B", "nodes": 1, "nearest_m": 6.0, "verb": "chop"},
+        {"name": "Rock A", "nodes": 2, "nearest_m": 18.2, "item": "ITEM_A", "tool": "pickaxe", "tool_tier": 2}]
+    assert "resources_near" not in D._compact_state({})
+
+
+def test_the_planner_snapshot_lists_his_spells_for_prep():
+    """M4 mock run (real Sonnet, a weakness fight): the plan skipped the enchant because it couldn't tell whether he
+    can cast it; get_state.spells (spells.lua) was dropped from the Director's snapshot."""
+    state = {"spells": [{"id": "s1", "name": "Spell A", "role": "enchant", "castable": True, "use_when": "long text"},
+                        {"id": "s2", "name": "Spell B", "castable": False, "reason": "requirement", "needs": "X"},
+                        {"id": "s3"}]}
+    assert D._compact_state(state)["spells"] == [
+        {"name": "Spell A", "role": "enchant", "castable": True},
+        {"name": "Spell B", "castable": False, "reason": "requirement", "needs": "X"}]
