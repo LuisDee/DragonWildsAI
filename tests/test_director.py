@@ -763,3 +763,27 @@ def test_a_knowledge_gap_is_never_a_capability_gap(tmp_path):
     told = [line for e in port.events if e.get("tell_player") for line in e["tell_player"]]
     assert not any("drop tables" in line for line in told) and any("deposit" in line for line in told)
     assert d.memory.recall("drop tables")[0]["value"]["status"] == "unknown"
+
+
+def test_chat_arriving_during_a_run_stops_the_chain_until_the_next_tick(tmp_path):
+    """Chaining never runs over a player: a chat line that arrives during a board run ends the tick's chain, and
+    the next step starts only after the agent has handled the chat."""
+    def ctrl(ev, port):
+        if ev["type"] != "board_step":
+            return None
+        port.world.add(COPPER, 1)
+        port.chat = ev["step"]["title"] == "first"  # the player speaks while the first step runs
+        return {"actions": [{"tool": "gather", "args": {}, "ok": True, "data": {"item": COPPER}, "origin": "board"}],
+                "ended": "normal"}
+    d, port, world, llm, clock = make(tmp_path, ctrl, [
+        decision(task_success=have(COPPER, 3), steps=[step("first", gained(COPPER, 1)), step("second", gained(COPPER, 1)),
+                                                      step("third", gained(COPPER, 1))])])
+    d.handle_tool("add_task", {"text": "copper"}, "Zezima")
+    ticks(d, 1)
+    assert [e["step"]["title"] for e in port.events if e["type"] == "board_step"] == ["first"]
+    ticks(d, 1)  # chat still waiting: nothing starts
+    assert len([e for e in port.events if e["type"] == "board_step"]) == 1
+    port.chat = False  # the agent answered the chat
+    ticks(d, 1)
+    assert [e["step"]["title"] for e in port.events if e["type"] == "board_step"] == ["first", "second", "third"]
+    assert d.ops.b.tasks[0].status == "done"
