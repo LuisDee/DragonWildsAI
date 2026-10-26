@@ -104,7 +104,9 @@ SCHEMA_DOC = """Success predicates (JSON, one key per object; checked by code on
    container by your own verified store actions (in a step's test: by that step; in the job's: the whole job,
    all trips; k = separate trips that stored some)
 - {"elapsed": {"seconds": s}}                            time since this step started
-- {"vital": {"stat": "health"|"hydration"|"sustenance"|"endurance"|"stamina", "below_pct": p}} (or "at_least_pct")
+- {"vital": {"stat": "health"|"hydration"|"sustenance"|"endurance"|"stamina", "below_pct": p}} (or "at_least_pct",
+   or "max_at_least": n = its maximum is at least n, or "max_gain_at_least": n = it rose by n since the start)
+- {"spell": {"name": <spell>, "castable": true}}          a spell in your spell list (castable now if asked)
 - {"near": {"place"|"player"|"thing": name or id, or "position": [x,y,z], "within_m": m}}
 - {"moved": {"min_m": m}}                                moved at least m from where this step started
 - {"killed": {"kind": <creature>, "at_least": n}}        kills since this step started
@@ -351,9 +353,10 @@ def _validate_builtin(k: str, a: dict, items: Items) -> dict:
     elif k == "vital":
         if not isinstance(a.get("stat"), str) or not re.fullmatch(r"[a-z][a-z_]*", a["stat"]):
             raise PredicateError("vital.stat must be a state field name, e.g. health")
-        if ("below_pct" in a) == ("at_least_pct" in a):
-            raise PredicateError("vital needs exactly one of below_pct, at_least_pct")
-        _num(a.get("below_pct", a.get("at_least_pct")), "vital percentage", 0)
+        keys = [k for k in ("below_pct", "at_least_pct", "max_at_least", "max_gain_at_least") if k in a]
+        if len(keys) != 1:
+            raise PredicateError("vital needs exactly one of below_pct, at_least_pct, max_at_least, max_gain_at_least")
+        _num(a[keys[0]], "vital value", 0)
     elif k == "near":
         keys = [x for x in ("place", "player", "position", "thing") if a.get(x) is not None]
         if len(keys) != 1:
@@ -398,6 +401,10 @@ def _validate_builtin(k: str, a: dict, items: Items) -> dict:
             a["kind"] = a[ids[0]]  # a label for details
         a["kind"] = _str(a.get("kind"), "killed.kind (or kind_id / target_id)")
         a["at_least"] = _num(a.get("at_least", 1), "killed.at_least", 1)
+    elif k == "spell":
+        a["name"] = _str(a.get("name"), "spell.name")
+        if "castable" in a and not isinstance(a["castable"], bool):
+            raise PredicateError("spell.castable must be true or false")
     elif k in ("quest_complete", "quest_step"):
         a["name"] = _str(a.get("name"), f"{k}.name")
         if k == "quest_step":
@@ -679,6 +686,17 @@ def _vital(a, state, ctx, cat):
     mx = next((state[k] for k in (f"max_{stat}", f"{stat}_max") if isinstance(state.get(k), (int, float))), None)
     if not isinstance(cur, (int, float)) or not mx:
         return Result(None, f"{stat} unknown", 0.0, [stat])
+    if "max_at_least" in a:  # the stat's maximum (e.g. max health raised by Sanguine Urns)
+        want = float(a["max_at_least"])
+        return Result(mx >= want, f"max {stat} {mx:g}/{want:g}", _ratio(mx, want), measures={f"max:{stat}": float(mx)})
+    if "max_gain_at_least" in a:  # how much the maximum rose since the start
+        base = ctx.get("baseline") if isinstance(ctx.get("baseline"), dict) else None
+        mx0 = next((base[k] for k in (f"max_{stat}", f"{stat}_max") if base and isinstance(base.get(k), (int, float))),
+                   None)
+        if mx0 is None:
+            return Result(None, f"max {stat}: no record of it at the start", 0.0, ["baseline"])
+        want, d = float(a["max_gain_at_least"]), float(mx - mx0)
+        return Result(d >= want, f"max {stat} +{d:g}/{want:g}", _ratio(d, want), measures={f"max:{stat}": float(mx)})
     pct = 100.0 * cur / mx
     if "below_pct" in a:
         want = float(a["below_pct"])
@@ -855,6 +873,22 @@ def _stored(a, state, ctx, cat):
     return Result(ok, detail, min(parts), measures={f"stored:{a['ids'][0]}": n, f"trips:{a['ids'][0]}": float(trips)})
 
 
+def _spell(a, state, ctx, cat):
+    rows = state.get("spells")
+    if not isinstance(rows, list):
+        return Result(None, f"{a['name']}: the body reports no spell list", 0.0, ["spells"])
+    row = next((r for r in rows if isinstance(r, dict) and (tokens(a["name"]) <= tokens(r.get("name")) or
+                                                            a["name"] == r.get("id"))), None)
+    if row is None:
+        return Result(False, f"{a['name']} not among your spells", 0.0)
+    if a.get("castable"):
+        ok = row.get("castable") is True
+        why = row.get("reason") or row.get("why")
+        return Result(ok, f"{row.get('name')} " + ("castable" if ok else f"not castable ({why})" if why else "not castable"),
+                      1.0 if ok else 0.5)
+    return Result(True, f"{row.get('name')} known", 1.0)
+
+
 def _quest_log(state: dict) -> dict | None:
     """get_state.quests (client_mod/scripts/quests.lua): {active: [{quest, step, detail, hint, counters, flags}],
     complete: [names], counts}."""
@@ -947,7 +981,7 @@ for _name, _fn in (("have", _have), ("gained", _gained), ("lost", _lost), ("tall
                    ("bag", _bag), ("vital", _vital), ("near", _near), ("moved", _moved), ("killed", _killed),
                    ("on_ground", _on_ground), ("elapsed", _elapsed), ("station", _station), ("quest", _quest),
                    ("structure", _structure), ("stored", _stored), ("quest_complete", _quest_complete),
-                   ("quest_step", _quest_step)):
+                   ("quest_step", _quest_step), ("spell", _spell)):
     register_leaf(_name, _fn, lambda a, items, _k=_name: _validate_builtin(_k, a, items))
 BUILTIN_LEAVES = tuple(LEAVES)
 register = register_leaf  # short name for callers (the Eval benchmark)
@@ -959,7 +993,8 @@ register = register_leaf  # short name for callers (the Eval benchmark)
 def snapshot(state: dict, t: float | None = None) -> dict:
     """The parts of a get_state a baseline needs (small enough to persist with a step); ``t`` = wall-clock
     seconds when it was taken (for ``elapsed``, with ctx["now"])."""
-    keep = ("inventory", "inventory_items", "gear", "skills", "position", "bag", "total_level")
+    keep = ("inventory", "inventory_items", "gear", "skills", "position", "bag", "total_level", "max_health",
+            "health_max")
     out = {k: state[k] for k in keep if k in state}
     if t is not None:
         out["t"] = float(t)
@@ -998,6 +1033,8 @@ def describe(p: dict) -> str:
         "bag": lambda: (f"bag at least {a['used_pct_at_least']:g}% full" if "used_pct_at_least" in a
                         else f"at least {a['free_at_least']:g} free bag slots"),
         "vital": lambda: (f"{a['stat']} below {a['below_pct']:g}%" if "below_pct" in a
+                          else f"max {a['stat']} at least {a['max_at_least']:g}" if "max_at_least" in a
+                          else f"max {a['stat']} +{a['max_gain_at_least']:g}" if "max_gain_at_least" in a
                           else f"{a['stat']} at least {a['at_least_pct']:g}%"),
         "near": lambda: f"within {a.get('within_m', DEFAULT_NEAR_M):g} m of "
                         f"{a.get('place') or a.get('player') or a.get('thing') or a.get('position')}",
@@ -1012,6 +1049,7 @@ def describe(p: dict) -> str:
         "quest": lambda: f"quest {a['name']} " + (f"at stage {a['stage']}" if a.get("stage") is not None else "completed"),
         "structure": lambda: f"{a.get('at_least', 1):g} {a['name']} " + ("built" if a.get("new") else "nearby"),
         "quest_complete": lambda: f"quest {a['name']} completed",
+        "spell": lambda: f"spell {a['name']} " + ("castable" if a.get("castable") else "known"),
         "quest_step": lambda: (f"quest {a['name']} at the step '{a['step']}'" if a.get("step")
                                else f"the next step of quest {a['name']}"),
         "stored": lambda: f"store {a.get('at_least', 1):g} {a['item']}" + (

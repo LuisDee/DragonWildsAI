@@ -306,3 +306,22 @@
   - Home chest: the wiki Storage page leads to the player-built chests. The Small Chest ("Ash Chest", build dump BUILDPIECE_Chest_Small) costs 16 Ash Logs + 2 Coarse Thread. It unlocks with the first ash logs plus the Construction perk Creature Comforts.
   - Alternatives: Crate (10 Ash Logs); Oak Chest (unlocks with the first oak logs).
   - Both xfails now pass. Sticks stay open until live.
+
+## 2026-10-26 Director: M6 Vel'gar curriculum (data/curricula/velgar.json)
+- The milestones in docs/design/velgar.md §4 become jobs with done tests, queued with `tools/board.py curriculum`. Inbox add records now carry `success`.
+- New predicates: `spell`, and `vital` max_at_least / max_gain_at_least.
+- On the mock (tests/test_director_velgar.py) a stand-in planner reads only its research results: craft_plan, compare_gear, the creatures and usable things in sight. With it, 7 of 9 milestones run to done:
+  - Challenge Horn, Anti-Dragon Shield, 20 Lesser Antipoison, 20 Berry Drizzle;
+  - the PL 4 kit, crafted and worn;
+  - 5 Sanguine Urns (+50 max HP);
+  - Attack 8.
+- Real Sonnet, 3 requests (Lesser Antipoison): craft_plan research, then Pottery Wheel → Kiln → Brewing Cauldron, with correct first_call args.
+- Fixes on the way:
+  - mock craft_plan no longer "crafts" from traders (knowledge.vendor_station, shared);
+  - mock craft_plan avoids cyclic recipes;
+  - the Director's state shows only living creatures (with ids) and usable things.
+- Gaps:
+  - no get_state.spells list in the client (spells.lua has no state_extras);
+  - Enchant Weapon: Air needs Attack 30 (wiki perk), well beyond the Attack 8 milestone;
+  - the Dragon Slayer step texts are unknown until live;
+  - vault/fight drops (Vault Shards, Opals, Dragon Tooth, Bloodwood Sap) aren't simulated.

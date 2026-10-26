@@ -45,6 +45,7 @@ from typing import Any
 
 from .. import item_stats, paths
 from ..interface import Activity, ActionResult, Coords, GatherProgress, Reason, fail, ok
+from ..knowledge import vendor_station
 from ..situation import tokens
 from .game import Entity, MockGame, ResourceNode
 
@@ -122,6 +123,8 @@ def manifest() -> dict[str, dict]:
                             "finish. Trains Agility (walking anywhere also gives a little Agility XP).", {"course": s}),
         "cast": a("Cast one of your spells (wheel, then cast); verified by runes and cooldown.",
                   {"spell": s, "target": s}, ["spell"]),
+        "interact": a("Press use (E) on one perceived thing by its id: walks there, presses, checks it worked.",
+                      {"target": s}, ["target"]),
         "talk": a("Talk to someone (an NPC from look, e.g. prompt Talk): walks over, starts the conversation and goes "
                   "through it.", {"target": s}, ["target"]),
         "quests": a("Your quest log from the game: active quests with the current step in the game's own words (and its "
@@ -155,6 +158,7 @@ class GearWorld(MockGame):
         self.quest_defs: dict[str, dict] = {}  # harness data: name -> {giver, requires, steps}
         self.quest_state: dict[str, dict] = {}  # name -> {state: given|complete, step: index}
         self.npcs: dict[str, list[float]] = {}
+        self.urns: dict[str, dict] = {}  # harness data: interactable scenery that raises max health once
         self._names: dict[str, str] | None = None
 
     # ------------------------------------------------------------------ catalog helpers
@@ -264,6 +268,24 @@ class GearWorld(MockGame):
         self.quest_defs[name] = {"giver": giver, "requires": list(requires), "steps": list(steps)}
         self.npcs.setdefault(giver, list(map(float, giver_pos)))
 
+    def add_urn(self, pos, gain: int = 10) -> str:
+        """A Sanguine Urn (wiki: interactable scenery, +10 max health once)."""
+        uid = self._new_id("urn")
+        self.urns[uid] = {"position": list(map(float, pos)), "gain": gain, "used": False}
+        return uid
+
+    def interact(self, target: str, secondary: bool = False) -> ActionResult:
+        u = self.urns.get(target)
+        if u is None:
+            return super().interact(target, secondary)
+        self._walk(u["position"], 1.0)
+        if u["used"]:
+            return fail(Reason.NOT_INTERACTABLE, target=target, detail="I've already used this urn.")
+        u["used"] = True
+        self.max_health += u["gain"]
+        self.health += u["gain"]
+        return ok(target=target, max_health=self.max_health)
+
     def add_npc(self, name: str, pos) -> None:
         self.npcs[name] = list(map(float, pos))
 
@@ -352,6 +374,11 @@ class GearWorld(MockGame):
         d["stations_nearby"] = sorted(near, key=lambda r: r["distance"])
         if self.quest_defs:
             d["quests"] = self._quest_log()
+        if self.urns:  # interactables in sight, like the client's look/usable rows
+            d.setdefault("interactables", [])
+            d["interactables"] += [{"id": k, "name": "Sanguine Urn", "prompt": "Use", "used": u["used"],
+                                    "distance": round(math.dist(u["position"], self.pos), 1)}
+                                   for k, u in self.urns.items()]
         d["structures"] = sorted(({"id": sid, "name": st["name"], "piece": st["name"], "position": st["position"],
                                    "distance": round(math.dist(st["position"], self.pos), 1)}
                                   for sid, st in self.structures.items()
@@ -428,6 +455,8 @@ class GearWorld(MockGame):
         for rid, r in (self.rec.get("recipes") or {}).items():
             if r.get("test") or not r.get("stations") or not r.get("inputs"):
                 continue
+            if all(vendor_station(st, self.rec.get("stations") or {}) for st in r["stations"]):
+                continue  # a trade, not a craft (GOAL: he makes his own, from Brynmoor resources)
             if any(o.get("item") == iid for o in r.get("outputs") or []):
                 out.append((rid, r))
         return sorted(out)
@@ -698,7 +727,11 @@ class GearWorld(MockGame):
             ok_inputs = sum(1 for x in r["inputs"] if self._carried(x["item"]) >= x["count"] or
                             (self._recipes_for(x["item"]) and not any(o.get("item") == item for _, rx in
                              self._recipes_for(x["item"]) for o in rx.get("inputs") or [])))
-            return (not near, -ok_inputs / max(1, len(r["inputs"])), rid)
+            cyc = any(any(o.get("item") == item for _, rx in self._recipes_for(x["item"]) for o in rx.get("inputs") or [])
+                      and not any(not any(o.get("item") == item for o in rx.get("inputs") or [])
+                                  for _, rx in self._recipes_for(x["item"])) for x in r["inputs"])
+            made = sum(1 for x in r["inputs"] if self._recipes_for(x["item"]) and self._carried(x["item"]) < x["count"])
+            return (not near, cyc, -ok_inputs / max(1, len(r["inputs"])), made, rid)
         return sorted(recs, key=score)[0]
 
     def drop(self, item: str, count: int, at: str = "feet", player: str | None = None) -> ActionResult:

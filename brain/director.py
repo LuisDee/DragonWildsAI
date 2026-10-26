@@ -383,11 +383,15 @@ def _compact_state(state: dict) -> dict:
     out["power_level"] = sum((item_stats.stats(i, cat) or {}).get("power_level") or 0 for i in gear.values() if i)
     out["players_near"] = [{"name": p.get("name"), "distance": p.get("distance")} for p in state.get("players") or []
                            if isinstance(p, dict)]
-    out["creatures_near"] = [{"kind": e.get("kind") or e.get("name"), "power_level": e.get("power_level"),
+    out["creatures_near"] = [{"id": e.get("id"), "kind": e.get("kind") or e.get("name"), "power_level": e.get("power_level"),
                               "distance": e.get("distance"), "hostile": e.get("hostile")}
-                             for e in (state.get("nearby_entities") or [])[:8] if isinstance(e, dict)]
+                             for e in [x for x in state.get("nearby_entities") or []  # the living, nearest first
+                                       if isinstance(x, dict) and x.get("alive", True) is not False][:8]]
     if state.get("stations_nearby"):
         out["stations_nearby"] = state["stations_nearby"]
+    if isinstance(state.get("interactables"), list) and state["interactables"]:  # usable things in sight
+        out["usable_near"] = [{k: r.get(k) for k in ("id", "name", "prompt", "used", "distance") if r.get(k) is not None}
+                              for r in state["interactables"][:12] if isinstance(r, dict)]
     if isinstance(state.get("structures"), list) and state["structures"]:  # building pieces near him
         out["structures"] = [{k: r.get(k) for k in ("id", "name", "distance") if r.get(k) is not None}
                              for r in state["structures"][:15] if isinstance(r, dict)]

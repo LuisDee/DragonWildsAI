@@ -185,9 +185,7 @@ def game_docs(data: Path) -> tuple[list[dict], str | None]:
                   for iid, it in src.items() if it.get("name")}
 
     def is_vendor(sid: str) -> bool:
-        st = stations.get(sid) or {}
-        # is_vendor from the station table; Umbral Sands traders carry it only in their asset name
-        return bool(st.get("is_vendor")) or "merchant" in sid.lower()
+        return vendor_station(sid, stations)
 
     def unlock_text(q: str) -> str:
         q = re.sub(r"\b(BP_\w+?_C)\b", lambda m: class_names.get(m.group(1)) or _humanize(m.group(1)[3:-2]), q)
@@ -346,6 +344,13 @@ def wiki_docs(root: Path) -> list[dict]:
                          "aliases": "", "tags": f"{tags} Unlock", "heading": "Unlock",
                          "body": f"Unlock: {' '.join(unlocks)}", "url": rec["url"], "ref": str(rec.get("pageid"))})
     return docs
+
+
+def vendor_station(sid: str, stations: dict) -> bool:
+    """A trader, not a crafting station (recipes data): its is_vendor flag; Umbral Sands traders carry it only in
+    their asset name."""
+    st = stations.get(sid) or {}
+    return bool(st.get("is_vendor")) or "merchant" in str(sid).lower()
 
 
 _SENTENCE = re.compile(r"[^.!?\n]*\bunlock\w*\b[^.!?\n]*[.!?]", re.I)

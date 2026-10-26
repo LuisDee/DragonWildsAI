@@ -787,11 +787,21 @@ class HourlyWindow:
 
 
 def apply_inbox_record(ops: BoardOps, rec: dict) -> Task | None:
-    """One tools/board.py command: {"op": "add", "text", "when"?, "kind"?} | {"op": "cancel", "id", "reason"?}."""
+    """One tools/board.py command: {"op": "add", "text", "when"?, "kind"?, "success"?, "because"?} |
+    {"op": "cancel", "id", "reason"?}. ``success`` (a predicate, e.g. a curriculum milestone) is the job's done
+    test, set by whoever added it; the Director plans the route."""
     op = rec.get("op")
     if op == "add":
-        return ops.add_task(str(rec.get("text") or ""), by="cli", when=str(rec.get("when") or "later"),
-                            kind=str(rec.get("kind") or "specific"))
+        try:
+            success = P.validate(rec["success"]) if rec.get("success") is not None else None
+        except ValueError as exc:
+            raise BoardError(f"bad success test: {exc}") from exc
+        t = ops.add_task(str(rec.get("text") or ""), by=str(rec.get("by") or "cli"),
+                         when=str(rec.get("when") or "later"), kind=str(rec.get("kind") or "specific"),
+                         because=rec.get("because"))
+        if success is not None:
+            ops.set_success(t, success, by=t.by)
+        return t
     if op == "cancel":
         return ops.cancel(str(rec.get("id") or "") or None, str(rec.get("reason") or "cancelled from the CLI"))
     raise BoardError(f"unknown inbox op {op!r}")

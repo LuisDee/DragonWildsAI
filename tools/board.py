@@ -4,6 +4,7 @@ r"""The task board from the command line (docs/design/director.md section 2.1; m
     .venv\Scripts\python.exe -m tools.board list [--world W] [--json]
     .venv\Scripts\python.exe -m tools.board cancel <task id> [--reason "..."] [--world W]
     .venv\Scripts\python.exe -m tools.board gaps [--json]
+    .venv\Scripts\python.exe -m tools.board curriculum data/curricula/<id>.json [--only a,b] [--world W]
 
 The running brain is the only writer of goals.json: add/cancel append a line to the world's board_inbox.jsonl,
 which the brain ingests on its next tick (exactly once). list and gaps only read. The world is --world, else
@@ -64,6 +65,16 @@ def cmd_gaps(as_json: bool) -> int:
     return 0
 
 
+def curriculum_records(path: Path, only: list[str] | None = None) -> list[dict]:
+    """A curriculum file (data/curricula/*.json: milestones {id, text, success, source}) -> inbox add records,
+    in order: each milestone becomes a job whose done test is the milestone's; the Director plans the route."""
+    doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    cid = doc.get("id") or Path(path).stem
+    return [{"op": "add", "text": m["text"], "when": "later", "kind": "specific", "success": m["success"],
+             "by": f"curriculum:{cid}", "because": f"{doc.get('goal') or cid}: milestone {m['id']}"}
+            for m in doc.get("milestones") or [] if not only or m["id"] in only]
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="tools.board", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -81,6 +92,10 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--world")
     g = sub.add_parser("gaps")
     g.add_argument("--json", action="store_true")
+    cu = sub.add_parser("curriculum", help="queue a curriculum's milestones as jobs with their done tests")
+    cu.add_argument("file")
+    cu.add_argument("--only", default="", help="comma-separated milestone ids")
+    cu.add_argument("--world")
     args = ap.parse_args(argv)
     if args.cmd == "gaps":
         return cmd_gaps(args.json)
@@ -88,6 +103,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "list":
         return cmd_list(d, args.json)
     d.mkdir(parents=True, exist_ok=True)
+    if args.cmd == "curriculum":
+        n = 0
+        for rec in curriculum_records(Path(args.file), [x for x in args.only.split(",") if x]):
+            append_inbox(d, rec)
+            n += 1
+        print(f"queued {n} milestone job(s) for the brain ({d / INBOX_NAME})")
+        return 0
     if args.cmd == "add":
         append_inbox(d, {"op": "add", "text": args.text, "when": "next" if args.first else "later",
                          "kind": "open" if args.open else "specific"})
