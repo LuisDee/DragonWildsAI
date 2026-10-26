@@ -42,6 +42,7 @@ import jsonschema
 
 from . import item_stats
 from . import needs
+from . import places
 from . import predicates as P
 from .board import ENDED, PLAN_FIELDS, WINDOW_NAME, BoardError, BoardOps, BoardStore, HourlyWindow, Loop, Step, Task, \
     apply_inbox_record

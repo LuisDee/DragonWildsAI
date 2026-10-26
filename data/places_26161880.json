@@ -1,0 +1,5531 @@
+{
+ "schema": "dw_places/1",
+ "build": "26161880",
+ "map": "L_World",
+ "generated_at": "2026-10-26T19:42:04Z",
+ "source": {
+  "kind": "legacy_server_probe",
+  "files": [
+   "logs/regions.json",
+   "logs/landmarks.json"
+  ],
+  "read": "2026-10-25 dev server, mod/experiments/travel_probe.lua (bounding boxes only)"
+ },
+ "note": "Game data read by reflection. Positions are metres [x, y, z]. A region without a polygon has only its bounding box (approximate). Landmark names come from the game's map registry (UserVisibleDescription); an NPC can have several spots (it moves with quest stages).",
+ "regions": [
+  {
+   "name": "Temple Woods",
+   "region_id": 1,
+   "power": 1,
+   "polygon": null,
+   "bbox": [
+    -61.41,
+    1567.49,
+    467.65,
+    2062.35
+   ]
+  },
+  {
+   "name": "Bramblemead Valley",
+   "region_id": 2,
+   "power": 2,
+   "polygon": null,
+   "bbox": [
+    80.54,
+    1212.0,
+    1131.97,
+    1974.06
+   ]
+  },
+  {
+   "name": "Whispering Swamp",
+   "region_id": 3,
+   "power": 2,
+   "polygon": null,
+   "bbox": [
+    295.84,
+    1236.83,
+    1075.28,
+    1546.05
+   ]
+  },
+  {
+   "name": "Fractured Plains",
+   "region_id": 4,
+   "power": 3,
+   "polygon": null,
+   "bbox": [
+    282.88,
+    483.99,
+    1594.54,
+    1482.66
+   ]
+  },
+  {
+   "name": "Stormtouched Highlands",
+   "region_id": 5,
+   "power": 4,
+   "polygon": null,
+   "bbox": [
+    -9.09,
+    582.2,
+    635.15,
+    1212.0
+   ]
+  },
+  {
+   "name": "Bloodblight Swamp",
+   "region_id": 6,
+   "power": 3,
+   "polygon": null,
+   "bbox": [
+    1064.04,
+    1286.31,
+    1389.72,
+    1800.77
+   ]
+  },
+  {
+   "name": "Bleakfields Valley",
+   "region_id": 7,
+   "power": 5,
+   "polygon": null,
+   "bbox": [
+    948.59,
+    -575.65,
+    1636.6,
+    198.97
+   ]
+  },
+  {
+   "name": "Hope's Fall",
+   "region_id": 8,
+   "power": 5,
+   "polygon": null,
+   "bbox": [
+    1150.11,
+    -867.05,
+    1525.03,
+    -365.58
+   ]
+  },
+  {
+   "name": "Lake of Lost Souls",
+   "region_id": 9,
+   "power": 5,
+   "polygon": null,
+   "bbox": [
+    1441.98,
+    -887.25,
+    1997.33,
+    -119.04
+   ]
+  },
+  {
+   "name": "Coalridge Pass",
+   "region_id": 10,
+   "power": 5,
+   "polygon": null,
+   "bbox": [
+    1829.1,
+    -885.96,
+    2359.06,
+    -442.28
+   ]
+  },
+  {
+   "name": "Silverthorn Keep",
+   "region_id": 11,
+   "power": 5,
+   "polygon": null,
+   "bbox": [
+    1900.57,
+    -516.38,
+    2493.4,
+    33.99
+   ]
+  },
+  {
+   "name": "Dragons' Run",
+   "region_id": 12,
+   "power": 5,
+   "polygon": null,
+   "bbox": [
+    714.13,
+    -740.1,
+    1150.13,
+    -352.7
+   ]
+  },
+  {
+   "name": "Witchwillow Range",
+   "region_id": 13,
+   "power": 5,
+   "polygon": null,
+   "bbox": [
+    574.65,
+    -487.2,
+    992.53,
+    1.92
+   ]
+  },
+  {
+   "name": "Emberwood",
+   "region_id": 14,
+   "power": 5,
+   "polygon": null,
+   "bbox": [
+    207.93,
+    -770.12,
+    770.08,
+    -303.04
+   ]
+  },
+  {
+   "name": "Forgotten Temple",
+   "region_id": 15,
+   "power": -1,
+   "polygon": null,
+   "bbox": [
+    1190.46,
+    210.07,
+    1492.78,
+    500.52
+   ]
+  },
+  {
+   "name": "The Approach",
+   "region_id": 16,
+   "power": 6,
+   "polygon": null,
+   "bbox": [
+    1893.79,
+    -10.99,
+    2378.81,
+    320.78
+   ]
+  },
+  {
+   "name": "The Library",
+   "region_id": 17,
+   "power": 6,
+   "polygon": null,
+   "bbox": [
+    1802.26,
+    220.91,
+    2134.78,
+    552.07
+   ]
+  },
+  {
+   "name": "The Courtyard",
+   "region_id": 18,
+   "power": 6,
+   "polygon": null,
+   "bbox": [
+    2078.06,
+    261.84,
+    2315.1,
+    493.4
+   ]
+  },
+  {
+   "name": "The Menagerie",
+   "region_id": 19,
+   "power": 6,
+   "polygon": null,
+   "bbox": [
+    1741.83,
+    376.77,
+    2120.79,
+    793.88
+   ]
+  },
+  {
+   "name": "The Garrison",
+   "region_id": 20,
+   "power": 6,
+   "polygon": null,
+   "bbox": [
+    2258.95,
+    -5.43,
+    2506.26,
+    422.16
+   ]
+  },
+  {
+   "name": "The Nexus",
+   "region_id": 21,
+   "power": 6,
+   "polygon": null,
+   "bbox": [
+    2232.96,
+    506.2,
+    2362.86,
+    603.15
+   ]
+  },
+  {
+   "name": "The Pastures",
+   "region_id": 22,
+   "power": 6,
+   "polygon": null,
+   "bbox": [
+    2409.87,
+    29.45,
+    2705.29,
+    493.97
+   ]
+  },
+  {
+   "name": "The Cathedral",
+   "region_id": 23,
+   "power": 6,
+   "polygon": null,
+   "bbox": [
+    2018.98,
+    435.93,
+    2275.16,
+    728.39
+   ]
+  },
+  {
+   "name": "The Bastion",
+   "region_id": 24,
+   "power": 6,
+   "polygon": null,
+   "bbox": [
+    2233.31,
+    577.92,
+    2456.55,
+    860.69
+   ]
+  },
+  {
+   "name": "The Grand Hall",
+   "region_id": 25,
+   "power": 6,
+   "polygon": null,
+   "bbox": [
+    2269.35,
+    384.73,
+    2638.82,
+    653.68
+   ]
+  },
+  {
+   "name": "Alcarrid Oasis",
+   "region_id": 26,
+   "power": 7,
+   "polygon": null,
+   "bbox": [
+    1842.06,
+    619.37,
+    3230.05,
+    1856.84
+   ]
+  },
+  {
+   "name": "Dunes of Uzzer",
+   "region_id": 27,
+   "power": 7,
+   "polygon": null,
+   "bbox": [
+    2730.65,
+    132.98,
+    4075.78,
+    2185.17
+   ]
+  },
+  {
+   "name": "Manafem Plains",
+   "region_id": 28,
+   "power": 7,
+   "polygon": null,
+   "bbox": [
+    1778.8,
+    1539.87,
+    3053.52,
+    2748.5
+   ]
+  },
+  {
+   "name": "The Burning Spire",
+   "region_id": 29,
+   "power": 7,
+   "polygon": null,
+   "bbox": [
+    2748.64,
+    1757.17,
+    3680.24,
+    2761.87
+   ]
+  },
+  {
+   "name": "Rasthin's Rest",
+   "region_id": 30,
+   "power": 8,
+   "polygon": null,
+   "bbox": [
+    -7400.45,
+    7358.01,
+    -6695.83,
+    7885.42
+   ]
+  },
+  {
+   "name": "Scorned Wilderness",
+   "region_id": 31,
+   "power": 8,
+   "polygon": null,
+   "bbox": [
+    -8407.82,
+    6162.94,
+    -6737.7,
+    7855.5
+   ]
+  }
+ ],
+ "landmarks": [
+  {
+   "name": "Abraxus The Eternal",
+   "position": [
+    2005.19,
+    -745.97,
+    -103.4
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Abraxus The Eternal",
+   "position": [
+    2027.08,
+    505.22,
+    3.5
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Advert-Inna-Bottle",
+   "position": [
+    438.07,
+    1209.15,
+    22.62
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Aetheric Fundamentals, a Primordial Primer",
+   "position": [
+    2238.35,
+    -499.0,
+    72.52
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Charge Vent",
+   "position": [
+    -7791.0,
+    7078.0,
+    185.0
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    -4639.5,
+    -1330.5,
+    -416.5
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    -4601.5,
+    603.0,
+    -319.5
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    -4517.5,
+    -1289.5,
+    -443.0
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    177.91,
+    1728.47,
+    -3.25
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    180.68,
+    1070.28,
+    87.38
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    191.14,
+    1834.27,
+    -31.03
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    306.58,
+    1956.44,
+    -0.08
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    511.42,
+    -508.82,
+    -70.89
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    726.63,
+    952.5,
+    1.0
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    840.79,
+    1019.23,
+    1.73
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    878.32,
+    873.08,
+    2.31
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    1199.09,
+    873.13,
+    14.96
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    1392.03,
+    -315.29,
+    -73.06
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    1461.0,
+    842.94,
+    15.29
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    1739.92,
+    -320.32,
+    -105.05
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    1942.43,
+    2125.79,
+    20.93
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    1949.75,
+    658.33,
+    47.02
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    2049.59,
+    2288.62,
+    19.78
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    2059.57,
+    1657.19,
+    17.81
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    2109.27,
+    338.06,
+    -45.92
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    2110.05,
+    -693.71,
+    -105.02
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    2149.19,
+    1355.83,
+    9.92
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    2167.61,
+    118.25,
+    -69.38
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    2258.71,
+    2463.52,
+    8.75
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    2288.82,
+    -466.35,
+    -54.13
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    2354.02,
+    2483.19,
+    9.98
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    2399.97,
+    1793.42,
+    14.05
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    2589.7,
+    2486.12,
+    -32.53
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    2828.44,
+    2420.79,
+    -3.71
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    2841.35,
+    2443.8,
+    0.38
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    2848.77,
+    1977.81,
+    -22.3
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    2855.07,
+    2448.53,
+    17.35
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    2886.8,
+    2219.42,
+    -24.93
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    2887.59,
+    2309.31,
+    -18.74
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    2980.52,
+    1988.71,
+    -28.24
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    3025.68,
+    1796.39,
+    -23.18
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    3130.58,
+    2064.22,
+    -27.29
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    3141.61,
+    1263.95,
+    20.73
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    3403.36,
+    1989.68,
+    -20.54
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    3532.48,
+    1588.09,
+    -26.95
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Air Anima Vent",
+   "position": [
+    3728.73,
+    1378.47,
+    21.87
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Alabrais - Science Councillor",
+   "position": [
+    3219.49,
+    1878.66,
+    9.86
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Alric's Notes",
+   "position": [
+    2038.59,
+    386.41,
+    -24.37
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Ancamairon - Alcarrid Elder",
+   "position": [
+    2459.01,
+    1220.72,
+    35.35
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Ancamairon - Alcarrid Elder",
+   "position": [
+    2524.49,
+    1121.44,
+    31.83
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Ancient Garou Stone Slab",
+   "position": [
+    -4652.78,
+    523.05,
+    -306.5
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Ancient Garou Stone Slab",
+   "position": [
+    -4537.0,
+    539.0,
+    -316.5
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Ancient Garou Stone Slab",
+   "position": [
+    -4536.94,
+    680.63,
+    -310.43
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Ancient Garou Stone Slab",
+   "position": [
+    3241.73,
+    645.0,
+    46.13
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Ancient Garou Stone Slab",
+   "position": [
+    3389.97,
+    461.51,
+    27.5
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Ancient Garou Stone Slab",
+   "position": [
+    3592.2,
+    939.99,
+    32.18
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Ancient Garou Stone Slab",
+   "position": [
+    3641.06,
+    605.46,
+    31.16
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Ancient Garou Stone Slab",
+   "position": [
+    3711.3,
+    401.34,
+    33.02
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Aneirin - Manafem Citizen",
+   "position": [
+    2121.0,
+    1824.3,
+    -13.8
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    -4808.69,
+    -4695.84,
+    -412.81
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    -3302.97,
+    -4655.67,
+    -368.5
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    -1698.25,
+    1886.24,
+    -419.11
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    -1672.56,
+    -511.07,
+    -438.59
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    -1664.79,
+    1009.21,
+    -423.11
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    -1627.07,
+    203.4,
+    -441.31
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    -956.55,
+    -536.72,
+    -433.11
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    -929.32,
+    438.89,
+    -425.98
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    -917.31,
+    1880.54,
+    -413.09
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    -839.44,
+    1820.19,
+    -423.09
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    277.44,
+    1814.37,
+    -42.13
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    366.59,
+    1586.1,
+    -13.92
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    372.6,
+    1074.68,
+    57.18
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    382.42,
+    -469.45,
+    -69.45
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    436.64,
+    1291.0,
+    -12.32
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    499.54,
+    931.95,
+    35.6
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    567.89,
+    1887.06,
+    -48.25
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    588.77,
+    877.1,
+    0.13
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    661.87,
+    966.78,
+    31.39
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    675.63,
+    1600.87,
+    -5.44
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    787.99,
+    803.93,
+    -16.94
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    796.55,
+    1118.95,
+    64.9
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    1019.75,
+    -392.5,
+    -68.36
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    1160.25,
+    1576.09,
+    -0.67
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    1369.1,
+    717.57,
+    10.0
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    1515.84,
+    -638.74,
+    -72.25
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    1729.31,
+    -429.37,
+    -123.94
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    1732.0,
+    -643.97,
+    -123.78
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    2091.45,
+    -153.17,
+    -86.55
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    3260.42,
+    1881.88,
+    6.52
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Astral Anima Vent",
+   "position": [
+    3584.5,
+    455.0,
+    28.5
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Avisk Crystal",
+   "position": [
+    3256.33,
+    512.38,
+    29.51
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Barrier",
+   "position": [
+    2266.35,
+    577.86,
+    -8.25
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Beartach - The Merchant",
+   "position": [
+    2096.12,
+    1853.65,
+    -17.62
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Bedraggled Spellbook",
+   "position": [
+    475.28,
+    -610.14,
+    -48.82
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Bilegut",
+   "position": [
+    798.05,
+    1568.93,
+    14.36
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Breeshey - Uzzer Citizen",
+   "position": [
+    3610.7,
+    1177.1,
+    16.8
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Brialka - Historian Councillor",
+   "position": [
+    3401.02,
+    745.59,
+    26.88
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Cadfael - Uzzer Citizen",
+   "position": [
+    3544.6,
+    1172.2,
+    16.8
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Candle",
+   "position": [
+    278.08,
+    -408.32,
+    -48.43
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Candle",
+   "position": [
+    351.99,
+    1968.23,
+    15.0
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Candle",
+   "position": [
+    407.87,
+    672.24,
+    61.36
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Candle",
+   "position": [
+    871.29,
+    1470.8,
+    -36.2
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Candle",
+   "position": [
+    1109.24,
+    1529.29,
+    -20.04
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Candle",
+   "position": [
+    1126.61,
+    1212.17,
+    2.58
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Caomhán - Alcarrid Citizen",
+   "position": [
+    2478.6,
+    1133.9,
+    26.4
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Caratacus the Elder",
+   "position": [
+    613.75,
+    896.1,
+    3.2
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Cathan",
+   "position": [
+    991.88,
+    1058.75,
+    -3.59
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Cathan",
+   "position": [
+    1394.14,
+    -188.3,
+    -60.76
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Cathan",
+   "position": [
+    2107.53,
+    -29.35,
+    -53.79
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Chasm Dash",
+   "position": [
+    300.68,
+    1550.52,
+    -7.38
+   ],
+   "category": 11,
+   "needs_discovery": false
+  },
+  {
+   "name": "Chicken",
+   "position": [
+    1249.41,
+    1568.35,
+    9.99
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Chicken",
+   "position": [
+    1251.77,
+    1572.02,
+    9.37
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Chirot - Broker Councillor",
+   "position": [
+    3422.03,
+    1543.26,
+    7.94
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Coclear Malificarum",
+   "position": [
+    2175.52,
+    -663.76,
+    -93.31
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Commander Zilyana",
+   "position": [
+    -7032.53,
+    7624.45,
+    129.18
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Cow",
+   "position": [
+    450.78,
+    1213.06,
+    21.14
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Croía - Manafem Citizen",
+   "position": [
+    2117.8,
+    1855.9,
+    -16.3
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Crumbling Well",
+   "position": [
+    412.8,
+    1696.7,
+    -40.7
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Crystallised Anima (Air)",
+   "position": [
+    -7428.75,
+    7502.28,
+    110.46
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Crystallised Anima (Air)",
+   "position": [
+    -7087.88,
+    7245.04,
+    145.67
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Crystallised Anima (Air)",
+   "position": [
+    -6953.34,
+    7117.1,
+    147.3
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Crystallised Anima (Air)",
+   "position": [
+    -1450.03,
+    6211.06,
+    961.29
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Crystallised Anima (Air)",
+   "position": [
+    -1345.85,
+    6360.71,
+    957.95
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Crystallised Anima (Earth)",
+   "position": [
+    -7425.06,
+    7456.37,
+    110.43
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Crystallised Anima (Earth)",
+   "position": [
+    -7111.75,
+    7296.14,
+    146.08
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Crystallised Anima (Earth)",
+   "position": [
+    -1454.2,
+    6255.1,
+    936.48
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Crystallised Anima (Fire)",
+   "position": [
+    -7427.39,
+    7476.63,
+    119.87
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Crystallised Anima (Water)",
+   "position": [
+    -7438.99,
+    7403.11,
+    110.93
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Crystallised Anima (Water)",
+   "position": [
+    -7216.29,
+    7311.92,
+    127.74
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Cthonian Contracts - Tying Evil Up In Knots",
+   "position": [
+    2033.77,
+    359.09,
+    -23.54
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Curse Seal",
+   "position": [
+    -3428.49,
+    -4577.77,
+    -357.01
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Curse Seal",
+   "position": [
+    535.62,
+    -605.43,
+    -55.82
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Curse Seal",
+   "position": [
+    2240.86,
+    -489.04,
+    73.6
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Darach - Alcarrid Citizen",
+   "position": [
+    2503.1,
+    1138.8,
+    28.5
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dead Garou Scout",
+   "position": [
+    2488.67,
+    2016.43,
+    0.14
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dead Garou Scout",
+   "position": [
+    2511.52,
+    2062.1,
+    3.83
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dead Garou Scout",
+   "position": [
+    2527.49,
+    1995.89,
+    7.31
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dead Zamorak Mage",
+   "position": [
+    2238.57,
+    350.55,
+    -171.94
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dearg Due",
+   "position": [
+    2098.68,
+    2306.43,
+    12.75
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dearg Due",
+   "position": [
+    2105.82,
+    2474.21,
+    11.44
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dearg Due",
+   "position": [
+    2239.84,
+    2484.16,
+    11.91
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dearg Due",
+   "position": [
+    2353.89,
+    2478.39,
+    1.82
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Death",
+   "position": [
+    1276.1,
+    354.7,
+    -27.32
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Doctor Fenkenstrain",
+   "position": [
+    1249.27,
+    1568.56,
+    10.14
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Doctor Fenkenstrain",
+   "position": [
+    1249.41,
+    1568.37,
+    10.02
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Doctor Fenkenstrain",
+   "position": [
+    1251.48,
+    1570.86,
+    9.64
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Domri - The Merchant",
+   "position": [
+    2482.7,
+    1124.45,
+    26.87
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Doric",
+   "position": [
+    109.08,
+    1846.32,
+    -31.31
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Doric",
+   "position": [
+    1422.19,
+    926.02,
+    38.85
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Doric",
+   "position": [
+    1940.41,
+    -423.47,
+    -125.26
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Doric",
+   "position": [
+    2280.62,
+    545.4,
+    -10.86
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dragonkin Altar",
+   "position": [
+    991.12,
+    4284.89,
+    1051.05
+   ],
+   "category": 1,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dreaming Stone",
+   "position": [
+    2284.9,
+    544.7,
+    -8.9
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dreaming Stone Shard",
+   "position": [
+    2009.24,
+    416.87,
+    -35.75
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dreaming Stone Shard",
+   "position": [
+    2010.45,
+    700.47,
+    48.14
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dreaming Stone Shard",
+   "position": [
+    2044.45,
+    689.39,
+    3.74
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dreaming Stone Shard",
+   "position": [
+    2112.95,
+    603.95,
+    -27.5
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dreaming Stone Shard",
+   "position": [
+    2252.5,
+    362.16,
+    -169.59
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dreaming Stone Shard",
+   "position": [
+    2310.67,
+    229.15,
+    -0.3
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dreaming Stone Shard",
+   "position": [
+    2371.03,
+    216.62,
+    -45.22
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dreaming Stone Shard",
+   "position": [
+    2514.17,
+    161.73,
+    18.02
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dreaming Stone Shard",
+   "position": [
+    2606.25,
+    371.7,
+    -2.45
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dust-covered Sketchbook",
+   "position": [
+    2050.81,
+    -800.8,
+    -98.3
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dòmhnall - Uzzer Citizen",
+   "position": [
+    3582.9,
+    1154.0,
+    17.1
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Dúshlánach - Manafem Elder",
+   "position": [
+    2112.49,
+    1811.02,
+    -10.99
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    161.4,
+    680.3,
+    153.75
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    174.94,
+    1447.7,
+    32.09
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    274.02,
+    877.82,
+    55.97
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    278.74,
+    739.49,
+    92.77
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    350.14,
+    1819.73,
+    -28.8
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    449.69,
+    1838.51,
+    -16.4
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    471.84,
+    1148.45,
+    22.59
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    511.27,
+    697.62,
+    54.17
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    538.89,
+    1256.55,
+    -10.78
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    571.72,
+    1560.55,
+    -1.29
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    643.89,
+    1870.07,
+    -35.76
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    724.7,
+    1310.13,
+    -12.08
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    745.12,
+    -562.43,
+    -71.89
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    841.57,
+    1497.72,
+    -33.07
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    886.72,
+    -191.99,
+    -62.34
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    987.46,
+    1323.55,
+    -20.27
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    1088.9,
+    -498.24,
+    -69.07
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    1131.07,
+    -289.72,
+    -70.9
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    1464.07,
+    1060.97,
+    25.06
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    1853.93,
+    633.95,
+    22.69
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    1926.4,
+    -543.89,
+    -106.14
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    1960.17,
+    -807.03,
+    -65.51
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    1975.53,
+    598.09,
+    -12.11
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    1992.03,
+    2090.16,
+    17.22
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    2056.77,
+    -525.16,
+    -49.87
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    2162.14,
+    2283.09,
+    11.72
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    2211.7,
+    1094.99,
+    33.05
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    2212.53,
+    2111.65,
+    19.64
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    2232.41,
+    -222.9,
+    -47.49
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    2243.24,
+    449.68,
+    -185.09
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    2504.37,
+    2075.22,
+    4.34
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    2515.19,
+    1994.69,
+    5.95
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    2520.3,
+    273.6,
+    -31.46
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    2598.67,
+    336.75,
+    -11.43
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    2656.45,
+    2413.23,
+    0.04
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    2713.29,
+    1958.44,
+    -9.02
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    3136.36,
+    302.2,
+    19.19
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    3424.58,
+    1393.58,
+    10.52
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Earth Anima Vent",
+   "position": [
+    3606.83,
+    942.95,
+    21.63
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Edna",
+   "position": [
+    863.04,
+    -618.4,
+    -66.55
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Efina - The Lost",
+   "position": [
+    2350.03,
+    2485.49,
+    -1.13
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Eventide - A New Spawn",
+   "position": [
+    2260.21,
+    -17.84,
+    -55.64
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Examination Table",
+   "position": [
+    1249.12,
+    1568.82,
+    9.1
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Eysteinn - Uzzer Citizen",
+   "position": [
+    3566.9,
+    1236.6,
+    17.0
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Feardorcha - Manafem Citizen",
+   "position": [
+    2126.6,
+    1846.1,
+    -17.4
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    -4805.89,
+    -4594.04,
+    -410.7
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    -4725.69,
+    -4635.98,
+    -425.35
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    -3314.7,
+    -4685.45,
+    -388.87
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    -1708.78,
+    298.48,
+    -427.11
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    -1705.85,
+    1080.91,
+    -437.11
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    -1702.88,
+    -605.25,
+    -435.11
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    -1691.77,
+    204.09,
+    -428.81
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    -1635.61,
+    -543.22,
+    -443.94
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    -1629.98,
+    1788.17,
+    -413.11
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    -967.49,
+    1817.2,
+    -415.74
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    -900.32,
+    -493.13,
+    -427.08
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    -884.63,
+    1782.3,
+    -419.32
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    -871.21,
+    501.66,
+    -424.11
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    -853.43,
+    1849.71,
+    -417.08
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    -849.23,
+    -479.83,
+    -436.39
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    252.47,
+    1538.47,
+    -8.44
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    400.14,
+    1927.7,
+    -3.02
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    547.72,
+    1685.14,
+    -38.85
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    971.99,
+    1094.31,
+    1.91
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    1258.88,
+    -650.21,
+    -68.83
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    1420.42,
+    -507.39,
+    -74.06
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    1429.03,
+    776.84,
+    42.52
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    1960.82,
+    -436.26,
+    -126.12
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    2190.03,
+    2067.61,
+    34.53
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    2299.38,
+    2324.1,
+    6.28
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    2425.5,
+    419.85,
+    -56.47
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    2713.02,
+    2149.14,
+    -3.64
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    2752.1,
+    1894.2,
+    7.71
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    2816.94,
+    1817.91,
+    -29.47
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    2887.75,
+    1903.88,
+    -32.02
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    2894.97,
+    2139.51,
+    -31.93
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    2966.24,
+    2103.49,
+    -32.24
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    2993.55,
+    2011.78,
+    -30.64
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    3003.87,
+    2014.25,
+    -30.64
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    3012.61,
+    2018.39,
+    -30.36
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    3044.25,
+    2192.39,
+    -28.59
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    3068.08,
+    2105.7,
+    -29.12
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    3078.42,
+    1864.47,
+    -31.45
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    3169.87,
+    2145.94,
+    -29.69
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    3296.53,
+    762.3,
+    27.93
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    3316.32,
+    2122.32,
+    -32.73
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    3331.65,
+    2174.8,
+    -33.04
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    3365.52,
+    2094.58,
+    -31.61
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    3592.73,
+    776.15,
+    25.43
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fire Anima Vent",
+   "position": [
+    3639.29,
+    1832.76,
+    16.39
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Fractured Ruins",
+   "position": [
+    800.35,
+    1334.97,
+    -12.58
+   ],
+   "category": 11,
+   "needs_discovery": true
+  },
+  {
+   "name": "Gaimbín - Uzzer Elder",
+   "position": [
+    3187.78,
+    2347.55,
+    -22.5
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Gaimbín - Uzzer Elder",
+   "position": [
+    3566.52,
+    1184.86,
+    21.38
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Garbhán - Alcarrad Citizen",
+   "position": [
+    2533.8,
+    1161.4,
+    30.4
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Ghost",
+   "position": [
+    532.14,
+    -639.47,
+    -53.22
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Ghost",
+   "position": [
+    1304.1,
+    -744.23,
+    -60.88
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Ghost",
+   "position": [
+    1846.42,
+    -718.26,
+    -116.69
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Glamorak - How a God's Fashion Can Incite Rebellion",
+   "position": [
+    2000.53,
+    394.38,
+    -23.41
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Goblin Stove",
+   "position": [
+    432.87,
+    1210.24,
+    22.75
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Grave Run",
+   "position": [
+    1110.02,
+    -535.62,
+    -60.16
+   ],
+   "category": 11,
+   "needs_discovery": true
+  },
+  {
+   "name": "Hedric - The Hunter",
+   "position": [
+    2114.74,
+    1835.56,
+    -15.88
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Iarlaith - Alcarrid Citizen",
+   "position": [
+    2589.5,
+    1116.2,
+    24.0
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Iasadair - The Merchant",
+   "position": [
+    3538.77,
+    1219.19,
+    17.34
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Icthlarin",
+   "position": [
+    2520.57,
+    1120.86,
+    31.9
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Immaculata - Manafem Citizen",
+   "position": [
+    2109.3,
+    1826.7,
+    -16.0
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Jewellery Box",
+   "position": [
+    150.24,
+    830.6,
+    121.66
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "KotHaar Bouncer",
+   "position": [
+    2765.51,
+    1871.98,
+    -23.2
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Lagra - The Butcher",
+   "position": [
+    2448.0,
+    1161.48,
+    32.49
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Laguna - The Bard",
+   "position": [
+    2094.53,
+    1818.56,
+    -18.32
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Laguna - The Bard",
+   "position": [
+    3566.66,
+    1158.9,
+    17.58
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Lava Fields",
+   "position": [
+    2790.07,
+    1939.23,
+    -32.82
+   ],
+   "category": 11,
+   "needs_discovery": true
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    -4763.91,
+    -4699.82,
+    -420.67
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    -4748.16,
+    -4589.08,
+    -426.45
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    -3311.92,
+    -4714.33,
+    -359.25
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    -1724.98,
+    986.06,
+    -433.11
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    -1710.5,
+    1788.18,
+    -412.95
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    -1658.14,
+    233.54,
+    -431.11
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    -1621.63,
+    1902.67,
+    -417.11
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    -1602.91,
+    -469.55,
+    -429.11
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    -919.04,
+    1773.63,
+    -419.11
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    -877.52,
+    -503.37,
+    -434.7
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    -858.06,
+    386.16,
+    -434.87
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    -835.27,
+    1795.0,
+    -423.1
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    12.56,
+    1871.85,
+    -31.23
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    249.27,
+    1477.52,
+    29.29
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    555.36,
+    -403.76,
+    -67.3
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    584.38,
+    1067.08,
+    16.84
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    632.64,
+    -708.19,
+    -49.35
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    795.42,
+    1763.8,
+    2.82
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Law Anima Vent",
+   "position": [
+    1264.1,
+    798.14,
+    23.14
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Lehran - The Archaeologist",
+   "position": [
+    3588.45,
+    1195.21,
+    21.38
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Leonard The Bound",
+   "position": [
+    1879.96,
+    -228.82,
+    -91.25
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Library Door",
+   "position": [
+    2035.68,
+    387.62,
+    -24.9
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Lougrim's Shrine",
+   "position": [
+    429.19,
+    777.52,
+    80.71
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Maitiú - Alcarrid Citizen",
+   "position": [
+    2555.2,
+    1157.0,
+    29.2
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Manathep - The Bereaved",
+   "position": [
+    2126.9,
+    1830.59,
+    -15.1
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Manktongue",
+   "position": [
+    436.73,
+    1208.99,
+    22.43
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Mannix - Manafem Citizen",
+   "position": [
+    2101.4,
+    1813.9,
+    -17.2
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Mirror",
+   "position": [
+    278.5,
+    -409.78,
+    -49.71
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Mirror",
+   "position": [
+    2519.52,
+    1129.81,
+    31.91
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Mirror",
+   "position": [
+    2521.65,
+    1126.17,
+    31.93
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Mirror",
+   "position": [
+    2525.86,
+    1126.15,
+    31.85
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Missing Letter",
+   "position": [
+    1496.08,
+    -155.4,
+    -71.69
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Moon Sprite Shaman - Anamcara",
+   "position": [
+    2587.08,
+    1099.17,
+    23.87
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Moon Sprites",
+   "position": [
+    2151.51,
+    1387.98,
+    46.08
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Moon Sprites",
+   "position": [
+    2512.48,
+    2069.12,
+    21.09
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Moon Sprites",
+   "position": [
+    2586.34,
+    1096.84,
+    24.37
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Moon Sprites",
+   "position": [
+    2701.97,
+    1095.63,
+    33.54
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Moon Sprites",
+   "position": [
+    2967.28,
+    1602.79,
+    29.07
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Moon Sprites",
+   "position": [
+    2978.89,
+    1856.11,
+    -20.43
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Moon Sprites",
+   "position": [
+    3032.89,
+    647.51,
+    29.31
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Moon Sprites",
+   "position": [
+    3035.39,
+    1792.81,
+    -14.07
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Moon Sprites",
+   "position": [
+    3192.88,
+    1903.91,
+    44.39
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Moon Sprites",
+   "position": [
+    3220.0,
+    2090.48,
+    -22.92
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Moon Sprites",
+   "position": [
+    3668.89,
+    804.35,
+    41.6
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Moon Sprites",
+   "position": [
+    3727.31,
+    1856.18,
+    53.14
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Moonstone",
+   "position": [
+    2033.12,
+    1529.92,
+    -2.17
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Moonstone",
+   "position": [
+    2180.02,
+    1320.48,
+    23.13
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Moonstone",
+   "position": [
+    2181.98,
+    1111.41,
+    10.63
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    -4784.78,
+    -4680.46,
+    -427.76
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    -4739.75,
+    -4654.82,
+    -414.35
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    -3264.88,
+    -4746.43,
+    -369.07
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    -1769.08,
+    1812.61,
+    -413.05
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    -1680.08,
+    221.99,
+    -436.27
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    -1672.33,
+    -570.06,
+    -444.36
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    -1669.75,
+    1761.34,
+    -417.84
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    -1665.71,
+    1063.65,
+    -429.11
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    -1656.35,
+    -472.88,
+    -445.4
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    -1033.4,
+    355.31,
+    -418.44
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    -947.24,
+    345.23,
+    -428.54
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    -924.59,
+    -581.93,
+    -433.88
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    -920.5,
+    1880.81,
+    -425.74
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    402.34,
+    1695.24,
+    -42.35
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    534.48,
+    1441.21,
+    -12.1
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    619.03,
+    1281.5,
+    27.85
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    662.14,
+    1875.97,
+    1.62
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    691.69,
+    -410.73,
+    -66.74
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    803.42,
+    -303.03,
+    -68.1
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    914.96,
+    1335.34,
+    -9.28
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    949.5,
+    1623.21,
+    -15.91
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    1052.83,
+    889.18,
+    6.4
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    1179.03,
+    684.11,
+    10.4
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    1224.61,
+    -209.38,
+    -71.33
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    1311.0,
+    1250.43,
+    -1.24
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    1318.97,
+    1432.62,
+    -18.34
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    1338.53,
+    -12.5,
+    -56.72
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    1429.85,
+    -724.66,
+    -89.45
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    1936.56,
+    412.14,
+    -35.03
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Nature Anima Vent",
+   "position": [
+    2090.1,
+    470.0,
+    -37.24
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "OffalFoot",
+   "position": [
+    2200.27,
+    399.45,
+    -112.5
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Parcel Pete",
+   "position": [
+    1327.7,
+    246.7,
+    -47.17
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Pedestal",
+   "position": [
+    2883.2,
+    1864.6,
+    -13.96
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Pedestal",
+   "position": [
+    2996.4,
+    1793.3,
+    -17.59
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Pedestal",
+   "position": [
+    3001.61,
+    1979.99,
+    -30.4
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Pedestal",
+   "position": [
+    3074.7,
+    1889.7,
+    -11.99
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Postbox",
+   "position": [
+    1159.93,
+    -371.54,
+    -73.17
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Postbox",
+   "position": [
+    1337.36,
+    -593.25,
+    -68.54
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Postbox",
+   "position": [
+    1386.41,
+    -155.08,
+    -69.18
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Postie Pete",
+   "position": [
+    1328.12,
+    247.71,
+    -47.16
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Postie Pete",
+   "position": [
+    2240.19,
+    330.9,
+    -53.76
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Pulpknuckle",
+   "position": [
+    431.42,
+    1202.26,
+    25.52
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Putrilius",
+   "position": [
+    2455.42,
+    500.07,
+    35.73
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Reliquary",
+   "position": [
+    806.05,
+    1747.44,
+    2.09
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Reliquary",
+   "position": [
+    810.7,
+    1543.87,
+    17.5
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Rememberance Shrine",
+   "position": [
+    24.77,
+    1879.78,
+    -30.4
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Restless Spirit",
+   "position": [
+    191.01,
+    1735.49,
+    -11.35
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Restless Spirit",
+   "position": [
+    376.94,
+    1745.8,
+    -41.41
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Restless Spirit",
+   "position": [
+    540.59,
+    1465.97,
+    -10.95
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Restless Spirit",
+   "position": [
+    640.43,
+    1866.78,
+    -34.48
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    -7785.08,
+    7037.92,
+    201.0
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    -7435.61,
+    7220.41,
+    89.9
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    -7179.31,
+    7083.55,
+    112.68
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    135.99,
+    734.49,
+    153.05
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    320.25,
+    -469.94,
+    -64.41
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    415.9,
+    1317.0,
+    -10.31
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    512.32,
+    1536.31,
+    6.21
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    521.24,
+    1722.25,
+    -38.56
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    743.99,
+    1423.55,
+    -15.65
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    761.51,
+    1503.86,
+    -31.93
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    826.54,
+    1731.85,
+    3.1
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    1247.99,
+    1579.55,
+    8.5
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    1248.03,
+    1041.32,
+    4.95
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    1510.32,
+    -627.53,
+    -72.4
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    1851.63,
+    -158.81,
+    -89.15
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    1944.84,
+    637.27,
+    48.15
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    2354.67,
+    439.87,
+    4.62
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    2412.11,
+    109.09,
+    -26.37
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    2884.88,
+    1984.41,
+    -22.17
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    2952.48,
+    1648.36,
+    27.04
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Sanguine Urn",
+   "position": [
+    3366.37,
+    1310.81,
+    49.44
+   ],
+   "category": 6,
+   "needs_discovery": false
+  },
+  {
+   "name": "Saradomin Statue",
+   "position": [
+    365.38,
+    1258.71,
+    2.52
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Saradomin Statue",
+   "position": [
+    474.96,
+    1873.45,
+    -1.17
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Saradomin Statue",
+   "position": [
+    570.21,
+    746.7,
+    51.38
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Saradomin Statue",
+   "position": [
+    1104.47,
+    1034.73,
+    -4.45
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Scarecrow",
+   "position": [
+    553.41,
+    975.69,
+    10.26
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Scrawled Notes",
+   "position": [
+    2135.48,
+    510.11,
+    -13.36
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Scrawled Notes",
+   "position": [
+    2312.82,
+    220.27,
+    -30.34
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Shady Ghost",
+   "position": [
+    524.51,
+    -428.17,
+    -69.51
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Shangruuh - Alcarrid Envoy",
+   "position": [
+    2389.61,
+    844.49,
+    58.74
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Shangruuh - Alcarrid Envoy",
+   "position": [
+    3573.15,
+    1209.06,
+    21.28
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Shaun",
+   "position": [
+    1206.76,
+    -240.05,
+    -70.74
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Simon",
+   "position": [
+    1242.5,
+    -211.15,
+    -71.4
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Slopfinger",
+   "position": [
+    430.67,
+    1208.49,
+    22.43
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Snickering Ghost",
+   "position": [
+    528.16,
+    -427.28,
+    -69.51
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Spitfoot",
+   "position": [
+    -1653.45,
+    218.17,
+    -426.51
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Spittletoe",
+   "position": [
+    2506.72,
+    514.86,
+    -7.83
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Standing Stone",
+   "position": [
+    1378.44,
+    -196.79,
+    -60.49
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Standing Stone",
+   "position": [
+    1393.44,
+    -199.45,
+    -60.62
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Standing Stone",
+   "position": [
+    1404.27,
+    -190.52,
+    -59.98
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    -4791.27,
+    -4632.89,
+    -406.02
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    -1697.29,
+    302.25,
+    -427.45
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    -1663.51,
+    1794.71,
+    -408.16
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    -1027.65,
+    377.6,
+    -413.95
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    189.19,
+    1491.01,
+    45.79
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    192.35,
+    1470.57,
+    34.56
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    199.32,
+    1453.2,
+    45.79
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    237.17,
+    1463.24,
+    45.79
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    807.63,
+    1135.18,
+    66.39
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    930.23,
+    1132.94,
+    10.5
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    1113.94,
+    1132.79,
+    3.02
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    1236.74,
+    1165.68,
+    7.81
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    1277.71,
+    801.12,
+    25.22
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    1301.53,
+    999.72,
+    34.12
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    1314.05,
+    784.38,
+    29.51
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    1319.59,
+    838.49,
+    31.8
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    1362.66,
+    839.47,
+    33.42
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    1403.73,
+    1242.38,
+    0.56
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    1445.5,
+    1098.48,
+    23.55
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    1828.3,
+    -374.24,
+    -115.04
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    1921.05,
+    -418.03,
+    -100.02
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    1925.8,
+    -474.13,
+    -113.59
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    1927.55,
+    -393.99,
+    -124.48
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Statue",
+   "position": [
+    3183.15,
+    2267.33,
+    -33.55
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Steve",
+   "position": [
+    1226.28,
+    -233.9,
+    -71.59
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Strange Machine",
+   "position": [
+    1246.42,
+    1568.68,
+    9.81
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Stuart",
+   "position": [
+    1241.88,
+    -234.75,
+    -72.94
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Suspicious Ghost",
+   "position": [
+    531.01,
+    -429.94,
+    -69.51
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Suspicious Skeleton",
+   "position": [
+    1353.93,
+    51.82,
+    -35.76
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Tadhg - Uzzer Citizen",
+   "position": [
+    3548.8,
+    1221.6,
+    17.7
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Taking the Crown - Zamorak's Ambitious Plan to Acquire All the Elder Artefacts",
+   "position": [
+    2015.96,
+    337.53,
+    -23.54
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Taliesin - Manafem Citizen",
+   "position": [
+    2106.3,
+    1857.1,
+    -17.77
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "The Binding of Ib",
+   "position": [
+    2358.08,
+    -190.36,
+    -46.75
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "The Empty Throne - Forgetting Worthless Gods.",
+   "position": [
+    2018.03,
+    399.9,
+    -24.85
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "The Eye of Occulus - In Search of Answers",
+   "position": [
+    2006.54,
+    350.89,
+    -24.2
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "The Importance of Chaos",
+   "position": [
+    2086.16,
+    -161.79,
+    -84.49
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "The Pride of the Avernic",
+   "position": [
+    2411.59,
+    -326.04,
+    48.33
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "The Wrath of Baba Potterington",
+   "position": [
+    2119.89,
+    -392.82,
+    -62.34
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Thunder Assault",
+   "position": [
+    252.52,
+    916.19,
+    84.5
+   ],
+   "category": 11,
+   "needs_discovery": true
+  },
+  {
+   "name": "Tower Climb",
+   "position": [
+    2030.59,
+    429.39,
+    -26.0
+   ],
+   "category": 11,
+   "needs_discovery": true
+  },
+  {
+   "name": "Treasa - Uzzer Citizen",
+   "position": [
+    3561.2,
+    1200.7,
+    21.6
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Twilight Lily",
+   "position": [
+    2212.8,
+    424.3,
+    -112.15
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Undead Chicken",
+   "position": [
+    407.48,
+    826.45,
+    65.37
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Undead Tree",
+   "position": [
+    1286.94,
+    1489.91,
+    -21.22
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Undead Tree",
+   "position": [
+    1289.19,
+    1497.68,
+    -21.97
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Undead Tree",
+   "position": [
+    1294.93,
+    1490.86,
+    -21.71
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Unholy Water",
+   "position": [
+    2082.73,
+    606.91,
+    -28.35
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Valas - The Blacksmith",
+   "position": [
+    2519.4,
+    1165.47,
+    30.36
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Valerius",
+   "position": [
+    2030.35,
+    506.2,
+    3.38
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Vampyres - Blood Is Thicker Than Water",
+   "position": [
+    2002.64,
+    342.41,
+    -24.33
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Vannaka",
+   "position": [
+    151.83,
+    1788.53,
+    -26.34
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Vannaka",
+   "position": [
+    440.85,
+    927.94,
+    40.65
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Vannaka",
+   "position": [
+    1264.91,
+    -301.61,
+    -74.09
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Vannaka",
+   "position": [
+    2102.95,
+    342.22,
+    -44.93
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Vault Guardian",
+   "position": [
+    3259.02,
+    319.59,
+    18.24
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Vault Guardian",
+   "position": [
+    3297.67,
+    326.25,
+    6.15
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Vault Guardian Prime",
+   "position": [
+    3342.68,
+    408.59,
+    11.34
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Vein of Consciousness",
+   "position": [
+    3352.75,
+    431.12,
+    13.31
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Vein of Consciousness",
+   "position": [
+    3354.8,
+    436.15,
+    13.29
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Vein of Consciousness",
+   "position": [
+    3358.71,
+    428.22,
+    13.25
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Vein of Consciousness",
+   "position": [
+    3361.13,
+    432.85,
+    13.3
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Voirrey - Alcarrid Citizen",
+   "position": [
+    2486.3,
+    1146.6,
+    28.3
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    -1737.47,
+    250.69,
+    -432.29
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    161.9,
+    1927.94,
+    -31.35
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    291.41,
+    -452.7,
+    -65.73
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    329.18,
+    1437.77,
+    -7.33
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    447.14,
+    1440.37,
+    -11.71
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    680.07,
+    1721.39,
+    -11.01
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    683.82,
+    1466.06,
+    -14.46
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    691.03,
+    1182.38,
+    38.17
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    815.08,
+    -128.45,
+    -48.97
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    825.7,
+    -599.2,
+    -71.1
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    941.04,
+    1207.03,
+    0.23
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    1038.11,
+    1488.78,
+    -37.02
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    1143.25,
+    1066.94,
+    -9.6
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    1347.3,
+    -185.99,
+    -72.91
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    2098.17,
+    1847.17,
+    -18.97
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    2264.46,
+    409.45,
+    -54.75
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    2274.73,
+    -215.93,
+    -49.72
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    2492.57,
+    398.8,
+    -34.55
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    2568.63,
+    1081.44,
+    22.5
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    3393.89,
+    326.83,
+    16.38
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    3481.25,
+    1218.34,
+    17.09
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Water Anima Vent",
+   "position": [
+    3710.78,
+    1782.15,
+    19.59
+   ],
+   "category": 5,
+   "needs_discovery": false
+  },
+  {
+   "name": "Wise Old Man",
+   "position": [
+    61.33,
+    1873.57,
+    -35.47
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Wise Old Man",
+   "position": [
+    485.0,
+    1776.05,
+    -34.4
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Wise Old Man",
+   "position": [
+    993.3,
+    1056.8,
+    -4.1
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Wise Old Man",
+   "position": [
+    1243.61,
+    593.62,
+    5.85
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Wise Old Man",
+   "position": [
+    2224.1,
+    329.4,
+    -54.4
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Wormelbow",
+   "position": [
+    790.38,
+    1722.24,
+    1.68
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Zamorak's Rebellion - Shattering the Chains of Infernus",
+   "position": [
+    2051.2,
+    384.65,
+    -22.02
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Zanik",
+   "position": [
+    266.88,
+    1823.95,
+    -41.26
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Zanik",
+   "position": [
+    744.32,
+    1575.59,
+    23.62
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Zanik",
+   "position": [
+    1533.82,
+    -212.51,
+    -73.2
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Zanik",
+   "position": [
+    2204.63,
+    275.94,
+    -74.24
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Zanik",
+   "position": [
+    3351.44,
+    435.97,
+    13.62
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Zanik",
+   "position": [
+    3380.37,
+    346.69,
+    17.29
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Zaros - Why He Should Be Forgotten",
+   "position": [
+    2051.94,
+    399.73,
+    -23.45
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Zi",
+   "position": [
+    3061.1,
+    1943.62,
+    -28.7
+   ],
+   "category": 3,
+   "needs_discovery": false
+  },
+  {
+   "name": "Zi's Core",
+   "position": [
+    2723.91,
+    1891.12,
+    -34.0
+   ],
+   "category": 3,
+   "needs_discovery": false
+  }
+ ]
+}

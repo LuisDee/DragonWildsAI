@@ -1,0 +1,21 @@
+{
+ "id": "places_dump",
+ "owner": "places (A5)",
+ "area": "client_mod/scripts/places.lua + client_mod/commands/places_dump.lua: read the map regions' boundary polygons and the registry landmarks on the CLIENT, and check our point-in-polygon against the game's own CurrentMapRegion",
+ "why": "BUGS A5: data/places_26161880.json has region bounding boxes only (server probe 2026-10-25), and boxes overlap. The dump gives the polygons for tools/build_places.py (then re-run it) and proves the client sees the same regions and landmarks. Read-only: property reads and spline getters, nothing pressed or sent.",
+ "preconditions": {},
+ "steps": [
+  {"probe": true, "save": "start"},
+  {"client_cmd": "client_mod/commands/places_dump.lua", "timeout_s": 60, "save": "dump"}
+ ],
+ "pass": [
+  {"ref": "dump.result.ok", "eq": true, "why": "the dump was written to logs/places_raw_latest.json"},
+  {"ref": "dump.result.regions", "gte": 25, "why": "the client loads the persistent level's BP_MapRegion_C actors (31 on the server)"},
+  {"ref": "dump.result.regions_with_polygon", "gte": 25, "why": "BoundarySpline points read in world space"},
+  {"ref": "dump.result.landmarks_named", "gte": 100, "why": "the registry's Landmarks replicate to the client (558 on the server)"},
+  {"ref": "dump.result.agrees", "eq": true, "why": "the smallest polygon holding his position is the region the game says he is in"}
+ ],
+ "observe": ["dump.result.game_region", "dump.result.computed_region", "dump.result.position", "dump.result.regions", "dump.result.landmarks", "dump.result.written"],
+ "timeout_s": 120,
+ "max_retries": 1
+}

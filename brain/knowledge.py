@@ -370,6 +370,18 @@ def unlock_facts(rec: dict, limit: int = 3) -> list[str]:
     return out
 
 
+_FACT = re.compile(r"(?:^|[;:/]\s*)[a-z][a-z _]{0,24}\d*\s*=\s*\S|^[a-z][a-z _]{0,24}\d*:\s+\S", re.M)
+_CITE = re.compile(r"Cite\w*:[^\n]*")
+FACTS_CAP = 8  # beyond this many, a section is "an infobox" and BM25 decides
+
+
+def fact_count(text: str) -> int:
+    """Structured facts in a section: template parameters the mirror renders as ``key=value`` (``Quest details:
+    desc=...; req=...``, ``DropsLine: name=...``) or ``key: value`` lines (infobox fields). Generic: no keys named.
+    Citations (``CiteDiscord: author=...``) are sources, not facts about the thing."""
+    return len(_FACT.findall(_CITE.sub("", text or "")))
+
+
 # ------------------------------------------------------------------------------ the index
 
 
@@ -536,10 +548,17 @@ class Knowledge:
 
     def _rerank(self, rows: list[dict], query_terms: set[str]) -> list[dict]:
         """The thing NAMED first (title/alias coverage of the query), a page's lead section before its
-        other sections, then BM25."""
+        other sections; among a page's other sections, one whose heading the query names (beyond the title),
+        then the one with the most structured facts (its infobox: requirements, start, stats, drops, recipe;
+        BUGS A4: a quest's Overview `req=` lost to a two-line "Rewards" on BM25 length alone), then BM25."""
         for r in rows:
             r["cov"], r["score"] = self._coverage(r, query_terms)
-        return sorted(rows, key=lambda r: (-round(r["score"], 3), 0 if not r["heading"] else 1, r["bm25"]))
+        title_terms = {r["title"]: _terms(r["title"]) for r in rows}
+
+        def heading_hit(r: dict) -> int:
+            return len((_terms(r["heading"]) & query_terms) - title_terms[r["title"]]) if r["heading"] else 0
+        return sorted(rows, key=lambda r: (-round(r["score"], 3), 0 if not r["heading"] else 1, -heading_hit(r),
+                                           -min(fact_count(r["body"]), FACTS_CAP), r["bm25"]))
 
     def lookup(self, query: str, kind: str | None = None, k_game: int = GAME_K, k_wiki: int = WIKI_K) -> dict:
         terms = [w for w in dict.fromkeys(words(query)) if w not in STOP]
