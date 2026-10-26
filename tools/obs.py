@@ -814,6 +814,7 @@ class _Detect:
         self.late = [d for d in c.brain if d.get("kind") == "event" and (d.get("event") or {}).get("kind") == "cast_late_success"]
         self.end_of_data = now or (c.until if c.until is not None else (c.brain[-1]["ts"] if c.brain else time.time()))
         self.busy = _BusyIndex(c)
+        self.session_end = {x["file"]: x["end"] for x in c.sessions}  # brain session file -> its last row
 
     def run(self) -> list[dict]:
         out: list[dict] = []
@@ -837,7 +838,18 @@ class _Detect:
         if ep.kind != "chat":
             return []
         resp = ep.first_response
-        wait = (resp if resp is not None else self.end_of_data) - ep.start
+        ended = self.session_end.get(ep.file) if resp is None else None
+        if ended is not None and ended < self.end_of_data - 1.0:
+            # The episode's brain session ended (crash, restart, stop) before any response. Its wait ends with
+            # the session, not at the end of the data (live: 40-63 ks "no response yet" stalls). A wait over
+            # the stall limit before the session ended is still a stall; a shorter one is a session_ended note.
+            wait = max(0.0, ended - ep.start)
+            if wait <= self.stall_s:
+                return [_anom("session_ended", ep.start, f'"{short(ep.request, 80)}" got no response before its brain '
+                              f"session ended {wait:.0f} s later", ep, "info", f"session_ended:{ep.id}",
+                              wait_s=round(wait, 1), session=ep.file)]
+        else:
+            wait = (resp if resp is not None else self.end_of_data) - ep.start
         if wait <= self.stall_s or (resp is None and ep.decision and ep.decision.startswith("ignored")):
             return []
         heard = min([p["heard"] for p in ep.lines] or [ep.start])
