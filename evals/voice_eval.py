@@ -43,7 +43,7 @@ from brain import paths  # noqa: E402
 from brain import persona as persona_file  # noqa: E402
 from brain.capabilities import Capabilities, _parse_manifest  # noqa: E402
 from brain.agent import PROMISE_NOTE  # noqa: E402
-from brain.controller import LOOK_RULE, LOOKUP_RULE, TALK_ONLY_NOTE, Controller  # noqa: E402
+from brain.controller import FINAL_PASS_NOTE, LOOK_RULE, LOOKUP_RULE, TALK_ONLY_NOTE, Controller  # noqa: E402
 from brain.interface import BODY_TOOLS, SENSABLE_TRIGGERS  # noqa: E402
 from brain.jsonl_log import JsonlLogger, read_jsonl  # noqa: E402
 from brain.llm import (CONTROLLER_MODEL_ENV, PLANNER_MODEL_ENV, FakeLLM, LiteLLMClient, LLMResponse,  # noqa: E402
@@ -56,7 +56,7 @@ CASES = HERE / "voice_cases.jsonl"
 MANIFEST = HERE / "fixtures" / "voice_manifest.json"
 PERSONAS = {"old": HERE / "fixtures" / "persona_old.md", "new": persona_file.DEFAULT_PATH}
 JUDGE_BATCH = 13  # cases per judge call (25 cases -> 2 calls per persona)
-MAX_CALLS = 120  # one full run: k=3 x 25 cases (75) + reads + continuations (the 90 cap starved samples 1-2) + judge
+MAX_CALLS = 150  # one full run: k=3 x 25 (75) + reads + final passes + continuations (120 starved 3 samples) + judge
 K_SAMPLES = 3  # samples per case: the GOAL score is the k-mean; fewer samples are never a GOAL score
 MAX_CHARS = 150
 MAX_STEPS = 3  # the live Controller's max_calls: read-only tools run inline, then it must act or reply
@@ -139,8 +139,12 @@ def make_controller(workdir: Path, player: str = "Zezima") -> Controller:
                       caps=manifest_caps(), skills=_Skills(), knowledge=_Knowledge())
 
 
+_OVERRIDE: dict[str, Path] = {}  # main(): the persona text measured (HEAD by default), for this run only
+
+
 def system_prompt(variant: str, ctl: Controller) -> str:
-    text = persona_file.template(PERSONAS[variant])
+    ov = _OVERRIDE.get(variant)
+    text = persona_file.template(ov if ov is not None and Path(ov).exists() else PERSONAS[variant])
     prompt = persona_file.render(text, name=ctl.name, player=ctl.player, triggers=", ".join(SENSABLE_TRIGGERS),
                                  look_rule=LOOK_RULE, lookup_rule=LOOKUP_RULE)
     rules = ctl.house_rules()
@@ -210,7 +214,24 @@ def decide(case: dict, system: str, ctl: Controller, llm, budget: Budget, reserv
         if on_call:
             on_call(step, resp.usage)
         rd = [c for c in resp.tool_calls if c.name in ctl.read_tools]
-        if len(rd) < len(resp.tool_calls) or not rd or step == MAX_STEPS - 1 or not budget.can(reserve):
+        if len(rd) < len(resp.tool_calls) or not rd:
+            break
+        if step == MAX_STEPS - 1:  # live Controller._final_pass: reads "not run", FINAL_PASS_NOTE, acting tools only
+            if not budget.can(reserve):
+                if out is not None:
+                    out["final_pass_skipped"] = True
+                break
+            fmsgs = msgs + [assistant_message(resp)] + [
+                tool_result_message(c, {"ok": None, "note": "not run: no more looking this turn"}) for c in rd]
+            fmsgs.append({"role": "user", "content": FINAL_PASS_NOTE})
+            budget.take(reserve)
+            resp = llm.complete(fmsgs, tools=[t for t in ctl.tools if t["function"]["name"] not in ctl.read_tools])
+            usages.append({"step": f"{step}final", "usage": resp.usage})
+            if on_call:
+                on_call(f"{step}final", resp.usage)
+            msgs = fmsgs
+            break
+        if not budget.can(reserve):
             break
         msgs = msgs + [assistant_message(resp)]
         for c in rd:
@@ -278,10 +299,36 @@ Answer with ONLY a JSON array, one object per item, in order:
 [{"id": "...", "human": 1-5 or null, "silence": 1-5, "match": 1-5, "why": "<= 20 words"}]"""
 
 
+ID_IN_LINE = re.compile(r"(?:^|[:;|] )([^;:()|]+?)(?: \([^()]*\))*(?: x\d+)? \([^()]*?\bid ([^,()\s]+)")
+TARGET_KEYS = ("target", "item", "resource", "spell", "player", "recipe", "container")
+
+
+def id_names(case: dict) -> dict[str, str]:
+    """In-game names of the ids the situation lines list ("Redberry Bush (5 m, id fol:BP_RedberryBush_C@...)")."""
+    out: dict[str, str] = {}
+    for ln in case["context"].get("situation") or []:
+        if isinstance(ln, str):
+            for name, i in ID_IN_LINE.findall(ln):
+                out.setdefault(i, name.strip())
+    return out
+
+
+def target_label(args, names: dict[str, str]) -> str:
+    """' -> <name>' for a call's target, so the judge can tell eating the offered bush from repeating a failed item."""
+    if not isinstance(args, dict):
+        return ""
+    for k in TARGET_KEYS:
+        v = args.get(k)
+        if isinstance(v, str) and v:
+            return f" -> {names.get(v, v)}"
+    return ""
+
+
 def situation_digest(case: dict) -> dict:
     ctx = case["context"]
     sit = ctx.get("situation") or []
-    facts = [ln for ln in sit if isinstance(ln, str) and ln.split(":", 1)[0] in ("You", "Players", "World", "Food/drink")]
+    facts = [ln for ln in sit if isinstance(ln, str) and (ln.split(":", 1)[0] in ("You", "Players", "World", "Food/drink")
+                                                          or ln.startswith("Need "))]
     d = {"player_said": (ctx.get("command") or {}).get("text") or None,
          "addressed": (ctx.get("command") or {}).get("addressed"),
          "body_event": ctx.get("body_event"), "body_status": ctx.get("body_status"),
@@ -289,7 +336,9 @@ def situation_digest(case: dict) -> dict:
                          for c in (ctx.get("chat") or [])[-6:] if isinstance(c, dict)],
          "facts": facts}
     if case.get("history"):
-        d["this_turn_so_far"] = [f"{h['tool']}: {'ok' if h.get('ok') else h.get('reason')}" for h in case["history"]]
+        names = id_names(case)
+        d["this_turn_so_far"] = [f"{h['tool']}{target_label(h.get('args'), names)}: {'ok' if h.get('ok') else h.get('reason')}"
+                                 for h in case["history"]]
     return {k: v for k, v in d.items() if v not in (None, [], {})}
 
 
@@ -300,6 +349,7 @@ def judge_prompt(items: list[tuple[dict, dict]]) -> list[dict]:
                           "looked_first": [f"{x['tool']}({json.dumps(x.get('args') or {}, ensure_ascii=False)[:80]})"
                                            for x in r.get("reads") or []],
                           "tool_calls": [f"{x['tool']}({json.dumps(x.get('args') or {}, ensure_ascii=False)[:120]})"
+                                         f"{target_label(x.get('args'), id_names(c))}"
                                          for x in r.get("calls") or []]}}
                for c, r in items]
     return [{"role": "system", "content": RUBRIC},
@@ -454,7 +504,27 @@ def voice_score(summary: dict) -> float | None:
     return round(min(parts), 3)
 
 
-def scoreboard_row(summary: dict, log_path: Path, run_id: str, at: str, root: Path | None = None) -> dict | None:
+def persona_at_ref(ref: str, dest: Path, root: Path | None = None) -> tuple[Path, str]:
+    """The live persona as committed at ``ref`` (default HEAD), written to ``dest``; ``worktree`` = the working
+    file (an uncommitted A/B edit). Returns (path, sha256 of the text measured). A GOAL baseline is HEAD only."""
+    import hashlib
+    import subprocess
+    from evals.bench import hashes
+    root = Path(root or hashes.ROOT)
+    if ref == "worktree":
+        path = persona_file.DEFAULT_PATH
+        text = path.read_text(encoding="utf-8")
+    else:
+        rel = persona_file.DEFAULT_PATH.resolve().relative_to(root.resolve()).as_posix()
+        text = subprocess.run(["git", "show", f"{ref}:{rel}"], cwd=root, capture_output=True, text=True,
+                              encoding="utf-8", check=True).stdout
+        path = dest
+        path.write_text(text, encoding="utf-8")
+    return path, hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def scoreboard_row(summary: dict, log_path: Path, run_id: str, at: str, root: Path | None = None,
+                   persona_ref: str = "HEAD", persona_sha256: str = "") -> dict | None:
     """The row goal_check reads (kind voice). It carries the sha256 of the run's own JSONL log (whose voice_summary
     goal_check re-reads and re-scores) and the code hashes, so a row cannot be typed by hand."""
     from evals.bench import hashes
@@ -467,6 +537,7 @@ def scoreboard_row(summary: dict, log_path: Path, run_id: str, at: str, root: Pa
             "components": {k: summary.get(k) for k in ("checks_pass_rate", "judge:human", "judge:silence", "judge:match")},
             "log": Path(log_path).resolve().relative_to(root.resolve()).as_posix(),
             "log_sha256": hashes.sha256_file(Path(log_path)),
+            "persona_ref": persona_ref, "persona_sha256": persona_sha256,
             "companion_hash": hashes.companion_hash(root), "judge_hash": hashes.judge_hash(root)}
 
 
@@ -498,8 +569,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--plan", action="store_true", help="print the call count and stop")
     ap.add_argument("--dry", action="store_true", help="scripted FakeLLM, no network")
     ap.add_argument("--yes", action="store_true", help="really spend API calls")
+    ap.add_argument("--persona-ref", default="HEAD",
+                    help="where the live persona text comes from: a git ref (default HEAD, the GOAL baseline) or "
+                         "'worktree' (an uncommitted A/B edit: never a GOAL score)")
     ap.add_argument("--k", type=int, default=K_SAMPLES, help=f"samples per case (default {K_SAMPLES}; the score is the k-mean)")
     a = ap.parse_args(argv)
+    _OVERRIDE.clear()
     variants = a.persona or [LIVE_PERSONA]
     cases = read_jsonl(CASES)
     if a.ids:
@@ -517,6 +592,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refusing: even the minimum is over the {a.max_calls}-call cap")
         return 2
     with tempfile.TemporaryDirectory() as tmp:
+        if "new" in variants:  # main 2026-10-26: the baseline measures the COMMITTED persona, never a working edit
+            _OVERRIDE["new"], persona_sha = persona_at_ref(a.persona_ref, Path(tmp) / "persona_ref.md")
+            print(f"live persona from {a.persona_ref} (sha256 {persona_sha[:12]})")
+        else:
+            persona_sha = ""
         if a.dry:
             ctl_llm, judge_llm = _dry_llms()
             log = None
@@ -532,7 +612,10 @@ def main(argv: list[str] | None = None) -> int:
             ctl_llm = LiteLLMClient(ctl_model, max_tokens=1024, **extra)  # as live (run_live.make_llms)
             judge_llm = None if a.no_judge else LiteLLMClient(judge_model, max_tokens=8000)
             log = JsonlLogger(paths.log_dir() / f"voice-eval-{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
-        out = run(variants, cases, ctl_llm, judge_llm, Path(tmp), log, max_calls=a.max_calls, k=a.k)
+        try:
+            out = run(variants, cases, ctl_llm, judge_llm, Path(tmp), log, max_calls=a.max_calls, k=a.k)
+        finally:
+            _OVERRIDE.clear()  # the temp copy dies with the directory
     for v in variants:
         print(f"\n== persona {v}")
         for r in out["results"][v]:
@@ -547,16 +630,19 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\nmodel calls used: {out['calls']}")
     if log:
         log.log("voice_results", results=out["results"])  # rows with the judge's scores and reasons
-        log.log("voice_summary", summary=out["summary"], plan=plan, calls=out["calls"])
+        log.log("voice_summary", summary=out["summary"], plan=plan, calls=out["calls"],
+                persona_ref=a.persona_ref, persona_sha256=persona_sha,
+                measured="baseline-at-" + a.persona_ref if a.persona_ref != "worktree" else "worktree persona (A/B)")
         print(f"\nlog: {log.path}")
         skipped = (out["summary"].get(LIVE_PERSONA) or {}).get("continuation_skipped", 0)
         if skipped:
             print(f"WARNING: {skipped} sample(s) lost their live continuation to the call cap: not a GOAL score "
                   f"(raise --max-calls)")
         full = (not a.ids and not a.limit and not a.no_judge and LIVE_PERSONA in variants and a.k >= K_SAMPLES
-                and not skipped)
+                and not skipped and a.persona_ref == "HEAD")
         row = scoreboard_row(out["summary"].get(LIVE_PERSONA) or {}, Path(log.path), Path(log.path).stem,
-                             time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())) if full else None
+                             time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                             persona_ref=a.persona_ref, persona_sha256=persona_sha) if full else None
         if row:
             append_scoreboard(row)
             print(f"voice score {row['score']} (n={row['n']}) -> {SCOREBOARD}")

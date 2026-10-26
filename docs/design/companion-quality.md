@@ -193,6 +193,12 @@ Other run-2 counts, old → new:
   - held-out: human 3.67, silence 4.56, match 4.61.
   - The 0.73 above was a measurement artefact: the 90-call cap had starved the continuations.
 
+- **Honest baseline at 9bfb106** (committed persona via `--persona-ref HEAD`, sha256 515ca0c2…; judge digest with Need + named targets; live final pass mirrored; 115 of 150 calls, no continuation skipped; `logs/voice-eval-20261026-122105.jsonl`):
+  - **score 0.758**, set by human 3.79/5; per sample 0.740 / 0.764 / 0.776, sd 0.018;
+  - checks pass at 0.972; silence 4.14, match 4.09; promise_has_tool 4/5;
+  - held-out: human 3.80, silence 4.61, match 4.56.
+  - The 0.80 rows from 11:54 and 12:13 measured the working-tree persona (the voice agent's uncommitted A/B edit). They carry no persona_ref, so goal_check ignores them.
+
 ### Open items (voice)
 1. **Over-silence on direct questions** (v18 "why are you casting Splinter near me?" → silent gather; h2 "fancy a job" → silent start_goal). The persona rule "a direct question gets a short answer" doesn't hold under effort low. Options:
    - move the rule into the few-shots, with a question → answer + action pair;

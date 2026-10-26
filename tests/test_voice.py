@@ -326,3 +326,39 @@ def test_a_continuation_lost_to_the_cap_is_flagged_and_followups_use_the_correct
     follow = [{**c, "history": [{"tool": "look"}], "note": "go on"} for c in cases()[:1]]
     out = ve.run(["new"], follow, FakeLLM([talk] * 5), None, tmp_path, k=1, max_calls=5)
     assert out["results"]["new"][0]["speech"] == "corrected line"
+
+
+def test_judge_sees_needs_and_named_targets_and_the_final_pass_mirrors_live(tmp_path):
+    """Voice agent fidelity fixes: the judge digest carries the Need line and names each call's target; when
+    the read budget runs out, decide() makes the live Controller._final_pass (reads 'not run', FINAL_PASS_NOTE,
+    acting tools only)."""
+    case = {"id": "x", "context": {"situation": [
+        "You: HP 100%", "Need food (7%) -> eat: Redberry Bush (5 m, id fol:BP_RedberryBush_C@1)",
+        "Around: Redberry Bush (5 m, id fol:BP_RedberryBush_C@1, gather)"], "command": {"text": "eat something"}},
+        "history": [{"tool": "interact", "args": {"target": "fol:BP_RedberryBush_C@1"}, "ok": True}]}
+    dg = ve.situation_digest(case)
+    assert any(f.startswith("Need food") for f in dg["facts"]) and "-> Redberry Bush" in dg["this_turn_so_far"][0]
+    offered = []
+
+    def look_only(msgs, tools):
+        offered.append({t["function"]["name"] for t in tools})
+        if msgs[-1]["content"] == ve.FINAL_PASS_NOTE:
+            return LLMResponse(content="nothing to eat here", tool_calls=[])
+        return LLMResponse(tool_calls=[ToolCall("look", {"about": "food"}, f"c{len(offered)}")])
+    ctl = ve.make_controller(tmp_path)
+    rep, reads, usages = ve.decide(cases()[0], ve.system_prompt("new", ctl), ctl, FakeLLM([look_only] * 5),
+                                   ve.Budget(10))
+    assert len(usages) == ve.MAX_STEPS + 1 and rep["speech"] == "nothing to eat here"
+    assert "look" in offered[0] and "look" not in offered[-1]
+
+
+def test_the_baseline_measures_the_committed_persona_not_a_working_edit(tmp_path):
+    """Main 2026-10-26: the voice agent's A/B edits live in the working tree; a GOAL baseline reads HEAD."""
+    import hashlib
+    import subprocess
+    path, sha = ve.persona_at_ref("HEAD", tmp_path / "p.md")
+    head = subprocess.run(["git", "show", "HEAD:brain/persona.md"], cwd=ROOT, capture_output=True, text=True,
+                          encoding="utf-8", check=True).stdout
+    assert path.read_text(encoding="utf-8") == head and sha == hashlib.sha256(head.encode("utf-8")).hexdigest()
+    wpath, _ = ve.persona_at_ref("worktree", tmp_path / "w.md")
+    assert wpath == ve.persona_file.DEFAULT_PATH

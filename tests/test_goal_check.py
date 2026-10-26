@@ -98,7 +98,8 @@ def voice_row(root: Path, summary: dict = VOICE_SUMMARY, **over) -> dict:
     log.write_text(json.dumps({"kind": "voice_summary", "summary": {"new": summary}}) + "\n", encoding="utf-8")
     from evals.voice_eval import voice_score
     row = {"kind": "voice", "run_id": "voice_1", "at": FRESH, "score": voice_score(summary), "n": summary["cases"],
-           "persona": "new", "log": "logs/voice-eval-test.jsonl", "log_sha256": hashes.sha256_file(log),
+           "persona": "new", "persona_ref": "HEAD", "persona_sha256": "ab" * 32,
+           "log": "logs/voice-eval-test.jsonl", "log_sha256": hashes.sha256_file(log),
            "companion_hash": CUR.companion}
     row.update(over)
     return row
@@ -411,5 +412,6 @@ def test_voice_score_is_the_weakest_part_and_rows_must_rederive_from_their_log(t
     good = voice_row(tmp_path)
     d = data(tmp_path, [good], {})
     assert gc.voice(d, "voice_score_min").status == gc.MET
-    for bad in (dict(good, score=0.99), dict(good, log_sha256="0" * 64), {k: v for k, v in good.items() if k != "log"}):
+    for bad in (dict(good, score=0.99), dict(good, log_sha256="0" * 64), {k: v for k, v in good.items() if k != "log"},
+                dict(good, persona_ref="worktree")):
         assert gc.voice(data(tmp_path, [bad], {}), "voice_score_min").status == gc.NO_DATA, bad
