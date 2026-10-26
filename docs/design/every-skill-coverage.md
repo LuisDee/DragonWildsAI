@@ -140,3 +140,55 @@ Sources:
 - Runecrafting: altar unlock + `build` + a probe of `craft` at the altar (else `runecraft.lua` Auto Craft) + anima vent interact.
 - Agility: course runner (§6); passive walking already gives XP.
 - All: G1 (skills line in the digest) and G2 (render the extras) are brain-side, owned by main/broker.
+
+## 10. M5 `brynmoor_quest_chain` audit: Rune Mysteries → Goblin Diplomacy (2026-10-26)
+
+Sources:
+- wiki mirror "Rune Mysteries", "Goblin Diplomacy", "Ratcatcher", "Zanik";
+- dump: `UQuestProgressComponent` l.31595, `FQuestProgress` l.6450, `UQuestData` l.31475;
+- live P1: ClaudeDev's quest list has First Steps given (Objective2), with Rune Mysteries, Dragon Slayer and others ungiven.
+
+### Prerequisites
+Rune Mysteries requires **Ratcatcher**, which requires Getting Started (the "First Steps" chain).
+- ClaudeDev is still on First Steps Objective2, so the chain begins earlier than Rune Mysteries.
+- Ratcatcher: talk to Vannaka, kill 4 giant rats (raw rat meat), build a campfire (4 ash logs + 4 stones), cook 2 rat roasts, bring them to Vannaka.
+
+### Rune Mysteries (wiki)
+| Step | Body needs | Have? |
+|---|---|---|
+| Talk to Zanik (east of Vannaka) | find her; `talk` | `talk` built (P2 pending live); she is perceived as an interactable with prompt Talk. Locating her beyond perception relies on `lookup`/wiki plus `explore`/`go_to`. |
+| Gather 50 ash logs | `gather ash` | yes (verified) |
+| Talk to Zanik again; receive a stone pickaxe | `talk` | built |
+| Mine rune essence (shoot the floating rocks down with ranged or magic, or mine the ground rocks) | `gather rune_essence`; `attack`/`cast` at floating rocks | gather profile exists, unverified live. Shooting floating essence down: an `attack`/`cast` at a non-creature target is **a gap** (combat targets creatures). |
+| 12 stone + 4 rune essence → build a Rune Altar | `gather stone_rock`; `build` (capability agent) | build exists. The altar unlocks on getting essence [UNVERIFIED]. |
+| Craft air + astral runes at the altar | `craft` at RuneAltar | covered offline (crafting.lua altar support plus closing its own screen, 2026-10-26); live unverified |
+| Talk to Zanik → quest complete | `talk` | built |
+
+### Goblin Diplomacy (wiki)
+| Step | Body needs | Have? |
+|---|---|---|
+| Talk to Zanik on the ridge (Bramblemead Valley) | travel + `talk` | `talk`; travel by `go_to`/lodestones. A **lodestone teleport** primitive is a gap (GOAL §4 item 9). |
+| Get a Bandosian amulet from the Outlook Ruins reliquary (or the Adventurer's Guild one, behind thorny vines that need Woodcutting 20) | find and open a reliquary: `interact` (Take); clear goblins: `attack` | `interact` covers open/take if the reliquary is a container/interactable [UNVERIFIED]. Cutting the vines: `gather`, or `use_action` with an axe [UNVERIFIED class]. |
+| Optional: bribe a caged goblin (one steak) | `talk` + an item hand-in through dialogue | `talk`. Whether the hand-in is a dialogue option is [UNVERIFIED]. |
+| Clear the goblins near the other caged goblin, talk to it | `attack`, `talk` | yes |
+| Go down into the Whispering Swamp, find the cave, kill the Garou Druid (strong, poison; ranged/magic advised) | traversal down; `attack` (+ `cast`), anti-poison, food | combat yes; a ranged weapon needs ammo. Navigating down into the swamp is move.lua's job. Anti-poison crafting goes through `craft` (brewing). |
+| Return to Zanik → complete | travel + `talk` | yes |
+
+### How quest state is read (built)
+- `client_mod/scripts/quests.lua` (new) reads the controller's `QuestProgressComponent.Quests`, read-only:
+  - each quest's `UQuestData.QuestName`;
+  - its state (ungiven / given / complete);
+  - the current step **in the game's own words**: `Objectives[CurrentObjective]` gives Description, SubobjectiveDescription and Hint;
+  - QuestInts / QuestBools as counters and flags.
+- It publishes the read tool `quests {all?}` and get_state extras `quests = {active, complete, counts}`, the same rows the harness probe's `quests` field reads.
+- `talk` replies also carry `quests_changed`.
+- Tests: `client_mod/tests/test_quests.lua`, 17 checks: the REAL reader over TArray/TMap wrappers.
+
+### Gaps (owner)
+1. **Lodestone teleport** (Goblin Diplomacy's back-and-forth; the wiki recommends one at Zanik). Capability/locomotion; the lodestone is an interactable with prompt "Teleport" (DISCOVERIES R2 census).
+2. **Hitting a non-creature target** (floating rune essence over a geyser; also Pure Essence rocks at anima vents). Combat/spells: `attack` and aimed `cast` at an actor that isn't a creature.
+3. **Brain rendering**:
+   - the `quests` extras line in the digest, so the model sees the current step every turn (broker; same as G2);
+   - a quest-chain goal for the Director: next step = the active quest's step. No quest-specific code; the step text comes from the game.
+4. **Live verification**: talk P2/P3, reliquary interaction, the altar craft, rune essence profile.
+5. **Earlier chain** (First Steps → Ratcatcher): needs a Campfire build plus cooking (both covered), rat kills (attack), and a hand-in through talk.
