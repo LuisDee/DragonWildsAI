@@ -8,7 +8,9 @@ Bounded ReAct loop (research 2026-10-25 sections 3.2 and 6): at most ``max_calls
 per command. Read-only tools (``look``, ``inspect``) run inline, don't interrupt the current job and
 don't end the turn; the first real action (or start_goal / run_skill / remember / a rule tool) ends
 it; speech is the text of that final response. With the situation digest preloaded, most commands
-take one call; "pick up the sticks" takes two when the sticks aren't in the digest.
+take one call; "pick up the sticks" takes two when the sticks aren't in the digest. If the last
+call still only reads, those reads are answered "not run" and ONE final call is made with only the
+acting tools offered (``_final_pass``), so a turn never ends having only looked.
 
 Grounding (section 6.2), enforced in code, not only in the prompt: an action on a thing that was
 not perceived (state, digest or a look this turn) is refused with ``not_perceived`` and the reply
@@ -131,6 +133,14 @@ TALK_ONLY_NOTE = ("You replied without calling any tool, and nothing has been sa
                   "reword the line). If you can't do it now (no tool or target for it, or something is missing), "
                   "reply with the corrected line saying what's stopping you, and no tool call. Otherwise reply "
                   "with no text at all and your line is said as it is.")
+
+# Appended to every read-only tool's description (Controller._tool_list): how _loop really runs them.
+READ_ALONE = ("Runs only when called on its own: in a reply that also calls an action it is skipped, so look "
+              "first, then act on its result in your next reply.")
+
+# The read budget's last call (Controller._final_pass): only acting tools are offered.
+FINAL_PASS_NOTE = ("No more looking this turn (the read-only tools are used up). Act now with your tools on what "
+                   "you found, or reply in a few words (what you found, or what's stopping you).")
 
 LOOK_RULE = (": situation is only a short summary and misses many things (sticks, stones, plants, chests, "
              "stations). ALWAYS call look with about=<their words> first, before acting or saying you can't see it "
@@ -296,6 +306,17 @@ class Controller:
         return self.has("look")
 
     def _tool_list(self) -> list[dict]:
+        """The offered tools; every read-only one says, truthfully, that it only runs on its own (_loop
+        skips reads in a reply that also acts: live v11 replay, look + 3 interacts acted blind)."""
+        out = []
+        for t in self._schemas():
+            f = t.get("function") or {}
+            if f.get("name") in self.read_tools and READ_ALONE not in (f.get("description") or ""):
+                t = {**t, "function": {**f, "description": (f.get("description") or "").rstrip() + " " + READ_ALONE}}
+            out.append(t)
+        return out
+
+    def _schemas(self) -> list[dict]:
         hide_goal = self.director is not None and self.director.hides_start_goal
         brain = [tool_schema("remember"), tool_schema("run_skill")] + ([] if hide_goal else [START_GOAL]) + \
             ([LIST_SKILLS, FORGET_SKILL] if self.skills is not None else [])
@@ -508,6 +529,7 @@ class Controller:
                 break  # the first real action ends the turn (reads alongside an action are not run)
             if step == self.max_calls - 1:
                 self.log.log("controller_budget_exhausted", calls=d.model_calls)
+                resp, messages = self._final_pass(messages, resp, reads, d, tag)
                 break
             messages = messages + [assistant_message(resp)]
             for call in reads:
@@ -515,6 +537,32 @@ class Controller:
             if step == self.max_calls - 2:
                 messages.append({"role": "user", "content": "Last step: act now on what you found, or reply."})
         return resp, messages
+
+    def _final_pass(self, messages: list[dict], resp: LLMResponse, reads: list[ToolCall], d: Decision,
+                    tag) -> tuple[LLMResponse, list[dict]]:
+        """The read budget ran out with the model still only looking (live 22:20:15: look, look, inventory,
+        then nothing was done and a template spoke a raw failure). Like LangChain's early_stopping_method
+        "generate": the over-budget reads are answered "not run" and ONE final call is made with only the
+        acting tools offered, so it acts on what it found or replies. A budget, not a veto."""
+        base = messages
+        messages = messages + [assistant_message(resp)]
+        for call in reads:  # the budget is spent: these are answered, not run
+            messages.append(tool_result_message(call, {"ok": None, "note": "not run: no more looking this turn"}))
+        messages.append({"role": "user", "content": FINAL_PASS_NOTE})
+        tools = [t for t in self.tools if t["function"]["name"] not in self.read_tools]
+        self.log.log("prompt", component="controller", model=self.llm.model, step=f"{tag}final", messages=messages[-2:],
+                     effort=getattr(self.llm, "effort", None))
+        try:
+            final = self.llm.complete(messages, tools=tools)
+        except Exception as exc:  # the turn ends as before (nothing done), the error is logged
+            self.log.log("controller_final_pass", ok=False, error=repr(exc))
+            return resp, base
+        d.model_calls += 1
+        self.log.log("llm_response", component="controller", step=f"{tag}final", content=final.content,
+                     tool_calls=[vars(c) for c in final.tool_calls], usage=final.usage)
+        self.log.log("controller_final_pass", ok=True, actions=[c.name for c in final.tool_calls],
+                     speech=strip_markers(final.content))
+        return final, messages
 
     def warm_up(self) -> dict | None:
         """L27 (dev run 23:32:58: the session's first model call took 11.2 s: litellm's ~5 s import, a
