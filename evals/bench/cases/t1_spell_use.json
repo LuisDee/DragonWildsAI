@@ -232,6 +232,17 @@
        "Earth": 10,
        "Nature": 20
       }
+     },
+     {
+      "verb": "ground_item",
+      "item": "ITEM_Resources_AnimalBone",
+      "count": 5,
+      "at": [
+       4,
+       0,
+       0
+      ],
+      "purpose": "the spell's precondition: bones on the ground"
      }
     ],
     "scene": {},
@@ -1263,6 +1274,17 @@
        "Earth": 40,
        "Astral": 30
       }
+     },
+     {
+      "verb": "scene",
+      "needs": "farm_plot",
+      "purpose": "the spell's precondition: a farm plot (a dev place: none known yet)"
+     },
+     {
+      "verb": "grant",
+      "item": "ITEM_Bucket_Compost_Big",
+      "count": 1,
+      "purpose": "the spell's requirement: compost units (a full compost bucket, unverified)"
      }
     ],
     "scene": {},
@@ -1891,6 +1913,17 @@
        "Water": 30,
        "Astral": 20
       }
+     },
+     {
+      "verb": "scene",
+      "needs": "farm_plot",
+      "purpose": "the spell's precondition: a dry farm plot (a dev place: none known yet)"
+     },
+     {
+      "verb": "grant",
+      "item": "ITEM_WateringCan_Wood",
+      "count": 1,
+      "purpose": "the spell's requirement: water units (a watering can, unverified that it starts full)"
      }
     ],
     "scene": {},
@@ -2166,6 +2199,11 @@
        "Earth": 40,
        "Nature": 20
       }
+     },
+     {
+      "verb": "scene",
+      "needs": "damaged_item_on_ground",
+      "purpose": "the spell's precondition: a damaged item on the ground (no durability fixture yet)"
      }
     ],
     "scene": {},

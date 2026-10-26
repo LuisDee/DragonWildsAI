@@ -15,7 +15,7 @@
    },
    {
     "id": "t0_cast_bonestopeaches",
-    "hash": "f2c4604c70ebc378"
+    "hash": "8a1e084b497ea77e"
    },
    {
     "id": "t0_cast_confuse",
@@ -59,7 +59,7 @@
    },
    {
     "id": "t0_cast_farming_compost",
-    "hash": "26ed5b13332e9edb"
+    "hash": "7a14556573f08eb1"
    },
    {
     "id": "t0_cast_farming_rapidgrowth",
@@ -91,7 +91,7 @@
    },
    {
     "id": "t0_cast_humidify",
-    "hash": "d355d620faa527dc"
+    "hash": "2cf6dcd5577eee73"
    },
    {
     "id": "t0_cast_infernalrod",
@@ -103,7 +103,7 @@
    },
    {
     "id": "t0_cast_magicalmending",
-    "hash": "1bf3232868a969dd"
+    "hash": "0ed472e7abdb96a3"
    },
    {
     "id": "t0_cast_phasedash",
@@ -203,15 +203,15 @@
    },
    {
     "id": "stress_bonestopeaches_combat",
-    "hash": "91bb5d5bc3c87c93"
+    "hash": "6c934d93ab4938bb"
    },
    {
     "id": "stress_bonestopeaches_cooldown_pressure",
-    "hash": "0da9456feadd2bf6"
+    "hash": "aec96bb9e8674761"
    },
    {
     "id": "stress_bonestopeaches_low_runes",
-    "hash": "aec7834536b9fef3"
+    "hash": "3d57385ffba1776f"
    },
    {
     "id": "stress_confuse_combat",
@@ -343,15 +343,15 @@
    },
    {
     "id": "stress_farming_compost_combat",
-    "hash": "8b5c4e0df7c017ea"
+    "hash": "8f0adac963662d60"
    },
    {
     "id": "stress_farming_compost_cooldown_pressure",
-    "hash": "d6b40fcc9ae413aa"
+    "hash": "6028ef344714a57c"
    },
    {
     "id": "stress_farming_compost_low_runes",
-    "hash": "b40ac0dd6be15c00"
+    "hash": "2ca1e29f09573a45"
    },
    {
     "id": "stress_farming_rapidgrowth_combat",
@@ -439,19 +439,19 @@
    },
    {
     "id": "stress_humidify_combat",
-    "hash": "c5571a76d4fa7f63"
+    "hash": "e373b4672399071f"
    },
    {
     "id": "stress_humidify_cooldown_pressure",
-    "hash": "cc8544e06306dc6a"
+    "hash": "d3de39d5662ce00d"
    },
    {
     "id": "stress_humidify_low_runes",
-    "hash": "7d89f4e3fa12aa62"
+    "hash": "44c998a65fb22b4c"
    },
    {
     "id": "stress_humidify_out_of_reach",
-    "hash": "e0101a5b35e756f0"
+    "hash": "1f832bcb3fe630d4"
    },
    {
     "id": "stress_infernalrod_combat",
@@ -479,15 +479,15 @@
    },
    {
     "id": "stress_magicalmending_combat",
-    "hash": "feb088c4b419b85c"
+    "hash": "650ae322816eaed2"
    },
    {
     "id": "stress_magicalmending_cooldown_pressure",
-    "hash": "2e9d6a42cbf3e2bc"
+    "hash": "ef2396aadc27322a"
    },
    {
     "id": "stress_magicalmending_low_runes",
-    "hash": "f15aa5d844666d57"
+    "hash": "e29ce0910af28790"
    },
    {
     "id": "stress_phasedash_combat",

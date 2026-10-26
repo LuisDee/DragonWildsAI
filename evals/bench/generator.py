@@ -65,9 +65,50 @@ def _items_catalog() -> dict:
     return _ITEMS
 
 
-def _requirements(sp: dict) -> list[dict]:
+# a spell's usage.preconditions (the game data's own words) -> the T0 scene that meets it (2026-10-26: Bones to
+# Peaches, Mucksplosion, Humidify and Magical Mending were "not cast" in the T0 batch because no setup met these)
+PRECONDITION_SCENES = {
+    "bones on the ground": {"verb": "ground_item", "item": "ITEM_Resources_AnimalBone", "count": 5, "at": [4, 0, 0],
+                            "purpose": "the spell's precondition: bones on the ground"},
+    "farm plots needing fertiliser": {"verb": "scene", "needs": "farm_plot",
+                                      "purpose": "the spell's precondition: a farm plot (a dev place: none known yet)"},
+    "dry farm plots": {"verb": "scene", "needs": "farm_plot",
+                       "purpose": "the spell's precondition: a dry farm plot (a dev place: none known yet)"},
+    "damaged item(s) dropped on the ground near the caster": {
+        "verb": "scene", "needs": "damaged_item_on_ground",
+        "purpose": "the spell's precondition: a damaged item on the ground (no durability fixture yet)"},
+}
+CARRY_UNITS = {  # setup_checks carried_<x>_units -> the container the game counts the units in
+    "carried_compost_units": {"verb": "grant", "item": "ITEM_Bucket_Compost_Big", "count": 1,
+                              "purpose": "the spell's requirement: compost units (a full compost bucket, unverified)"},
+    "carried_water_units": {"verb": "grant", "item": "ITEM_WateringCan_Wood", "count": 1,
+                            "purpose": "the spell's requirement: water units (a watering can, unverified that it starts full)"},
+}
+
+
+_USAGE: dict | None = None
+
+
+def _usage(sid: str | None) -> dict:
+    """The spell catalog's usage block (data/spells_<build>.json): preconditions in the game data's own words."""
+    global _USAGE
+    if _USAGE is None:
+        f = sorted((ROOT / "data").glob("spells_*.json"))
+        _USAGE = {k: (v or {}).get("usage") or {} for k, v in
+                  (json.loads(f[-1].read_text(encoding="utf-8")).get("spells") or {}).items()} if f else {}
+    return _USAGE.get(sid or "", {})
+
+
+def _requirements(sp: dict, sid: str | None = None) -> list[dict]:
     """Harness fixture verbs that meet a spell's setup_checks (dev: mod/bench/fixtures.lua does the same)."""
     out = []
+    for pre in ((sp.get("usage") or _usage(sid)).get("preconditions") or []):
+        if pre in PRECONDITION_SCENES:
+            out.append(dict(PRECONDITION_SCENES[pre]))
+    for chk in sp.get("setup_checks") or []:
+        for k, step in CARRY_UNITS.items():
+            if chk.get(k):
+                out.append(dict(step))
     for chk in sp.get("setup_checks") or []:
         if chk.get("claimed_bed"):  # Home Teleport: a bed he claims through the game's own interact, then 40 m away
             out.append({"verb": "claim_bed", "away_m": 40, "purpose": "the spell's requirement: a claimed bed"})
@@ -100,7 +141,7 @@ def t0_cases(spells: dict | None = None, catalog: dict | None = None) -> tuple[l
         sp = spells[sid]
         name = sp.get("name") or sid
         runes = {r: 2 * int(n) for r, n in (sp.get("cost") or {}).items()}
-        setup: list[dict] = [{"verb": "unlock", "spell": sid}, {"verb": "grant_runes", "runes": runes}] + _requirements(sp)
+        setup: list[dict] = [{"verb": "unlock", "spell": sid}, {"verb": "grant_runes", "runes": runes}] + _requirements(sp, sid)
         args: dict[str, Any] = {"spell": name}
         near = {str((c.get("near") or {}).get("kind")) for c in sp.get("setup_checks") or [] if c.get("near")}
         if sp.get("target") == "thing" and "felled_log" in near:  # Splinter: a felled log within reach
@@ -114,7 +155,7 @@ def t0_cases(spells: dict | None = None, catalog: dict | None = None) -> tuple[l
             setup.append({"verb": "after_cast_move", "spell": name, "offset_m": [8, 0, 0], "wait_s": 6,
                           "purpose": "harness motion between the cast and its expiry (walking)"})
         mock_oracle = oracle
-        if any(st.get("verb") == "scene" for st in setup):  # mock aims at its tree; on dev the body picks the line
+        if any(st.get("verb") == "scene" and st.get("as") == "tgt" for st in setup):  # mock aims at its tree; dev: the body picks
             mock_oracle = [{"tool": "cast", "args": {**args, "target": "$tgt.id"}}]
         sib = _sibling(sid, sp, spells, den)
         controls: dict[str, Any] = {"na": {"partial": "a one-step oracle: cutting it short is do_nothing"}}
@@ -195,7 +236,7 @@ def use_cases(spells: dict | None = None, phrasings: dict[str, str] | None = Non
             setup, bind, mock, oracle, alt = _scene((pu.get("world") or {}).get("needs"), str(sp.get("name") or sid))
             line = (phrasings or {}).get(pu["id"])
             runes = {r: 2 * int(n) for r, n in (sp.get("cost") or {}).items()}
-            full_setup = [{"verb": "unlock", "spell": sid}, {"verb": "grant_runes", "runes": runes}] + _requirements(sp) + setup
+            full_setup = [{"verb": "unlock", "spell": sid}, {"verb": "grant_runes", "runes": runes}] + _requirements(sp, sid) + setup
             success = {"purpose": {"spell": sid, "success": _subst(pu.get("success") or {}, bind)}}
             unbound = re.findall(r"<[^>]+>", json.dumps(success))
             status = "suite" if line and mock and not unbound and pu.get("observable") not in (False, None) else "draft"
@@ -234,7 +275,7 @@ def stress_cases(spells: dict | None = None, repeat: int = 3) -> list[Case]:
         cost = {r: int(n) for r, n in (sp.get("cost") or {}).items()}
         if not cost:
             continue
-        base = [{"verb": "unlock", "spell": sid}] + _requirements(sp)
+        base = [{"verb": "unlock", "spell": sid}] + _requirements(sp, sid)
         tgt = sp.get("target") in ("thing", "aim")
         for sit in STRESS:
             if sit in ("out_of_reach", "moving_target") and not tgt:
