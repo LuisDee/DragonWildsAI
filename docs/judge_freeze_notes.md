@@ -1,5 +1,12 @@
 # Judge-file changes since 899c88f, for Luis's sign-off at the judge tag
 
+## Open decisions for Luis at the freeze
+- **Voice gate sample size:** today's k=3 has a per-sample sd of 0.063, so the 95% band is ±0.07, which can't tell 0.78 from 0.8.
+  - Proposal: k=17 for the GOAL measurement only (±0.03 band, ~700 calls, ≈ $1.6), with MET meaning the k-mean ≥ 0.8.
+  - Stricter option: the 95% lower bound ≥ 0.8.
+  - k=3 (≈ $0.29) stays for A/B screening.
+  - Separately, the case set (n=25) could grow by ~15 real cases from live chat once the client is back.
+
 Main keeps this list. Each change made to a judge file before the `goal-judge-YYYYMMDD` tag gets one line here, so Luis can review all of them in one place when he freezes the tag.
 
 | Commit | File | Change | Why |
