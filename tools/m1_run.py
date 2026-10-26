@@ -65,6 +65,7 @@ def start_brain(effort: str | None, cap_usd: float) -> subprocess.Popen:
     env = dict(os.environ, DW_DIRECTOR="1", DW_DIRECTOR_CALLS_PER_HOUR="10", DW_PLAYER_NAME=ms.TEST_SENDER,
                DW_SPEND_CAP_USD=f"{cap_usd:.2f}")
     env.pop("DW_CONTROLLER_EFFORT_ADDRESSED", None)
+    env.pop("DW_COMPANION_NAME", None)  # the brain is Claude; "Tester" is only the dev server's test chat name
     if effort:
         env["DW_CONTROLLER_EFFORT_ADDRESSED"] = effort
     log = open(paths.log_dir() / "m1_brain_stdout.log", "a", encoding="utf-8")
@@ -108,6 +109,37 @@ def wait_brain_up(since: float, timeout: float = 180) -> bool:
     return False
 
 
+def ps(script: str, *args: str, env: dict | None = None, timeout: float = 600) -> subprocess.CompletedProcess:
+    return subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(REPO / "tools" / script),
+                           *args], capture_output=True, text=True, cwd=REPO, env=env, timeout=timeout)
+
+
+def client_in_world() -> bool:
+    return "state=in_world" in ps("client_boot.ps1", "-DryRun", timeout=120).stdout
+
+
+def restart_dev_server(rejoin_wait_s: float = 300) -> str | None:
+    """The DEV server only (start_server.ps1 only ever starts the local dev server; it now defaults
+    DW_COMPANION_NAME=Tester there). Nav-only like the client watchdog's restarts (DW_NO_BODY=1, DW_PERF=0).
+    Claude's client rejoins via the client watchdog; client_boot -Target dev if it hasn't after rejoin_wait_s."""
+    env = {k: v for k, v in os.environ.items() if k != "DW_COMPANION_NAME"}  # let the script's dev default apply
+    env.update(DW_NO_BODY="1", DW_PERF="0")
+    say("restarting the dev server (DW_COMPANION_NAME=Tester default)")
+    say("stop: " + ps("stop_server.ps1", env=env).stdout.strip()[-200:])
+    time.sleep(5)
+    say("start: " + ps("start_server.ps1", env=env).stdout.strip()[-200:])
+    end = time.time() + rejoin_wait_s
+    time.sleep(60)  # the server loads its world before anyone can join
+    while time.time() < end:
+        if client_in_world():
+            say("client back in world")
+            return None
+        time.sleep(20)
+    say("client not back by itself: client_boot -Target dev")
+    r = ps("client_boot.ps1", "-Target", "dev", timeout=900)
+    return None if "state=in_world" in r.stdout else f"client did not rejoin: {r.stdout[-300:]}"
+
+
 def preflight(jobs: bool = True) -> str | None:
     if not ms.client_ping():
         return "client bridge does not answer"
@@ -130,9 +162,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--per-hour", type=int, default=30)
     ap.add_argument("--dry", action="store_true", help="print the plan only")
     ap.add_argument("--no-jobs", action="store_true", help="don't queue the board jobs (already queued)")
+    ap.add_argument("--restart-dev-server", action="store_true",
+                    help="after taking the slot: restart the DEV server (Tester chat name) and wait for the client")
     a = ap.parse_args(argv)
     blocks = [b.strip() for b in a.blocks.split(",") if b.strip()]
-    total = len(blocks) * a.block_min + 20
+    total = len(blocks) * a.block_min + 20 + (15 if a.restart_dev_server else 0)
     if a.dry:
         print(json.dumps({"blocks": blocks, "block_min": a.block_min, "slot_min": total,
                           "estimate": ms.estimate(len(blocks) * a.block_min / 60, a.per_hour)}, indent=1))
@@ -140,7 +174,8 @@ def main(argv: list[str] | None = None) -> int:
     wait_for_slot(total)
     brain = None
     try:
-        why = preflight(jobs=not a.no_jobs)
+        why = restart_dev_server() if a.restart_dev_server else None
+        why = why or preflight(jobs=not a.no_jobs)
         if why:
             say(f"STOP preflight: {why}")
             return 3

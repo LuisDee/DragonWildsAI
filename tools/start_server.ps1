@@ -23,6 +23,10 @@ $env:DW_HEARTBEAT_FILE = Join-Path $stateDir 'heartbeat.txt'
 if (-not $env:DW_SAY_MODE) { $env:DW_SAY_MODE = 'direct' }
 # The only server this script starts is the local dev server; the bench fixtures/referee refuse without it.
 $env:DW_SERVER_ROLE = 'dev'
+# The dev server's on-demand chat (speech_direct) speaks as a TEST player, never as "Claude": the harness's
+# test-player chat for the M1 sessions (tools/m1_session.py, Tester) and a watchdog restart keep the name.
+# This script only ever starts the local dev server; Shockbyte is vanilla and never runs it.
+if ($env:DW_SERVER_ROLE -eq 'dev' -and -not $env:DW_COMPANION_NAME) { $env:DW_COMPANION_NAME = 'Tester' }
 
 $p = Start-Process -FilePath $ServerExe -WorkingDirectory $ServerWin64 -WindowStyle Hidden -PassThru
 Write-Host "Started server pid $($p.Id) (build $(Get-ServerBuildId)). Log: $ServerLog"
