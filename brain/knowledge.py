@@ -23,12 +23,14 @@ import os
 import re
 import sqlite3
 import threading
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
 
+from .fileio import read_json
 from .paths import REPO_ROOT, _env_path
 
-SCHEMA = 8  # bump when the doc format changes (forces a rebuild)
+SCHEMA = 9  # bump when the doc format changes (forces a rebuild)
 GAME_K, WIKI_K = 3, 2  # results per tier
 POOL = 200  # BM25 candidates per tier for the title re-rank
 SNIPPET = {0: 900, 1: 520}  # characters per snippet, by tier (game cards are cut by whole fields: _clip_card)
@@ -374,25 +376,17 @@ def _fts_ok() -> bool:
         return False
 
 
-_SKILL_PAGES: dict[str, dict[str, dict]] = {}
-
-
-def skill_pages(root: Path | None = None) -> dict[str, dict]:
-    """skill key ('attack') -> {name, how, about, url, training_page} from the wiki mirror's skill pages (infobox
-    Skill; ``how`` = the infobox description, the in-game line, e.g. "Defeat enemies with melee weapons to level
-    this skill."). Data only: which skills exist and how each is trained come from the pages, never a table here."""
-    root = Path(root) if root else wiki_dir()
-    key = str(root)
-    if key in _SKILL_PAGES:
-        return _SKILL_PAGES[key]
+def skill_rows(root: Path) -> dict[str, dict]:
+    """skill key ('attack', predicates._skill_key) -> {name, how, about, url, training_page} from the wiki mirror's
+    skill pages (infobox Skill; ``how`` = the infobox description, the in-game line, e.g. "Defeat enemies with melee
+    weapons to level this skill."). Built once with the index (Knowledge._build); data only, never a table here."""
+    from .predicates import _skill_key
     out: dict[str, dict] = {}
     titles: set[str] = set()
-    pages = root / "pages"
-    files = sorted(pages.glob("*.json")) if pages.is_dir() else []
-    for f in files:
-        try:
-            d = json.loads(f.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+    pages = Path(root) / "pages"
+    for f in sorted(pages.glob("*.json")) if pages.is_dir() else []:
+        d = read_json(f, default=None)
+        if not isinstance(d, dict):
             continue
         titles.add(str(d.get("title") or ""))
         if str(d.get("infobox") or "").lower() != "skill":
@@ -402,13 +396,31 @@ def skill_pages(root: Path | None = None) -> dict[str, dict]:
         how = re.search(r"^description:\s*(.+)$", lead, re.M)
         body = re.sub(r"^(name|description):.*$", "", lead, flags=re.M).strip()
         nm = (name.group(1) if name else d.get("title") or "").strip()
-        out[re.sub(r"[^a-z0-9]", "", nm.lower())] = {
-            "name": nm, "how": how.group(1).strip() if how else None, "about": " ".join(body.split())[:400],
-            "url": d.get("url")}
+        out[_skill_key(nm)] = {"name": nm, "how": how.group(1).strip() if how else None,
+                               "about": " ".join(body.split())[:400], "url": d.get("url")}
     for v in out.values():
         v["training_page"] = f"{v['name']} training" in titles
-    _SKILL_PAGES[key] = out
     return out
+
+
+@lru_cache(maxsize=4)
+def skill_pages(root: Path | None = None) -> dict[str, dict]:
+    """The skill rows the index was built with (meta ``skill_pages``); parsed from the pages only when there is no
+    built index yet."""
+    root = Path(root) if root else wiki_dir()
+    db = root / "knowledge.sqlite"
+    if db.exists():
+        try:
+            con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            try:
+                row = con.execute("SELECT v FROM meta WHERE k='skill_pages'").fetchone()
+            finally:
+                con.close()
+            if row and row[0]:
+                return json.loads(row[0])
+        except (sqlite3.Error, ValueError):
+            pass
+    return skill_rows(root)
 
 
 class Knowledge:
@@ -469,7 +481,8 @@ class Knowledge:
             self.db.execute("DELETE FROM meta")
             self.db.executemany("INSERT INTO meta(k, v) VALUES (?, ?)",
                                 [("signature", sig), ("build", build or ""), ("game_docs", str(len(gdocs))),
-                                 ("wiki_docs", str(len(wdocs)))])
+                                 ("wiki_docs", str(len(wdocs))),
+                                 ("skill_pages", json.dumps(skill_rows(self.wiki), ensure_ascii=False))])
         if self.log:
             self.log.log("knowledge_built", game_docs=len(gdocs), wiki_docs=len(wdocs), build=build)
 

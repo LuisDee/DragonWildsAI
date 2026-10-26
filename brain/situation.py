@@ -166,6 +166,12 @@ ODDS_WORDS = {"likely_win": "likely win", "likely_lose": "likely lose", "too_str
               "outnumbered": "outnumbered", "boss": "a boss"}
 
 
+def _odds_times(o: dict) -> list[str]:
+    """'kills you ~20 s', 'you it ~75 s' from one odds row (now or prepared)."""
+    return [t for t in (f"kills you ~{o['die_s']:g} s" if _num(o.get("die_s")) is not None else "",
+                        f"you it ~{o['kill_s']:g} s" if _num(o.get("kill_s")) is not None else "") if t]
+
+
 def _creature_note(e: dict, odds: dict) -> str | None:
     """'HP 900/900, PL 6, boss, fighting, odds: too strong for you (it kills you in ~20 s, you it in ~75 s)'.
     The odds are the body's own estimate (combat.fight_odds, the same as combat_brief): information, not advice."""
@@ -179,12 +185,7 @@ def _creature_note(e: dict, odds: dict) -> str | None:
         bits.append("fighting")
     o = odds.get(str(e.get("id"))) if isinstance(odds, dict) else None
     if isinstance(o, dict) and o.get("verdict"):
-        t = []
-        if o["verdict"] != "likely_win":  # the times matter when it is not an easy fight (line budget)
-            if _num(o.get("die_s")) is not None:
-                t.append(f"kills you ~{o['die_s']:g} s")
-            if _num(o.get("kill_s")) is not None:
-                t.append(f"you it ~{o['kill_s']:g} s")
+        t = _odds_times(o) if o["verdict"] != "likely_win" else []  # times matter in a hard fight (line budget)
         if _num(o.get("pl_gap")) and o["verdict"] != "likely_win":
             t.insert(0, f"PL +{o['pl_gap']:g}")
         bits.append(f"odds now: {ODDS_WORDS.get(o['verdict'], o['verdict'])}" + (f" ({'; '.join(t)})" if t else ""))
@@ -197,10 +198,8 @@ def _creature_note(e: dict, odds: dict) -> str | None:
             bits.append(f"immune to {', '.join(str(x) for x in imm)} effects (wiki)")
         p = o.get("prepared") if isinstance(o.get("prepared"), dict) else None
         if p and p.get("verdict"):
-            pt = [f"kills you ~{p['die_s']:g} s" if _num(p.get("die_s")) is not None else "",
-                  f"you it ~{p['kill_s']:g} s" if _num(p.get("kill_s")) is not None else ""]
             uses = ", ".join(str(u) for u in (p.get("uses") or []))
-            bits.append(f"odds prepared: {ODDS_WORDS.get(p['verdict'], p['verdict'])} ({'; '.join(x for x in pt if x)})"
+            bits.append(f"odds prepared: {ODDS_WORDS.get(p['verdict'], p['verdict'])} ({'; '.join(_odds_times(p))})"
                         + (f" with {uses}" if uses else " (nothing you own or can cast changes it)"))
     return ", ".join(bits) or None
 
@@ -486,6 +485,15 @@ def consumables(state: dict) -> list[str]:
             for k, r in consumable_rows(state)]
 
 
+QUEST_FIELDS = ("quest", "step", "detail", "hint", "counters")  # what of a quest row the brain shows
+
+
+def quest_rows(state: dict, limit: int = 8) -> list[dict]:
+    """The active quest rows of get_state.quests, each cut to QUEST_FIELDS (the digest and the Director share it)."""
+    q = state.get("quests") if isinstance(state.get("quests"), dict) else {}
+    return [{k: a[k] for k in QUEST_FIELDS if a.get(k)} for a in (q.get("active") or [])[:limit] if isinstance(a, dict)]
+
+
 def quests_line(state: dict, limit: int = 3) -> str | None:
     """'Quests: Rune Mysteries: <the current step in the game's words> (hint ...); 2 done' from get_state.quests
     (client_mod/scripts/quests.lua: {active: [{quest, step, detail, hint, counters}], complete, counts})."""
@@ -493,9 +501,7 @@ def quests_line(state: dict, limit: int = 3) -> str | None:
     if not q:
         return None
     parts = []
-    for a in (q.get("active") or [])[:limit]:
-        if not isinstance(a, dict):
-            continue
+    for a in quest_rows(state, limit):
         step = a.get("step") or "?"
         extra = [f"hint: {a['hint']}" if a.get("hint") else "",
                  ", ".join(f"{k} {v}" for k, v in list((a.get("counters") or {}).items())[:3])]
@@ -639,8 +645,11 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
 
     # hostiles first, then by distance (the nearest threat leads the line)
     # (a creature the body rates hard counts as a threat for the order: it must not be cut off the line)
-    def _hard(g):
-        return bool(g.note) and any(f"odds now: {w}" in g.note for w in ("much stronger", "a boss", "likely lose", "outnumbered"))
+    odds = state.get("fight_odds") if isinstance(state.get("fight_odds"), dict) else {}
+
+    def _hard(g):  # the body's own verdict for the group's nearest creature: anything but an easy win
+        o = odds.get(str(g.id))
+        return isinstance(o, dict) and bool(o.get("verdict")) and o["verdict"] != "likely_win"
     creatures = sorted(_group([t for t in things if t.kind == "creature"]),
                        key=lambda g: (not (g.hostile or _hard(g)), g.distance if g.distance is not None else 1e9))
     odds_note = (" (the body's odds, you alone: 'now' = as equipped; 'prepared' = with what you own and can cast;"

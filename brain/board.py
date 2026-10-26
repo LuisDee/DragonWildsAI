@@ -83,6 +83,12 @@ class Segment(BaseModel):
     tainted: list[str] = []  # item ids a nested chat command touched (left out)
 
 
+# The fields a plan gives a step (the Validator's output, a loop pass's copy, a re-planned pending step's update):
+# one list, so a new step field is threaded through every place at once.
+PLAN_FIELDS = ("title", "why", "hints", "success", "abort_if", "escape", "risk", "needs", "group", "wait",
+               "first_call")
+
+
 class Step(BaseModel):
     id: str = Field(default_factory=_id)
     title: str
@@ -680,10 +686,8 @@ class BoardOps:
         gained = sum(s.tally_gain for s in group if s.loop_iter == it) > 0 or P.grew(lp.last_measures, res.measures)
         lp.last_measures = dict(res.measures)
         lp.done += 1
-        t.steps.extend(Step(title=s.title, why=s.why, hints=s.hints, success=s.success, abort_if=s.abort_if,
-                            escape=s.escape, risk=s.risk, needs=s.needs, group=g, loop_iter=it + 1, wait=s.wait,
-                            first_call=s.first_call)
-                       for s in group if s.loop_iter == it)  # one pass of the group, in order
+        t.steps.extend(Step(**{f: copy.deepcopy(getattr(s, f)) for f in PLAN_FIELDS}, loop_iter=it + 1)
+                       for s in group if s.loop_iter == it)  # one pass of the group, in order (fresh runtime state)
         self.save()
         return "requeued", gained
 

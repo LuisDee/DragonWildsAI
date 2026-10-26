@@ -43,12 +43,13 @@ import jsonschema
 from . import item_stats
 from . import needs
 from . import predicates as P
-from .board import ENDED, WINDOW_NAME, BoardError, BoardOps, BoardStore, HourlyWindow, Loop, Step, Task, \
+from .board import ENDED, PLAN_FIELDS, WINDOW_NAME, BoardError, BoardOps, BoardStore, HourlyWindow, Loop, Step, Task, \
     apply_inbox_record
 from .capability_gaps import GapLog, default_path
 from .interface import Reason
 from .knowledge_memory import Efficiency, KnowledgeMemory, matches_unknown, recall
 from .llm_json import BudgetStop, DecisionError, extract_json, json_decision
+from .situation import quest_rows
 
 GAP_KINDS = ("action", "perception", "knowledge")
 RESEARCH_ROUNDS = 2  # wave 5: real Sonnet used every round it was given and batched 2-4 calls per round
@@ -65,6 +66,7 @@ PROXIED_READS = ("craft_plan", "recipes", "stations", "buildables")
 SPEND = {"run": 1.0, "uncounted_run": 0.25, "failed": 1.0, "decision": 1.0, "loop_no_gain": 2.0}
 NO_CURRENT_STEP = "no_current_step"  # report_step outside a board run
 BOARD_REFUSED = "board_refused"  # a board rule refused the tool (the reason is in data.detail)
+WAIT_CHECK_S = 10.0  # a wait step's test is re-checked at most this often (no get_state on every poll)
 WAIT_MAX_S = 1800.0  # a wait step whose test still fails after this is a failed attempt (the model replans)
 MAX_TRANSITIONS = 8  # per tick: a passed step or a landed decision starts the next one at once (no tick of dead time).
 # The bound only stops a tight loop; chat is checked between transitions and runs pump body events themselves.
@@ -391,8 +393,7 @@ def _compact_state(state: dict) -> dict:
                              for r in state["structures"][:15] if isinstance(r, dict)]
     q = state.get("quests") if isinstance(state.get("quests"), dict) else None
     if q:  # his quest log, the current step in the game's own words (client_mod/scripts/quests.lua)
-        out["quests"] = {"active": [{k: a.get(k) for k in ("quest", "step", "detail", "hint", "counters") if a.get(k)}
-                                    for a in (q.get("active") or [])[:8] if isinstance(a, dict)],
+        out["quests"] = {"active": quest_rows(state, 8),
                          "complete": list(q.get("complete") or [])[:30]}
     if state.get("following"):
         out["following"] = state["following"]
@@ -570,9 +571,9 @@ class Validator:
 
     def __init__(self, kind: str, state: dict, task: dict, items: P.Items | None = None, places: dict | None = None,
                  research_left: Callable[[], bool] = lambda: True, tools: set[str] | None = None,
-                 tool_args: dict[str, dict] | None = None):
+                 caps=None):
         self.tools = set(tools or ())  # his body tools (a first_call must name one)
-        self.tool_args = dict(tool_args or {})
+        self.caps = caps  # brain/capabilities.py: the body's own argument check (the gate a first call meets)
         self.kind, self.state, self.task = kind, state, task
         self.research_left = research_left  # unknown facts are worth an advisory only while he can still look
         self.places = places or {}
@@ -593,6 +594,25 @@ class Validator:
             errs.extend(NET_CONFLICT.format(where=where, item=i) for i in bad)
             return None
         return v
+
+    def _check_first_call(self, first: Any, where: str, errs: list[str]) -> dict | None:
+        """A step's first call: one of his tools, with arguments the body's own check accepts (caps.validate: the
+        same gate it meets when it runs), so the model hears now why it wouldn't run."""
+        if not isinstance(first, dict):
+            return None
+        tool = first.get("tool")
+        if not isinstance(tool, str) or (self.tools and tool not in self.tools):
+            errs.append(f"{where}.first_call: tool must be one of your tools ({tool!r} is not)")
+            return None
+        args = first.get("args") if isinstance(first.get("args"), dict) else {}
+        if self.caps is None or tool not in getattr(self.caps, "manifest", {}):
+            return {"tool": tool, "args": args}
+        try:
+            return {"tool": tool, "args": self.caps.validate(tool, args)}
+        except ValueError as exc:  # ManifestError is a ValueError
+            schema = (self.caps.manifest.get(tool) or {}).get("args")
+            errs.append(f"{where}.first_call args don't fit {tool}{_arg_list(schema)}: {str(exc)[:200]}")
+            return None
 
     def __call__(self, text: str, round_: int) -> tuple[dict, list[str]]:
         raw = json.loads(extract_json(text))
@@ -626,21 +646,7 @@ class Validator:
             if pred is None and s.get("success") is None:
                 errs.append(f"steps[{i}]: needs a success test")
             abort = self._pred(s.get("abort_if"), f"steps[{i}].abort_if", errs)
-            first = s.get("first_call") if isinstance(s.get("first_call"), dict) else None
-            if first is not None and (not isinstance(first.get("tool"), str) or
-                                      (self.tools and first["tool"] not in self.tools)):
-                errs.append(f"steps[{i}].first_call: tool must be one of your tools ({first.get('tool')!r} is not)")
-                first = None
-            if first is not None:
-                first = {"tool": first["tool"], "args": first.get("args") if isinstance(first.get("args"), dict) else {}}
-                schema = self.tool_args.get(first["tool"])
-                if schema:
-                    try:  # the body's own argument schema (the gate it will meet anyway): the model hears why now
-                        jsonschema.validate(first["args"], schema)
-                    except jsonschema.ValidationError as exc:
-                        errs.append(f"steps[{i}].first_call args don't fit {first['tool']}{_arg_list(schema)}: "
-                                    f"{exc.message[:200]}")
-                        first = None
+            first = self._check_first_call(s.get("first_call"), f"steps[{i}]", errs)
             if pred is None:
                 continue
             r = P.evaluate(pred, self.state, fresh)
@@ -652,12 +658,12 @@ class Validator:
             if r.passed is None:
                 errs.append(f"steps[{i}] '{s['title']}': its test can't be checked from what the body reports "
                             f"(missing: {', '.join(r.missing)}); choose a checkable test or name the gap")
-            steps.append({"title": str(s["title"])[:120], "why": str(s.get("why") or "")[:300],
-                          "hints": str(s.get("hints") or "")[:500], "success": pred, "abort_if": abort,
-                          "escape": s.get("escape"), "risk": s.get("risk") if s.get("risk") in ("fight", "trip") else None,
-                          "needs": [str(n) for n in s.get("needs") or []][:5], "group": s.get("group") or None,
-                          "wait": s.get("wait") is True, "first_call": first,
-                          "trivial": trivial})
+            row = {"title": str(s["title"])[:120], "why": str(s.get("why") or "")[:300],
+                   "hints": str(s.get("hints") or "")[:500], "success": pred, "abort_if": abort,
+                   "escape": s.get("escape"), "risk": s.get("risk") if s.get("risk") in ("fight", "trip") else None,
+                   "needs": [str(n) for n in s.get("needs") or []][:5], "group": s.get("group") or None,
+                   "wait": s.get("wait") is True, "first_call": first}
+            steps.append({**row, "trivial": trivial})
         out["steps"] = steps
         out["loops"] = {}
         for g, lp in (raw.get("loops") or {}).items():
@@ -694,13 +700,13 @@ class Director:
                  map_memory=None, skills=None, skills_registry=None, places: Callable[[], dict] | None = None,
                  per_hour: int | None = None, executor=None, clock: Callable[[], float] = time.time,
                  hides_start_goal: bool = False, build: str | None = None, items: P.Items | None = None,
-                 tool_args: dict[str, dict] | None = None):
+                 caps=None):
         self.port = port
         self.llm = llm
         self.name = name
         self.knowledge = knowledge
         self.body_tools = dict(body_tools or {})  # name -> description (the body's manifest, for the prompt)
-        self.tool_args = dict(tool_args or {})  # name -> the tool's argument JSON schema (the manifest's own)
+        self.caps = caps  # brain/capabilities.py: the manifest (argument names for the prompt) and its check
         self.budget = budget
         self.log = log
         self.clock = clock
@@ -738,6 +744,7 @@ class Director:
         self._review_at: dict[str, float] = {}
         self._last_results: dict[str, list] = {}
         self._report_note: dict[str, str] = {}
+        self._wait_checked: dict[str, float] = {}
 
     # ---------------------------------------------------------------- construction for the live session
 
@@ -755,9 +762,7 @@ class Director:
         tools = {n: (e.get("description") or "") for n, e in manifest.items() if e.get("llm") or n in PROXIED_READS}
         if not tools and caps is not None:
             tools = {n: "" for n in getattr(caps, "tools", [])}
-        args = {n: (manifest.get(n) or {}).get("args") for n in tools
-                if isinstance((manifest.get(n) or {}).get("args"), dict)}
-        d = cls(AgentPort(agent, player), llm, store.dir, name=name, knowledge=knowledge, body_tools=tools, tool_args=args,
+        d = cls(AgentPort(agent, player), llm, store.dir, name=name, knowledge=knowledge, body_tools=tools, caps=caps,
                 budget=budget, log=log, map_memory=getattr(agent, "map_memory", None), skills=skills,
                 skills_registry=store.skills, places=store.places,
                 hides_start_goal=True)  # wave 5 eval: with start_goal hidden Haiku put both long jobs on the board
@@ -1006,7 +1011,8 @@ class Director:
                 "places": copy.deepcopy(self.places()), "now": self.clock(), "body_tools": dict(self.body_tools)}
 
     def _messages(self, snap: dict) -> list[dict]:
-        tools = "\n".join(f"- {n}{_arg_list(self.tool_args.get(n))}: {d}"
+        manifest = getattr(self.caps, "manifest", None) or {}
+        tools = "\n".join(f"- {n}{_arg_list((manifest.get(n) or {}).get('args'))}: {d}"
                           for n, d in sorted(self.body_tools.items())) or "- (unknown)"
         system = SYSTEM.format(name=self.name, tools=tools, predicates=P.SCHEMA_DOC, output=OUTPUT_DOC)
         task = snap["task"]
@@ -1045,7 +1051,7 @@ class Director:
 
         validator = Validator(snap["kind"], snap["state"], snap["task"], self.items, places=snap.get("places"),
                               research_left=lambda: bool(research.tools()) and rounds[0] < RESEARCH_ROUNDS,
-                              tools=set(self.body_tools), tool_args=self.tool_args)
+                              tools=set(self.body_tools), caps=self.caps)
         with self._episode("director"):
             messages = self._messages(snap)
             self._log("prompt", component="director", model=getattr(self.llm, "model", "?"), decision=snap["kind"],
@@ -1147,7 +1153,7 @@ class Director:
         for s in v.get("steps", []):
             old = existing.get((s["title"], json.dumps(s["success"], sort_keys=True)))
             if old is not None:  # the same pending step again keeps its attempts; the new plan's details win
-                for f in ("why", "hints", "abort_if", "escape", "risk", "needs", "group", "trivial", "wait", "first_call"):
+                for f in (*PLAN_FIELDS, "trivial"):
                     setattr(old, f, s.get(f, getattr(old, f)))
                 old.prepared = old.prepared or kind == "prepare" or not old.risk
                 new_steps.append(old)
@@ -1191,6 +1197,9 @@ class Director:
         step = task.next_step()
         if step is None:
             return False
+        now = self.clock()
+        if step.status == "active" and step.wait and now - self._wait_checked.get(step.id, -1e18) < WAIT_CHECK_S:
+            return False
         state = self._fresh_state()
         places = self.places()
         r = None
@@ -1216,6 +1225,7 @@ class Director:
         return step.status != "active" or self.ops.b.awaiting_decision is not None
 
     def _wait(self, task: Task, step: Step, state: dict, r: P.Result | None) -> bool:
+        self._wait_checked[step.id] = self.clock()
         r = r or P.evaluate(step.success, state, self.ops.step_ctx(task, step, state, self.places()))
         if not step.segments and not step.runs:  # logged once: obs counts the stretch as waiting, not dead
             self._log("board_wait_start", task=task.id, step_id=step.id, step=step.title, until=r.detail)
@@ -1281,10 +1291,10 @@ class Director:
         self._in_run = True
         try:
             with self._episode("board"):
-                res = self._run_with_first_call(task, step, event, places)
+                res, state1 = self._run_with_first_call(task, step, event, places)
         finally:
             self._in_run = False
-        state1 = self._fresh_state()
+        state1 = state1 or self._fresh_state()
         recs = res.get("actions") or []
         board_recs = [x for x in recs if x.get("origin", "board") == "board"]
         fx = [(x, effects_of(x)) for x in board_recs]
@@ -1337,20 +1347,21 @@ class Director:
         if step.no_progress_runs >= 2:  # the DEPS trigger: the model replans with what happened
             self._fail_attempt(task, step, f"no progress: {r.detail}", r)
 
-    def _run_with_first_call(self, task: Task, step: Step, event: dict, places: dict) -> dict:
+    def _run_with_first_call(self, task: Task, step: Step, event: dict, places: dict) -> tuple[dict, dict | None]:
         """The plan's first call (if any, on the step's first run) runs at once; the step may already pass on it
-        (no Controller turn needed), else the Controller run carries on from its result."""
+        (no Controller turn needed), else the Controller run carries on from its result. Returns (the run's
+        result, the fresh state when the run ended with the check here, else None)."""
         call = step.first_call if step.runs == 0 and not step.uncounted_runs else None
         runner = getattr(self.port, "first_call", None)
         if not call or runner is None:
-            return self.port.run(event)
+            return self.port.run(event), None
         try:
             rec = runner(call)
         except Exception as exc:  # the step still runs through the Controller
             self._log("board_first_call_error", task=task.id, step_id=step.id, error=repr(exc)[:300])
-            return self.port.run(event)
+            return self.port.run(event), None
         if rec.get("skipped"):
-            return self.port.run(event)
+            return self.port.run(event), None
         self._log("board_first_call", task=task.id, step_id=step.id, tool=rec.get("tool"), ok=rec.get("ok"),
                   reason=rec.get("reason"))
         state = self._fresh_state()
@@ -1358,14 +1369,18 @@ class Director:
         spoke_for_job = any(s.status == "done" for s in task.steps)  # the job's first run is always voiced
         if rec.get("interrupt") or (r.passed is True and spoke_for_job and not event.get("tell_player")
                                     and not event.get("resumed") and not event.get("note")):
-            # nothing for the player to hear: the step passed on the plan's own call
-            return {"actions": [rec], "ended": "interrupted" if rec.get("interrupt") else "normal", "said": False}
+            # No-veto check (PRINCIPLES #2): the call that ran is the model's own (the Director's plan), it passed
+            # the Controller's gates, and the step is verified done from state; skipping the turn overrides no
+            # model decision. It only happens when there is nothing for the player to hear (single voice): the
+            # job's first step, a message to pass on, a resume or a note always get the Controller's turn.
+            return {"actions": [rec], "ended": "interrupted" if rec.get("interrupt") else "normal",
+                    "said": False}, state
         event["first_call_result"] = {k: rec.get(k) for k in ("tool", "args", "ok", "reason")} | {
             "data": {k: v for k, v in (rec.get("data") or {}).items() if k in ("detail", "item", "count", "gathered",
                                                                               "crafted", "missing", "why")}}
         event["step_progress"] = r.detail
         res = self.port.run(event)
-        return {**res, "actions": [rec] + list(res.get("actions") or [])}
+        return {**res, "actions": [rec] + list(res.get("actions") or [])}, None
 
     def _uncheckable(self, task: Task, step: Step, r: P.Result) -> None:
         self.gaps.from_uncheckable(r.missing, task=task.text, step=step.title)
@@ -1493,6 +1508,8 @@ class Director:
         for s in task.steps:
             self._last_results.pop(s.id, None)
             self._report_note.pop(s.id, None)
+        for s in task.steps:
+            self._wait_checked.pop(s.id, None)
         for d in (self._last_results, self._report_note):
             while len(d) > MAX_REMEMBERED:
                 d.pop(next(iter(d)))

@@ -99,7 +99,7 @@ class JobRig:
         self.director_llm = director_llm or FakeLLM(list(director_script), model="fake/director")
         self.director = D.Director(D.AgentPort(self.agent, PLAYER), self.director_llm, self.store.dir,
                                    body_tools={n: e["description"] for n, e in man.items()},
-                                   tool_args={n: e["args"] for n, e in man.items() if isinstance(e.get("args"), dict)},
+                                   caps=caps,
                                    log=director_log or self.log, hides_start_goal=hides_start_goal,
                                    executor=D.SyncExecutor(), clock=self.clock, places=self.store.places,
                                    knowledge=knowledge)
