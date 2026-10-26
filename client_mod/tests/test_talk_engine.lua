@@ -74,8 +74,10 @@ local TREE = {
 }
 local function sync()
     local p, n = G.part.props, TREE[G.node]
-    p.ConversationsActive = G.active and 1 or 0
-    G.comp.props.CurrentNPC = G.active and G.npc or nil
+    -- G.client_shape (live P2 2026-10-26): on Claude's client the counter stayed 0 and CurrentNPC unset while the
+    -- dialogue was up; only the input mode (DIM_ConversationUI) and LastMessage said so
+    p.ConversationsActive = (G.active and not G.client_shape) and 1 or 0
+    G.comp.props.CurrentNPC = (G.active and not G.client_shape) and G.npc or nil
     G.pc.props.CurrentInputMode = G.active and G.mode_conv or G.mode_play
     local options, rows = {}, {}
     if G.active and n then
@@ -163,6 +165,18 @@ do
     check("R4: the key for on-screen 2 was pressed", count("IA_ConversationOption2") == 1)
     check("R4: the sweep never cancelled the model's conversation", count("IA_Cancel") == 0)
     check("R6: counter proven by a real update", K.status().hook_count > 0)
+end
+
+-- live P2: the client's shape (counter 0, CurrentNPC unset, conversation input mode) is an open conversation
+do
+    reset(); G.on_key = on_key; G.client_shape = true; sync()
+    local sc = K.W.scalars(proxy(G.pc))
+    check("P2: conversation input mode with counter 0 -> active", sc.active == true and sc.by_mode == true and sc.npc == nil,
+          tostring(sc.active) .. " " .. tostring(sc.npc))
+    local res = talk({})
+    check("P2: read from the client shape", res.ok == true and res.data.in_conversation == true and #(res.data.lines or {}) >= 1,
+          tostring(res.reason) .. " " .. tostring(res.data and res.data.why))
+    G.client_shape = nil
 end
 
 -- R2 + R3: an orphan (no talk state) through the REAL input.gate: one Cancel per orphan_s, no recursion

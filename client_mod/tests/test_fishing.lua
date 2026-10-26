@@ -147,6 +147,11 @@ local function step_world(dt)
             if c.swim == 1 then want = Wd.invert and "left" or "right" elseif c.swim == 2 then want = Wd.invert and "right" or "left" else want = "reel" end
             local good = h[want]
             local any = h.left or h.right or h.reel
+            if c.swim ~= 0 then
+                Wd.swim_frames = (Wd.swim_frames or 0) + 1
+                if h.left or h.right then Wd.swim_pulls = (Wd.swim_pulls or 0) + 1 end
+                if h.reel then Wd.swim_reels = (Wd.swim_reels or 0) + 1 end
+            end
             c.reel = c.reel + (good and 0.12 or (any and -0.1 or -0.03)) * dt
             -- stamina as live (2026-10-26 trace): a wrong pull drains HIM fast and the fish barely
             c.me = math.max(0, (c.me or 1) - (good and 0.02 or (any and 0.12 or 0.01)) * dt)
@@ -377,6 +382,21 @@ do -- the game's pull directions are the other way round: the self-check swaps a
     local res = run({ count = 1 }, 600)
     check("rod inverted: ok", res.ok == true, tostring(res.reason) .. " " .. tostring(res.data and res.data.detail))
     check("rod inverted: landed after the reel-based swap", F.status().last and F.status().last.result.ok == true)
+end
+
+do -- pull_mode is applied to what is HELD (the live 2026-10-26 "none" run still pulled: the override came too late)
+    for _, mode in ipairs({ "none", "reel" }) do
+        reset({ inv = { ITEM_Rod_A = 1 }, nodes = { node("rod1", ROD_TAG, { X = 1000, Y = 0, Z = 0 }) } })
+        F.cfg.pull_mode = mode
+        run({ count = 1 }, 120)
+        F.cfg.pull_mode = "oppose"
+        check("pull_mode " .. mode .. ": no pull held while it swims", (Wd.swim_frames or 0) > 0 and (Wd.swim_pulls or 0) == 0,
+              tostring(Wd.swim_frames) .. " frames, " .. tostring(Wd.swim_pulls) .. " pulls")
+        if mode == "reel" then check("pull_mode reel: reel held through the swims", (Wd.swim_reels or 0) > 0, Wd.swim_reels) end
+    end
+    reset({ inv = { ITEM_Rod_A = 1 }, nodes = { node("rod1", ROD_TAG, { X = 1000, Y = 0, Z = 0 }) } })
+    run({ count = 1 }, 120)
+    check("pull_mode oppose: pulls while it swims", (Wd.swim_pulls or 0) > 0, Wd.swim_pulls)
 end
 
 do -- nothing bites: three waits, then a truthful no_bite (and the cancel input was used)

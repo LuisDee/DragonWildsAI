@@ -474,6 +474,24 @@ do
     local res = run_job({ resource = "rock", count = 3 }, 200)
     check("mine a stone rock", res.ok == true and res.data.gathered >= 3, tostring(res.reason) .. " " .. tostring(res.data and res.data.why))
     check("mining equipped the pickaxe", Wd.equips[1] == "ITEM_Pickaxe_Mithril", Wd.equips[1])
+    check("mining a boulder: the result names Mining", res.data and res.data.trains == "Mining", res.data and res.data.trains)
+end
+
+-- ================================================================ 11b. "stone" is ambiguous (live skill_routes 2026-10-26)
+do
+    local k1 = P.resolve("stone")
+    check("bare 'stone' is no single profile (boulder vs pickup)", k1 == nil, k1)
+    local cands = P.category and P.category("stone") or {}
+    local set = {}
+    for _, k in ipairs(cands) do set[k] = true end
+    check("'stone' as a kind: both the boulder and the loose stones", set.stone_boulder and set.loose_stones, table.concat(cands, ","))
+    check("stone_boulder / boulder / mine stone -> the boulder", P.resolve("stone_boulder") == "stone_boulder" and P.resolve("boulder") == "stone_boulder"
+          and P.resolve("mine stone") == "stone_boulder")
+    check("loose stones / pebbles -> the pickup", P.resolve("loose_stones") == "loose_stones" and P.resolve("pebbles") == "loose_stones")
+    check("a pickup never claims Mining", P.RESOURCES.loose_stones.trains == false and P.RESOURCES.stone_boulder.trains == "Mining")
+    for k, prof in pairs(P.RESOURCES) do
+        if prof.mode == "pickup" and prof.trains == "Mining" then check("pickup " .. k .. " claims Mining", false) end
+    end
 end
 
 -- ================================================================ 11a. floating rune essence is never walked at
@@ -497,7 +515,7 @@ do
           tostring(res.reason) .. " " .. tostring(res.data and res.data.why))
     check("essence: the reason says to knock it down first", tostring(res.data.detail):find("knocked down first", 1, true) ~= nil, res.data.detail)
     check("essence: lists the floating rocks", res.data.floating and #res.data.floating == 1 and res.data.floating[1].above_m == 5, res.data.floating and res.data.floating[1] and res.data.floating[1].above_m)
-    check("profile flag is data", P.RESOURCES.rune_essence.root.max_above_m ~= nil and P.RESOURCES.stone_rock.root.max_above_m == nil)
+    check("profile flag is data", P.RESOURCES.rune_essence.root.max_above_m ~= nil and P.RESOURCES.stone_boulder.root.max_above_m == nil)
 end
 
 -- ================================================================ 11b. a generic word ("ore"): resolved from game identifiers to the nearest node
@@ -533,15 +551,57 @@ do
     local res = run_job({ resource = "stones", count = 2 }, 120)
     check("pickup stones", res.ok == true and Wd.presses >= 2, tostring(res.reason) .. " " .. tostring(res.data and res.data.why) .. " presses=" .. Wd.presses)
     check("pickups need no tool", #Wd.equips == 0, #Wd.equips)
-    -- unknown item id (sticks): learned from the inventory gain
+    check("loose stones: the result says no XP (trains none)", res.data and res.data.trains == "none", res.data and res.data.trains)
+    -- unknown item id (flax has no item in its profile): learned from the inventory gain
     reset()
     fake_pc.Pawn = Wd.pawn
     for i = 1, 3 do
-        Wd.foliage[#Wd.foliage + 1] = { id = "fol:Br:" .. i, class = "BP_Spawner_AshBranch_01_C", _pos = { X = 400 * i, Y = -100, Z = 0 }, name = "Branch",
-                                        kind = "pickup", visible = true, item = "ITEM_Resources_Stick" }
+        Wd.foliage[#Wd.foliage + 1] = { id = "fol:Fx:" .. i, class = "BP_Spawner_Flax_C", _pos = { X = 400 * i, Y = -100, Z = 0 }, name = "Flax",
+                                        kind = "pickup", visible = true, item = "ITEM_Resources_Flax" }
     end
-    res = run_job({ resource = "sticks", count = 2 }, 120)
-    check("pickup sticks (item learned)", res.ok == true and res.data.item == "ITEM_Resources_Stick", tostring(res.reason) .. " item=" .. tostring(res.data and res.data.item))
+    res = run_job({ resource = "flax", count = 2 }, 120)
+    check("pickup flax (item learned)", res.ok == true and res.data.item == "ITEM_Resources_Flax", tostring(res.reason) .. " item=" .. tostring(res.data and res.data.item))
+end
+
+-- ================================================================ 12b. the first-axe bootstrap: ash logs from fallen branches
+local function branches(n)
+    for i = 1, n do
+        Wd.foliage[#Wd.foliage + 1] = { id = "fol:Br:" .. i, class = "BP_Spawner_AshBranch_01_C", _pos = { X = 400 * i, Y = -100, Z = 0 }, name = "Ash Logs",
+                                        kind = "pickup", visible = true, item = "ITEM_Resources_Wood_Ash" }
+    end
+end
+do
+    check("sticks profile counts Ash Logs", P.RESOURCES.sticks.item == "ITEM_Resources_Wood_Ash" and not P.RESOURCES.sticks.tool)
+    reset({ inv = {} }) -- no axe
+    fake_pc.Pawn = Wd.pawn
+    branches(3)
+    local res = run_job({ resource = "sticks", count = 2 }, 120)
+    check("sticks: Ash Logs counted, no tool", res.ok == true and res.data.item == "ITEM_Resources_Wood_Ash" and #Wd.equips == 0
+          and (Wd.inv.ITEM_Resources_Wood_Ash or 0) >= 2, tostring(res.reason) .. " item=" .. tostring(res.data and res.data.item))
+    -- "ash" with no axe and branches near: the same item from the branches, and the reply says so
+    reset({ inv = {} })
+    fake_pc.Pawn = Wd.pawn
+    add_foliage_tree("Ash", { X = 900, Y = 900, Z = 0 })
+    branches(3)
+    res = run_job({ resource = "ash", count = 2 }, 120)
+    check("no axe, 'ash': collected from branches", res.ok == true and res.data.source == "sticks" and res.data.asked == "ash" and #Wd.equips == 0,
+          tostring(res.reason) .. " source=" .. tostring(res.data and res.data.source))
+    check("the reply names the source and why", res.data and tostring(res.data.detail):find("from sticks", 1, true)
+          and tostring(res.data.detail):find("no usable", 1, true), res.data and res.data.detail)
+    -- with an axe: the tree, as asked (no fallback)
+    reset()
+    fake_pc.Pawn = Wd.pawn
+    add_foliage_tree("Ash", { X = 600, Y = 0, Z = 0 })
+    branches(3)
+    res = run_job({ resource = "ash", count = 2 }, 400)
+    check("with an axe, 'ash' chops the tree", res.ok == true and res.data.source == "ash" and res.data.asked == nil,
+          tostring(res.reason) .. " source=" .. tostring(res.data and res.data.source))
+    -- no axe and no branches: the truthful wrong_tool, unchanged
+    reset({ inv = {} })
+    fake_pc.Pawn = Wd.pawn
+    add_foliage_tree("Ash", { X = 600, Y = 0, Z = 0 })
+    local r0 = G.start(nil, { resource = "ash", count = 2 })
+    check("no axe, no branches: wrong_tool no_tool", r0.ok == false and r0.reason == "wrong_tool" and r0.data.why == "no_tool", r0.reason)
 end
 
 -- ================================================================ 13. pause / death / handler args

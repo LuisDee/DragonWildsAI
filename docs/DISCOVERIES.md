@@ -1979,3 +1979,25 @@ Quick fixtures, logged as quick and not M3 cases: Coarse Net and Ash Rod were gr
   3. **Steps tested only by elapsed time** ("Recover the gravestone", "Set vitals policy") passed although their tools failed. Fixed offline: the Validator now gives one advisory for a working step tested only by time (information; the model may keep it).
   4. **The first-axe bootstrap:** the answer is already in this file ("Ground gatherables", interact_probe 15:58 UTC). Ground "sticks" are `BP_Spawner_AshBranch_0x_C` with `ItemData = ITEM_Resources_Wood_Ash` ("Ash Logs"), prompt "Collect", and no tool is needed. But gather_profiles `sticks` still has item nil, so `gather ash` resolves to the trees (wrong_tool without an axe). For run 3, the body needs that profile item set, or the model must use interact/gather "sticks".
 - **obs task:** wall 183 s, idle 7%, longest idle 3.8 s. Lead-in 26 s (25 s of Sonnet thinking). Gaps p50 0.13 s, p90 0.56 s, all dead time, under 1 s each.
+
+## Live checks 2026-10-26 15:05–15:40 UTC (ClaudeDev, dev world, skills slot)
+
+- **Survival root cause:** at 15:06 hydration reached 0 and HP fell because he **carried no drink or food at all**. The stay-fed reflex was running (no error, nothing marked bad) but emitted nothing, since it only warned about bag-only items. The 14:59:37 "blocked: build Placement" event fell inside a live build, released at 14:59:39, so it was not the cause.
+  - Fix: `reflex no_drink`/`no_food` events. Seen live at 15:37:47: "no drink carried, hotbar or bag".
+  - Fix: a safety-floor exit from build/container screens, `input.leave_modal_step`.
+- **skill_routes, M3** (`logs/skills/routes_20261026-161533.json`): 0 passed, 4 failed, 8 skipped.
+  - **Loose stones give no Mining XP.** `gather stone` resolved to the ground pickup, returning "Got 2 stone" with Mining 3 → 3. The profiles are now split: `stone_boulder` (Mining) vs `loose_stones` (`trains=false`), and a bare "stone" resolves to the category.
+  - **Lock-on is a gameplay mode.** Combat's own lock-on puts the PC in `DIM_Gameplay_LockOnTargeting`; it was read as a blocking mode. `input.is_gameplay_mode` now accepts `DIM_Gameplay_*`.
+  - **Campfire targeting.** The craft at the Campfire failed: the interact focus kept picking an adjacent `BP_BM_Sapling_Ash_01_C` (handed to the capability agent).
+- **First-axe bootstrap, verified live:** `gather {resource:"ash", count:2}` with no axe collected 2 `ITEM_Resources_Wood_Ash` from `BP_Spawner_AshBranch_03_C` ("Collect", interact key, no tool, 5.7 s). The reply was "Got 2 ash from sticks (no usable logging axe for ash)". The fallback is profile data: the same item, a tool-free source, in range. Floor logs = these branch pickups; felled-tree logs still need an axe.
+- **Rod fight trace (Ash Rod, Brynmoor rod spot; 3 fights, all lost):**
+  - **Pulls do reach the minigame.** `FightingFishPlayerInputValues.PullingRodValue` reads ±1 matching the pressed direction.
+  - **While the fish swims (L/R):** the reel stays at 0.00; HIS stamina falls about 8.5 %/s and the fish's about 2.5 %/s.
+  - **While it rests (r) and he reels:** the reel rises about 14 %/s, the fish's stamina falls about 12 %/s, and his falls only about 2 %/s.
+  - **Outcome:** the reel peaks at 0.72–0.76 when the second swim starts, and his stamina reaches 0 about 16 s in, so he loses.
+  - **The earlier `pull_mode="none"` experiment was void:** the override was applied after the hold was set, so it still pulled. Fixed, and `pull_mode="reel"` was added. A real A/B is still pending: the one "none" try got junk, then the Goblin Runt killed him mid-fishing with the rod in hand (combat reflex: 4 presses, 0 hits).
+- **talk P2 (Wise Old Man FTUE):**
+  - **First try:** the dialogue DID open (`DIM_ConversationUI`, his first line in `LastMessage`), but `ConversationsActive` stayed 0 and `CurrentNPC` was unset on the client. talk therefore said "no conversation opened", leaving the panel up and the reflex blocked.
+  - **Fix:** the conversation input mode also counts as active.
+  - **Retry:** it opened, read 3 lines, and `hook_count` went 1 → 4 with content changes (counter proven). `leave` ended it (node inactive, no input owner left).
+  - **Options:** the node offers "Yes please [Begin Tutorial]" / "I can work it out [Skip Tutorial]". Both change quest state, so no "harmless choose" exists here; that is left for P3 on a fresh devchar. The reply's `options` list was empty while the node signature listed both (to check).

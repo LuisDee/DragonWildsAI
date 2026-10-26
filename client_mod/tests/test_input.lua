@@ -101,6 +101,15 @@ check("Oculus build menu blocks", (I.gate() or {}).mode == "DIM_OculusBuildMenu"
 T = 70; I.gate(); T = 75; I.gate()
 check("an input mode is never 'cleaned up' by guessing", #W.injected == 1)
 W.input_mode = "DIM_Gameplay"
+-- 6a. a gameplay VARIANT (lock-on, live skill_routes 2026-10-26) is gameplay: nothing blocks, a lookalike prefix does
+W.input_mode, W.injected = "DIM_Gameplay_LockOnTargeting", {}
+check("lock-on mode: no modal", I.modal() == nil and I.gate() == nil)
+check("lock-on mode: a reflex attack goes out", I.inject(attack) == true)
+W.input_mode = "DIM_GameplayMenu"
+check("a lookalike (DIM_GameplayMenu) still blocks", (I.gate() or {}).kind == "mode")
+check("is_gameplay_mode", I.is_gameplay_mode("DIM_Gameplay") and I.is_gameplay_mode("DIM_Gameplay_X") and not I.is_gameplay_mode(nil)
+      and not I.is_gameplay_mode("DIM_SpellcastingMode"))
+W.input_mode = "DIM_Gameplay"
 
 -- 6b. a conversation is its own kind: spells' "mode" doesn't pass it; talk's "conversation" does
 W.input_mode, W.injected = "DIM_ConversationUI", {}

@@ -582,7 +582,7 @@ This proves each route that the mock passes (tests/test_director_skills.py) on t
 | # | Skill | Call | Precondition | Risk / unknown |
 |---|---|---|---|---|
 | 1 | Woodcutting | `gather {resource: ash, count: 2}` | an axe; ash in reach | none (proven live) |
-| 2 | Mining | `gather {resource: stone, count: 2}` | a pickaxe; a boulder near | none (stone tier 1) |
+| 2 | Mining | `gather {resource: stone_boulder, count: 2}` | a pickaxe; a stone boulder near (not loose_stones: a pickup gives no Mining XP) | none (stone tier 1) |
 | 3 | Agility | `agility_course {}` (after `agility_courses`) | a course near, level ≥ its minimum | can it run a course |
 | 4 | Fishing | `fish {count: 1}` (after `fishing_spots`) | a net or rod that fits the spot | spot and tool fit |
 | 5 | Cooking | `craft {item: <a cooked food>}` at a Campfire | raw food carried; a lit campfire | campfire fuel |

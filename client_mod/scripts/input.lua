@@ -88,6 +88,11 @@ end
 -- DIM_OculusBuildMenu, ...): the game's own "which controls are live" switch. Anything but gameplay means
 -- the attack click does something else (casts, places, picks a menu entry).
 M.GAMEPLAY_MODE = "DIM_Gameplay"
+-- Gameplay VARIANTS (DIM_Gameplay_<x>, e.g. DIM_Gameplay_LockOnTargeting while locked on: live skill_routes
+-- 2026-10-26 15:1x, combat's own lock-on was read as "stuck in a non-gameplay mode") keep the gameplay controls.
+function M.is_gameplay_mode(im)
+    return type(im) == "string" and (im == M.GAMEPLAY_MODE or im:sub(1, #M.GAMEPLAY_MODE + 1) == M.GAMEPLAY_MODE .. "_")
+end
 function M.input_mode()
     if paused() then return nil end
     local pc = M.pc()
@@ -110,7 +115,7 @@ function M.modal()
         local npc = pc and U.short(U.try(function() return pc.ConversationComponent.CurrentNPC end))
         return { kind = "conversation", mode = im, npc = npc }
     end
-    if im and im ~= M.GAMEPLAY_MODE then return { kind = "mode", mode = im } end
+    if im and not M.is_gameplay_mode(im) then return { kind = "mode", mode = im } end
     return nil
 end
 

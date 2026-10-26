@@ -239,8 +239,13 @@ function W.scalars(pc)
     local comp, part = participant(pc)
     if not part then return { active = false, missing = true, count = HK().count } end
     local n = num(U.try(function() return part.ConversationsActive end)) or 0
-    return { active = n > 0, npc = U.short(U.try(function() return comp.CurrentNPC end)),
-             mode = U.short(U.try(function() return pc.CurrentInputMode end)), count = HK().count }
+    local mode = U.short(U.try(function() return pc.CurrentInputMode end))
+    -- live P2 (2026-10-26 15:34): the Wise Old Man's dialogue was OPEN (DIM_ConversationUI, his first line in
+    -- LastMessage) while this read said inactive, so talk reported "no conversation opened". The input mode is the
+    -- game's own "a conversation is up" switch (input.lua's modal kind uses it too): either signal counts.
+    local by_mode = type(mode) == "string" and mode:find("Conversation", 1, true) ~= nil
+    return { active = n > 0 or by_mode, by_mode = by_mode and n == 0 or nil, npc = U.short(U.try(function() return comp.CurrentNPC end)),
+             mode = mode, count = HK().count }
 end
 -- The dialogue panel of THIS player (finding 15): find_all + skip_defaults + valid + the participant matches;
 -- cached, re-validated per call.
@@ -536,7 +541,9 @@ local function frame(J)
     local ph = J.phase
     if ph == "episode" then
         -- opened? (checked first every tick: the episode must never press E a second time into the dialogue)
-        if sc.active and sc.npc == J.target.id then
+        -- CurrentNPC may be unset on the client: a dialogue that opened during OUR episode with no NPC named is
+        -- theirs (start refuses while one is already open: "already_talking")
+        if sc.active and (sc.npc == J.target.id or sc.npc == nil) then
             if J.ep and J.ep.moving then pcall(function() J.api.call("move", "stop") end) end
             J.ep = nil
             C().counts.talks = C().counts.talks + 1

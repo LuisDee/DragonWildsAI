@@ -14,6 +14,8 @@
 --   item_match = Lua pattern on item ids/names counted when `item` is nil
 --   aliases  = names the brain may use (lower case)
 --   mode     = "chop" (destructible chain, tool swings) | "pickup" (walk up, interact key)
+--   trains   = the skill whose XP this gather gives ("Woodcutting" / "Mining"), false = verified to give none,
+--              nil = not measured (shown to the model in the gather result; data, not logic)
 --   tool     = "axe" | "pickaxe" (weapons_data.lua `cat`); min_tier = fallback gate (the live gate on the
 --              actor / its class default object wins)
 --   root     = {class (FindAllOf class of the converted actor), match (pattern on the class word),
@@ -34,7 +36,7 @@ local function tree(species, min_tier, aliases, opts)
     opts = opts or {}
     local cls = opts.class_match or ("Tree_" .. species)
     return {
-        item = WOOD .. species, aliases = aliases, mode = "chop", tool = "axe", min_tier = min_tier,
+        item = WOOD .. species, aliases = aliases, mode = "chop", tool = "axe", min_tier = min_tier, trains = "Woodcutting",
         root = { class = "FellableTree", match = cls, exclude = opts.exclude or { "Sapling" }, foliage = true,
                  attack = "primary", reach_cm = 120 },
         settle = { class = "FelledTree", match = "FelledTree_" .. species, max_s = 10 },
@@ -51,15 +53,15 @@ end
 local function rock(match, item, aliases, verified, opts)
     opts = opts or {}
     return {
-        item = item, aliases = aliases, mode = "chop", tool = "pickaxe", min_tier = 1,
+        item = item, aliases = aliases, mode = "chop", tool = "pickaxe", min_tier = 1, trains = "Mining",
         root = { class = "DestructibleMiningRock", match = match, attack = "primary", reach_cm = 150, max_above_m = opts.max_above_m },
         children = {}, site_radius_cm = 600, collect_radius_cm = 900, verified = verified,
     }
 end
 
-local function pickup(match, item, aliases, verified)
+local function pickup(match, item, aliases, verified, opts)
     return {
-        item = item, aliases = aliases, mode = "pickup",
+        item = item, aliases = aliases, mode = "pickup", trains = (opts or {}).trains,
         root = { class = "BaseInteractableResource", match = match, foliage = true, reach_cm = 110 },
         children = {}, site_radius_cm = 400, collect_radius_cm = 400, verified = verified,
     }
@@ -75,8 +77,12 @@ M.RESOURCES = {
     maple = tree("Maple", 6, { "maple", "maple_log", "maple_logs", "maple logs" }, { verified = { foliage = true } }),
     yew = tree("Yew", 7, { "yew", "yew_log", "yew_logs", "yew logs" }, { class_match = "YewTree", verified = { foliage = true } }),
     -- Rocks (level actors on the client).
-    stone_rock = rock("OreNode_Stone", "ITEM_Resources_Stone", { "stone_rock", "rock", "rocks", "boulder", "mine stone" },
-                      { actor = true, gate = true }),
+    -- "stone" alone names BOTH stone_boulder (mined with a pickaxe: Mining XP) and loose_stones (picked off the
+    -- ground: NO Mining XP, live skill_routes 2026-10-26: "Got 2 stone", Mining 3 -> 3), so neither key is "stone":
+    -- a bare "stone" is the category (the nearest of either), and the model names the one it means.
+    stone_boulder = rock("OreNode_Stone", "ITEM_Resources_Stone", { "stone_rock", "stone boulder", "stone rock", "stone rocks", "rock",
+                                                                    "rocks", "boulder", "boulders", "mine stone", "mining stone" },
+                         { actor = true, gate = true }),
     -- up to 3 essence rocks FLOAT above a geyser (wiki "Rune Essence Geyser"): never walk at those; they are knocked
     -- down first (shoot / a spell), then mined. 1.2 m above his capsule centre is about 2 m above the ground he stands on.
     rune_essence = rock("RuneEssence", "ITEM_Rune_Essence", { "rune_essence", "rune essence", "essence" }, { actor = true, gate = true },
@@ -87,8 +93,12 @@ M.RESOURCES = {
     coal = rock("OreNode_Coal", "ITEM_Resources_Coal", { "coal" }, false),
     clay = rock("OreNode_Clay", "ITEM_Resources_Clay", { "clay" }, false),
     -- Ground pickups and bushes (foliage "PickUps" components; the interact key collects them).
-    stone = pickup("Spawner_Stone", "ITEM_Resources_Stone", { "stone", "stones", "pebble" }, { foliage = true }),
-    sticks = pickup("Spawner_AshBranch", nil, { "stick", "sticks", "branch", "branches", "twig", "twigs" }, { foliage = true }),
+    loose_stones = pickup("Spawner_Stone", "ITEM_Resources_Stone", { "loose stone", "loose stones", "ground stone", "ground stones",
+                                                                     "pebble", "pebbles" }, { foliage = true, no_mining_xp = true },
+                          { trains = false }),
+    -- fallen ash branches: ItemData ITEM_Resources_Wood_Ash ("Ash Logs"), "Collect", no tool (DISCOVERIES ground
+    -- gatherables, interact_probe 15:58 UTC): the first logs before any axe (gather falls back here from `ash`)
+    sticks = pickup("Spawner_AshBranch", WOOD .. "Ash", { "stick", "sticks", "branch", "branches", "twig", "twigs" }, { foliage = true }),
     flax = pickup("Spawner_Flax", nil, { "flax" }, { foliage = true }),
     mushroom = pickup("Spawner_Mushroom", nil, { "mushroom", "mushrooms", "bittercap" }, { foliage = true }),
     redberries = pickup("RedberryBush", nil, { "redberry", "redberries", "berries", "berry bush" }, { foliage = true }),
@@ -105,10 +115,17 @@ function M.resolve(name)
     if type(name) ~= "string" or name == "" then return nil end
     local q = name:lower():gsub("^%s+", ""):gsub("%s+$", "")
     if M.RESOURCES[q] then return q, M.RESOURCES[q] end
+    local by_item -- an item id several profiles share (ash logs: tree + branches): the TOOL source, deterministic;
+    -- gather itself falls back to the tool-free one when no usable tool is carried
     for key, p in pairs(M.RESOURCES) do
         for _, a in ipairs(p.aliases or {}) do if a == q then return key, p end end
-        if p.item and p.item:lower() == q then return key, p end
+        if p.item and p.item:lower() == q then
+            local better = not by_item or (p.tool and not M.RESOURCES[by_item].tool)
+                or ((p.tool ~= nil) == (M.RESOURCES[by_item].tool ~= nil) and key < by_item)
+            if better then by_item = key end
+        end
     end
+    if by_item then return by_item, M.RESOURCES[by_item] end
     local best, bk, bl = nil, nil, 0 -- the longest alias found in the phrase wins ("maple log" -> maple)
     for key, p in pairs(M.RESOURCES) do
         for _, a in ipairs(p.aliases or {}) do

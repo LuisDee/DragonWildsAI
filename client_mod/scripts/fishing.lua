@@ -58,7 +58,7 @@ M.cfg = {
     bite_wait_s = 45,
     fight_max_s = 90,
     swap_check_s = 1.0,                 -- pull-direction self-check window
-    pull_mode = "oppose",               -- "oppose" (wiki) | "none" (live experiment: don't pull while it swims)
+    pull_mode = "oppose",               -- "oppose" (wiki) | "none" (no input while it swims) | "reel" (reel through swims)
     result_wait_s = 6,
     lease_s = 5,
     decide_s = 0.1,
@@ -715,6 +715,11 @@ local function step_rod(J, pawn, pc, me)
         local sw = ({ [0] = "r", [1] = "L", [2] = "R" })[fs.swim or -1] or "?"
         if fl.swims[#fl.swims] ~= sw then fl.swims[#fl.swims + 1] = sw end
         local which = M.fight_input(fs.swim, J.swap)
+        -- pull_mode (live tuning): "oppose" = pull against the swim (wiki); "none" = no input while it swims;
+        -- "reel" = hold reel through the swims too. Applied BEFORE the hold is set (the 2026-10-26 "none" run
+        -- still pulled: the override came after J.hold, so that experiment was void).
+        if which ~= "reel" and M.cfg.pull_mode == "none" then which = nil
+        elseif which ~= "reel" and M.cfg.pull_mode == "reel" then which = "reel" end
         if J.t - (fl.trace_t or -1) >= 0.5 then -- a compact fight trace (live tuning; C().fights keeps the last 3)
             fl.trace_t = J.t
             fl.trace = fl.trace or {}
@@ -731,14 +736,13 @@ local function step_rod(J, pawn, pc, me)
         -- self-check the pull direction once: while pulling, the reel progress must not fall. (A stamina-drain rule
         -- was tried live 2026-10-26 and REJECTED: both directions drain him faster than the fish; the same-side pull
         -- drained ~30 %/s vs ~12 %/s for the opposite one, so the wiki's opposite pull is right.)
-        if which ~= "reel" and J.t - J.swap_t >= M.cfg.swap_check_s and not J.swap_checked then
+        if which and which ~= "reel" and J.t - J.swap_t >= M.cfg.swap_check_s and not J.swap_checked then
             if type(fs.reel) == "number" and type(J.reel0) == "number" and fs.reel < J.reel0 - 0.05 then
                 J.swap = not J.swap
                 say(J.log, "pull direction looked wrong (reel fell); swapping")
             end
             J.swap_checked = true
         end
-        if which ~= "reel" and M.cfg.pull_mode == "none" then which = nil end -- live experiment: let it run, reel at rest
         if J.t - J.fight_t > M.cfg.fight_max_s then
             J.hold = nil
             return fail(J, "timeout", "fight_too_long", "The fish fought me for too long and I lost track of it.")

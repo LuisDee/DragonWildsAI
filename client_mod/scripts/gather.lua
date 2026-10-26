@@ -956,7 +956,12 @@ local function frame(J)
     refresh_count(J)
     if J.done then return end
     if J.item and (J.gained or 0) >= J.want then
-        return finish(J, result_of(J, true, nil, { detail = string.format("Got %d %s.", J.gained, J.key) }))
+        local trains = J.profile and J.profile.trains
+        local v = J.via
+        local detail = v and string.format("Got %d %s from %s (no usable %s for %s).", J.gained, v.asked, J.key, v.tool_word, v.asked)
+            or string.format("Got %d %s.", J.gained, J.key)
+        return finish(J, result_of(J, true, nil, { detail = detail, source = J.key, asked = v and v.asked or nil,
+            trains = trains == false and "none" or trains })) -- the skill this gives XP (profile data; "none" = verified none)
     end
     local me = W.loc(pawn)
     J.me = me
@@ -1026,16 +1031,39 @@ function M.start(log, args, ctx)
     if type(list) ~= "table" or list.ok == false then return { ok = false, reason = "body_error", data = { detail = "inventory unreadable" } } end
     local tool
     local tools = (mcall("combat", "weapons") or {}).items or {}
+    -- No usable tool: the SAME item from a tool-free source (profile data: the same `item`, no `tool`) when one is
+    -- in range, e.g. ash logs from fallen branches (sticks) before the first axe (DISCOVERIES ground gatherables).
+    -- The result says which source was used and why (`source`, `asked`).
+    local via
+    local function tool_free_alternative()
+        if not (P and P.RESOURCES and profile.item) then return nil end
+        local me1 = W.loc(pawn)
+        local r_cm = math.min((tonumber(args.radius) or M.cfg.radius_m) * 100, M.cfg.max_radius_m * 100)
+        local best_k, best_p, best_d
+        for k, cand in pairs(P.RESOURCES) do
+            if k ~= key and not cand.tool and cand.item == profile.item then
+                local found = me1 and roots_near({ profile = cand, t = W.now(pawn) }, me1, r_cm) or {}
+                if found[1] and (not best_d or found[1].d < best_d) then best_k, best_p, best_d = k, cand, found[1].d end
+            end
+        end
+        return best_k, best_p
+    end
     if profile.tool then
         tool = M.best_tool(list, profile, tools)
+        local fail
         if not tool then
-            return { ok = false, reason = "wrong_tool", data = { why = "no_tool", resource = key, need = profile.tool,
+            fail = { ok = false, reason = "wrong_tool", data = { why = "no_tool", resource = key, need = profile.tool,
                      detail = string.format("I need a %s for %s and I don't have one.", tool_word(profile), key) } }
-        end
-        if (profile.min_tier or 1) > tool.tier then
-            return { ok = false, reason = "wrong_tool", data = { why = "tool_tier_too_low", resource = key, need_tier = profile.min_tier,
+        elseif (profile.min_tier or 1) > tool.tier then
+            fail = { ok = false, reason = "wrong_tool", data = { why = "tool_tier_too_low", resource = key, need_tier = profile.min_tier,
                      have_tier = tool.tier, detail = string.format("%s needs a tier %d %s; my best is my %s (tier %d).", key,
                      profile.min_tier, tool_word(profile), tool.name or "?", tool.tier) } }
+        end
+        if fail then
+            local ak, ap = tool_free_alternative()
+            if not ak then return fail end
+            via = { asked = key, source = ak, because = fail.data.why, tool_word = tool_word(profile) }
+            key, profile, tool = ak, ap, nil
         end
     end
     if list.empty_slots == 0 and M.count_in(list, profile.item) == 0 then
@@ -1070,7 +1098,7 @@ function M.start(log, args, ctx)
     c.counts.jobs = c.counts.jobs + 1
     local t = W.now(pawn)
     local tprof = tool and tools[tool.entry.item] or nil
-    J = { gen = c.gen, log = log, pc = pc, key = key, profile = profile, want = want, item = profile.item, token = token,
+    J = { gen = c.gen, log = log, pc = pc, key = key, profile = profile, want = want, via = via, item = profile.item, token = token,
           task_id = ctx and ctx.id, tool = tool, tool_profile = tprof, stumps = args.stumps == true or (args.stumps == nil and M.cfg.stumps),
           radius_cm = math.min((tonumber(args.radius) or M.cfg.radius_m) * 100, M.cfg.max_radius_m * 100),
           inv0 = counts_of(list), gained = 0, have = M.count_in(list, profile.item), t0 = t, t = t, phase_t = t,
@@ -1127,9 +1155,9 @@ do
     M.MANIFEST = {
         gather = { kind = "action", llm = true, moves = true, priority = "task", duration_s = 120, timeout_s = 1800,
             detail_is_speech = true,
-            description = "Harvest a resource (a profile key, e.g. oak, ash, stone) until you have count MORE; finds targets and equips your tool.",
+            description = "Harvest a resource (a profile key, e.g. oak, ash, copper, stone_boulder, loose_stones) until you have count MORE; finds targets and equips your tool. The result's `trains` names the skill it gave XP to (none = no XP).",
             args = { type = "object", required = { "resource", "count" }, properties = obj({
-                resource = { type = "string", description = "A resource (oak, copper, stone) or a kind (ore, rock, logs: the nearest of that kind)." },
+                resource = { type = "string", description = "A resource (oak, copper, stone_boulder = mine a stone boulder with a pickaxe, Mining XP; loose_stones = pick stones up off the ground, no XP) or a kind (ore, rock, logs, stone: the nearest of that kind)." },
                 count = { type = "integer", minimum = 1, description = "How many more." },
                 radius = { type = "number", minimum = 1, maximum = 120, description = "Search radius, m (default 30)." },
                 stumps = { type = "boolean", description = "Also chop stumps." },
