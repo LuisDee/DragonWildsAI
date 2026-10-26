@@ -34,6 +34,29 @@ def _save(d: dict) -> None:
     tmp.replace(STATE)
 
 
+RESERVE_S = 180   # a handed-off owner must `take` within this, else the slot moves on to the next in line
+
+
+def _handoff(d: dict, now: float) -> None:
+    """Give a free slot to the next queued owner as a short reservation (no one waits for attention)."""
+    while d.get("queue"):
+        nxt = d["queue"].pop(0)
+        d["holder"] = {"owner": nxt["owner"], "since": now, "until": now + RESERVE_S,
+                       "why": nxt.get("why", ""), "reserved": True}
+        return
+    d["holder"] = None
+
+
+def tick(d: dict, now: float) -> bool:
+    """Expired holder or unclaimed reservation -> hand off. Returns True if the holder changed."""
+    h = d.get("holder")
+    if h and h.get("until", 0) > now:
+        return False
+    before = (h or {}).get("owner")
+    _handoff(d, now)
+    return (d.get("holder") or {}).get("owner") != before
+
+
 def holder(d: dict, now: float | None = None) -> dict | None:
     h = d.get("holder")
     if h and h.get("until", 0) > (now or time.time()):
@@ -48,9 +71,12 @@ def main(argv: list[str] | None = None) -> int:
     t = sub.add_parser("take"); t.add_argument("owner"); t.add_argument("minutes", type=float); t.add_argument("--why", default="")
     r = sub.add_parser("release"); r.add_argument("owner")
     sub.add_parser("queue")
+    sub.add_parser("tick")
     e = sub.add_parser("enqueue"); e.add_argument("owner"); e.add_argument("--why", default="")
     a = ap.parse_args(argv)
     d, now = _load(), time.time()
+    if tick(d, now):
+        _save(d)
     h = holder(d, now)
     if a.cmd == "status":
         print(json.dumps({"holder": h, "free": h is None, "queue": d.get("queue", [])}))
@@ -67,9 +93,9 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "release":
         if h and h["owner"] == a.owner:
             d["holder"] = None
+            _handoff(d, now)
             _save(d)
-        nxt = (d.get("queue") or [None])[0]
-        print(json.dumps({"ok": True, "next": nxt}))
+        print(json.dumps({"ok": True, "holder": d.get("holder")}))
         return 0
     if a.cmd == "enqueue":
         q = d.get("queue", [])
@@ -80,6 +106,9 @@ def main(argv: list[str] | None = None) -> int:
         d["queue"] = q
         _save(d)
         print(json.dumps({"ok": True, "position": pos + 1}))
+        return 0
+    if a.cmd == "tick":
+        print(json.dumps({"holder": d.get("holder"), "queue": d.get("queue", [])}))
         return 0
     print(json.dumps(d.get("queue", [])))
     return 0
