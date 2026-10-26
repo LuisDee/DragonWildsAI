@@ -187,15 +187,7 @@ do
     check("R3: a recent conversation is not cancelled (offset clock)", count("IA_Cancel") == 0, count("IA_Cancel"))
     T = T + K.cfg.abandon_s + 5
     for _ = 1, 4 do I.gate(); T = T + 1.1 end
-    if count("IA_Cancel") == 0 and (_G.DWInput or {}).stuck == "conversation" then
-        -- input.lua counts its own orphan tries for the conversation kind and gives up while talk still says
-        -- "owned"; requested from its owner (capability agent): let talk bound the conversation cleanup itself
-        print("PENDING R5 via input.gate: input.lua marks the conversation stuck after its 3 tries (capability agent fix requested)")
-        local r = K.sweep_orphan(); T = T + 1.2; r = K.sweep_orphan(); pump(0.1)
-        check("R5: talk's own sweep closes the abandoned dialogue", count("IA_Cancel") >= 1 and G.active == false, count("IA_Cancel"))
-    else
-        check("R5: an abandoned dialogue is swept with the panel's Cancel", count("IA_Cancel") >= 1 and G.active == false, count("IA_Cancel"))
-    end
+    check("R5: an abandoned dialogue is swept with the panel's Cancel through input.gate", count("IA_Cancel") >= 1 and G.active == false, count("IA_Cancel"))
 end
 
 -- R5: pause mid-choose releases the claim and presses nothing more

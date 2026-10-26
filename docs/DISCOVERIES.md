@@ -1841,3 +1841,46 @@ Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probe
   - evidence = **telemetry**: `Client_TelemetryOnBuildingPieceComplete` is a Client RPC and its post-hook DOES fire.
   - Construction XP **+12** (not ConstructionXPOnBuild = 20: multipliers apply, as the review said).
   - Build mode was None afterwards.
+
+## Live checks: fishing, talk P1, talk P2 attempt (2026-10-26 09:00-09:28 UTC, dev world, client build 26162923, ClaudeDev; skills-coverage slot)
+Quick fixtures, logged as quick and not M3 cases: Coarse Net and Ash Rod were granted through `DevTarget.setup("grant")`.
+
+**Net fishing works end to end.**
+- `fish {count: 2, method: "net"}`: walked to the nearest net spot, equipped the Coarse Net, held the trawl once, and caught 2 Raw Shrimp. Fishing XP rose by 8 (the SkeletalComponent rows). Took 17.8 s.
+
+**Rod fishing is partly working.** Casting, the landing correction, bites and reeling work; fights are lost to stamina.
+- **Input modes.** With the rod in hand the PC sits in `DIM_SpellcastingMode` (the rod's cast is a magic-attack action). The bite/fight runs in `DIM_Fishing`.
+  - Both are this action's own input modes.
+  - Fix in fishing.lua: the tool's baseline mode, and any mode once fishing has begun, no longer gate our own hold. Build, container and conversation screens still block.
+  - Before this fix, every cast restarted ("cast N" loops), and one run ended with a false `screen_open`.
+- **Casting.**
+  - Charge 0.45 landed at 19.4 m; the model predicted 12.6 m.
+  - The learned correction settled at k ≈ 0.61–0.67 (`landed / predicted`), after which casts hit the node.
+  - `CastResult` values seen: Missed_HitWater (2) and Hit_ValidNode.
+- **Junk.** Junk (Weeds, Stone, Goblin Pack) arrives without a fight. A late junk item was once miscounted as a fish; now only `FishingResult == CaughtFish` counts as a fish.
+- **Fight trace** (fishing_status.fights):
+  - while the fish swims, his `PlayerStaminaFraction` falls about 12 %/s and the fish's only about 2 %/s;
+  - while it rests, holding `IA_Fishing_Reeling` moves ReelProgressFraction from 0 to about 0.74 in about 5 s, and the fish's stamina falls about 12 %/s;
+  - his stamina hits 0 at about 12 s, and the fish escapes.
+- **Pull experiments.**
+  - The same-side pull drained him about 30 %/s, so the opposite pull (wiki) is the right direction. A stamina-drain swap rule was tried and rejected.
+  - Pulling nothing at all drained him at the same ~12 %/s. So either the drain comes from the fight itself (Ash Rod = lowest tier; wiki: better rods drain less), or the injected `IA_FishingMiniGame_MoveLeft/Right` presses do not reach the minigame. **[UNVERIFIED which]**
+  - He now rests to 95 % stamina before each cast.
+- **Fishing XP.** It rose on escapes and junk too (+12 over one run with 0 fish).
+
+**Talk P1 (read-only, hooks registered).**
+- `ConversationComponent` = `BP_Components_PlayerConversation_C`. Its `DomConversationParticipant` lives on the PAWN (`...BP_PlayerCharacter_C_*.DomConversationParticipant`). Idle: ConversationsActive 0.
+- `WBP_Conversation_MainPanel_C` exists on the headless client: `ContinueInputAction = IA_UI_ContinueConversation`, `CancelInputAction = IA_UI_GenericBack`, 4 `OptionSelectInputActions`, `OptionSelectMappingContext = IMC_Conversation`.
+- With no conversation open, the panel's participant is unset. talk.lua now accepts an unset participant.
+- Both count-only hooks registered natively: `ConversationParticipantComponent:ClientUpdateConversation` and `PlayerConversationComponent:BP_HandleConversationUpdated`. The client stayed healthy.
+- Quests read: First Steps state 1 (Objective2), and the others Ungiven.
+- NPCs in relevance: `BP_NPC_WiseOldMan_FTUE_C_*`, `BP_NPC_Doric_FTUE_C_*`, Vannaka (`SkeletalMeshActor_*`), all with prompt "Talk".
+
+**Talk P2 blocked by perception.**
+- The census row for the Wise Old Man reports a position near the world origin (look distance 1865 m). His actor is at (61.3, 1873.6, -35.5) m, 8 m from Claude.
+- The shared interact episode, used by both `interact` and `talk`, walks toward that point (water_ahead / no_route) and times out without pressing E.
+- Reported to the capability agent (sense owner). No conversation opened; talk was disabled again after the attempt.
+
+**Starvation.**
+- ClaudeDev died of hunger and thirst at 09:24:08 UTC (sustenance and hydration 0) during this slot. He carried no edible food: the Raw Shrimp are not edible.
+- He respawned at the FTUE start area with 25/75 food and drink.

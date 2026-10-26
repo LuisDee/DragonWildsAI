@@ -47,6 +47,7 @@ M.cfg = {
     trawl_wait_s = 5,                   -- then wait this long for the catch to land in the bag
     trawl_stamina = 12,                 -- a trawl costs 10 stamina (wiki): wait below this
     stamina_wait_s = 20,
+    cast_stamina_frac = 0.95,           -- rod: rest to this fraction of max stamina before each cast
     charge_full_s = 3.0,                -- fallback for Settings.TimeToFullyChargeRod (live dev 2026-10-26: 3.0)
     launch_deg = 30,                    -- fallback for Settings.RodCastLaunchAngle (live: 30)
     gravity_cm = 980,
@@ -56,7 +57,8 @@ M.cfg = {
     misses_per_stand = 3,               -- then try another bank spot
     bite_wait_s = 45,
     fight_max_s = 90,
-    swap_check_s = 2.0,                 -- pull-direction self-check window
+    swap_check_s = 1.0,                 -- pull-direction self-check window
+    pull_mode = "oppose",               -- "oppose" (wiki) | "none" (live experiment: don't pull while it swims)
     result_wait_s = 6,
     lease_s = 5,
     decide_s = 0.1,
@@ -282,6 +284,7 @@ end
 function W.loc(a) return U.loc(a) end
 function W.dead(pawn) return U.try(function() return pawn.HealthComponent:IsDead() end) == true end
 function W.stamina(pawn) return num(U.try(function() return pawn.StaminaComponent:GetStamina() end)) end
+function W.stamina_max(pawn) return num(U.try(function() return pawn.StaminaComponent:GetMaxStamina() end)) end
 -- The fishing nodes the client knows about, as plain rows (no UObjects leave this function except `actor`).
 function W.nodes()
     local out = {}
@@ -621,6 +624,14 @@ local function step_rod(J, pawn, pc, me)
         return
     end
     if J.sub == "aim" then
+        -- the fight drains stamina and the fish escapes when it runs out (live 2026-10-26: reel 0.72 at 0 stamina):
+        -- like a player, rest to (nearly) full stamina before each cast
+        local st, mx = W.stamina(pawn), W.stamina_max(pawn)
+        if st and mx and mx > 0 and st < mx * M.cfg.cast_stamina_frac then
+            J.rest_t = J.rest_t or J.t
+            if J.t - J.rest_t < M.cfg.stamina_wait_s * 2 then return end
+        end
+        J.rest_t = nil
         local b, why, detail = spot_blocked(J)
         if b then
             if catches(J) > 0 then return finish(J, result_of(J, true, nil, { why = why, detail = detail .. string.format(" I caught %d first.", catches(J)) })) end
@@ -631,6 +642,7 @@ local function step_rod(J, pawn, pc, me)
         local dist = d2(me, J.spot.pos)
         local frac, pred = M.charge_for(dist, P)
         J.cast = { frac = frac, predicted = pred, want = dist, from = { X = me.X, Y = me.Y, Z = me.Z }, L = L }
+        J.c_cast = refresh_inv(J) -- this cast's own baseline: a late item from the previous result never counts here
         J.hold_until = J.t + frac * (J.set.full_s or M.cfg.charge_full_s)
         J.hold, J.hold_stop = { J.acts.primary }, J.hold_until -- starts on the next frame, ends on the exact frame
         J.casts = (J.casts or 0) + 1
@@ -683,7 +695,12 @@ local function step_rod(J, pawn, pc, me)
         return
     end
     if J.sub == "bite" then
-        if act == "fighting" then J.sub, J.fight_t, J.swap_t, J.reel0 = "fight", J.t, J.t, fs.reel; set_phase(J, "fight"); return end
+        if act == "fighting" then
+            J.sub, J.fight_t, J.swap_t, J.reel0 = "fight", J.t, J.t, fs.reel
+            J.swap, J.swap_checked = nil, nil
+            set_phase(J, "fight")
+            return
+        end
         if act == "none" then J.sub = "result"; J.wait_t = J.t; return end
         if J.t - J.wait_t > M.cfg.bite_wait_s then
             J.no_bites = (J.no_bites or 0) + 1
@@ -696,12 +713,35 @@ local function step_rod(J, pawn, pc, me)
         return
     end
     if J.sub == "fight" then
-        if act ~= "fighting" then J.hold = nil; J.sub, J.wait_t = "result", J.t; return end
+        J.fight_log = J.fight_log or { swims = {}, ticks = 0 }
+        local fl = J.fight_log
+        if act ~= "fighting" then
+            say(J.log, string.format("fight over after %.1f s: swims %s, swap %s, reel %s -> %s, my stamina %s, own mode %s",
+                J.t - (J.fight_t or J.t), table.concat(fl.swims, ""), tostring(J.swap), tostring(J.reel0), tostring(fs.reel),
+                tostring(fs.my_stamina), tostring(J.own_mode)))
+            J.fight_log = nil
+            J.hold = nil; J.sub, J.wait_t = "result", J.t; return
+        end
+        fl.ticks = fl.ticks + 1
+        local sw = ({ [0] = "r", [1] = "L", [2] = "R" })[fs.swim or -1] or "?"
+        if fl.swims[#fl.swims] ~= sw then fl.swims[#fl.swims + 1] = sw end
         local which = M.fight_input(fs.swim, J.swap)
-        local ia = J.set.inputs[which]
+        if J.t - (fl.trace_t or -1) >= 0.5 then -- a compact fight trace (live tuning; C().fights keeps the last 3)
+            fl.trace_t = J.t
+            fl.trace = fl.trace or {}
+            fl.trace[#fl.trace + 1] = string.format("%.1f %s %s r%.2f me%.2f fish%.2f", J.t - (J.fight_t or J.t), sw, which,
+                fs.reel or -1, fs.my_stamina or -1, fs.fish_stamina or -1)
+            if #fl.trace >= 60 then table.remove(fl.trace, 1) end
+            local c = C()
+            c.fights = c.fights or {}
+            c.fights[J.fight_t or 0] = fl.trace
+        end
+        local ia = which and J.set.inputs[which]
         J.hold = ia and { ia } or nil
         J.held_which = which
-        -- self-check the pull direction once: while pulling, the reel progress must not fall
+        -- self-check the pull direction once: while pulling, the reel progress must not fall. (A stamina-drain rule
+        -- was tried live 2026-10-26 and REJECTED: both directions drain him faster than the fish; the same-side pull
+        -- drained ~30 %/s vs ~12 %/s for the opposite one, so the wiki's opposite pull is right.)
         if which ~= "reel" and J.t - J.swap_t >= M.cfg.swap_check_s and not J.swap_checked then
             if type(fs.reel) == "number" and type(J.reel0) == "number" and fs.reel < J.reel0 - 0.05 then
                 J.swap = not J.swap
@@ -709,6 +749,7 @@ local function step_rod(J, pawn, pc, me)
             end
             J.swap_checked = true
         end
+        if which ~= "reel" and M.cfg.pull_mode == "none" then which = nil end -- live experiment: let it run, reel at rest
         if J.t - J.fight_t > M.cfg.fight_max_s then
             J.hold = nil
             return fail(J, "timeout", "fight_too_long", "The fish fought me for too long and I lost track of it.")
@@ -720,12 +761,18 @@ local function step_rod(J, pawn, pc, me)
         local c1 = refresh_inv(J)
         local g, n = M.gains(J.c_cast or J.inv0, c1)
         if res == "fish" or res == "junk" or n > 0 or J.t - J.wait_t > M.cfg.result_wait_s then
-            if res == "fish" or (res ~= "junk" and n > 0) then
+            if res == "fish" then
                 J.caught = (J.caught or 0) + 1; C().counts.catches = C().counts.catches + 1
                 say(J.log, "caught " .. tostring(fs.award or next(g) or "a fish"))
             elseif res == "junk" then
                 J.junk = (J.junk or 0) + 1; C().counts.junk = C().counts.junk + 1
                 say(J.log, "junk " .. tostring(fs.award or ""))
+            elseif res ~= "escaped" and n > 0 then
+                -- something landed but the game's verdict didn't say fish: never claimed as a fish
+                J.junk = (J.junk or 0) + 1; C().counts.junk = C().counts.junk + 1
+                local names = {}
+                for k in pairs(g) do names[#names + 1] = k end
+                say(J.log, "landed (no fish verdict) " .. table.concat(names, ","))
             elseif res == "escaped" then
                 J.escaped = (J.escaped or 0) + 1; C().counts.escaped = C().counts.escaped + 1
                 J.last_escape = { my_stamina = fs.my_stamina }
@@ -762,12 +809,24 @@ local function frame(J)
     if J.hold and J.hold_stop and J.t >= J.hold_stop then J.hold, J.hold_stop = nil, nil end
     if J.hold then
         local modal = W.gate()
+        -- the fishing action's OWN input mode (live 2026-10-26: holding the rod's primary switches the PC out of
+        -- DIM_Gameplay into the rod's aim/fight mode): a "mode" modal that appears once our hold has started, or
+        -- while the cast/bite/fight runs, belongs to this action; build/container/conversation still block
+        -- (live: with the rod in hand the PC sits in DIM_SpellcastingMode, the rod's cast is a magic-attack action):
+        -- the mode read right after the tool came out is the tool's own baseline mode
+        -- (live: the fight runs in yet another mode that lingers into the next aim): once fishing has begun, any
+        -- non-gameplay INPUT MODE is the rod's own; build / container / conversation screens still block
+        local own = modal and modal.kind == "mode" and (modal.mode == J.tool_mode or J.phase ~= "equip") -- fish AND fight (live: DIM_Fishing)
+        if own then
+            if J.own_mode ~= modal.mode then J.own_mode = modal.mode; say(J.log, "own input mode " .. tostring(modal.mode)) end
+            modal = nil
+        end
         if modal then
             J.gated = (J.gated or 0) + 1
             J.hold, J.hold_stop = nil, nil -- a held trawl / charge is dropped and re-run once the screen closes
             if J.sub == "trawl" and J.hold_until then J.hold_until = nil; J.trawls = math.max((J.trawls or 1) - 1, 0)
             elseif J.sub == "charge" then J.sub = "aim"; J.casts = math.max((J.casts or 1) - 1, 0) end
-            if J.gated == 1 then say(J.log, "input gated by " .. tostring(modal.kind)) end
+            if J.gated == 1 then say(J.log, "input gated by " .. tostring(modal.kind) .. " " .. tostring(modal.mode or modal.owner or "")) end
             if J.gated > 300 then
                 return fail(J, "interrupted", "screen_open", string.format("A %s screen is open, so I can't use my %s.",
                     tostring(modal.kind), tostring(J.tool and J.tool.name or "tool")))
@@ -776,8 +835,10 @@ local function frame(J)
         else
             J.gated = nil
             for _, ia in ipairs(J.hold) do if ia then W.inject(ia) end end
+            J.hold_frames = (J.hold_frames or 0) + 1
         end
     end
+    if not J.hold then J.hold_frames = nil end
     if J.cancel_frames then J.cancel_frames = J.cancel_frames - 1; if J.cancel_frames <= 0 then J.cancel_frames = nil; J.hold = nil end end
     if J.t - (J.dec_t or -1) < M.cfg.decide_s then return end
     J.dec_t = J.t
@@ -795,7 +856,9 @@ local function frame(J)
             math.floor(J.timeout_s / 60), catches(J), J.want))
     end
     if catches(J) >= J.want then
-        return finish(J, result_of(J, true, nil, { detail = string.format("Caught %d at the %s.", catches(J), tostring(J.spot.name or "fishing spot")) }))
+        local what = string.format("%d fish", J.caught or 0)
+        if (J.junk or 0) > 0 then what = what .. string.format(" and %d junk (no XP for junk)", J.junk) end
+        return finish(J, result_of(J, true, nil, { detail = string.format("Caught %s at the %s.", what, tostring(J.spot.name or "fishing spot")) }))
     end
     local me = W.loc(pawn)
     if not me then return end
@@ -808,6 +871,8 @@ local function frame(J)
             end
             J.acts = W.actions(pawn)
             if not (J.acts and J.acts.primary) then return fail(J, "body_error", "no_input", "I can't find my use-item input.") end
+            local m0 = W.gate()
+            if m0 and m0.kind == "mode" then J.tool_mode = m0.mode; say(J.log, "tool input mode " .. tostring(m0.mode)) end
             set_phase(J, "fish", J.method)
             J.sub = "approach"
         end
@@ -953,7 +1018,11 @@ function M.status()
                escaped = J.escaped, casts = J.casts, trawls = J.trawls, want = J.want, swap = J.swap, held = J.held_which,
                phase_log = J.phase_log, age_s = J.t and r1(J.t - J.t0) }
     end
-    return { ok = true, job = js, last = c.last, counts = c.counts, learned = c.learned, lines = c.lines }
+    local fights = {}
+    for t, tr in pairs(c.fights or {}) do fights[#fights + 1] = { t = t, trace = tr } end
+    table.sort(fights, function(a, b) return a.t > b.t end)
+    while #fights > 3 do table.remove(fights) end
+    return { ok = true, job = js, last = c.last, counts = c.counts, learned = c.learned, lines = c.lines, fights = fights }
 end
 
 -- ------------------------------------------------------------------ read tool + perception

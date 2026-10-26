@@ -264,7 +264,13 @@ end
 function W.panel(pc)
     local _, part = participant(pc)
     local c = C()
-    local function mine(p) return U.valid(p) and (part == nil or same(U.try(function() return p.DomConversationParticipant end), part)) end
+    -- live P1 (2026-10-26): with no conversation the panel's participant is unset; accept an unset one (one panel per
+    -- client), reject only a panel bound to ANOTHER participant
+    local function mine(p)
+        if not U.valid(p) then return false end
+        local pp = U.try(function() return p.DomConversationParticipant end)
+        return part == nil or not U.valid(pp) or same(pp, part)
+    end
     if c.panel and mine(c.panel) then return c.panel end
     c.panel = nil
     for _, p in ipairs(U.find_all(M.cfg.panel_class, { skip_defaults = true }) or {}) do

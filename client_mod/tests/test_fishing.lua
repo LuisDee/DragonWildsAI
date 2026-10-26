@@ -137,7 +137,7 @@ local function step_world(dt)
                 end
             end
         elseif c.activity == 2 then
-            if Wd.bite_at and T >= Wd.bite_at then c.activity, c.changed_t, c.reel, Wd.swim_t = 3, T, 0, T end
+            if Wd.bite_at and T >= Wd.bite_at then c.activity, c.changed_t, c.reel, Wd.swim_t, c.me, c.fish = 3, T, 0, T, 1, 1 end
             if h.cancel then c.activity, c.changed_t = 0, T end
         elseif c.activity == 3 then
             -- swim cycle: left 1.5 s, right 1.5 s, resting 1.5 s
@@ -148,6 +148,10 @@ local function step_world(dt)
             local good = h[want]
             local any = h.left or h.right or h.reel
             c.reel = c.reel + (good and 0.12 or (any and -0.1 or -0.03)) * dt
+            -- stamina as live (2026-10-26 trace): a wrong pull drains HIM fast and the fish barely
+            c.me = math.max(0, (c.me or 1) - (good and 0.02 or (any and 0.12 or 0.01)) * dt)
+            c.fish = math.max(0, (c.fish or 1) - (good and 0.06 or 0.01) * dt)
+            if c.me <= 0 then c.reel = -1 end
             if c.reel >= 0.3 then
                 c.activity, c.result, c.changed_t = 0, 2, T
                 grant("ITEM_Fish_Herring"); after_catch(Wd.fight_node)
@@ -174,6 +178,7 @@ W.pawn = function(pc) return pc and not Wd.pawn.dead and Wd.pawn or nil end
 W.loc = function(p) return { X = p.pos.X, Y = p.pos.Y, Z = p.pos.Z } end
 W.dead = function() return Wd.pawn.dead end
 W.stamina = function() return Wd.pawn.stamina end
+W.stamina_max = function() return 100 end
 W.nodes = function()
     local out = {}
     for _, n in ipairs(Wd.nodes) do
@@ -197,7 +202,7 @@ W.gate = function() return Wd and Wd.modal or nil end
 W.face = function(_, yaw) Wd.pawn.yaw = yaw end
 W.comp = function() return Wd.comp end
 W.fstate = function(c) return { activity = c.activity, cast = c.cast, result = c.result, swim = c.swim, reel = c.reel, hit = c.hit,
-                               session = c.session, changed_t = c.changed_t } end
+                               session = c.session, changed_t = c.changed_t, my_stamina = c.me, fish_stamina = c.fish } end
 W.settings = function() return { full_s = 1.0, inputs = { left = IA.left, right = IA.right, reel = IA.reel, cancel = IA.cancel } } end
 W.held_level = function() return TOOLS[Wd.held or ""] and TOOLS[Wd.held].pl or nil end
 -- go_to / status / stop through fake_move (the module's own W.go_to calls mcall("move"...), set_modules covers it)
@@ -328,7 +333,7 @@ do
     check("net: xp reported", res.data.xp and res.data.xp.Fishing and res.data.xp.Fishing.xp == 75, res.data.xp and res.data.xp.Fishing and res.data.xp.Fishing.xp)
     check("net: stood in the spot", d2(Wd.pawn.pos, Wd.nodes[2].pos) <= 150)
     check("net: arbiter released", A.owner() == nil)
-    check("net: detail is a sentence", type(res.data.detail) == "string" and res.data.detail:find("Caught 3", 1, true) ~= nil, res.data.detail)
+    check("net: detail is a sentence", type(res.data.detail) == "string" and res.data.detail:find("Caught 3 fish", 1, true) ~= nil, res.data.detail)
 end
 
 do -- the spot is fished out after one catch: ok with what he got, truthful sentence
@@ -371,7 +376,7 @@ do -- the game's pull directions are the other way round: the self-check swaps a
     reset({ inv = { ITEM_Rod_A = 1 }, nodes = { node("rod1", ROD_TAG, { X = 1000, Y = 0, Z = 0 }) }, invert = true })
     local res = run({ count = 1 }, 600)
     check("rod inverted: ok", res.ok == true, tostring(res.reason) .. " " .. tostring(res.data and res.data.detail))
-    check("rod inverted: swap learned", F.status().last and F.status().last.result.ok == true)
+    check("rod inverted: landed after the reel-based swap", F.status().last and F.status().last.result.ok == true)
 end
 
 do -- nothing bites: three waits, then a truthful no_bite (and the cancel input was used)
@@ -424,6 +429,19 @@ do
     local res2
     pump(120, function() res2 = r.pending.poll(); return res2 ~= nil end)
     check("gated: resumes once the screen closes", res2 and res2.ok == true, res2 and res2.reason)
+end
+
+-- ================================================================ the rod's own input mode (live bug 2026-10-26)
+do
+    reset({ inv = { ITEM_Rod_A = 1 }, nodes = { node("rod1", ROD_TAG, { X = 1000, Y = 0, Z = 0 }) } })
+    -- holding the rod's primary puts the PC in the rod's own input mode; it must not gate our own hold
+    local base_gate = W.gate
+    -- live: with the rod in hand the PC is in the spellcasting mode all the time, before any press
+    W.gate = function() if Wd.held == "ITEM_Rod_A" then return { kind = "mode", mode = "DIM_SpellcastingMode" } end return Wd.modal end
+    local res = run({ count = 1 }, 600)
+    W.gate = base_gate
+    check("own mode: the rod still catches", res.ok == true, tostring(res.reason) .. " " .. tostring(res.data and res.data.detail))
+    check("own mode: casts not restarted endlessly", (res.data.casts or 0) <= 4, res.data.casts)
 end
 
 -- ================================================================ read tool, extras, contract
