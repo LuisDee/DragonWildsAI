@@ -117,7 +117,12 @@ $script:bootFails = 0
 $script:inWorldPid = $null   # pid a probe last saw in the world (ends the boot grace early)
 function Recover-Client([string]$why, [switch]$Kill, $proc) {
     if (Get-ClientHold) { return }
-    if (-not (Allow-Restart $why)) { return }
+    if (-not (Allow-Restart $why)) {
+        # BUGS L38: a crashed process sits in UE4SS's crash MessageBox forever; always kill it, the rate limit
+        # only gates the relaunch (a dead client must never look alive to the hang detector).
+        if ($Kill -and $why -eq 'crash') { Stop-Client "$why (rate-limited: no relaunch)" }
+        return
+    }
     if ($Kill) {
         if ($why -eq 'hang' -and $proc) { $s = Save-Stack $proc $why; if ($s) { Ev 'hang_stack' @{ file = $s } } }
         Stop-Client $why

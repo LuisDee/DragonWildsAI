@@ -1001,6 +1001,16 @@ do
     A.reset(nil)
 end
 
+-- ================================================================ 10d2. BUGS L39: idle "Breathe" animations are not a breath attack
+do
+    local kb = Cm.ability_profile("DAA_Kebbit_Breathe_01_C")
+    local dr = Cm.ability_profile("DAA_Deer_Breathe_01_C")
+    local pb = Cm.ability_profile("DAA_DragonVelgar_PoisonBreath_Front_C")
+    check("L39: a Kebbit's Breathe is idle (no threat)", kb and kb.kind == "idle" and not kb.threat, kb and kb.kind)
+    check("L39: a Deer's Breathe is idle", dr and dr.kind == "idle" and not dr.threat, dr and dr.kind)
+    check("L39: Velgar's PoisonBreath is still a breath cone (front, a threat)", pb and pb.kind == "breath_cone" and pb.threat and pb.side == "front", pb and pb.kind)
+end
+
 -- ================================================================ 10e. poisoned mid-fight: read the status (properties), use a cure from the wiki data
 reset_world()
 do

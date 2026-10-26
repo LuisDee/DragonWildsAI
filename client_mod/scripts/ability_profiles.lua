@@ -10,7 +10,9 @@
 --   reach_m   how far it reaches from the creature (prior); jumpable = false: not answered with a jump
 --   hazards   hazard_profiles names it leaves on the ground: combat takes the hazard census only after such an action
 return {
-    order = { "PoisonBreath", "Breath", "EarthSpikes", "Spikes", "MeteorStrike", "Meteor", "Reposition", "Intro", "Death", "Idle" },
+    -- (BUGS L39: "Breathe" is a creature's idle breathing animation, DAA_Kebbit_Breathe_01_C / DAA_Deer_Breathe_01_C;
+    -- it must win over "Breath" or every idle Kebbit reads as a breath attack)
+    order = { "PoisonBreath", "Breathe", "Breath", "EarthSpikes", "Spikes", "MeteorStrike", "Meteor", "Reposition", "Intro", "Death", "Idle" },
     PoisonBreath = { kind = "breath_cone", threat = true, impact_s = 1.2, aoe = true, unblockable = true, reach_m = 18, jumpable = false,
                      blocked_by_shield_tag = "AntiDragon", status = "Poison",
                      hazards = { "ground_projectile", "poison_cloud" } },
@@ -26,5 +28,6 @@ return {
     Intro        = { kind = "cinematic", threat = false },
     Death        = { kind = "cinematic", threat = false },
     Idle         = { kind = "idle", threat = false },
+    Breathe      = { kind = "idle", threat = false },
     sides = { Front = "front", Left = "left", Right = "right" },
 }
