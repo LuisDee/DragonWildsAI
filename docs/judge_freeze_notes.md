@@ -1,6 +1,16 @@
 # Judge-file changes since 899c88f, for Luis's sign-off at the judge tag
 
-## Open decisions for Luis at the freeze
+## Decisions taken (Luis 2026-10-26 ~16:20: "The answer is always yes" / stop asking)
+- Test-player chat via speech_direct on dev: YES (behind the 8-check proof).
+- mining_run_home_chest: option (a), keep as written (Crate or Ash Chest both count).
+- farm_and_process_crop: option (b), start from a snapshot with recipes and quests unlocked but nothing built.
+- Vel'gar prep: option (a), Attack 11 / Tempest Shield is part of his own preparation; the curriculum's Attack milestone goes to 11.
+- Pedestal trick: allowed if he finds it himself; never taught or scripted.
+- Voice gate: k=17 for the GOAL measurement, MET = k-mean >= 0.8; k=3 for A/B screening.
+- obs.py joins the frozen judge paths at the tag.
+- Pin the GOAL draft cases and freeze at a `goal-judge-YYYYMMDD` tag once the eval agent says the bench files are settled. Luis then re-sets /goal against the tag.
+
+## Open decisions for Luis at the freeze (now decided, above)
 - **Long-task feasibility from a fresh character (the Director's precondition audit):**
   - mining_run_home_chest: no chest piece is unlocked on dev and no data says how one unlocks. Options: find the unlock; accept any storage container he built; or a declared gap until confirmed live.
   - farm_and_process_crop: from scratch it needs the Growing Pains quest, flax and a Spinning Wheel, clay, granite, iron bars and fire runes, which is realistically 4-6 h, not the 7200 s wall. Options: raise wall_s, or start from a snapshot where the recipes are unlocked but nothing is built (he still builds the plot and the stations himself).
