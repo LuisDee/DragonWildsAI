@@ -131,6 +131,34 @@ do
     check("gate still works after", I.gate() == nil)
 end
 
+-- 6d. talk disabled (V2): an orphan conversation is left with the panel's own Cancel (bounded, counted per press)
+do
+    local part = uobj("ConversationParticipantComponent /Game/L.L:PersistentLevel.PC.Participant")
+    local conv_cancel = uobj("InputAction /Game/IA_Conversation_Cancel.IA_Conversation_Cancel")
+    pc.ConversationComponent = { DomConversationParticipant = part }
+    local panel = uobj("ConversationMainPanel /Engine/Transient.ConversationMainPanel_1", { DomConversationParticipant = part, CancelInputAction = conv_cancel })
+    local fa0 = FindAllOf
+    FindAllOf = function(c) if c == "ConversationMainPanel" then return { panel } end return fa0(c) end
+    local presses = 0
+    local inj0 = eis.InjectInputVectorForAction
+    eis.InjectInputVectorForAction = function(_, a)
+        W.injected[#W.injected + 1] = a
+        if a == conv_cancel then presses = presses + 1; if presses >= 2 then W.input_mode = "DIM_Gameplay" end end
+    end
+    _G.DWInput = nil
+    I = assert(loadfile(root .. "/client_mod/scripts/input.lua"))()
+    I.clock = function() return T end
+    W.input_mode, W.injected = "DIM_ConversationUI", {}
+    for i = 1, 10 do T = 300 + i * 1.1; I.gate() end
+    check("talk off: orphan conversation left with the panel's own Cancel, then the gate opens", presses == 2 and I.gate() == nil, presses)
+    -- the real leave step used by interact
+    W.input_mode = "DIM_ConversationUI"
+    check("leave_conversation_step presses the panel's Cancel", I.leave_conversation_step() == true and W.injected[#W.injected] == conv_cancel)
+    W.input_mode = "DIM_Gameplay"
+    check("leave_conversation_step: nothing open -> no press", I.leave_conversation_step() == false)
+    FindAllOf, eis.InjectInputVectorForAction = fa0, inj0
+end
+
 -- 7. pause: no game call at all
 _G.DW_PAUSE = true
 W.mode, W.injected = 2, {}

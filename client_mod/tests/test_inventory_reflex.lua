@@ -13,6 +13,7 @@ local function copy(rel)
     local f = assert(io.open(dir .. rel, "wb")); f:write(src); f:close()
 end
 copy("/mod/body/util.lua"); copy("/client_mod/scripts/dkjson.lua")
+copy("/client_mod/scripts/input.lua") -- the REAL modal gate (L32 integration)
 
 -- ---------------------------------------------------------------- fake engine
 local function trivial() -- what UE4SS returns for a property the object lacks: non-nil, invalid
@@ -123,13 +124,26 @@ check(#S.presses == 1 and S.presses[1] == "Pumpkin Spice Infusion", "thirsty: on
 check(S.hyd == 70, "hydration rose to 70")
 check(R.pending == nil and not next(R.bad), "use verified ok, nothing marked bad")
 
--- 3. a drink that does not raise the stat is marked bad after one press, never pressed again
+-- 3. a drink that never raises the stat is marked bad after bad_after (3) failed uses, never pressed again
 S.presses, S.hyd = {}, 10
 S.effect[DATA.tea:GetFullName()] = nil
 R.last = {}
-for _ = 1, 6 do R.tick_fn(nil); R.last.drink = nil end
-check(#S.presses == 1, "no-effect drink pressed once only (got " .. #S.presses .. ")")
+for _ = 1, 10 do R.tick_fn(nil); R.last.drink = nil end
+check(#S.presses == 3, "no-effect drink pressed bad_after=3 times only (got " .. #S.presses .. ")")
 check(R.bad["ITEM_Consumable_Tea_Pumpkin"] == true, "no-effect drink marked bad")
+
+-- 3b. BUGS L32: ONE failed use (pressed while busy) never gives up a good drink: the next try drinks
+I.reflex_start(nil, { verify_s = 0 })
+R = _G.DWFedReflex
+S.presses, S.hyd, R.last = {}, 10, {}
+S.effect[DATA.tea:GetFullName()] = nil -- the first press does nothing (busy)
+R.tick_fn(nil) -- press 1 (no effect)
+S.effect[DATA.tea:GetFullName()] = { "hyd", 60 }
+R.last.drink = nil
+R.tick_fn(nil) -- verify press 1 (failed: a strike) and press 2 (works)
+R.tick_fn(nil) -- verify press 2 (ok)
+check(#S.presses == 2 and S.hyd >= 60, "L32: retried after one miss and drank (presses " .. #S.presses .. ", hyd " .. S.hyd .. ")")
+check(not R.bad["ITEM_Consumable_Tea_Pumpkin"] and not (R.strikes or {})["ITEM_Consumable_Tea_Pumpkin"], "L32: not marked bad; strikes cleared by the success")
 
 -- 4. food only in the bag: no press, no InventoryUIAPI call (bag path disabled), a warning event
 I.reflex_start(nil, { verify_s = 0 }) -- restart clears bad marks
@@ -194,6 +208,23 @@ do
     R.tick_fn(nil)
     check(#S.presses == 1, "modal closed: drinks")
     I._input_gate = g0
+end
+
+-- L32 integration: the REAL input.lua gate over the fake PC: gameplay -> drinks; a conversation input mode -> nothing
+do
+    hotbar_items = { item(DATA.tea, 48) }; refresh()
+    S.effect[DATA.tea:GetFullName()] = { "hyd", 60 }
+    I.reflex_start(nil, { verify_s = 0 })
+    R = _G.DWFedReflex
+    _G.DWInput = nil
+    pc.CurrentInputMode = obj("DataAsset /Game/Input/DIM_ConversationUI.DIM_ConversationUI")
+    S.presses, S.hyd, R.last = {}, 10, {}
+    R.tick_fn(nil)
+    check(#S.presses == 0, "real gate: a conversation is open -> no hotbar press")
+    pc.CurrentInputMode = obj("DataAsset /Game/Input/DIM_Gameplay.DIM_Gameplay")
+    R.last = {}
+    R.tick_fn(nil)
+    check(#S.presses == 1, "real gate: gameplay -> drinks (got " .. #S.presses .. ")")
 end
 
 print(fails == 0 and "ALL PASS" or (fails .. " FAILED"))

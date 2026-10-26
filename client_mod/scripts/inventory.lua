@@ -549,7 +549,10 @@ end
 --   * when hungry/thirsty and the game's detector targets a dropped food/drink world item: presses
 --     interact to collect it (cfg.collect).
 -- Events go to client_io/events/vitals.jsonl as {"type":"reflex", action, item, stat}.
-M.REFLEX_CFG = { period_ms = 2000, cooldown_s = 6, verify_s = 4, collect = true, allow_bag = false }
+-- bad_after (BUGS L32): an item is given up only after this many FAILED uses in a row. One miss (pressed while
+-- busy: mid-gather 07:48 UTC, hydration fell 29.8 -> 29.5) used to mark Clean Water bad for good, and he
+-- dehydrated to 0 with water on his hotbar. A success clears the count; the per-kind cooldown spaces retries.
+M.REFLEX_CFG = { period_ms = 2000, cooldown_s = 6, verify_s = 4, collect = true, allow_bag = false, bad_after = 3 }
 
 local R = _G.DWFedReflex or {}
 _G.DWFedReflex = R
@@ -635,6 +638,15 @@ local function input_gate()
 end
 M._input_gate = input_gate
 
+-- One use outcome for an item: a failure is a strike, `bad_after` strikes in a row mark it bad (no more presses
+-- until the reflex restarts); a success clears its strikes.
+local function strike(item, ok)
+    R.strikes = R.strikes or {}
+    if ok then R.strikes[item] = nil; return end
+    R.strikes[item] = (R.strikes[item] or 0) + 1
+    if R.strikes[item] >= (M.REFLEX_CFG.bad_after or 3) then R.bad[item] = true end
+end
+
 function R.tick(log)
     if _G.DW_PAUSE then return end -- set by disconnect/travel commands: no UObject access during teardown
     local cfg = M.REFLEX_CFG
@@ -659,7 +671,7 @@ function R.tick(log)
         local now_v = (pend.kind == "drink" and hyd) or (pend.kind == "heal" and hp) or sus
         local ok = now_v and pend.before and now_v > pend.before + 0.5
         reflex_emit({ action = "verify", kind = pend.kind, item = pend.item, before = pend.before, after = now_v, ok = ok == true })
-        if not ok then R.bad[pend.item] = true end
+        strike(pend.item, ok)
         R.pending = nil
         pend = nil
     end
@@ -688,7 +700,7 @@ function R.tick(log)
             local r = M.use(log, pick.item, { require = "food", hotbar_only = true })
             reflex_emit({ action = "use", kind = "heal", item = pick.item, name = pick.name, stat = hp, ok = r.ok, via = r.via,
                           reason = r.reason })
-            if r.ok then R.pending = { kind = "heal", item = pick.item, before = hp, t = t } else R.bad[pick.item] = true end
+            if r.ok then R.pending = { kind = "heal", item = pick.item, before = hp, t = t } else strike(pick.item, false) end
             return
         end
     end
@@ -714,7 +726,7 @@ function R.tick(log)
                     reflex_emit({ action = "use", kind = need[2], item = d.item, name = d.name, stat = need[3], ok = r.ok,
                                   via = r.via, reason = r.reason })
                     if r.ok then R.pending = { kind = need[2], item = d.item, before = need[3], t = t }
-                    else R.bad[d.item] = true end
+                    else strike(d.item, false) end
                 end
             end
         end
@@ -742,7 +754,7 @@ end
 function M.reflex_start(log, opts)
     for k, v in pairs(opts or {}) do M.REFLEX_CFG[k] = v end
     R.cfg = M.REFLEX_CFG
-    R.bad, R.pending = {}, nil -- a (re)start forgets items marked bad
+    R.bad, R.pending, R.strikes = {}, nil, {} -- a (re)start forgets items marked bad
     R.tick_fn = R.tick
     if not R.loop then
         R.loop = LoopInGameThreadWithDelay(M.REFLEX_CFG.period_ms, function()

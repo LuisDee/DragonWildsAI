@@ -992,8 +992,42 @@ local function start_interact(api, args, ctx)
         end
     end
     job.on_resume = resume_episode(job)
-    job.step = function(tt) return episode_poll(api, job.ep, tt) end
+    job.step = function(tt)
+        if job.leaving then return job.leave_step(tt) end
+        local res = episode_poll(api, job.ep, tt)
+        -- talk review V2: the press started a conversation, but talk.lua isn't enabled. Never leave him trapped
+        -- in an open dialogue (every gated action would be refused): leave with the panel's own Cancel
+        -- (bounded, read back), then say truthfully what it was.
+        if res and res.ok and res.data and res.data.changed == "conversation" and not W.talk_enabled(api) then
+            job.leaving, job.leave_tries, job.leave_t, job.npc = true, 0, 0, t.name or t.id
+            return job.leave_step(tt)
+        end
+        return res
+    end
+    job.leave_step = function(tt)
+        local still = W.conversation_npc(api)
+        local function done(stuck)
+            return api.fail("not_implemented", { why = "conversation", target = t.id, still_open = stuck or nil,
+                detail = "That's someone to talk to; I can't hold conversations yet" .. (stuck and ", and the conversation is still open." or ", so I said goodbye.") })
+        end
+        if not still then return done(false) end
+        if tt < job.leave_t then return nil end
+        if job.leave_tries >= 3 then return done(true) end
+        job.leave_tries, job.leave_t = job.leave_tries + 1, tt + 1
+        local IN = api.module("input")
+        if IN and type(IN.leave_conversation_step) == "function" then
+            IN.leave_conversation_step(function(a) IN.raw_inject(a) end)
+        end
+        return nil
+    end
     return job
+end
+
+-- talk.lua runs conversations only when loaded AND enabled (_G.DW_ENABLE_TALK; its review is pending).
+function W.talk_enabled(api)
+    if rawget(_G, "DW_ENABLE_TALK") ~= true then return false end
+    local tk = api.module("talk")
+    return tk ~= nil
 end
 
 -- ------------------------------------------------------------------ grave memory (BUGS L19 + L22), persisted

@@ -141,6 +141,36 @@ end
 
 -- A modal open with no live owner for cfg.orphan_s is cleaned up (a dead job, a bridge restart, a pause):
 -- one step per orphan_s, at most cfg.cancels steps per episode, then it is left alone and reported.
+-- The conversation panel's own Cancel (ConversationMainPanel.CancelInputAction, the panel of THIS player's
+-- participant), cached and re-validated. One press per call; the caller reads back next tick.
+-- -> true when a press went out (a conversation was open), false when none is open / no key
+function M.leave_conversation_step(press)
+    if paused() then return false end
+    local m = M.modal()
+    if not (m and m.kind == "conversation") then return false end
+    local pc = M.pc()
+    local part = pc and U.try(function() return pc.ConversationComponent.DomConversationParticipant end)
+    local pshort = U.valid(part) and U.short(part) or nil
+    local s = st()
+    local panel = s.conv_panel
+    if not (panel and U.valid(panel)) then
+        panel = nil
+        for _, p in ipairs(U.find_all("ConversationMainPanel", { skip_defaults = true }) or {}) do
+            local pp = U.try(function() return p.DomConversationParticipant end)
+            if not pshort or (U.valid(pp) and U.short(pp) == pshort) then panel = p; break end
+        end
+        s.conv_panel = panel
+    end
+    local cancel = panel and U.try(function() return panel.CancelInputAction end)
+    if not U.valid(cancel) then return false end
+    if press then press(cancel) else M.raw_inject(cancel) end
+    return true
+end
+
+-- A modal open with no live owner for cfg.orphan_s is cleaned up (a dead job, a bridge restart, a pause):
+-- one step per orphan_s, at most cfg.cancels steps per episode, then it is left alone and reported.
+-- A conversation: talk.lua's sweep when talk is enabled (a try counts only when IT pressed Cancel; talk review
+-- V1), else our own panel Cancel, so a dialogue can never strand him (V2).
 local function sweep(m)
     local s = st()
     s.orphan_tries = s.orphan_tries or {}
@@ -152,19 +182,25 @@ local function sweep(m)
     if t - s.orphan_since[m.kind] < M.cfg.orphan_s then return end
     if (s.orphan_tries[m.kind] or 0) >= M.cfg.cancels then s.stuck = m.kind; return end
     s.orphan_since[m.kind] = t
-    s.orphan_tries[m.kind] = (s.orphan_tries[m.kind] or 0) + 1
-    s.cleanups = s.cleanups + 1
-    if m.kind == "build" then M.leave_build_step()
-    elseif m.kind == "conversation" then
-        -- talk.lua owns this cleanup (the panel's own Cancel, bounded) -- ONLY when talk is loaded AND explicitly
-        -- enabled (_G.DW_ENABLE_TALK; its v2 re-review failed: its sweep recursed through this gate). Same
-        -- cadence and bound as the others; the gate's re-entrancy guard means its presses never sweep again.
-        if rawget(_G, "DW_ENABLE_TALK") ~= true then return end
+    if m.kind == "conversation" then
         local inst = rawget(_G, "__dwc_bridge")
         local api = inst and inst.module and inst.module.API
-        local talk = api and api.module("talk")
-        if talk and type(talk.sweep_orphan) == "function" then pcall(talk.sweep_orphan) end
-    else M.close_container() end
+        local talk = rawget(_G, "DW_ENABLE_TALK") == true and api and api.module("talk") or nil
+        if talk and type(talk.sweep_orphan) == "function" then
+            local ok, r = pcall(talk.sweep_orphan)
+            if ok and type(r) == "table" and r.state == "cancel_pressed" then
+                s.orphan_tries[m.kind] = (s.orphan_tries[m.kind] or 0) + 1
+                s.cleanups = s.cleanups + 1
+            end
+        elseif M.leave_conversation_step() then
+            s.orphan_tries[m.kind] = (s.orphan_tries[m.kind] or 0) + 1
+            s.cleanups = s.cleanups + 1
+        end
+        return
+    end
+    s.orphan_tries[m.kind] = (s.orphan_tries[m.kind] or 0) + 1
+    s.cleanups = s.cleanups + 1
+    if m.kind == "build" then M.leave_build_step() else M.close_container() end
 end
 M._sweep = sweep
 

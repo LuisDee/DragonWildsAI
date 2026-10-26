@@ -975,11 +975,29 @@ test("interact on an NPC: verified by the conversation it starts (changed = conv
     local p0 = inv.press_interact
     inv.press_interact = function() F.presses = F.presses + 1; talking = "npc_1"; return { ok = true } end
     sk.W.conversation_npc = function() return talking end
+    -- talk enabled: interact reports the conversation (talk builds on it)
+    _G.DW_ENABLE_TALK = true
+    local tw0 = sk.W.talk_enabled
+    sk.W.talk_enabled = function() return true end
     local _, id = rpc("interact", { target = "npc_1" })
     local r = run(id, 60)
-    sk.W.conversation_npc, inv.press_interact = cv0, p0
+    sk.W.talk_enabled = tw0
+    _G.DW_ENABLE_TALK = nil
     assert(r and r.ok and r.data.changed == "conversation" and F.presses == 1, json.encode(r))
     assert(type(sk._new_episode) == "function", "the episode is exported for talk.lua")
+    -- talk NOT enabled (V2): the dialogue is left with the panel's own Cancel, and the reason is truthful
+    talking, F.presses = nil, 0
+    local cancels = 0
+    local fake_input = { leave_conversation_step = function(press) cancels = cancels + 1; press("cancel"); return true end,
+                         raw_inject = function(a) if a == "cancel" and cancels >= 2 then talking = nil end; return true end }
+    local mod0 = B.API.module
+    B.API.module = function(n) if n == "input" then return fake_input end return mod0(n) end
+    _, id = rpc("interact", { target = "npc_1" })
+    r = run(id, 60)
+    B.API.module = mod0
+    sk.W.conversation_npc, inv.press_interact = cv0, p0
+    assert(r and r.reason == "not_implemented" and r.data.why == "conversation" and r.data.detail:find("can't hold conversations")
+        and r.data.detail:find("goodbye") and cancels == 2 and F.presses == 1, json.encode(r) .. " cancels=" .. cancels)
 end)
 
 test("store: no OpenChests privilege -> no_permission before any walk or press", function()
