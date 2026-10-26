@@ -256,6 +256,8 @@ Cm.cfg.memory_root = (tmpdir .. "/test_combat_mem_" .. RUN_ID):gsub("\\", "/")
 os.execute('mkdir "' .. (tmpdir .. "/test_combat_mem_" .. RUN_ID .. "/data/skills/shockbyte"):gsub("/", "\\") .. '" 2>nul')
 os.remove(Cm.cfg.memory_root .. "/data/skills/shockbyte/combat_memory_BP_PlayerCharacter_C_1.json")
 Cm._reset_build("TESTBUILD")
+_G.DW_WORLD_GUID = "shockbyte" -- the memory tests' world (the real resolver is tested in §22b with a fake fs)
+Cm._reset_world_cache()
 Cm.cfg.memory_enabled = false -- on only in the memory section (sections must not learn from each other)
 local Dm = assert(loadfile(root .. "/client_mod/scripts/defense.lua"))()
 Cm.clock = function() return T end
@@ -2042,5 +2044,75 @@ end
 
 os.remove(Cm.ACTIVITY_PATH)
 os.execute('rmdir /s /q "' .. (tmpdir .. "/test_combat_mem_" .. RUN_ID):gsub("/", "\\") .. '" 2>nul')
+-- ================================================================ 22b. the memory's world: never a silent "shockbyte" (live 2026-10-26: dev fights filed there)
+do
+    local saved = _G.DW_WORLD_GUID
+    local files = {}
+    local real_open = Cm.fs.open
+    Cm.fs.open = function(path, mode)
+        for suffix, content in pairs(files) do
+            if path:sub(-#suffix) == suffix then
+                local lines, i = {}, 0
+                for l in (content .. string.char(10)):gmatch("(.-)" .. string.char(10)) do lines[#lines + 1] = l end
+                return { read = function(_, fmt) if fmt == "l" then i = i + 1; return lines[i] end return content end, close = function() end }
+            end
+        end
+        return nil
+    end
+    local function wid() Cm._reset_world_cache(); return Cm.world_id() end
+    _G.DW_WORLD_GUID = nil
+    local NL, BOM = string.char(10), string.char(239, 187, 191)
+    files = { ["logs/state/last_join.json"] = BOM .. '{"addr":"127.0.0.1:7777","ts":"x"}',
+              ["client_io/secrets/server.txt"] = "203.0.113.5:7777" .. NL .. "SECRET",
+              ["client_io/secrets/server_dev.txt"] = "127.0.0.1:7777" .. NL .. "PW" }
+    local id, src = wid()
+    check("world: the joined dev server -> dev (no env)", id == "dev" and src == "joined", tostring(id) .. " " .. tostring(src))
+    files["logs/state/last_join.json"] = '{"addr":"203.0.113.5:7777"}'
+    id, src = wid()
+    check("world: the joined Shockbyte address -> shockbyte", id == "shockbyte" and src == "joined", id)
+    files["logs/state/last_join.json"] = '{"addr":"198.51.100.9:7777"}'
+    id, src = wid()
+    check("world: an unknown server is named, never shockbyte", id == "server_198_51_100_9_7777" and src == "joined_unknown", id)
+    files = {}
+    id, src = wid()
+    check("world: nothing known -> unknown, never shockbyte", id == "unknown" and src == "unknown", id)
+    _G.DW_WORLD_GUID = "dev_scenarios"
+    id, src = wid()
+    check("world: an explicit DW_WORLD_GUID wins", id == "dev_scenarios" and src == "explicit", id)
+    Cm.fs.open = real_open
+    _G.DW_WORLD_GUID = saved
+    Cm._reset_world_cache()
+end
+
+-- ================================================================ 22c. the REAL Ash Rod item data (live 16:03: "keep a held magic item" kept the rod)
+reset_world()
+do
+    local rod = Cm.weapons().items.ITEM_FishingRod_Ash
+    check("rod data: the game says kind magic, role tool", rod and rod.kind == "magic" and rod.role == "tool", rod and rod.kind)
+    check("rod data: it does not fight", not Cm.fights_with("ITEM_FishingRod_Ash"))
+    local saved = inv_list.hotbar
+    -- (a) holding the real rod, a Bronze Greatsword carried: the sword is equipped (not the rod kept)
+    inv_list.hotbar = { { item = "ITEM_FishingRod_Ash", name = "Ash Rod", slot = 7 }, { item = "ITEM_GreatSword_Bronze", name = "Bronze Greatsword", slot = 2 } }
+    held.right, held.left = "ITEM_FishingRod_Ash", nil
+    INV.unequips = {}
+    local g1 = new_creature("BP_AI_RuntGoblin_Character_C_rod1", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 30, pl = 1, arch = 0 })
+    Cm._start_fight(nil, g1, { mode = "reflex", level = "reflex", why = "hostile_near" })
+    run_until(function() return Cm._state().fight == nil or (Cm._state().fight.equip_plan ~= nil) end, 3)
+    local plan = Cm._state().fight and Cm._state().fight.equip_plan or {}
+    check("real rod: the carried greatsword is the weapon, not the rod", plan.weapon == "ITEM_GreatSword_Bronze", plan.weapon)
+    Cm.stop(nil, "test")
+    -- (b) holding the real rod, no weapon: the rod is put away (bare hands)
+    reset_world()
+    inv_list.hotbar = { { item = "ITEM_FishingRod_Ash", name = "Ash Rod", slot = 7 } }
+    held.right, held.left = "ITEM_FishingRod_Ash", nil
+    INV.unequips = {}
+    local g2 = new_creature("BP_AI_RuntGoblin_Character_C_rod2", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 30, pl = 1, arch = 0 })
+    Cm._start_fight(nil, g2, { mode = "reflex", level = "reflex", why = "hostile_near" })
+    run_until(function() return Cm._state().fight == nil end, 20)
+    check("real rod, no weapon: put away, bare hands win", (INV.unequips or {})[1] == "HeldRight" and Cm._state().last.result.ok, table.concat(INV.unequips or {}, ","))
+    inv_list.hotbar = saved
+    A.reset(nil)
+end
+
 print(string.format("combat/arbiter tests: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

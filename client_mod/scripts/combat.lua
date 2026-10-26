@@ -62,7 +62,7 @@ M.cfg = {
     status_s = 0.5, cure_at = 0.05, no_cure_recheck_s = 10,
     tool_jobs = { fishing = "fish", gather = "gather", farm = "tend", agility = "agility" }, -- module -> its arbiter name prefix
     ambient = nil, ambient_status_s = 2.0, -- out-of-fight hazards/cures: nil = env DW_COMBAT_AMBIENT ("1" = on); off by default -- statuses read every status_s in a fight; a harmful one above cure_at x max -> its cure
-    odds_m = 40, odds_max = 6, facts_s = 30, census_s = 0.5, odds_prep_s = 10, -- get_state fight_odds: creatures in sight
+    odds_m = 40, odds_max = 6, facts_s = 30, census_s = 0.5, world_id_s = 60, odds_prep_s = 10, -- get_state fight_odds: creatures in sight
     memory_enabled = true, history_max = 10, steam_manifest = "C:/Program Files (x86)/Steam/steamapps/appmanifest_1374490.acf",
     chase_moved_m = 3, -- a stall while the target itself moved this far = it is running, not a wall
     chase_max_s = 30, -- approaching (all episodes) this long without landing a hit: too_far, cant_catch
@@ -1085,13 +1085,53 @@ local function sanitize(w)
     w = w and tostring(w):gsub("[^%w_%-]", "") or ""
     return w ~= "" and w or nil
 end
-function M.world_id()
-    local w = sanitize(rawget(_G, "DW_WORLD_GUID")) or sanitize(os.getenv("DW_WORLD_GUID"))
-    if w then return w end
-    local f = M.fs.open(ROOT .. "/client_io/world_guid.txt", "r")
-    if f then w = sanitize(f:read("l")); f:close(); if w then return w end end
-    return "shockbyte"
+-- The world his memory is filed under. NEVER a silent "shockbyte" (live 2026-10-26: dev fights were filed under
+-- shockbyte because the client process has no DW_WORLD_GUID). Order:
+--   1. explicit: _G.DW_WORLD_GUID (scenario_run sets it), env DW_WORLD_GUID, client_io/world_guid.txt;
+--   2. the server he actually JOINED: logs/state/last_join.json's addr (written by tools/client_boot.ps1) matched
+--      against the boot targets' address lines (client_io/secrets/server.txt = shockbyte, server_<name>.txt =
+--      <name>; only the first line, the address, is read: never the password);
+--   3. an unknown joined server -> "server_<host_port>"; nothing known -> "unknown".
+-- -> id, source. Cached for cfg.world_id_s.
+local function first_line(path)
+    local f = M.fs.open(path, "rb")
+    if not f then return nil end
+    local l = f:read("l"); f:close()
+    if not l then return nil end
+    return (l:gsub("^\239\187\191", ""):gsub("%s+$", "")) -- (a UTF-8 BOM from PowerShell)
 end
+local WORLD_CACHE
+function M.world_id()
+    local t = os.time()
+    if WORLD_CACHE and t - WORLD_CACHE.t < M.cfg.world_id_s then return WORLD_CACHE.id, WORLD_CACHE.source end
+    local id, src
+    local w = sanitize(rawget(_G, "DW_WORLD_GUID")) or sanitize(os.getenv("DW_WORLD_GUID"))
+    if w then id, src = w, "explicit" end
+    if not id then
+        local f = first_line(ROOT .. "/client_io/world_guid.txt")
+        if sanitize(f) then id, src = sanitize(f), "world_guid.txt" end
+    end
+    if not id then
+        local j = first_line(ROOT .. "/logs/state/last_join.json") or ""
+        local addr = j:match('"addr"%s*:%s*"([^"]+)"')
+        if addr then
+            local names = { "dev" }
+            local def = sanitize(first_line(ROOT .. "/logs/state/client_default_target.txt"))
+            if def and def ~= "dev" and def ~= "shockbyte" then names[#names + 1] = def end
+            if first_line(ROOT .. "/client_io/secrets/server.txt") == addr then id, src = "shockbyte", "joined"
+            else
+                for _, n in ipairs(names) do
+                    if first_line(ROOT .. "/client_io/secrets/server_" .. n .. ".txt") == addr then id, src = n, "joined" end
+                end
+            end
+            if not id then id, src = "server_" .. (sanitize((addr:gsub("[%.:]", "_"))) or "x"), "joined_unknown" end
+        end
+    end
+    if not id then id, src = "unknown", "unknown" end
+    WORLD_CACHE = { t = t, id = id, source = src }
+    return id, src
+end
+function M._reset_world_cache() WORLD_CACHE = nil end
 local BUILD
 function M.client_build()
     if BUILD ~= nil then return BUILD or nil end
@@ -1123,13 +1163,13 @@ end
 function M.memory(log, pawn)
     local c = C()
     local char = sanitize(pawn and U.try(function() return U.player_name(pawn) end)) or (c.mem and c.mem.char) or "unknown"
-    local world = M.world_id()
+    local world, world_src = M.world_id()
     local key = world .. "/" .. char
     if c.mem and c.mem.key == key then return c.mem end
     if not M.cfg.memory_enabled then c.mem = { key = key, world = world, char = char, history = {}, status = "disabled", off = true }; return c.mem end
     local path = M.memory_path(world, char)
     local build = M.client_build()
-    local m = { key = key, world = world, char = char, path = path, build = build, history = {}, status = "new", loaded_at = os.time() }
+    local m = { key = key, world = world, world_source = world_src, char = char, path = path, build = build, history = {}, status = "new", loaded_at = os.time() }
     c.mem = m
     local txt = read_all(path)
     local from = path
@@ -1507,7 +1547,8 @@ local function step_equip(F, pawn)
             local hr, hl = held_items(pawn)
             local hp = (hr and items[hr]) or (hl and items[hl])
             local hid = (hr and items[hr]) and hr or hl
-            if hp and (hp.kind == "ranged" or hp.kind == "magic") then pick = { weapon = { entry = { item = hid }, profile = hp, score = 0 } } end
+            -- (a WEAPON only: the fishing rod's data says kind "magic", role "tool"; live 16:03: he swung the Ash Rod)
+            if hp and (hp.kind == "ranged" or hp.kind == "magic") and hp.role == "weapon" then pick = { weapon = { entry = { item = hid }, profile = hp, score = 0 } } end
         end
         F.equip_plan = { weapon = pick.weapon and pick.weapon.entry.item, shield = nil, sent = {}, t = F.t }
         if not pick.weapon and F.weapon_pref ~= "held" then
