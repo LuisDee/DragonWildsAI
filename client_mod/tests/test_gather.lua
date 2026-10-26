@@ -476,6 +476,36 @@ do
     check("mining equipped the pickaxe", Wd.equips[1] == "ITEM_Pickaxe_Mithril", Wd.equips[1])
 end
 
+-- ================================================================ 11a. floating rune essence is never walked at
+do
+    reset()
+    fake_pc.Pawn = Wd.pawn
+    -- two essence rocks hover over the geyser (5 m up), one lies on the ground further away
+    new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = -400, Y = 0, Z = 500 }, 40)
+    new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = -450, Y = 80, Z = 520 }, 40)
+    new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = 800, Y = 200, Z = 0 }, 75)
+    local r = G.HANDLERS.gather(nil, { resource = "rune essence", count = 1 }, { id = "t_ess" })
+    local picked
+    pump(30, function()
+        local j = _G.DWGather.job
+        if j and j.T and j.T.stage == "root" then picked = j.T; return true end
+        return false
+    end)
+    check("essence: the ground rock is the target, the floating ones skipped", picked and picked.pos and picked.pos.Z == 0 and picked.pos.X == 800,
+          picked and picked.pos and (picked.pos.X .. "," .. picked.pos.Z))
+    check("essence: the floating rocks are noted", _G.DWGather.job and _G.DWGather.job.floating and #_G.DWGather.job.floating == 2)
+    G.stop(nil, "test")
+    reset()
+    fake_pc.Pawn = Wd.pawn
+    new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = 600, Y = 0, Z = 500 }, 40)
+    local res = run_job({ resource = "rune essence", count = 1 }, 200)
+    check("essence: only floating -> nothing_in_range floating_only", res.reason == "nothing_in_range" and res.data.why == "floating_only",
+          tostring(res.reason) .. " " .. tostring(res.data and res.data.why))
+    check("essence: the reason says to knock it down first", tostring(res.data.detail):find("knocked down first", 1, true) ~= nil, res.data.detail)
+    check("essence: lists the floating rocks", res.data.floating and #res.data.floating == 1 and res.data.floating[1].above_m == 5, res.data.floating and res.data.floating[1] and res.data.floating[1].above_m)
+    check("profile flag is data", P.RESOURCES.rune_essence.root.max_above_m ~= nil and P.RESOURCES.stone_rock.root.max_above_m == nil)
+end
+
 -- ================================================================ 11b. a generic word ("ore"): resolved from game identifiers to the nearest node
 do
     local cats = P.category("ore")

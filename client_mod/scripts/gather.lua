@@ -380,11 +380,21 @@ end
 local function roots_near(J, me, radius_cm)
     local root = J.profile.root
     local out, actors_at = {}, {}
+    J.floating = nil
     for _, a in ipairs(W.actors(root.class)) do
         local cls = W.class(a)
         local p = W.loc(a)
         local is_it = matches(cls, root.match, root.exclude)
             or (J.profile.mode == "pickup" and J.profile.item ~= nil and W.item_of(a) == J.profile.item)
+        -- a profile with root.max_above_m never walks at a target hovering above walkable ground (rune essence
+        -- floating over a geyser: it must be knocked down first; live audit 2026-10-26). Measured from his own
+        -- capsule centre, so "above" means out of a swing's reach from where he can stand.
+        local floating = is_it and p and root.max_above_m and (p.Z - me.Z) > root.max_above_m * 100
+        if floating and U.dist2d(me, p) <= radius_cm then
+            J.floating = J.floating or {}
+            J.floating[#J.floating + 1] = { id = W.id(a), pos = p, above_m = math.floor((p.Z - me.Z) / 10) / 10 }
+            is_it = false
+        end
         if is_it and p and U.dist2d(me, p) <= radius_cm then
             actors_at[#actors_at + 1] = p
             local hp = W.hp(a)
@@ -457,6 +467,7 @@ local function choose(J, me)
         else return T end
     end
     if too_hard then return nil, "tool_tier_too_low", too_hard end
+    if J.floating and #J.floating > 0 then return nil, "floating_only", J.floating end
     return nil, "no_resource_nearby"
 end
 M._choose = choose
@@ -604,6 +615,12 @@ local function step_scan(J, me)
         return fail(J, "wrong_tool", "tool_tier_too_low",
             string.format("The %s here needs a tier %d %s; my best is my %s (tier %d).", tostring(hard.name), hard.tier,
                 tool_word(J.profile), J.tool.name or "?", J.tool.tier), { need_tier = hard.tier, have_tier = J.tool.tier })
+    end
+    if why == "floating_only" then
+        local f = hard[1]
+        return fail(J, "nothing_in_range", "floating_only", string.format(
+            "The only %s near me is floating out of reach (%d of them, the nearest %.0f m up): it has to be knocked down first, then I can mine it.",
+            J.key, #hard, f.above_m), { floating = hard })
     end
     -- nothing: widen, then give up
     if J.radius_cm < M.cfg.max_radius_m * 100 then

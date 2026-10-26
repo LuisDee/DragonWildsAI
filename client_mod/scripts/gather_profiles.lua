@@ -48,10 +48,11 @@ local function tree(species, min_tier, aliases, opts)
     }
 end
 
-local function rock(match, item, aliases, verified)
+local function rock(match, item, aliases, verified, opts)
+    opts = opts or {}
     return {
         item = item, aliases = aliases, mode = "chop", tool = "pickaxe", min_tier = 1,
-        root = { class = "DestructibleMiningRock", match = match, attack = "primary", reach_cm = 150 },
+        root = { class = "DestructibleMiningRock", match = match, attack = "primary", reach_cm = 150, max_above_m = opts.max_above_m },
         children = {}, site_radius_cm = 600, collect_radius_cm = 900, verified = verified,
     }
 end
@@ -76,7 +77,10 @@ M.RESOURCES = {
     -- Rocks (level actors on the client).
     stone_rock = rock("OreNode_Stone", "ITEM_Resources_Stone", { "stone_rock", "rock", "rocks", "boulder", "mine stone" },
                       { actor = true, gate = true }),
-    rune_essence = rock("RuneEssence", "ITEM_Rune_Essence", { "rune_essence", "rune essence", "essence" }, { actor = true, gate = true }),
+    -- up to 3 essence rocks FLOAT above a geyser (wiki "Rune Essence Geyser"): never walk at those; they are knocked
+    -- down first (shoot / a spell), then mined. 1.2 m above his capsule centre is about 2 m above the ground he stands on.
+    rune_essence = rock("RuneEssence", "ITEM_Rune_Essence", { "rune_essence", "rune essence", "essence" }, { actor = true, gate = true },
+                        { max_above_m = 1.2 }),
     copper = rock("OreNode_Copper", "ITEM_Resources_CopperOre", { "copper", "copper_ore", "copper ore" }, false),
     tin = rock("OreNode_Tin", "ITEM_Resources_TinOre", { "tin", "tin_ore", "tin ore" }, false),
     iron = rock("OreNode_Iron", "ITEM_Resources_IronOre", { "iron", "iron_ore", "iron ore" }, false),
