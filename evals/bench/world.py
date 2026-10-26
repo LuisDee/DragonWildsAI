@@ -74,6 +74,10 @@ class BenchWorld(MockGame):
                 self.inventory[rune_item(r)] += int(n)
         elif verb == "unlock":
             self.unlocked.add(a["spell"])
+        elif verb == "scene":  # dev: teleport to a known place for the need; mock: a standing tree in front
+            if a.get("needs") == "standing_trees":
+                return {"ok": True, "id": self.add_entity("tree", [6, 0, 0], hp=50)}
+            return {"ok": True, "needs": a.get("needs")}
         elif verb == "hold":
             self.held = {"item": a.get("item"), "category": a.get("category"), "effects": []}
         elif verb == "spawn":

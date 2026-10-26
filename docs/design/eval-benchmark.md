@@ -96,6 +96,24 @@ GOAL.md revisions (c6d9c90, after rev 1) are folded in: spell **use** (§5.2), c
   - (c) lower the target.
 - `craft_from_scratch_pct` (90%) needs n ≥ 35 all-pass.
 
+**Fixture rule: main and quick variants (Luis, 2026-10-26).**
+- Every case keeps its grants minimal: only what the case can't be about. For example, T0 unlocks its spell and grants its runes, because T0 checks "can cast", not progression. All 39 denominator spells are unlocked as T0 setup. The other 13 build spells are on the data-derived n/a list (52 in total).
+- **Main variant** (`variant: main`, the default) for combat basics, tactics, long tasks and the capstone has no item grants. The chat states the end objective ("let's practise parrying on those goblins over there"), and his Director has to plan the prerequisites (a shield from 10 ash logs, food) and carry them out. Spawned creatures are scene, not grants, and stand 40 m off so that preparing is possible. A test (`test_main_variants_grant_no_items_and_quick_twins_are_tagged`) enforces this.
+- **Quick variant** (`<id>_quick`, `variant: quick`, tag `quick`) carries the grants that isolate one skill, for development. goal_check drops every quick case (`test_quick_variants_never_count_for_goal`). The quick twins are parry, disengage_heal and slay_velgar_solo.
+- The knowledge cases keep minimal grants: the weakness case gets a staff and three rune types, so the choice is still his; the sword grant was dropped.
+- `capstone_v1` grants nothing now. He crafted the horn himself in stage 7, and the snapshot only requires that he has it.
+- **Logging:** every dev fixture call is appended to `logs/bench/fixture_setup.jsonl` with its purpose (main's rule), including evidence-discovery grants for the spells agent.
+- **Fresh state, route A (main, 2026-10-26):**
+  - A case with `fixtures.character = "fresh"` (M3 asked/initiative/plus5, capstone stage 1) runs on a NEW character, named `CD_<tag><hash4>_<run>` and at most 16 characters.
+  - `evals/bench/devchar.py` makes it: write the name file → stop_client → client_boot (stops at the menu) → create_char.lua → client_boot (pick_char by name, join dev, skip_intro).
+  - Every switch relaunches the client, so a 3rd front-end return can't happen (BUGS L24).
+  - The GUID comes from the dev referee's `probe`. Fixtures and the referee follow that character, and its name is recorded in `CaseResult.character`.
+  - All other cases run on ClaudeDev, which is kept as the long-lived main character for M4–M6.
+  - `chain:<case>` (capstone stages 2–8 and Velgar) continues a previous case's character. It needs route B (a snapshot/restore of the dev save plus the character JSON, with the server stopped), which is not built, so until then those cases read as a fixture gap.
+  - Any character or setup failure gives `unverifiable / fixture_gap`, never a fail.
+- **M3 `_initiative` (main, 2026-10-26):** `raise_skills` raises the OTHER skills to 10, as scene setup logged with its purpose. The target skill is never touched: devtarget refuses a reply that names it. The predicate stays `xp_gained` + `xp_top`.
+- **Director:** with `DW_DIRECTOR=1`, `evals.bench.devrun` attaches the Director as LiveSession does (director.md §14), with its board, learned skills and knowledge memory in the case's own state directory, and with `DW_WORLD_GUID=dev_bench`. In that mode `--sonnet N` (the Sonnet cap per case) is required, so the plan states it.
+
 ## 1. Goal (what Luis will see)
 - One command runs a suite of tasks phrased as a player would say them ("can you get me 50 coal? use the lodestones if it's far"). Each task is scored only from **independently observed** game state and events: never from what Claude says, and never from his own skill's claims alone.
 - **The run report** (`logs/evals/<date>/<run_id>/report.md` + `report.json`) holds:

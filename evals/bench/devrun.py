@@ -59,9 +59,15 @@ def default_dev() -> DevTarget:
         from brain.transport import file_transport_pair
         brain_side, _ = file_transport_pair(body="server", channel="main")
         return BridgeClient(brain_side).request("debug_run", {"module": "bench", "args": args}, timeout=30)
+    def body_call(tool: str, args: dict) -> dict:  # the body's own tool, for setup only (e.g. equip a granted sword)
+        from brain.bridge_client import BridgeClient
+        from brain.transport import file_transport_pair
+        brain_side, _ = file_transport_pair(body="client", channel="debug")
+        r = BridgeClient(brain_side).call_raw(tool, args)
+        return r if isinstance(r, dict) else {"ok": False, "reason": repr(r)}
     ops = Ops()
     return DevTarget(GUID, client_cmd=run_client_cmd, server_debug=server_debug, joined=joined_from_game_log,
-                     forbidden=forbidden_addresses, brain_running=ops.brain_running)
+                     forbidden=forbidden_addresses, brain_running=ops.brain_running, body_call=body_call)
 
 
 def character_policy(case: Case) -> str:

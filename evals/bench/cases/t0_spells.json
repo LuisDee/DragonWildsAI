@@ -157,15 +157,10 @@
       "count": 1
      },
      {
-      "verb": "felled_log",
+      "verb": "scene",
       "as": "tgt",
-      "at": [
-       4,
-       0,
-       0
-      ],
-      "drops": "ITEM_Resources_Wood_Ash",
-      "count": 3
+      "needs": "standing_trees",
+      "purpose": "standing trees in front, >= 40 m from a lodestone"
      }
     ],
     "scene": {},
@@ -215,8 +210,7 @@
      {
       "tool": "cast",
       "args": {
-       "spell": "Axtral Projection",
-       "target": "$tgt.id"
+       "spell": "Axtral Projection"
       }
      }
     ]

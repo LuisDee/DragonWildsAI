@@ -75,6 +75,14 @@ def spell_actor_classes() -> list[str]:
     return sorted(out)
 
 
+def dev_places() -> dict:
+    """Known dev spots by need (measured on dev; a dev fact, not companion knowledge)."""
+    try:
+        return json.loads((ROOT / "evals" / "bench" / "dev_places.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
 def normalise_probe(p: dict) -> dict:
     """Lua empty tables encode as [] - dict fields come back as lists when empty."""
     out = dict(p)
@@ -106,6 +114,7 @@ class DevTarget:
     referee_log: Path = REFEREE_LOG
     _ref_off: int = 0
     setup_log: list[dict] = field(default_factory=list)
+    body_call: Callable[[str, dict], dict] | None = None  # the body's own tool over the client debug channel (setup)
     character_name: str = "ClaudeDev"  # the referee watches this name; devchar.CharacterSwitch changes it per case
     server_log: ServerLogReferee = field(default_factory=ServerLogReferee)  # server-authoritative dodges (serverlog.py)
 
@@ -161,9 +170,42 @@ class DevTarget:
                 out.append(e)
         return merge(out, self.server_log.read(), self.server_log.active)
 
+    # ---------------------------------------------------------------- setup through the body / a known place
+    def _client_setup(self, verb: str, purpose: str, a: dict) -> dict:
+        """hold = the body's verified `equip` tool on an item he already carries (granted just before);
+        scene = teleport to a known dev place for what the case needs (evals/bench/dev_places.json)."""
+        if verb == "hold":
+            if self.body_call is None:
+                res = {"ok": False, "error": "no body channel for hold"}
+            else:
+                r = self.body_call("equip", {"item": a.get("item")}) or {}
+                res = {"ok": bool(r.get("ok")), "error": r.get("reason"), "data": r.get("data")}
+        else:
+            place = (dev_places().get(str(a.get("needs"))) or {})
+            if not place.get("at"):
+                res = {"ok": False, "error": f"no dev place for {a.get('needs')!r} (evals/bench/dev_places.json)"}
+            else:
+                return self.setup("teleport", purpose=f"{purpose} [{a.get('needs')}]", at=place["at"])
+        self._log_setup(verb, a, purpose, res)
+        if not res.get("ok"):
+            raise Abort(f"fixture {verb} failed: {res.get('error')}")
+        return res
+
+    def _log_setup(self, verb: str, a: dict, purpose: str, res: dict) -> None:
+        row = {"t": time.time(), "verb": verb, "args": a, "purpose": purpose, "ok": bool(res.get("ok")), "error": res.get("error")}
+        self.setup_log.append(row)
+        try:
+            SETUP_LOG.parent.mkdir(parents=True, exist_ok=True)
+            with open(SETUP_LOG, "a", encoding="utf-8") as f:
+                f.write(json.dumps(row, default=str) + "\n")
+        except OSError:
+            pass
+
     # ---------------------------------------------------------------- fixtures (harness only; dev only)
     def setup(self, verb: str, purpose: str = "case setup", **a) -> dict:
         self.guard("setup", a)
+        if verb in ("hold", "scene"):
+            return self._client_setup(verb, purpose, a)
         args: dict[str, Any] = {"part": "fixtures", "verb": verb, "character_guid": self.character_guid}
         if verb == "grant":
             args.update(path=item_path(a["item"]), count=int(a.get("count", 1)))
@@ -185,14 +227,7 @@ class DevTarget:
             res = ((self.server_debug(args).get("data") or {}).get("result")) or {}
         if verb == "raise_skills" and a.get("except") and a["except"] in (res.get("results") or {}):
             res = {"ok": False, "error": f"raise_skills touched the target skill {a['except']}"}  # main's condition
-        row = {"t": time.time(), "verb": verb, "args": a, "purpose": purpose, "ok": bool(res.get("ok")), "error": res.get("error")}
-        self.setup_log.append(row)
-        try:
-            SETUP_LOG.parent.mkdir(parents=True, exist_ok=True)
-            with open(SETUP_LOG, "a", encoding="utf-8") as f:
-                f.write(json.dumps(row, default=str) + "\n")
-        except OSError:
-            pass
+        self._log_setup(verb, a, purpose, res)
         if not res.get("ok"):
             raise Abort(f"fixture {verb} failed: {res.get('error')}")
         return res

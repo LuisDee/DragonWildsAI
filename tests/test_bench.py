@@ -378,3 +378,12 @@ def test_main_variants_grant_no_items_and_quick_twins_are_tagged():
     ids = {c.id for c in cases}
     assert {"goal_basic_parry_quick", "goal_basic_disengage_heal_quick", "capstone_slay_velgar_solo_quick"} <= ids
     assert all(c.id[:-len("_quick")] in ids for c in cases if c.variant == "quick")
+
+
+def test_lint_rejects_gained_and_lost_of_one_item_in_one_all():
+    """Director live smoke 2026-10-26: all[gained X, lost X] reads one net delta and can never pass."""
+    from evals.bench.spec import Case
+    bad = Case.model_validate({"id": "x_netconflict", "tier": "T1", "family": "knowledge", "chat": [{"text": "go chop then drop"}],
+                               "success": {"all": [{"gained": {"item": "Ash Logs", "at_least": 5}},
+                                                   {"lost": {"item": "Ash Logs", "at_least": 5}}]}})
+    assert any("both gained and lost" in p for p in lint(bad))

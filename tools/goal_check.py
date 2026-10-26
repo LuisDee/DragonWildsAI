@@ -213,7 +213,8 @@ def collect_runs(d: Data) -> None:
                 if run.get("llm") != "real":
                     why = f"not a real-model run (llm={run.get('llm')})"
                 else:
-                    d.runs.append({"row": row, "run": run, "cases": read_jsonl(rd / "cases.jsonl"), "dir": rd})
+                    cases = [c for c in read_jsonl(rd / "cases.jsonl") if c.get("variant", "main") != "quick"]  # quick = dev aid
+                    d.runs.append({"row": row, "run": run, "cases": cases, "dir": rd})
         if why:
             d.rejected.append(f"{rid}: {why}")
     d.runs.sort(key=lambda r: parse_ts(r["row"].get("at")) or d.now, reverse=True)

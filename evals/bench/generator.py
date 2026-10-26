@@ -49,9 +49,9 @@ def catalog_item(check_cat: str) -> str | None:
     """The lowest-tier catalog item that meets a setup check category (data/items_<build>.json)."""
     items = _items_catalog()
     cats = _CHECK_CATS.get(check_cat, (check_cat,))
-    rows = sorted((v.get("tier") or 99, k) for k, v in items.items() if v.get("category") in cats
+    rows = sorted((v.get("tier") or 99, cats.index(v.get("category")), k) for k, v in items.items() if v.get("category") in cats
                   and "/Deprecated/" not in str(v.get("path") or "") and v.get("category") != "test")
-    return rows[0][1] if rows else None
+    return rows[0][-1] if rows else None
 
 
 _ITEMS: dict | None = None
@@ -100,10 +100,17 @@ def t0_cases(spells: dict | None = None, catalog: dict | None = None) -> tuple[l
         runes = {r: 2 * int(n) for r, n in (sp.get("cost") or {}).items()}
         setup: list[dict] = [{"verb": "unlock", "spell": sid}, {"verb": "grant_runes", "runes": runes}] + _requirements(sp)
         args: dict[str, Any] = {"spell": name}
-        if sp.get("target") == "thing":
+        near = {str((c.get("near") or {}).get("kind")) for c in sp.get("setup_checks") or [] if c.get("near")}
+        if sp.get("target") == "thing" and "felled_log" in near:  # Splinter: a felled log within reach
             setup.append({"verb": "felled_log", "as": "tgt", "at": [4, 0, 0], "drops": "ITEM_Resources_Wood_Ash", "count": 3})
             args["target"] = "$tgt.id"
+        elif sp.get("target") == "thing" and "target_thing" in near:  # Axtral: STANDING trees in front (main 10-26)
+            setup.append({"verb": "scene", "as": "tgt", "needs": "standing_trees",
+                          "purpose": "standing trees in front, >= 40 m from a lodestone"})
         oracle = [{"tool": "cast", "args": args}]
+        mock_oracle = oracle
+        if any(st.get("verb") == "scene" for st in setup):  # mock aims at its tree; on dev the body picks the line
+            mock_oracle = [{"tool": "cast", "args": {**args, "target": "$tgt.id"}}]
         sib = _sibling(sid, sp, spells, den)
         controls: dict[str, Any] = {"na": {"partial": "a one-step oracle: cutting it short is do_nothing"}}
         if sib:
@@ -129,7 +136,7 @@ def t0_cases(spells: dict | None = None, catalog: dict | None = None) -> tuple[l
                  success={"spell_effect": {"spell": sid}}, controls=controls,
                  limits={"wall_s": 300, "sim_s": 120, "idle_s": 30, "repeat": TRIALS_PER_CASE["spell_cast"]},
                  targets=["mock", "dev"],
-                 oracle={"mock": oracle, "dev": oracle},
+                 oracle={"mock": mock_oracle, "dev": oracle},
                  provenance={"by": "generator.t0_cases", "from": "data/spell_effects.json", "description": desc})
         cases.append(c)
     return cases, na

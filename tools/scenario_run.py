@@ -177,6 +177,9 @@ def run_client_cmd(file: Path, name: str, args: dict | None = None, timeout: flo
     tmp = cmd_dir / f"{name}.tmp"
     tmp.write_text(src, encoding="utf-8")
     os.replace(tmp, cmd_dir / f"{name}.lua")
+    # the runner reads client_io/cmd/queue.txt (no directory listing on the game thread, L28): queue the name
+    with open(cmd_dir / "queue.txt", "a", encoding="ascii") as q:
+        q.write(name + "\n")
     deadline = now() + timeout
     while now() < deadline:
         time.sleep(0.25)

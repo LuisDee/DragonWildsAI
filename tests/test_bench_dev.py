@@ -106,3 +106,17 @@ def test_a_failed_fixture_reads_as_a_fixture_gap_not_a_fail(tmp_path):
     t, _ = make(tmp_path, replies={"raise_skills": {"ok": False, "error": "unverified"}})
     r = devrun.run_case_dev(case, t, tmp_path / "w", {"haiku": 1, "sonnet": 0}, log=lambda *_: None)
     assert (r.result, r.reason) == ("unverifiable", "fixture_gap"), (r.result, r.reason, r.detail)
+
+
+def test_hold_uses_the_body_equip_and_scene_teleports_to_a_known_place(tmp_path, monkeypatch):
+    t, calls = make(tmp_path)
+    seen = []
+    t.body_call = lambda tool, args: seen.append((tool, args)) or {"ok": True, "data": {"equipped": args["item"]}}
+    assert t.setup("hold", item="ITEM_Sword_Bronze", category="melee_weapon")["ok"]
+    assert seen == [("equip", {"item": "ITEM_Sword_Bronze"})]
+    monkeypatch.setattr(dt, "dev_places", lambda: {"standing_trees": {"at": [1.0, 2.0, 3.0]}})
+    t.setup("scene", needs="standing_trees")
+    assert calls[-1]["verb"] == "teleport" and calls[-1]["at"] == [1.0, 2.0, 3.0]
+    monkeypatch.setattr(dt, "dev_places", lambda: {})
+    with pytest.raises(Abort, match="no dev place"):
+        t.setup("scene", needs="standing_trees")
