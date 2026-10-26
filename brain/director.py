@@ -156,6 +156,10 @@ Rules:
 - The work of THIS job goes in its steps (gathering, crafting, travelling for it). add_tasks is only for a separate
   job he should do first that is worth its own place on the board (e.g. a gear upgrade he needs anyway); at most
   one per answer.
+- Quests: me.quests has each active quest's current step in the game's own words (and its hint). Plan the next
+  step from that text (lookup the quest for who gives it, what it requires and where), test it with quest_step
+  (advanced), and give a quest job the done test quest_complete. A quest not started yet: lookup says who starts
+  it and what it requires; a required quest not in me.quests.complete is a prerequisite job (add_tasks).
 - steps_so_far shows what failed and why: change what you try, or ask. If you can't make progress with his tools
   and what you know, ask the player ONE specific question (ask_help).
 Answer with ONE JSON object only:
@@ -364,6 +368,11 @@ def _compact_state(state: dict) -> dict:
                              for e in (state.get("nearby_entities") or [])[:8] if isinstance(e, dict)]
     if state.get("stations_nearby"):
         out["stations_nearby"] = state["stations_nearby"]
+    q = state.get("quests") if isinstance(state.get("quests"), dict) else None
+    if q:  # his quest log, the current step in the game's own words (client_mod/scripts/quests.lua)
+        out["quests"] = {"active": [{k: a.get(k) for k in ("quest", "step", "detail", "hint", "counters") if a.get(k)}
+                                    for a in (q.get("active") or [])[:8] if isinstance(a, dict)],
+                         "complete": list(q.get("complete") or [])[:30]}
     if state.get("following"):
         out["following"] = state["following"]
     return out

@@ -108,7 +108,10 @@ SCHEMA_DOC = """Success predicates (JSON, one key per object; checked by code on
 - {"near": {"place"|"player"|"thing": name or id, or "position": [x,y,z], "within_m": m}}
 - {"moved": {"min_m": m}}                                moved at least m from where this step started
 - {"killed": {"kind": <creature>, "at_least": n}}        kills since this step started
-- {"quest": {"name": ..., "completed": true}}            (not checkable yet: the body reports no quest state)
+- {"quest_complete": {"name": <quest>}}                  the quest is in your completed quests
+- {"quest_step": {"name": <quest>, "advanced": true}}     its current step (the game's words) moved on since this
+   step started; or {"quest_step": {"name": ..., "step": <words of the step text>}}: it is at that step now
+  ({"quest": {"name": ..., "completed": true}} is the older form of quest_complete)
 - {"all": [...]}, {"any": [...]}, {"not": {...}}
 A test that can't be checked from what the body reports evaluates to null and never counts as done; "any" is
 still true when one branch is true. Choose a test that measures the work: one already true now is trivial."""
@@ -395,6 +398,13 @@ def _validate_builtin(k: str, a: dict, items: Items) -> dict:
             a["kind"] = a[ids[0]]  # a label for details
         a["kind"] = _str(a.get("kind"), "killed.kind (or kind_id / target_id)")
         a["at_least"] = _num(a.get("at_least", 1), "killed.at_least", 1)
+    elif k in ("quest_complete", "quest_step"):
+        a["name"] = _str(a.get("name"), f"{k}.name")
+        if k == "quest_step":
+            if a.get("step") is not None:
+                a["step"] = _str(a["step"], "quest_step.step")
+            else:
+                a["advanced"] = True
     elif k == "quest":
         a["name"] = _str(a.get("name"), "quest.name")
         if a.get("stage") is None and a.get("completed") is None:
@@ -845,19 +855,70 @@ def _stored(a, state, ctx, cat):
     return Result(ok, detail, min(parts), measures={f"stored:{a['ids'][0]}": n, f"trips:{a['ids'][0]}": float(trips)})
 
 
-def _quest(a, state, ctx, cat):
-    rows = state.get("quests")
-    if not isinstance(rows, list):
-        return Result(None, f"quest {a['name']}: the body reports no quest state", 0.0, ["quests"])
-    row = next((q for q in rows if isinstance(q, dict) and str(q.get("name", "")).lower() == a["name"].lower()), None)
+def _quest_log(state: dict) -> dict | None:
+    """get_state.quests (client_mod/scripts/quests.lua): {active: [{quest, step, detail, hint, counters, flags}],
+    complete: [names], counts}."""
+    q = state.get("quests")
+    return q if isinstance(q, dict) and isinstance(q.get("active"), list) else None
+
+
+def _quest_match(want: str, name: Any) -> bool:
+    w, n = tokens(want), tokens(str(name or ""))
+    return bool(w) and (str(want).lower() == str(name or "").lower() or w <= n)
+
+
+def _quest_row(log: dict, name: str) -> dict | None:
+    return next((r for r in log["active"] if isinstance(r, dict) and _quest_match(name, r.get("quest"))), None)
+
+
+def _quest_done(log: dict, name: str) -> bool:
+    return any(_quest_match(name, c) for c in log.get("complete") or [])
+
+
+def _quest_complete(a, state, ctx, cat):
+    log = _quest_log(state)
+    if log is None:
+        return Result(None, f"quest {a['name']}: the body reports no quest log", 0.0, ["quests"])
+    if _quest_done(log, a["name"]):
+        return Result(True, f"quest {a['name']} complete", 1.0, measures={f"quest:{a['name'].lower()}": 2.0})
+    row = _quest_row(log, a["name"])
+    return Result(False, f"quest {a['name']} " + (f"at: {row.get('step')}" if row else "not started"),
+                  0.5 if row else 0.0, measures={f"quest:{a['name'].lower()}": 1.0 if row else 0.0})
+
+
+def _quest_step(a, state, ctx, cat):
+    """The quest's current step moved on since this step started ("advanced"), or reads like ``step`` (words of
+    the game's own step text); a completed quest has moved past every step."""
+    log = _quest_log(state)
+    if log is None:
+        return Result(None, f"quest {a['name']}: the body reports no quest log", 0.0, ["quests"])
+    if _quest_done(log, a["name"]):
+        return Result(True, f"quest {a['name']} complete", 1.0)
+    row = _quest_row(log, a["name"])
     if row is None:
         return Result(False, f"quest {a['name']} not started", 0.0)
+    now = str(row.get("step") or "")
+    if a.get("step"):
+        ok = tokens(a["step"]) <= tokens(now)
+        return Result(ok, f"quest {a['name']} at: {now}", 1.0 if ok else 0.0)
+    base = ctx.get("baseline")
+    then = (base or {}).get("quest_steps") if isinstance(base, dict) else None
+    if not isinstance(then, dict):
+        return Result(None, f"quest {a['name']}: no record of its step before", 0.0, ["baseline"])
+    before = then.get(row.get("quest"))
+    ok = before is None or before != now  # started during the step, or a new step
+    return Result(ok, f"quest {a['name']} at: {now}" + ("" if ok else " (not moved on yet)"), 1.0 if ok else 0.0,
+                  measures={f"quest_step:{a['name'].lower()}": float(ok)})
+
+
+def _quest(a, state, ctx, cat):
+    """Older form: {"quest": {name, completed}} or {name, stage}."""
     if a.get("stage") is not None:
-        ok = str(row.get("stage")) == str(a["stage"])
-        return Result(ok, f"quest {a['name']} at stage {row.get('stage')} (want {a['stage']})", 1.0 if ok else 0.0)
-    done = bool(row.get("completed"))
-    ok = done == bool(a.get("completed", True))
-    return Result(ok, f"quest {a['name']} {'completed' if done else 'not completed'}", 1.0 if ok else 0.0)
+        return _quest_step({"name": a["name"], "step": str(a["stage"])}, state, ctx, cat)
+    r = _quest_complete(a, state, ctx, cat)
+    if r.passed is None or a.get("completed", True):
+        return r
+    return Result(not r.passed, r.detail, 1.0 - r.progress)
 
 
 @dataclass(frozen=True)
@@ -885,7 +946,8 @@ for _name, _fn in (("have", _have), ("gained", _gained), ("lost", _lost), ("tall
                    ("skill_gain", _skill_gain), ("equipped", _equipped), ("gear_better", _gear_better),
                    ("bag", _bag), ("vital", _vital), ("near", _near), ("moved", _moved), ("killed", _killed),
                    ("on_ground", _on_ground), ("elapsed", _elapsed), ("station", _station), ("quest", _quest),
-                   ("structure", _structure), ("stored", _stored)):
+                   ("structure", _structure), ("stored", _stored), ("quest_complete", _quest_complete),
+                   ("quest_step", _quest_step)):
     register_leaf(_name, _fn, lambda a, items, _k=_name: _validate_builtin(_k, a, items))
 BUILTIN_LEAVES = tuple(LEAVES)
 register = register_leaf  # short name for callers (the Eval benchmark)
@@ -901,6 +963,9 @@ def snapshot(state: dict, t: float | None = None) -> dict:
     out = {k: state[k] for k in keep if k in state}
     if t is not None:
         out["t"] = float(t)
+    log = state.get("quests") if isinstance(state.get("quests"), dict) else None
+    if log and isinstance(log.get("active"), list):  # each active quest's step, for quest_step(advanced)
+        out["quest_steps"] = {r.get("quest"): r.get("step") for r in log["active"] if isinstance(r, dict)}
     if isinstance(state.get("structures"), list):  # piece ids only: enough for structure(new)
         out["structure_ids"] = [r.get("id") for r in state["structures"] if isinstance(r, dict) and r.get("id")]
     if isinstance(out.get("inventory_items"), list):  # item ids only: enough for gear_better(carried)
@@ -946,6 +1011,9 @@ def describe(p: dict) -> str:
         "killed": lambda: f"kill {a.get('at_least', 1):g} {a['kind']}",
         "quest": lambda: f"quest {a['name']} " + (f"at stage {a['stage']}" if a.get("stage") is not None else "completed"),
         "structure": lambda: f"{a.get('at_least', 1):g} {a['name']} " + ("built" if a.get("new") else "nearby"),
+        "quest_complete": lambda: f"quest {a['name']} completed",
+        "quest_step": lambda: (f"quest {a['name']} at the step '{a['step']}'" if a.get("step")
+                               else f"the next step of quest {a['name']}"),
         "stored": lambda: f"store {a.get('at_least', 1):g} {a['item']}" + (
             f" in {a['container']}" if a.get("container") else "") + (
             f" over {a['trips_at_least']:g} trips" if a.get("trips_at_least") else ""),

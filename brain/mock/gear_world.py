@@ -27,7 +27,10 @@ What it adds over MockGame, all from data/items_<build>.json and data/recipes_<b
   crafting the recipe's skill (game data), building Construction, tending Farming, ``fish`` Fishing,
   ``agility_course`` Agility, a ``cast`` Magic, and ``attack`` the skill of the held weapon's style (item catalog
   range_type: melee -> Attack, ranged -> Ranged, magic -> Magic); fishing spots and courses are harness data;
-- primitives can be switched off (``remove_tool``) to provoke capability gaps; there is no teleport or quest
+- quests (client_mod/scripts/quests.lua's get_state.quests shape: {active: [{quest, step, hint}], complete, counts});
+  harness data (``add_quest``): a giver NPC, prerequisite quests and steps in the game's words, each done when he
+  carries items or by talking to an NPC (``talk``, talk.lua's tool); the brain sees only the step text;
+- primitives can be switched off (``remove_tool``) to provoke capability gaps; there is no teleport
   primitive and no quest perception (gaps the board must log, never fake).
 The Director and the benchmark only ever see get_state and tool results, like on the real body.
 """
@@ -119,12 +122,16 @@ def manifest() -> dict[str, dict]:
                             "finish. Trains Agility (walking anywhere also gives a little Agility XP).", {"course": s}),
         "cast": a("Cast one of your spells (wheel, then cast); verified by runes and cooldown.",
                   {"spell": s, "target": s}, ["spell"]),
+        "talk": a("Talk to someone (an NPC from look, e.g. prompt Talk): walks over, starts the conversation and goes "
+                  "through it.", {"target": s}, ["target"]),
+        "quests": a("Your quest log from the game: active quests with the current step in the game's own words (and its "
+                    "hint), completed quests. Read only.", {}, kind="read"),
     }
 
 
 class GearWorld(MockGame):
     manifest_tools = frozenset({"equip", "craft_plan", "buildables", "build", "store", "take", "farm_plots", "tend",
-                                "fish", "agility_course"})
+                                "fish", "agility_course", "talk", "quests"})
     grow_s = 120.0  # game seconds from planting to harvest
 
     def __init__(self) -> None:
@@ -145,6 +152,9 @@ class GearWorld(MockGame):
         self.plots: dict[str, dict] = {}
         self.fishing_spots: dict[str, dict] = {}  # harness data: id -> {position, item, tool_category}
         self.courses: dict[str, dict] = {}  # harness data: id -> {name, position, xp}
+        self.quest_defs: dict[str, dict] = {}  # harness data: name -> {giver, requires, steps}
+        self.quest_state: dict[str, dict] = {}  # name -> {state: given|complete, step: index}
+        self.npcs: dict[str, list[float]] = {}
         self._names: dict[str, str] | None = None
 
     # ------------------------------------------------------------------ catalog helpers
@@ -241,6 +251,64 @@ class GearWorld(MockGame):
         self.courses[cid] = {"name": name, "position": list(map(float, pos)), "xp": xp}
         return cid
 
+    def add_quest(self, name: str, giver: str, giver_pos, steps: list[dict], requires=()) -> None:
+        """steps: [{text, hint?, have?: {item: n}} | {text, hint?, talk: npc, take?: {item: n}}] in the game's words."""
+        self.quest_defs[name] = {"giver": giver, "requires": list(requires), "steps": list(steps)}
+        self.npcs.setdefault(giver, list(map(float, giver_pos)))
+
+    def add_npc(self, name: str, pos) -> None:
+        self.npcs[name] = list(map(float, pos))
+
+    def _quest_tick(self) -> None:
+        """'have' steps complete as soon as he carries the items (the game's own counters)."""
+        for name, st in self.quest_state.items():
+            steps = self.quest_defs[name]["steps"]
+            while st["state"] == "given" and st["step"] < len(steps) and steps[st["step"]].get("have") and \
+                    all(self._carried(i) >= n for i, n in steps[st["step"]]["have"].items()):
+                st["step"] += 1
+                if st["step"] >= len(steps):
+                    st["state"] = "complete"
+
+    def _quest_log(self) -> dict:
+        self._quest_tick()
+        active = [{"quest": n, "step": self.quest_defs[n]["steps"][st["step"]]["text"],
+                   "hint": self.quest_defs[n]["steps"][st["step"]].get("hint")}
+                  for n, st in self.quest_state.items() if st["state"] == "given"]
+        done = sorted(n for n, st in self.quest_state.items() if st["state"] == "complete")
+        return {"active": active, "complete": done,
+                "counts": {"active": len(active), "complete": len(done),
+                           "ungiven": len(self.quest_defs) - len(active) - len(done)}}
+
+    def quests(self) -> ActionResult:
+        return ok(**self._quest_log())
+
+    def talk(self, target: str) -> ActionResult:
+        npc = next((n for n in self.npcs if n.lower() == str(target).lower()), None)
+        if npc is None:
+            return fail(Reason.UNKNOWN_TARGET, target=target, detail="I can't see anyone by that name.")
+        self._walk(self.npcs[npc], 1.5)
+        self._quest_tick()
+        for name, st in self.quest_state.items():  # a talk step of an active quest
+            if st["state"] != "given":
+                continue
+            step = self.quest_defs[name]["steps"][st["step"]]
+            if step.get("talk") == npc:
+                take = step.get("take") or {}
+                if any(self._carried(i) < n for i, n in take.items()):
+                    return ok(target=npc, said=f"{npc}: come back when you have everything.", quest=name)
+                self.inventory -= Counter(take)
+                st["step"] += 1
+                if st["step"] >= len(self.quest_defs[name]["steps"]):
+                    st["state"] = "complete"
+                return ok(target=npc, quest=name, said=f"{npc}: well done.")
+        for name, q in self.quest_defs.items():  # a quest this NPC gives
+            if q["giver"] == npc and name not in self.quest_state:
+                if not all(self.quest_state.get(r, {}).get("state") == "complete" for r in q["requires"]):
+                    return ok(target=npc, said=f"{npc}: I've nothing for you yet.")
+                self.quest_state[name] = {"state": "given", "step": 0}
+                return ok(target=npc, quest=name, started=True, said=f"{npc}: {q['steps'][0]['text']}")
+        return ok(target=npc, said=f"{npc}: hello.")
+
     def remove_tool(self, name: str) -> None:
         self.removed.add(name)
 
@@ -274,6 +342,8 @@ class GearWorld(MockGame):
                 near.append({"id": st["id"], "name": st["name"], "station": st["station"], "distance": round(dist, 1),
                              "running": self.time < st["until"]})
         d["stations_nearby"] = sorted(near, key=lambda r: r["distance"])
+        if self.quest_defs:
+            d["quests"] = self._quest_log()
         d["structures"] = sorted(({"id": sid, "name": st["name"], "piece": st["name"], "position": st["position"],
                                    "distance": round(math.dist(st["position"], self.pos), 1)}
                                   for sid, st in self.structures.items()
@@ -406,7 +476,7 @@ class GearWorld(MockGame):
             return self.craft_plan(**args)
         fn = {"buildables": self.list_buildables, "build": self.build, "store": self.store, "take": self.take,
               "farm_plots": self.farm_plots, "tend": self.tend, "fish": self.fish,
-              "agility_course": self.agility_course}.get(tool)
+              "agility_course": self.agility_course, "talk": self.talk, "quests": self.quests}.get(tool)
         return fn(**args) if fn else fail(Reason.NOT_IMPLEMENTED, tool=tool)
 
     # ------------------------------------------------------------------ skill tools: fishing, agility, combat XP

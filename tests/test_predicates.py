@@ -183,10 +183,13 @@ def test_killed_counts_body_verified_kills_only():
 def test_quest_is_uncheckable_until_the_body_reports_quests():
     r = ev({"quest": {"name": "Some Quest"}}, {"inventory": {}})
     assert (r.passed, r.missing) == (None, ["quests"])
-    q = {"quests": [{"name": "Some Quest", "stage": 2, "completed": False}]}
+    # the real shape (client_mod/scripts/quests.lua get_state extras)
+    q = {"quests": {"active": [{"quest": "Some Quest", "step": "Speak to the archmage"}], "complete": ["Old One"],
+                    "counts": {"active": 1, "complete": 1}}}
     assert ev({"quest": {"name": "some quest"}}, q).passed is False
-    assert ev({"quest": {"name": "Some Quest", "stage": 2}}, q).passed is True
+    assert ev({"quest": {"name": "Some Quest", "stage": "archmage"}}, q).passed is True
     assert ev({"quest": {"name": "Other"}}, q).passed is False
+    assert ev({"quest": {"name": "Old One"}}, q).passed is True
 
 
 # ------------------------------------------------------------------ combinators (Kleene)

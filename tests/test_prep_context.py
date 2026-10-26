@@ -36,11 +36,16 @@ def line(prefix):
 def test_a_hard_creature_shows_its_level_and_the_odds():
     c = line("Creatures")
     assert "Grey Drake" in c and "PL 6" in c
-    assert "odds: too strong for you (it kills you ~20 s; you it ~75 s)" in c
+    assert "odds: much stronger (PL +5; kills you ~20 s; you it ~75 s)" in c
 
 
 def test_an_easy_creature_shows_easy_odds():
     assert "odds: likely win" in line("Creatures")
+
+
+def test_the_odds_say_what_they_assume():
+    """Truthful scope: the estimate counts only what he holds now (no shield, buff, enchant, food)."""
+    assert line("Creatures").startswith("Creatures (odds: you alone, as equipped now; no spell, shield, enchant or food counted): ")
 
 
 def test_his_own_level_is_beside_them():
@@ -54,8 +59,9 @@ def test_the_options_he_carries_are_listed():
 
 def test_information_only_no_advice():
     """No directive words in what the odds add (the model decides what to do about them)."""
-    c = line("Creatures")
+    c = line("Creatures").split("): ", 1)[1]  # the notes (the title only states what the odds count)
     assert not re.search(r"\b(should|must|prepare|enchant|flee|avoid|don't)\b", c, re.I), c
+    assert not re.search(r"\b(should|must|prepare|flee|avoid|don't)\b", line("Creatures"), re.I)
 
 
 def test_state_extras_keys_are_not_dumped_raw():
@@ -71,7 +77,7 @@ def test_a_hard_creature_is_never_cut_off_the_line():
     st["nearby_entities"] = ents + [{"id": f"k{i}", "name": f"Rabbit {i}", "distance": 2 + i, "hp": 10, "max_hp": 10,
                                      "power_level": 0, "alive": True} for i in range(8)]
     c = next(l for l in summary(st) if l.startswith("Creatures"))
-    assert c.index("Grey Drake") < c.index("Rabbit 0") and "too strong" in c, c
+    assert c.index("Grey Drake") < c.index("Rabbit 0") and "much stronger" in c, c
 
 
 def test_without_the_extras_nothing_breaks():

@@ -24,6 +24,7 @@ REPO = Path(__file__).resolve().parents[1]
 MAX_LINES = 18  # +skills, +module extras (2026-10-26)
 MAX_GROUPS = 6  # per line
 LINE_CHARS = 240
+CREATURE_LINE_CHARS = 400  # with the body's fight odds per creature (prep eval 2026-10-26: 240 cut the second one)
 
 # Words that never identify a thing on their own ("pick up the sticks" -> "sticks").
 STOP_WORDS = {"the", "a", "an", "some", "any", "all", "of", "my", "your", "me", "you", "it", "that", "this",
@@ -158,8 +159,11 @@ def _resource_note(row: dict) -> str | None:
     return ", ".join(bits) or None
 
 
-ODDS_WORDS = {"likely_win": "likely win", "likely_lose": "likely lose", "too_strong": "too strong for you",
-              "outnumbered": "outnumbered", "boss": "boss fight"}
+# The body's estimate (combat.assess) uses only what he holds right now: no shield, buff spell, enchant, food
+# or other weapon is counted. Said so, because "too strong" read as final (prep eval 2026-10-26: Haiku
+# declined 4/4 hard fights without looking at combat_brief or his options).
+ODDS_WORDS = {"likely_win": "likely win", "likely_lose": "likely lose", "too_strong": "much stronger",
+              "outnumbered": "outnumbered", "boss": "a boss"}
 
 
 def _creature_note(e: dict, odds: dict) -> str | None:
@@ -178,9 +182,11 @@ def _creature_note(e: dict, odds: dict) -> str | None:
         t = []
         if o["verdict"] != "likely_win":  # the times matter when it is not an easy fight (line budget)
             if _num(o.get("die_s")) is not None:
-                t.append(f"it kills you ~{o['die_s']:g} s")
+                t.append(f"kills you ~{o['die_s']:g} s")
             if _num(o.get("kill_s")) is not None:
                 t.append(f"you it ~{o['kill_s']:g} s")
+        if _num(o.get("pl_gap")) and o["verdict"] != "likely_win":
+            t.insert(0, f"PL +{o['pl_gap']:g}")
         bits.append(f"odds: {ODDS_WORDS.get(o['verdict'], o['verdict'])}" + (f" ({'; '.join(t)})" if t else ""))
     return ", ".join(bits) or None
 
@@ -306,12 +312,12 @@ def _group(things: list[Thing]) -> list[Thing]:
     return list(groups.values())
 
 
-def _line(label: str, items: list[str]) -> str | None:
+def _line(label: str, items: list[str], cap: int = LINE_CHARS) -> str | None:
     if not items:
         return None
     more = len(items) - MAX_GROUPS
     text = f"{label}: " + "; ".join(items[:MAX_GROUPS]) + (f"; +{more} more" if more > 0 else "")
-    return text[:LINE_CHARS]
+    return text[:cap]
 
 
 def _health(state: dict) -> str | None:
@@ -466,6 +472,30 @@ def consumables(state: dict) -> list[str]:
             for k, r in consumable_rows(state)]
 
 
+def quests_line(state: dict, limit: int = 3) -> str | None:
+    """'Quests: Rune Mysteries: <the current step in the game's words> (hint ...); 2 done' from get_state.quests
+    (client_mod/scripts/quests.lua: {active: [{quest, step, detail, hint, counters}], complete, counts})."""
+    q = state.get("quests") if isinstance(state.get("quests"), dict) else None
+    if not q:
+        return None
+    parts = []
+    for a in (q.get("active") or [])[:limit]:
+        if not isinstance(a, dict):
+            continue
+        step = a.get("step") or "?"
+        extra = [f"hint: {a['hint']}" if a.get("hint") else "",
+                 ", ".join(f"{k} {v}" for k, v in list((a.get("counters") or {}).items())[:3])]
+        extra = [e for e in extra if e]
+        parts.append(f"{a.get('quest')}: {step}" + (f" ({'; '.join(extra)})" if extra else ""))
+    more = len(q.get("active") or []) - len(parts)
+    done = len(q.get("complete") or [])
+    tail = [f"{more} more active" if more > 0 else "", f"{done} done" if done else ""]
+    tail = [t for t in tail if t]
+    if not parts and not tail:
+        return None
+    return ("Quests: " + ("; ".join(parts) or "none active") + (f"; {', '.join(tail)}" if tail else ""))[:LINE_CHARS]
+
+
 def skills_line(state: dict) -> str | None:
     """'Skills (lowest first): Artisan 1, Cooking 1 (40 xp to next), ..., Attack 3' from get_state.skills
     (a list of {skill, level, xp, xp_to_next?} or a {name: {level, xp}} dict). Lowest first, so "level up
@@ -500,7 +530,7 @@ COVERED_KEYS = frozenset({
     "skills", "sleeping", "stamina", "stations_nearby", "structures", "surroundings", "survival", "sustenance",
     "sustenance_max", "time_of_day", "tool_need", "total_level", "unavailable", "vitals_policy", "vitals_rate", "yaw",
     "spells", "spells_locked_n", "extras_keys", "world_guid", "puppet", "spell_cooldowns", "time",
-    "power_level", "fight_odds",
+    "power_level", "fight_odds", "quests",
 })
 EXTRAS_LINES, EXTRAS_ITEMS = 3, 4
 
@@ -585,6 +615,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     lines.append(_line("Food/drink", consumables(state)))
     lines.append(_line("Spare gear", item_stats.describe_carried(state)))
     lines.append(skills_line(state))
+    lines.append(quests_line(state))
     lines.append(hands(state))
     lines.append(world_line(state))
     lines.append(vitals_policy(state))
@@ -595,10 +626,12 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     # hostiles first, then by distance (the nearest threat leads the line)
     # (a creature the body rates hard counts as a threat for the order: it must not be cut off the line)
     def _hard(g):
-        return bool(g.note) and any(f"odds: {w}" in g.note for w in ("too strong", "boss", "likely lose", "outnumbered"))
+        return bool(g.note) and any(f"odds: {w}" in g.note for w in ("much stronger", "a boss", "likely lose", "outnumbered"))
     creatures = sorted(_group([t for t in things if t.kind == "creature"]),
                        key=lambda g: (not (g.hostile or _hard(g)), g.distance if g.distance is not None else 1e9))
-    lines.append(_line("Creatures", [("hostile " if g.hostile else "") + g.label() for g in creatures]))
+    odds_note = " (odds: you alone, as equipped now; no spell, shield, enchant or food counted)" if state.get("fight_odds") else ""
+    lines.append(_line("Creatures" + odds_note, [("hostile " if g.hostile else "") + g.label() for g in creatures],
+                       CREATURE_LINE_CHARS if odds_note else LINE_CHARS))
 
     ground = _group([t for t in things if t.kind == "item"])
     lines.append(_line("On the ground", [g.label() for g in ground]))
