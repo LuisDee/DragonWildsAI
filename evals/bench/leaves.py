@@ -32,7 +32,32 @@ TELEPORT_MIN_M = 300.0
 @lru_cache(maxsize=2)
 def default_spells() -> dict:
     p = ROOT / "data" / "spell_effects.json"
-    return json.loads(p.read_text(encoding="utf-8")).get("spells") or {} if p.exists() else {}
+    spells = json.loads(p.read_text(encoding="utf-8")).get("spells") or {} if p.exists() else {}
+    return with_hypotheses(spells)
+
+
+def with_hypotheses(spells: dict, path: Path | None = None) -> dict:
+    """Merge evals/bench/spell_observables.json (dump-derived HYPOTHESES, confidence "hypothesis") into the proof of
+    each spell whose proof has no observable effect yet (only needs_live_observation / observable false). A
+    hypothesis that fires is evidence; one that does not reads null, never fail (_effect)."""
+    f = path or (ROOT / "evals" / "bench" / "spell_observables.json")
+    try:
+        hyp = json.loads(f.read_text(encoding="utf-8")).get("spells") or {}
+    except (OSError, ValueError):
+        return spells
+    out = dict(spells)
+    for sid, h in hyp.items():
+        sp = out.get(sid)
+        if not isinstance(sp, dict):
+            continue
+        proof = dict(sp.get("proof") or {})
+        eff = [e for e in proof.get("effect") or [] if e.get("kind") != "needs_live_observation"]
+        if any(e.get("observable") not in (False, None) for e in eff) and sid != "USD_PhaseDash":
+            continue  # it already has a real proof
+        add = [{**e, "confidence": "hypothesis"} for e in h.get("effects") or []]
+        proof["effect"] = eff + [e for e in add if e not in eff]
+        out[sid] = {**sp, "proof": proof}
+    return out
 
 
 def rune_item(name: str) -> str:
@@ -49,7 +74,9 @@ def _key(e: dict) -> str | None:
     if e.get("kind") == "ge_added":
         return "ge:" + str(e.get("class") or e.get("class_contains"))
     if e.get("kind") == "spell_actor":
-        return "actor:" + str(e.get("class"))
+        return "actor:" + str(e.get("class") or e.get("class_contains"))
+    if e.get("kind") == "target_effect":
+        return "teffect:" + str(e.get("effect"))
     if e.get("kind") == "view_target":
         return "view:" + str(e.get("class"))
     if e.get("kind") == "spell_state":
@@ -118,13 +145,29 @@ def _effect(e: dict, o, target: Any, ctx: dict | None = None) -> bool | None:
         part = e.get("class_contains")
         new = [g for g in a.get("ge") or [] if g not in (b.get("ge") or [])]
         return any(g == want if want else (part and part in g) for g in new)
+    hyp = e.get("confidence") == "hypothesis"  # a dump-derived observable not yet seen live: absence is "can't tell"
     if k == "spell_actor":
-        if any(x.get("class") == e.get("class") for x in _new(a.get("actors"), b.get("actors"))):
+        want, part, excl = e.get("class"), e.get("class_contains"), set(e.get("exclude") or [])
+
+        def hit(c):
+            c = str(c or "")
+            return c not in excl and (c == want if want else bool(part) and part in c)
+        if any(hit(x.get("class")) for x in _new(a.get("actors"), b.get("actors"))):
             return True
         # short-lived actors (projectiles): the dev referee reports each new instance; it must appear during this cast
-        seen = [x for x in (ctx or {}).get("referee") or [] if x.get("kind") == "spell_actor" and x.get("class") == e.get("class")
+        seen = [x for x in (ctx or {}).get("referee") or [] if x.get("kind") == "spell_actor" and hit(x.get("class"))
                 and o.wall0 - 1 <= float(x.get("t", 0)) <= o.wall1 + 3]
-        return True if seen else False
+        return True if seen else (None if hyp else False)
+    if k == "target_effect":  # a status on the creature it was cast at (referee polls creature effects, v1.5)
+        seen = [x for x in (ctx or {}).get("referee") or [] if x.get("kind") == "target_effect"
+                and x.get("effect") == e.get("effect") and o.wall0 - 1 <= float(x.get("t", 0)) <= o.wall1 + 8]
+        return True if seen else None
+    if k == "phase_dash":  # the server's OnDash(bWasPhaseDash) for him inside the spell's window (referee v1.5)
+        seen = [x for x in (ctx or {}).get("referee") or [] if x.get("kind") == "dash" and x.get("phase")
+                and x.get("who") == "self" and float(x.get("t", 0)) >= o.wall0 - 1]
+        return True if seen else None
+    if k == "recall_return":  # needs harness motion between cast start and expiry: not built
+        return None
     if k == "view_target":  # the camera switched to the spell's view actor (probe: pc:GetViewTarget())
         if a.get("view_target") == e.get("class") and b.get("view_target") != e.get("class"):
             return True
@@ -163,7 +206,8 @@ def _effect(e: dict, o, target: Any, ctx: dict | None = None) -> bool | None:
         return None if v is None else float(v) >= float(e.get("min", 3.0))
     if k == "moved_m":
         d = math.dist(b.get("position") or [0, 0, 0], a.get("position") or [0, 0, 0])
-        return d >= float(e.get("min", 3.0)) and (o.t1 - o.t0) <= TRAVEL_MAX_S
+        ok = d >= float(e.get("min", 3.0)) and (o.t1 - o.t0) <= TRAVEL_MAX_S
+        return True if ok else (None if hyp else False)
     if k == "target_gone":
         ids = {t.get("id") for t in (b.get("things") or []) + (b.get("creatures") or [])}
         after_ids = {t.get("id") for t in (a.get("things") or [])} | {c.get("id") for c in a.get("creatures") or [] if c.get("alive", True)}

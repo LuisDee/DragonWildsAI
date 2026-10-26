@@ -290,3 +290,24 @@ def test_held_item_effect_reads_the_probe_held_effects():
     assert _effect(e, O({"held": {"effects": []}}, {"held": {"effects": ["HEED_EnchantWeaponFire"]}}), None) is True
     assert _effect(e, O({"held": {"effects": []}}, {"held": {"effects": []}}), None) is False
     assert _effect(e, O({}, {"gaps": ["held_effects"]}), None) is None
+
+
+def test_dump_hypotheses_count_when_they_fire_and_read_null_when_they_do_not():
+    """evals/bench/spell_observables.json (2026-10-26): spells whose proof was only needs_live_observation get
+    dump-derived hypotheses; a firing hypothesis is evidence, a silent one is 'can't tell' (never a fail)."""
+    from evals.bench.leaves import _effect, default_spells, specific_effects
+    spells = default_spells()
+    good, _ = specific_effects("USD_Confuse", spells)
+    kinds = {e["kind"] for e in good}
+    assert {"spell_actor", "target_effect"} <= kinds and all(e.get("confidence") == "hypothesis" for e in good)
+
+    class O:
+        def __init__(self):
+            self.before, self.after, self.wall0, self.wall1, self.t0, self.t1 = {}, {}, 100.0, 102.0, 100.0, 102.0
+    te = next(e for e in good if e["kind"] == "target_effect")
+    fired = {"referee": [{"kind": "target_effect", "effect": "GE_Confuse_C", "t": 103.0, "by": "self"}]}
+    assert _effect(te, O(), None, fired) is True and _effect(te, O(), None, {"referee": []}) is None
+    rock = next(e for e in specific_effects("USD_DivineRock", spells)[0] if e["kind"] == "spell_actor")
+    seen = {"referee": [{"kind": "spell_actor", "class": "BP_DivineRock_Clay_C", "t": 101.0}]}
+    preview = {"referee": [{"kind": "spell_actor", "class": "BP_DivineRockPreview_C", "t": 101.0}]}
+    assert _effect(rock, O(), None, seen) is True and _effect(rock, O(), None, preview) is None

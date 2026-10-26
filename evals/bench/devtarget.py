@@ -32,7 +32,7 @@ PROBE_CMD = ROOT / "client_mod" / "commands" / "bench_probe.lua"
 # defended events carry `how` only for dodges seen with the evade tag / parry / block hooks (else a gap); teleport is
 # polled (no `via` yet -> a gap for teleports{via})
 REFEREE_SUPPORTS = frozenset({"item_change", "damage", "death", "telegraph", "defended", "teleport", "spell_actor",
-                              "spell_state"})
+                              "spell_state", "target_effect", "dash"})
 RECIPES_GLOB = "recipes_*.json"
 SPELLS_GLOB = "spells_*.json"
 
@@ -64,6 +64,16 @@ def spell_actor_classes() -> list[str]:
             path = m.get("actor_class") or m.get("utility_spell_class")
             if path:
                 out.add(str(path).rsplit(".", 1)[-1])
+    try:  # hypothesis actors (evals/bench/spell_observables.json); class_contains polls its base class
+        hyp = json.loads((ROOT / "evals" / "bench" / "spell_observables.json").read_text(encoding="utf-8"))
+        for h in (hyp.get("spells") or {}).values():
+            for e in h.get("effects") or []:
+                if e.get("kind") == "spell_actor" and e.get("class"):
+                    out.add(str(e["class"]))
+                elif e.get("kind") == "spell_actor" and e.get("class_contains") == "BP_DivineRock_":
+                    out.add("DivineRock")  # ADivineRock: FindAllOf returns its BP_DivineRock_<Ore> subclasses
+    except (OSError, ValueError, AttributeError):
+        pass
     try:  # view actors a spell switches the camera to (Eye of Oculus' BP_OculusCamera_C): short-lived, so polled too
         eff = json.loads((ROOT / "data" / "spell_effects.json").read_text(encoding="utf-8"))
         for sp in (eff.get("spells") or eff).values():

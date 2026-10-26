@@ -74,7 +74,8 @@ local function poll_spell_actors(s, anchor)
                 s.seen_actors[id] = true
                 local q = U.loc(a)
                 if q and here and U.dist(q, here) <= 6000 then
-                    emit("spell_actor", { class = cls, id = id, position = { q.X / 100, q.Y / 100, q.Z / 100 } })
+                    emit("spell_actor", { class = U.class_word(a) or cls, polled = cls, id = id,
+                                          position = { q.X / 100, q.Y / 100, q.Z / 100 } })
                 end
             end
         end
@@ -549,6 +550,36 @@ end
 -- Personal Chest: UPersonalInventoryComponent:OpenPersonalInventory(Method, Chest) with Method 1 = Spell
 -- (EPersonalInventoryOpenMethod {Manual=0, Spell=1}), then Client_TogglePersonalInventory goes out to his client.
 --   -> spell_state {who, state = "OculusActive" | "PersonalInventorySpell" | "PersonalInventoryToggle", via}
+M.HOOKS_V15 = {  -- hypothesis (spell_observables.json): Phase Dash's dash itself, server side
+    -- OnDash(bWasPhaseDash) is a delegate signature, not a UFunction (RegisterHook refused it live); the object dump's
+    -- only Dash UFunction on the component is EnablePhaseDashes: the Phase Dash spell turning its dashes on
+    dash = "/Script/Dominion.DominionMovementComponent:EnablePhaseDashes",
+}
+
+function D.dash(ctx)
+    local s = S()
+    local comp = U.try(function() return ctx:get() end)
+    local owner = comp and U.try(function() return comp:GetOwner() end)
+    local n = U.valid(owner) and U.player_name(owner) or nil
+    if n then emit("dash", { who = n == s.watch and "self" or n, phase = true, via = "EnablePhaseDashes" }) end
+end
+
+function M.register_hooks_v15()
+    local s = S()
+    s.hooks5 = s.hooks5 or {}
+    for k, path in pairs(M.HOOKS_V15) do
+      if s.hooks5[k] ~= "ok" then  -- a failed path (e.g. a renamed UFunction) may be retried after a fix
+        local ok, err = pcall(RegisterHook, path, function(ctx, ...)
+            local st = rawget(_G, "__dw_bench_referee")
+            local d = rawget(_G, "__dw_bench_ref_dispatch")
+            if st and st.active2 and d and d[k] then pcall(d[k], ctx, ...) end
+        end)
+        s.hooks5[k] = ok and "ok" or tostring(err)
+      end
+    end
+    return s.hooks5
+end
+
 M.HOOKS_V13 = {
     oculus_on = "/Script/Dominion.OculusPawn:Multicast_OnOculusActivated",
     pinv_open = "/Script/Dominion.PersonalInventoryComponent:OpenPersonalInventory",
@@ -589,8 +620,44 @@ function D.pinv_toggle(ctx)
     state_event(s, U.try(function() return ctx:get() end), "PersonalInventoryToggle", "hook")
 end
 
+-- v1.5 (hypotheses, evals/bench/spell_observables.json): status effects on creatures near him (Confuse, Enfeeble):
+-- creature.GameplayEffectsComponent.ReplicatedInstances[i].Data (TSubclassOf UDominionGameplayEffectData) and its
+-- Instigator. The first poll after start only records what is already there.
+local function poll_target_effects(s, pawn)
+    local here = U.loc(pawn)
+    if not here then return end
+    s.teff = s.teff or {}
+    local first = not s.teff_init
+    for _, c in ipairs(U.find_all(M.CREATURE_CLASS, { skip_defaults = true })) do
+        local q = U.loc(c)
+        if q and U.dist(q, here) <= 3000 then
+            local gec = U.try(function() return c.GameplayEffectsComponent end)
+            local arr = U.valid(gec) and U.try(function() return gec.ReplicatedInstances end) or nil
+            if arr then
+                pcall(function()
+                    arr:ForEach(function(_, el)
+                        local inst = el:get()
+                        local data = U.valid(inst) and U.short(U.try(function() return inst.Data end)) or nil
+                        local key = data and (tostring(U.short(c)) .. ":" .. data .. ":" .. tostring(U.short(inst)))
+                        if key and not s.teff[key] then
+                            s.teff[key] = true
+                            if not first then
+                                local ins = U.try(function() return inst.Instigator end)
+                                emit("target_effect", { target = U.short(c), kind_id = U.class_word(c), effect = data,
+                                                        by = (ins == pawn) and "self" or (U.valid(ins) and U.class_word(ins) or nil) })
+                            end
+                        end
+                    end)
+                end)
+            end
+        end
+    end
+    s.teff_init = true
+end
+
 function M.poll_states(s, pawn)
     if not U.valid(pawn) then return end
+    pcall(poll_target_effects, s, pawn)
     local oc = U.try(function() return pawn.OculusComponent end)
     local on = U.valid(oc) and U.try(function() return oc:IsOculusActive() end) == true or false
     if on and not s.oculus_on then emit("spell_state", { who = "self", state = "OculusActive", via = "poll" }) end
@@ -651,7 +718,7 @@ function M.run(log, args)
         end
         return { ok = true, version = M.VERSION, players = players, creatures = creatures, supported = M.SUPPORTED }
     elseif args.action == "hooks" then  -- register the v1.1 hooks (once per server process; dispatch is reloadable)
-        return { ok = true, hooks = M.register_hooks_v11(), hooks_v12 = M.register_hooks_v12(), hooks_v13 = M.register_hooks_v13() }
+        return { ok = true, hooks = M.register_hooks_v11(), hooks_v12 = M.register_hooks_v12(), hooks_v13 = M.register_hooks_v13(), hooks_v15 = M.register_hooks_v15() }
     elseif args.action == "start" then
         if s.handle then return { ok = true, already = true, pawn = U.short(watched_pawn(s.watch)) } end
         s.watch = tostring(args.watch or "Claude")
@@ -661,6 +728,7 @@ function M.run(log, args)
         pcall(M.snapshot_inventories)  -- containers that exist now are not "his" (built during the case)
         s.spell_classes = type(args.spell_actor_classes) == "table" and args.spell_actor_classes or nil
         s.seen_actors = {}
+        s.teff, s.teff_init = {}, false  -- creature status effects already present are not new
         for _, cls in ipairs(s.spell_classes or {}) do  -- actors already there are not new
             for _, a in ipairs(U.find_all(cls, { skip_defaults = true })) do s.seen_actors[U.short(a) or "?"] = true end
         end
