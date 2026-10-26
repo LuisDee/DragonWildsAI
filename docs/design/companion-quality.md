@@ -174,6 +174,19 @@ Other run-2 counts, old → new:
 - **Check:** `tools/goal_check.py` counts the row only if the log exists with that sha256 and the log's own `voice_summary` re-scores to the row's score and n.
 - **The 2026-10-26 11:13 run re-scored offline:** 0.75. Checks pass at 0.957, but human is 3.75/5, silence 4.12/5 and match 3.84/5. Held-out: 0.734 (match 3.67/5). Below the 0.8 target. The weak cases are h5_have_pickaxe_q (match 1: "got a spare one?" with no action), h4_overhead_chop_tip and promise_has_tool (1/2).
 
+### Voice eval v2 (main's findings a–d, 2026-10-26): new baseline
+- **k = 3 samples per case:** the score is the k-mean, with the spread across the 3 samples reported. A GOAL row needs k ≥ 3.
+- **Scored like the live loop:** the eval scores what the live loop would actually say and do. A turn-0 talk-only reply gets the `agent.PROMISE_NOTE` continuation; a follow-up gets `Controller._talk_only_check` (`TALK_ONLY_NOTE`). First-reply checks stay as a diagnostic.
+- **Fixtures (`evals/voice_fixtures.py`):** all 25 cases had a truncated bag ("+16 more"). They are re-rendered by the current perception from the last logged get_state before the case, which shows "Spare gear: Mithril Pickaxe" in h5, and the full inventory is served as the `inventory` read.
+- **Fresh held-out (seed 20261026, h4/h5 excluded as read):** h6_mine_a_rock, v01_lets_sleep_how, v04_it_didnt_fail, v13_cast_cut_tree, v17_review_food_50, v20_by_felled_tree.
+- **Baseline at HEAD** (`logs/voice-eval-20261026-113456.jsonl`, 90 calls, the cap reached):
+  - **score 0.73** (k-mean; per sample 0.696 / 0.752 / 0.724, sd 0.028), so a persona change must move the score by more than about 0.06 to be signal;
+  - checks pass at 0.918; judge human 3.80, silence 3.97, match 3.65 (the min);
+  - held-out: match 3.94, human 3.60;
+  - promise_has_tool 0/3 even after the continuation: 6 continuations, none added an action;
+  - silence check 22/30.
+  - Caveat: the 90-call cap was reached, so some late samples had their reads or continuation cut by the budget reserve. A 110-call cap would remove that bias.
+
 ### Open items (voice)
 1. **Over-silence on direct questions** (v18 "why are you casting Splinter near me?" → silent gather; h2 "fancy a job" → silent start_goal). The persona rule "a direct question gets a short answer" doesn't hold under effort low. Options:
    - move the rule into the few-shots, with a question → answer + action pair;

@@ -229,7 +229,7 @@ def test_dry_run_end_to_end_reports_seen_and_held_out(tmp_path):
 def test_runner_refuses_without_yes_and_over_the_cap(monkeypatch, capsys):
     monkeypatch.delenv("DW_CONTROLLER_MODEL", raising=False)
     assert ve.main([]) == 2
-    assert "planned calls: 54-154" in capsys.readouterr().out
+    assert "planned calls: 81-456" in capsys.readouterr().out  # k=3 x 25 cases of the live persona + 6 judge calls
     assert ve.main(["--max-calls", "10", "--yes"]) == 2
     assert ve.main(["--plan"]) == 0
 
@@ -257,7 +257,7 @@ def test_every_model_call_is_one_priced_spend_row(tmp_path):
     ctl_llm = FakeLLM([step] * 20, model="anthropic/claude-haiku-5-5")
     judge_llm = FakeLLM([grade] * 4, model="anthropic/claude-sonnet-5-5")
     log = ve.JsonlLogger(tmp_path / "voice-eval-test.jsonl")
-    out = ve.run(["old", "new"], cases()[:3], ctl_llm, judge_llm, tmp_path, log)
+    out = ve.run(["old", "new"], cases()[:3], ctl_llm, judge_llm, tmp_path, log, live_continuation=False)
     rows = [r for r in ve.read_jsonl(log.path) if isinstance(r.get("usage"), dict)]
     assert len(rows) == out["calls"] == 7 + 2  # 6 cases + 1 read-loop step + 2 judge calls
     assert sum(r["kind"] == "voice_llm_call" for r in rows) == 7
@@ -265,3 +265,51 @@ def test_every_model_call_is_one_priced_spend_row(tmp_path):
     st = spend._FileState(log.path, "evals")
     st.update()
     assert len(st.rows) == 9 and {r["model"] for r in st.rows} == {ctl_llm.model, judge_llm.model}
+
+
+def test_k_samples_live_continuation_and_spread(tmp_path):
+    """Voice agent findings (2026-10-26): k=3 samples per case scored on the k-mean with the spread reported;
+    a talk-only first reply gets the live continuation (PROMISE_NOTE on turn 0, TALK_ONLY_NOTE on follow-ups)
+    and the score reads what the live loop would say and do; the first reply stays a diagnostic."""
+    seen = []
+
+    def step(msgs, _tools):
+        seen.append(msgs[-1]["content"])
+        if msgs[-1]["content"] in (ve.PROMISE_NOTE, ve.TALK_ONLY_NOTE):  # the continuation acts
+            return LLMResponse(tool_calls=[ToolCall("gather", {"resource": "tree", "count": 1}, "c9")])
+        return LLMResponse(content="I'll grab some logs")  # a promise with no tool
+
+    def grade(msgs, _tools):
+        ids = [x["id"] for x in json.loads(msgs[-1]["content"])]
+        return LLMResponse(content=json.dumps([{"id": i, "human": 4, "silence": 4, "match": 5} for i in ids]))
+
+    cs = cases()[:2]
+    out = ve.run(["new"], cs, FakeLLM([step] * 40), FakeLLM([grade] * 10), tmp_path, k=3, max_calls=40)
+    rows = out["results"]["new"]
+    assert len(rows) == 6 and {r["sample"] for r in rows} == {0, 1, 2}
+    assert all(r["calls"] and r["first"]["calls"] == [] and r["continuation"]["calls"] for r in rows)
+    assert all(r["checks"]["promise_has_tool"] is True and r["first"]["checks"]["promise_has_tool"] is False for r in rows)
+    sm = out["summary"]["new"]
+    assert sm["cases"] == 2 and sm["samples"] == 6 and sm["first_reply"]["continuation_added_action"] == 6
+    assert sm["spread"]["k"] == 3 and sm["spread"]["sd"] == 0.0 and all(r.get("judge") for r in rows)
+    assert ve.plan_calls(25, 1, k=3)["total"] == 75 + 6
+
+
+def test_voice_fixtures_refresh_truncated_bag_and_redraw_heldout(tmp_path):
+    """Main's findings c/d: a truncated bag ("+16 more") is re-rendered by the current perception from the last
+    logged get_state (so a carried pickaxe shows as Spare gear) and served as the inventory read; the held-out
+    redraw is seeded and never picks a case an agent has read."""
+    from evals import voice_fixtures as vf
+    log = tmp_path / "logs" / "brain-live-20261025-204111-1.jsonl"
+    log.parent.mkdir(parents=True)
+    st = {"inventory": {"ITEM_Pickaxe_Mithril": 1, "ITEM_Rune_Law": 9999}, "health": 100.0}
+    log.write_text(json.dumps({"ts": 1792958600.0, "kind": "bridge_recv", "msg": {"data": st}}) + "\n", encoding="utf-8")
+    case = {"id": "h5", "source": "logs/brain-live-20261025-204111-1.jsonl", "at_utc": "20:05:09",
+            "context": {"situation": ["Carrying: Law Rune x9999; +16 more"]}}
+    assert vf.refresh_truncated([case], root=tmp_path) and case["context"]["situation"] != ["Carrying: Law Rune x9999; +16 more"]
+    inv = [r for r in case["reads"] if r["tool"] == "inventory"][0]
+    assert inv["result"]["data"]["inventory"]["ITEM_Pickaxe_Mithril"] == 1
+    cs = [{"id": f"c{i}"} for i in range(10)]
+    a = vf.redraw_heldout(cs, {"c1", "c2"}, 3, seed=7)
+    b = vf.redraw_heldout([{"id": f"c{i}"} for i in range(10)], {"c1", "c2"}, 3, seed=7)
+    assert a == b and not {"c1", "c2"} & set(a) and sum(c["split"] == "held_out" for c in cs) == 3

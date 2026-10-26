@@ -42,7 +42,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from brain import paths  # noqa: E402
 from brain import persona as persona_file  # noqa: E402
 from brain.capabilities import Capabilities, _parse_manifest  # noqa: E402
-from brain.controller import LOOK_RULE, LOOKUP_RULE, Controller  # noqa: E402
+from brain.agent import PROMISE_NOTE  # noqa: E402
+from brain.controller import LOOK_RULE, LOOKUP_RULE, TALK_ONLY_NOTE, Controller  # noqa: E402
 from brain.interface import BODY_TOOLS, SENSABLE_TRIGGERS  # noqa: E402
 from brain.jsonl_log import JsonlLogger, read_jsonl  # noqa: E402
 from brain.llm import (CONTROLLER_MODEL_ENV, PLANNER_MODEL_ENV, FakeLLM, LiteLLMClient, LLMResponse,  # noqa: E402
@@ -55,7 +56,8 @@ CASES = HERE / "voice_cases.jsonl"
 MANIFEST = HERE / "fixtures" / "voice_manifest.json"
 PERSONAS = {"old": HERE / "fixtures" / "persona_old.md", "new": persona_file.DEFAULT_PATH}
 JUDGE_BATCH = 13  # cases per judge call (25 cases -> 2 calls per persona)
-MAX_CALLS = 60  # the budget main agreed for one full run
+MAX_CALLS = 90  # the budget main agreed for one full run (k=3 x 25 cases of the live persona + the judge)
+K_SAMPLES = 3  # samples per case: the GOAL score is the k-mean; fewer samples are never a GOAL score
 MAX_CHARS = 150
 MAX_STEPS = 3  # the live Controller's max_calls: read-only tools run inline, then it must act or reply
 LAST_STEP = "Last step: act now on what you found, or reply."  # Controller._loop's note, verbatim
@@ -190,12 +192,13 @@ class Budget:
         return True
 
 
-def decide(case: dict, system: str, ctl: Controller, llm, budget: Budget, reserve: int = 0, on_call=None):
+def decide(case: dict, system: str, ctl: Controller, llm, budget: Budget, reserve: int = 0, on_call=None,
+           start: list[dict] | None = None, out: dict | None = None):
     """The live Controller's bounded loop on a replayed context: up to MAX_STEPS calls; read-only tools are
     answered from the log and go back to the model; the first reply with an action (or none) is final.
     ``on_call(step, usage)`` is told about EVERY model call (the spend ledger prices each one).
     Returns (final reply, reads made before it, [{"step", "usage"} per call])."""
-    msgs = messages(case, system)
+    msgs = list(start) if start is not None else messages(case, system)
     reads: list[dict] = []
     resp = LLMResponse()
     usages: list[dict] = []
@@ -215,7 +218,30 @@ def decide(case: dict, system: str, ctl: Controller, llm, budget: Budget, reserv
             msgs.append(tool_result_message(c, read_result(case, c.name, c.arguments)))
         if step == MAX_STEPS - 2:
             msgs.append({"role": "user", "content": LAST_STEP})
+    if out is not None:  # the conversation so far + the final response (for the live continuation turn)
+        out.update(msgs=msgs, resp=resp)
     return reply_of(resp), reads, usages
+
+
+def continue_like_live(case: dict, first: dict, system: str, ctl: Controller, llm, budget: Budget, reserve: int,
+                       state: dict, on_call=None) -> tuple[dict, dict | None, list[dict]]:
+    """What the LIVE loop says after a reply that only talked (voice agent finding, 2026-10-26):
+    turn 0 (no history) -> agent.PROMISE_NOTE: the line is already said; the continuation may add tool calls
+    (and a further line, said after it). A follow-up turn (history) -> Controller._talk_only_check
+    (TALK_ONLY_NOTE): calls -> they run with the (possibly reworded) line; no calls -> the line stands.
+    Returns (effective reply, continuation reply or None, its usages)."""
+    if not first["speech"] or first["calls"] or not budget.can(reserve):
+        return first, None, []
+    note = TALK_ONLY_NOTE if case.get("history") else PROMISE_NOTE
+    start = state["msgs"] + [assistant_message(state["resp"]), {"role": "user", "content": note}]
+    cont, reads, usages = decide(case, system, ctl, llm, budget, reserve=reserve, on_call=on_call, start=start)
+    cont = {**cont, "reads": reads}
+    if case.get("history"):
+        eff = {"speech": (cont["speech"] or first["speech"]) if cont["calls"] else first["speech"],
+               "calls": cont["calls"]}
+    else:
+        eff = {"speech": " ".join(x for x in (first["speech"], cont["speech"]) if x), "calls": cont["calls"]}
+    return eff, cont, usages
 
 
 # ------------------------------------------------------------------ judge
@@ -297,12 +323,13 @@ def parse_judge(text: str | None, ids: list[str]) -> dict[str, dict]:
 # ------------------------------------------------------------------ run
 
 
-def plan_calls(n_cases: int, n_personas: int, batch: int = JUDGE_BATCH, judge: bool = True) -> dict[str, int]:
-    """Minimum (one controller call per case) and worst case (MAX_STEPS each); the runner's Budget caps it."""
-    ctl = n_cases * n_personas
-    jd = math.ceil(n_cases / batch) * n_personas if judge and n_cases else 0
-    return {"controller": ctl, "controller_max": ctl * MAX_STEPS, "judge": jd, "total": ctl + jd,
-            "total_max": ctl * MAX_STEPS + jd}
+def plan_calls(n_cases: int, n_personas: int, batch: int = JUDGE_BATCH, judge: bool = True, k: int = 1) -> dict[str, int]:
+    """Minimum (one controller call per case sample) and worst case (MAX_STEPS each, plus a MAX_STEPS
+    continuation turn when a reply only talked); the runner's Budget caps it."""
+    ctl = n_cases * n_personas * k
+    jd = math.ceil(n_cases * k / batch) * n_personas if judge and n_cases else 0
+    return {"controller": ctl, "controller_max": ctl * MAX_STEPS * 2, "judge": jd, "total": ctl + jd,
+            "total_max": ctl * MAX_STEPS * 2 + jd, "k": k}
 
 
 def reply_of(resp: LLMResponse) -> dict:
@@ -311,14 +338,15 @@ def reply_of(resp: LLMResponse) -> dict:
 
 
 def run(variants: list[str], cases: list[dict], ctl_llm, judge_llm, workdir: Path, log: JsonlLogger | None = None,
-        batch: int = JUDGE_BATCH, max_calls: int = MAX_CALLS) -> dict:
-    """Case by case, every persona in turn (so a call cap cuts reads from both alike), then the judge."""
+        batch: int = JUDGE_BATCH, max_calls: int = MAX_CALLS, k: int = 1, live_continuation: bool = True) -> dict:
+    """Sample by sample (k per case), every persona in turn (so a call cap cuts both alike), then the judge.
+    Each sample is scored on what the live loop would SAY and DO (continue_like_live); the first reply is kept
+    as a diagnostic."""
     results: dict[str, list[dict]] = {v: [] for v in variants}
     budget = Budget(max_calls)
-    judge_calls = plan_calls(len(cases), len(variants), batch, judge=judge_llm is not None)["judge"]
-    left = len(cases) * len(variants)
-    for case in cases:
-        for v in variants:
+    judge_calls = plan_calls(len(cases), len(variants), batch, judge=judge_llm is not None, k=k)["judge"]
+    left = len(cases) * len(variants) * k
+    for sample, case, v in [(j, c, v) for j in range(k) for c in cases for v in variants]:
             left -= 1
             ctl = make_controller(workdir, case.get("player") or "Zezima")
             t0 = time.monotonic()
@@ -326,10 +354,15 @@ def run(variants: list[str], cases: list[dict], ctl_llm, judge_llm, workdir: Pat
                 if log:
                     log.log("voice_llm_call", model=ctl_llm.model, component="controller", source="evals", persona=v, id=case["id"],
                             step=step, usage=usage)
-            rep, reads, usages = decide(case, system_prompt(v, ctl), ctl, ctl_llm, budget, reserve=judge_calls + left,
-                                        on_call=on_call)
-            row = {"persona": v, "id": case["id"], "split": case.get("split", "seen"), **rep, "reads": reads,
-                   "checks": checks(case, rep["speech"], rep["calls"]),
+            sysp, st = system_prompt(v, ctl), {}
+            first, reads, usages = decide(case, sysp, ctl, ctl_llm, budget, reserve=judge_calls + left,
+                                          on_call=on_call, out=st)
+            rep, cont, more = (continue_like_live(case, first, sysp, ctl, ctl_llm, budget, judge_calls + left, st,
+                                                  on_call=on_call) if live_continuation else (first, None, []))
+            usages = usages + more
+            row = {"persona": v, "id": case["id"], "sample": sample, "split": case.get("split", "seen"), **rep,
+                   "reads": reads, "checks": checks(case, rep["speech"], rep["calls"]),
+                   "first": {**first, "checks": checks(case, first["speech"], first["calls"])}, "continuation": cont,
                    "latency_s": round(time.monotonic() - t0, 2), "model": ctl_llm.model,
                    "model_calls": len(usages), "step_usage": usages}  # no top-level "usage": priced per call above
             results[v].append(row)
@@ -338,8 +371,10 @@ def run(variants: list[str], cases: list[dict], ctl_llm, judge_llm, workdir: Pat
     if judge_llm is not None:
         for v in variants:
             rows = results[v]
-            for i in range(0, len(cases), batch):
-                chunk = list(zip(cases[i:i + batch], rows[i:i + batch]))
+            by_id = {c["id"]: c for c in cases}
+            items = [({**by_id[r["id"]], "id": f"{r['id']}#{r.get('sample', 0)}"}, r) for r in rows]  # unique per sample
+            for i in range(0, len(items), batch):
+                chunk = items[i:i + batch]
                 if not budget.take():
                     break
                 resp = judge_llm.complete(judge_prompt(chunk))
@@ -351,14 +386,39 @@ def run(variants: list[str], cases: list[dict], ctl_llm, judge_llm, workdir: Pat
                             ids=[c["id"] for c, _ in chunk], raw=resp.content, usage=resp.usage)
     summary = {}
     for v, rows in results.items():
-        summary[v] = summarize(rows)
+        summary[v] = summarize(rows)  # over all k samples: the k-mean
+        summary[v]["first_reply"] = first_reply_diagnostic(rows)
+        summary[v]["spread"] = spread(rows)
         for split in sorted({r["split"] for r in rows}):
             summary[f"{v}/{split}"] = summarize([r for r in rows if r["split"] == split])
-    return {"results": results, "summary": summary, "calls": budget.used}
+    return {"results": results, "summary": summary, "calls": budget.used, "k": k}
+
+
+def first_reply_diagnostic(rows: list[dict]) -> dict:
+    """The same checks on the FIRST reply only (before the live continuation): how often the continuation
+    turned a talk-only line into an action. A diagnostic, never the score."""
+    firsts = [{**r, "speech": r["first"]["speech"], "calls": r["first"]["calls"], "checks": r["first"]["checks"],
+               "judge": None} for r in rows if r.get("first")]
+    sm = summarize(firsts) if firsts else {}
+    return {"checks_pass_rate": sm.get("checks_pass_rate"), "acted": sm.get("acted"), "silent": sm.get("silent"),
+            "continued": sum(1 for r in rows if r.get("continuation")),
+            "continuation_added_action": sum(1 for r in rows if (r.get("continuation") or {}).get("calls"))}
+
+
+def spread(rows: list[dict]) -> dict:
+    """The voice score of each of the k samples on its own: mean, min, max, sd (tells a persona change from noise)."""
+    ks = sorted({r.get("sample", 0) for r in rows})
+    per = [voice_score(summarize([r for r in rows if r.get("sample", 0) == j])) for j in ks]
+    vals = [x for x in per if isinstance(x, (int, float))]
+    if not vals:
+        return {"k": len(ks), "per_sample": per}
+    m = sum(vals) / len(vals)
+    sd = (sum((x - m) ** 2 for x in vals) / (len(vals) - 1)) ** 0.5 if len(vals) > 1 else 0.0
+    return {"k": len(ks), "per_sample": per, "mean": round(m, 3), "min": min(vals), "max": max(vals), "sd": round(sd, 3)}
 
 
 def summarize(rows: list[dict]) -> dict:
-    out: dict = {"cases": len(rows), "silent": sum(1 for r in rows if not r["speech"]),
+    out: dict = {"cases": len({r["id"] for r in rows}), "samples": len(rows), "silent": sum(1 for r in rows if not r["speech"]),
                  "acted": sum(1 for r in rows if r["calls"]), "read_first": sum(1 for r in rows if r.get("reads"))}
     names = sorted({k for r in rows for k in r["checks"]})
     passed = total = 0
@@ -436,16 +496,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--plan", action="store_true", help="print the call count and stop")
     ap.add_argument("--dry", action="store_true", help="scripted FakeLLM, no network")
     ap.add_argument("--yes", action="store_true", help="really spend API calls")
+    ap.add_argument("--k", type=int, default=K_SAMPLES, help=f"samples per case (default {K_SAMPLES}; the score is the k-mean)")
     a = ap.parse_args(argv)
-    variants = a.persona or ["old", "new"]
+    variants = a.persona or [LIVE_PERSONA]
     cases = read_jsonl(CASES)
     if a.ids:
         want = [x.strip() for x in a.ids.split(",") if x.strip()]
         cases = [c for c in cases if any(c["id"].startswith(w) for w in want)]
     cases = cases[: a.limit] if a.limit else cases
-    plan = plan_calls(len(cases), len(variants), judge=not a.no_judge)
+    plan = plan_calls(len(cases), len(variants), judge=not a.no_judge, k=a.k)
     ctl_model, judge_model = os.environ.get(CONTROLLER_MODEL_ENV), os.environ.get(PLANNER_MODEL_ENV)
-    print(f"voice eval: {len(cases)} cases x {variants}; planned calls: {plan['total']}-{plan['total_max']} "
+    print(f"voice eval: {len(cases)} cases x {variants} x k={a.k}; planned calls: {plan['total']}-{plan['total_max']} "
           f"({plan['controller']}-{plan['controller_max']} controller {ctl_model or '?'} + {plan['judge']} judge "
           f"{judge_model or '?'}); hard cap {a.max_calls}")
     if a.plan:
@@ -469,7 +530,7 @@ def main(argv: list[str] | None = None) -> int:
             ctl_llm = LiteLLMClient(ctl_model, max_tokens=1024, **extra)  # as live (run_live.make_llms)
             judge_llm = None if a.no_judge else LiteLLMClient(judge_model, max_tokens=8000)
             log = JsonlLogger(paths.log_dir() / f"voice-eval-{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
-        out = run(variants, cases, ctl_llm, judge_llm, Path(tmp), log, max_calls=a.max_calls)
+        out = run(variants, cases, ctl_llm, judge_llm, Path(tmp), log, max_calls=a.max_calls, k=a.k)
     for v in variants:
         print(f"\n== persona {v}")
         for r in out["results"][v]:
@@ -486,7 +547,7 @@ def main(argv: list[str] | None = None) -> int:
         log.log("voice_results", results=out["results"])  # rows with the judge's scores and reasons
         log.log("voice_summary", summary=out["summary"], plan=plan, calls=out["calls"])
         print(f"\nlog: {log.path}")
-        full = not a.ids and not a.limit and not a.no_judge and LIVE_PERSONA in variants
+        full = not a.ids and not a.limit and not a.no_judge and LIVE_PERSONA in variants and a.k >= K_SAMPLES
         row = scoreboard_row(out["summary"].get(LIVE_PERSONA) or {}, Path(log.path), Path(log.path).stem,
                              time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())) if full else None
         if row:
