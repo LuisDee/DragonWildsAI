@@ -749,19 +749,41 @@ function M.on_ai_action_stop(ctx)
     if r then r.running, r.stopped_t = false, now(a) end
 end
 
+-- Words of an identifier, lowercased: split at "_", lower->Upper, acronym->Word ("AIAction" = ai action) and
+-- letter<->digit. "DAA_DragonVelgar_PoisonBreath_Front_C" -> daa dragon velgar poison breath front c.
+-- (Idiom: two gsub passes, lua-users.org/wiki/StringRecipes; no %f so it runs on any Lua.)
+function M.words(s)
+    s = s:gsub("(%l)(%u)", "%1_%2"):gsub("(%u)(%u%l)", "%1_%2"):gsub("(%a)(%d)", "%1_%2"):gsub("(%d)(%a)", "%1_%2")
+    local w = {}
+    for part in s:gmatch("[^_]+") do w[#w + 1] = part:lower() end
+    return w
+end
+-- true when the words of `tok` occur as a contiguous run of whole words of `words` (BUGS L39: whole words, so
+-- "Breath" is not found in "Breathe", nor "Idle" in "Idler", nor "Front" in "Frontflip").
+function M.has_words(words, tok)
+    local tw = M.words(tok)
+    for i = 1, #words - #tw + 1 do
+        local j = 1
+        while j <= #tw and words[i + j - 1] == tw[j] do j = j + 1 end
+        if j > #tw then return true end
+    end
+    return false
+end
+
 -- The profile of an AI action class (client_mod/scripts/ability_profiles.lua, data): the first token of
--- `order` found in the class name wins; the side (Front/Left/Right) is a token too. -> table or nil
+-- `order` found in the class name as whole words wins; the side (Front/Left/Right) is a word too. -> table or nil
 function M.ability_profile(cls)
     if type(cls) ~= "string" then return nil end
     local ABIL = M.data("ability_profiles")
     if not ABIL then return nil end
+    local words = M.words(cls)
     for _, tok in ipairs(ABIL.order or {}) do
-        if cls:find(tok, 1, true) then
+        if M.has_words(words, tok) then
             local p = {}
             for k, v in pairs(ABIL[tok] or {}) do p[k] = v end
             p.token = tok
             for word, side in pairs(ABIL.sides or {}) do
-                if cls:find("_" .. word, 1, true) then p.side = side end
+                if M.has_words(words, word) then p.side = side end
             end
             return p
         end

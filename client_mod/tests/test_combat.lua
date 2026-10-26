@@ -1037,6 +1037,38 @@ do
     check("L39: a Kebbit's Breathe is idle (no threat)", kb and kb.kind == "idle" and not kb.threat, kb and kb.kind)
     check("L39: a Deer's Breathe is idle", dr and dr.kind == "idle" and not dr.threat, dr and dr.kind)
     check("L39: Velgar's PoisonBreath is still a breath cone (front, a threat)", pb and pb.kind == "breath_cone" and pb.threat and pb.side == "front", pb and pb.kind)
+    check("L39: PoisonBreath keeps its own profile (Poison status), not plain Breath", pb and pb.token == "PoisonBreath" and pb.status == "Poison", pb and pb.token)
+    -- every DAA_ class in the 26161880 dump resolves to the profile its name says (whole words, not substrings)
+    local want = {
+        DAA_DragonVelgar_PoisonBreath_Left_C = { "breath_cone", "left" }, DAA_DragonVelgar_PoisonBreath_Right_C = { "breath_cone", "right" },
+        DAA_DragonVelgar_EarthSpikes_C = { "ground_spikes" }, DAA_DragonVelgar_MeteorStrike_C = { "meteor" },
+        DAA_DragonVelgar_Reposition_C = { "reposition" }, DAA_DragonVelgar_Intro_C = { "cinematic" },
+        DAA_DragonVelgar_Death_C = { "cinematic" }, DAA_Shared_Death_C = { "cinematic" }, DAA_AbyssalDemon_Death_C = { "cinematic" },
+        DAA_KalphiteWorker_Death_C = { "cinematic" }, DAA_DragonVelgar_Idle_3_C = { "idle" }, DAA_DragonLesser_Idle_C = { "idle" },
+        DAA_DragonLesser_Idle_Breaker_02_C = { "idle" }, DAA_DragonLesser_Alert_Idle_Breaker_01_C = { "idle" },
+        DAA_Cow_Alert_Idle_break_C = { "idle" },
+    }
+    for cls, w in pairs(want) do
+        local p = Cm.ability_profile(cls)
+        check("L39: " .. cls .. " -> " .. w[1], p and p.kind == w[1] and (w[2] == nil or p.side == w[2]), p and (p.kind .. "/" .. tostring(p.side)))
+    end
+    check("L39: no profile for a montage", Cm.ability_profile("DAA_Shared_PlayMontage_C") == nil)
+    -- the matcher is general, not the Breathe entry: with no Breathe/Idle tokens at all, a Breathe still is no breath,
+    -- and no token matches inside a longer word (Idler, Deathless, Frontflip, Spikesaw), whatever the order
+    Cm.set_data("ability_profiles", { order = { "Breath", "Idle", "Death", "Spikes" }, Breath = { kind = "breath_cone" },
+        Idle = { kind = "idle" }, Death = { kind = "cinematic" }, Spikes = { kind = "ground_spikes" }, sides = { Front = "front" } })
+    check("L39: Breath never matches Breathe (no Breathe entry)", Cm.ability_profile("DAA_Kebbit_Breathe_01_C") == nil)
+    check("L39: Breath never matches Breathing", Cm.ability_profile("DAA_Wolf_Breathing_C") == nil)
+    check("L39: Idle never matches Idler", Cm.ability_profile("DAA_X_Idler_C") == nil)
+    check("L39: Death never matches Deathless", Cm.ability_profile("DAA_X_DeathlessRoar_C") == nil)
+    check("L39: Spikes never matches Spikesaw", Cm.ability_profile("DAA_X_Spikesaw_C") == nil)
+    local ff = Cm.ability_profile("DAA_X_FireBreath_Frontflip_C")
+    check("L39: a CamelCase word still matches (FireBreath) and Front is not in Frontflip", ff and ff.kind == "breath_cone" and ff.side == nil, ff and tostring(ff.side))
+    local ac = Cm.ability_profile("DAA_X_AIBreath01_C")
+    check("L39: acronym and digit boundaries split (AIBreath01)", ac and ac.kind == "breath_cone", ac and ac.kind)
+    Cm.set_data("ability_profiles", nil) -- reload the real data file
+    check("L39: words() splits CamelCase, acronyms and digits", table.concat(Cm.words("DAA_AIAction_PoisonBreath01_C"), " ") == "daa ai action poison breath 01 c",
+        table.concat(Cm.words("DAA_AIAction_PoisonBreath01_C"), " "))
 end
 
 -- ================================================================ 10e. poisoned mid-fight: read the status (properties), use a cure from the wiki data

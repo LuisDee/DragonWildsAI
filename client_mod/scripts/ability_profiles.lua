@@ -1,5 +1,8 @@
 -- DATA (not logic): what an AI ACTION (UDominionAIAction, started by UDominionAIActionsComponent:
 -- Multicast_StartAIAction) means for a fight, matched by tokens of its class name, never by creature.
+-- Matching is by WHOLE WORDS (combat.ability_profile / combat.words: the name is split at "_" and CamelCase),
+-- so a token never matches inside a longer word: "Breath" is not in "Breathe", "Idle" not in "Idler".
+-- `order` only decides between tokens that BOTH match as words (e.g. PoisonBreath before Breath, for its status).
 -- Source: class dump 26161880 (DAA_DragonVelgar_*, DAA_DragonLesser_*, DAA_Shared_*), docs/design/velgar.md §1.
 -- Timings are PRIORS (unverified: Blueprint defaults are readable only live, velgar.md S3); combat learns them.
 --   kind      breath_cone | ground_spikes | meteor | reposition | cinematic | idle
@@ -11,8 +14,8 @@
 --   hazards   hazard_profiles names it leaves on the ground: combat takes the hazard census only after such an action
 return {
     -- (BUGS L39: "Breathe" is a creature's idle breathing animation, DAA_Kebbit_Breathe_01_C / DAA_Deer_Breathe_01_C;
-    -- it must win over "Breath" or every idle Kebbit reads as a breath attack)
-    order = { "PoisonBreath", "Breathe", "Breath", "EarthSpikes", "Spikes", "MeteorStrike", "Meteor", "Reposition", "Intro", "Death", "Idle" },
+    -- whole-word matching keeps it from reading as "Breath"; the entry says what it IS, not a precedence patch)
+    order = { "PoisonBreath", "Breath", "Breathe", "EarthSpikes", "Spikes", "MeteorStrike", "Meteor", "Reposition", "Intro", "Death", "Idle" },
     PoisonBreath = { kind = "breath_cone", threat = true, impact_s = 1.2, aoe = true, unblockable = true, reach_m = 18, jumpable = false,
                      blocked_by_shield_tag = "AntiDragon", status = "Poison",
                      hazards = { "ground_projectile", "poison_cloud" } },
