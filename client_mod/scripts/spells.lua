@@ -418,6 +418,19 @@ function W.snapshot(api)
     s.input_mode = u.short(u.try(function() return pc.CurrentInputMode end))
     -- what the camera shows (a spell may switch the view: Eye of Oculus -> BP_OculusCamera_C)
     s.view_target = u.class_word(u.try(function() return pc:GetViewTarget() end))
+    -- the held weapon's enchant (AHeldEquipmentActor.Magical/PhysicalHeldEquipmentEffectInfo.EffectData,
+    -- replicated; live 2026-10-26: Enchant Weapon: Fire -> HEED_EnchantWeaponFire on BP_Sword_Bronze_C)
+    s.held_effects = {}
+    local eq = u.try(function() return pawn.PlayerEquipmentComponent end)
+    for _, side in ipairs({ "HeldEquipmentActorLeft", "HeldEquipmentActorRight" }) do
+        local a = eq and u.try(function() return eq[side] end)
+        if u.valid(a) then
+            for _, f in ipairs({ "MagicalHeldEquipmentEffectInfo", "PhysicalHeldEquipmentEffectInfo" }) do
+                local e = u.short(u.try(function() return a[f].EffectData end))
+                if e then s.held_effects[#s.held_effects + 1] = e end
+            end
+        end
+    end
     s.falling = u.try(function() return pawn.CharacterMovement:IsFalling() end) == true
     local ge = u.try(function() return pawn.GameplayEffectsComponent end)
     if u.valid(ge) then
@@ -608,74 +621,66 @@ function W.preview(api)
     return nil
 end
 
--- Candidate spots for a placed spell, best first: around `center` (a target, metres; the target
--- itself first) or around me. Each: 3x3 downward traces 1.5 m apart (height spread, centre normal), a
--- 3 m clearance trace up and line of sight from my chest (the trace call move.lua uses).
+-- The shared placement module (client_mod/scripts/placement.lua, build review finding 13): spot search and
+-- the preview check loop live there; spells passes its env and its own numbers.
+local PL
+function M.placement(api)
+    local m = api and api.module and api.module("placement")
+    if m then return m end
+    if not PL then
+        PL = assert(loadfile((os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/") .. "/client_mod/scripts/placement.lua"))()
+    end
+    return PL
+end
+
+-- placement.lua's env over this client: traces, my position (cm), players (m), camera aim, the preview.
+function W.placement_env(api)
+    local u = U()
+    local pawn = W.pawn(api)
+    local KSL = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+    local C0 = { R = 0, G = 0, B = 0, A = 0 }
+    return {
+        trace = function(a, b)
+            local out = {}
+            local ok, hit = pcall(function() return KSL:LineTraceSingle(pawn, a, b, 0, false, {}, 0, out, true, C0, C0, 0.0) end)
+            return ok and hit == true, out
+        end,
+        me = function() return u.valid(pawn) and u.loc(pawn) or nil end,
+        players = function() return W.players(api) end,
+        aim = function(pos) if pos then return W.aim(api, pos) end end,
+        read = function()
+            local v = W.preview(api)
+            if not v then return nil end
+            return { valid = v.valid, why = v.tag, position = v.position }
+        end,
+    }
+end
+
+-- Candidate spots for a placed spell, best first (placement.lua P.spots): around `center` (a target,
+-- metres; the target itself first; players not skipped there, the harm check decides) or around me
+-- (cfg.spot_rings_m, keeping cfg.spot_player_clear_m from players). opts.rings / opts.los as before.
 -- -> {{position, spread_m, normal_z, exact}}
 function W.spots(api, center, opts)
     opts = opts or {}
     local u = U()
-    local pawn = W.pawn(api)
-    if not u.valid(pawn) then return {} end
+    if not u.valid(W.pawn(api)) then return {} end
     local cfg = M.cfg
-    local KSL = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
-    local C0 = { R = 0, G = 0, B = 0, A = 0 }
-    local function trace(a, b)
-        local out = {}
-        local ok, hit = pcall(function() return KSL:LineTraceSingle(pawn, a, b, 0, false, {}, 0, out, true, C0, C0, 0.0) end)
-        return ok and hit == true, out
-    end
-    local me = u.loc(pawn)
-    local players = W.players(api)
-    local pts = {}
-    if center then
-        local cz = (center[3] or me.Z / 100) * 100
-        pts[1] = { center[1] * 100, center[2] * 100, cz, exact = true }
-        for _, r in ipairs({ 2, 3.5 }) do for i = 0, 7 do
-            local a = math.rad(i * 45)
-            pts[#pts + 1] = { center[1] * 100 + r * 100 * math.cos(a), center[2] * 100 + r * 100 * math.sin(a), cz }
-        end end
-    else
-        for _, r in ipairs(opts.rings or cfg.spot_rings_m) do for i = 0, 11 do
-            local a = math.rad(i * 30)
-            pts[#pts + 1] = { me.X + r * 100 * math.cos(a), me.Y + r * 100 * math.sin(a), me.Z }
-        end end
-    end
-    local out = {}
-    for _, p in ipairs(pts) do
-        local clear = true
-        if not center then
-            for _, pl in ipairs(players) do
-                local pp = pl.position
-                if pp and math.sqrt((pp[1] * 100 - p[1]) ^ 2 + (pp[2] * 100 - p[2]) ^ 2) < cfg.spot_player_clear_m * 100 then clear = false end
-            end
-        end
-        if clear then
-            local zs, zc, nz = {}, nil, nil
-            for dx = -1, 1 do for dy = -1, 1 do
-                local hit, o = trace({ X = p[1] + dx * 150, Y = p[2] + dy * 150, Z = p[3] + 400 }, { X = p[1] + dx * 150, Y = p[2] + dy * 150, Z = p[3] - 600 })
-                local z = hit and o.ImpactPoint and o.ImpactPoint.Z or nil
-                if z then zs[#zs + 1] = z end
-                if dx == 0 and dy == 0 then zc, nz = z, hit and o.ImpactNormal and o.ImpactNormal.Z or nil end
-            end end
-            if zc and #zs == 9 then
-                local lo, hi = math.huge, -math.huge
-                for _, z in ipairs(zs) do lo = math.min(lo, z); hi = math.max(hi, z) end
-                local spread = (hi - lo) / 100
-                local up = trace({ X = p[1], Y = p[2], Z = zc + 50 }, { X = p[1], Y = p[2], Z = zc + 350 })
-                local los = opts.los ~= false and trace({ X = me.X, Y = me.Y, Z = me.Z + 50 }, { X = p[1], Y = p[2], Z = zc + 80 }) or false
-                if not up and not los and spread <= cfg.spot_max_spread_m and (nz or 0) >= cfg.spot_min_normal_z then
-                    out[#out + 1] = { position = { p[1] / 100, p[2] / 100, zc / 100 }, spread_m = math.floor(spread * 100) / 100,
-                                      normal_z = nz and math.floor(nz * 1000) / 1000, exact = p.exact }
-                end
-            end
-        end
-    end
-    table.sort(out, function(a, b)
-        if (a.exact == true) ~= (b.exact == true) then return a.exact == true end
-        return a.spread_m < b.spread_m
-    end)
+    local P = M.placement(api)
+    local out = P.spots(W.placement_env(api), center, {
+        rings_m = opts.rings or cfg.spot_rings_m, ring_n = 12, around_m = { 2, 3.5 }, around_n = 8,
+        clear_players_m = center and 0 or cfg.spot_player_clear_m,
+        max_spread_m = cfg.spot_max_spread_m, min_normal_z = cfg.spot_min_normal_z, los = opts.los })
     return out
+end
+
+-- Camera-to-point distance in metres (the placement reach is measured from the camera).
+function W.cam_dist(api, pos)
+    local u = U()
+    local pc = W.pc(api)
+    if not (pos and u.valid(pc)) then return nil end
+    local cam = to_m(u.try(function() return pc.PlayerCameraManager:GetCameraLocation() end))
+    if not cam then local me = api.my_position(); return me and d3(me, pos) end
+    return d3(cam, pos)
 end
 
 -- A foliage id from look ("fol:<component>:<index>": a standing tree, bush, ...) that the bridge's
@@ -718,6 +723,7 @@ function W.exit_own_mode(api, row)
     local c = u.valid(pawn) and u.try(function() return pawn[row.component] end)
     return u.valid(c) and pcall(function() c[row.exit](c) end) or false
 end
+
 
 -- Players around: {{name, id, position}} (census, metres).
 function W.players(api)
@@ -1003,6 +1009,8 @@ function M.diff(before, after, st)
     added(before.tags, after.tags, out.tags_added)
     for id, a in pairs(after.actors or {}) do if not (before.actors or {})[id] then out.actors_added[#out.actors_added + 1] = { id = id, class = a.class, position = a.position } end end
     if after.view_target and before.view_target and after.view_target ~= before.view_target then out.view_target = after.view_target end
+    out.held_added = {}
+    added(before.held_effects, after.held_effects, out.held_added)
     if after.input_mode and after.input_mode ~= before.input_mode then out.mode = after.input_mode end
     return out
 end
@@ -1092,9 +1100,10 @@ local function verified_result(job, df, snap)
     -- how far the cast moved me (dash / leap spells), from fresh positions
     if snap and snap.position and job.before.position then d.moved_m = math.floor(d3(snap.position, job.before.position) * 100 + 0.5) / 100 end
     d.runes_spent, d.cooldown_started = df.runes_spent, df.cooldown_started == true
-    d.effects = { ge = df.ge_added, tags = df.tags_added, actors = {}, view_target = df.view_target or job.seen_view, mode = job.seen_mode or df.mode }
+    d.effects = { ge = df.ge_added, tags = df.tags_added, actors = {}, view_target = df.view_target or job.seen_view, mode = job.seen_mode or df.mode,
+                  held = df.held_added }
     for _, a in ipairs(df.actors_added or {}) do d.effects.actors[#d.effects.actors + 1] = a.class end
-    d.effect_verified = (#df.ge_added + #df.tags_added + #df.actors_added) > 0 or d.effects.view_target ~= nil
+    d.effect_verified = (#df.ge_added + #df.tags_added + #df.actors_added + #(df.held_added or {})) > 0 or d.effects.view_target ~= nil
     local a = M.own_actor(job, df) or df.actors_added[1]
     if a then
         d.spell_actor, d.landed_at = a.id, a.position
@@ -1167,6 +1176,16 @@ local function step(job)
             for _, row in ipairs(own) do job.presses[#job.presses + 1] = "exit:" .. row.component; W.exit_own_mode(api, row) end
             job.phase, job.until_t = "settle", t + 2.5
             return nil
+        end
+        -- another modal (build mode, a container screen) owns the input: the game's controls there do
+        -- something else, and input.lua refuses our presses (L30) -> say so instead of "the wheel didn't open"
+        local inp = api.module("input")
+        local blocker = inp and type(inp.gate) == "function" and inp.gate({ modal = "mode" }) or nil
+        if blocker and blocker.kind ~= "mode" then
+            local what = (blocker.kind == "build" and "build mode") or (blocker.kind == "container" and "a storage screen")
+                or (blocker.kind == "paused" and "a loading screen") or tostring(blocker.kind)
+            job.d.blocked_by = blocker.kind
+            return failed(job, "busy", "modal_open", "I can't cast right now: " .. what .. " is open.")
         end
         if m0 and m0 ~= cfg.gameplay_mode and (in_spell_mode(m0) or m0 == cfg.radial_mode) then
             job.d.closed_previous = m0
@@ -1366,76 +1385,58 @@ local function step(job)
             return failed(job, "verification_failed", "placement_closed", "The placement preview for " .. job.row.name .. " closed before I could place it.")
         end
         local lim = job.st.reach_m or ((snap.place_max_m and snap.place_max_m > 0) and snap.place_max_m) or cfg.place_max_m
-        local function give_up()
-            job.d.rejected = job.rejects
-            return M.placement_failure(job, api, lim)
-        end
-        if t >= (job.place_deadline or math.huge) then return give_up() end
-        if job.next_spot then
-            job.next_spot = nil
-            while true do -- the next candidate within the camera's reach
-                job.spot_i = job.spot_i + 1
-                local sp = job.spots[job.spot_i]
-                if not sp and job.ground_ok and not job.ground_added and job.target.kind == "self" then
-                    M.add_ground_spots(job, api) -- a placed spell with no target: "straight ahead" was refused
-                    sp = job.spots[job.spot_i]
-                end
-                if not sp or job.spot_i > cfg.max_spots then return give_up() end
-                if sp.here then break end
-                local dist = W.aim(api, sp.position)
-                if not dist or dist <= lim + 0.5 then break end
-                job.rejects[#job.rejects + 1] = { spot = sp.position, why = "too_far", dist_m = math.floor(dist * 10 + 0.5) / 10 }
+        if not job.checker then
+            local P = M.placement(api)
+            job.rejects = {}
+            -- out of the camera's reach: rejected up front, like before (spells' rule, not the module's)
+            local keep = {}
+            for _, sp in ipairs(job.spots) do
+                local dist = (not sp.here) and W.cam_dist(api, sp.position) or nil
+                if dist and dist > lim + 0.5 then
+                    job.rejects[#job.rejects + 1] = { spot = sp.position, why = "too_far", dist_m = math.floor(dist * 10 + 0.5) / 10 }
+                else keep[#keep + 1] = sp end
             end
-            job.spot_t, job.checks = t + cfg.preview_wait_s, 0
-            return nil
+            job.spots = keep
+            job.checker = P.checker(W.placement_env(api), job.spots, {
+                match_m = function(sp)
+                    return sp.aim and cfg.aim_match_m or (sp.exact and job.row.cast_type == "placed" and cfg.placed_point_match_m) or cfg.preview_match_m
+                end,
+                checks = cfg.preview_checks, wait_s = cfg.preview_wait_s, budget_s = cfg.place_budget_s, on_unreadable = "press_once",
+                on_reject = function(rej, ch)
+                    local sp = ch.spots[ch.i]
+                    rej.game, rej.height_m = rej.why, sp and sp.height_m
+                    job.rejects[#job.rejects + 1] = rej
+                    -- the game's verdict decides the search: a ground complaint brings in flat-ground spots
+                    if job.ground_ok and not job.ground_added and M.ground_tag(rej.why) then M.add_ground_spots(job, api) end
+                    -- learn the game's flatness limit (this cast only)
+                    if rej.why and tostring(rej.why):find("NotFlat", 1, true) and rej.spread_m then
+                        job.bad_spread = math.min(job.bad_spread or math.huge, rej.spread_m)
+                        mem().bad_spread = job.bad_spread
+                        for k = #ch.spots, ch.i + 1, -1 do
+                            if (ch.spots[k].spread_m or 0) >= job.bad_spread then table.remove(ch.spots, k) end
+                        end
+                    end
+                    -- a placed spell with no target: "straight ahead" refused -> flat-ground spots
+                    if job.ground_ok and not job.ground_added and job.target.kind == "self" and ch.i >= #ch.spots then M.add_ground_spots(job, api) end
+                end,
+            })
         end
-        if t < job.spot_t then return nil end
-        local sp = job.spots[job.spot_i]
-        local vis = W.preview(api)
-        local near
-        if vis and vis.position and sp.position then
-            if sp.aim then -- aimed: the preview sits on/at the target, compare in 2D
-                near = math.sqrt((vis.position[1] - sp.position[1]) ^ 2 + (vis.position[2] - sp.position[2]) ^ 2)
-            else near = d3(vis.position, sp.position) end
-        end
-        local lim_m = sp.aim and cfg.aim_match_m or (sp.exact and job.row.cast_type == "placed" and cfg.placed_point_match_m) or cfg.preview_match_m
-        local match = sp.here or not near or near <= lim_m
-        if vis and vis.valid == true and match then
-            job.d.spot, job.d.spot_flatness, job.d.preview_at, job.d.aim_height_m = sp.position, sp.spread_m, vis.position, sp.height_m
+        local r = job.checker:step(t)
+        if not r then return nil end
+        if r.press then
+            local sp = r.spot or {}
+            if r.preview == "unreadable" then
+                job.d.spot, job.d.preview = sp.position, "unreadable"
+            else
+                job.d.spot, job.d.spot_flatness, job.d.preview_at, job.d.aim_height_m = sp.position, sp.spread_m, r.preview.position, sp.height_m
+            end
             if #job.rejects > 0 then job.d.rejected = job.rejects end
             job.phase, job.until_t = "verify", t + cfg.verify_s
             press(job, "place", job.acts.place)
             return nil
         end
-        if not vis then
-            -- no readable preview: place on our own flattest spot once (the cast is still verified)
-            job.d.spot, job.d.preview = sp.position, "unreadable"
-            job.phase, job.until_t = "verify", t + cfg.verify_s
-            press(job, "place", job.acts.place)
-            return nil
-        end
-        -- re-aim and look again a few times before moving on (the preview follows the camera)
-        job.checks = (job.checks or 0) + 1
-        if job.checks < cfg.preview_checks then
-            if sp.position then W.aim(api, sp.position) end
-            job.spot_t = t + cfg.preview_wait_s
-            return nil
-        end
-        job.rejects[#job.rejects + 1] = { spot = sp.position, valid = vis.valid, game = vis.tag, preview_at = vis.position,
-                                          spread_m = sp.spread_m, height_m = sp.height_m, off_m = near and math.floor(near * 10 + 0.5) / 10 or nil }
-        -- the game's verdict decides the search: a ground complaint brings in flat-ground spots
-        if job.ground_ok and not job.ground_added and M.ground_tag(vis.tag) then M.add_ground_spots(job, api) end
-        -- learn the game's flatness limit (this cast only): a spot it calls "not flat" bounds the
-        -- spread it accepts, so equally uneven candidates are skipped; kept as a hint in mem().bad_spread
-        if vis.tag and vis.tag:find("NotFlat", 1, true) and sp.spread_m then
-            job.bad_spread = math.min(job.bad_spread or math.huge, sp.spread_m)
-            mem().bad_spread = job.bad_spread
-            local keep = {}
-            for i, x in ipairs(job.spots) do if i <= job.spot_i or (x.spread_m or 0) < job.bad_spread then keep[#keep + 1] = x end end
-            job.spots = keep
-        end
-        job.next_spot = true
-        return nil
+        job.d.rejected = job.rejects
+        return M.placement_failure(job, api, lim)
     end
     -- verify (a placed spell plays its cast animation in a spell input mode first: live, Summon
     -- Shelter spent its runes only after the 4 s window, so keep waiting while the game is casting)
