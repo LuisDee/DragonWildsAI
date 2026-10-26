@@ -13,9 +13,12 @@ math.randomseed(7)
 
 -- ---------------------------------------------------------------- fake engine
 local T = 0
+local OBJS = {} -- every fake object by path, so StaticFindObject re-finds it (combat keeps paths across ticks, never refs)
 local function obj(t, full)
     t.IsValid = function() return not t._dead_obj end
     t.GetFullName = function() return full end
+    local path = type(full) == "string" and full:match("^%S+%s+(.*)$")
+    if path then OBJS[path] = t end
     return t
 end
 local function fname(s) return { ToString = function() return s end } end
@@ -25,7 +28,7 @@ function CancelDelayedAction(h) loops[h] = nil end
 local hooks = {}
 function RegisterHook(path, pre, post) hooks[path] = post; return 1, 2 end
 local CDOS = {}
-function StaticFindObject(path) return CDOS[path] end
+function StaticFindObject(path) return CDOS[path] or OBJS[path] end
 local PERKS = { unlocked = {} }
 
 local world = { creatures = {}, items = {}, pcs = {}, injected = {} }
@@ -893,7 +896,7 @@ do
     held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
     local v = new_creature("BP_AI_DragonVelgar_Character_C_1", "Velgar", { X = 400, Y = 0, Z = 0 }, { hp = 6000, pl = 4, arch = 0, boss = true })
     local cur = { cls = nil }
-    local acomp = obj({ GetOwner = function() return v end }, "BP_DragonVelgar_ActionsComponent_C /x")
+    local acomp = obj({ GetOwner = function() return v end }, "BP_DragonVelgar_ActionsComponent_C /Game/L.L:PersistentLevel.Velgar_1.Actions")
     setmetatable(acomp, { __index = function(_, k) if k == "CurrentAction" then
         return cur.cls and obj({ GetClass = function() return obj({}, "BlueprintGeneratedClass /Game/AI/Dragon/" .. cur.cls .. "." .. cur.cls) end }, "Action /x") end end })
     -- the arena's replicated phase
@@ -941,6 +944,52 @@ do
     local r = Cm._state().last.result
     check("boss: landed but out of reach -> the normal truthful ending again", r and (r.reason == "too_far" or r.reason == "path_blocked"), r and r.reason)
     FindFirstOf = real_ffo
+    A.reset(nil)
+end
+
+-- ================================================================ 10d2. regression crash_2026_10_26_15_56_19: AI actions of creatures that
+-- despawned (and were GC'd) before the next fight. Live: explore past Kebbits/chickens, then a Giant Rat fight ran
+-- ability_frame, which read r.comp.CurrentAction on a freed component -> native AV in UE4SS __index. A freed fake
+-- here records ANY access (even IsValid) as the crash; combat must never touch it again after the hook returned.
+reset_world()
+do
+    Cm.hooks_start(nil) -- as at boot: the multicast hooks are live before any fight
+    local AV = {}
+    local function freeable(t, full)
+        obj(t, full)
+        local path = full:match("^%S+%s+(.*)$")
+        return t, function() -- free: unfindable, and every access is the native crash
+            OBJS[path] = nil
+            for k in pairs(t) do t[k] = nil end
+            setmetatable(t, { __index = function(_, k) AV[#AV + 1] = tostring(k) end })
+        end
+    end
+    local kb = new_creature("BP_AI_Kebbit_Character_C_gone", "Kebbit", { X = 3000, Y = 0, Z = 0 }, { hp = 30, pl = 1, arch = 1 })
+    local kcomp, free_comp = freeable({ GetOwner = function() return kb end,
+        CurrentAction = obj({ GetClass = function() return obj({}, "BlueprintGeneratedClass /Game/AI/X.DAA_Kebbit_IdleBreak_01_C") end }, "A /x") },
+        "BP_Kebbit_ActionsComponent_C /Game/L.L:PersistentLevel.BP_AI_Kebbit_Character_C_gone.Actions")
+    -- (a) an old action (outside any fight: nothing resolves it), then its creature despawns and is GC'd
+    hooks["/Script/Dominion.DominionAIActionsComponent:Multicast_StartAIAction"]({ get = function() return kcomp end }, { get = function() return 369 end })
+    check("stale: the hook keeps paths, never UObject refs", (function()
+        for _, r in pairs(Cm._state().ai_actions or {}) do for _, v in pairs(r) do if type(v) == "table" then return false end end end
+        return true end)())
+    free_comp(); kb._dead_obj = true; OBJS["/Game/L.L:PersistentLevel.BP_AI_Kebbit_Character_C_gone"] = nil
+    T = T + 10
+    -- (b) a fresh action whose creature is gone within the same second (despawn right after the multicast)
+    local kb2 = new_creature("BP_AI_Kebbit_Character_C_gone2", "Kebbit", { X = 3200, Y = 0, Z = 0 }, { hp = 30, pl = 1, arch = 1 })
+    local kcomp2, free_comp2 = freeable({ GetOwner = function() return kb2 end },
+        "BP_Kebbit_ActionsComponent_C /Game/L.L:PersistentLevel.BP_AI_Kebbit_Character_C_gone2.Actions")
+    hooks["/Script/Dominion.DominionAIActionsComponent:Multicast_StartAIAction"]({ get = function() return kcomp2 end }, { get = function() return 370 end })
+    free_comp2(); kb2._dead_obj = true
+    -- the next fight (the Giant Rat at 14:56:18) runs ability_frame over both records
+    local rat = new_creature("BP_AI_GiantRat_Character_C_1", "Giant Rat", { X = 200, Y = 0, Z = 0 }, { hp = 30, pl = 1, arch = 0 })
+    Cm._start_fight(nil, rat, { mode = "attack", force = true, by = "brain" })
+    run_until(function() return false end, 1)
+    check("stale: no access to a freed component or creature after the hook", #AV == 0, table.concat(AV, ","))
+    local recs = Cm._state().ai_actions or {}
+    local r1, r2 = recs["BP_AI_Kebbit_Character_C_gone"], recs["BP_AI_Kebbit_Character_C_gone2"]
+    check("stale: an old action is not resolved", r1 == nil or (r1.cls == "?" and r1.profile == nil), r1 and r1.cls)
+    check("stale: a gone creature's action resolves to '?'", r2 and r2.cls == "?" and r2.profile == nil, r2 and r2.cls)
     A.reset(nil)
 end
 
@@ -1076,7 +1125,7 @@ do
     m0._dead_obj = true
     -- the creature starts its meteor strike (the ability profile names "meteor" and "poison_cloud")
     local acomp = obj({ GetOwner = function() return gob end, CurrentAction = obj({ GetClass = function()
-        return obj({}, "BlueprintGeneratedClass /Game/AI/X.DAA_DragonVelgar_MeteorStrike_C") end }, "A /x") }, "C /x")
+        return obj({}, "BlueprintGeneratedClass /Game/AI/X.DAA_DragonVelgar_MeteorStrike_C") end }, "A /x") }, "C /Game/L.L:PersistentLevel.Gob.Actions")
     hooks["/Script/Dominion.DominionAIActionsComponent:Multicast_StartAIAction"]({ get = function() return acomp end }, { get = function() return 4 end })
     run_until(function() return false end, 0.3)
     -- (a) a meteor circle lands on him in 2 s: zones are handed to move, he walks out, then the previous move is restored
@@ -1154,7 +1203,7 @@ do
     end
     local drake = new_creature("BP_AI_DragonVelgar_Character_C_amb", "Velgar", { X = 3000, Y = 0, Z = 0 }, { hp = 6000, pl = 4, arch = 0, boss = true })
     local acomp = obj({ GetOwner = function() return drake end, CurrentAction = obj({ GetClass = function()
-        return obj({}, "BlueprintGeneratedClass /Game/AI/X.DAA_DragonVelgar_MeteorStrike_C") end }, "A /x") }, "C /x")
+        return obj({}, "BlueprintGeneratedClass /Game/AI/X.DAA_DragonVelgar_MeteorStrike_C") end }, "A /x") }, "C /Game/L.L:PersistentLevel.Drake.Actions")
     hooks["/Script/Dominion.DominionAIActionsComponent:Multicast_StartAIAction"]({ get = function() return acomp end }, { get = function() return 9 end })
     run_until(function() return false end, 0.5)
     check("ambient: the AI action opens the hazard watch outside a fight", ((Cm._state().hazard_watch or {}).meteor or 0) > T)
@@ -1629,6 +1678,28 @@ do
     Cm.guard_stop(nil)
     pc.BuildModeComponent = nil
     Cm.set_modules({ input = false })
+    A.reset(nil)
+end
+
+-- ================================================================ 19b. lock-on mode is gameplay (live skill_routes 2026-10-26: "stuck in DIM_Gameplay_LockOnTargeting")
+reset_world()
+do
+    check("gameplay modes: DIM_Gameplay and its variants", Cm.is_gameplay_mode("DIM_Gameplay") and Cm.is_gameplay_mode("DIM_Gameplay_LockOnTargeting")
+          and not Cm.is_gameplay_mode("DIM_OculusBuildMenu") and not Cm.is_gameplay_mode("DIM_ConversationUI") and not Cm.is_gameplay_mode(nil))
+    local back = obj({}, "InputAction /Game/Gameplay/Inputs/Actions/UI/IA_UI_GenericBack.IA_UI_GenericBack")
+    local real_sfo = StaticFindObject
+    StaticFindObject = function(path) if path:find("IA_UI_GenericBack", 1, true) then return back end return real_sfo(path) end
+    pc.CurrentInputMode = obj({}, "DominionInputMode /Game/Inputs/DIM_Gameplay_LockOnTargeting")
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local gob = new_creature("BP_AI_RuntGoblin_Character_C_lock", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 60, pl = 1, arch = 0 })
+    check("lock-on mode: fight starts", Cm._start_fight(nil, gob, { mode = "attack", force = true }).ok)
+    run_until(function() return Cm._state().fight == nil end, 20)
+    local res = Cm._state().last.result
+    check("lock-on mode: attacks (no back key, no input_mode_blocked)", (world.injected.IA_PrimaryAction or 0) >= 1 and (world.injected.IA_UI_GenericBack or 0) == 0
+          and not (res and res.data and res.data.why == "input_mode_blocked"), res and res.reason)
+    check("lock-on mode: the fight is won", res and res.ok and gob.hp <= 0, res and res.reason)
+    pc.CurrentInputMode = nil
+    StaticFindObject = real_sfo
     A.reset(nil)
 end
 

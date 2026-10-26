@@ -424,7 +424,7 @@ end
 -- the pawn's location raised to shoulder height.
 function R.muzzle(pawn, comp)
     if not U then return nil end
-    local wa = comp and U.try(function() return comp.RangedWeaponActor end)
+    local wa = U.valid(comp) and U.try(function() return comp.RangedWeaponActor end) -- comp may be cached from an earlier tick
     if U.valid(wa) then
         local sock = U.try(function() return wa.ProjectileSocketName end)
         local mesh = U.try(function() return wa:GetComponentByClass(StaticFindObject("/Script/Engine.MeshComponent")) end)

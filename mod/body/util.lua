@@ -121,7 +121,11 @@ function U.find_object(path)
 end
 
 -- ------------------------------------------------------------------ geometry
+-- Validity first: a cached actor ref whose actor was destroyed and GC'd is a dangling wrapper, and ANY
+-- method/property lookup on it is a native AV in UE4SS __index that pcall can't catch (crash
+-- 2026-10-26 14:56:19, BUGS.md). IsValid itself is safe on it (UE4SS's live-object set).
 function U.loc(a)
+    if not U.valid(a) then return nil end
     local v = U.try(function() return a:K2_GetActorLocation() end)
     return v and { X = v.X, Y = v.Y, Z = v.Z } or nil
 end

@@ -57,6 +57,7 @@ M.cfg = {
     disengage_m = 10,        -- back off this far to eat (orders.disengage)
     magic_base_dmg = 10, eat_every_s = 8, attempts_max = 20, -- odds: rune damage prior; the game's eating pace; boss attempts kept
     -- (boss fight priors: client_mod/scripts/boss_profiles.lua; item traits: item_traits.lua)
+    ai_action_resolve_s = 3, -- an AI action older than this is never resolved (it has ended; its creature may be gone)
     hazard_s = 0.25, hazard_window_s = 15, hazard_persist_s = 30, hazard_margin_cm = 40, -- ground hazards (gap 2)
     status_s = 0.5, cure_at = 0.05, no_cure_recheck_s = 10,
     ambient = nil, ambient_status_s = 2.0, -- out-of-fight hazards/cures: nil = env DW_COMBAT_AMBIENT ("1" = on); off by default -- statuses read every status_s in a fight; a harmful one above cure_at x max -> its cure
@@ -97,6 +98,12 @@ M.orders = { stance = "defensive", avoid = {}, force = false,
              heal_hp = 0.5,      -- disengage and eat below this HP fraction
              reengage_hp = 0.8,  -- ... and go back in at or above this
              flee_hp = nil }     -- nil = cfg.flee_hp
+
+-- Gameplay input modes: DIM_Gameplay and its variants (DIM_Gameplay_LockOnTargeting: combat's own lock-on
+-- enters it; live skill_routes bug 2026-10-26: "stuck in DIM_Gameplay_LockOnTargeting"). Inputs work there.
+function M.is_gameplay_mode(mode)
+    return type(mode) == "string" and (mode == "DIM_Gameplay" or mode:sub(1, 13) == "DIM_Gameplay_")
+end
 
 -- ------------------------------------------------------------------ data files (one memo loader)
 -- client_mod/scripts/<name>.lua returning a table (DATA, never logic); loaded once, false when missing or broken.
@@ -698,6 +705,18 @@ local function on_block_event(ctx, kind)
 end
 function M.on_parried(ctx) on_block_event(ctx, "parried") end
 -- An AI action started on some creature: remember it for the next tick (no reads beyond owner + id here).
+-- Crash 2026-10-26 14:56:19 (crash_2026_10_26_15_56_19, BUGS.md): the record must NEVER hold a UObject
+-- across ticks. It kept comp/owner refs; ambient creatures (Kebbits, chickens) that despawned behind him on
+-- an explore were GC'd, and the next fight's ability_frame read r.comp.CurrentAction -> native AV in UE4SS
+-- __index (pcall can't catch it). Keep object PATHS; ability_frame re-finds them (StaticFindObject: nil once
+-- the object is gone) and checks U.alive before any property read. Records are pruned here too, because
+-- outside a fight (ambient off) nothing else prunes them.
+local function prune_ai_actions(c, t)
+    for k, r in pairs(c.ai_actions or {}) do
+        if (not r.running and t - (r.stopped_t or r.t) > 30) or t - r.t > 120 then c.ai_actions[k] = nil end
+    end
+end
+M._prune_ai_actions = prune_ai_actions
 function M.on_ai_action(ctx, id_p)
     if _G.DW_PAUSE then return end
     local c = C()
@@ -706,10 +725,19 @@ function M.on_ai_action(ctx, id_p)
     if not U.valid(a) then return end
     local id = U.short(a)
     local aid = id_p and U.try(function() return id_p:get() end)
+    local t = now(a)
     c.ai_actions = c.ai_actions or {}
-    c.ai_actions[id] = { t = now(a), comp = comp, owner = a, action_id = type(aid) == "number" and aid or nil, running = true }
+    prune_ai_actions(c, t)
+    c.ai_actions[id] = { t = t, comp_path = U.path_of(comp), owner_path = U.path_of(a),
+                         action_id = type(aid) == "number" and aid or nil, running = true }
     c.counts.ai_actions = (c.counts.ai_actions or 0) + 1
 end
+-- The live object behind a stored path, or nil when it is gone / awaiting GC (never a stale wrapper).
+local function refind(path)
+    local o = path and U.find_object(path)
+    return (o and U.alive(o)) and o or nil
+end
+M._refind = refind
 function M.on_ai_action_stop(ctx)
     if _G.DW_PAUSE then return end
     local c = C()
@@ -743,12 +771,13 @@ end
 -- telegraphed attack (defence plan; the key is "<creature name>:<action class>", learned like any attack).
 function M.ability_frame(F, me)
     local c = C()
-    for id, r in pairs(c.ai_actions or {}) do -- prune: a stopped action after 30 s, any after 120 s
-        if (not r.running and F.t - (r.stopped_t or r.t) > 30) or F.t - r.t > 120 then c.ai_actions[id] = nil end
-    end
+    prune_ai_actions(c, F.t) -- a stopped action after 30 s, any after 120 s
     for id, r in pairs(c.ai_actions or {}) do
-        if not r.cls and r.comp then
-            local cur = U.try(function() return r.comp.CurrentAction end)
+        if not r.cls and F.t - r.t > M.cfg.ai_action_resolve_s then
+            r.cls = "?" -- too old: the action has ended, and its creature may have despawned (crash 14:56:19)
+        elseif not r.cls then
+            local comp, owner = refind(r.comp_path), refind(r.owner_path)
+            local cur = comp and U.try(function() return comp.CurrentAction end)
             local cls = U.valid(cur) and U.short(U.try(function() return cur:GetClass() end)) or nil
             r.cls = cls or "?"
             r.profile = M.ability_profile(cls)
@@ -756,7 +785,7 @@ function M.ability_frame(F, me)
                 c.hazard_watch = c.hazard_watch or {}
                 c.hazard_watch[hz] = math.max(c.hazard_watch[hz] or 0, F.t + M.cfg.hazard_window_s)
             end
-            r.name = r.owner and U.try(function() return text(r.owner.LoadedData.AIName) end) or nil
+            r.name = owner and U.try(function() return text(owner.LoadedData.AIName) end) or nil
             say(F.log, string.format("ai action %s on %s: %s (%s)", tostring(r.action_id), tostring(r.name or id), tostring(r.cls),
                 r.profile and r.profile.kind or "no profile"))
             if r.profile and r.profile.kind ~= "idle" then
@@ -764,8 +793,8 @@ function M.ability_frame(F, me)
                                   side = r.profile.side, action_class = r.cls, airborne = r.profile.airborne or nil })
             end
             local pr = r.profile
-            if pr and pr.threat and not r.answered and (id == F.target_id or (r.owner and me.pos and U.loc(r.owner)
-                and U.dist(U.loc(r.owner), me.pos) <= (pr.reach_m or 20) * 100)) then
+            if pr and pr.threat and not r.answered and (id == F.target_id or (owner and me.pos and U.loc(owner)
+                and U.dist(U.loc(owner), me.pos) <= (pr.reach_m or 20) * 100)) then
                 r.answered = true
                 local info = { key = tostring(r.name or "?") .. ":" .. r.cls, dmg_time = pr.impact_s, unblockable = pr.unblockable,
                                ability = pr.kind, side = pr.side, no_jump = pr.jumpable == false or nil,
@@ -2703,7 +2732,7 @@ local function frame(F)
             return finish(F, result_of(F, false, "body_error", { why = "conversation_blocked", mode = mode, npc = F.conv_npc,
                 via = F.conv_via, detail = "the conversation did not close, so gameplay inputs do not work" }))
         end
-    elseif mode and mode ~= "DIM_Gameplay" and not F.casting then
+    elseif mode and not M.is_gameplay_mode(mode) and not F.casting then
         F.mode_bad_since = F.mode_bad_since or F.t
         if F.t - (F.mode_press_t or -9) >= 0.5 and (F.mode_presses or 0) < 4 then
             -- leave it the way a player does: the mode's own back/cancel key (Escape)
