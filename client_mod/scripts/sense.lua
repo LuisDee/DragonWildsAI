@@ -393,7 +393,7 @@ end
 --   GetInstancesOverlappingSphere(center, r, true) -> instance indices (UE4SS: a Lua table of
 --   RemoteUnrealParam ints, :get()); position = component location + rotation * (scale *
 --   PerInstanceSMData[i].Transform.WPlane) (the reflected FMatrix's translation row).
--- Row: {id = "fol:<component>:<index>", kind = "foliage", foliage = "tree"|"pickup"|"sapling"|...,
+-- Row: {id = "fol:<ActorClass>@<x>,<y>,<z>" (decimetres; see M.foliage_id), kind = "foliage", foliage = "tree"|"pickup"|"sapling"|...,
 --       class = the actor class an instance converts into (ActorClass, e.g. BP_BM_Tree_Oak_01_C),
 --       name, position, distance, damageable, interactable, verb, tool, tool_tier, health, max_health}
 -- The class facts (DisplayName, tool gate, HP) come from the actor class's default object, cached.
@@ -428,8 +428,33 @@ local function rotate_yaw(v, deg)
     return { X = v.X * c - v.Y * s, Y = v.X * s + v.Y * c, Z = v.Z }
 end
 
+-- Foliage ids (BUGS L26). An instance index is NOT an identity: ISM/HISM RemoveInstance swap-removes
+-- (the last instance takes the freed slot), the instanced-foliage actors of World Partition cells stream
+-- in and out (and their component names repeat per cell), and the server converts an instance into an
+-- actor when a player comes within 3 m (it then hides the instance). A foliage instance never moves, so
+-- its identity is WHAT it turns into plus WHERE it stands: "fol:<ActorClass>@<x>,<y>,<z>" in whole
+-- decimetres. M.resolve_foliage maps such an id back to the instance (nearest same-class instance within
+-- FOLIAGE_MATCH_CM: survives re-indexing and streaming) or, once converted, to the actor the server made
+-- of it (same class within CONVERTED_MATCH_CM, gather.lua's adopt_cm). Every tool resolves through it
+-- (client_bridge find_thing: go_to / interact / inspect / cast / fetch ...). Design:
+-- docs/design/stable-target-ids.md.
+M.FOLIAGE_MATCH_CM, M.CONVERTED_MATCH_CM = 100, 200
+local function dm(v) return math.floor(v / 10 + 0.5) end
+function M.foliage_id(class_name, p)
+    return string.format("fol:%s@%d,%d,%d", tostring(class_name), dm(p.X), dm(p.Y), dm(p.Z or 0))
+end
+-- -> {class, pos = {X, Y, Z} cm} for a stable id, {legacy = "fol:<component>:<index>"} for an old one, nil otherwise
+function M.parse_foliage_id(id)
+    id = tostring(id or "")
+    local cls, x, y, z = id:match("^fol:([%w_]+)@(%-?%d+),(%-?%d+),(%-?%d+)$")
+    if cls then return { class = cls, pos = { X = tonumber(x) * 10, Y = tonumber(y) * 10, Z = tonumber(z) * 10 } } end
+    if id:match("^fol:[^@]+:%d+$") then return { legacy = id } end
+    return nil
+end
+
 -- foliage(origin_cm, radius_cm, {match = pattern on the class, exclude = pattern|{patterns},
---   kinds = {tree=true,...}, max = n}) -> rows nearest first (positions in cm under _pos).
+--   kinds = {tree=true,...}, max = n, include_hidden = true (also zero-scale = felled/picked/converted
+--   instances, marked hidden = true)}) -> rows nearest first (positions in cm under _pos).
 function M.foliage(origin, radius_cm, opts)
     opts = opts or {}
     local out = {}
@@ -456,13 +481,15 @@ function M.foliage(origin, radius_cm, opts)
                         local t, x = m.WPlane, m.XPlane
                         return { X = t.X, Y = t.Y, Z = t.Z, s = math.sqrt(x.X * x.X + x.Y * x.Y + x.Z * x.Z) }
                     end)
-                    if w and w.s > 0.01 then -- a zero-scale instance is hidden (converted / felled)
+                    local hidden = w and w.s <= 0.01 -- a zero-scale instance is hidden (converted / felled)
+                    if w and (not hidden or opts.include_hidden) then
                         local p = rotate_yaw({ X = w.X * sc.X, Y = w.Y * sc.Y, Z = w.Z * sc.Z }, yaw)
                         p = { X = cl.X + p.X, Y = cl.Y + p.Y, Z = cl.Z + p.Z }
                         local d = U.dist2d(origin, p)
                         if d <= radius_cm then
                             facts = facts or facts_of(cls)
-                            out[#out + 1] = { id = "fol:" .. (U.short(c) or "?") .. ":" .. i, kind = "foliage", foliage = fk,
+                            out[#out + 1] = { id = M.foliage_id(cname, p), _legacy = "fol:" .. (U.short(c) or "?") .. ":" .. i,
+                                hidden = hidden or nil, kind = "foliage", foliage = fk,
                                 class = cname, name = facts.name, position = U.to_wire(p), distance = U.cm_to_m(d), _pos = p,
                                 _comp = c, _index = i, damageable = U.try(function() return c.bDamageable end) == true or nil,
                                 interactable = U.try(function() return c.bInteractable end) == true or nil,
@@ -477,6 +504,47 @@ function M.foliage(origin, radius_cm, opts)
     table.sort(out, function(a, b) return (a.distance or 0) < (b.distance or 0) end)
     if opts.max then for i = #out, opts.max + 1, -1 do out[i] = nil end end
     return out
+end
+
+-- resolve_foliage(id) -> row (a foliage row, or the census row of the actor it was converted into; its
+-- distance is from me), how ("same" | "reindexed" | "converted" | "legacy") | nil, why ("felled_or_picked" |
+-- "not_found" | "not_a_foliage_id" | "no_pawn"). Read-only, like M.foliage.
+function M.resolve_foliage(id)
+    local k = M.parse_foliage_id(id)
+    if not k then return nil, "not_a_foliage_id" end
+    local pawn = M.local_pawn()
+    local me = pawn and U.loc(pawn)
+    if not me then return nil, "no_pawn" end
+    local function from_me(row)
+        local p = row._pos
+        if p then row.distance = U.cm_to_m(U.dist2d(me, p)) end
+        return row
+    end
+    if k.legacy then -- an id handed out before stable ids: only an exact component:index match around me
+        for _, r in ipairs(M.foliage(me, 8000, {})) do if r._legacy == id then return from_me(r), "legacy" end end
+        return nil, "not_found"
+    end
+    local best, bd, hidden
+    for _, r in ipairs(M.foliage(k.pos, M.FOLIAGE_MATCH_CM * 3, { include_hidden = true })) do
+        local d = U.dist2d(k.pos, r._pos)
+        if r.class == k.class and d <= M.FOLIAGE_MATCH_CM then
+            if r.hidden then hidden = true
+            elseif not bd or d < bd then best, bd = r, d end
+        end
+    end
+    if best then return from_me(best), best.id == id and "same" or "reindexed" end
+    -- converted: the server spawned the instance's actor class where it stood (and hid the instance)
+    local near, nd
+    for _, a in ipairs(U.find_all(k.class, { skip_defaults = true }) or {}) do
+        local at = U.loc(a)
+        local d = at and U.dist2d(k.pos, at)
+        if d and d <= M.CONVERTED_MATCH_CM and (not nd or d < nd) then near, nd = a, d end
+    end
+    if near then
+        local ok, row = pcall(describe_resource, near, me)
+        if ok and row then row.converted_from = id; return row, "converted" end
+    end
+    return nil, hidden and "felled_or_picked" or "not_found"
 end
 
 -- ------------------------------------------------------------------ census
@@ -541,7 +609,7 @@ function M.census(log, opts)
             local ok, rows = pcall(M.foliage, origin, r_cm, { max = math.max(math.ceil(max / 3), 1), kinds = { [kind] = true } })
             if ok then
                 for _, r in ipairs(rows) do
-                    r._comp, r._index, r._pos = nil, nil, nil
+                    r._comp, r._index, r._pos, r._legacy = nil, nil, nil, nil
                     add("resources", r)
                 end
             elseif log then log("sense: foliage " .. tostring(rows)) end

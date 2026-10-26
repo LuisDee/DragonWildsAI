@@ -16,6 +16,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 import pytest
@@ -99,10 +100,13 @@ def rig(tmp_path):
     game_log, mod_log = tmp_path / "logs" / "game.log", tmp_path / "logs" / "client.log"
     game_log.write_text("[2026.10.25-10.00.00:000][  0]LogInit: start\n", encoding="utf-8")
     mod_log.write_text("x\n", encoding="utf-8")
-    exe = tmp_path / "FakeDWClient.exe"
+    # a unique process name per test: other agents run this suite at the same time, and a shared name let one
+    # run's fake client look like (and be killed as) another run's
+    fake = f"FakeDWClient{uuid.uuid4().hex[:8]}"
+    exe = tmp_path / f"{fake}.exe"
     shutil.copy(r"C:\Windows\System32\PING.EXE", exe)
     proc = subprocess.Popen([str(exe), "-n", "600", "127.0.0.1"], stdout=subprocess.DEVNULL)
-    env = dict(os.environ, DW_CLIENT_PROC="FakeDWClient", DW_CLIENT_IO=str(io), DW_CLIENT_STATE_DIR=str(tmp_path / "state"),
+    env = dict(os.environ, DW_CLIENT_PROC=fake, DW_CLIENT_IO=str(io), DW_CLIENT_STATE_DIR=str(tmp_path / "state"),
                DW_CLIENT_GAME_LOG=str(game_log), DW_CLIENT_MOD_LOG=str(mod_log), DW_CLIENT_DUMP_DIR=str(tmp_path / "dumps"),
                DW_CLIENT_HOLD=str(tmp_path / "client.stopped"), DW_CLIENT_WD_EVENTS=str(tmp_path / "wd.jsonl"),
                DW_CLIENT_BOOT_LOG=str(tmp_path / "boot.log"), DW_CLIENT_SMOKE_DIR=str(tmp_path))
@@ -110,6 +114,7 @@ def rig(tmp_path):
         env.pop(k, None)
     r = type("Rig", (), {})()
     r.tmp, r.io, r.env, r.proc, r.game_log, r.mod_log = tmp_path, io, env, proc, game_log, mod_log
+    r.fake, r.exe = fake, exe
     r.runner = None
 
     def start(state):
@@ -455,3 +460,141 @@ def test_watchdog_leaves_client_alone_on_target(rig):
     p = rig.ps("client_watchdog.ps1", *WD, "-Loops", "2", "-WrongServerS", "0")
     assert p.returncode == 0, p.stdout + p.stderr
     assert "wrong_server" not in names(rig.events())
+
+
+# ------------------------------------------------------------------ front-end returns (BUGS L24)
+# The game crashes on the 3rd return to L_FrontEnd in one client process: once a process has used 2, a target switch
+# or a rejoin from the menu must relaunch the client instead of disconnecting / rejoining.
+def fe_line(query="closed"):
+    t = time.gmtime()
+    return time.strftime("[%Y.%m.%d-%H.%M.%S:000][  1]", t) + f"LogLoad: LoadMap: /Game/Maps/L_FrontEnd?{query}\n"
+
+
+def two_returns_log(rig, now_on="1.2.3.4:7777", header=None):
+    """A game log of a process that started at the menu, joined, and came back to it twice, now in a world."""
+    lines = ([header + "\n"] if header else []) + [fe_line("Name=Player")]
+    for _ in range(2):
+        lines += [loadmap("1.2.3.4:7777"), fe_line()]
+    lines.append(loadmap(now_on))
+    rig.game_log.write_text("".join(lines), encoding="utf-8")
+
+
+def record_returns(rig, n, pid=None):
+    (rig.tmp / "state" / "client_frontend_returns.json").write_text(
+        json.dumps({"pid": pid or rig.proc.pid, "returns": n}), encoding="utf-8")
+
+
+def frontend(rig):
+    p = rig.ps("client_frontend.ps1")
+    assert p.returncode == 0, p.stdout + p.stderr
+    return json.loads(p.stdout.strip().splitlines()[-1])
+
+
+def kill_fakes(rig):
+    subprocess.run(["taskkill", "/F", "/IM", f"{rig.fake}.exe"], capture_output=True)
+
+
+def test_frontend_counts_returns_from_the_game_log(rig):
+    two_returns_log(rig)
+    fe = frontend(rig)
+    assert fe["pid"] == rig.proc.pid and fe["returns"] == 2 and fe["log"] == 2 and fe["needs_relaunch"] is True
+    # the count is persisted for that pid (the game log can stall, L23)
+    rec = json.loads((rig.tmp / "state" / "client_frontend_returns.json").read_text(encoding="utf-8-sig"))
+    assert rec["pid"] == rig.proc.pid and rec["returns"] == 2
+
+
+def test_frontend_ignores_an_older_process_log_and_another_pids_record(rig):
+    two_returns_log(rig, header="Log file open, 01/01/20 00:00:00")   # opened long before this process started
+    record_returns(rig, 5, pid=1)                                       # another (dead) process's count
+    fe = frontend(rig)
+    assert fe["log"] is None and fe["returns"] == 0 and fe["needs_relaunch"] is False
+
+
+def test_boot_disconnect_for_a_switch_is_counted(rig):
+    dev_target(rig)
+    with open(rig.game_log, "a", encoding="utf-8") as f:
+        f.write(loadmap("1.2.3.4:7777"))
+    runner = _switch_rig(rig, "5.6.7.8:7777")
+    p = rig.ps("client_boot.ps1", "-NoLaunch", "-Quiet", "-Target", "dev")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert "boot_disconnect" in runner.calls
+    rec = json.loads((rig.tmp / "state" / "client_frontend_returns.json").read_text(encoding="utf-8-sig"))
+    assert rec["pid"] == rig.proc.pid and rec["returns"] == 1 and "target switch" in rec["why"]
+    assert status(rig)["last_boot"]["fe_returns"] == 1
+
+
+def test_boot_dry_run_switch_after_two_returns_would_relaunch_not_disconnect(rig):
+    dev_target(rig)
+    with open(rig.game_log, "a", encoding="utf-8") as f:
+        f.write(loadmap("1.2.3.4:7777"))
+    record_returns(rig, 2)   # the boot's own record (the game log shows none: it stalled)
+    rig.start(in_world())
+    p = rig.ps("client_boot.ps1", "-NoLaunch", "-DryRun", "-Target", "dev")
+    assert "would: relaunch client instead of a front-end return" in p.stdout, p.stdout
+    assert "disconnect.lua" not in p.stdout, p.stdout
+
+
+def test_boot_target_switch_after_two_returns_relaunches_instead_of_disconnecting(rig):
+    dev_target(rig)
+    two_returns_log(rig)   # on 1.2.3.4 (shockbyte), 2 returns used; the target is dev
+    runner = rig.start(in_world())
+    orig = runner.handle
+    old_pid, relaunched = rig.proc.pid, {}
+
+    def handle(name):
+        if name == "wd_boot_probe" and rig.proc.poll() is not None and not relaunched:
+            # the boot killed the old process and launched a new one: a fresh client at the start menu, fresh log
+            relaunched["at"] = time.time()
+            runner.state.clear()
+            runner.state.update(at_menu())
+            rig.game_log.write_text(fe_line("Name=Player"), encoding="utf-8")
+        if name == "boot_disconnect":
+            runner.state.update(map="L_FrontEnd", screen=2, pawn=None, pos_m=None)
+            return {"ok": True, "result": {"sent": True}}
+        if name == "boot_join_server":
+            with open(rig.game_log, "a", encoding="utf-8") as f:
+                f.write(loadmap("5.6.7.8:7777"))
+        return orig(name)
+    runner.handle = handle
+    env = dict(rig.env, DW_CLIENT_LAUNCH=str(rig.exe), DW_CLIENT_LAUNCH_ARGS="-n 600 127.0.0.1")
+    try:
+        p = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(TOOLS / "client_boot.ps1"),
+                            "-Quiet", "-Target", "dev", "-MinLaunchFreeMB", "0"], env=env, capture_output=True, text=True,
+                           timeout=240)
+        assert p.returncode == 0, p.stdout + p.stderr
+        assert "boot_disconnect" not in runner.calls, runner.calls          # never the crashing 3rd return
+        assert rig.proc.poll() is not None and relaunched, "the old process must be stopped and a new one launched"
+        acting = [c for c in runner.calls if c != "wd_boot_probe"]
+        assert acting[:2] == ["boot_pick_char", "boot_join_server"], acting
+        st = status(rig)["last_boot"]
+        assert any("relaunch client" in a for a in st["actions"]), st["actions"]
+        assert st["pid"] != old_pid and st["fe_returns"] == 0 and st["joined"] == "5.6.7.8:7777"
+    finally:
+        kill_fakes(rig)
+
+
+def test_boot_menu_rejoin_after_two_returns_would_relaunch(rig):
+    s = at_menu()
+    s["logged_in"] = True   # back at the menu after a disconnect, signed in: the next step would be a rejoin
+    rig.start(s)
+    record_returns(rig, 2)
+    p = rig.ps("client_boot.ps1", "-NoLaunch", "-DryRun")
+    assert "would: relaunch client instead of a front-end return (rejoin from the menu" in p.stdout, p.stdout
+    assert "join_server.lua" not in p.stdout
+
+
+def test_boot_menu_rejoin_with_returns_left_joins(rig):
+    s = at_menu()
+    s["logged_in"] = True
+    rig.start(s)
+    record_returns(rig, 1)
+    p = rig.ps("client_boot.ps1", "-NoLaunch", "-DryRun")
+    assert "would: join_server.lua" in p.stdout and "relaunch" not in p.stdout, p.stdout
+
+
+def test_watchdog_disconnect_after_two_returns_reports_relaunch(rig):
+    rig.start(at_menu())
+    record_returns(rig, 2)
+    rig.ps("client_watchdog.ps1", *WD, "-Loops", "4", "-DisconnectS", "1")
+    boot = [e for e in rig.events() if e["event"] == "boot_start"][0]
+    assert boot["why"] == "disconnect" and boot["relaunch"] is True and boot["fe_returns"] == 2

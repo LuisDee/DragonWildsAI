@@ -19,6 +19,45 @@
 4. **Act on the stream:** start the first tool call as soon as its input has streamed (the Anthropic streaming tool input) instead of waiting for the whole response. Precedent: speculative/streamed tool calling ([Stream blog](https://getstream.io/blog/speculative-tool-calling-voice/)), [Speculative Actions, ICLR 2026](https://arxiv.org/html/2510.04371v1). Only read-only tools are ever speculated.
 5. **No talk-only promises:** if the reply promises an action and calls no tool, the model gets one continuation turn (information, not a veto). Regression test: the 21:02:56 and 21:15:01 replays.
 
+## 2a. L27: the first dev measurement run (2026-10-25 23:32, `logs/evals/20261025/20261025-233253-dev-measure/`)
+
+**Stages, from `python -m tools.obs episode --brain-log <case>/brain.jsonl -v` for all 6 cases:**
+
+| Stage | Measured | Note |
+|---|---|---|
+| Burst wait | 0 s | the test lines are named ("Claude, ..."), so they run at once |
+| State read + context build | 0.3–0.5 s | before the first model call |
+| Model call (warm) | 0.7–1.7 s, 50–224 output tokens | effort `low` is applied (`make_llms` → `output_config.effort=low`); every prompt row now logs `effort` |
+| **Model call (cold: the session's first)** | **11.2 s** (11.3k input tokens, 0 cached, 50 output) | the 12.8 s worst case |
+| Brain → body start | about 0.2 s | `tool_call` → `bridge_send` |
+| **The benchmark's own observer** | **about 2.2 s** | `evals/bench/observer.py:85` stamps `t0` AFTER its "before" probe, so `latency_s` includes the probe |
+
+**What it means:**
+- **Companion time** (heard → first tool call) is 1.0, 1.6, 2.06, 2.1, 2.1 s, plus 11.9 s for the cold start. The p50 is about 2.1 s, which meets the 2.5 s target.
+- **The benchmark's p50 of 4.2 s** is that time plus the observer's own probe (a harness artefact; reported to the bench owner).
+- **The biggest companion stage is the cold first call.**
+  - Most of it is the litellm import: 5.8 s, done lazily inside the first `complete()`.
+  - The rest is the TLS handshake and the first cache write.
+
+**Fix:**
+- `Controller.warm_up()` at session start. One tiny request (max 64 tokens) with the real persona and tools pays the import, TLS and cache write. It runs within the budget guard and is logged as `llm_warmup`.
+- `LITELLM_LOCAL_MODEL_COST_MAP=True` by default (bundled cost map, no network fetch at import).
+- Replay (`tests/test_latency_replay.py::test_l27_cold_start_before_and_after_the_warm_up`): the first line of a fresh session goes from 11.65 s to 2.15 s; the session max from 11.65 s to 3.3 s.
+
+**Open:**
+- The benchmark builds its own agent (`evals/bench/devrun.py`), so it must call `controller.warm_up()` before the first case.
+- Its observer should stamp `t0` before the probe, or subtract the probe time.
+- The cast tool itself (4–7 s per call: the wheel route) is the spells agent's.
+
+## Search record (L27)
+- **Need:** a cold first LLM call (11.2 s) in a fresh brain session.
+- **Searched:** "litellm import slow startup", "LITELLM_LOCAL_MODEL_COST_MAP"; the Claude API skill on prompt caching (pre-warming) and on effort for Haiku 5.5.
+- **Found:**
+  - LiteLLM fetches its model cost map over the network at import unless `LITELLM_LOCAL_MODEL_COST_MAP=True` (CrewAI community thread, about 20 s with a slow route: https://community.crewai.com/t/crewai-cli-command-is-slow-to-respond/3359; LiteLLM issue on the offline fallback: https://github.com/BerriAI/litellm/issues/25062).
+  - Measured here: the import is 5.8 s with the network fetch and 5.0 s with the local map, so the import itself dominates.
+  - Claude API docs: pre-warm the prompt cache with a request on the stable prefix (tools → system); `max_tokens: 0` is the documented pre-warm, and we send 64 because LiteLLM needs a positive value (https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching). Effort `low` suits latency-sensitive routes; adaptive thinking stays on.
+- **Decision:** adapt. A start-of-session warm-up request plus the local cost map. Nothing new to adopt; no library change.
+
 ## 3. Reliability first (autonomy grows only as fast as the primitives; CLAUDE.md risk 8)
 - Open: L14/L15 preview spells, L7 interact on the right item, L8 go_to any id, L13 late-success detection.
 - Each primitive gets a dev-server scenario in `tools/scenarios/dev_suite.json`, run before live sessions.

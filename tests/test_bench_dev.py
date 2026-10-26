@@ -65,7 +65,7 @@ def test_referee_tail_keeps_only_verified_kinds(tmp_path):
     log.write_text(json.dumps({"kind": "referee_start"}) + "\n", encoding="utf-8")
     t.referee_start()
     with open(log, "a", encoding="utf-8") as f:
-        for e in ({"kind": "damage", "amount": 8}, {"kind": "teleport", "dist_m": 400}, {"kind": "death", "kind_id": "X"}):
+        for e in ({"kind": "damage", "amount": 8}, {"kind": "projectile", "hit": True}, {"kind": "death", "kind_id": "X"}):
             f.write(json.dumps(e) + "\n")
     assert [e["kind"] for e in t.referee_events()] == ["damage", "death"]
     assert t.referee_events() == []

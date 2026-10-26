@@ -25,7 +25,10 @@ from .observer import Abort
 
 REFEREE_LOG = ROOT / "logs" / "bench" / "referee.jsonl"
 PROBE_CMD = ROOT / "client_mod" / "commands" / "bench_probe.lua"
-REFEREE_SUPPORTS = frozenset({"item_change", "damage", "death"})  # verified kinds (DISCOVERIES 2026-10-25)
+# verified kinds (DISCOVERIES 2026-10-25/26): damage carries by + damage_type (v1.1 hooks), deaths by, telegraphs;
+# defended events carry `how` only for dodges seen with the evade tag / parry / block hooks (else a gap); teleport is
+# polled (no `via` yet -> a gap for teleports{via})
+REFEREE_SUPPORTS = frozenset({"item_change", "damage", "death", "telegraph", "defended", "teleport"})
 RECIPES_GLOB = "recipes_*.json"
 SPELLS_GLOB = "spells_*.json"
 

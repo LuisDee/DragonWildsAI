@@ -80,6 +80,28 @@ function M.vitals_start(log)
 end
 function M.vitals_status() return F.vitals or { running = false, hooks = 0 } end
 
+-- sense.resolve_foliage (BUGS L26): FAKE.foliage = {[id] = {row = {...}, how = "same"|"reindexed"|"converted"}},
+-- FAKE.foliage_gone = {[id] = "felled_or_picked"|...}; internal fields come back like the real one's (_pos).
+-- A world row with that id (a foliage row in FAKE.world.resources) is the instance itself ("same").
+function M.resolve_foliage(id)
+    local r = F.foliage and F.foliage[id]
+    if not r then
+        for _, row in ipairs(F.world.resources or {}) do
+            if row.id == id then
+                r = { row = row, how = "same" }
+                local dd = d(here(), row.position)
+                r.row = setmetatable({ distance = math.floor(dd * 10 + 0.5) / 10 }, { __index = row })
+            end
+        end
+    end
+    if not r then return nil, (F.foliage_gone and F.foliage_gone[id]) or "not_found" end
+    local c = { _pos = { X = 0, Y = 0, Z = 0 }, _comp = {} }
+    local src = getmetatable(r.row) and getmetatable(r.row).__index or {}
+    for k, v in pairs(src) do if type(v) ~= "function" then c[k] = v end end
+    for k, v in pairs(r.row) do c[k] = v end
+    return c, r.how or "same"
+end
+
 function M.census(log, opts)
     local r = (opts and opts.radius_m) or 30
     local origin = here()

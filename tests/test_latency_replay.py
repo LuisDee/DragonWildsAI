@@ -57,9 +57,11 @@ class TimedModel(FakeModel):
         self.acted: set[str] = set()
 
     model_s = MODEL_S
+    cold_s = 0.0  # extra cost of the session's first call (L27: litellm import + TLS + first cache write)
 
     def complete(self, messages, tools=None):
-        self.clock.t += self.model_s
+        self.clock.t += self.model_s + self.cold_s
+        self.cold_s = 0.0
         last = messages[-1]
         if last.get("role") == "tool" or (last.get("role") == "user" and not last["content"].startswith("{")):
             self.calls.append({"messages": messages, "tools": tools})
@@ -74,13 +76,17 @@ class TimedModel(FakeModel):
         return LLMResponse(content="Sure.")
 
 
-def simulate(tmp_path, before: bool, monkeypatch, model_s: float = MODEL_S) -> list[float]:
+def simulate(tmp_path, before: bool, monkeypatch, model_s: float = MODEL_S, cold_s: float = 0.0,
+             warm: bool = False) -> list[float]:
     r = Replay(tmp_path, copy.deepcopy(STATES[5]))
     state = copy.deepcopy(STATES[5])
     state["players"] = [{"name": "Zezima", "distance": 4.0, "position": [59.26, 1881.85, -35.45]}]
     r.body = TimedBody(state, r.clock)
     r.model = TimedModel(r.clock)
     r.model.model_s = model_s
+    r.model.cold_s = cold_s
+    if warm:  # session start (before the first line): the warm-up call pays the cold start (L27)
+        r.model.complete([{"role": "system", "content": ""}, {"role": "user", "content": "warm-up"}])
     r.model.acted = {ln["text"] for ln in LINES if ln["acted"]}
     r.executor.game = r.body
     r.executor.max_attempts = 3 if before else 1
@@ -132,3 +138,19 @@ def test_chat_to_first_response_before_and_after(tmp_path, monkeypatch, capsys):
     assert report["after"]["p50_s"] <= report["before"]["p50_s"] - 1.0
     assert report["after"]["p50_s"] <= 3.1
     assert report["after_effort_low_projection"]["p50_s"] <= 2.5
+
+
+COLD_S = 9.5  # live dev run 23:32:58: 11.2 s first call vs ~1.7 s warm (litellm import ~5 s, TLS, cache write)
+
+
+def test_l27_cold_start_before_and_after_the_warm_up(tmp_path, monkeypatch, capsys):
+    """BUGS.md L27: the worst chat -> first action (12.8 s) was the session's first model call. With the
+    warm-up at session start the first line costs what every other line costs."""
+    cold = simulate(tmp_path / "cold", False, monkeypatch, cold_s=COLD_S)
+    warm = simulate(tmp_path / "warm", False, monkeypatch, cold_s=COLD_S, warm=True)
+    report = {k: {"first_s": round(v[0], 2), "p50_s": round(pct(v, 50), 2), "p90_s": round(pct(v, 90), 2),
+                  "max_s": round(max(v), 2)} for k, v in (("cold_start", cold), ("warmed_up", warm))}
+    with capsys.disabled():
+        print("\nL27 replay (first line of a fresh session):", json.dumps(report))
+    assert report["cold_start"]["first_s"] > 10 and report["warmed_up"]["first_s"] < 3.5
+    assert report["warmed_up"]["max_s"] < 4.0  # M1: p90 <= 4 s

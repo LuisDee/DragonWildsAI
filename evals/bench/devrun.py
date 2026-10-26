@@ -6,6 +6,10 @@ client bridge's debug channel, Claude's real client, judged by the harness probe
 Preconditions (checked, fail closed): the client is on the local dev server (never Shockbyte), run_live is not running,
 the $10/day spend cap holds for the worst case, main's go-ahead for the run. Measurement runs before Luis's judge tag
 are written with full=False and never count for GOAL.
+
+Front-end returns (BUGS L24): the game crashes on the 3rd return to the menu in one client process. Never disconnect or
+rejoin the client by hand (disconnect.lua) between runs: --switch gets it onto dev through tools/client_boot.ps1 -Target
+dev, which relaunches the process instead when its 2 returns are used (tools.scenario_run.frontend_state reports them).
 """
 from __future__ import annotations
 
@@ -191,6 +195,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--only", required=True, help="comma list of case ids (a dev run is always partial before the judge tag)")
     ap.add_argument("--calls", type=int, default=6, help="Haiku calls per case (cap)")
     ap.add_argument("--yes", action="store_true")
+    ap.add_argument("--switch", action="store_true",
+                    help="first move the client onto dev via client_boot.ps1 -Target dev (relaunches instead of a 3rd "
+                         "front-end return, BUGS L24)")
     a = ap.parse_args(argv)
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -210,6 +217,16 @@ def main(argv: list[str] | None = None) -> int:
     if not a.yes:
         print("re-run with --yes to start")
         return 2
+    from tools.scenario_run import Ops, frontend_state, relaunched
+    fe = frontend_state()
+    print(f"front-end returns: {fe}" + (" -> the next disconnect/rejoin relaunches the client (BUGS L24)"
+                                         if fe and fe.get("needs_relaunch") else ""))
+    if a.switch:
+        b = Ops().boot("dev")
+        print(f"switch to dev: ok={b.get('ok')} joined={b.get('joined')} reason={b.get('reason')}"
+              + (" (relaunched, BUGS L24)" if relaunched(b) else ""))
+        if not b.get("ok"):
+            return 4
     dev = default_dev()
     rid, d = run_dir("dev", "measure")
     results = []

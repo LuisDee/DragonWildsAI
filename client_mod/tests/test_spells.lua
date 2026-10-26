@@ -61,7 +61,7 @@ local function reset(o)
           skills = { SKILL_Agility = 5, SKILL_Construction = 1, SKILL_Mining = 3, SKILL_Attack = 5 },
           presses = {}, sched = {}, pos = { 0, 0, 0 }, players = o.players or {}, falling = false, server_time = 1000,
           wheel_broken = o.wheel_broken, quick_no_select = o.quick_no_select, no_effect = o.no_effect, land_offset = o.land_offset,
-          server_cooldown = o.server_cooldown, highlight_wrong = o.highlight_wrong, invalid_spots = o.invalid_spots, not_flat = o.not_flat, slow_cast = o.slow_cast, req = o.req, foliage = o.foliage,
+          server_cooldown = o.server_cooldown, highlight_wrong = o.highlight_wrong, delayed = o.delayed, preview_off = o.preview_off, invalid_spots = o.invalid_spots, not_flat = o.not_flat, slow_cast = o.slow_cast, req = o.req, foliage = o.foliage,
           aim_valid_after = o.aim_valid_after, cooldown_then_spend = o.cooldown_then_spend, no_preview = o.no_preview, no_spots = o.no_spots, all = o.all or { WINDSTEP, SHELTER }, page = o.page or 0, shown_page = o.page or 0, no_icons = o.no_icons, slow_pages = o.slow_pages }
 end
 local function at(dt, fn) G.sched[#G.sched + 1] = { t = T + dt, fn = fn } end
@@ -74,8 +74,15 @@ local function spell_by(id) for _, s in ipairs(G.all) do if s.asset == id then r
     for _, s in ipairs(G.unlocked) do if s.asset == id then return s end end end
 local function effect(s, landed)
     if G.no_effect then return end
-    for _, c in ipairs(s.cost) do G.items[c.item] = (G.items[c.item] or 0) - c.count end
-    G.last_cast[s.asset] = G.server_time
+    local dl = G.delayed -- replication lag per signal (L25): {runes = s, cooldown = s (false = never)}
+    local function runes() for _, c in ipairs(s.cost) do G.items[c.item] = (G.items[c.item] or 0) - c.count end end
+    local function cd() G.last_cast[s.asset] = G.server_time end
+    if dl then
+        if dl.runes then at(dl.runes, runes) end
+        if dl.cooldown then at(dl.cooldown, cd) end
+    else
+        runes(); cd()
+    end
     if s.cast_type == 0 then G.ge[#G.ge + 1] = "GE_" .. s.asset .. "_Instance" else
         G.actors["BP_" .. s.asset .. "_1"] = { class = "BP_" .. s.asset .. "_C", position = landed } end
 end
@@ -99,7 +106,8 @@ W.snapshot = function()
     for k, v in pairs(G.actors) do s.actors[k] = v end
     return s
 end
-local ACTS = { menu = { n = "menu" }, place = { n = "place" }, cancel = { n = "cancel" }, next_page = { n = "next_page" }, accept = { n = "accept" }, quick = {} }
+local ACTS = { menu = { n = "menu" }, place = { n = "place" }, cancel = { n = "cancel" }, next_page = { n = "next_page" }, prev_page = { n = "prev_page" },
+               accept = { n = "accept" }, quick = {} }
 for i = 0, 7 do ACTS.quick[i + 1] = { n = "quick" .. i } end
 W.actions = function() return ACTS end
 W.shown_icons = function()
@@ -132,6 +140,7 @@ W.preview = function()
         return { valid = ok, tag = not ok and "UI.Notification.SpellPlacement.NoTarget" or nil, position = { a[1], a[2], (a[3] or 0) - 1.2 } }
     end
     local bad = G.invalid_spots and (G.invalid_spots[key2(a)] or G.invalid_spots.all)
+    if G.preview_off then return { valid = true, position = { a[1], a[2] + G.preview_off, a[3] or 0 } } end
     return { valid = not bad, tag = bad and (G.not_flat and "UI.Notification.SpellPlacement.GroundNotFlatEnough" or "Spell.Placement.Invalid.Slope") or nil,
              position = { a[1], a[2], a[3] or 0 } }
 end
@@ -140,9 +149,9 @@ W.inject = function(_, a)
     if a.n == "menu" or a.n == "close_previous" then
         if G.mode == "DIM_RadialMenu" then G.mode = "DIM_Gameplay"
         elseif G.mode == "DIM_Gameplay" and not G.wheel_broken then at(0.15, function() G.mode = "DIM_RadialMenu" end) end
-    elseif a.n == "next_page" then
+    elseif a.n == "next_page" or a.n == "prev_page" then
         if G.mode == "DIM_RadialMenu" then
-            G.page = (G.page + 1) % 4
+            G.page = (G.page + (a.n == "prev_page" and -1 or 1)) % 4
             local p = G.page
             if G.slow_pages then at(G.slow_pages, function() G.shown_page = p end) else G.shown_page = p end
         end
@@ -153,7 +162,10 @@ W.inject = function(_, a)
         local s = spell_by(G.wheel[G.page * 12 + slot + 1])
         G.selected = s and s.asset
         if not s then G.mode = "DIM_Gameplay"; return true end
-        if s.cast_type == 0 then
+        if s.cast_type == 0 and G.stay_in_mode then
+            G.mode = "DIM_SpellcastingMode" -- e.g. a camera mode the spell keeps open
+            at(0.4, function() effect(s) end)
+        elseif s.cast_type == 0 then
             G.mode = "DIM_Gameplay"
             if G.cooldown_then_spend then
                 at(0.2, function() local m = SP.mem(); m.events[#m.events + 1] = { ev = "on_cooldown" } end)
@@ -180,7 +192,13 @@ W.inject = function(_, a)
             end
         end
     elseif a.n == "cancel" or a.n == "close_previous_cancel" then
-        if G.mode ~= "DIM_RadialMenu" then G.mode = "DIM_Gameplay" end
+        if G.mode ~= "DIM_RadialMenu" then
+            if G.cooldown_on_leave and G.mode == "DIM_SpellcastingMode" then
+                for k in pairs(G.unlocked_set or {}) do G.last_cast[k] = G.server_time end
+                at(0.5, function() G.last_cast["USD_Windstep"] = G.server_time end)
+            end
+            G.mode = "DIM_Gameplay"
+        end
     end
     return true
 end
@@ -641,6 +659,63 @@ do
     local job = SP.cast_now(nil, "USD_Windstep", { api = api })
     local res = job.poll()
     check("cast_now on cooldown: answered at once, no key pressed", res.ok == false and res.reason == "on_cooldown" and #G.presses == 0, res.reason)
+end
+
+-- ---------------------------------------------------------------- L25: delayed replication
+reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" }, delayed = { runes = 3.0, cooldown = 5.0 } })
+do
+    local res = run_cast({ spell = "Summon Shelter" })
+    check("L25: actor first, runes at 3 s, cooldown at 5 s -> one reply with all three", res.ok and res.data.settled == true
+        and res.data.runes_spent[EARTH] == 10 and res.data.cooldown_started == true and res.data.spell_actor ~= nil,
+        tostring(res.data.settled) .. " " .. tostring(res.data.cooldown_started))
+end
+reset({ delayed = { runes = 0.4, cooldown = false } })
+do
+    local t0 = T
+    local res = run_cast({ spell = "Windstep" })
+    check("L25: cooldown never replicates -> ok, settled=false, the gap named, bounded", res.ok and res.data.settled == false
+        and res.data.unsettled[1] == "cooldown_started" and T - t0 <= SP.cfg.settle_s + 3, tostring(T - t0))
+end
+reset({ unlocked = { SHELTER }, wheel = { "USD_SummonShelter" }, preview_off = 3.2 })
+do
+    local res = run_cast({ spell = "Summon Shelter", target = { 6, 2, 0 } })
+    check("L25: a valid ground preview 3.2 m off the asked point is accepted (the shelter centres itself)", res.ok, res.reason)
+end
+-- L25: a spell that keeps its own mode open records its cooldown only when the mode ends (Eye of Oculus)
+reset()
+do
+    G.cooldown_on_leave = true
+    G.delayed = { runes = 0.4, cooldown = false }
+    G.stay_in_mode = true
+    local res = run_cast({ spell = "Windstep" })
+    check("L25: own-mode spell: leaves the mode after the settle wait, the cooldown lands, settled", res.ok and res.data.settled == true
+        and res.data.left_mode == "DIM_SpellcastingMode" and res.data.cooldown_started == true, tostring(res.data.settled) .. " " .. presses())
+end
+-- L27: page turns the short way, timing breakdown
+local p3 = {}
+for i = 1, 48 do p3[i] = false end
+p3[1] = "USD_Windstep"
+p3[13] = "USD_SummonShelter"
+reset({ unlocked = { WINDSTEP, SHELTER }, wheel = p3, page = 1 })
+do
+    local res = run_cast({ spell = "Windstep" })
+    check("L27: wheel open on page 2, spell on page 1 -> one page back, not three forward", res.ok and presses() == "menu,prev_page,quick0", presses())
+    local tm = res.data.timing or {}
+    check("L27: timing breakdown reported", type(tm.total_s) == "number" and tm.page_turns == 1 and type(tm.open_s) == "number", tostring(tm.total_s))
+end
+do
+    local icon_of = { A = "ia", B = "ib" }
+    local wheel = {}
+    for i = 1, 24 do wheel[i] = false end
+    wheel[1], wheel[13] = "A", "B"
+    check("page_of: finds the shown page from icons", SP.page_of({ "ib" }, wheel, 12, icon_of) == 1 and SP.page_of({ "ia" }, wheel, 12, icon_of) == 0
+        and SP.page_of({ "zz" }, wheel, 12, icon_of) == nil)
+end
+-- L26: no raw ids in speech
+reset({ unlocked = { AXTRAL }, wheel = { "USD_TestAxe" } })
+do
+    local res = run_cast({ spell = "Astral Axe", target = "fol:Gone_1:1" })
+    check("L26: the detail never speaks a raw id", not (res.data.detail or ""):find("fol:", 1, true) and res.data.target == "fol:Gone_1:1", res.data.detail)
 end
 
 -- ---------------------------------------------------------------- manifest / contract

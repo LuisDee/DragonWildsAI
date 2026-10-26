@@ -541,6 +541,7 @@ Root cause R2 of the 19:22–19:26 episode was that the brain's tool list was ha
 | Scenario runner (fake body + ops: dry run read-only, live switch/run/switch back, failed leg, crash, preflight abort, Lua prefix compiles) | `.venv\Scripts\python.exe -m pytest tests/test_scenario_run.py` |
 | Timeline (synthetic logs: zones, window, noise, collapse, redaction, CLI/HTML/JSONL) | `.venv\Scripts\python.exe -m pytest tests/test_timeline.py` |
 | Join targets + lease + wrong-server watchdog (fake client) | `.venv\Scripts\python.exe -m pytest tests/test_client_ops.py -k "target or lease or wrong_server"` |
+| Front-end limit, BUGS L24 (fake client: counted returns, a switch after 2 relaunches instead of disconnecting, menu rejoin, watchdog event) | `.venv\Scripts\python.exe -m pytest tests/test_client_ops.py -k "frontend or returns or relaunch or counted"` |
 
 ### 8.6 Process: dev-server scenario suite and the timeline (streamline plan step 6)
 
@@ -550,6 +551,7 @@ Root cause R2 of the 19:22–19:26 episode was that the brain's tool list was ha
 3. else `shockbyte`. An expired or missing lease always means Shockbyte.
 - "Which server is the client on" = the client game log's last `LoadMap: <host:port>/Game/Maps/World/L_World` (`Get-JoinedServer`; the `?p=` part is never returned). When it is unknown, nothing switches.
 - `client_boot.ps1` in the world on a different server than the target: `disconnect.lua`, then the normal menu → join path. The join runs `join_server.lua` with `local SECRETS_FILE = "server_<name>.txt"` prefixed (a chunk local, so nothing persists into the next join).
+- **Front-end limit (BUGS L24).** The game crashes on the 3rd return to `L_FrontEnd` within one client process, so a process gets at most 2 (`DW_CLIENT_MAX_FE_RETURNS`). `client_lib.ps1` counts them per process: `Get-FrontEndReturns` = max(the game log's `LoadMap .../L_FrontEnd` lines after the startup one, when the log's "Log file open" stamp is not older than the process; `logs/state/client_frontend_returns.json` `{pid, start, returns}`, raised by `Register-FrontEndReturn` on every boot `disconnect.lua`, because the log can stall). When the count is used up, `client_boot.ps1` relaunches instead (`Invoke-Relaunch`: `Stop-ClientProcess`, launch, the normal menu → join path; once per boot run) before a target-switch disconnect or a rejoin from the menu; at a forbidden server it kills the process instead of disconnecting. The rule lives only in boot, so the watchdog, `scenario_run.py` and the bench (`devrun --switch`) get it by going through boot. Read it with `tools/client_frontend.ps1` (one JSON line) or `tools.scenario_run.frontend_state()`; `relaunched(boot_result)` tells whether a boot relaunched. The watchdog's `boot_start` event carries `fe_returns` and `relaunch`. Never send `disconnect.lua` by hand.
 - The client watchdog (`WrongServerS`, 60 s) reruns boot when the client sits on a server other than the target. So the lease keeps a scenario run's rejoins on dev, and when a runner dies the lease expires and the watchdog brings Claude back to Shockbyte.
 - `Protect-Secret` redacts the password of every target file.
 

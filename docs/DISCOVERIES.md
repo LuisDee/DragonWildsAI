@@ -1646,3 +1646,21 @@ Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probe
 - **Fixture `set_health` (verified):** `HealthComponent:SetHealth(80, "bench_fixture")` read back 80 server-side. It replicated (the client probe saw 66 seconds later, after starvation damage).
 - **Fixture `teleport` (verified):** `pawn:K2_TeleportTo({X,Y,Z},{Pitch,Yaw,Roll})` returned true and moved ClaudeDev 5 m server-side; the client probe read the new position.
   - The earlier attempts returned false while he was at 1 HP and starving, so a near-dead pawn refuses to teleport.
+- **Referee hooks (dev server, verified 2026-10-25 23:39–23:42 UTC with a spawned kebbit and Claude's real attack):**
+  - **Doesn't work: `DamageComponent:BP_OnDamageReceived` never fires.** It isn't called through ProcessEvent. `FDominionPointDamageEvent` also has no Target field.
+  - **Works: `PlayerMeleeAttackComponent:Multicast_SendDamageCacheData(TArray<FTimedDamageInfo>)`.** The component owner is the attacking player. Each `DamageInfo.DamagedActors[].PointDamageEvent` gives `Amount` (15.0), `TypeDamagesArray[].Types` (`DamageType.Physical.Slash`), `TypeDamagesOutcome` ([0] = neutral), `AttackId`, `bIsFatalHit` and `VictimLocation`; the victim is the actor nearest that point. The result is `damage {by: self, damage_type, ...}`, and a fatal hit gives `death {by: self}`.
+  - **Works: `AiAttackComponent:Multicast_PerformAttackOnSimulatedProxies(AttackClassId=365, AttackId)`.** This is the telegraph: the kebbit's attacks on Claude, AttackIds 1..10.
+  - **Works: `AiAttackComponent:Multicast_SendDamageCacheData(FAiAttackOutcome)`.** It gives damage BY the creature (`by: BP_AI_Kebbit_Character_02_C`, 7.0 Slash to self).
+  - **Registered, not yet seen firing:** `PlayerBlockingComponent:Multicast_NotifyActorsToDamagePendingParried/BlockedAttack` (parry/block). For dodge, the pawn's `InvulnerableEvadeTag` is checked at the AI outcome (not yet seen).
+  - **Hook callbacks dispatch** through `_G.__dw_bench_ref_dispatch`, so a redeployed referee.lua takes effect without re-hooking. RegisterHook can't be undone, and the v1 callbacks are silenced by a state flag.
+
+## Foliage ids go stale when he walks up to a tree (BUGS L26; client build 26162923; offline fix 2026-10-26)
+- **Observed** (dev run T0, debug channel lines 250-263): `go_to fol:BP_InteractableFoliageISMC_Tree_C_12:59` arrived 1.4 m from the Ash Tree, and then the same id resolved to nothing.
+- **Cause:** the server's `NearbyFoliageConverterComponent` (Range 300 cm) converts the instance into its `ActorClass` actor (e.g. `BP_BM_Tree_Ash_03_C_2147454756`) and hides the instance (instance scale 0). gather.lua logs the same "adopted <actor> (was fol:...)" on every approach (client.log 2026-10-25 20:01, 20:03, 21:05, 21:16).
+- **Also:** an instance index is not an identity (ISM/HISM RemoveInstance swap-removes), and a foliage component's name repeats per World Partition cell.
+- **Decision:** a foliage id is `fol:<ActorClass>@<x>,<y>,<z>` (decimetres). `sense.resolve_foliage` maps it to:
+  - the same instance;
+  - the nearest same-class instance within 1 m (reindexed);
+  - the converted actor of that class within 2 m (converted);
+  - or reports felled_or_picked / not_found.
+- All id-taking tools resolve through it (`client_bridge.lua` find_thing). See `docs/design/stable-target-ids.md`.

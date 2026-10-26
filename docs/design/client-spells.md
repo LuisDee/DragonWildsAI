@@ -127,3 +127,34 @@ Status: **rev 2**, after review aa990d09b7e96fb65 (CHANGES-NEEDED: 5 items, all 
   - A late watcher (15 s) emits `cast_late_success` activity.
   - A leftover open wheel is closed first.
   - The cooldown uses the client world clock.
+
+## Rev 4: settle before answering, stage timing, short page turns (L25–L27, dev measure run 2026-10-25 23:32)
+- **Goal:** the cast reply is as truthful as the harness probe, and as fast as the wheel allows.
+- **L25, under-reported late spends:**
+  - On Summon Shelter and Eye of Oculus the probe saw runes spent, the cooldown started and the actor spawn, but the reply said `runes_spent=[]` / `cooldown_started=false`.
+  - Cause: the reply was built at the first success sign (an actor, or one rune delta). The other signals replicate separately and seconds later. Server property replication is eventual and paced by NetUpdateFrequency.
+  - Fix: after the first sign, **poll until both required signals are present** (rune delta if the spell costs runes, and the LastCastTimeBySpellData change), bounded by `settle_s` = 8 s. A spell that keeps its own mode open (Oculus) is left with Esc once, and the poll goes on for `settle_after_leave_s` = 2 s, because its cooldown lands when the mode ends.
+  - The reply says `settled: true|false` and `unsettled: [...]`, so a gap is named, never hidden.
+  - A valid ground preview up to 4 m off an asked point is accepted (the shelter centres itself 3.2 m off the aim point).
+- **L26:** failure details never contain raw ids (`fol:…`, actor names); the id stays in `data.target`.
+- **L27, 4–7 s per cast:**
+  - Every reply now carries `data.timing` {open_s, pages_s, select_s, aim_s, verify_s, settle_s, total_s, page_turns}.
+  - Cuts:
+    1. Page turns go the short way. The wheel opens on the last page used, `M.page_of` finds it from the slice icons, and Left/Right is chosen accordingly (up to 2 turns, about 0.9 s, saved).
+    2. Page polling: the minimum wait is 0.1 s instead of 0.4 s, then poll until the icons change.
+    3. The fixed 3 s post-success wait became the settle poll above, which ends as soon as the state is complete.
+  - Unchanged on purpose: the cast animation and the server's spend, which are the game's own time.
+- **Tests (fake world with delayed replication):**
+  - the actor first, runes at 3 s, cooldown at 5 s, giving one complete reply;
+  - a cooldown that never comes gives settled=false, bounded;
+  - an own-mode spell leaves the mode, then settles;
+  - a 3.2 m offset preview is accepted;
+  - one page back instead of three forward;
+  - timing is present;
+  - no raw id in speech.
+
+## Search record
+- **Unreal property replication is eventual:** the server sends changed properties at the actor's net update rate, so a client sees related changes at different times. Epic, "Property Replication", https://docs.unrealengine.com/4.27/InteractiveExperiences/Networking/Actors/Properties; NetUpdateFrequency, https://forums.unrealengine.com/t/net-update-frequency-send-rate/432578.
+- **Wait for a condition with a timeout, not a fixed sleep:** Selenium "Waiting Strategies", https://www.selenium.dev/documentation/webdriver/waits. SleepReplacer (Univ. Genoa, SQJ 2022) replaced 81–100% of fixed sleeps with explicit waits and cut suite time by 13–71%, https://iris.unige.it/handle/11567/1099894.
+- **Same idea in DOM testing:** Testing Library `waitFor` retries an assertion until it passes or times out, https://testing-library.com/docs/dom-testing-library/api-async/#waitfor.
+- **Decision:** ADAPT the explicit-wait pattern (poll our own diff of fresh snapshots each bridge tick, bounded) inside the existing cast state machine. No library is needed.

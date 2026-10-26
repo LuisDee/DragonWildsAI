@@ -108,6 +108,26 @@ def joined_server(game_log: Path = GAME_LOG) -> str | None:
     return m.group(1) if m else None
 
 
+def frontend_state(timeout_s: float = 60) -> dict | None:
+    """Front-end returns of the running client process (BUGS L24): tools/client_frontend.ps1 ->
+    {pid, returns, log, recorded, max, needs_relaunch}. The game crashes on the 3rd return to the menu in one process;
+    client_boot.ps1 enforces the rule itself (with needs_relaunch it relaunches instead of disconnecting/rejoining), so
+    a switch through Ops.boot is always safe. Callers use this to report and plan (a relaunch takes ~1-2 min and loses
+    module state such as the scenario memory world). None when PowerShell gives no answer."""
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                              str(ROOT / "tools" / "client_frontend.ps1")], capture_output=True, text=True,
+                             timeout=timeout_s).stdout
+        return json.loads(out.strip().splitlines()[-1])
+    except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
+        return None
+
+
+def relaunched(boot_result: dict) -> bool:
+    """Did this client_boot run relaunch the client for the front-end limit (its actions say so)?"""
+    return any("relaunch client" in str(a) for a in boot_result.get("actions") or [])
+
+
 def write_lease(target: str, minutes: float, by: str) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     tmp = LEASE.with_suffix(".tmp")
@@ -189,6 +209,9 @@ class Ops:
 
     def joined(self) -> str | None:
         return joined_server()
+
+    def frontend(self) -> dict | None:
+        return frontend_state()
 
     def boot(self, target: str, timeout_s: float = 900) -> dict:
         """tools/client_boot.ps1 -Target <target>; the result from logs/state/client_status.json."""
@@ -660,6 +683,11 @@ def run(args, body=None, ops=None, suite: dict | None = None, log: Callable[[str
     pf["brain_running"] = ops.brain_running()
     pf["dev_server_running"] = ops.dev_server_running()
     pf["dev_target_file"] = dev_addr is not None
+    fe = ops.frontend() if hasattr(ops, "frontend") else None
+    pf["frontend"] = fe
+    if fe and fe.get("needs_relaunch"):
+        pf["warn_frontend"] = (f"client pid {fe.get('pid')} has used {fe.get('returns')} of {fe.get('max')} front-end returns: "
+                               "the switch relaunches it instead of disconnecting (BUGS L24)")
     age = ops.nav_oracle_age_s()
     pf["nav_oracle_age_s"] = round(age, 1) if age is not None else None
     caps = body.request("capabilities", {}, timeout=10)
@@ -732,7 +760,9 @@ def run(args, body=None, ops=None, suite: dict | None = None, log: Callable[[str
             log(f"switching to {target} ...")
             b = ops.boot(target)
             rep["switch"]["to_dev"] = b
-            log(f"  boot: ok={b.get('ok')} joined={b.get('joined')} reason={b.get('reason')}")
+            b["relaunched"] = relaunched(b)
+            log(f"  boot: ok={b.get('ok')} joined={b.get('joined')} reason={b.get('reason')}"
+                + (" (relaunched: front-end limit, BUGS L24)" if b["relaunched"] else ""))
             if not b.get("ok") or b.get("joined") != dev_addr:
                 rep["result"] = "aborted"
                 rep["problems"] = [f"switch to {target} failed: {b.get('reason')} (joined {b.get('joined')})"]
@@ -756,8 +786,10 @@ def run(args, body=None, ops=None, suite: dict | None = None, log: Callable[[str
             clear_lease()
             log("switching back to Shockbyte ...")
             b = ops.boot(DEFAULT_TARGET)
+            b["relaunched"] = relaunched(b)
             rep["switch"]["back"] = b
-            log(f"  boot: ok={b.get('ok')} joined={b.get('joined')} reason={b.get('reason')}")
+            log(f"  boot: ok={b.get('ok')} joined={b.get('joined')} reason={b.get('reason')}"
+                + (" (relaunched: front-end limit, BUGS L24)" if b["relaunched"] else ""))
             if b.get("joined") != shock_addr:
                 rep.setdefault("problems", []).append(
                     f"NOT back on Shockbyte (joined {b.get('joined')}): the watchdog will retry (no lease = shockbyte)")

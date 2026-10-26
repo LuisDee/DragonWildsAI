@@ -385,6 +385,31 @@ test("inspect: one thing with gives/requires, container contents; unknown id", f
     assert(rpc("inspect", {}).reason == "invalid_args")
 end)
 
+test("L26: a foliage id resolves where the instance stood (converted actor, gone reasons, go_to)", function()
+    local fid, gone = "fol:BP_BM_Tree_Ash_03_C@1084,18948,-313", "fol:BP_BM_Tree_Ash_03_C@1,2,3"
+    FAKE.foliage = { [fid] = { how = "converted", row = { id = "BP_BM_Tree_Ash_03_C_2147454756", class = "BP_BM_Tree_Ash_03_C",
+        kind = "destructible", verb = "chop", name = "Ash Tree", tool = "Hatchet", position = { 10, 0, 3 }, distance = 9.2,
+        converted_from = fid } } }
+    FAKE.foliage_gone = { [gone] = "felled_or_picked" }
+    local r = rpc("inspect", { target = fid })
+    assert(r.ok and r.data.id == "BP_BM_Tree_Ash_03_C_2147454756" and r.data.resolved == "converted"
+        and r.data.resolved_from == fid and r.data.category == "resources", json.encode(r.data))
+    assert(r.data._pos == nil and r.data._comp == nil, "internal fields never reach the wire")
+    r = rpc("inspect", { target = gone })
+    assert(r.reason == "unknown_target" and r.data.why == "felled_or_picked" and r.data.target == gone, json.encode(r.data))
+    assert(not r.data.detail:find("fol:", 1, true), "the detail is speakable: " .. r.data.detail)
+    r = rpc("inspect", { target = "fol:BP_X_C@0,0,0" })
+    assert(r.reason == "unknown_target" and r.data.why == "not_found")
+    FAKE.move.calls = {}
+    local _, _, id = rpc("go_to", { target = fid })
+    assert(FAKE.move.target and FAKE.move.target[1] == 10 and FAKE.move.target[2] == 0, json.encode(FAKE.move.target))
+    FAKE.move.mode, FAKE.move.result, FAKE.move.position = "idle", { status = "arrived", dist_m = 1.0 }, { 9.5, 0, 3 }
+    step()
+    local done = results(drain(), id)[1]
+    assert(done and done.ok, done and done.reason)
+    FAKE.foliage, FAKE.foliage_gone, FAKE.move.position = nil, nil, nil
+end)
+
 test("interact: a world item in reach -> aim, press, verified by the inventory gain and the item gone", function()
     FAKE.aims, FAKE.presses = 0, 0
     local first, _, id = rpc("interact", { target = "wi_1" })

@@ -15,6 +15,7 @@ Tests use ``FakeLLM`` and never touch the network.
 from __future__ import annotations
 
 import json
+import time
 import re
 import os
 from dataclasses import dataclass, field
@@ -110,6 +111,24 @@ class LiteLLMClient:
     def __init__(self, model: str, max_tokens: int = 8192, **kwargs: Any):
         self.model = model
         self.kwargs = {"max_tokens": max_tokens, **kwargs}
+
+    @property
+    def effort(self) -> str | None:
+        """The effort actually sent (output_config.effort), for the logs (BUGS.md L27 #2)."""
+        return ((self.kwargs.get("output_config") or {}).get("effort")) if isinstance(self.kwargs, dict) else None
+
+    def warm(self, messages: list[dict], tools: list[dict] | None = None) -> dict:
+        """L27: pay the cold start before the first chat line, not in it. Imports litellm (~5 s here),
+        opens the TLS connection and writes the prompt cache for the real prefix (tools + system), with a
+        tiny reply. Returns {s, usage}; raises like complete()."""
+        t0 = time.monotonic()
+        saved = self.kwargs
+        self.kwargs = {**saved, "max_tokens": 64}
+        try:
+            resp = self.complete(messages, tools)
+        finally:
+            self.kwargs = saved
+        return {"s": round(time.monotonic() - t0, 2), "usage": resp.usage}
 
     def complete(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
         import litellm

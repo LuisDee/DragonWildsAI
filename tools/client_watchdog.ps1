@@ -14,6 +14,8 @@
 #   wrong server in the world on a server other than the join target (client_lib.ps1 "join targets": a
 #               scenario-run lease, else shockbyte) for > WrongServerS -> boot_and_join, which leaves and
 #               joins the target. An unknown joined server (no LoadMap line) is never acted on.
+#   L24         a client process that has already returned to the menu twice is never sent back a 3rd time
+#               (the game crashes): client_boot relaunches it instead of a disconnect/rejoin (boot_start relaunch=true).
 #   low memory  free RAM < WarnFreeMB -> warn event; < CritFreeMB -> critical event with the top
 #               processes. Nothing is killed for memory (report only); boot refuses to LAUNCH below
 #               its own MinLaunchFreeMB.
@@ -120,7 +122,10 @@ function Recover-Client([string]$why, [switch]$Kill, $proc) {
         if ($why -eq 'hang' -and $proc) { $s = Save-Stack $proc $why; if ($s) { Ev 'hang_stack' @{ file = $s } } }
         Stop-Client $why
     }
-    Ev 'boot_start' @{ why = $why; kill = [bool]$Kill }
+    # BUGS L24: a process that has used its front-end returns is relaunched by client_boot instead of rejoined
+    $fe = if ($Kill) { $null } else { Get-FrontEndReturns }
+    Ev 'boot_start' @{ why = $why; kill = [bool]$Kill; fe_returns = if ($fe) { $fe.returns } else { $null }
+                       relaunch = [bool]($fe -and $fe.needs_relaunch) }
     if ($DryRun) { return }
     $r = & "$PSScriptRoot\client_boot.ps1" -Quiet | Select-Object -Last 1
     $script:bootFails = if ($r -and $r.ok) { 0 } else { $script:bootFails + 1 }

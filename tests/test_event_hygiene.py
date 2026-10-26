@@ -1159,3 +1159,37 @@ def test_director_is_off_unless_dw_director_is_1(tmp_path, monkeypatch):
         s.step()  # pump with the hooks in place: no director, nothing breaks
     finally:
         body.stop()
+
+
+def test_l27_warm_up_pays_the_cold_start_before_the_first_chat_line(tmp_path):
+    """BUGS.md L27 (dev run 23:32:58): the session's first model call took 11.2 s (litellm's ~5 s import,
+    a cold TLS connection, the first cache write). Controller.warm_up sends one tiny request with the real
+    persona + tools at session start; LiteLLMClient.warm caps it at 64 tokens and restores its params."""
+    from brain.llm import LiteLLMClient, LLMResponse as R
+    calls = []
+
+    class Warmable(FakeModel):
+        model = "anthropic/claude-haiku-5-5"
+        effort = "low"
+
+        def warm(self, messages, tools=None):
+            calls.append((messages, tools))
+            return {"s": 0.5, "usage": {"prompt": 11000, "completion": 1}}
+    r = Replay(tmp_path, STATES[5])
+    r.controller.llm = Warmable()
+    assert r.controller.warm_up() == {"s": 0.5, "usage": {"prompt": 11000, "completion": 1}}
+    (msgs, tools), = calls
+    assert msgs[0]["content"] == r.controller.persona() and tools == r.controller.tools  # the real cached prefix
+    row = r.records("llm_warmup")[0]
+    assert row["ok"] is True and row["effort"] == "low"
+    # the client caps the warm-up reply and leaves its own params as they were
+    c = LiteLLMClient("anthropic/claude-haiku-5-5", max_tokens=1024, output_config={"effort": "low"})
+    seen = {}
+    c.complete = lambda m, t=None: (seen.update(c.kwargs), R(content=""))[1]
+    c.warm([{"role": "user", "content": "x"}])
+    assert seen["max_tokens"] == 64 and c.kwargs == {"max_tokens": 1024, "output_config": {"effort": "low"}}
+    assert c.effort == "low"
+    # every prompt row says which effort was sent (L27 #2)
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude hi"})
+    r.at(0).step()
+    assert all(p.get("effort") == "low" for p in r.records("prompt"))

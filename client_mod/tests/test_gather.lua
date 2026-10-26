@@ -575,7 +575,7 @@ do
     check("foliage: world position", r and math.abs(r.position[1] - 28.13) < 0.05 and math.abs(r.position[2] - 1902.49) < 0.05, r and table.concat(r.position, ","))
     check("foliage: name/tool/tier/hp from the class default object", r and r.name == "Oak Tree" and r.tool == "Hatchet" and r.tool_tier == 3 and r.max_health == 220,
         r and (tostring(r.name) .. " " .. tostring(r.tool) .. " " .. tostring(r.tool_tier)))
-    check("foliage: id and verb", r and r.id == "fol:BP_InteractableFoliageISMC_Tree_C_10:0" and r.verb == "chop", r and r.id)
+    check("foliage: id and verb", r and r.id == "fol:BP_BM_Tree_Oak_01_C@281,19025,-319" and r.verb == "chop", r and r.id)
     rows = S.foliage(me, 4000, { match = "Tree_Ash", exclude = { "Bare" } })
     check("foliage: exclude bare ash", #rows == 0, #rows)
     FindAllOf = old

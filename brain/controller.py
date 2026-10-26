@@ -485,7 +485,8 @@ class Controller:
         for step in range(self.max_calls):
             tag = f"{label}{step}" if label else step
             self.log.log("prompt", component="controller", model=self.llm.model, step=tag,
-                         messages=messages if step == 0 and not label else messages[-2:])
+                         messages=messages if step == 0 and not label else messages[-2:],
+                         effort=getattr(self.llm, "effort", None))  # the effort actually sent (L27)
             resp = self.llm.complete(messages, tools=self.tools)
             d.model_calls += 1
             self.log.log("llm_response", component="controller", step=tag, content=resp.content,
@@ -503,6 +504,25 @@ class Controller:
             if step == self.max_calls - 2:
                 messages.append({"role": "user", "content": "Last step: act now on what you found, or reply."})
         return resp, messages
+
+    def warm_up(self) -> dict | None:
+        """L27 (dev run 23:32:58: the session's first model call took 11.2 s: litellm's ~5 s import, a
+        cold TLS connection and the first cache write). One tiny request with the real persona + tools at
+        session start, so the first chat line finds them warm. Skipped for clients without ``warm``."""
+        warm = getattr(self.llm, "warm", None)
+        if warm is None:
+            return None
+        messages = [{"role": "system", "content": self.persona()},
+                    {"role": "user", "content": json.dumps({"command": {"player": self.player, "text": "",
+                                                                        "addressed": False},
+                                                            "note": "session warm-up: reply with an EMPTY message"})}]
+        try:
+            res = warm(messages, self.tools)
+        except Exception as exc:  # a failed warm-up only means the first call is cold
+            self.log.log("llm_warmup", ok=False, error=repr(exc))
+            return None
+        self.log.log("llm_warmup", ok=True, model=self.llm.model, effort=getattr(self.llm, "effort", None), **res)
+        return res
 
     def arg_help(self, tool: str) -> dict[str, str]:
         """The offered schema's own argument descriptions (sent back with a failure so the model can

@@ -22,6 +22,9 @@
 # (tools/scenario_run.py), else shockbyte (server.txt). When the client is in the world on a DIFFERENT server than
 # the target (game log LoadMap address), boot disconnects it (disconnect.lua) and joins the target. When the
 # joined server is unknown it is left alone.
+# Front-end returns (BUGS L24, client_lib.ps1): the game crashes on the 3rd return to the menu in one process, so
+# when the process has used its 2 returns, a target switch or a rejoin from the menu relaunches the client
+# (stop the process, launch, join) instead of disconnecting / rejoining.
 # While a hold file exists it does nothing (exit 3). Returns a result object ({ok, state, reason, actions, ...}); exit code 0 when in world.
 param(
     [switch]$DryRun,
@@ -83,7 +86,7 @@ function New-Result([bool]$ok, [string]$state, [string]$reason, $p, [datetime]$t
         ok = $ok; state = $state; reason = $reason; dry_run = [bool]$DryRun
         actions = @($script:actions); duration_s = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
         target = $script:joinTarget.name; target_source = $script:joinTarget.source; joined = Get-JoinedServer
-        pid = if ($c) { $c.Id } else { $null }; client_mb = if ($c) { [math]::Round($c.WorkingSet64 / 1MB) } else { $null }
+        pid = if ($c) { $c.Id } else { $null }; fe_returns = (Get-FrontEndReturns $c).returns; client_mb = if ($c) { [math]::Round($c.WorkingSet64 / 1MB) } else { $null }
         free_mb = Get-FreeMB; build = Get-ClientBuildId
         map = $p.map; pawn = $p.pawn; pos_m = $p.pos_m; logged_in = $p.logged_in
         services = if ($p -and $p.bridge) { $p.bridge.services } else { $null }
@@ -98,6 +101,20 @@ function New-JoinCmd {
     New-Item -ItemType Directory -Force $ClientStateDir | Out-Null
     ("local SECRETS_FILE = `"$leaf`"`n" + (Get-Content $src -Raw)) | Set-Content -Encoding utf8 $tmp
     $tmp
+}
+
+# BUGS L24: instead of an action that needs another front-end visit in a process that has used its 2, kill the
+# process and run the sequence again on a fresh one (its count starts at 0). At most once per boot run.
+function Invoke-Relaunch([string]$why, $fe, $p, [datetime]$t0) {
+    Act "relaunch client instead of a front-end return ($why; pid $($fe.pid) has used $($fe.returns) of $($fe.max); BUGS L24)"
+    if ($DryRun) { return New-Result $false 'relaunch' "relaunch_needed: $why" $p $t0 }
+    if ($NoLaunch) { return New-Result $false 'relaunch' "relaunch_needed (-NoLaunch): $why" $p $t0 }
+    if ($script:relaunched) { return New-Result $false 'relaunch' "relaunch_loop: $why" $p $t0 }
+    $script:relaunched = $true
+    $gone = @(Stop-ClientProcess)
+    BLog "stopped $($gone -join ', ') for the relaunch"
+    Start-Sleep 5
+    Invoke-BootOnce $t0
 }
 
 # One pass of the sequence. Returns a result; ok=$true only when in the world with services running.
@@ -123,7 +140,7 @@ function Invoke-BootOnce([datetime]$t0) {
         Act "launch client: steam -applaunch $ClientAppId $($ClientArgs -join ' ')"
         if ($DryRun) { return New-Result $false 'down' 'client_not_running' $null $t0 }
         foreach ($n in 'wd_boot_probe', 'boot_pick_char', 'boot_join_server', 'boot_skip_intro') { Clear-ClientCmd $n }
-        & $SteamExe -applaunch $ClientAppId @ClientArgs
+        Start-ClientProcess
         $d = (Get-Date).AddSeconds(120)
         while ((Get-Date) -lt $d -and -not ($proc = Get-ClientProcess)) { Start-Sleep 2 }
         if (-not $proc) { return New-Result $false 'down' 'launch_timeout' $null $t0 }
@@ -154,8 +171,14 @@ function Invoke-BootOnce([datetime]$t0) {
             if (-not $on -or -not $TargetAddr -or $on -eq $TargetAddr -or $joinSent) { break }
             if ($leaveTries -ge 2) { return New-Result $false 'in_world' "wrong_server: on $on, target $($script:joinTarget.name)" $p $t0 }
             $leaveTries++
+            $fe = Get-FrontEndReturns
+            if ($fe.needs_relaunch) {
+                BLog "in the world on $on but the target is $($script:joinTarget.name) ($TargetAddr); $($fe.returns) front-end returns used: relaunching"
+                return Invoke-Relaunch "target switch from $on to $($script:joinTarget.name)" $fe $p $t0
+            }
             BLog "in the world on $on but the target is $($script:joinTarget.name) ($TargetAddr): leaving"
             [void](Run-Cmd 'disconnect.lua' 20 '' " (on $on, target $($script:joinTarget.name))")
+            if (-not $DryRun) { [void](Register-FrontEndReturn "disconnect: target switch to $($script:joinTarget.name)") }
             if ($DryRun) { return New-Result $false 'in_world' "wrong_server: on $on" $p $t0 }
             $worldSince = $null
             Start-Sleep 5
@@ -182,6 +205,9 @@ function Invoke-BootOnce([datetime]$t0) {
                 # join in flight (or rejected: the client falls back to the menu)
                 $why = Get-JoinFailure $joinSent.ToUniversalTime().AddSeconds(-5)
                 if ($why -and ((Get-Date) - $joinSent).TotalSeconds -gt 10) { return New-Result $false 'menu' ("join_failed: $why") $p $t0 }
+            } elseif (($fe = Get-FrontEndReturns).needs_relaunch) {
+                # at the menu after its 2 returns: a rejoin now means the next leave is the crashing 3rd one
+                return Invoke-Relaunch 'rejoin from the menu' $fe $p $t0
             } elseif ($p.screen -eq 20) {
                 [void](Run-Cmd 'consent.lua')
                 if ($DryRun) { return New-Result $false 'menu' 'consent_pending' $p $t0 }
@@ -214,7 +240,14 @@ function Invoke-BootOnce([datetime]$t0) {
     $onNow = Get-JoinedServer
     if (-not $DryRun -and (Test-JoinedForbidden $onNow)) {
         BLog "JOINED A FORBIDDEN SERVER ($onNow): leaving at once"
+        if (Test-ClientNeedsRelaunch) {
+            # a disconnect would be the 3rd front-end return (BUGS L24): killing the process leaves the server too
+            Act "stop client (forbidden server; front-end returns used up, BUGS L24)"
+            [void](Stop-ClientProcess)
+            return New-Result $false 'down' "forbidden_server_left (client stopped): $onNow" $p $t0
+        }
         [void](Run-Cmd 'disconnect.lua' 20 '' ' (forbidden server)')
+        [void](Register-FrontEndReturn 'disconnect: forbidden server')
         return New-Result $false 'menu' "forbidden_server_left: $onNow" $p $t0
     }
 

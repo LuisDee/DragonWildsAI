@@ -36,6 +36,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+# L27: use litellm's bundled model cost map; never fetch it over the network at import time (a slow
+# fetch can stall startup for many seconds; LiteLLM docs / CrewAI community report). Set before import.
+os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+
 from . import paths, worlds
 from .agent import Agent, GoalResult
 from .bridge_client import BridgeClient
@@ -374,8 +378,13 @@ class LiveSession:
                      world=self.world, world_source=self.world_source, state_dir=str(state_dir),
                      migrated=migrated, learned_skills=self.skills.names(), skills_dir=str(self.skills.dir),
                      knowledge=self.knowledge.stats() if self.knowledge else None,
-                     director=self.director is not None, **code_version())
+                     director=self.director is not None, controller_effort=getattr(controller_llm, "effort", None),
+                     **code_version())
         self.out(self.banner(controller_llm.model, planner_llm.model))
+        # L27: the cold start (litellm import, TLS, first cache write: 11.2 s live) is paid here, not by
+        # the first chat line. Within the budget guard; skipped by dry-run/fake clients (no ``warm``).
+        if self.agent.budget is None or self.agent.budget.allows("warmup"):
+            self.controller.warm_up()
 
     def _connect(self) -> float:
         deadline = time.monotonic() + self.opts.wait if self.opts.wait > 0 else None

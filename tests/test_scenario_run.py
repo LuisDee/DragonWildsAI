@@ -304,3 +304,20 @@ def test_memory_world_isolated_then_restored(isolated):
     assert not [c for c, _ in body2.calls if c == "cmd:scn_world.lua"]
     rep = sr.run(args(isolated), body=FakeBody(), ops=FakeOps(), suite=SUITE, log=lambda m: None)   # dry run: never touches it
     assert "applied" not in rep["memory"]
+
+
+def test_switch_reports_front_end_limit_and_relaunch(isolated):
+    # BUGS L24: client_boot relaunches instead of a 3rd front-end return; the run warns up front and records it
+    class FeOps(FakeOps):
+        def frontend(self):
+            return {"pid": 7, "returns": 2, "max": 2, "needs_relaunch": True}
+
+        def boot(self, target, timeout_s=900):
+            r = super().boot(target, timeout_s)
+            r["actions"] = ["relaunch client instead of a front-end return (target switch ...)", "join_server.lua"]
+            return r
+    body, ops = FakeBody(), FeOps()
+    rep = sr.run(args(isolated, live=True, only="pit_escape", repeat=1), body=body, ops=ops, suite=SUITE, log=lambda m: None)
+    assert "BUGS L24" in rep["preflight"]["warn_frontend"]
+    assert rep["switch"]["to_dev"]["relaunched"] is True and rep["switch"]["back"]["relaunched"] is True
+    assert sr.relaunched({"actions": ["disconnect.lua (on x)"]}) is False

@@ -700,7 +700,39 @@ local function census_things(radius_m, max_per_cat)
     return out, r
 end
 
+-- A foliage id ("fol:<ActorClass>@x,y,z", sense.lua M.foliage_id) is resolved by WHERE the instance stands, not
+-- by a census listing (BUGS L26: the server converts an instance into an actor when he walks up to it, and ISM
+-- indices change): the instance itself, or the actor it became. resolved = "reindexed" | "converted" | "legacy"
+-- and resolved_from = the asked id tell the caller the id it should use from now on (t.id).
+M.FOLIAGE_GONE = {
+    felled_or_picked = "that tree or plant is gone: it was felled or picked",
+    not_found = "I can't find that tree or plant where it stood any more",
+}
+local function find_foliage(id, radius_m)
+    local s = M.module("sense")
+    if not (s and type(s.resolve_foliage) == "function") then return nil end
+    local ok, row, how = pcall(s.resolve_foliage, id)
+    if not ok then return nil, fail("body_error", { target = id, detail = tostring(row) }) end
+    if not row then
+        if how == "not_a_foliage_id" then return nil end
+        return nil, fail("unknown_target", { target = id, why = how, detail = M.FOLIAGE_GONE[how] or ("not perceived (" .. tostring(how) .. ")") })
+    end
+    for k in pairs(row) do if type(k) == "string" and k:sub(1, 1) == "_" then row[k] = nil end end
+    local r = radius_m or M.LOOK_MAX_RADIUS_M
+    if row.distance and row.distance > r then
+        return nil, fail("unknown_target", { target = id, detail = "not perceived within " .. r .. " m" })
+    end
+    local t = thing_of(CATS[4], row)
+    if how ~= "same" then t.resolved, t.resolved_from = how, id end
+    return t
+end
+M._find_foliage = find_foliage
+
 local function find_thing(id, radius_m)
+    if tostring(id):sub(1, 4) == "fol:" then
+        local t, r = find_foliage(id, radius_m)
+        if t or r then return t, r end
+    end
     local things, r = census_things(radius_m or M.LOOK_MAX_RADIUS_M, 100)
     if not things then return nil, r end
     for _, t in ipairs(things) do if t.id == id then return t end end
