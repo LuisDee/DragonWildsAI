@@ -65,14 +65,15 @@ def cmd_gaps(as_json: bool) -> int:
     return 0
 
 
-def curriculum_records(path: Path, only: list[str] | None = None) -> list[dict]:
+def curriculum_records(path: Path, only: list[str] | None = None, optional: bool = False) -> list[dict]:
     """A curriculum file (data/curricula/*.json: milestones {id, text, success, source}) -> inbox add records,
     in order: each milestone becomes a job whose done test is the milestone's; the Director plans the route."""
     doc = json.loads(Path(path).read_text(encoding="utf-8"))
     cid = doc.get("id") or Path(path).stem
     return [{"op": "add", "text": m["text"], "when": "later", "kind": "specific", "success": m["success"],
              "by": f"curriculum:{cid}", "because": f"{doc.get('goal') or cid}: milestone {m['id']}"}
-            for m in doc.get("milestones") or [] if not only or m["id"] in only]
+            for m in doc.get("milestones") or []
+            if (m["id"] in only if only else (optional or not m.get("optional")))]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -95,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
     cu = sub.add_parser("curriculum", help="queue a curriculum's milestones as jobs with their done tests")
     cu.add_argument("file")
     cu.add_argument("--only", default="", help="comma-separated milestone ids")
+    cu.add_argument("--optional", action="store_true", help="also queue the optional milestones")
     cu.add_argument("--world")
     args = ap.parse_args(argv)
     if args.cmd == "gaps":
@@ -105,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     d.mkdir(parents=True, exist_ok=True)
     if args.cmd == "curriculum":
         n = 0
-        for rec in curriculum_records(Path(args.file), [x for x in args.only.split(",") if x]):
+        for rec in curriculum_records(Path(args.file), [x for x in args.only.split(",") if x], args.optional):
             append_inbox(d, rec)
             n += 1
         print(f"queued {n} milestone job(s) for the brain ({d / INBOX_NAME})")

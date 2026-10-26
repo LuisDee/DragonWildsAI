@@ -20,7 +20,7 @@ from tools.board import curriculum_records
 CUR = Path(__file__).resolve().parents[1] / "data" / "curricula" / "velgar.json"
 DOC = json.loads(CUR.read_text(encoding="utf-8"))
 RUN = ["challenge_horn", "anti_dragon_shield", "lesser_antipoison", "berry_drizzle", "pl4_kit", "sanguine_urns",
-       "attack_8"]
+       "attack_11"]
 
 
 def leaves(tree, out):
@@ -65,7 +65,7 @@ def world(rig):
     g.bag_slots = 400
     for i in range(6):
         g.add_urn([10 + i, 4, 0])
-    for i in range(14):
+    for i in range(20):
         g.add_creature("Giant Rat", "BP_GiantRat_C", [20 + i, 0, 0], hp=20, power_level=2, drops=[])
 
 
@@ -136,7 +136,8 @@ def stand_in(seen):
 
 def test_every_milestone_is_a_valid_checkable_done_test():
     recs = curriculum_records(CUR)
-    assert [r["text"] for r in recs] == [m["text"] for m in DOC["milestones"]]
+    assert [r["text"] for r in recs] == [m["text"] for m in DOC["milestones"] if not m.get("optional")]
+    assert len(curriculum_records(CUR, optional=True)) == len(DOC["milestones"])
     state = {"gear": {}, "inventory": {}, "inventory_items": [], "skills": [{"skill": "Attack", "level": 1, "xp": 0},
                                                                             {"skill": "Magic", "level": 1, "xp": 0}],
              "health": 100, "max_health": 100, "quests": {"active": [], "complete": []}}
@@ -148,11 +149,11 @@ def test_every_milestone_is_a_valid_checkable_done_test():
 
 def test_the_curriculum_queues_jobs_with_their_done_tests(tmp_path):
     ops = B.BoardOps(B.BoardStore(tmp_path))
-    for rec in curriculum_records(CUR, ["attack_8", "challenge_horn"]):
+    for rec in curriculum_records(CUR, ["attack_11", "challenge_horn"]):
         B.apply_inbox_record(ops, rec)
     t = ops.b.tasks
     assert [x.by for x in t] == ["curriculum:velgar"] * 2 and t[0].success["predicate"] == {
-        "skill": {"name": "Attack", "at_least": 8}}
+        "skill": {"name": "Attack", "at_least": 11}}
     with pytest.raises(B.BoardError):
         B.apply_inbox_record(ops, {"op": "add", "text": "x", "success": {"nope": {}}})
 
@@ -171,4 +172,4 @@ def test_the_vel_gar_milestones_run_on_the_mock_planned_from_research(tmp_path, 
     status = {m["id"]: tasks[m["text"]].status for m in DOC["milestones"] if m["id"] in RUN}
     assert all(s == "done" for s in status.values()), (status, [(t.text, t.end_reason) for t in tasks.values()])
     st = rig.game.get_state()["data"]
-    assert st["max_health"] >= 150 and {s["skill"]: s["level"] for s in st["skills"]}["Attack"] >= 8
+    assert st["max_health"] >= 150 and {s["skill"]: s["level"] for s in st["skills"]}["Attack"] >= 11
