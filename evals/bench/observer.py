@@ -57,8 +57,10 @@ class Record:
 
 class ObservedGame(GameInterface):
     def __init__(self, inner: GameInterface, probe: Callable[[], dict], referee: Callable[[], list[dict]] | None = None,
-                 clock: Callable[[], float] | None = None, guard: Callable[[str, dict], None] | None = None):
+                 clock: Callable[[], float] | None = None, guard: Callable[[str, dict], None] | None = None,
+                 after_tool: Callable[[str, dict, dict, dict], dict | None] | None = None):
         self.inner = inner
+        self.after_tool = after_tool  # harness motion inside a case (DevTarget.harness_after); its notes join `after`
         self._probe, self._referee = probe, referee or (lambda: [])
         self.clock = clock or time.time
         self.guard = guard
@@ -85,7 +87,10 @@ class ObservedGame(GameInterface):
         t0, w0 = self.clock(), time.time()  # stamped BEFORE the probe: latency must not include the probe (broker review)
         before = self._probe()
         reply = run()
+        extra = self.after_tool(tool, args, reply if isinstance(reply, dict) else {}, before) if self.after_tool else None
         after, t1, w1 = self._probe(), self.clock(), time.time()
+        if extra:
+            after = {**after, "harness": extra}
         self._drain_referee()
         self._seq += 1
         self.rec.observations.append(Observation(self._seq, tool, dict(args), t0, t1, w0, w1, before, after,

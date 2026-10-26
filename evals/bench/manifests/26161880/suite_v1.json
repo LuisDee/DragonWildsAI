@@ -87,7 +87,7 @@
    },
    {
     "id": "t0_cast_hometeleport",
-    "hash": "ef8f907d3e6eb351"
+    "hash": "f8d199581a1e5691"
    },
    {
     "id": "t0_cast_humidify",
@@ -115,7 +115,7 @@
    },
    {
     "id": "t0_cast_recall",
-    "hash": "e0de7981aff99f16"
+    "hash": "ca5d14e11fb9ac5f"
    },
    {
     "id": "t0_cast_rocksplosion",
@@ -427,15 +427,15 @@
    },
    {
     "id": "stress_hometeleport_combat",
-    "hash": "9dc9a42957b16095"
+    "hash": "b1726a5ea477a718"
    },
    {
     "id": "stress_hometeleport_cooldown_pressure",
-    "hash": "99b4c22a2bc4f2ba"
+    "hash": "e7b8dfc6f5182f26"
    },
    {
     "id": "stress_hometeleport_low_runes",
-    "hash": "f0d3f51a10e67472"
+    "hash": "bda78f68c8a8ff9f"
    },
    {
     "id": "stress_humidify_combat",

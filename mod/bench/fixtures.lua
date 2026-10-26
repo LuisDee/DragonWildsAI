@@ -283,6 +283,24 @@ function M.run(log, args)
         local cm, err = cheat_manager(target, args.mode)
         return { ok = cm ~= nil, error = err, cheat_manager = cm and U.fullname(cm) or nil, mode = args.mode }
     end
+    if args.action == "beds" then  -- read-only: every bed (UBedComponent) with its owner actor and claimant
+        local why, target = guard(args)
+        if why then return { ok = false, error = why, detail = target } end
+        local out, here = {}, U.loc(target)
+        for _, b in ipairs(U.find_all("BedComponent", { skip_defaults = true })) do
+            local o = U.try(function() return b:GetOwner() end)
+            local q = U.valid(o) and U.loc(o) or nil
+            if q then
+                out[#out + 1] = { id = U.short(o), class = U.class_word(o), position = { q.X / 100, q.Y / 100, q.Z / 100 },
+                                  dist_m = here and U.dist(q, here) / 100 or nil,
+                                  claimed = U.try(function() return b:IsClaimedByAnyPlayer() end) == true,
+                                  mine = U.try(function() return b:IsClaimedByPlayer(target) end) == true,
+                                  claimant = U.str(U.try(function() return b:GetClaimingCharacterName() end)) }
+            end
+        end
+        table.sort(out, function(x, y) return (x.dist_m or 1e9) < (y.dist_m or 1e9) end)
+        return { ok = true, beds = out }
+    end
     if args.action == "probe" then
         local why, target = guard(args)
         if why then return { ok = false, error = why, detail = target } end

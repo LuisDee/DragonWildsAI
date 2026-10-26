@@ -69,6 +69,8 @@ def _requirements(sp: dict) -> list[dict]:
     """Harness fixture verbs that meet a spell's setup_checks (dev: mod/bench/fixtures.lua does the same)."""
     out = []
     for chk in sp.get("setup_checks") or []:
+        if chk.get("claimed_bed"):  # Home Teleport: a bed he claims through the game's own interact, then 40 m away
+            out.append({"verb": "claim_bed", "away_m": 40, "purpose": "the spell's requirement: a claimed bed"})
         for key in ("held_category", "carried_category"):
             if key in chk:
                 item = catalog_item(chk[key])
@@ -108,6 +110,9 @@ def t0_cases(spells: dict | None = None, catalog: dict | None = None) -> tuple[l
             setup.append({"verb": "scene", "as": "tgt", "needs": "standing_trees",
                           "purpose": "standing trees in front, >= 40 m from a lodestone"})
         oracle = [{"tool": "cast", "args": args}]
+        if sp.get("cast_type") == "instant_after_move":  # Recall: the harness walks him away right after the cast
+            setup.append({"verb": "after_cast_move", "spell": name, "offset_m": [8, 0, 0], "wait_s": 6,
+                          "purpose": "harness motion between the cast and its expiry (walking)"})
         mock_oracle = oracle
         if any(st.get("verb") == "scene" for st in setup):  # mock aims at its tree; on dev the body picks the line
             mock_oracle = [{"tool": "cast", "args": {**args, "target": "$tgt.id"}}]

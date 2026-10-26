@@ -1797,6 +1797,11 @@
       "runes": {
        "Law": 30
       }
+     },
+     {
+      "verb": "claim_bed",
+      "away_m": 40,
+      "purpose": "the spell's requirement: a claimed bed"
      }
     ],
     "scene": {},

@@ -166,8 +166,13 @@ def _effect(e: dict, o, target: Any, ctx: dict | None = None) -> bool | None:
         seen = [x for x in (ctx or {}).get("referee") or [] if x.get("kind") == "dash" and x.get("phase")
                 and x.get("who") == "self" and float(x.get("t", 0)) >= o.wall0 - 1]
         return True if seen else None
-    if k == "recall_return":  # needs harness motion between cast start and expiry: not built
-        return None
+    if k == "recall_return":  # the harness walked him away after the cast; Recall must bring him back to the start
+        h = (a.get("harness") or {}).get("after_cast_move")
+        if not isinstance(h, dict) or not h.get("start") or not h.get("mid") or not a.get("position"):
+            return None
+        walked = math.dist(h["start"], h["mid"]) >= 3.0
+        back = math.dist(h["start"], a["position"]) <= float(e.get("within_m", 3.0))
+        return True if (walked and back) else (None if hyp and not walked else False)
     if k == "view_target":  # the camera switched to the spell's view actor (probe: pc:GetViewTarget())
         if a.get("view_target") == e.get("class") and b.get("view_target") != e.get("class"):
             return True

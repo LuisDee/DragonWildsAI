@@ -191,6 +191,14 @@ class DevTarget:
     def _client_setup(self, verb: str, purpose: str, a: dict) -> dict:
         """hold = the body's verified `equip` tool on an item he already carries (granted just before);
         scene = teleport to a known dev place for what the case needs (evals/bench/dev_places.json)."""
+        if verb == "claim_bed":
+            return self._claim_bed(purpose, a)
+        if verb == "after_cast_move":  # Recall: armed now, run by harness_after() right after his cast of that spell
+            self.pending_after_cast = {"spell": a.get("spell"), "offset_m": a.get("offset_m") or [8, 0, 0],
+                                       "wait_s": float(a.get("wait_s", 6.0))}
+            res = {"ok": True, "armed": self.pending_after_cast}
+            self._log_setup(verb, a, purpose, res)
+            return res
         if verb == "hold":
             if self.body_call is None:
                 res = {"ok": False, "error": "no body channel for hold"}
@@ -208,6 +216,66 @@ class DevTarget:
             raise Abort(f"fixture {verb} failed: {res.get('error')}")
         return res
 
+    def beds(self) -> list[dict]:
+        r = self.server_debug({"part": "fixtures", "action": "beds", "character_guid": self.character_guid})
+        return ((r.get("data") or {}).get("result") or {}).get("beds") or []
+
+    def _claim_bed(self, purpose: str, a: dict) -> dict:
+        """Home Teleport needs a bed he has claimed. The claim is the game's own path: stand at a bed (teleport
+        fixture) and use the body's `interact` on it (primary, then the secondary option); the dev server's
+        UBedComponent:IsClaimedByPlayer is the proof. Then he is put `away_m` from it so the spell has to move him."""
+        def fail(why: str) -> dict:
+            res = {"ok": False, "error": why}
+            self._log_setup("claim_bed", a, purpose, res)
+            raise Abort(f"fixture claim_bed failed: {why}")
+        beds = self.beds()
+        bed = next((b for b in beds if b.get("mine")), None) or next((b for b in beds if not b.get("claimed")), None)
+        if bed is None:
+            return fail("no bed he can claim on the dev world (build or place one first)")
+        if not bed.get("mine"):
+            if self.body_call is None:
+                return fail("no body channel for interact")
+            x, y, z = bed["position"]
+            self.setup("teleport", purpose=f"{purpose} [stand at the bed]", at=[x + 1.5, y, z + 0.5])
+            look = self.body_call("look", {"about": "bed", "radius": 6}) or {}
+            things = ((look.get("data") or {}).get("things") or [])
+            tid = next((t.get("id") for t in things if "bed" in str(t.get("name") or t.get("class") or "").lower()), None)
+            if not tid:
+                return fail("the body sees no bed next to it")
+            for secondary in (False, True):
+                self.body_call("interact", {"target": tid, "secondary": secondary})
+                time.sleep(1.0)
+                if any(b.get("mine") for b in self.beds()):
+                    break
+            else:
+                return fail("interact did not claim the bed (no claim option?)")
+        away = float(a.get("away_m", 40))
+        x, y, z = bed["position"]
+        self.setup("teleport", purpose=f"{purpose} [{away:g} m from his bed]", at=[x + away, y, z + 1.0])
+        res = {"ok": True, "bed": bed.get("id"), "away_m": away}
+        self._log_setup("claim_bed", a, purpose, res)
+        return res
+
+    def harness_after(self, tool: str, args: dict, reply: dict, before: dict) -> dict | None:
+        """Harness motion inside a case (Recall): right after his cast of the armed spell, WALK him (the body's own
+        go_to, never a position write) offset_m away, then wait out the spell; the observation records where he
+        started and where the walk took him."""
+        p = getattr(self, "pending_after_cast", None)
+        if not p or tool != "cast" or self.body_call is None:
+            return None
+        if str((args or {}).get("spell") or "").lower() not in {str(p.get("spell") or "").lower(), str(p.get("name") or "").lower()}:
+            return None
+        self.pending_after_cast = None
+        start = (before or {}).get("position")
+        if not start:
+            return {"after_cast_move": "no start position"}
+        off = p["offset_m"]
+        goal = [start[0] + off[0], start[1] + off[1], start[2] + (off[2] if len(off) > 2 else 0)]
+        self.body_call("go_to", {"target": goal})
+        mid = (self.probe() or {}).get("position")
+        time.sleep(p["wait_s"])
+        return {"after_cast_move": {"start": start, "goal": goal, "mid": mid}}
+
     def _log_setup(self, verb: str, a: dict, purpose: str, res: dict) -> None:
         row = {"t": time.time(), "verb": verb, "args": a, "purpose": purpose, "ok": bool(res.get("ok")), "error": res.get("error")}
         self.setup_log.append(row)
@@ -221,7 +289,7 @@ class DevTarget:
     # ---------------------------------------------------------------- fixtures (harness only; dev only)
     def setup(self, verb: str, purpose: str = "case setup", **a) -> dict:
         self.guard("setup", a)
-        if verb in ("hold", "scene"):
+        if verb in ("hold", "scene", "claim_bed", "after_cast_move"):
             return self._client_setup(verb, purpose, a)
         args: dict[str, Any] = {"part": "fixtures", "verb": verb, "character_guid": self.character_guid}
         if verb == "grant":

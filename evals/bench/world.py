@@ -74,6 +74,8 @@ class BenchWorld(MockGame):
                 self.inventory[rune_item(r)] += int(n)
         elif verb == "unlock":
             self.unlocked.add(a["spell"])
+        elif verb in ("claim_bed", "after_cast_move"):  # dev-only routes; the mock has no beds or harness motion
+            return {"ok": True, "mock": verb}
         elif verb == "scene":  # dev: teleport to a known place for the need; mock: a standing tree in front
             if a.get("needs") == "standing_trees":
                 return {"ok": True, "id": self.add_entity("tree", [6, 0, 0], hp=50)}

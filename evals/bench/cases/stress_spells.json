@@ -7538,6 +7538,11 @@
       "spell": "USD_HomeTeleport"
      },
      {
+      "verb": "claim_bed",
+      "away_m": 40,
+      "purpose": "the spell's requirement: a claimed bed"
+     },
+     {
       "verb": "grant_runes",
       "runes": {
        "Law": 30
@@ -7639,6 +7644,11 @@
      {
       "verb": "unlock",
       "spell": "USD_HomeTeleport"
+     },
+     {
+      "verb": "claim_bed",
+      "away_m": 40,
+      "purpose": "the spell's requirement: a claimed bed"
      },
      {
       "verb": "grant_runes",
@@ -7749,6 +7759,11 @@
      {
       "verb": "unlock",
       "spell": "USD_HomeTeleport"
+     },
+     {
+      "verb": "claim_bed",
+      "away_m": 40,
+      "purpose": "the spell's requirement: a claimed bed"
      },
      {
       "verb": "grant_runes",

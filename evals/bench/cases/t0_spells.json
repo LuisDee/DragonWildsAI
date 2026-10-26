@@ -2352,6 +2352,11 @@
       }
      },
      {
+      "verb": "claim_bed",
+      "away_m": 40,
+      "purpose": "the spell's requirement: a claimed bed"
+     },
+     {
       "verb": "unlock",
       "spell": "USD_AccessPersonalChest"
      },
@@ -3166,6 +3171,17 @@
        "Law": 30,
        "Air": 60
       }
+     },
+     {
+      "verb": "after_cast_move",
+      "spell": "Recall",
+      "offset_m": [
+       8,
+       0,
+       0
+      ],
+      "wait_s": 6,
+      "purpose": "harness motion between the cast and its expiry (walking)"
      }
     ],
     "scene": {},

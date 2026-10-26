@@ -120,3 +120,44 @@ def test_hold_uses_the_body_equip_and_scene_teleports_to_a_known_place(tmp_path,
     monkeypatch.setattr(dt, "dev_places", lambda: {})
     with pytest.raises(Abort, match="no dev place"):
         t.setup("scene", needs="standing_trees")
+
+
+def test_claim_bed_uses_the_body_interact_and_proves_the_claim_on_the_server(tmp_path, monkeypatch):
+    monkeypatch.setattr(dt.time, "sleep", lambda s: None)
+    state = {"mine": False}
+
+    def server(args):
+        if args.get("action") == "beds":
+            return {"ok": True, "data": {"result": {"ok": True, "beds": [
+                {"id": "BP_Bed_C_1", "position": [10.0, 20.0, 0.0], "claimed": state["mine"], "mine": state["mine"]}]}}}
+        return {"ok": True, "data": {"result": {"ok": True}}}
+    t, _ = make(tmp_path)
+    t.server_debug = server
+    calls = []
+
+    def body(tool, args):
+        calls.append((tool, args))
+        if tool == "look":
+            return {"ok": True, "data": {"things": [{"id": "bed_client_1", "name": "Wooden Bed"}]}}
+        if tool == "interact" and args.get("secondary"):
+            state["mine"] = True  # the claim is the bed's secondary option
+        return {"ok": True}
+    t.body_call = body
+    res = t.setup("claim_bed", away_m=40)
+    assert res["ok"] and [c[0] for c in calls] == ["look", "interact", "interact"]
+    state["mine"] = False
+    t.body_call = lambda tool, args: {"ok": True, "data": {"things": [{"id": "b", "name": "Bed"}]}}  # never claims
+    with pytest.raises(Abort, match="did not claim"):
+        t.setup("claim_bed")
+
+
+def test_after_cast_move_walks_him_away_right_after_the_armed_cast(tmp_path, monkeypatch):
+    monkeypatch.setattr(dt.time, "sleep", lambda s: None)
+    t, _ = make(tmp_path)
+    walked = []
+    t.body_call = lambda tool, args: walked.append((tool, args)) or {"ok": True}
+    t.probe = lambda: {"position": [8.0, 0.0, 0.0]}
+    t.setup("after_cast_move", spell="Recall", offset_m=[8, 0, 0], wait_s=0)
+    assert t.harness_after("cast", {"spell": "Windstep"}, {}, {"position": [0, 0, 0]}) is None  # another spell
+    h = t.harness_after("cast", {"spell": "Recall"}, {}, {"position": [0.0, 0.0, 0.0]})
+    assert walked == [("go_to", {"target": [8.0, 0.0, 0.0]})] and h["after_cast_move"]["mid"] == [8.0, 0.0, 0.0]

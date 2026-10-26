@@ -311,3 +311,16 @@ def test_dump_hypotheses_count_when_they_fire_and_read_null_when_they_do_not():
     seen = {"referee": [{"kind": "spell_actor", "class": "BP_DivineRock_Clay_C", "t": 101.0}]}
     preview = {"referee": [{"kind": "spell_actor", "class": "BP_DivineRockPreview_C", "t": 101.0}]}
     assert _effect(rock, O(), None, seen) is True and _effect(rock, O(), None, preview) is None
+
+
+def test_recall_return_needs_the_walk_away_and_the_return():
+    from evals.bench.leaves import _effect
+    e = {"kind": "recall_return", "within_m": 3.0, "confidence": "hypothesis"}
+
+    class O:
+        def __init__(self, after):
+            self.before, self.after, self.wall0, self.wall1, self.t0, self.t1 = {}, after, 0.0, 1.0, 0.0, 1.0
+    walk = {"start": [0, 0, 0], "mid": [8, 0, 0]}
+    assert _effect(e, O({"position": [0.5, 0, 0], "harness": {"after_cast_move": walk}}), None) is True
+    assert _effect(e, O({"position": [8, 0, 0], "harness": {"after_cast_move": walk}}), None) is False  # stayed away
+    assert _effect(e, O({"position": [0, 0, 0]}), None) is None  # no harness motion: can't tell

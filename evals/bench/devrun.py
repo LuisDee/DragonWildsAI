@@ -148,7 +148,8 @@ def run_case_dev(case: Case, dev: DevTarget, workdir: Path, calls_cap_: dict[str
                 bindings[name] = out
         brain_side, _ = file_transport_pair(body="client", channel="debug")
         client = BridgeClient(brain_side, logger=JsonlLogger(workdir / "bridge.jsonl"))
-        game = ObservedGame(client, dev.probe, dev.referee_events, clock=time.time, guard=dev.guard)
+        game = ObservedGame(client, dev.probe, dev.referee_events, clock=time.time, guard=dev.guard,
+                            after_tool=getattr(dev, "harness_after", None))
         dev.referee_start()
         agent, ctl, pln, blog = build_dev_companion(game, workdir, calls_cap_)
         game.start()
