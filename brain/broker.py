@@ -82,7 +82,25 @@ UNREACHABLE_LINES = {
     "leader_double_jumped": "You double-jumped up there and I can't do that yet. Can you come back down?",
     "leader_above_jump_height": "You're higher up than I can jump. Can you come back down?",
 }
+# The same, for a move to a point or an actor (move.lua: "target_*" reasons; "leader_*" are players only).
+PLACE_LINES = {
+    "target_above_jump_height": "That spot's higher up than I can jump, so I can't get there.",
+    "too_high": "That spot's too high up for me to get to.",
+    "gap_too_wide": "There's a gap too wide for me to jump on the way there.",
+    "no_route": "I can't find a way there from here.",
+    "stuck": "I got stuck on the way there.",
+    "too_far": "That's too far away for me to get to.",
+}
 NEED_WORDS = {"hydration": ("thirsty", "something to drink"), "sustenance": ("hungry", "something to eat")}
+
+
+def human_detail(detail) -> str | None:
+    """The body's detail when it is words a player can read ("blocked by walls"), not measurements
+    ("dz=3.3m d=22.9m lp_fail=verify_exhausted"). Generic: no phrase list."""
+    if not isinstance(detail, str):
+        return None
+    d = detail.strip().rstrip(".")
+    return d if " " in d and "=" not in d and "_" not in d else None
 
 
 def _num(v) -> float | None:
@@ -151,14 +169,20 @@ def fallback_line(events: list[dict]) -> str | None:
     for e in events:
         if e.get("type") == "unreachable":
             r = str(e.get("reason") or "")
+            why = human_detail(e.get("detail"))
             if e.get("about") == "place":
-                lines.append(f"I can't get there: {(e.get('detail') or r).replace('_', ' ')}.")
-                continue
-            line = UNREACHABLE_LINES.get(r)
-            if not line and r.startswith("needs:"):
-                move = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", r.split(":", 1)[1]).strip() or "a move"
-                line = f"I'd need {move} to get there, and I can't do that yet."
-            lines.append(line or f"I can't reach you: {e.get('detail') or r.replace('_', ' ')}.")
+                line = PLACE_LINES.get(r) or "I can't get there."
+            else:
+                line = UNREACHABLE_LINES.get(r)
+                if not line and r.startswith("needs:"):
+                    move = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", r.split(":", 1)[1]).strip() or "a move"
+                    line = f"I'd need {move} to get there, and I can't do that yet."
+                if not line:
+                    line, why = f"I can't reach you: {why or r.replace('_', ' ')}.", None
+            if why:  # the body's own words, e.g. "blocked by walls" (no_route), after the line's first sentence
+                head, _, tail = line.partition(". ")
+                line = f"{head.rstrip('.')} ({why}).{(' ' + tail) if tail else ''}"
+            lines.append(line)
         elif e.get("type") == "resumed":
             lines.append("Found you.")
         elif e.get("type") == "stuck":  # must be told: the template when the model is silent or fails
@@ -330,6 +354,11 @@ class EventBroker:
     def _about(self, ev: Unreachable, state: dict) -> tuple[str, str | None]:
         """("player", name) | ("place", None) | ("unknown", None): what the failing move was going to."""
         ep = self.episode
+        kind = (ev.target_kind or "").lower()
+        if kind == "player" and ev.target:  # move.lua says what the move was going to (v10+)
+            return "player", ev.target
+        if kind in ("point", "actor", "place"):
+            return "place", None
         name = player_near(state, _pos(ev.leader_pos))
         if name:
             return "player", name
