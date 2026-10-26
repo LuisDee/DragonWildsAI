@@ -2062,3 +2062,15 @@ Quick fixtures, logged as quick and not M3 cases: Coarse Net and Ash Rod were gr
   - carried tool: Rocksplosion (pickaxe), Axtral Projection (axe);
   - timed charges: Surge (3 dodges, 2 min), Windstep (7 s), Phase Dash (3 air dashes);
   - Internal Alchemy only refreshes ACTIVE food/drink buffs.
+
+## Recall, live 2026-10-26 17:35–17:39 UTC (ClaudeDev) + sources
+- **Live behaviour:**
+  - Selecting Recall opens `DIM_SpellPlacementModeAdvancedMovement`, a placement mode he can move in (move.lua isn't input-gated).
+  - The place press spends 30 Air + 15 Law, starts the 75 s cooldown and plays a ~1 s DominionSpellActor. Pressed at once, he stays put (0 m).
+  - A place press on an invalid spot does nothing; the mode stays open 12 s until cancelled. spells.lua now puts this mode through the validated spot search.
+  - During the cooldown the game refuses it.
+  - A cast after the cooldown, 11 m from the previous one, cast again with no teleport.
+- **Sources:**
+  - Wiki revision https://dragonwilds.runescape.wiki/?diff=58751: "Leaves a runic marker on the ground; recasting teleports you back to it. Taking a fatal fall while tethered teleports you back safely and consumes the tether."
+  - The marker's lifetime is not stated anywhere found (wiki, metaforge 403).
+- **Next live test** (prepared in the scratchpad, applied after the freeze): `cast {spell: "Recall", walk_to}` opens it, walks while it is held, then finishes it, judged by position. It tests whether the mark is where the cast is opened and finishing it brings him back.
