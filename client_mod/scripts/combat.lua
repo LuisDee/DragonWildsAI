@@ -3061,16 +3061,22 @@ local function start_fight(log, actor, opts)
     -- a commanded fight is the model's call (North Star review): the fight-or-flight estimate is
     -- returned as INFORMATION, never as a refusal; only "never attack players" is a hard gate
     local estimate = M.assess_vs({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = 12 }, tgt) or {}
-    if c.fight then finish(c.fight, result_of(c.fight, false, "interrupted", { detail = "a new fight started" })) end
+    -- the pawn FIRST, then the old fight ends (live 18:19: a refused command-level attack had already ended the
+    -- guard's running reflex fight, so nothing fought back and a runt beat him down to 1 % HP)
     local arb = mod("arbiter")
     local token
     if arb then
         local r = arb.request(log, { name = "combat:" .. (opts.mode or "attack"), level = opts.level or (opts.mode == "reflex" and "reflex" or "command"),
                                      resumable = false, uses_move = true, lease_s = 5,
                                      on_stop = function(_, _, why) local f = C().fight; if f and f.token == token then finish(f, result_of(f, false, "interrupted", { detail = why })) end end })
-        if not r.ok then return { ok = false, reason = "interrupted", data = { detail = "pawn busy", owner = r.owner } } end
+        if not r.ok then
+            local cur = c.fight
+            return { ok = false, reason = "interrupted", data = { detail = "pawn busy", why = "pawn_busy", owner = r.owner,
+                     current_fight = cur and { target = cur.target_name, mode = cur.mode, phase = cur.phase } or nil } }
+        end
         token = r.token
     end
+    if c.fight and c.fight.token ~= token then finish(c.fight, result_of(c.fight, false, "interrupted", { detail = "a new fight started" })) end
     c.gen = c.gen + 1
     c.counts.fights = c.counts.fights + 1
     local t = now(pawn)

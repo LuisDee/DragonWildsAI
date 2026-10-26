@@ -1001,6 +1001,34 @@ do
     A.reset(nil)
 end
 
+-- ================================================================ 10d1. a refused attack leaves the running fight alone (live 18:19: died at 1 %)
+reset_world()
+do
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local runt = new_creature("BP_AI_RuntGoblin_Character_C_busy", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 60, pl = 1, arch = 0 })
+    local keb = new_creature("BP_AI_Kebbit_Character_02_C_busy", "Kebbit", { X = 0, Y = 400, Z = 0 }, { hp = 30, pl = 1, arch = 4 })
+    check("busy: the reflex fight starts", Cm._start_fight(nil, runt, { mode = "reflex", level = "reflex", why = "attacked_me" }).ok)
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    local r = Cm._start_fight(nil, keb, { mode = "attack", force = true, by = "brain" }) -- command level: refused
+    check("busy: a command-level attack during a reflex fight is refused (pawn_busy)", not r.ok and r.data.why == "pawn_busy"
+          and r.data.current_fight and r.data.current_fight.target == "Goblin Runt", r.data and r.data.why)
+    local f = Cm._state().fight
+    check("busy: the reflex fight is NOT ended", f and f.target_name == "Goblin Runt" and not f.done, f and f.target_name)
+    run_until(function() return Cm._state().fight == nil end, 30)
+    local res = Cm._state().last.result
+    check("busy: and it goes on to win", res and res.ok and runt.hp <= 0, res and res.reason)
+    -- same level: the new fight replaces the old one (ended as interrupted)
+    local r1 = new_creature("BP_AI_RuntGoblin_Character_C_busy2", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 600, pl = 1, arch = 0 })
+    local k2 = new_creature("BP_AI_Kebbit_Character_02_C_busy2", "Kebbit", { X = 0, Y = 200, Z = 0 }, { hp = 30, pl = 1, arch = 4 })
+    Cm._start_fight(nil, r1, { mode = "reflex", level = "reflex", why = "attacked_me" })
+    run_until(function() local ff = Cm._state().fight; return ff and ff.phase == "engage" end, 3)
+    local old = Cm._state().fight
+    local r2 = Cm._start_fight(nil, k2, { mode = "attack", level = "reflex", force = true, by = "test" })
+    check("busy: a same-level fight replaces the old one", r2.ok and old.done and Cm._state().fight.target_name == "Kebbit", r2.reason)
+    Cm.stop(nil, "test")
+    A.reset(nil)
+end
+
 -- ================================================================ 10d2. BUGS L39: idle "Breathe" animations are not a breath attack
 do
     local kb = Cm.ability_profile("DAA_Kebbit_Breathe_01_C")
