@@ -23,3 +23,8 @@ client_io/
 data/wiki/
 edited.json
 edited_newguid.json
+
+# runtime-learned state (written live; keeps the clean-tree gate meaningful)
+data/skills/*/nav_memory.json
+data/skills/*/combat_memory_*.json
+data/skills/dev_*/
