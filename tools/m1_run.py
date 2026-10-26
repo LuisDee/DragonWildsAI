@@ -50,7 +50,8 @@ def slot_status() -> dict:
 
 
 def wait_for_slot(minutes: float, poll_s: float = 20) -> None:
-    sh("tools.client_slot", "enqueue", OWNER, "--why", f"M1 observed session ~{minutes:.0f} min (voice agent)")
+    if (slot_status().get("holder") or {}).get("owner") != OWNER:  # already held (e.g. for a bridge_start first)
+        sh("tools.client_slot", "enqueue", OWNER, "--why", f"M1 observed session ~{minutes:.0f} min (voice agent)")
     while True:
         h = (slot_status().get("holder") or {})
         if h.get("owner") == OWNER:
