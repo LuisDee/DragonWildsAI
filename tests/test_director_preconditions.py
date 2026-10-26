@@ -1,7 +1,7 @@
 """GOAL M4 long tasks (mining_run_home_chest, farm_and_process_crop) from a FRESH dev character: every precondition
 must be reachable from data by the Director's own research (lookup = game data + wiki, craft_plan / recipes /
 buildables from the body). These checks run the REAL knowledge index over data/ (no model calls). A strict xfail
-is a known data/retrieval gap (docs/PROGRESS.md 2026-10-26 "preconditions"): it starts passing when fixed.
+would mark a known data/retrieval gap; both found on 2026-10-26 are closed (unlock facts at index time).
 """
 import pytest
 
@@ -31,16 +31,9 @@ def test_a_fresh_characters_preconditions_are_in_the_lookup_top_results(query, m
     assert all(m in text for m in must), text[:600]
 
 
-@pytest.mark.xfail(strict=True, reason="unlock sentences live in wiki prose sections that rank below the cards")
 @pytest.mark.parametrize("query,must", [
-    ("kiln unlock", "receive clay"),
+    ("kiln unlock", "receive clay"),                        # wiki prose, lifted into an Unlock doc at index time
     ("grindstone unlock", "receive granite"),
-])
-def test_known_gap_how_a_station_unlocks(query, must):
-    assert must in top(query, 5)
-
-
-@pytest.mark.parametrize("query,must", [
     ("spinning wheel unlock", "flax for the first time"),   # unlocked by harvesting flax once
     ("how to unlock farming", "Growing Pains"),             # Farming opens with the Growing Pains quest
 ])
@@ -48,9 +41,17 @@ def test_unlocks_that_are_found_in_the_top_five(query, must):
     assert must in top(query, 5)
 
 
-@pytest.mark.xfail(strict=True, reason="no data names the storage piece he builds for a home chest, or its unlock")
-def test_known_gap_the_home_chest_piece():
-    assert "Build Menu" in top("storage chest build")
+@pytest.mark.parametrize("query,must", [
+    # the home chest: the wiki's Storage page leads to the player-built chests; the Small Chest ("Ash Chest",
+    # build dump BUILDPIECE_Chest_Small) costs 16 Ash Logs + 2 Coarse Thread and unlocks with the first ash logs
+    # plus the Construction perk Creature Comforts (lifted from prose into an Unlock doc at index time)
+    ("storage chest build", "Storage"),
+    ("chest to store items", "Player-built chests"),
+    ("ash chest", "Coarse Thread"),
+    ("how to unlock the ash chest", "Creature Comforts"),
+])
+def test_the_home_chest_piece_its_cost_and_unlock_are_found(query, must):
+    assert must in top(query, 5)
 
 
 def test_the_director_can_read_buildables_while_it_researches():
@@ -59,3 +60,12 @@ def test_the_director_can_read_buildables_while_it_researches():
                    {"buildables"})
     assert "buildables" in [t["function"]["name"] for t in r.tools()]
     assert r.run("buildables", {"about": "chest"})["data"]["tool"] == "buildables"
+
+
+def test_unlock_facts_are_lifted_from_any_section_of_the_page():
+    from brain.knowledge import unlock_facts
+    rec = {"sections": [{"heading": None, "part": 0, "text": "name: Kiln\nThe kiln burns logs. Players must receive "
+                                                            "clay in their inventory to unlock the recipe for it."},
+                        {"heading": "Uses", "text": "It needs fuel. Unlocks nothing else? It is unlocked early."}]}
+    assert unlock_facts(rec) == ["Players must receive clay in their inventory to unlock the recipe for it.",
+                                 "Unlocks nothing else?", "It is unlocked early."]

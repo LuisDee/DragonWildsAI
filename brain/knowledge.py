@@ -28,7 +28,7 @@ from typing import Any, Iterable
 
 from .paths import REPO_ROOT, _env_path
 
-SCHEMA = 6  # bump when the doc format changes (forces a rebuild)
+SCHEMA = 8  # bump when the doc format changes (forces a rebuild)
 GAME_K, WIKI_K = 3, 2  # results per tier
 POOL = 200  # BM25 candidates per tier for the title re-rank
 SNIPPET = {0: 900, 1: 520}  # characters per snippet, by tier (game cards are cut by whole fields: _clip_card)
@@ -330,14 +330,37 @@ def wiki_docs(root: Path) -> list[dict]:
         except (OSError, ValueError):
             continue
         tags = " ".join([rec.get("infobox") or "", *rec.get("categories", [])])
+        unlocks = unlock_facts(rec)
         for sec in rec.get("sections") or []:
             lead = sec.get("heading") is None and not sec.get("part")
+            body = sec["text"]
             url = rec["url"] + ("#" + sec["anchor"].replace(" ", "_") if sec.get("anchor") else "")
             docs.append({"tier": 1, "kind": (rec.get("infobox") or "page").lower(), "title": rec["title"],
                          "aliases": " | ".join(aliases.get(title, [])) if lead else "",
                          "tags": f"{tags} {sec.get('heading') or ''}", "heading": sec.get("heading") or "",
-                         "body": sec["text"], "url": url, "ref": str(rec.get("pageid"))})
+                         "body": body, "url": url, "ref": str(rec.get("pageid"))})
+        if unlocks:  # how it unlocks, lifted out of the page's prose into a doc of its own (index time)
+            docs.append({"tier": 1, "kind": (rec.get("infobox") or "page").lower(), "title": rec["title"],
+                         "aliases": "", "tags": f"{tags} Unlock", "heading": "Unlock",
+                         "body": f"Unlock: {' '.join(unlocks)}", "url": rec["url"], "ref": str(rec.get("pageid"))})
     return docs
+
+
+_SENTENCE = re.compile(r"[^.!?\n]*\bunlock\w*\b[^.!?\n]*[.!?]", re.I)
+
+
+def unlock_facts(rec: dict, limit: int = 3) -> list[str]:
+    """Sentences of a wiki page that say how the thing unlocks ("The spinning wheel is unlocked when players
+    harvest from flax plants ..."), from any of its sections, deduplicated. Data from the page itself."""
+    out: list[str] = []
+    for sec in rec.get("sections") or []:
+        for m in _SENTENCE.finditer(sec.get("text") or ""):
+            line = " ".join(m.group(0).split())
+            if 12 <= len(line) <= 300 and line not in out:
+                out.append(line)
+            if len(out) >= limit:
+                return out
+    return out
 
 
 # ------------------------------------------------------------------------------ the index

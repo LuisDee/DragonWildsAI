@@ -300,3 +300,9 @@
     - the kiln and grindstone unlock sentences don't reach the top 5;
     - no data names the home-chest storage piece or its unlock (dev: no chest unlocked).
   - buildables is now readable during Director research (PROXIED_READS).
+- Unlock recall closed at the root:
+  - At index build, brain/knowledge.py `unlock_facts` lifts each wiki page's "...unlock..." sentences, from any section, into an `Unlock` doc of its own (SCHEMA 8).
+  - Now found: the kiln ("receive clay"), the grindstone ("receive granite"), the spinning wheel, and the home chest.
+  - Home chest: the wiki Storage page leads to the player-built chests. The Small Chest ("Ash Chest", build dump BUILDPIECE_Chest_Small) costs 16 Ash Logs + 2 Coarse Thread. It unlocks with the first ash logs plus the Construction perk Creature Comforts.
+  - Alternatives: Crate (10 Ash Logs); Oak Chest (unlocks with the first oak logs).
+  - Both xfails now pass. Sticks stay open until live.
