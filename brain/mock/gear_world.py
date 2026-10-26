@@ -346,8 +346,14 @@ class GearWorld(MockGame):
         if iid is None or self._carried(iid) < 1:
             return fail(Reason.NOT_IN_INVENTORY, item=item)
         st = item_stats.stats(iid, self.cat) or {}
-        slot = item_stats._slot_key(st.get("slot")) or "held"
-        slot = "held_right" if slot == "held" else slot
+        raw = str(st.get("slot") or "")
+        slot = item_stats._slot_key(raw) or "held"
+        if slot == "held":  # a shield (left_hand) goes in the left hand; one- and two-handed items in the right
+            slot = "held_left" if raw == "left_hand" else "held_right"
+            if raw == "two_handed":
+                old_left = self.gear.pop("held_left", None)
+                if old_left:
+                    self.inventory[old_left] += 1
         old = self.gear.get(slot)
         if old:
             self.inventory[old] += 1

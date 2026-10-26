@@ -221,10 +221,22 @@ class BoardStore:
         self.quarantined: Path | None = None
         self.save_failed = False
         self.board = self._load()
+        self._status: dict[str, str] = {t.id: t.status for t in self.board.tasks}  # last logged status per task
 
     def _log(self, kind: str, **data: Any) -> None:
         if self.log is not None:
             self.log.log(kind, **data)
+
+    def _log_transitions(self) -> None:
+        """board_task_status {task, from, to, why} for every task whose status changed since the last save (the
+        observability agent's gap/idle metrics: waiting_budget, preempted, paused, parked, ... and the ends)."""
+        for t in self.board.tasks:
+            before = self._status.get(t.id)
+            if before != t.status:
+                self._status[t.id] = t.status
+                self._log("board_task_status", task=t.id, **{"from": before, "to": t.status},
+                          why=t.end_reason if t.status in ("parked", "waiting_help", "done", "stuck", "cancelled")
+                          else (t.paused_by if t.status == "paused" else None))
 
     def _load(self) -> Board:
         if not self.path.exists():
@@ -246,6 +258,7 @@ class BoardStore:
 
     def save(self) -> bool:
         self.board.version += 1
+        self._log_transitions()
         try:
             _atomic_write(self.path, self.board.model_dump_json(indent=1))
             self.save_failed = False
@@ -410,6 +423,7 @@ class BoardOps:
         step = t.active_step()
         if step is not None:
             step.status, step.ended = "dropped", self.clock()
+            self._step_end(t, step, reason)
         if self.b.current == t.id:
             self.b.current = None
 
@@ -624,8 +638,14 @@ class BoardOps:
 
     # ---------------------------------------------------------------- loops
 
+    def _step_end(self, t: Task, step: Step, reason: str | None) -> None:
+        self.store._log("board_step_end", task=t.id, step_id=step.id, step=step.title, status=step.status,
+                        reason=reason, runs=step.runs, seconds=round((step.ended or self.clock()) - (step.started or
+                                                                                                 self.clock()), 1))
+
     def finish_step(self, t: Task, step: Step, status: str, reason: str | None = None) -> None:
         step.status, step.ended = status, self.clock()
+        self._step_end(t, step, reason)
         if reason:
             step.failures.append({"reason": reason, "at": self.clock(), "attempt": step.attempts})
         t.history.append({"title": step.title, "outcome": status, "reason": reason,

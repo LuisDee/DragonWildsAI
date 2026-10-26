@@ -71,6 +71,14 @@ class Reason:
     BODY_RESTARTED = "body_restarted"  # the client bridge restarted while the command was in flight (L2)
     LOST_BY_BODY = "lost_by_body"  # the body is no longer working on the command and never answered (L2)
     RESTING = "resting"  # he lies in a bed (data.resting_in = its id): get up with interact on it first
+    # building and containers (client build.lua / store / take; docs/design/build-primitive.md, review finding 16)
+    NO_PERMISSION = "no_permission"  # the server's privileges (Build / OpenChests) don't allow it
+    HOST_ONLY = "host_only"  # a piece only the world's host/owner may build
+    LIMIT_REACHED = "limit_reached"  # the game's piece count limit
+    BLOCKED = "blocked"  # every spot tried was refused by the game's placement check (data.why, data.tried)
+    NOT_A_CONTAINER = "not_a_container"
+    NOT_IN_CONTAINER = "not_in_container"
+    CONTAINER_FULL = "container_full"
 
     # A player command or an attack pre-empted the action: not the skill's fault.
     INTERRUPTS: frozenset[str] = frozenset({INTERRUPTED, ATTACKED})
@@ -82,6 +90,7 @@ class Reason:
         NOT_PERCEIVED, AMBIGUOUS_TARGET, NOT_INTERACTABLE, BUSY,
         # L2: never retried blindly (a lost or timed-out command goes back to the model, which decides)
         TIMEOUT, BODY_RESTARTED, LOST_BY_BODY, RESTING,
+        NO_PERMISSION, HOST_ONLY, LIMIT_REACHED, BLOCKED, NOT_A_CONTAINER, NOT_IN_CONTAINER, CONTAINER_FULL,
     })
     # The companion simply cannot do this yet (skill missing on the body or in the registry).
     CANT_YET: frozenset[str] = frozenset({NOT_IMPLEMENTED, UNKNOWN_TOOL, UNKNOWN_SKILL})

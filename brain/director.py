@@ -1156,9 +1156,11 @@ class Director:
         event = self._event(task, step, state0, r0)
         self._preempted_by = None
         self._report, self._picked = None, []
+        self._log("board_run_start", task=task.id, step_id=step.id, step=step.title, run=step.runs + 1)
         self._in_run = True
         try:
-            res = self.port.run(event)
+            with self._episode("board"):
+                res = self.port.run(event)
         finally:
             self._in_run = False
         state1 = self.port.state()
@@ -1184,7 +1186,8 @@ class Director:
                                                    P.evaluate(step.abort_if, state1, ctx).detail}})
             return
         r = P.evaluate(step.success, state1, ctx)
-        self._log("board_run", task=task.id, step=step.title, ended=res.get("ended"), passed=r.passed,
+        self._log("board_run", task=task.id, step_id=step.id, step=step.title, run=step.runs + 1,
+                  ended=res.get("ended"), passed=r.passed,
                   detail=r.detail, gains=gains, actions=[(x.get("tool"), x.get("ok")) for x in board_recs])
         if r.passed is True:
             self._step_done(task, step, r, state1)
@@ -1314,7 +1317,8 @@ class Director:
         if not self._busy_run_blocked():
             self._in_run = True
             try:
-                res = self.port.run(ev)
+                with self._episode("board"):
+                    res = self.port.run(ev)
                 said = bool(res.get("said"))
             except Exception as exc:
                 self._log("notice_error", error=repr(exc))
@@ -1377,6 +1381,12 @@ class Director:
     def _log(self, kind: str, **data: Any) -> None:
         if self.log is not None:
             self.log.log(kind, **data)
+
+    def _episode(self, prefix: str):
+        """log.episode(new id) when the logger supports episodes (rows inside carry episode_id "<prefix>-...")."""
+        episode = getattr(self.log, "episode", None)
+        new_id = getattr(self.log, "new_episode_id", None)
+        return episode(new_id(prefix)) if callable(episode) and callable(new_id) else _nullcontext()
 
 
 class _nullcontext:

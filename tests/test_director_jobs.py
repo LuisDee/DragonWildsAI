@@ -353,3 +353,89 @@ def test_rock_gates_make_the_mock_as_strict_as_the_game():
     assert g.gather("copper", 1)["ok"]
     g.add_resource(COAL, [4, 0, 0], 10)
     assert g.gather("coal", 1)["reason"] == "wrong_tool"
+
+
+# ------------------------------------------------------------------ prerequisites he gets himself (Luis: a shield before parrying)
+
+
+WOOD_SHIELD = "ITEM_Shield_Wood"
+
+
+def shield_job(table: bool):
+    """Parent: practise parrying (needs a shield). The Director adds a prerequisite 'make a wooden shield', plans
+    it from craft_plan (10 Ash Logs at a Crafting Table), and comes back to the parent."""
+    parent_plan = plan(description="parrying needs a shield in the left hand; I have none",
+                       facts=[{"fact": "a shield is needed to parry", "status": "known", "source": "game_data"}],
+                       task_success={"equipped": {"item": "Wooden Shield"}},
+                       add_tasks=[{"text": "make a wooden shield", "because": "parrying needs a shield"}],
+                       steps=[st("hold up the shield", {"equipped": {"item": "Wooden Shield"}},
+                                 [call("equip", item="Wooden Shield")])])
+    shield_plan = [LLMResponse(tool_calls=[ToolCall("craft_plan", {"item": "Wooden Shield"}, "s1")]),
+                   plan(description="Wooden Shield = 10 Ash Logs at a Crafting Table",
+                        task_success={"have": {"item": "Wooden Shield", "at_least": 1}},
+                        steps=[st("chop ash", {"gained": {"item": "Ash Logs", "at_least": 10}},
+                                  [call("gather", resource="ash", count=10)]),
+                               st("make the shield", {"have": {"item": "Wooden Shield", "at_least": 1}},
+                                  [call("craft", item="Wooden Shield", count=1)])])]
+    no_table = plan(description="the craft needs a Crafting Table and none is within reach",
+                    capability_gaps=[{"primitive": "build a Crafting Table", "kind": "action",
+                                      "why": "the Wooden Shield is made at a Crafting Table and none is near"}],
+                    ask_help="I've got the ash logs, but there's no Crafting Table here and I can't build one yet. "
+                             "Could you place one, or show me one?")
+    return [parent_plan] + shield_plan + ([] if table else [no_table])
+
+
+def shield_world(rig, table: bool):
+    g = rig.game
+    g.carry(BRONZE_SWORD)
+    g.equip(BRONZE_SWORD)
+    g.carry("ITEM_Logging_Axe_Stone")
+    g.add_resource(ASH, [8, 0, 0], 40, tool="axe", min_tier=1, skill="Woodcutting")
+    if table:
+        g.add_station("CraftingTable", [4, 3, 0])
+
+
+def test_prerequisite_shield_is_planned_gathered_crafted_then_the_parent_finishes(tmp_path):
+    rig = JobRig(tmp_path, shield_job(table=True))
+    shield_world(rig, table=True)
+    rig.say("let's practise parrying")
+    rig.steps(12)
+    parent = next(t for t in rig.director.ops.b.tasks if t.by.startswith("player:"))
+    kid = next(t for t in rig.director.ops.b.tasks if t.by == "self")
+    assert kid.parent == parent.id and kid.status == "done" and [s.status for s in kid.steps] == ["done", "done"]
+    assert parent.status == "done", (parent.status, parent.end_reason)
+    assert rig.game.gear == {"held_right": BRONZE_SWORD, "held_left": WOOD_SHIELD}  # sword AND shield
+    assert rig.decisions() == ["plan", "plan"]  # the parent's plan, then the prerequisite's (craft_plan research)
+    tools_seen = [m.get("name") for c in rig.director_llm.calls for m in c["messages"] if m.get("role") == "tool"]
+    assert "craft_plan" in tools_seen
+
+
+def test_prerequisite_shield_on_a_fresh_world_without_a_station_is_an_honest_build_gap(tmp_path):
+    rig = JobRig(tmp_path, shield_job(table=False))
+    shield_world(rig, table=False)
+    rig.say("let's practise parrying")
+    rig.steps(12)
+    kid = next(t for t in rig.director.ops.b.tasks if t.by == "self")
+    assert kid.status == "waiting_help" and "Crafting Table" in kid.help.question
+    assert kid.steps[0].status == "done" and rig.game.inventory[ASH] >= 10  # the logs were real work
+    craft = rig.log_rows("tool_result")
+    assert any(r["tool"] == "craft" and r["result"]["reason"] == "nothing_in_range" for r in craft)
+    assert rig.director.gaps.gaps["build a Crafting Table"]["count"] == 1
+    assert "build a Crafting Table" in [g["primitive"] for g in rig.director.gaps.backlog()]
+
+
+
+def test_board_rows_for_the_observability_metrics(tmp_path):
+    """board_run_start / board_run (step_id, run) / board_step_end / board_task_status, and board runs carry a
+    "board-..." episode id (the observability agent's gap and idle metrics)."""
+    rig = JobRig(tmp_path, PICKAXE_PLAN)
+    pickaxe_world(rig)
+    rig.say("can you make yourself a better pickaxe")
+    rig.steps(10)
+    starts, runs, ends = rig.log_rows("board_run_start"), rig.log_rows("board_run"), rig.log_rows("board_step_end")
+    assert len(starts) == len(runs) == 5 and [r["step_id"] for r in starts] == [r["step_id"] for r in runs]
+    assert [e["status"] for e in ends] == ["done"] * 5 and all("seconds" in e for e in ends)
+    moves = [(r["from"], r["to"]) for r in rig.log_rows("board_task_status")]
+    assert moves[0] == (None, "active") and moves[-1] == ("active", "done")
+    tool_rows = [r for r in rig.log_rows("tool_call") if r.get("tool") == "gather"]
+    assert tool_rows and all(str(r.get("episode_id", "")).startswith("board-") for r in tool_rows)

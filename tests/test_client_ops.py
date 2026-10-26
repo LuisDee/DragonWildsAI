@@ -63,10 +63,20 @@ class FakeRunner(threading.Thread):
         return {"ok": True, "result": dict(s) if name == "wd_boot_probe" else {"ok": True}}
 
     def run(self):
+        # Same protocol as client_mod/scripts/main.lua (L28): names come from client_io/cmd/queue.txt,
+        # read from a saved offset; a queued name whose .lua was withdrawn is skipped.
         cmd, out = self.io / "cmd", self.io / "out"
+        queue, offset, partial = cmd / "queue.txt", 0, ""
         while not self.stop_flag:
-            for f in list(cmd.glob("*.lua")) if self.answer else []:
-                name = f.stem
+            names = []
+            if self.answer and queue.exists():
+                data = queue.read_bytes()[offset:]
+                offset += len(data)
+                buf = partial + data.decode("ascii", "replace")
+                *lines, partial = buf.split("\n")
+                names = [ln.strip() for ln in lines if ln.strip()]
+            for name in names:
+                f = cmd / f"{name}.lua"
                 try:
                     self.texts[name] = f.read_text(encoding="utf-8-sig")
                     f.unlink()

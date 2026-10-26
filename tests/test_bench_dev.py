@@ -10,6 +10,18 @@ from evals.bench import devtarget as dt
 from evals.bench.observer import Abort
 
 
+@pytest.fixture(autouse=True)
+def _setup_log(tmp_path, monkeypatch):
+    monkeypatch.setattr(dt, "SETUP_LOG", tmp_path / "fixture_setup.jsonl")
+
+
+def test_setup_is_logged_with_purpose(tmp_path):
+    t, _ = make(tmp_path)
+    t.setup("grant", item="ITEM_Resources_Stone", count=1, purpose="spell evidence: Divine Rock")
+    row = json.loads((tmp_path / "fixture_setup.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+    assert row["verb"] == "grant" and row["purpose"] == "spell evidence: Divine Rock" and row["ok"]
+
+
 def make(tmp_path, joined="127.0.0.1:7777", forbidden=("1.2.3.4:7777",), brain=False, replies=None):
     calls = []
 
