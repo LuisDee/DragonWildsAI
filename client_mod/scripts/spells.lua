@@ -33,6 +33,11 @@ M.cfg = {
     open_tries = 2,
     page_wait_s = 0.1,      -- after switching the wheel page: then poll until the slice icons change (live ~0.4 s)
     page_max_s = 1.5,       -- ... and wait up to this long for the slice icons to change
+    page_settle_s = 0.2,    -- ... and judge a page only once its slice icons held still this long (T0 2026-10-26:
+                            -- with ~38 spells the slices refresh over several frames; a half-drawn page was judged,
+                            -- "not here", and turned past: page_not_found after a full lap). DOUBLED each further lap
+                            -- (0.2 / 0.4 / 0.8 s): the draw time isn't known, so a missed lap retries slower.
+    page_laps = 3,          -- turn at most this many full laps of the wheel before page_not_found
     select_wait_s = 1.0,    -- after the quick key: wait for a spell mode or the cast to start
     verify_s = 4.0,         -- after the cast input: runes / cooldown must change within this ...
     cast_max_s = 12,
@@ -886,7 +891,8 @@ local function new_cast(api, args)
     end
     local icon_of = {}
     for a, o in pairs(snap.objects or {}) do local so = W.static(o); icon_of[a] = so and so.icon end
-    local job = { api = api, row = row, st = st, d = d, acts = acts, slot = slot, target = tg, placed = placed, pages = snap.radials or 4,
+    local job = { api = api, row = row, st = st, d = d, acts = acts, slot = slot, target = tg, placed = placed,
+                  pages = M.page_count(snap.radials, #(snap.wheel or {}), per),
                   per = per, icon_of = icon_of,
                   before = snap, phase = "own", t0 = api.now(), presses = {} }
     return job
@@ -926,11 +932,19 @@ local function cleanup(job)
     release(job, job.d.why or "done")
 end
 
+-- How many pages the wheel has: the game's NumSpellRadials, never fewer than the wheel data fills
+-- (SelectedSpells / NumSpellSlotsPerRadial, rounded UP). Pure. -> >= 1
+function M.page_count(radials, wheel_len, per)
+    per = (tonumber(per) or 0) > 0 and per or 12
+    local by_data = math.ceil((tonumber(wheel_len) or 0) / per)
+    return math.max(1, math.floor(tonumber(radials) or 0), by_data)
+end
+
 -- Which wheel page the open radial shows: the page whose spells' icons match the shown slice icons
 -- best (at least half of its filled slots). Pure. -> 0-based page | nil
 function M.page_of(icons, wheel, per, icon_of)
     if not (icons and wheel and per and icon_of) then return nil end
-    local best, best_n, pages = nil, 0, math.floor(#wheel / per)
+    local best, best_n, pages = nil, 0, math.ceil(#wheel / per)
     for pg = 0, pages - 1 do
         local hit, filled = 0, 0
         for i = 1, per do
@@ -1263,34 +1277,48 @@ local function step(job)
     if job.phase == "open" then
         if mode == cfg.radial_mode then
             mark(job, "opened", t)
+            if not job.page_deadline then job.page_deadline = t + cfg.page_max_s end -- the first page settles too
             if job.page_wait and t < job.page_wait then return nil end
             -- press the key only when the open page shows THIS spell in that slot (never cast another)
             local icons = W.shown_icons(api)
             if not icons then return failed(job, "verification_failed", "wheel_unreadable", "I can't read my spell wheel right now.") end
             local sig = table.concat((function() local o = {}; for i = 1, #icons do o[i] = tostring(icons[i]) end; return o end)(), "|")
             -- after a page turn, wait (up to page_max_s) until the slices actually show the new page
-            if job.page_sig and sig == job.page_sig and t < (job.page_deadline or 0) then return nil end
-            job.page_sig = sig
-            -- The slice icon is the first check. On the page the wheel data puts the spell (recognised by its OTHER
-            -- slices), a slice whose icon differs from the spell's SpellIcon is checked by NAME instead: the radial's
-            -- own HighlightSlice + SpellName (T0 2026-10-26: Enchant Weapon: Fire was never matched by icon on any
-            -- page after its unlock, page_not_found after 4 turns). Never picks a slice that names another spell.
-            local by_name = false
-            if icons[job.slot + 1] ~= job.st.icon then
-                local cur = M.page_of(icons, job.before.wheel, job.per, job.icon_of)
-                local want = job.row.wheel_slot // job.per
-                if cur == want and not job.name_checked then
-                    job.name_checked = true
-                    local hl = W.highlight(api, job.slot)
-                    job.d.icon_mismatch = { slot = job.slot, shown = icons[job.slot + 1] or "empty", want = job.st.icon,
-                                            highlight = hl and hl.name or nil }
-                    if hl and hl.section == job.slot and norm_name(hl.name) == norm_name(job.row.name) then
-                        by_name = true
-                        job.d.picked_by = "name"
-                    end
-                end
+            -- ... and judge it only once the slices have held still for page_settle_s (a page draws over frames)
+            if job.page_deadline and t < job.page_deadline then
+                if job.page_sig and sig == job.page_sig then return nil end
+                if sig ~= job.settle_sig then job.settle_sig, job.settle_t = sig, t; return nil end
+                local lap = math.floor((job.flips or 0) / math.max(job.pages, 1))
+                if t - job.settle_t < cfg.page_settle_s * 2 ^ lap then return nil end
             end
-            if icons[job.slot + 1] == job.st.icon or by_name then
+            job.page_sig, job.settle_sig = sig, nil
+            -- Two witnesses per page: the slice ICON (what is drawn) and the radial's own DATA (HighlightSlice +
+            -- SpellName for this slot: the wheel's real page, BlueprintCallable, what hovering runs). T0 2026-10-26
+            -- (~38 spells): pages draw over frames, so the icon alone judged half-drawn pages ("not here", turned
+            -- past: page_not_found after a lap) and could even show the OLD page's icon in this slot.
+            --   data names this spell             -> here (by name if the icon differs: Enchant Weapon: Fire)
+            --   icon matches, data names another  -> not settled: look again until page_deadline, then
+            --                                        highlight_mismatch (never press a slice that names another spell)
+            --   icon matches, data unreadable     -> here (icon only, as before)
+            --   neither                           -> turn the page
+            local icon_here = icons[job.slot + 1] == job.st.icon
+            local hl = W.highlight(api, job.slot)
+            local hl_ok = hl and hl.section == job.slot and type(hl.name) == "string"
+            local named = hl_ok and norm_name(hl.name) == norm_name(job.row.name)
+            local by_name = named and not icon_here
+            if by_name then
+                job.d.icon_mismatch = { slot = job.slot, shown = icons[job.slot + 1] or "empty", want = job.st.icon, highlight = hl.name }
+                job.d.picked_by = "name"
+            elseif icon_here and hl_ok and not named then
+                job.d.highlight_disagreed = (job.d.highlight_disagreed or 0) + 1
+                if t < (job.page_deadline or 0) then job.page_sig = nil; return nil end
+                return failed(job, "verification_failed", "highlight_mismatch", "I couldn't point at " .. job.row.name .. " on my spell wheel"
+                    .. ((hl.name ~= "") and (" (it showed " .. hl.name .. ")") or "") .. ", so I didn't pick anything.")
+            elseif not icon_here and hl_ok and hl.name ~= "" then
+                job.d.icon_mismatch = job.d.icon_mismatch or { slot = job.slot, shown = icons[job.slot + 1] or "empty", want = job.st.icon, highlight = hl.name }
+            end
+            local here = named or (icon_here and not hl_ok)
+            if here then
                 mark(job, "page_ok", t)
                 mark(job, "selected", t)
                 if job.slot < cfg.quick_keys and job.acts.quick[job.slot + 1] then
@@ -1312,7 +1340,7 @@ local function step(job)
                 return nil
             end
             job.flips = (job.flips or 0) + 1
-            if job.flips > job.pages or not job.acts.next_page then
+            if job.flips > job.pages * (cfg.page_laps or 1) or not job.acts.next_page then
                 local mm = job.d.icon_mismatch
                 return failed(job, "verification_failed", "page_not_found", "I couldn't find " .. job.row.name .. " on my spell wheel's pages"
                     .. ((mm and mm.highlight and mm.highlight ~= "") and (" (its slot shows " .. mm.highlight .. ")") or "") .. ".")

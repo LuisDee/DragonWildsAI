@@ -63,7 +63,8 @@ local function reset(o)
           presses = {}, sched = {}, pos = { 0, 0, 0 }, players = o.players or {}, falling = false, server_time = 1000,
           wheel_broken = o.wheel_broken, quick_no_select = o.quick_no_select, no_effect = o.no_effect, land_offset = o.land_offset,
           server_cooldown = o.server_cooldown, highlight_wrong = o.highlight_wrong, delayed = o.delayed, preview_off = o.preview_off, invalid_spots = o.invalid_spots, not_flat = o.not_flat, slow_cast = o.slow_cast, req = o.req, foliage = o.foliage,
-          aim_valid_after = o.aim_valid_after, cooldown_then_spend = o.cooldown_then_spend, no_preview = o.no_preview, no_spots = o.no_spots, all = o.all or { WINDSTEP, SHELTER }, page = o.page or 0, shown_page = o.page or 0, no_icons = o.no_icons, slow_pages = o.slow_pages }
+          aim_valid_after = o.aim_valid_after, cooldown_then_spend = o.cooldown_then_spend, no_preview = o.no_preview, no_spots = o.no_spots, all = o.all or { WINDSTEP, SHELTER }, page = o.page or 0, shown_page = o.page or 0, no_icons = o.no_icons, slow_pages = o.slow_pages,
+          radials = o.radials or 4, progressive = o.progressive }
 end
 local function at(dt, fn) G.sched[#G.sched + 1] = { t = T + dt, fn = fn } end
 local function tick()
@@ -98,9 +99,9 @@ W.all_spells = function() return G.all end
 W.hooks_start = function() end
 W.snapshot = function()
     local s = { wheel = {}, unlocked = {}, objects = {}, items = {}, last_cast = {}, ge = {}, tags = {}, actors = {}, skills = G.skills,
-                per_radial = 12, radials = 4, place_max_m = 15, server_time = G.server_time, input_mode = G.mode, falling = G.falling,
+                per_radial = 12, radials = G.radials, place_max_m = 15, server_time = G.server_time, input_mode = G.mode, falling = G.falling,
                 position = G.pos, casting = G.casting, view_target = G.view or "BP_PlayerCharacter_C", held_effects = G.held or {} }
-    for i = 1, 48 do s.wheel[i] = G.wheel[i] or false end
+    for i = 1, G.radials * 12 do s.wheel[i] = G.wheel[i] or false end
     for _, sp in ipairs(G.unlocked) do s.unlocked[sp.asset] = true; s.objects[sp.asset] = sp end
     for k, v in pairs(G.items) do s.items[k] = v end
     for k, v in pairs(G.last_cast) do s.last_cast[k] = v end
@@ -116,7 +117,10 @@ W.shown_icons = function()
     if G.no_icons then return nil end
     local out = {}
     for i = 1, 12 do
-        local s = spell_by(G.wheel[G.shown_page * 12 + i])
+        -- G.progressive: after a page turn, slices 7-12 still show the OLD page for that long (a page draws over
+        -- frames; T0 2026-10-26 with ~38 spells)
+        local pg = (G.partial_until and T < G.partial_until and i > 6) and G.old_page or G.shown_page
+        local s = spell_by(G.wheel[pg * 12 + i])
         out[i] = s and ((G.icon_override and G.icon_override[s.asset]) or s.icon) or false
     end
     return out
@@ -124,7 +128,7 @@ end
 W.selected = function() return G.selected end
 W.highlight = function(_, slot)
     G.highlighted = slot
-    local sp = spell_by(G.wheel[G.shown_page * 12 + slot + 1])
+    local sp = spell_by(G.wheel[G.page * 12 + slot + 1]) -- the radial's DATA: its real page (the drawing may lag)
     return { section = slot, name = G.highlight_wrong or (sp and sp.name) or "" }
 end
 W.aim = function(_, pos) G.aimed = pos; G.aims = (G.aims or 0) + 1; return math.sqrt(pos[1] ^ 2 + pos[2] ^ 2 + 9) end
@@ -156,8 +160,9 @@ W.inject = function(_, a)
         elseif G.mode == "DIM_Gameplay" and not G.wheel_broken then at(0.15, function() G.mode = "DIM_RadialMenu" end) end
     elseif a.n == "next_page" or a.n == "prev_page" then
         if G.mode == "DIM_RadialMenu" then
-            G.page = (G.page + (a.n == "prev_page" and -1 or 1)) % 4
+            G.page = (G.page + (a.n == "prev_page" and -1 or 1)) % G.radials
             local p = G.page
+            if G.progressive then G.old_page, G.partial_until = G.shown_page, T + G.progressive end
             if G.slow_pages then at(G.slow_pages, function() G.shown_page = p end) else G.shown_page = p end
         end
     elseif a.n:match("^quick") or a.n == "accept" then
@@ -394,6 +399,43 @@ do
     local res = run_cast({ spell = "Windstep" })
     check("slow slice refresh (0.8 s, live was ~0.4 s): waits for each page, no overshoot", res.ok and presses() == "menu,next_page,next_page,quick3", presses())
 end
+-- T0 2026-10-26 (~38 spells unlocked): page_not_found after a full lap. Pages draw over frames: a half-drawn page
+-- must never be judged; and the wheel may have more pages than 4 (NumSpellRadials).
+do
+    local w6 = {}
+    for i = 1, 72 do w6[i] = false end
+    w6[1] = "USD_SummonShelter"; w6[13] = "USD_SummonShelter"; w6[61] = "USD_Windstep" -- Windstep on page 6 (slot 60, key 1)
+    reset({ wheel = w6, radials = 6, all = { WINDSTEP, SHELTER }, unlocked = { WINDSTEP, SHELTER } })
+    check("page_count: 6 radials", SP.page_count(6, 72, 12) == 6 and SP.page_count(4, 50, 12) == 5 and SP.page_count(nil, 38, 12) == 4)
+    local res = run_cast({ spell = "Windstep" })
+    check("6-page wheel: page 6 found one page back from page 1", res.ok and presses() == "menu,prev_page,quick0", presses())
+    reset({ wheel = w6, radials = 6, page = 2, all = { WINDSTEP, SHELTER }, unlocked = { WINDSTEP, SHELTER } })
+    res = run_cast({ spell = "Windstep" })
+    check("6-page wheel from page 3: forward 3 (shorter than back 3? equal -> next)", res.ok and res.data and select(2, presses():gsub("_page", "")) == 3, presses())
+end
+do
+    -- a spell in the LOWER half of page 2 (slot 19, key 8), the wheel drawing page 2's lower half 0.5 s late
+    local w = {}
+    for i = 1, 48 do w[i] = false end
+    w[1] = "USD_SummonShelter"; w[20] = "USD_Windstep"
+    reset({ wheel = w, progressive = 0.15, all = { WINDSTEP, SHELTER }, unlocked = { WINDSTEP, SHELTER } })
+    local res = run_cast({ spell = "Windstep" })
+    check("half-drawn page (0.15 s): waits for it to settle, ONE turn (T0 page_not_found)", res.ok and presses():find("menu,next_page,quick7", 1, true) == 1, presses())
+    -- a slower draw than the first lap's settle: the next lap settles longer and still finds it (never another spell)
+    reset({ wheel = w, progressive = 0.5, all = { WINDSTEP, SHELTER }, unlocked = { WINDSTEP, SHELTER } })
+    res = run_cast({ spell = "Windstep" })
+    check("slow draw (0.5 s): the old page's icon in the slot is never pressed; one turn, then its own key",
+          res.ok and presses():find("menu,next_page,quick7", 1, true) == 1, presses())
+    check("slow draw: the selected spell is Windstep", G.selected == "USD_Windstep", G.selected)
+    -- the reverse: the stale lower half shows Windstep's icon on the WRONG page -> the name check refuses it
+    local w2 = {}
+    for i = 1, 48 do w2[i] = false end
+    w2[1] = "USD_SummonShelter"; w2[8] = "USD_Windstep"; w2[20] = "USD_SummonShelter"
+    reset({ wheel = w2, page = 3, progressive = 0.5, all = { WINDSTEP, SHELTER }, unlocked = { WINDSTEP, SHELTER } })
+    res = run_cast({ spell = "Windstep" })
+    check("stale icon on the wrong page: never cast there", res.ok and G.selected == "USD_Windstep", tostring(G.selected) .. " " .. presses())
+end
+
 reset({ page = 2 })
 do
     local res = run_cast({ spell = "Windstep" })
