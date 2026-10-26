@@ -147,13 +147,6 @@ local function sweep(m)
     if not m or m.kind == "paused" then s.orphan_since, s.orphan_tries = {}, {}; return end
     if s.owners[m.kind] then s.orphan_since[m.kind], s.orphan_tries[m.kind] = nil, nil; return end
     if m.kind == "mode" then return end -- an input mode has no generic exit here: block and report, never guess
-    if m.kind == "conversation" then
-        -- talk.lua owns the cleanup (the panel's own Cancel, bounded, and it decides what is ownerless)
-        local inst = rawget(_G, "__dwc_bridge")
-        local talk = inst and inst.module and inst.module.API and inst.module.API.module("talk")
-        if talk and type(talk.sweep_orphan) == "function" then pcall(talk.sweep_orphan) end
-        return
-    end
     local t = M.clock()
     s.orphan_since[m.kind] = s.orphan_since[m.kind] or t
     if t - s.orphan_since[m.kind] < M.cfg.orphan_s then return end
@@ -161,7 +154,17 @@ local function sweep(m)
     s.orphan_since[m.kind] = t
     s.orphan_tries[m.kind] = (s.orphan_tries[m.kind] or 0) + 1
     s.cleanups = s.cleanups + 1
-    if m.kind == "build" then M.leave_build_step() else M.close_container() end
+    if m.kind == "build" then M.leave_build_step()
+    elseif m.kind == "conversation" then
+        -- talk.lua owns this cleanup (the panel's own Cancel, bounded) -- ONLY when talk is loaded AND explicitly
+        -- enabled (_G.DW_ENABLE_TALK; its v2 re-review failed: its sweep recursed through this gate). Same
+        -- cadence and bound as the others; the gate's re-entrancy guard means its presses never sweep again.
+        if rawget(_G, "DW_ENABLE_TALK") ~= true then return end
+        local inst = rawget(_G, "__dwc_bridge")
+        local api = inst and inst.module and inst.module.API
+        local talk = api and api.module("talk")
+        if talk and type(talk.sweep_orphan) == "function" then pcall(talk.sweep_orphan) end
+    else M.close_container() end
 end
 M._sweep = sweep
 
@@ -170,7 +173,13 @@ M._sweep = sweep
 -- opts.modal = the kind the caller owns ("build" / "container"): that one does not block it.
 function M.gate(opts)
     local m = M.modal()
-    sweep(m)
+    local s = st()
+    if not s.sweeping then -- re-entrancy guard: a sweep's own presses go through gate() again
+        s.sweeping = true
+        local ok, err = pcall(sweep, m)
+        s.sweeping = false
+        if not ok then s.sweep_error = tostring(err) end
+    end
     if not m then return nil end
     if opts and opts.modal and opts.modal == m.kind then return nil end
     st().refused = st().refused + 1
