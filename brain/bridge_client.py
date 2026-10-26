@@ -331,8 +331,8 @@ class BridgeClient(GameInterface):
         return self._tool("wake")
 
     # spells (body/spells.lua) and reflex rules (body/rules.lua)
-    def cast(self, spell: str, target: str | Coords | None = None) -> ActionResult:
-        return self.request("cast", _drop_none({"spell": spell, "target": target}))
+    def cast(self, spell: str, target: str | Coords | None = None, walk_to: str | Coords | None = None) -> ActionResult:
+        return self.request("cast", _drop_none({"spell": spell, "target": target, "walk_to": walk_to}))
 
     def spells(self) -> ActionResult:
         return self.request("spells", {"compact": True})

@@ -236,6 +236,11 @@ class CastArgs(BaseModel):
     target: str | Coords | None = Field(
         None, description="Omit or 'self' for self spells; an entity id for a targeted spell; or [x, y, z]."
     )
+    # held-open spells (cast_type instant_after_move, e.g. Recall: open here, walk, finish = back here; live 2026-10-26
+    # 19:39 UTC). Without this field validate_args dropped it, so the brain could never cast Recall usefully.
+    walk_to: str | Coords | None = Field(
+        None, description="Only for cast_type instant_after_move: where to walk (id or [x, y, z]) while it is held open."
+    )
 
 
 # Reflex rules (body/rules.lua): standing orders the body runs at game speed, no model in the loop.
@@ -569,7 +574,7 @@ class GameInterface(ABC):
         """Return (and clear) events the body emitted since the last poll."""
 
     # Spells and reflex rules: optional, so older bodies (and test fakes) need not implement them.
-    def cast(self, spell: str, target: str | Coords | None = None) -> ActionResult:
+    def cast(self, spell: str, target: str | Coords | None = None, walk_to: str | Coords | None = None) -> ActionResult:
         return fail(Reason.NOT_IMPLEMENTED, tool="cast")
 
     def sleep(self, target: str | None = None, mode: str = "auto") -> ActionResult:

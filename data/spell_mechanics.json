@@ -1,9 +1,9 @@
 {
- "about": "Spell mechanics that change HOW a spell is used (steps, what to cast it on, what must be prepared). Non-judge DATA read by client_mod/scripts/spells.lua (state.spells `how`; two_step drives the two-cast handling). Ids from data/spells_26161880.json.",
+ "about": "Spell mechanics that change HOW a spell is used (steps, what to cast it on, what must be prepared). Non-judge DATA read by client_mod/scripts/spells.lua (state.spells / spells `how`, shown to the model per castable spell). Ids from data/spells_26161880.json.",
  "build": "26161880",
  "spells": {
   "USD_Recall": {
-   "how": "Starting Recall marks where I stand and opens a placement I can keep moving in; finishing it teleports me back to that mark. To come back to a spot, cast it with walk_to: I open it here, walk there while it is held, finish it, and I'm back here. Cast without walk_to it brings me back to where I already stand (moves me 0 m). A finished Recall leaves no marker for a later cast. The game refuses it during its 75 s cooldown.",
+   "how": "Starting Recall marks where I stand and opens a placement I can keep moving in; finishing it teleports me back to that mark. To come back to a spot, cast it with walk_to: I open it here, walk there while it is held, finish it, and I'm back here. Opened and finished on the spot it moves me 0 m, so cast needs walk_to. A finished Recall leaves no marker for a later cast. The game refuses it during its 75 s cooldown.",
    "sources": [
     "wiki https://dragonwilds.runescape.wiki/w/Recall (snapshot data/wiki/pages, 2026-10-26)",
     "wiki revision https://dragonwilds.runescape.wiki/?diff=58751: \"Leaves a runic marker on the ground; recasting teleports you back to it. Taking a fatal fall while tethered teleports you back safely and consumes the tether.\""

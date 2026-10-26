@@ -172,18 +172,8 @@ W.inject = function(_, a)
         local s = spell_by(G.wheel[G.page * 12 + slot + 1])
         G.selected = s and s.asset
         if not s then G.mode = "DIM_Gameplay"; return true end
-        if s.hold_fake then -- Recall (live 17:35): opens a placement mode he can move in; place = finish it
+        if s.hold_fake then -- Recall (live 19:39): opens a placement mode he can move in; place = finish it, back to the opening point
             G.mode, G.placing, G.hold_start = "DIM_SpellPlacementModeAdvancedMovement", s, { G.pos[1], G.pos[2], G.pos[3] }
-        elseif s.two_step_fake then -- Recall (live 17:35): 1st = the beacon (runes + cooldown + a spell actor); 2nd = back to it
-            G.mode = "DIM_Gameplay"
-            if not G.beacon then
-                local bk = { G.pos[1], G.pos[2], G.pos[3] }
-                G.beacon = bk
-                at(0.4, function() effect(s, bk) end)
-            else
-                local bk = G.beacon
-                at(0.4, function() if not G.recall_broken then G.pos = { bk[1], bk[2], bk[3] } end; G.beacon = nil; G.server_time = G.server_time + 100; effect(s) end)
-            end
         elseif s.cast_type == 0 and G.stay_in_mode then
             G.mode = "DIM_SpellcastingMode" -- e.g. a camera mode the spell keeps open
             at(0.4, function() effect(s); if G.on_cast then G.on_cast() end end)
@@ -201,7 +191,8 @@ W.inject = function(_, a)
         if G.mode == "DIM_SpellPlacementModeAdvancedMovement" and G.placing and G.placing.hold_fake then
             local s, hs = G.placing, G.hold_start
             G.mode = "DIM_SpellcastingMode"
-            at(0.4, function() if not G.hold_no_return then G.pos = { hs[1], hs[2], hs[3] } end; effect(s); G.mode = "DIM_Gameplay" end)
+            local pp = { G.pos[1], G.pos[2], G.pos[3] } -- the place press point (its ~1 s spell actor sits here)
+            at(0.4, function() if not G.hold_no_return then G.pos = { hs[1], hs[2], hs[3] } end; effect(s, pp); G.mode = "DIM_Gameplay" end)
             return true
         end
         if G.mode == "DIM_SpellPlacementMode" then
@@ -636,40 +627,11 @@ do
     check("foliage target gone -> unknown_target says felled or picked", res.reason == "unknown_target"
         and (res.data.detail or ""):find("felled or picked", 1, true), res.data.detail)
 end
--- Recall (Luis + wiki 2026-10-26): cast 1 places a beacon (the game holds it prepared, nothing spent); cast 2 returns
+-- Recall hold-and-walk (ONE cast, live 19:39 UTC, DISCOVERIES "Recall hold-and-walk"; cast type AllowMovementThenCastInstant):
+-- cast {spell, walk_to} opens it (the mark = where he stands), walks while it is held, finishes it (teleport back), judged by
+-- position. The disproven two-cast "beacon" model is gone: a plain recast later moves him 0 m.
 do
-    local RECALL = spell({ asset = "USD_TestRecall", name = "Recall", desc = "Place a temporary beacon.", cast_type = 3, two_step_fake = true,
-                           cost = { { item = AIR, name = "Air Rune", count = 30 } }, perk = { level = 57, skill = "SKILL_Agility", skill_name = "Agility" } })
-    reset({ unlocked = { RECALL }, wheel = { "USD_TestRecall" }, all = { RECALL } })
-    SP.mem().mech = { USD_TestRecall = { two_step = true, how = "Two casts: beacon, then back to it.", window_s = 120 } }
-    G.pos = { 10, 0, 0 }
-    local res = run_cast({ spell = "Recall" })
-    check("Recall step 1: ok, beacon placed at my position, says cast again to return", res.ok and res.data.step == 1 and res.data.beacon
-          and res.data.beacon.position[1] == 10 and tostring(res.data.detail):find("again within 120 s", 1, true) ~= nil, tostring(res.reason) .. " " .. tostring(res.data and res.data.detail))
-    local ex = SP.state_extras({ now = function() return 1e9 end, module = function() return nil end })
-    local row
-    for _, r in ipairs(ex.spells or {}) do if r.id == "USD_TestRecall" then row = r end end
-    check("state.spells: how + live beacon", row and row.how and row.beacon and row.beacon.position[1] == 10, row and row.how)
-    G.pos = { 60, 5, 0 } -- he walks off
-    res = run_cast({ spell = "Recall" })
-    check("Recall step 2: back at the beacon, verified from position", res.ok and res.data.returned == true and G.pos[1] == 10
-          and tostring(res.data.detail):find("came back to its beacon", 1, true) ~= nil, tostring(res.reason) .. " " .. tostring(res.data and res.data.detail))
-    -- step 2 that spends runes but leaves him where he was: not claimed as a return
-    reset({ unlocked = { RECALL }, wheel = { "USD_TestRecall" }, all = { RECALL } })
-    SP.mem().mech = { USD_TestRecall = { two_step = true, window_s = 120 } }
-    G.pos = { 10, 0, 0 }
-    run_cast({ spell = "Recall" })
-    G.pos, G.recall_broken = { 60, 5, 0 }, true
-    res = run_cast({ spell = "Recall" })
-    check("Recall step 2 without the teleport: not_returned, says how far from the beacon", res.reason == "verification_failed" and res.data.why == "not_returned",
-          tostring(res.reason) .. " " .. tostring(res.data and res.data.detail))
-    G.recall_broken = nil
-end
-
--- Recall hold-and-walk (wiki: a runic marker, recast returns; cast type AllowMovementThenCastInstant; live 17:35: it opens
--- a placement mode he can move in): cast {spell, walk_to} opens it, walks while it is held, finishes it, judged by position
-do
-    local HOLD = spell({ asset = "USD_TestHold", name = "Recall", desc = "Place a temporary beacon.", cast_type = 3, hold_fake = true,
+    local HOLD = spell({ asset = "USD_TestHold", name = "Recall", desc = "Return to where you opened it.", cast_type = 3, hold_fake = true,
                          cost = { { item = AIR, name = "Air Rune", count = 30 } }, perk = { level = 57, skill = "SKILL_Agility", skill_name = "Agility" } })
     local R = { move_go_to = W.move_go_to, move_status = W.move_status, move_stop = W.move_stop }
     local mv = {}
@@ -692,22 +654,37 @@ do
           and (res.data.walked_m or 0) >= 11 and jp:find("hold_walk", 1, true) and jp:find("place", 1, true),
           tostring(res.reason) .. " " .. jp .. " " .. tostring(res.data and res.data.detail))
     check("hold-and-walk: the reply says it brought him back", tostring(res.data.detail):find("brought me back", 1, true) ~= nil, res.data.detail)
+    check("hold-and-walk: landed_at = where he ended (the opening point), placed_at = the place press (walk end)",
+          res.data.landed_at and math.abs(res.data.landed_at[1]) < 0.5 and res.data.placed_at and res.data.placed_at[1] > 11
+          and res.data.from_opened_m ~= nil and res.data.from_opened_m < 0.5,
+          tostring(res.data.landed_at and res.data.landed_at[1]) .. " / " .. tostring(res.data.placed_at and res.data.placed_at[1]))
+    check("no beacon fields left (one cast, no lasting marker)", res.data.beacon == nil and res.data.step == nil, tostring(res.data.step))
     -- finished but no teleport: truthful "didn't bring me back", with the distance
     reset({ unlocked = { HOLD }, wheel = { "USD_TestHold" }, all = { HOLD } })
     G.pos, G.hold_no_return, mv = { 0, 0, 0 }, true, {}
     res = run_cast({ spell = "Recall", walk_to = { 12, 0, 0 } }, { during = during })
     check("hold-and-walk without a return: says it didn't bring me back, how far", res.ok and res.data.returned == false
           and tostring(res.data.detail):find("didn't bring me back", 1, true) ~= nil, tostring(res.data and res.data.detail))
+    check("hold-and-walk without a return: landed_at is where he really is (walk end)", res.data.landed_at and res.data.landed_at[1] > 11,
+          tostring(res.data.landed_at and res.data.landed_at[1]))
     G.hold_no_return = nil
     -- walk_to on a spell that can't be held: refused up front, nothing pressed
     reset({})
     res = run_cast({ spell = "Windstep", walk_to = { 12, 0, 0 } })
     check("walk_to on an ordinary spell: invalid_args, nothing pressed", res.reason == "invalid_args" and presses() == "", tostring(res.reason) .. " " .. presses())
-    -- without walk_to: finished at once, as before (no hold)
+    -- without walk_to (live 19:39: opened and finished on the spot = 0 m, runes wasted): refused up front with the
+    -- mechanic in words (from data/spell_mechanics.json `how`), nothing pressed
     reset({ unlocked = { HOLD }, wheel = { "USD_TestHold" }, all = { HOLD } })
+    SP.mem().mech = { USD_TestHold = { how = "Opening it marks where I stand; finishing it brings me back." } }
     G.pos, mv = { 0, 0, 0 }, {}
     res = run_cast({ spell = "Recall" }, { during = during })
-    check("no walk_to: finished at once, no hold", res.ok and not table.concat(res.data.presses or {}, ","):find("hold_walk", 1, true), tostring(res.reason))
+    check("no walk_to: walk_to_required, says why (0 m) + the how, nothing pressed", res.reason == "invalid_args"
+          and res.data.why == "walk_to_required" and presses() == "" and tostring(res.data.detail):find("0 m", 1, true)
+          and tostring(res.data.detail):find("brings me back", 1, true), tostring(res.reason) .. " " .. tostring(res.data and res.data.detail))
+    local ex = SP.state_extras({ now = function() return 1e9 end, module = function() return nil end })
+    local row
+    for _, r in ipairs(ex.spells or {}) do if r.id == "USD_TestHold" then row = r end end
+    check("state.spells: how + cast_type, no beacon", row and row.how and row.cast_type == "instant_after_move" and row.beacon == nil, row and row.how)
     for k, v in pairs(R) do W[k] = v end
 end
 

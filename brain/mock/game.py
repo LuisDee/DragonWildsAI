@@ -527,7 +527,8 @@ class MockGame(GameInterface):
         return None, {}
 
     @_scriptable
-    def cast(self, spell: str, target: str | Coords | None = None) -> ActionResult:
+    def cast(self, spell: str, target: str | Coords | None = None, walk_to: str | Coords | None = None) -> ActionResult:
+        # walk_to (held-open spells, the body's Recall) is accepted and ignored: the mock has no held-open spells
         sid = self.resolve_spell(spell)
         if sid is None:
             return fail(Reason.UNKNOWN_SKILL, spell=spell)

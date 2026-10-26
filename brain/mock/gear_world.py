@@ -549,8 +549,8 @@ class GearWorld(MockGame):
         style = str((self.cat.get(held) or {}).get("range_type") or "melee") if held else "melee"
         return {"melee": "Attack", "ranged": "Ranged", "magic": "Magic"}.get(style, "Attack")
 
-    def cast(self, spell: str, target=None) -> ActionResult:
-        res = super().cast(spell, target)
+    def cast(self, spell: str, target=None, walk_to=None) -> ActionResult:
+        res = super().cast(spell, target, walk_to)
         if res.get("ok"):
             self._xp("Magic", 25.0)
         return res
