@@ -134,10 +134,41 @@ end
 -- ---------------------------------------------------------------- fake move / inventory modules
 local MV = { mode = "idle", calls = {} }
 local fake_move = {}
-function fake_move.go_to(log, goal, opts) MV.calls[#MV.calls + 1] = "go_to"; MV.mode, MV.goal, MV.opts, MV.dist = "go_to", goal, opts, nil; return { ok = true, mode = "go_to" } end
+-- move's approach-progress tracker, faked with move.lua's own semantics (status().progress; opts.progress)
+local function prog_new(o)
+    o = o or {}
+    return { stall = o.stall_s or 12, gain = (o.gain_m or 0.5) * 100, budget = o.budget_s, moving = (o.moving_m or 3) * 100, elapsed = 0 }
+end
+function fake_move.go_to(log, goal, opts) MV.calls[#MV.calls + 1] = "go_to"; MV.mode, MV.goal, MV.opts, MV.dist = "go_to", goal, opts, nil
+    MV.prog = prog_new(opts and opts.progress); return { ok = true, mode = "go_to" } end
 function fake_move.follow(log, goal, dist, opts)
     MV.calls[#MV.calls + 1] = "follow:" .. tostring(goal); MV.mode, MV.goal, MV.dist, MV.opts = "follow", goal, dist, opts
+    MV.prog = prog_new(opts and opts.progress)
     return { ok = true, mode = "follow", target_visible = goal ~= "Nobody" }
+end
+function fake_move.progress_reset() if MV.prog then MV.prog.best, MV.prog.best_t, MV.prog.best_tpos, MV.prog.elapsed = nil, nil, nil, 0 end return { ok = true } end
+do -- the real words table (move.lua loads offline: no engine calls at load)
+    local okm, realmove = pcall(function() return assert(loadfile(root .. "/client_mod/scripts/move.lua"))() end)
+    fake_move.why_words = okm and realmove.why_words or function(why) return tostring(why) end
+end
+local function prog_view()
+    local P = MV.prog
+    if not P or MV.mode == "idle" then return nil end
+    local since = (P.last_t and P.best_t) and (P.last_t - P.best_t) or 0
+    local moved = (P.best_tpos and P.tpos) and math.sqrt((P.best_tpos.X - P.tpos.X) ^ 2 + (P.best_tpos.Y - P.tpos.Y) ^ 2) or 0
+    local verdict, why = "ok", nil
+    local un = MV.extra and MV.extra.unreachable
+    if un then verdict, why = "unreachable", un.reason
+    else
+        local over = P.budget and P.elapsed > P.budget
+        if over or since > P.stall then
+            verdict = "stalled"
+            if moved > P.moving then why = "cant_catch" elseif over then why = "too_long"
+            else why = MV.bumped and "blocked" or "no_progress" end
+        end
+    end
+    return { verdict = verdict, why = why, dist_m = P.dist and P.dist / 100, best_dist_m = P.best and P.best / 100, since_s = since,
+             elapsed_s = P.elapsed, target_moved_m = moved / 100 }
 end
 function fake_move.stop() MV.calls[#MV.calls + 1] = "stop"; MV.mode = "idle"; return { ok = true } end
 function fake_move.set_avoid_zones(log, zones) MV.zone_sets = (MV.zone_sets or 0) + 1; MV.zones = zones; return { ok = true, zones = #zones } end
@@ -153,7 +184,7 @@ function fake_move.escape_zones(log, opts)
     return r
 end
 function fake_move.status()
-    local r = { mode = MV.mode, target = type(MV.goal) == "string" and MV.goal or nil }
+    local r = { mode = MV.mode, target = type(MV.goal) == "string" and MV.goal or nil, progress = prog_view() }
     for k, v in pairs(MV.extra or {}) do r[k] = v end
     return r
 end
@@ -205,12 +236,15 @@ local A = assert(loadfile(root .. "/client_mod/scripts/arbiter.lua"))()
 A.set_move(fake_move)
 A.clock = function() return T end
 local Cm = assert(loadfile(root .. "/client_mod/scripts/combat.lua"))()
+-- per-run temp paths: other agents run this file at the same time (a shared activity file / memory root made
+-- sections read each other's events)
+local RUN_ID = tostring(os.time()) .. "_" .. tostring(math.floor(os.clock() * 1e6)) .. "_" .. tostring(math.random(1, 1e9))
 local tmpdir = os.getenv("TEMP") or os.getenv("TMP") or "."
-Cm.ACTIVITY_PATH = (tmpdir .. "/test_combat_activity.jsonl"):gsub("\\", "/")
+Cm.ACTIVITY_PATH = (tmpdir .. "/test_combat_activity_" .. RUN_ID .. ".jsonl"):gsub("\\", "/")
 os.remove(Cm.ACTIVITY_PATH)
 -- the persistent memory goes to a temp root (never the repo's data/skills)
-Cm.cfg.memory_root = (tmpdir .. "/test_combat_mem"):gsub("\\", "/")
-os.execute('mkdir "' .. (tmpdir .. "/test_combat_mem/data/skills/shockbyte"):gsub("/", "\\") .. '" 2>nul')
+Cm.cfg.memory_root = (tmpdir .. "/test_combat_mem_" .. RUN_ID):gsub("\\", "/")
+os.execute('mkdir "' .. (tmpdir .. "/test_combat_mem_" .. RUN_ID .. "/data/skills/shockbyte"):gsub("/", "\\") .. '" 2>nul')
 os.remove(Cm.cfg.memory_root .. "/data/skills/shockbyte/combat_memory_BP_PlayerCharacter_C_1.json")
 Cm._reset_build("TESTBUILD")
 Cm.cfg.memory_enabled = false -- on only in the memory section (sections must not learn from each other)
@@ -251,9 +285,25 @@ local function step(n)
                 if d > tol then
                     local sp = math.min(5, d - tol)
                     pawn.loc.X, pawn.loc.Y = pawn.loc.X + dx / d * sp, pawn.loc.Y + dy / d * sp
-                    if world.wall_x and pawn.loc.X > world.wall_x then pawn.loc.X = world.wall_x end -- a wall across +X
+                    if world.wall_x and pawn.loc.X > world.wall_x then pawn.loc.X = world.wall_x; MV.bumped = true end -- a wall across +X
                     pawn.yaw = math.deg(math.atan(dy, dx))
                 elseif MV.mode == "go_to" then MV.mode = "idle" end
+            end
+        end
+        if MV.prog and MV.mode ~= "idle" then
+            local g = resolve(MV.goal)
+            if g then
+                local P = MV.prog
+                local d = math.sqrt((g.X - pawn.loc.X) ^ 2 + (g.Y - pawn.loc.Y) ^ 2)
+                local near = d <= ((MV.dist or (MV.opts and MV.opts.tolerance_m) or 1) * 100) + 5
+                P.dist, P.tpos = d, { X = g.X, Y = g.Y }
+                if near then P.best, P.best_t, P.best_tpos = d, T, { X = g.X, Y = g.Y }
+                else
+                    P.elapsed = P.elapsed + 0.01
+                    if not P.best or d < P.best - P.gain then P.best, P.best_t, P.best_tpos = d, T, { X = g.X, Y = g.Y } end
+                end
+                P.best_t = P.best_t or T
+                P.last_t = T
             end
         end
         stamina = math.min(80, stamina + 0.15)
@@ -284,7 +334,7 @@ end
 local function reset_world()
     world.creatures, world.items, world.injected, world.on_step, world.drop_on_death, world.inputs_dead, world.instigator = {}, {}, {}, nil, nil, nil, nil
     pending_hits, loops = {}, {}
-    MV.mode, MV.calls, MV.goal = "idle", {}, nil
+    MV.mode, MV.calls, MV.goal, MV.prog, MV.bumped = "idle", {}, nil, nil, nil
     INV.equips, INV.uses, INV.interacts = {}, {}, 0
     held.right, held.left = nil, "ITEM_Logging_Axe_Mithril"
     pawn.loc, pawn.hp, stamina, special = { X = 0, Y = 0, Z = 0 }, 100, 80, 100
@@ -789,7 +839,7 @@ do
     local res = Cm._state().last.result
     check("wall: ends path_blocked, not a timeout", res and res.reason == "path_blocked", res and res.reason)
     check("wall: ends fast (no 0.5 m gain for 12 s)", T - t0 < 16, T - t0)
-    check("wall: says what and why", res and res.data.why == "no_progress" and res.data.target == "Kebbit" and res.data.detail:find("Kebbit", 1, true)
+    check("wall: says what and why", res and res.data.why == "blocked" and res.data.target == "Kebbit" and res.data.detail:find("Kebbit", 1, true)
           and res.data.dist_m and res.data.dist_m > 4, res and res.data and res.data.detail)
     world.wall_x = nil
     A.reset(nil)
@@ -804,7 +854,7 @@ do
     run_until(function() return Cm._state().fight == nil end, 10)
     local r2 = Cm._state().last.result
     check("unreach: move's verdict ends it at once", r2 and r2.reason == "path_blocked" and r2.data.why == "no_route" and T - t1 < 1, r2 and r2.data and r2.data.why)
-    check("unreach: the detail is a sentence he can say", r2 and r2.data.detail == "I can't reach the Kebbit: there's no way through to it from here.", r2 and r2.data.detail)
+    check("unreach: the detail is a sentence he can say (move's words)", r2 and r2.data.detail == "I can't get to the Kebbit: there's no way through to the Kebbit from here.", r2 and r2.data.detail)
     MV.extra, world.wall_x = nil, nil
     A.reset(nil)
     -- (c) live 2026-10-25 22:01: move's verdict "leader_above_jump_height" (a Kebbit up a ledge) -> said plainly
@@ -816,7 +866,7 @@ do
     MV.extra = { status = "unreachable", unreachable = { reason = "leader_above_jump_height", detail = "dz=2.7m d=13.7m lp_fail=verify_exhausted" }, lp_fail = "verify_exhausted" }
     run_until(function() return Cm._state().fight == nil end, 10)
     local r3 = Cm._state().last.result
-    check("ledge (22:01 replay): path_blocked, higher than he can jump", r3 and r3.reason == "path_blocked" and r3.data.detail == "I can't reach the Kebbit: it's higher up than I can jump.", r3 and r3.data and r3.data.detail)
+    check("ledge (22:01 replay): path_blocked, higher than he can jump", r3 and r3.reason == "path_blocked" and r3.data.detail == "I can't get to the Kebbit: the Kebbit is higher up than I can jump.", r3 and r3.data and r3.data.detail)
     MV.extra, world.wall_x = nil, nil
     A.reset(nil)
     -- (d) a target that keeps moving away (the distance keeps changing, so no single stall): the chase budget
@@ -832,7 +882,7 @@ do
     local r4 = Cm._state().last.result
     check("chase: too_far / cant_catch, never a bare timeout", r4 and r4.reason == "too_far" and r4.data.why == "cant_catch", r4 and r4.reason)
     check("chase: ends on the chase budget (~30 s)", T - t0 < 40, T - t0)
-    check("chase: says what happened", r4 and r4.data.detail:find("chased the Kebbit", 1, true) ~= nil, r4 and r4.data and r4.data.detail)
+    check("chase: says what happened", r4 and r4.data.detail:find("the Kebbit keeps moving away", 1, true) ~= nil, r4 and r4.data and r4.data.detail)
     world.on_step = nil
     A.reset(nil)
 end
@@ -885,7 +935,9 @@ do
     -- 3. he lands (the action stops, the transition ends): the normal budgets apply again
     hooks["/Script/Dominion.DominionAIActionsComponent:Multicast_StopCurrentAIAction"]({ get = function() return acomp end })
     arena.PhaseRuntimeData = { PhaseIndex = 1, bTransitioningToNext = false }
+    MV.extra = { unreachable = { reason = "target_above_jump_height" } } -- he perched 20 m up: move says so
     run_until(function() return Cm._state().fight == nil end, 40)
+    MV.extra = nil
     local r = Cm._state().last.result
     check("boss: landed but out of reach -> the normal truthful ending again", r and (r.reason == "too_far" or r.reason == "path_blocked"), r and r.reason)
     FindFirstOf = real_ffo
@@ -1017,6 +1069,16 @@ do
     end
     Cm._start_fight(nil, gob, { mode = "attack", force = true, by = "brain" })
     run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    -- no census without an AI action that names hazards (hot path): a meteor alone is not looked for
+    local m0 = meteor("Meteor_0", { X = pawn.loc.X, Y = pawn.loc.Y, Z = 0 }, 400, 3.0)
+    run_until(function() return false end, 1)
+    check("hazard: no census until an ability names a hazard", (MV.escapes or 0) == 0 and MV.zones == nil)
+    m0._dead_obj = true
+    -- the creature starts its meteor strike (the ability profile names "meteor" and "poison_cloud")
+    local acomp = obj({ GetOwner = function() return gob end, CurrentAction = obj({ GetClass = function()
+        return obj({}, "BlueprintGeneratedClass /Game/AI/X.DAA_DragonVelgar_MeteorStrike_C") end }, "A /x") }, "C /x")
+    hooks["/Script/Dominion.DominionAIActionsComponent:Multicast_StartAIAction"]({ get = function() return acomp end }, { get = function() return 4 end })
+    run_until(function() return false end, 0.3)
     -- (a) a meteor circle lands on him in 2 s: zones are handed to move, he walks out, then the previous move is restored
     MV.escape_reply = { ok = true, at = { 6, 0, 0 }, eta_s = 0.8 }
     local n0 = #read_activity()
@@ -1780,5 +1842,7 @@ do
     A.reset(nil)
 end
 
+os.remove(Cm.ACTIVITY_PATH)
+os.execute('rmdir /s /q "' .. (tmpdir .. "/test_combat_mem_" .. RUN_ID):gsub("/", "\\") .. '" 2>nul')
 print(string.format("combat/arbiter tests: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

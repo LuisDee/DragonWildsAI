@@ -135,6 +135,11 @@ The data comes from the wiki snapshot `data/wiki/pages` (Velgar, Velgar/Strategi
   - Each case emits a `hazard` activity event with the answer and the reason. The zones are cleared at the fight's end, and `combat_end` counts `hazards`.
   - Tests: test_combat §10g (fake meteors and a fake move).
   - Open: the arena volume as the escape `bound`, not read yet.
+- **/simplify pass (2026-10-26):**
+  - The boss priors now live in `client_mod/scripts/boss_profiles.lua` (per creature, plus a default). "Blocks breath" lives in `item_traits.lua`, not a name match in code.
+  - Both odds models use one `loadout_capability` digest.
+  - The hazard census runs only after an AI action whose profile names a hazard (ability_profiles `hazards`). Zones go to move only when their set changes, and "inside" is avoidzones' own `AZ.at`.
+  - The approach watchdog is move's shared progress tracker (`opts.progress`, `progress_reset`, `why_words`).
 - **Still to verify live** (S2/S3, read-only first):
   - that the multicasts fire on the client for him;
   - that `CurrentAction` is set when read;

@@ -55,11 +55,11 @@ M.cfg = {
     special_gap_s = 6,
     telegraph_m = 6, telegraph_fresh_s = 1.0,
     disengage_m = 10,        -- back off this far to eat (orders.disengage)
-    boss_windows = 4, boss_flight_s = 20, meteor_dps = 2, poison_dps = 4, poison_uptime = 0.5, breath_share = 0.3,
-    dragon_shield_block = 0.7, magic_base_dmg = 10, eat_every_s = 8, attempts_max = 20, -- boss model priors (velgar.md gap 5)
-    hazard_s = 0.25, hazard_idle_s = 2.0, hazard_margin_cm = 40, -- ground hazards (gap 2)
-    status_s = 0.5, cure_at = 0.05, -- statuses read every status_s in a fight; a harmful one above cure_at x max -> its cure
-    odds_m = 40, odds_max = 6, odds_prep_s = 10, -- get_state fight_odds: creatures in sight
+    magic_base_dmg = 10, eat_every_s = 8, attempts_max = 20, -- odds: rune damage prior; the game's eating pace; boss attempts kept
+    -- (boss fight priors: client_mod/scripts/boss_profiles.lua; item traits: item_traits.lua)
+    hazard_s = 0.25, hazard_window_s = 15, hazard_persist_s = 30, hazard_margin_cm = 40, -- ground hazards (gap 2)
+    status_s = 0.5, cure_at = 0.05, no_cure_recheck_s = 10, -- statuses read every status_s in a fight; a harmful one above cure_at x max -> its cure
+    odds_m = 40, odds_max = 6, facts_s = 30, census_s = 0.5, odds_prep_s = 10, -- get_state fight_odds: creatures in sight
     memory_enabled = true, history_max = 10, steam_manifest = "C:/Program Files (x86)/Steam/steamapps/appmanifest_1374490.acf",
     chase_moved_m = 3, -- a stall while the target itself moved this far = it is running, not a wall
     chase_max_s = 30, -- approaching (all episodes) this long without landing a hit: too_far, cant_catch
@@ -97,13 +97,22 @@ M.orders = { stance = "defensive", avoid = {}, force = false,
              reengage_hp = 0.8,  -- ... and go back in at or above this
              flee_hp = nil }     -- nil = cfg.flee_hp
 
+-- ------------------------------------------------------------------ data files (one memo loader)
+-- client_mod/scripts/<name>.lua returning a table (DATA, never logic); loaded once, false when missing or broken.
+local DATA = {}
+function M.data(name)
+    if DATA[name] == nil then
+        local ok, t = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/" .. name .. ".lua"))() end)
+        DATA[name] = ok and type(t) == "table" and t or false
+    end
+    return DATA[name] or nil
+end
+function M.set_data(name, t) DATA[name] = t end -- tests
+
 -- Provisional weakness priors by creature name (docs/research/2026-10-25-spells-and-weaknesses.md;
 -- wiki/gamever, MEDIUM confidence). Live DamageTypeAffinities (empty on the client for Kebbits) and
 -- learned hit outcomes override these.
-M.PRIORS = (function()
-    local ok, d = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/creature_priors.lua"))() end)
-    return ok and type(d) == "table" and d or {}
-end)() -- data file (client_mod/scripts/creature_priors.lua), not code
+M.PRIORS = M.data("creature_priors") or {} -- data file (client_mod/scripts/creature_priors.lua), not code
 M.TOOL_FACTOR = { axe = 0.6, pickaxe = 0.6, spade = 0.3, torch = 0, fishing_rod = 0, fishingnet = 0,
                   container = 0, harvest_tool = 0, farming = 0, animaorb = 0 }
 M.AFFINITY = { [0] = "weak", "resist", "immune" } -- EDamageTypeAffinity
@@ -150,32 +159,13 @@ local function say(log, msg)
 end
 
 -- ------------------------------------------------------------------ sibling modules (loadfile, injectable)
-M.mods = {}
-function M.set_modules(t) for k, v in pairs(t) do M.mods[k] = v end end
-local function mod(name)
-    if not M.mods[name] then
-        local ok, m = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/" .. name .. ".lua"))() end)
-        if ok then M.mods[name] = m end
-    end
-    return M.mods[name]
-end
-local function mcall(name, fn, ...)
-    local m = mod(name)
-    if not (m and m[fn]) then return nil, "no " .. name .. "." .. fn end
-    local ok, r = pcall(m[fn], ...)
-    if not ok then return nil, tostring(r) end
-    return r
-end
+local LOADER = U.loader(ROOT) -- the shared sibling-module loader (mod/body/util.lua): injectable for tests
+M.mods = LOADER.mods
+M.set_modules = LOADER.set_modules
+local mod, mcall = LOADER.mod, LOADER.mcall
 
-local WEAPONS
-function M.weapons()
-    if not WEAPONS then
-        local ok, d = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/weapons_data.lua"))() end)
-        WEAPONS = ok and d or { items = {} }
-    end
-    return WEAPONS
-end
-function M.set_weapons(d) WEAPONS = d end
+function M.weapons() return M.data("weapons_data") or { items = {} } end
+function M.set_weapons(d) M.set_data("weapons_data", d) end
 
 -- ------------------------------------------------------------------ pure decision functions
 -- Damage per second of a weapon profile's primary chain (catalog damage / press cadence).
@@ -206,21 +196,27 @@ end
 
 -- Score of a weapon profile against an enemy (higher = better). nil = not a usable melee weapon.
 -- Ranged/magic weapons need ammo/runes and aiming: not used by the reflex yet.
-function M.score_weapon(p, enemy, learned)
+-- known (optional) = {tag = {v, src}} (combat.known_affinities): used instead of M.affinity, and the first
+-- affinity that changed the score is returned as `why` ("stab-weak (journal)").
+function M.score_weapon(p, enemy, learned, known)
     if not p or p.kind ~= "melee" or not p.prim then return nil end
     local f = M.TOOL_FACTOR[p.cat]
     if f == 0 then return nil end
     local s = (M.dps(p) or 0) * (f or 1)
+    local why
     for _, tag in ipairs(p.types or {}) do
-        local a = M.affinity(enemy, tag, learned)
+        local a, src
+        if known then local k = known[tag]; a, src = k and k.v, k and k.src
+        else a = M.affinity(enemy, tag, learned) end
         if a == "weak" then s = s * 1.5 elseif a == "resist" then s = s * 0.6 elseif a == "immune" then s = s * 0.05 end
+        if a and src and not why then why = (tostring(tag):match("([^%.]+)$") or tag):lower() .. "-" .. a .. " (" .. src .. ")" end
     end
-    return s
+    return s, why
 end
 
 -- Best weapon he OWNS (inventory.list entries: hotbar, bag, loadout) for this enemy, and the best
 -- shield. -> {weapon = {entry, profile, score}, shield = {entry, profile}} (nil when none).
-function M.best_weapon(list, enemy, data, learned)
+function M.best_weapon(list, enemy, data, learned, known)
     data = data or M.weapons()
     local items = data.items or {}
     local best, shield
@@ -228,8 +224,8 @@ function M.best_weapon(list, enemy, data, learned)
         for _, e in ipairs((list or {})[where] or {}) do
             local p = e.item and items[e.item]
             if p and not e.broken then
-                local s = M.score_weapon(p, enemy, learned)
-                if s and (not best or s > best.score + 1e-6) then best = { entry = e, profile = p, score = s, where = where } end
+                local s, why = M.score_weapon(p, enemy, learned, known)
+                if s and (not best or s > best.score + 1e-6) then best = { entry = e, profile = p, score = s, where = where, why = why } end
                 if p.role == "shield" and (not shield or (p.block or 0) > (shield.profile.block or 0)) then
                     shield = { entry = e, profile = p, where = where }
                 end
@@ -378,22 +374,41 @@ local function read_affinities(a)
     return out
 end
 
+-- The creature census, CACHED for cfg.census_s (one FindAllOf + reads per window, shared by every caller this
+-- tick: threats, the pack, fight-or-flight, find_creature). A narrower radius from (about) the same origin is
+-- served from the cache; a wider one or a moved origin scans again.
+local function census_clock() return M.clock and M.clock() or os.clock() end
 local function creatures_near(origin, radius_m)
-    local out = {}
+    local c = C()
+    local cc = c.census
+    local t = census_clock()
+    if cc and origin and cc.origin and t - cc.t < M.cfg.census_s and radius_m <= cc.radius and U.dist(origin, cc.origin) < 100 then
+        local out = {}
+        for _, d in ipairs(cc.rows) do if (d.distance_m or 1e9) <= radius_m then out[#out + 1] = d end end
+        return out
+    end
+    local out, by_id = {}, {}
     for _, a in ipairs(U.find_all("DominionAICharacter", { skip_defaults = true })) do
         local at = U.loc(a)
+        local id = U.short(a)
+        if id then by_id[id] = a end
         if at and origin and U.dist(origin, at) <= radius_m * 100 then
             local ok, d = pcall(read_creature, a, origin)
             if ok and d then out[#out + 1] = d end
         end
     end
+    c.census = { t = t, origin = origin and { X = origin.X, Y = origin.Y, Z = origin.Z }, radius = radius_m, rows = out, by_id = by_id }
     return out
 end
 M.creatures_near = creatures_near
 
+-- An actor by id: the census's own map first (no FindAllOf on the hot path), then one scan.
 local function find_creature(id)
-    for _, a in ipairs(U.find_all("DominionAICharacter", { skip_defaults = true })) do
-        if U.short(a) == id then return a end
+    local cc = C().census
+    local a = cc and cc.by_id and cc.by_id[id]
+    if a and U.valid(a) then return a end
+    for _, x in ipairs(U.find_all("DominionAICharacter", { skip_defaults = true })) do
+        if U.short(x) == id then return x end
     end
 end
 
@@ -574,7 +589,7 @@ function M.on_damage(ctx, ev)
         hit.seq = c.counts.hits
         c.my_hits[#c.my_hits + 1] = hit
         if #c.my_hits > 30 then table.remove(c.my_hits, 1) end
-        if #types > 0 and #outcomes > 0 then M.learn_outcome(c.learned, name, types, outcomes) end
+        if #types > 0 and #outcomes > 0 then M.learn_outcome(c.learned, name, types, outcomes); c.learned_ver = (c.learned_ver or 0) + 1 end
     elseif iid and vid ~= me and U.valid(U.try(function() return victim.PlayerState end))
         and U.valid(U.try(function() return inst.LoadedData end)) then
         c.ally_attackers[iid] = t -- a creature hit another player (Luis)
@@ -693,7 +708,6 @@ function M.on_ai_action(ctx, id_p)
     c.ai_actions = c.ai_actions or {}
     c.ai_actions[id] = { t = now(a), comp = comp, owner = a, action_id = type(aid) == "number" and aid or nil, running = true }
     c.counts.ai_actions = (c.counts.ai_actions or 0) + 1
-    c.last_ai_action_t = now(a)
 end
 function M.on_ai_action_stop(ctx)
     if _G.DW_PAUSE then return end
@@ -706,13 +720,9 @@ end
 
 -- The profile of an AI action class (client_mod/scripts/ability_profiles.lua, data): the first token of
 -- `order` found in the class name wins; the side (Front/Left/Right) is a token too. -> table or nil
-local ABIL
 function M.ability_profile(cls)
     if type(cls) ~= "string" then return nil end
-    if ABIL == nil then
-        local ok, t = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/ability_profiles.lua"))() end)
-        ABIL = ok and type(t) == "table" and t or false
-    end
+    local ABIL = M.data("ability_profiles")
     if not ABIL then return nil end
     for _, tok in ipairs(ABIL.order or {}) do
         if cls:find(tok, 1, true) then
@@ -732,12 +742,19 @@ end
 -- telegraphed attack (defence plan; the key is "<creature name>:<action class>", learned like any attack).
 function M.ability_frame(F, me)
     local c = C()
+    for id, r in pairs(c.ai_actions or {}) do -- prune: a stopped action after 30 s, any after 120 s
+        if (not r.running and F.t - (r.stopped_t or r.t) > 30) or F.t - r.t > 120 then c.ai_actions[id] = nil end
+    end
     for id, r in pairs(c.ai_actions or {}) do
         if not r.cls and r.comp then
             local cur = U.try(function() return r.comp.CurrentAction end)
             local cls = U.valid(cur) and U.short(U.try(function() return cur:GetClass() end)) or nil
             r.cls = cls or "?"
             r.profile = M.ability_profile(cls)
+            for _, hz in ipairs((r.profile and r.profile.hazards) or {}) do
+                c.hazard_watch = c.hazard_watch or {}
+                c.hazard_watch[hz] = math.max(c.hazard_watch[hz] or 0, F.t + M.cfg.hazard_window_s)
+            end
             r.name = r.owner and U.try(function() return text(r.owner.LoadedData.AIName) end) or nil
             say(F.log, string.format("ai action %s on %s: %s (%s)", tostring(r.action_id), tostring(r.name or id), tostring(r.cls),
                 r.profile and r.profile.kind or "no profile"))
@@ -764,69 +781,55 @@ end
 -- The game's damage-on-the-ground actors (client_mod/scripts/hazard_profiles.lua, data) are read by PROPERTY
 -- (radius, telegraph time, landing point) and handed to move.set_avoid_zones (metres; r_cm; until_s on the
 -- GetRealTimeSeconds clock = F.t). Inside a zone with time to spare: move.escape_zones walks out, then
--- move.restore(prev); too slow: a dodge outward (Phase Dash first when it is ready). Census cadence: every
--- cfg.hazard_s while hazards were seen lately, a boss fight or a creature ability happened; else every cfg.hazard_idle_s.
-local HAZ
-function M.hazard_profiles()
-    if HAZ == nil then
-        local ok, t = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/hazard_profiles.lua"))() end)
-        HAZ = ok and type(t) == "table" and t or false
-    end
-    return HAZ or {}
-end
+-- move.restore(prev); too slow: a dodge outward (Phase Dash first when it is ready). The census runs only for the
+-- hazard kinds an AI action just named (ability_profiles `hazards`), every cfg.hazard_s, while watched or on the ground.
+function M.hazard_profiles() return M.data("hazard_profiles") or {} end
 local function first_num(o, names)
     for _, n in ipairs(names or {}) do
         local v = num(U.try(function() return o[n] end))
         if v and v > 0 then return v end
     end
 end
-function M.hazard_census(F, me)
+function M.hazard_census(F, me, names)
     local c = C()
     c.hazard_seen = c.hazard_seen or {}
-    local zones, n = {}, 0
+    local zones, land = {}, {}
     local live = {}
     for _, hp in ipairs(M.hazard_profiles()) do
-        for _, o in ipairs(U.find_all(hp.class, { skip_defaults = true }) or {}) do
-            if U.valid(o) then
-                local id = U.short(o) or ("?" .. n)
-                local owner = hp.component_is_hazard and U.try(function() return o:GetOwner() end) or o
-                local pos = owner and U.loc(owner)
-                if hp.target then
-                    local tl = U.try(function() return o[hp.target] end)
-                    local tx, ty = tl and num(U.try(function() return tl.X end)), tl and num(U.try(function() return tl.Y end))
-                    if tx and ty and (tx ~= 0 or ty ~= 0) then pos = { X = tx, Y = ty, Z = num(U.try(function() return tl.Z end)) or (pos and pos.Z) or 0 } end
-                end
-                if pos then
-                    live[id] = true
-                    local seen = c.hazard_seen[id]
-                    if not seen then
-                        local tel = hp.telegraph and num(U.try(function() return o[hp.telegraph] end))
-                        seen = { t = F.t, ttl = (tel and tel > 0) and tel or hp.ttl_default, kind = hp.name }
-                        c.hazard_seen[id] = seen
+        if names[hp.name] then
+            for _, o in ipairs(U.find_all(hp.class, { skip_defaults = true }) or {}) do
+                if U.valid(o) then
+                    local id = U.short(o) or ("?" .. #zones)
+                    local owner = hp.component_is_hazard and U.try(function() return o:GetOwner() end) or o
+                    local pos = owner and U.loc(owner)
+                    if hp.target then
+                        local tl = U.try(function() return o[hp.target] end)
+                        local tx, ty = tl and num(U.try(function() return tl.X end)), tl and num(U.try(function() return tl.Y end))
+                        if tx and ty and (tx ~= 0 or ty ~= 0) then pos = { X = tx, Y = ty, Z = num(U.try(function() return tl.Z end)) or (pos and pos.Z) or 0 } end
                     end
-                    local r = first_num(o, hp.radius) or hp.radius_default
-                    local until_s = hp.persistent and (F.t + hp.ttl_default) or (seen.t + seen.ttl + 0.3)
-                    if until_s > F.t then
-                        n = n + 1
-                        zones[#zones + 1] = { id = hp.name .. ":" .. id, kind = "circle", x = pos.X / 100, y = pos.Y / 100, z = pos.Z / 100,
-                                              r_cm = r, until_s = until_s, land_s = math.max(0, (seen.t + seen.ttl) - F.t), hazard = hp.name }
+                    if pos then
+                        live[id] = true
+                        local seen = c.hazard_seen[id]
+                        if not seen then
+                            local tel = hp.telegraph and num(U.try(function() return o[hp.telegraph] end))
+                            seen = { t = F.t, ttl = (tel and tel > 0) and tel or hp.ttl_default, kind = hp.name }
+                            c.hazard_seen[id] = seen
+                        end
+                        -- persistent (clouds, trails): a long expiry, re-sent only when the set of ids changes
+                        local until_s = hp.persistent and (seen.t + M.cfg.hazard_persist_s) or (seen.t + seen.ttl + 0.3)
+                        if until_s > F.t then
+                            local zid = hp.name .. ":" .. id
+                            zones[#zones + 1] = { id = zid, kind = "circle", x = pos.X / 100, y = pos.Y / 100, z = pos.Z / 100,
+                                                  r_cm = first_num(o, hp.radius) or hp.radius_default, until_s = until_s }
+                            land[zid] = { land_s = math.max(0, (seen.t + seen.ttl) - F.t), hazard = hp.name }
+                        end
                     end
                 end
             end
         end
     end
     for id in pairs(c.hazard_seen) do if not live[id] then c.hazard_seen[id] = nil end end
-    return zones
-end
-
--- -> the zone he stands in (the one that lands first), or nil
-function M.zone_at(zones, pos, margin_cm)
-    local best
-    for _, z in ipairs(zones or {}) do
-        local dx, dy = pos.X / 100 - z.x, pos.Y / 100 - z.y
-        if math.sqrt(dx * dx + dy * dy) * 100 <= z.r_cm + (margin_cm or 0) and (not best or z.land_s < best.land_s) then best = z end
-    end
-    return best
+    return zones, land
 end
 
 -- Boss phases (velgar.md gap 3): the arena's replicated phase (APhasedDragonArenaAILevelData.PhaseRuntimeData
@@ -847,8 +850,15 @@ function M.boss_frame(F, me)
     end
     local idx = num(U.try(function() return lvl.PhaseRuntimeData.PhaseIndex end))
     local tr = U.try(function() return lvl.PhaseRuntimeData.bTransitioningToNext end) == true
-    local n = 0
-    pcall(function() lvl.PhaseData:ForEach(function() n = n + 1 end) end)
+    -- the phase count is fixed per arena actor: counted once
+    c.boss_phase_n = c.boss_phase_n or {}
+    local lid = U.short(lvl) or "?"
+    local n = c.boss_phase_n[lid]
+    if not n then
+        n = 0
+        pcall(function() lvl.PhaseData:ForEach(function() n = n + 1 end) end)
+        c.boss_phase_n[lid] = n
+    end
     local air, why = M.airborne(F.target_id)
     local b = c.boss or {}
     local changed = b.index ~= idx or b.transitioning ~= tr or b.airborne ~= air
@@ -1006,48 +1016,26 @@ end
 -- Two signals: move's own verdict (follow sets status "unreachable" with a reason), and no progress: the
 -- distance has not improved by approach_gain_m for approach_stall_s. -> nil or the failure data
 function M.approach_blocked(F, ms)
-    local cfg = M.cfg
-    local d = F.dist_m
     if M.airborne(F.target_id) then -- a boss in the air / between phases: not "unreachable", not "running away"
-        F.appr_best, F.appr_best_t, F.appr_tick_t, F.boss_hold = nil, F.t, nil, true
+        if not F.boss_hold then mcall("move", "progress_reset", F.log) end
+        F.boss_hold = true
         return nil
     end
+    if F.boss_hold then mcall("move", "progress_reset", F.log) end -- he landed: a fresh window
     F.boss_hold = nil
-    if F.appr_phase_t ~= F.phase_t then F.appr_phase_t, F.appr_best, F.appr_best_t = F.phase_t, nil, nil end -- a new approach
-    if d and (not F.appr_best or d < F.appr_best - cfg.approach_gain_m) then F.appr_best, F.appr_best_t, F.appr_best_tpos = d, F.t, F.target_pos end
-    F.appr_best_t = F.appr_best_t or F.t
-    -- the chase budget: time spent approaching since the fight's last landed hit, over every approach
-    -- episode (live 2026-10-25 22:01-22:03: a Kebbit on higher ground kept moving, so the distance kept
-    -- changing; the attack ran to the 120 s tool timeout twice)
-    if F.appr_tick_t and F.t > F.appr_tick_t and F.t - F.appr_tick_t < 1 then F.chase_s = (F.chase_s or 0) + (F.t - F.appr_tick_t) end
-    F.appr_tick_t = F.t
-    if F.last_hit_t and F.last_hit_t ~= F.chase_hit_t then F.chase_hit_t, F.chase_s = F.last_hit_t, 0 end
-    local fled_m = 0
-    if F.appr_best_tpos and F.target_pos then fled_m = U.dist(F.appr_best_tpos, F.target_pos) / 100 end
-    local stalled_moving = F.t - F.appr_best_t > cfg.approach_stall_s and fled_m > cfg.chase_moved_m
-    if (F.chase_s or 0) > cfg.chase_max_s or stalled_moving then
-        local name = tostring(F.target_name or "it")
-        return { reason = "too_far", why = "cant_catch", target = F.target_name, target_id = F.target_id,
-                 dist_m = d and math.floor(d * 10) / 10, chased_s = math.floor(F.chase_s or 0), target_moved_m = math.floor(fled_m * 10) / 10, best_m = F.appr_best and math.floor(F.appr_best * 10) / 10,
-                 detail = string.format("I chased the %s for %d s and couldn't get close enough to hit it (it keeps moving away).", name, math.floor(F.chase_s or 0)) }
-    end
-    local un = type(ms) == "table" and (ms.unreachable or (ms.status == "unreachable" and {})) or nil
-    local stalled = F.t - F.appr_best_t > cfg.approach_stall_s
-    if not (un or stalled) then return nil end
-    local why = un and un.reason or "no_progress"
-    local walls = type(ms) == "table" and (ms.lp_fail == "verify_exhausted" or ms.lp_fail == "unreachable_in_window" or (ms.stuck_n or 0) > 0)
-    local name = tostring(F.target_name or "it")
-    local words = {
-        no_route = "there's no way through to it from here",
-        target_above_jump_height = "it's higher up than I can jump",
-        leader_above_jump_height = "it's higher up than I can jump",
-        wedged = "I'm wedged and can't move",
-        no_progress = walls and "something is in the way (I keep bumping into it)" or "I'm not getting any closer",
-    }
-    return { why = why, target = F.target_name, target_id = F.target_id, dist_m = d and math.floor(d * 10) / 10,
-             stalled_s = math.floor((F.t - F.appr_best_t) * 10) / 10, walls = walls or nil,
-             move = type(ms) == "table" and { lp_fail = ms.lp_fail, stuck_n = ms.stuck_n, unreachable = ms.unreachable } or nil,
-             detail = string.format("I can't reach the %s: %s.", name, words[why] or why) }
+    -- move's own approach tracker (one watchdog for everyone; opts.progress set by follow_target)
+    local pg = type(ms) == "table" and ms.progress or nil
+    if not (type(pg) == "table" and (pg.verdict == "stalled" or pg.verdict == "unreachable")) then return nil end
+    local why = pg.why or (pg.verdict == "unreachable" and "unreachable" or "no_progress")
+    local name = "the " .. tostring(F.target_name or "creature")
+    local clause = mcall("move", "why_words", why, name) or why
+    local base = { why = why, target = F.target_name, target_id = F.target_id, dist_m = pg.dist_m or (F.dist_m and math.floor(F.dist_m * 10) / 10),
+                   best_m = pg.best_dist_m, stalled_s = pg.since_s, chased_s = pg.elapsed_s, target_moved_m = pg.target_moved_m,
+                   walls = why == "blocked" or nil,
+                   move = { lp_fail = ms.lp_fail, stuck_n = ms.stuck_n, unreachable = ms.unreachable },
+                   detail = string.format("I can't get to %s: %s.", name, clause) }
+    if why == "cant_catch" or why == "too_long" then base.reason = "too_far" end
+    return base
 end
 
 -- ------------------------------------------------------------------ persistent combat memory
@@ -1144,6 +1132,7 @@ function M.memory(log, pawn)
     for name, v in pairs(type(doc.learned) == "table" and doc.learned or {}) do
         if c.learned[name] == nil then c.learned[name] = v end
     end
+    c.learned_ver = (c.learned_ver or 0) + 1
     c.press_cost = c.press_cost or {}
     for k, v in pairs(type(doc.press_cost) == "table" and doc.press_cost or {}) do
         if c.press_cost[k] == nil then c.press_cost[k] = v end
@@ -1418,7 +1407,9 @@ M._finish = finish
 local function follow_target(F, dist_m, sprint)
     if F.t - (F.follow_t or -9) < 1.0 then return F.following end -- at most one (re)start per second
     F.follow_t = F.t
-    local r = mcall("move", "follow", F.log, F.target_id, dist_m, { sprint = sprint, face_when_near = true, nav = false })
+    local cfg = M.cfg
+    local r = mcall("move", "follow", F.log, F.target_id, dist_m, { sprint = sprint, face_when_near = true, nav = false,
+        progress = { stall_s = cfg.approach_stall_s, gain_m = cfg.approach_gain_m, budget_s = cfg.chase_max_s, moving_m = cfg.chase_moved_m } })
     F.drove_move = true
     F.following = r and r.ok ~= false
     return F.following
@@ -1581,12 +1572,8 @@ function M.read_statuses(pawn)
 end
 
 -- What a consumable does to statuses (client_mod/scripts/consumable_wiki.lua, generated from the wiki snapshot).
-local CONS
 function M.consumable_info(name)
-    if CONS == nil then
-        local ok, t = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/consumable_wiki.lua"))() end)
-        CONS = ok and type(t) == "table" and t or false
-    end
+    local CONS = M.data("consumable_wiki")
     return CONS and name and CONS[tostring(name):lower()] or nil
 end
 
@@ -1628,13 +1615,32 @@ end
 
 -- Per fight tick (every cfg.status_s): read the statuses; poisoned (or any status a carried item cures) above
 -- cfg.cure_at of its maximum -> use the cure (one at a time, verified: the value drops -> a "cured" event).
+-- The ONE writer of c.statuses: a fresh read unless the cached one is younger than max_age_s. -> effects | nil
+function M.refresh_statuses(pawn, max_age_s)
+    local c = C()
+    local cur = c.statuses
+    if cur and max_age_s and os.clock() - (cur.clock or -99) < max_age_s then return cur.effects end
+    local st = M.read_statuses(pawn)
+    if st then c.statuses = { t = os.time(), clock = os.clock(), effects = st } end
+    return st
+end
+
+-- Carried items' signature (what a "no cure" verdict depends on).
+local function inv_sig(list)
+    local parts = {}
+    for _, where in ipairs({ "hotbar", "bag" }) do
+        for _, e in ipairs((list or {})[where] or {}) do parts[#parts + 1] = tostring(e.item) .. "x" .. tostring(e.count) end
+    end
+    table.sort(parts)
+    return table.concat(parts, ",")
+end
+
 function M.status_frame(F, pawn, me)
     if F.t - (F.status_t or -9) < M.cfg.status_s then return end
     F.status_t = F.t
     local c = C()
-    local st = M.read_statuses(pawn)
+    local st = M.refresh_statuses(pawn, nil)
     if not st then return end
-    c.statuses = { t = os.time(), effects = st }
     local cp = F.cure_pending
     if cp and F.t - cp.t >= 3 then
         F.cure_pending = nil
@@ -1648,22 +1654,28 @@ function M.status_frame(F, pawn, me)
         end
     end
     if F.cure_pending or F.phase == "defend" then return end
+    F.no_cure = F.no_cure or {}
     for status, e in pairs(st) do
-        if e.harmful and e.value >= M.cfg.cure_at * (e.max or 100) then
-            local ok = eat_allowed(F)
-            if not ok then return end
+        local nc = F.no_cure[status]
+        -- a status he had no cure for is looked at again only every cfg.no_cure_recheck_s (and only acted on if the
+        -- carried items changed): no inventory read at the status cadence
+        if e.harmful and e.value >= M.cfg.cure_at * (e.max or 100) and not (nc and F.t - nc.t < M.cfg.no_cure_recheck_s) then
             local list = mcall("inventory", "list", F.log) or {}
-            local item, info, how = M.best_cure(list, status)
+            local sig = inv_sig(list)
+            if nc and nc.sig == sig then nc.t = F.t; return end
+            local item, info, how = M.best_cure(list, status) -- the cure first, then whether he may eat now
             if not item then
-                if not (F.no_cure or {})[status] then
-                    F.no_cure = F.no_cure or {}
-                    F.no_cure[status] = true
+                if not nc then
                     M.emit_activity({ kind = "status", by = F.by or "unknown", status = status, value = e.value, max = e.max,
                                       have_cure = false })
                 end
+                F.no_cure[status] = { t = F.t, sig = sig }
                 return
             end
-            F.next_eat = F.t + 8
+            F.no_cure[status] = nil
+            local ok = eat_allowed(F)
+            if not ok then return end
+            F.next_eat = F.t + M.cfg.eat_every_s
             local r = mcall("inventory", "use", F.log, item.item)
             say(F.log, string.format("%s %s %.0f: use %s (%s) -> %s", status, how, e.value, tostring(item.name), tostring(item.item),
                 tostring(r and (r.via or r.reason))))
@@ -1706,7 +1718,7 @@ local function try_eat(F, me, force)
     local list = mcall("inventory", "list", F.log) or {}
     local pick = best_heal_food(list) or mcall("inventory", "best_consumable", list, "food")
     if not pick then F.no_food = true; return false, "no_food" end
-    F.next_eat = F.t + 8
+    F.next_eat = F.t + M.cfg.eat_every_s
     local r = mcall("inventory", "use", F.log, pick.item)
     say(F.log, "eat " .. tostring(pick.item) .. " hp=" .. tostring(me.hp) .. " -> " .. tostring(r and (r.via or r.reason)))
     F.ate = (F.ate or 0) + 1
@@ -1758,7 +1770,7 @@ function M.pack(F, me)
     local out = {}
     local seen = {}
     if F.target_pos then out[#out + 1] = { id = F.target_id, pos = F.target_pos, name = F.target_name }; seen[F.target_id or "?"] = true end
-    for _, cr in ipairs(creatures_near(me.pos, M.cfg.assist_m)) do
+    for _, cr in ipairs(creatures_near(me.pos, M.cfg.assist_m)) do -- (the cached census)
         local hit = c.attackers[cr.id]
         local tele = c.telegraphs[cr.id]
         if not cr.dead and not seen[cr.id] and ((hit and F.t - hit <= M.cfg.attacker_memory_s) or (tele and F.t - tele <= M.cfg.attacker_memory_s)) then
@@ -1770,6 +1782,7 @@ function M.pack(F, me)
     for _, e in ipairs(out) do if e.pos then sx, sy, n = sx + e.pos.X, sy + e.pos.Y, n + 1 end end
     local centroid = n > 0 and { X = sx / n, Y = sy / n, Z = me.pos and me.pos.Z or 0 } or F.target_pos
     if #out > (F.max_pack or 0) then F.max_pack = #out end
+    F.pack_n, F.pack_centroid = #out, centroid
     return out, centroid
 end
 
@@ -2137,8 +2150,7 @@ local function step_disengage(F, pawn, me, acts)
     local g = F.dis
     local o = M.orders
     if g.step == "back" then
-        local _, from = M.pack(F, me)
-        from = from or F.target_pos
+        local from = F.pack_centroid or F.target_pos -- (frame refreshes the pack every 0.5 s)
         if (F.dist_m or 99) < 3.5 and acts.evade and (me.stamina or 0) >= (C().evade_cost or 15) then
             F.evade_dir = away_dir(me.pos, from, "back")
             F.evade_until = F.t + 0.35
@@ -2514,26 +2526,32 @@ local function abort_paused(F)
 end
 
 -- Per fight tick. Returns true while an escape owns the pawn this tick (the phase step is skipped).
+-- The census runs ONLY for the hazard kinds an AI action just named (ability_profiles `hazards`, a watch window of
+-- cfg.hazard_window_s) or that are still on the ground; zones go to move only when their set changes. Whether he
+-- stands in one is avoidzones' own test (AZ.at on the normalised wire zones; feet height).
 function M.hazard_frame(F, pawn, me, acts)
     local c = C()
     local cfg = M.cfg
-    local busy = F.boss or (F.t - (F.hazard_last or -99) < 10) or (F.t - (c.last_ai_action_t or -99) < 30)
-    local every = busy and cfg.hazard_s or cfg.hazard_idle_s
-    if F.t - (F.hazard_t or -99) >= every and me.pos then
+    local names, any = {}, false
+    for name, until_t in pairs(c.hazard_watch or {}) do
+        if until_t > F.t then names[name] = true; any = true else c.hazard_watch[name] = nil end
+    end
+    for _, z in ipairs(F.zones or {}) do local k = z.id:match("^([%w_]+):"); if k then names[k] = true; any = true end end
+    if any and F.t - (F.hazard_t or -99) >= cfg.hazard_s and me.pos then
         F.hazard_t = F.t
-        local zones = M.hazard_census(F, me)
-        if #zones > 0 then F.hazard_last = F.t end
-        local sig = {}
-        for _, z in ipairs(zones) do sig[#sig + 1] = z.id end
-        sig = table.concat(sig, ",")
-        if sig ~= F.zone_sig or #zones > 0 then
+        local zones, land = M.hazard_census(F, me, names)
+        local ids = {}
+        for _, z in ipairs(zones) do ids[#ids + 1] = z.id end
+        local sig = table.concat(ids, ",")
+        if sig ~= (F.zone_sig or "") then
             F.zone_sig = sig
-            local wire = {}
-            for _, z in ipairs(zones) do wire[#wire + 1] = { id = z.id, kind = z.kind, x = z.x, y = z.y, z = z.z, r_cm = z.r_cm, until_s = z.until_s } end
-            mcall("move", "set_avoid_zones", F.log, wire) -- scalars only (R15)
-            F.zones_set = #wire > 0 or nil
+            mcall("move", "set_avoid_zones", F.log, zones) -- the wire format (metres, scalars only: R15)
+            F.zones_set = #zones > 0 or nil
         end
-        F.zones = zones
+        F.zones, F.zone_land = zones, land
+    elseif not any then
+        if F.zones_set then mcall("move", "set_avoid_zones", F.log, {}); F.zones_set, F.zone_sig = nil, nil end
+        F.zones, F.zone_land = nil, nil
     end
     -- an escape under way: hold until it arrives (move idle) or its time is up, then restore the previous move
     local e = F.escape
@@ -2548,17 +2566,22 @@ function M.hazard_frame(F, pawn, me, acts)
         end
         return true
     end
-    if F.phase == "defend" or not me.pos then return false end
-    local z = M.zone_at(F.zones, me.pos, cfg.hazard_margin_cm)
-    if not z then return false end
-    if z.id == F.escaped_zone and F.t - (F.escaped_t or -9) < 1.0 then return false end -- just tried this one
-    F.escaped_zone, F.escaped_t = z.id, F.t
+    if F.phase == "defend" or not me.pos or not F.zones or #F.zones == 0 then return false end
+    local AZm = mod("avoidzones")
+    local zs = AZm and AZm.normalize(F.zones, F.t)
+    if not zs then return false end
+    F.half_h = F.half_h or num(U.try(function() return pawn.CapsuleComponent:GetScaledCapsuleHalfHeight() end)) or 90
+    local zin = AZm.at(zs, me.pos.X, me.pos.Y, me.pos.Z - F.half_h, cfg.hazard_margin_cm)
+    if not zin then return false end
+    local info = (F.zone_land or {})[zin.id] or { land_s = 1, hazard = "?" }
+    if zin.id == F.escaped_zone and F.t - (F.escaped_t or -9) < 1.0 then return false end -- just tried this one
+    F.escaped_zone, F.escaped_t = zin.id, F.t
     F.n_hazards = (F.n_hazards or 0) + 1
-    local r = mcall("move", "escape_zones", F.log, { time_s = z.land_s, bound = c.boss_bound })
+    local r = mcall("move", "escape_zones", F.log, { time_s = info.land_s, bound = c.boss_bound })
     if type(r) == "table" and r.ok and not r.already_safe then
-        F.escape = { t = F.t, until_t = F.t + (r.eta_s or 1) + 0.6, prev = r.prev, zone = z.id, how = "walked" }
+        F.escape = { t = F.t, until_t = F.t + (r.eta_s or 1) + 0.6, prev = r.prev, zone = zin.id, how = "walked" }
         F.following = false
-        M.emit_activity({ kind = "hazard", by = F.by or "unknown", hazard = z.hazard, answer = "walk_out", eta_s = r.eta_s, land_s = z.land_s })
+        M.emit_activity({ kind = "hazard", by = F.by or "unknown", hazard = info.hazard, answer = "walk_out", eta_s = r.eta_s, land_s = info.land_s })
         return true
     end
     local why = type(r) == "table" and r.why or "no_move"
@@ -2566,18 +2589,17 @@ function M.hazard_frame(F, pawn, me, acts)
     local ab = ability_ctx(F)
     local D = mod("defense")
     local pd = D and D.abilities().phase_dash
-    if pd and (ab.phase_dash or {}).available and M.orders.abilities ~= nil and (M.orders.abilities.phase_dash ~= false) then
-        start_cast(F, "phase_dash", pd.spell_asset, "hazard: " .. tostring(z.hazard))
+    if pd and (ab.phase_dash or {}).available and (M.orders.abilities or {}).phase_dash ~= false then
+        start_cast(F, "phase_dash", pd.spell_asset, "hazard: " .. tostring(info.hazard))
     end
     if acts.evade and (me.stamina or 0) >= (c.evade_cost or 15) then
-        local ctr = { X = z.x * 100, Y = z.y * 100, Z = me.pos.Z }
-        F.evade_dir = away_dir(me.pos, ctr, "back")
+        F.evade_dir = away_dir(me.pos, { X = zin.X, Y = zin.Y, Z = me.pos.Z }, "back")
         F.evade_until = F.t + 0.35
         tap(F, acts.evade, 4, "evade_hazard")
         F.n_dodges = (F.n_dodges or 0) + 1
     end
-    M.emit_activity({ kind = "hazard", by = F.by or "unknown", hazard = z.hazard, answer = "dodge", why = why, land_s = z.land_s })
-    say(F.log, "hazard " .. tostring(z.id) .. ": " .. tostring(why) .. " -> dodge outward")
+    M.emit_activity({ kind = "hazard", by = F.by or "unknown", hazard = info.hazard, answer = "dodge", why = why, land_s = info.land_s })
+    say(F.log, "hazard " .. tostring(zin.id) .. ": " .. tostring(why) .. " -> dodge outward")
     return false
 end
 
@@ -2706,6 +2728,7 @@ local function frame(F)
             F.hit_seq = h.seq
             if h.victim == F.target_id then
                 F.hits = F.hits + 1; F.dmg = (F.dmg or 0) + (h.amount or 0); F.last_hit_t = F.t
+                if F.following then mcall("move", "progress_reset", F.log) end
                 if h.fatal then F.fatal_hit = true end
             end
         end
@@ -2717,6 +2740,7 @@ local function frame(F)
             F.hits = F.hits + 1
             F.dmg = (F.dmg or 0) + (F.target_hp - tgt.hp)
             F.last_hit_t = F.t
+            if F.following then mcall("move", "progress_reset", F.log) end
             c.counts.hits = c.counts.hits + 1
             c.my_hits[#c.my_hits + 1] = { seq = c.counts.hits, t = F.t, victim = F.target_id, name = F.target_name,
                                           amount = F.target_hp - tgt.hp, source = "hp_poll" }
@@ -2911,7 +2935,7 @@ local function start_fight(log, actor, opts)
     if tgt.follower then return { ok = false, reason = "unsafe", data = { why = "a player's follower" } } end
     -- a commanded fight is the model's call (North Star review): the fight-or-flight estimate is
     -- returned as INFORMATION, never as a refusal; only "never attack players" is a hard gate
-    local estimate = M.assess({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = 12 }, { tgt }, { reflexonly = true }, nil, M.cfg)
+    local estimate = M.assess_vs({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = 12 }, tgt) or {}
     if c.fight then finish(c.fight, result_of(c.fight, false, "interrupted", { detail = "a new fight started" })) end
     local arb = mod("arbiter")
     local token
@@ -3242,9 +3266,6 @@ end
 -- weapon, shield, enchant, buffs, food, or not fighting at all). Sources, strongest first:
 -- live game data -> what Claude learned from his own hits -> the game's journal entry (Weaknesses)
 -- -> the creature_priors data file (wiki research). Nothing is decided here.
-local function journal_weaknesses(name)
-    return M._journal_weaknesses(name)
-end
 function M._journal_weaknesses(name)
     if not name then return nil end
     local want = name:lower()
@@ -3275,18 +3296,13 @@ function M.combat_brief(log, target, ctx)
                    in_combat = cr.in_combat or nil, distance_m = cr.distance_m and math.floor(cr.distance_m * 10) / 10 }
     d.me = { power_level = me.pl, hp = me.hp, max_hp = me.max_hp, stamina = me.stamina }
     -- weaknesses / resistances by source
-    local wk = { live = read_affinities(actor), learned = C().learned[(cr.name or ""):lower()] }
-    local jw, jname = journal_weaknesses(cr.name)
-    if jw then wk.journal = jw; wk.journal_entry = jname end
-    do -- the wiki snapshot (labelled; the journal and his own hits outrank it)
-        local wr = M.wiki_creature(cr.name)
-        if wr then wk.wiki = { weak = wr.weak, resist = wr.resist, immune = wr.immune, immune_effects = wr.immune_effects,
-                                pl = wr.pl, hp = wr.hp, url = wr.url } end
-    end
-    for key, pr in pairs(M.PRIORS) do
-        if (cr.name or ""):lower():find(key, 1, true) then wk.priors = pr end
-    end
-    if not (wk.learned and next(wk.learned)) then wk.family = M.family_affinity(cr.name) end
+    local facts = M.creature_facts(cr.name) or {}
+    local wk = { live = read_affinities(actor), learned = facts.learned, journal = facts.journal and facts.journal.list,
+                 journal_entry = facts.journal and facts.journal.entry, priors = facts.priors, family = facts.family,
+                 merged = facts.affinities }
+    local wr = facts.wiki -- the wiki snapshot (labelled; the journal and his own hits outrank it)
+    if wr then wk.wiki = { weak = wr.weak, resist = wr.resist, immune = wr.immune, immune_effects = wr.immune_effects,
+                           pl = wr.pl, hp = wr.hp, url = wr.url } end
     d.weaknesses = wk
     local mem = M.memory(log, pawn)
     d.history = M.creature_history(cr.name, mem)
@@ -3332,7 +3348,7 @@ function M.combat_brief(log, target, ctx)
         end
     end
     -- the estimate, as information
-    local a = M.assess({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = 12 }, { cr }, { reflexonly = true }, nil, M.cfg)
+    local a = M.assess_vs({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = 12 }, cr) or {}
     d.assessment = { verdict = a.verdict, est_s_to_kill = a.my_ttk and math.floor(a.my_ttk), est_s_to_die = a.their_ttk and math.floor(a.their_ttk),
                      pl_gap = a.pl_gap }
     -- what Claude has learned about this creature's attacks (per attack key)
@@ -3406,10 +3422,7 @@ function M.state_extras(api, data)
     local f = c.fight
     local boss = f and f.boss and c.boss and { creature = c.boss.target, phase = c.boss.index, phases = c.boss.phases,
         airborne = c.boss.airborne or nil, transitioning = c.boss.transitioning or nil } or nil
-    if not (c.statuses and os.time() - c.statuses.t < 3) then
-        local st = M.read_statuses(pawn)
-        if st then c.statuses = { t = os.time(), effects = st } end
-    end
+    M.refresh_statuses(pawn, 3)
     local sts
     for name, e in pairs((c.statuses or {}).effects or {}) do
         if e.harmful then sts = sts or {}; sts[name] = e.max and string.format("%g/%g", e.value, e.max) or tostring(e.value) end
@@ -3423,47 +3436,62 @@ end
 -- What he knows about a creature's damage-type affinities, each with its source:
 -- learned (his own hits) > journal (the game's journal entry he has) > prior (creature_priors data) >
 -- prior:family (a learned creature sharing a name token). -> {tag = {v = weak|resist|immune, src}} or nil
-function M.known_affinities(name)
+-- ONE creature-knowledge resolver: name -> canonical key -> every fact we hold, each source kept apart, and the
+-- merged affinities {tag = {v, src}} in authority order: learned (his own hits) > journal (the game's entry he
+-- has) > wiki (snapshot) > prior (creature_priors data) > prior:family (a learned creature sharing a name token).
+-- Cached per key for cfg.facts_s (the journal read is a find_all); his learning invalidates it.
+function M.creature_facts(name)
     if not name then return nil end
     local c = C()
     local key = tostring(name):lower()
-    local out, n = {}, 0
-    local function put(tag, v, src) if v and v ~= "neutral" and not out[tag] then out[tag] = { v = v, src = src }; n = n + 1 end end
-    for tag, v in pairs(c.learned[key] or {}) do put(tag, v, "learned") end
+    c.facts = c.facts or {}
+    local f = c.facts[key]
+    local lv = c.learned_ver or 0
+    if f and f.lv == lv and os.time() - f.t < M.cfg.facts_s then return f end
+    f = { key = key, t = os.time(), lv = lv, learned = c.learned[key] }
     c.journal_cache = c.journal_cache or {}
     local jc = c.journal_cache[key]
     if jc == nil then
-        local okj, jw = pcall(M._journal_weaknesses, name)
-        jc = (okj and jw) or false
+        local okj, jw, jname = pcall(M._journal_weaknesses, name)
+        jc = (okj and jw) and { list = jw, entry = jname } or false
         c.journal_cache[key] = jc
     end
-    for _, tag in ipairs(jc or {}) do put(M.norm_tag(tag), "weak", "journal") end
-    local wr = M.wiki_creature(name)
+    f.journal = jc or nil
+    f.wiki = M.wiki_creature(name)
+    for k, pr in pairs(M.PRIORS) do if key:find(k, 1, true) then f.priors = pr end end
+    if not (f.learned and next(f.learned)) then f.family = M.family_affinity(name) end
+    local out, n = {}, 0
+    local function put(tag, v, src) if v and v ~= "neutral" and not out[tag] then out[tag] = { v = v, src = src }; n = n + 1 end end
+    for tag, v in pairs(f.learned or {}) do put(tag, v, "learned") end
+    for _, tag in ipairs(jc and jc.list or {}) do put(M.norm_tag(tag), "weak", "journal") end
+    local wr = f.wiki
     if wr then
         for _, tag in ipairs(wr.weak or {}) do put(tag, "weak", "wiki") end
         for _, tag in ipairs(wr.resist or {}) do put(tag, "resist", "wiki") end
         for _, tag in ipairs(wr.immune or {}) do put(tag, "immune", "wiki") end
     end
-    for k, pr in pairs(M.PRIORS) do
-        if key:find(k, 1, true) then
-            for tag in pairs(pr.weak or {}) do put(tag, "weak", "prior") end
-            for tag in pairs(pr.resist or {}) do put(tag, "resist", "prior") end
-            for tag in pairs(pr.immune or {}) do put(tag, "immune", "prior") end
-        end
+    local pr = f.priors
+    if pr then
+        for tag in pairs(pr.weak or {}) do put(tag, "weak", "prior") end
+        for tag in pairs(pr.resist or {}) do put(tag, "resist", "prior") end
+        for tag in pairs(pr.immune or {}) do put(tag, "immune", "prior") end
     end
-    local fam = M.family_affinity(name)
-    for tag, v in pairs(fam and fam.verdicts or {}) do put(tag, v, "prior:family") end
-    return n > 0 and out or nil
+    for tag, v in pairs(f.family and f.family.verdicts or {}) do put(tag, v, "prior:family") end
+    f.affinities = n > 0 and out or nil
+    f.immune_effects = wr and wr.immune_effects or nil
+    f.inflicts = wr and wr.inflicts or nil
+    c.facts[key] = f
+    return f
+end
+function M.known_affinities(name)
+    local f = M.creature_facts(name)
+    return f and f.affinities or nil
 end
 
 -- The wiki snapshot's facts for a creature (client_mod/scripts/creature_wiki.lua, generated by
 -- tools/gen_creature_wiki.py): {pl = {...}, hp = {...}, race, weak/resist/immune (tags), immune_effects, url}.
-local WIKI
 function M.wiki_creature(name)
-    if WIKI == nil then
-        local ok, t = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/creature_wiki.lua"))() end)
-        WIKI = ok and type(t) == "table" and t or false
-    end
+    local WIKI = M.data("creature_wiki")
     return WIKI and name and WIKI[tostring(name):lower()] or nil
 end
 
@@ -3506,101 +3534,147 @@ end
 
 local AFF_MULT = { weak = 1.5, resist = 0.6, immune = 0.05 }
 
--- A long boss fight, prepared (gap 5; an ESTIMATE, every prior named in the result):
---   time   = his damage window: boss HP / his prepared DPS, split into `windows` melee windows (arena PhaseData count
---            when seen, else cfg.boss_windows) + (windows - 1) flights of cfg.boss_flight_s each (no damage dealt);
---   intake = their melee DPS (the assess formula, x (1 - breath share x shield block) with an Anti-Dragon Shield)
---            + poison DoT (cfg.poison_dps x cfg.poison_uptime x (1 - his best poison resistance), when the creature
---            poisons: wiki text / observed abilities) during windows, + cfg.meteor_dps during flights;
---   supply = HP + Tempest Shield + food, eaten at most once per cfg.eat_every_s (the game's own pace), every item counted;
---   die_s  = when intake exceeds supply. -> {verdict, kill_s, die_s, windows, flights, dot_hps, uses, priors, not_counted}
-function M.boss_prepared(me, e, list, cast, known, attack_level, base)
+-- Tempest Shield's shield health (game data GE_TempestShield: 50 + 7.5 x Attack level).
+function M.tempest_hp(level) return 50 + 7.5 * (level or 1) end
+
+-- One assess call shape for "this one creature, information only" (fight odds, briefs, estimates).
+function M.assess_vs(me_stats, e)
+    local en = { name = e.name, hp = tonumber(e.hp or e.health), max_hp = tonumber(e.max_hp or e.max_health),
+                 pl = tonumber(e.power_level or e.pl), boss = e.boss == true, dps_obs = e.dps_obs }
+    local ok, a = pcall(M.assess, me_stats, { en }, { reflexonly = true }, nil, M.cfg)
+    return ok and a or nil
+end
+
+-- What his loadout can do against a creature: ONE digest for both odds models.
+--   weapon: melee via M.best_weapon/score_weapon (with the KNOWN affinities and their sources); ranged/magic with
+--           ONE ammo rule (its ammo kind carried; magic: any rune); the best dps wins
+--   shield: M.best_weapon's shield; breath_block from item_traits (data)
+--   foods:  every healing food item (ONE heal rule: the entry's heal, else the consumable data's), best first
+--   poison_resist: his best carried poison resistance (consumable data)
+-- -> {dps, weapon, why, uses = {...}, foods = {h...}, nfood, shield, breath_block, poison_resist, tempest}
+function M.loadout_capability(list, cast, enemy, known, attack_level)
     local cfg = M.cfg
     local items = M.weapons().items or {}
-    local c = C()
-    local windows = (c.boss and c.boss.phases) or cfg.boss_windows
-    local flights = math.max(0, windows - 1)
-    local uses = base and base.uses and { table.unpack(base.uses) } or {}
-    -- his DPS: the melee estimate from prepared_odds, or a ranged/magic weapon he carries (ammo/runes carried)
-    local dps = base and base.dps or 12
+    local cap = { uses = {}, foods = {}, nfood = 0, poison_resist = 0 }
     local carried = {}
     for _, where in ipairs({ "loadout", "hotbar", "bag" }) do
         for _, it in ipairs((list or {})[where] or {}) do if it.item then carried[it.item] = (carried[it.item] or 0) + (it.count or 1) end end
     end
-    local has_runes, has_arrows, has_bolts = false, false, false
-    for id in pairs(carried) do
-        if id:find("Rune", 1, true) then has_runes = true end
-        if id:find("Arrow", 1, true) then has_arrows = true end
-        if id:find("Bolt", 1, true) then has_bolts = true end
+    local function has_ammo(p)
+        if p.kind == "melee" or not p.ammo or p.ammo == "None" or p.ammo == "Self" then return true end
+        for id in pairs(carried) do
+            if (p.kind == "magic" and id:find("Rune", 1, true)) or (p.kind ~= "magic" and id:find(tostring(p.ammo):gsub("s$", ""), 1, true)) then return true end
+        end
+        return false
     end
+    -- melee: the existing chooser with the known affinities
+    local bw = M.best_weapon(list, enemy or {}, nil, C().learned, known)
+    local best, bdps, bwhy = bw.weapon and bw.weapon.profile, bw.weapon and bw.weapon.score, bw.weapon and bw.weapon.why
+    -- ranged / magic
     for id in pairs(carried) do
         local p = items[id]
-        if p and p.role == "weapon" and (p.kind == "magic" or p.kind == "ranged") then
-            local ok_ammo = (p.kind == "magic" and has_runes) or (p.ammo == "Arrows" and has_arrows) or (p.ammo == "Bolts" and has_bolts) or p.ammo == "Self"
+        if p and p.role == "weapon" and (p.kind == "ranged" or p.kind == "magic") and has_ammo(p) then
             local d = M.dps(p) or (p.kind == "magic" and p.mult and p.prim and p.prim.next_ms and (cfg.magic_base_dmg * p.mult) / (p.prim.next_ms / 1000))
-            if ok_ammo and d and d > dps then dps = d; uses[#uses + 1] = p.name .. (p.kind == "magic" and " (rune damage: estimate)" or "") end
+            if d and (not bdps or d > bdps) then best, bdps, bwhy = p, d, p.kind == "magic" and "rune damage: estimate" or nil end
         end
     end
-    -- their side
-    local gap = (tonumber(e.power_level or e.pl) or 1) - (me.pl or 1)
-    local melee = M.enemy_dps_prior(tonumber(e.power_level or e.pl)) * (1.25 ^ gap)
-    local my_dps = math.max(dps * (1.25 ^ (-math.max(gap, 0))), 0.1)
-    local shield -- by the entry's own display name (the item is not in every build's held-item data)
+    cap.dps, cap.weapon, cap.why = bdps or 12, best, bwhy
+    if best then cap.uses[#cap.uses + 1] = best.name .. (bwhy and ((bwhy:find("estimate", 1, true) and " (" or " vs ") .. bwhy .. (bwhy:find("estimate", 1, true) and ")" or "")) or "") end
+    if best and best.kind == "melee" and cast and cast.enchant and not bwhy then
+        for tag in pairs(cast.enchant) do
+            local k = known and known[tag]
+            if k and k.v == "weak" then
+                cap.dps = cap.dps * AFF_MULT.weak
+                cap.uses[#cap.uses + 1] = "Enchant Weapon (" .. short_tag(tag) .. ") vs " .. short_tag(tag):lower() .. "-weak (" .. k.src .. ")"
+                break
+            end
+        end
+    end
+    if cast and cast.tempest then
+        cap.tempest = M.tempest_hp(attack_level)
+        cap.uses[#cap.uses + 1] = string.format("Tempest Shield (+%d shield)", math.floor(cap.tempest))
+    end
+    -- shields: the best block (chooser), and the best breath block (item traits, by display name)
+    cap.shield = bw.shield and bw.shield.profile
+    local traits = M.data("item_traits") or {}
     for _, where in ipairs({ "loadout", "hotbar", "bag" }) do
         for _, it in ipairs((list or {})[where] or {}) do
             local nm = it.name or ((items[it.item or ""] or {}).name)
-            if nm and tostring(nm):find("Anti%-Dragon") then shield = nm end
+            local tr = nm and traits[tostring(nm):lower()]
+            if tr and tr.blocks_breath and tr.blocks_breath > (cap.breath_block or 0) then cap.breath_block, cap.breath_shield = tr.blocks_breath, nm end
+            local info = M.consumable_info(it.name)
+            local h = tonumber(it.heal) or (info and info.heal)
+            if it.consumable == "food" and h and h > 0 then
+                for _ = 1, (it.count or 1) do cap.foods[#cap.foods + 1] = h end
+                cap.nfood = cap.nfood + (it.count or 1)
+            end
+            local r = info and info.resists and info.resists.Poison
+            if r and r > cap.poison_resist then cap.poison_resist = r end
         end
     end
-    if shield then melee = melee * (1 - cfg.breath_share * cfg.dragon_shield_block); uses[#uses + 1] = shield .. " vs breath" end
+    table.sort(cap.foods, function(a, b) return a > b end)
+    return cap
+end
+
+-- The boss profile (data): the creature's own, else the default.
+function M.boss_profile(name)
+    local bp = M.data("boss_profiles") or {}
+    return bp[tostring(name or ""):lower()] or bp.default or {}
+end
+
+-- A long boss fight, prepared (gap 5; an ESTIMATE, every prior named in the result):
+--   time   = his damage window: boss HP / his prepared DPS, split into `windows` melee windows (arena PhaseData count
+--            when seen, else the boss profile's) + (windows - 1) flights of the profile's flight_s (no damage dealt);
+--   intake = their melee DPS (the assess formula, x (1 - breath_share x breath block) with a breath-blocking shield)
+--            + poison DoT (poison_dps x poison_uptime x (1 - his poison resistance), when the creature poisons:
+--            wiki text / observed abilities) during windows, + meteor_dps during flights;
+--   supply = HP + Tempest Shield + food, eaten at most once per cfg.eat_every_s, every item counted;
+--   die_s  = when intake exceeds supply. -> {verdict, kill_s, die_s, windows, flights, dot_hps, uses, priors, not_counted}
+function M.boss_prepared(me, e, cap)
+    local cfg = M.cfg
+    local c = C()
+    local bp = M.boss_profile(e.name)
+    local windows = (c.boss and c.boss.phases) or bp.windows or 4
+    local flights = math.max(0, windows - 1)
+    local uses = { table.unpack(cap.uses) }
+    local gap = (tonumber(e.power_level or e.pl) or 1) - (me.pl or 1)
+    local melee = M.enemy_dps_prior(tonumber(e.power_level or e.pl)) * (1.25 ^ gap)
+    local my_dps = math.max(cap.dps * (1.25 ^ (-math.max(gap, 0))), 0.1)
+    if cap.breath_block then
+        melee = melee * (1 - (bp.breath_share or 0) * cap.breath_block)
+        uses[#uses + 1] = tostring(cap.breath_shield) .. " vs breath"
+    end
     local wr = M.wiki_creature(e.name)
-    local poisons = wr and wr.inflicts and (function() for _, x in ipairs(wr.inflicts) do if x == "Poison" then return true end end end)()
+    local poisons = false
+    for _, x in ipairs((wr and wr.inflicts) or {}) do if x == "Poison" then poisons = true end end
     for _, r in pairs(c.ai_actions or {}) do if r.profile and r.profile.status == "Poison" and r.name == e.name then poisons = true end end
-    local dot, res = 0, 0
+    local dot = 0
     if poisons then
-        for _, where in ipairs({ "hotbar", "bag" }) do
-            for _, it in ipairs((list or {})[where] or {}) do
-                local info = M.consumable_info(it.name)
-                local r = info and info.resists and info.resists.Poison
-                if r and r > res then res = r end
-            end
-        end
-        res = math.min(res * 2, 99) -- a potion + a Fungal Fortitude food stack (wiki: 66%); at most the best x 2
-        dot = cfg.poison_dps * cfg.poison_uptime * (1 - res / 100)
+        local res = math.min(cap.poison_resist * 2, 99) -- a potion + a Fungal Fortitude food stack (wiki: 66%); at most the best x 2
+        dot = (bp.poison_dps or 0) * (bp.poison_uptime or 0) * (1 - res / 100)
         if res > 0 then uses[#uses + 1] = string.format("poison resistance ~%d%%", res) end
     end
     local intake = melee + dot
     local fight_s = (tonumber(e.hp or e.health) or 1000) / my_dps
-    local kill_s = fight_s + flights * cfg.boss_flight_s
-    -- supply over time: HP + shield + one food per eat_every_s while food lasts
-    local foods = {}
-    for _, where in ipairs({ "hotbar", "bag" }) do
-        for _, it in ipairs((list or {})[where] or {}) do
-            local h = tonumber(it.heal) or ((M.consumable_info(it.name) or {}).heal)
-            if it.consumable == "food" and h and h > 0 then for _ = 1, (it.count or 1) do foods[#foods + 1] = h end end
-        end
-    end
-    table.sort(foods, function(a, b) return a > b end)
-    local hp = (me.hp or 100) + ((cast and cast.tempest) and (50 + 7.5 * (attack_level or 1)) or 0)
+    local flight_s = bp.flight_s or 20
+    local kill_s = fight_s + flights * flight_s
+    local hp = (me.hp or 100) + (cap.tempest or 0)
     local die_s, t, eaten, next_eat = nil, 0, 0, 0
     local window_len = fight_s / windows
-    local cap = me.max_hp or 100
+    local maxhp = me.max_hp or 100
     while t < 7200 do
         t = t + 1
-        local in_flight = false
-        do -- time inside the fight: windows and flights alternate
-            local cyc = window_len + cfg.boss_flight_s
-            local k = math.floor(t / cyc)
-            in_flight = k < flights and (t - k * cyc) > window_len
-        end
-        hp = hp - (in_flight and cfg.meteor_dps or intake)
-        if hp < cap * 0.5 and eaten < #foods and t >= next_eat then
-            eaten = eaten + 1; hp = math.min(hp + foods[eaten], cap + 200); next_eat = t + cfg.eat_every_s
+        local cyc = window_len + flight_s
+        local k = math.floor(t / cyc)
+        local in_flight = k < flights and (t - k * cyc) > window_len
+        hp = hp - (in_flight and (bp.meteor_dps or 0) or intake)
+        if hp < maxhp * 0.5 and eaten < #cap.foods and t >= next_eat then
+            eaten = eaten + 1; hp = math.min(hp + cap.foods[eaten], maxhp + 200); next_eat = t + cfg.eat_every_s
         end
         if hp <= 0 then die_s = t; break end
         if t >= kill_s then break end
     end
-    if #foods > 0 then uses[#uses + 1] = string.format("%d food (eaten %d by then)", #foods, eaten) end
+    if #cap.foods > 0 then uses[#uses + 1] = string.format("%d food (eaten %d by then)", #cap.foods, eaten) end
     local verdict = "likely_win" -- outlasts the whole fight
     if die_s then
         local ratio = die_s / math.max(kill_s, 1)
@@ -3609,83 +3683,30 @@ function M.boss_prepared(me, e, list, cast, known, attack_level, base)
     return { verdict = verdict, kill_s = math.floor(kill_s),
              die_s = die_s and math.floor(die_s) or nil, survives = die_s == nil or nil, windows = windows, flights = flights,
              dot_hps = dot > 0 and math.floor(dot * 10) / 10 or nil, uses = uses, boss = true,
-             priors = { poison_dps = cfg.poison_dps, poison_uptime = cfg.poison_uptime, flight_s = cfg.boss_flight_s,
-                        meteor_dps = cfg.meteor_dps, breath_share = cfg.breath_share, dragon_shield_block = cfg.dragon_shield_block },
+             priors = { poison_dps = bp.poison_dps, poison_uptime = bp.poison_uptime, flight_s = flight_s, meteor_dps = bp.meteor_dps,
+                        breath_share = bp.breath_share, breath_block = cap.breath_block, source = bp.source },
              not_counted = "blocking, dodging (meteors assumed mostly dodged), armour, infusions/potions' damage buffs, a second fighter" }
 end
--- The odds with his best preparation from what he owns and can cast (an estimate, labelled as such):
---   his best weapon against what is KNOWN of the creature (any weapon kind with a known DPS; magic/ranged
---   only with its ammo carried), an enchant he can cast whose type it is weak to (melee), Tempest Shield's
---   shield health (game data: 50 + 7.5 x Attack level), and the healing food he carries (capped at 2x max HP).
--- Not counted: blocking/parrying/dodging, his armour, a second fighter. -> {verdict, kill_s, die_s, uses = {...}}
+
+-- The odds with his best preparation from what he owns and can cast (an estimate, labelled as such): the
+-- loadout digest (best weapon vs what is KNOWN, a castable enchant it is weak to, Tempest Shield, food). A boss
+-- gets the long-fight model. Not counted: blocking/parrying/dodging, his armour, a second fighter.
 function M.prepared_odds(me, e, list, cast, known, attack_level)
-    local items = M.weapons().items or {}
-    local function mult(types)
-        local m, why = 1, nil
-        for _, tag in ipairs(types or {}) do
-            local k = known and known[tag]
-            if k and AFF_MULT[k.v] then m = m * AFF_MULT[k.v]; why = why or (short_tag(tag):lower() .. "-" .. k.v .. " (" .. k.src .. ")") end
-        end
-        return m, why
-    end
-    local carried = {}
-    for _, where in ipairs({ "loadout", "hotbar", "bag" }) do
-        for _, it in ipairs((list or {})[where] or {}) do if it.item then carried[it.item] = (carried[it.item] or 0) + (it.count or 1) end end
-    end
-    local function has_ammo(p)
-        if not p.ammo then return p.kind == "melee" end
-        for id in pairs(carried) do if id:find(p.ammo, 1, true) or (p.kind == "magic" and id:find("Rune", 1, true)) then return true end end
-        return false
-    end
-    local best, bdps, bwhy
-    for id in pairs(carried) do
-        local p = items[id]
-        if p and p.role == "weapon" and M.dps(p) and has_ammo(p) then
-            local m, why = mult(p.types)
-            local d = M.dps(p) * (M.TOOL_FACTOR[p.cat] or 1) * m
-            if not bdps or d > bdps then best, bdps, bwhy = p, d, why end
-        end
-    end
-    local uses = {}
-    local dps = bdps or 12
-    if best then uses[#uses + 1] = best.name .. (bwhy and (" vs " .. bwhy) or "") end
-    if best and best.kind == "melee" and cast and cast.enchant then
-        for tag in pairs(cast.enchant) do
-            local k = known and known[tag]
-            if k and k.v == "weak" and not bwhy then
-                dps = dps * AFF_MULT.weak
-                uses[#uses + 1] = "Enchant Weapon (" .. short_tag(tag) .. ") vs " .. short_tag(tag):lower() .. "-weak (" .. k.src .. ")"
-                break
-            end
-        end
-    end
-    local hp = me.hp or 100
-    if cast and cast.tempest then
-        local sh = 50 + 7.5 * (attack_level or 1)
-        hp = hp + sh
-        uses[#uses + 1] = string.format("Tempest Shield (+%d shield)", math.floor(sh))
-    end
-    local heal, nfood = 0, 0
-    for _, where in ipairs({ "hotbar", "bag" }) do
-        for _, it in ipairs((list or {})[where] or {}) do
-            local h = tonumber(it.heal)
-            if it.consumable == "food" and h and h > 0 then heal = heal + h * (it.count or 1); nfood = nfood + (it.count or 1) end
-        end
-    end
-    heal = math.min(heal, 2 * (me.max_hp or 100))
-    if heal > 0 then hp = hp + heal; uses[#uses + 1] = string.format("%d food (+%d HP)", nfood, math.floor(heal)) end
-    local en = { name = e.name, hp = tonumber(e.hp or e.health), max_hp = tonumber(e.max_hp or e.max_health),
-                 pl = tonumber(e.power_level or e.pl), boss = e.boss == true }
-    local ok, a = pcall(M.assess, { hp = hp, max_hp = hp, pl = me.pl, dps = dps }, { en }, { reflexonly = true }, nil, M.cfg)
-    if not (ok and a) then return nil end
-    if e.boss == true then
-        return M.boss_prepared(me, e, list, cast, known, attack_level, { dps = dps, uses = uses })
-    end
+    local cap = M.loadout_capability(list, cast, e, known, attack_level)
+    if e.boss == true then return M.boss_prepared(me, e, cap) end
+    local hp = (me.hp or 100) + (cap.tempest or 0)
+    local heal = 0
+    for _, h in ipairs(cap.foods) do heal = heal + h end
+    heal = math.min(heal, 2 * (me.max_hp or 100)) -- a short fight: about two bars of food get eaten
+    local uses = { table.unpack(cap.uses) }
+    if heal > 0 then hp = hp + heal; uses[#uses + 1] = string.format("%d food (+%d HP)", cap.nfood, math.floor(heal)) end
+    local a = M.assess_vs({ hp = hp, max_hp = hp, pl = me.pl, dps = cap.dps }, e)
+    if not a then return nil end
     -- the times decide here (the PL-gap label "too_strong" would hide what the preparation changes)
     local verdict = a.verdict
     if verdict == "too_strong" then verdict = (a.u_fight or 0) >= M.cfg.fight_enter and "likely_win" or "likely_lose" end
     return { verdict = verdict, kill_s = a.my_ttk and math.floor(a.my_ttk), die_s = a.their_ttk and math.floor(a.their_ttk), uses = uses,
-             not_counted = "blocking, dodging, armour, staff/wand spell damage, a second fighter" }
+             not_counted = "blocking, dodging, armour, a second fighter" }
 end
 
 -- {id -> {verdict, kill_s, die_s, pl_gap}} for up to cfg.odds_max living, non-follower creatures within cfg.odds_m.
@@ -3699,10 +3720,8 @@ function M.fight_odds(me, dps, entities)
     table.sort(list, function(a, b) return (tonumber(a.distance_m or a.distance) or 1e9) < (tonumber(b.distance_m or b.distance) or 1e9) end)
     for _, e in ipairs(list) do
         if n >= M.cfg.odds_max then break end
-        local en = { name = e.name, hp = tonumber(e.hp or e.health), max_hp = tonumber(e.max_hp or e.max_health),
-                     pl = tonumber(e.power_level or e.pl), boss = e.boss == true }
-        local ok, a = pcall(M.assess, { hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = dps or 12 }, { en }, { reflexonly = true }, nil, M.cfg)
-        if ok and a and a.verdict then
+        local a = M.assess_vs({ hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = dps or 12 }, e)
+        if a and a.verdict then
             n = n + 1
             out[e.id] = { verdict = a.verdict, kill_s = a.my_ttk and math.floor(a.my_ttk), die_s = a.their_ttk and math.floor(a.their_ttk),
                           pl_gap = a.pl_gap }
