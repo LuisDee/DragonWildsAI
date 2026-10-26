@@ -55,6 +55,7 @@ M.cfg = {
     special_gap_s = 6,
     telegraph_m = 6, telegraph_fresh_s = 1.0,
     disengage_m = 10,        -- back off this far to eat (orders.disengage)
+    odds_m = 40, odds_max = 6, -- get_state fight_odds: creatures in sight
     memory_enabled = true, history_max = 10, steam_manifest = "C:/Program Files (x86)/Steam/steamapps/appmanifest_1374490.acf",
     chase_moved_m = 3, -- a stall while the target itself moved this far = it is running, not a wall
     chase_max_s = 30, -- approaching (all episodes) this long without landing a hit: too_far, cant_catch
@@ -2846,7 +2847,39 @@ function M.state_extras(api, data)
         h.ok = nil
         c.extras = { key = key, t = t, v = h }
     end
-    return { held_actions = c.extras.v }
+    -- fight odds for the creatures in sight (prep information for the brain: the same estimate combat_brief
+    -- gives; never a veto) and his own power level. Pure maths on the census rows already in `data`.
+    if not (c.odds and t - c.odds.t < 3) then
+        local me = read_me(pawn, pc)
+        local items = M.weapons().items or {}
+        local w = items[r] or items[l]
+        local dps = (w and w.role == "weapon" and M.dps(w)) or 12
+        c.odds = { t = t, pl = me.pl, v = M.fight_odds(me, dps, data and data.nearby_entities) }
+    end
+    return { held_actions = c.extras.v, power_level = c.odds.pl, fight_odds = c.odds.v }
+end
+
+-- {id -> {verdict, kill_s, die_s, pl_gap}} for up to cfg.odds_max living, non-follower creatures within cfg.odds_m.
+function M.fight_odds(me, dps, entities)
+    local out, n = {}, 0
+    local list = {}
+    for _, e in ipairs(type(entities) == "table" and entities or {}) do
+        local d = tonumber(e.distance_m or e.distance)
+        if type(e) == "table" and e.id and e.alive ~= false and not e.follower and (not d or d <= M.cfg.odds_m) then list[#list + 1] = e end
+    end
+    table.sort(list, function(a, b) return (tonumber(a.distance_m or a.distance) or 1e9) < (tonumber(b.distance_m or b.distance) or 1e9) end)
+    for _, e in ipairs(list) do
+        if n >= M.cfg.odds_max then break end
+        local en = { name = e.name, hp = tonumber(e.hp or e.health), max_hp = tonumber(e.max_hp or e.max_health),
+                     pl = tonumber(e.power_level or e.pl), boss = e.boss == true }
+        local ok, a = pcall(M.assess, { hp = me.hp, max_hp = me.max_hp, pl = me.pl, dps = dps or 12 }, { en }, { reflexonly = true }, nil, M.cfg)
+        if ok and a and a.verdict then
+            n = n + 1
+            out[e.id] = { verdict = a.verdict, kill_s = a.my_ttk and math.floor(a.my_ttk), die_s = a.their_ttk and math.floor(a.their_ttk),
+                          pl_gap = a.pl_gap }
+        end
+    end
+    return out
 end
 
 -- Module functions each tool needs (the bridge offers a tool only when they exist).

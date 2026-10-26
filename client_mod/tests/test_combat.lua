@@ -339,6 +339,17 @@ do
     local best = Cm.best_weapon(inv_list, { name = "Kebbit" })
     check("best weapon = Bone Dagger", best.weapon and best.weapon.entry.item == "ITEM_Dagger_Bone", best.weapon and best.weapon.entry.item)
     check("best shield = Bronze Shield", best.shield and best.shield.entry.item == "ITEM_Shield_Bronze")
+    do -- fight odds for get_state (prep information, the same estimate as combat_brief)
+        local me = { hp = 100, max_hp = 100, pl = 1 }
+        local odds = Cm.fight_odds(me, 12, {
+            { id = "k1", name = "Kebbit", hp = 30, max_hp = 30, power_level = 1, distance = 5 },
+            { id = "d1", name = "Grey Drake", hp = 900, max_hp = 900, power_level = 6, distance = 20 },
+            { id = "far", name = "Troll", hp = 900, power_level = 8, distance = 90 },
+            { id = "f1", name = "Pet", follower = true, distance = 2 } })
+        check("odds: an easy creature", odds.k1 and odds.k1.verdict == "likely_win", odds.k1 and odds.k1.verdict)
+        check("odds: a hard creature says so, with the gap and times", odds.d1 and odds.d1.verdict == "too_strong" and odds.d1.pl_gap == 5 and odds.d1.die_s ~= nil, odds.d1 and odds.d1.verdict)
+        check("odds: out of sight / followers skipped", odds.far == nil and odds.f1 == nil)
+    end
     do -- any shield he owns, from data (the parry cases need the Wooden Shield he crafts himself)
         local only_wood = { loadout = {}, hotbar = { { item = "ITEM_Dagger_Bone", slot = 1 } }, bag = { { item = "ITEM_Shield_Wood", slot = 3 } } }
         local b2 = Cm.best_weapon(only_wood, { name = "Goblin Runt" })

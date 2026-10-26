@@ -158,16 +158,44 @@ def _resource_note(row: dict) -> str | None:
     return ", ".join(bits) or None
 
 
+ODDS_WORDS = {"likely_win": "likely win", "likely_lose": "likely lose", "too_strong": "too strong for you",
+              "outnumbered": "outnumbered", "boss": "boss fight"}
+
+
+def _creature_note(e: dict, odds: dict) -> str | None:
+    """'HP 900/900, PL 6, boss, fighting, odds: too strong for you (it kills you in ~20 s, you it in ~75 s)'.
+    The odds are the body's own estimate (combat.fight_odds, the same as combat_brief): information, not advice."""
+    bits = [b for b in (_hp(e),) if b]
+    pl = _num(e.get("power_level", e.get("pl")))
+    if pl is not None:
+        bits.append(f"PL {pl:g}")
+    if e.get("boss"):
+        bits.append("boss")
+    if e.get("in_combat"):
+        bits.append("fighting")
+    o = odds.get(str(e.get("id"))) if isinstance(odds, dict) else None
+    if isinstance(o, dict) and o.get("verdict"):
+        t = []
+        if o["verdict"] != "likely_win":  # the times matter when it is not an easy fight (line budget)
+            if _num(o.get("die_s")) is not None:
+                t.append(f"it kills you ~{o['die_s']:g} s")
+            if _num(o.get("kill_s")) is not None:
+                t.append(f"you it ~{o['kill_s']:g} s")
+        bits.append(f"odds: {ODDS_WORDS.get(o['verdict'], o['verdict'])}" + (f" ({'; '.join(t)})" if t else ""))
+    return ", ".join(bits) or None
+
+
 def perceived(state: dict, looks: Iterable[dict] = ()) -> list[Thing]:
     """Everything the companion can currently perceive: get_state lists, the body's surroundings
     digest, and the things returned by look calls this turn."""
     out: list[Thing] = []
     names = item_names(state)
+    odds = state.get("fight_odds") if isinstance(state.get("fight_odds"), dict) else {}
     for e in state.get("nearby_entities") or []:
         if isinstance(e, dict) and e.get("alive", True):
             out.append(Thing(e.get("name") or pretty_id(e.get("kind") or e.get("id")), "creature", e.get("id"),
                              _num(e.get("distance")), actions=["attack"], hostile=e.get("hostile"),
-                             extra={str(e.get("kind") or "")}, note=_hp(e), group="creature"))
+                             extra={str(e.get("kind") or "")}, note=_creature_note(e, odds), group="creature"))
     for g in state.get("nearby_items") or []:
         if isinstance(g, dict):
             item = str(g.get("item") or g.get("id") or "")
@@ -472,6 +500,7 @@ COVERED_KEYS = frozenset({
     "skills", "sleeping", "stamina", "stations_nearby", "structures", "surroundings", "survival", "sustenance",
     "sustenance_max", "time_of_day", "tool_need", "total_level", "unavailable", "vitals_policy", "vitals_rate", "yaw",
     "spells", "spells_locked_n", "extras_keys", "world_guid", "puppet", "spell_cooldowns", "time",
+    "power_level", "fight_odds",
 })
 EXTRAS_LINES, EXTRAS_ITEMS = 3, 4
 
@@ -522,6 +551,8 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     lines: list[str | None] = []
 
     me = [b for b in (_health(state),) if b]
+    if _num(state.get("power_level")) is not None:  # his own power level (combat state_extras), beside the creatures' PL
+        me.append(f"PL {_num(state.get('power_level')):g}")
     for stat, word in (("hydration", "water"), ("sustenance", "food")):  # survival needs (client body)
         cur, mx = _num(state.get(stat)), _num(state.get(f"{stat}_max"))
         if cur is not None:
@@ -562,8 +593,11 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     lines.append(_line("Players", [f"{t.name} {t.distance:.0f} m" if t.distance is not None else t.name for t in pl]))
 
     # hostiles first, then by distance (the nearest threat leads the line)
+    # (a creature the body rates hard counts as a threat for the order: it must not be cut off the line)
+    def _hard(g):
+        return bool(g.note) and any(f"odds: {w}" in g.note for w in ("too strong", "boss", "likely lose", "outnumbered"))
     creatures = sorted(_group([t for t in things if t.kind == "creature"]),
-                       key=lambda g: (not g.hostile, g.distance if g.distance is not None else 1e9))
+                       key=lambda g: (not (g.hostile or _hard(g)), g.distance if g.distance is not None else 1e9))
     lines.append(_line("Creatures", [("hostile " if g.hostile else "") + g.label() for g in creatures]))
 
     ground = _group([t for t in things if t.kind == "item"])
