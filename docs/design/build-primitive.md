@@ -308,3 +308,65 @@ Reasons: `container_full`, `inventory_full`, `not_in_container`, `not_a_containe
 2. Validity: hook `OnValidityStateChange` (an event per change) or the MPC scalar (polling, no hook)? Both are read-only.
 3. Should `build` leave build mode after success, or stay for "build 4 walls" (one tool call per piece; leaving costs about 1 s per piece)? The proposal is to leave, and maybe add `count`/`pattern` later as a compound.
 4. Farm plots may be "pieces" or items placed by another path (the Farming unlock is `ProgressComponent.bFarmingUnlocked`). That needs P1 data before promising them.
+
+## Rev 2 (2026-10-26): after the review (`docs/reviews/2026-10-26-build-primitive-review.md`) and live P1a/P1b
+
+**Built (offline, tests green, not deployed):**
+- **`client_mod/scripts/input.lua`**: the shared input layer and **modal gate** (finding 4). `gate()` blocks gameplay input while:
+  - build mode is open (`CurrentBuildMode ~= None`);
+  - a world-inventory screen is open;
+  - the PC's input mode is not `DIM_Gameplay` (spell wheel/placement, `DIM_OculusBuildMenu`);
+  - or `DW_PAUSE` is set.
+
+  Owners use `claim`/`release`. An orphan build mode or chest screen is cleaned up after 1 s (Cancel or `CloseCurrentInventory`, one step per second, at most 3, then reported `stuck`). Input modes are never auto-exited. Handles are cached.
+  - **Adopted by combat** (combat agent: every combat inject is gated; test_combat 182/182).
+  - Tests: `client_mod/tests/test_input.lua` (17).
+- **store / take** (`skills.lua`, finding 14): separate **action** tools (`kind = action`, `moves = true`), replacing the `move_item` overload. Each one:
+  - checks the OpenChests privilege, then opens the container with the shared episode (verified by "this container's screen is open", a new generic `W.press_signals.container` signal that interact also reports as `changed = "opened"`);
+  - moves one stack per press through the screen's own handlers (`inventory.to_external` / `from_external`, shared helpers that crafting's code path also uses), verified on both sides;
+  - closes the screen on every exit path, claimed in input.lua. A reflex pre-empt closes it at once, and on resume it reopens.
+
+  Tests: test_skills store/take ×5.
+- **`buildables`** (`build.lua`):
+  - unlocked pieces from `ProgressComponent.BuildingsUnlocked` (deduplicated, per P1a);
+  - static data cached per session (finding 11);
+  - cost and missing in crafting's row shape; advisory `in_storage` from nearby chests (finding 3);
+  - privileges Build/Owner and `host_only` (findings 1–2); never matches on Category (finding 15).
+
+  Tests: `client_mod/tests/test_build.lua` (13).
+- **`brain/interface.py` Reason:** `no_permission`, `host_only`, `limit_reached`, `blocked`, `not_a_container`, `not_in_container` and `container_full`, all DETERMINISTIC (finding 16).
+- **Bridge:** modules `input`, `build` and `fishing` are registered. `M.is_action_tool` takes action tools from module manifests (`kind = action`, `moves = true`).
+
+**Live P1a/P1b results that change the design** (details in DISCOVERIES "Build probes P1a/P1b"):
+- **`ValiditySpawnStateToScalarIndex` is a 3-colour index, not the state.**
+  - Valid and NeedsSnapping both map to 2.
+  - Most invalid states map to 1.
+  - WrongPhysicalSurface and None map to 0.
+
+  So the review's Q2 answer (poll the MPC as the source of truth) cannot authorise a press. **Proposal:** the exact state comes from the `OnValidityStateChange` (BuildModeComponent) / `OnValiditySpawnStateChanged` (preview actor) post-hook, recorded with a sequence number. Press place only when:
+  - (a) the hook's last state is Valid,
+  - (b) it was received after the latest aim change, and
+  - (c) the MPC poll agrees (scalar 2).
+
+  If the hook never fires after selection (deferred registration), re-aim once to force a change. Still nothing → `verification_failed why=preview_unreadable`, and no press. P4a/P4b test exactly this (MPC read first, then the hook).
+- **Facts from P1a/P1b:**
+  - reach 700 cm from the camera, plus 350 distance and 300 height modifiers;
+  - rotation step 15° (rotation via `IA_Building_RotateZ`);
+  - `MinTimeBetweenBuildingPlacementRequests` 0.25 s;
+  - the client counter map is empty, so count limits are advisory only (finding 19);
+  - Category reads "None" for Campfire and Crafting Table, so it gives no useful grouping;
+  - the catalogue asset is loaded (category labels can come from its pages later).
+- **Unlocked on dev:** only Crafting Table (4 Ash Logs), Campfire (6 Stone, "Must Be Exposed"), Bedroll, a host-only Protection Totem and decorations. P5 will place a **Campfire** (6 Stone, granted by the bench fixture as harness setup).
+
+**Still to build:**
+- `placement.lua` (finding 13: spots, aim, check loop, rejects, with an injected reader and press; the spells agent migrates spells.lua to it);
+- the `build` action (findings 5–9, 15–19 and §21 tests);
+- probes P2 → P6, one at a time, with the client slot.
+
+### Search record additions (review finding 17)
+
+| Source | Finding | Used how |
+|---|---|---|
+| Game wiki Build Menu, https://dragonwilds.runescape.wiki/w/Build_Menu, and gamever's category list, https://gamever.io/knowledge-base/the-dragonwilds-build-menu-every-structure-category-and-what-you-unlock | B opens the menu; pieces unlock through progression (Vault Cores); there is a Farming group under Crafting | Farm plots are ordinary pieces when unlocked: no special case; unlocks are the Director's job, not a fixture |
+| In-repo: crafting.lua external-inventory transfer (`HandleSplitToExternalSlot` / `HandleExternalQuickTransfer`), its close-on-every-exit, DISCOVERIES l.677 (linked inventories: player + nearby chests as `AvailableInventories`), l.746 (privileges via `PrivilegeComponent:HasPrivilege`) | The transfer path, the linked-storage rule and the privilege read already existed | store/take use the shared inventory helpers; buildables/build count storage (advisory) and verify the spend across it; privilege preflights |
+| mineflayer-builder (PrismarineJS), https://github.com/PrismarineJS/mineflayer-builder | A blueprint-driven multi-block builder over a single place primitive | Deferred: a future "build from blueprint" compound (Phase 7 place) composes `build` calls with `near: <previous piece>` |

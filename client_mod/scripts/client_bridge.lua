@@ -32,6 +32,19 @@
 -- Services: chat hooks, vitals watcher and stay-fed reflex are started and supervised here (SERVICES).
 -- Probe (cmd.probe=true): ok {probe=true} without acting. Pure Lua 5.4 + UE4SS
 -- LoopInGameThreadWithDelay/CancelDelayedAction; nothing Windows-specific except the mkdir helper.
+-- L28: never spawn a process on a hot path. A directory is created only if it is really missing
+-- (an open-for-append probe), and only once per load (cached).
+local DIRS_OK = {}
+local function ensure_dir(d)
+    d = tostring(d):gsub("\\", "/")
+    if DIRS_OK[d] then return end
+    local probe = d .. "/.dwclient_probe"
+    local f = io.open(probe, "a")
+    if f then f:close(); os.remove(probe); DIRS_OK[d] = true; return end
+    if package.config:sub(1, 1) == "\\" then os.execute('mkdir "' .. d:gsub("/", "\\") .. '" 2>nul')
+    else os.execute('mkdir -p "' .. d .. '"') end
+    DIRS_OK[d] = true
+end
 local M = {}
 
 M.POLL_MS = 100            -- bridge poll + action tick + waiters + chat tail (game thread)
@@ -380,7 +393,8 @@ function M.get_state()
             local mod = M.module(name)
             if mod and type(mod.state_extras) == "function" then
                 local okx, ex = pcall(mod.state_extras, M.API, data)
-                if okx and type(ex) == "table" then for k, v in pairs(ex) do data[k] = v end
+                if okx and type(ex) == "table" then
+                    for k, v in pairs(ex) do data[k] = v; missing[k] = nil end -- e.g. build.lua fills structures
                 elseif not okx then ev("client_module_error", { module = name, fn = "state_extras", err = tostring(ex) }) end
             end
         end
@@ -947,7 +961,8 @@ end
 -- returning what a route returns (see above). Routes win over HANDLERS.
 -- A module may also export NEEDS = {tool = {{module, fn}, ...}}: the handler is listed (and run) only
 -- while those functions exist, exactly like a route's `needs` (skills.lua composes other modules).
-M.MODULES = { "chat", "move", "sense", "inventory", "combat", "arbiter", "gather", "skills", "spells", "crafting", "hookhub" }
+M.MODULES = { "chat", "move", "sense", "inventory", "combat", "arbiter", "gather", "skills", "spells", "crafting", "hookhub",
+               "input", "build", "fishing", "agility", "farm", "talk" }
 local function module_handler(tool)
     for _, name in ipairs(M.MODULES) do
         local mod = M.module(name)
@@ -958,6 +973,19 @@ local function module_handler(tool)
         end
     end
     return nil
+end
+
+-- An action tool takes the single action slot and pre-empts the running action: the fixed list above,
+-- plus any module tool whose MANIFEST entry says kind = "action" and moves = true (skill modules such as
+-- fishing / runecraft / agility / build need no bridge edit).
+function M.is_action_tool(tool)
+    if M.ACTION_TOOLS[tool] then return true end
+    for _, name in ipairs(M.MODULES) do
+        local mod = M.module(name)
+        local e = mod and type(mod.MANIFEST) == "table" and mod.MANIFEST[tool]
+        if type(e) == "table" then return e.kind == "action" and e.moves == true end
+    end
+    return false
 end
 
 local function implemented_tools()
@@ -1066,14 +1094,15 @@ local function dispatch(tool, args, ctx)
         h = function(a, c) c.api = M.API; return mh(S.text_log, a, c) end
     end
     if args.probe == true then return { ok = true, data = { probe = true, tool = tool } } end
-    if M.ACTION_TOOLS[tool] and S.debug and ctx.chan == S.debug and S.action and S.action.chan ~= S.debug
+    local is_action = M.is_action_tool(tool)
+    if is_action and S.debug and ctx.chan == S.debug and S.action and S.action.chan ~= S.debug
        and args.force ~= true then
         -- BUGS L12: a debug/test action never pre-empts the brain's running action (it answered
         -- "interrupted" to Luis, 20:56); pass force = true to take the slot anyway
         return fail("busy", { owner = "brain:" .. tostring(S.action.kind), owner_id = S.action.id,
                               detail = "the brain's " .. tostring(S.action.kind) .. " is running (debug channel; force=true overrides)" })
     end
-    if M.ACTION_TOOLS[tool] and tool ~= "stop" then preempt(tool) end
+    if is_action and tool ~= "stop" then preempt(tool) end
     local res = h(args, ctx)
     if type(res) == "table" and res.wait then
         add_waiter(res.wait, ctx, res.wait_s or 5)
@@ -1477,8 +1506,7 @@ M._supervise = supervise
 
 -- ------------------------------------------------------------------ lifecycle
 local function mkdir(p)
-    if package.config:sub(1, 1) == "\\" then os.execute('mkdir "' .. p:gsub("/", "\\") .. '" 2>nul')
-    else os.execute('mkdir -p "' .. p .. '"') end
+    ensure_dir(p)
 end
 
 -- ------------------------------------------------------------------ pause (disconnect / join)
@@ -1648,8 +1676,13 @@ function M.start(opts)
             -- started (this bridge instance's start, a new value on every reload) and the action slot let the
             -- brain fail a request at once when the body restarted or lost it (BUGS L2b)
             local a = S.action
+            -- waiters (cast, move_item, equip, ...) are in flight too, outside the action slot: list their ids
+            -- so the brain never reports a waiting command as lost (spells agent 2026-10-26: a 10 s cast came
+            -- back lost_by_body)
+            local waiting = {}
+            for _, w in ipairs(S.waiters or {}) do if w.id then waiting[#waiting + 1] = w.id end end
             return { ok = true, data = { pong = true, body = "client", server_clock = os.clock(), server_time = os.time(),
-                                         started = S.started_epoch,
+                                         started = S.started_epoch, waiters = waiting,
                                          action = a and { id = a.id, kind = a.kind, age_s = a.started and (now_s() - a.started) or S.bridge.null }
                                              or S.bridge.null } }
         end

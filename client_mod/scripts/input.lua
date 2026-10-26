@@ -16,6 +16,8 @@
 --   * a non-gameplay input mode (PC.CurrentInputMode ~= DIM_Gameplay: the spell wheel / placement,
 --     DIM_OculusBuildMenu) also blocks: there the attack click casts or places. Its owner (spells) passes
 --     opts.modal = "mode"; nothing here exits it.
+--   * a conversation (DIM_ConversationUI) is its own kind, "conversation" (owner talk.lua, opts.modal =
+--     "conversation"): spells' "mode" does not pass it. An orphan is handed to talk.sweep_orphan.
 -- Never any game call under DW_PAUSE (gate answers "paused"; nothing is read or pressed).
 -- Reads are cached (the player controller, the HUD API objects, the input subsystem) and re-validated per
 -- call: no find_all per check (review finding 10).
@@ -101,6 +103,13 @@ function M.modal()
     local wi = M.world_inventory()
     if wi then return { kind = "container", owner = wi.owner } end
     local im = M.input_mode()
+    if im and im:find("Conversation", 1, true) then
+        -- a conversation (DIM_ConversationUI): its own kind, owned by talk.lua; a cast's number keys or an
+        -- attack click would answer the NPC (talk review finding 7)
+        local pc = M.pc()
+        local npc = pc and U.short(U.try(function() return pc.ConversationComponent.CurrentNPC end))
+        return { kind = "conversation", mode = im, npc = npc }
+    end
     if im and im ~= M.GAMEPLAY_MODE then return { kind = "mode", mode = im } end
     return nil
 end
@@ -138,6 +147,13 @@ local function sweep(m)
     if not m or m.kind == "paused" then s.orphan_since, s.orphan_tries = {}, {}; return end
     if s.owners[m.kind] then s.orphan_since[m.kind], s.orphan_tries[m.kind] = nil, nil; return end
     if m.kind == "mode" then return end -- an input mode has no generic exit here: block and report, never guess
+    if m.kind == "conversation" then
+        -- talk.lua owns the cleanup (the panel's own Cancel, bounded, and it decides what is ownerless)
+        local inst = rawget(_G, "__dwc_bridge")
+        local talk = inst and inst.module and inst.module.API and inst.module.API.module("talk")
+        if talk and type(talk.sweep_orphan) == "function" then pcall(talk.sweep_orphan) end
+        return
+    end
     local t = M.clock()
     s.orphan_since[m.kind] = s.orphan_since[m.kind] or t
     if t - s.orphan_since[m.kind] < M.cfg.orphan_s then return end

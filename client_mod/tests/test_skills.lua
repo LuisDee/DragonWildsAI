@@ -880,8 +880,122 @@ test("BUGS L21: explore walks least-visited legs and stops when something matchi
     assert(n and n.reason == "nothing_in_range" and n.data.legs == 2 and n.data.detail:find("lava"), json.encode(n))
 end)
 
+-- ------------------------------------------------------------------ containers: deposit / withdraw (build design §5)
+local function chest_world(slots, rows)
+    reset()
+    F.world.items, F.world.resources = {}, {} -- nothing else in the detector's reach
+    F.chests = { chest_1 = { slots = slots or 6, rows = rows or { { slot = 0, item = "ITEM_Resources_Stone", name = "Stone", count = 2 } } } }
+    F.open_chest, F.closed, F.transfers, F.transfer_noop = nil, 0, 0, nil
+    table.insert(F.world.interactables, { id = "chest_1", class = "BP_Chest_C", name = "Wooden Chest", kind = "storage",
+                                          prompt = "Open", position = { 30, 2, 3 }, chest = true })
+end
+
+test("containers: interact on a chest is verified by its screen opening (changed = opened)", function()
+    chest_world()
+    local _, id = rpc("interact", { target = "chest_1" })
+    local r = run(id, 60)
+    assert(r and r.ok and r.data.changed == "opened" and F.open_chest == "chest_1", json.encode(r))
+    F.open_chest = nil
+end)
+
+test("store: walk, open, all oak in (two stacks), verified on both sides, screen closed; take: one stone back", function()
+    chest_world()
+    local _, id = rpc("store", { item = "Oak Logs", container = "chest_1" })
+    local r = run(id, 80)
+    assert(r and r.ok and r.data.count == 8 and r.data.carried_now == 0 and r.data.inside_now == 8, json.encode(r))
+    assert(F.transfers == 2, "one press per stack (hotbar 3, bag 5): " .. tostring(F.transfers))
+    assert(F.closed == 1 and F.open_chest == nil, "the screen is closed after the action")
+    assert(B.module("input") == nil or B.module("input").owner("container") == nil, "modal released")
+    _, id = rpc("take", { item = "stone", container = "chest_1", count = 1 })
+    r = run(id, 80)
+    assert(r and r.ok and r.data.count == 1 and F.extra.ITEM_Resources_Stone == 1 and r.data.contents, json.encode(r))
+    assert(F.closed == 2 and F.open_chest == nil)
+end)
+
+test("store/take: truthful refusals (not a container, not in it, too many, full, nothing moved) and every exit closes", function()
+    chest_world()
+    local r = rpc("store", { item = "Oak Logs", container = "bench_1" })
+    assert(r.reason == "not_a_container" and r.data.detail:find("Workbench"), json.encode(r))
+    r = rpc("store", { item = "Oak Logs", container = "chest_1", count = 50 })
+    assert(r.reason == "not_enough_resources" and r.data.have == 8 and r.data.detail:find("only have 8"), json.encode(r))
+    r = rpc("store", { item = "Dragon Bones", container = "chest_1" })
+    assert(r.reason == "not_in_inventory", json.encode(r))
+    -- not in it: only known once open, so it opens, looks, says what IS there, and closes
+    local _, id = rpc("take", { item = "Dragon Bones", container = "chest_1" })
+    r = run(id, 80)
+    assert(r and r.reason == "not_in_container" and r.data.detail:find("2 Stone") and F.open_chest == nil, json.encode(r))
+    -- full: one slot, holding stone
+    chest_world(1)
+    _, id = rpc("store", { item = "Oak Logs", container = "chest_1" })
+    r = run(id, 80)
+    assert(r and r.reason == "container_full" and F.transfers == 0 and F.open_chest == nil, json.encode(r))
+    -- the game takes nothing: verification_failed when the wait runs out, never a claimed success
+    chest_world()
+    F.transfer_noop = true
+    _, id = rpc("store", { item = "Oak Logs", container = "chest_1", count = 3 })
+    r = run(id, 80)
+    assert(r and r.reason == "verification_failed" and r.data.detail:find("nothing moved") and F.open_chest == nil, json.encode(r))
+    -- the chest is already open (he opened it with interact): no walk, straight to the move
+    chest_world()
+    F.open_chest = "chest_1"
+    F.move.calls = {}
+    _, id = rpc("store", { item = "Oak Logs", container = "chest_1", count = 2 })
+    r = run(id, 20)
+    assert(r and r.ok and r.data.count == 2 and #F.move.calls == 0, json.encode(r))
+    F.chests, F.open_chest, F.transfer_noop = nil, nil, nil
+end)
+
+test("store: a reflex pre-empting mid-transfer closes the chest at once; on resume it reopens and finishes", function()
+    chest_world()
+    F.open_chest, F.transfer_noop = "chest_1", true -- open, first press pending (the server hasn't answered)
+    local _, id = rpc("store", { item = "Oak Logs", container = "chest_1", count = 3 })
+    T = T + 0.5; B.step()
+    local A = B.module("arbiter")
+    assert(A.owner() and A.owner().name == "skill:store", json.encode(A.status()))
+    local fight = A.request(nil, { name = "combat:reflex", level = "reflex", uses_move = true })
+    assert(fight.ok and fight.preempted.suspended)
+    assert(F.open_chest == nil and F.closed == 1, "the screen closed the moment the reflex took over (no stray input on it)")
+    for _ = 1, 10 do T = T + 2; B.step() end
+    assert(result_of(drain(), id) == nil, "waits while the reflex owns the pawn")
+    F.transfer_noop = nil
+    A.release(nil, fight.token, "won")
+    local r = run(id, 80)
+    assert(r and r.ok and r.data.count == 3 and F.open_chest == nil, json.encode(r))
+end)
+
+test("interact on an NPC: verified by the conversation it starts (changed = conversation), one press only", function()
+    reset()
+    F.world.items, F.world.resources = {}, {}
+    table.insert(F.world.interactables, { id = "npc_1", class = "BP_NPC_Herbalist_C", name = "Herbalist", kind = "npc",
+                                          prompt = "Talk", position = { 40, 2, 3 } })
+    local sk = B.module("skills")
+    local cv0 = sk.W.conversation_npc
+    local talking
+    local inv = B.module("inventory")
+    local p0 = inv.press_interact
+    inv.press_interact = function() F.presses = F.presses + 1; talking = "npc_1"; return { ok = true } end
+    sk.W.conversation_npc = function() return talking end
+    local _, id = rpc("interact", { target = "npc_1" })
+    local r = run(id, 60)
+    sk.W.conversation_npc, inv.press_interact = cv0, p0
+    assert(r and r.ok and r.data.changed == "conversation" and F.presses == 1, json.encode(r))
+    assert(type(sk._new_episode) == "function", "the episode is exported for talk.lua")
+end)
+
+test("store: no OpenChests privilege -> no_permission before any walk or press", function()
+    chest_world()
+    local sense = B.module("sense")
+    local hp0 = sense.has_privilege
+    sense.has_privilege = function(p) return p ~= "open_chests" end
+    F.move.calls, F.presses = {}, 0
+    local r = rpc("store", { item = "Oak Logs", container = "chest_1" })
+    sense.has_privilege = hp0
+    assert(r.reason == "no_permission" and r.data.detail:find("rights") and #F.move.calls == 0 and F.presses == 0, json.encode(r))
+end)
+
 -- ------------------------------------------------------------------ run
 for _, t in ipairs(tests) do
+
     local ok, err = pcall(t[2])
     if ok then print("PASS " .. t[1]) else failures = failures + 1; print("FAIL " .. t[1] .. ": " .. tostring(err)) end
 end

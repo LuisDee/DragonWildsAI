@@ -180,5 +180,21 @@ R.tick_fn(nil)
 check(#S.presses == 1 and S.presses[1] == "Stew", "hurt below 50%: eats healing food (got " .. table.concat(S.presses, ",") .. ")")
 I.set_vitals_policy(nil, { drink_below_pct = 40, eat_below_pct = 40, heal_below_pct = 0 })
 
+-- talk review finding 11: a modal (build mode, a chest screen, a conversation) is open -> the reflex presses nothing
+do
+    local g0 = I._input_gate
+    hotbar_items = { item(DATA.tea, 48) }; refresh()
+    S.effect[DATA.tea:GetFullName()] = { "hyd", 60 }
+    S.presses, S.hyd, R.last, R.pending, R.bad = {}, 10, {}, nil, {}
+    I._input_gate = function() return { kind = "conversation", mode = "DIM_ConversationUI" } end
+    R.tick_fn(nil)
+    check(#S.presses == 0, "modal open: thirsty, but no hotbar press (got " .. table.concat(S.presses, ",") .. ")")
+    I._input_gate = function() return nil end
+    R.last = {}
+    R.tick_fn(nil)
+    check(#S.presses == 1, "modal closed: drinks")
+    I._input_gate = g0
+end
+
 print(fails == 0 and "ALL PASS" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

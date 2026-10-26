@@ -451,6 +451,19 @@ Every function takes the DWClient text logger `log(msg)` first and returns a tab
    - Probes never act. Missing required args answer `invalid_args`.
 7. **The client is Luis's shared world.** Experiments that move the pawn or chat belong to that module's owner. The bridge itself is read-only until the brain sends an action.
 
+8. **The modal gate (input.lua; build review 2026-10-26, finding 4).** Gameplay input goes out only through `input.gate()` / `input.inject()`. It is refused while any of these is open:
+   - build mode (`BuildModeComponent.CurrentBuildMode ~= None`): the attack click is the place click there;
+   - a container screen (`InventoryUIAPI.WorldInventoryAPI.InventoryComponent`);
+   - a non-gameplay input mode (`PC.CurrentInputMode ~= DIM_Gameplay`: spell wheel/placement, `DIM_OculusBuildMenu`).
+
+   The modal's owner claims it (`input.claim(kind, owner)` / `release`) and passes `opts.modal = kind` for its own presses. Its arbiter `on_suspend` leaves the modal at once (build: release + one Cancel; store/take: close the screen).
+
+   A build mode or chest screen that nobody owns is cleaned up after 1 s (Cancel, or `CloseCurrentInventory`; one step per second, at most 3, then reported `stuck`). An input mode is never exited by guessing; it is only blocked and reported. Under `DW_PAUSE` the gate answers `paused` and nothing is read.
+
+   Adopted by combat, spells, fishing, agility and farm. A new module that presses keys calls `input.gate()` first. If it opens a screen of its own, it claims that screen.
+9. **Action tools from manifests.** `M.is_action_tool(tool)` is the fixed `ACTION_TOOLS` list, plus any module `MANIFEST` entry with `kind = "action"` and `moves = true`. A new skill module needs no bridge edit beyond adding its name to `M.MODULES`.
+10. **Shared placement loop (placement.lua; finding 13).** `P.spots` / `P.checker` run over an injected env (trace, me, players, aim, read). A press is authorised only when `read()` says valid, the preview is on target, and the read is fresh (newer than the latest aim). build.lua passes "unreadable = no press". spells keeps its own `press_once` rule.
+
 6. **Owning the pawn.** A module that moves the body or presses gameplay keys first calls `arbiter.request` at its level (a skill = `task`, a brain command = `command`, a reflex = `reflex`), renews its lease in its loop, and calls `arbiter.release` when done. It moves only through move.lua's public API. If it can be resumed after a fight, pass `on_resume` (or rely on the move snapshot the arbiter takes).
 
 ### 8.4 How to add a skill on the client (e.g. `gather`)
@@ -468,6 +481,7 @@ Every function takes the DWClient text logger `log(msg)` first and returns a tab
    - add a case to `client_mod/tests/test_client_bridge.lua` covering success, each failure reason and the probe;
    - for brain-visible behaviour, add to `tests/test_client_bridge.py` (the Lua client bridge driven by the real BridgeClient and `run_live`).
 5. **Brain side:** nothing, if the tool already exists in `interface.TOOLS`. Otherwise follow §4.1 step 4. Document client-specific behaviour in `BRIDGE_PROTOCOL.md` "Client endpoint".
+6b. **Add a buildable / a container use:** nothing. `buildables` / `build` read every unlocked piece from the game's data (`ProgressComponent.BuildingsUnlocked` × `UBuildingPieceData`), and `store` / `take` work on any actor with an inventory. A new piece shows up as soon as he unlocks it (design `docs/design/build-primitive.md` Rev 2).
 6. **Add a gatherable** (a new tree, rock, bush or ground pickup) = one entry in `client_mod/scripts/gather_profiles.lua`: `mode` (chop/pickup), `tool`, `root` class family + class-word pattern (read the `class` of the foliage or actor row from `client_mod/commands/gather_scan.lua`), `children` for multi-stage chains, `item`, `aliases`. No code.
 
 ### 8.4b The capability contract: manifest, primitives, composite engine (streamline plan step 2)

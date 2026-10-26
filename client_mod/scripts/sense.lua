@@ -18,6 +18,19 @@
 -- shared, dependency-free mod/body/util.lua (reused as-is).
 --
 -- Units: positions/distances on the wire are METRES (util.to_wire / cm_to_m).
+-- L28: never spawn a process on a hot path. A directory is created only if it is really missing
+-- (an open-for-append probe), and only once per load (cached).
+local DIRS_OK = {}
+local function ensure_dir(d)
+    d = tostring(d):gsub("\\", "/")
+    if DIRS_OK[d] then return end
+    local probe = d .. "/.dwclient_probe"
+    local f = io.open(probe, "a")
+    if f then f:close(); os.remove(probe); DIRS_OK[d] = true; return end
+    if package.config:sub(1, 1) == "\\" then os.execute('mkdir "' .. d:gsub("/", "\\") .. '" 2>nul')
+    else os.execute('mkdir -p "' .. d .. '"') end
+    DIRS_OK[d] = true
+end
 local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
 local U = assert(loadfile(ROOT .. "/mod/body/util.lua"))()
 
@@ -147,6 +160,20 @@ function M.survival_levels(p)
 end
 
 -- Own state: position, health, stamina, survival, skills (levels + xp), total level.
+-- The server's privileges for him (EPlayerPrivilege: Build = 2, OpenChests = 4, Chat = 8, Owner = 128;
+-- PlayerState.PrivilegeComponent:HasPrivilege, read live for Chat, DISCOVERIES l.746). -> true | false | nil (unreadable)
+M.PRIVILEGE = { build = 2, open_chests = 4, chat = 8, owner = 128 }
+function M.has_privilege(p)
+    if rawget(_G, "DW_PAUSE") then return nil end
+    local pc = M.local_pc()
+    local ps = pc and U.try(function() return pc.PlayerState end)
+    local comp = U.valid(ps) and U.try(function() return ps.PrivilegeComponent end)
+    if not U.valid(comp) then return nil end
+    local v = U.try(function() return comp:HasPrivilege(M.PRIVILEGE[p] or p) end)
+    if v == nil then return nil end
+    return v == true
+end
+
 function M.me(log)
     if rawget(_G, "DW_PAUSE") then return { ok = false, reason = "paused" } end -- no reads during world changes
     local pc = M.local_pc()
@@ -847,7 +874,7 @@ V.poll = poll
 
 -- Start (idempotent): hooks + a 1 s game-thread poll. Returns {ok, data}.
 function M.vitals_start(log)
-    os.execute('mkdir "' .. (ROOT .. "/client_io/events"):gsub("/", "\\") .. '" 2>nul')
+    ensure_dir(ROOT .. "/client_io/events")
     local p = M.local_pawn()
     V.me_id = p and U.short(p) or V.me_id
     V.last_hp = p and num(U.health(p)) or V.last_hp

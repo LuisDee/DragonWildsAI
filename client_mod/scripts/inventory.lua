@@ -621,6 +621,20 @@ local function reflex_emit(ev)
     if f then f:write(line, "\n"); f:close() end
 end
 
+-- The shared modal gate (input.lua; talk review finding 11): no hotbar use or interact press while build mode,
+-- a container screen, a conversation or a non-gameplay input mode is open (the key would act on THAT screen).
+local INPUT_MOD
+local function input_gate()
+    if INPUT_MOD == nil then
+        local ok, m = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/input.lua"))() end)
+        INPUT_MOD = ok and type(m) == "table" and m or false
+    end
+    if not INPUT_MOD then return nil end
+    local ok, blocked = pcall(INPUT_MOD.gate)
+    return ok and blocked or nil
+end
+M._input_gate = input_gate
+
 function R.tick(log)
     if _G.DW_PAUSE then return end -- set by disconnect/travel commands: no UObject access during teardown
     local cfg = M.REFLEX_CFG
@@ -648,6 +662,15 @@ function R.tick(log)
         if not ok then R.bad[pend.item] = true end
         R.pending = nil
         pend = nil
+    end
+    -- a modal is open: no presses this tick (reported once a minute)
+    local blocked = (thirsty or hungry or pol.heal_below_pct) and M._input_gate() or nil
+    if blocked then
+        if not R.blocked_at or t - R.blocked_at >= 60 then
+            R.blocked_at = t
+            reflex_emit({ action = "blocked", kind = blocked.kind, mode = blocked.mode, reason = "a " .. tostring(blocked.kind) .. " screen is open" })
+        end
+        return
     end
     -- eat to heal (policy heal_below_pct, the model's call): food whose item data heals (heal > 0)
     local hurt = pol.heal_below_pct and type(hp) == "number" and type(hp_max) == "number" and hp_max > 0

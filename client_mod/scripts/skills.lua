@@ -346,7 +346,22 @@ function W.press_signals(api)
     local s = api.module("sense")
     local tod = s and type(s.time_of_day) == "function" and select(2, pcall(s.time_of_day)) or nil
     local wi = W.open_container(api)
-    return { sleeping = type(tod) == "table" and tod.sleeping or nil, container = wi and wi.owner or nil }
+    return { sleeping = type(tod) == "table" and tod.sleeping or nil, container = wi and wi.owner or nil,
+             conversation = W.conversation_npc(api) }
+end
+
+-- The NPC he is in a conversation with (PC.ConversationComponent: DomConversationParticipant.ConversationsActive > 0,
+-- CurrentNPC), or nil. Read-only; never under pause (talk review finding 13).
+function W.conversation_npc(api)
+    if paused() then return nil end
+    local s = api.module("sense")
+    local U = s and s.U
+    local pc = s and s.local_pc and s.local_pc()
+    local cc = U and pc and U.try(function() return pc.ConversationComponent end)
+    if not (U and U.valid(cc)) then return nil end
+    local active = tonumber(U.try(function() return cc.DomConversationParticipant.ConversationsActive end)) or 0
+    if active <= 0 then return nil end
+    return U.short(U.try(function() return cc.CurrentNPC end)) or "?"
 end
 
 -- The container whose screen the game has open for him (inventory.world_inventory): {inv, owner} | nil.
@@ -456,6 +471,10 @@ local function episode_poll(api, e, t)
             if not changed and sig.container == th.id and not (e.sig_before and e.sig_before.container == th.id) then
                 changed = "opened"
             end
+            -- an NPC: the press started a conversation with it (talk.lua builds on this; never pressed twice)
+            if not changed and sig.conversation and sig.conversation == th.id and not (e.sig_before and e.sig_before.conversation) then
+                changed = "conversation"
+            end
             if not changed then
                 local det = W.detector(api)
                 if det and det.prompt and e.prompt_before and det.prompt ~= e.prompt_before and same_target(th, det) then
@@ -469,7 +488,8 @@ local function episode_poll(api, e, t)
                                          prompt = e.detector and e.detector.prompt or api.null } }
         end
         if t >= e.verify_until then
-            if e.presses < M.cfg.presses then e.phase, e.face_until = "face", t + M.cfg.face_s; return nil end
+            -- never a second press while a conversation is up: E would advance or close the dialogue
+            if e.presses < M.cfg.presses and not W.conversation_npc(api) then e.phase, e.face_until = "face", t + M.cfg.face_s; return nil end
             return api.fail("verification_failed", { target = th.id, prompt = e.detector and e.detector.prompt,
                 detail = "pressed use on the " .. e.label .. "; nothing changed (inventory, the thing, sleep state, its prompt)" })
         end
@@ -477,6 +497,7 @@ local function episode_poll(api, e, t)
     end
 end
 M._episode_poll = episode_poll
+M._new_episode = new_episode
 
 -- ------------------------------------------------------------------ finding things
 local function is_pickup(t)

@@ -43,6 +43,7 @@ DEFAULT_TIMEOUTS = {"gather": 1800.0,  # body/gather.lua caps itself at 1700 s
 WATCH_AFTER_S = 5.0  # waits longer than this are watched: addressed chat, bridge heartbeat (L2)
 HEARTBEAT_S = 10.0  # ping the body this often during a watched wait
 BEAT_TIMEOUT_S = 3.0
+LOST_AFTER_BEATS = 2  # consecutive heartbeats without our id before a command counts as lost
 
 
 class BridgeClient(GameInterface):
@@ -137,7 +138,7 @@ class BridgeClient(GameInterface):
         if len(self._sent) > 200:  # bounded: the oldest ids go first
             self._sent.pop(next(iter(self._sent)))
         watch = timeout > WATCH_AFTER_S and tool not in ("ping", protocol.CAPABILITIES)
-        started0, seen = self._started, len(self._events)
+        started0, seen, misses = self._started, len(self._events), 0
         try:
             self.transport.send(msg)
             deadline = time.monotonic() + timeout
@@ -178,10 +179,19 @@ class BridgeClient(GameInterface):
                             return fail(Reason.BODY_RESTARTED, tool=tool, id=req_id,
                                         detail="my body's bridge restarted and dropped the command")
                         started0 = started0 if started0 is not None else started
-                        if "action" in beat:
+                        # a bridge that lists its waiters (cast, move_item, equip ... never sit in the action
+                        # slot) tells "lost" from "waiting"; an older one only reports the slot
+                        # Lost only when the body lists EVERYTHING it is still working on (the action slot AND
+                        # its waiters: casts, equips, moves) and our id is in neither, on two beats in a row.
+                        # A body without the waiters list is never declared lost (a 10 s cast came back
+                        # lost_by_body while it was still running, 2026-10-26).
+                        if "action" in beat and isinstance(beat.get("waiters"), list):
                             act = beat.get("action") or {}
-                            if act.get("id") != req_id:
-                                self.log.log("bridge_command_lost", id=req_id, tool=tool, slot=act)
+                            alive = act.get("id") == req_id or req_id in beat["waiters"]
+                            misses = 0 if alive else misses + 1
+                            if misses >= LOST_AFTER_BEATS:
+                                self.log.log("bridge_command_lost", id=req_id, tool=tool, slot=act,
+                                             waiters=beat["waiters"])
                                 return fail(Reason.LOST_BY_BODY, tool=tool, id=req_id, now_doing=act.get("kind"),
                                             detail="my body isn't working on it any more and never answered")
         finally:
