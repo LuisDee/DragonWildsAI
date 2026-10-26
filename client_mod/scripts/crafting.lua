@@ -1282,13 +1282,16 @@ local function proc_step(api, job, t)
         end
         local targets = proc_collect_targets(api, job)
         local sk = api.module("skills")
-        if #targets > 0 and (job.picks or 0) < out_total(job) + 2 and sk and sk._episode_poll and not job.pickup_fail then
+        if #targets > 0 and (job.picks or 0) < out_total(job) + 2 and sk and sk._episode_poll and sk._new_episode
+            and not job.pickup_fail then
             local th = targets[1]
-            job.ep = { thing = th, phase = "approach", moving = false, approaches = 0, presses = 0, tol = 1.0,
-                       before = api.counts() or {}, label = th.name or "output", want_item = th.item, need_gain = true,
-                       -- any NEW output of this recipe the detector targets will do (never a pre-existing item)
-                       accept = function(det) return det.item ~= nil and want[det.item] == true and det.actor ~= nil
-                                                     and not job.pre_items[det.actor] end }
+            -- the shared episode (aim at the item itself, other sides on a miss); the output lies at the station,
+            -- whose own interaction wins any near miss, so it stands where the station is not behind the item
+            job.ep = sk._new_episode(api, th, { label = th.name or "output", avoid = job.station.position,
+                -- any NEW output of this recipe the detector targets will do (never a pre-existing item)
+                accept = function(det) return det.item ~= nil and want[det.item] == true and det.actor ~= nil
+                                              and not job.pre_items[det.actor] end })
+            job.ep.want_item, job.ep.need_gain = th.item, true
             return nil
         end
         if job.took and t < (job.collect_until or 0) then return nil end

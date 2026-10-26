@@ -88,6 +88,12 @@ local api = {
     end,
     fail = function(reason, data) return { ok = false, reason = reason, data = data or {} } end,
     match_score = function(t, what) return ((t.name or ""):lower():find(what:lower(), 1, true)) and 1 or 0 end,
+    resolve_name = function(rows, what) -- the bridge's resolver, reduced to what these cases need
+        for _, r in ipairs(rows) do
+            if r.item == what or (r.name or ""):lower():find(what:lower(), 1, true) then return r, { near = {} } end
+        end
+        return nil, { near = {} }
+    end,
 }
 local ctx = { api = api }
 do

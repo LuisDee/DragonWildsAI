@@ -2075,6 +2075,29 @@ Quick fixtures, logged as quick and not M3 cases: Coarse Net and Ash Rod were gr
   - The marker's lifetime is not stated anywhere found (wiki, metaforge 403).
 - **Next live test** (prepared in the scratchpad, applied after the freeze): `cast {spell: "Recall", walk_to}` opens it, walks while it is held, then finishes it, judged by position. It tests whether the mark is where the cast is opened and finishing it brings him back.
 
+## Recall hold-and-walk, live 2026-10-26 19:38–19:41 UTC (dev, Claude's client, build 26162923; probe `client_mod/commands/recall_probe.lua`, 0.5 s samples)
+- **The mechanic, verified:** the mark is where he stands when Recall is **opened**; finishing the same cast teleports him back to it.
+  - 0–2 s: the wheel (`DIM_RadialMenu`), page turn, quick key.
+  - 3.2 s: `DIM_SpellPlacementModeAdvancedMovement`, `SpellBeingPreparedOrCast` = `USD_Recall`, runes untouched (Air 380, Law 1460). The preview sits at his feet: `[97.97, 1865.76, -29.46]` with him at `[97.94, 1865.61, -30.69]`.
+  - 3.7–6.4 s: he walks (`move.go_to`) while the mode stays open: 10.8 m to `[100.67, 1876.04, -30.59]` (`walk_result` arrived).
+  - 6.9 s: the place press. Air 380 → 350, Law 1460 → 1445, the 75 s cooldown starts, `DominionSpellActor_2147465313` appears for ~1 s, the mode is `DIM_SpellcastingMode`. He is at `[97.95, 1865.68, -30.59]`, 0.1 m from the opening point. That is the teleport back.
+  - 8.0 s: `DIM_Gameplay`. He stays at the opening point for the rest of the 40 s.
+  - Result: `cast {spell: "Recall", walk_to: [100.5, 1877.3, -31.6]}` → ok, `returned: true`, `from_opened_m` 0.1, `walked_m` 10.8, presses menu, next_page, quick0, hold_walk, place.
+- **A later recast does not return:** after the cooldown he walked 11 m away to `[100.65, 1876.02]` and cast plain Recall (menu, quick0, place). It spent 30 Air + 15 Law, started the cooldown and moved him **0 m**. A finished Recall leaves no lasting marker, so the wiki's "recasting teleports you back" is the place press of the same cast. spells.lua's hold-and-walk model matches. Recall is not `two_step` in `data/spell_mechanics.json` (updated `how`/`observed`).
+- `landed_at` in a hold-and-walk result is where the place press happened (the walk's end), not where he ended. Use `from_opened_m` / `returned`.
+
+## Item-name resolution and station-output pickup (2026-10-26, Claude's client, dev)
+- **consume name matching, live-verified 19:38 UTC:** only a Water Rune on the hotbar, no Clean Water. `consume {"item":"Clean Water"}` and `{"item":"water"}` → `not_in_inventory`: "I don't have any Clean Water on me, and I can't see one nearby. (Water Rune isn't something I can eat or drink.) I have nothing to eat or drink on me." (`carried_consumables` []).
+  - Before the fix it answered `not_consumable` "I can't eat or drink the Water Rune". The cause: `skills.find_carried` took any partial `match_score` overlap (the word "water") as a match.
+  - The shared rule is `client_bridge.M.resolve_name` (`api.resolve_name`). A match is an exact id or name, the whole words inside the name or id, or every word matching. A partial overlap is only `near`, never a match. consume lets only consumables match fuzzily. `inventory.find(list, what, prefer_kind)` prefers the requested consumable kind among substring hits.
+- **Station output pickup** (live failure 19:3x: "the game targets BP_Station_Campfire_C…, not the Clean Water"):
+  - The detector (`UInteractableDetectorComponent`) casts a camera ray (`CameraRayLength`) and a forward character trace (`CharacterTraceDistance`), so whatever lies *behind* a small item on his line of sight wins a near miss.
+  - crafting's collect step hand-built its episode. It had no `ipoint`, so `W.face(nil)` never aimed, and no `small` flag, so other sides were never tried.
+  - It now uses `skills._new_episode(..., {avoid = station position})`. Standing spots are 0.9 m from the item, in this order: beside it (±90°), between the item and the station, the far side last.
+  - The other-sides retry for any small item now avoids whatever the detector picked instead. It also fixes a mirror bug that dropped the far side rather than his own.
+  - `client_bridge.aim_at` now aims from `PlayerCameraManager:GetCameraLocation()` (like `spells.W.aim`), not from the pawn's centre.
+  - Live re-check of the Campfire pickup: **not yet done** (needs Dirty Water and fuel).
+
 ## HUD screens and the input mode: InputManagerUIAPI (2026-10-26 19:02–19:18 UTC, dev, ClaudeDev; BUGS B-stuck-focused-ui)
 Builds: client 26162923, dump 26161880.
 

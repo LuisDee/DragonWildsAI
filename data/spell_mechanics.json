@@ -3,12 +3,12 @@
  "build": "26161880",
  "spells": {
   "USD_Recall": {
-   "how": "Starting Recall opens a placement you can keep moving in; to come back to a spot, cast it with walk_to: I open it where I stand, walk there while it is held, and finish it (whether finishing returns me is checked by position). Cast without walk_to it lands where I stand. The game refuses it during its 75 s cooldown.",
+   "how": "Starting Recall marks where I stand and opens a placement I can keep moving in; finishing it teleports me back to that mark. To come back to a spot, cast it with walk_to: I open it here, walk there while it is held, finish it, and I'm back here. Cast without walk_to it brings me back to where I already stand (moves me 0 m). A finished Recall leaves no marker for a later cast. The game refuses it during its 75 s cooldown.",
    "sources": [
     "wiki https://dragonwilds.runescape.wiki/w/Recall (snapshot data/wiki/pages, 2026-10-26)",
     "wiki revision https://dragonwilds.runescape.wiki/?diff=58751: \"Leaves a runic marker on the ground; recasting teleports you back to it. Taking a fatal fall while tethered teleports you back safely and consumes the tether.\""
    ],
-   "observed": "live 2026-10-26 17:35-17:39 UTC (ClaudeDev): selecting Recall enters DIM_SpellPlacementModeAdvancedMovement (you can move); the place press spends 30 Air + 15 Law, starts the 75 s cooldown and plays a 1 s DominionSpellActor; pressed at once he stays put (moved 0 m). A second cast after walking 11 m placed again, no teleport; during the cooldown the game refuses it. On an invalid spot the place press does nothing (held open 12 s). Hypothesis (cast type AllowMovementThenCastInstant): the mark is where the cast STARTS; moving while it is open, then pressing place, returns you. Not yet tried.",
+   "observed": "live 2026-10-26 19:38-19:41 UTC (dev, Claude's client): selecting Recall enters DIM_SpellPlacementModeAdvancedMovement and its preview/marker sits where he stands at that moment ([97.97,1865.76] while he stood at [97.94,1865.61]); he can walk while it is open (10.8 m to [100.67,1876.04] in ~3 s, still in that mode); the place press then spends 30 Air + 15 Law, starts the 75 s cooldown, spawns a ~1 s DominionSpellActor and teleports him back to the opening point at once (landed [97.95,1865.68], 0.1 m from it). A later plain cast, after the cooldown and 11 m away, returns nowhere: it moves him 0 m (the finished cast leaves no lasting marker). Earlier 17:35-17:39: on an invalid spot the place press does nothing (held open 12 s); during the cooldown the game refuses it.",
    "extra_sources": [
     "Luis (player) 2026-10-26",
     "game data: cast type AllowMovementThenCastInstant (the only spell of that type)",

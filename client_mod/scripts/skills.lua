@@ -289,7 +289,7 @@ function W.interaction_point(api, thing)
     return p, from, (okf and type(fx) == "number") and { fx, fy } or nil
 end
 
-local function spots_around(ip, origin, fwd)
+local function spots_around(ip, origin, fwd, angles, dist_m)
     -- first direction: the actor's forward vector (a tent's entrance faces it: live read 20:50, shelter
     -- forward (-1,0,0), entrance on -X), else away from the actor's centre, else +X; then rotations
     local dx, dy, l = 0, 0, 0
@@ -298,14 +298,29 @@ local function spots_around(ip, origin, fwd)
     if l < 0.3 then dx, dy, l = 1, 0, 1 end
     dx, dy = dx / l, dy / l
     local out = {}
-    for _, deg in ipairs(M.cfg.spot_angles) do
+    local k = dist_m or M.cfg.spot_m
+    for _, deg in ipairs(angles or M.cfg.spot_angles) do
         local r = math.rad(deg)
         local cx, cy = dx * math.cos(r) - dy * math.sin(r), dx * math.sin(r) + dy * math.cos(r)
-        out[#out + 1] = { ip[1] + cx * M.cfg.spot_m, ip[2] + cy * M.cfg.spot_m, ip[3] }
+        out[#out + 1] = { ip[1] + cx * k, ip[2] + cy * k, ip[3] }
     end
     return out
 end
 M._spots_around = spots_around
+
+-- A small thing (a world item) next to a bigger interactable that competes for the game's detector (the
+-- station it came out of, the item the detector picked instead): the detector's camera ray and character trace
+-- run from him THROUGH the thing, so whatever lies beyond it along that line wins any near miss. Stand where
+-- the competitor is NOT behind the thing: beside it first (90 deg), then with the competitor behind HIM, then
+-- the far side last. Angles are measured from the direction thing -> competitor (0 = between them, 180 =
+-- the far side, where the competitor is right behind the thing).
+M.cfg.small_spot_m = 0.9
+M.cfg.small_avoid_angles = { 90, -90, 0, 180 }
+local function spots_avoiding(ip, avoid)
+    -- spots_around's first direction is ip - origin; origin = the mirror of avoid puts 0 deg on avoid's side
+    return spots_around(ip, { 2 * ip[1] - avoid[1], 2 * ip[2] - avoid[2] }, nil, M.cfg.small_avoid_angles, M.cfg.small_spot_m)
+end
+M._spots_avoiding = spots_avoiding
 
 -- A water source (pond, river), from census data: a WaterVolume class family or the game's own "Collect Water"
 -- prompt (DISCOVERIES "Drinkable water for a fresh character"). No name list.
@@ -352,6 +367,11 @@ local function new_episode(api, thing, opts)
         end
     elseif small and thing.position then
         e.small = true -- after the plain approach, other sides are tried (spots made on demand, BUGS L7)
+        -- opts.avoid = where a competing interactable stands (a station's output on it): go straight to the
+        -- sides where it is not behind the item (live 2026-10-26: "the game targets BP_Station_Campfire_C")
+        if type(opts.avoid) == "table" and opts.avoid[1] and dist2d(opts.avoid, thing.position) > 0.05 then
+            e.spots, e.spot_i, e.tol, e.avoid = spots_avoiding(e.ipoint, opts.avoid), 1, 0.4, opts.avoid
+        end
     end
     return e
 end
@@ -414,15 +434,21 @@ end
 
 local function next_spot(e, api)
     if e.small and not e.spots and api then
-        -- a small thing the detector would not name from the first approach (another stack in front):
-        -- stand on other sides of it, 0.9 m out, starting from the side opposite the item it picked
-        local here = api.my_position()
-        local away = here and { 2 * e.ipoint[1] - here[1], 2 * e.ipoint[2] - here[2], e.ipoint[3] } or nil
-        local saved = M.cfg.spot_m
-        M.cfg.spot_m = 0.9
-        e.spots = spots_around(e.ipoint, away and { 2 * e.ipoint[1] - away[1], 2 * e.ipoint[2] - away[2] } or nil, nil)
-        M.cfg.spot_m = saved
-        table.remove(e.spots, 1) -- the side he already stood on
+        -- a small thing the detector would not name from the first approach (another stack in front, the
+        -- station it lies on): stand on the sides where what the detector picked instead is NOT behind it;
+        -- when that can't be placed, the sides away from where he stood (the side he stood on is skipped)
+        local det = e.detector
+        local other = det and not det.none and det.actor and det.actor ~= e.thing.id and api.find_thing
+            and api.find_thing(det.actor, 15) or nil
+        local avoid = type(other) == "table" and other.position or nil
+        if avoid and dist2d(avoid, e.ipoint) > 0.05 then
+            e.spots, e.avoid = spots_avoiding(e.ipoint, avoid), avoid
+        else
+            local here = api.my_position()
+            e.spots = spots_around(e.ipoint, here and { 2 * e.ipoint[1] - here[1], 2 * e.ipoint[2] - here[2] } or nil, nil,
+                                   nil, M.cfg.small_spot_m)
+            table.remove(e.spots, 1) -- the side he already stood on
+        end
         e.spot_i, e.phase, e.moving, e.approaches, e.tol = 1, "approach", false, 0, 0.4
         return true
     end
@@ -460,7 +486,7 @@ local function episode_poll(api, e, t)
         end
         local here = api.my_position()
         local d = here and goal and dist2d(here, goal)
-        local on_top = here and e.ipoint and e.spots and not e.shore and (here[3] - (e.ipoint[3] or here[3])) > M.cfg.on_top_m
+        local on_top = here and e.ipoint and e.spots and not e.shore and not e.small and (here[3] - (e.ipoint[3] or here[3])) > M.cfg.on_top_m
         local near = d and d <= math.max(e.spots and (e.tol + 0.3) or M.cfg.reach_m, e.tol + 0.3)
             and not (e.tight and d > M.cfg.close_m + 0.3)
         -- water: on the bank within reach of the surface point counts as there, whichever spot he stopped at
@@ -628,21 +654,30 @@ local function inv_rows(d)
     end
     return rows
 end
-local function find_carried(api, list, what)
-    local kind = KINDS[lower(what)]
-    local best, bs
-    for _, r in ipairs(inv_rows(list)) do
-        local s
-        if kind then s = (r.consumable == kind) and 1 or 0
-        elseif r.item == what or lower(r.name) == lower(what) then s = 3
-        else s = api.match_score({ name = r.name, item = r.item }, what) end
-        if s > 0 then
-            if r.where == "hotbar" then s = s + 0.5 end
-            if r.consumable and not r.soulscourge then s = s + 0.1 end
-            if not best or s > bs then best, bs = r, s end
-        end
+-- Names resolve through the bridge's shared api.resolve_name (exact > whole words > all words; a partial
+-- overlap never substitutes another item). opts.consumable: only consumables match fuzzily (consume).
+-- -> row | nil, kind, info {near = rows that only partly matched}
+local function carried_rank(r) return (r.where == "hotbar" and 0.5 or 0) + ((r.consumable and not r.soulscourge) and 0.1 or 0) end
+local function consumables_carried(rows)
+    local out, seen = {}, {}
+    for _, r in ipairs(rows) do
+        if r.consumable and not seen[r.item] then seen[r.item] = true; out[#out + 1] = r end
     end
-    return best, kind
+    return out
+end
+local function find_carried(api, list, what, opts)
+    local kind = KINDS[lower(what)]
+    local rows = inv_rows(list)
+    if kind then
+        local best, bs
+        for _, r in ipairs(rows) do
+            if r.consumable == kind and (not best or carried_rank(r) > bs) then best, bs = r, carried_rank(r) end
+        end
+        return best, kind, { near = {} }
+    end
+    local row, info = api.resolve_name(rows, what, { rank = carried_rank,
+        fuzzy_ok = opts and opts.consumable and function(r) return r.consumable ~= nil end or nil })
+    return row, nil, info
 end
 M._find_carried = find_carried
 
@@ -774,7 +809,7 @@ local function start_consume(api, args, ctx)
     local job = { kind = "consume" }
     local lr = api.call("inventory", "list")
     if not lr.ok then return lr end
-    local row, kind = find_carried(api, lr.data, what)
+    local row, kind, info = find_carried(api, lr.data, what, { consumable = true })
     local function use_step(r)
         if not r.consumable then
             return api.fail("not_consumable", { item = r.item, name = r.name,
@@ -802,15 +837,25 @@ local function start_consume(api, args, ctx)
         return nil
     end
     if not row and not kind then
-        -- not carried. A primitive (PRINCIPLES 4b): say where one is, the model composes interact + consume
+        -- not carried. A primitive (PRINCIPLES 4b): say where one is and what he CAN eat or drink; the
+        -- model composes interact + consume. Never a different item silently (a partial name match).
+        local carried, have = consumables_carried(inv_rows(lr.data)), {}
+        for _, r in ipairs(carried) do have[#have + 1] = r.name end
+        local also = #have > 0 and (" What I can eat or drink: " .. table.concat(have, ", ") .. ".")
+                     or " I have nothing to eat or drink on me."
+        local unlike = {}
+        for _, r in ipairs(info and info.near or {}) do if not r.consumable then unlike[#unlike + 1] = r.name end end
+        if #unlike > 0 then also = " (" .. table.concat(unlike, ", ") .. " isn't something I can eat or drink.)" .. also end
+        local data = { item = what, carried_consumables = have }
         local near = find_pickup(api, what, M.cfg.consume_ground_m)
         if not near then
-            return api.fail("not_in_inventory", { item = what,
-                detail = "I don't have any " .. what .. " on me, and I can't see one nearby." })
+            data.detail = "I don't have any " .. what .. " on me, and I can't see one nearby." .. also
+            return api.fail("not_in_inventory", data)
         end
-        return api.fail("not_in_inventory", { item = what, on_ground = { id = near.id, name = near.name, distance = near.distance },
-            detail = "I don't have any " .. what .. " on me yet; there's " .. tostring(near.name) .. " on the ground "
-                .. tostring(near.distance and (math.floor(near.distance + 0.5) .. " m away") or "nearby") .. "." })
+        data.on_ground = { id = near.id, name = near.name, distance = near.distance }
+        data.detail = "I don't have any " .. what .. " on me yet; there's " .. tostring(near.name) .. " on the ground "
+                .. tostring(near.distance and (math.floor(near.distance + 0.5) .. " m away") or "nearby") .. "." .. also
+        return api.fail("not_in_inventory", data)
     elseif not row then
         return api.fail("not_in_inventory", { item = what, kind = kind,
             detail = "I don't have anything to " .. (kind == "food" and "eat" or "drink") .. " on me." })
@@ -1551,14 +1596,7 @@ local function free_or_same(rows, slots, item)
     return nil
 end
 local function input_mod(api) local m = api.module("input"); return m and type(m.claim) == "function" and m or nil end
-local function in_container(rows, what, api)
-    local best, bs
-    for _, r in ipairs(rows) do
-        local s = (r.item == what or lower(r.name) == lower(what)) and 3 or api.match_score({ name = r.name, item = r.item }, what)
-        if s > 0 and (not best or s > bs) then best, bs = r, s end
-    end
-    return best
-end
+local function in_container(rows, what, api) return (api.resolve_name(rows, what)) end
 local function contents_words(rows)
     local names = {}
     for _, r in ipairs(rows) do names[#names + 1] = tostring(r.count) .. " " .. tostring(r.name) end

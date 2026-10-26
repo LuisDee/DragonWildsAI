@@ -286,22 +286,23 @@ test("consume from the hotbar: verified by the stat rising", function()
     assert(r and r.ok and r.data.item == "ITEM_Consumable_Water_Clean" and r.data.count_left == 0, json.encode(r))
 end)
 
-test("consume: crash-safety rule (BUGS L38): a crash-risk item is refused with the truthful reason, nothing used", function()
+test("consume: crash-safety mechanism (BUGS L38): a crash-risk item is refused with the truthful reason, nothing used", function()
     reset()
     local inv = mods()
     local real = inv.crash_refusal
-    -- the real rule lives in inventory.lua (data/consumable_risks.json; tested in test_inventory_reflex); here: skills honours it
+    -- the real rule lives in inventory.lua (data/consumable_risks.json; tested in test_inventory_reflex); here: skills
+    -- honours it. Synthetic item: the real data lists nothing since fxguard fixed L38 (Dirty Water is safe now).
     inv.crash_refusal = function(item, name, kind)
-        if item ~= "ITEM_Consumable_Water_Dirty" then return nil end
+        if item ~= "ITEM_Test_CrashRisk" then return nil end
         return { ok = false, reason = "unsafe", risk = "client_crash",
-                 detail = "I won't drink " .. name .. ": it crashes my game. Boil it at a campfire into Clean Water first." }
+                 detail = "I won't drink " .. name .. ": it crashes my game." }
     end
-    F.cons = { { name = "Dirty Water", item = "ITEM_Consumable_Water_Dirty", count = 2, consumable = "drink", where = "hotbar",
+    F.cons = { { name = "Crash Tonic", item = "ITEM_Test_CrashRisk", count = 2, consumable = "drink", where = "hotbar",
                  stat = "hydration", amount = 10 } }
     local uses0 = F.uses or 0
-    local r0, id = rpc("consume", { item = "Dirty Water" })
+    local r0, id = rpc("consume", { item = "Crash Tonic" })
     local r = r0 or run(id, 10)
-    assert(r and not r.ok and r.reason == "unsafe" and r.data.detail == "I won't drink Dirty Water: it crashes my game. Boil it at a campfire into Clean Water first."
+    assert(r and not r.ok and r.reason == "unsafe" and r.data.detail == "I won't drink Crash Tonic: it crashes my game."
            and (F.uses or 0) == uses0, json.encode(r))
     -- an ordinary drink is unaffected
     F.cons = { { name = "Clean Water", item = "ITEM_Consumable_Water_Clean", count = 2, consumable = "drink", where = "hotbar",
@@ -328,6 +329,35 @@ test("consume: in the bag -> in_bag + offer; not carried -> not_in_inventory; no
     local _, id = rpc("consume", { item = "sandwich" })
     local rr = run(id, 20)
     assert(rr and rr.reason == "verification_failed" and rr.data.detail:find("sustenance"), json.encode(rr))
+end)
+
+test("consume: a partial name match never substitutes another item (Clean Water is not the Water Rune)", function()
+    reset()
+    F.cons = { { name = "Water Rune", item = "ITEM_Rune_Water", count = 40, where = "hotbar" },
+               { name = "Forager's Sandwich", item = "ITEM_Food_Sandwich", count = 1, consumable = "food", where = "bag",
+                 stat = "sustenance", amount = 20 } }
+    local r = rpc("consume", { item = "Clean Water" })
+    assert(r.reason == "not_in_inventory" and r.data.item == "Clean Water" and (F.uses or 0) == 0, json.encode(r))
+    assert(has(r.data.carried_consumables, "Forager's Sandwich") and r.data.detail:find("Forager's Sandwich", 1, true)
+           and r.data.detail:find("Water Rune isn't something I can eat or drink", 1, true), json.encode(r))
+    -- a fuzzy word prefers the consumable over the rune listed before it
+    table.insert(F.cons, { name = "Clean Water", item = "ITEM_Consumable_Water_Clean", count = 1, consumable = "drink",
+                           where = "hotbar", stat = "hydration", amount = 25 })
+    local r0, id = rpc("consume", { item = "water" })
+    local c = r0 or run(id, 10)
+    assert(c and c.ok and c.data.item == "ITEM_Consumable_Water_Clean", json.encode(c))
+    -- only the rune left: "water" is not a drink he has; the exact rune name still says why not
+    F.cons[3].count = 0
+    r = rpc("consume", { item = "water" })
+    assert(r.reason == "not_in_inventory" and r.data.detail:find("Water Rune", 1, true), json.encode(r))
+    r = rpc("consume", { item = "Water Rune" })
+    assert(r.reason == "not_consumable" and r.data.detail:find("Water Rune", 1, true), json.encode(r))
+    -- give / store use the same resolver: no Clean Water handed over as a rune
+    local sk = B.module("skills")
+    local row, _, info = sk._find_carried(B.API, { hotbar = { { name = "Water Rune", item = "ITEM_Rune_Water" } } }, "Clean Water")
+    assert(row == nil and info.near[1].name == "Water Rune", "partial overlap is near, not a match")
+    row = sk._find_carried(B.API, { bag = { { name = "Oak Logs", item = "ITEM_Resources_Wood_Oak" } } }, "logs oak")
+    assert(row and row.item == "ITEM_Resources_Wood_Oak", "every word matching still resolves")
 end)
 
 test("consume: not carried but lying nearby -> not_in_inventory naming it (the model composes interact + consume)", function()

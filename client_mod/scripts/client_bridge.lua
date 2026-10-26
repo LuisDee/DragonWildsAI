@@ -720,6 +720,35 @@ function M.match_score(t, about)
     return score / #q
 end
 
+-- The shared item-name resolver for rows the player's words must pick ONE item from (his inventory, a
+-- chest): rows {name, item, ...}. Tiers: 3 exact id or name (case-insensitive); 2 the whole words are
+-- in the name or id ("sandwich" -> "Forager's Sandwich"); 1 every word matches (match_score 1, plurals).
+-- A partial word overlap ("Clean Water" vs "Water Rune") is NEVER a match: it never silently picks a
+-- different item; those rows come back as `near` so the caller can say what he does have.
+-- opts.fuzzy_ok(row) -> false drops a row from tiers 1-2 (consume: only consumables match fuzzily, an
+-- exact name still resolves so "I can't eat the Oak Logs" stays truthful); opts.rank(row) -> number
+-- breaks ties within a tier (hotbar first, clean consumables). -> row | nil, {tier, near = {rows}}
+function M.resolve_name(rows, what, opts)
+    opts = opts or {}
+    local lw = tostring(what or ""):lower()
+    if lw == "" then return nil, { near = {} } end
+    local best, bt, br, near = nil, 0, 0, {}
+    for _, r in ipairs(rows or {}) do
+        local name, id = tostring(r.name or ""):lower(), tostring(r.item or ""):lower()
+        local tier
+        if id == lw or name == lw then tier = 3
+        elseif name:find(lw, 1, true) or id:find(lw, 1, true) then tier = 2
+        elseif M.match_score({ name = r.name, item = r.item }, what) >= 1 then tier = 1 end
+        if tier and tier < 3 and opts.fuzzy_ok and not opts.fuzzy_ok(r) then near[#near + 1] = r; tier = nil
+        elseif not tier and M.match_score({ name = r.name, item = r.item }, what) > 0 then near[#near + 1] = r end
+        if tier then
+            local rk = opts.rank and opts.rank(r) or 0
+            if tier > bt or (tier == bt and rk > br) then best, bt, br = r, tier, rk end
+        end
+    end
+    return best, { tier = best and bt or nil, near = near }
+end
+
 -- Every thing within radius_m (census, nearest first per category), flattened.
 local function census_things(radius_m, max_per_cat)
     local r = call("sense", "census", { radius_m = radius_m, max = max_per_cat or 40 })
@@ -894,6 +923,12 @@ local function aim_at(pos)
     local U = s.U
     local here = pawn and to_m(U.loc(pawn))
     if not (pc and here and pos) then return false end
+    -- from the CAMERA, as the mouse aims (spells.W.aim, live-verified): the game's interaction detector casts its
+    -- ray from the camera (UInteractableDetectorComponent.CameraRayLength), which sits behind and above the pawn,
+    -- so a pitch from the pawn's centre overshoots a small item on the ground into whatever lies beyond it
+    local cam = U.try(function() return pc.PlayerCameraManager:GetCameraLocation() end)
+    local okc, cx, cy, cz = pcall(function() return cam.X, cam.Y, cam.Z end)
+    if okc and type(cx) == "number" and type(cz) == "number" then here = { cx / 100, cy / 100, cz / 100 } end
     local dx, dy, dz = pos[1] - here[1], pos[2] - here[2], (pos[3] or here[3]) - here[3]
     local yaw = math.deg(math.atan(dy, dx))
     local pitch = math.deg(math.atan(dz, math.sqrt(dx * dx + dy * dy)))
@@ -1114,6 +1149,7 @@ M.API = {
     census_things = function(r, m) return census_things(r, m) end,
     find_thing = function(id, r) return find_thing(id, r) end,
     match_score = function(t, about) return M.match_score(t, about) end,
+    resolve_name = function(rows, what, opts) return M.resolve_name(rows, what, opts) end,
     actor_of = function(t) return actor_of(t) end,
     contents_of = function(t) local a, U = actor_of(t); if a and U then return contents_of(a, U) end end,
     counts = function() return counts() end,

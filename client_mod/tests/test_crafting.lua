@@ -54,6 +54,21 @@ function INV.interact_target()
     end
     for _, s in ipairs(F.stations) do consider(s.id, s.name, nil, s.position, 3.0) end
     for _, it in ipairs(F.items) do consider(it.id, it.name, it.item, it.position, 1.5) end
+    -- F.station_behind: the game's camera ray / character trace (live 2026-10-26, Campfire): a small item
+    -- loses to a station that lies BEHIND it along his line of sight (or when he stands on the item)
+    if F.station_behind and best and best.item then
+        for _, it in ipairs(F.items) do
+            if it.id == best.actor then
+                for _, s in ipairs(F.stations) do
+                    local v1 = { it.position[1] - F.pos[1], it.position[2] - F.pos[2] }
+                    local v2 = { s.position[1] - it.position[1], s.position[2] - it.position[2] }
+                    local l1, l2 = math.sqrt(v1[1] ^ 2 + v1[2] ^ 2), math.sqrt(v2[1] ^ 2 + v2[2] ^ 2)
+                    local behind = l1 < 0.5 or (l2 > 0 and (v1[1] * v2[1] + v1[2] * v2[2]) / (l1 * l2) > 0.5)
+                    if behind and d2(F.pos, s.position) <= 3.0 then return { actor = s.id, name = s.name } end
+                end
+            end
+        end
+    end
     return best or { none = true }
 end
 function INV.press_interact()
@@ -444,6 +459,40 @@ do -- ambiguous recipe (two viable) -> candidates; one viable -> recipe_chosen +
     check("proc: UI closed", F.closed == 1)
     check("proc: the open station screen was claimed, and released at the end", INPUTF.claims >= 1 and INPUTF.owners.screen == nil)
     check("proc: inputs + fuel dragged (3 moves)", F.drags == 3, F.drags)
+end
+do -- the output lies at the station, whose interaction wins a near miss (live 2026-10-26: "the game targets
+   -- BP_Station_Campfire_C, not the Clean Water"): he stands where the station is not behind the item
+    reset({ stations = { FURNACE() }, unlocked = U({ "RECIPE_Process_IronBar" }),
+            have = { ITEM_Resources_IronOre = 3, ITEM_Fuel_Resources_Charcoal = 1 } })
+    F.station_behind = true
+    local r = run({ recipe = "RECIPE_Process_IronBar" })
+    check("proc/station behind: collected", r.ok and inv_counts().ITEM_Resources_IronBar == 1,
+          tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
+    local st = F.stations[1].position
+    local v = { F.pos[1] - (st[1] + 1), F.pos[2] - st[2] } -- from the output (station + 1 m on X) to where he stood
+    check("proc/station behind: stood beside the item, not on it or beyond it", math.abs(v[1]) < 0.2 and math.abs(math.abs(v[2]) - 0.9) < 0.1,
+          F.pos[1] .. "," .. F.pos[2])
+    -- spot geometry: 0 deg = between the item and the competitor, 180 = the far side
+    local sp = SK._spots_avoiding({ 1, 0, 0 }, { 0, 0, 0 })
+    check("spots_avoiding: beside first, between, far side last", #sp == 4 and math.abs(sp[1][1] - 1) < 1e-6 and math.abs(math.abs(sp[1][2]) - 0.9) < 1e-6
+          and math.abs(sp[3][1] - 0.1) < 1e-6 and math.abs(sp[4][1] - 1.9) < 1e-6)
+end
+do -- a generic pickup the detector loses to a neighbour: the next sides avoid what it picked instead
+    reset({ stations = { FURNACE() } })
+    F.station_behind = true
+    F.items = { { id = "it_1", item = "ITEM_Resources_IronBar", name = "Iron Bar", count = 1, position = { 9, 3, 0 }, category = "items" } }
+    api.find_thing = function(id)
+        for _, it in ipairs(F.items) do if it.id == id then return it end end
+        for _, s in ipairs(F.stations) do if s.id == id then return s end end
+    end
+    F.pos = { 11, 3, 0 } -- approaching from beyond the item: the furnace is right behind it
+    local e = SK._new_episode(api, F.items[1], { label = "Iron Bar" })
+    e.want_item, e.need_gain = "ITEM_Resources_IronBar", true
+    local res
+    for _ = 1, 200 do T = T + 0.25; res = SK._episode_poll(api, e, T); if res then break end end
+    check("episode: other sides avoid the station it picked", res and res.ok and e.avoid and e.avoid[1] == 8 and inv_counts().ITEM_Resources_IronBar == 1,
+          res and (tostring(res.reason) .. " " .. tostring((res.data or {}).detail)))
+    api.find_thing = function(id) for _, it in ipairs(F.items) do if it.id == id then return it end end end
 end
 do -- station's own fuel (allowed) + stored outputs (quick transfer)
     reset({ stations = { FURNACE({ fuel = { { slot = 0, item = "ITEM_Fuel_Resources_Charcoal", name = "Charcoal", count = 2 } }, store = true }) },

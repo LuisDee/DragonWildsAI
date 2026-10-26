@@ -250,9 +250,12 @@ function M.list(log)
     return out
 end
 
--- Find an item by display name or item id (exact first, then case-insensitive substring) in the
--- hotbar, bag or loadout. Returns entry, where ("hotbar" | "bag" | "loadout").
-function M.find(list, what)
+-- Find an item by display name or item id (exact first, then case-insensitive whole-query substring:
+-- "water" finds "Clean Water", "Clean Water" never finds "Water Rune") in the hotbar, bag or loadout.
+-- prefer_kind ("drink" | "food" | "potion", use()'s opts.require): among substring hits that kind wins,
+-- so "water" for a drink is the Clean Water, not the Water Rune listed before it. The brain-side resolver
+-- with the same rule is client_bridge.lua M.resolve_name. Returns entry, where ("hotbar" | "bag" | "loadout").
+function M.find(list, what, prefer_kind)
     if type(what) ~= "string" or what == "" then return nil end
     local lw = what:lower()
     local function scan(test)
@@ -264,9 +267,16 @@ function M.find(list, what)
     end
     local d, w = scan(function(d) return d.item == what or d.name == what end)
     if d then return d, w end
-    return scan(function(d)
+    d, w = scan(function(d) return (d.item and d.item:lower() == lw) or (d.name and d.name:lower() == lw) end)
+    if d then return d, w end
+    local function sub(d)
         return (d.name and d.name:lower():find(lw, 1, true)) or (d.item and d.item:lower():find(lw, 1, true))
-    end)
+    end
+    if prefer_kind then
+        d, w = scan(function(d) return d.consumable == prefer_kind and sub(d) end)
+        if d then return d, w end
+    end
+    return scan(sub)
 end
 
 -- ------------------------------------------------------------------ collect (interact key)
@@ -406,7 +416,7 @@ function M.use(log, what, opts)
     opts = opts or {}
     local l = M.list(log)
     if not l.ok then return l end
-    local d, where = M.find(l, what)
+    local d, where = M.find(l, what, opts.require)
     if not d or where == "loadout" then return { ok = false, reason = "not in hotbar/bag: " .. tostring(what) } end
     local refuse = M.crash_refusal(d.item, d.name, d.consumable)
     if refuse then say(log, "use refused (crash-safety): " .. tostring(d.item)); return refuse end

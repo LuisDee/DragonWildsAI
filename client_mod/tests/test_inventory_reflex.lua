@@ -16,7 +16,7 @@ copy("/mod/body/util.lua"); copy("/client_mod/scripts/dkjson.lua")
 copy("/client_mod/scripts/input.lua") -- the REAL modal gate (L32 integration)
 copy("/client_mod/scripts/consumable_wiki.lua") -- the REAL soulscourge data (Dirty Water 20)
 os.execute('mkdir "' .. (dir .. "/data"):gsub("/", "\\") .. '" 2>nul')
-copy("/data/consumable_risks.json") -- the REAL risk data (BUGS L38: Dirty Water crashed the client)
+copy("/data/consumable_risks.json") -- the REAL risk data (L38 fixed by fxguard: Dirty Water no longer listed)
 
 -- ---------------------------------------------------------------- fake engine
 local function trivial() -- what UE4SS returns for a property the object lacks: non-nil, invalid
@@ -366,13 +366,11 @@ do
     check(#S.presses == 0, "dirty only, thirsty above the floor: not drunk (" .. table.concat(S.presses, ",") .. ")")
     check(events("held_back_drink") == h0 + 1, "dirty only: held_back_drink told (purify / find clean)")
     S.hyd, R.last, R.warned = 5, {}, nil
-    local h1 = events("held_back_drink")
     R.tick_fn(nil)
-    check(#S.presses == 0, "L38: dirty only, below the floor: STILL not drunk (it crashed the client) (" .. table.concat(S.presses, ",") .. ")")
-    local _, txt = events("held_back_drink")
-    check(events("held_back_drink") == h1 + 1 and txt:find("only Dirty Water: boil it at a campfire into Clean Water", 1, true) ~= nil,
-          "L38: held_back_drink says to boil it into Clean Water")
-    check(I.risk_of("ITEM_Consumable_Water_Dirty") and I.risk_of("ITEM_Consumable_Water_Clean") == nil, "risk data: Dirty Water only")
+    check(#S.presses == 1 and S.presses[1] == "Dirty Water",
+          "dirty only, below the floor: drunk (L38 crash fixed by fxguard; Dirty Water beats death) (" .. table.concat(S.presses, ",") .. ")")
+    check(I.risk_of("ITEM_Consumable_Water_Dirty") == nil and I.risk_of("ITEM_Consumable_Water_Clean") == nil,
+          "real risk data: Dirty Water no longer a crash risk (BUGS L38 fixed)")
     -- both carried (dirty in the first slot): Clean Water first, above or below the floor
     hotbar_items = { item(DATA.dirty, 5), item(DATA.clean, 2) }; refresh()
     S.presses, S.hyd, R.last, R.pending = {}, 30, {}, nil
@@ -384,19 +382,50 @@ do
     I._input_gate = g0
 end
 
--- crash-safety rule (BUGS L38: 3 of 5 Dirty Water uses crashed the client, one the model's own consume): use() and
--- equip() refuse a crash-risk item with the truthful sentence, and press nothing
+-- crash-safety MECHANISM (kept for any future reproduced crash item; BUGS L38): with a risk row whose risk is a
+-- crash, use() and equip() refuse that item with the truthful sentence, and press nothing. A synthetic fixture
+-- (the real data no longer lists anything since fxguard fixed L38), loaded into a second module instance.
 do
+    local dir2 = dir .. "/risk_fixture"
+    for _, d in ipairs({ "/mod/body", "/client_mod/scripts", "/client_io/events", "/data" }) do
+        os.execute('mkdir "' .. (dir2 .. d):gsub("/", "\\") .. '" 2>nul')
+    end
+    for _, rel in ipairs({ "/mod/body/util.lua", "/client_mod/scripts/dkjson.lua", "/client_mod/scripts/input.lua",
+                           "/client_mod/scripts/consumable_wiki.lua" }) do
+        local src = assert(io.open(repo .. rel, "rb")):read("a")
+        local f = assert(io.open(dir2 .. rel, "wb")); f:write(src); f:close()
+    end
+    local f = assert(io.open(dir2 .. "/data/consumable_risks.json", "wb"))
+    f:write('{"items": {"ITEM_Consumable_Water_Dirty": {"risk": "client_crash", "detail": "test fixture", "instead": "boil it at a campfire into Clean Water"}}}')
+    f:close()
+    local saved = env_root
+    env_root = dir2
+    local I2 = assert(loadfile(repo .. "/client_mod/scripts/inventory.lua", "t",
+        setmetatable({ os = setmetatable({ getenv = function(k) return k == "DW_CLIENT_ROOT" and env_root or os.getenv(k) end },
+                                         { __index = os }) }, { __index = _G })))()
+    env_root = saved
     hotbar_items = { item(DATA.dirty, 3), item(DATA.clean, 1) }; bag_items = {}; refresh()
     S.presses = {}
-    local rr = I.crash_refusal("ITEM_Consumable_Water_Dirty", "Dirty Water", "drink")
+    local rr = I2.crash_refusal("ITEM_Consumable_Water_Dirty", "Dirty Water", "drink")
     check(rr and rr.reason == "unsafe" and rr.detail == "I won't drink Dirty Water: it crashes my game. Boil it at a campfire into Clean Water first.",
-          "crash_refusal: the exact truthful sentence (" .. tostring(rr and rr.detail) .. ")")
-    local r1 = I.use(nil, "Dirty Water", { require = "drink" })
-    check(r1.ok == false and r1.reason == "unsafe" and #S.presses == 0, "use(Dirty Water): refused, nothing pressed")
-    local r2 = I.equip(nil, "Dirty Water")
-    check(r2.ok == false and r2.reason == "unsafe" and #S.presses == 0, "equip(Dirty Water): refused (its key would drink it), nothing pressed")
-    check(I.crash_refusal("ITEM_Consumable_Water_Clean", "Clean Water", "drink") == nil, "Clean Water: no refusal")
+          "crash_refusal (fixture row): the exact truthful sentence (" .. tostring(rr and rr.detail) .. ")")
+    local r1 = I2.use(nil, "Dirty Water", { require = "drink" })
+    check(r1.ok == false and r1.reason == "unsafe" and #S.presses == 0, "use(fixture crash item): refused, nothing pressed")
+    local r2 = I2.equip(nil, "Dirty Water")
+    check(r2.ok == false and r2.reason == "unsafe" and #S.presses == 0, "equip(fixture crash item): refused (its key would drink it), nothing pressed")
+    check(I2.crash_refusal("ITEM_Consumable_Water_Clean", "Clean Water", "drink") == nil, "an unlisted item: no refusal")
+    check(I.crash_refusal("ITEM_Consumable_Water_Dirty", "Dirty Water", "drink") == nil, "real data: Dirty Water is not refused any more")
+end
+
+-- find(): a partial name never substitutes another item; a kind preference picks the consumable among substring hits
+do
+    local l = { hotbar = { { name = "Water Rune", item = "ITEM_Rune_Water" }, { name = "Clean Water", item = "ITEM_Consumable_Water_Clean", consumable = "drink" } },
+                bag = {}, loadout = {} }
+    check(I.find(l, "water").item == "ITEM_Rune_Water", "find(water): first substring hit without a preference")
+    check(I.find(l, "water", "drink").item == "ITEM_Consumable_Water_Clean", "find(water, drink): the drink wins over the rune")
+    check(I.find(l, "clean water").item == "ITEM_Consumable_Water_Clean", "find: case-insensitive exact name")
+    l.hotbar[2] = nil
+    check(I.find(l, "Clean Water") == nil, "find(Clean Water) with only the Water Rune: no match")
 end
 
 print(fails == 0 and "ALL PASS" or (fails .. " FAILED"))
