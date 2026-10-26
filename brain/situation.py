@@ -192,6 +192,9 @@ def _creature_note(e: dict, odds: dict) -> str | None:
         if known:  # what he knows of its damage-type affinities, each with its source (learned/journal/prior)
             bits.append("known: " + ", ".join(f"{v.get('v')} to {str(k).rsplit('.', 1)[-1]} ({v.get('src')})" for k, v in sorted(known.items())
                                              if isinstance(v, dict)))
+        imm = o.get("immune_effects")
+        if isinstance(imm, list) and imm:  # status effects it ignores (wiki): e.g. weapon poison, burning
+            bits.append(f"immune to {', '.join(str(x) for x in imm)} effects (wiki)")
         p = o.get("prepared") if isinstance(o.get("prepared"), dict) else None
         if p and p.get("verdict"):
             pt = [f"kills you ~{p['die_s']:g} s" if _num(p.get("die_s")) is not None else "",

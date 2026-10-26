@@ -105,3 +105,11 @@ def test_combat_brief_is_offered_as_the_prep_facts_tool():
     desc = (m.group(1) + m.group(2)).replace('"', "")
     for w in ("prepare", "weaknesses", "weapons", "spells", "food", "estimate"):
         assert w in desc, w
+
+
+def test_wiki_immunities_are_shown():
+    st = dict(STATE)
+    st["fight_odds"] = {k: dict(v) for k, v in STATE["fight_odds"].items()}
+    st["fight_odds"]["BP_AI_GreyDrake_C_7"]["immune_effects"] = ["Poison", "Burning"]
+    c = next(l for l in summary(st) if l.startswith("Creatures"))
+    assert "immune to Poison, Burning effects (wiki)" in c

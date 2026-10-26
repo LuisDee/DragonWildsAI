@@ -367,8 +367,16 @@ do
             { hotbar = { { item = "ITEM_Sword_Bronze", count = 1 } } }, { enchant = { ["DamageType.Magical.Fire"] = true } },
             { ["DamageType.Magical.Fire"] = { v = "weak", src = "prior" } }, 1)
         check("prep: a castable enchant of a type it is weak to", table.concat(enc.uses, "|"):find("Enchant Weapon (Fire) vs fire-weak (prior)", 1, true) ~= nil, table.concat(enc.uses, "|"))
-        local ka = Cm.known_affinities("Goblin Runt")
-        check("known: prior weakness with its source", ka and ka["DamageType.Magical.Fire"] and ka["DamageType.Magical.Fire"].src == "prior")
+        local ka = Cm.known_affinities("Kalphite Worker")
+        check("known: prior resistance with its source", ka and ka["DamageType.Physical.Stab"] and ka["DamageType.Physical.Stab"].src == "prior")
+        local gd = Cm.known_affinities("Green Dragon")
+        check("known: wiki weakness + resistance, labelled wiki", gd and gd["DamageType.Magical.Water"] and gd["DamageType.Magical.Water"].v == "weak"
+              and gd["DamageType.Magical.Water"].src == "wiki" and gd["DamageType.Magical.Fire"].v == "resist")
+        local vw = Cm.wiki_creature("Velgar")
+        check("wiki: Velgar PL 4, 6000 HP, immune to Poison + Burning effects", vw and vw.pl[1] == 4 and vw.hp[1] == 6000
+              and table.concat(vw.immune_effects, ",") == "Poison,Burning")
+        check("known: the wiki outranks the hand-written priors (learned and journal outrank the wiki)",
+              Cm.known_affinities("Goblin Runt")["DamageType.Magical.Fire"].src == "wiki")
         check("known: a journal word maps to the full tag", Cm.norm_tag("Fire") == "DamageType.Magical.Fire" and Cm.norm_tag("Stab") == "DamageType.Physical.Stab")
     end
     do -- any shield he owns, from data (the parry cases need the Wooden Shield he crafts himself)
