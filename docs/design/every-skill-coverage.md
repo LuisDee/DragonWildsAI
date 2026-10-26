@@ -192,3 +192,81 @@ Rune Mysteries requires **Ratcatcher**, which requires Getting Started (the "Fir
    - a quest-chain goal for the Director: next step = the active quest's step. No quest-specific code; the step text comes from the game.
 4. **Live verification**: talk P2/P3, reliquary interaction, the altar craft, rune essence profile.
 5. **Earlier chain** (First Steps → Ratcatcher): needs a Campfire build plus cooking (both covered), rat kills (attack), and a hand-in through talk.
+
+## 11. M2 every-spell stress: the body's side, spell by spell (2026-10-26)
+
+Source: `data/spell_effects.json` (52 entries, build 26161880), the T0 dev-measure runs (`logs/evals/20261026/*dev-measure*/cases.jsonl`, read only), and `client_mod/scripts/spells.lua`.
+
+**How the body casts:**
+- Every cast opens the wheel (Q), turns pages until the slot's slice shows the spell, then selects it. Page turns are tested up to page 3/4, with wrap-around and the shorter direction.
+- The slot is matched by icon. A mismatched icon on the right page is matched by the radial's own name instead (fixed 2026-10-26 for Enchant Weapon: Fire).
+- Selection uses the number keys 1-8. Keyless slots 9-12 use the radial's own highlight, a name check, then accept.
+- **instant**: selecting casts it.
+- **placed**: the placement preview, aimed at a target or ground spot, released when valid.
+- **aimed**: the aim preview, re-aimed until valid and on target.
+- **instant_after_move**: handled as instant (Recall) **[UNVERIFIED semantics]**.
+- The game's special requirement (held weapon, rod, axe, claimed bed, ...) is checked before any press.
+- Every cast is verified by runes spent + cooldown (settled), plus the effect evidence the bench reads.
+
+**Runes:**
+- He crafts them at a Rune Altar he builds himself (1 Rune Essence → 5 runes). Unlock levels: Air RC 1, Astral 3, Earth 15, Fire 25, Nature 38, Law 50; Water is crafted at the altar too.
+- He can also siphon anima vents (10 essence → 100 runes of the vent's type, any level).
+- Dev-world fixtures grant runes for T0.
+- Unlocks are skill levels in the named skill (the `unlock` column). The bench unlocks them as setup.
+
+Status column: **live** = cast with its effect observed on dev; **T0** = the latest dev-measure result; **ready** = the body path exists and offline tests cover its cast type, but nothing has run live yet. Empty-cost rows are n/a (13 in the data: hidden/system spells, not on the wheel).
+
+| Spell | Type | Unlock | Runes | Requirement | Effect proof (bench) | Status | Gap |
+|---|---|---|---|---|---|---|---|
+| Axtral Projection | aimed | Woodcutting 11 | Air 10, Astral 5 | Logging Axe | spell_actor, target_health_drop | ready | live T0 run |
+| Bark to Bones | placed | Artisan 11 | Earth 10, Nature 10 | Cast on a Tree | spell_actor | ready | placed on a specific station/tree: target must be that thing |
+| Bones to Peaches | placed | Cooking 28 | Earth 5, Nature 10 | - | spell_actor | ready | live T0 run |
+| Cabbage Rain | placed | -  | - | - | spell_actor | n/a | hidden/system spell (no runes, not on the wheel) |
+| Confuse | aimed | Magic 30 | Astral 25 | - | needs_live_observation | ready | effect proof undefined: needs one live observation |
+| Detect Ore (Alt) | instant | -  | Fire 5 | - | ge_added | ready | live T0 run |
+| Divine Rock | placed | Mining 80 | Earth 100, Nature 100 | - | needs_live_observation | ready | effect proof undefined: needs one live observation |
+| Enchant Chef's Tools | placed | -  | - | Cast on Cooking Range | spell_actor | n/a | hidden/system spell (no runes, not on the wheel) |
+| Enchant Weapon: Air | instant | Attack 30 | Astral 5, Air 15 | A held melee weapon | held_item_effect | ready | live T0 run |
+| Enchant Weapon: Earth | instant | -  | Earth 15, Astral 5 | A held melee weapon | held_item_effect | ready | live T0 run |
+| Enchant Weapon: Fire | instant | Attack 20 | Fire 15, Astral 5 | A held melee weapon | held_item_effect | live |  |
+| Enchant Weapon: Water | instant | Attack 50 | Water 15, Astral 5 | A held melee weapon | held_item_effect | ready | live T0 run |
+| Enfeeble | aimed | Magic 61 | Water 20, Astral 20 | - | needs_live_observation | ready | effect proof undefined: needs one live observation |
+| Eye Of Oculus | instant | Construction 11 | Astral 3 | - | spell_state, view_target, spell_actor, input_mode, ge_added | live |  |
+| Fire Spirit | instant | Runecrafting 42 | Fire 10 | - | tag_added, ge_added | ready | live T0 run |
+| Fishing Frenzy | placed | Fishing 10 | Water 15, Astral 5 | - | spell_actor | ready | live T0 run |
+| Fishnado | placed | Fishing 55 | Nature 5, Air 15 | Fishing Rod | spell_actor | ready | live T0 run |
+| Home Teleport | instant | Runecrafting 27 | Law 15 | Claimed Bed | needs_live_observation | ready | effect proof undefined: needs one live observation |
+| Humidify | aimed | Farming 28 | Water 15, Astral 10 | 50 units of water (clean or dirty) | spell_actor, world_module | ready | live T0 run |
+| Infernal Rod | instant | Fishing 30 | Fire 50 | Fishing Rod Equipped | held_item_effect | ready | live T0 run |
+| Internal Alchemy | instant | Cooking 20 | Nature 10 | - | world_module | ready | live T0 run |
+| Magic Focus | instant | -  | - | - | needs_live_observation | n/a | hidden/system spell (no runes, not on the wheel) |
+| Magical Mending | placed | Artisan 56 | Earth 20, Nature 10 | - | spell_actor | ready | live T0 run |
+| Mucksplosion | placed | Farming 80 | Earth 20, Astral 15 | 150 units of compost | spell_actor, world_module | ready | live T0 run |
+| Overdrive | placed | Artisan 48 | Water 5, Air 15 | - | spell_actor | ready | live T0 run |
+| Personal Chest | instant | Construction 40 | Law 20, Astral 15 | - | spell_state, input_mode, ge_added | live |  |
+| Phase Dash | instant | Agility 44 | Astral 10, Air 20 | - | air_dash_m | live |  |
+| Rapid Growth | placed | Farming 74 | Earth 30, Nature 30 | - | world_module, spell_actor | ready | live T0 run |
+| Rapid Growth | placed | -  | - | - | spell_actor | n/a | hidden/system spell (no runes, not on the wheel) |
+| Recall | instant_after_move | Agility 57 | Law 15, Air 30 | - | needs_live_observation | ready | effect proof undefined: needs one live observation |
+| Rocksplosion | placed | Mining 11 | Earth 30, Fire 15 | Pickaxe | spell_actor | ready | live T0 run |
+| Runes To Rune Essence | placed | Runecrafting 61 | Water 5, Astral 5 | - | spell_actor | ready | live T0 run |
+| Shadow Veil | instant | -  | Astral 20 | - | ge_added | ready | live T0 run |
+| Snare | instant | Ranged 12 | Earth 15, Nature 10 | - | spell_actor | ready | live T0 run |
+| Spectral Arrows | instant | Ranged 25 | Air 5, Astral 15 | 2-Handed Bow. | held_item_effect | ready | live T0 run |
+| Splinter | placed | Woodcutting 27 | Earth 10, Nature 5 | - | spell_actor, target_gone, drops_spawned, target_health_drop | live |  |
+| Summon Elemental Spirits | instant | Runecrafting 19 | Earth 5, Astral 5 | - | needs_live_observation | ready | effect proof undefined: needs one live observation |
+| Summon Shelter | placed | Construction 20 | Earth 10, Astral 10 | - | spell_actor | live |  |
+| Summon Stone Spirits | instant | Mining 24 | Earth 5, Astral 5 | - | spell_actor, input_mode | live |  |
+| Superheat | placed | Artisan 20 | Fire 15, Air 5 | - | spell_actor | ready | live T0 run |
+| Surge | instant | Magic 11 | Law 10, Astral 10 | - | dodge_distance_gain_m | live |  |
+| Tempest Shield | instant | Attack 11 | Air 15 | - | tag_added, ge_added | live |  |
+| Trunk Totem | placed | Woodcutting 50 | Law 10, Nature 30 | - | needs_live_observation | ready | effect proof undefined: needs one live observation |
+| USD_GetWaterFromWaterSource | instant | -  | - | - | needs_live_observation | n/a | hidden/system spell (no runes, not on the wheel) |
+| USD_SiphonAnimaCharge | instant | -  | - | - | world_module | n/a | hidden/system spell (no runes, not on the wheel) |
+| USD_SiphonRunes | instant | -  | - | - | world_module | n/a | hidden/system spell (no runes, not on the wheel) |
+| Uproot | instant | Farming 15 | Earth 10, Astral 10 | - | world_module, spell_actor | ready | live T0 run |
+| Vengeance | instant | Magic 80 | Earth 10, Astral 20 | - | tag_added, ge_added, spell_actor | ready | live T0 run |
+| Weapon Barbs | instant | -  | - | - | needs_live_observation | n/a | hidden/system spell (no runes, not on the wheel) |
+| Weapon Poison | instant | -  | - | - | needs_live_observation | n/a | hidden/system spell (no runes, not on the wheel) |
+| Whetstone | instant | -  | - | - | needs_live_observation | n/a | hidden/system spell (no runes, not on the wheel) |
+| Windstep | instant | Agility 5 | Air 5 | - | tag_added, ge_added, jump_apex_gain_m | live |  |

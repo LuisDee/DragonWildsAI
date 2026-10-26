@@ -99,7 +99,7 @@ local function damage(a, amount)
         spawn_drops(a.pos, 6, "ITEM_Resources_Wood_" .. sp)
     elseif a.fams[1] == "DestructibleMiningRock" and a.hp <= 0 then
         a.hidden = true
-        spawn_drops(a.pos, 3, "ITEM_Resources_Stone")
+        spawn_drops(a.pos, 3, a.item or "ITEM_Resources_Stone") -- each rock drops its own resource (essence rocks: essence)
     end
 end
 
@@ -481,20 +481,14 @@ do
     reset()
     fake_pc.Pawn = Wd.pawn
     -- two essence rocks hover over the geyser (5 m up), one lies on the ground further away
-    new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = -400, Y = 0, Z = 500 }, 40)
-    new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = -450, Y = 80, Z = 520 }, 40)
-    new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = 800, Y = 200, Z = 0 }, 75)
-    local r = G.HANDLERS.gather(nil, { resource = "rune essence", count = 1 }, { id = "t_ess" })
-    local picked
-    pump(30, function()
-        local j = _G.DWGather.job
-        if j and j.T and j.T.stage == "root" then picked = j.T; return true end
-        return false
-    end)
-    check("essence: the ground rock is the target, the floating ones skipped", picked and picked.pos and picked.pos.Z == 0 and picked.pos.X == 800,
-          picked and picked.pos and (picked.pos.X .. "," .. picked.pos.Z))
-    check("essence: the floating rocks are noted", _G.DWGather.job and _G.DWGather.job.floating and #_G.DWGather.job.floating == 2)
-    G.stop(nil, "test")
+    local ESS = { item = "ITEM_Rune_Essence" }
+    new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = -400, Y = 0, Z = 500 }, 40, ESS)
+    new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = -450, Y = 80, Z = 520 }, 40, ESS)
+    new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = 800, Y = 200, Z = 0 }, 75, ESS)
+    local res0 = run_job({ resource = "rune essence", count = 3 }, 200)
+    check("essence: the ground rock is mined (count gained), the floating ones skipped", res0.ok == true and res0.data.gathered >= 3
+          and (Wd.inv.ITEM_Rune_Essence or 0) >= 3, tostring(res0.reason) .. " " .. tostring(res0.data and res0.data.gathered))
+    check("essence: no floating rock was swung at", (function() for _, a in ipairs(Wd.actors) do if a.pos.Z > 0 and a.hp ~= a.max then return false end end return true end)())
     reset()
     fake_pc.Pawn = Wd.pawn
     new_actor("BP_RuneEssenceRock_C", { "DestructibleMiningRock" }, { X = 600, Y = 0, Z = 500 }, 40)
