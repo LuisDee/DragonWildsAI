@@ -360,3 +360,21 @@ def test_goal_drafts_validate_lint_and_keep_method_words_out_of_scored_chat():
     assert not any(w in mining.chat[0].text.lower() for w in ("copper", "tin", "iron", "lodestone", "wiki"))
     assert not any(c.fixtures.player_body for c in cases)  # Luis 2026-10-26: nothing is delivered to a player
     assert all(c.skill in goal_drafts.skill_names() for c in cases if c.family == "skill_train")
+
+
+def test_main_variants_grant_no_items_and_quick_twins_are_tagged():
+    """Luis 2026-10-26: combat basics, tactics and long tasks make him obtain prerequisites himself; grants only in
+    `_quick` twins (variant quick, tag quick), which goal_check drops."""
+    from evals.bench import goal_drafts
+    grant_verbs = {"grant", "grant_runes", "grant_to_ground", "ground_item"}
+    cases = goal_drafts.long_tasks() + goal_drafts.combat_basics() + goal_drafts.tactics_and_knowledge() + goal_drafts.capstone()
+    for c in cases:
+        verbs = {s.get("verb") for s in c.fixtures.setup}
+        if c.variant == "quick":
+            assert c.id.endswith("_quick") and (c.tags or {}).get("quick") is True, c.id
+        elif c.family in ("combat_basic", "tactics_prep", "tactics_trend", "tactics_telegraph", "long_task", "capstone",
+                          "capstone_stage"):
+            assert not (verbs & grant_verbs), (c.id, verbs)
+    ids = {c.id for c in cases}
+    assert {"goal_basic_parry_quick", "goal_basic_disengage_heal_quick", "capstone_slay_velgar_solo_quick"} <= ids
+    assert all(c.id[:-len("_quick")] in ids for c in cases if c.variant == "quick")

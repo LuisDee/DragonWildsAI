@@ -22,7 +22,7 @@ def test_every_player_spell_has_a_proof_shape():
             assert s["proof"]["required"][0] == {"kind": "runes_spent", "observable": "cast_reply"}, sid
             assert s["proof"]["effect"], sid
         for e in s["proof"]["required"] + s["proof"]["effect"]:
-            assert e["observable"] in {"cast_reply", "probe", "state", False}, (sid, e)
+            assert e["observable"] in {"cast_reply", "probe", "state", "referee", False}, (sid, e)
             if e.get("probe"):
                 assert e["probe_moves_pawn"] is True and e["probe"] in out["probes"], (sid, e)
         assert s["proof"]["required"], sid
@@ -49,7 +49,7 @@ def test_data_derived_signals_come_from_game_modules():
     assert {"kind": "tag_added", "tag": "Player.Status.FireSpirit", "observable": "cast_reply"} in fire  # GE add_tags in the spell data
     ench = out["spells"]["USD_EnchantWeapon_Air"]
     assert ench["requirement"]["strategy"] == "BP_USSRS_RequiresHeldEnchantableMeleeWeapon_C"
-    assert ench["proof"]["effect"][0]["kind"] == "held_item_effect" and ench["proof"]["effect"][0]["observable"] is False
+    assert ench["proof"]["effect"][0]["kind"] == "held_item_effect" and ench["proof"]["effect"][0]["observable"] == "cast_reply"
     assert {"held_category": "melee_weapon"} in ench["setup_checks"]
     assert out["spells"]["USD_FishCyclone"]["status"] == "locked"  # Fishnado
     assert "DamageType.Magical.Air" in ench["proof"]["effect"][0]["damage_types"]

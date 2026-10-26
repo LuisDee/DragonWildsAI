@@ -88,3 +88,21 @@ def test_joined_from_game_log_reads_the_join_remote_addr(tmp_path):
     f.write_text("x\n[..]LogNet: UPendingNetGame::SendInitialJoin: Sending hello. [UNetConnection] RemoteAddr: 127.0.0.1:7777, Name\n",
                  encoding="utf-8")
     assert dt.joined_from_game_log(f) == "127.0.0.1:7777"
+
+
+def test_raise_skills_reply_that_names_the_target_skill_is_refused(tmp_path):
+    """Main 2026-10-26: M3 initiative may raise the OTHER skills; the target skill itself is never touched."""
+    t, _ = make(tmp_path, replies={"raise_skills": {"ok": True, "results": {"Mining": {"ok": True}, "Attack": {"ok": True}}}})
+    with pytest.raises(Abort, match="touched the target skill Mining"):
+        t.setup("raise_skills", **{"except": "Mining", "level": 10})
+    t2, _ = make(tmp_path, replies={"raise_skills": {"ok": True, "results": {"Attack": {"ok": True}}}})
+    assert t2.setup("raise_skills", **{"except": "Mining", "level": 10})["ok"]
+
+
+def test_a_failed_fixture_reads_as_a_fixture_gap_not_a_fail(tmp_path):
+    from evals.bench import devrun
+    from evals.bench.goal_drafts import every_skill
+    case = next(c for c in every_skill() if c.mode == "initiative")
+    t, _ = make(tmp_path, replies={"raise_skills": {"ok": False, "error": "unverified"}})
+    r = devrun.run_case_dev(case, t, tmp_path / "w", {"haiku": 1, "sonnet": 0}, log=lambda *_: None)
+    assert (r.result, r.reason) == ("unverifiable", "fixture_gap"), (r.result, r.reason, r.detail)

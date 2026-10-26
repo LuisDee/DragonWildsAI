@@ -51,11 +51,31 @@ def inv(**counts):
 # ------------------------------------------------------------------ store
 
 
-def test_round_trip_and_version(tmp_path, ops):
+def test_round_trip_and_plan_key(tmp_path, ops):
     t = ops.add_task("first job", by="player:Zezima")
-    v = ops.b.version
+    key = ops.plan_key(t)
     again = B.BoardStore(tmp_path)
-    assert again.board.task(t.id).text == "first job" and again.board.version == v
+    assert again.board.task(t.id).text == "first job"
+    assert B.BoardOps(again).plan_key(again.board.task(t.id)) == key
+    # what a pending decision depends on: preemption and tallies don't change it, new steps and notes do
+    ops.preempt()
+    t.tallies[COPPER] = 3.0
+    assert ops.plan_key(t) == key
+    ops.set_steps(t, [B.Step(title="mine", success=have(COPPER, 1))])
+    k2 = ops.plan_key(t)
+    assert k2 != key
+    t.notes_from_player.append("try the cave")
+    assert ops.plan_key(t) != k2
+
+
+def test_autoflush_off_writes_once_on_flush(tmp_path, clock):
+    store = B.BoardStore(tmp_path, clock=clock, autoflush=False)
+    ops = B.BoardOps(store, clock=clock)
+    ops.add_task("a", by="cli")
+    ops.add_task("b", by="cli")
+    assert not (tmp_path / "goals.json").exists() and store.dirty
+    store.flush()
+    assert [t.text for t in B.BoardStore(tmp_path).board.tasks] == ["a", "b"] and not store.dirty
 
 
 @pytest.mark.parametrize("content", ["{not json", json.dumps({"v": 99, "tasks": []}), json.dumps({"tasks": "x"})])
@@ -74,14 +94,15 @@ def test_replace_retries_a_windows_permission_error(tmp_path, monkeypatch):
         if calls["n"] < 3:
             raise PermissionError("a reader has it open")
         return real(a, b)
-    monkeypatch.setattr(B.os, "replace", flaky)
-    B._atomic_write(tmp_path / "f.json", "{}", sleep=lambda s: None)
+    from brain import fileio
+    monkeypatch.setattr(fileio.os, "replace", flaky)
+    fileio.atomic_write(tmp_path / "f.json", "{}", sleep=lambda s: None)
     assert (tmp_path / "f.json").read_text() == "{}" and calls["n"] == 3
     assert not list(tmp_path.glob("*.tmp"))
 
 
 def test_persistent_save_failure_keeps_the_board_in_memory(tmp_path, monkeypatch, ops):
-    monkeypatch.setattr(B, "_atomic_write", lambda *a, **k: (_ for _ in ()).throw(PermissionError("locked")))
+    monkeypatch.setattr(B, "atomic_write", lambda *a, **k: (_ for _ in ()).throw(PermissionError("locked")))
     t = ops.add_task("still here", by="cli")
     assert ops.store.save_failed and ops.b.task(t.id) is not None
 
@@ -298,16 +319,19 @@ def _run_trip(ops, t, gain):
 
 def test_loop_requeues_until_the_tally_passes(ops):
     t = _loop_task(ops, P.validate({"tally": {"item": COPPER, "at_least": 20}}))
-    assert _run_trip(ops, t, 8) == "requeued" and len(t.pending()) == 2
+    assert _run_trip(ops, t, 8) == ("requeued", True) and len(t.pending()) == 2
     assert t.pending()[0].loop_iter == 1
-    assert _run_trip(ops, t, 8) == "requeued"
-    assert _run_trip(ops, t, 8) == "ended" and t.tallies[COPPER] == 24.0
+    assert _run_trip(ops, t, 8) == ("requeued", True)
+    assert _run_trip(ops, t, 8)[0] == "ended" and t.tallies[COPPER] == 24.0
 
 
-def test_two_zero_gain_loops_end_the_loop_and_count_as_a_replan(ops):
+def test_a_zero_gain_loop_pass_is_reported_not_capped(ops):
+    """Simplify item 5: the board never ends a loop by itself; it says the pass gained nothing and the Director
+    spends the task's progress budget on it."""
     t = _loop_task(ops, P.validate({"tally": {"item": COPPER, "at_least": 20}}))
-    assert _run_trip(ops, t, 0) == "requeued"
-    assert _run_trip(ops, t, 0).startswith("capped:2 loops gained nothing") and t.replans == 1
+    for _ in range(3):
+        assert _run_trip(ops, t, 0) == ("requeued", False)
+    assert t.status != "stuck" and len(t.pending()) == 2
 
 
 def test_a_skill_loop_with_growing_xp_is_not_zero_gain(ops):
@@ -320,18 +344,20 @@ def test_a_skill_loop_with_growing_xp_is_not_zero_gain(ops):
         ops.activate(s, {})
         ops.finish_step(t, s, "done")
         out = ops.requeue_loop(t, s, {"skills": [{"skill": "Mining", "level": 5, "xp": xp}]})
-        assert out == "requeued"
+        assert out == ("requeued", True)  # growing XP is gain
 
 
-def test_the_task_progress_rule_trips_after_three_flat_decisions(ops):
+def test_one_progress_budget_per_task(ops):
     t = ops.add_task("collect", by="player:Zezima")
     ops.set_success(t, have(COPPER, 9), "director")
-    assert not ops.record_decision(t, inv(copper=1))  # the first decision sets the reference
-    assert not ops.record_decision(t, inv(copper=2))  # progress: reset
-    assert not ops.record_decision(t, inv(copper=2))
-    assert not ops.record_decision(t, inv(copper=2))
-    assert ops.record_decision(t, inv(copper=2))
-    assert not ops.record_decision(t, inv(copper=2), new_done=True)  # a newly done step counts as progress
+    assert ops.progressed(t, inv(copper=1))  # the first mark
+    assert not ops.progressed(t, inv(copper=1))
+    assert not ops.spend(t, 3, "flat run") and not ops.spend(t, 3, "flat run")
+    assert ops.progressed(t, inv(copper=2)) and t.spent == 0.0  # progress refills it
+    for _ in range(3):
+        used = ops.spend(t, 3, "flat")
+    assert used and t.spent >= B.PROGRESS_BUDGET
+    assert ops.progressed(t, inv(copper=2), step_grew=True) and t.spent == 0.0  # a step's own work grew
 
 
 def test_set_steps_keeps_history_and_a_review_keeps_the_active_step(ops):
@@ -362,13 +388,13 @@ def test_brief_shows_done_when_progress_step_and_collected(ops):
 
 
 def test_hourly_window_slides_and_persists(tmp_path, clock):
-    store = B.BoardStore(tmp_path, clock=clock)
-    w = B.HourlyWindow(store, per_hour=3, clock=clock)
+    w = B.HourlyWindow(tmp_path / B.WINDOW_NAME, per_hour=3, clock=clock)
     w.spend(2)
     clock.t += 1000
     w.spend()
     assert not w.allows() and w.wait_s() == pytest.approx(2600)
-    w2 = B.HourlyWindow(B.BoardStore(tmp_path, clock=clock), per_hour=3, clock=clock)  # a restart keeps it
+    assert not (tmp_path / "goals.json").exists()  # the window is not part of the plan (simplify item 1)
+    w2 = B.HourlyWindow(tmp_path / B.WINDOW_NAME, per_hour=3, clock=clock)  # a restart keeps it
     assert w2.left() == 0
     clock.t += 2601
     assert w2.allows() and w2.left() == 2
@@ -385,15 +411,19 @@ def test_gap_log_sources_and_claims(tmp_path, clock):
                               task="t1")["new_for_task"] is False  # told once per task
     assert g.from_tool_result("run_skill", {"ok": False, "reason": Reason.UNKNOWN_SKILL, "data": {}}) is None
     claim = g.record("gather", source="director", task="t1", why="needs to mine")
+    g.save()
     assert claim["tool_exists"] and not claim["new_for_task"] and g.gaps["gather"]["count"] == 0
     perc = g.from_uncheckable(["quests", "baseline", "clock"], task="t2")
     assert [x["primitive"] for x in perc] == ["perceive:quests"]
-    g.seed(missing={"pickup": "not implemented"}, debug_tools=["equip"],
-           known=[("travel:long_distance", "action", "go_to times out after 120 s")])
+    with pytest.raises(ValueError):  # knowledge gaps live in the knowledge memory, never here
+        g.record("where the forge is", kind="knowledge")
+    g.seed(missing={"pickup": "not implemented"}, debug_tools=["equip"])
     g.seed(missing={"pickup": "not implemented"})  # restarts don't inflate counts
     again = GapLog(tmp_path / "gaps.json")
     assert again.gaps["equip"]["count"] == 0 and "seed" in again.gaps["equip"]["sources"]
-    assert again.rows()[0]["primitive"] == "deposit"
+    assert again.rows()[0]["primitive"] == "deposit" and "where the forge is" not in again.gaps
+    assert {r["primitive"] for r in again.backlog()} >= {"deposit", "pickup", "equip", "perceive:quests"}
+    assert "gather" not in {r["primitive"] for r in again.backlog()}  # a claim about a tool he has
 
 
 # ------------------------------------------------------------------ CLI
@@ -415,7 +445,9 @@ def test_cli_add_list_cancel_gaps(tmp_path, monkeypatch, capsys):
     cli.main(["cancel", tid, "--world", "dev"])
     ops.store.ingest_inbox(lambda r: B.apply_inbox_record(ops, r))
     assert ops.b.task(tid).status == "cancelled"
-    GapLog(tmp_path / "capability_gaps.json").record("deposit", task="x")
+    gl = GapLog(tmp_path / "capability_gaps.json")
+    gl.record("deposit", task="x")
+    gl.save()
     capsys.readouterr()
     assert cli.main(["gaps", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)[0]["primitive"] == "deposit"

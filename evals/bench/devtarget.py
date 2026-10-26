@@ -182,6 +182,8 @@ class DevTarget:
                 break
             time.sleep(1.5)
             res = ((self.server_debug(args).get("data") or {}).get("result")) or {}
+        if verb == "raise_skills" and a.get("except") and a["except"] in (res.get("results") or {}):
+            res = {"ok": False, "error": f"raise_skills touched the target skill {a['except']}"}  # main's condition
         row = {"t": time.time(), "verb": verb, "args": a, "purpose": purpose, "ok": bool(res.get("ok")), "error": res.get("error")}
         self.setup_log.append(row)
         try:

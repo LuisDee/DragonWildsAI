@@ -8,6 +8,8 @@ import threading
 
 import pytest
 
+from brain import board as B
+
 from brain import director as D
 from brain import predicates as P
 from brain.capability_gaps import GapLog
@@ -244,7 +246,7 @@ def test_failure_replans_with_the_real_results_then_asks_for_help(tmp_path):
     llm.push(decision(steps=[step("mine tin at the quarry", gained(TIN, 3))]))
     d.handle_tool("resume_board", {"note": "tin is at the quarry"}, "Zezima")
     ticks(d, 1)
-    ans = json.loads(llm.calls[-1]["messages"][1]["content"])
+    ans = [json.loads(c["messages"][1]["content"]) for c in llm.calls][-2]  # the help_answer (then a replan: blocked)
     assert ans["decision"] == "help_answer" and ans["job"]["notes_from_player"] == ["tin is at the quarry"]
 
 
@@ -252,22 +254,24 @@ def test_no_progress_twice_fails_the_attempt(tmp_path):
     d, port, world, llm, clock = make(tmp_path, lambda ev, port: {"actions": [], "ended": "normal"}, [
         decision(task_success=have(COPPER, 5), steps=[step("mine", gained(COPPER, 5))])])
     d.handle_tool("add_task", {"text": "copper"}, "Zezima")
-    ticks(d, 4)
-    aw = d.ops.b.awaiting_decision
-    assert aw["kind"] == "replan" and aw["detail"]["failed"]["reason"].startswith("no progress: Copper Ore +0/5")
+    ticks(d, 2)
+    replan = json.loads(llm.calls[1]["messages"][1]["content"])
+    assert replan["decision"] == "replan"
+    assert replan["detail"]["failed"]["reason"].startswith("no progress: Copper Ore +0/5")
     assert len([e for e in port.events if e["type"] == "board_step"]) == 2
 
 
-def test_chat_cut_runs_do_not_count_but_are_capped(tmp_path):
+def test_chat_cut_runs_do_not_count_but_spend_a_little_of_the_budget(tmp_path):
     d, port, world, llm, clock = make(tmp_path, lambda ev, port: {"actions": [], "ended": "chat"}, [
         decision(task_success=have(COPPER, 5), steps=[step("mine", gained(COPPER, 5), )])])
     d.handle_tool("add_task", {"text": "copper"}, "Zezima")
-    ticks(d, 2)
+    ticks(d, 1)  # the plan lands and the first run starts in the same tick
     task = d.ops.b.current_task()
     s = task.steps[0]
     assert s.runs == 0 and s.uncounted_runs == 1 and d.ops.b.awaiting_decision is None
-    ticks(d, 3 * s.max_runs + 2)
-    assert task.status == "parked" and "chat kept interrupting" in task.end_reason
+    assert task.spent == pytest.approx(0.25)
+    ticks(d, int(B.PROGRESS_BUDGET / 0.25) + 2)
+    assert task.status == "waiting_help" and "chat kept interrupting" in task.end_reason
 
 
 # ------------------------------------------------------------------ preemption (H4, H6)
@@ -275,7 +279,8 @@ def test_chat_cut_runs_do_not_count_but_are_capped(tmp_path):
 
 def test_a_player_command_preempts_and_the_resume_run_may_decline(tmp_path):
     def ctrl(ev, port):
-        if ev["type"] == "board_step" and ev.get("paused_by_player"):
+        # the fake model judges from what the player said (simplify item 6: code never decides "stop")
+        if ev["type"] == "board_step" and (ev.get("preempted_by") or {}).get("said") == "wait here":
             port.director.handle_tool("pause_board", {"reason": "he told me to wait"}, "Zezima")
             return {"actions": [], "ended": "normal"}
         return mine(COPPER, 1)(ev, port)
@@ -284,7 +289,7 @@ def test_a_player_command_preempts_and_the_resume_run_may_decline(tmp_path):
     d.handle_tool("add_task", {"text": "copper"}, "Zezima")
     ticks(d, 2)
     n = len(port.events)
-    d.on_player_command("Zezima", ["stop"])  # he said something that made the Controller stop
+    d.on_player_command("Zezima", ["stop"], "wait here")  # he said something that made the Controller stop
     task = d.ops.b.current_task()
     assert task.status == "preempted"
     clock.t += 10
@@ -293,7 +298,8 @@ def test_a_player_command_preempts_and_the_resume_run_may_decline(tmp_path):
     clock.t += 25
     ticks(d, 1)
     ev = port.events[-1]
-    assert ev["resumed"] and ev["paused_by_player"] and ev["preempted_by"]["tools"] == ["stop"]
+    assert ev["resumed"] and ev["preempted_by"]["tools"] == ["stop"] and ev["preempted_by"]["said"] == "wait here"
+    assert "paused_by_player" not in ev
     assert d.ops.b.paused and task.status == "paused"
     ticks(d, 3)
     assert len(port.events) == n + 1  # stays paused until resume_board
@@ -319,7 +325,7 @@ def test_a_nested_chat_command_inside_a_run_is_tainted(tmp_path):
     d, port, world, llm, clock = make(tmp_path, ctrl, [
         decision(task_success=have(COPPER, 50), steps=[step("mine", gained(COPPER, 5))])])
     d.handle_tool("add_task", {"text": "copper"}, "Zezima")
-    ticks(d, 2)
+    ticks(d, 1)
     s = d.ops.b.current_task().steps[0]
     assert s.status == "active" and s.accumulated == {} and d.ops.b.current_task().tallies == {}
 
@@ -447,7 +453,7 @@ def test_unknown_facts_get_one_nudge_and_lookups_are_cached_and_scored(tmp_path)
     d.log = ListLog()
     d.handle_tool("add_task", {"text": "get tin"}, "Zezima")
     ticks(d, 2)
-    assert "These facts are unknown" in llm.calls[1]["messages"][-1]["content"] and k.queries == ["where are tin rocks"]
+    assert "These facts are listed as unknown" in llm.calls[1]["messages"][-1]["content"] and k.queries == ["where are tin rocks"]
     assert d.memory.recall("tin rocks")[0]["source"] == "wiki"
     assert d.ops.b.current_task().steps[0].title == "mine tin"
     assert [r["needed"] for r in d.log.rows if r["kind"] == "director_lookup"] == [True]
@@ -590,7 +596,7 @@ def test_nothing_in_range_is_negative_evidence_in_map_memory(tmp_path):
     d, port, world, llm, clock = make(tmp_path, empty, [
         decision(task_success=have(TIN, 3), steps=[step("mine", gained(TIN, 3))])], map_memory=mem)
     d.handle_tool("add_task", {"text": "tin"}, "Zezima")
-    ticks(d, 2)
+    ticks(d, 1)
     assert mem.neg == [("tin", [0.0, 0.0, 0.0], "nothing_in_range", "empty")]
 
 
@@ -613,7 +619,7 @@ def test_a_finished_step_is_learned_on_the_worker_and_saved_on_the_loop(tmp_path
                             {"tool": "craft", "args": {"item": "plank", "count": 1}, "ok": True, "data": {}}],
                 "ended": "normal"}
     d, port, world, llm, clock = make(tmp_path, ctrl, [
-        decision(task_success=have(COPPER, 50), steps=[step("mine", gained(COPPER, 5)),
+        decision(task_success=have(COPPER, 10), steps=[step("mine", gained(COPPER, 5)),
                                                        step("mine more", gained(COPPER, 5))]),
         json.dumps(skill)])
     d.skills, d.skills_registry = owner, SkillRegistry()
@@ -752,7 +758,7 @@ def test_a_knowledge_gap_is_never_a_capability_gap(tmp_path):
     assert "kind must be one of action, perception, knowledge" in llm.calls[1]["messages"][-1]["content"]
     backlog = [g["primitive"] for g in d.gaps.backlog()]
     assert "read drop tables" not in backlog and set(backlog) >= {"deposit", "perceive:quests"}
-    assert d.gaps.gaps["read drop tables"]["kind"] == "knowledge"
+    assert "read drop tables" not in d.gaps.gaps  # knowledge gaps live only in the knowledge memory (item 7)
     told = [line for e in port.events if e.get("tell_player") for line in e["tell_player"]]
     assert not any("drop tables" in line for line in told) and any("deposit" in line for line in told)
     assert d.memory.recall("drop tables")[0]["value"]["status"] == "unknown"

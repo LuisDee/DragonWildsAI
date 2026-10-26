@@ -256,3 +256,37 @@ def test_air_dash_needs_the_harness_effect_probe_not_the_cast_displacement():
     a2 = dict(a, air_dash_m=8.4)
     o2 = Observation(1, "cast", {"spell": "Phase Dash"}, 0, 1, 0, 1, b, a2, reply)
     assert ev({"spell_effect": {"spell": "USD_PhaseDash"}}, ctx_of(observations=[o2], supports=())).passed is True
+
+
+def test_view_target_proves_oculus_and_shared_input_mode_is_generic():
+    """Spells agent 2026-10-26: Eye of Oculus switches the camera to BP_OculusCamera_C (specific); entering
+    DIM_SpellcastingMode is shared by several spells, so it can never prove which one went off."""
+    from evals.bench.leaves import _effect, specific_effects
+    spells = {"A": {"proof": {"effect": [{"kind": "view_target", "class": "BP_OculusCamera_C"},
+                                         {"kind": "input_mode", "contains": "SpellcastingMode"}]}},
+              "B": {"proof": {"effect": [{"kind": "input_mode", "contains": "SpellcastingMode"}]}}}
+    good, bad = specific_effects("A", spells)
+    assert [e["kind"] for e in good] == ["view_target"] and [e["kind"] for e in bad] == ["input_mode"]
+    assert specific_effects("B", spells)[0] == []
+
+    class O:
+        def __init__(self, b, a):
+            self.before, self.after, self.wall0, self.wall1 = b, a, 0.0, 1.0
+    vt = good[0]
+    assert _effect(vt, O({"view_target": "BP_PlayerCharacter_C"}, {"view_target": "BP_OculusCamera_C"}), None) is True
+    # transient: the view is back before the after-probe, so absence is "can't tell", never a pass and never a fail
+    assert _effect(vt, O({"view_target": "BP_PlayerCharacter_C"}, {"view_target": "BP_PlayerCharacter_C"}), None) is None
+    polled = {"referee": [{"kind": "spell_actor", "class": "BP_OculusCamera_C", "t": 0.5}]}
+    assert _effect(vt, O({"view_target": "BP_PlayerCharacter_C"}, {"view_target": "BP_PlayerCharacter_C"}), None, polled) is True
+
+
+def test_held_item_effect_reads_the_probe_held_effects():
+    from evals.bench.leaves import _effect
+    e = {"kind": "held_item_effect", "effect": "HEED_EnchantWeaponFire"}
+
+    class O:
+        def __init__(self, b, a):
+            self.before, self.after, self.wall0, self.wall1 = b, a, 0.0, 1.0
+    assert _effect(e, O({"held": {"effects": []}}, {"held": {"effects": ["HEED_EnchantWeaponFire"]}}), None) is True
+    assert _effect(e, O({"held": {"effects": []}}, {"held": {"effects": []}}), None) is False
+    assert _effect(e, O({}, {"gaps": ["held_effects"]}), None) is None

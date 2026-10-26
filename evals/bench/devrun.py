@@ -64,6 +64,10 @@ def default_dev() -> DevTarget:
                      forbidden=forbidden_addresses, brain_running=ops.brain_running)
 
 
+class FixtureGap(Abort):
+    """Case setup failed (main 2026-10-26: e.g. raise_skills before it is verified): reads as a fixture gap."""
+
+
 def build_dev_companion(game, workdir: Path, caps_cap: dict[str, int], log_name: str = "brain.jsonl"):
     """The real Controller/Planner/Executor/broker over the observed bridge, with the body's capability manifest and
     the knowledge index, its state in this case's own fresh directory (design §7.3)."""
@@ -124,7 +128,10 @@ def run_case_dev(case: Case, dev: DevTarget, workdir: Path, calls_cap_: dict[str
             s = dict(step)
             verb, name = s.pop("verb"), s.pop("as", None)
             s["purpose"] = f"case {case.id} ({case.variant}): " + str(s.get("purpose") or "setup")
-            out = dev.setup(verb, **s)
+            try:
+                out = dev.setup(verb, **s)
+            except Abort as exc:  # an unverified or failed fixture: the case can't be set up - a gap, never his fail
+                raise FixtureGap(f"{verb}: {exc}") from exc
             if name:
                 bindings[name] = out
         brain_side, _ = file_transport_pair(body="client", channel="debug")
@@ -172,6 +179,8 @@ def run_case_dev(case: Case, dev: DevTarget, workdir: Path, calls_cap_: dict[str
         if ctl is not None:  # keep what was spent visible in the scoreboard
             r.calls = {ctl.family: ctl.calls, pln.family: pln.calls}
             r.usage = ctl.usage + pln.usage
+    except FixtureGap as exc:
+        r.result, r.reason, r.detail = "unverifiable", "fixture_gap", str(exc)
     except Abort as exc:
         r.result, r.reason, r.detail = "error", "aborted", str(exc)
     finally:

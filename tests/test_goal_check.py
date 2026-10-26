@@ -373,3 +373,17 @@ def test_every_milestone_key_has_a_measurement():
     for k in keys:
         for r in gc.rows_for(d, k):
             assert "no measurement" not in r.note, k
+
+
+def test_quick_variants_never_count_for_goal(tmp_path):
+    """Luis 2026-10-26: a *_quick case (grants that isolate one skill) is a dev aid; only main variants are scored."""
+    cases = full_suite()
+    for c in cases:
+        if c["family"] == "combat_basic":
+            c["variant"] = "quick"
+    rows = [make_run(tmp_path, "dev_q", cases)]
+    d = data(tmp_path, rows, validity_for(cases))
+    gc.collect_runs(d)
+    kept = [c for r in d.runs for c in r["cases"]]
+    assert kept and not any(c.get("family") == "combat_basic" for c in kept)
+    assert len(kept) == len(cases) - sum(c["family"] == "combat_basic" for c in cases)
