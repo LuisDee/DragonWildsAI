@@ -172,7 +172,11 @@ def _effect(e: dict, o, target: Any, ctx: dict | None = None) -> bool | None:
             return None
         walked = math.dist(h["start"], h["mid"]) >= 3.0
         back = math.dist(h["start"], a["position"]) <= float(e.get("within_m", 3.0))
-        return True if (walked and back) else (None if hyp and not walked else False)
+        if walked and back:
+            return True
+        # live 2026-10-26 17:28-17:40 (skills agent): the two-cast reading did not return him; the mechanic is
+        # unproven, so while the proof is a hypothesis a non-return is "can't tell", never his fail
+        return None if hyp else False
     if k == "view_target":  # the camera switched to the spell's view actor (probe: pc:GetViewTarget())
         if a.get("view_target") == e.get("class") and b.get("view_target") != e.get("class"):
             return True

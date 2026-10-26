@@ -322,7 +322,8 @@ def test_recall_return_needs_the_walk_away_and_the_return():
             self.before, self.after, self.wall0, self.wall1, self.t0, self.t1 = {}, after, 0.0, 1.0, 0.0, 1.0
     walk = {"start": [0, 0, 0], "mid": [8, 0, 0]}
     assert _effect(e, O({"position": [0.5, 0, 0], "harness": {"after_cast_move": walk}}), None) is True
-    assert _effect(e, O({"position": [8, 0, 0], "harness": {"after_cast_move": walk}}), None) is False  # stayed away
+    assert _effect(e, O({"position": [8, 0, 0], "harness": {"after_cast_move": walk}}), None) is None  # unproven: never his fail
+    assert _effect({**e, "confidence": "verified"}, O({"position": [8, 0, 0], "harness": {"after_cast_move": walk}}), None) is False
     assert _effect(e, O({"position": [0, 0, 0]}), None) is None  # no harness motion: can't tell
 
 
