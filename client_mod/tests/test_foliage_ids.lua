@@ -168,5 +168,18 @@ for _, x in ipairs((cen and cen.resources) or {}) do if x.kind == "foliage" then
 check("census: foliage rows with stable ids, no internals", fol and fol.id:match("^fol:BP_BM_Tree_Ash_03_C@") and fol._legacy == nil and fol._comp == nil,
     fol and fol.id)
 
+-- interactables: the interaction point is used only when it sits on the actor (live 09:25: an NPC's read (0,0,0))
+do
+    local npc = uobj("BP_NPC_WiseOldMan_FTUE_C /Game/L.L:PersistentLevel.BP_NPC_WiseOldMan_FTUE_C_1", {
+        K2_GetActorLocation = function() return { X = 6130, Y = 187360, Z = -3550 } end })
+    local ic0 = uobj("InteractionComponent /Game/L.L:PersistentLevel.NPC.IC", { K2_GetComponentLocation = function() return { X = 0, Y = 0, Z = 0 } end })
+    local d = S._describe_interactable(npc, ic0, "npc", { X = 6270, Y = 188150, Z = -3550 })
+    check("NPC with an interaction point at the origin: actor position kept", d.position[2] > 1800 and d.distance < 20, d.distance)
+    local tent = uobj("BP_Shelter_C /Game/L.L:PersistentLevel.BP_Shelter_C_1", { K2_GetActorLocation = function() return { X = 2000, Y = 2000, Z = 300 } end })
+    local ic1 = uobj("BoxComponent /Game/L.L:PersistentLevel.Shelter.IC", { K2_GetComponentLocation = function() return { X = 2160, Y = 2000, Z = 300 } end })
+    d = S._describe_interactable(tent, ic1, "resting_area", nil)
+    check("a real interaction point near the actor is used", math.abs(d.position[1] - 21.6) < 0.01 and d.actor_position)
+end
+
 print(string.format("%d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

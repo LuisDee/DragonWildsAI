@@ -382,13 +382,18 @@ local function describe_resource(a, origin)
     return d
 end
 
+M.IC_MAX_OFFSET_CM = 1000 -- an interaction point further than this from its actor is not trusted
 local function describe_interactable(a, ic, kind, origin)
     local d = base(a, origin)
     -- position = the interaction component's own location when it has one (where the game's detector
     -- aims), not the actor origin (a tent's origin is under its roof: live 20:46)
     local v = ic and U.try(function() return ic:K2_GetComponentLocation() end)
     local okv, x, y, z = pcall(function() return v.X, v.Y, v.Z end)
-    if okv and type(x) == "number" then
+    -- only when it is plausibly ON the actor: an NPC's interaction component reads ~(0,0,0) (not attached /
+    -- not a placed scene component; live 09:25 UTC, the Wise Old Man listed at 1865 m) -> keep the actor origin
+    local at = U.loc(a)
+    local near = okv and type(x) == "number" and at and U.dist(at, { X = x, Y = y, Z = z }) <= M.IC_MAX_OFFSET_CM
+    if near then
         d.actor_position = d.position
         d.position = U.to_wire({ X = x, Y = y, Z = z })
         if origin then d.distance = U.cm_to_m(U.dist(origin, { X = x, Y = y, Z = z })) end
@@ -447,6 +452,7 @@ local function facts_of(cls)
     return f
 end
 M.foliage_facts = facts_of
+M._describe_interactable = function(...) return describe_interactable(...) end
 
 local function rotate_yaw(v, deg)
     if not deg or deg == 0 then return v end

@@ -273,8 +273,11 @@ function W.interaction_point(api, thing)
         if ok and type(x) == "number" then return { x / 100, y / 100, z / 100 } end
     end
     local p, from
+    local at = U.loc(a)
     for _, prop in ipairs(COLLIDER_PROPS) do
         p = loc(U.try(function() return a[prop] end))
+        -- not on the actor (an NPC's InteractionComponent reads (0,0,0): live 09:25 UTC) -> not a usable point
+        if p and at and math.sqrt((p[1] * 100 - at.X) ^ 2 + (p[2] * 100 - at.Y) ^ 2) > 1000 then p = nil end
         if p then from = prop; break end
     end
     local f = U.try(function() return a:GetActorForwardVector() end)
