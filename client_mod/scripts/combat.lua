@@ -55,6 +55,7 @@ M.cfg = {
     special_gap_s = 6,
     telegraph_m = 6, telegraph_fresh_s = 1.0,
     disengage_m = 10,        -- back off this far to eat (orders.disengage)
+    memory_enabled = true, history_max = 10, steam_manifest = "C:/Program Files (x86)/Steam/steamapps/appmanifest_1374490.acf",
     approach_stall_s = 12, approach_gain_m = 0.5, -- approach: no 0.5 m gain for 12 s = blocked (path_blocked)
     impact_attrib_s = 0.8, max_retargets = 4, -- an HP drop this soon after a creature's impact event is its hit
     conversation_retry_s = 2.0, conversation_leave_s = 5.0, -- leaving an NPC dialogue for a fight (talk finding 8)
@@ -825,6 +826,194 @@ function M.approach_blocked(F, ms)
              detail = string.format("I can't reach the %s: %s.", name, words[why] or why) }
 end
 
+-- ------------------------------------------------------------------ persistent combat memory
+-- What he learned in fights survives a client restart (design docs/design/combat-memory.md): defence
+-- (per-attack timing, parry offset, lunge, reach, damage, the response bandit, cadence), learned damage-type
+-- verdicts, swing stamina costs, ranged profiles, and a per-creature fight history (information for the
+-- brain, never a veto). One JSON file per world and character, tagged with the client build:
+--   <root>/data/skills/<world>/combat_memory_<character>.json
+-- Loaded ONCE (first fight / combat_brief of that world+character); written ONLY at a fight's end, as
+-- write-then-rename (Lua's os.rename will not replace an existing file on Windows: the old file is moved to
+-- .bak first, the new one renamed in, the .bak removed; a crash between leaves .bak, which the load uses).
+-- A file from another build is REFUSED loudly (kept as ...build-<old>.json, status "refused_stale");
+-- a corrupt one is kept as .corrupt-<time>.json (status "corrupt"). Never any game call here.
+M.fs = { open = io.open, rename = os.rename, remove = os.remove, execute = os.execute }
+local function sanitize(w)
+    w = w and tostring(w):gsub("[^%w_%-]", "") or ""
+    return w ~= "" and w or nil
+end
+function M.world_id()
+    local w = sanitize(rawget(_G, "DW_WORLD_GUID")) or sanitize(os.getenv("DW_WORLD_GUID"))
+    if w then return w end
+    local f = M.fs.open(ROOT .. "/client_io/world_guid.txt", "r")
+    if f then w = sanitize(f:read("l")); f:close(); if w then return w end end
+    return "shockbyte"
+end
+local BUILD
+function M.client_build()
+    if BUILD ~= nil then return BUILD or nil end
+    BUILD = sanitize(os.getenv("DW_CLIENT_BUILD")) or false
+    if not BUILD then
+        local f = M.fs.open(M.cfg.steam_manifest, "r")
+        if f then
+            local txt = f:read("a") or ""; f:close()
+            BUILD = sanitize(txt:match('"buildid"%s+"(%d+)"')) or false
+        end
+    end
+    return BUILD or nil
+end
+M._reset_build = function(b) BUILD = b end
+function M.memory_path(world, char)
+    local dir = (M.cfg.memory_root or ROOT) .. "/data/skills/" .. world
+    return dir .. "/combat_memory_" .. char .. ".json", dir
+end
+local function json()
+    json_mod = json_mod or U.try(function() return assert(loadfile(ROOT .. "/client_mod/scripts/dkjson.lua"))() end)
+    return json_mod
+end
+local function read_all(path)
+    local f = M.fs.open(path, "rb"); if not f then return nil end
+    local t = f:read("a"); f:close(); return t
+end
+
+-- -> the memory record (c.mem); loads the file the first time a world+character is seen
+function M.memory(log, pawn)
+    local c = C()
+    local char = sanitize(pawn and U.try(function() return U.player_name(pawn) end)) or (c.mem and c.mem.char) or "unknown"
+    local world = M.world_id()
+    local key = world .. "/" .. char
+    if c.mem and c.mem.key == key then return c.mem end
+    if not M.cfg.memory_enabled then c.mem = { key = key, world = world, char = char, history = {}, status = "disabled", off = true }; return c.mem end
+    local path = M.memory_path(world, char)
+    local build = M.client_build()
+    local m = { key = key, world = world, char = char, path = path, build = build, history = {}, status = "new", loaded_at = os.time() }
+    c.mem = m
+    local txt = read_all(path)
+    local from = path
+    if not txt then txt = read_all(path .. ".bak"); from = path .. ".bak" end
+    if not txt then
+        if log then pcall(log, "combat: memory " .. path .. ": none yet (first fights in this world)") end
+        return m
+    end
+    local J = json()
+    local ok, doc = pcall(function() return J and J.decode(txt) end)
+    if not ok or type(doc) ~= "table" then
+        local keep = path .. ".corrupt-" .. os.time() .. ".json"
+        M.fs.rename(from, keep)
+        m.status, m.detail = "corrupt", "unreadable memory file kept as " .. keep
+        if log then pcall(log, "combat: MEMORY CORRUPT: " .. m.detail) end
+        return m
+    end
+    m.file_build = doc.build and tostring(doc.build) or nil
+    if build and m.file_build ~= build then
+        local keep = path:gsub("%.json$", "") .. ".build-" .. tostring(m.file_build) .. ".json"
+        M.fs.remove(keep)
+        M.fs.rename(from, keep)
+        m.status = "refused_stale"
+        m.detail = string.format("memory from build %s refused (client build %s); kept as %s; learning starts again",
+            tostring(m.file_build), build, keep)
+        if log then pcall(log, "combat: MEMORY REFUSED: " .. m.detail) end
+        return m
+    end
+    local D, R = mod("defense"), mod("ranged")
+    m.imported = { attacks = D and D.import and D.import(doc.defense) or 0, ranged = R and R.import and R.import(doc.ranged) or 0 }
+    for name, v in pairs(type(doc.learned) == "table" and doc.learned or {}) do
+        if c.learned[name] == nil then c.learned[name] = v end
+    end
+    c.press_cost = c.press_cost or {}
+    for k, v in pairs(type(doc.press_cost) == "table" and doc.press_cost or {}) do
+        if c.press_cost[k] == nil then c.press_cost[k] = v end
+    end
+    m.history = type(doc.history) == "table" and doc.history or {}
+    m.status = build and "loaded" or "loaded_build_unknown"
+    m.saved_at = doc.saved_at
+    if log then
+        local n = 0
+        for _ in pairs(m.history) do n = n + 1 end
+        pcall(log, string.format("combat: memory loaded %s (build %s, %d attacks, %d creatures)", path, tostring(m.file_build), m.imported.attacks, n))
+    end
+    return m
+end
+
+-- One fight into the creature's history (newest last, at most cfg.history_max).
+function M.record_fight(m, F, res)
+    local name = F.target_name and tostring(F.target_name):lower()
+    if not (m and name) then return end
+    local h = m.history[name] or {}
+    m.history[name] = h
+    h[#h + 1] = { at = os.time(), outcome = M._outcome_of(F, res), reason = res.reason, damage_taken = math.floor((F.dmg_taken or 0) * 10) / 10,
+                  dur_s = F.t and F.t0 and math.floor((F.t - F.t0) * 10) / 10 or nil, kills = F.kills or 0,
+                  parries = F.n_parried or 0, blocks = F.n_blocked or 0, dodges = F.n_dodges or 0, heals = F.n_heals or 0,
+                  weapon = F.equip_plan and F.equip_plan.weapon or nil }
+    while #h > M.cfg.history_max do table.remove(h, 1) end
+end
+
+-- Write the memory: tmp, then old -> .bak, tmp -> file, remove .bak. -> ok, err
+function M.memory_save(log, m)
+    m = m or C().mem
+    if not m or m.off then return false, "no memory" end
+    local J = json()
+    if not J then return false, "no json" end
+    local c = C()
+    local D, R = mod("defense"), mod("ranged")
+    local doc = { v = 1, build = m.build, world = m.world, character = m.char, saved_at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+                  defense = D and D.export and D.export() or nil, ranged = R and R.export and R.export() or nil,
+                  learned = c.learned, press_cost = c.press_cost, history = m.history }
+    local ok, txt = pcall(J.encode, doc)
+    if not ok or type(txt) ~= "string" then return false, "encode: " .. tostring(txt) end
+    local path, dir = M.memory_path(m.world, m.char)
+    local tmp = path .. ".tmp"
+    local f = M.fs.open(tmp, "wb")
+    if not f and not m.mkdir_tried then -- the world's folder: created once, only if missing
+        m.mkdir_tried = true
+        M.fs.execute('mkdir "' .. dir:gsub("/", "\\") .. '" 2>nul')
+        f = M.fs.open(tmp, "wb")
+    end
+    if not f then m.save_err = "cannot write " .. tmp; return false, m.save_err end
+    f:write(txt); f:close()
+    local bak = path .. ".bak"
+    M.fs.remove(bak)
+    local had = M.fs.rename(path, bak)
+    local okr, err = M.fs.rename(tmp, path)
+    if not okr then
+        if had then M.fs.rename(bak, path) end
+        m.save_err = "rename: " .. tostring(err)
+        if log then pcall(log, "combat: memory save failed: " .. m.save_err) end
+        return false, m.save_err
+    end
+    M.fs.remove(bak)
+    m.saves, m.save_err, m.saved_at = (m.saves or 0) + 1, nil, doc.saved_at
+    return true
+end
+
+-- The brain's view of one creature's history: counts, the damage-taken series, outcomes, first encounter.
+function M.creature_history(name, m)
+    m = m or C().mem
+    local h = m and name and m.history[tostring(name):lower()] or nil
+    if not h or #h == 0 then return { fights = 0, first_encounter = true } end
+    local dmg, out = {}, {}
+    for i, e in ipairs(h) do dmg[i] = e.damage_taken; out[i] = e.outcome end
+    return { fights = #h, first_encounter = false, damage_taken = dmg, outcomes = out, last_at = h[#h].at }
+end
+
+-- A family prior for damage-type verdicts: a learned creature sharing a name token (data words, labelled).
+function M.family_affinity(name, learned)
+    learned = learned or C().learned
+    local D = mod("defense")
+    if not (D and D._tokens and name) then return nil end
+    local want = D._tokens(name)
+    local best, bn
+    for other, v in pairs(learned) do
+        if other ~= tostring(name):lower() and type(v) == "table" and next(v) then
+            local n = 0
+            for k in pairs(D._tokens(other)) do if want[k] then n = n + 1 end end
+            if n > 0 and (not bn or n > bn) then best, bn = other, n end
+        end
+    end
+    if not best then return nil end
+    return { from = best, verdicts = learned[best], label = "prior:family" }
+end
+
 local function cdo_of(class_path)
     if type(class_path) ~= "string" then return nil end
     local pkg, name = class_path:match("^(.*)%.([%w_]+)$")
@@ -872,6 +1061,9 @@ function M.capabilities(pc, right, left)
 end
 
 local function outcome_of(F, res)
+    return M._outcome_of(F, res)
+end
+function M._outcome_of(F, res)
     if res.ok and F.kills > 0 then return "killed" end
     local d = res.data or {}
     if d.fled then return "fled" end
@@ -940,6 +1132,14 @@ local function finish(F, res)
     c.last = { result = res, mode = F.mode, ended = os.date("!%Y-%m-%dT%H:%M:%SZ") }
     if c.fight == F then c.fight = nil end
     M.emit_combat_end(F, res)
+    do -- the fight's end: the only time the memory is written (a file write; no game call)
+        local m = c.mem
+        if m then
+            pcall(M.record_fight, m, F, res)
+            local okw, err = pcall(M.memory_save, F.log, m)
+            if not okw then m.save_err = tostring(err) end
+        end
+    end
     local arb = mod("arbiter")
     if arb and F.token then pcall(arb.release, F.log, F.token, res.ok and "done" or res.reason) end
     say(F.log, string.format("fight end ok=%s reason=%s presses=%d hits=%d", tostring(res.ok), tostring(res.reason), F.presses, F.hits))
@@ -2167,6 +2367,7 @@ local function start_fight(log, actor, opts)
     end
     c.me_id, c.pc_id = U.short(pawn), U.short(pc)
     c.on_target = {}
+    pcall(M.memory, log, pawn) -- once per world+character: what earlier fights taught him
     local me = read_me(pawn, pc)
     local tgt = read_creature(actor, me.pos)
     if tgt.dead then return { ok = false, reason = "unknown_target", data = { detail = "already dead" } } end
@@ -2318,6 +2519,8 @@ function M.status()
     for k, v in pairs(c.learned) do learned[k] = v end
     return { ok = true, fight = fs, last = c.last, guard = c.guard ~= nil, guard_last = c.guard_last, guard_err = c.guard_err,
              hook_err = c.hook_err, counts = c.counts, on_target = c.on_target, orders = M.orders, learned = learned, lines = c.log_lines,
+             memory = c.mem and { status = c.mem.status, detail = c.mem.detail, path = c.mem.path, build = c.mem.build, file_build = c.mem.file_build,
+                                  saves = c.mem.saves, save_err = c.mem.save_err, imported = c.mem.imported } or nil,
              hooks = (function() local n = 0; for _ in pairs(c.hooks) do n = n + 1 end; return n end)() }
 end
 
@@ -2537,7 +2740,11 @@ function M.combat_brief(log, target, ctx)
     for key, pr in pairs(M.PRIORS) do
         if (cr.name or ""):lower():find(key, 1, true) then wk.priors = pr end
     end
+    if not (wk.learned and next(wk.learned)) then wk.family = M.family_affinity(cr.name) end
     d.weaknesses = wk
+    local mem = M.memory(log, pawn)
+    d.history = M.creature_history(cr.name, mem)
+    d.memory = { status = mem.status, detail = mem.detail, build = mem.build, file_build = mem.file_build }
     -- his weapons vs this creature
     local list = mcall("inventory", "list", log) or {}
     local items = M.weapons().items or {}
@@ -2586,8 +2793,14 @@ function M.combat_brief(log, target, ctx)
     d.attacks_learned = {}
     for key, r in pairs(D and D.status().attacks or {}) do
         if key:find((cr.name or "?") .. ":", 1, true) == 1 then
+            local best_resp, best_mean
+            for resp, a in pairs(r.arms or {}) do
+                local mean = (1 + a.s) / (2 + a.s + a.f)
+                if a.n > 0 and (not best_mean or mean > best_mean) then best_resp, best_mean = resp, mean end
+            end
             d.attacks_learned[#d.attacks_learned + 1] = { attack = key, impact_s = r.impact_s, damage = r.damage, lunge_cm = r.lunge_cm,
-                parried = r.parried, blocked = r.blocked, hit = r.hit, avoided = r.avoided }
+                parried = r.parried, blocked = r.blocked, hit = r.hit, avoided = r.avoided,
+                best_response = best_resp, best_rate = best_mean and math.floor(best_mean * 100) / 100 or nil }
         end
     end
     d.orders = M.orders

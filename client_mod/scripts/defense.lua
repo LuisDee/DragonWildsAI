@@ -102,11 +102,60 @@ local function rec(key)
 end
 D.rec = rec
 
+-- ------------------------------------------------------------------ family priors (data tokens, always labelled)
+-- An attack key is "<creature name>:<attack asset>" (e.g. "Goblin Runt:ATK_Goblin_Slash"). For a key never
+-- seen, the closest learned key from the same family stands in as a PRIOR, never as learned: the same attack
+-- asset on another creature first (shared data, e.g. ATK_Goblin_Slash), else a creature sharing a name token
+-- with the same attack-asset tokens ("Goblin Brute" vs "Goblin Runt"). Tokens come from the names in the data
+-- (split on non-letters and CamelCase, lower-cased), minus generic ones; no hand-written families.
+D.GENERIC_TOKENS = { atk = true, attack = true, c = true, ai = true, bp = true, character = true, default = true }
+local function tokens(str)
+    local out = {}
+    str = tostring(str or ""):gsub("(%l)(%u)", "%1 %2")
+    for w in str:gmatch("%a+") do
+        w = w:lower()
+        if #w > 1 and not D.GENERIC_TOKENS[w] then out[w] = true end
+    end
+    return out
+end
+D._tokens = tokens
+local function split_key(key)
+    local cr, atk = tostring(key or ""):match("^(.-):(.*)$")
+    return cr or "", atk or tostring(key or "")
+end
+local function overlap(a, b) local n = 0; for k in pairs(a) do if b[k] then n = n + 1 end end; return n end
+-- -> nil | {from = key, why = "same_attack" | "family", impact_s, lunge_cm, hit_from_cm, damage, n, label = "prior:family"}
+function D.family_prior(key)
+    local s = S()
+    if s.attacks[key] and (s.attacks[key].n or 0) > 0 then return nil end
+    local cr, atk = split_key(key)
+    local ct, at = tokens(cr), tokens(atk)
+    local best, best_score, best_why
+    for k, r in pairs(s.attacks) do
+        if k ~= key and (r.n or 0) > 0 then
+            local c2, a2 = split_key(k)
+            local score, why
+            if a2 == atk and atk ~= "" then score, why = 100 + r.n, "same_attack"
+            else
+                local oc, oa = overlap(ct, tokens(c2)), overlap(at, tokens(a2))
+                if oc > 0 and oa > 0 then score, why = 10 * oc + 5 * oa + math.min(r.n, 4), "family" end
+            end
+            if score and (not best_score or score > best_score) then best, best_score, best_why = k, score, why end
+        end
+    end
+    if not best then return nil end
+    local r = s.attacks[best]
+    return { from = best, why = best_why, impact_s = r.impact_s, lunge_cm = r.lunge_cm, hit_from_cm = r.hit_from_cm,
+             damage = r.damage, n = r.n, label = "prior:family" }
+end
+
 -- Expected server-side time from the attack start to the impact, seconds.
 function D.impact_delay(key, info)
     local r = S().attacks[key]
     if r and r.n > 0 and r.impact_s then return r.impact_s, "learned" end
     if info and info.dmg_time and info.dmg_time > 0 then return info.dmg_time, "attack_data" end
+    local fp = D.family_prior(key)
+    if fp and fp.impact_s then return fp.impact_s, "prior:family" end
     return D.cfg.prior_impact_s, "prior"
 end
 
@@ -116,6 +165,8 @@ end
 function D.threat(info, max_hp)
     local key = info.key or "?"
     local r = S().attacks[key] or {}
+    local fp = (r.n or 0) == 0 and D.family_prior(key) or nil
+    if fp then r = { lunge_cm = fp.lunge_cm, hit_from_cm = fp.hit_from_cm, damage = fp.damage } end
     local reach = (info.shape and info.shape.reach_cm) or D.cfg.default_reach_cm
     local lunge = r.lunge_cm or 0
     -- a hit taken from farther away than that ("none, out_of_reach" and still hit: live 08:17, a Kebbit
@@ -131,6 +182,7 @@ function D.threat(info, max_hp)
     if th.aoe then th.tags.aoe = true end
     if lunge >= D.cfg.lunge_cm then th.tags.lunge = true end
     th.tags.melee = true
+    if fp then th.prior = { from = fp.from, why = fp.why, label = fp.label } end
     return th
 end
 
@@ -388,6 +440,7 @@ function D.observe_cadence(creature, t)
     s.cadence = s.cadence or {}
     local c = s.cadence[creature]
     if not c then s.cadence[creature] = { last_t = t, n = 0 }; return end
+    if not c.last_t then c.last_t = t; return end -- a remembered rhythm (import): this attack starts the clock
     local dt = t - c.last_t
     if dt > 0.3 and dt < 15 then
         c.interval = c.interval and (c.interval + D.cfg.ema * (dt - c.interval)) or dt
@@ -399,7 +452,7 @@ end
 -- Seconds until the creature's next attack is expected (nil when its rhythm is unknown).
 function D.next_attack_eta(creature, t)
     local c = (S().cadence or {})[creature]
-    if not (c and c.interval and c.n >= 2) then return nil end
+    if not (c and c.interval and c.n >= 2 and c.last_t) then return nil end
     local eta = c.last_t + c.interval - t
     while eta < -0.5 do eta = eta + c.interval end -- missed one: the next in the rhythm
     return eta, c.interval
@@ -492,6 +545,30 @@ function D.abilities()
     return AB
 end
 function D.set_abilities(t) AB = t end
+
+-- ------------------------------------------------------------------ persistence (combat.lua owns the file)
+-- Plain data only. Cadence keeps the learned interval, never the world clock of the last attack.
+function D.export()
+    local s = S()
+    local cad = {}
+    for k, c in pairs(s.cadence or {}) do if c.interval then cad[k] = { interval = c.interval, n = c.n } end end
+    return { attacks = s.attacks, cadence = cad }
+end
+-- Merge a saved export: a saved record replaces one with fewer observations (n).
+function D.import(t)
+    if type(t) ~= "table" then return 0 end
+    local s = S()
+    local n = 0
+    for k, r in pairs(type(t.attacks) == "table" and t.attacks or {}) do
+        local cur = s.attacks[k]
+        if type(r) == "table" and (not cur or (cur.n or 0) < (r.n or 0)) then s.attacks[k] = r; n = n + 1 end
+    end
+    s.cadence = s.cadence or {}
+    for k, c in pairs(type(t.cadence) == "table" and t.cadence or {}) do
+        if type(c) == "table" and not s.cadence[k] then s.cadence[k] = { interval = c.interval, n = c.n or 0 } end
+    end
+    return n
+end
 
 function D.status()
     local s = S()

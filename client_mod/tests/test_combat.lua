@@ -196,6 +196,12 @@ local Cm = assert(loadfile(root .. "/client_mod/scripts/combat.lua"))()
 local tmpdir = os.getenv("TEMP") or os.getenv("TMP") or "."
 Cm.ACTIVITY_PATH = (tmpdir .. "/test_combat_activity.jsonl"):gsub("\\", "/")
 os.remove(Cm.ACTIVITY_PATH)
+-- the persistent memory goes to a temp root (never the repo's data/skills)
+Cm.cfg.memory_root = (tmpdir .. "/test_combat_mem"):gsub("\\", "/")
+os.execute('mkdir "' .. (tmpdir .. "/test_combat_mem/data/skills/shockbyte"):gsub("/", "\\") .. '" 2>nul')
+os.remove(Cm.cfg.memory_root .. "/data/skills/shockbyte/combat_memory_BP_PlayerCharacter_C_1.json")
+Cm._reset_build("TESTBUILD")
+Cm.cfg.memory_enabled = false -- on only in the memory section (sections must not learn from each other)
 local Dm = assert(loadfile(root .. "/client_mod/scripts/defense.lua"))()
 Cm.clock = function() return T end
 Cm.set_modules({ move = fake_move, inventory = fake_inv, arbiter = A, defense = Dm })
@@ -1327,6 +1333,112 @@ do
     FindAllOf = real_find
     world.ranged = nil
     inv_list.loadout = {}
+    A.reset(nil)
+end
+
+-- ================================================================ 22. persistent combat memory (docs/design/combat-memory.md)
+reset_world()
+do
+    Cm.cfg.memory_enabled = true
+    local dir = Cm.cfg.memory_root .. "/data/skills/shockbyte"
+    local path = dir .. "/combat_memory_BP_PlayerCharacter_C_1.json"
+    for _, f in ipairs({ path, path .. ".bak", path .. ".tmp" }) do os.remove(f) end
+    local function restart() _G.DWCombat, _G.DWDefense, _G.DWRanged = nil, nil, nil end
+    local function read(pth) local f = io.open(pth, "rb"); if not f then return nil end local t = f:read("a"); f:close(); return t end
+    local function exists(pth) local f = io.open(pth, "rb"); if f then f:close(); return true end return false end
+    restart()
+    local m0 = Cm.memory(nil, pawn)
+    check("memory: none yet -> new", m0.status == "new", m0.status)
+    -- what one session learned
+    local key = "Goblin Runt:ATK_Goblin_Slash"
+    local r = Dm.rec(key)
+    r.n, r.impact_s, r.lunge_cm, r.damage, r.offset = 4, 0.9, 120, 15, 0.02
+    r.arms = { parry = { s = 5, f = 0, n = 5 }, dodge = { s = 1, f = 2, n = 3 } }
+    Dm.observe_cadence("Goblin Runt", 10); Dm.observe_cadence("Goblin Runt", 12.5); Dm.observe_cadence("Goblin Runt", 15)
+    Cm._state().learned["goblin runt"] = { Fire = "weak" }
+    -- a fight ends: the only write, and only after the fight is over
+    local writes = {}
+    local real_open = Cm.fs.open
+    Cm.fs.open = function(pth, mode)
+        if mode and mode:find("w", 1, true) then writes[#writes + 1] = { path = pth, in_fight = Cm._state().fight ~= nil } end
+        return real_open(pth, mode)
+    end
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local g = new_creature("BP_AI_RuntGoblin_Character_C_mem", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 20, pl = 1, arch = 0 })
+    check("memory: fight starts", Cm._start_fight(nil, g, { mode = "attack", force = true, by = "brain" }).ok)
+    run_until(function() return Cm._state().fight == nil end, 30)
+    local in_fight = 0
+    for _, w in ipairs(writes) do if w.in_fight then in_fight = in_fight + 1 end end
+    check("memory: no file write while fighting", in_fight == 0, in_fight)
+    check("memory: written once at the fight's end (tmp then renamed)", #writes == 1 and writes[1].path == path .. ".tmp" and exists(path)
+          and not exists(path .. ".tmp") and not exists(path .. ".bak"), #writes)
+    Cm.fs.open = real_open
+    local txt = read(path) or ""
+    check("memory: tagged with the build and world", txt:find('"build":"TESTBUILD"', 1, true) ~= nil and txt:find('"world":"shockbyte"', 1, true) ~= nil, txt:sub(1, 160))
+    check("memory: the fight is in the creature's history", Cm.creature_history("Goblin Runt").fights == 1)
+    -- a client restart: everything in _G is gone; the file brings it back
+    restart()
+    check("memory: restart forgets", Dm.status().attacks[key] == nil)
+    local m1 = Cm.memory(nil, pawn)
+    check("memory: loaded after a restart", m1.status == "loaded" and m1.imported.attacks >= 1, m1.status)
+    local t, src = Dm.impact_delay(key, {})
+    check("memory: per-attack timing survives", t == 0.9 and src == "learned", tostring(t) .. " " .. tostring(src))
+    check("memory: the bandit survives (parry still the answer)", Dm.status().attacks[key].arms.parry.s == 5)
+    check("memory: the learned weakness survives", (Cm._state().learned["goblin runt"] or {}).Fire == "weak")
+    local cad = (_G.DWDefense.cadence or {})["Goblin Runt"] or {}
+    check("memory: the rhythm survives without the old clock", cad.interval ~= nil and cad.last_t == nil)
+    check("memory: a remembered rhythm restarts cleanly", pcall(Dm.observe_cadence, "Goblin Runt", 3) and Dm.next_attack_eta("Goblin Runt", 3.5) ~= nil)
+    -- a second fight: history grows; the brief shows it (information, never a veto)
+    local g2 = new_creature("BP_AI_RuntGoblin_Character_C_mem2", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 20, pl = 1, arch = 0 })
+    Cm._start_fight(nil, g2, { mode = "attack", force = true, by = "brain" })
+    run_until(function() return Cm._state().fight == nil end, 30)
+    local h = Cm.creature_history("Goblin Runt")
+    check("memory: history per creature (2 fights, damage series)", h.fights == 2 and #h.damage_taken == 2 and h.first_encounter == false, h.fights)
+    check("memory: an unseen creature is a first encounter", Cm.creature_history("Goblin Brute").first_encounter == true)
+    new_creature("BP_AI_RuntGoblin_Character_C_mem3", "Goblin Runt", { X = 300, Y = 0, Z = 0 }, { hp = 20, pl = 1, arch = 0 })
+    local okb, brief = pcall(Cm.combat_brief, nil, "BP_AI_RuntGoblin_Character_C_mem3")
+    check("memory: combat_brief carries history + memory status", okb and brief.ok and brief.data.history.fights == 2 and brief.data.memory.status == "loaded",
+          okb and brief.data and brief.data.history and brief.data.history.fights or tostring(brief))
+    -- family priors: data tokens, always labelled, never "learned"
+    local fp = Dm.family_prior("Goblin Brute:ATK_Goblin_Slash")
+    check("family: the same attack asset on another creature", fp and fp.from == key and fp.why == "same_attack" and fp.label == "prior:family", fp and fp.why)
+    local fp2 = Dm.family_prior("Goblin Brute:ATK_GoblinBrute_Smash")
+    check("family: a shared creature + attack token", fp2 and fp2.from == key and fp2.why == "family", fp2 and fp2.why)
+    check("family: unrelated creatures get nothing", Dm.family_prior("Kebbit:ATK_Kebbit_Attack_01") == nil)
+    local t2, src2 = Dm.impact_delay("Goblin Brute:ATK_GoblinBrute_Smash", {})
+    check("family: timing prior labelled", t2 == 0.9 and src2 == "prior:family", tostring(src2))
+    local th = Dm.threat({ key = "Goblin Brute:ATK_GoblinBrute_Smash" }, 100)
+    check("family: threat carries the prior's label and lunge", th.prior and th.prior.label == "prior:family" and th.lunge_cm == 120)
+    local fa = Cm.family_affinity("Goblin Brute")
+    check("family: weakness prior from a token-sharing creature, labelled", fa and fa.from == "goblin runt" and fa.verdicts.Fire == "weak" and fa.label == "prior:family")
+    -- a file from another build is refused loudly and kept
+    local stale = (read(path) or ""):gsub('"build":"TESTBUILD"', '"build":"OLD1"')
+    local f = io.open(path, "wb"); f:write(stale); f:close()
+    restart()
+    local lines = {}
+    local m2 = Cm.memory(function(l) lines[#lines + 1] = l end, pawn)
+    local kept = path:gsub("%.json$", "") .. ".build-OLD1.json"
+    check("stale: refused, not imported", m2.status == "refused_stale" and Dm.status().attacks[key] == nil and (m2.detail or ""):find("OLD1", 1, true) ~= nil, m2.status)
+    check("stale: said loudly + the old file kept", (lines[1] or ""):find("MEMORY REFUSED", 1, true) ~= nil and exists(kept) and not exists(path), lines[1])
+    os.remove(kept)
+    -- a corrupt file
+    f = io.open(path, "wb"); f:write("{nope"); f:close()
+    restart()
+    local m3 = Cm.memory(nil, pawn)
+    check("corrupt: tolerated and kept aside", m3.status == "corrupt" and not exists(path), m3.status)
+    os.remove((m3.detail or ""):match("kept as (.+)$") or "")
+    -- a crash between the two renames leaves only .bak: the load uses it
+    restart()
+    Cm.memory(nil, pawn)
+    Dm.rec(key).n, Dm.rec(key).impact_s = 2, 0.8
+    Cm.memory_save(nil)
+    os.rename(path, path .. ".bak")
+    restart()
+    local m4 = Cm.memory(nil, pawn)
+    check("bak: recovered from the .bak", m4.status == "loaded" and Dm.status().attacks[key] ~= nil and Dm.status().attacks[key].impact_s == 0.8, m4.status)
+    for _, x in ipairs({ path, path .. ".bak" }) do os.remove(x) end
+    Cm.cfg.memory_enabled = false
+    restart()
     A.reset(nil)
 end
 

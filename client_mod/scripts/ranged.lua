@@ -204,6 +204,22 @@ function R.profile(key, seed)
     return p
 end
 
+-- Persistence (combat.lua owns the file): the learned profiles and metrics, plain data.
+function R.export() local st = S(); return { profiles = st.profiles, metrics = st.metrics } end
+-- A saved profile replaces one with fewer fitted shots (n); metrics only fill keys not seen this session.
+function R.import(t)
+    if type(t) ~= "table" then return 0 end
+    local st, n = S(), 0
+    for k, p in pairs(type(t.profiles) == "table" and t.profiles or {}) do
+        local cur = st.profiles[k]
+        if type(p) == "table" and (not cur or (cur.n or 0) < (p.n or 0)) then st.profiles[k] = p; n = n + 1 end
+    end
+    for k, m in pairs(type(t.metrics) == "table" and t.metrics or {}) do
+        if type(m) == "table" and not st.metrics[k] then st.metrics[k] = m end
+    end
+    return n
+end
+
 -- Blend a fitted shot into the profile, then keep a residual angular bias from the miss.
 function R.learn(key, fit, miss, shot)
     local p = R.profile(key)
