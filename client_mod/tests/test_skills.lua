@@ -624,6 +624,37 @@ test("interact: a blocked side -> the next standing spot", function()
     assert(not unstuck_allowed, "the interact engine never lets move.lua use the game's Unstuck (teleport; live 20:49)")
 end)
 
+test("interact: no progress toward the thing for no_progress_s -> path_blocked at once, with move's why (live 21:57, 101 s)", function()
+    reset()
+    local sk = B.module("skills")
+    local ledge = { id = "ledge_npc_1", class = "BP_NPC_C", name = "Ledge Sage", kind = "npc", prompt = "Talk", position = { 20, 0, 3 },
+                    InteractionCollider = { K2_GetComponentLocation = function() return { X = 2000, Y = 0, Z = 300 } end } }
+    table.insert(F.world.interactables, ledge)
+    local mv = B.module("move")
+    local go0, status0 = mv.go_to, mv.status
+    local calls = 0
+    -- as live: every standing spot's go_to struggles ~15 s (stuck, backtrack, bug2) and then fails; 6 spots = 90 s
+    local started
+    mv.go_to = function(log, goal, opts)
+        calls = calls + 1
+        F.auto_arrive = false
+        started = T
+        return { ok = true }
+    end
+    mv.status = function()
+        if started and T - started < 15 then return { mode = "go_to" } end
+        return { mode = "idle", result = { status = "failed", reason = "leader_above_jump_height" } }
+    end
+    local t0 = T
+    local _, id = rpc("interact", { target = ledge.id })
+    local r = run(id, 240, 0.5)
+    mv.go_to, mv.status = go0, status0
+    F.auto_arrive = true
+    assert(r and not r.ok and r.reason == "path_blocked", json.encode(r))
+    assert(T - t0 <= sk.cfg.no_progress_s + 6, "ended by the watchdog, not the 100 s bridge timeout: " .. (T - t0) .. " s")
+    assert(r.data.why == "leader_above_jump_height" and tostring(r.data.detail):find("no closer", 1, true), json.encode(r.data))
+end)
+
 test("interact on the bed he is lying in: one press gets him up, verified by the resting area clearing", function()
     reset()
     local sk = B.module("skills")

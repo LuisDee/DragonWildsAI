@@ -54,6 +54,8 @@ M.cfg = {
     face_s = 3.0,           -- face + nudge until the detector targets the thing
     nudge_scale = 0.3,
     verify_s = 4.0,         -- after a press: wait this long for the inventory to grow / the thing to go
+    no_progress_s = 25,     -- approach watchdog: no 0.5 m closer to the thing for this long ends the episode (live
+    progress_m = 0.5,       -- 2026-10-25 21:57: interact cycled standing spots on an unreachable ledge for 101 s)
     presses = 2,            -- presses per thing before verification_failed
     fetch_radius_m = 30, fetch_max_radius_m = 60,
     consume_ground_m = 15,  -- consume: fetch first when it lies this close
@@ -398,6 +400,24 @@ local function episode_poll(api, e, t)
     local th = e.thing
     local goal = e.spots and e.spots[e.spot_i] or th.position
     if e.phase == "approach" then
+        -- fail-fast progress watchdog (like combat's L34): the approach must get closer to the THING (not to the
+        -- current standing spot); a poll gap (suspended by a reflex, then resumed) restarts the window
+        local here0 = api.my_position()
+        local dth = here0 and e.ipoint and dist2d(here0, e.ipoint)
+        if e.last_poll and t - e.last_poll > 2 then e.best_t = t end
+        e.last_poll = t
+        if dth then
+            if not e.best_d or dth < e.best_d - M.cfg.progress_m then e.best_d, e.best_t = dth, t end
+            e.best_t = e.best_t or t
+            if t - e.best_t > M.cfg.no_progress_s then
+                if e.moving then pcall(api.call, "move", "stop"); e.moving = false end
+                local why = e.last_move_why or "no_progress"
+                return api.fail("path_blocked", { target = th.id, why = why, dist_m = math.floor(dth * 10 + 0.5) / 10,
+                    no_progress_s = M.cfg.no_progress_s, spots_tried = e.spots and e.spot_i,
+                    detail = string.format("I can't get to the %s: %s (I got no closer than %.0f m in %d s).", e.label,
+                        why_words(why), e.best_d or dth, M.cfg.no_progress_s) })
+            end
+        end
         local bed = W.resting_in(api)
         if bed and bed ~= th.id then
             return api.fail("resting", { resting_in = bed, detail = "lying in " .. tostring(bed)
@@ -432,6 +452,7 @@ local function episode_poll(api, e, t)
         local res = type(st.result) == "table" and st.result or {}
         if res.status == "arrived" then return nil end -- re-check the distance next tick
         if res.status == "stopped" then return nil end -- e.g. suspended by a reflex and resumed: walk again
+        e.last_move_why = res.reason or res.why or e.last_move_why
         if next_spot(e) then return nil end -- that side is blocked: try the next standing spot (big things only)
         return move_failure(api, res, "the " .. e.label, { target = th.id })
     elseif e.phase == "face" then
