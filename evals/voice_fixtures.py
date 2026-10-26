@@ -89,6 +89,60 @@ def refresh_truncated(cases: list[dict], root: Path = ROOT) -> list[str]:
     return done
 
 
+def replay_status(log: Path, at: float) -> tuple[list[str], list[str]]:
+    """body_status and recent_activity as the LIVE broker would have built them at ``at``, by replaying what
+    the live brain logged before it (every get_state it received, its non-read tool calls and their results)
+    through brain.broker.EventBroker. Nothing is invented: what the log lacks stays absent."""
+    from brain.broker import EventBroker
+    now = [0.0]
+    b = EventBroker(clock=lambda: now[0])
+    for ln in log.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            e = json.loads(ln)
+        except ValueError:
+            continue
+        ts = float(e.get("ts") or 0)
+        if ts > at:
+            break
+        now[0] = ts
+        k = e.get("kind")
+        if k == "bridge_recv":
+            data = (e.get("msg") or {}).get("data") if isinstance(e.get("msg"), dict) else None
+            if isinstance(data, dict) and isinstance(data.get("inventory"), dict):
+                b.observe(data)
+                b.learn_names(data)
+        elif k == "tool_call" and not e.get("read_only"):
+            b.action_started(e.get("tool") or "", e.get("args") or {})
+        elif k == "tool_result" and not e.get("read_only"):
+            r = e.get("result") or {}
+            b.action_finished(e.get("tool") or "", e.get("args") or {}, bool(r.get("ok")), r.get("reason"), r.get("data"))
+    now[0] = at
+    return b.digest(), b.activity_lines()
+
+
+def refresh_status(cases: list[dict], root: Path = ROOT) -> list[str]:
+    """Cases whose context has no body_status / recent_activity (made before the broker existed): fill them
+    from the replayed log; when the log has nothing to replay, FLAG the case (fixture_gaps) instead."""
+    done = []
+    for c in cases:
+        ctx = c["context"]
+        if "body_status" in ctx and "recent_activity" in ctx:
+            continue
+        t, log = case_epoch(c), root / str(c.get("source") or "")
+        status, activity = replay_status(log, t) if t and log.exists() else ([], [])
+        ctx["body_status"], ctx["recent_activity"] = status, activity
+        gaps = [k for k, v in (("body_status", status), ("recent_activity", activity)) if not v]
+        c.setdefault("fixture_refresh", {})["status"] = (
+            "body_status/recent_activity replayed through brain.broker from the logged get_state + tool calls"
+            + (f"; the log has nothing for: {', '.join(gaps)} (no body activity episodes were logged in that session)"
+               if gaps else ""))
+        if gaps:
+            c["fixture_gaps"] = sorted(set(c.get("fixture_gaps") or []) | set(gaps))
+        done.append(f"{c['id']}: body_status {len(status)} line(s), recent_activity {len(activity)}"
+                    + (f"  [flagged: {', '.join(gaps)} not in the log]" if gaps else ""))
+    return done
+
+
 def redraw_heldout(cases: list[dict], exclude: set[str], n: int, seed: int) -> list[str]:
     pool = sorted(c["id"] for c in cases if c["id"] not in exclude)
     pick = set(random.Random(seed).sample(pool, n))
@@ -102,6 +156,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("refresh-truncated")
+    sub.add_parser("refresh-status")
     r = sub.add_parser("redraw-heldout")
     r.add_argument("--exclude", default="")
     r.add_argument("--n", type=int, default=6)
@@ -110,6 +165,9 @@ def main(argv: list[str] | None = None) -> int:
     cases = read()
     if a.cmd == "refresh-truncated":
         for line in refresh_truncated(cases):
+            print(line)
+    elif a.cmd == "refresh-status":
+        for line in refresh_status(cases):
             print(line)
     else:
         print("held out:", redraw_heldout(cases, {x for x in a.exclude.split(",") if x}, a.n, a.seed))

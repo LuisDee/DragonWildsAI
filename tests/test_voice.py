@@ -362,3 +362,16 @@ def test_the_baseline_measures_the_committed_persona_not_a_working_edit(tmp_path
     assert path.read_text(encoding="utf-8") == head and sha == hashlib.sha256(head.encode("utf-8")).hexdigest()
     wpath, _ = ve.persona_at_ref("worktree", tmp_path / "w.md")
     assert wpath == ve.persona_file.DEFAULT_PATH
+
+
+def test_refresh_status_replays_the_live_broker_and_flags_what_the_log_lacks(tmp_path):
+    from evals import voice_fixtures as vf
+    log = tmp_path / "logs" / "brain-live-20261025-204111-1.jsonl"
+    log.parent.mkdir(parents=True)
+    rows = [{"ts": 1792958400.0, "kind": "tool_call", "tool": "gather", "args": {"resource": "ash", "count": 5}},
+            {"ts": 1792958430.0, "kind": "tool_result", "tool": "gather", "result": {"ok": True, "reason": None, "data": {}}}]
+    log.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    case = {"id": "h1", "source": "logs/brain-live-20261025-204111-1.jsonl", "at_utc": "20:02:00", "context": {}}
+    vf.refresh_status([case], root=tmp_path)
+    assert any("gather" in ln and "ok" in ln for ln in case["context"]["body_status"])  # what he really did
+    assert case["context"]["recent_activity"] == [] and case["fixture_gaps"] == ["recent_activity"]

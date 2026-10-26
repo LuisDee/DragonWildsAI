@@ -199,6 +199,11 @@ Other run-2 counts, old → new:
   - held-out: human 3.80, silence 4.61, match 4.56.
   - The 0.80 rows from 11:54 and 12:13 measured the working-tree persona (the voice agent's uncommitted A/B edit). They carry no persona_ref, so goal_check ignores them.
 
+- **After the h-case status fix (0e97994; `logs/voice-eval-20261026-123332.jsonl`, 129 calls, no continuation skipped):**
+  - **score 0.744**, set by human 3.72; per sample 0.75 / 0.70 / 0.78, sd 0.04. That is within the noise of the 0.758 before.
+  - checks pass at 0.933; silence 4.17, match 3.91; promise_has_tool 2/6.
+  - The h1–h6 cases now carry the live broker's body_status, replayed from the log (follow Zezima, standing still, the gathers). recent_activity is genuinely empty in that session's log, and each case is flagged `fixture_gaps`.
+
 ### Open items (voice)
 1. **Over-silence on direct questions** (v18 "why are you casting Splinter near me?" → silent gather; h2 "fancy a job" → silent start_goal). The persona rule "a direct question gets a short answer" doesn't hold under effort low. Options:
    - move the rule into the few-shots, with a question → answer + action pair;
@@ -224,3 +229,14 @@ Other run-2 counts, old → new:
 - **Decision:** adapt. The stop-hook continuation pattern already used for turn 0 now covers follow-up turns too.
 - **Persona experiments:** two runs (logs/voice-eval-20261026-112228 and -112444) both regressed the voice score, from 0.75 to 0.696 and then 0.648, so persona.md was reverted. Their scoreboard rows were recorded at an experimental hash and are not the current companion.
 - **Noise:** with n=25 and one sample per case, a persona tweak moves cases in both directions. Measurement needs k≥3 samples per case.
+
+### Dead end: persona wording for "human" (2026-10-26, voice agent)
+- **Tried (three persona edits, each measured, each reverted):**
+  1. Lowercase/gist-not-reasoning, "words only for what is true" (present tense too), "a line is optional with an action", and a cut-list rule. Single-sample eval: 0.75 → **0.696** (over-silent on direct questions).
+  2. Dropped "line optional"; "a direct question gets an answer in words". 0.75 → **0.648** (more talk, more talk-only "I'll…" lines).
+  3. Eval v2 (k=3), after an offline cluster of the judge's human rationales: numbers from tool results and situation count as numbers, plus "asked whether you have X: yes or no, not a list". Baseline 0.758 (human 3.79, held-out human 3.80) → **0.750** (human 3.75, held-out human **3.20**, held-out no_numbers 3/5). Log: logs/voice-eval-20261026-122630.jsonl.
+- **Why small wording changes don't move "human" for Haiku 5.5 at effort low:**
+  - The persona is ~4k characters of rules plus 8 few-shots, inside a ~13k-token prompt. At effort low the model thinks little or not at all (Anthropic's effort docs: at `low`, Haiku 5.5 is "more likely to skip a search, stop early, or skip a check" in long agent prompts). One more sentence among dozens has little pull, and each edit shifts other behaviour too (silence ↔ promises), so gains on one dimension are paid for on another.
+  - The judge's "human" score folds in truthfulness ("invented", "status-y"). About a quarter of the lost points came from fixture gaps (h1 small talk has no recent_activity, so he improvises his day), which no wording fixes.
+  - The noise floor (sd 0.018–0.036 at k=3, n=25) is about the size of any effect a single bullet can have.
+- **Rule from here:** no more one-bullet persona tweaks for "human". Try levers that change how much the model reasons on the lines that matter (effort for addressed chat, below), richer fixtures (eval agent), or few-shots taken from fresh live chat, each measured once against the gate.
