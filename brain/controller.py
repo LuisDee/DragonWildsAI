@@ -123,6 +123,13 @@ trigger it can sense happens (enemy = the enemy kind, or "*"). You can only sens
 {triggers}. If the player's condition is not one of them, do NOT call set_reflex_rule: say you
 can't sense that. reflex_rules lists the current orders; list_rules and clear_rule manage them."""
 
+# Talk-only follow-up turns (GOAL M1 talk_without_action): a later turn of the agent loop that only talks
+# gets ONE more model call before its line is said, to call what the line says it will do. Decided on the
+# reply's shape (text, no tool call), never on its words, like a stop hook that sends the model back once.
+TALK_ONLY_NOTE = ("You replied without calling any tool, and nothing has been said yet. If your line says you "
+                  "will do something now, or that you are doing it, call the tool(s) for it now, in order (keep "
+                  "or reword the line). Otherwise reply with no text at all and your line is said as it is.")
+
 LOOK_RULE = (": situation is only a short summary and misses many things (sticks, stones, plants, chests, "
              "stations). ALWAYS call look with about=<their words> first, before acting or saying you can't see it "
              "(read-only, it does not interrupt your job); then act on an id from its result. inspect gives "
@@ -260,6 +267,7 @@ class Controller:
         self.read_tools = set(READ_TOOLS) | (self.caps.read_tools() if self.caps else set()) | {"list_skills"}
         self.skills = skills  # SkillLibrary | None
         self.max_calls = max(1, max_calls)
+        self.check_talk_only = True  # TALK_ONLY_NOTE: one extra call for a talk-only follow-up turn
         self.progress_interval = progress_interval
         self.clock = clock
         self.director = None  # brain.director.Director | None: the task board's tools (attach_director)
@@ -558,11 +566,31 @@ class Controller:
         self._state_for_reads = state or {}
         d2 = Decision()
         resp, msgs = self._loop(msgs, d2, label="turn")
-        d2.speech = strip_markers(resp.content)
-        d2.messages = msgs + [assistant_message(resp)]
+        msgs = msgs + [assistant_message(resp)]
+        speech = strip_markers(resp.content)
+        if speech and not resp.tool_calls and note is None and self.check_talk_only:
+            resp, msgs, speech = self._talk_only_check(msgs, d2, speech)
+        d2.speech = speech
+        d2.messages = msgs
         self._collect([c for c in resp.tool_calls if c.name not in self.read_tools], d2, state or {})
         d2.interrupts = any(a.name not in self.non_interrupting() for a in d2.actions)
         return d2
+
+    def _talk_only_check(self, msgs: list[dict], d: Decision, speech: str) -> tuple[LLMResponse, list[dict], str]:
+        """A follow-up turn that only talked (its line not yet said): the model gets one more call to add
+        the tool calls its line implies. Calls -> they run with its (possibly reworded) line; no calls ->
+        the original line stands. Information only: the model's reply is used as it is, never rewritten.
+        The agent's first-turn check (agent.PROMISE_NOTE, passed as ``note``) is never doubled."""
+        try:
+            resp, out = self._loop(msgs + [{"role": "user", "content": TALK_ONLY_NOTE}], d, label="check")
+        except Exception as exc:  # a failed check only means the line is said as it was
+            self.log.log("talk_only_check", speech=speech, error=repr(exc))
+            return LLMResponse(content=speech), msgs, speech
+        calls = [c.name for c in resp.tool_calls]
+        self.log.log("talk_only_check", speech=speech, actions=calls, reworded=strip_markers(resp.content))
+        if not resp.tool_calls:
+            return LLMResponse(content=speech), msgs, speech
+        return resp, out + [assistant_message(resp)], strip_markers(resp.content) or speech
 
     def _read(self, call: ToolCall, d: Decision) -> dict:
         """Run one read-only tool (no interrupt, no task) and return a compact result for the model."""

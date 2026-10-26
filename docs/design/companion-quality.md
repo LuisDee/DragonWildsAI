@@ -183,3 +183,19 @@ Other run-2 counts, old → new:
 4. **The broker hooks** (`persona()` loader, next_turn notes, template removal) are not applied yet. Until then live speech still has "On it." / "Done, gathered N X." around the model's lines.
 5. **Perception still hands out stats** (`situation` "You: HP 100%, water 50%, food 57%", situation_review `stats_pct`). The persona says not to read them out; workstream N could pass needs as words ("hungry", "starving") instead.
 6. **Luis's lesson** "cancel a spell you won't use instead of casting it" belongs in house rules / lessons (workstream M), not the persona.
+
+## Follow-up talk-only check (2026-10-26, voice agent)
+- **Need:** a follow-up turn that comes after tool results or a body event and returns text without a tool call ends the chain. Example, live 21:17:50: "It's raw, so I'll look for a fire". The turn-0 check in agent.py (PROMISE_NOTE, BUGS L5) doesn't reach those turns.
+- **Fix:** `Controller._talk_only_check()` in `brain/controller.py`.
+  - When a follow-up turn returns text and no tool call, the model gets one more call before its line is said.
+  - If that call uses tools, they run with the model's own line. If it replies empty or errors, the original line stands.
+  - The fix triggers on the reply's shape, not on its words. It never vetoes the model's decision.
+  - Each check logs a `talk_only_check` row. Tests: tests/test_talk_only_followup.py.
+- **Sources:**
+  - Claude Code Stop hook continuation (`decision: block`, `stop_hook_active` loop guard): https://docs.anthropic.com/en/docs/claude-code/hooks
+  - Branch on stop_reason / "no tool call", not on prose: https://www.developersdigest.tech/blog/the-agent-loop-explained
+  - Stalls under "no tool call = stop" gates: https://arxiv.org/pdf/2609.08589
+  - `tool_choice=any` rejected, because it forces a call even when silence is right: https://webscraft.org/blog/yak-model-llm-virishuye-koli-shukati-mehanika-priynyattya-rishen?lang=en
+- **Decision:** adapt. The stop-hook continuation pattern already used for turn 0 now covers follow-up turns too.
+- **Persona experiments:** two runs (logs/voice-eval-20261026-112228 and -112444) both regressed the voice score, from 0.75 to 0.696 and then 0.648, so persona.md was reverted. Their scoreboard rows were recorded at an experimental hash and are not the current companion.
+- **Noise:** with n=25 and one sample per case, a persona tweak moves cases in both directions. Measurement needs k≥3 samples per case.
