@@ -1109,7 +1109,7 @@ function M.record_death(api, ts)
     for _, r in ipairs(mem.last_items or {}) do lost[#lost + 1] = r end
     local here = api.my_position() or (mem.last_pos)
     local list = deaths()
-    list[#list + 1] = { ts = ts, iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ts), position = here, lost = lost, recovered = false }
+    list[#list + 1] = { ts = ts, iso = os.date("!%Y-%m-%dT%H:%M:%SZ", math.floor(tonumber(ts) or os.time())), position = here, lost = lost, recovered = false }
     while #list > M.MAX_DEATHS do table.remove(list, 1) end
     save_deaths()
 end
