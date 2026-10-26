@@ -1,6 +1,6 @@
 # Talk to NPCs: `talk {target?, choose?, leave?}` (design, for review)
 
-Status: DESIGN + offline build, 2026-10-26 (skills-coverage agent). Build 26161880. Dev world only. Items marked **[UNVERIFIED]** come from the reflection dump and need the live probe in §7.
+Status: REV 2, 2026-10-26 (skills-coverage agent). Review docs/reviews/2026-10-26-talk-primitive-review.md (approve with changes) folded in, §8. Code: client_mod/scripts/talk.lua v2, awaiting a cold re-review. Build 26161880. Dev world only. Items marked **[UNVERIFIED]** come from the reflection dump and need the live probe in §7.
 
 ## 1. Goal (what Luis will see)
 Claude walks up to an NPC (the Wise Old Man, Zanik, ...), talks to him, and reads the NPC's lines and the answer options. **He** picks an answer, the model does, from the option texts, and says what he chose and why. He sees the quest change that follows.
@@ -59,7 +59,7 @@ Reasons (data.why + one truthful sentence):
 - `screen_open`: another modal;
 - `path_blocked`, `interrupted`, `companion_down`.
 
-## 4. Precedent (search record below)
+## 4. Precedent (sources listed at the end)
 - **RuneLite / Microbot.** The dialogue widget's options are read as text, and the bot clicks the option by text. The idiomatic bot pattern is read state → present options → pick → verify the next state.
 - **Yarn Spinner's `RunOptions`.** The view shows the options and calls back the selected index; the dialogue engine advances. Same split: the UI owns the choice input.
 - **UE CommonConversation.** The client gets `FClientConversationOptionEntry` lists, and the UI turns the player's pick into the advance request. We let the game's own panel do that from the injected key, which is the player's path.
@@ -89,11 +89,37 @@ No NPC, quest or option names in code. Talkable targets are any interactable the
   - the dialogue switches the PC input mode;
   - `AllOptions` order equals the on-screen numbers.
 
+## 8. Rev 2: the review findings and how they are handled
+| # | Finding | Rev 2 |
+|---|---|---|
+| 1 | Continue may confirm a highlighted option | Continue is pressed only when the **same-tick** full read shows no UserChoiceAvailable/Unavailable option with text **and** the panel's AllOptions is empty. One press per verified update (the hook counter). Test: "options appear between read and press → no Continue". Whether Continue confirms CurrentSelectedOption is **[UNVERIFIED]**, watched read-only in P2. |
+| 2 | Number keys may only highlight | choose waits `highlight_wait_s`. If no payload update arrived and the panel's `CurrentSelectedOption` text **is the model's chosen option**, it presses confirm (Continue) once. Otherwise it never confirms. Fake tree: a two-step-selection panel. |
+| 3 | Stale options | Every reply carries `node` (signature: node handle fields as read, speaker, line, option texts and types, panel texts). choose re-reads first; on any difference it fails `options_changed` with the new options and node. |
+| 4 | ServerOnly / numbering | ServerOnly entries are excluded. `n` = the option key's position in `OptionSelectInputActions` (the on-screen number), falling back to list order. Panel rows and payload entries are joined by text. |
+| 5 | False negatives on start/hubs | Opened = `ConversationsActive > 0` **and** `ConversationComponent.CurrentNPC == target`, checked each tick during the episode. Advance = a count-only hookhub post-hook on `PlayerConversationComponent:HandleConversationUpdated` (no parameter reads), so identical hub payloads still count. The DIM_ConversationUI input mode is cross-checked. |
+| 6 | Quest side effects | The diff covers State, CurrentObjective, QuestInts and QuestBools. The baseline is taken at conversation start; the diff is cumulative and re-diffed on end. |
+| 7 | Conversation modal kind | input.lua kind "conversation" (capability agent). Until then, talk accepts "mode" only when the mode name contains "Conversation". talk presses through `input.inject(act, nil, {modal = kind})`, never raw. |
+| 8 | Combat's GenericBack ends dialogues | Combat agent owns the escape. talk notices a conversation that ended without its Cancel and says so in the next reply (`note`). |
+| 9 | Orphan dialogue | `talk.sweep_orphan()`: ownerless = no talk conversation recorded, a different NPC, or no talk call for 300 s. After `orphan_s` it presses the panel's own Cancel, at most 3 times (read back between), then reports `stuck`. Called by input.lua's sweep (capability agent) and at every talk call. Never the abort RPC or HideConversationUI. |
+| 10 | Pause / travel | Under DW_PAUSE there are no game calls, the job ends `companion_down`, and the conversation state is cleared. A pawn change clears it too. Test: "pause mid-choose → no inject; then not_in_conversation". |
+| 11 | Stay-fed reflex not gated | inventory owner. |
+| 12 | Other tools in a conversation | Perception: get_state `conversation = {npc, speaker, line, options}` (talk.state_extras, read once per update). The shared busy reason in move/episode belongs to its owners. |
+| 13 | Reuse the interact episode | `talk {target}` = `skills._new_episode` + `skills._episode_poll` (the capability agent exports `_new_episode` and adds the "conversation" press signal). talk checks the opened signal every tick first, so the episode never presses a second time. |
+| 14 | Per-tick reads | Per tick: the hook counter, ConversationsActive, CurrentNPC, CurrentInputMode. The payload and panel are read once per change, bounded (`each_cap`). Only ChoiceText/ChoiceType are read, never ChoiceTags, ChoiceReference or ExtraData. |
+| 15 | Finding the panel | find_all + skip_defaults + valid + `panel.DomConversationParticipant == ours`; cached and re-validated. If the panel never builds headless: stop and report, never the RPC. |
+| 16 | Hook safety | The hook goes through hookhub (paused-aware, never unregistered), count only. Its registration is confirmed harmless in P1 first. |
+| 18a | CommonUI vs Enhanced Input | Epic's page says non-generic actions fire Enhanced Input events but not CommonUI action bindings. Whether the injected option key reaches the panel is therefore the first live question. **Fallback order, decided now:** (1) the injected action; (2) the option button's own UI handler (e.g. the list's selection call), behind `cfg.ui_handler_fallback = false` until probed offline and live; (3) stop and ask Luis (`input_not_reaching_ui`). **Never** the advance RPC. |
+| 19 | Map opened mid-conversation | Active with a mode that is neither conversation nor gameplay → `screen_open`, naming the mode. |
+| 20 | No dialogue UI | Active with no panel → `no_dialogue_ui` with the line; nothing pressed. |
+| 2c | Argument combinations | target with choose or leave → `invalid_args` (mixed_args). `{}` with a conversation open → re-read. `{}` without one → `not_in_conversation`. |
+| 22 | P3 changes quest state | P3 only on ClaudeDev; the before/after quest snapshot is logged. P1 (read-only, with the hook registration) runs first and separately. |
+
 ## Search record
-- UE CommonConversationRuntime API (`FClientConversationOptionEntry`: choice_text, choice_type, choice_reference; extra_data is not sent back): https://docs.unrealengine.com/4.27/en-US/API/Plugins/CommonConversationRuntime/FClientConversationOptionEntry/index.html
+- UE CommonConversationRuntime API, `FClientConversationOptionEntry` (choice_text, choice_type, choice_reference; extra_data is not sent back): https://docs.unrealengine.com/4.27/en-US/API/Plugins/CommonConversationRuntime/FClientConversationOptionEntry/index.html
 - CommonConversationRuntime plugin index: https://docs.unrealengine.com/4.27/en-US/API/Plugins/CommonConversationRuntime/index.html
-- A community UE 5.5 conversation plugin: the widget reads the payload, collects input, then the conversation is advanced by the request node (the UI owns the advance): https://www.fab.com/listings/9008e8f6-d738-4ae2-8579-f9e1aa4be4e6
-- Microbot (RuneLite-based OSRS client; `Rs2*` util classes read widget options and click them): https://github.com/hdroller/Microbot-client
-- RuneLite dialogue state exposes `DialogState{OPTIONS, text, options=[...]}`: https://oldschool.runescape.wiki/w/Transcript_talk:Kiss_the_frog
+- Epic, "Using CommonUI with Enhanced Input": non-generic actions fire Enhanced Input events, not CommonUI action bindings; generic accept/back bind to UI. This is the 18a risk. https://dev.epicgames.com/documentation/en-us/unreal-engine/using-commonui-with-enhnaced-input-in-unreal-engine
+- UE forum, CommonUI buttons and Enhanced Input actions: https://forums.unrealengine.com/t/any-way-for-commonui-buttons-triggering-enhanced-input-action-to-trigger-pressed-visuals/2800624
+- Microbot upstream (RuneLite-based OSRS client; `Rs2*` util classes read dialogue widget options as text and select by text): https://github.com/chsami/Microbot
+- RuneLite source, the client API that exposes dialogue widgets to plugins (widgets read as text and clicked through the client): https://github.com/runelite/runelite
 - Yarn Spinner `DialogueViewBase.RunOptions` (the view presents options and calls back the chosen index): https://docs.yarnspinner.dev/api/csharp/yarn.unity/yarn.unity.dialogueviewbase/yarn.unity.dialogueviewbase.runoptions
-- Wiki mirror: "Shrimp Catcher" (start: craft a Coarse Net, talk to the Wise Old Man, choose option 2), "Growing Pains", "Rune Mysteries", "Goblin Diplomacy", "Wise Old Man" (locations). https://dragonwilds.runescape.wiki/w/Shrimp_Catcher
+- Wiki: "Shrimp Catcher" (craft a Coarse Net, talk to the Wise Old Man, choose option 2), "Growing Pains", "Rune Mysteries", "Goblin Diplomacy". https://dragonwilds.runescape.wiki/w/Shrimp_Catcher

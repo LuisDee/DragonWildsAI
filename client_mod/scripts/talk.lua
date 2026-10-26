@@ -1,37 +1,56 @@
--- talk: TALKING TO NPCs on Claude's own client (design docs/design/talk-primitive.md), the player's own path:
+-- talk: TALKING TO NPCs on Claude's own client (design docs/design/talk-primitive.md, rev 2 after the review
+-- docs/reviews/2026-10-26-talk-primitive-review.md). The player's own path only:
 --
---   start   walk to the NPC (any interactable the census lists, e.g. prompt "Talk"), face it until the game's
---           interact detector targets it, ONE interact press (E); verified by the controller's conversation
---           participant becoming active / its LastMessage changing.
---   read    the replicated LastMessage (speaker, line, options with available / unavailable) and the dialogue
---           panel's own option list (text + the input action that picks it, Continue, Cancel). Lines with no
---           user choice are advanced with the panel's ContinueInputAction (what reading does), at most 8.
---   choose  the MODEL picks by number or by the option's text, matched only against the options last shown;
---           the option's own input action is injected (the number key); verified by the payload changing or
---           the conversation ending.
---   leave   the panel's CancelInputAction; verified inactive.
---   quests  every reply carries quests_changed, diffed from the controller's QuestProgressComponent.Quests.
---   Never the conversation RPCs (they take hand-built structs: CLAUDE.md §0); read-only state otherwise.
--- W = the engine touches (tests replace them). Live state in _G.DWTalk.
+--   start   talk {target}: the shared interact episode (skills.lua: approach, interaction point, standing spots,
+--           face until the game's detector targets the NPC, ONE interact press). Opened = the controller's
+--           participant ConversationsActive > 0 AND ConversationComponent.CurrentNPC == that NPC (finding 5a);
+--           checked every tick during the episode's verify so the episode never presses a second time.
+--   read    cheap scalars every tick (the update counter from a count-only hookhub post-hook on
+--           PlayerConversationComponent:HandleConversationUpdated, ConversationsActive, CurrentNPC, the input
+--           mode); the payload (LastMessage: speaker, line, options' ChoiceText/ChoiceType only) and the panel
+--           (AllOptions text + input action, numbered by OptionSelectInputActions) are read once per change
+--           (finding 14). ServerOnly options are never shown (finding 4).
+--   continue  only when the SAME-TICK read shows no user options and an empty panel list (finding 1), once per
+--           verified update; lines are returned in order with the speaker; a quest change stops it (2a).
+--   choose  talk {choose}: the node is re-read first; a changed node fails options_changed with the new options
+--           (finding 3). The option's own key is injected; if no update follows but the panel's
+--           CurrentSelectedOption is now THAT option, the panel's confirm (Continue) is pressed once (finding 2).
+--           If neither happens: input_not_reaching_ui, and we stop (finding 18a: fallback order injected action
+--           -> the button's own UI handler (disabled until probed) -> stop and ask Luis; never the advance RPC).
+--   leave   talk {leave}: the panel's CancelInputAction; verified inactive.
+--   quests  baseline at conversation start, cumulative diff of State, CurrentObjective, QuestInts and QuestBools
+--           (finding 6), re-diffed on end.
+--   orphans sweep_orphan(): a conversation nobody owns is closed with the panel's own Cancel (finding 9).
+--   Never Server_* / the advance RPCs / HideConversationUI; reads only, presses through the input gate.
+-- W = the engine touches (tests replace them). Live state in _G.DWTalk (hot reload safe).
 local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
 local U = assert(loadfile(ROOT .. "/mod/body/util.lua"))()
 
 local M = { U = U }
 
 M.cfg = {
-    stand_tol_m = 1.5, reach_m = 3.5, face_s = 3.0, presses = 2,
-    open_wait_s = 4.0, change_wait_s = 3.0, max_lines = 8, tap_frames = 2,
-    approach_timeout_s = 90, lease_s = 5, decide_s = 0.1, panel_class = "ConversationMainPanel",
+    open_wait_s = 4.0, change_wait_s = 3.0, highlight_wait_s = 0.8, max_lines = 8, tap_frames = 1, -- ONE frame: a held key must never land on a newer node
+    episode_timeout_s = 90, lease_s = 5, decide_s = 0.1,
+    panel_class = "ConversationMainPanel", conversation_mode_word = "Conversation", gameplay_mode = "DIM_Gameplay",
+    hook_path = "/Script/Dominion.PlayerConversationComponent:HandleConversationUpdated",
+    orphan_s = 1.0, cancels = 3, abandon_s = 300,
+    ui_handler_fallback = false, -- finding 18a step 2: enabled only after an offline + live probe of the handler
+    each_cap = 16,
 }
 M.CHOICE = { [0] = "server_only", [1] = "available", [2] = "unavailable" } -- EConversationChoiceType
 M.QUEST = { [0] = "ungiven", [1] = "given", [2] = "complete" }          -- EQuestState
 
 local function C()
     local c = rawget(_G, "DWTalk")
-    if not c then c = { gen = 0, counts = { talks = 0, choices = 0, lines = 0 }, lines = {} }; _G.DWTalk = c end
+    if not c then c = { gen = 0, counts = { talks = 0, choices = 0, lines = 0, confirms = 0, orphan_cancels = 0 }, lines = {} }; _G.DWTalk = c end
     return c
 end
 M._state = C
+local function HK()
+    local h = rawget(_G, "DWTalkHook")
+    if not h then h = { count = 0 }; _G.DWTalkHook = h end
+    return h
+end
 local function paused() return rawget(_G, "DW_PAUSE") == true end
 local function say(log, msg)
     if log then pcall(log, "talk: " .. msg) end
@@ -39,7 +58,6 @@ local function say(log, msg)
     c.lines[#c.lines + 1] = os.date("!%H:%M:%S ") .. msg
     if #c.lines > 40 then table.remove(c.lines, 1) end
 end
-local function d2(a, b) if not (a and b) then return math.huge end return math.sqrt((a.X - b.X) ^ 2 + (a.Y - b.Y) ^ 2) end
 local function text(v) local s = U.str(v); if s and s ~= "" and s ~= "None" then return s end end
 local function num(v) return type(v) == "number" and v or nil end
 
@@ -52,34 +70,43 @@ local function mod(name)
     end
     return M.mods[name]
 end
-local function mcall(name, fn, ...)
-    local m = mod(name)
-    if not (m and m[fn]) then return nil, "no " .. name .. "." .. fn end
-    local ok, r = pcall(m[fn], ...)
-    if not ok then return nil, tostring(r) end
-    return r
-end
 
 -- ------------------------------------------------------------------ pure
--- The user choices of a conversation state: panel rows (what the screen shows, with input actions) merged
--- with the payload's options (availability). -> {{n, text, available, act}}
+-- Is this input mode the dialogue's own? (finding 7 / 5c; a name check on the game's mode asset)
+function M.is_conversation_mode(mode) return type(mode) == "string" and mode:find(M.cfg.conversation_mode_word, 1, true) ~= nil end
+
+-- The user choices of a read: panel rows (what the screen shows: text, its key, the on-screen number) JOINED BY
+-- TEXT with the payload (availability); ServerOnly entries never appear. -> {{n, text, available, act}}
 function M.choices(st)
-    local out = {}
     local payload = {}
-    for _, o in ipairs(st and st.options or {}) do if o.type ~= 0 and o.text then payload[#payload + 1] = o end end
-    local rows = (st and st.panel_options and #st.panel_options > 0) and st.panel_options or payload
-    for i, r in ipairs(rows) do
-        if r.text then
-            local avail = true
-            for _, o in ipairs(payload) do if o.text == r.text and o.type == 2 then avail = false end end
-            if r.type == 2 then avail = false end
-            out[#out + 1] = { n = #out + 1, text = r.text, available = avail, act = r.act, slot = i }
+    for _, o in ipairs(st and st.options or {}) do
+        if o.text and o.type ~= 0 then payload[o.text] = o end
+    end
+    local out = {}
+    local rows = st and st.panel_rows or {}
+    if #rows > 0 then
+        for i, r in ipairs(rows) do
+            local p = r.text and payload[r.text]
+            local hidden = r.text and not p and st.options and #st.options > 0 and M._server_only_text(st, r.text)
+            if r.text and not hidden then
+                out[#out + 1] = { n = r.n or i, text = r.text, act = r.act, available = not (p and p.type == 2) and r.enabled ~= false }
+            end
+        end
+    else
+        local i = 0
+        for _, o in ipairs(st and st.options or {}) do
+            if o.text and o.type ~= 0 then i = i + 1; out[#out + 1] = { n = i, text = o.text, available = o.type ~= 2 } end
         end
     end
+    table.sort(out, function(a, b) return a.n < b.n end)
     return out
 end
+function M._server_only_text(st, t)
+    for _, o in ipairs(st.options or {}) do if o.text == t and o.type == 0 then return true end end
+    return false
+end
 
--- The model's pick -> the shown option. pick: a number (1-based) or text (exact, case-insensitive, then a
+-- The model's pick -> a shown option: a number (the on-screen one) or text (exact, case-insensitive, then a
 -- unique substring). -> option | nil, why
 function M.resolve(shown, pick)
     if type(pick) == "number" or (type(pick) == "string" and pick:match("^%s*%d+%s*$")) then
@@ -101,26 +128,37 @@ function M.resolve(shown, pick)
     return nil, "no_match"
 end
 
--- Quest rows before/after -> what changed. rows: {{quest, state, objective}}
+-- Quest rows -> what changed (state, objective, ints, bools). rows: {{quest, state, objective, ints={}, bools={}}}
 function M.quest_diff(q0, q1)
     local by = {}
     for _, r in ipairs(q0 or {}) do if r.quest then by[r.quest] = r end end
     local out = {}
     for _, r in ipairs(q1 or {}) do
         local a = r.quest and by[r.quest]
-        if not a then out[#out + 1] = { quest = r.quest, from = "ungiven", to = r.state, objective = r.objective }
-        elseif a.state ~= r.state or a.objective ~= r.objective then
-            out[#out + 1] = { quest = r.quest, from = a.state, to = r.state, objective = r.objective, objective_before = a.objective }
+        local d = { quest = r.quest }
+        local any = false
+        if not a then d.from, d.to, d.objective, any = "ungiven", r.state, r.objective, true
+        else
+            if a.state ~= r.state then d.from, d.to, any = a.state, r.state, true end
+            if a.objective ~= r.objective then d.objective, d.objective_before, any = r.objective, a.objective, true end
         end
+        for _, kind in ipairs({ "ints", "bools" }) do
+            for k, v in pairs(r[kind] or {}) do
+                local was = a and (a[kind] or {})[k]
+                if was ~= v then d[kind] = d[kind] or {}; d[kind][k] = { from = was, to = v }; any = true end
+            end
+        end
+        if any then out[#out + 1] = d end
     end
     return out
 end
 
--- A comparable signature of the conversation (what verifies an advance).
+-- The node signature (finding 3): the node handle's fields as read, speaker, line, option texts and types.
 function M.signature(st)
     if not st or not st.active then return "inactive" end
     local parts = { tostring(st.node), tostring(st.speaker), tostring(st.line) }
     for _, o in ipairs(st.options or {}) do parts[#parts + 1] = tostring(o.text) .. ":" .. tostring(o.type) end
+    for _, r in ipairs(st.panel_rows or {}) do parts[#parts + 1] = "p:" .. tostring(r.text) end
     return table.concat(parts, "|")
 end
 
@@ -130,6 +168,12 @@ local function options_words(shown)
     return table.concat(w, "; ")
 end
 M.options_words = options_words
+
+local function public_options(shown)
+    local out = {}
+    for _, o in ipairs(shown or {}) do out[#out + 1] = { n = o.n, text = o.text, available = o.available } end
+    return out
+end
 
 -- ------------------------------------------------------------------ engine touches
 local W = {}
@@ -141,122 +185,168 @@ function W.now(ctx)
     local ok, t = pcall(function() return GS:GetRealTimeSeconds(ctx) end)
     return ok and t or os.time()
 end
-function W.pc() return mcall("sense", "local_pc") end
+function W.pc() local s = mod("sense"); return s and s.local_pc and s.local_pc() or nil end
 function W.pawn(pc)
     if not U.valid(pc) then return nil end
     local p = U.try(function() return pc.Pawn end)
     return U.alive(p) and p or nil
 end
-function W.loc(a) return U.loc(a) end
+function W.pawn_id(pawn) return U.short(pawn) end
 function W.dead(pawn) return U.try(function() return pawn.HealthComponent:IsDead() end) == true end
-local function each(arr, fn)
+local function each(arr, fn, cap)
     if paused() or not arr then return end
-    pcall(function() arr:ForEach(function(_, e) local v = U.try(function() return e:get() end) or e; fn(v) end) end)
+    local n = 0
+    pcall(function()
+        arr:ForEach(function(_, e)
+            n = n + 1
+            if n > (cap or M.cfg.each_cap) then return true end
+            local v = U.try(function() return e:get() end) or e
+            fn(v, n)
+        end)
+    end)
 end
-function W.panel()
-    local p = U.find_first(M.cfg.panel_class)
-    if not U.valid(p) then return nil end
-    if U.try(function() return p:IsInViewport() end) == false then return nil end
-    return p
-end
--- The conversation as the client sees it. -> {active, speaker, line, node, options = {{text, type}}, panel_options, continue, cancel}
-function W.conv(pc)
+local function participant(pc)
     local comp = pc and U.try(function() return pc.ConversationComponent end)
     local part = U.valid(comp) and U.try(function() return comp.DomConversationParticipant end)
-    if not U.valid(part) then return { active = false, missing = true } end
-    local st = { options = {}, panel_options = {} }
-    st.active = U.try(function() return part:IsInActiveConversation() end) == true or (num(U.try(function() return part.ConversationsActive end)) or 0) > 0
-    local msg = U.try(function() return part.LastMessage end)
+    return U.valid(comp) and comp or nil, U.valid(part) and part or nil
+end
+-- Per-tick scalars only (finding 14). -> {active, npc, mode, count, missing}
+function W.scalars(pc)
+    if paused() then return { active = false, paused = true } end
+    local comp, part = participant(pc)
+    if not part then return { active = false, missing = true, count = HK().count } end
+    local n = num(U.try(function() return part.ConversationsActive end)) or 0
+    return { active = n > 0, npc = U.short(U.try(function() return comp.CurrentNPC end)),
+             mode = U.short(U.try(function() return pc.CurrentInputMode end)), count = HK().count }
+end
+-- The dialogue panel of THIS player (finding 15): find_all + skip_defaults + valid + the participant matches;
+-- cached, re-validated per call.
+function W.panel(pc)
+    local _, part = participant(pc)
+    local c = C()
+    if c.panel and U.valid(c.panel) and U.try(function() return c.panel.DomConversationParticipant end) == part then return c.panel end
+    c.panel = nil
+    for _, p in ipairs(U.find_all(M.cfg.panel_class, { skip_defaults = true }) or {}) do
+        if U.valid(p) and (part == nil or U.try(function() return p.DomConversationParticipant end) == part) then c.panel = p; break end
+    end
+    return c.panel
+end
+-- The full read: scalars + the payload + the panel (once per change, bounded). -> st
+function W.read(pc)
+    local st = W.scalars(pc)
+    st.options, st.panel_rows = {}, {}
+    if not st.active then return st end
+    local _, part = participant(pc)
+    local msg = part and U.try(function() return part.LastMessage end)
     if msg then
         st.speaker = text(U.try(function() return msg.Message.ParticipantDisplayName end))
         st.line = text(U.try(function() return msg.Message.Text end))
-        st.node = U.str(U.try(function() return msg.CurrentNode.NodeGUID end)) or U.str(U.try(function() return msg.CurrentNode end))
+        st.node = U.str(U.try(function() return msg.CurrentNode.NodeGUID end)) or U.str(U.try(function() return msg.CurrentNode.NodeIndex end))
         each(U.try(function() return msg.Options end), function(o)
             st.options[#st.options + 1] = { text = text(U.try(function() return o.ChoiceText end)), type = num(U.try(function() return o.ChoiceType end)) }
         end)
     end
-    local panel = W.panel()
+    local panel = W.panel(pc)
     if panel then
         st.panel = true
-        each(U.try(function() return panel.AllOptions end), function(d)
+        local keys = {}
+        each(U.try(function() return panel.OptionSelectInputActions end), function(a, i) if U.valid(a) then keys[#keys + 1] = { a = a, n = i } end end)
+        each(U.try(function() return panel.AllOptions end), function(d, i)
             if U.valid(d) then
                 local a = U.try(function() return d.InputAction end)
-                st.panel_options[#st.panel_options + 1] = { text = text(U.try(function() return d.DisplayName end)), act = U.valid(a) and a or nil }
+                local n
+                for _, k in ipairs(keys) do if U.valid(a) and k.a == a then n = k.n end end
+                st.panel_rows[#st.panel_rows + 1] = { text = text(U.try(function() return d.DisplayName end)), act = U.valid(a) and a or nil, n = n or i, data = d }
             end
         end)
-        local c = U.try(function() return panel.ContinueInputAction end)
-        local x = U.try(function() return panel.CancelInputAction end)
+        local c, x = U.try(function() return panel.ContinueInputAction end), U.try(function() return panel.CancelInputAction end)
         st.continue, st.cancel = U.valid(c) and c or nil, U.valid(x) and x or nil
-        if not st.speaker then st.speaker = text(U.try(function() return panel.Text_SpeakerName:GetText() end)) end
-        if not st.line then st.line = text(U.try(function() return panel.Text_SpeakerLine:GetText() end)) end
+        local sel = U.try(function() return panel.CurrentSelectedOption end)
+        st.selected = U.valid(sel) and text(U.try(function() return sel.DisplayName end)) or nil
     end
     return st
 end
 function W.quests(pc)
     local qc = pc and U.try(function() return pc.QuestProgressComponent end)
-    if not U.valid(qc) then return nil end
+    if not U.valid(qc) or paused() then return nil end
     local out = {}
     each(U.try(function() return qc.Quests end), function(q)
         local d = U.try(function() return q.Data end)
         if U.valid(d) then
-            out[#out + 1] = { quest = text(U.try(function() return d.QuestName end)) or U.short(d),
-                              state = M.QUEST[num(U.try(function() return q.State end)) or -1] or tostring(U.try(function() return q.State end)),
-                              objective = U.str(U.try(function() return q.CurrentObjective end)) }
+            local r = { quest = text(U.try(function() return d.QuestName end)) or U.short(d),
+                        state = M.QUEST[num(U.try(function() return q.State end)) or -1] or tostring(U.try(function() return q.State end)),
+                        objective = U.str(U.try(function() return q.CurrentObjective end)), ints = {}, bools = {} }
+            each(U.try(function() return q.QuestInts end), function(x) local k = U.str(U.try(function() return x.Name end)); if k then r.ints[k] = num(U.try(function() return x.Value end)) end end)
+            each(U.try(function() return q.QuestBools end), function(x) local k = U.str(U.try(function() return x.Name end)); if k then r.bools[k] = U.try(function() return x.Value end) == true end end)
+            out[#out + 1] = r
         end
-    end)
+    end, 128)
     return out
 end
-function W.target(pawn) return mcall("inventory", "interact_target", pawn) end
-function W.press(log) return mcall("inventory", "press_interact", log) end
-function W.inject(act)
+-- A UI press through the input gate: allowed only while the open modal is the dialogue itself (finding 7b).
+function W.ui_press(act)
     local inp = mod("input")
-    if inp and inp.raw_inject then return inp.raw_inject(act) == true end
-    local cb = mod("combat")
-    local f = cb and (cb.inject or cb._inject)
-    return f and f(act) or false
-end
-function W.gate()
-    local inp = mod("input")
-    if not (inp and inp.gate) then return nil end
-    local ok, m = pcall(inp.gate)
-    return ok and m or nil
-end
-function W.claim() local inp = mod("input"); if inp and inp.claim then pcall(inp.claim, "mode", "talk") end end
-function W.release()
-    local inp = mod("input")
-    if inp and inp.release and inp.owner then
-        local o = U.try(function() return inp.owner("mode") end)
-        if o and o.owner == "talk" then pcall(inp.release, "mode") end
+    if not inp then return false, "no input layer" end
+    local m = inp.modal and inp.modal() or nil
+    local kind = m and m.kind
+    if m and not (kind == "conversation" or (kind == "mode" and M.is_conversation_mode(m.mode))) then return false, m end
+    if inp.inject then
+        local ok, why = inp.inject(act, nil, { modal = kind })
+        return ok == true, why
     end
+    return false, "no input.inject"
 end
-function W.find(id, r) local api = M.api; return api and api.find_thing and api.find_thing(id, r) end
-function W.face(pc, yaw) pcall(function() pc:SetControlRotation({ Pitch = 0, Yaw = yaw, Roll = 0 }) end) end
-function W.go_to(log, p, tol_m, timeout_s)
-    return mcall("move", "go_to", log, { p.X / 100, p.Y / 100, p.Z / 100 }, { tolerance_m = tol_m, timeout_s = timeout_s })
+function W.claim() local inp = mod("input"); if inp and inp.claim then pcall(inp.claim, "conversation", "talk") end end
+function W.release() local inp = mod("input"); if inp and inp.release then pcall(inp.release, "conversation") end end
+function W.arm_hook(log)
+    local h = mod("hookhub")
+    if not (h and h.on) then return false end
+    return h.on(M.cfg.hook_path, "talk", function() local k = HK(); k.count = k.count + 1 end, { log = log }) -- count only (finding 5b)
 end
-function W.move_status() return mcall("move", "status") or {} end
-function W.move_stop(log) return mcall("move", "stop", log) end
+function W.skills() return mod("skills") end
+
+-- ------------------------------------------------------------------ conversation memory (one at a time)
+local function conv_clear(why)
+    local c = C()
+    if c.conv then say(nil, "conversation state cleared: " .. tostring(why)) end
+    c.conv = nil
+end
+
+-- A conversation that ended without our Cancel / a world change / a different NPC -> a truthful note (finding 8, 10).
+local function conv_check(pc, sc, now)
+    local c = C()
+    local cv = c.conv
+    if not cv then return nil end
+    local pid = W.pawn_id(W.pawn(pc))
+    if cv.pawn_id and pid ~= cv.pawn_id then conv_clear("world changed"); return "The world reloaded, so my conversation ended." end
+    if not sc.active then
+        conv_clear("ended elsewhere")
+        W.release()
+        return string.format("My conversation with %s ended without me ending it (maybe I had to fight).", tostring(cv.npc_name or cv.npc))
+    end
+    if sc.npc and cv.npc and sc.npc ~= cv.npc then
+        conv_clear("other npc")
+        return "I'm now in a different conversation."
+    end
+    cv.last_call = now
+    return nil
+end
 
 -- ------------------------------------------------------------------ the job
-local function snapshot(J, st)
-    st = st or W.conv(J.pc)
-    local shown = M.choices(st)
-    C().shown = shown
-    return st, shown
-end
-
 local function result_of(J, ok, reason, data)
     data = data or {}
-    local st = J.st or W.conv(J.pc)
-    local shown = J.shown or M.choices(st)
+    local st = J.st or { active = false }
     data.in_conversation = st.active == true
+    data.npc = J.npc_name or (C().conv and C().conv.npc_name)
     data.speaker = st.speaker
     data.lines = J.lines
-    data.options = {}
-    for _, o in ipairs(shown) do data.options[#data.options + 1] = { n = o.n, text = o.text, available = o.available } end
+    data.options = public_options(J.shown or {})
+    data.node = J.sig
     data.chose = J.chose
-    data.quests_changed = M.quest_diff(J.q0, W.quests(J.pc) or J.q0)
-    if #data.quests_changed == 0 then data.quests_changed = nil end
+    data.note = data.note or J.note
+    local base = (C().conv and C().conv.base) or J.q0
+    local qd = M.quest_diff(base, W.quests(J.pc) or base)
+    if #qd > 0 then data.quests_changed = qd end
     return { ok = ok == true, reason = reason, data = data }
 end
 
@@ -266,9 +356,14 @@ local function finish(J, res)
     local c = C()
     if J.handle then pcall(CancelDelayedAction, J.handle) end
     J.handle, J.tap = nil, nil
-    if not paused() then
-        if J.moving then pcall(W.move_stop, J.log); J.moving = false end
-        if res.data and res.data.in_conversation then W.claim() else W.release() end
+    if not paused() and res.data then
+        if res.data.in_conversation then
+            W.claim()
+            if c.conv then c.conv.sig, c.conv.shown, c.conv.last_call = J.sig, J.shown, J.t end
+        else
+            W.release()
+            conv_clear("ended")
+        end
     end
     J.result = res
     c.last = { result = res, ended = os.date("!%Y-%m-%dT%H:%M:%SZ") }
@@ -277,53 +372,96 @@ local function finish(J, res)
     if arb and J.token and not J.released then J.released = true; pcall(arb.release, J.log, J.token, res.ok and "done" or res.reason) end
     say(J.log, string.format("done %s %s: %s", tostring(res.ok), tostring(res.reason or ""), tostring(res.data and res.data.detail or "")))
 end
-local function fail(J, reason, why, detail) return finish(J, result_of(J, false, reason, { why = why, detail = detail })) end
+local function fail(J, reason, why, detail, extra)
+    local d = extra or {}
+    d.why, d.detail = why, detail
+    return finish(J, result_of(J, false, reason, d))
+end
 local function set_phase(J, ph, note) J.phase, J.phase_t = ph, J.t; say(J.log, "phase " .. ph .. (note and (" " .. note) or "")) end
 
+local function press(J, act, what)
+    local ok, why = W.ui_press(act)
+    if not ok then
+        local kind = type(why) == "table" and why.kind or tostring(why)
+        fail(J, "interrupted", "screen_open", string.format("A %s screen is open, so I can't %s in the conversation.", tostring(kind), what))
+        return false
+    end
+    -- the first frame went now, in the same tick as the read that decided it (finding 1); extra frames (if
+    -- configured) are dropped the moment a new payload arrives
+    J.tap = M.cfg.tap_frames > 1 and { act = act, frames = M.cfg.tap_frames - 1, count0 = HK().count } or nil
+    return true
+end
+
 local function add_line(J, st)
-    if st and st.line and st.line ~= J.last_line then
+    if st.line and (st.line ~= J.last_line or st.count ~= J.last_line_count) then
         J.lines[#J.lines + 1] = { speaker = st.speaker, text = st.line }
-        J.last_line = st.line
+        J.last_line, J.last_line_count = st.line, st.count
         C().counts.lines = C().counts.lines + 1
     end
 end
 
--- read: collect the line; continue through choice-less lines; stop at a choice or the end
+-- read the node (full read, once per change), collect its line, continue through choice-less lines
 local function step_read(J)
-    local st, shown = snapshot(J)
-    J.st, J.shown = st, shown
+    local st = W.read(J.pc)
+    J.st = st
+    J.sig = M.signature(st)
+    J.shown = M.choices(st)
     if not st.active then
-        return finish(J, result_of(J, true, nil, { ended = true, detail = J.chose and "The conversation ended." or "We finished talking." }))
+        return finish(J, result_of(J, true, nil, { ended = true, detail = "The conversation ended." }))
+    end
+    if st.mode and not M.is_conversation_mode(st.mode) and st.mode ~= M.cfg.gameplay_mode then
+        return fail(J, "interrupted", "screen_open", string.format("The game opened another screen (%s) in the middle of the conversation.", tostring(st.mode)))
     end
     add_line(J, st)
-    if #shown > 0 then
-        return finish(J, result_of(J, true, nil, { detail = string.format("%s says: %s Options: %s", tostring(st.speaker or "They"),
-            tostring(st.line or "..."), options_words(shown)) }))
+    if not st.panel then
+        return fail(J, "not_implemented", "no_dialogue_ui", string.format("%s says: %s (there is no dialogue window to answer in, so I'm not pressing anything).",
+            tostring(st.speaker or "They"), tostring(st.line or "...")))
     end
-    if (J.advanced or 0) >= M.cfg.max_lines or not st.continue then
+    if #J.shown > 0 then
+        return finish(J, result_of(J, true, nil, { detail = string.format("%s says: %s Options: %s", tostring(st.speaker or "They"),
+            tostring(st.line or "..."), options_words(J.shown)) }))
+    end
+    local qd = M.quest_diff((C().conv and C().conv.base) or J.q0, W.quests(J.pc) or {})
+    if #qd > (J.quest_changes or 0) and (J.advanced or 0) > 0 then
+        return finish(J, result_of(J, true, nil, { detail = "A quest changed; stopping to look.", quest_stop = true }))
+    end
+    J.quest_changes = #qd
+    -- finding 1: Continue only when THIS read shows no user options and the panel list is empty
+    local any_user = false
+    for _, o in ipairs(st.options or {}) do if o.type == 1 or o.type == 2 then if o.text then any_user = true end end end
+    if any_user or #(st.panel_rows or {}) > 0 or not st.continue or (J.advanced or 0) >= M.cfg.max_lines then
         return finish(J, result_of(J, true, nil, { detail = string.format("%s says: %s", tostring(st.speaker or "They"), tostring(st.line or "...")),
-            more = st.continue ~= nil or nil }))
+            more = (J.advanced or 0) >= M.cfg.max_lines or nil }))
     end
     J.advanced = (J.advanced or 0) + 1
-    J.sig0 = M.signature(st)
-    J.tap = { act = st.continue, frames = M.cfg.tap_frames }
-    set_phase(J, "wait_change", "continue")
+    J.count0 = st.count
+    if not press(J, st.continue, "read on") then return end
+    set_phase(J, "wait_update", "continue")
 end
 
 local function frame(J)
     local c = C()
     if J.gen ~= c.gen or J.done then return end
     if paused() then
+        -- finding 10: no game call at all; the conversation died with the world
         J.done = true
         if J.handle then pcall(CancelDelayedAction, J.handle) end
-        J.result = { ok = false, reason = "interrupted", data = { why = "world_teardown", detail = "The world is reloading." } }
+        J.result = { ok = false, reason = "companion_down", data = { why = "paused", detail = "The world is reloading." } }
         if c.job == J then c.job = nil end
+        conv_clear("paused")
         return
     end
     local pawn = W.pawn(J.pc)
     if not pawn then return finish(J, result_of(J, false, "companion_down", { why = "no_pawn" })) end
     J.t = W.now(pawn)
-    if J.tap then W.inject(J.tap.act); J.tap.frames = J.tap.frames - 1; if J.tap.frames <= 0 then J.tap = nil end end
+    if J.tap then
+        if (HK().count or 0) ~= J.tap.count0 then J.tap = nil end
+    end
+    if J.tap then
+        if J.tap.frames > 0 then W.ui_press(J.tap.act) end
+        J.tap.frames = J.tap.frames - 1
+        if J.tap.frames <= 0 then J.tap = nil end
+    end
     if J.suspended then return end
     if J.t - (J.dec_t or -1) < M.cfg.decide_s then return end
     J.dec_t = J.t
@@ -336,64 +474,73 @@ local function frame(J)
         arb.renew(J.token)
     end
     if W.dead(pawn) then return fail(J, "companion_down", "died", "I died.") end
-    local me = W.loc(pawn)
+    local sc = W.scalars(J.pc)
     local ph = J.phase
-    if ph == "approach" then
-        local p = J.target.pos
-        if me and d2(me, p) <= M.cfg.reach_m * 100 then if J.moving then W.move_stop(J.log); J.moving = false end; return set_phase(J, "press") end
-        if not J.moving then W.go_to(J.log, p, M.cfg.stand_tol_m, M.cfg.approach_timeout_s); J.moving, J.move_t = true, J.t end
-        local res = (W.move_status() or {}).result or {}
-        if res.status == "failed" or res.status == "stopped" or J.t - J.move_t > M.cfg.approach_timeout_s then
-            J.moving = false
-            return fail(J, "path_blocked", "cant_reach", string.format("I can't get to %s.", tostring(J.target.name or "them")))
-        end
-        if res.status == "arrived" then J.moving = false; if me and d2(me, p) <= M.cfg.reach_m * 100 + 100 then return set_phase(J, "press") end end
-        return
-    end
-    if ph == "press" then
-        local p = J.target.pos
-        if me then W.face(J.pc, math.deg(math.atan(p.Y - me.Y, p.X - me.X))) end
-        local tg = W.target(pawn)
-        if tg and tg.actor == J.target.id then
-            local modal = W.gate()
-            if modal and modal.kind ~= "mode" then
-                return fail(J, "interrupted", "screen_open", string.format("A %s screen is open, so I can't talk right now.", tostring(modal.kind)))
-            end
-            J.sig0 = M.signature(W.conv(J.pc))
-            W.press(J.log)
-            J.presses = (J.presses or 0) + 1
-            return set_phase(J, "open_wait")
-        end
-        if J.t - J.phase_t > M.cfg.face_s then
-            return fail(J, "not_interactable", "not_talkable", string.format("I'm next to %s but the game won't let me talk to them%s.",
-                tostring(J.target.name or "them"), tg and tg.actor and (" (it targets " .. tostring(tg.name or tg.prompt or tg.actor) .. ")") or ""))
-        end
-        return
-    end
-    if ph == "open_wait" then
-        local st = W.conv(J.pc)
-        if st.active and (M.signature(st) ~= J.sig0 or st.line) then
+    if ph == "episode" then
+        -- opened? (checked first every tick: the episode must never press E a second time into the dialogue)
+        if sc.active and sc.npc == J.target.id then
+            if J.ep and J.ep.moving then pcall(function() J.api.call("move", "stop") end) end
+            J.ep = nil
             C().counts.talks = C().counts.talks + 1
+            C().conv = { npc = J.target.id, npc_name = J.target.name, pawn_id = W.pawn_id(pawn), base = J.q0, since = J.t, last_call = J.t }
             W.claim()
             return step_read(J)
         end
-        if J.t - J.phase_t > M.cfg.open_wait_s then
-            if (J.presses or 0) < M.cfg.presses then return set_phase(J, "press", "re-press") end
+        if sc.active and sc.npc and sc.npc ~= J.target.id then
+            return fail(J, "verification_failed", "other_conversation", string.format("I started talking to someone else (%s), not %s.",
+                tostring(sc.npc), tostring(J.target.name or J.target.id)))
+        end
+        local SK = W.skills()
+        local res = SK._episode_poll(J.api, J.ep, J.t)
+        if res == nil then
+            if J.t - J.t0 > M.cfg.episode_timeout_s then return fail(J, "timeout", "timeout", "I couldn't get to them in time.") end
+            return
+        end
+        if res.ok and res.data and res.data.changed == "conversation" then return end -- the next tick reads it
+        if res.ok then
             return fail(J, "verification_failed", "no_conversation", string.format("I pressed talk on %s but no conversation opened.", tostring(J.target.name or "them")))
+        end
+        local d = res.data or {}
+        if res.reason == "verification_failed" then
+            return fail(J, "verification_failed", "no_conversation", string.format("I pressed talk on %s but no conversation opened.", tostring(J.target.name or "them")))
+        end
+        return finish(J, { ok = false, reason = res.reason, data = { why = d.why or res.reason, detail = d.detail, target = J.target.id } })
+    end
+    if ph == "wait_update" then
+        if J.tap then return end
+        if not sc.active or (sc.count or 0) > (J.count0 or 0) then return step_read(J) end
+        if J.t - J.phase_t > M.cfg.change_wait_s then
+            local st = W.read(J.pc) -- the hook may be missing: one full read before giving up
+            if M.signature(st) ~= J.sig then return step_read(J) end
+            if J.mode == "leave" then return fail(J, "verification_failed", "no_change", "I tried to end the conversation but it's still open.") end
+            return finish(J, result_of(J, true, nil, { detail = "The conversation stopped moving on.", stuck = true }))
         end
         return
     end
-    if ph == "wait_change" then
+    if ph == "choose_wait" then
         if J.tap then return end
-        local st = W.conv(J.pc)
-        if not st.active or M.signature(st) ~= J.sig0 then return step_read(J) end
-        if J.t - J.phase_t > M.cfg.change_wait_s then
-            if J.mode == "leave" then return fail(J, "verification_failed", "no_change", "I tried to end the conversation but it's still open.") end
-            if J.advanced and J.advanced > 0 and not J.chose then
-                return finish(J, result_of(J, true, nil, { detail = "The conversation stopped moving on.", stuck = true }))
+        if not sc.active or (sc.count or 0) > (J.count0 or 0) then return step_read(J) end
+        local since = J.t - J.phase_t
+        if since >= M.cfg.highlight_wait_s and not J.confirmed then
+            local st = W.read(J.pc)
+            if M.signature(st) ~= J.sig then return step_read(J) end
+            -- finding 2: the key may only highlight; confirm ONLY when the highlight is the model's choice
+            if st.selected and st.selected == J.chose and st.continue then
+                J.confirmed = true
+                C().counts.confirms = C().counts.confirms + 1
+                say(J.log, "option highlighted, confirming")
+                if not press(J, st.continue, "confirm my answer") then return end
+                J.phase_t = J.t
+                return
             end
-            return fail(J, "verification_failed", "no_change", string.format("I picked \"%s\" but the conversation didn't move on.", tostring(J.chose or "?")))
         end
+        if since > M.cfg.change_wait_s then
+            local st = W.read(J.pc)
+            if M.signature(st) ~= J.sig then return step_read(J) end
+            return fail(J, "verification_failed", "input_not_reaching_ui", string.format(
+                "I pressed the key for \"%s\" but the conversation didn't react; I'll stop here and ask for help rather than guess.", tostring(J.chose)))
+        end
+        return
     end
 end
 M._frame = frame
@@ -404,8 +551,9 @@ local function new_job(log, ctx, mode, pc, extra)
     c.gen = c.gen + 1
     local pawn = W.pawn(pc)
     local t = W.now(pawn)
-    local J = { gen = c.gen, log = log, pc = pc, mode = mode, t0 = t, t = t, phase_t = t, lines = {}, q0 = W.quests(pc) or {} }
+    local J = { gen = c.gen, log = log, pc = pc, mode = mode, t0 = t, t = t, phase_t = t, lines = {}, api = ctx and ctx.api or M.api }
     for k, v in pairs(extra or {}) do J[k] = v end
+    J.q0 = J.q0 or W.quests(pc) or {}
     c.job = J
     return J
 end
@@ -421,72 +569,110 @@ local function run(J)
     end)
 end
 
+local function bad(reason, why, detail, extra)
+    local d = extra or {}
+    d.why, d.detail = why, detail
+    return { ok = false, reason = reason, data = d }
+end
+
 function M.start(log, args, ctx)
     args = args or {}
-    if paused() then return { ok = false, reason = "companion_down", data = { why = "paused", detail = "The world is loading." } } end
+    if paused() then return bad("companion_down", "paused", "The world is loading.") end
     local pc = W.pc()
     local pawn = W.pawn(pc)
-    if not pawn then return { ok = false, reason = "companion_down", data = { why = "no_pawn" } } end
-    local st = W.conv(pc)
+    if not pawn then return bad("companion_down", "no_pawn") end
+    pcall(W.arm_hook, log)
+    local now = W.now(pawn)
+    local sc = W.scalars(pc)
+    local note = conv_check(pc, sc, now)
+    local has_target = type(args.target) == "string" and args.target ~= ""
+    if has_target and (args.choose ~= nil or args.leave) then
+        return bad("invalid_args", "mixed_args", "Start a conversation with target first, then answer with choose in the next call.")
+    end
     if args.leave == true then
-        if not st.active then return { ok = false, reason = "invalid_args", data = { why = "not_in_conversation", detail = "I'm not talking to anyone." } } end
-        local J = new_job(log, ctx, "leave", pc)
-        J.sig0 = M.signature(st)
-        if st.cancel then J.tap = { act = st.cancel, frames = M.cfg.tap_frames } end
-        set_phase(J, "wait_change", "leave")
+        if not sc.active then return bad("invalid_args", "not_in_conversation", note or "I'm not talking to anyone.") end
+        local st = W.read(pc)
+        if not st.cancel then return bad("not_implemented", "no_dialogue_ui", "There is no dialogue window to close.") end
+        local J = new_job(log, ctx, "leave", pc, { q0 = C().conv and C().conv.base, note = note })
+        J.st, J.sig, J.count0 = st, M.signature(st), st.count
+        J.npc_name = C().conv and C().conv.npc_name
+        if not press(J, st.cancel, "leave") then return J.result end
+        set_phase(J, "wait_update", "leave")
         run(J)
         return { ok = true }
     end
     if args.choose ~= nil then
-        if not st.active then return { ok = false, reason = "invalid_args", data = { why = "not_in_conversation", detail = "I'm not talking to anyone, so there's nothing to choose." } } end
-        local shown = C().shown or M.choices(st)
-        local o, why = M.resolve(shown, args.choose)
+        if not sc.active then return bad("invalid_args", "not_in_conversation", note or "I'm not talking to anyone, so there's nothing to choose.") end
+        local st = W.read(pc)
+        local cv = C().conv
+        local sig = M.signature(st)
+        local now_shown = M.choices(st)
+        -- finding 3: the node must be the one the model read
+        if not cv or cv.sig ~= sig then
+            if cv then cv.sig, cv.shown = sig, now_shown end
+            return bad("invalid_args", "options_changed", string.format("The conversation moved on since I last looked. %s says: %s Options now: %s",
+                tostring(st.speaker or "They"), tostring(st.line or "..."), options_words(now_shown)),
+                { options = public_options(now_shown), node = sig, speaker = st.speaker, line = st.line })
+        end
+        local o, why = M.resolve(cv.shown, args.choose)
         if not o then
-            return { ok = false, reason = "invalid_args", data = { why = "invalid_choice", match = why, options = shown,
-                detail = string.format("\"%s\" isn't one of the options: %s.", tostring(args.choose), options_words(shown)) } }
+            return bad("invalid_args", "invalid_choice", string.format("\"%s\" isn't one of the options: %s.", tostring(args.choose), options_words(cv.shown)),
+                { match = why, options = public_options(cv.shown) })
         end
         if not o.available then
-            return { ok = false, reason = "not_unlocked", data = { why = "option_unavailable", detail = string.format("I can't pick \"%s\" yet; the game greys it out.", o.text) } }
+            return bad("not_unlocked", "option_unavailable", string.format("I can't pick \"%s\" yet; the game greys it out.", o.text))
         end
-        -- the option's own input action from the CURRENT panel (same slot), else the panel's per-slot select actions
-        local now_opts = M.choices(st)
-        local act = (now_opts[o.n] and now_opts[o.n].text == o.text and now_opts[o.n].act) or o.act
-        if not act then return { ok = false, reason = "body_error", data = { why = "no_option_input", detail = "I can see the options but not the key that picks them." } } end
-        local J = new_job(log, ctx, "choose", pc, { chose = o.text })
-        J.sig0 = M.signature(st)
-        J.tap = { act = act, frames = M.cfg.tap_frames }
+        local act
+        for _, x in ipairs(now_shown) do if x.text == o.text then act = x.act end end
+        if not act then return bad("body_error", "no_option_input", "I can see the options but not the key that picks them.") end
+        local J = new_job(log, ctx, "choose", pc, { chose = o.text, q0 = cv.base, note = note })
+        J.st, J.sig, J.shown, J.count0, J.npc_name = st, sig, now_shown, st.count, cv.npc_name
         C().counts.choices = C().counts.choices + 1
-        set_phase(J, "wait_change", "choose " .. o.n .. " " .. o.text)
+        if not press(J, act, "answer") then return J.result end
+        set_phase(J, "choose_wait", "choose " .. o.n .. " " .. o.text)
         run(J)
         return { ok = true }
     end
-    if st.active and not args.target then
-        local J = new_job(log, ctx, "read", pc)
+    if not has_target then
+        if not sc.active then return bad("invalid_args", "not_in_conversation", note or "I'm not talking to anyone; give target to start.") end
+        local J = new_job(log, ctx, "read", pc, { q0 = C().conv and C().conv.base, note = note })
+        J.npc_name = C().conv and C().conv.npc_name
         set_phase(J, "read")
         step_read(J)
         if not J.done then run(J) end
         return { ok = true }
     end
-    if type(args.target) ~= "string" or args.target == "" then
-        return { ok = false, reason = "invalid_args", data = { detail = "target (who to talk to: an id from look) is required to start talking" } }
+    if sc.active then
+        if sc.npc == args.target then
+            local J = new_job(log, ctx, "read", pc, { q0 = C().conv and C().conv.base, note = note })
+            if not C().conv then C().conv = { npc = sc.npc, pawn_id = W.pawn_id(pawn), base = J.q0, since = now, last_call = now } end
+            set_phase(J, "read")
+            step_read(J)
+            if not J.done then run(J) end
+            return { ok = true }
+        end
+        return bad("invalid_args", "already_talking", string.format("I'm already talking to %s; leave that conversation first.", tostring(sc.npc)))
     end
-    local t = W.find(args.target, 120)
-    if not t or not t.position then
-        return { ok = false, reason = "unknown_target", data = { why = "unknown_target", detail = string.format("I can't see %s.", tostring(args.target)) } }
+    local api = ctx and ctx.api or M.api
+    local SK = W.skills()
+    if not (SK and SK._new_episode and SK._episode_poll and api) then
+        return bad("not_implemented", "no_episode", "My walk-up-and-use routine isn't loaded, so I can't start a conversation.")
     end
-    local pos = { X = t.position[1] * 100, Y = t.position[2] * 100, Z = (t.position[3] or 0) * 100 }
+    local t = api.find_thing(args.target, 120)
+    if not t or not t.position then return bad("unknown_target", "unknown_target", string.format("I can't see %s.", tostring(args.target))) end
     local arb = mod("arbiter")
     local token, J
     if arb then
-        local r = arb.request(log, { name = "talk", level = "command", resumable = false, uses_move = true, lease_s = M.cfg.lease_s,
-            on_suspend = function() if J then J.suspended = true; J.moving = false end end,
-            on_resume = function() if J and not J.done then J.suspended = false; J.moving = false; set_phase(J, "approach", "resumed"); return true end return false end,
+        local r = arb.request(log, { name = "talk", level = "command", resumable = true, uses_move = true, lease_s = M.cfg.lease_s,
+            on_suspend = function() if J then J.suspended = true end end,
+            on_resume = function() if J and not J.done then J.suspended = false; if J.ep then J.ep.phase, J.ep.moving = "approach", false end; return true end return false end,
             on_stop = function(_, _, why) if J and not J.done then J.released = true; finish(J, { ok = false, reason = "interrupted", data = { why = tostring(why), detail = "I was told to do something else." } }) end end })
-        if not r.ok then return { ok = false, reason = "interrupted", data = { why = "pawn_busy", owner = r.owner, detail = "I'm busy with something else." } } end
+        if not r.ok then return bad("interrupted", "pawn_busy", "I'm busy with something else.", { owner = r.owner }) end
         token = r.token
     end
-    J = new_job(log, ctx, "start", pc, { token = token, target = { id = t.id or args.target, name = t.name, pos = pos } })
-    set_phase(J, "approach", tostring(t.name) .. " " .. tostring(t.id))
+    J = new_job(log, ctx, "start", pc, { token = token, target = { id = t.id or args.target, name = t.name }, npc_name = t.name, note = note })
+    J.ep = SK._new_episode(api, t, { label = t.name })
+    set_phase(J, "episode", tostring(t.name) .. " " .. tostring(t.id))
     run(J)
     return { ok = true }
 end
@@ -497,20 +683,65 @@ function M.stop(log, why)
     return { ok = true }
 end
 
+-- Finding 9: a conversation nobody owns (no talk conversation recorded, another NPC, or no talk call for
+-- abandon_s) is closed with the panel's own Cancel, at most cfg.cancels times (read back between), then reported
+-- stuck. Called by input.lua's sweep for the "conversation" modal and at the start of every talk call.
+function M.sweep_orphan(log)
+    if paused() then return { ok = true, skipped = "paused" } end
+    local c = C()
+    local pc = W.pc()
+    if not W.pawn(pc) then return { ok = true, skipped = "no pawn" } end
+    local now = W.now()
+    local sc = W.scalars(pc)
+    if not sc.active then c.orphan = nil; return { ok = true, state = "none" } end
+    local cv = c.conv
+    local owned = c.job ~= nil or (cv and cv.npc == sc.npc and now - (cv.last_call or now) < M.cfg.abandon_s)
+    if owned then c.orphan = nil; return { ok = true, state = "owned" } end
+    local o = c.orphan
+    if not o or o.npc ~= sc.npc then c.orphan = { npc = sc.npc, since = now, cancels = 0 }; return { ok = true, state = "orphan_seen" } end
+    if o.cancels >= M.cfg.cancels then o.stuck = true; return { ok = false, state = "stuck", npc = sc.npc, cancels = o.cancels } end
+    if now - o.since < M.cfg.orphan_s or (o.last and now - o.last < M.cfg.orphan_s) then return { ok = true, state = "orphan_wait" } end
+    local st = W.read(pc)
+    if not st.cancel then return { ok = false, state = "no_cancel_key", npc = sc.npc } end
+    local ok = W.ui_press(st.cancel)
+    o.cancels, o.last = o.cancels + 1, now
+    c.counts.orphan_cancels = c.counts.orphan_cancels + 1
+    say(log, string.format("orphan conversation with %s: Cancel %d -> %s", tostring(sc.npc), o.cancels, tostring(ok)))
+    if cv then conv_clear("orphaned") end
+    return { ok = ok == true, state = "cancel_pressed", npc = sc.npc, cancels = o.cancels }
+end
+
 function M.status()
     local c = C()
     local J = c.job
-    return { ok = true, job = J and { mode = J.mode, phase = J.phase, lines = #J.lines } or nil, shown = c.shown, last = c.last, counts = c.counts, log = c.lines }
+    return { ok = true, job = J and { mode = J.mode, phase = J.phase, lines = #J.lines } or nil, conv = c.conv and { npc = c.conv.npc, sig = c.conv.sig } or nil,
+             orphan = c.orphan, hook_count = HK().count, last = c.last, counts = c.counts, log = c.lines }
+end
+
+-- Perception (finding 12): while a conversation is open, get_state carries conversation = {npc, speaker, line,
+-- options}; the full read only when the update counter moved.
+function M.state_extras(api)
+    if paused() then return {} end
+    local pc = W.pc()
+    local sc = W.scalars(pc)
+    local c = C()
+    if not sc.active then c.extras = nil; return {} end
+    if c.extras and c.extras_count == sc.count and c.extras_npc == sc.npc then return c.extras end
+    local st = W.read(pc)
+    c.extras = { conversation = { npc = (c.conv and c.conv.npc_name) or sc.npc, speaker = st.speaker, line = st.line, options = public_options(M.choices(st)) } }
+    c.extras_count, c.extras_npc = sc.count, sc.npc
+    return c.extras
 end
 
 M.HANDLERS = {
     talk = function(log, args, ctx)
         M.api = ctx and ctx.api or M.api
+        pcall(M.sweep_orphan, log)
         local r = M.start(log, args or {}, ctx)
         if not r.ok then return r end
         local J = C().job
         if not J then return (C().last and C().last.result) or { ok = false, reason = "body_error" } end
-        local a = { kind = "talk", id = ctx and ctx.id, timeout_s = M.cfg.approach_timeout_s + 40 }
+        local a = { kind = "talk", id = ctx and ctx.id, timeout_s = M.cfg.episode_timeout_s + 40 }
         a.cancel = function() M.stop(log, "cancelled by the brain") end
         a.poll = function()
             local j = C().job
@@ -523,7 +754,7 @@ M.HANDLERS = {
 }
 
 M.NEEDS = {
-    talk = { { "sense", "local_pc" }, { "inventory", "interact_target" }, { "inventory", "press_interact" }, { "move", "go_to" }, { "move", "status" } },
+    talk = { { "sense", "local_pc" }, { "skills", "_episode_poll" }, { "input", "inject" }, { "inventory", "press_interact" }, { "move", "go_to" } },
 }
 
 do
@@ -532,17 +763,18 @@ do
     M.MANIFEST = {
         talk = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 6, timeout_s = 140,
             detail_is_speech = false,
-            description = "Talk to someone (an NPC from look, e.g. prompt Talk): walks over and starts the conversation, and "
-                .. "returns what they say and your answer options. Then call again with choose = an option's number or text "
-                .. "to answer, or leave = true to end it. Reports quests that changed.",
+            description = "Talk to someone (an NPC from look, e.g. prompt Talk): walks over, starts the conversation and "
+                .. "returns what they say and your numbered answer options. Answer in the next call with choose = the "
+                .. "option's number or text, or end it with leave = true; call with no arguments to re-read. Reports "
+                .. "quest changes.",
             args = { type = "object", properties = obj({
                 target = { type = "string", description = "Who to talk to: an id from look (only to start)." },
                 choose = { description = "Your answer: an option number or its text, from the last reply.",
                            anyOf = { { type = "integer" }, { type = "string" } } },
                 leave = { type = "boolean", description = "End the conversation." } }) },
             ground = obj({ target = "thing" }),
-            reasons = { "unknown_target", "not_interactable", "verification_failed", "invalid_args", "not_unlocked", "path_blocked",
-                        "interrupted", "companion_down" } },
+            reasons = { "unknown_target", "not_interactable", "too_far", "verification_failed", "invalid_args", "not_unlocked",
+                        "not_implemented", "path_blocked", "interrupted", "timeout", "companion_down" } },
         talk_status = { kind = "probe", llm = false, moves = false, timeout_s = 5,
             args = { type = "object", properties = obj(), additionalProperties = false }, description = "Talk job state (debug)." },
     }
