@@ -530,7 +530,7 @@
     "USD_Recall": [
       {
         "id": "return_to_spot",
-        "situation": "he must leave this exact spot for a short errand and come straight back to it afterwards (it takes two uses: the first marks the spot, the second, within a time limit, brings him back)",
+        "situation": "he must leave this exact spot for a short errand and come straight back to it afterwards (one use: started here and kept going while he walks off, finishing it brings him straight back here)",
         "world": {
           "needs": [
             {
@@ -552,10 +552,10 @@
         "source": "description",
         "for": "returning to a marked spot",
         "mechanics": {
-          "casts": 2,
-          "first": "places the beacon",
-          "second": "teleports him back to it (within a limited time)",
-          "source": "wiki 'Recall' (data/wiki/pages/18010.json): \"summon and teleport back to a runic marker\"; metaforge: \"place a temporary beacon... return to it within a limited time\" (Luis, 2026-10-26)"
+          "casts": 1,
+          "open": "marks where he stands and opens a placement mode he can walk in",
+          "finish": "the place press teleports him back to the mark; a later recast does nothing (no lasting marker)",
+          "source": "live 2026-10-26 19:38-19:41 UTC, DISCOVERIES 'Recall hold-and-walk' (the two-cast wiki/metaforge reading is disproven)"
         }
       }
     ],

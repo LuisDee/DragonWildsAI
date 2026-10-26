@@ -1,0 +1,133 @@
+{
+ "id": "pin_pl3_deferred_spawn",
+ "owner": "pincases",
+ "area": "GOAL draft cases dev facts; mod/experiments/bench_creatures.lua spawn_pl (deferred spawn with SpawnInfo.PowerLevel)",
+ "why": "goal_tactics_prep_hard_fight needs a PL >= 3 creature; a plain SpawnActor is always PL 1. Does a deferred spawn with SpawnInfo.PowerLevel = 3 make a real PL 3 Dire Wolf (wiki PL3 HP 780 vs 240 at PL1) and Runt (195 vs 60)?",
+ "observe_only": true,
+ "preconditions": {
+  "set_health": {
+   "pct": 100
+  },
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "probe": true,
+   "save": "start"
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "spawn_pl",
+    "class_path": "/Game/Gameplay/AI/Wolf/WolfEliteVariant/BP_AI_WolfElite_Character.BP_AI_WolfElite_Character_C",
+    "power_level": 3,
+    "offset_m": [
+     22,
+     0,
+     0
+    ]
+   },
+   "save": "dw"
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "spawn_pl",
+    "class_path": "/Game/Gameplay/AI/GoblinFaction/MeleeGoblin/RuntGoblinVariant/BP_AI_RuntGoblin_Character.BP_AI_RuntGoblin_Character_C",
+    "power_level": 3,
+    "offset_m": [
+     0,
+     22,
+     0
+    ]
+   },
+   "save": "ru"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "read",
+    "ids": [
+     {
+      "$ref": "dw.id"
+     },
+     {
+      "$ref": "ru.id"
+     }
+    ]
+   },
+   "save": "rd"
+  },
+  {
+   "bridge": "census",
+   "args": {
+    "radius_m": 40,
+    "kinds": {
+     "creatures": true
+    }
+   },
+   "timeout_s": 20,
+   "save": "cen"
+  }
+ ],
+ "cleanup": [
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "kill",
+    "ids": [
+     {
+      "$ref": "dw.id"
+     }
+    ]
+   },
+   "save": "kill_dw"
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "kill",
+    "ids": [
+     {
+      "$ref": "ru.id"
+     }
+    ]
+   },
+   "save": "kill_ru"
+  }
+ ],
+ "pass": [
+  {
+   "ref": "dw.ok",
+   "eq": true
+  },
+  {
+   "ref": "rd.creatures.0.power_level",
+   "gte": 3
+  },
+  {
+   "ref": "kill_dw.ok",
+   "eq": true
+  },
+  {
+   "ref": "kill_ru.ok",
+   "eq": true
+  }
+ ],
+ "observe": [
+  "dw.error",
+  "dw.wrote",
+  "dw.creature",
+  "ru.creature",
+  "rd.creatures.0",
+  "rd.creatures.1",
+  "cen.data.creatures.0",
+  "cen.data.creatures.1",
+  "cen.data.creatures.2"
+ ],
+ "timeout_s": 120,
+ "max_retries": 0
+}

@@ -131,6 +131,7 @@
   "goal_cases": {
     "pinned_by_hash": {
       "capstone_slay_velgar_solo": "0cc44226578ab0bc",
+      "capstone_stage_1_shelter": "3b7770a192b4c49b",
       "capstone_stage_2_growing_pains": "80c7de52f9184a02",
       "capstone_stage_3_shrimp_catcher": "d23ecf6dfc53c9b5",
       "capstone_stage_4_restless_ghosts": "4caebee966076b26",
@@ -150,6 +151,9 @@
       "goal_knowledge_recipe": "5da86842f5db83c2",
       "goal_knowledge_weakness": "e0017e7da167b417",
       "goal_mining_run_home_chest": "6acbbfa02eed529f",
+      "goal_tactics_damage_trend": "fc4a079e1afe99ad",
+      "goal_tactics_prep_hard_fight": "5dd535ea7d1f44a8",
+      "goal_tactics_telegraph_dodges": "f382ae599f4dd75b",
       "m3_agility_asked": "4c482820d9ba0758",
       "m3_agility_initiative": "bc538060a0a6e568",
       "m3_agility_plus5": "337adcfde753d1cf",
@@ -189,7 +193,7 @@
     },
     "_note": "pinned 2026-10-26 under Luis's standing yes (evals/bench/goal_drafts.py write): every main-variant case that lints clean as a suite case; quick twins never"
   },
-  "judge_tag": "goal-judge-20261026f",
+  "judge_tag": "goal-judge-20261026g",
   "final_gate": "Luis sign-off after goal_check prints GOAL MET",
   "capstone": {
     "brynmoor_progression": "advance through Brynmoor's progression himself, guided by the wiki (quests, gear tiers, skill gates); each stage is a pinned case",

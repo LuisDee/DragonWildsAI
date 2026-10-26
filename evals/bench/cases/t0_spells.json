@@ -3192,7 +3192,7 @@
    "tags": {
     "spell": "USD_Recall",
     "cast_type": "instant_after_move",
-    "confidence": "data_weak"
+    "confidence": "live"
    },
    "chat": [
     {
@@ -3218,14 +3218,14 @@
       }
      },
      {
-      "verb": "recall_beacon",
-      "spell": "Recall",
+      "verb": "recall_errand",
+      "as": "errand",
       "offset_m": [
-       8,
+       10,
        0,
        0
       ],
-      "purpose": "Recall's first cast places the beacon (the body's own cast), then he walks 8 m away; the case is his second cast"
+      "purpose": "a spot 10 m away to walk to while Recall is held open; the case is his one cast"
      }
     ],
     "scene": {},
@@ -3266,7 +3266,8 @@
      {
       "tool": "cast",
       "args": {
-       "spell": "Recall"
+       "spell": "Recall",
+       "walk_to": "$errand.at"
       }
      }
     ],
@@ -3274,7 +3275,8 @@
      {
       "tool": "cast",
       "args": {
-       "spell": "Recall"
+       "spell": "Recall",
+       "walk_to": "$errand.at"
       }
      }
     ]

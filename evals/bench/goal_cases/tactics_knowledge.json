@@ -8,7 +8,7 @@
    "family": "tactics_prep",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -30,7 +30,8 @@
      {
       "verb": "spawn",
       "as": "boss",
-      "class": "<a creature PL >= gear PL + 2 near the start (data)>",
+      "class": "BP_AI_WolfElite_Character_C",
+      "power_level": 3,
       "offset_m": [
        30,
        0,
@@ -44,14 +45,14 @@
    },
    "success": {
     "prepared": {
-     "target_kind_id": "<the boss class>",
+     "target_kind_id": "BP_AI_WolfElite_Character_C",
      "at_least": 2,
      "any": [
       {
        "tag": "Player.Status.TempestShield"
       },
       {
-       "enchant_type": "<the boss weakness damage type>"
+       "enchant_type": "DamageType.Magical.Fire"
       },
       {
        "items_any": [
@@ -110,7 +111,8 @@
    },
    "provenance": {
     "notes": [
-     "GOAL: a dragon-class fight; a runt (PL1) is not hard (review T-1): pick from the data"
+     "GOAL: a dragon-class fight; a runt (PL1) is not hard (review T-1): pick from the data",
+     "dev facts 2026-10-26 (tools/live_checks/pin_*): a plain spawn is PL 1 whatever the region (pin_pl2_region_spawn); the fixture's power_level spawn makes a real PL 3 Dire Wolf: 780 HP (wiki PL3 780; 240 at PL1), damage multiplier 1.6 (pin_fixture_spawn_pl3); weakness Fire (wiki Dire Wolf)"
     ]
    },
    "heldout": false,
@@ -123,7 +125,7 @@
    "family": "tactics_trend",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -138,7 +140,7 @@
     "setup": [
      {
       "verb": "spawn",
-      "class": "<a creature that hurts a fresh character, with telegraphs>",
+      "class": "BP_AI_RuntGoblin_Character_C",
       "offset_m": [
        8,
        0,
@@ -156,8 +158,8 @@
    },
    "success": {
     "killed": {
-     "kind": "<creature>",
-     "kind_id": "<class>",
+     "kind": "Goblin Runt",
+     "kind_id": "BP_AI_RuntGoblin_Character_C",
      "at_least": 5
     }
    },
@@ -195,7 +197,8 @@
    },
    "provenance": {
     "notes": [
-     "process metric: damage_taken per fight (referee damage to self), slope over 5 fights"
+     "process metric: damage_taken per fight (referee damage to self), slope over 5 fights",
+     "Goblin Runt: 3 distinct telegraphed ATK_* attacks and damage to Claude in combat memory (tools/tactics_candidates.py); spawn + 5 spawns in a row verified live 2026-10-26 (pin_runt_spawn, pin_runt_respawn5); respawn_between: evals/bench/devrun.py Respawner"
     ]
    },
    "heldout": false,
@@ -208,7 +211,7 @@
    "family": "tactics_telegraph",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -229,7 +232,7 @@
      {
       "verb": "spawn",
       "as": "foe",
-      "class": "<a creature with >= 2 distinct telegraphed attacks>",
+      "class": "BP_AI_RuntGoblin_Character_C",
       "offset_m": [
        10,
        0,

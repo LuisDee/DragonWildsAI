@@ -77,18 +77,6 @@
         }
       ]
     },
-    "USD_Recall": {
-      "effects": [
-        {
-          "kind": "recall_return",
-          "within_m": 3.0,
-          "observable": "probe+harness",
-          "why": "two casts (wiki 'Recall' (data/wiki/pages/18010.json): \"summon and teleport back to a runic marker\"; metaforge: \"place a temporary beacon... return to it within a limited time\" (Luis, 2026-10-26)): the T0 setup has the body cast Recall once (the beacon) and walks him 8 m away; the case is HIS second cast, and the proof is that he ends within 3 m of the beacon after it. Cooldown 75 s in the data: assumed to start after the return, not after the beacon (unverified: a blocked second cast reads as a fail with the body's reason)",
-          "confidence": "hypothesis",
-          "live_note": "2026-10-26 17:28-17:40 (skills agent): selecting Recall opens DIM_SpellPlacementModeAdvancedMovement, a placement mode he can MOVE in; the place press spends the runes and starts the 75 s cooldown without moving him; a second cast 11 m away after the cooldown did not teleport him. Working hypothesis: open the mode at the start, move while it is open, then press = return. Until proven live this proof can only pass or read null"
-        }
-      ]
-    },
     "USD_PhaseDash": {
       "effects": [
         {

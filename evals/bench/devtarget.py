@@ -80,6 +80,8 @@ def spell_actor_classes() -> list[str]:
             for e in ((sp or {}).get("proof") or {}).get("effect") or []:
                 if e.get("kind") == "view_target" and e.get("class"):
                     out.add(str(e["class"]))
+                if e.get("away_actor"):  # Recall's place-press actor (~1 s): proves where he walked to (recall_return)
+                    out.add(str(e["away_actor"]))
     except (OSError, ValueError, AttributeError):
         pass
     return sorted(out)
@@ -197,9 +199,9 @@ class DevTarget:
             return self._ground_item(purpose, a)
         if verb == "felled_log":
             return self._felled_log(purpose, a)
-        if verb == "recall_beacon":
-            return self._recall_beacon(purpose, a)
-        if verb == "after_cast_move":  # (superseded for Recall by recall_beacon; kept for other move-then-cast spells)
+        if verb == "recall_errand":
+            return self._recall_errand(purpose, a)
+        if verb == "after_cast_move":  # (not used for Recall: its one held-open cast walks itself; kept for others)
             self.pending_after_cast = {"spell": a.get("spell"), "offset_m": a.get("offset_m") or [8, 0, 0],
                                        "wait_s": float(a.get("wait_s", 6.0))}
             res = {"ok": True, "armed": self.pending_after_cast}
@@ -324,33 +326,24 @@ class DevTarget:
             raise Abort(f"fixture ground_item failed: {res.get('error')}")
         return res
 
-    def _recall_beacon(self, purpose: str, a: dict) -> dict:
-        """Recall is two casts (wiki 18010 / Luis 2026-10-26): the body's own first cast places the beacon here, then
-        it WALKS (go_to) offset_m away. The case is his second cast; harness_after records beacon + walked spot so
-        recall_return can check he ends within 3 m of the beacon."""
-        if self.body_call is None:
-            res = {"ok": False, "error": "no body channel for cast/go_to"}
+    def _recall_errand(self, purpose: str, a: dict) -> dict:
+        """Recall is ONE held-open cast (live 2026-10-26 19:39 UTC, DISCOVERIES "Recall hold-and-walk"): opened here,
+        walked while held, finished = back here. The disproven two-cast `recall_beacon` setup is gone. This setup does
+        nothing in the world: it only reads where he stands (the judge's own probe) and binds a spot offset_m away as
+        `$errand.at` for the oracle's walk_to. The case is HIS cast; recall_return judges it from the judge's probes
+        (start/end) plus server-side evidence that he really went away during it."""
+        here = (self.probe() or {}).get("position")
+        if not here:
+            res = {"ok": False, "error": "no position to measure the errand spot from"}
         else:
-            beacon = (self.probe() or {}).get("position")
-            c = self.body_call("cast", {"spell": a.get("spell") or "Recall"}) or {}
-            if not beacon or not c.get("ok"):
-                res = {"ok": False, "error": f"the beacon cast did not take ({c.get('reason')})"}
-            else:
-                off = list(a.get("offset_m") or [8, 0, 0]) + [0, 0, 0]
-                self.body_call("go_to", {"target": [beacon[0] + off[0], beacon[1] + off[1], beacon[2] + off[2]]})
-                mid = (self.probe() or {}).get("position")
-                self.recall_state = {"spell": a.get("spell") or "Recall", "beacon": beacon, "mid": mid}
-                res = {"ok": True, "beacon": beacon, "mid": mid}
-        self._log_setup("recall_beacon", a, purpose, res)
+            off = list(a.get("offset_m") or [10, 0, 0]) + [0, 0, 0]
+            res = {"ok": True, "start": here, "at": [here[0] + off[0], here[1] + off[1], here[2] + off[2]]}
+        self._log_setup("recall_errand", a, purpose, res)
         if not res.get("ok"):
-            raise Abort(f"fixture recall_beacon failed: {res.get('error')}")
+            raise Abort(f"fixture recall_errand failed: {res.get('error')}")
         return res
 
     def harness_after(self, tool: str, args: dict, reply: dict, before: dict) -> dict | None:
-        rs = getattr(self, "recall_state", None)
-        if rs and tool == "cast" and str((args or {}).get("spell") or "").lower() == str(rs["spell"]).lower():
-            self.recall_state = None  # HIS second cast: the observation carries where the beacon is
-            return {"after_cast_move": {"start": rs["beacon"], "mid": rs["mid"]}}
         """Harness motion inside a case (Recall): right after his cast of the armed spell, WALK him (the body's own
         go_to, never a position write) offset_m away, then wait out the spell; the observation records where he
         started and where the walk took him."""
@@ -383,7 +376,7 @@ class DevTarget:
     # ---------------------------------------------------------------- fixtures (harness only; dev only)
     def setup(self, verb: str, purpose: str = "case setup", **a) -> dict:
         self.guard("setup", a)
-        if verb in ("hold", "scene", "claim_bed", "after_cast_move", "ground_item", "felled_log", "recall_beacon"):
+        if verb in ("hold", "scene", "claim_bed", "after_cast_move", "ground_item", "felled_log", "recall_errand"):
             return self._client_setup(verb, purpose, a)
         args: dict[str, Any] = {"part": "fixtures", "verb": verb, "character_guid": self.character_guid}
         if verb == "grant":
@@ -401,6 +394,8 @@ class DevTarget:
             paths = spawn_class_paths().get(str(cls))
             if paths:  # loaded first if nothing has loaded it yet; a list = unverified candidates, tried in order
                 args["class_paths"] = [paths] if isinstance(paths, str) else list(paths)
+            if a.get("power_level") is not None:  # a deferred spawn at that level (fixtures.lua; plain spawns are PL 1)
+                args["power_level"] = int(a["power_level"])
         else:
             args.update(a)
         r = self.server_debug(args)

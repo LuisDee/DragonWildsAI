@@ -166,17 +166,29 @@ def _effect(e: dict, o, target: Any, ctx: dict | None = None) -> bool | None:
         seen = [x for x in (ctx or {}).get("referee") or [] if x.get("kind") == "dash" and x.get("phase")
                 and x.get("who") == "self" and float(x.get("t", 0)) >= o.wall0 - 1]
         return True if seen else (None if hyp else False)  # verified live 2026-10-26: absence now counts
-    if k == "recall_return":  # beacon at `start` (setup cast), walked to `mid`; HIS cast must bring him back to the beacon
+    if k == "recall_return":
+        # ONE held-open cast (live 2026-10-26 19:39 UTC, DISCOVERIES "Recall hold-and-walk"): opened at `start`, he walks
+        # away while it is held, the place press puts him back at `start`. PASS needs BOTH, from judge-owned evidence:
+        #  away: the server referee saw the cast's own spell actor (e.away_actor; it spawns at the place press, i.e. where
+        #        he walked to) >= away_m from start inside this case's window, or a harness walk (after_cast_move mid);
+        #  back: the judge's probe after the case is within within_m of start (start = the probe before it).
+        # Never from the cast reply (from_opened_m / returned are the body's own words).
         h = (a.get("harness") or {}).get("after_cast_move")
-        if not isinstance(h, dict) or not h.get("start") or not h.get("mid") or not a.get("position"):
+        start = (h or {}).get("start") if isinstance(h, dict) else None
+        start = start or b.get("position")
+        if not start or not a.get("position"):
             return None
-        walked = math.dist(h["start"], h["mid"]) >= 3.0
-        back = math.dist(h["start"], a["position"]) <= float(e.get("within_m", 3.0))
-        if walked and back:
-            return True
-        # live 2026-10-26 17:28-17:40 (skills agent): the two-cast reading did not return him; the mechanic is
-        # unproven, so while the proof is a hypothesis a non-return is "can't tell", never his fail
-        return None if hyp else False
+        away_m = float(e.get("away_m", 3.0))
+        away = isinstance(h, dict) and bool(h.get("mid")) and math.dist(start, h["mid"]) >= away_m
+        if not away and e.get("away_actor"):
+            away = any(x.get("kind") == "spell_actor" and str(x.get("class") or "").startswith(str(e["away_actor"]))
+                       and x.get("position") and math.dist(start, x["position"]) >= away_m
+                       and o.wall0 - 1 <= float(x.get("t", 0)) <= o.wall1 + 3
+                       for x in (ctx or {}).get("referee") or [])
+        back = math.dist(start, a["position"]) <= float(e.get("within_m", 3.0))
+        if not back:  # he is not where he started: not returned (verified live, so absence now counts)
+            return None if hyp else False
+        return True if away else None  # back but no proof he ever left (cast on the spot, or the actor unseen): can't tell
     if k == "view_target":  # the camera switched to the spell's view actor (probe: pc:GetViewTarget())
         if a.get("view_target") == e.get("class") and b.get("view_target") != e.get("class"):
             return True

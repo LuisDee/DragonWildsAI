@@ -1,0 +1,111 @@
+{
+ "id": "pin_fixture_spawn_pl3",
+ "owner": "pincases",
+ "area": "mod/bench/fixtures.lua spawn {power_level} (judge patch, deployed for this check) + evals/bench/devtarget.py pass-through",
+ "why": "The judge's own spawn fixture with power_level=3 (the patch for goal_tactics_prep_hard_fight): a PL3 Dire Wolf, 780 HP",
+ "preconditions": {
+  "set_health": {
+   "pct": 100
+  },
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "probe": true,
+   "save": "start"
+  },
+  {
+   "fixture": "spawn",
+   "class": "BP_AI_WolfElite_Character_C",
+   "offset_m": [
+    20,
+    0,
+    0
+   ],
+   "save": "sp",
+   "purpose": "live check pin_fixture_spawn_pl3: the fixture's deferred spawn at PL 3",
+   "power_level": 3
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "read",
+    "ids": [
+     {
+      "$ref": "sp.id"
+     }
+    ]
+   },
+   "save": "rd"
+  },
+  {
+   "bridge": "census",
+   "args": {
+    "radius_m": 40,
+    "kinds": {
+     "creatures": true
+    }
+   },
+   "timeout_s": 20,
+   "save": "cen"
+  }
+ ],
+ "cleanup": [
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "kill",
+    "ids": [
+     {
+      "$ref": "sp.id"
+     }
+    ]
+   },
+   "save": "kill"
+  },
+  {
+   "sleep_s": 1
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "read",
+    "ids": [
+     {
+      "$ref": "sp.id"
+     }
+    ]
+   },
+   "save": "after"
+  }
+ ],
+ "pass": [
+  {
+   "ref": "sp.ok",
+   "eq": true
+  },
+  {
+   "ref": "sp.power_level",
+   "eq": 3
+  },
+  {
+   "ref": "rd.first.max_health",
+   "eq": 780
+  },
+  {
+   "ref": "kill.ok",
+   "eq": true
+  }
+ ],
+ "observe": [
+  "sp",
+  "rd.first",
+  "cen.data.creatures.0",
+  "after.first.dead"
+ ],
+ "timeout_s": 150,
+ "max_retries": 0
+}

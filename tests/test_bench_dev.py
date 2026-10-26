@@ -235,16 +235,64 @@ def test_damaged_items_are_granted_below_full_durability(tmp_path):
     assert "durability_pct" not in calls[-1]
 
 
-def test_recall_beacon_is_the_bodys_first_cast_then_a_walk_and_his_second_cast_is_scored(tmp_path):
-    """Recall = two casts (wiki 18010, Luis 2026-10-26): setup places the beacon and walks him away; the case is his
-    own second cast, and the observation carries the beacon for recall_return."""
+def test_recall_errand_only_names_a_spot_and_his_one_cast_is_scored(tmp_path):
+    """Recall is ONE held-open cast (live 2026-10-26 19:39 UTC): the setup does nothing in the world (no body call, no
+    harness cast or walk); it binds a spot offset_m away for the oracle's walk_to. The disproven recall_beacon is gone."""
     t, _ = make(tmp_path)
-    pos = iter([[0.0, 0.0, 0.0], [8.0, 0.0, 0.0]])
-    t.probe = lambda: {"position": next(pos)}
+    t.probe = lambda: {"position": [1.0, 2.0, 3.0]}
     seen = []
     t.body_call = lambda tool, args: seen.append((tool, args)) or {"ok": True}
-    res = t.setup("recall_beacon", spell="Recall", offset_m=[8, 0, 0])
-    assert seen == [("cast", {"spell": "Recall"}), ("go_to", {"target": [8.0, 0.0, 0.0]})] and res["beacon"] == [0.0, 0.0, 0.0]
-    assert t.harness_after("cast", {"spell": "Windstep"}, {}, {}) is None
-    h = t.harness_after("cast", {"spell": "Recall"}, {}, {})
-    assert h == {"after_cast_move": {"start": [0.0, 0.0, 0.0], "mid": [8.0, 0.0, 0.0]}}
+    res = t.setup("recall_errand", offset_m=[10, 0, 0])
+    assert seen == [] and res == {"ok": True, "start": [1.0, 2.0, 3.0], "at": [11.0, 2.0, 3.0]}
+    assert t.harness_after("cast", {"spell": "Recall", "walk_to": [11.0, 2.0, 3.0]}, {}, {}) is None  # no harness motion
+
+
+def test_respawn_between_spawns_the_next_only_after_the_current_one_died(tmp_path):
+    from evals.bench import devrun
+    from evals.bench.spec import Case
+    t, calls = make(tmp_path)
+    n = {"i": 0}
+
+    def server(args):
+        calls.append(args)
+        if args.get("verb") == "spawn":
+            n["i"] += 1
+            return {"ok": True, "data": {"result": {"ok": True, "id": f"Runt_{n['i']}"}}}
+        return {"ok": True, "data": {"result": {"ok": True}}}
+    t.server_debug = server
+    case = Case.model_validate({"id": "c", "tier": "T2", "family": "tactics_trend", "authored_by": "human", "status": "draft",
+                                "targets": ["dev"], "chat": [{"text": "x"}], "success": {"killed": {"at_least": 3}},
+                                "fixtures": {"setup": [{"verb": "spawn", "class": "BP_AI_RuntGoblin_Character_C", "offset_m": [8, 0, 0]}],
+                                             "respawn_between": {"count": 3}}})
+    rb = case.fixtures.model_extra["respawn_between"]
+    assert devrun.Respawner.spawn_step(case, rb) == 0
+    first = t.setup("spawn", **{"class": "BP_AI_RuntGoblin_Character_C", "offset_m": [8, 0, 0]})
+    r = devrun.Respawner(t, case, rb, first, case.fixtures.setup[0])
+    ref: list[dict] = [{"kind": "damage", "target": "Runt_1"}]
+    assert r.poll(ref) is False                                    # no death yet: no respawn
+    ref.append({"kind": "death", "who": "Other_9"})
+    assert r.poll(ref) is False                                    # some other creature died
+    ref.append({"kind": "death", "who": "Runt_1", "by": "self"})
+    assert r.poll(ref) is True and r.ids == ["Runt_1", "Runt_2"]
+    ref.append({"kind": "death", "who": "Runt_1", "source": "hook"})  # a duplicate of the old death
+    assert r.poll(ref) is False
+    ref.append({"kind": "death", "who": "Runt_2"})
+    assert r.poll(ref) is True and r.ids == ["Runt_1", "Runt_2", "Runt_3"]
+    ref.append({"kind": "death", "who": "Runt_3"})
+    assert r.poll(ref) is False                                    # count reached
+    spawns = [c for c in calls if c.get("verb") == "spawn"]
+    assert len(spawns) == 3 and all(c["offset_m"] == [8, 0, 0] for c in spawns)
+    rows = [json.loads(x) for x in (tmp_path / "fixture_setup.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert sum("respawn_between" in r["purpose"] for r in rows) == 2
+
+
+def test_respawn_failure_is_a_fixture_gap(tmp_path):
+    from evals.bench import devrun
+    from evals.bench.spec import Case
+    t, _ = make(tmp_path, replies={"spawn": {"ok": False, "error": "unknown_class"}})
+    case = Case.model_validate({"id": "c", "tier": "T2", "family": "tactics_trend", "authored_by": "human", "status": "draft",
+                                "targets": ["dev"], "chat": [{"text": "x"}], "success": {"killed": {"at_least": 2}},
+                                "fixtures": {"setup": [{"verb": "spawn", "class": "X_C"}], "respawn_between": {"count": 2}}})
+    r = devrun.Respawner(t, case, {"count": 2}, {"id": "X_1"}, case.fixtures.setup[0])
+    with pytest.raises(devrun.FixtureGap):
+        r.poll([{"kind": "death", "who": "X_1"}])

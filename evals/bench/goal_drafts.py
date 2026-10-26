@@ -27,6 +27,9 @@ WIKI = "https://dragonwilds.runescape.wiki/w/"
 P = "Tester"  # the harness's test-player body on dev (review C4; spawn_tester, pending verification)
 RUNT = "BP_AI_RuntGoblin_Character_C"
 VELGAR = "BP_AI_DragonVelgar_Character_C"
+# Dire Wolf (AIName, live 2026-10-26: spawn_classes.json _verified); wiki: PL 3, 780 HP, weak to Fire
+DIRE_WOLF = "BP_AI_WolfElite_Character_C"
+HARD_PL = 3  # a fresh character's gear PL is 1 (DISCOVERIES: GetCurrentEquipmentPowerLevel 1) -> gear PL + 2
 FIRE = "DamageType.Magical.Fire"
 DEATH_GUARD = {"no_event": {"kind": "death", "who": "self"}}
 # a brand-new dev character per case (main 2026-10-26, route A; evals/bench/devchar.py): M3 and capstone stage 1
@@ -271,10 +274,10 @@ def tactics_and_knowledge() -> list[Case]:
         _c(id="goal_tactics_prep_hard_fight", tier="T2", family="tactics_prep",
            chat=[{"text": "that one over there is nasty, take it out when you're ready"}],
            forbid_terms=["shield", "enchant", "fire", "food", "potion"],
-           fixtures={"setup": [{"verb": "spawn", "as": "boss", "class": "<a creature PL >= gear PL + 2 near the start (data)>",
-                                "offset_m": [30, 0, 0]}], "state_snapshot": "fresh_dev_v1"},
-           success={"prepared": {"target_kind_id": "<the boss class>", "at_least": 2,
-                                 "any": [{"tag": "Player.Status.TempestShield"}, {"enchant_type": "<the boss weakness damage type>"},
+           fixtures={"setup": [{"verb": "spawn", "as": "boss", "class": DIRE_WOLF,
+                                "power_level": HARD_PL, "offset_m": [30, 0, 0]}], "state_snapshot": "fresh_dev_v1"},
+           success={"prepared": {"target_kind_id": DIRE_WOLF, "at_least": 2,
+                                 "any": [{"tag": "Player.Status.TempestShield"}, {"enchant_type": FIRE},
                                          {"items_any": ["ITEM_Consumable_Fish_Anchovies", "ITEM_Consumable_BerryDrizzle_Pan-Seared"],
                                           "at_least": 3},
                                          {"predicate": {"gear_better": {"slot": "body", "stat": "power_level", "where": "equipped",
@@ -282,19 +285,26 @@ def tactics_and_knowledge() -> list[Case]:
            guards=[DEATH_GUARD],
            controls={"partial": [{"note": "fight without preparing"}], "na": {"alt_means": "preparation is the capability"}},
            limits={"wall_s": 1200}, oracle={"dev": "scripted:prep_fight_v1"},
-           provenance={"notes": ["GOAL: a dragon-class fight; a runt (PL1) is not hard (review T-1): pick from the data"]}),
+           provenance={"notes": ["GOAL: a dragon-class fight; a runt (PL1) is not hard (review T-1): pick from the data",
+                                  "dev facts 2026-10-26 (tools/live_checks/pin_*): a plain spawn is PL 1 whatever the region "
+                                  "(pin_pl2_region_spawn); the fixture's power_level spawn makes a real PL 3 Dire Wolf: 780 HP "
+                                  "(wiki PL3 780; 240 at PL1), damage multiplier 1.6 (pin_fixture_spawn_pl3); weakness Fire "
+                                  "(wiki Dire Wolf)"]}),
         _c(id="goal_tactics_damage_trend", tier="T2", family="tactics_trend",
            chat=[{"text": "keep fighting these until you've got them figured out"}],
-           fixtures={"setup": [{"verb": "spawn", "class": "<a creature that hurts a fresh character, with telegraphs>",
+           fixtures={"setup": [{"verb": "spawn", "class": RUNT,
                                 "offset_m": [8, 0, 0]}], "state_snapshot": "fresh_dev_v1",
                      "respawn_between": {"count": 5, "note": "the next spawn only after the previous died (memory kept in the case)"}},
-           success={"killed": {"kind": "<creature>", "kind_id": "<class>", "at_least": 5}}, guards=[DEATH_GUARD],
+           success={"killed": {"kind": "Goblin Runt", "kind_id": RUNT, "at_least": 5}}, guards=[DEATH_GUARD],
            controls={"na": {"alt_means": "kills are the capability", "wrong_action": "n/a", "partial": "4 kills"}},
            limits={"wall_s": 1800}, oracle={"dev": "scripted:trend_fights_v1"},
-           provenance={"notes": ["process metric: damage_taken per fight (referee damage to self), slope over 5 fights"]}),
+           provenance={"notes": ["process metric: damage_taken per fight (referee damage to self), slope over 5 fights",
+                                  "Goblin Runt: 3 distinct telegraphed ATK_* attacks and damage to Claude in combat memory "
+                                  "(tools/tactics_candidates.py); spawn + 5 spawns in a row verified live 2026-10-26 "
+                                  "(pin_runt_spawn, pin_runt_respawn5); respawn_between: evals/bench/devrun.py Respawner"]}),
         _c(id="goal_tactics_telegraph_dodges", tier="T2", family="tactics_telegraph",
            chat=[{"text": "that thing hits hard, don't let it touch you"}], forbid_terms=["dodge", "dash", "roll", "evade"],
-           fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": "<a creature with >= 2 distinct telegraphed attacks>",
+           fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": RUNT,
                                 "offset_m": [10, 0, 0]}], "state_snapshot": "fresh_dev_v1"},
            success={"defended": {"kind": "dodge", "against": "telegraph", "at_least": 5, "min_rate": 0.7}}, guards=[DEATH_GUARD],
            controls={"alt_means": [{"note": "stay out of range"}], "na": NA_ORACLE},
@@ -387,7 +397,12 @@ def every_skill() -> list[Case]:
 def capstone() -> list[Case]:
     neutral = "let's keep going with the Velgar stuff, what's next?"
     stages = [
-        ("shelter", {"quest": {"name": "Dragon Slayer", "stage": "<the shelter objective key from quest data>"}}),
+        # the shelter objective is Dragon Slayer's 'Claim a bed' ("Construct a base of operations in Bramblemead village.
+        # Build a shelter and claim a bed."; quest data, client_io/out/quest_objectives.json, live 2026-10-26). Completing
+        # it makes the NEXT objective current, so the end state is judged by the objectives only reachable after it
+        # (the quest is linear): objective 2 or 3 (an overshoot within the stage still counts)
+        ("shelter", {"any": [{"quest_step": {"name": "Dragon Slayer", "step": "Return to the Wise old man after claimed bed"}},
+                             {"quest_step": {"name": "Dragon Slayer", "step": "Find and hunt a deer"}}]}),
         ("growing_pains", {"quest": {"name": "Growing Pains", "completed": True}}),
         ("shrimp_catcher", {"quest": {"name": "Shrimp Catcher", "completed": True}}),
         ("restless_ghosts", {"quest": {"name": "Restless Ghosts", "completed": True}}),

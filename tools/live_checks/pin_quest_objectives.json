@@ -1,0 +1,33 @@
+{
+ "id": "pin_quest_objectives",
+ "owner": "pincases",
+ "area": "GOAL draft cases (evals/bench/goal_drafts.py) dev facts; mod/experiments/bench_creatures.lua reads + cleanup",
+ "why": "capstone_stage_1_shelter needs the Dragon Slayer shelter objective's key and words from quest data (read-only dump)",
+ "observe_only": true,
+ "preconditions": {
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "client_cmd": "client_mod/commands/quest_objectives.lua",
+   "timeout_s": 90,
+   "save": "q"
+  }
+ ],
+ "pass": [
+  {
+   "ref": "q.result.ok",
+   "eq": true
+  },
+  {
+   "ref": "q.result.n",
+   "gt": 0
+  }
+ ],
+ "observe": [
+  "q.result.n",
+  "q.error"
+ ],
+ "timeout_s": 120,
+ "max_retries": 1
+}

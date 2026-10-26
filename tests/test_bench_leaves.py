@@ -318,13 +318,37 @@ def test_recall_return_needs_the_walk_away_and_the_return():
     e = {"kind": "recall_return", "within_m": 3.0, "confidence": "hypothesis"}
 
     class O:
-        def __init__(self, after):
-            self.before, self.after, self.wall0, self.wall1, self.t0, self.t1 = {}, after, 0.0, 1.0, 0.0, 1.0
+        def __init__(self, after, before=None):
+            self.before, self.after, self.wall0, self.wall1, self.t0, self.t1 = before or {}, after, 0.0, 1.0, 0.0, 1.0
     walk = {"start": [0, 0, 0], "mid": [8, 0, 0]}
     assert _effect(e, O({"position": [0.5, 0, 0], "harness": {"after_cast_move": walk}}), None) is True
     assert _effect(e, O({"position": [8, 0, 0], "harness": {"after_cast_move": walk}}), None) is None  # unproven: never his fail
     assert _effect({**e, "confidence": "verified"}, O({"position": [8, 0, 0], "harness": {"after_cast_move": walk}}), None) is False
     assert _effect(e, O({"position": [0, 0, 0]}), None) is None  # no harness motion: can't tell
+
+
+def test_recall_return_one_held_cast_needs_server_seen_walk_and_the_probe_return():
+    """Live 2026-10-26 19:39 UTC: ONE cast; his own walk_to walks him while it is held, the place press puts him back.
+    start/end = the judge's probes; away = the referee's DominionSpellActor (spawned at the place press) >= 3 m from
+    the start inside the case. Never the body's own from_opened_m / returned."""
+    from evals.bench.leaves import _effect, default_spells
+    e = next(x for x in default_spells()["USD_Recall"]["proof"]["effect"] if x["kind"] == "recall_return")
+    assert e.get("confidence") != "hypothesis" and e["away_actor"] == "DominionSpellActor"
+
+    class O:
+        def __init__(self, after, before):
+            self.before, self.after, self.wall0, self.wall1, self.t0, self.t1 = before, after, 100.0, 110.0, 0.0, 1.0
+    start = {"position": [0, 0, 0]}
+    far_actor = {"referee": [{"kind": "spell_actor", "class": "DominionSpellActor", "position": [10.8, 0, 0], "t": 106.9}]}
+    near_actor = {"referee": [{"kind": "spell_actor", "class": "DominionSpellActor", "position": [0.2, 0, 0], "t": 106.9}]}
+    old_actor = {"referee": [{"kind": "spell_actor", "class": "DominionSpellActor", "position": [10.8, 0, 0], "t": 50.0}]}
+    back, stayed = {"position": [0.1, 0, 0]}, {"position": [10.6, 0, 0]}
+    assert _effect(e, O(back, start), None, far_actor) is True
+    assert _effect(e, O(back, start), None, near_actor) is None  # cast on the spot: no proof he ever left
+    assert _effect(e, O(back, start), None, old_actor) is None  # an actor from before the case proves nothing
+    assert _effect(e, O(back, start), None, {"referee": []}) is None  # actor unseen: can't tell, never a pass
+    assert _effect(e, O(stayed, start), None, far_actor) is False  # walked off and stayed there: verified non-return
+    assert _effect(e, O({"position": [0.1, 0, 0], "returned": True, "from_opened_m": 0.1}, start), None, {}) is None
 
 
 def test_phase_dash_signal_is_verified_so_absence_now_fails():

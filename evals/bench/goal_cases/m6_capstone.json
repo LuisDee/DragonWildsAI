@@ -9,7 +9,7 @@
    "capstone": "brynmoor_progression",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -28,10 +28,20 @@
     "character": "fresh"
    },
    "success": {
-    "quest": {
-     "name": "Dragon Slayer",
-     "stage": "<the shelter objective key from quest data>"
-    }
+    "any": [
+     {
+      "quest_step": {
+       "name": "Dragon Slayer",
+       "step": "Return to the Wise old man after claimed bed"
+      }
+     },
+     {
+      "quest_step": {
+       "name": "Dragon Slayer",
+       "step": "Find and hunt a deer"
+      }
+     }
+    ]
    },
    "guards": [
     {

@@ -366,3 +366,30 @@ def test_main_dry_run_validates_only(world, monkeypatch, capsys):
     by = {o.get("id"): o for o in out}
     assert by["c1"]["valid"] and not by["broken"]["valid"]
     assert not (world / "slot.json").exists() or lq._slot_json(cs.main, ["status"])["free"]
+
+
+def test_server_step_and_cleanup_run_even_when_a_step_blocks(world):
+    spec = basic("srv", max_retries=0, preconditions={},
+                 steps=[{"fixture": "spawn", "class": "BP_AI_X_C", "save": "sp"},
+                        {"server": "bench_creatures", "args": {"action": "read", "ids": [{"$ref": "sp.id"}]}, "save": "rd"},
+                        {"bridge": "craft", "args": {"item": {"$ref": "nope.x"}}}],          # blocks
+                 cleanup=[{"server": "bench_creatures", "args": {"action": "kill", "ids": [{"$ref": "sp.id"}]}, "save": "kill"},
+                          {"server": "bench_creatures", "args": {"ids": [{"$ref": "never.made"}]}}])  # skipped
+    spec["pass"] = [{"ref": "kill.ok", "eq": True}]
+    assert lq.validate(spec) == []
+    p = write_check(world, spec)
+    env = FakeEnv(world)
+    env.fixture = lambda verb, purpose, args: {"ok": True, "id": "X_1"}
+    seen = []
+    env.server = lambda module, args, timeout: seen.append((module, args)) or {"ok": True}
+    s = runner(env, world).drain([(p, spec)])
+    assert s["checks"] == {"srv": "blocked"}
+    assert seen == [("bench_creatures", {"action": "read", "ids": ["X_1"]}), ("bench_creatures", {"action": "kill", "ids": ["X_1"]})]
+    ev = [r for r in rows(world) if r["event"] == "check"][0]["evidence"]
+    assert "skipped" in ev["cleanup"][1] and ev["cleanup"][0]["ok"] is True
+
+
+def test_server_step_must_name_an_experiments_module():
+    spec = basic("bad", steps=[{"server": "../bench/fixtures"}, {"server": "no_such_module_xyz"}])
+    errs = lq.validate(spec)
+    assert sum("mod/experiments" in e for e in errs) == 2

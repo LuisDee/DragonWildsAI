@@ -161,8 +161,9 @@ class ObservedGame(GameInterface):
     def drop(self, item, count, at="feet", player=None):
         return self.call("drop", {"item": item, "count": count, "at": at, **({"player": player} if player else {})})
 
-    def cast(self, spell, target=None):
-        return self.call("cast", {"spell": spell, **({"target": target} if target is not None else {})})
+    def cast(self, spell, target=None, walk_to=None):
+        return self.call("cast", {"spell": spell, **({"target": target} if target is not None else {}),
+                                  **({"walk_to": walk_to} if walk_to is not None else {})})
 
     def __getattr__(self, name: str) -> Any:  # anything else (manifest_tools, interrupt_check, ...) -> the body
         if name in ("inner", "rec", "_probe", "_referee", "clock", "guard", "_seq"):

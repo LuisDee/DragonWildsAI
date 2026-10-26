@@ -74,8 +74,11 @@ class BenchWorld(MockGame):
                 self.inventory[rune_item(r)] += int(n)
         elif verb == "unlock":
             self.unlocked.add(a["spell"])
-        elif verb in ("claim_bed", "after_cast_move", "recall_beacon"):  # dev-only routes; the mock has no beds or harness motion
+        elif verb in ("claim_bed", "after_cast_move"):  # dev-only routes; the mock has no beds or harness motion
             return {"ok": True, "mock": verb}
+        elif verb == "recall_errand":  # a spot offset_m from him to walk to while Recall is held open
+            off = list(a.get("offset_m") or [10, 0, 0]) + [0, 0, 0]
+            return {"ok": True, "start": list(self.pos), "at": [self.pos[i] + off[i] for i in range(3)]}
         elif verb == "scene":  # dev: teleport to a known place for the need; mock: a standing tree in front
             if a.get("needs") == "standing_trees":
                 return {"ok": True, "id": self.add_entity("tree", [6, 0, 0], hp=50)}
@@ -227,7 +230,7 @@ class BenchWorld(MockGame):
                 return "requirement"
         return None
 
-    def cast(self, spell: str, target=None):
+    def cast(self, spell: str, target=None, walk_to=None):
         if rule := self._begin("cast", spell=spell, target=target):
             return self._apply_rule(rule)
         sid = self._sid(spell)

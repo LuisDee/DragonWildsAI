@@ -1,19 +1,61 @@
 {
-  "_note": "Full object paths for creature classes the dev spawn fixture may need to LOAD first (not every class is loaded on a fresh dev world). A string = verified path (docs/research, dump). A list = UNVERIFIED candidates tried in order (LoadAsset of a missing path just returns nothing); the live survey replaces them with the real path.",
+  "_note": "Full object paths for creature classes the dev spawn fixture may need to LOAD first (not every class is loaded on a fresh dev world). A string = verified path (docs/research, dump). A list = UNVERIFIED candidates tried in order (LoadAsset of a missing path just returns nothing); the live survey replaces them with the real path. _verified: per class, the date and live evidence for each string path. A plain spawn is PL 1 whatever the region (live 2026-10-26); pass power_level for a deferred spawn at a level.",
   "BP_AI_RuntGoblin_Character_C": "/Game/Gameplay/AI/GoblinFaction/MeleeGoblin/RuntGoblinVariant/BP_AI_RuntGoblin_Character.BP_AI_RuntGoblin_Character_C",
   "BP_AI_MeleeGoblin_Character_C": "/Game/Gameplay/AI/GoblinFaction/MeleeGoblin/BP_AI_MeleeGoblin_Character.BP_AI_MeleeGoblin_Character_C",
-  "BP_AI_Wolf_Character_C": [
-    "/Game/Gameplay/AI/Wolf/BP_AI_Wolf_Character.BP_AI_Wolf_Character_C",
-    "/Game/AI/Wolf/BP_AI_Wolf_Character.BP_AI_Wolf_Character_C"
-  ],
-  "BP_AI_DireWolf_Character_C": [
-    "/Game/Gameplay/AI/Wolf/DireWolfVariant/BP_AI_DireWolf_Character.BP_AI_DireWolf_Character_C",
-    "/Game/Gameplay/AI/Wolf/BP_AI_DireWolf_Character.BP_AI_DireWolf_Character_C",
-    "/Game/AI/Wolf/BP_AI_DireWolf_Character.BP_AI_DireWolf_Character_C"
-  ],
+  "BP_AI_Wolf_Character_C": "/Game/Gameplay/AI/Wolf/BP_AI_Wolf_Character.BP_AI_Wolf_Character_C",
   "BP_AI_ThugGoblin_Character_C": [
     "/Game/Gameplay/AI/GoblinFaction/MeleeGoblin/ThugGoblinVariant/BP_AI_ThugGoblin_Character.BP_AI_ThugGoblin_Character_C",
     "/Game/Gameplay/AI/GoblinFaction/ThugGoblin/BP_AI_ThugGoblin_Character.BP_AI_ThugGoblin_Character_C",
     "/Game/Gameplay/AI/GoblinFaction/MeleeGoblin/BP_AI_GoblinThug_Character.BP_AI_GoblinThug_Character_C"
-  ]
+  ],
+  "BP_AI_WolfElite_Character_C": "/Game/Gameplay/AI/Wolf/WolfEliteVariant/BP_AI_WolfElite_Character.BP_AI_WolfElite_Character_C",
+  "BP_AI_Terrorbird_Character_C": "/Game/Gameplay/AI/Terrorbird/BP_AI_Terrorbird_Character.BP_AI_Terrorbird_Character_C",
+  "BP_AI_Ram_Character_C": "/Game/Gameplay/AI/Ram/BP_AI_Ram_Character.BP_AI_Ram_Character_C",
+  "BP_AI_MediumBeast_Character_C": "/Game/Gameplay/AI/BeastFaction/MediumBeast/BP_AI_MediumBeast_Character.BP_AI_MediumBeast_Character_C",
+  "BP_AI_RangedBeast_Character_C": "/Game/Gameplay/AI/BeastFaction/RangedBeast/BP_AI_RangedBeast_Character.BP_AI_RangedBeast_Character_C",
+  "_candidates_source": "2026-10-26 pincases: candidate lists for Wolf, WolfElite, Terrorbird, Ram, MediumBeast and RangedBeast are the package paths in the server's IoStore directory index (tools/utoc_list.py over RSDragonwilds-WindowsServer.utoc, build 26161880; Content/ = /Game/). The index has NO BP_AI_DireWolf_Character (the old DireWolf candidates were guesses, removed) and no *Thug* AI class. A list stays UNVERIFIED until a live spawn loads it; then it becomes a string with a _verified row.",
+  "_verified": {
+    "BP_AI_RuntGoblin_Character_C": {
+      "date": "2026-10-26",
+      "ai_name": "Goblin Runt",
+      "build": "26161880",
+      "evidence": "live on dev (tools/live_checks/pin_runt_spawn.json; logs/live_queue/2026-10-26.jsonl): the spawn fixture loaded this path (reply `loaded`), the server read GetClass():GetFullName() = this path, AIName 'Goblin Runt'; checks: pin_runt_spawn + pin_runt_respawn5 (5 spawns, 5 new ids) + pin_pl3_deferred_spawn"
+    },
+    "BP_AI_Wolf_Character_C": {
+      "date": "2026-10-26",
+      "ai_name": "Wolf",
+      "build": "26161880",
+      "evidence": "live on dev (tools/live_checks/pin_pl3_wolf.json; logs/live_queue/2026-10-26.jsonl): the spawn fixture loaded this path (reply `loaded`), the server read GetClass():GetFullName() = this path, AIName 'Wolf'; checks: pin_pl3_wolf"
+    },
+    "BP_AI_WolfElite_Character_C": {
+      "date": "2026-10-26",
+      "ai_name": "Dire Wolf",
+      "build": "26161880",
+      "evidence": "live on dev (tools/live_checks/pin_pl3_wolfelite.json; logs/live_queue/2026-10-26.jsonl): the spawn fixture loaded this path (reply `loaded`), the server read GetClass():GetFullName() = this path, AIName 'Dire Wolf'; checks: pin_pl3_wolfelite, pin_pl2_region_spawn, pin_pl3_deferred_spawn, pin_fixture_spawn_pl3"
+    },
+    "BP_AI_Terrorbird_Character_C": {
+      "date": "2026-10-26",
+      "ai_name": "Terrorbird",
+      "build": "26161880",
+      "evidence": "live on dev (tools/live_checks/pin_pl3_terrorbird.json; logs/live_queue/2026-10-26.jsonl): the spawn fixture loaded this path (reply `loaded`), the server read GetClass():GetFullName() = this path, AIName 'Terrorbird'; checks: pin_pl3_terrorbird"
+    },
+    "BP_AI_Ram_Character_C": {
+      "date": "2026-10-26",
+      "ai_name": "Ram",
+      "build": "26161880",
+      "evidence": "live on dev (tools/live_checks/pin_pl3_ram.json; logs/live_queue/2026-10-26.jsonl): the spawn fixture loaded this path (reply `loaded`), the server read GetClass():GetFullName() = this path, AIName 'Ram'; checks: pin_pl3_ram"
+    },
+    "BP_AI_MediumBeast_Character_C": {
+      "date": "2026-10-26",
+      "ai_name": "Garou Berserker",
+      "build": "26161880",
+      "evidence": "live on dev (tools/live_checks/pin_pl3_mediumbeast.json; logs/live_queue/2026-10-26.jsonl): the spawn fixture loaded this path (reply `loaded`), the server read GetClass():GetFullName() = this path, AIName 'Garou Berserker'; checks: pin_pl3_mediumbeast"
+    },
+    "BP_AI_RangedBeast_Character_C": {
+      "date": "2026-10-26",
+      "ai_name": "Garou Hunter",
+      "build": "26161880",
+      "evidence": "live on dev (tools/live_checks/pin_pl3_rangedbeast.json; logs/live_queue/2026-10-26.jsonl): the spawn fixture loaded this path (reply `loaded`), the server read GetClass():GetFullName() = this path, AIName 'Garou Hunter'; checks: pin_pl3_rangedbeast"
+    }
+  }
 }

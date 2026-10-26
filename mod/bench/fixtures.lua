@@ -58,6 +58,25 @@ local function spawn(target, args)
     local here = U.loc(target)
     local off = args.offset_m or { 5, 0, 0 }
     local at = { X = here.X + off[1] * 100, Y = here.Y + off[2] * 100, Z = here.Z + off[3] * 100 }
+    if args.power_level ~= nil then
+        -- A creature at a given power level (verified live 2026-10-26, pin_pl3_deferred_spawn): a plain SpawnActor is
+        -- always PL 1, even in a PL 2 region, because natural spawners pass the level in FAISpawnInfo. The engine's own
+        -- deferred spawn (GameplayStatics BeginDeferredActorSpawnFromClass -> write SpawnInfo.PowerLevel and
+        -- PowerLevel -> FinishSpawningActor; the same two calls UE4SS's World:SpawnActor makes) lets BeginPlay scale
+        -- it: a Dire Wolf at 3 has 780 HP and a 1.6 damage multiplier (wiki PL3: 780 HP; at PL 1 it is 240).
+        local lib = U.find_object("/Script/Engine.Default__GameplayStatics")
+        if not U.valid(lib) then return { ok = false, error = "no_gameplay_statics" } end
+        local pl = math.floor(tonumber(args.power_level) or 1)
+        local xf = { Translation = at, Rotation = { X = 0, Y = 0, Z = 0, W = 1 }, Scale3D = { X = 1, Y = 1, Z = 1 } }
+        local d = U.try(function() return lib:BeginDeferredActorSpawnFromClass(target, cls, xf, 1, nil, 0) end)
+        if not U.valid(d) then return { ok = false, error = "spawn_failed", power_level = pl } end
+        pcall(function() d.SpawnInfo.PowerLevel = pl end)
+        pcall(function() d.PowerLevel = pl end)
+        local fin, ferr = pcall(function() lib:FinishSpawningActor(d, xf, 0) end)
+        local got = U.try(function() return d.PowerLevel end)
+        return { ok = fin and U.valid(d) and got == pl, error = (not fin) and tostring(ferr) or (got ~= pl and "power_level_not_applied" or nil),
+                 id = U.short(d), class = U.class_word(d), loaded = loaded, power_level = got }
+    end
     local world = U.try(function() return target:GetWorld() end)
     local a = world and U.try(function() return world:SpawnActor(cls, at, { Pitch = 0, Yaw = 0, Roll = 0 }) end)
     if not U.valid(a) then return { ok = false, error = "spawn_failed" } end

@@ -118,6 +118,51 @@ class FixtureGap(Abort):
     """Case setup failed (main 2026-10-26: e.g. raise_skills before it is verified): reads as a fixture gap."""
 
 
+class Respawner:
+    """fixtures.respawn_between {count, step?}: the case's spawn setup step is repeated, the next spawn only after the
+    referee saw the previous creature die (death.who == the id the spawn fixture returned), until `count` creatures
+    have been spawned in all. Harness setup inside the case (logged in the setup log like every fixture; the spawn is
+    relative to where he stands then). `step` = index into fixtures.setup (default: the last spawn step). A respawn that
+    fails is a fixture gap (the case could no longer reach its count), never his fail."""
+
+    def __init__(self, dev: DevTarget, case: Case, spec: dict, first: dict, step: dict):
+        self.dev, self.case = dev, case
+        self.count = int(spec.get("count") or 1)
+        self.step = dict(step)
+        self.ids = [first.get("id")]
+        self.seen = 0  # referee events already scanned
+        self.log: list[dict] = []
+
+    @staticmethod
+    def spawn_step(case: Case, spec: dict) -> int | None:
+        steps = case.fixtures.setup
+        if spec.get("step") is not None:
+            return int(spec["step"])
+        idx = [i for i, s in enumerate(steps) if s.get("verb") == "spawn"]
+        return idx[-1] if idx else None
+
+    def poll(self, referee: list[dict]) -> bool:
+        """Scan new referee events; spawn the next creature when the current one died. True = a respawn happened."""
+        new, self.seen = referee[self.seen:], len(referee)
+        if len(self.ids) >= self.count:
+            return False
+        cur = self.ids[-1]
+        if not any(e.get("kind") == "death" and cur is not None and e.get("who") == cur for e in new):
+            return False
+        s = dict(self.step)
+        verb = s.pop("verb")
+        s.pop("as", None)
+        k = len(self.ids) + 1
+        s["purpose"] = f"case {self.case.id} ({self.case.variant}): respawn_between {k}/{self.count} (after {cur} died)"
+        try:
+            out = self.dev.setup(verb, **s)
+        except Abort as exc:
+            raise FixtureGap(f"respawn {k}/{self.count}: {exc}") from exc
+        self.ids.append(out.get("id"))
+        self.log.append({"t": time.time(), "n": k, "after": cur, "id": out.get("id")})
+        return True
+
+
 def build_dev_companion(game, workdir: Path, caps_cap: dict[str, int], log_name: str = "brain.jsonl"):
     """The real Controller/Planner/Executor/broker over the observed bridge, with the body's capability manifest and
     the knowledge index, its state in this case's own fresh directory (design §7.3)."""
@@ -175,7 +220,12 @@ def run_case_dev(case: Case, dev: DevTarget, workdir: Path, calls_cap_: dict[str
     try:
         dev.guard()
         bindings: dict = {}
-        for step in case.fixtures.setup:
+        rb = (case.fixtures.model_extra or {}).get("respawn_between")
+        rb_step = Respawner.spawn_step(case, rb) if rb else None
+        if rb and rb_step is None:
+            raise FixtureGap("respawn_between needs a spawn step in fixtures.setup")
+        respawner = None
+        for i, step in enumerate(case.fixtures.setup):
             s = dict(step)
             verb, name = s.pop("verb"), s.pop("as", None)
             s["purpose"] = f"case {case.id} ({case.variant}): " + str(s.get("purpose") or "setup")
@@ -185,6 +235,8 @@ def run_case_dev(case: Case, dev: DevTarget, workdir: Path, calls_cap_: dict[str
                 raise FixtureGap(f"{verb}: {exc}") from exc
             if name:
                 bindings[name] = out
+            if rb and i == rb_step:
+                respawner = Respawner(dev, case, rb, out, step)
         brain_side, _ = file_transport_pair(body="client", channel="debug")
         client = BridgeClient(brain_side, logger=JsonlLogger(workdir / "bridge.jsonl"))
         game = ObservedGame(client, dev.probe, dev.referee_events, clock=time.time, guard=dev.guard,
@@ -199,6 +251,10 @@ def run_case_dev(case: Case, dev: DevTarget, workdir: Path, calls_cap_: dict[str
         n_seen = 0
         while time.time() - w0 < case.limits.wall_s:
             agent.step()
+            if respawner is not None:
+                game._drain_referee()  # deaths can land between tool calls (a creature bleeding out, a reflex kill)
+                if respawner.poll(game.rec.referee):
+                    last = time.time()  # a new foe is a harness event: the idle clock restarts
             if ctl.exceeded or pln.exceeded:
                 raise BudgetExceeded("model-call cap reached")
             n = len(game.rec.observations) + len(game.rec.said)
@@ -222,7 +278,8 @@ def run_case_dev(case: Case, dev: DevTarget, workdir: Path, calls_cap_: dict[str
         r.process = process_metrics(case, game)
         trace = {"case": case.id, "case_hash": r.case_hash, "observations": [o.to_dict() for o in game.rec.observations],
                  "referee": game.rec.referee, "said": game.rec.said, "reads": game.rec.reads, "setup": dev.setup_log,
-                 "probe0": game.rec.probe0, "probe1": game.rec.probe1, "result": result, "reason": reason}
+                 "probe0": game.rec.probe0, "probe1": game.rec.probe1, "result": result, "reason": reason,
+                 "respawns": respawner.log if respawner is not None else None}
         tf = workdir / "trace.json"
         tf.write_text(json.dumps(trace, default=str), encoding="utf-8")
         r.trace, r.trace_sha256 = str(tf), hashes.sha256_file(tf)

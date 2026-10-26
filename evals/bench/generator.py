@@ -150,11 +150,14 @@ def t0_cases(spells: dict | None = None, catalog: dict | None = None) -> tuple[l
         elif sp.get("target") == "thing" and "target_thing" in near:  # Axtral: STANDING trees in front (main 10-26)
             setup.append({"verb": "scene", "as": "tgt", "needs": "standing_trees",
                           "purpose": "standing trees in front, >= 40 m from a lodestone"})
+        if sp.get("cast_type") == "instant_after_move":
+            # Recall is ONE held-open cast (live 2026-10-26 19:39 UTC, DISCOVERIES "Recall hold-and-walk"): open it here,
+            # walk while it is held, finish it = back here. The setup only names a spot 10 m off (no body action); the
+            # case is HIS cast, and recall_return needs the walk away AND the return (the two-cast beacon is disproven)
+            setup.append({"verb": "recall_errand", "as": "errand", "offset_m": [10, 0, 0],
+                          "purpose": "a spot 10 m away to walk to while Recall is held open; the case is his one cast"})
+            args["walk_to"] = "$errand.at"
         oracle = [{"tool": "cast", "args": args}]
-        if sp.get("cast_type") == "instant_after_move":  # Recall: beacon (setup cast) -> walk away -> HIS cast returns
-            setup.append({"verb": "recall_beacon", "spell": name, "offset_m": [8, 0, 0],
-                          "purpose": "Recall's first cast places the beacon (the body's own cast), then he walks 8 m away; "
-                                     "the case is his second cast"})
         mock_oracle = oracle
         if any(st.get("verb") == "scene" and st.get("as") == "tgt" for st in setup):  # mock aims at its tree; dev: the body picks
             mock_oracle = [{"tool": "cast", "args": {**args, "target": "$tgt.id"}}]

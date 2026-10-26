@@ -1,7 +1,7 @@
 {
  "version": 1,
  "build": "26161880",
- "generated_at": "2026-10-26T16:54:25Z",
+ "generated_at": "2026-10-26T20:08:28Z",
  "source": [
   "data/spells_26161880.json",
   "tools/gen_spell_effects.py LIVE (DISCOVERIES 'Client spells (R2)')",
@@ -26,6 +26,7 @@
   "view_target": "the camera view target switches to class `class` while the spell is active (data.effects.view_target)",
   "input_mode": "the player input mode while the spell is active contains `contains` (data.effects.mode)",
   "dodge_distance_gain_m": "a ground dodge travels at least `min` m farther than without the spell (probe not built yet)",
+  "recall_return": "one held-open cast: the judge probe after the case is within `within_m` of the probe before it, AND he really left: the eval referee saw `away_actor` (the place-press spell actor) >= `away_m` from the start inside the case window, or a harness walk; the cast reply's from_opened_m/returned are never used",
   "spell_state": "the eval referee (server side) emits spell_state `state` inside the cast window (referee v1.4: OculusActive = OculusComponent:IsOculusActive() poll / OculusPawn:Multicast_OnOculusActivated; PersonalInventorySpell = PersonalInventoryComponent:OpenPersonalInventory with Method 1 = Spell; PersonalInventoryToggle = Client_TogglePersonalInventory)"
  },
  "observable": {
@@ -46,7 +47,8 @@
   "view_target": "cast_reply",
   "input_mode": "cast_reply",
   "dodge_distance_gain_m": false,
-  "spell_state": "referee"
+  "spell_state": "referee",
+  "recall_return": "probe"
  },
  "probes": {
   "client_mod/commands/smoke_jump.lua": {
@@ -2754,13 +2756,17 @@
     ],
     "effect": [
      {
-      "kind": "needs_live_observation",
-      "observable": false
+      "kind": "recall_return",
+      "within_m": 3.0,
+      "away_m": 3.0,
+      "away_actor": "DominionSpellActor",
+      "confidence": "verified",
+      "observable": "probe"
      }
     ]
    },
-   "confidence": "data_weak",
-   "evidence": "no observable module in the spell data (Blueprint-only); needs a live observation",
+   "confidence": "live",
+   "evidence": "2026-10-26 19:38-19:41Z dev, Claude's client (DISCOVERIES 'Recall hold-and-walk', client_mod/commands/recall_probe.lua, 0.5 s samples): ONE cast. Selecting Recall opens DIM_SpellPlacementModeAdvancedMovement with the mark at his feet ([97.97,1865.76]); he walked 10.8 m while it stayed open; the place press spent Air 30 + Law 15, started the 75 s cooldown, spawned a ~1 s DominionSpellActor and put him back 0.1 m from the opening point, where he stayed. A later plain recast 11 m away spent the runes and moved him 0 m: no lasting marker (the two-cast beacon reading is disproven). Proof: walked away (server-seen spell actor or harness walk) AND ended within 3 m of the start; the referee's view of DominionSpellActor is not yet seen live, so without it the leaf reads null (never a pass)",
    "modules": [
     "Blueprint",
     "Cast",
@@ -2773,7 +2779,7 @@
    "purposes": [
     {
      "id": "return_to_spot",
-     "situation": "he must leave this exact spot for a short errand and come straight back to it afterwards (it takes two uses: the first marks the spot, the second, within a time limit, brings him back)",
+     "situation": "he must leave this exact spot for a short errand and come straight back to it afterwards (one use: started here and kept going while he walks off, finishing it brings him straight back here)",
      "world": {
       "needs": [
        {
@@ -2795,10 +2801,10 @@
      "source": "description",
      "for": "returning to a marked spot",
      "mechanics": {
-      "casts": 2,
-      "first": "places the beacon",
-      "second": "teleports him back to it (within a limited time)",
-      "source": "wiki 'Recall' (data/wiki/pages/18010.json): \"summon and teleport back to a runic marker\"; metaforge: \"place a temporary beacon... return to it within a limited time\" (Luis, 2026-10-26)"
+      "casts": 1,
+      "open": "marks where he stands and opens a placement mode he can walk in",
+      "finish": "the place press teleports him back to the mark; a later recast does nothing (no lasting marker)",
+      "source": "live 2026-10-26 19:38-19:41 UTC, DISCOVERIES 'Recall hold-and-walk' (the two-cast wiki/metaforge reading is disproven)"
      }
     }
    ],

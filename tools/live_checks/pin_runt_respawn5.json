@@ -1,0 +1,342 @@
+{
+ "id": "pin_runt_respawn5",
+ "owner": "pincases",
+ "area": "GOAL draft cases (evals/bench/goal_drafts.py) dev facts; mod/experiments/bench_creatures.lua reads + cleanup",
+ "why": "respawn_between (goal_tactics_damage_trend): 5 runts in a row, each spawned only after the previous died; proves the fixture spawns again after a death and gives a new id each time",
+ "observe_only": true,
+ "preconditions": {
+  "set_health": {
+   "pct": 100
+  },
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "probe": true,
+   "save": "start"
+  },
+  {
+   "fixture": "spawn",
+   "class": "BP_AI_RuntGoblin_Character_C",
+   "offset_m": [
+    8,
+    0,
+    0
+   ],
+   "save": "s1",
+   "purpose": "live check pin_runt_respawn5: spawn 1/5"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "kill",
+    "ids": [
+     {
+      "$ref": "s1.id"
+     }
+    ]
+   },
+   "save": "k1"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "read",
+    "ids": [
+     {
+      "$ref": "s1.id"
+     }
+    ]
+   },
+   "save": "r1"
+  },
+  {
+   "fixture": "spawn",
+   "class": "BP_AI_RuntGoblin_Character_C",
+   "offset_m": [
+    8,
+    0,
+    0
+   ],
+   "save": "s2",
+   "purpose": "live check pin_runt_respawn5: spawn 2/5"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "kill",
+    "ids": [
+     {
+      "$ref": "s2.id"
+     }
+    ]
+   },
+   "save": "k2"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "read",
+    "ids": [
+     {
+      "$ref": "s2.id"
+     }
+    ]
+   },
+   "save": "r2"
+  },
+  {
+   "fixture": "spawn",
+   "class": "BP_AI_RuntGoblin_Character_C",
+   "offset_m": [
+    8,
+    0,
+    0
+   ],
+   "save": "s3",
+   "purpose": "live check pin_runt_respawn5: spawn 3/5"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "kill",
+    "ids": [
+     {
+      "$ref": "s3.id"
+     }
+    ]
+   },
+   "save": "k3"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "read",
+    "ids": [
+     {
+      "$ref": "s3.id"
+     }
+    ]
+   },
+   "save": "r3"
+  },
+  {
+   "fixture": "spawn",
+   "class": "BP_AI_RuntGoblin_Character_C",
+   "offset_m": [
+    8,
+    0,
+    0
+   ],
+   "save": "s4",
+   "purpose": "live check pin_runt_respawn5: spawn 4/5"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "kill",
+    "ids": [
+     {
+      "$ref": "s4.id"
+     }
+    ]
+   },
+   "save": "k4"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "read",
+    "ids": [
+     {
+      "$ref": "s4.id"
+     }
+    ]
+   },
+   "save": "r4"
+  },
+  {
+   "fixture": "spawn",
+   "class": "BP_AI_RuntGoblin_Character_C",
+   "offset_m": [
+    8,
+    0,
+    0
+   ],
+   "save": "s5",
+   "purpose": "live check pin_runt_respawn5: spawn 5/5"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "kill",
+    "ids": [
+     {
+      "$ref": "s5.id"
+     }
+    ]
+   },
+   "save": "k5"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "read",
+    "ids": [
+     {
+      "$ref": "s5.id"
+     }
+    ]
+   },
+   "save": "r5"
+  }
+ ],
+ "cleanup": [
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "kill",
+    "ids": [
+     {
+      "$ref": "s1.id"
+     }
+    ]
+   }
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "kill",
+    "ids": [
+     {
+      "$ref": "s2.id"
+     }
+    ]
+   }
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "kill",
+    "ids": [
+     {
+      "$ref": "s3.id"
+     }
+    ]
+   }
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "kill",
+    "ids": [
+     {
+      "$ref": "s4.id"
+     }
+    ]
+   }
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "kill",
+    "ids": [
+     {
+      "$ref": "s5.id"
+     }
+    ]
+   }
+  }
+ ],
+ "pass": [
+  {
+   "ref": "s1.ok",
+   "eq": true
+  },
+  {
+   "ref": "k1.ok",
+   "eq": true
+  },
+  {
+   "ref": "s2.ok",
+   "eq": true
+  },
+  {
+   "ref": "k2.ok",
+   "eq": true
+  },
+  {
+   "ref": "s3.ok",
+   "eq": true
+  },
+  {
+   "ref": "k3.ok",
+   "eq": true
+  },
+  {
+   "ref": "s4.ok",
+   "eq": true
+  },
+  {
+   "ref": "k4.ok",
+   "eq": true
+  },
+  {
+   "ref": "s5.ok",
+   "eq": true
+  },
+  {
+   "ref": "k5.ok",
+   "eq": true
+  }
+ ],
+ "observe": [
+  "s1.id",
+  "r1.first.dead",
+  "r1.first.power_level",
+  "s2.id",
+  "r2.first.dead",
+  "r2.first.power_level",
+  "s3.id",
+  "r3.first.dead",
+  "r3.first.power_level",
+  "s4.id",
+  "r4.first.dead",
+  "r4.first.power_level",
+  "s5.id",
+  "r5.first.dead",
+  "r5.first.power_level"
+ ],
+ "timeout_s": 300,
+ "max_retries": 0
+}

@@ -40,6 +40,24 @@
     "hash": "96386cf07f8ffbf9"
    }
   ],
+  "tactics_prep": [
+   {
+    "id": "goal_tactics_prep_hard_fight",
+    "hash": "5dd535ea7d1f44a8"
+   }
+  ],
+  "tactics_trend": [
+   {
+    "id": "goal_tactics_damage_trend",
+    "hash": "fc4a079e1afe99ad"
+   }
+  ],
+  "tactics_telegraph": [
+   {
+    "id": "goal_tactics_telegraph_dodges",
+    "hash": "f382ae599f4dd75b"
+   }
+  ],
   "knowledge": [
    {
     "id": "goal_knowledge_recipe",
@@ -206,6 +224,10 @@
   ],
   "capstone_stage": [
    {
+    "id": "capstone_stage_1_shelter",
+    "hash": "3b7770a192b4c49b"
+   },
+   {
     "id": "capstone_stage_2_growing_pains",
     "hash": "80c7de52f9184a02"
    },
@@ -244,6 +266,9 @@
  "trials_per_case": {
   "long_task": 3,
   "combat_basic": 3,
+  "tactics_prep": 1,
+  "tactics_trend": 1,
+  "tactics_telegraph": 1,
   "knowledge": 1,
   "skill_train": 1,
   "capstone_stage": 1,
@@ -252,9 +277,12 @@
  "denominators": {
   "long_task": 15,
   "combat_basic": 9,
+  "tactics_prep": 1,
+  "tactics_trend": 1,
+  "tactics_telegraph": 1,
   "knowledge": 4,
   "skill_train": 36,
-  "capstone_stage": 7,
+  "capstone_stage": 8,
   "capstone": 3
  },
  "approved_by": "Luis (standing yes, 2026-10-26)"

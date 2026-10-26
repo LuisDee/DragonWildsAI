@@ -50,6 +50,7 @@ OBSERVABLE = {
     "held_item_effect": "cast_reply", "world_module": False, "needs_live_observation": False,
     "view_target": "cast_reply", "input_mode": "cast_reply", "dodge_distance_gain_m": False,
     "spell_state": "referee",
+    "recall_return": "probe",  # start/end from the judge probe; the away proof is the referee spell actor (leaf)
 }
 PROBES = {
     "client_mod/commands/smoke_jump.lua": {"moves_pawn": True, "note": "one Jump()/StopJumping(); then smoke_jump_read.lua (read-only) gives max_dz_cm"},
@@ -91,11 +92,17 @@ SIGNAL_KINDS = {
     "view_target": "the camera view target switches to class `class` while the spell is active (data.effects.view_target)",
     "input_mode": "the player input mode while the spell is active contains `contains` (data.effects.mode)",
     "dodge_distance_gain_m": "a ground dodge travels at least `min` m farther than without the spell (probe not built yet)",
+    "recall_return": "one held-open cast: the judge probe after the case is within `within_m` of the probe before it, AND he really left: the eval referee saw `away_actor` (the place-press spell actor) >= `away_m` from the start inside the case window, or a harness walk; the cast reply's from_opened_m/returned are never used",
     "spell_state": "the eval referee (server side) emits spell_state `state` inside the cast window (referee v1.4: OculusActive = OculusComponent:IsOculusActive() poll / OculusPawn:Multicast_OnOculusActivated; PersonalInventorySpell = PersonalInventoryComponent:OpenPersonalInventory with Method 1 = Spell; PersonalInventoryToggle = Client_TogglePersonalInventory)",
 }
 
 # Live observations (2026-10-25, Shockbyte world, client build 26162923, data build 26161880).
 LIVE = {
+    "USD_Recall": {
+        "effect": [{"kind": "recall_return", "within_m": 3.0, "away_m": 3.0, "away_actor": "DominionSpellActor",
+                    "confidence": "verified"}],
+        "evidence": "2026-10-26 19:38-19:41Z dev, Claude's client (DISCOVERIES 'Recall hold-and-walk', client_mod/commands/recall_probe.lua, 0.5 s samples): ONE cast. Selecting Recall opens DIM_SpellPlacementModeAdvancedMovement with the mark at his feet ([97.97,1865.76]); he walked 10.8 m while it stayed open; the place press spent Air 30 + Law 15, started the 75 s cooldown, spawned a ~1 s DominionSpellActor and put him back 0.1 m from the opening point, where he stayed. A later plain recast 11 m away spent the runes and moved him 0 m: no lasting marker (the two-cast beacon reading is disproven). Proof: walked away (server-seen spell actor or harness walk) AND ended within 3 m of the start; the referee's view of DominionSpellActor is not yet seen live, so without it the leaf reads null (never a pass)",
+    },
     "USD_EnchantWeapon_Fire": {
         "effect": [{"kind": "held_item_effect", "effect": "HEED_EnchantWeaponFire", "damage_types": ["DamageType.Magical.Fire"]}],
         "evidence": "2026-10-26 07:37Z dev (unlocked + sword granted as evidence setup): Fire -15 Astral -5, cooldown, settled; the held BP_Sword_Bronze_C's MagicalHeldEquipmentEffectInfo.EffectData = HEED_EnchantWeaponFire (ServerExpirationTime set); no GE/tag",

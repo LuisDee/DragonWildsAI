@@ -1,0 +1,124 @@
+{
+ "id": "pin_pl3_ram",
+ "owner": "pincases",
+ "area": "GOAL draft cases (evals/bench/goal_drafts.py) dev facts; mod/experiments/bench_creatures.lua reads + cleanup",
+ "why": "goal_tactics_prep_hard_fight: a Ram spawned at the dev start - its PowerLevel after the spawn (region or class?), its AIName and class path, or the spawn failure",
+ "observe_only": true,
+ "preconditions": {
+  "set_health": {
+   "pct": 100
+  },
+  "input_mode": "DIM_Gameplay"
+ },
+ "steps": [
+  {
+   "probe": true,
+   "save": "start"
+  },
+  {
+   "fixture": "spawn",
+   "class": "BP_AI_Ram_Character_C",
+   "offset_m": [
+    20,
+    0,
+    0
+   ],
+   "save": "sp",
+   "purpose": "live check pin_pl3_ram: spawn BP_AI_Ram_Character_C to read its PowerLevel and class path"
+  },
+  {
+   "sleep_s": 2
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "read",
+    "ids": [
+     {
+      "$ref": "sp.id"
+     }
+    ]
+   },
+   "save": "rd"
+  },
+  {
+   "bridge": "census",
+   "args": {
+    "radius_m": 40,
+    "kinds": {
+     "creatures": true
+    }
+   },
+   "timeout_s": 20,
+   "save": "cen"
+  }
+ ],
+ "cleanup": [
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "kill",
+    "ids": [
+     {
+      "$ref": "sp.id"
+     }
+    ]
+   },
+   "save": "kill"
+  },
+  {
+   "sleep_s": 1
+  },
+  {
+   "server": "bench_creatures",
+   "args": {
+    "action": "read",
+    "ids": [
+     {
+      "$ref": "sp.id"
+     }
+    ]
+   },
+   "save": "after"
+  }
+ ],
+ "pass": [
+  {
+   "ref": "sp.ok",
+   "eq": true,
+   "why": "the spawn fixture made it"
+  },
+  {
+   "ref": "rd.first.power_level",
+   "exists": true,
+   "why": "PowerLevel read on the server"
+  },
+  {
+   "ref": "kill.ok",
+   "eq": true,
+   "why": "cleaned up (dead) after the read"
+  }
+ ],
+ "observe": [
+  "sp.id",
+  "sp.class",
+  "sp.loaded",
+  "rd.first.class_path",
+  "rd.first.name",
+  "rd.first.power_level",
+  "rd.first.ai_power_level",
+  "rd.first.damage_level_multiplier",
+  "rd.first.max_health",
+  "rd.first.director",
+  "rd.first.dist_m",
+  "rd.region",
+  "cen.data.creatures.0",
+  "cen.data.creatures.1",
+  "cen.creatures.0",
+  "after.first.dead",
+  "after.first.health",
+  "start.position"
+ ],
+ "timeout_s": 150,
+ "max_retries": 0
+}

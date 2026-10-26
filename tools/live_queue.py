@@ -71,7 +71,8 @@ DONE = {"passed", "failed", "observed"}
 FIXTURE_VERBS = {"grant", "grant_runes", "unlock", "set_health", "set_time", "teleport", "spawn", "raise_skills",
                  "reset_skills", "hold", "scene", "claim_bed", "ground_item", "felled_log", "recall_beacon"}
 OPS = ("eq", "ne", "gt", "gte", "lt", "lte", "in", "contains", "exists", "truthy", "falsy", "regex")
-STEP_KINDS = ("bridge", "client_cmd", "probe", "sleep_s", "fixture")
+STEP_KINDS = ("bridge", "client_cmd", "probe", "sleep_s", "fixture", "server")
+SERVER_MODULES = ROOT / "mod" / "experiments"  # `server` steps: dev-server debug_run of a mod/experiments module only
 
 
 class Blocked(Exception):
@@ -156,13 +157,20 @@ def validate(spec: dict, path: Path | None = None, *, root: Path = ROOT, item_ok
     if not isinstance(steps, list) or not steps:
         errs.append("steps must be a non-empty list")
         steps = []
-    for i, s in enumerate(steps):
+    cleanup = spec.get("cleanup") or []
+    if not isinstance(cleanup, list):
+        errs.append("cleanup must be a list of steps")
+        cleanup = []
+    for i, s in enumerate(list(steps) + list(cleanup)):
         kinds = [k for k in STEP_KINDS if k in s] if isinstance(s, dict) else []
         if len(kinds) != 1:
             errs.append(f"step {i}: exactly one of {STEP_KINDS}")
             continue
         if kinds[0] == "client_cmd" and not (root / s["client_cmd"]).is_file():
             errs.append(f"step {i}: no command file {s['client_cmd']}")
+        if kinds[0] == "server" and not (re.fullmatch(r"[A-Za-z0-9_]+", str(s["server"]))
+                                         and (root / "mod" / "experiments" / f"{s['server']}.lua").is_file()):
+            errs.append(f"step {i}: server module {s['server']!r} is not a mod/experiments/*.lua module")
         if kinds[0] == "fixture":
             fixtures.append(s)
         if kinds[0] == "bridge" and not isinstance(s.get("args", {}), dict):
@@ -420,6 +428,20 @@ class Env:
             raise InfraError(f"probe failed: {(r or {}).get('error') or res.get('error') or 'no answer'}")
         return normalise_probe(res["probe"])
 
+    def server(self, module: str, args: dict, timeout: float) -> dict:
+        """debug_run of a mod/experiments module on the DEV server (after the dev guard); the module's own result."""
+        from brain.bridge_client import BridgeClient
+        from brain.transport import file_transport_pair
+        self.guard()
+        dev = self.dev()
+        r = BridgeClient(file_transport_pair(body="server", channel="main")[0]).request(
+            "debug_run", {"module": module, "args": {"character_guid": dev.character_guid, **(args or {})}}, timeout=timeout)
+        if not isinstance(r, dict) or not r.get("ok"):
+            raise InfraError(f"server {module}: {(r or {}).get('reason') if isinstance(r, dict) else r!r} "
+                             f"{((r or {}).get('data') or {}).get('detail') if isinstance(r, dict) else ''}")
+        res = (r.get("data") or {}).get("result")
+        return res if isinstance(res, dict) else {"ok": False, "result": res}
+
     def fixture(self, verb: str, purpose: str, args: dict) -> dict:
         from evals.bench.observer import Abort
         try:
@@ -560,15 +582,31 @@ class Runner:
                 rec = self._step(i, s, ctx, left)
                 ev["steps"].append(rec)
         except Blocked as x:
-            return "blocked", {**ev, "why": str(x)}
+            return "blocked", {**ev, "why": str(x), **self._cleanup(spec, ctx)}
         except InfraError as x:
-            return "error", {**ev, "why": str(x)}
+            return "error", {**ev, "why": str(x), **self._cleanup(spec, ctx)}
+        ev.update(self._cleanup(spec, ctx))
         ok, rows = evaluate(spec["pass"], ctx, logs)
         ev["criteria"] = rows
         ev["observed"] = observe(spec.get("observe") or [], ctx, logs)
         if spec.get("observe_only"):
             return "observed", ev
         return ("passed" if ok else "failed"), ev
+
+    def _cleanup(self, spec: dict, ctx: dict) -> dict:
+        """`cleanup` steps (teardown, e.g. remove what the check spawned) run after the steps whatever happened, each
+        best effort with its own small time budget; a template that does not resolve (the thing was never made) skips
+        that step. Their saves join ctx, so pass/observe can read them."""
+        out = []
+        for i, s in enumerate(spec.get("cleanup") or []):
+            try:
+                rec = self._step(i, s, ctx, lambda: 60.0)
+            except Blocked as x:
+                rec = {"i": i, "skipped": str(x)}
+            except Exception as x:  # noqa: BLE001  (teardown never raises; the failure is evidence)
+                rec = {"i": i, "error": repr(x)}
+            out.append(rec)
+        return {"cleanup": out} if out else {}
 
     def _step(self, i: int, s: dict, ctx: dict, left: Callable[[], float]) -> dict:
         env = self.env
@@ -584,6 +622,9 @@ class Runner:
             a = {k: v for k, v in s.items() if k not in ("fixture", "save", "purpose")}
             val = env.fixture(s["fixture"], s.get("purpose") or "live check step", resolve(a, ctx))
             rec = {"i": i, "fixture": s["fixture"], "ok": bool(val.get("ok"))}
+        elif "server" in s:
+            val = env.server(s["server"], resolve(s.get("args") or {}, ctx), min(float(s.get("timeout_s", 30)), left()))
+            rec = {"i": i, "server": s["server"], "ok": bool(val.get("ok")), "result": short(val, 1200)}
         elif "client_cmd" in s:
             val = env.client_cmd(s["client_cmd"], resolve(s.get("args") or {}, ctx), min(float(s.get("timeout_s", 20)), left()))
             if val is None:
