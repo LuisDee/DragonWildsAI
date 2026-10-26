@@ -375,6 +375,45 @@ def summarize(rows: list[dict]) -> dict:
     return out
 
 
+LIVE_PERSONA = "new"  # brain/persona.py DEFAULT_PATH: the persona the live brain runs; only it is scored for GOAL
+SCOREBOARD = paths.REPO_ROOT / "logs" / "evals" / "scoreboard.jsonl"
+
+
+def voice_score(summary: dict) -> float | None:
+    """GOAL voice_score_min (Eval agent, 2026-10-26; docs/design/companion-quality.md section 5 "Voice score"):
+    min(checks_pass_rate, judge human/5, judge silence/5, judge match/5) over every case of the live persona.
+    The weakest of the four decides: 0.8 = every judge dimension averages >= 4/5 AND >= 80% of the checks pass.
+    None when any part is missing (a --no-judge or --dry run is never a score)."""
+    parts = [summary.get("checks_pass_rate")] + [
+        (summary[f"judge:{k}"] / 5.0 if isinstance(summary.get(f"judge:{k}"), (int, float)) else None)
+        for k in ("human", "silence", "match")]
+    if any(not isinstance(x, (int, float)) for x in parts):
+        return None
+    return round(min(parts), 3)
+
+
+def scoreboard_row(summary: dict, log_path: Path, run_id: str, at: str, root: Path | None = None) -> dict | None:
+    """The row goal_check reads (kind voice). It carries the sha256 of the run's own JSONL log (whose voice_summary
+    goal_check re-reads and re-scores) and the code hashes, so a row cannot be typed by hand."""
+    from evals.bench import hashes
+    score = voice_score(summary)
+    if score is None:
+        return None
+    root = Path(root or hashes.ROOT)
+    return {"schema": "dw_scoreboard/1", "kind": "voice", "run_id": run_id, "at": at, "score": score,
+            "n": int(summary.get("cases") or 0), "persona": LIVE_PERSONA,
+            "components": {k: summary.get(k) for k in ("checks_pass_rate", "judge:human", "judge:silence", "judge:match")},
+            "log": Path(log_path).resolve().relative_to(root.resolve()).as_posix(),
+            "log_sha256": hashes.sha256_file(Path(log_path)),
+            "companion_hash": hashes.companion_hash(root), "judge_hash": hashes.judge_hash(root)}
+
+
+def append_scoreboard(row: dict, scoreboard: Path = SCOREBOARD) -> None:
+    scoreboard.parent.mkdir(parents=True, exist_ok=True)
+    with open(scoreboard, "a", encoding="utf-8") as f:
+        f.write(json.dumps(row) + "\n")
+
+
 def _dry_llms():
     ctl = FakeLLM(model="fake/controller")
     ctl.push(*([lambda m, t: FakeLLM.say("on it, casting now", FakeLLM.call("cast", spell="Summon Shelter"))] * 200))
@@ -447,6 +486,14 @@ def main(argv: list[str] | None = None) -> int:
         log.log("voice_results", results=out["results"])  # rows with the judge's scores and reasons
         log.log("voice_summary", summary=out["summary"], plan=plan, calls=out["calls"])
         print(f"\nlog: {log.path}")
+        full = not a.ids and not a.limit and not a.no_judge and LIVE_PERSONA in variants
+        row = scoreboard_row(out["summary"].get(LIVE_PERSONA) or {}, Path(log.path), Path(log.path).stem,
+                             time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())) if full else None
+        if row:
+            append_scoreboard(row)
+            print(f"voice score {row['score']} (n={row['n']}) -> {SCOREBOARD}")
+        else:
+            print("no scoreboard row: only a full judged run of the live persona is a GOAL voice score")
     return 0
 
 

@@ -446,10 +446,30 @@ def exposure_row(d: Data, cfg: dict) -> Row:
                age_h(d, (o.get("window") or {}).get("until") or o.get("generated_at")))
 
 
+def voice_row_ok(d: Data, r: dict) -> bool:
+    """A voice row counts only if its log exists with the recorded sha256 and the log's own voice_summary re-scores
+    to the row's score (evals/voice_eval.py voice_score): a hand-typed row has no such log."""
+    log = r.get("log")
+    if not log or not r.get("log_sha256"):
+        return False
+    p = Path(d.root) / log
+    if not p.exists() or hashes.sha256_file(p) != r["log_sha256"]:
+        return False
+    try:
+        from evals.voice_eval import voice_score
+    except Exception:  # noqa: BLE001 - the scorer can't load: the row can't be re-derived
+        return False
+    for e in read_jsonl(p):
+        if e.get("event") == "voice_summary" or e.get("kind") == "voice_summary":
+            s = (e.get("summary") or {}).get(r.get("persona") or "new") or {}
+            return voice_score(s) == r["score"] and int(s.get("cases") or 0) == int(r.get("n") or -1)
+    return False
+
+
 def voice(d: Data, name: str) -> Row:
     want_v = float(d.targets[name])
     rows = sorted([r for r in d.rows if r.get("kind") == "voice" and isinstance(r.get("score"), (int, float))
-                   and (r.get("n") or 0) > 0 and r.get("companion_hash") == d.cur.companion],
+                   and (r.get("n") or 0) > 0 and r.get("companion_hash") == d.cur.companion and voice_row_ok(d, r)],
                   key=lambda r: parse_ts(r.get("at")) or d.now, reverse=True)
     if not rows:
         return Row(name, NO_DATA, "-", f">= {want_v:g}", "-", None, "no voice-eval score at the current companion hash")

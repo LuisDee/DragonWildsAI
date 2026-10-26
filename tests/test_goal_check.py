@@ -88,7 +88,20 @@ OBS = {"schema": "dw_obs_metrics/1", "generated_at": FRESH, "window": {"since": 
        "latency": {"chat_to_first_action_s": {"p50": 1.9, "p90": 3.2, "n": 40}},
        "anomalies_per_hour": {"stat_narration": 0, "talk_without_action": 0, "stall_over_30s": 0},
        "stability": {"longest_run_without_crash_h": 2.5}, "deaths": {"starvation": 0}}
-VOICE = {"kind": "voice", "run_id": "voice_1", "at": FRESH, "score": 0.86, "n": 25, "companion_hash": CUR.companion}
+VOICE_SUMMARY = {"cases": 25, "checks_pass_rate": 0.96, "judge:human": 4.3, "judge:silence": 4.4, "judge:match": 4.5}
+
+
+def voice_row(root: Path, summary: dict = VOICE_SUMMARY, **over) -> dict:
+    """A voice row the way evals/voice_eval.py writes it: its log holds the voice_summary goal_check re-scores."""
+    log = root / "logs" / "voice-eval-test.jsonl"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text(json.dumps({"kind": "voice_summary", "summary": {"new": summary}}) + "\n", encoding="utf-8")
+    from evals.voice_eval import voice_score
+    row = {"kind": "voice", "run_id": "voice_1", "at": FRESH, "score": voice_score(summary), "n": summary["cases"],
+           "persona": "new", "log": "logs/voice-eval-test.jsonl", "log_sha256": hashes.sha256_file(log),
+           "companion_hash": CUR.companion}
+    row.update(over)
+    return row
 
 
 def data(tmp_path, rows, validity, obs=OBS, cur=CUR, targets=TARGETS) -> gc.Data:
@@ -99,7 +112,7 @@ def everything(tmp_path, at: str = FRESH, rid: str = "dev_1"):
     cases = full_suite()
     rows = [make_run(tmp_path, rid, cases, at=at), make_run(tmp_path, rid + "_held", [dict(c, heldout=True, case_id=c["case_id"] + "_h",
                                                                                          case_hash=c["case_hash"] + "_h") for c in cases[:40]],
-                                                             at=at, heldout_draw=True), VOICE]
+                                                             at=at, heldout_draw=True), voice_row(tmp_path)]
     held = [dict(c, case_hash=c["case_hash"] + "_h") for c in cases[:40]]
     return rows, {**validity_for(cases), **validity_for(held)}
 
@@ -387,3 +400,16 @@ def test_quick_variants_never_count_for_goal(tmp_path):
     kept = [c for r in d.runs for c in r["cases"]]
     assert kept and not any(c.get("family") == "combat_basic" for c in kept)
     assert len(kept) == len(cases) - sum(c["family"] == "combat_basic" for c in cases)
+
+
+def test_voice_score_is_the_weakest_part_and_rows_must_rederive_from_their_log(tmp_path):
+    """voice_score_min: min(checks pass rate, judge human/5, silence/5, match/5); a row counts only if its log
+    re-scores to it (the 2026-10-26 11:13 run: checks 0.957, human 3.75 -> 0.75, under the 0.8 target)."""
+    from evals.voice_eval import voice_score
+    assert voice_score({"checks_pass_rate": 0.957, "judge:human": 3.75, "judge:silence": 4.12, "judge:match": 3.84}) == 0.75
+    assert voice_score({"checks_pass_rate": 0.957, "judge:human": None, "judge:silence": 4, "judge:match": 4}) is None
+    good = voice_row(tmp_path)
+    d = data(tmp_path, [good], {})
+    assert gc.voice(d, "voice_score_min").status == gc.MET
+    for bad in (dict(good, score=0.99), dict(good, log_sha256="0" * 64), {k: v for k, v in good.items() if k != "log"}):
+        assert gc.voice(data(tmp_path, [bad], {}), "voice_score_min").status == gc.NO_DATA, bad

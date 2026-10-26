@@ -168,6 +168,12 @@ Other run-2 counts, old → new:
 - One held-out case regressed: "fancy a job" got a silent start_goal instead of "sure, what is it?".
 - Generalisation is **not yet shown**. The next eval round needs fresh held-out cases from a new session.
 
+### Voice score (GOAL `voice_score_min`, Eval agent 2026-10-26)
+- **Definition:** score = **min(checks_pass_rate, judge human / 5, judge silence / 5, judge match / 5)**, over every case of the live persona (`new`) in one full judged run (no `--ids`, `--limit` or `--no-judge`). The weakest part decides. The target of 0.8 means every judge dimension averages at least 4 out of 5 AND at least 80% of the deterministic checks pass. A mean that hides one bad dimension cannot pass.
+- **Writer:** `evals/voice_eval.py` appends `{"kind": "voice", run_id, at, score, n, persona, components, log, log_sha256, companion_hash, judge_hash}` to `logs/evals/scoreboard.jsonl`.
+- **Check:** `tools/goal_check.py` counts the row only if the log exists with that sha256 and the log's own `voice_summary` re-scores to the row's score and n.
+- **The 2026-10-26 11:13 run re-scored offline:** 0.75. Checks pass at 0.957, but human is 3.75/5, silence 4.12/5 and match 3.84/5. Held-out: 0.734 (match 3.67/5). Below the 0.8 target. The weak cases are h5_have_pickaxe_q (match 1: "got a spare one?" with no action), h4_overhead_chop_tip and promise_has_tool (1/2).
+
 ### Open items (voice)
 1. **Over-silence on direct questions** (v18 "why are you casting Splinter near me?" → silent gather; h2 "fancy a job" → silent start_goal). The persona rule "a direct question gets a short answer" doesn't hold under effort low. Options:
    - move the rule into the few-shots, with a question → answer + action pair;
