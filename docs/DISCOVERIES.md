@@ -1664,3 +1664,7 @@ Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probe
   - the converted actor of that class within 2 m (converted);
   - or reports felled_or_picked / not_found.
 - All id-taking tools resolve through it (`client_bridge.lua` find_thing). See `docs/design/stable-target-ids.md`.
+- **Cast settle, verified live (dev world, 2026-10-26 07:1x UTC):** Summon Shelter at (89, 1882):
+  - Timeline: preview valid → LMB → the `BP_Magic_SummonShelter_C` actor 0.4 s later → the rune spend and the `LastCastTimeBySpellData` change about 6 s later.
+  - So the actor replicates first and the spend and cooldown last. A cast reply must wait for both (L25).
+  - Near the dev spawn lodestone (at 13–25 m from it) every shelter preview said `UI.Notification.SpellPlacement.Blocked`, even on flat ground; 40 m away it was accepted. Probably a no-build radius around lodestones (not confirmed in the data).
