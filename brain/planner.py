@@ -15,6 +15,7 @@ from pydantic import BaseModel, ValidationError
 
 from .jsonl_log import JsonlLogger
 from .llm import LLMClient
+from .llm_json import DecisionError, extract_json, json_decision
 from .state_store import SkillRegistry, Task, TaskTree
 
 SYSTEM = """You are the planner for an AI companion in RuneScape: Dragonwilds.
@@ -64,13 +65,6 @@ class PlanError(Exception):
     pass
 
 
-def _extract_json(text: str) -> str:
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end < start:
-        raise ValueError("no JSON object in response")
-    return text[start : end + 1]
-
-
 def _trim_state(state: dict) -> dict:
     keep = ("position", "health", "inventory", "following", "players", "nearby_entities",
             "nearby_resources", "nearby_items", "structures", "places")
@@ -105,22 +99,27 @@ class Planner:
         return self._ask(messages)
 
     def _ask(self, messages: list[dict]) -> PlanResult:
-        for round_ in range(self.max_repairs + 1):
-            self.log.log("prompt", component="planner", model=self.llm.model, messages=messages)
-            resp = self.llm.complete(messages)
-            self.log.log("llm_response", component="planner", content=resp.content)
+        """One plan through the shared validate-and-repair loop (brain/llm_json.py, simplify item 10)."""
+        self.log.log("prompt", component="planner", model=self.llm.model, messages=messages)
+
+        def validate(text: str, round_: int) -> PlanResult:
             try:
-                return self._validate(resp.content or "")
+                return self._validate(text)
             except (ValueError, ValidationError) as exc:
                 self.log.log("plan_invalid", error=str(exc), round=round_)
-                messages = messages + [
-                    {"role": "assistant", "content": resp.content or ""},
-                    {"role": "user", "content": f"That plan was invalid: {exc}\nReturn corrected JSON only."},
-                ]
-        raise PlanError("planner produced no valid plan")
+                raise
+
+        try:
+            plan, _ = json_decision(self.llm, messages, validate, max_repairs=self.max_repairs,
+                                    on_response=lambda r: self.log.log("llm_response", component="planner",
+                                                                       model=self.llm.model, content=r.content,
+                                                                       usage=r.usage))
+        except DecisionError as exc:
+            raise PlanError("planner produced no valid plan") from exc
+        return plan
 
     def _validate(self, text: str) -> PlanResult:
-        plan = PlanModel.model_validate_json(_extract_json(text))
+        plan = PlanModel.model_validate_json(extract_json(text))
         errors, tasks = [], []
         for i, spec in enumerate(plan.tasks):
             if spec.skill not in self.skills:

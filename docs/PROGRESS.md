@@ -216,3 +216,20 @@
   - Eye of Oculus: needs specific evidence data.
   - Latency: p50 is 0.2 s above target.
 - **Process change (Luis):** never idle (GOAL §2b), a 2-hourly cadence check, and standing approvals for agents. A 7 h stall overnight was main's blocking question.
+
+## 2026-10-26 Director: /simplify applied + chained steps + live smoke run 1
+- /simplify items 1-16 applied:
+  - plan_key and a separate director_window.json;
+  - one progress budget per task;
+  - advisories as one non-repair round;
+  - knowledge gaps go to KnowledgeMemory only;
+  - fileio is used throughout;
+  - Planner uses json_decision;
+  - `effects_of` adapter;
+  - on_player_command(text);
+  - the model judges "stop";
+  - autoflush=False with one write per tick;
+  - pruned per-task dicts.
+- Chained transitions (≤8 per tick, never during chat): the step-to-step gap is under 1 s at 1/30/300 s ticks (test).
+- Live smoke run 1 on dev: see DISCOVERIES "Director live smoke, run 1". Research, plan, verified runs, replan and the budget window all work. The job never finished: its done test was unsatisfiable (gained+lost). That is now a repair, and Haiku runs ahead of the step (instruction added).
+- Next: smoke run 2 after the voice fixes ("EMPTY" spoken).

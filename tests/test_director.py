@@ -246,7 +246,8 @@ def test_failure_replans_with_the_real_results_then_asks_for_help(tmp_path):
     llm.push(decision(steps=[step("mine tin at the quarry", gained(TIN, 3))]))
     d.handle_tool("resume_board", {"note": "tin is at the quarry"}, "Zezima")
     ticks(d, 1)
-    ans = [json.loads(c["messages"][1]["content"]) for c in llm.calls][-2]  # the help_answer (then a replan: blocked)
+    ans = next(u for u in (json.loads(c["messages"][1]["content"]) for c in llm.calls[3:])
+               if u["decision"] == "help_answer")  # (then the step runs, is blocked again, and replans)
     assert ans["decision"] == "help_answer" and ans["job"]["notes_from_player"] == ["tin is at the quarry"]
 
 
@@ -451,11 +452,11 @@ def test_unknown_facts_get_one_nudge_and_lookups_are_cached_and_scored(tmp_path)
                       facts=[{"fact": "where tin rocks are", "status": "unknown", "source": "wiki"}])]
     d, port, world, llm, clock = make(tmp_path, None, calls, knowledge=k)
     d.log = ListLog()
-    d.handle_tool("add_task", {"text": "get tin"}, "Zezima")
-    ticks(d, 2)
+    tid = d.handle_tool("add_task", {"text": "get tin"}, "Zezima")["data"]["id"]
+    ticks(d, 1)
     assert "These facts are listed as unknown" in llm.calls[1]["messages"][-1]["content"] and k.queries == ["where are tin rocks"]
     assert d.memory.recall("tin rocks")[0]["source"] == "wiki"
-    assert d.ops.b.current_task().steps[0].title == "mine tin"
+    assert d.ops.b.task(tid).steps[0].title == "mine tin"
     assert [r["needed"] for r in d.log.rows if r["kind"] == "director_lookup"] == [True]
 
 

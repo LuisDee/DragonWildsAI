@@ -16,10 +16,16 @@ bookkeeping those predicates need and that must survive restarts:
   what board runs gained, whatever happened in between. Gear, position and time come from the activation snapshot.
 * **Tallies.** Positive per-segment deltas of the items the task's predicates name, minus re-pickups of his own
   drops (``repicked``), summed over every step and trip.
-* **Loops.** A step group with an ``until`` predicate is re-queued by code while ``until`` fails (no model call),
-  capped, and ended after 2 loops with zero tally gain.
-* **Caps.** Prerequisite depth 2, 3 live self-added tasks per parent, duplicate prerequisites refused with the
-  reason (information for the model), the task-level progress rule (3 decisions without progress -> help).
+* **Loops.** A step group with an ``until`` predicate is re-queued by code while ``until`` fails (no model call).
+* **One progress budget per task** (simplify item 5). Work that moves nothing spends it (a run without progress,
+  a failed attempt, a decision that moved nothing, a loop pass with no gain); real progress on the task (its done
+  test's progress or measures, its tallies, a step whose own work grew) refills it. When it is spent the Director
+  asks for help. That one rule replaces the per-step attempt and run caps, the replan cap, the loop caps and the
+  "3 decisions" rule; the model sees every failure and decides what to try (no step is ever refused).
+* **Prerequisite caps:** depth 2, 3 live self-added tasks per parent, duplicates of a stuck one refused with the
+  reason (information for the model).
+* **Writes:** one compact atomic write per flush (``autoflush=False`` for the Director, which flushes once per tick
+  and before each run); the plan key (``plan_key``) is what a pending decision is checked against, not every write.
 
 Nothing here knows any item, creature, place or skill name: items come from predicates, which come from the
 model and the game catalogs.
@@ -27,6 +33,7 @@ model and the game catalogs.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import time
@@ -37,8 +44,12 @@ from typing import Any, Callable, Literal
 from pydantic import BaseModel, Field, ValidationError
 
 from . import predicates as P
+from .fileio import append_jsonl, atomic_write, read_json, read_new_lines
 
 SCHEMA_V = 1
+INBOX_NAME = "board_inbox.jsonl"
+GOALS_NAME = "goals.json"
+WINDOW_NAME = "director_window.json"
 TaskStatus = Literal["queued", "active", "preempted", "paused", "parked", "waiting_help", "waiting_budget",
                      "done", "stuck", "cancelled"]
 StepStatus = Literal["pending", "active", "done", "failed", "aborted", "parked", "dropped"]
@@ -49,9 +60,7 @@ ITEM_LEAVES = ("have", "gained", "lost", "tally", "on_ground", "equipped")
 
 MAX_PREREQ_DEPTH = 2
 MAX_LIVE_CHILDREN = 3
-MAX_LOOPS = 20
-ZERO_GAIN_LOOPS = 2
-DECISIONS_WITHOUT_PROGRESS = 3
+PROGRESS_BUDGET = 8.0  # units of work that moved nothing before the Director asks for help
 
 
 class BoardError(ValueError):
@@ -68,7 +77,7 @@ def _id() -> str:
 class Segment(BaseModel):
     start: float
     end: float | None = None
-    baseline: dict = {}  # predicates.snapshot at the segment start
+    baseline: dict = {}  # predicates.snapshot at the segment start (dropped once the segment is closed)
     delta: dict[str, float] = {}  # item id -> signed change, after taint (closed segments only)
     skill_delta: dict[str, list[float]] = {}  # skill key -> [level change, xp change]
     tainted: list[str] = []  # item ids a nested chat command touched (left out)
@@ -91,10 +100,8 @@ class Step(BaseModel):
     trivial: bool = False
     status: StepStatus = "pending"
     attempts: int = 0
-    max_attempts: int = 2
-    runs: int = 0  # counted runs (no-progress / max_runs)
+    runs: int = 0  # counted runs
     uncounted_runs: int = 0  # runs ended by chat / interrupts (re-check 3)
-    max_runs: int = 8
     activation: dict = {}  # snapshot when the step first activated (gear, position, t)
     segments: list[Segment] = []
     accumulated: dict[str, float] = {}  # item id -> signed change over closed segments
@@ -104,7 +111,6 @@ class Step(BaseModel):
     no_progress_runs: int = 0
     failures: list[dict] = []
     actions: list[dict] = []  # board-origin action records of the current attempt
-    latched: dict | None = None  # a verified outcome recorded at the moment it happened (e.g. a delivery)
     started: float | None = None
     ended: float | None = None
 
@@ -115,9 +121,7 @@ class Step(BaseModel):
 
 class Loop(BaseModel):
     until: dict
-    max: int = MAX_LOOPS
     done: int = 0
-    zero_gain: int = 0
     last_measures: dict[str, float] = {}
 
 
@@ -143,10 +147,8 @@ class Task(BaseModel):
     my_drops: list[dict] = []  # [{world_item, item, count}] from his own drop results in this task
     steps: list[Step] = []
     loops: dict[str, Loop] = {}
-    replans: int = 0
-    decisions_without_progress: int = 0
-    last_decision_progress: float | None = None
-    last_decision_measures: dict[str, float] = {}
+    spent: float = 0.0  # of the progress budget
+    mark: dict = {}  # {progress, measures, tallies} at the last progress (what "moved" is measured against)
     history: list[dict] = []
     notes_from_player: list[str] = []
     help: Help | None = None
@@ -166,15 +168,11 @@ class Task(BaseModel):
 
 class Board(BaseModel):
     v: int = SCHEMA_V
-    version: int = 0
     current: str | None = None
     paused: dict | None = None  # {by, reason, at}: pause_board until resume_board
     inbox_offset: int = 0
-    awaiting_decision: dict | None = None  # {task_id, reason, since}
-    budget_calls: list[float] = []  # the Director's hourly window (timestamps)
+    awaiting_decision: dict | None = None  # {task_id, kind, since, detail}
     tasks: list[Task] = []
-
-    # ---------------------------------------------------------------- lookup
 
     def task(self, task_id: str | None) -> Task | None:
         return next((t for t in self.tasks if t.id == task_id), None) if task_id else None
@@ -189,37 +187,25 @@ class Board(BaseModel):
 # ------------------------------------------------------------------------------ store
 
 
-def _atomic_write(path: Path, text: str, tries: int = 5, sleep: Callable[[float], None] = time.sleep) -> None:
-    """Write via a unique temp file and os.replace, retrying a Windows PermissionError (a reader holding the
-    file open: tools/board.py list, antivirus). Review M2c."""
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex[:6]}.tmp")
-    tmp.write_text(text, encoding="utf-8")
-    delay = 0.05
-    for i in range(tries):
-        try:
-            os.replace(tmp, path)
-            return
-        except PermissionError:
-            if i == tries - 1:
-                tmp.unlink(missing_ok=True)
-                raise
-            sleep(delay)
-            delay *= 2
-
-
 class BoardStore:
-    """goals.json + the CLI inbox for one world. ``save`` failures keep the in-memory board and are logged
-    (``save_failed``) so the caller can alarm; nothing is lost while the process runs."""
+    """goals.json + the CLI inbox for one world. ``save`` marks the board dirty and writes at once unless
+    ``autoflush`` is off (the Director then calls ``flush`` once per tick). A failed write keeps the in-memory board
+    (``save_failed``, logged). ``readonly`` (tools/board.py) never writes, quarantines or creates anything."""
 
-    def __init__(self, directory: Path, log=None, clock: Callable[[], float] = time.time):
+    def __init__(self, directory: Path, log=None, clock: Callable[[], float] = time.time, autoflush: bool = True,
+                 readonly: bool = False):
         self.dir = Path(directory)
-        self.dir.mkdir(parents=True, exist_ok=True)
-        self.path = self.dir / "goals.json"
-        self.inbox = self.dir / "board_inbox.jsonl"
+        self.readonly = readonly
+        if not readonly:
+            self.dir.mkdir(parents=True, exist_ok=True)
+        self.path = self.dir / GOALS_NAME
+        self.inbox = self.dir / INBOX_NAME
         self.log = log
         self.clock = clock
+        self.autoflush = autoflush
         self.quarantined: Path | None = None
         self.save_failed = False
+        self.dirty = False
         self.board = self._load()
         self._status: dict[str, str] = {t.id: t.status for t in self.board.tasks}  # last logged status per task
 
@@ -228,7 +214,7 @@ class BoardStore:
             self.log.log(kind, **data)
 
     def _log_transitions(self) -> None:
-        """board_task_status {task, from, to, why} for every task whose status changed since the last save (the
+        """board_task_status {task, from, to, why} for every task whose status changed since the last write (the
         observability agent's gap/idle metrics: waiting_budget, preempted, paused, parked, ... and the ends)."""
         for t in self.board.tasks:
             before = self._status.get(t.id)
@@ -239,15 +225,15 @@ class BoardStore:
                           else (t.paused_by if t.status == "paused" else None))
 
     def _load(self) -> Board:
-        if not self.path.exists():
-            return Board()
+        raw = read_json(self.path, default=None) if self.path.exists() else {}
         try:
-            raw = json.loads(self.path.read_text(encoding="utf-8"))
-            if not isinstance(raw, dict) or int(raw.get("v", 0)) > SCHEMA_V:
+            if not isinstance(raw, dict) or int(raw.get("v", SCHEMA_V)) > SCHEMA_V:
                 raise ValueError(f"unknown schema v={raw.get('v') if isinstance(raw, dict) else '?'}")
             return Board.model_validate(raw)
-        except (OSError, ValueError, ValidationError) as exc:  # review M2a: never stop the brain over it
-            bad = self.path.with_name(f"goals.json.bad-{int(self.clock())}")
+        except (ValueError, ValidationError) as exc:  # review M2a: never stop the brain over it
+            if self.readonly:
+                return Board()
+            bad = self.path.with_name(f"{GOALS_NAME}.bad-{int(self.clock())}")
             try:
                 os.replace(self.path, bad)
                 self.quarantined = bad
@@ -257,11 +243,16 @@ class BoardStore:
             return Board()
 
     def save(self) -> bool:
-        self.board.version += 1
+        self.dirty = True
+        return self.flush() if self.autoflush else True
+
+    def flush(self) -> bool:
+        if not self.dirty or self.readonly:
+            return True
         self._log_transitions()
         try:
-            _atomic_write(self.path, self.board.model_dump_json(indent=1))
-            self.save_failed = False
+            atomic_write(self.path, self.board.model_dump_json())
+            self.dirty = self.save_failed = False
             return True
         except OSError as exc:
             self.save_failed = True
@@ -271,39 +262,29 @@ class BoardStore:
     # ---------------------------------------------------------------- the CLI inbox (review M2d)
 
     def ingest_inbox(self, add: Callable[[dict], Any]) -> int:
-        """Apply new complete lines of board_inbox.jsonl through ``add(record)``; the new offset is saved in the
-        same atomic write as the tasks they created, so a crash never ingests a line twice."""
-        if not self.inbox.exists():
+        """Apply new complete lines of the inbox through ``add(record)``; the new offset is written in the same
+        atomic write as the tasks they created, so a crash never ingests a line twice."""
+        rows, offset, bad = read_new_lines(self.inbox, self.board.inbox_offset)
+        if offset == self.board.inbox_offset and not rows:
             return 0
-        data = self.inbox.read_bytes()
-        if len(data) < self.board.inbox_offset:  # the inbox was truncated or replaced: start over
-            self.board.inbox_offset = 0
-        chunk = data[self.board.inbox_offset:]
-        end = chunk.rfind(b"\n")
-        if end < 0:
-            return 0
+        for line in bad:
+            self._log("board_inbox_bad_line", line=line[:200])
         n = 0
-        for line in chunk[:end].splitlines():
-            try:
-                rec = json.loads(line.decode("utf-8"))
-            except (UnicodeDecodeError, ValueError):
-                self._log("board_inbox_bad_line", line=line[:200].decode("utf-8", "replace"))
-                continue
+        for rec in rows:
             try:
                 add(rec)
                 n += 1
             except BoardError as exc:
                 self._log("board_inbox_refused", record=rec, why=str(exc))
-        self.board.inbox_offset += end + 1
-        self.save()
+        self.board.inbox_offset = offset
+        self.dirty = True
+        self.flush()
         return n
 
 
 def append_inbox(directory: Path, record: dict) -> None:
     """For tools/board.py: one line per command, appended (the brain is the only writer of goals.json)."""
-    path = Path(directory) / "board_inbox.jsonl"
-    with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps({"ts": round(time.time(), 3), **record}, ensure_ascii=False) + "\n")
+    append_jsonl(Path(directory) / INBOX_NAME, {"ts": round(time.time(), 3), **record})
 
 
 # ------------------------------------------------------------------------------ predicate helpers
@@ -315,9 +296,7 @@ def predicate_items(p: dict | None) -> set[str]:
         return set()
     out: set[str] = set()
     for k, a in P.leaves(p):
-        if k in ITEM_LEAVES:
-            out.update(a.get("ids") or [])
-        elif k not in P.BUILTIN_LEAVES and isinstance(a, dict):  # a registered leaf that names items
+        if k in ITEM_LEAVES or (k not in P.BUILTIN_LEAVES and isinstance(a, dict)):  # registered leaves too
             out.update(a.get("ids") or [])
     return out
 
@@ -384,7 +363,7 @@ class BoardOps:
                 raise BoardError("that prerequisite is already on the board")
         task = Task(text=text, by=by, parent=parent, depth=depth, because=because,
                     kind="open" if kind == "open" else "specific")
-        live = [t for t in self.b.tasks if t.status in LIVE]
+        live = self.b.live()
         others = [t for t in self.b.tasks if t.status not in LIVE]
         cur = self.b.current_task()
         if when == "now":
@@ -426,6 +405,7 @@ class BoardOps:
             self._step_end(t, step, reason)
         if self.b.current == t.id:
             self.b.current = None
+        self.save()
 
     def pick_current(self) -> Task | None:
         """The task to work on now: the current one if it can run, else the first runnable queued task.
@@ -462,7 +442,7 @@ class BoardOps:
     def park(self, t: Task, reason: str, question: str | None = None, player: str | None = None) -> None:
         t.status, t.end_reason = ("waiting_help" if question else "parked"), reason
         if question:
-            t.help = Help(question=question, asked_player=player)
+            t.help = Help(question=question, asked_player=player, asked_at=self.clock())
         if self.b.current == t.id:
             self.b.current = None
         self.save()
@@ -476,11 +456,11 @@ class BoardOps:
 
     def resume(self, note: str | None = None) -> Task | None:
         """Lift a pause; a note (a player's answer) goes to the task it answers: the newest waiting_help task,
-        else the current one. That task becomes current again."""
+        else the current one. That task becomes current again, with a fresh progress budget."""
         self.b.paused = None
         target = next((t for t in sorted(self.b.tasks, key=lambda t: (t.help.asked_at or 0) if t.help else 0,
                                          reverse=True) if t.status == "waiting_help"), None)
-        target = target or self.b.current_task() or next((t for t in self.b.tasks if t.status in LIVE), None)
+        target = target or self.b.current_task() or next(iter(self.b.live()), None)
         for t in self.b.tasks:
             if t.status == "paused":
                 t.status, t.paused_by = "queued", None
@@ -489,10 +469,9 @@ class BoardOps:
                 target.notes_from_player.append(note.strip()[:500])
             if target.status in ("waiting_help", "parked", "paused", "queued", "preempted"):
                 target.status = "active"
-                target.decisions_without_progress = 0
-            if target in self.b.tasks:
-                self.b.tasks.remove(target)
-                self.b.tasks.insert(0, target)
+                target.spent = 0.0
+            self.b.tasks.remove(target)
+            self.b.tasks.insert(0, target)
             self.b.current = target.id
         self.save()
         return target
@@ -502,6 +481,17 @@ class BoardOps:
         if cur is not None and cur.status == "active":
             cur.status = "preempted"
             self.save()
+
+    def plan_key(self, t: Task | None) -> str | None:
+        """What a pending decision about ``t`` depends on: whether it still runs, its done test, its steps and the
+        player's notes. Preemption, segments, tallies and window writes don't change it (simplify item 1)."""
+        if t is None:
+            return None
+        bucket = t.status if t.status in ENDED or t.status in ("paused", "parked", "waiting_help") else "live"
+        blob = json.dumps({"s": bucket, "ok": t.success, "steps": [(s.id, s.status) for s in t.steps],
+                           "notes": len(t.notes_from_player), "paused": bool(self.b.paused)}, sort_keys=True,
+                          default=str)
+        return hashlib.sha1(blob.encode("utf-8")).hexdigest()
 
     # ---------------------------------------------------------------- success and steps
 
@@ -522,10 +512,9 @@ class BoardOps:
         if active is not None and replace_active:
             active.status, active.ended = "dropped", self.clock()
         t.steps = [s for s in t.steps if s.status != "pending"] + steps
-        if loops is not None:
-            for g, lp in loops.items():
-                old = t.loops.get(g)
-                t.loops[g] = old if old is not None and old.until == lp.until else lp
+        for g, lp in (loops or {}).items():
+            old = t.loops.get(g)
+            t.loops[g] = old if old is not None and old.until == lp.until else lp
         self.save()
 
     def activate(self, step: Step, state: dict) -> None:
@@ -571,6 +560,7 @@ class BoardOps:
                 acc = step.skill_accumulated.setdefault(k, [0.0, 0.0])
                 acc[0] += dl
                 acc[1] += dx
+        seg.baseline = {}  # its deltas are folded in; the snapshot is no longer needed (simplify item 15)
         named = task_items(t)
         gains = {}
         for i, d in delta.items():
@@ -596,8 +586,7 @@ class BoardOps:
             for r in rows:
                 if not isinstance(r, dict):
                     continue
-                k = P._skill_key(r.get("skill") or r.get("name"))
-                acc = step.skill_accumulated.get(k, [0.0, 0.0])
+                acc = step.skill_accumulated.get(P._skill_key(r.get("skill") or r.get("name")), [0.0, 0.0])
                 row = dict(r)
                 if isinstance(r.get("level"), (int, float)):
                     row["level"] = r["level"] - acc[0]
@@ -636,12 +625,12 @@ class BoardOps:
                 out[d["item"]] = out.get(d["item"], 0.0) + float(d.get("count") or 1)
         return out
 
-    # ---------------------------------------------------------------- loops
+    # ---------------------------------------------------------------- steps and loops
 
     def _step_end(self, t: Task, step: Step, reason: str | None) -> None:
         self.store._log("board_step_end", task=t.id, step_id=step.id, step=step.title, status=step.status,
-                        reason=reason, runs=step.runs, seconds=round((step.ended or self.clock()) - (step.started or
-                                                                                                 self.clock()), 1))
+                        reason=reason, runs=step.runs,
+                        seconds=round((step.ended or self.clock()) - (step.started or self.clock()), 1))
 
     def finish_step(self, t: Task, step: Step, status: str, reason: str | None = None) -> None:
         step.status, step.ended = status, self.clock()
@@ -653,63 +642,61 @@ class BoardOps:
         t.history = t.history[-30:]
         self.save()
 
-    def requeue_loop(self, t: Task, step: Step, state: dict, places: dict | None = None) -> str:
-        """After a step of a loop group is done: 'continue' (more steps in the group), 'requeued' (the group is
-        queued again: until still fails), 'ended' (until passed), or 'capped:<why>' (max loops / zero gain)."""
+    def requeue_loop(self, t: Task, step: Step, state: dict, places: dict | None = None) -> tuple[str, bool]:
+        """After a step of a loop group is done: ('continue', -) when more steps of the group are left,
+        ('ended', -) when ``until`` passed, else ('requeued', gained): the group is queued again, and ``gained``
+        says whether this pass moved anything (the Director spends the progress budget on a pass that didn't)."""
         g = step.group
         if not g or g not in t.loops:
-            return "continue"
+            return "continue", True
         group = [s for s in t.steps if s.group == g]
         if any(s.status in ("pending", "active") for s in group):
-            return "continue"
+            return "continue", True
         lp = t.loops[g]
         res = P.evaluate(lp.until, state, self.task_ctx(t, state, places))
         if res.passed is True:
-            return "ended"
+            return "ended", True
         it = max(s.loop_iter for s in group)
         gained = sum(s.tally_gain for s in group if s.loop_iter == it) > 0 or P.grew(lp.last_measures, res.measures)
         lp.last_measures = dict(res.measures)
-        lp.zero_gain = 0 if gained else lp.zero_gain + 1
         lp.done += 1
-        if lp.done >= lp.max:
-            self.save()
-            return f"capped:{lp.max} loops"
-        if lp.zero_gain >= ZERO_GAIN_LOOPS:
-            t.replans += 1  # review H5: an empty loop is a replan, not a free retry
-            self.save()
-            return f"capped:{ZERO_GAIN_LOOPS} loops gained nothing"
-        fresh = [Step(title=s.title, why=s.why, hints=s.hints, success=s.success, abort_if=s.abort_if,
-                      escape=s.escape, risk=s.risk, needs=s.needs, group=g, loop_iter=it + 1,
-                      max_attempts=s.max_attempts, max_runs=s.max_runs)
-                 for s in group if s.loop_iter == it]  # one pass of the group, in order
-        t.steps.extend(fresh)
+        t.steps.extend(Step(title=s.title, why=s.why, hints=s.hints, success=s.success, abort_if=s.abort_if,
+                            escape=s.escape, risk=s.risk, needs=s.needs, group=g, loop_iter=it + 1)
+                       for s in group if s.loop_iter == it)  # one pass of the group, in order
         self.save()
-        return "requeued"
+        return "requeued", gained
 
-    # ---------------------------------------------------------------- task-level progress (review H5)
+    # ---------------------------------------------------------------- the progress budget (simplify item 5)
 
-    def record_decision(self, t: Task, state: dict, places: dict | None = None, new_done: bool = False) -> bool:
-        """Call once per Director decision on a task. True when the task-level progress rule trips: no increase
-        in its success progress or measures, and no newly done step, for 3 decisions in a row."""
+    def progressed(self, t: Task, state: dict, places: dict | None = None, step_grew: bool = False) -> bool:
+        """Did the task move since the last mark (its done test's progress or measures, its tallies, or a step
+        whose own work grew)? A move refills the budget and sets a new mark."""
         pred = (t.success or {}).get("predicate")
-        prog, meas = (None, {})
-        if pred:
-            r = P.evaluate(pred, state, self.task_ctx(t, state, places))
-            prog, meas = r.progress, r.measures
-        moved = new_done or P.grew(t.last_decision_measures, meas) or (
-            prog is not None and t.last_decision_progress is not None and prog > t.last_decision_progress + 1e-6)
-        first = t.last_decision_progress is None and not t.last_decision_measures
-        t.decisions_without_progress = 0 if (moved or first) else t.decisions_without_progress + 1
-        t.last_decision_progress, t.last_decision_measures = prog, dict(meas)
+        r = P.evaluate(pred, state, self.task_ctx(t, state, places)) if pred else None
+        now = {"progress": r.progress if r else None, "measures": dict(r.measures) if r else {},
+               "tallies": dict(t.tallies)}
+        m = t.mark
+        moved = step_grew or (not m) or P.grew(m.get("measures"), now["measures"]) or \
+            P.grew(m.get("tallies"), now["tallies"]) or (
+                now["progress"] is not None and m.get("progress") is not None and now["progress"] > m["progress"] + 1e-6)
+        if moved:
+            t.mark, t.spent = now, 0.0
+            self.save()
+        return moved
+
+    def spend(self, t: Task, units: float, why: str) -> bool:
+        """Spend the task's progress budget on work that moved nothing; True when it is used up."""
+        t.spent = round(t.spent + units, 3)
+        t.history = (t.history + [{"title": "no progress", "outcome": f"spent {units:g}", "reason": why}])[-30:]
         self.save()
-        return t.decisions_without_progress >= DECISIONS_WITHOUT_PROGRESS
+        return t.spent >= PROGRESS_BUDGET
 
     # ---------------------------------------------------------------- views
 
     def brief(self, state: dict | None = None, places: dict | None = None, limit: int = 6) -> dict:
         """What the Controller sees about the board (and what `board()` / the CLI show)."""
         out: dict[str, Any] = {"paused": self.b.paused, "tasks": []}
-        for t in [x for x in self.b.tasks if x.status in LIVE][:limit]:
+        for t in self.b.live()[:limit]:
             row: dict[str, Any] = {"id": t.id, "task": t.text, "by": t.by, "status": t.status}
             if t.because:
                 row["because"] = t.because
@@ -725,7 +712,7 @@ class BoardOps:
                 if state is not None and step.status == "active":
                     row["step_progress"] = P.evaluate(step.success, state, self.step_ctx(t, step, state, places)).detail
             if t.tallies:
-                row["collected"] = {k: v for k, v in t.tallies.items()}
+                row["collected"] = dict(t.tallies)
             if t.help:
                 row["asked"] = t.help.question
             if t.end_reason and t.status in ("parked", "waiting_help", "paused"):
@@ -740,19 +727,20 @@ class BoardOps:
 
 
 class HourlyWindow:
-    """At most ``per_hour`` model requests in any sliding hour, persisted in the board (one atomic file).
-    The daily dollar cap is brain/budget.py's job; this only spreads the Director's calls over time."""
+    """At most ``per_hour`` model requests in any sliding hour, in its own small file next to the board
+    (``director_window.json``; simplify item 1: not part of the plan). The daily dollar cap is brain/budget.py's."""
 
-    def __init__(self, board_store: BoardStore, per_hour: int | None = None, clock: Callable[[], float] = time.time):
-        self.store = board_store
+    def __init__(self, path: Path, per_hour: int | None = None, clock: Callable[[], float] = time.time):
+        self.path = Path(path)
         self.per_hour = int(per_hour if per_hour is not None else os.environ.get("DW_DIRECTOR_CALLS_PER_HOUR", "20"))
         self.clock = clock
+        raw = read_json(self.path, default={}) or {}
+        self.calls: list[float] = [float(c) for c in raw.get("calls") or [] if isinstance(c, (int, float))]
 
     def _prune(self) -> list[float]:
         now = self.clock()
-        calls = [c for c in self.store.board.budget_calls if now - c < 3600.0]
-        self.store.board.budget_calls = calls
-        return calls
+        self.calls = [c for c in self.calls if now - c < 3600.0]
+        return self.calls
 
     def left(self) -> int:
         return max(0, self.per_hour - len(self._prune()))
@@ -762,8 +750,8 @@ class HourlyWindow:
 
     def spend(self, n: int = 1) -> None:
         self._prune()
-        self.store.board.budget_calls.extend([self.clock()] * n)
-        self.store.save()
+        self.calls.extend([self.clock()] * n)
+        atomic_write(self.path, json.dumps({"schema": "dw_director_window/1", "calls": self.calls}))
 
     def wait_s(self) -> float:
         """Seconds until one more request is allowed (0 when one is allowed now)."""

@@ -1,14 +1,17 @@
 """What the Director has looked up or observed, and how fast its work goes (docs/design/director.md 2.10, 2.11).
 
 KnowledgeMemory (per world, knowledge_memory.json): facts {key, value, source, confidence, ts, build, refuted?}.
-  * Sources: game_data and perception are confidence "high" and win over the wiki ("medium"); a fact refuted
-    in game (DECKARD's idea: wiki edges are hypotheses) stays, marked refuted, so it isn't trusted again.
+  * Sources: game_data and perception are confidence "high" and win over the wiki ("medium"); "low" marks an open
+    question (a knowledge gap the Director declared: it lives here, never in the capability-gap log).
+  * ``refute(key, why)``: a fact contradicted by what he saw in game (DECKARD's idea: wiki edges are hypotheses)
+    stays, marked refuted, so it isn't trusted again; ``recall`` ranks refuted facts last.
   * ``recall(query)`` ranks facts by shared words (plurals folded): the cache the Director checks before a lookup.
   * ``matches_unknown(query, facts)`` tells whether a lookup answers a fact the plan listed as unknown (the
     benchmark scores needed vs needless lookups).
 Efficiency (per world, efficiency.json + efficiency.jsonl): verified rates (per minute) per key, the best seen,
 and the trend log of reflections {ts, task, step, key, rate, best, alternatives_offered, change}.
-The agent loop writes; the Director's worker reads ``snapshot()`` copies only.
+The agent loop writes (``put`` only updates memory: ``save()`` once per batch); the Director's worker reads
+``snapshot()`` copies only.
 """
 from __future__ import annotations
 
@@ -18,7 +21,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from .board import _atomic_write
+from .fileio import append_jsonl, atomic_write, read_json
 from .knowledge import _terms  # the index's stemmer (plurals folded consistently)
 from .situation import tokens
 
@@ -30,20 +33,14 @@ class KnowledgeMemory:
         self.path = Path(directory) / "knowledge_memory.json"
         self.build = build
         self.clock = clock
-        self.facts: dict[str, dict] = self._load()
-
-    def _load(self) -> dict[str, dict]:
-        try:
-            raw = json.loads(self.path.read_text(encoding="utf-8"))
-            return {f["key"]: f for f in raw.get("facts", []) if isinstance(f, dict) and f.get("key")}
-        except (OSError, ValueError):
-            return {}
+        raw = read_json(self.path, default={}) or {}
+        self.facts: dict[str, dict] = {f["key"]: f for f in raw.get("facts", []) if isinstance(f, dict) and f.get("key")}
 
     def save(self) -> None:
-        _atomic_write(self.path, json.dumps({"schema": "dw_knowledge_memory/1", "facts": list(self.facts.values())},
-                                            indent=1, ensure_ascii=False))
+        atomic_write(self.path, json.dumps({"schema": "dw_knowledge_memory/1", "facts": list(self.facts.values())},
+                                           ensure_ascii=False))
 
-    def put(self, key: str, value: Any, source: str, confidence: str | None = None, save: bool = True) -> dict:
+    def put(self, key: str, value: Any, source: str, confidence: str | None = None) -> dict:
         key = " ".join(str(key).split())[:200]
         conf = confidence or ("high" if source in HIGH else "medium")
         old = self.facts.get(key)
@@ -52,8 +49,6 @@ class KnowledgeMemory:
         rec = {"key": key, "value": value, "source": source, "confidence": conf, "ts": round(self.clock()),
                "build": self.build}
         self.facts[key] = rec
-        if save:
-            self.save()
         return rec
 
     def refute(self, key: str, why: str) -> dict | None:
@@ -87,14 +82,14 @@ def recall(facts: dict[str, dict], query: str, limit: int = 5) -> list[dict]:
 
 
 def matches_unknown(query: str, plan_facts: list[dict]) -> bool:
-    """Did this lookup ask about a fact the plan had listed as unknown? (2 shared words, or all of a short one)"""
+    """Did this lookup ask about a fact the plan had listed as unknown? (2 shared words, or half a short one)"""
     q = _terms(query)
     for f in plan_facts or []:
         if not isinstance(f, dict) or f.get("status") != "unknown":
             continue
         ft = _terms(f.get("fact"))
         shared = q & ft
-        if ft and shared and (len(shared) >= 2 or len(shared) * 2 >= len(ft)):  # at least half its words
+        if ft and shared and (len(shared) >= 2 or len(shared) * 2 >= len(ft)):
             return True
     return False
 
@@ -104,28 +99,24 @@ class Efficiency:
         self.path = Path(directory) / "efficiency.json"
         self.trend = Path(directory) / "efficiency.jsonl"
         self.clock = clock
-        try:
-            self.best: dict[str, dict] = json.loads(self.path.read_text(encoding="utf-8")).get("best", {})
-        except (OSError, ValueError):
-            self.best = {}
+        self.best: dict[str, dict] = (read_json(self.path, default={}) or {}).get("best", {})
 
     @staticmethod
     def rate(amount: float, seconds: float) -> float | None:
         return round(60.0 * amount / seconds, 3) if seconds > 0 and amount > 0 else (0.0 if seconds > 0 else None)
 
-    def record(self, key: str, rate: float | None, where: Any = None) -> dict:
+    def record(self, key: str, rate: float | None) -> dict:
         """Record a verified rate for a key; returns {rate, best, ratio} (ratio = rate / best before this one)."""
         prev = self.best.get(key)
         best = prev["rate"] if prev else None
         if rate is not None and (best is None or rate > best):
-            self.best[key] = {"rate": rate, "at": round(self.clock()), "where": where}
-            _atomic_write(self.path, json.dumps({"schema": "dw_efficiency/1", "best": self.best}, indent=1))
+            self.best[key] = {"rate": rate, "at": round(self.clock())}
+            atomic_write(self.path, json.dumps({"schema": "dw_efficiency/1", "best": self.best}))
         ratio = (rate / best) if rate is not None and best else None
         return {"rate": rate, "best": best, "ratio": ratio}
 
     def log_reflection(self, task: str, step: str, key: str, rate: float | None, best: float | None,
                        alternatives: list, change: str | None) -> None:
-        with self.trend.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"ts": round(self.clock(), 3), "task": task, "step": step, "key": key, "rate": rate,
-                                "best": best, "alternatives_offered": alternatives, "change": change},
-                               ensure_ascii=False, default=str) + "\n")
+        """One line per reflection: the alternatives actually offered to the model and what it changed."""
+        append_jsonl(self.trend, {"ts": round(self.clock(), 3), "task": task, "step": step, "key": key, "rate": rate,
+                                  "best": best, "alternatives_offered": alternatives, "change": change})

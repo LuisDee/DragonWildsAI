@@ -1787,3 +1787,21 @@ Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probe
 - Transient signals (view target, input mode) evaluate to null when absent, never to fail.
 - Enchant Weapon (Fire) is checked by `held_item_effect` on the probe's `held.effects`, which reads `HeldEquipmentActorRight.MagicalHeldEquipmentEffectInfo.EffectData`, for example `HEED_EnchantWeaponFire`.
 - **Referee v1.4 (registered on dev at 07:58 UTC; not yet seen firing):** RegisterHook succeeded for `/Script/Dominion.OculusPawn:Multicast_OnOculusActivated`, `/Script/Dominion.PersonalInventoryComponent:OpenPersonalInventory` (EPersonalInventoryOpenMethod Manual=0, Spell=1) and `:Client_TogglePersonalInventory`. It also polls `pawn.OculusComponent:IsOculusActive()` every 250 ms. All of these emit `spell_state`.
+
+## Director live smoke, run 1 (2026-10-26 07:46-07:52 UTC, dev world, client build 26162923, server build 26161880; Director agent; docs/design/director.md §14)
+- **Setup:** `DW_DIRECTOR=1 DW_DIRECTOR_CALLS_PER_HOUR=10 tools\start_brain.ps1 -Body client -World dev_director`. `session_start` showed world=dev_director and director=true. The job came in by CLI: `tools/board.py add "chop 5 ash logs, then drop them on the ground next to you" --world dev_director`. Log: `logs/brain-live-20261026-084634-10200.jsonl`.
+- **What worked:**
+  - Inbox ingest happened on the next tick.
+  - Real Sonnet researched (recall, map_memory, look) and planned explore → chop → drop with checkable core predicates.
+  - Board runs verified each step from state, e.g. "Ash Logs +6/5" and "Ash Logs -5/5 left the inventory".
+  - A failed step (no progress twice) became a DEPS replan ("trees here depleted, explore further"), which then worked.
+  - The hourly window held: 7 Sonnet requests, then the job went to `waiting_budget` and a notice was voiced.
+  - There were no director_error or board_quarantined rows.
+  - Step-to-step gaps were p50 3.0 s, almost all Haiku thinking (`tools.obs task`).
+- **Job did not finish (Director bug, fixed offline):** Sonnet's done test was `all[gained Ash Logs 5, lost Ash Logs 5]` since the job began. Both read the same net delta, so it can never pass. The tally reached 13 logs collected, with three drops of 5. The Validator now sends this back for repair with the reason, and suggests tally + on_ground (`director.net_conflicts`, test `test_gained_and_lost_of_one_item_in_one_test_go_back_for_repair`).
+- **Controller ran ahead:** in the first step ("explore to find ash trees") Haiku did the whole job (gather + drop), so the later steps counted nothing. STEP_INSTRUCTIONS now say "do this step only: the job's later steps come to you as their own steps". This is information, not a veto.
+- **Voice bugs (controller/voice owners):**
+  - Haiku's content "EMPTY" was **said in chat** 3 times; the rest were suppressed only as near-duplicates.
+  - "hey! what we up to?" was said at the start of a body-initiated board run, twice.
+- **Survival:** hydration fell to 18.7/75 with no drink; the reflex Clean Water use failed (`reflex_use_failed`).
+- **Spend:** Sonnet 7 requests ($0.11). Haiku made **38** Controller calls ($0.024), **over the 20 I had stated**. That is 12 board runs at 2–4 turns each plus notices. A future smoke needs a hard Controller-call stop, not only an estimate.

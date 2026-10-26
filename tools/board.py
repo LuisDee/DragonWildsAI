@@ -17,59 +17,50 @@ import os
 import sys
 from pathlib import Path
 
-from brain import paths
-from brain.board import Board, append_inbox
-from brain.capability_gaps import default_path as gaps_path
+from brain import paths, worlds
+from brain.board import ENDED, GOALS_NAME, INBOX_NAME, BoardOps, BoardStore, append_inbox
+from brain.capability_gaps import GapLog
 
 
 def world_dir(world: str | None) -> Path:
     root = paths.state_dir() / "worlds"
-    name = world or os.environ.get("DW_WORLD_GUID")
+    name = worlds.sanitize(world or os.environ.get("DW_WORLD_GUID"))
     if name:
         return root / name
     dirs = [d for d in root.glob("*") if d.is_dir()] if root.exists() else []
     if not dirs:
         raise SystemExit(f"no world folders under {root}; pass --world")
-    return max(dirs, key=lambda d: (d / "goals.json").stat().st_mtime if (d / "goals.json").exists() else 0)
-
-
-def _read_board(d: Path) -> Board:
-    p = d / "goals.json"
-    if not p.exists():
-        return Board()
-    return Board.model_validate(json.loads(p.read_text(encoding="utf-8")))
+    return max(dirs, key=lambda d: (d / GOALS_NAME).stat().st_mtime if (d / GOALS_NAME).exists() else 0)
 
 
 def cmd_list(d: Path, as_json: bool) -> int:
-    b = _read_board(d)
-    rows = [{"id": t.id, "status": t.status, "by": t.by, "task": t.text,
-             "step": (t.next_step().title if t.next_step() else None), "collected": t.tallies or None,
-             "why": t.end_reason, "current": t.id == b.current} for t in b.tasks]
+    store = BoardStore(d, readonly=True)  # never writes, quarantines or creates anything
+    b = store.board
+    view = BoardOps(store).brief(limit=50)  # the same view the Controller's board() tool shows
+    ended = [{"id": t.id, "status": t.status, "by": t.by, "task": t.text, "why": t.end_reason,
+              "collected": t.tallies or None} for t in b.tasks if t.status in ENDED][-10:]
     if as_json:
-        print(json.dumps({"world": d.name, "paused": b.paused, "tasks": rows}, indent=1, ensure_ascii=False))
+        print(json.dumps({"world": d.name, **view, "ended": ended}, indent=1, ensure_ascii=False))
         return 0
     print(f"board ({d.name}){'  PAUSED: ' + str(b.paused.get('reason')) if b.paused else ''}")
-    for r in rows:
-        mark = "*" if r["current"] else " "
-        extra = "".join(f"  [{k}: {r[k]}]" for k in ("step", "collected", "why") if r[k])
+    for r in view["tasks"] + ended:
+        mark = "*" if r["id"] == b.current else " "
+        extra = "".join(f"  [{k}: {r[k]}]" for k in ("step", "collected", "why", "asked") if r.get(k))
         print(f"{mark} {r['id']}  {r['status']:<14} {r['by']:<16} {r['task']}{extra}")
-    pending = d / "board_inbox.jsonl"
+    pending = d / INBOX_NAME
     if pending.exists() and pending.stat().st_size > b.inbox_offset:
         print("  (commands waiting in the inbox for the brain to pick up)")
     return 0
 
 
 def cmd_gaps(as_json: bool) -> int:
-    p = gaps_path()
-    rows = json.loads(p.read_text(encoding="utf-8")).get("gaps", []) if p.exists() else []
-    rows = sorted(rows, key=lambda g: (g.get("kind") == "knowledge", -int(g.get("count") or 0)))  # backlog first
+    rows = GapLog().backlog()  # what to build next, most counted first (claims about existing tools left out)
     if as_json:
         print(json.dumps(rows, indent=1, ensure_ascii=False))
         return 0
     for g in rows:
         last = (g.get("examples") or [{}])[-1]
-        print(f"{int(g.get('count') or 0):>4}  {g.get('kind', '?'):<10} {g['primitive']:<32} "
-              f"{'(tool exists: a claim) ' if g.get('tool_exists') else ''}{last.get('why') or ''}")
+        print(f"{int(g.get('count') or 0):>4}  {g.get('kind', '?'):<10} {g['primitive']:<32} {last.get('why') or ''}")
     return 0
 
 
@@ -102,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
                          "kind": "open" if args.open else "specific"})
     else:
         append_inbox(d, {"op": "cancel", "id": args.id, "reason": args.reason})
-    print(f"queued for the brain ({d / 'board_inbox.jsonl'})")
+    print(f"queued for the brain ({d / INBOX_NAME})")
     return 0
 
 

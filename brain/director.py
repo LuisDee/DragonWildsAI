@@ -1,6 +1,6 @@
 """The Director: a Sonnet planner over the task board, and the bridge that runs board steps as Controller runs.
 
-Design: docs/design/director.md (rev 2 + section 12), review docs/reviews/2026-10-25-director-review.md.
+Design: docs/design/director.md (rev 2 + sections 12-14), review docs/reviews/2026-10-25-director-review.md.
 
 Three loops at three speeds: Lua reflexes (frame) -> the Haiku Controller (events) -> the Director (step
 boundaries only). The Director never acts and never speaks: it decides steps (each with a success predicate,
@@ -10,9 +10,12 @@ board starts (``Agent.run_directed``). Done is decided by code from fresh game s
 Threads (review H11): ``tick()`` runs on the agent loop and is the only writer of the board, the gap log, the
 knowledge memory and the skill files. A decision (one or more model requests with read-only research tools)
 runs on ONE worker thread over an immutable snapshot; its result is applied by a later ``tick()`` only if the
-board did not change meanwhile (versioned, review H7a). Body reads the worker needs (the client's own crafting
-planner: craft_plan / recipes / stations) are proxied: the worker posts them and ``tick()`` serves them on the
-agent loop, between runs.
+task's plan did not change meanwhile (``BoardOps.plan_key``, review H7a). Body reads the worker needs (the
+client's own crafting planner: craft_plan / recipes / stations) are proxied: the worker posts them and ``tick()``
+serves them on the agent loop, between runs.
+
+Stopping: one progress budget per task (brain/board.py); the model sees every failure in its history and decides
+what to try next (no step is ever refused).
 
 Budget: every model request needs ``budget.allows("director")`` (Luis's daily cap, brain/budget.py) and room in
 the hourly window (board.HourlyWindow, DW_DIRECTOR_CALLS_PER_HOUR). DW_DIRECTOR=0 stops it on the next tick.
@@ -29,34 +32,42 @@ import os
 import queue
 import threading
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
 
 import jsonschema
 
 from . import item_stats
+from . import needs
 from . import predicates as P
-from .board import (ENDED, BoardError, BoardOps, BoardStore, HourlyWindow, Loop, Step, Task, apply_inbox_record,
-                    task_items)
-from .capability_gaps import GapLog
+from .board import ENDED, WINDOW_NAME, BoardError, BoardOps, BoardStore, HourlyWindow, Loop, Step, Task, \
+    apply_inbox_record
+from .capability_gaps import GapLog, default_path
+from .interface import Reason
 from .knowledge_memory import Efficiency, KnowledgeMemory, matches_unknown, recall
 from .llm_json import BudgetStop, DecisionError, extract_json, json_decision
 
-MAX_REPLANS = 6
 GAP_KINDS = ("action", "perception", "knowledge")
 RESEARCH_ROUNDS = 2  # wave 5: real Sonnet used every round it was given and batched 2-4 calls per round
-MAX_REQUESTS = 5  # per decision: the research rounds + the answer + 2 repairs
+MAX_REQUESTS = 5  # per decision: the research rounds + the answer + 2 repairs (the advisory round shares them)
 MAX_STEPS = 12
 RESUME_IDLE_S = 30.0
 DECISION_TIMEOUT_S = 90.0
-STEP_WALL_S = 1800.0
 REVIEW_EVERY_S = 300.0
 REFLECT_RATIO = 0.7
 REFLECT_EVERY_LOOPS = 3
-UNCOUNTED_FACTOR = 3  # runs ended by chat/interrupts: at most 3 x max_runs per attempt (re-check 3)
 LEARN_MIN_WINDOW = 0.3  # skill learning only with >= 30 % of the hour's window left
 PROXIED_READS = ("craft_plan", "recipes", "stations")
+# What spends the task's progress budget (brain/board.PROGRESS_BUDGET): work that moved nothing.
+SPEND = {"run": 1.0, "uncounted_run": 0.25, "failed": 1.0, "decision": 1.0, "loop_no_gain": 2.0}
+NO_CURRENT_STEP = "no_current_step"  # report_step outside a board run
+BOARD_REFUSED = "board_refused"  # a board rule refused the tool (the reason is in data.detail)
+MAX_TRANSITIONS = 8  # per tick: a passed step or a landed decision starts the next one at once (no tick of dead time).
+# The bound only stops a tight loop; chat is checked between transitions and runs pump body events themselves.
+MAX_REMEMBERED = 200  # per-task / per-step memories kept by the Director (pruned)
 
 # ------------------------------------------------------------------------------ the Controller's board tools
 
@@ -101,16 +112,18 @@ PERSONA_LINES = """Your task board (board in your context; the board tools):
   tells you what you are doing and why.
 - body_event board_step: a step of your OWN current board job, not a player's request. Work it with your tools.
   The board checks in the game when it is done. If you are blocked, call report_step(blocked, the specific reason).
-  If resumed is true and the player had told you to stop, wait or stay, call pause_board instead of working.
+  If resumed is true, preempted_by says who interrupted you, with what and what they said: if they wanted you to
+  stop, wait or stay, call pause_board instead of working.
 - body_event board_notice: something about your board the player should hear (a question, a gap in what you can
   do, a finished job). Tell them once, in your own words."""
 
 STEP_INSTRUCTIONS = ("This is a step of your own current job from your task board. Work on it with your tools "
-                     "(several in order are fine). The board checks the step in the game by itself. If you are "
+                     "(several in order are fine). Do this step only: the job's later steps come to you as their own "
+                     "steps, so don't do their work now. The board checks the step in the game by itself. If you are "
                      "blocked, call report_step with outcome blocked and the specific reason. Talk only when it "
                      "helps the player: when you start a new job (say what done will mean), worthwhile facts in "
-                     "just_completed, and each tell_player item once. If resumed is true: a player interrupted "
-                     "you; if they told you to stop, wait or stay, call pause_board instead of working.")
+                     "just_completed, and each tell_player item once. If resumed is true, preempted_by says what "
+                     "the player said and did: if they wanted you to stop, wait or stay, call pause_board instead.")
 NOTICE_INSTRUCTIONS = ("Tell the player this about your task board once, briefly, in your own words "
                        "(and nothing else unless they asked).")
 
@@ -143,7 +156,8 @@ Rules:
 - The work of THIS job goes in its steps (gathering, crafting, travelling for it). add_tasks is only for a separate
   job he should do first that is worth its own place on the board (e.g. a gear upgrade he needs anyway); at most
   one per answer.
-- If you can't make progress with his tools and what you know, ask the player ONE specific question (ask_help).
+- steps_so_far shows what failed and why: change what you try, or ask. If you can't make progress with his tools
+  and what you know, ask the player ONE specific question (ask_help).
 Answer with ONE JSON object only:
 {output}"""
 
@@ -167,9 +181,9 @@ KIND_NOTES = {
     "prepare": ("The next step is risky (see prepare_for). Decide the preparation from combat facts: gear, the "
                 "enchant or damage type that fits, buffs, food and drink, and an escape plan (abort_if + escape). "
                 "Return the prep steps followed by the risky step, or the risky step alone if no prep is needed."),
-    "reflect": ("A loop finished another pass. Compare the rate with the best seen and the alternatives "
-                "(spells, other spots, lodestones, better tools) and keep or change the remaining plan; say what "
-                "you changed in description."),
+    "reflect": ("A loop finished another pass. Compare the rate with the best seen and the alternatives listed "
+                "(spells he can cast, other known spots) and keep or change the remaining plan; say what you "
+                "changed in description."),
     "review": "Review the plan against the current state; replace the pending steps only if something changed.",
     "help_answer": "The player answered your question (notes_from_player). Plan again with it.",
 }
@@ -239,7 +253,7 @@ class BodyProxy:
         box: dict = {"ev": threading.Event()}
         self.q.put((tool, args, box))
         if not box["ev"].wait(self.timeout_s):
-            return {"ok": False, "reason": "busy", "data": {"detail": "the body is busy right now; plan without it"}}
+            return {"ok": False, "reason": Reason.BUSY, "data": {"detail": "the body is busy right now; plan without it"}}
         return box["res"]
 
     def serve(self) -> None:
@@ -256,7 +270,7 @@ class BodyProxy:
         try:
             return self.call(tool, args)
         except Exception as exc:  # a read failing is information
-            return {"ok": False, "reason": "body_error", "data": {"error": repr(exc)[:200]}}
+            return {"ok": False, "reason": Reason.BODY_ERROR, "data": {"error": repr(exc)[:200]}}
 
 
 @dataclass
@@ -270,25 +284,29 @@ class Decision:
     budget_stop: bool = False
 
 
-def _items_touched(rec: dict) -> set[str]:
-    out: set[str] = set()
-    for src in (rec.get("args") or {}, rec.get("data") or {}):
-        if not isinstance(src, dict):
-            continue
-        for k in ("item", "resource"):
-            if isinstance(src.get(k), str):
-                out.add(src[k])
-        for p in src.get("picked") or []:
-            if isinstance(p, dict) and isinstance(p.get("item"), str):
-                out.add(p["item"])
-    return out
-
-
-def _picked_world_items(rec: dict) -> list[str]:
-    d = rec.get("data") if isinstance(rec.get("data"), dict) else {}
-    out = [str(p.get("world_item")) for p in d.get("picked") or [] if isinstance(p, dict) and p.get("world_item")]
-    if d.get("world_item") and rec.get("tool") != "drop":
-        out.append(str(d["world_item"]))
+def effects_of(rec: dict) -> dict:
+    """A body action's effects in one shape: {items_in: [{item, count, world_item?}], items_out: [{item, count,
+    world_items}], spots_empty: [{item, why}]}. The Director reads only this (simplify item 2). A result that
+    carries its own ``effects`` block (asked of the bridge client) is used as it is; until every tool sends one,
+    this is the one place that reads the tools' own result fields."""
+    if isinstance(rec.get("effects"), dict):
+        e = rec["effects"]
+        return {k: list(e.get(k) or []) for k in ("items_in", "items_out", "spots_empty")}
+    args = rec.get("args") if isinstance(rec.get("args"), dict) else {}
+    data = rec.get("data") if isinstance(rec.get("data"), dict) else {}
+    out: dict[str, list] = {"items_in": [], "items_out": [], "spots_empty": []}
+    picked = [p for p in data.get("picked") or [] if isinstance(p, dict)]
+    if picked:
+        out["items_in"] += [{"item": p.get("item"), "count": p.get("count") or 1, "world_item": p.get("world_item")}
+                            for p in picked]
+    elif rec.get("ok") and data.get("world_items"):  # items that left him onto the ground
+        out["items_out"].append({"item": data.get("item") or args.get("item"), "count": data.get("count") or
+                                 args.get("count"), "world_items": [str(w) for w in data["world_items"]]})
+    elif data.get("item") or args.get("item") or args.get("resource"):
+        thing = data.get("item") or args.get("item") or args.get("resource")
+        out["items_in" if rec.get("ok") else "items_out"].append({"item": thing, "count": data.get("count")})
+    if not rec.get("ok") and rec.get("reason") == Reason.NOTHING_IN_RANGE:
+        out["spots_empty"].append({"item": args.get("resource") or data.get("item"), "why": rec.get("reason")})
     return out
 
 
@@ -368,11 +386,8 @@ class Research:
         self.lookups: list[dict] = []
 
     def tools(self) -> list[dict]:
-        out = list(RESEARCH_TOOLS)
-        if self.knowledge is None:
-            out = [t for t in out if t["function"]["name"] != "lookup"]
-        out += [PROXY_TOOL_DOCS[n] for n in PROXIED_READS if n in self.body_tools and self.proxy is not None]
-        return out
+        out = [t for t in RESEARCH_TOOLS if self.knowledge is not None or t["function"]["name"] != "lookup"]
+        return out + [PROXY_TOOL_DOCS[n] for n in PROXIED_READS if n in self.body_tools and self.proxy is not None]
 
     def run(self, name: str, args: dict) -> Any:
         if name == "recall":
@@ -386,12 +401,11 @@ class Research:
         if name == "map_memory":
             from .map_memory import query  # the capability agent's store (pure query over a snapshot)
             mem = self.snap.get("map") or {}
-            near = (self.snap.get("state") or {}).get("position")
-            rows = query(mem, kind=args.get("kind"), name=args.get("name"), item=args.get("item"), near=near,
-                         limit=int(args.get("limit") or 8), now=self.snap.get("now"))
-            neg = [n for n in mem.get("negative") or []
-                   if not args.get("item") or n.get("item") == args.get("item")][-8:]
-            return {"seen": rows, "empty_or_mined_out": neg}
+            rows = query(mem, kind=args.get("kind"), name=args.get("name"), item=args.get("item"),
+                         near=(self.snap.get("state") or {}).get("position"), limit=int(args.get("limit") or 8),
+                         now=self.snap.get("now"))
+            neg = [n for n in mem.get("negative") or [] if not args.get("item") or n.get("item") == args.get("item")]
+            return {"seen": rows, "empty_or_mined_out": neg[-8:]}
         if name == "skills_progress":
             return skills_progress(self.snap["state"])
         if name == "learned_skills":
@@ -402,35 +416,20 @@ class Research:
         return {"ok": False, "error": f"no research tool {name!r}"}
 
 
-def _recipes_by_output() -> dict[str, list[dict]]:
-    from .knowledge import data_dir
-    files = sorted(Path(data_dir()).glob("recipes_*.json"))
-    out: dict[str, list[dict]] = {}
-    if not files:
-        return out
-    try:
-        data = json.loads(files[-1].read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return out
+@lru_cache(maxsize=1)
+def recipes_by_output() -> dict[str, list[dict]]:
+    """item id -> [{recipe, stations (display names), skill, xp}] from the shared recipe catalog (needs.catalog)."""
+    data = needs.catalog()
     stations = data.get("stations") or {}
+    out: dict[str, list[dict]] = {}
     for rid, r in (data.get("recipes") or {}).items():
         if r.get("test"):
             continue
+        st = [(stations.get(s) or {}).get("display_name") or s for s in r.get("stations") or []]
         for o in r.get("outputs") or []:
-            st = [(stations.get(s) or {}).get("display_name") or s for s in r.get("stations") or []]
             out.setdefault(o.get("item"), []).append({"recipe": rid, "stations": st, "skill": r.get("skill"),
                                                       "xp": r.get("xp")})
     return out
-
-
-_RECIPES: dict[str, list[dict]] | None = None
-
-
-def recipes_by_output() -> dict[str, list[dict]]:
-    global _RECIPES
-    if _RECIPES is None:
-        _RECIPES = _recipes_by_output()
-    return _RECIPES
 
 
 def compare_gear(state: dict, category: str | None, slot: str | None, limit: int = 8) -> dict:
@@ -459,7 +458,7 @@ def compare_gear(state: dict, category: str | None, slot: str | None, limit: int
     if best:
         for r in rows:
             r["power_level_vs_yours"] = (r.get("power_level") or 0) - (best.get("power_level") or 0)
-        rows = [r for r in rows if r["power_level_vs_yours"] >= 0][:limit]
+        rows = [r for r in rows if r["power_level_vs_yours"] >= 0]
     return {"yours": best, "options": rows[:limit]}
 
 
@@ -468,34 +467,61 @@ def skills_progress(state: dict) -> dict:
     for iid, recs in recipes_by_output().items():
         for r in recs:
             if r.get("skill") and r.get("xp"):
-                by_skill.setdefault(str(r["skill"]), []).append(
+                by_skill.setdefault(P._skill_key(r["skill"]), []).append(
                     {"makes": (item_stats.stats(iid) or {}).get("name") or iid, "xp": r["xp"], "at": r["stations"]})
     rows = []
     for r in state.get("skills") or []:
-        if not isinstance(r, dict):
-            continue
-        key = P._skill_key(r.get("skill"))
-        recs = next((v for k, v in by_skill.items() if P._skill_key(k) == key), [])
-        rows.append({"skill": r.get("skill"), "level": r.get("level"), "xp": r.get("xp"),
-                     "recipes_awarding_xp": sorted(recs, key=lambda x: -(x["xp"] or 0))[:5]})
+        if isinstance(r, dict):
+            recs = by_skill.get(P._skill_key(r.get("skill")), [])
+            rows.append({"skill": r.get("skill"), "level": r.get("level"), "xp": r.get("xp"),
+                         "recipes_awarding_xp": sorted(recs, key=lambda x: -(x["xp"] or 0))[:5]})
     return {"skills": rows}
 
 
 # ------------------------------------------------------------------------------ decision validation
 
+BOOKKEEPING = tuple(getattr(P, "BOOKKEEPING_FIELDS", ("baseline", "clock", "tallies")))
+NET_CONFLICT = ("{where}: 'gained' and 'lost' of {item} in one 'all' read the same net count since the start "
+                "(one is the other with the sign flipped), so both can never be true. To test collect-then-drop, "
+                "use tally (what was collected over the job) with on_ground (what lies there now), or put gained "
+                "and lost in separate steps")
+
+
+def net_conflicts(p: Any) -> list[str]:
+    """Items that one 'all' tests both as gained and as lost (unsatisfiable: both read one net delta; live smoke
+    2026-10-26, "chop 5 logs then drop them")."""
+    if not isinstance(p, dict) or len(p) != 1:
+        return []
+    k, v = next(iter(p.items()))
+    out: list[str] = []
+    if k in ("all", "any") and isinstance(v, list):
+        if k == "all":
+            seen: dict[str, dict[str, str]] = {"gained": {}, "lost": {}}
+            for sub in v:
+                if isinstance(sub, dict) and len(sub) == 1 and next(iter(sub)) in seen:
+                    kk, a = next(iter(sub.items()))
+                    for i in (a.get("ids") or [a.get("item")]):
+                        seen[kk][str(i)] = str(a.get("item"))
+            out += [seen["gained"][i] for i in seen["gained"] if i in seen["lost"]]
+        for sub in v:
+            out += net_conflicts(sub)
+    elif k == "not":
+        out += net_conflicts(v)
+    return list(dict.fromkeys(out))
+
 
 class Validator:
-    """Turns the model's JSON into a checked decision (predicates validated against the catalogs, trivial tests
-    flagged as information on the first answer, unknown facts nudged once)."""
+    """Turns the model's JSON into a checked decision: predicates validated against the catalogs (problems go back
+    as a repair), and information (facts listed as unknown, tests already true now) returned as advisories for
+    one advisory round (llm_json, simplify item 4)."""
 
-    def __init__(self, kind: str, state: dict, task: dict, items: P.Items | None = None, research_left: bool = True,
-                 places: dict | None = None):
+    def __init__(self, kind: str, state: dict, task: dict, items: P.Items | None = None, places: dict | None = None,
+                 research_left: Callable[[], bool] = lambda: True):
         self.kind, self.state, self.task = kind, state, task
+        self.research_left = research_left  # unknown facts are worth an advisory only while he can still look
         self.places = places or {}
         self.unknown_seen: list[dict] = []  # facts listed as unknown in any round (lookups needed vs needless)
         self.items = items or P.Items()
-        self.research_left = research_left
-        self.nudged = False
 
     def _pred(self, p: Any, where: str, errs: list[str]) -> dict | None:
         if p is None:
@@ -505,9 +531,14 @@ class Validator:
             errs.extend(f"{where}: {x['error']}" + (f" (did you mean: {', '.join(x['candidates'])}?)"
                                                      if x.get("candidates") else "") for x in problems)
             return None
-        return P.validate(p, self.items)
+        v = P.validate(p, self.items)
+        bad = net_conflicts(v)
+        if bad:
+            errs.extend(NET_CONFLICT.format(where=where, item=i) for i in bad)
+            return None
+        return v
 
-    def __call__(self, text: str, round_: int) -> dict:
+    def __call__(self, text: str, round_: int) -> tuple[dict, list[str]]:
         raw = json.loads(extract_json(text))
         if not isinstance(raw, dict):
             raise ValueError("answer with one JSON object")
@@ -519,16 +550,14 @@ class Validator:
         self.unknown_seen += [f for f in out["facts"] if f.get("status") == "unknown"]
         fresh = {"baseline": P.snapshot(self.state, t=0), "tallies": {}, "episodes": [], "now": 0,
                  "places": self.places}
-        ts = raw.get("task_success")
         out["task_success"], out["task_success_trivial"] = None, False
-        if ts is not None:
-            out["task_success"] = self._pred(ts, "task_success", errs)
+        if raw.get("task_success") is not None:
+            out["task_success"] = self._pred(raw["task_success"], "task_success", errs)
             tr = P.evaluate(out["task_success"], self.state, fresh) if out["task_success"] else None
             if tr is not None and tr.passed is True:
                 out["task_success_trivial"] = True
-                info.append("task_success is already true now")
-            elif tr is not None and tr.passed is None and not any(m in ("baseline", "clock", "tallies")
-                                                                   for m in tr.missing):
+                info.append("task_success is already true now.")
+            elif tr is not None and tr.passed is None and not set(tr.missing) & set(BOOKKEEPING):
                 # wave 5 (quest): a job whose done test can never be checked would never end; say why instead
                 errs.append(f"task_success can't be checked from what the body reports (missing: "
                             f"{', '.join(tr.missing)}); choose a checkable test, or ask_help and name the gap")
@@ -548,7 +577,7 @@ class Validator:
             # at home now and not after the trip); a step already true when it activates is done at once
             trivial = r.passed is True and not steps
             if trivial:
-                info.append(f"steps[{i}] '{s['title']}': its test is already true now ({r.detail})")
+                info.append(f"steps[{i}] '{s['title']}': its test is already true now ({r.detail}).")
             if r.passed is None:
                 errs.append(f"steps[{i}] '{s['title']}': its test can't be checked from what the body reports "
                             f"(missing: {', '.join(r.missing)}); choose a checkable test or name the gap")
@@ -558,12 +587,11 @@ class Validator:
                           "needs": [str(n) for n in s.get("needs") or []][:5], "group": s.get("group") or None,
                           "trivial": trivial})
         out["steps"] = steps
-        loops = {}
+        out["loops"] = {}
         for g, lp in (raw.get("loops") or {}).items():
             until = self._pred((lp or {}).get("until"), f"loops.{g}.until", errs)
             if until is not None:
-                loops[str(g)] = until
-        out["loops"] = loops
+                out["loops"][str(g)] = until
         out["add_tasks"] = [t for t in raw.get("add_tasks") or [] if isinstance(t, dict) and t.get("text")][:3]
         out["capability_gaps"] = [g for g in raw.get("capability_gaps") or [] if isinstance(g, dict) and g.get("primitive")]
         for i, g in enumerate(out["capability_gaps"]):
@@ -577,14 +605,12 @@ class Validator:
         if errs:
             raise ValueError("; ".join(errs[:12]))
         unknown = [f.get("fact") for f in out["facts"] if f.get("status") == "unknown"]
-        if round_ == 0 and unknown and self.research_left and not self.nudged:
-            self.nudged = True
-            raise ValueError(f"These facts are unknown: {unknown[:6]}. Look them up with your tools, or say in "
-                             f"explanation why the plan doesn't need them.")
-        if round_ == 0 and info:
-            raise ValueError("Information: " + "; ".join(info[:6]) + ". Tests already true measure nothing: "
-                             "choose tests that measure the work, or keep them if that is really intended.")
-        return out
+        advisories = ([f"These facts are listed as unknown: {unknown[:6]}; look them up with your tools, or say in "
+                       f"explanation why the plan doesn't need them."] if unknown and self.research_left() else [])
+        if info:
+            advisories.append(" ".join(info[:6]) + " Tests already true measure nothing: choose tests that measure "
+                              "the work, or keep them if that is really intended.")
+        return out, advisories
 
 
 # ------------------------------------------------------------------------------ the Director
@@ -604,12 +630,10 @@ class Director:
         self.budget = budget
         self.log = log
         self.clock = clock
-        self.store = BoardStore(Path(state_dir), log=log, clock=clock)
+        self.store = BoardStore(Path(state_dir), log=log, clock=clock, autoflush=False)
         self.ops = BoardOps(self.store, clock=clock)
-        self.window = HourlyWindow(self.store, per_hour=per_hour, clock=clock)
-        self.gaps = gaps or GapLog(Path(state_dir).parent.parent / "capability_gaps.json" if Path(state_dir).parent.name
-                                   == "worlds" else Path(state_dir) / "capability_gaps.json", tools=self.body_tools,
-                                   log=log, clock=clock)
+        self.window = HourlyWindow(Path(state_dir) / WINDOW_NAME, per_hour=per_hour, clock=clock)
+        self.gaps = gaps or GapLog(default_path(Path(state_dir)), tools=self.body_tools, log=log, clock=clock)
         self.memory = KnowledgeMemory(Path(state_dir), build=build, clock=clock)
         self.efficiency = Efficiency(Path(state_dir), clock=clock)
         self.map_memory = map_memory
@@ -626,17 +650,18 @@ class Director:
         self._pending: dict | None = None
         self._learn_future: cf.Future | None = None
         self._learn_pending: dict | None = None
-        self._learn_tried: set[tuple[str, str]] = set()
+        self._learn_tried: list[str] = []
         self._report: dict | None = None
         self._last_state: dict = {}
         self._last_command_at: float | None = None
         self._preempted_by: dict | None = None
+        self._budget_said: str | None = None
+        self._picked: list[str] = []
+        # per task / per step memories (pruned when a task ends, and capped)
         self._just_completed: dict[str, dict] = {}
         self._tell: dict[str, list[str]] = {}
         self._fail_count: dict[str, int] = {}
-        self._budget_said: str | None = None
-        self._picked: list[str] = []
-        self._last_review: dict[str, float] = {}
+        self._review_at: dict[str, float] = {}
         self._last_results: dict[str, list] = {}
         self._report_note: dict[str, str] = {}
 
@@ -661,10 +686,7 @@ class Director:
                 skills_registry=store.skills, places=store.places,
                 hides_start_goal=True)  # wave 5 eval: with start_goal hidden Haiku put both long jobs on the board
         debug = [n for n, e in manifest.items() if e.get("kind") in ("action", "waiter") and not e.get("llm")]
-        d.gaps.seed(missing=getattr(caps, "missing", None), debug_tools=debug, known=[
-            ("perceive:region_positions", "perception", "no region coordinates yet (data/regions_<build>.json)"),
-            ("travel:long_distance", "action", "go_to gives up on long walks; no lodestone teleport"),
-        ])
+        d.gaps.seed(missing=getattr(caps, "missing", None), debug_tools=debug)  # only what the body reports
         return d
 
     # ---------------------------------------------------------------- Controller-facing
@@ -699,7 +721,7 @@ class Director:
     def brief(self) -> dict | None:
         """The Controller's "current task" context: the board, or that it is empty (information for "what are you
         doing?" and for deciding whether a new job goes on it)."""
-        if not any(t.status not in ENDED for t in self.ops.b.tasks):
+        if not self.ops.b.live():
             return {"tasks": [], "note": "your task board is empty"}
         return self.ops.brief(self._last_state or None, self.places())
 
@@ -707,15 +729,16 @@ class Director:
         try:
             return self._handle_tool(name, args or {}, player)
         except BoardError as exc:
-            return {"ok": False, "reason": "board_refused", "data": {"detail": str(exc)}}
+            return {"ok": False, "reason": BOARD_REFUSED, "data": {"detail": str(exc)}}
+        finally:
+            self.store.flush()
 
     def _handle_tool(self, name: str, args: dict, player: str) -> dict:
         self._log("board_tool", tool=name, args=args, player=player)
         if name == "board":
             return {"ok": True, "data": self.ops.brief(self._last_state or None, self.places())}
         if name == "add_task":
-            when = str(args.get("when") or "later")
-            t = self.ops.add_task(str(args.get("text") or ""), by=f"player:{player}", when=when,
+            t = self.ops.add_task(str(args.get("text") or ""), by=f"player:{player}", when=str(args.get("when") or "later"),
                                   kind="open" if args.get("open") else "specific")
             data: dict[str, Any] = {"id": t.id, "status": t.status, "position": self.ops.b.tasks.index(t) + 1}
             if not self._can_think():
@@ -735,24 +758,27 @@ class Director:
             return {"ok": True, "data": {"resumed": t.text if t else None}}
         if name == "cancel_task":
             t = self.ops.cancel(args.get("id"), str(args.get("reason") or ""))
+            self._forget(t)
             return {"ok": True, "data": {"cancelled": t.text}}
         if name == "report_step":
             if not self._in_run:
-                return {"ok": False, "reason": "no_current_step", "data": {"detail": "no board step is running"}}
+                return {"ok": False, "reason": NO_CURRENT_STEP, "data": {"detail": "no board step is running"}}
             self._report = {"outcome": args.get("outcome"), "reason": str(args.get("reason") or "")[:300]}
             return {"ok": True, "data": {"noted": True}}
-        return {"ok": False, "reason": "unknown_tool", "data": {}}
+        return {"ok": False, "reason": Reason.UNKNOWN_TOOL, "data": {}}
 
     # ---------------------------------------------------------------- hooks from the agent
 
-    def on_player_command(self, player: str, tools: list[str]) -> None:
+    def on_player_command(self, player: str, tools: list[str], text: str | None = None) -> None:
         """A chat command ran tools. Outside a board run it preempts the board (the step's segment is already
-        closed: segments only exist during runs). Inside a run (nested) its records carry origin chat."""
+        closed: segments only exist during runs); the resume run carries who, what they said and what ran, and the
+        model judges whether they wanted him to stop (simplify item 6). Inside a run its records carry origin chat."""
         if self._in_run:
             return
         self._last_command_at = self.clock()
-        self._preempted_by = {"player": player, "tools": list(tools), "at": self.clock()}
+        self._preempted_by = {"player": player, "said": text, "tools": list(tools), "at": self.clock()}
         self.ops.preempt()
+        self.store.flush()
 
     def observe_activity(self, event) -> None:
         f = event.model_dump() if hasattr(event, "model_dump") else dict(event)
@@ -763,9 +789,8 @@ class Director:
         if f.get("kind") == "combat_end" and f.get("outcome") == "killed":
             self.ops.note_kill(step, f)
         if f.get("kind") == "picked_up":
-            for it in f.get("items") or []:
-                if isinstance(it, dict) and it.get("world_item"):
-                    self._picked.append(str(it["world_item"]))
+            self._picked += [str(it["world_item"]) for it in f.get("items") or []
+                             if isinstance(it, dict) and it.get("world_item")]
 
     # ---------------------------------------------------------------- the tick (agent loop)
 
@@ -780,21 +805,28 @@ class Director:
         except Exception as exc:  # the board must never take the agent loop down
             self._log("director_error", error=repr(exc)[:500])
         finally:
+            self.store.flush()  # one write per tick (simplify item 15)
             self._busy = False
 
     def _tick(self) -> None:
         self.proxy.serve()
         self.store.ingest_inbox(lambda r: apply_inbox_record(self.ops, r))
         self._collect_learning()
-        self._collect_decision()
         self._revoice_help()
+        # chained transitions (Luis: seamless subtasks): a step that ended or a decision that landed goes straight
+        # on to the next step or decision in the same tick, bounded, and never while chat is waiting
+        for _ in range(MAX_TRANSITIONS):
+            if not self._transition() or self.port.chat_pending():
+                return
+
+    def _transition(self) -> bool:
+        """One board transition; True when the next one can start at once."""
+        self._collect_decision()
         if self.ops.b.paused:
-            return
+            return False
         task = self.ops.pick_current()
-        if task is None:
-            return
-        if self._future is not None:
-            return
+        if task is None or self._future is not None:
+            return False
         aw = self.ops.b.awaiting_decision
         if aw and aw.get("task_id") != task.id:
             aw = None
@@ -802,20 +834,18 @@ class Director:
             aw = self._need(task, "curriculum" if task.kind == "open" else "plan", {})
         if aw is not None:
             self._dispatch(task, aw)
-            return
+            return self._future is not None and self._future.done()  # decided already (the sync executor)
         if self.port.busy() or self.port.chat_pending():
-            return
+            return False
         if task.status == "preempted" and not self._resume_ok():
-            return
-        self._advance(task)
+            return False
+        return self._advance(task)
 
     def _needs_plan(self, task: Task) -> bool:
         if task.kind == "specific" and task.success is None:
             return True
         if task.next_step() is None:
-            if task.kind == "open" and self.ops.yield_open():
-                return False
-            return True
+            return not (task.kind == "open" and self.ops.yield_open())
         return False
 
     def _need(self, task: Task, kind: str, detail: dict) -> dict:
@@ -827,18 +857,30 @@ class Director:
     def _resume_ok(self) -> bool:
         if self._last_command_at is not None and self.clock() - self._last_command_at < RESUME_IDLE_S:
             return False
-        state = self._last_state or {}
-        return not state.get("following")
+        return not (self._last_state or {}).get("following")
+
+    def _fresh_state(self) -> dict:
+        state = self.port.state()
+        self._last_state = state if isinstance(state, dict) else {}
+        return self._last_state
 
     # ---------------------------------------------------------------- budget
 
+    def _over_daily_cap(self) -> bool:
+        return self.budget is not None and not self.budget.allows("director")
+
     def _can_think(self, n: int = 1) -> bool:
-        if self.budget is not None and not self.budget.allows("director"):
-            return False
-        return self.window.allows(n)
+        return not self._over_daily_cap() and self.window.allows(n)
 
     def _wait_min(self) -> int:
         return max(1, round(self.window.wait_s() / 60))
+
+    def _spend(self, task: Task, units: float, why: str) -> bool:
+        """Spend the task's progress budget; when it is used up, ask for help (True)."""
+        if self.ops.spend(task, units, why):
+            self._ask_help(task, None, f"no progress: {why}")
+            return True
+        return False
 
     # ---------------------------------------------------------------- decisions
 
@@ -850,20 +892,20 @@ class Director:
             key = f"{task.id}:{int(self.window.wait_s() // 600)}"
             if self._budget_said != key:
                 self._budget_said = key
-                out_today = self.budget is not None and not self.budget.allows("director")
+                out_today = self._over_daily_cap()
                 self._notice(task, "I'm out of thinking budget for today, so I'll keep to what I already know."
                              if out_today else f"I'll plan my next step for '{task.text}' in about {self._wait_min()} min.",
                              {"budget_wait_min": None if out_today else self._wait_min()})
             return
         if task.status == "waiting_budget":
             task.status = "active"
-        state = self.port.state()
-        self._last_state = state if isinstance(state, dict) else {}
-        snap = self._snapshot(task, aw, self._last_state)
-        self._pending = {"task_id": task.id, "version": self.ops.b.version, "aw": aw, "started": self.clock(),
-                         "snapshot_state": self._last_state}
+            self.store.save()
+        state = self._fresh_state()
+        self._pending = {"task_id": task.id, "key": self.ops.plan_key(task), "aw": aw, "started": self.clock(),
+                         "snapshot_state": state}
         self._log("director_dispatch", task=task.id, decision=aw["kind"])
-        self._future = self.executor.submit(self._decide, snap)
+        self.store.flush()
+        self._future = self.executor.submit(self._decide, self._snapshot(task, aw, state))
 
     def _snapshot(self, task: Task, aw: dict, state: dict) -> dict:
         board = [{"id": t.id, "task": t.text, "status": t.status, "by": t.by, "why": t.end_reason,
@@ -875,20 +917,17 @@ class Director:
             except Exception:
                 learned = []
         cur = task.model_dump(exclude={"my_drops"})
-        for s in cur.get("steps", []):
-            s.pop("segments", None)
-            s.pop("activation", None)
-            s["success_words"] = None
         for s, m in zip(task.steps, cur.get("steps", [])):
+            m.pop("segments", None)
+            m.pop("activation", None)
             m["success_words"] = P.describe(s.success)
-        ctx = self.ops.task_ctx(task, state, self.places())
-        prog = P.evaluate(task.success["predicate"], state, ctx).to_dict() if task.success else None
+        prog = P.evaluate(task.success["predicate"], state, self.ops.task_ctx(task, state, self.places())).to_dict() \
+            if task.success else None
         return {"kind": aw["kind"], "detail": aw.get("detail") or {}, "task": cur, "task_progress": prog,
                 "board": board, "state": copy.deepcopy(state), "compact": _compact_state(state),
                 "map": self.map_memory.snapshot() if self.map_memory is not None else {},
                 "facts": self.memory.snapshot(), "learned": learned, "gaps": self.gaps.rows()[:12],
-                "places": copy.deepcopy(self.places()), "now": self.clock(),
-                "efficiency": aw.get("detail", {}).get("efficiency")}
+                "places": copy.deepcopy(self.places()), "now": self.clock()}
 
     def _messages(self, snap: dict) -> list[dict]:
         tools = "\n".join(f"- {n}: {d}" for n, d in sorted(self.body_tools.items())) or "- (unknown)"
@@ -913,26 +952,23 @@ class Director:
         """Worker thread: model requests over the snapshot. Writes nothing (the agent loop applies the result)."""
         dec = Decision(kind=snap["kind"])
         research = Research(snap, self.knowledge, self.proxy, set(self.body_tools))
-        count = {"n": 0}
+        rounds = [0]  # research rounds used (json_decision allows RESEARCH_ROUNDS)
 
         def before() -> bool:
-            if count["n"] >= MAX_REQUESTS:
+            if dec.requests >= MAX_REQUESTS or self._over_daily_cap():
                 return False
-            if self.budget is not None and not self.budget.allows("director"):
-                return False
-            count["n"] += 1
+            dec.requests += 1
             return True
 
-        def on_response(resp, msgs) -> None:
+        def on_response(resp) -> None:
+            rounds[0] += bool(resp.tool_calls)
             self._log("llm_response", component="director", model=getattr(self.llm, "model", "?"),
                       content=(resp.content or "")[:4000], tool_calls=[c.name for c in resp.tool_calls],
                       usage=resp.usage)
 
-        validator = Validator(snap["kind"], snap["state"], snap["task"], self.items, places=snap.get("places"))
-        episode = getattr(self.log, "episode", None)
-        new_id = getattr(self.log, "new_episode_id", None)
-        ctx = episode(new_id("director")) if callable(episode) and callable(new_id) else _nullcontext()
-        with ctx:
+        validator = Validator(snap["kind"], snap["state"], snap["task"], self.items, places=snap.get("places"),
+                              research_left=lambda: bool(research.tools()) and rounds[0] < RESEARCH_ROUNDS)
+        with self._episode("director"):
             messages = self._messages(snap)
             self._log("prompt", component="director", model=getattr(self.llm, "model", "?"), decision=snap["kind"],
                       task=snap["task"]["id"], messages=messages)
@@ -947,7 +983,6 @@ class Director:
                 dec.error = str(exc)
             except Exception as exc:  # provider errors etc.
                 dec.error = f"planning call failed: {exc!r}"[:300]
-        dec.requests = count["n"]
         facts = validator.unknown_seen + ((dec.value or {}).get("facts") or [])
         dec.lookups = score_lookups(research.lookups, facts, dec.tool_calls)
         return dec
@@ -969,14 +1004,14 @@ class Director:
         except Exception as exc:
             dec = Decision(kind=pend.get("aw", {}).get("kind", "plan"), error=repr(exc)[:300])
         self._future, self._pending = None, None
-        stale = self.ops.b.version != pend.get("version")
         task = self.ops.b.task(pend.get("task_id"))
+        stale = self.ops.plan_key(task) != pend.get("key")
         if dec.requests:
             self.window.spend(dec.requests)
         for lk in dec.lookups:
             self._log("director_lookup", query=lk["query"], needed=lk["needed"])
             if lk.get("top"):
-                self.memory.put(lk["query"], lk["top"]["text"], lk["top"]["source"], save=False)
+                self.memory.put(lk["query"], lk["top"]["text"], lk["top"]["source"])
         if dec.lookups:
             self.memory.save()
         if task is None or task.status in ENDED or task.status == "paused" or stale:
@@ -984,9 +1019,8 @@ class Director:
                       status=task.status if task else None)
             return
         if dec.error:
-            if dec.budget_stop:
-                return  # waits for budget at the next tick (said there)
-            self._decision_failed(task, dec.error)
+            if not dec.budget_stop:  # out of budget: the next tick waits and says so
+                self._decision_failed(task, dec.error)
             return
         self._fail_count.pop(task.id, None)
         self._apply(task, pend["aw"], dec.value or {}, pend.get("snapshot_state") or {})
@@ -1005,6 +1039,11 @@ class Director:
         self._log("director_decision", task=task.id, decision=kind, description=v.get("description"),
                   explanation=v.get("explanation"), steps=[s["title"] for s in v.get("steps", [])],
                   ask_help=v.get("ask_help"))
+        if kind == "reflect":
+            for r in (aw.get("detail") or {}).get("efficiency") or []:
+                self.efficiency.log_reflection(task.text, aw["detail"].get("step"), r["key"], r.get("rate"),
+                                               r.get("best"), (aw["detail"] or {}).get("alternatives") or [],
+                                               v.get("description"))
         if v.get("task_success") is not None:
             if task.success is None:
                 self.ops.set_success(task, v["task_success"], "director", state=state)
@@ -1018,43 +1057,18 @@ class Director:
                 self._log("director_prerequisite", task=task.id, prerequisite=kid.id, text=kid.text)
             except BoardError as exc:
                 task.history.append({"title": f"prerequisite '{t['text']}'", "outcome": "refused", "reason": str(exc)})
-        for g in v.get("capability_gaps", []):
-            rec = self.gaps.record(str(g["primitive"]), kind=g["kind"], source="director", task=task.text,
-                                   why=g.get("why"), workaround=g.get("workaround"))
-            if g["kind"] == "knowledge":  # not a body gap: an open fact (the next plans see it as unknown)
-                self.memory.put(f"unknown: {g['primitive']}", {"why": g.get("why"), "status": "unknown"}, "memory",
-                                confidence="low")
-                continue
-            if rec.get("tool_exists"):
-                task.history.append({"title": "note", "outcome": "claim",
-                                     "reason": f"'{g['primitive']}' is one of your tools; use it"})
-            elif rec.get("new_for_task"):
-                self._tell.setdefault(task.id, []).append(
-                    f"I can't {g['primitive']} yet" + (f" ({g.get('why')})" if g.get("why") else "")
-                    + (f"; workaround: {g['workaround']}" if g.get("workaround") else ""))
+        self._take_gaps(task, v.get("capability_gaps", []))
         if v.get("ask_help"):
             self._ask_help(task, str(v["ask_help"]))
             return
         if v.get("done") and task.kind == "open":
             self._finish_task(task, "done", "ended by choice")
             return
-        if kind == "replan":
-            task.replans += 1
-            if task.replans > MAX_REPLANS:
-                self._ask_help(task, None, f"replanned {MAX_REPLANS} times without finishing")
-                return
         existing = {(s.title, json.dumps(s.success, sort_keys=True)): s for s in task.steps if s.status == "pending"}
-        failed_out = {(s.title, json.dumps(s.success, sort_keys=True)) for s in task.steps
-                      if s.status == "failed" and s.attempts >= s.max_attempts}
         new_steps = []
         for s in v.get("steps", []):
-            key = (s["title"], json.dumps(s["success"], sort_keys=True))
-            if key in failed_out:
-                task.history.append({"title": s["title"], "outcome": "not re-added",
-                                     "reason": "this exact step already failed twice"})
-                continue
-            old = existing.get(key)  # the same step again keeps its attempts; the new plan's details win
-            if old is not None:
+            old = existing.get((s["title"], json.dumps(s["success"], sort_keys=True)))
+            if old is not None:  # the same pending step again keeps its attempts; the new plan's details win
                 for f in ("why", "hints", "abort_if", "escape", "risk", "needs", "group", "trivial"):
                     setattr(old, f, s.get(f, getattr(old, f)))
                 old.prepared = old.prepared or kind == "prepare" or not old.risk
@@ -1064,80 +1078,89 @@ class Director:
         loops = {g: Loop(until=u) for g, u in (v.get("loops") or {}).items()}
         if new_steps or kind not in ("review", "reflect"):  # a review that keeps the plan returns no steps
             self.ops.set_steps(task, new_steps, loops=loops, replace_active=kind not in ("review", "reflect"))
-        if self.ops.record_decision(task, state, self.places(), new_done=self._done_since_last(task)):
-            self._ask_help(task, None, "no progress over my last three plans")
-        self.store.save()
+        if not self.ops.progressed(task, state, self.places()):
+            self._spend(task, SPEND["decision"], f"{kind} decision while the job hasn't moved")
 
-    def _done_since_last(self, task: Task) -> bool:
-        """A step finished since the previous decision on this task (the task-level progress rule)."""
-        n = sum(1 for s in task.steps if s.status == "done")
-        key = f"done:{task.id}"
-        seen = self._last_review.get(key)
-        self._last_review[key] = n
-        return seen is not None and n > seen
+    def _take_gaps(self, task: Task, gaps: list[dict]) -> None:
+        """The plan's gaps: body gaps (action, perception) to the gap log, cross-checked against the body's tools;
+        knowledge gaps to the knowledge memory as open facts, never as capability gaps (simplify item 7)."""
+        body = False
+        for g in gaps:
+            if g["kind"] == "knowledge":
+                self.memory.put(f"unknown: {g['primitive']}", {"why": g.get("why"), "status": "unknown"}, "memory",
+                                confidence="low")
+                continue
+            body = True
+            rec = self.gaps.record(str(g["primitive"]), kind=g["kind"], source="director", task=task.text,
+                                   why=g.get("why"), workaround=g.get("workaround"))
+            if rec["tool_exists"]:
+                task.history.append({"title": "note", "outcome": "claim",
+                                     "reason": f"'{g['primitive']}' is one of your tools; use it"})
+            elif rec["new_for_task"]:
+                self._tell.setdefault(task.id, []).append(
+                    f"I can't {g['primitive']} yet" + (f" ({g.get('why')})" if g.get("why") else "")
+                    + (f"; workaround: {g['workaround']}" if g.get("workaround") else ""))
+        if body:
+            self.gaps.save()
+        if any(g["kind"] == "knowledge" for g in gaps):
+            self.memory.save()
 
     # ---------------------------------------------------------------- steps (the executor bridge)
 
-    def _advance(self, task: Task) -> None:
+    def _advance(self, task: Task) -> bool:
+        """Start (or continue) the next step; True when it ended (passed, failed or needs a decision), so the
+        next transition can follow at once."""
         step = task.next_step()
         if step is None:
-            return
-        state = self.port.state()
-        self._last_state = state if isinstance(state, dict) else {}
+            return False
+        state = self._fresh_state()
         places = self.places()
+        r = None
         if step.status == "pending":
             if step.risk and not step.prepared:
                 self._need(task, "prepare", {"prepare_for": step.title, "step_id": step.id})
-                return
+                return True
             self.ops.activate(step, state)
             r = P.evaluate(step.success, state, self.ops.step_ctx(task, step, state, places))
             if r.passed is None:
-                self.gaps.from_uncheckable(r.missing, task=task.text, step=step.title)
-                self._fail_attempt(task, step, f"its test can't be checked ({', '.join(r.missing)})", r)
-                return
+                self._uncheckable(task, step, r)
+                return True
             if r.passed is True:  # already true when it comes up (e.g. already standing there): no run needed
                 step.trivial = True
                 self._step_done(task, step, r, state)
-                return
+                return True
         if task.status == "preempted":
             task.status = "active"
-        if step.started and self.clock() - step.started > STEP_WALL_S:
-            self._park_step(task, step, "this step has taken too long")
-            return
         self._review_due(task)
-        self._run(task, step, state)
+        self._run(task, step, state, r)
+        return step.status != "active" or self.ops.b.awaiting_decision is not None
 
     def _review_due(self, task: Task) -> None:
-        last = self._last_review.get(task.id)
+        last = self._review_at.get(task.id)
         now = self.clock()
         if last is None:
-            self._last_review[task.id] = now
-            return
-        if now - last >= REVIEW_EVERY_S and self.window.left() >= self.window.per_hour / 2:
-            self._last_review[task.id] = now
+            self._review_at[task.id] = now
+        elif now - last >= REVIEW_EVERY_S and self.window.left() >= self.window.per_hour / 2:
+            self._review_at[task.id] = now
             self._need(task, "review", {})
 
-    def _event(self, task: Task, step: Step, state: dict, r: P.Result | None) -> dict:
+    def _event(self, task: Task, step: Step, r: P.Result) -> dict:
         ev: dict[str, Any] = {"type": "board_step", "instructions": STEP_INSTRUCTIONS, "task": task.text,
                               "step": {"title": step.title, "why": step.why, "hints": step.hints},
-                              "step_done_when": P.describe(step.success), "run": step.runs + 1,
-                              "max_runs": step.max_runs}
+                              "step_done_when": P.describe(step.success), "step_progress": r.detail,
+                              "run": step.runs + 1}
         if task.success:
             ev["job_done_when"] = P.describe(task.success["predicate"])
-        if r is not None:
-            ev["step_progress"] = r.detail
         if step.escape:
             ev["step"]["escape"] = step.escape
         if self._last_results.get(step.id):
             ev["last_results"] = self._last_results[step.id]
         if self._report_note.pop(step.id, None):
-            ev["note"] = "you reported this step done, but the game shows: " + (r.detail if r else "not yet")
+            ev["note"] = "you reported this step done, but the game shows: " + r.detail
         if task.status == "preempted" or self._preempted_by:
             ev["resumed"] = True
             if self._preempted_by:
-                ev["preempted_by"] = self._preempted_by
-                if "stop" in self._preempted_by.get("tools", []):
-                    ev["paused_by_player"] = True
+                ev["preempted_by"] = self._preempted_by  # who, what they said, what ran: the model judges
         if self._just_completed.get(task.id):
             ev["just_completed"] = self._just_completed.pop(task.id)
         if self._tell.get(task.id):
@@ -1149,42 +1172,44 @@ class Director:
                 pass
         return ev
 
-    def _run(self, task: Task, step: Step, state0: dict) -> None:
+    def _run(self, task: Task, step: Step, state0: dict, r0: P.Result | None = None) -> None:
         places = self.places()
-        r0 = P.evaluate(step.success, state0, self.ops.step_ctx(task, step, state0, places))
+        if r0 is None:
+            r0 = P.evaluate(step.success, state0, self.ops.step_ctx(task, step, state0, places))
         self.ops.open_segment(step, state0)
-        event = self._event(task, step, state0, r0)
+        event = self._event(task, step, r0)
         self._preempted_by = None
         self._report, self._picked = None, []
         self._log("board_run_start", task=task.id, step_id=step.id, step=step.title, run=step.runs + 1)
+        self.store.flush()  # the board on disk before a run that may take minutes
         self._in_run = True
         try:
             with self._episode("board"):
                 res = self.port.run(event)
         finally:
             self._in_run = False
-        state1 = self.port.state()
-        self._last_state = state1 if isinstance(state1, dict) else {}
+        state1 = self._fresh_state()
         recs = res.get("actions") or []
         board_recs = [x for x in recs if x.get("origin", "board") == "board"]
-        chat_recs = [x for x in recs if x.get("origin") == "chat"]
-        tainted = set().union(*[_items_touched(x) for x in chat_recs]) if chat_recs else set()
-        picked = [w for x in board_recs for w in _picked_world_items(x)] + self._picked
-        for x in board_recs:
-            d = x.get("data") if isinstance(x.get("data"), dict) else {}
-            if x.get("tool") == "drop" and x.get("ok"):
-                self.ops.note_drop(task, d.get("world_items") or [], d.get("item"), d.get("count"))
+        fx = [(x, effects_of(x)) for x in board_recs]
+        tainted = {e["item"] for x in recs if x.get("origin") == "chat"
+                   for k in ("items_in", "items_out") for e in effects_of(x)[k] if e.get("item")}
+        picked = [e["world_item"] for _, f in fx for e in f["items_in"] if e.get("world_item")] + self._picked
+        for _, f in fx:
+            for e in f["items_out"]:
+                if e.get("world_items"):
+                    self.ops.note_drop(task, e["world_items"], e.get("item"), e.get("count"))
         gains = self.ops.close_segment(task, step, state1, tainted=tainted, repicked=self.ops.repicked(task, picked))
         step.actions = (step.actions + board_recs)[-40:]
         self._last_results[step.id] = [{"tool": x.get("tool"), "ok": x.get("ok"), "reason": x.get("reason")}
                                        for x in board_recs][-8:]
-        self._body_findings(task, step, board_recs, state1)
+        self._body_findings(task, step, fx, state1)
         ctx = self.ops.step_ctx(task, step, state1, places)
-        if step.abort_if is not None and P.evaluate(step.abort_if, state1, ctx).passed is True:
-            self.ops.finish_step(task, step, "aborted", "its abort condition came true")
-            self._need(task, "replan", {"failed": {"step": step.title, "reason": "aborted: " +
-                                                   P.evaluate(step.abort_if, state1, ctx).detail}})
-            return
+        if step.abort_if is not None:
+            ab = P.evaluate(step.abort_if, state1, ctx)
+            if ab.passed is True:
+                self._fail_attempt(task, step, f"aborted: {ab.detail}", ab, status="aborted")
+                return
         r = P.evaluate(step.success, state1, ctx)
         self._log("board_run", task=task.id, step_id=step.id, step=step.title, run=step.runs + 1,
                   ended=res.get("ended"), passed=r.passed,
@@ -1193,99 +1218,105 @@ class Director:
             self._step_done(task, step, r, state1)
             return
         if r.passed is None:
-            self.gaps.from_uncheckable(r.missing, task=task.text, step=step.title)
-            self._fail_attempt(task, step, f"its test can't be checked ({', '.join(r.missing)})", r)
+            self._uncheckable(task, step, r)
             return
         if self._report and self._report.get("outcome") == "blocked":
             self._fail_attempt(task, step, f"blocked: {self._report.get('reason')}", r)
             return
         if self._report and self._report.get("outcome") == "done":
             self._report_note[step.id] = r.detail
-        if res.get("ended") in ("chat", "interrupted"):  # not the step's fault (H7c), but capped (re-check 3)
+        if res.get("ended") in ("chat", "interrupted"):  # not the step's fault (H7c), but it costs a little
             step.uncounted_runs += 1
-            if step.uncounted_runs > UNCOUNTED_FACTOR * step.max_runs:
-                self._park_step(task, step, "chat kept interrupting me")
-            self.store.save()
+            self._spend(task, SPEND["uncounted_run"], "chat kept interrupting me")
             return
         step.runs += 1
         meas = _progress_measures(r.measures)
         moved = P.grew(step.last_measures, meas) or (bool(gains) and any(x.get("ok") for x in board_recs))
         step.no_progress_runs = 0 if moved else step.no_progress_runs + 1
         step.last_measures = meas
-        if step.no_progress_runs >= 2:
+        self.store.save()
+        if not moved and self._spend(task, SPEND["run"], f"{step.title}: {r.detail}"):
+            return
+        if step.no_progress_runs >= 2:  # the DEPS trigger: the model replans with what happened
             self._fail_attempt(task, step, f"no progress: {r.detail}", r)
-        elif step.runs >= step.max_runs:
-            self._fail_attempt(task, step, f"ran {step.runs} times without finishing: {r.detail}", r)
-        else:
-            self.store.save()
 
-    def _body_findings(self, task: Task, step: Step, recs: list[dict], state: dict) -> None:
-        for x in recs:
+    def _uncheckable(self, task: Task, step: Step, r: P.Result) -> None:
+        self.gaps.from_uncheckable(r.missing, task=task.text, step=step.title)
+        self._fail_attempt(task, step, f"its test can't be checked ({', '.join(r.missing)})", r)
+
+    def _body_findings(self, task: Task, step: Step, fx: list[tuple[dict, dict]], state: dict) -> None:
+        for x, f in fx:
             if x.get("ok"):
                 continue
             rec = self.gaps.from_tool_result(str(x.get("tool")), x, task=task.text, step=step.title)
-            if rec and rec.get("new_for_task"):
+            if rec and rec["new_for_task"]:
                 self._tell.setdefault(task.id, []).append(f"I can't {x.get('tool')} yet")
-            if x.get("reason") == "nothing_in_range" and self.map_memory is not None:
-                what = (x.get("args") or {}).get("resource") or (x.get("data") or {}).get("item")
-                try:
-                    self.map_memory.note_negative(what, state.get("position"), "nothing_in_range", kind="empty")
-                except Exception as exc:
-                    self._log("map_memory_error", error=repr(exc))
+            for e in f["spots_empty"]:
+                if self.map_memory is not None:
+                    try:
+                        self.map_memory.note_negative(e.get("item"), state.get("position"), e.get("why") or "empty",
+                                                      kind="empty")
+                    except Exception as exc:
+                        self._log("map_memory_error", error=repr(exc))
 
-    def _fail_attempt(self, task: Task, step: Step, reason: str, r: P.Result | None) -> None:
-        final = step.attempts >= step.max_attempts
-        step.failures.append({"reason": reason, "detail": r.detail if r else None, "at": self.clock(),
-                              "attempt": step.attempts})
-        if final:
-            self.ops.finish_step(task, step, "failed", reason)
-        else:
-            step.status = "pending"
-            self.store.save()
+    def _fail_attempt(self, task: Task, step: Step, reason: str, r: P.Result | None, status: str = "failed") -> None:
+        """The attempt is over: the step ends with its reason, the task's budget pays, and the model replans with
+        the whole failure history (it may try the same step again: nothing is refused)."""
+        self.ops.finish_step(task, step, status, reason)
+        if self._spend(task, SPEND["failed"], reason):
+            return
         self._need(task, "replan", {"failed": {"step": step.title, "reason": reason, "attempt": step.attempts,
+                                               "detail": r.detail if r else None,
                                                "last_actions": self._last_results.get(step.id, [])}})
-
-    def _park_step(self, task: Task, step: Step, reason: str) -> None:
-        self.ops.finish_step(task, step, "parked", reason)
-        self.ops.park(task, reason)
-        self._notice(task, f"I've put '{task.text}' aside: {reason}.", {"why": reason})
 
     def _step_done(self, task: Task, step: Step, r: P.Result, state: dict) -> None:
         secs = sum((s.end or self.clock()) - s.start for s in step.segments)
         self.ops.finish_step(task, step, "done")
         facts: dict[str, Any] = {"step": step.title, "result": r.detail, "minutes": round(secs / 60, 1)}
-        rates = []
-        for item, n in {k: v for k, v in step.accumulated.items() if v > 0}.items():
-            rate = self.efficiency.rate(n, secs)
-            rates.append((f"item:{item}", self.efficiency.record(f"item:{item}", rate)))
-        for k, (dl, dx) in step.skill_accumulated.items():
-            if dx:
-                rates.append((f"xp:{k}", self.efficiency.record(f"xp:{k}", self.efficiency.rate(dx, secs))))
+        rates = [(f"item:{item}", self.efficiency.record(f"item:{item}", self.efficiency.rate(n, secs)))
+                 for item, n in step.accumulated.items() if n > 0]
+        rates += [(f"xp:{k}", self.efficiency.record(f"xp:{k}", self.efficiency.rate(dx, secs)))
+                  for k, (dl, dx) in step.skill_accumulated.items() if dx]
         if task.tallies:
             facts["collected"] = dict(task.tallies)
         self._just_completed[task.id] = facts
+        self._last_results.pop(step.id, None)
         self._maybe_learn(task, step, state)
-        out = self.ops.requeue_loop(task, step, state, self.places())
-        if out.startswith("capped:"):
-            self._need(task, "replan", {"failed": {"step": step.title, "reason": "loop ended: " + out[7:]}})
-        elif out == "requeued":
+        grew = any(v > 0 for v in step.accumulated.values()) or bool(step.kills) or \
+            any(dl > 0 or dx > 0 for dl, dx in step.skill_accumulated.values())
+        self.ops.progressed(task, state, self.places(), step_grew=grew)
+        out, gained = self.ops.requeue_loop(task, step, state, self.places())
+        if out == "requeued":
+            if not gained and self._spend(task, SPEND["loop_no_gain"], f"a pass of '{step.group}' gained nothing"):
+                return
             lp = task.loops.get(step.group or "")
-            slow = [(k, x) for k, x in rates if x.get("ratio") is not None and x["ratio"] < REFLECT_RATIO]
+            slow = any(x.get("ratio") is not None and x["ratio"] < REFLECT_RATIO for _, x in rates)
             if slow or (lp is not None and lp.done % REFLECT_EVERY_LOOPS == 0):
-                self._need(task, "reflect", {"efficiency": [{"key": k, **x} for k, x in rates]})
-                for k, x in rates:
-                    self.efficiency.log_reflection(task.text, step.title, k, x.get("rate"), x.get("best"),
-                                                   ["spells", "other known spots", "lodestones", "tools"], None)
+                self._need(task, "reflect", {"step": step.title, "efficiency": [{"key": k, **x} for k, x in rates],
+                                             "alternatives": self._alternatives(step, state)})
         if task.success is not None:
             tr = P.evaluate(task.success["predicate"], state, self.ops.task_ctx(task, state, self.places()))
             if tr.passed is True:
                 self._finish_task(task, "done", tr.detail)
 
+    def _alternatives(self, step: Step, state: dict) -> dict:
+        """What a reflection can weigh, from state and memory (logged as offered): spells he can cast now and other
+        spots he knows for the step's items."""
+        spells = [s.get("name") for s in state.get("spells") or [] if isinstance(s, dict) and s.get("castable", True)]
+        spots: list[dict] = []
+        if self.map_memory is not None:
+            from .map_memory import query
+            snap = self.map_memory.snapshot()
+            for item in step.accumulated:
+                spots += [{"item": item, "position": r.get("position"), "distance": r.get("distance")}
+                          for r in query(snap, item=item, near=state.get("position"), limit=3)]
+        return {"spells": spells[:12], "spots": spots[:6]}
+
     def _finish_task(self, task: Task, status: str, detail: str) -> None:
         self.ops.end_task(task, status, detail)
-        self.store.save()
-        facts = {"job": task.text, "result": detail, "collected": task.tallies or None}
-        self._notice(task, f"Done with '{task.text}'.", facts, kind="task_report")
+        self._forget(task)
+        self._notice(task, f"Done with '{task.text}'.", {"job": task.text, "result": detail,
+                                                         "collected": task.tallies or None}, kind="task_report")
 
     def _ask_help(self, task: Task, question: str | None, why: str | None = None) -> None:
         q = question or f"I'm stuck on '{task.text}' ({why}). Any idea how I should go about it?"
@@ -1293,7 +1324,6 @@ class Director:
         names = [p.get("name") for p in seen or [] if isinstance(p, dict)]
         asked = task.by.split(":", 1)[1] if task.by.startswith("player:") else (names[0] if names else None)
         self.ops.park(task, why or "needs help", question=q, player=asked)
-        task.help.asked_at = self.clock()
         if isinstance(seen, list) and (not asked or asked not in names):
             task.help.revoice_pending = True  # nobody to ask here: say it when that player is around (review M1)
             self.store.save()
@@ -1303,10 +1333,12 @@ class Director:
     def _revoice_help(self) -> None:
         names = {p.get("name") for p in (self._last_state or {}).get("players") or [] if isinstance(p, dict)}
         for t in self.ops.b.tasks:
-            if t.status == "waiting_help" and t.help and t.help.revoice_pending and                     (t.help.asked_player in names or (not t.help.asked_player and names)):
-                t.help.revoice_pending = False
+            h = t.help
+            if t.status == "waiting_help" and h and h.revoice_pending and \
+                    (h.asked_player in names or (not h.asked_player and names)):
+                h.revoice_pending = False
                 self.store.save()
-                self._notice(t, t.help.question, {"question": t.help.question}, kind="board_notice")
+                self._notice(t, h.question, {"question": h.question}, kind="board_notice")
 
     def _notice(self, task: Task, template: str, facts: dict, kind: str = "board_notice") -> None:
         """A failure, gap, help question, budget wait or task end: the Controller says it (single voice); the
@@ -1314,12 +1346,12 @@ class Director:
         ev = {"type": "board_notice", "instructions": NOTICE_INSTRUCTIONS, "about": kind, "task": task.text,
               "facts": facts}
         said = False
-        if not self._busy_run_blocked():
+        if not self.port.chat_pending():
+            self.store.flush()
             self._in_run = True
             try:
                 with self._episode("board"):
-                    res = self.port.run(ev)
-                said = bool(res.get("said"))
+                    said = bool(self.port.run(ev).get("said"))
             except Exception as exc:
                 self._log("notice_error", error=repr(exc))
             finally:
@@ -1327,8 +1359,16 @@ class Director:
         if not said:
             self.port.say(template)
 
-    def _busy_run_blocked(self) -> bool:
-        return self.port.chat_pending()
+    def _forget(self, task: Task) -> None:
+        """Drop the per-task / per-step memories of an ended task (and keep the rest capped)."""
+        for d in (self._just_completed, self._tell, self._fail_count, self._review_at):
+            d.pop(task.id, None)
+        for s in task.steps:
+            self._last_results.pop(s.id, None)
+            self._report_note.pop(s.id, None)
+        for d in (self._last_results, self._report_note):
+            while len(d) > MAX_REMEMBERED:
+                d.pop(next(iter(d)))
 
     # ---------------------------------------------------------------- skill learning (re-check 4)
 
@@ -1336,24 +1376,20 @@ class Director:
         if self.skills is None or self.skills_registry is None or self._learn_future is not None:
             return
         body = [x for x in step.actions if x.get("ok") and x.get("tool") in self.skills_registry]
-        if len(body) < 2 or self.window.left() < LEARN_MIN_WINDOW * self.window.per_hour:
+        if len(body) < 2 or self.window.left() < LEARN_MIN_WINDOW * self.window.per_hour or self._over_daily_cap():
             return
-        sig = (task.id, json.dumps([(x["tool"], x.get("args")) for x in body], sort_keys=True, default=str))
+        sig = json.dumps([task.id, [(x["tool"], x.get("args")) for x in body]], sort_keys=True, default=str)
         if sig in self._learn_tried:  # the same actions again (a loop, a repeated step): nothing new to learn
             return
-        self._learn_tried.add(sig)
-        if self.budget is not None and not self.budget.allows("director"):
-            return
+        self._learn_tried = (self._learn_tried + [sig])[-MAX_REMEMBERED:]
         from .skill_library import SkillLibrary
         from .state_store import Task as PlanTask
         tasks = [PlanTask(skill=x["tool"], args=x.get("args") or {}, status="done") for x in body]
-        worker_lib = SkillLibrary(self.skills.dir)  # the worker's own instance (own SQLite); it writes nothing
-        snap = copy.deepcopy(state)
-        reg = self.skills_registry
-        self._learn_pending = {"goal": step.title, "tasks": tasks, "started": self.clock()}
+        snap, reg, lib_dir, goal = copy.deepcopy(state), self.skills_registry, self.skills.dir, step.title
+        self._learn_pending = {"goal": goal, "tasks": tasks, "started": self.clock()}
 
-        def job():
-            return worker_lib.propose(step.title, tasks, snap, self.llm, reg)
+        def job():  # on the worker: its own library instance (own SQLite), which writes nothing
+            return SkillLibrary(lib_dir).propose(goal, tasks, snap, self.llm, reg)
         self._learn_future = self.executor.submit(job)
         self.window.spend(1)
 
@@ -1370,8 +1406,7 @@ class Director:
         if proposal is None:
             return
         self.skills.load()
-        state = self.port.state()
-        rec = self.skills.accept(proposal, pend["goal"], pend["tasks"], state, self.skills_registry,
+        rec = self.skills.accept(proposal, pend["goal"], pend["tasks"], self._fresh_state(), self.skills_registry,
                                  seconds=self.clock() - pend["started"])
         self._log("director_skill_learned" if rec else "director_skill_rejected", goal=pend["goal"],
                   name=getattr(rec, "name", None))
@@ -1386,15 +1421,7 @@ class Director:
         """log.episode(new id) when the logger supports episodes (rows inside carry episode_id "<prefix>-...")."""
         episode = getattr(self.log, "episode", None)
         new_id = getattr(self.log, "new_episode_id", None)
-        return episode(new_id(prefix)) if callable(episode) and callable(new_id) else _nullcontext()
-
-
-class _nullcontext:
-    def __enter__(self):
-        return None
-
-    def __exit__(self, *exc):
-        return False
+        return episode(new_id(prefix)) if callable(episode) and callable(new_id) else nullcontext()
 
 
 def score_lookups(lookups: list[dict], facts: list[dict], tool_calls: list[dict]) -> list[dict]:

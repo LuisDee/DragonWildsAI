@@ -261,7 +261,7 @@ It does not decide by itself (H4). The resume run is a normal Controller run who
 
 ### 2.8 Budget (M5)
 - **Hourly window:** one **call = one LLM request** (research rounds, repairs, prepare, reflect and skill learning included). `HourlyWindow(per_hour = DW_DIRECTOR_CALLS_PER_HOUR, default 20)` is a sliding window persisted in `goals.json`.
-- **Daily cap:** `brain/budget.py` `Budget.allows("director")`, the shared $10/day cap from `tools.spend.spent_today_usd` (GOAL §3, commit 7ae4e23). At 100 % the Director stops: the board keeps running loops and learned skills (no Sonnet), and a help wait says so once.
+- **Daily cap:** `brain/budget.py` `Budget.allows("director")`, the shared $10/day cap from `spend_today()` (GOAL §3, commit 7ae4e23). At 100 % the Director stops: the board keeps running loops and learned skills (no Sonnet), and a help wait says so once.
 - **Kill switch:** `DW_DIRECTOR=0`, read on every tick.
 - **Priority when budget is short:** player-driven decisions (a new `add_task`, a help answer) first, then failures, then curriculum, reviews and reflection. Skill learning is the first thing dropped.
 - **A waiting player** hears the wait time once, computed from the window.
@@ -436,7 +436,7 @@ Sources:
   - a `data/regions_<build>.json` dump (§2.12);
   - instance stats (L3);
   - the gap log as their backlog.
-- **Observability agent:** `tools.spend.spent_today_usd` via `brain/budget.py`. Director calls log `component: "director"`.
+- **Observability agent:** `spend_today()` via `brain/budget.py`. Director calls log `component: "director"`.
 
 ## 10. Unverified / risks
 - Equip of tools on the client (needed for live ladder 1).
@@ -563,5 +563,7 @@ Cassettes are in `tests/fixtures/director_cassettes/` (better_pickaxe, coal_mult
 - the board writing to the shockbyte world folder.
 
 To abort: `tools/board.py cancel <id>` and pause the board through chat. If needed, stop the brain and restart it without DW_DIRECTOR. The board file is kept as evidence.
+
+**Amendment (2026-10-26):** the dev world may have no player to chat with or deliver to. Then the CLI path is the main test, with a job that needs no player: `tools/board.py add "chop 5 ash logs, then drop them on the ground next to you" --world dev_director`. It needs two tools, and its success is checkable from his own state: logs gained, then `lost` + `on_ground` near himself. The chat path (a) runs only if a dev player is online. Also expect the Wooden Shield prerequisite case (Luis, M1/M2) as a follow-up smoke once a Crafting Table exists on dev.
 
 **Evidence:** the brain log path, the goals.json snapshot, `tools/board.py list --json`, `tools/board.py gaps`, `tools/timeline.py` over the window, and the spend delta. File the results in DISCOVERIES ("Director live smoke (dev)") and PROGRESS.
