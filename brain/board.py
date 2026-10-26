@@ -98,6 +98,7 @@ class Step(BaseModel):
     loop_iter: int = 0  # which pass of its loop group this copy belongs to
     tally_gain: float = 0.0  # tally gains this step's segments added
     trivial: bool = False
+    wait: bool = False  # nothing to do but let time pass: re-checked each tick, no Controller run
     status: StepStatus = "pending"
     attempts: int = 0
     runs: int = 0  # counted runs
@@ -674,7 +675,7 @@ class BoardOps:
         lp.last_measures = dict(res.measures)
         lp.done += 1
         t.steps.extend(Step(title=s.title, why=s.why, hints=s.hints, success=s.success, abort_if=s.abort_if,
-                            escape=s.escape, risk=s.risk, needs=s.needs, group=g, loop_iter=it + 1)
+                            escape=s.escape, risk=s.risk, needs=s.needs, group=g, loop_iter=it + 1, wait=s.wait)
                        for s in group if s.loop_iter == it)  # one pass of the group, in order
         self.save()
         return "requeued", gained

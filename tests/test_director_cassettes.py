@@ -60,7 +60,8 @@ def test_recorded_first_decision_replays_through_the_validator_and_board(tmp_pat
     state = rig.game.get_state()["data"]
     for s in job.steps:
         r = P.evaluate(s.success, state, rig.director.ops.step_ctx(job, s, state, rig.store.places()))
-        assert r.passed is not None, (s.title, r.missing)
+        assert r.passed is not None or set(r.missing) <= set(P.BOOKKEEPING_FIELDS), (s.title, r.missing)
+        # (a step not activated yet has no clock: elapsed is bookkeeping, checkable once it runs)
     if not open_task:
         assert job.success is not None or job.help is not None
     assert sum(1 for t in rig.director.ops.b.tasks if t.by == "self") <= 1  # one prerequisite per decision

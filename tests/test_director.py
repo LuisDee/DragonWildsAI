@@ -787,3 +787,30 @@ def test_chat_arriving_during_a_run_stops_the_chain_until_the_next_tick(tmp_path
     ticks(d, 1)
     assert [e["step"]["title"] for e in port.events if e["type"] == "board_step"] == ["first", "second", "third"]
     assert d.ops.b.tasks[0].status == "done"
+
+
+def test_a_wait_step_runs_no_controller_and_ends_when_its_test_passes_or_fails_after_the_wait_cap(tmp_path):
+    d, port, world, llm, clock = make(tmp_path, mine(COPPER, 1), [
+        decision(task_success=have(COPPER, 1), steps=[
+            {"title": "let it smelt", "why": "", "hints": "", "success": P.validate({"elapsed": {"seconds": 60}}),
+             "wait": True},
+            step("mine", gained(COPPER, 1))])])
+    d.handle_tool("add_task", {"text": "copper"}, "Zezima")
+    ticks(d, 3)
+    assert not [e for e in port.events if e["type"] == "board_step"]  # waiting is not a Controller run
+    clock.t += 61
+    ticks(d, 1)
+    assert [e["step"]["title"] for e in port.events if e["type"] == "board_step"] == ["mine"]
+    assert d.ops.b.tasks[0].status == "done"
+
+
+def test_a_wait_that_never_ends_fails_the_attempt_for_a_replan(tmp_path):
+    d, port, world, llm, clock = make(tmp_path, None, [
+        decision(task_success=have(COPPER, 1), steps=[
+            {"title": "wait for copper", "why": "", "hints": "", "success": have(COPPER, 1), "wait": True}])])
+    d.handle_tool("add_task", {"text": "copper"}, "Zezima")
+    ticks(d, 1)
+    clock.t += D.WAIT_MAX_S + 1
+    ticks(d, 1)
+    s = d.ops.b.tasks[0].steps[0]
+    assert s.status == "failed" and "waited 30 min" in s.failures[-1]["reason"]

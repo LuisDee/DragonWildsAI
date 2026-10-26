@@ -249,3 +249,17 @@
     - Runecrafting: at the altar;
     - Agility: on a course.
     The cassettes are in tests/fixtures/director_cassettes/m3_*.
+
+## 2026-10-26 Director: M5 long self-directed session on the mock, measured
+- brain/mock/sim_session.py runs one open Brynmoor session in simulated time:
+  - game time is the clock; Haiku costs 2 s per call and Sonnet 4 s per request; polling every 0.25 s;
+  - log rows use that clock, so tools/obs_tasks metrics work as they do live.
+- The session goes chop → chest → 3 copper trips (60 copper in his chest) → plot → dig+plant → grinder+kiln → wait for the crop → harvest → flour → bread. It ends by choice after 504 s of simulated time.
+- Biggest waste measured: waiting for the crop re-ran the Controller on every poll (58 runs; 99 Haiku calls in the session).
+- Fix: a `wait` step field chosen by the model.
+  - The board re-checks the test each tick with no Controller run.
+  - It fails the attempt after WAIT_MAX_S (30 min) so the model replans.
+  - It logs `board_wait_start`.
+  - Result: 41 Haiku calls. Real Sonnet (3 requests) used wait:true for "Let the wheat grow" (cassette farm_and_process_crop).
+- Gaps after the fix: p50 2.0 s, p90 2.25 s, all of it the Controller's first turn on each step. Idle is 26%, all of it the crop growing.
+- Next gap lever, not built: let the Director give a step's first call, run before the Controller turn (needs an Agent.run_directed hook). Ordering work during waits is the model's choice.

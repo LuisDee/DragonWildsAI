@@ -561,8 +561,6 @@ class GearWorld(MockGame):
         box = self.containers.get(container)
         if box is None:
             return fail(Reason.UNKNOWN_TARGET, container=container, detail="I can't see that chest near me.")
-        if math.dist(self.structures[container]["position"], self.pos) > 30.0:
-            return fail(Reason.TOO_FAR, container=container)
         iid = self.resolve_item(item) or item
         src = self.inventory if deposit else box
         have = int(src.get(iid, 0))

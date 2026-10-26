@@ -65,6 +65,7 @@ PROXIED_READS = ("craft_plan", "recipes", "stations")
 SPEND = {"run": 1.0, "uncounted_run": 0.25, "failed": 1.0, "decision": 1.0, "loop_no_gain": 2.0}
 NO_CURRENT_STEP = "no_current_step"  # report_step outside a board run
 BOARD_REFUSED = "board_refused"  # a board rule refused the tool (the reason is in data.detail)
+WAIT_MAX_S = 1800.0  # a wait step whose test still fails after this is a failed attempt (the model replans)
 MAX_TRANSITIONS = 8  # per tick: a passed step or a landed decision starts the next one at once (no tick of dead time).
 # The bound only stops a tight loop; chat is checked between transitions and runs pump body events themselves.
 MAX_REMEMBERED = 200  # per-task / per-step memories kept by the Director (pruned)
@@ -169,7 +170,9 @@ OUTPUT_DOC = """{"description": str, "explanation": str|null,
  "facts": [{"fact": str, "for_step": str, "status": "known"|"unknown", "source": str, "confidence": str}],
  "task_success": <test>|null   (the job's own done test, first decision of a specific job only),
  "steps": [{"title": str, "why": str, "hints": str, "success": <test>, "risk": "fight"|"trip"|null,
-            "abort_if": <test>|null, "escape": str|null, "needs": [primitive]|[], "group": str|null}],
+            "abort_if": <test>|null, "escape": str|null, "needs": [primitive]|[], "group": str|null,
+            "wait": bool (true: nothing to do but let time pass, e.g. a crop growing or a furnace smelting; his
+                    body stays free and the test is re-checked by itself; give it a test that ends the wait)}],
  "loops": {"<group>": {"until": <test>}},
  "add_tasks": [{"text": str, "because": str}], "capability_gaps": [{"primitive": str, "kind": "action"|"perception"|"knowledge", "why": str, "workaround": str|null}],
  "ask_help": str|null, "done": bool (open-ended jobs only: true when you choose to end it)}"""
@@ -368,6 +371,9 @@ def _compact_state(state: dict) -> dict:
                              for e in (state.get("nearby_entities") or [])[:8] if isinstance(e, dict)]
     if state.get("stations_nearby"):
         out["stations_nearby"] = state["stations_nearby"]
+    if isinstance(state.get("structures"), list) and state["structures"]:  # building pieces near him
+        out["structures"] = [{k: r.get(k) for k in ("id", "name", "distance") if r.get(k) is not None}
+                             for r in state["structures"][:15] if isinstance(r, dict)]
     q = state.get("quests") if isinstance(state.get("quests"), dict) else None
     if q:  # his quest log, the current step in the game's own words (client_mod/scripts/quests.lua)
         out["quests"] = {"active": [{k: a.get(k) for k in ("quest", "step", "detail", "hint", "counters") if a.get(k)}
@@ -614,6 +620,7 @@ class Validator:
                           "hints": str(s.get("hints") or "")[:500], "success": pred, "abort_if": abort,
                           "escape": s.get("escape"), "risk": s.get("risk") if s.get("risk") in ("fight", "trip") else None,
                           "needs": [str(n) for n in s.get("needs") or []][:5], "group": s.get("group") or None,
+                          "wait": s.get("wait") is True,
                           "trivial": trivial})
         out["steps"] = steps
         out["loops"] = {}
@@ -1098,7 +1105,7 @@ class Director:
         for s in v.get("steps", []):
             old = existing.get((s["title"], json.dumps(s["success"], sort_keys=True)))
             if old is not None:  # the same pending step again keeps its attempts; the new plan's details win
-                for f in ("why", "hints", "abort_if", "escape", "risk", "needs", "group", "trivial"):
+                for f in ("why", "hints", "abort_if", "escape", "risk", "needs", "group", "trivial", "wait"):
                     setattr(old, f, s.get(f, getattr(old, f)))
                 old.prepared = old.prepared or kind == "prepare" or not old.risk
                 new_steps.append(old)
@@ -1160,9 +1167,27 @@ class Director:
                 return True
         if task.status == "preempted":
             task.status = "active"
+        if step.wait:  # nothing to do: re-check the test now and then, no Controller run (sim 2026-10-26: 58 runs)
+            return self._wait(task, step, state, r)
         self._review_due(task)
         self._run(task, step, state, r)
         return step.status != "active" or self.ops.b.awaiting_decision is not None
+
+    def _wait(self, task: Task, step: Step, state: dict, r: P.Result | None) -> bool:
+        r = r or P.evaluate(step.success, state, self.ops.step_ctx(task, step, state, self.places()))
+        if not step.segments and not step.runs:  # logged once: obs counts the stretch as waiting, not dead
+            self._log("board_wait_start", task=task.id, step_id=step.id, step=step.title, until=r.detail)
+            step.runs = 1
+        if r.passed is True:
+            self._step_done(task, step, r, state)
+            return True
+        if r.passed is None:
+            self._uncheckable(task, step, r)
+            return True
+        if self.clock() - (step.started or self.clock()) > WAIT_MAX_S:
+            self._fail_attempt(task, step, f"waited {WAIT_MAX_S / 60:.0f} min and still: {r.detail}", r)
+            return True
+        return False
 
     def _review_due(self, task: Task) -> None:
         last = self._review_at.get(task.id)
