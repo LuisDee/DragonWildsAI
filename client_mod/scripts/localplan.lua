@@ -63,7 +63,8 @@ function LP.new(o)
     self.steep = {}                            -- edge key -> true: a "slope" walk that is really a step
     self.wall_pts = {}                         -- horizontal-check hit points: edges passing near one are walls
     self.hop = {}                              -- edge key -> true: a LOW obstacle (clear at jump height): jump it
-    self.cell_cost = o.cell_cost               -- optional fn(x, y) -> extra cost in cells (e.g. known water)
+    self.cell_cost = o.cell_cost               -- optional fn(x, y, floor_z) -> extra cost in cells (known water, avoid zones)
+    self.dry_slack = o.dry_slack or 300        -- aim at a zero-cost cell when it is at most this much further from the goal
     self.water_probe = o.water_probe           -- optional fn(x, y, floor_z) -> true if water covers that floor
     self.queue = {}
     -- spiral order from the centre outwards, so a partial grid is still useful
@@ -251,7 +252,7 @@ function LP:plan(goal)
             if hc < best_h then best_h, best_n = hc, cur end
             if self.cell_cost then
                 local cx, cy = self:pos(cur.i, cur.j)
-                if (self.cell_cost(cx, cy) or 0) == 0 and hc < best_dry_h then best_dry_h, best_dry = hc, cur end
+                if (self.cell_cost(cx, cy, cur.z) or 0) == 0 and hc < best_dry_h then best_dry_h, best_dry = hc, cur end
             end
             if hc < cell then break end
             for di = -1, 1 do
@@ -262,7 +263,7 @@ function LP:plan(goal)
                                 local kind, extra = self:edge(cur, nb)
                                 if kind and self.cell_cost then
                                     local nx, ny = self:pos(nb.i, nb.j)
-                                    extra = extra + (self.cell_cost(nx, ny) or 0)
+                                    extra = extra + (self.cell_cost(nx, ny, nb.z) or 0)
                                 end
                                 if kind then
                                     local step = ((di ~= 0 and dj ~= 0) and 1.414 or 1) * cell + extra * cell
@@ -279,7 +280,7 @@ function LP:plan(goal)
             end
         end
     end
-    if self.cell_cost and best_dry and best_n ~= best_dry and best_dry_h <= best_h + 300 then
+    if self.cell_cost and best_dry and best_n ~= best_dry and best_dry_h <= best_h + self.dry_slack then
         best_n, best_h = best_dry, best_dry_h -- don't aim the segment into water when dry ground is about as close
     end
     if best_n == start then return nil, "no_progress_possible" end

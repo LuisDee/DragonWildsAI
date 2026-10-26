@@ -7,7 +7,7 @@ os.execute('mkdir "' .. (dir .. "/client_io/nav"):gsub("/", "\\") .. '" 2>nul')
 os.execute('mkdir "' .. (dir .. "/client_mod/scripts"):gsub("/", "\\") .. '" 2>nul')
 local here = (debug.getinfo(1, "S").source:match("^@(.*)[/\\][^/\\]*$")) or "."
 do -- move.lua loads <root>/client_mod/scripts/{localplan,navmem,dkjson}.lua
-    for _, n in ipairs({ "localplan.lua", "navmem.lua", "dkjson.lua" }) do
+    for _, n in ipairs({ "localplan.lua", "navmem.lua", "dkjson.lua", "avoidzones.lua" }) do
         local src = assert(io.open(here .. "/../scripts/" .. n, "rb")):read("a")
         local f = assert(io.open(dir .. "/client_mod/scripts/" .. n, "wb")); f:write(src); f:close()
     end
@@ -752,6 +752,182 @@ check("refused rename: oracle request still sent, waypoints used, arrives", s.re
     tostring(s.result and s.result.status) .. " nav=" .. tostring(saw_nav24))
 MQ.stop(log)
 walls = {}; oracle = nil
+
+-- 25-36. AVOID ZONES (docs/design/velgar.md 3c): set_avoid_zones / escape_zones / status().avoid
+local AZt = dofile(here .. "/../scripts/avoidzones.lua")
+local function zreset()
+    _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; _G.DW_AVOID = nil
+    os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
+    walls = {}; raised = {}; lakes = {}; portals = {}; oracle = nil; frame_hook = nil
+    luis.loc = { X = 90000, Y = 90000, Z = 0 }; pawn.loc = { X = 0, Y = 0, Z = 0 }; sprinting = false
+end
+-- frames Claude's capsule spends inside a zone (the module's own geometry, 40 cm capsule)
+local function watch_zone(zl)
+    local w = { inside = 0, frames = 0 }
+    local zz = assert(AZt.normalize(zl, T))
+    frame_hook = function() w.frames = w.frames + 1; if AZt.at(zz, pawn.loc.X, pawn.loc.Y, nil, 40) then w.inside = w.inside + 1 end end
+    return w
+end
+
+zreset()
+-- 25. API: validation (scalars only, metres, until_s), versions change only with the geometry, [] clears
+local MZ = dofile(MOVE)
+local rz = MZ.set_avoid_zones(log, { { id = "a", x = 1, y = 0, z = 0, r_cm = 200, until_s = T + 30, pos = { 1, 2 } } })
+check("zones: a table field is refused (scalars only)", rz.ok == false and tostring(rz.error):find("scalars"), rz.error)
+rz = MZ.set_avoid_zones(log, { { id = "a", x = 150000, y = 0, r_cm = 200, until_s = T + 30 } })
+check("zones: centimetre coordinates are refused", rz.ok == false and tostring(rz.error):find("centimetres"), rz.error)
+local r1 = MZ.set_avoid_zones(log, { { id = "a", x = 30, y = 0, z = 0, r_cm = 200, until_s = T + 30 } })
+local r2 = MZ.set_avoid_zones(log, { { id = "a", x = 30, y = 0, z = 0, r_cm = 200, until_s = T + 31 } })
+local r3 = MZ.set_avoid_zones(log, { { id = "a", x = 31, y = 0, z = 0, r_cm = 200, until_s = T + 31 } })
+check("zones: same geometry re-sent = same version; moved = new version", r1.ok and r2.ver == r1.ver and r3.ver == r1.ver + 1,
+    tostring(r1.ver) .. " " .. tostring(r2.ver) .. " " .. tostring(r3.ver))
+check("zones: status().avoid counts them (idle)", MZ.status().avoid.zones == 1 and MZ.status().avoid.inside == nil)
+MZ.set_avoid_zones(log, { { id = "here", x = 0, y = 0, z = 0, r_cm = 200, until_s = T + 30 } })
+check("zones: status().avoid.inside while idle", MZ.status().avoid.inside == "here", MZ.status().avoid.inside)
+check("zones: [] clears", MZ.set_avoid_zones(log, {}).zones == 0 and MZ.status().avoid.zones == 0)
+
+zreset()
+-- 26. go_to plans round a circle zone straight ahead (open field) and never steps into it
+MZ = dofile(MOVE)
+local Z26 = { { id = "fire", x = 7.5, y = 0, z = 0, r_cm = 250, until_s = T + 120 } }
+MZ.set_avoid_zones(log, Z26)
+local w26 = watch_zone(Z26)
+local nlog26 = #logs
+MZ.go_to(log, { 15, 0, 0 }, { tolerance_m = 1, timeout_s = 60 })
+local saw_cross26 = false
+for _ = 1, 400 do run(1); if MZ.status().avoid.crossing then saw_cross26 = true end; if MZ.status().mode == "idle" then break end end
+s = MZ.status()
+local planned26 = false
+for i = nlog26 + 1, #logs do if logs[i]:find("avoid_zone fire") then planned26 = true end end
+check("avoid: go_to arrives round the zone", s.result and s.result.status == "arrived", s.result and (s.result.status .. " " .. tostring(s.result.reason)))
+check("avoid: planned because of the zone, never inside it", planned26 and w26.inside == 0, "planned=" .. tostring(planned26) .. " inside_frames=" .. w26.inside)
+MZ.stop(log)
+
+zreset()
+-- 27. a cost, not a wall: a corridor (tall walls) fully covered by a zone; no other way -> it crosses
+--     and says so (status().avoid.crossing, log)
+walls = { { -500, 2500, 150, 3000, true }, { -500, 2500, -3000, -150, true } }
+MZ = dofile(MOVE)
+MZ.set_avoid_zones(log, { { id = "breath", x = 10, y = 0, z = 0, r_cm = 400, until_s = T + 120 } })
+local nlog27 = #logs
+MZ.go_to(log, { 20, 0, 0 }, { tolerance_m = 1, timeout_s = 90 })
+local cross27, inside27 = nil, false
+for _ = 1, 800 do
+    run(1)
+    local a = MZ.status().avoid
+    cross27 = cross27 or a.crossing
+    if a.inside then inside27 = true end
+    if MZ.status().mode == "idle" then break end
+end
+s = MZ.status()
+check("avoid: no other way -> crosses the zone and arrives", s.result and s.result.status == "arrived" and inside27,
+    tostring(s.result and s.result.status) .. " " .. tostring(s.result and s.result.reason) .. " x=" .. math.floor(pawn.loc.X))
+check("avoid: the crossing is reported (status().avoid.crossing)", cross27 == "breath", cross27)
+MZ.stop(log)
+
+zreset()
+-- 28. follow: the leader stands in a zone -> Claude holds at its edge ("near_zone"), never enters
+luis.loc = { X = 1500, Y = 0, Z = 0 }
+MZ = dofile(MOVE)
+local Z28 = { { id = "pool", x = 15, y = 0, z = 0, r_cm = 400, until_s = T + 120 } }
+MZ.set_avoid_zones(log, Z28)
+local w28 = watch_zone(Z28)
+MZ.follow(log, "Zezima", 3)
+run(200)
+s = MZ.status()
+check("avoid: follow holds at the edge of the leader's zone", s.status == "near_zone" and w28.inside == 0 and pawn.loc.X > 600,
+    tostring(s.status) .. " x=" .. math.floor(pawn.loc.X) .. " inside_frames=" .. w28.inside)
+-- the zone ends: he closes in to the normal follow distance
+_G.DW_AVOID.zones[1].until_s = T + 0.5
+run(120)
+s = MZ.status()
+check("avoid: zone expired -> follows in to 3 m", s.status == "near" and s.dist_m <= 4.1 and s.avoid.zones == 0, tostring(s.status) .. " " .. tostring(s.dist_m))
+MZ.stop(log)
+
+zreset()
+-- 29. follow: Claude and the leader both stand in a zone -> Claude steps OUT (nearest way), then holds at the edge
+luis.loc = { X = 150, Y = 0, Z = 0 }; pawn.loc = { X = -100, Y = 0, Z = 0 } -- both in the zone: walking to him stays inside
+MZ = dofile(MOVE)
+MZ.set_avoid_zones(log, { { id = "puddle", x = 0, y = 0, z = 0, r_cm = 200, until_s = T + 120 } })
+MZ.follow(log, "Zezima", 3)
+run(100)
+s = MZ.status()
+local dz29 = math.sqrt(pawn.loc.X ^ 2 + pawn.loc.Y ^ 2) -- zone centre (0,0), r 2 m + 40 cm capsule
+check("avoid: follow steps out of a zone it stands in", dz29 > 240 and s.avoid.inside == nil and (s.status == "near" or s.status == "near_zone"),
+    "d=" .. math.floor(dz29) .. " " .. tostring(s.status) .. " inside=" .. tostring(s.avoid.inside))
+MZ.stop(log)
+
+zreset()
+-- 30. escape_zones: inside a circle (centre 0.5 m ahead): ok, nearest way out (backwards), sprint, out in time
+MZ = dofile(MOVE)
+MZ.set_avoid_zones(log, { { id = "meteor", x = 0.5, y = 0, z = 0, r_cm = 300, until_s = T + 10 } })
+local t30, inj30 = T, injected
+local e30 = MZ.escape_zones(log, { time_s = 1.5 })
+local out_t = nil
+for _ = 1, 100 do run(1); if not out_t and not MZ.status().avoid.inside then out_t = T - t30 end; if MZ.status().mode == "idle" then break end end
+s = MZ.status()
+check("escape: ok, away from the centre, with an eta", e30.ok and e30.at[1] < -2.5 and e30.eta_s > 0 and e30.eta_s <= 1.5 and e30.why == nil,
+    tostring(e30.ok) .. " " .. tostring(e30.why) .. " at=" .. tostring(e30.at and e30.at[1]) .. " eta=" .. tostring(e30.eta_s))
+check("escape: walked out of every zone within the eta (+0.3 s)", out_t and out_t <= e30.eta_s + 0.3 and s.result and s.result.status == "arrived" and s.result.out_of_zones,
+    "out_t=" .. tostring(out_t) .. " " .. tostring(s.result and s.result.status))
+check("escape: sprinted (time is short)", e30.sprint == true and injected > inj30)
+
+zreset()
+-- 31. too_slow: not enough time -> answer, but don't move (combat dodges instead)
+MZ = dofile(MOVE)
+MZ.set_avoid_zones(log, { { id = "big", x = 0, y = 0, z = 0, r_cm = 1000, until_s = T + 10 } })
+local e31 = MZ.escape_zones(log, { time_s = 0.4 })
+run(10)
+check("escape: too_slow, with at/eta, and no walking", e31.ok == false and e31.why == "too_slow" and e31.at and e31.eta_s > 0.4
+    and MZ.status().mode == "idle" and math.abs(pawn.loc.X) < 1 and math.abs(pawn.loc.Y) < 1, tostring(e31.why) .. " eta=" .. tostring(e31.eta_s))
+
+zreset()
+-- 32. no_safe_point: the whole bound (the arena) is covered
+MZ = dofile(MOVE)
+MZ.set_avoid_zones(log, { { id = "floor", x = 0, y = 0, z = 0, r_cm = 3000, until_s = T + 10 } })
+local e32 = MZ.escape_zones(log, { time_s = 3, bound = { x = 0, y = 0, z = 0, r_cm = 2000 } })
+check("escape: no_safe_point when the bound is all zone", e32.ok == false and e32.why == "no_safe_point", tostring(e32.why))
+
+zreset()
+-- 33. no_route: boxed in by tall walls, the zone covers the box -> every way out is a wall
+walls = { { 150, 250, -400, 400, true }, { -250, -150, -400, 400, true }, { -400, 400, 150, 250, true }, { -400, 400, -250, -150, true } }
+MZ = dofile(MOVE)
+MZ.set_avoid_zones(log, { { id = "box", x = 0, y = 0, z = 0, r_cm = 300, until_s = T + 10 } })
+local e33 = MZ.escape_zones(log, { time_s = 5 })
+check("escape: no_route when every way out is blocked", e33.ok == false and e33.why == "no_route" and (e33.tested or 0) >= 1 and tostring(e33.detail):find("wall"),
+    tostring(e33.why) .. " " .. tostring(e33.detail))
+
+zreset()
+-- 34. not in any zone: ok at once, nothing to do
+MZ = dofile(MOVE)
+MZ.set_avoid_zones(log, { { id = "far", x = 20, y = 0, z = 0, r_cm = 300, until_s = T + 10 } })
+local e34 = MZ.escape_zones(log, { time_s = 1 })
+check("escape: already safe", e34.ok and e34.already_safe and e34.eta_s == 0 and MZ.status().mode == "idle")
+
+zreset()
+-- 35. cone (dragon breath from 3 m behind, facing +X): the way out is sideways, not along the axis
+MZ = dofile(MOVE)
+MZ.set_avoid_zones(log, { { id = "breath", kind = "cone", x = -3, y = 0, z = 0, r_cm = 1500, until_s = T + 10, yaw_deg = 0, half_angle_deg = 30 } })
+local e35 = MZ.escape_zones(log, { time_s = 2 })
+run(60)
+check("escape: cone -> sideways exit, walked out", e35.ok and math.abs(e35.at[2]) > 1.7 and math.abs(e35.at[1]) < 2 and MZ.status().avoid.inside == nil,
+    tostring(e35.why) .. " at=" .. tostring(e35.at and (e35.at[1] .. "," .. e35.at[2])))
+
+zreset()
+-- 36. expiry: a zone that has ended is ignored (no avoid plan, straight line)
+MZ = dofile(MOVE)
+MZ.set_avoid_zones(log, { { id = "old", x = 7.5, y = 0, z = 0, r_cm = 250, until_s = T + 0.2 } })
+run(5)
+local nlog36 = #logs
+MZ.go_to(log, { 15, 0, 0 }, { tolerance_m = 1 })
+run(150)
+local planned36 = false
+for i = nlog36 + 1, #logs do if logs[i]:find("avoid_zone") then planned36 = true end end
+s = MZ.status()
+check("avoid: expired zones are dropped (straight there)", s.result and s.result.status == "arrived" and not planned36 and s.avoid.zones == 0,
+    tostring(s.result and s.result.status) .. " planned=" .. tostring(planned36))
+MZ.stop(log)
+zreset()
 
 _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
 -- 7. arbiter hooks: actor target ({actor=obj}), snapshot/restore, face_when_near

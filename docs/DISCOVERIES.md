@@ -922,6 +922,30 @@ Service: `client_mod/scripts/move.lua` (go_to / follow / stop / status). Command
   - Unstuck is now DISABLED by default (opt-in per call only; if used, it holds `_G.DW_PAUSE` across the teleport).
   - A wedged Claude reports `{stuck, ask:"lead_me", reason:"wedged"}` instead: a follow waits "unreachable"; a go_to waits for a lead.
   - A perched Claude (floor more than 60 cm below his feet at 3 of 4 points 90 cm round) first steps off: a jump forward, then 8 short pushes.
+- **Avoid zones for combat hazards (2026-10-26, OFFLINE ONLY, not yet live; spec `docs/design/velgar.md` §3c):**
+  - Files: `client_mod/scripts/avoidzones.lua` (pure geometry), the move.lua API `set_avoid_zones` / `escape_zones` / `status().avoid`, and `localplan.lua` (`cell_cost(x, y, floor_z)` plus `dry_slack`).
+  - Tests: `client_mod/tests/test_avoidzones.lua` and `test_move.lua` scenarios 25-36. Live-check commands: `move_zonetest`, `move_zoneescape`, `move_zoneclear`.
+  - **Units:** zone x/y/z are in metres, like every move API; `r_cm` is in cm; `until_s` uses the same clock as move and combat (`GameplayStatics:GetRealTimeSeconds`), or `ttl_s` is relative.
+  - **Normalisation:**
+    - scalars only (UE4SS R15), so a table field is refused;
+    - |x| or |y| over 50 km is refused as "looks like centimetres";
+    - the version (which triggers a re-plan) changes only when the geometry changes, so re-sending every frame is free.
+  - **Design (adapt, not build):** zones are a planner cell COST, not walls (influence-map A*).
+    - The cost is 20 cells, plus 2 per second still left, capped at 60. So with no other way, the route crosses the zone that ends soonest, and `status().avoid.crossing` and the log say so.
+    - The local planner aims at a zone-free cell up to 6 m further from the goal.
+    - A follow whose leader stands in a zone holds at its edge (`status = "near_zone"`); a follow standing in one steps out first.
+    - Navmem/oracle routes are not zone-aware: zones are short-lived and local, so the 9 m local planner handles them as Claude approaches.
+  - **`escape_zones`** is an EQS-like query:
+    - Candidates: 32 rays, taking the first point on each outside every zone (+40 cm capsule, +60 cm), filtered by the bound and sorted nearest first.
+    - Reachability, using real traces (at most 8 candidates): a knee-height wall trace, plus floor traces every 1.5 m (no drop over 2.5 m, no climb, no start inside geometry); known water is skipped.
+    - eta = 0.25 s + distance / speed, where speed is the measured sprint (else 6.8 m/s) or MaxWalkSpeed. If eta > time_s, it answers `too_slow` and does NOT move.
+    - Otherwise it does a sprint-forced go_to, which arrives as soon as Claude is out of every zone (`result.out_of_zones`). The reply carries `prev` (the snapshot) so the arbiter can `restore` afterwards.
+  - **Search record:**
+    - Critch & Churchill, influence-map A* (https://www.cs.mun.ca/~dchurchill/publications/pdf/cog2021sneak.pdf);
+    - danger zones as a path cost (https://discussions.unity.com/t/how-to-create-temporary-danger-zones-on-ground-and-have-ai-characters-move-from-them/666329);
+    - Unreal area-cost pitfalls (https://forums.unrealengine.com/t/making-unreal-ignore-certain-areas-when-pathfinding/412637);
+    - Limited-Damage A* (damage as a feasibility budget, not adopted: a soft cost is enough here; https://avesis.metu.edu.tr/yayin/12fd2447-c287-40f0-bbf3-b62962cb2796/limited-damage-a-a-path-search-algorithm-that-considers-damage-as-a-feasibility-criterion).
+    - The engine-side alternatives were not usable: a NavArea/NavModifier cost would need the server's navmesh, and the client has no navmesh (route R2); EQS needs a server AIController. A search for Unreal EQS "nearest safe point" returned only Unity NavMeshQueryFilter docs.
 
 ## Client perception + inventory (R2) (2026-10-25, 17:30-18:00 UTC, client build 26162923, Shockbyte world)
 Modules: `client_mod/scripts/sense.lua` (census + me), `client_mod/scripts/inventory.lua` (list, collect, equip, unequip, drop). Commands: `client_mod/commands/sense_*.lua`, `inv_*.lua`. Both reuse the dependency-free `mod/body/util.lua` via `loadfile` (works unchanged on the client).

@@ -49,6 +49,18 @@
 -- "waiting_for_lead", up to lead_wait_s): when the helper moves, it walks his trail out and, once
 -- clear of the stuck spot, carries on to its goal (one command, one result).
 --   M.snapshot() -> {mode, goal, distance_m, opts} | nil    M.restore(log, snap)   (arbiter suspend/resume)
+-- AVOID ZONES (scripts/avoidzones.lua; docs/design/velgar.md 3c), for combat hazards:
+--   M.set_avoid_zones(log, zones)  replace (no merge) the zones every move keeps out of; [] clears.
+--       zone = {id, kind="circle"|"cone", x, y, z (metres), r_cm, until_s (GetRealTimeSeconds clock)
+--               | ttl_s, cone: yaw_deg, half_angle_deg; h_cm (vertical reach, 400)}, scalars only.
+--       They are a planner COST (not walls): go_to/follow plan round them; when no other way exists the
+--       route crosses the zone that ends soonest and status().avoid.crossing names it. A follow whose
+--       leader stands in a zone holds at its edge; a follow standing in one steps out.
+--   M.escape_zones(log, {time_s, bound = {x, y, z (m), r_cm}}) -> {ok, at = {x,y,z} m, eta_s, why =
+--       nil | "no_safe_point" | "no_route" | "too_slow", zone, prev (snapshot to restore after)}:
+--       the nearest point outside every zone inside the bound whose straight walk traces clear, walked at
+--       once (sprinting); too_slow = it would not get out within time_s (combat dodges instead, no walk).
+--   M.status().avoid = {zones = n, inside = id|nil, crossing = id|nil}
 -- Units: metres on the API (wire units), centimetres inside.
 local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
 local NAV_REQ = ROOT .. "/client_io/nav/req.json"
@@ -57,6 +69,7 @@ local NAV_ALIVE = ROOT .. "/client_io/nav/alive.lua"
 local LP_PATH = ROOT .. "/client_mod/scripts/localplan.lua"
 local TL_PATH = ROOT .. "/client_mod/scripts/traverse_learn.lua" -- learned traversal links (traversal agent)
 local NM_PATH = ROOT .. "/client_mod/scripts/navmem.lua"
+local AZ_PATH = ROOT .. "/client_mod/scripts/avoidzones.lua"
 
 local M = {}
 
@@ -130,6 +143,18 @@ M.cfg = {
     link_max_tries = 2,        -- learned-link attempts per unreachable episode before reporting
     link_approach_s = 15,
     log_every_s = 2.0,
+    -- avoid zones (combat hazards)
+    avoid_margin_cm = 40,      -- capsule radius: "inside" = the capsule overlaps the zone
+    avoid_dry_slack_cm = 600,  -- planner aims at a zone-free cell up to this much further from the goal
+    avoid_check_s = 0.2,       -- route-vs-zones check cadence (pure math)
+    avoid_plan_s = 1.0,        -- at most one zone-triggered local plan per this long (unless zones change)
+    avoid_edge_cm = 300,       -- follow: leader inside a zone and the zone this close ahead = hold here
+    escape_max_cm = 2500,      -- escape search radius without a bound
+    escape_extra_cm = 60,      -- walk this far past the zone edge (arrival = out of every zone anyway)
+    escape_walk_cms = 450,     -- speeds for the eta when nothing was measured yet
+    escape_sprint_cms = 680,
+    escape_react_s = 0.25,     -- turn + sprint ack before the speed is reached
+    escape_max_tests = 8,      -- candidates traced for reachability (nearest first)
 }
 
 -- ------------------------------------------------------------------ helpers
@@ -562,6 +587,28 @@ local function tl_module()
     return TL_MOD
 end
 
+local AZ_MOD
+local function az_module()
+    if AZ_MOD == nil then
+        local okc, chunk = pcall(loadfile, AZ_PATH)
+        local okm, mod = false, nil
+        if okc and chunk then okm, mod = pcall(chunk) end
+        AZ_MOD = (okm and type(mod) == "table" and mod.normalize) and mod or false
+    end
+    return AZ_MOD
+end
+-- zones live in _G (not in the per-move state): they outlast commands and reloads of this file
+local function avoid()
+    _G.DW_AVOID = _G.DW_AVOID or { zones = {}, ver = 0 }
+    return _G.DW_AVOID
+end
+local function live_zones(t)
+    local A = avoid()
+    local AZm = az_module()
+    if AZm and t and #A.zones > 0 then AZm.prune(A.zones, t) end
+    return A.zones, AZm
+end
+
 local NM_MOD
 local function nm_module()
     if NM_MOD == nil then
@@ -634,10 +681,14 @@ local function lp_begin(st, pawn, me, far, why, log)
     st.lp = LP.new({ trace = make_trace(st, pawn), center = v(me), feet_z = me.Z - hh,
         radius_m = M.cfg.lp_grid_m, cell_cm = M.cfg.lp_cell_cm, env = st.env,
         cache = lp_cache(), now = function() return now(pawn) end, self_pos = v(me),
-        cell_cost = function(x, y)
+        cell_cost = function(x, y, fz)
             local mem, NMm = nav_mem()
-            return (mem and NMm.is_water(mem, { X = x, Y = y })) and M.cfg.water_cell_cost or 0
+            local c = (mem and NMm.is_water(mem, { X = x, Y = y })) and M.cfg.water_cell_cost or 0
+            local zs, AZm = avoid().zones, az_module()
+            if AZm and #zs > 0 then c = c + AZm.cost(zs, x, y, fz, st.lp_clock, M.cfg.avoid_margin_cm) end
+            return c
         end,
+        dry_slack = (#avoid().zones > 0) and M.cfg.avoid_dry_slack_cm or nil,
         water_probe = rawget(_G, "DW_WATER_CH") and function(x, y, floor_z)
             local c = rawget(_G, "DW_WATER_CH")
             local ok, hit, out = pcall(trace_with, c, pawn, { X = x, Y = y, Z = floor_z + 300 }, { X = x, Y = y, Z = floor_z - 50 })
@@ -649,6 +700,8 @@ local function lp_begin(st, pawn, me, far, why, log)
             return false
         end or nil })
     st.lp_t0 = now(pawn)
+    st.lp_clock = st.lp_t0 -- zone costs are taken at plan time (sooner-ending zones are cheaper)
+    st.lp_zver = avoid().ver
     st.lp_far, st.lp_state, st.lp_why = v(far), "sampling", why
     st.lp_runs = (st.lp_runs or 0) + 1
     st.lp_plans_np = (st.lp_plans_np or 0) + 1
@@ -691,6 +744,12 @@ local function lp_work(st, t, log)
             local acts = {}
             for _, p in ipairs(st.lpath) do acts[#acts + 1] = p.act:sub(1, 1) end
             st.lp_stand_s = t - (st.lp_t0 or t)
+            local zs, AZm = live_zones(t)
+            if AZm and #zs > 0 then
+                -- a cost, not a wall: when no other way exists the plan crosses (the soonest-ending zone)
+                local zc = AZm.on_route(zs, st.lpath[1], st.lpath, 2, nil, M.cfg.avoid_margin_cm)
+                if zc and log then log(string.format("move: no way round avoid zone %s; crossing it (ends in %.1fs)", zc.id, zc.until_s - t)) end
+            end
             if log then
                 log(string.format("move: local path %d pts [%s] traces=%d cache_hits=%d replans=%d stand=%.2fs end=%s",
                     #st.lpath, table.concat(acts), P.traces, P.cache_hits or 0, st.lp_rounds, st.lp_stand_s, fmt(st.lpath[#st.lpath])))
@@ -803,6 +862,18 @@ local function tick(st, gen, log)
     local dist = d2(me, goal)
     st.dist_cm = dist
     if st.dz0 == nil then st.dz0 = goal.Z - me.Z end
+
+    -- AVOID ZONES (combat hazards): the zone we stand in (capsule overlap), and the leader's
+    local zs, AZm = live_zones(t)
+    local zone_in, zone_goal = nil, nil
+    local mfeet = me.Z - (st.half_h or 90)
+    if AZm and #zs > 0 then
+        zone_in = AZm.at(zs, me.X, me.Y, mfeet, M.cfg.avoid_margin_cm)
+        zone_goal = AZm.at(zs, goal.X, goal.Y, goal.Z - (st.half_h or 90), 0)
+    end
+    st.zone_in = zone_in and zone_in.id or nil
+    if not zone_in then st.zone_exit = nil end
+    if not (AZm and #zs > 0) then st.zone_cross = nil end
     if st.mode == "follow" and dist > M.cfg.leader_far_cm then
         if not st.far then
             st.far = true
@@ -821,12 +892,31 @@ local function tick(st, gen, log)
 
     -- arrival / follow idle
     if st.mode == "go_to" then
+        if st.escape and not zone_in then
+            return finish(st, { status = "arrived", out_of_zones = true, zone = st.escape.zone, dist_m = dist / 100, s = t - st.t0 }, log)
+        end
         if dist <= st.tol_cm then return finish(st, { status = "arrived", dist_m = dist / 100, s = t - st.t0 }, log) end
         if t - st.t0 > st.timeout_s then return finish(st, { status = "failed", reason = "timeout", dist_m = dist / 100 }, log) end
     else
         local hold = st.idle and (st.tol_cm + M.cfg.follow_hysteresis_cm) or st.tol_cm
-        if dist <= hold then
-            st.idle, st.status = true, "near"
+        -- the leader stands in a zone and its edge is just ahead: wait here, at the edge
+        local edge_hold = false
+        if zone_goal and not zone_in and dist > hold then
+            local z1, s1 = AZm.on_segment(zs, me, goal, mfeet, M.cfg.avoid_margin_cm)
+            edge_hold = z1 ~= nil and s1 <= M.cfg.avoid_edge_cm
+        end
+        -- standing in a zone while near him: step out first (nearest point outside every zone)
+        local exit_pt = nil
+        if zone_in and (dist <= hold or st.zone_exit) then
+            if not (st.zone_exit and not AZm.at(zs, st.zone_exit.X, st.zone_exit.Y, mfeet, M.cfg.avoid_margin_cm)) then
+                local ex = AZm.exits(zs, me, mfeet, { margin = M.cfg.avoid_margin_cm + M.cfg.escape_extra_cm, max_cm = M.cfg.escape_max_cm })
+                st.zone_exit = ex[1] and { X = ex[1].X, Y = ex[1].Y, Z = me.Z } or nil
+                if st.zone_exit and log then log(string.format("move: standing in avoid zone %s; stepping out to %s", zone_in.id, fmt(st.zone_exit))) end
+            end
+            exit_pt = st.zone_exit
+        end
+        if (dist <= hold or edge_hold) and not exit_pt then
+            st.idle, st.status = true, edge_hold and "near_zone" or "near"
             if st.trip and #st.trip >= 4 then st.trip_ok = true; pcall(mem_flush, st, log, "near"); st.trip = { feet_of(st, me) } end
             if st.unreach then
                 pcall(emit_move_event, "reachable_again", { leader_pos = goal, my_pos = me, after_s = math.floor((t - st.unreach.since) * 10) / 10 })
@@ -1331,6 +1421,7 @@ local function tick(st, gen, log)
             end
         end
     end
+    if zone_in and st.zone_exit and not st.escape then aim, src, idx_progress = st.zone_exit, "avoid_exit", true end
     st.source, st.aim = src, aim
 
     local dx, dy = aim.X - me.X, aim.Y - me.Y
@@ -1377,6 +1468,31 @@ local function tick(st, gen, log)
                     now = function() return t end })
                 if used > 0 then st.prefetched = (st.prefetched or 0) + 1; break end
             end
+        end
+    end
+
+    -- AVOID ZONES on the way (pure math, a few times a second): plan round them with the local planner
+    -- (zones are a cell cost there), at once when the zones changed, else at most once per avoid_plan_s;
+    -- a route that still goes through one (no other way) is reported in status().avoid.crossing
+    if AZm and #zs > 0 and t - (st.zone_chk_t or -1) >= M.cfg.avoid_check_s then
+        st.zone_chk_t = t
+        local zc
+        if st.lpath then
+            zc = AZm.on_route(zs, { X = me.X, Y = me.Y, Z = mfeet }, st.lpath, st.lwp, mfeet, M.cfg.avoid_margin_cm)
+        else
+            local L = math.min(dist, M.cfg.lp_grid_m * 100)
+            zc = AZm.on_segment(zs, me, { X = me.X + dx * L, Y = me.Y + dy * L }, mfeet, M.cfg.avoid_margin_cm)
+        end
+        st.zone_cross = zc and zc.id or nil
+        local A = avoid()
+        local replan = zc and st.use_lp and (not st.lpath or st.lp_zver ~= A.ver)
+            and src ~= "avoid_exit" and src ~= "link" and src ~= "stepoff" and src ~= "bug2" and src ~= "backtrack"
+            and (st.zone_plan_ver ~= A.ver or t - (st.zone_plan_t or -100) > M.cfg.avoid_plan_s)
+            and t - (st.lp_fail_t or -100) > M.cfg.lp_cooldown_s and st.lp_plans_np < M.cfg.lp_max_plans
+        if replan then
+            st.zone_plan_t, st.zone_plan_ver = t, A.ver
+            st.lpath = nil
+            if lp_begin(st, pawn, me, far_goal(), "avoid_zone " .. zc.id, log) then st.status = "planning"; return end
         end
     end
 
@@ -1446,7 +1562,8 @@ local function tick(st, gen, log)
     end
 
     -- sprint: far from the goal, only while making progress on the ground, never on a local path
-    if dist > M.cfg.sprint_on_cm and st.sprint then st.sprint_want = true
+    if st.sprint_force then st.sprint_want = true
+    elseif dist > M.cfg.sprint_on_cm and st.sprint then st.sprint_want = true
     elseif dist < M.cfg.sprint_off_cm then st.sprint_want = false end
     local sprinting = is_sprinting(pawn)
     st.sprinting = sprinting
@@ -1733,6 +1850,8 @@ local function start(log, mode, opts)
     st.allow_unstuck = opts.allow_unstuck
     if opts.sprint_m then M.cfg.sprint_on_cm = opts.sprint_m * 100; M.cfg.sprint_off_cm = math.min(M.cfg.sprint_off_cm, opts.sprint_m * 50) end
     st.face_when_near = opts.face_when_near
+    st.sprint_force = opts.sprint_force == true
+    st.escape = type(opts.escape) == "table" and opts.escape or nil
 
     local g = opts.goal
     if type(g) == "table" and not g.actor then
@@ -1890,7 +2009,163 @@ function M.status()
             leader_pos = m3(st.unreach.leader_pos), my_pos = m3(st.unreach.my_pos) } or nil,
         unreach_episodes = st.unreach_episodes,
         aim = m3(st.aim), target_pos = m3(st.target_pos), target_kind = st.target_kind,
+        avoid = M.avoid_status(st),
+        escape = st.escape and { zone = st.escape.zone, eta_s = st.escape.eta_s, at = st.escape.at } or nil,
     }
+end
+
+-- ------------------------------------------------------------------ avoid zones (velgar.md 3c)
+local function half_h(pawn)
+    return tonumber((pcall(function() return pawn.CapsuleComponent:GetScaledCapsuleHalfHeight() end))
+        and pawn.CapsuleComponent:GetScaledCapsuleHalfHeight()) or 90
+end
+
+local function zone_sig(zs)
+    local p = {}
+    for _, z in ipairs(zs) do
+        p[#p + 1] = string.format("%s:%s:%.0f:%.0f:%.0f:%.0f:%.2f:%.2f", z.id, z.kind, z.X / 10, z.Y / 10, (z.Z or 0) / 10, z.r / 10, z.yaw or 0, z.half or 0)
+    end
+    return table.concat(p, "|")
+end
+
+-- Replace the avoid zones (no merge); [] clears. The version (which triggers re-planning) changes only
+-- when the set or a zone's geometry changes, so re-sending the same zones every frame costs nothing.
+function M.set_avoid_zones(log, zones)
+    local AZm = az_module()
+    if not AZm then return { ok = false, error = "avoidzones.lua missing" } end
+    local t = nil
+    if not paused() then pcall(function() local pc = local_pc(); if pc and pc.Pawn and pc.Pawn:IsValid() then t = now(pc.Pawn) end end) end
+    local zs, err = AZm.normalize(zones or {}, t)
+    if not zs then
+        if log then log("move: set_avoid_zones refused: " .. tostring(err)) end
+        return { ok = false, error = err }
+    end
+    if t then AZm.prune(zs, t) end
+    local A = avoid()
+    local sig = zone_sig(zs)
+    if sig ~= A.sig then
+        A.ver, A.sig = A.ver + 1, sig
+        if log then
+            local ids = {}
+            for _, z in ipairs(zs) do ids[#ids + 1] = string.format("%s(%s r=%.1fm)", z.id, z.kind, z.r / 100) end
+            log("move: avoid zones v" .. A.ver .. ": " .. (#ids > 0 and table.concat(ids, " ") or "cleared"))
+        end
+    end
+    A.zones = zs
+    return { ok = true, zones = #zs, ver = A.ver }
+end
+
+function M.avoid_status(st)
+    st = st or S()
+    local A = avoid()
+    local AZm = az_module()
+    local inside = st.mode ~= "idle" and st.zone_in or nil
+    if not paused() then pcall(function() -- no engine calls during world teardown (crash 18:08)
+        local pc = local_pc()
+        local pawn = pc and pc.Pawn
+        if not (AZm and pawn and pawn:IsValid()) then return end
+        AZm.prune(A.zones, now(pawn))
+        if st.mode == "idle" and #A.zones > 0 then
+            local me = pawn:K2_GetActorLocation()
+            local z = AZm.at(A.zones, me.X, me.Y, me.Z - half_h(pawn), M.cfg.avoid_margin_cm)
+            inside = z and z.id or nil
+        end
+    end) end
+    return { zones = #A.zones, inside = inside, crossing = (st.mode ~= "idle" and #A.zones > 0) and st.zone_cross or nil }
+end
+
+-- Can Claude walk the straight line me -> c? (wall at knee height, holes/ledges, steep climbs)
+local function escape_line_clear(pawn, me, feet, c)
+    local dx, dy = c.X - me.X, c.Y - me.Y
+    local L = math.max(math.sqrt(dx * dx + dy * dy), 1)
+    local hx, hy = dx / L, dy / L
+    local knee = feet + 50
+    if L > 60 then
+        -- from 55 cm out: from his centre the ray hits his own gear (live 19:22)
+        local okp, hit, out = pcall(raw_trace, pawn, { X = me.X + hx * 55, Y = me.Y + hy * 55, Z = knee },
+            { X = c.X + hx * 30, Y = c.Y + hy * 30, Z = knee })
+        if not okp then return "trace_error" end
+        if hit and ((out.ImpactNormal and out.ImpactNormal.Z or 0) < M.cfg.probe_wall_nz) then return "wall" end
+    end
+    local n = math.max(1, math.ceil(L / 150))
+    for k = 1, n do
+        local f = k / n
+        local x, y = me.X + dx * f, me.Y + dy * f
+        local okd, hitd, outd = pcall(raw_trace, pawn, { X = x, Y = y, Z = feet + 150 }, { X = x, Y = y, Z = feet - 400 })
+        if not okd then return "trace_error" end
+        if not (hitd and outd.ImpactPoint) then return "drop" end
+        if tonumber(outd.Distance) == 0 then return "inside_geometry" end
+        local fz = outd.ImpactPoint.Z
+        if fz < feet - 250 then return "drop" end
+        if fz > feet + 60 + 0.7 * L * f then return "climb" end
+    end
+    return true
+end
+
+-- "Get me out now": nearest point outside every zone (inside the bound) whose straight walk is clear;
+-- walks there at once (sprinting when it matters). Never moves when the answer is not ok.
+function M.escape_zones(log, opts)
+    opts = opts or {}
+    if paused() then return { ok = false, why = "no_route", error = "paused (world changing)" } end
+    local pc = local_pc()
+    local pawn = pc and pc.Pawn
+    if not is_character(pawn) then return { ok = false, why = "no_route", error = "no player character" } end
+    local t = now(pawn)
+    local zs, AZm = live_zones(t)
+    if not AZm then return { ok = false, why = "no_route", error = "avoidzones.lua missing" } end
+    local hh = half_h(pawn)
+    local me = pawn:K2_GetActorLocation()
+    local feet = me.Z - hh
+    local mg = M.cfg.avoid_margin_cm
+    local zin = AZm.at(zs, me.X, me.Y, feet, mg)
+    if not zin then return { ok = true, at = m3(me), eta_s = 0, already_safe = true } end
+    local bound = nil
+    local b = opts.bound
+    if type(b) == "table" then
+        local bx, by, br = tonumber(b.x or b[1]), tonumber(b.y or b[2]), tonumber(b.r_cm or b[4])
+        if bx and by and br then bound = { X = bx * 100, Y = by * 100, r = br } end
+    end
+    local ex = AZm.exits(zs, me, feet, { margin = mg + M.cfg.escape_extra_cm, bound = bound,
+        max_cm = bound and math.min(2 * bound.r, 2 * M.cfg.escape_max_cm) or M.cfg.escape_max_cm })
+    if #ex == 0 then
+        if log then log("move: escape_zones: no safe point " .. (bound and "inside the bound" or "within range") .. " (in " .. zin.id .. ")") end
+        return { ok = false, why = "no_safe_point", zone = zin.id, detail = bound and "every point in the bound is in a zone" or "every point within range is in a zone" }
+    end
+    local mem, NMm = nav_mem()
+    local pick, tested, why = nil, 0, {}
+    for _, c in ipairs(ex) do
+        if tested >= M.cfg.escape_max_tests then break end
+        if not (mem and NMm.is_water(mem, c)) then
+            tested = tested + 1
+            local okr, r = pcall(escape_line_clear, pawn, me, feet, c)
+            if okr and r == true then pick = c; break end
+            why[#why + 1] = string.format("%.0fdeg:%s", c.yaw, okr and tostring(r) or "error")
+        end
+    end
+    if not pick then
+        if log then log("move: escape_zones: no route out of " .. zin.id .. " (" .. table.concat(why, " ") .. ")") end
+        return { ok = false, why = "no_route", zone = zin.id, tested = tested, detail = table.concat(why, " ") }
+    end
+    local st = S()
+    local okw, walk = pcall(function() return pawn.CharacterMovement.MaxWalkSpeed end)
+    walk = (okw and tonumber(walk) and tonumber(walk) > 50) and tonumber(walk) or M.cfg.escape_walk_cms
+    local spr = (st.sprint_speed_cms and st.sprint_speed_cms > walk) and st.sprint_speed_cms or M.cfg.escape_sprint_cms
+    local time_s = tonumber(opts.time_s)
+    local sprint = opts.sprint ~= false and (pick.dist > 300 or (time_s ~= nil and time_s < 5))
+    local eta = M.cfg.escape_react_s + pick.dist / (sprint and spr or walk)
+    local at = { X = pick.X, Y = pick.Y, Z = me.Z }
+    local eta_r = math.floor(eta * 100 + 0.5) / 100
+    if time_s and eta > time_s then
+        if log then log(string.format("move: escape_zones: too slow (%.2fs to get out of %s, %.2fs left)", eta, zin.id, time_s)) end
+        return { ok = false, why = "too_slow", at = m3(at), eta_s = eta_r, zone = zin.id, dist_m = math.floor(pick.dist) / 100 }
+    end
+    local prev = M.snapshot()
+    local r = start(log, "go_to", { goal = { at.X / 100, at.Y / 100, at.Z / 100 }, tolerance_m = 0.4, sprint = sprint,
+        sprint_force = sprint, nav = false, local_plan = false, timeout_s = math.max(3, eta * 3),
+        escape = { zone = zin.id, eta_s = eta_r, at = m3(at) } })
+    if not r.ok then return { ok = false, why = "no_route", zone = zin.id, error = r.error } end
+    if log then log(string.format("move: escape_zones: out of %s -> %s (%.1fm, eta %.2fs%s)", zin.id, fmt(at), pick.dist / 100, eta, sprint and ", sprint" or "")) end
+    return { ok = true, at = m3(at), eta_s = eta_r, zone = zin.id, dist_m = math.floor(pick.dist) / 100, sprint = sprint, prev = prev }
 end
 
 return M
