@@ -200,6 +200,8 @@ def case_hash(case: Case) -> str:
     """Changes whenever anything that affects scoring changes (text, predicates, fixtures incl. the CONTENT of the
     state snapshot, controls, limits, oracle)."""
     d = case.model_dump(by_alias=True, exclude={"status", "provenance", "heldout"})
+    if d.get("variant") == "main":  # the default (added 2026-10-26): leaving it out keeps every earlier hash
+        d.pop("variant")
     d["_snapshot_digest"] = snapshot_digest(case.fixtures.state_snapshot)
     return hashlib.sha256(_canon(d).encode("utf-8")).hexdigest()[:16]
 

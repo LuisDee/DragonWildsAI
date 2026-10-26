@@ -6,6 +6,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -96,6 +97,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -191,6 +193,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -281,6 +284,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -370,6 +374,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -470,6 +475,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -560,6 +566,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -650,6 +657,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -737,6 +745,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -837,6 +846,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -937,6 +947,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -1037,6 +1048,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -1127,6 +1139,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -1213,6 +1226,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -1300,6 +1314,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -1387,6 +1402,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -1474,6 +1490,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -1560,6 +1577,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -1650,6 +1668,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -1740,6 +1759,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -1829,6 +1849,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -1916,6 +1937,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -2015,6 +2037,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -2101,6 +2124,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -2188,6 +2212,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -2278,6 +2303,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -2424,6 +2450,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -2514,6 +2541,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -2609,6 +2637,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -2697,6 +2726,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -2784,6 +2814,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -2871,6 +2902,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -3018,6 +3050,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -3105,6 +3138,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -3192,6 +3226,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -3278,6 +3313,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -3368,6 +3404,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "draft",
    "tags": {
@@ -3458,6 +3495,7 @@
    "version": 1,
    "tier": "T1",
    "family": "spell_use",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {

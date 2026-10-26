@@ -6,12 +6,13 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
     "spell": "USD_AccessPersonalChest",
     "cast_type": "instant",
-    "confidence": "data"
+    "confidence": "live"
    },
    "chat": [
     {
@@ -119,6 +120,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -232,6 +234,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -345,6 +348,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -457,6 +461,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -580,6 +585,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -693,12 +699,13 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
     "spell": "USD_DetectOre",
     "cast_type": "instant",
-    "confidence": "data_weak"
+    "confidence": "live"
    },
    "chat": [
     {
@@ -806,6 +813,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -919,6 +927,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -1042,12 +1051,13 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
     "spell": "USD_EnchantWeapon_Fire",
     "cast_type": "instant",
-    "confidence": "data"
+    "confidence": "live"
    },
    "chat": [
     {
@@ -1165,6 +1175,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -1288,6 +1299,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -1400,12 +1412,13 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
     "spell": "USD_EyeOfOculus",
     "cast_type": "instant",
-    "confidence": "data"
+    "confidence": "live"
    },
    "chat": [
     {
@@ -1512,6 +1525,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -1625,6 +1639,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -1738,6 +1753,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -1851,6 +1867,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -1963,6 +1980,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -2081,6 +2099,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -2194,6 +2213,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -2307,6 +2327,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -2419,6 +2440,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -2531,6 +2553,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -2653,6 +2676,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -2765,6 +2789,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -2878,6 +2903,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -3002,6 +3028,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -3115,6 +3142,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -3210,6 +3238,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -3328,6 +3357,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -3441,6 +3471,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -3554,6 +3585,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -3667,6 +3699,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -3786,6 +3819,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -3899,12 +3933,13 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
     "spell": "USD_Surge",
     "cast_type": "instant",
-    "confidence": "data_weak"
+    "confidence": "live"
    },
    "chat": [
     {
@@ -4012,6 +4047,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -4124,6 +4160,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -4237,6 +4274,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {
@@ -4350,6 +4388,7 @@
    "version": 1,
    "tier": "T0",
    "family": "spell_cast",
+   "variant": "main",
    "authored_by": "data",
    "status": "suite",
    "tags": {

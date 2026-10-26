@@ -2,7 +2,7 @@
   "schema": "dw_bench_snapshot/1",
   "name": "fresh_dev_v1",
   "status": "draft",
-  "describes": "A freshly created ClaudeDev on the dev world: no gear in any slot, all 12 skills at level 1 with 0 XP, no quests beyond the automatic tutorial start, no lodestones built (only the inactive Temple lodestone), spawn at the church start area.",
+  "describes": "A brand-new dev character: no gear in any slot, all 12 skills at level 1 with 0 XP, no quests beyond the automatic tutorial start, no lodestones built (only the inactive Temple lodestone), spawn at the church start area.",
   "character": {
     "gear": {
       "head": null,
@@ -46,9 +46,15 @@
     }
   ],
   "open_questions": [
-    "No reset verb exists yet: a used ClaudeDev is not fresh. Needs a new dev character per suite run, or a verified reset route (reset_skills / inventory clear).",
     "Lodestone state and quest state must be read by the probe (quests: v2 reads QuestProgressComponent; lodestones: not yet).",
-    "Scene spawns (creatures 40 m off) are not grants; confirm on dev they do not aggro before he engages."
+    "Scene spawns (creatures 40 m off) are not grants; confirm on dev they do not aggro before he engages.",
+    "The game's character-name rule is not in the reflection dump: names are kept to 16 alnum/_ characters; a rejected name is a fixture gap.",
+    "Created characters accumulate in SaveCharacters and Steam Cloud (logs/bench/dev_characters.jsonl lists them for clean-up)."
   ],
-  "grant_policy": "Luis 2026-10-26: main variants grant NO items; he obtains every prerequisite himself (his Director plans them). Grant-using setups belong only to *_quick cases (variant quick, never counted for GOAL)."
+  "grant_policy": "Luis 2026-10-26: main variants grant NO items; he obtains every prerequisite himself (his Director plans them). Grant-using setups belong only to *_quick cases (variant quick, never counted for GOAL).",
+  "character_policy": {
+    "fresh": "cases with fixtures.character = 'fresh' (M3 asked/initiative/plus5, capstone stage 1) get a NEW character per case, CD_<case tag>_<run tag>, made by evals/bench/devchar.py (create_char -> pick_char -> join dev; every switch relaunches the client, BUGS L24); the name is recorded in the case result",
+    "main": "every other case runs on ClaudeDev, the long-lived main dev character (M4-M6 progression): it is NOT fresh",
+    "chain:<case>": "continue the character that verified <case> (route B snapshot/restore, not built: a fixture gap until then)"
+  }
 }

@@ -9,6 +9,8 @@ dispatch and validation, execution against the mock, verification, segments, tal
 """
 import json
 
+import pytest
+
 
 from brain import predicates as P
 from brain.llm import LLMResponse, ToolCall
@@ -439,3 +441,53 @@ def test_board_rows_for_the_observability_metrics(tmp_path):
     assert moves[0] == (None, "active") and moves[-1] == ("active", "done")
     tool_rows = [r for r in rig.log_rows("tool_call") if r.get("tool") == "gather"]
     assert tool_rows and all(str(r.get("episode_id", "")).startswith("board-") for r in tool_rows)
+
+
+@pytest.mark.parametrize("tick_s", [1.0, 30.0, 300.0])
+def test_chained_steps_leave_no_tick_of_dead_time(tmp_path, tick_s):
+    """Luis: chained subtasks are seamless. A passed step, or a decision that lands, starts the next step in the
+    same tick (bounded per tick), so the step-to-step gap does not depend on the agent's tick length."""
+    rig = JobRig(tmp_path, PICKAXE_PLAN)
+    pickaxe_world(rig)
+    marks = []
+    real_run = rig.director.port.run
+
+    def timed(event):
+        start = rig.clock()
+        res = real_run(event)
+        if event.get("type") == "board_step":
+            marks.append((event["step"]["title"], start, rig.clock()))
+        return res
+    rig.director.port.run = timed
+    rig.say("can you make yourself a better pickaxe")
+    rig.steps(12, dt=tick_s)
+    assert rig.task().status == "done", rig.trace()
+    assert len(marks) == 5
+    gaps = [b[1] - a[2] for a, b in zip(marks, marks[1:])]
+    assert max(gaps) < 1.0, gaps
+    dispatched = rig.log_rows("director_dispatch")[0]["ts"]
+    first = rig.log_rows("board_run_start")[0]["ts"]
+    assert first - dispatched < 1.0  # a decision made at once is applied in the same tick
+
+
+def test_gained_and_lost_of_one_item_in_one_test_go_back_for_repair(tmp_path):
+    """Live smoke 2026-10-26: "chop 5 logs, then drop them" got the done test gained 5 AND lost 5 since the job
+    began. Both read one net count, so it can never pass; the model hears why and picks tally + on_ground."""
+    bad = plan(task_success={"all": [{"gained": {"item": "Ash Logs", "at_least": 5}},
+                                     {"lost": {"item": "Ash Logs", "at_least": 5}}]},
+               steps=[st("chop", {"gained": {"item": "Ash Logs", "at_least": 5}}, [call("gather", resource="ash", count=5)]),
+                      st("drop", {"lost": {"item": "Ash Logs", "at_least": 5}}, [call("drop", item="Ash Logs", count=5)])])
+    good = plan(task_success={"all": [{"tally": {"item": "Ash Logs", "at_least": 5}},
+                                      {"on_ground": {"item": "Ash Logs", "at_least": 5, "position": "here",
+                                                     "within_m": 5}}]},
+                steps=[st("chop", {"gained": {"item": "Ash Logs", "at_least": 5}}, [call("gather", resource="ash", count=5)]),
+                       st("drop", {"lost": {"item": "Ash Logs", "at_least": 5}}, [call("drop", item="Ash Logs", count=5)])])
+    rig = JobRig(tmp_path, [bad, good])
+    bring_world(rig)
+    rig.say("chop 5 ash logs, then drop them on the ground next to you")
+    rig.steps(2, dt=1.0)
+    repair = [m["content"] for c in rig.director_llm.calls for m in c["messages"][-1:]
+              if m["role"] == "user" and "not usable" in m["content"]]
+    assert repair and "can never be true" in repair[0] and "tally" in repair[0]
+    t = rig.task()
+    assert "tally" in json.dumps(t.success["predicate"])

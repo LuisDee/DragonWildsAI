@@ -64,6 +64,11 @@ def default_dev() -> DevTarget:
                      forbidden=forbidden_addresses, brain_running=ops.brain_running)
 
 
+def character_policy(case: Case) -> str:
+    """'fresh' = a brand-new dev character for this case (fixtures.character), else 'main' (ClaudeDev)."""
+    return str((case.fixtures.model_extra or {}).get("character") or "main")
+
+
 class FixtureGap(Abort):
     """Case setup failed (main 2026-10-26: e.g. raise_skills before it is verified): reads as a fixture gap."""
 
@@ -118,6 +123,7 @@ def run_case_dev(case: Case, dev: DevTarget, workdir: Path, calls_cap_: dict[str
     from brain.transport import file_transport_pair
 
     r = new_result(case, "companion", "dev")
+    r.character = dev.character_name
     workdir.mkdir(parents=True, exist_ok=True)
     w0 = time.time()
     ctl = pln = None
@@ -260,8 +266,28 @@ def main(argv: list[str] | None = None) -> int:
             return 4
     dev = default_dev()
     rid, d = run_dir("dev", "measure")
+    from .devchar import MAIN_CHARACTER, default_switch, fresh_name
+    switch = default_switch(dev)
     results = []
-    for c in cases:
+    for i, c in enumerate(cases):
+        # main 2026-10-26: cases that need a pristine start get their own new character; the rest run on ClaudeDev
+        policy = character_policy(c)
+        fresh = policy == "fresh"
+        name = fresh_name(c.id, f"{rid[-4:]}{i}") if fresh else MAIN_CHARACTER
+        try:
+            if policy.startswith("chain:"):
+                raise Abort(f"{policy}: continuing a previous case's character needs the dev-save snapshot (route B), "
+                            "not built yet")
+            info = switch.ensure(name, create=fresh)
+            dev.character_guid, dev.character_name = info["guid"], name
+        except Abort as exc:
+            res = new_result(c, "companion", "dev")
+            res.character, res.result, res.reason, res.detail = name, "unverifiable", "fixture_gap", f"character: {exc}"
+            print(f"  [{c.id}] {res.result} ({res.reason}): {res.detail}")
+            results.append(res)
+            continue
+        if info.get("relaunched"):
+            print(f"  character {name}: {'created and ' if info.get('created') else ''}joined (client relaunched, BUGS L24)")
         res = run_case_dev(c, dev, d / "work" / c.id, cap)
         print(f"  [{c.id}] {res.result}{' (' + res.reason + ')' if res.reason else ''}: {res.detail} | latency {res.latency_s} s, "
               f"calls {res.calls}, failures {res.failures[:2]}")

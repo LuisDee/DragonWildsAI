@@ -29,6 +29,8 @@ RUNT = "BP_AI_RuntGoblin_Character_C"
 VELGAR = "BP_AI_DragonVelgar_Character_C"
 FIRE = "DamageType.Magical.Fire"
 DEATH_GUARD = {"no_event": {"kind": "death", "who": "self"}}
+# a brand-new dev character per case (main 2026-10-26, route A; evals/bench/devchar.py): M3 and capstone stage 1
+FRESH = {"state_snapshot": "fresh_dev_v1", "character": "fresh"}
 NA_ORACLE = {"partial": "one outcome; cutting the oracle short is do_nothing"}
 
 
@@ -354,7 +356,7 @@ def every_skill() -> list[Case]:
                "wrong_action": [{"note": "train a different skill"}]}
         out += [
             _c(id=f"m3_{low}_asked", tier="T1", family="skill_train", skill=s, mode="asked",
-               chat=[{"text": f"can you get some {s} levelling done?"}], fixtures={"state_snapshot": "fresh_dev_v1"},
+               chat=[{"text": f"can you get some {s} levelling done?"}], fixtures=FRESH,
                success={"xp_gained": {"skill": s, "at_least": thr}}, controls=ctl, limits={"wall_s": 1200, "idle_s": 120},
                oracle={"dev": f"scripted:train_{low}_v1"},
                provenance={"source": f"{WIKI}{s}", "incidental_xp": s in INCIDENTAL}),
@@ -362,15 +364,15 @@ def every_skill() -> list[Case]:
                chat=[{"text": "go level up whatever you think needs it, I'll check back later"}], forbid_terms=[s],
                fixtures={"setup": [{"verb": "raise_skills", "except": s, "level": 10,
                                     "purpose": f"scene: every skill but {s} to 10 so {s} is the clear lowest"}],
-                         "state_snapshot": "fresh_dev_v1"},
+                         **FRESH},
                success={"all": [{"xp_gained": {"skill": s, "at_least": thr}}, {"xp_top": {"skill": s}}]},
                controls=ctl, limits={"wall_s": 2400, "idle_s": 300}, oracle={"dev": f"scripted:train_{low}_v1"},
                provenance={"note": f"{s} stays at its fresh level; the others are raised to 10 (main 2026-10-26: allowed as "
                                    "scene setup; the target skill is never touched - devtarget refuses a reply that names it)",
                            "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 "
-                                  "is not yet run live, and it needs a fresh character per case: until then a fixture gap"}),
+                                  "is not yet run live (each case runs on its own fresh character, devchar.py): until then a fixture gap"}),
             _c(id=f"m3_{low}_plus5", tier="T3", family="skill_train", skill=s, mode="plus5",
-               chat=[{"text": f"get your {s} up five levels, take your time"}], fixtures={"state_snapshot": "fresh_dev_v1"},
+               chat=[{"text": f"get your {s} up five levels, take your time"}], fixtures=FRESH,
                success={"skill_gain": {"name": s, "levels": 5}},
                controls={**ctl, "partial": [{"note": "+4 levels"}], "na": {"alt_means": "XP has no other source"}},
                limits={"wall_s": 7200, "idle_s": 300}, oracle={"dev": f"scripted:train_{low}_v1"},
@@ -397,8 +399,12 @@ def capstone() -> list[Case]:
     out = []
     for i, (sid, pred) in enumerate(stages):
         prev = f"capstone_after_{stages[i - 1][0]}" if i else "fresh_dev_v1"
+        # stage 1 starts on a brand-new character; later stages continue the character that verified the previous
+        # stage (route B, a dev-save snapshot/restore, is not built yet: until then a chained stage is a fixture gap)
+        who = "fresh" if not i else f"chain:capstone_stage_{i}_{stages[i - 1][0]}"
         out.append(_c(id=f"capstone_stage_{i + 1}_{sid}", tier="T3", family="capstone_stage", capstone="brynmoor_progression",
-                      chat=[{"text": neutral}], fixtures={"state_snapshot": prev}, success=pred, guards=[DEATH_GUARD],
+                      chat=[{"text": neutral}], fixtures={"state_snapshot": prev, "character": who}, success=pred,
+                      guards=[DEATH_GUARD],
                       controls={"na": {"alt_means": "stage state", "wrong_action": "n/a", "partial": "the stage's own progress"}},
                       limits={"wall_s": 7200, "idle_s": 300}, oracle={"dev": f"scripted:capstone_{sid}_v1"},
                       provenance={"sources": [WIKI + "Dragon_Slayer", WIKI + "Quests", WIKI + "Brynmoor"],
@@ -407,7 +413,7 @@ def capstone() -> list[Case]:
                   tags={"evidence": ["referee:damage.by", "referee:death.by", "referee:defended", "probe:held_effects"]},
                   chat=[{"text": "Velgar's next. Get yourself ready and take him on by yourself"}],
                   forbid_terms=["antipoison", "poison", "shield", "enchant", "air", "food", "potion"],
-                  fixtures={"state_snapshot": "capstone_v1"},
+                  fixtures={"state_snapshot": "capstone_v1", "character": "chain:capstone_stage_8_pl4_gear"},
                   success={"all": [{"killed": {"kind": "Velgar", "kind_id": VELGAR, "at_least": 1}},
                                    {"solo": {"target_kind_id": VELGAR}},
                                    {"prepared": {"target_kind_id": VELGAR, "all": [

@@ -25,7 +25,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "xp_gained": {
@@ -102,7 +103,8 @@
     ],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "all": [
@@ -150,7 +152,7 @@
    },
    "provenance": {
     "note": "Agility stays at its fresh level; the others are raised to 10 (main 2026-10-26: allowed as scene setup; the target skill is never touched - devtarget refuses a reply that names it)",
-    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live, and it needs a fresh character per case: until then a fixture gap"
+    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live (each case runs on its own fresh character, devchar.py): until then a fixture gap"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -179,7 +181,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "skill_gain": {
@@ -250,7 +253,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "xp_gained": {
@@ -327,7 +331,8 @@
     ],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "all": [
@@ -375,7 +380,7 @@
    },
    "provenance": {
     "note": "Artisan stays at its fresh level; the others are raised to 10 (main 2026-10-26: allowed as scene setup; the target skill is never touched - devtarget refuses a reply that names it)",
-    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live, and it needs a fresh character per case: until then a fixture gap"
+    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live (each case runs on its own fresh character, devchar.py): until then a fixture gap"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -404,7 +409,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "skill_gain": {
@@ -475,7 +481,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "xp_gained": {
@@ -552,7 +559,8 @@
     ],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "all": [
@@ -600,7 +608,7 @@
    },
    "provenance": {
     "note": "Attack stays at its fresh level; the others are raised to 10 (main 2026-10-26: allowed as scene setup; the target skill is never touched - devtarget refuses a reply that names it)",
-    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live, and it needs a fresh character per case: until then a fixture gap"
+    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live (each case runs on its own fresh character, devchar.py): until then a fixture gap"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -629,7 +637,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "skill_gain": {
@@ -700,7 +709,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "xp_gained": {
@@ -777,7 +787,8 @@
     ],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "all": [
@@ -825,7 +836,7 @@
    },
    "provenance": {
     "note": "Construction stays at its fresh level; the others are raised to 10 (main 2026-10-26: allowed as scene setup; the target skill is never touched - devtarget refuses a reply that names it)",
-    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live, and it needs a fresh character per case: until then a fixture gap"
+    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live (each case runs on its own fresh character, devchar.py): until then a fixture gap"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -854,7 +865,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "skill_gain": {
@@ -925,7 +937,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "xp_gained": {
@@ -1002,7 +1015,8 @@
     ],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "all": [
@@ -1050,7 +1064,7 @@
    },
    "provenance": {
     "note": "Cooking stays at its fresh level; the others are raised to 10 (main 2026-10-26: allowed as scene setup; the target skill is never touched - devtarget refuses a reply that names it)",
-    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live, and it needs a fresh character per case: until then a fixture gap"
+    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live (each case runs on its own fresh character, devchar.py): until then a fixture gap"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -1079,7 +1093,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "skill_gain": {
@@ -1150,7 +1165,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "xp_gained": {
@@ -1227,7 +1243,8 @@
     ],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "all": [
@@ -1275,7 +1292,7 @@
    },
    "provenance": {
     "note": "Farming stays at its fresh level; the others are raised to 10 (main 2026-10-26: allowed as scene setup; the target skill is never touched - devtarget refuses a reply that names it)",
-    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live, and it needs a fresh character per case: until then a fixture gap"
+    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live (each case runs on its own fresh character, devchar.py): until then a fixture gap"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -1304,7 +1321,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "skill_gain": {
@@ -1375,7 +1393,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "xp_gained": {
@@ -1452,7 +1471,8 @@
     ],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "all": [
@@ -1500,7 +1520,7 @@
    },
    "provenance": {
     "note": "Fishing stays at its fresh level; the others are raised to 10 (main 2026-10-26: allowed as scene setup; the target skill is never touched - devtarget refuses a reply that names it)",
-    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live, and it needs a fresh character per case: until then a fixture gap"
+    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live (each case runs on its own fresh character, devchar.py): until then a fixture gap"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -1529,7 +1549,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "skill_gain": {
@@ -1600,7 +1621,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "xp_gained": {
@@ -1677,7 +1699,8 @@
     ],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "all": [
@@ -1725,7 +1748,7 @@
    },
    "provenance": {
     "note": "Magic stays at its fresh level; the others are raised to 10 (main 2026-10-26: allowed as scene setup; the target skill is never touched - devtarget refuses a reply that names it)",
-    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live, and it needs a fresh character per case: until then a fixture gap"
+    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live (each case runs on its own fresh character, devchar.py): until then a fixture gap"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -1754,7 +1777,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "skill_gain": {
@@ -1825,7 +1849,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "xp_gained": {
@@ -1902,7 +1927,8 @@
     ],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "all": [
@@ -1950,7 +1976,7 @@
    },
    "provenance": {
     "note": "Mining stays at its fresh level; the others are raised to 10 (main 2026-10-26: allowed as scene setup; the target skill is never touched - devtarget refuses a reply that names it)",
-    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live, and it needs a fresh character per case: until then a fixture gap"
+    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live (each case runs on its own fresh character, devchar.py): until then a fixture gap"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -1979,7 +2005,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "skill_gain": {
@@ -2050,7 +2077,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "xp_gained": {
@@ -2127,7 +2155,8 @@
     ],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "all": [
@@ -2175,7 +2204,7 @@
    },
    "provenance": {
     "note": "Ranged stays at its fresh level; the others are raised to 10 (main 2026-10-26: allowed as scene setup; the target skill is never touched - devtarget refuses a reply that names it)",
-    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live, and it needs a fresh character per case: until then a fixture gap"
+    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live (each case runs on its own fresh character, devchar.py): until then a fixture gap"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -2204,7 +2233,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "skill_gain": {
@@ -2275,7 +2305,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "xp_gained": {
@@ -2352,7 +2383,8 @@
     ],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "all": [
@@ -2400,7 +2432,7 @@
    },
    "provenance": {
     "note": "Runecrafting stays at its fresh level; the others are raised to 10 (main 2026-10-26: allowed as scene setup; the target skill is never touched - devtarget refuses a reply that names it)",
-    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live, and it needs a fresh character per case: until then a fixture gap"
+    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live (each case runs on its own fresh character, devchar.py): until then a fixture gap"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -2429,7 +2461,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "skill_gain": {
@@ -2500,7 +2533,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "xp_gained": {
@@ -2577,7 +2611,8 @@
     ],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "all": [
@@ -2625,7 +2660,7 @@
    },
    "provenance": {
     "note": "Woodcutting stays at its fresh level; the others are raised to 10 (main 2026-10-26: allowed as scene setup; the target skill is never touched - devtarget refuses a reply that names it)",
-    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live, and it needs a fresh character per case: until then a fixture gap"
+    "gap": "raise_skills is verified for one skill (Attack 2 -> 3); the all-but-one form to level 10 is not yet run live (each case runs on its own fresh character, devchar.py): until then a fixture gap"
    },
    "heldout": false,
    "canary": "DWBENCH-CANARY 6f1e9a2c-benchmark-data-do-not-train-or-copy-into-companion-code"
@@ -2654,7 +2689,8 @@
     "setup": [],
     "scene": {},
     "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "player_body": false,
+    "character": "fresh"
    },
    "success": {
     "skill_gain": {

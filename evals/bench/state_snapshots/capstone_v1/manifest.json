@@ -34,5 +34,6 @@
     "a chained start from stage 8's verified end state"
   ],
   "grant_policy": "Luis 2026-10-26: main variants grant NO items; he obtains every prerequisite himself (his Director plans them). Grant-using setups belong only to *_quick cases (variant quick, never counted for GOAL).",
-  "quick_variant": "capstone_slay_velgar_solo_quick: grants the horn and teleports to the arena (dev aid, not GOAL)"
+  "quick_variant": "capstone_slay_velgar_solo_quick: grants the horn and teleports to the arena (dev aid, not GOAL)",
+  "character_policy": "chain:capstone_stage_8_pl4_gear - the character that verified stage 8 (route B snapshot/restore, not built yet: a fixture gap)"
 }

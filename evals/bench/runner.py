@@ -68,6 +68,7 @@ class CaseResult:
     capstone: str | None = None
     spell: str | None = None
     variant: str = "main"
+    character: str = ""  # the dev character the case ran on (ClaudeDev, or a fresh CD_* one: evals/bench/devchar.py)
     entry_hash: str = ""
     heldout: bool = False
     hints_used: int = 0

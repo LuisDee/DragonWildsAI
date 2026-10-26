@@ -106,6 +106,7 @@ class DevTarget:
     referee_log: Path = REFEREE_LOG
     _ref_off: int = 0
     setup_log: list[dict] = field(default_factory=list)
+    character_name: str = "ClaudeDev"  # the referee watches this name; devchar.CharacterSwitch changes it per case
     server_log: ServerLogReferee = field(default_factory=ServerLogReferee)  # server-authoritative dodges (serverlog.py)
 
     # ---------------------------------------------------------------- guards
@@ -132,7 +133,7 @@ class DevTarget:
     def referee_start(self) -> None:
         self.referee_log.parent.mkdir(parents=True, exist_ok=True)
         self._ref_off = self.referee_log.stat().st_size if self.referee_log.exists() else 0
-        r = self.server_debug({"part": "referee", "action": "start", "watch": "ClaudeDev",
+        r = self.server_debug({"part": "referee", "action": "start", "watch": self.character_name,
                                "spell_actor_classes": spell_actor_classes()})
         res = (r.get("data") or {}).get("result") or {}
         if not res.get("ok"):
