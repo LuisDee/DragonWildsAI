@@ -315,9 +315,28 @@ def test_spend_warn_and_cap_anomalies(root):
     assert an[0]["ts"] <= an[1]["ts"] and an[1]["level"] == "error"
 
 
-def test_spent_today_usd_never_raises(tmp_path):
-    assert spend.spent_today_usd(tmp_path / "missing") == 0.0
-    assert obs.spent_today_usd is spend.spent_today_usd
+def test_spend_today_on_an_empty_log_dir_is_zero(tmp_path):
+    s = spend.spend_today(tmp_path / "missing")
+    assert s["spent_usd"] == 0 and s["calls"] == 0 and s["state"] == "ok"
+    assert obs.spend_today is spend.spend_today
+
+
+def test_eval_tree_is_indexed_once_and_relisted_only_when_a_dir_changes(tmp_path, monkeypatch):
+    logs = tmp_path / "logs"
+    case = logs / "evals" / "d1" / "run1" / "work" / "c1"
+    case.mkdir(parents=True)
+    (case / "brain.jsonl").write_text("", encoding="utf-8")
+    idx = spend._DirIndex(logs / "evals")
+    assert [p.name for p in idx.files(now=0)] == ["brain.jsonl"]
+    listed = []
+    real = spend.os.scandir
+    monkeypatch.setattr(spend.os, "scandir", lambda d: listed.append(d) or real(d))
+    assert len(idx.files(now=1)) == 1 and listed == []                   # within RESCAN_S: no sweep at all
+    assert len(idx.files(now=1 + spend.RESCAN_S)) == 1 and listed == []  # sweep: nothing changed, nothing re-listed
+    (case.parent / "c2").mkdir()
+    (case.parent / "c2" / "gen_x.jsonl").write_text("", encoding="utf-8")
+    names = sorted(p.name for p in idx.files(now=2 + 2 * spend.RESCAN_S))
+    assert names == ["brain.jsonl", "gen_x.jsonl"] and len(listed) == 2   # only work/ and the new c2/ were listed
 
 
 def test_spend_incremental_reads_only_new_lines(tmp_path):
@@ -448,3 +467,109 @@ def test_brain_log_reads_a_benchmark_case_and_is_out_of_the_live_scan(tmp_path, 
     g = json.loads(capsys.readouterr().out)
     assert g["source"] == "dev" and g["exposure"]["sessions"] == 1 and g["exposure"]["player_chat_lines"] == 1
     assert obs.main(["episode", "--root", str(r), "--brain-log", str(r / "nope*.jsonl")]) == 2
+
+
+# ------------------------------------------------------------------ long tasks: steps, gaps between steps, idle
+TASKS = Path(__file__).parent / "fixtures" / "obs_tasks"   # GearWorld job scenarios (make_fixture.py), 30 s agent ticks
+
+
+def _task_rows(name: str) -> tuple[list[dict], dict]:
+    rows = [json.loads(x) for x in (TASKS / f"{name}__brain.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+    return rows, json.loads((TASKS / f"{name}__goals.json").read_text(encoding="utf-8"))
+
+
+def test_task_timeline_steps_gaps_and_idle_for_a_five_step_job():
+    from tools import obs_tasks as OT
+    rows, goals = _task_rows("pickaxe")
+    (t,) = OT.analyse(rows, goals)
+    assert t.text == "can you make yourself a better pickaxe" and t.status == "done" and t.by == "player:Zezima"
+    assert [s.title for s in t.steps] == ["mine copper", "mine tin", "smelt bronze bars", "make the pickaxe", "equip it"]
+    assert all(s.outcome == "done" and len(s.runs) == 1 for s in t.steps)
+    assert [a["tool"] for s in t.steps for r in s.runs for a in r.actions] == ["gather", "gather", "craft", "craft", "equip"]
+    assert len(t.gaps) == 4 and all(27 < g["seconds"] < 30 for g in t.gaps)
+    # the rig advances the board one step per 30 s agent tick: the gap is dead time, not thinking
+    assert all(g["dead_s"] > 25 and g["thinking_s"] < 1 for g in t.gaps)
+    # the plan was decided at once but applied a tick later: decision pickup, not thinking
+    assert t.lead_in["waiting_decision_s"] > 25 and t.lead_in["thinking_s"] < 1
+    assert t.idle["share"] > 0.9 and 25 < t.idle["longest_s"] < 30
+    assert "board_step" in t.idle["longest_where"] or "board_run" in t.idle["longest_where"]
+
+
+def test_a_chat_interruption_is_queue_time_in_the_gap():
+    from tools import obs_tasks as OT
+    rows, goals = _task_rows("pickaxe_chat")
+    tasks = OT.analyse(rows, goals)
+    job = next(t for t in tasks if "pickaxe" in (t.text or ""))
+    g = next(g for g in job.gaps if g["from_step"] == "mine tin")
+    assert g["seconds"] > 80 and g["waiting_queue_s"] > 50 and g["thinking_s"] < 2   # the other task's Director decisions
+    s = OT.summary(tasks)
+    assert s["task_gap_p90"] == pytest.approx(g["seconds"], abs=0.01) and s["gap_split_s"]["waiting_queue_s"] > 50
+
+
+def test_loop_copies_of_a_step_are_separate_steps():
+    from tools import obs_tasks as OT
+    rows, goals = _task_rows("coal_trips")
+    (t,) = OT.analyse(rows, goals)
+    titles = [s.title for s in t.steps]
+    assert titles[:4] == ["walk to the coal spot", "mine coal", "walk home", "leave it at the base"]
+    assert titles.count("mine coal") >= 2 and len(t.gaps) == len(t.steps) - 1
+
+
+def test_run_starts_fall_back_to_the_board_step_prompt_without_the_new_rows():
+    from tools import obs_tasks as OT
+    rows, goals = _task_rows("pickaxe")
+    old = [{k: v for k, v in r.items() if k not in ("episode_id", "step_id")} for r in rows
+           if r.get("kind") not in ("board_run_start", "board_step_end", "board_task_status")]
+    (t,) = OT.analyse(old, goals)
+    (n,) = OT.analyse(rows, goals)
+    assert [s.title for s in t.steps] == [s.title for s in n.steps]
+    assert [g["seconds"] for g in t.gaps] == pytest.approx([g["seconds"] for g in n.gaps], abs=0.5)
+
+
+def test_a_step_end_row_without_a_step_id_closes_the_step_it_names():
+    from tools import obs_tasks as OT
+    rows, goals = _task_rows("pickaxe")
+    no_ids = [{k: v for k, v in r.items() if k != "step_id"} for r in rows]
+    (t,) = OT.analyse(no_ids, goals)
+    assert len(t.steps) == 5 and all(s.outcome == "done" for s in t.steps)
+
+
+def test_budget_wait_is_its_own_share_of_the_gap():
+    from tools import obs_tasks as OT
+    t0 = at("12:00")
+    rows = [{"ts": t0, "kind": "board_task_status", "task": "T", "from": None, "to": "active"},
+            {"ts": t0 + 1, "kind": "board_run_start", "task": "T", "step_id": "s1", "step": "a", "run": 1},
+            {"ts": t0 + 2, "kind": "tool_call", "task_id": "x1", "tool": "gather", "episode_id": "board-1"},
+            {"ts": t0 + 5, "kind": "tool_result", "task_id": "x1", "tool": "gather", "result": {"ok": True}, "episode_id": "board-1"},
+            {"ts": t0 + 6, "kind": "board_run", "task": "T", "step_id": "s1", "step": "a", "run": 1, "passed": True},
+            {"ts": t0 + 7, "kind": "board_task_status", "task": "T", "from": "active", "to": "waiting_budget"},
+            {"ts": t0 + 67, "kind": "board_task_status", "task": "T", "from": "waiting_budget", "to": "active"},
+            {"ts": t0 + 67, "kind": "director_dispatch", "task": "T", "decision": "replan"},
+            {"ts": t0 + 67.5, "kind": "prompt", "component": "director", "task": "T", "messages": [], "episode_id": "director-1"},
+            {"ts": t0 + 70, "kind": "llm_response", "component": "director", "episode_id": "director-1"},
+            {"ts": t0 + 70.5, "kind": "director_decision", "task": "T", "decision": "replan", "steps": ["b"]},
+            {"ts": t0 + 80, "kind": "board_run_start", "task": "T", "step_id": "s2", "step": "b", "run": 1},
+            {"ts": t0 + 81, "kind": "tool_call", "task_id": "x2", "tool": "craft", "episode_id": "board-2"},
+            {"ts": t0 + 84, "kind": "tool_result", "task_id": "x2", "tool": "craft", "result": {"ok": True}, "episode_id": "board-2"},
+            {"ts": t0 + 85, "kind": "board_run", "task": "T", "step_id": "s2", "step": "b", "run": 1, "passed": True},
+            {"ts": t0 + 86, "kind": "board_task_status", "task": "T", "from": "active", "to": "done"}]
+    (t,) = OT.analyse(rows)
+    (g,) = t.gaps
+    assert g["seconds"] == pytest.approx(75) and g["waiting_budget_s"] == pytest.approx(60)
+    assert g["thinking_s"] == pytest.approx(2.5) and g["waiting_decision_s"] == pytest.approx(1.0)
+    assert g["dead_s"] == pytest.approx(75 - 60 - 2.5 - 1.0)
+    assert t.idle["wall_s"] == pytest.approx(86) and t.idle["idle_s"] == pytest.approx(86 - 3 - 3 - 2.5)
+    assert t.status == "done" and t.idle["longest_s"] == pytest.approx(62.5)  # last action end -> the director prompt
+
+
+def test_cli_task_and_metrics_carry_the_long_task_numbers(capsys):
+    assert obs.main(["task", "--brain-log", str(TASKS / "pickaxe__brain.jsonl")]) == 0
+    out = capsys.readouterr().out
+    assert 'TASK' in out and '"can you make yourself a better pickaxe"' in out and "gap -> 2:" in out and "dead" in out
+    assert obs.main(["task", "--json", "--brain-log", str(TASKS / "pickaxe__brain.jsonl")]) == 0
+    j = json.loads(capsys.readouterr().out)
+    assert j["schema"] == "dw_obs_tasks/1" and j["summary"]["gaps"] == 4 and len(j["tasks"][0]["steps"]) == 5
+    assert obs.main(["metrics", "--json", "--brain-log", str(TASKS / "pickaxe_chat__brain.jsonl")]) == 0
+    g = json.loads(capsys.readouterr().out)
+    assert g["task_gap_p50"] == pytest.approx(28.6, abs=0.5) and g["task_gap_p90"] > 80
+    assert 0.9 < g["idle_share"] <= 1 and g["longest_idle_s"] > 50 and g["long_tasks"]["tasks"] == 2

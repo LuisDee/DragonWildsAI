@@ -1,6 +1,6 @@
 {
  "schema": "dw_obs_metrics/1",
- "generated_at": "2026-10-25T21:52:50Z",
+ "generated_at": "2026-10-26T07:33:11Z",
  "window": {
   "since": "2026-10-25T20:54:00Z",
   "until": "2026-10-25T21:18:00Z"
@@ -71,6 +71,28 @@
   "dehydration": 0,
   "combat": 0,
   "other": 0
+ },
+ "task_gap_p50": null,
+ "task_gap_p90": null,
+ "idle_share": null,
+ "longest_idle_s": null,
+ "long_tasks": {
+  "tasks": 0,
+  "steps": 0,
+  "gaps": 0,
+  "task_gap_p50": null,
+  "task_gap_p90": null,
+  "gap_split_s": {
+   "thinking_s": 0,
+   "waiting_queue_s": 0,
+   "waiting_budget_s": 0,
+   "waiting_decision_s": 0,
+   "body_s": 0,
+   "dead_s": 0
+  },
+  "idle_share": null,
+  "longest_idle_s": null,
+  "longest_idle": null
  },
  "detail": {
   "episodes": {

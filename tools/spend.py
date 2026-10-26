@@ -1,17 +1,18 @@
 """Model API spend from logged token usage x Anthropic list prices (GOAL.md section 3: $10/day hard cap).
 
     .venv\\Scripts\\python.exe -m tools.obs spend [--today | --day YYYY-MM-DD] [--json]
-    from tools.obs import spend_today, spent_today_usd
-    spend_today()        -> dict (schema dw_obs_spend/1): spent_usd, pct_of_cap, state ok|warn|cap, by_source, by_model
-    spent_today_usd()    -> float, never raises (the brain's budget guard; incremental, cheap to call every 30 s)
+    from tools.spend import spend_today
+    spend_today()   -> dict (schema dw_obs_spend/1): spent_usd, pct_of_cap, state ok|warn|cap, by_source, by_model
+                       (brain/budget.py calls it every 30 s and fails closed on an error)
 
 Prices: data/model_prices.json (one shared table, filled from the official pricing page; its source and as_of travel
 with every result). Day = UTC calendar day (all logs are UTC). Cap: DW_SPEND_CAP_USD, else DW_DAILY_CAP_USD, else 10.
 
-Sources: every JSONL under the log dir whose rows carry a usage block {prompt, completion, cached, cache_write}:
+Sources: every JSONL under the log dir (brain/paths.py log_dir) whose rows carry a usage block
+{prompt, completion, cached, cache_write}:
   live_controller   brain-*.jsonl (brain-live-*, brain-<day>)  component controller
-  director_planner  brain-live-*.jsonl                component planner / director
-  generators        brain-live-*.jsonl skill_learner; evals/**/gen_*.jsonl; spend/generators*.jsonl
+  director_planner  brain-*.jsonl                     component planner / director
+  generators        brain-*.jsonl skill_learner; evals/**/gen_*.jsonl; spend/generators*.jsonl
   evals             evals-*.jsonl, voice-eval-*.jsonl, evals/**/*.jsonl (other than gen_*), spend/evals*.jsonl
   <source>          spend/<source>*.jsonl rows {"ts", "model", "usage", "source"?}: a ledger for callers that log elsewhere
 A row's model is its own "model", else the model of the last prompt record of the same component in that file, else
@@ -21,6 +22,11 @@ Usage semantics (brain/llm.py _usage over LiteLLM): prompt = uncached input + ca
 Anthropic transform adds both into prompt_tokens), cached = cache reads, cache_write = cache writes (5-minute TTL),
 completion = output including thinking. A usage row with no known model is an *unpriced call*: it is still added to
 spent_usd at the dearest listed rate (never under-counts against the cap) and counted in unpriced_calls.
+
+Cost of a call: files are read incrementally (byte offsets; prompt lines are matched on bytes and skipped); the
+logs/evals tree (thousands of bench work dirs) is indexed once and a directory is re-listed only when its own mtime
+changes, with a full mtime sweep at most every RESCAN_S. Rows older than yesterday 00:00 UTC are dropped from memory
+(a request for an older day re-reads that file).
 """
 from __future__ import annotations
 
@@ -31,14 +37,15 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from tools.timeline import ROOT
+from brain import paths
 
-PRICES_FILE = ROOT / "data" / "model_prices.json"
+PRICES_FILE = paths.REPO_ROOT / "data" / "model_prices.json"
 WARN_AT, CAP_AT = 0.8, 1.0
+RESCAN_S = 60.0
 SOURCES = ("live_controller", "director_planner", "evals", "generators", "other")
 COMPONENT_SOURCE = {"controller": "live_controller", "planner": "director_planner", "director": "director_planner",
                     "skill_learner": "generators", "generator": "generators"}
-_HEAD = re.compile(r'^\{"ts": ([\d.]+), "kind": "([\w-]+)"(?:, "component": "([\w-]+)")?(?:, "model": "([^"]+)")?')
+_HEAD = re.compile(rb'^\{"ts": ([\d.]+), "kind": "([\w-]+)"(?:, "component": "([\w-]+)")?(?:, "model": "([^"]+)")?')
 
 
 def load_prices(path: Path = PRICES_FILE) -> dict:
@@ -57,6 +64,10 @@ def cap_usd() -> float:
 
 def _model_id(model: str | None) -> str | None:
     return str(model).split("/")[-1] if model else None
+
+
+def _iso(t: float | None) -> str | None:
+    return datetime.fromtimestamp(t, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z") if t else None
 
 
 def price(model: str | None, usage: dict, prices: dict) -> tuple[float, str | None]:
@@ -86,51 +97,99 @@ class _FileState:
         self.model_of: dict[str, str] = {}
         self.session: dict[str, str | None] = {}
         self.dry = False
-        self.mtime = -1.0
+        self.floor = 0.0  # rows before this were evicted
 
-    def update(self) -> None:
+    def update(self, keep_from: float) -> None:
         try:
-            st = self.path.stat()
+            size = self.path.stat().st_size
         except OSError:
             return
-        if st.st_size < self.offset:  # rewritten: start again
+        if size < self.offset or keep_from < self.floor:  # rewritten, or an older day is asked for: read again
             self.__init__(self.path, self.source)
-        if st.st_size == self.offset:
+        if size > self.offset:
+            with self.path.open("rb") as f:
+                f.seek(self.offset)
+                data = f.read(size - self.offset)
+            end = data.rfind(b"\n") + 1  # only complete lines; a line being written is read next time
+            self.offset += end
+            for raw in data[:end].splitlines():
+                self._line(raw.lstrip(b"\xef\xbb\xbf"))
+        if keep_from > self.floor:
+            self.rows = [r for r in self.rows if r["ts"] >= keep_from]
+            self.floor = keep_from
+
+    def _line(self, raw: bytes) -> None:
+        m = _HEAD.match(raw)
+        if m and m.group(2) == b"prompt":  # huge: only its component and model matter
+            if m.group(4):
+                self.model_of[(m.group(3) or b"?").decode()] = m.group(4).decode()
             return
-        with self.path.open("rb") as f:
-            f.seek(self.offset)
-            data = f.read()
-        end = data.rfind(b"\n") + 1  # only complete lines; a line being written is read next time
-        self.offset += end
-        for raw in data[:end].splitlines():
-            line = raw.decode("utf-8", errors="replace").lstrip("﻿")
-            m = _HEAD.match(line)
-            if m and m.group(2) == "prompt":  # huge: only its component and model matter
-                if m.group(4):
-                    self.model_of[m.group(3) or "?"] = m.group(4)
-                continue
-            if '"usage"' not in line and '"session_start"' not in line:
-                continue
+        if b'"usage"' not in raw and b'"session_start"' not in raw:
+            return
+        try:
+            d = json.loads(raw.decode("utf-8", errors="replace"))
+        except ValueError:
+            return
+        if not isinstance(d, dict):
+            return
+        if d.get("kind") == "session_start":
+            self.dry = bool(d.get("dry_run"))
+            self.session = {"controller": d.get("controller_model"), "planner": d.get("planner_model")}
+            return
+        u = d.get("usage")
+        if self.dry or not isinstance(u, dict) or not isinstance(d.get("ts"), (int, float)):
+            return
+        comp = d.get("component") or "?"
+        model = d.get("model") or self.model_of.get(comp) or self.session.get(comp)
+        src = d.get("source") if d.get("source") in SOURCES else self.source or COMPONENT_SOURCE.get(comp, "other")
+        self.rows.append({"ts": float(d["ts"]), "source": src, "model": model, "usage": u, "file": self.path.name})
+
+
+class _DirIndex:
+    """The .jsonl files under one directory tree. A directory is re-listed only when its own mtime changed (a file or
+    folder was added or removed in it); the mtime sweep over the tree runs at most every RESCAN_S."""
+
+    def __init__(self, root: Path):
+        self.root = root
+        self.dirs: dict[str, tuple[int, list[str], list[str]]] = {}  # dir -> (mtime_ns, jsonl files, subdirs)
+        self.swept = -1e18
+
+    def files(self, now: float | None = None) -> list[Path]:
+        now = time.time() if now is None else now
+        if now - self.swept >= RESCAN_S:
+            self.swept = now
+            self._sweep(str(self.root))
+        return [Path(d, f) for d, (_, fs, _) in self.dirs.items() for f in fs]
+
+    def _sweep(self, top: str) -> None:
+        seen, stack = set(), [top]
+        while stack:
+            d = stack.pop()
             try:
-                d = json.loads(line)
-            except ValueError:
+                mt = os.stat(d).st_mtime_ns
+            except OSError:
                 continue
-            if not isinstance(d, dict):
-                continue
-            if d.get("kind") == "session_start":
-                self.dry = bool(d.get("dry_run"))
-                self.session = {"controller": d.get("controller_model"), "planner": d.get("planner_model")}
-                continue
-            u = d.get("usage")
-            if self.dry or not isinstance(u, dict) or not isinstance(d.get("ts"), (int, float)):
-                continue
-            comp = d.get("component") or "?"
-            model = d.get("model") or self.model_of.get(comp) or self.session.get(comp)
-            src = d.get("source") if d.get("source") in SOURCES else self.source or COMPONENT_SOURCE.get(comp, "other")
-            self.rows.append({"ts": float(d["ts"]), "source": src, "model": model, "usage": u, "file": self.path.name})
+            seen.add(d)
+            cached = self.dirs.get(d)
+            if cached is None or cached[0] != mt:
+                fs, subs = [], []
+                try:
+                    with os.scandir(d) as it:
+                        for e in it:
+                            if e.is_dir(follow_symlinks=False):
+                                subs.append(e.path)
+                            elif e.name.endswith(".jsonl"):
+                                fs.append(e.name)
+                except OSError:
+                    continue
+                cached = self.dirs[d] = (mt, fs, subs)
+            stack.extend(cached[2])
+        for gone in set(self.dirs) - seen:
+            del self.dirs[gone]
 
 
 _states: dict[str, _FileState] = {}
+_indexes: dict[str, _DirIndex] = {}
 
 
 def _source_for(path: Path, logs: Path) -> str | None:
@@ -140,17 +199,28 @@ def _source_for(path: Path, logs: Path) -> str | None:
         return {"director": "director_planner", "live": "live_controller"}.get(stem, stem if stem in SOURCES else "other")
     if rel[0] == "evals" or path.name.startswith(("evals-", "voice-eval-")):
         return "generators" if path.name.startswith("gen_") else "evals"
-    return None  # brain-live: by component
+    return None  # brain logs: by component
 
 
 def _files(logs: Path) -> list[Path]:
+    idx = _indexes.get(str(logs / "evals"))
+    if idx is None:
+        idx = _indexes[str(logs / "evals")] = _DirIndex(logs / "evals")
     return [*logs.glob("brain-*.jsonl"), *logs.glob("evals-*.jsonl"), *logs.glob("voice-eval-*.jsonl"),
-            *(logs / "evals").rglob("*.jsonl"), *(logs / "spend").glob("*.jsonl")]
+            *idx.files(), *(logs / "spend").glob("*.jsonl")]
 
 
-def calls(logs: Path, since: float, until: float, prices: dict) -> list[dict]:
+def _keep_from(since: float) -> float:
+    yesterday = datetime.combine(datetime.now(timezone.utc).date() - timedelta(days=1), datetime.min.time(),
+                                 tzinfo=timezone.utc).timestamp()
+    return min(since, yesterday)
+
+
+def calls(logs: Path, since: float, until: float, prices: dict, files: list[Path] | None = None) -> list[dict]:
+    """Priced usage rows in [since, until). ``files``: a list from ``_files`` the caller already has."""
     out = []
-    for p in _files(logs):
+    keep = _keep_from(since)
+    for p in files if files is not None else _files(logs):
         try:
             if p.stat().st_mtime < since:  # nothing written after the window started
                 continue
@@ -159,17 +229,13 @@ def calls(logs: Path, since: float, until: float, prices: dict) -> list[dict]:
         st = _states.get(str(p))
         if st is None:
             st = _states[str(p)] = _FileState(p, _source_for(p, logs))
-        st.update()
+        st.update(keep)
         for r in st.rows:
             if since <= r["ts"] < until:
                 usd, priced = price(r["model"], r["usage"], prices)
                 out.append({**r, "usd": usd, "priced_as": priced})
     out.sort(key=lambda r: r["ts"])
     return out
-
-
-def _iso(t: float | None) -> str | None:
-    return datetime.fromtimestamp(t, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z") if t else None
 
 
 def summarize(rows: list[dict], cap: float, prices: dict, label: dict) -> dict:
@@ -198,32 +264,18 @@ def summarize(rows: list[dict], cap: float, prices: dict, label: dict) -> dict:
             "prices": {"source": prices.get("source"), "as_of": prices.get("as_of"), "file": "data/model_prices.json"}}
 
 
-def spend_day(day: date, log_dir: Path | None = None, cap: float | None = None) -> dict:
+def spend_day(day: date, log_dir: Path | None = None, cap: float | None = None, files: list[Path] | None = None) -> dict:
     start = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc).timestamp()
     prices = load_prices()
     cap = cap_usd() if cap is None else cap
-    return summarize(calls(Path(log_dir) if log_dir else ROOT / "logs", start, start + 86400, prices), cap, prices,
-                     {"day": day.isoformat(), "tz": "UTC"})
+    logs = Path(log_dir) if log_dir else paths.log_dir()
+    return summarize(calls(logs, start, start + 86400, prices, files), cap, prices, {"day": day.isoformat(), "tz": "UTC"})
 
 
 def spend_today(log_dir: Path | None = None, cap: float | None = None, now: float | None = None) -> dict:
     """Today's (UTC) spend across every source; JSON-ready (schema dw_obs_spend/1)."""
     day = datetime.fromtimestamp(time.time() if now is None else now, timezone.utc).date()
     return spend_day(day, log_dir, cap)
-
-
-def spent_today_usd(log_dir: Path | None = None) -> float:
-    """USD spent so far this UTC day by every model call we log (the cap is global). Never raises: 0.0 on any error."""
-    try:
-        return float(spend_today(log_dir)["spent_usd"])
-    except Exception:
-        return 0.0
-
-
-def spend_window(log_dir: Path, since: float, until: float, cap: float | None = None) -> dict:
-    prices = load_prices()
-    cap = cap_usd() if cap is None else cap
-    return summarize(calls(log_dir, since, until, prices), cap, prices, {"since": _iso(since), "until": _iso(until), "tz": "UTC"})
 
 
 def days_between(since: float, until: float) -> list[date]:

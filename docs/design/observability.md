@@ -1,6 +1,6 @@
 # Observability: episode traces, metrics, anomaly detectors, spend
 
-Status: **built offline** (2026-10-25, observability agent). Files: `tools/obs.py`, `tools/spend.py`, `data/model_prices.json`, `tools/lnav/dw_anomalies.json`, `tests/test_obs.py`, `tests/fixtures/obs_2026-10-25_2054/`, `tests/fixtures/obs_metrics_sample.json`.
+Status: **built offline** (2026-10-25/26, observability agent). Files: `tools/obs.py`, `tools/obs_tasks.py`, `tools/spend.py`, `data/model_prices.json`, `tools/lnav/dw_anomalies.json`, `tests/test_obs.py`, `tests/fixtures/obs_2026-10-25_2054/`, `tests/fixtures/obs_tasks/`, `tests/fixtures/obs_metrics_sample.json`.
 It is read-only over the existing logs. Nothing in `brain/` or `client_mod/` changed. Main commits.
 
 ## Goal (what main and Luis get)
@@ -10,11 +10,13 @@ Claude's client runs `-nullrhi`, so the logs are our only eyes. Until now, "read
   - `obs metrics` gives latency percentiles, failure rates and counts.
   - `obs anomalies` lists the failure modes Luis has complained about, found automatically.
   - `obs spend` shows dollars against the $10/day cap.
+  - `obs task` gives one timeline per long task (Director board job, benchmark T2/T3 case): its steps, the gaps between them (thinking / waiting / dead) and idle time.
 - **Standard traces when wanted:** `obs otel` writes the same episodes as OTLP/JSON spans with GenAI and OpenInference attributes. Any OTel backend (Phoenix, Langfuse, Jaeger) can show them later, with no lock-in.
 
 ## Commands
 ```
 .venv\Scripts\python.exe -m tools.obs episode --last 5                     # default window: the last 6 h
+.venv\Scripts\python.exe -m tools.obs task --last 3 [--brain-log <case>/brain.jsonl] [--goals goals.json] [--json]   # long tasks
 .venv\Scripts\python.exe -m tools.obs episode --since 20:54 --until 21:18 [--kind chat,body,goal] [-v]
 .venv\Scripts\python.exe -m tools.obs metrics --since 20:54 --until 21:18 [--json]   # --json: dw_obs_metrics/1 for tools/goal_check.py
 .venv\Scripts\python.exe -m tools.obs anomalies --since 20:54 --until 21:18           # also appends new ones to logs/anomalies.jsonl
@@ -25,11 +27,13 @@ Claude's client runs `-nullrhi`, so the logs are our only eyes. Until now, "read
 - **Benchmark and eval sessions:** `--brain-log <path|glob>[,...]` (repeatable) on every subcommand reads those brain JSONL files instead of the live scan, e.g. `obs episode --brain-log logs/evals/<date>/<run>/work/<case>/brain.jsonl -v`. Chat then comes from that log's own `chat_heard` events; the live chat, body, vitals and watchdog files are not read. The default scan is only `logs/brain-live-*.jsonl` at the top of `logs/`, so nothing under `logs/evals/` ever counts toward live latency, exposure or anomaly targets. Spend still counts those files, because the cap is global.
 - Times are UTC, like `tools/timeline.py` (`--local` switches to local time, `--date` sets the day for bare HH:MM).
 - Python API:
-  - `from tools.obs import spend_today, spent_today_usd` (used by the brain's budget guard and the eval runners).
-  - `tools.obs.analyse(root, since, until)` returns `(corpus, episodes, anomalies)`.
+  - `from tools.spend import spend_today` (brain/budget.py calls it every 30 s and fails closed on an error; also re-exported as `tools.obs.spend_today`).
+  - `tools.obs.analyse(root, since, until)` returns `(corpus, episodes, anomalies)`. `root=None` uses brain/paths.py (`DW_LOG_DIR`, `DW_STATE_DIR`); a path R reads R/logs, R/logs/state and R/client_io/events.
+  - `tools.obs_tasks.analyse(rows, goals)` returns the long-task timelines.
 - lnav: `lnav -i tools\lnav\dw_anomalies.json` once, then `lnav logs\anomalies.jsonl`. **[UNVERIFIED]**: lnav isn't on this VM's PATH right now, so the format file has not been loaded yet.
 
-## How an episode is rebuilt (no IDs in the logs, so it's reconstructed)
+## How an episode is rebuilt
+- **By episode id.** brain/jsonl_log.py stamps `episode_id` on every row: `chat-`, `review-`, `situation-`, `goal-`, `board-` or `director-` plus a counter. A row with a known id belongs to that episode. Chat lines join the decision with the same id, not the one whose text matches. Director decisions become `director` episodes. The rules below are the fallback for logs written before the ids existed (the 2026-10-25 fixture).
 - **Decision start.** A controller `prompt` whose last message is the context JSON with a `command` key opens a decision. A non-empty `command.text` makes it a **chat** episode; an empty one makes it a **body** episode (the context's `body_event`). The second decide after `speech_redecided` stays in the same episode.
 - **Trigger lines.** `chat_heard` events are held as pending lines with the said time (game clock, `event.ts`) and the heard time (log ts). The decide prompt's `command.text` (the burst, joined by " / ") claims the matching pending lines. Lines that are rate-capped with no model call become **ignored** episodes; a ping becomes a **ping** episode. Lines that are never decided appear as "never decided".
 - **Body triggers.** `situation_review` and `event_triage` logged just before a body decision move into that episode.
@@ -98,9 +102,13 @@ These detectors **only report**. Nothing feeds back into the brain, so there is 
   - Dry-run sessions cost nothing.
 - **Unpriced rows:** a usage row with no known model is priced at the **dearest** rate and counted in `unpriced_calls`, so the cap is never under-counted. Today's voice-eval logs have 108 such rows and only log the last call of each case. That's a fix for the voice eval's owner, and the eval agent has passed it to main.
 - **Day = UTC.** Cap: `DW_SPEND_CAP_USD`, then `DW_DAILY_CAP_USD`, default 10.
-- **Cost of a call:** `spent_today_usd()` reads incrementally (a byte offset per file; only complete new lines are parsed; prompt lines are regex-skipped). The first call takes ~0.2 s and later calls ~7 ms, so the brain's guard can call it every 30 s. It never raises (0.0 on error).
+- **Cost of a call:**
+  - Files are read incrementally: a byte offset per file, only complete new lines parsed, prompt lines matched on bytes and skipped.
+  - The `logs/evals` tree holds 15,888 bench directories and 48 .jsonl files. It is indexed once (about 2 s per process). After that a directory is re-listed only when its own mtime changes, and the mtime sweep (about 0.2 s) runs at most every 60 s.
+  - Rows older than yesterday 00:00 UTC are dropped from memory; asking for an older day re-reads the file.
+  - Measured: `spend_today()` takes about 10 ms after the first call, against 4.7–7.2 s before. `obs anomalies --follow` takes 0.1 s per tick (5.7–6.2 s before), because the file list is built once per `analyse()`.
 - **Agreed contracts:**
-  - the brain's guard (event-hygiene agent) uses `spent_today_usd()` (float) or `spend_today()` (dict);
+  - the brain's guard (event-hygiene agent, brain/budget.py) uses `spend_today()["spent_usd"]` and fails closed;
   - the eval preflight fails closed if the command fails, if state=cap, or if spent + worst case > cap.
 
 ## Precedent and decision (reuse > adapt > build)
@@ -116,10 +124,37 @@ These detectors **only report**. Nothing feeds back into the brain, so there is 
   - **Arize Phoenix:** 1 GB minimum, 2–4 GB recommended, and memory-hungry on large span queries.
   - The VM has 8 GB with ~0.7 GB free while the client runs (watchdog `memory_low` at 21:02–21:39). Both stay optional, off the VM or with the client stopped.
 - **Built** (no library knows our semantics):
-  - episode segmentation (the brain logs no trace ids);
+  - episode assembly (by the brain's episode id, with a text/time fallback for older logs);
   - the domain detectors: promises, raw codes, stat narration, contradictions, in-flight bridge restarts;
   - the spend table and reader.
 - **Optional Phoenix:** `phoenix serve` (pip `arize-phoenix`) when there is RAM to spare, then `obs otel --push http://127.0.0.1:6006/v1/traces`. **[UNVERIFIED]**: Phoenix's docs and a Cloudflare guide disagree on whether `/v1/traces` takes OTLP **JSON** or only protobuf. If the push is rejected, run an OTel Collector with an `otlpjsonfile` receiver on `logs/traces.otlp.json` and an `otlphttp` exporter. Not run here (no RAM).
+
+## Long tasks: steps, gaps between steps, idle (`obs task`, `tools/obs_tasks.py`)
+Luis wants long jobs (Director board jobs, benchmark T2/T3 cases) to become seamless chains of small tasks. This measures where the time between subtasks goes. It is a **tracked metric, not a GOAL gate**.
+- **Per task:** each step (subtask) with its start, end, duration, runs, outcome (done / failed / aborted / parked / dropped / unfinished, with the reason) and its body actions. The Director's decisions are listed with their times. The lead-in is the time from the task's start to its first body action.
+- **Gap** = from a step's predicate passing (`board_run passed=true` or `board_step_end`) to the **next step's first world-changing body action** (an executor tool call other than stop, say or remember). If the next step had no body action, the gap ends at its first run's start (flagged). The gap is split into:
+  - **thinking**: this job's own model time, i.e. its board-run model calls and their read tools, plus the Director's model calls for this task;
+  - **waiting (queue)**: another episode's work (chat, situation reviews) or the Director deciding for another task;
+  - **waiting (budget)**: the task in `waiting_budget` (from `board_task_status`), or a budget notice until the next dispatch;
+  - **waiting (decision pickup)**: a Director decision already made but not yet applied (it is collected at the next agent tick);
+  - **body**: this job's own trivial actions;
+  - **dead**: nothing at all happening.
+  Order of precedence: thinking, queue, budget, pickup, body, dead.
+- **Idle** = the share of the task's wall time with **no body action in progress and no model call in flight** (any episode). Also reported: the longest idle stretch, its times, and the rows on each side ("after board_run 'mine tin' passed, before prompt board_step 'smelt bronze bars' run 1").
+- **`obs metrics --json`** adds `task_gap_p50`, `task_gap_p90`, `idle_share` and `longest_idle_s` at the top level, plus a `long_tasks` block: tasks, steps, gaps, the gap split in seconds, and the longest idle with its task and place. `obs task --json` gives `dw_obs_tasks/1`, with every task's steps, gaps and idle.
+- **Log rows** (added by the Director agent at my request, pinned by `tests/test_director_jobs.py::test_board_rows_for_the_observability_metrics`):
+  - `board_run_start` {task, step_id, step, run};
+  - `board_run` with step_id and run;
+  - `board_step_end` {task, step_id, step, status, reason, runs, seconds};
+  - `board_task_status` {task, from, to, why}, logged at each save, so tick-accurate;
+  - board and notice runs wrapped in `board-…` episode ids, and Director decisions in `director-…`.
+  Without them, a run's start falls back to the Controller prompt whose `body_event` is the `board_step` (tested). `goals.json` (`--goals`, beside `--brain-log`, or `<state_dir>/worlds/*/goals.json`) adds task text, status and step outcomes.
+- **First finding (GearWorld fixtures, scripted models):**
+  - The board advances **one step per agent tick**. With the rig's 30 s tick, every gap is about 28.5 s, almost all dead (thinking 0.2 s), and idle is about 98 % of wall time.
+  - A plan decided at once is applied one tick later (28 s of decision pickup).
+  - A chat interruption costs the job 58 s of queue in one gap.
+  - Live gap sizes depend on the real agent loop's cadence. Measure them on the first live board job before tuning anything; the fixture tick is the rig's, not the live loop's.
+- **Tests:** a 5-step job; a chat interruption (queue); loop copies (coal trips); the fallback without the new rows; a step_end row without step_id; a synthetic budget wait (60 s budget, 2.5 s thinking, 1 s pickup); CLI and metrics fields. Fixtures: `tests/fixtures/obs_tasks/` (make_fixture.py runs the Director's JobRig scenarios with log ts driven by the rig clock).
 
 ## Generality check
 - No item, creature, spell or place names in the code. Reason codes come from `brain.interface.Reason` plus whatever the logs contain. Tool names come from the logs. Speech patterns are generic English intent and number patterns.
@@ -129,7 +164,7 @@ These detectors **only report**. Nothing feeds back into the brain, so there is 
 - None bent. Observability is read-only (PRINCIPLES #9: it owns only its own files) and never steers the model (#2).
 - Every live bug in the fixture window is now a regression test (#10).
 
-## Tests (`tests/test_obs.py`, 30 tests, offline)
+## Tests (`tests/test_obs.py`, 40 tests, offline)
 - **Fixture:** `tests/fixtures/obs_2026-10-25_2054/` is the real 20:50–21:19 UTC session, trimmed: prompts reduced to `command`/`body_event`, big tool payloads dropped. It is stored flat (`logs__client__mod_….jsonl`) because `.gitignore` ignores every `logs/` and `client_io/` directory. `make_fixture.py` rebuilds it and refuses to write if a server password or key-like string would land in it; `test_fixture_has_no_secrets` checks again.
 - **Coverage:**
   - segmentation (29 chat + 6 body);
@@ -142,7 +177,9 @@ These detectors **only report**. Nothing feeds back into the brain, so there is 
   - metrics and the goal_check contract;
   - deaths;
   - OTLP well-formedness;
-  - spend tiers, totals, warn/cap and incremental reads.
+  - spend tiers, totals, warn/cap and incremental reads;
+  - the eval-tree index (no re-listing without a directory change);
+  - long tasks (see above).
 
 ## Example (real logs, 2026-10-25 20:54–21:18 UTC)
 ```
@@ -176,9 +213,16 @@ Metrics for the window:
 - lnav JSON formats and SQL: https://docs.lnav.org/en/latest/_sources/formats.rst.txt ; https://lnav.readthedocs.io/en/latest/sqlext.html
 - Anthropic list prices (spend): https://platform.claude.com/docs/en/about-claude/pricing (fetched 2026-10-25; Haiku 5.5 long-prompt tier, Sonnet 5.5 cache reads 0.05×).
 - Decision: reuse the conventions, file format and viewers; build the segmentation and detectors. A heavy server (Langfuse) does not fit the VM's RAM. Phoenix is optional, off the VM.
+- Long tasks (2026-10-26). How process mining and tracing measure time between steps:
+  - process mining splits cycle time into processing + waiting time; idle time = the gap between one activity's end and the next one's start: https://link.springer.com/article/10.1007/s12599-024-00868-5 ; https://appian.com/process-mining/idle-time ; https://appian.com/process-mining/waiting-time ; https://docs.infotopics.com/processmining/features/kpi-and-kri-summary
+  - pm4py's sojourn/service-time statistics need start+end timestamps per activity: https://pm4py-source.readthedocs.io/en/stable/pm4py.statistics.sojourn_time.log.html
+  - tracing treats gaps between spans as idle/uninstrumented time and critical-path analysis ranks self-time: https://oneuptime.com/blog/post/2026-01-30-bottleneck-detection/view ; https://glama.ai/mcp/servers/mshegolev/jaeger-mcp/tools/jaeger_critical_path
+  - agent observability tools (LangSmith, Langfuse) show per-step latency on a trace timeline but publish no inter-step idle metric: https://aimultiple.com/agentic-monitoring ; https://www.analyticsvidhya.com/blog/2026/06/agent-observability-with-langsmith-langfuse-arize/
+  - Decision: adapt the process-mining split (processing = thinking, waiting = queue / budget / decision pickup, idle = dead) with interval arithmetic over our own spans. pm4py was not adopted: its pandas stack is too heavy for one statistic, and it doesn't know our three kinds of waiting. The tasks could later be exported as an event log if a process-mining view is wanted.
 
 ## Open / next
 - The brain should log `companion_sha` (git rev-parse HEAD) and `dirty` in `session_start`. `obs` reads them as soon as they appear, so the inference above is only a fallback.
-- The brain could log one `episode_id` (and `task_id` on `bridge_send`). Segmentation would then be exact instead of reconstructed. Small change, broker agent's file. Ask main.
+- The brain now logs `episode_id`. `task_id` on `bridge_send` would make the tool → bridge link exact too (broker agent's file).
+- **Live/dev source:** `session_start` should carry `live: true|false` (or `world_kind`). Until it does, `DW_LIVE_WORLDS` (default `shockbyte`) decides from the world name.
 - Voice-eval usage rows need `model` and every call (voice agent).
 - Verify the lnav format once lnav is on PATH. Verify a Phoenix push off-VM.

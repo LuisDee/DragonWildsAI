@@ -1,0 +1,1549 @@
+{
+ "v": 1,
+ "version": 40,
+ "current": null,
+ "paused": null,
+ "inbox_offset": 0,
+ "awaiting_decision": null,
+ "budget_calls": [
+  50030.0
+ ],
+ "tasks": [
+  {
+   "id": "626cbc85",
+   "text": "get me a load of coal",
+   "by": "player:Zezima",
+   "parent": null,
+   "depth": 0,
+   "because": null,
+   "kind": "specific",
+   "status": "done",
+   "paused_by": null,
+   "success": {
+    "predicate": {
+     "tally": {
+      "item": "Coal",
+      "at_least": 30,
+      "ids": [
+       "ITEM_Resources_Coal"
+      ]
+     }
+    },
+    "set_at": 50030.0,
+    "set_by": "director",
+    "trivial": false
+   },
+   "tallies": {
+    "ITEM_Resources_Coal": 36.0
+   },
+   "my_drops": [
+    {
+     "world_item": "world_item_1",
+     "item": "ITEM_Resources_Coal",
+     "count": 12
+    },
+    {
+     "world_item": "world_item_2",
+     "item": "ITEM_Resources_Coal",
+     "count": 12
+    }
+   ],
+   "steps": [
+    {
+     "id": "b2397df2",
+     "title": "walk to the coal spot",
+     "why": "",
+     "hints": "{\"do\": [{\"tool\": \"go_to\", \"args\": {\"target\": \"coal spot\"}}]}",
+     "success": {
+      "near": {
+       "place": "coal spot",
+       "within_m": 8
+      }
+     },
+     "abort_if": null,
+     "escape": null,
+     "risk": null,
+     "prepared": true,
+     "needs": [],
+     "group": "trip",
+     "loop_iter": 0,
+     "tally_gain": 0.0,
+     "trivial": false,
+     "status": "done",
+     "attempts": 1,
+     "max_attempts": 2,
+     "runs": 0,
+     "uncounted_runs": 0,
+     "max_runs": 8,
+     "activation": {
+      "inventory": {
+       "ITEM_Pickaxe_Iron": 1
+      },
+      "inventory_items": [
+       {
+        "item": "ITEM_Pickaxe_Iron"
+       }
+      ],
+      "gear": {},
+      "skills": [],
+      "position": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "bag": {
+       "used": 1,
+       "capacity": 24
+      },
+      "t": 50030.0
+     },
+     "segments": [
+      {
+       "start": 50030.0,
+       "end": 50030.0,
+       "baseline": {
+        "inventory": {
+         "ITEM_Pickaxe_Iron": 1
+        },
+        "inventory_items": [
+         {
+          "item": "ITEM_Pickaxe_Iron"
+         }
+        ],
+        "gear": {},
+        "skills": [],
+        "position": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "bag": {
+         "used": 1,
+         "capacity": 24
+        },
+        "t": 50030.0
+       },
+       "delta": {},
+       "skill_delta": {},
+       "tainted": []
+      }
+     ],
+     "accumulated": {},
+     "skill_accumulated": {},
+     "kills": [],
+     "last_measures": {},
+     "no_progress_runs": 0,
+     "failures": [],
+     "actions": [
+      {
+       "tool": "go_to",
+       "args": {
+        "target": "coal spot"
+       },
+       "ok": true,
+       "reason": null,
+       "data": {
+        "target_position": [
+         80.0,
+         0.0,
+         0.0
+        ],
+        "position": [
+         80.0,
+         0.0,
+         0.0
+        ],
+        "arrive_tolerance": 2.0
+       },
+       "interrupt": false,
+       "origin": "board"
+      }
+     ],
+     "latched": null,
+     "started": 50030.0,
+     "ended": 50030.0
+    },
+    {
+     "id": "e00d4909",
+     "title": "mine coal",
+     "why": "",
+     "hints": "{\"do\": [{\"tool\": \"gather\", \"args\": {\"resource\": \"coal\", \"count\": 12}}]}",
+     "success": {
+      "any": [
+       {
+        "gained": {
+         "item": "Coal",
+         "at_least": 12,
+         "ids": [
+          "ITEM_Resources_Coal"
+         ]
+        }
+       },
+       {
+        "bag": {
+         "used_pct_at_least": 95
+        }
+       }
+      ]
+     },
+     "abort_if": null,
+     "escape": null,
+     "risk": null,
+     "prepared": true,
+     "needs": [],
+     "group": "trip",
+     "loop_iter": 0,
+     "tally_gain": 12.0,
+     "trivial": false,
+     "status": "done",
+     "attempts": 1,
+     "max_attempts": 2,
+     "runs": 0,
+     "uncounted_runs": 0,
+     "max_runs": 8,
+     "activation": {
+      "inventory": {
+       "ITEM_Pickaxe_Iron": 1
+      },
+      "inventory_items": [
+       {
+        "item": "ITEM_Pickaxe_Iron"
+       }
+      ],
+      "gear": {},
+      "skills": [],
+      "position": [
+       80.0,
+       0.0,
+       0.0
+      ],
+      "bag": {
+       "used": 1,
+       "capacity": 24
+      },
+      "t": 50060.0
+     },
+     "segments": [
+      {
+       "start": 50060.0,
+       "end": 50060.0,
+       "baseline": {
+        "inventory": {
+         "ITEM_Pickaxe_Iron": 1
+        },
+        "inventory_items": [
+         {
+          "item": "ITEM_Pickaxe_Iron"
+         }
+        ],
+        "gear": {},
+        "skills": [],
+        "position": [
+         80.0,
+         0.0,
+         0.0
+        ],
+        "bag": {
+         "used": 1,
+         "capacity": 24
+        },
+        "t": 50060.0
+       },
+       "delta": {
+        "ITEM_Resources_Coal": 12.0
+       },
+       "skill_delta": {},
+       "tainted": []
+      }
+     ],
+     "accumulated": {
+      "ITEM_Resources_Coal": 12.0
+     },
+     "skill_accumulated": {},
+     "kills": [],
+     "last_measures": {},
+     "no_progress_runs": 0,
+     "failures": [],
+     "actions": [
+      {
+       "tool": "gather",
+       "args": {
+        "resource": "coal",
+        "count": 12
+       },
+       "ok": true,
+       "reason": null,
+       "data": {
+        "resource": "coal",
+        "item": "ITEM_Resources_Coal",
+        "gathered": 12
+       },
+       "interrupt": false,
+       "origin": "board"
+      }
+     ],
+     "latched": null,
+     "started": 50060.0,
+     "ended": 50060.0
+    },
+    {
+     "id": "2cd4dccb",
+     "title": "walk home",
+     "why": "",
+     "hints": "{\"do\": [{\"tool\": \"go_to\", \"args\": {\"target\": \"base\"}}]}",
+     "success": {
+      "near": {
+       "place": "base",
+       "within_m": 8
+      }
+     },
+     "abort_if": null,
+     "escape": null,
+     "risk": null,
+     "prepared": true,
+     "needs": [],
+     "group": "trip",
+     "loop_iter": 0,
+     "tally_gain": 0.0,
+     "trivial": false,
+     "status": "done",
+     "attempts": 1,
+     "max_attempts": 2,
+     "runs": 0,
+     "uncounted_runs": 0,
+     "max_runs": 8,
+     "activation": {
+      "inventory": {
+       "ITEM_Pickaxe_Iron": 1,
+       "ITEM_Resources_Coal": 12
+      },
+      "inventory_items": [
+       {
+        "item": "ITEM_Pickaxe_Iron"
+       },
+       {
+        "item": "ITEM_Resources_Coal"
+       }
+      ],
+      "gear": {},
+      "skills": [
+       {
+        "skill": "Mining",
+        "level": 2.0,
+        "xp": 120.0
+       }
+      ],
+      "position": [
+       81.29289321881345,
+       1.2928932188134525,
+       0.0
+      ],
+      "bag": {
+       "used": 2,
+       "capacity": 24
+      },
+      "t": 50090.0
+     },
+     "segments": [
+      {
+       "start": 50090.0,
+       "end": 50090.0,
+       "baseline": {
+        "inventory": {
+         "ITEM_Pickaxe_Iron": 1,
+         "ITEM_Resources_Coal": 12
+        },
+        "inventory_items": [
+         {
+          "item": "ITEM_Pickaxe_Iron"
+         },
+         {
+          "item": "ITEM_Resources_Coal"
+         }
+        ],
+        "gear": {},
+        "skills": [
+         {
+          "skill": "Mining",
+          "level": 2.0,
+          "xp": 120.0
+         }
+        ],
+        "position": [
+         81.29289321881345,
+         1.2928932188134525,
+         0.0
+        ],
+        "bag": {
+         "used": 2,
+         "capacity": 24
+        },
+        "t": 50090.0
+       },
+       "delta": {},
+       "skill_delta": {},
+       "tainted": []
+      }
+     ],
+     "accumulated": {},
+     "skill_accumulated": {},
+     "kills": [],
+     "last_measures": {},
+     "no_progress_runs": 0,
+     "failures": [],
+     "actions": [
+      {
+       "tool": "go_to",
+       "args": {
+        "target": "base"
+       },
+       "ok": true,
+       "reason": null,
+       "data": {
+        "target_position": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "position": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "arrive_tolerance": 2.0
+       },
+       "interrupt": false,
+       "origin": "board"
+      }
+     ],
+     "latched": null,
+     "started": 50090.0,
+     "ended": 50090.0
+    },
+    {
+     "id": "12debc62",
+     "title": "leave it at the base",
+     "why": "",
+     "hints": "{\"do\": [{\"tool\": \"drop\", \"args\": {\"item\": \"Coal\", \"count\": 12}}]}",
+     "success": {
+      "lost": {
+       "item": "Coal",
+       "at_least": 12,
+       "ids": [
+        "ITEM_Resources_Coal"
+       ]
+      }
+     },
+     "abort_if": null,
+     "escape": null,
+     "risk": null,
+     "prepared": true,
+     "needs": [],
+     "group": "trip",
+     "loop_iter": 0,
+     "tally_gain": 0.0,
+     "trivial": false,
+     "status": "done",
+     "attempts": 1,
+     "max_attempts": 2,
+     "runs": 0,
+     "uncounted_runs": 0,
+     "max_runs": 8,
+     "activation": {
+      "inventory": {
+       "ITEM_Pickaxe_Iron": 1,
+       "ITEM_Resources_Coal": 12
+      },
+      "inventory_items": [
+       {
+        "item": "ITEM_Pickaxe_Iron"
+       },
+       {
+        "item": "ITEM_Resources_Coal"
+       }
+      ],
+      "gear": {},
+      "skills": [
+       {
+        "skill": "Mining",
+        "level": 2.0,
+        "xp": 120.0
+       }
+      ],
+      "position": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "bag": {
+       "used": 2,
+       "capacity": 24
+      },
+      "t": 50120.0
+     },
+     "segments": [
+      {
+       "start": 50120.0,
+       "end": 50120.0,
+       "baseline": {
+        "inventory": {
+         "ITEM_Pickaxe_Iron": 1,
+         "ITEM_Resources_Coal": 12
+        },
+        "inventory_items": [
+         {
+          "item": "ITEM_Pickaxe_Iron"
+         },
+         {
+          "item": "ITEM_Resources_Coal"
+         }
+        ],
+        "gear": {},
+        "skills": [
+         {
+          "skill": "Mining",
+          "level": 2.0,
+          "xp": 120.0
+         }
+        ],
+        "position": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "bag": {
+         "used": 2,
+         "capacity": 24
+        },
+        "t": 50120.0
+       },
+       "delta": {
+        "ITEM_Resources_Coal": -12.0
+       },
+       "skill_delta": {},
+       "tainted": []
+      }
+     ],
+     "accumulated": {
+      "ITEM_Resources_Coal": -12.0
+     },
+     "skill_accumulated": {},
+     "kills": [],
+     "last_measures": {},
+     "no_progress_runs": 0,
+     "failures": [],
+     "actions": [
+      {
+       "tool": "drop",
+       "args": {
+        "item": "Coal",
+        "count": 12,
+        "at": "feet"
+       },
+       "ok": true,
+       "reason": null,
+       "data": {
+        "item": "ITEM_Resources_Coal",
+        "count": 12,
+        "world_items": [
+         "world_item_1"
+        ]
+       },
+       "interrupt": false,
+       "origin": "board"
+      }
+     ],
+     "latched": null,
+     "started": 50120.0,
+     "ended": 50120.0
+    },
+    {
+     "id": "0ddf65e3",
+     "title": "walk to the coal spot",
+     "why": "",
+     "hints": "{\"do\": [{\"tool\": \"go_to\", \"args\": {\"target\": \"coal spot\"}}]}",
+     "success": {
+      "near": {
+       "place": "coal spot",
+       "within_m": 8
+      }
+     },
+     "abort_if": null,
+     "escape": null,
+     "risk": null,
+     "prepared": false,
+     "needs": [],
+     "group": "trip",
+     "loop_iter": 1,
+     "tally_gain": 0.0,
+     "trivial": false,
+     "status": "done",
+     "attempts": 1,
+     "max_attempts": 2,
+     "runs": 0,
+     "uncounted_runs": 0,
+     "max_runs": 8,
+     "activation": {
+      "inventory": {
+       "ITEM_Pickaxe_Iron": 1
+      },
+      "inventory_items": [
+       {
+        "item": "ITEM_Pickaxe_Iron"
+       }
+      ],
+      "gear": {},
+      "skills": [
+       {
+        "skill": "Mining",
+        "level": 2.0,
+        "xp": 120.0
+       }
+      ],
+      "position": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "bag": {
+       "used": 1,
+       "capacity": 24
+      },
+      "t": 50150.0
+     },
+     "segments": [
+      {
+       "start": 50150.0,
+       "end": 50150.0,
+       "baseline": {
+        "inventory": {
+         "ITEM_Pickaxe_Iron": 1
+        },
+        "inventory_items": [
+         {
+          "item": "ITEM_Pickaxe_Iron"
+         }
+        ],
+        "gear": {},
+        "skills": [
+         {
+          "skill": "Mining",
+          "level": 2.0,
+          "xp": 120.0
+         }
+        ],
+        "position": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "bag": {
+         "used": 1,
+         "capacity": 24
+        },
+        "t": 50150.0
+       },
+       "delta": {},
+       "skill_delta": {},
+       "tainted": []
+      }
+     ],
+     "accumulated": {},
+     "skill_accumulated": {},
+     "kills": [],
+     "last_measures": {},
+     "no_progress_runs": 0,
+     "failures": [],
+     "actions": [
+      {
+       "tool": "go_to",
+       "args": {
+        "target": "coal spot"
+       },
+       "ok": true,
+       "reason": null,
+       "data": {
+        "target_position": [
+         80.0,
+         0.0,
+         0.0
+        ],
+        "position": [
+         80.0,
+         0.0,
+         0.0
+        ],
+        "arrive_tolerance": 2.0
+       },
+       "interrupt": false,
+       "origin": "board"
+      }
+     ],
+     "latched": null,
+     "started": 50150.0,
+     "ended": 50150.0
+    },
+    {
+     "id": "7967579a",
+     "title": "mine coal",
+     "why": "",
+     "hints": "{\"do\": [{\"tool\": \"gather\", \"args\": {\"resource\": \"coal\", \"count\": 12}}]}",
+     "success": {
+      "any": [
+       {
+        "gained": {
+         "item": "Coal",
+         "at_least": 12,
+         "ids": [
+          "ITEM_Resources_Coal"
+         ]
+        }
+       },
+       {
+        "bag": {
+         "used_pct_at_least": 95
+        }
+       }
+      ]
+     },
+     "abort_if": null,
+     "escape": null,
+     "risk": null,
+     "prepared": false,
+     "needs": [],
+     "group": "trip",
+     "loop_iter": 1,
+     "tally_gain": 12.0,
+     "trivial": false,
+     "status": "done",
+     "attempts": 1,
+     "max_attempts": 2,
+     "runs": 0,
+     "uncounted_runs": 0,
+     "max_runs": 8,
+     "activation": {
+      "inventory": {
+       "ITEM_Pickaxe_Iron": 1
+      },
+      "inventory_items": [
+       {
+        "item": "ITEM_Pickaxe_Iron"
+       }
+      ],
+      "gear": {},
+      "skills": [
+       {
+        "skill": "Mining",
+        "level": 2.0,
+        "xp": 120.0
+       }
+      ],
+      "position": [
+       80.0,
+       0.0,
+       0.0
+      ],
+      "bag": {
+       "used": 1,
+       "capacity": 24
+      },
+      "t": 50180.0
+     },
+     "segments": [
+      {
+       "start": 50180.0,
+       "end": 50180.0,
+       "baseline": {
+        "inventory": {
+         "ITEM_Pickaxe_Iron": 1
+        },
+        "inventory_items": [
+         {
+          "item": "ITEM_Pickaxe_Iron"
+         }
+        ],
+        "gear": {},
+        "skills": [
+         {
+          "skill": "Mining",
+          "level": 2.0,
+          "xp": 120.0
+         }
+        ],
+        "position": [
+         80.0,
+         0.0,
+         0.0
+        ],
+        "bag": {
+         "used": 1,
+         "capacity": 24
+        },
+        "t": 50180.0
+       },
+       "delta": {
+        "ITEM_Resources_Coal": 12.0
+       },
+       "skill_delta": {
+        "mining": [
+         1.0,
+         120.0
+        ]
+       },
+       "tainted": []
+      }
+     ],
+     "accumulated": {
+      "ITEM_Resources_Coal": 12.0
+     },
+     "skill_accumulated": {
+      "mining": [
+       1.0,
+       120.0
+      ]
+     },
+     "kills": [],
+     "last_measures": {},
+     "no_progress_runs": 0,
+     "failures": [],
+     "actions": [
+      {
+       "tool": "gather",
+       "args": {
+        "resource": "coal",
+        "count": 12
+       },
+       "ok": true,
+       "reason": null,
+       "data": {
+        "resource": "coal",
+        "item": "ITEM_Resources_Coal",
+        "gathered": 12
+       },
+       "interrupt": false,
+       "origin": "board"
+      }
+     ],
+     "latched": null,
+     "started": 50180.0,
+     "ended": 50180.0
+    },
+    {
+     "id": "602c6373",
+     "title": "walk home",
+     "why": "",
+     "hints": "{\"do\": [{\"tool\": \"go_to\", \"args\": {\"target\": \"base\"}}]}",
+     "success": {
+      "near": {
+       "place": "base",
+       "within_m": 8
+      }
+     },
+     "abort_if": null,
+     "escape": null,
+     "risk": null,
+     "prepared": false,
+     "needs": [],
+     "group": "trip",
+     "loop_iter": 1,
+     "tally_gain": 0.0,
+     "trivial": false,
+     "status": "done",
+     "attempts": 1,
+     "max_attempts": 2,
+     "runs": 0,
+     "uncounted_runs": 0,
+     "max_runs": 8,
+     "activation": {
+      "inventory": {
+       "ITEM_Pickaxe_Iron": 1,
+       "ITEM_Resources_Coal": 12
+      },
+      "inventory_items": [
+       {
+        "item": "ITEM_Pickaxe_Iron"
+       },
+       {
+        "item": "ITEM_Resources_Coal"
+       }
+      ],
+      "gear": {},
+      "skills": [
+       {
+        "skill": "Mining",
+        "level": 3.0,
+        "xp": 240.0
+       }
+      ],
+      "position": [
+       81.29289321881345,
+       1.2928932188134525,
+       0.0
+      ],
+      "bag": {
+       "used": 2,
+       "capacity": 24
+      },
+      "t": 50210.0
+     },
+     "segments": [
+      {
+       "start": 50210.0,
+       "end": 50210.0,
+       "baseline": {
+        "inventory": {
+         "ITEM_Pickaxe_Iron": 1,
+         "ITEM_Resources_Coal": 12
+        },
+        "inventory_items": [
+         {
+          "item": "ITEM_Pickaxe_Iron"
+         },
+         {
+          "item": "ITEM_Resources_Coal"
+         }
+        ],
+        "gear": {},
+        "skills": [
+         {
+          "skill": "Mining",
+          "level": 3.0,
+          "xp": 240.0
+         }
+        ],
+        "position": [
+         81.29289321881345,
+         1.2928932188134525,
+         0.0
+        ],
+        "bag": {
+         "used": 2,
+         "capacity": 24
+        },
+        "t": 50210.0
+       },
+       "delta": {},
+       "skill_delta": {},
+       "tainted": []
+      }
+     ],
+     "accumulated": {},
+     "skill_accumulated": {},
+     "kills": [],
+     "last_measures": {},
+     "no_progress_runs": 0,
+     "failures": [],
+     "actions": [
+      {
+       "tool": "go_to",
+       "args": {
+        "target": "base"
+       },
+       "ok": true,
+       "reason": null,
+       "data": {
+        "target_position": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "position": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "arrive_tolerance": 2.0
+       },
+       "interrupt": false,
+       "origin": "board"
+      }
+     ],
+     "latched": null,
+     "started": 50210.0,
+     "ended": 50210.0
+    },
+    {
+     "id": "f34cc9e5",
+     "title": "leave it at the base",
+     "why": "",
+     "hints": "{\"do\": [{\"tool\": \"drop\", \"args\": {\"item\": \"Coal\", \"count\": 12}}]}",
+     "success": {
+      "lost": {
+       "item": "Coal",
+       "at_least": 12,
+       "ids": [
+        "ITEM_Resources_Coal"
+       ]
+      }
+     },
+     "abort_if": null,
+     "escape": null,
+     "risk": null,
+     "prepared": false,
+     "needs": [],
+     "group": "trip",
+     "loop_iter": 1,
+     "tally_gain": 0.0,
+     "trivial": false,
+     "status": "done",
+     "attempts": 1,
+     "max_attempts": 2,
+     "runs": 0,
+     "uncounted_runs": 0,
+     "max_runs": 8,
+     "activation": {
+      "inventory": {
+       "ITEM_Pickaxe_Iron": 1,
+       "ITEM_Resources_Coal": 12
+      },
+      "inventory_items": [
+       {
+        "item": "ITEM_Pickaxe_Iron"
+       },
+       {
+        "item": "ITEM_Resources_Coal"
+       }
+      ],
+      "gear": {},
+      "skills": [
+       {
+        "skill": "Mining",
+        "level": 3.0,
+        "xp": 240.0
+       }
+      ],
+      "position": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "bag": {
+       "used": 2,
+       "capacity": 24
+      },
+      "t": 50240.0
+     },
+     "segments": [
+      {
+       "start": 50240.0,
+       "end": 50240.0,
+       "baseline": {
+        "inventory": {
+         "ITEM_Pickaxe_Iron": 1,
+         "ITEM_Resources_Coal": 12
+        },
+        "inventory_items": [
+         {
+          "item": "ITEM_Pickaxe_Iron"
+         },
+         {
+          "item": "ITEM_Resources_Coal"
+         }
+        ],
+        "gear": {},
+        "skills": [
+         {
+          "skill": "Mining",
+          "level": 3.0,
+          "xp": 240.0
+         }
+        ],
+        "position": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "bag": {
+         "used": 2,
+         "capacity": 24
+        },
+        "t": 50240.0
+       },
+       "delta": {
+        "ITEM_Resources_Coal": -12.0
+       },
+       "skill_delta": {},
+       "tainted": []
+      }
+     ],
+     "accumulated": {
+      "ITEM_Resources_Coal": -12.0
+     },
+     "skill_accumulated": {},
+     "kills": [],
+     "last_measures": {},
+     "no_progress_runs": 0,
+     "failures": [],
+     "actions": [
+      {
+       "tool": "drop",
+       "args": {
+        "item": "Coal",
+        "count": 12,
+        "at": "feet"
+       },
+       "ok": true,
+       "reason": null,
+       "data": {
+        "item": "ITEM_Resources_Coal",
+        "count": 12,
+        "world_items": [
+         "world_item_2"
+        ]
+       },
+       "interrupt": false,
+       "origin": "board"
+      }
+     ],
+     "latched": null,
+     "started": 50240.0,
+     "ended": 50240.0
+    },
+    {
+     "id": "8c8ed282",
+     "title": "walk to the coal spot",
+     "why": "",
+     "hints": "{\"do\": [{\"tool\": \"go_to\", \"args\": {\"target\": \"coal spot\"}}]}",
+     "success": {
+      "near": {
+       "place": "coal spot",
+       "within_m": 8
+      }
+     },
+     "abort_if": null,
+     "escape": null,
+     "risk": null,
+     "prepared": false,
+     "needs": [],
+     "group": "trip",
+     "loop_iter": 2,
+     "tally_gain": 0.0,
+     "trivial": false,
+     "status": "done",
+     "attempts": 1,
+     "max_attempts": 2,
+     "runs": 0,
+     "uncounted_runs": 0,
+     "max_runs": 8,
+     "activation": {
+      "inventory": {
+       "ITEM_Pickaxe_Iron": 1
+      },
+      "inventory_items": [
+       {
+        "item": "ITEM_Pickaxe_Iron"
+       }
+      ],
+      "gear": {},
+      "skills": [
+       {
+        "skill": "Mining",
+        "level": 3.0,
+        "xp": 240.0
+       }
+      ],
+      "position": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "bag": {
+       "used": 1,
+       "capacity": 24
+      },
+      "t": 50270.0
+     },
+     "segments": [
+      {
+       "start": 50270.0,
+       "end": 50270.0,
+       "baseline": {
+        "inventory": {
+         "ITEM_Pickaxe_Iron": 1
+        },
+        "inventory_items": [
+         {
+          "item": "ITEM_Pickaxe_Iron"
+         }
+        ],
+        "gear": {},
+        "skills": [
+         {
+          "skill": "Mining",
+          "level": 3.0,
+          "xp": 240.0
+         }
+        ],
+        "position": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "bag": {
+         "used": 1,
+         "capacity": 24
+        },
+        "t": 50270.0
+       },
+       "delta": {},
+       "skill_delta": {},
+       "tainted": []
+      }
+     ],
+     "accumulated": {},
+     "skill_accumulated": {},
+     "kills": [],
+     "last_measures": {},
+     "no_progress_runs": 0,
+     "failures": [],
+     "actions": [
+      {
+       "tool": "go_to",
+       "args": {
+        "target": "coal spot"
+       },
+       "ok": true,
+       "reason": null,
+       "data": {
+        "target_position": [
+         80.0,
+         0.0,
+         0.0
+        ],
+        "position": [
+         80.0,
+         0.0,
+         0.0
+        ],
+        "arrive_tolerance": 2.0
+       },
+       "interrupt": false,
+       "origin": "board"
+      }
+     ],
+     "latched": null,
+     "started": 50270.0,
+     "ended": 50270.0
+    },
+    {
+     "id": "6297a9f0",
+     "title": "mine coal",
+     "why": "",
+     "hints": "{\"do\": [{\"tool\": \"gather\", \"args\": {\"resource\": \"coal\", \"count\": 12}}]}",
+     "success": {
+      "any": [
+       {
+        "gained": {
+         "item": "Coal",
+         "at_least": 12,
+         "ids": [
+          "ITEM_Resources_Coal"
+         ]
+        }
+       },
+       {
+        "bag": {
+         "used_pct_at_least": 95
+        }
+       }
+      ]
+     },
+     "abort_if": null,
+     "escape": null,
+     "risk": null,
+     "prepared": false,
+     "needs": [],
+     "group": "trip",
+     "loop_iter": 2,
+     "tally_gain": 12.0,
+     "trivial": false,
+     "status": "done",
+     "attempts": 1,
+     "max_attempts": 2,
+     "runs": 0,
+     "uncounted_runs": 0,
+     "max_runs": 8,
+     "activation": {
+      "inventory": {
+       "ITEM_Pickaxe_Iron": 1
+      },
+      "inventory_items": [
+       {
+        "item": "ITEM_Pickaxe_Iron"
+       }
+      ],
+      "gear": {},
+      "skills": [
+       {
+        "skill": "Mining",
+        "level": 3.0,
+        "xp": 240.0
+       }
+      ],
+      "position": [
+       80.0,
+       0.0,
+       0.0
+      ],
+      "bag": {
+       "used": 1,
+       "capacity": 24
+      },
+      "t": 50300.0
+     },
+     "segments": [
+      {
+       "start": 50300.0,
+       "end": 50300.0,
+       "baseline": {
+        "inventory": {
+         "ITEM_Pickaxe_Iron": 1
+        },
+        "inventory_items": [
+         {
+          "item": "ITEM_Pickaxe_Iron"
+         }
+        ],
+        "gear": {},
+        "skills": [
+         {
+          "skill": "Mining",
+          "level": 3.0,
+          "xp": 240.0
+         }
+        ],
+        "position": [
+         80.0,
+         0.0,
+         0.0
+        ],
+        "bag": {
+         "used": 1,
+         "capacity": 24
+        },
+        "t": 50300.0
+       },
+       "delta": {
+        "ITEM_Resources_Coal": 12.0
+       },
+       "skill_delta": {
+        "mining": [
+         1.0,
+         120.0
+        ]
+       },
+       "tainted": []
+      }
+     ],
+     "accumulated": {
+      "ITEM_Resources_Coal": 12.0
+     },
+     "skill_accumulated": {
+      "mining": [
+       1.0,
+       120.0
+      ]
+     },
+     "kills": [],
+     "last_measures": {},
+     "no_progress_runs": 0,
+     "failures": [],
+     "actions": [
+      {
+       "tool": "gather",
+       "args": {
+        "resource": "coal",
+        "count": 12
+       },
+       "ok": true,
+       "reason": null,
+       "data": {
+        "resource": "coal",
+        "item": "ITEM_Resources_Coal",
+        "gathered": 12
+       },
+       "interrupt": false,
+       "origin": "board"
+      }
+     ],
+     "latched": null,
+     "started": 50300.0,
+     "ended": 50300.0
+    },
+    {
+     "id": "46620a2e",
+     "title": "walk home",
+     "why": "",
+     "hints": "{\"do\": [{\"tool\": \"go_to\", \"args\": {\"target\": \"base\"}}]}",
+     "success": {
+      "near": {
+       "place": "base",
+       "within_m": 8
+      }
+     },
+     "abort_if": null,
+     "escape": null,
+     "risk": null,
+     "prepared": false,
+     "needs": [],
+     "group": "trip",
+     "loop_iter": 2,
+     "tally_gain": 0.0,
+     "trivial": false,
+     "status": "pending",
+     "attempts": 0,
+     "max_attempts": 2,
+     "runs": 0,
+     "uncounted_runs": 0,
+     "max_runs": 8,
+     "activation": {},
+     "segments": [],
+     "accumulated": {},
+     "skill_accumulated": {},
+     "kills": [],
+     "last_measures": {},
+     "no_progress_runs": 0,
+     "failures": [],
+     "actions": [],
+     "latched": null,
+     "started": null,
+     "ended": null
+    },
+    {
+     "id": "480abce0",
+     "title": "leave it at the base",
+     "why": "",
+     "hints": "{\"do\": [{\"tool\": \"drop\", \"args\": {\"item\": \"Coal\", \"count\": 12}}]}",
+     "success": {
+      "lost": {
+       "item": "Coal",
+       "at_least": 12,
+       "ids": [
+        "ITEM_Resources_Coal"
+       ]
+      }
+     },
+     "abort_if": null,
+     "escape": null,
+     "risk": null,
+     "prepared": false,
+     "needs": [],
+     "group": "trip",
+     "loop_iter": 2,
+     "tally_gain": 0.0,
+     "trivial": false,
+     "status": "pending",
+     "attempts": 0,
+     "max_attempts": 2,
+     "runs": 0,
+     "uncounted_runs": 0,
+     "max_runs": 8,
+     "activation": {},
+     "segments": [],
+     "accumulated": {},
+     "skill_accumulated": {},
+     "kills": [],
+     "last_measures": {},
+     "no_progress_runs": 0,
+     "failures": [],
+     "actions": [],
+     "latched": null,
+     "started": null,
+     "ended": null
+    }
+   ],
+   "loops": {
+    "trip": {
+     "until": {
+      "tally": {
+       "item": "Coal",
+       "at_least": 30,
+       "ids": [
+        "ITEM_Resources_Coal"
+       ]
+      }
+     },
+     "max": 20,
+     "done": 2,
+     "zero_gain": 0,
+     "last_measures": {
+      "tally:ITEM_Resources_Coal": 24.0
+     }
+    }
+   },
+   "replans": 0,
+   "decisions_without_progress": 0,
+   "last_decision_progress": 0.0,
+   "last_decision_measures": {
+    "tally:ITEM_Resources_Coal": 0.0
+   },
+   "history": [
+    {
+     "title": "walk to the coal spot",
+     "outcome": "done",
+     "reason": null,
+     "seconds": 0.0
+    },
+    {
+     "title": "mine coal",
+     "outcome": "done",
+     "reason": null,
+     "seconds": 0.0
+    },
+    {
+     "title": "walk home",
+     "outcome": "done",
+     "reason": null,
+     "seconds": 0.0
+    },
+    {
+     "title": "leave it at the base",
+     "outcome": "done",
+     "reason": null,
+     "seconds": 0.0
+    },
+    {
+     "title": "walk to the coal spot",
+     "outcome": "done",
+     "reason": null,
+     "seconds": 0.0
+    },
+    {
+     "title": "mine coal",
+     "outcome": "done",
+     "reason": null,
+     "seconds": 0.0
+    },
+    {
+     "title": "walk home",
+     "outcome": "done",
+     "reason": null,
+     "seconds": 0.0
+    },
+    {
+     "title": "leave it at the base",
+     "outcome": "done",
+     "reason": null,
+     "seconds": 0.0
+    },
+    {
+     "title": "walk to the coal spot",
+     "outcome": "done",
+     "reason": null,
+     "seconds": 0.0
+    },
+    {
+     "title": "mine coal",
+     "outcome": "done",
+     "reason": null,
+     "seconds": 0.0
+    }
+   ],
+   "notes_from_player": [],
+   "help": null,
+   "created": 1792999392.6782596,
+   "ended": 50300.0,
+   "end_reason": "Coal total 36/30"
+  }
+ ]
+}

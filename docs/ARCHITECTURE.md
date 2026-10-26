@@ -232,7 +232,7 @@ No source was found for expiring queued NPC lines on state change; that part is 
       - `goal_done` and `stuck` are body situations the model phrases (stuck keeps a template fallback);
       - refusals before the body go back to the model through `next_turn`.
     - **BUGS L18:** an empty text beside tool calls is replayed as `None`. `llm.strip_markers` removes `[System: …]` markers, and `Controller.say` never speaks one.
-    - **Daily $ cap (`brain/budget.py`):** spend comes from `tools.spend.spent_today_usd` and the cap from `tools.spend.cap_usd`, read every 30 s.
+    - **Daily $ cap (`brain/budget.py`):** spend comes from `tools.spend.spend_today` and the cap from `tools.spend.cap_usd`, read every 30 s.
       - 80 %: one `budget_warning` log line.
       - 100 %: no model calls (no chat runs, situations or reviews, no new goals). One honest line at most every 10 min, and body situations still get their template line. Reflexes run in the body.
       - The spend reader fails open (0.0 on error).
