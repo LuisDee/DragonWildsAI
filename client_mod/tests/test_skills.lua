@@ -20,7 +20,7 @@ local IN, OUT = DIR .. "/brain_to_client.jsonl", DIR .. "/client_to_brain.jsonl"
 local function read(path) local f = assert(io.open(path, "rb")); local s = f:read("a"); f:close(); return s end
 local function write(path, s, mode) local f = assert(io.open(path, mode or "ab")); f:write(s); f:close() end
 for _, n in ipairs({ "chat", "move", "sense", "inventory" }) do write(SCRIPTS .. "/" .. n .. ".lua", read(here .. "/fakes/" .. n .. ".lua"), "wb") end
-for _, n in ipairs({ "skills", "manifest", "arbiter" }) do
+for _, n in ipairs({ "skills", "manifest", "arbiter", "quests" }) do
     write(SCRIPTS .. "/" .. n .. ".lua", read(REPO .. "/client_mod/scripts/" .. n .. ".lua"), "wb")
 end
 
@@ -192,6 +192,8 @@ test("manifest: one entry per implemented tool; primitives offered, compounds de
     assert(by.get_state and by.get_state.llm == false and by.ping.llm == false and by.census.llm == false)
     assert(not by.pickup and not by.attack and not by.gather, "tools the body lacks are absent")
     assert(r.data.aliases.pickup == "interact", json.encode(r.data.aliases))
+    -- read-only module tools come from their own MANIFEST (quests.lua, registered in client_bridge.MODULES)
+    assert(by.quests and by.quests.kind == "read" and by.quests.llm == true, "quests listed: " .. json.encode(by.quests))
     assert(r.data.manifest_version == 1)
     write(base .. "/capabilities.json", json.encode(r.data), "wb") -- for tests/test_skills_contract.py
     -- the raw JSON keeps empty schemas as objects

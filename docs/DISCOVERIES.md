@@ -1913,3 +1913,19 @@ Quick fixtures, logged as quick and not M3 cases: Coarse Net and Ash Rod were gr
     - Fixed offline, not yet re-run live: an adaptive step (a quarter of the gap first, then the measured ratio, aiming at 97%), plus skill-specific live row handles: Magic `PlayerMagicComponent.SpellDamageXpEvent`, Agility `SprintComponent.SprintXpEvent`, Fishing `CatchableFishSpeciesData.Info.NormalDrop.OnFishingXpEvent`.
   - **Enchant Weapon (Fire) T0:** the hold setup (the body's `equip` on the granted sword) succeeded. The cast then answered "couldn't find Enchant Weapon: Fire on my spell wheel's pages" (verification_failed) after the unlock. That is a body/spell-wheel issue.
   - **Runt spawn (M1):** the spawn fixture now loads a not-yet-loaded class with UE4SS `LoadAsset(<full path>)` + `StaticFindObject`. The paths are in `evals/bench/spawn_classes.json` (runt: `/Game/Gameplay/AI/GoblinFaction/MeleeGoblin/RuntGoblinVariant/BP_AI_RuntGoblin_Character.BP_AI_RuntGoblin_Character_C`). It is deployed but not verified: the fixture needs the character in the world, and the client is down (BUGS L35).
+
+## Client lodestone fast travel (design + offline build, 2026-10-26; dump 26161880; NOT yet live)
+- **Route (the player's path, never a position write):**
+  1. Use the lodestone (`BP_WorldLodestone_C`, prompt "Teleport") through the shared interact episode. The map opens: `UMapUIAPI:IsShowingMap()`.
+  2. `UBaseTeleportationComponent:TryTeleport(FromId, ToId)` on his PC's `LodestoneTeleportationComponent`. This is the local function the map's lodestone click calls; it sends `Server_TryTeleport`.
+  3. Verified by the `Client_OnTeleportSuccessful(TargetLocation)` Client-RPC post-hook AND his position within 25 m of the destination's RespawnLocation.
+- **The ids passed are the LIVE `FGuid` structs** read from `AGameplayObjectRegistry.Lodestones` (`FLodestoneData` {Location, RespawnLocation, Identifier}), never built in Lua.
+- **Gates are read before any walk or press:** `CanTeleport` false → `not_unlocked`; `CanAffordTeleportationCost` false → `missing_materials` (Law runes, with `GetTeleportationCost`).
+- **The retired server-puppet route is NOT used:** `mod/body/travel.lua` K2_TeleportTo.
+- **Built:** `client_mod/scripts/lodestone.lua` (tools `lodestones` read, `teleport` action with `llm=false` until live) and `client_mod/tests/test_lodestone.lua` (13).
+- **UNVERIFIED live:**
+  - that the press opens the map headless;
+  - that TryTeleport from Lua starts the teleport;
+  - that the success RPC hook fires;
+  - that IA_UI_GenericBack closes the map;
+  - that two lodestones are both unlocked anywhere on dev (DISCOVERIES l.584: proving CanTeleport true needs a second built lodestone).
