@@ -333,6 +333,13 @@ do
     local best = Cm.best_weapon(inv_list, { name = "Kebbit" })
     check("best weapon = Bone Dagger", best.weapon and best.weapon.entry.item == "ITEM_Dagger_Bone", best.weapon and best.weapon.entry.item)
     check("best shield = Bronze Shield", best.shield and best.shield.entry.item == "ITEM_Shield_Bronze")
+    do -- any shield he owns, from data (the parry cases need the Wooden Shield he crafts himself)
+        local only_wood = { loadout = {}, hotbar = { { item = "ITEM_Dagger_Bone", slot = 1 } }, bag = { { item = "ITEM_Shield_Wood", slot = 3 } } }
+        local b2 = Cm.best_weapon(only_wood, { name = "Goblin Runt" })
+        check("a crafted Wooden Shield is the shield", b2.shield and b2.shield.entry.item == "ITEM_Shield_Wood" and b2.shield.where == "bag", b2.shield and b2.shield.entry.item)
+        local both = { loadout = {}, hotbar = { { item = "ITEM_Shield_Wood", slot = 1 } }, bag = { { item = "ITEM_Shield_Iron", slot = 3 } } }
+        check("the better-blocking shield wins", Cm.best_weapon(both, {}).shield.entry.item == "ITEM_Shield_Iron")
+    end
     -- Kalphites resist Stab/Slash/Crush: every melee weapon is down-weighted but still ranked
     local s1 = Cm.score_weapon(dag, { name = "Kebbit" })
     local s2 = Cm.score_weapon(dag, { name = "Kalphite Worker" })
