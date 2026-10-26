@@ -2046,3 +2046,19 @@ Quick fixtures, logged as quick and not M3 cases: Coarse Net and Ash Rod were gr
     - **(4)** `count` > 1 repeats the press (the source never depletes, per the wiki), stopping at inventory_full.
     - **(5) Failure reasons stay truthful:** `not_interactable` ("the water doesn't take", with what the detector targets), and `too_far` only when no dry point within reach exists.
   - **Stay-fed reflex:** it should NOT drink Dirty Water above the safety floor (Soulscourge); below the floor, Dirty Water beats death. The brain gets `no_drink` and decides to collect and boil.
+
+## Spell re-run findings + multi-step mechanics (2026-10-26, offline from logs/evals/20261026/20261026-163357-dev-measure)
+- **The case errors were the model-call budget**, not the body: Fire Spirit and Vengeance cast ok and verified, then the model went on (consume, re-cast into the cooldown) until the cap hit. An ok cast carried no sentence, so the body now adds one ("I cast Vengeance: used 20 Astral Rune; it's recharging now.").
+- **Fishnado / Fishing Frenzy:** cast on a fishing node id from `fishing_spots` returned "I can't see what you want me to aim at". The bridge census (sense) doesn't list `FishingNodeV2` actors, and go_to answered `target_not_visible` for the same id. spells.lua now resolves any actor id the census lacks through the live actor (class = id up to `_C`, one FindAllOf). The census gap itself belongs to sense/go_to (capability).
+- **no_valid_aim "requires multiple logs" / "requires rune" / "requires fishing node"** are the game's own placement tags, and they are truthful. Trunk Totem and Runes to Rune Essence then succeeded after the model prepared the ground (dropped a rune, moved to logs).
+- **Recall** (Luis + wiki "place a temporary beacon ... return to it within a limited time"; the game's only `AllowMovementThenCastInstant`): one cast leaves it PREPARED (`SpellBeingPreparedOrCast` = USD_Recall), no runes, no cooldown = the beacon is down. A second cast returns. The time limit is not found (wiki and metaforge are silent). The body treats it as two steps, from data/spell_mechanics.json `two_step`:
+  - step 1 answers "beacon placed at [x,y,z]";
+  - step 2 is verified by arriving within 4 m of the beacon.
+- **Divine Rock / Enfeeble / Rapid Growth were declined by the model, correctly:** no ore on the ground, nothing hostile in sight, no crops. ClaudeDev was also at 1% HP with 0 hydration, so it put survival first. The tool list wasn't misleading; the cases lack their world preconditions.
+- **Multi-step / conditional mechanics, from the wiki snapshot:** written to `data/spell_mechanics.json` (35 spells, non-judge, with sources) and exposed as `how` in state.spells:
+  - drop-then-cast: Runes to Rune Essence (drop the runes), Divine Rock (drop 5 ore), Magical Mending (drop the damaged items), Bones to Peaches (bones on the ground);
+  - cast-on-a-thing: fishing node (Frenzy, Fishnado plus a tool of the node's power), fallen trees (Trunk Totem, Splinter), standing tree (Bark to Bones), plots (Rapid Growth, Mucksplosion with 150 compost, Humidify with a 50-water can), fire stations (Superheat), mechanical stations (Overdrive);
+  - equipped tool: Infernal Rod (rod), Spectral Arrows (two-handed bow, not a crossbow);
+  - carried tool: Rocksplosion (pickaxe), Axtral Projection (axe);
+  - timed charges: Surge (3 dodges, 2 min), Windstep (7 s), Phase Dash (3 air dashes);
+  - Internal Alchemy only refreshes ACTIVE food/drink buffs.
