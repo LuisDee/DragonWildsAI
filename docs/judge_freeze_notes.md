@@ -1,6 +1,9 @@
 # Judge-file changes since 899c88f, for Luis's sign-off at the judge tag
 
 ## Open decisions for Luis at the freeze
+- **Long-task feasibility from a fresh character (the Director's precondition audit):**
+  - mining_run_home_chest: no chest piece is unlocked on dev and no data says how one unlocks. Options: find the unlock; accept any storage container he built; or a declared gap until confirmed live.
+  - farm_and_process_crop: from scratch it needs the Growing Pains quest, flax and a Spinning Wheel, clay, granite, iron bars and fire runes, which is realistically 4-6 h, not the 7200 s wall. Options: raise wall_s, or start from a snapshot where the recipes are unlocked but nothing is built (he still builds the plot and the stations himself).
 - **tools/obs.py is a judge input but not frozen:** goal_check reads `tools.obs metrics --json` for the anomaly, exposure and speed rows, but obs.py isn't in JUDGE_PATHS or the judge_guard list. Proposal: add it at the tag.
 - **Voice gate sample size:** today's k=3 has a per-sample sd of 0.063, so the 95% band is ±0.07, which can't tell 0.78 from 0.8.
   - Proposal: k=17 for the GOAL measurement only (±0.03 band, ~700 calls, ≈ $1.6), with MET meaning the k-mean ≥ 0.8.
