@@ -69,3 +69,17 @@ Cases (k = 3 each; between runs reset with `set_health` 100 and re-spawn the run
 - **disengage_heal:** `set_health` 40 at fight start (fixture), `heal_hp` 0.5. Expect phase `disengage`, then a `go_to` away (≥ 8 m from the runt), then an eat (inventory use, `healed` activity, HP up), then phase `approach` once HP ≥ `reengage_hp`. 3 runs.
 - Abort a run if HP < 25 and the runt keeps hitting (`set_health` 100, note it).
 - Report per run: the server `EvadeAttack` lines (counts), `combat_status.fight.defense`, `last_defence`, the activity `combat_end` line.
+
+## 5. Search record (search-before-building)
+
+- **Parry and block timing are window checks that input lag shrinks.** A parry succeeds when the defensive input is active inside a few-frame window before the hit; latency eats into it, which is why clients and servers disagree about parries. Source: https://bugnet.io/blog/bug-reporting-for-games-with-parry-and-block-timing
+  - Here the dev server's own `AuthorityApplyBlocking: BlockDelay [0.117] for REMOTE player` shows the same effect, so the press leads by it.
+- **Server-authoritative melee and lag compensation:** latency is split off the wind-up of an incoming attack, and the server validates timing. Sources:
+  - https://gamedev.net/forums/topic/634003-alternate-solution-to-valves-lag-compensation-for-melee-combat/
+  - a server checking latency and timestamps for a claimed parry: https://forums.playdeadlock.com/threads/punched-mid-parry.66043
+- **UE replication facts used for the evidence:** a NetMulticast runs on the server and every client, which is why the client sees `Multicast_SendDamageCacheData` and `Multicast_PerformAttackOnSimulatedProxies`. Source: https://dev.epicgames.com/documentation/en-us/unreal-engine/remote-procedure-calls-in-unreal-engine
+- **Dragonwilds rules:** parry means blocking just before the hit lands, and blocking, dodging and attacking all cost stamina. Sources:
+  - https://mobalytics.gg/gamebase/guides/runescape-dragonwilds-combat
+  - https://deltiasgaming.com/?p=205876
+- **Nothing found** on how bots time parries in souls-likes.
+- **Decision:** ADAPT. The timing comes from the game's own data (attack damage time, server BlockDelay, ping), corrected per attack from the server's verdicts. The evidence is the server's own log.

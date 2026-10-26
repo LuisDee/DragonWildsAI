@@ -60,7 +60,8 @@ M.cfg = {
     ranged_keep_m = 12,      -- ... and close in to about this when farther
     ranged_min_m = 4,
     ranged_aim_s = 1.0,      -- aim this long when the game's full-accuracy flag is unreadable
-    ranged_aim_z = 0,        -- aim height above the target's actor origin (capsule centre), cm        -- IA_Movement axes: "xy" = X right, Y forward (UE template); "yx" swaps them
+    ranged_aim_z = 0,        -- aim height above the target's actor origin (capsule centre), cm
+    magic_aim_s = 0.25,      -- staff/wand: settle the aim this long before each cast        -- IA_Movement axes: "xy" = X right, Y forward (UE template); "yx" swaps them
     disengage_s = 25,        -- give the heal this long before re-assessing
     lock_on = true,
     nudge = true,            -- turn the body toward the target with a short movement nudge when standing
@@ -903,13 +904,13 @@ local function step_equip(F, pawn)
             local hr, hl = held_items(pawn)
             local hp = (hr and items[hr]) or (hl and items[hl])
             local hid = (hr and items[hr]) and hr or hl
-            if hp and hp.kind == "ranged" then pick = { weapon = { entry = { item = hid }, profile = hp, score = 0 } } end
+            if hp and (hp.kind == "ranged" or hp.kind == "magic") then pick = { weapon = { entry = { item = hid }, profile = hp, score = 0 } } end
         end
         F.equip_plan = { weapon = pick.weapon and pick.weapon.entry.item, shield = nil, sent = {}, t = F.t }
         if pick.weapon then
             F.profile = pick.weapon.profile
             F.weapon_score = pick.weapon.score
-            if pick.shield and pick.weapon.profile.slot ~= "two_handed" and pick.weapon.profile.kind ~= "ranged" then F.equip_plan.shield = pick.shield.entry.item end
+            if pick.shield and pick.weapon.profile.slot ~= "two_handed" and pick.weapon.profile.kind == "melee" then F.equip_plan.shield = pick.shield.entry.item end
         end
         F.prev_right, F.prev_left = held_items(pawn)
         -- a two-handed tool (the Mithril Logging Axe) is reported in the LEFT hand only (DISCOVERIES R2):
@@ -1454,17 +1455,29 @@ end
 local function ranged_setup(F, pawn, pc)
     local Rg = mod("ranged")
     if not Rg then return false, "no ranged module" end
+    local magic = F.profile and F.profile.kind == "magic"
     local comp = Rg.ranged_component(pawn)
-    if not comp then return false, "no_ranged_component" end
-    local prm = Rg.read_weapon_params(pawn) or {}
+    if not comp and not magic then return false, "no_ranged_component" end
+    local prm = (comp and Rg.read_weapon_params(pawn)) or {}
+    if magic then
+        -- a staff / wand: its primary action casts a magic projectile and spends the runes in the
+        -- loadout's magic ammo slot (catalog ammo "Runes"); no aim hold, the projectile is learned
+        -- from the DominionSpellProjectile actors it spawns
+        local l = mcall("inventory", "list", F.log) or {}
+        local runes
+        for _, e in ipairs(l.loadout or {}) do if tostring(e.loadout_slot or ""):find("MagicAmmo", 1, true) then runes = e end end
+        if not runes then return false, "no_runes" end
+        prm = { ammo = runes.item, has_ammo = (runes.count or 1) > 0, full_accuracy_s = M.cfg.magic_aim_s }
+        F.rune_item, F.rune_count0 = runes.item, runes.count
+    end
     local right, left = held_items(pawn)
     local key = tostring(right or left or "?") .. "|" .. tostring(prm.ammo or "?")
     local seed = prm.speed and { speed = prm.speed, gz = prm.gz or Rg.cfg.default_gz, t0 = prm.t0 or 0, source = "game_data" } or nil
-    F.rg = { R = Rg, comp = comp, key = key, aimer = Rg.new_aimer(key, seed), seed = prm, shots = 0, hits = 0, misses = 0 }
+    F.rg = { R = Rg, comp = comp, key = key, aimer = Rg.new_aimer(key, seed), seed = prm, shots = 0, hits = 0, misses = 0, magic = magic }
     F.reach, F.follow = M.cfg.ranged_max_m, M.cfg.ranged_keep_m
     say(F.log, string.format("ranged: %s speed %s gz %s t0 %s (%s) full-accuracy %ss ammo ok %s", key, tostring(F.rg.aimer.p.speed),
         tostring(F.rg.aimer.p.gz), tostring(F.rg.aimer.p.t0), tostring(F.rg.aimer.p.source), tostring(prm.full_accuracy_s), tostring(prm.has_ammo)))
-    if prm.has_ammo == false then return false, "no_ammo" end
+    if prm.has_ammo == false then return false, magic and "no_runes" or "no_ammo" end
     return true
 end
 M._ranged_setup = ranged_setup
@@ -1555,17 +1568,27 @@ local function step_ranged(F, pawn, me, acts, tgt)
         return
     end
     if F.following then mcall("move", "stop", F.log); F.following = false end
-    -- hold aim (IA_SecondaryAction for crossbows/bows) while engaged
-    if acts.secondary then F.hold, F.hold_until = acts.secondary, F.t + 0.3 end
+    -- hold aim (IA_SecondaryAction for crossbows/bows) while engaged; a staff/wand has no aim hold
+    -- (its secondary is another action)
+    if acts.secondary and not g.magic then F.hold, F.hold_until = acts.secondary, F.t + 0.3 end
     if not g.aiming then g.aiming, g.aim_t0 = true, F.t end
     if g.aimer.shot then return end -- a bolt is in the air
     if F.unverified_run >= cfg.verify_presses then
         return finish(F, result_of(F, false, "body_error", { why = "shots_not_firing", detail = "ranged presses spawned no projectile" }))
     end
     if F.t < (F.next_press or 0) or not g.sol then return end
-    local prm = g.R.read_weapon_params(pawn) or {}
+    local prm = (g.comp and not g.magic) and (g.R.read_weapon_params(pawn) or {}) or {}
     local ready = prm.full_accuracy or (F.t - g.aim_t0) >= (g.seed.full_accuracy_s or cfg.ranged_aim_s)
     if not ready then return end
+    if g.magic and F.t - (F.rune_check_t or -9) > 3 then
+        F.rune_check_t = F.t
+        local l = mcall("inventory", "list", F.log) or {}
+        local left = 0
+        for _, e in ipairs(l.loadout or {}) do if tostring(e.loadout_slot or ""):find("MagicAmmo", 1, true) then left = left + (e.count or 0) end end
+        if left <= 0 then
+            return finish(F, result_of(F, false, "not_enough_resources", { why = "no_runes", detail = "the magic ammo slot is empty" }))
+        end
+    end
     if prm.has_ammo == false then
         return finish(F, result_of(F, false, "not_enough_resources", { why = "no_ammo", detail = "no ammunition equipped for this weapon" }))
     end
@@ -1929,10 +1952,10 @@ local function frame(F)
         if step_equip(F, pawn) then
             local r, l = held_items(pawn)
             F.cap = M.capabilities(pc, r, l)
-            if F.profile and F.profile.kind == "ranged" then
+            if F.profile and (F.profile.kind == "ranged" or F.profile.kind == "magic") then
                 local ok, why = ranged_setup(F, pawn, pc)
                 if not ok then
-                    return finish(F, result_of(F, false, why == "no_ammo" and "not_enough_resources" or "body_error",
+                    return finish(F, result_of(F, false, (why == "no_ammo" or why == "no_runes") and "not_enough_resources" or "body_error",
                         { why = why, detail = "ranged weapon not ready: " .. tostring(why) }))
                 end
             end

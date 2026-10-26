@@ -114,4 +114,62 @@ function M.resolve(name)
     return bk, best
 end
 
+-- ------------------------------------------------------------------ category words (from game identifiers)
+-- "ore", "rock", "logs", "mining", "wood": a generic word resolves to every profile whose GAME identifiers
+-- carry it, with no word list here: the tokens come from each profile's drop item id
+-- (ITEM_Resources_CopperOre -> resources, copper, ore), its actor classes and match patterns (OreNode_Copper,
+-- DestructibleMiningRock, FellableTree, SplittableTreeLog -> ore, node, mining, rock, tree, log ...), its
+-- tool category (weapons_data cat) and its mode. Plurals fold to the singular ("logs" -> "log").
+local function singular(w)
+    if #w > 3 and w:sub(-3) == "ies" then return w:sub(1, -4) .. "y" end
+    if #w > 3 and w:sub(-1) == "s" and w:sub(-2) ~= "ss" then return w:sub(1, -2) end
+    return w
+end
+M.singular = singular
+
+local function tokens_of(id, out)
+    if type(id) ~= "string" then return end
+    local s = id:gsub("%^", ""):gsub("[%%%.%*%+%-%?%[%]%(%)]", " ")
+    s = s:gsub("(%l)(%u)", "%1 %2"):gsub("(%u)(%u%l)", "%1 %2"):gsub("[_/]", " ")
+    for w in s:gmatch("%a+") do
+        w = singular(w:lower())
+        if #w >= 3 and w ~= "item" and w ~= "c" then out[w] = true end
+    end
+end
+
+local INDEX
+function M.category_index()
+    if INDEX then return INDEX end
+    INDEX = {}
+    for key, p in pairs(M.RESOURCES) do
+        local t = {}
+        tokens_of(p.item, t)
+        tokens_of(p.tool, t)
+        tokens_of(p.mode, t)
+        for _, st in ipairs({ p.root or {}, table.unpack(p.children or {}) }) do
+            tokens_of(st.class, t)
+            tokens_of(st.match, t)
+        end
+        tokens_of(key, t)
+        INDEX[key] = t
+    end
+    return INDEX
+end
+
+-- word -> {key, ...} of every profile whose game identifiers carry it (sorted for stability).
+function M.category(word)
+    if type(word) ~= "string" or word == "" then return {} end
+    local idx = M.category_index()
+    local wants = {}
+    for w in word:lower():gmatch("%a+") do wants[#wants + 1] = singular(w) end
+    local out = {}
+    for key, t in pairs(idx) do
+        local all = #wants > 0
+        for _, w in ipairs(wants) do if not t[w] then all = false end end
+        if all then out[#out + 1] = key end
+    end
+    table.sort(out)
+    return out
+end
+
 return M

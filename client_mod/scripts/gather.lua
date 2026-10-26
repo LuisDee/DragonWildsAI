@@ -986,6 +986,29 @@ function M.start(log, args, ctx)
     local P = M.profiles()
     local key, profile
     if P then key, profile = P.resolve(args.resource) end
+    local category, candidates
+    if not profile and P and P.category then
+        -- a generic word ("ore", "rock", "logs"): every profile whose game identifiers carry it; the
+        -- nearest one with a usable node around him wins (gather_profiles.category, no word list)
+        candidates = P.category(args.resource)
+        if #candidates > 0 then
+            category = args.resource
+            local pawn0 = W.pawn(W.pc())
+            local me0 = pawn0 and W.loc(pawn0)
+            local r_cm = math.min((tonumber(args.radius) or M.cfg.radius_m) * 100, M.cfg.max_radius_m * 100)
+            local best_d
+            for _, k in ipairs(candidates) do
+                local cand = P.RESOURCES[k]
+                local found = me0 and roots_near({ profile = cand, t = W.now(pawn0) }, me0, r_cm) or {}
+                if found[1] and (not best_d or found[1].d < best_d) then best_d, key, profile = found[1].d, k, cand end
+            end
+            if not profile then
+                return { ok = false, reason = "nothing_in_range", data = { why = "no_node_of_kind", resource = args.resource,
+                         candidates = candidates, radius_m = r_cm / 100,
+                         detail = string.format("No %s within %d m (kinds: %s).", tostring(args.resource), r_cm / 100, table.concat(candidates, ", ")) } }
+            end
+        end
+    end
     if not profile then
         return { ok = false, reason = "unknown_target", data = { why = "unknown_resource", resource = args.resource,
                  detail = string.format("I don't know how to gather '%s'.", tostring(args.resource)) } }
@@ -1062,6 +1085,7 @@ function M.start(log, args, ctx)
         end
     end)
     return { ok = true, data = { resource = key, item = profile.item, want = want, have = J.have, tool = tool and tool.name,
+             category = category, candidates = candidates,
              tool_tier = tool and tool.tier, radius_m = J.radius_cm / 100, timeout_s = J.timeout_s } }
 end
 
@@ -1101,7 +1125,7 @@ do
             detail_is_speech = true,
             description = "Harvest a resource (a profile key, e.g. oak, ash, stone) until you have count MORE; finds targets and equips your tool.",
             args = { type = "object", required = { "resource", "count" }, properties = obj({
-                resource = { type = "string", description = "Resource kind, e.g. oak, ash, stone, log." },
+                resource = { type = "string", description = "A resource (oak, copper, stone) or a kind (ore, rock, logs: the nearest of that kind)." },
                 count = { type = "integer", minimum = 1, description = "How many more." },
                 radius = { type = "number", minimum = 1, maximum = 120, description = "Search radius, m (default 30)." },
                 stumps = { type = "boolean", description = "Also chop stumps." },

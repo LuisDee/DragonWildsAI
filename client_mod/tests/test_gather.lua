@@ -476,6 +476,28 @@ do
     check("mining equipped the pickaxe", Wd.equips[1] == "ITEM_Pickaxe_Mithril", Wd.equips[1])
 end
 
+-- ================================================================ 11b. a generic word ("ore"): resolved from game identifiers to the nearest node
+do
+    local cats = P.category("ore")
+    check("category ore -> ore nodes only (from ids/classes)", #cats >= 3 and (function() for _, k in ipairs(cats) do if k == "oak" then return false end end return true end)(),
+          table.concat(cats, ","))
+    check("category logs -> trees", #P.category("logs") >= 3 and P.category("logs")[1] == "ash", table.concat(P.category("logs"), ","))
+    check("category nonsense -> none", #P.category("unobtainium") == 0)
+    reset()
+    fake_pc.Pawn = Wd.pawn
+    new_actor("BP_OreNode_Stone_C", { "DestructibleMiningRock" }, { X = 2500, Y = 0, Z = 0 }, 75)
+    new_actor("BP_OreNode_Copper_C", { "DestructibleMiningRock" }, { X = 700, Y = 100, Z = 0 }, 75)
+    local r = G.HANDLERS.gather(nil, { resource = "ore", count = 1 }, { id = "t_ore" })
+    check("gather 'ore' picks the nearest ore node's kind (copper)", r.pending ~= nil and _G.DWGather.job and _G.DWGather.job.key == "copper",
+          _G.DWGather.job and _G.DWGather.job.key or (r.reason .. " " .. tostring(r.data and r.data.detail)))
+    G.stop(nil, "test")
+    reset()
+    fake_pc.Pawn = Wd.pawn
+    local r2 = G.HANDLERS.gather(nil, { resource = "ore", count = 1 }, { id = "t_ore2" })
+    check("gather 'ore' with no node around -> nothing_in_range with the kinds", r2.ok == false and r2.reason == "nothing_in_range" and #r2.data.candidates >= 3,
+          r2.reason)
+end
+
 -- ================================================================ 12. ground pickups (foliage, interact key)
 do
     reset()
