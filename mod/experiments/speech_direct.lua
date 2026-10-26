@@ -20,7 +20,8 @@
 --   prove    READ-ONLY proof that pre-hook edits reach native code (needs a connected player):
 --            name of (empty account, host CharacterGuid) without / with the pre-hook patching in the
 --            host's NetIdPrimary/Secondary, vs the control (host's own OwnerGuid).
---   send     {confirm=true, text=..., name=...}: ONE direct message via a fresh load of body/speech.lua's
+--   register {name=..., test_guid=true}: register the display name only (no chat), ahead of sending
+--   send     {confirm=true, text=..., name=..., test_guid=true}: ONE direct message via a fresh load of body/speech.lua's
 --            send_direct. Refuses unless prove passed this run (or force_unproven=true).
 --            Client-affecting: needs Luis's go-ahead.
 local U = require("body.util")
@@ -30,6 +31,7 @@ M.CHAT_FN = "/Script/JagexChatBackend.PlayerChatComponent:Server_SendChatMessage
 M.DN_FN = "/Script/Dominion.DisplayNameComponent:GetCharacterDisplayName"
 M.LIB = "/Script/Dominion.Default__DominionRuntimeBlueprintLibrary"
 M.BOT = { A = 0x0C0FFEE1, B = 0x00C0DE00, C = 0x0BADF00D, D = 0x00000001 }
+M.TEST_GUID = { A = 0x0C0FFEE1, B = 0x00C0DE00, C = 0x7E57E500, D = 0x00000002 } -- the dev test player
 
 local function st()
     local s = rawget(_G, "__dw_speech_direct")
@@ -185,9 +187,26 @@ local function send(log, args)
     -- name: the display name the line is sent under (a dev test player, e.g. "Tester"; tools/m1_session.py).
     -- Default: DW_COMPANION_NAME / "Claude" as before.
     if type(args.name) == "string" and args.name ~= "" then speech.NAME = args.name end
+    -- test_guid: send under a separate test CharacterGuid, so the line can't inherit the bot's earlier
+    -- name (Claude's client caches sender names by guid; the game's name registry keeps the first name).
+    -- 2026-10-26 M1 proof: name="Tester" alone still showed "Claude".
+    if args.test_guid == true then speech.GUID = M.TEST_GUID end
     local ok, err = speech.send_direct(log, text)
     st().sends = st().sends + 1
     return { ok = ok, err = err, text = text, status = speech.status() }
+end
+
+-- ------------------------------------------------------------------ register (name only, no chat)
+-- {name=..., test_guid=true}: register the display name for the (test) guid ahead of the first send, so
+-- the client can resolve it when the line arrives (a name registered in the same tick isn't replicated yet:
+-- 2026-10-26 the first test line showed as "player257"). Server_RegisterCharacter only; nothing is sent.
+local function register(log, args)
+    local speech = fresh_speech()
+    if type(args.name) ~= "string" or args.name == "" then return { ok = false, error = "name required" } end
+    speech.NAME = args.name
+    if args.test_guid == true then speech.GUID = M.TEST_GUID end
+    local res = speech.register_names(log, args.name, { force = args.force == true })
+    return { ok = #(res.errors or {}) == 0, result = res }
 end
 
 -- ------------------------------------------------------------------ entry
@@ -196,6 +215,7 @@ function M.run(log, args)
     rawset(_G, "__dw_speech_direct_cb", M._on_chat)
     local action = args.action or "ids"
     if action == "send" then return send(log, args) end
+    if action == "register" then return register(log, args) end
     if action == "prove" then return prove(log) end
     if action == "capture" then
         local ok, err = hook_once(log, "armed", M.CHAT_FN, "__dw_speech_direct_cb", false)

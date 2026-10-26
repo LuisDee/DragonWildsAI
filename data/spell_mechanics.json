@@ -1,0 +1,227 @@
+{
+ "about": "Spell mechanics that change HOW a spell is used (steps, what to cast it on, what must be prepared). Non-judge DATA read by client_mod/scripts/spells.lua (state.spells `how`; two_step drives the two-cast handling). Ids from data/spells_26161880.json.",
+ "build": "26161880",
+ "spells": {
+  "USD_Recall": {
+   "how": "Two casts: the first places a beacon where you stand; cast it again within its time limit to teleport back to the beacon. Time limit not known yet.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Recall (snapshot data/wiki/pages, 2026-10-26)"
+   ],
+   "two_step": true,
+   "window_s": null,
+   "observed": "live re-run 2026-10-26: one cast leaves Recall prepared (SpellBeingPreparedOrCast set), no runes spent, no cooldown",
+   "extra_sources": [
+    "Luis (player) 2026-10-26",
+    "game data: cast type AllowMovementThenCastInstant (the only spell of that type)"
+   ]
+  },
+  "USD_FishingFrenzy": {
+   "how": "Cast on a fishing spot (node): each catch there gives one extra fish of the same kind while it lasts.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Fishing_Frenzy (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_FishCyclone": {
+   "how": "Cast on a fishing spot (node): pulls up to 5 fish out. You must carry a net or rod of that spot's power level or better.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Fishnado (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_PileEmUp": {
+   "how": "Cast on fallen trees (several in a small area): turns them into one totem; follow with Splinter. Much less Woodcutting XP.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Trunk_Totem (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_Splinter": {
+   "how": "Cast on fallen trees: chops them into logs (25 Woodcutting XP per quarter); never stumps.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Splinter (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_RunesToRuneEssence": {
+   "how": "Two parts: drop the runes you want to convert on the ground first, then cast on them: gives back about 40% as rune essence.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Runes_To_Rune_Essence (snapshot data/wiki/pages, 2026-10-26)"
+   ],
+   "setup": "drop the runes on the ground"
+  },
+  "USD_DivineRock": {
+   "how": "Two parts: drop 5 ore (any kind) on the ground, then cast on them: they become a small personal ore node (15 ore when mined out).",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Divine_Rock (snapshot data/wiki/pages, 2026-10-26)"
+   ],
+   "setup": "drop 5 ore on the ground"
+  },
+  "USD_BonesToPeaches": {
+   "how": "Cast on animal bones lying on the ground (up to 10): turns them into peaches.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Bones_to_Peaches (snapshot data/wiki/pages, 2026-10-26)"
+   ],
+   "setup": "bones on the ground (drop them, or Bark to Bones first)"
+  },
+  "USD_Treequipment": {
+   "how": "Cast on one standing tree: turns it into a stack of bones (pairs with Bones to Peaches).",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Bark_To_Bones (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_MagicalMending": {
+   "how": "Two parts: drop the worn weapons/tools/armour on the floor, then cast on them: +50% durability each; they return to the nearest inventory.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Magical_Mending (snapshot data/wiki/pages, 2026-10-26)"
+   ],
+   "setup": "drop the damaged items on the floor"
+  },
+  "USD_Farming_RapidGrowth": {
+   "how": "Cast on growing plots or planted trees: advances them one growth stage; can't be reapplied until they grow again.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Rapid_Growth (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_Farming_Compost": {
+   "how": "Needs 150 units of compost: cast on plots to fertilise up to about 4 of them.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Mucksplosion (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_Humidify": {
+   "how": "Needs a watering can holding 50 units of water: waters the farming plots in a 3x5 area in front of you.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Humidify (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_Harvest": {
+   "how": "Harvests every fully grown crop and wild plant within 15 m and draws them to you.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Uproot (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_FerociousFurnace": {
+   "how": "Cast on a fire-based processing station (campfire, grill, kiln, furnace...): +90% processing speed for 30 s.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Superheat (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_SpeedupStation": {
+   "how": "Cast on a mechanical processing station (tannery, loom, sawmill, grindstone, stonecutter): faster processing for a while.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Overdrive (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_InfernalRod": {
+   "how": "Needs a fishing rod equipped: for 2 minutes fish caught with it come out cooked.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Infernal_Rod (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_CorruptionArrows": {
+   "how": "Needs a two-handed bow equipped (not a crossbow): arrows pierce several targets; they can't be recovered.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Spectral_Arrows (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_Rocksplosion": {
+   "how": "Needs a pickaxe carried: breaks every boulder/ore node within 5 m of the target (limited by your best pickaxe).",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Rocksplosion (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_AxtralProjection": {
+   "how": "Needs an axe carried: throws an axe forward, felling trees in a line up to 30 m (limited by your best axe).",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Axtral_Projection (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_Confuse": {
+   "how": "Cast on an enemy up to 40 m away: it attacks other monsters for 45 s. Hitting it yourself breaks the spell.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Confuse (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_Enfeeble": {
+   "how": "Cast on an opponent: weakens its attacks.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Enfeeble (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_SnareTrap": {
+   "how": "Lays a trap at your feet: enemies that walk to its centre are rooted for 8 s; a ranged/magic hit on the star triggers it.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Snare (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_Surge": {
+   "how": "Gives 3 dodge charges for 2 minutes; each dodge carries you about 8 m.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Surge (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_Windstep": {
+   "how": "Jump much higher and fall slower; you have about 7 s to use it after casting.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Windstep (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_PhaseDash": {
+   "how": "Lets you air-dash again while airborne, up to 3 times per cast.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Phase_Dash (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_TempestShield": {
+   "how": "An air shield: no damage while blocking for about a minute; if raised when it ends, it knocks nearby foes down.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Tempest_Shield (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_SummonShelter": {
+   "how": "Needs flat ground: summons a tent with a bed anyone can rest in; damage dispels it.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Summon_Shelter (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_HomeTeleport": {
+   "how": "Needs a claimed bed or bed roll: teleports you to it. 15 minute cooldown.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Home_Teleport (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_EyeOfOculus": {
+   "how": "Turns your view into a floating eye (up to 30 m away) to place/remove building pieces; leave it to get your view back.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Eye_of_Oculus (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_DetectOre": {
+   "how": "Summons a spirit that leads to the nearest ore or clay within 200 m and waits there (up to 5 minutes).",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Summon_Stone_Spirits (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_DetectAnimaVents": {
+   "how": "Summons wisps that lead to anima vents within 400 m (shown on the compass).",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Summon_Elemental_Spirits (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_InternalAlchemy": {
+   "how": "Refreshes your ACTIVE food and drink buffs (and their healing); does nothing if none are active.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Internal_Alchemy (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_FireSpirit": {
+   "how": "A fire spirit follows you for 3 minutes and lights the way like a torch.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Fire_Spirit (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  },
+  "USD_Vengeance": {
+   "how": "Reflects the damage of incoming attacks back at the attackers.",
+   "sources": [
+    "wiki https://dragonwilds.runescape.wiki/w/Vengeance (snapshot data/wiki/pages, 2026-10-26)"
+   ]
+  }
+ }
+}

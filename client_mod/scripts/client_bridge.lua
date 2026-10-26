@@ -748,6 +748,36 @@ local function find_foliage(id, radius_m)
 end
 M._find_foliage = find_foliage
 
+-- Any LIVE actor id another read handed out but the census doesn't list (fishing_spots' FishingNodeV2 nodes,
+-- 2026-10-26: go_to answered target_not_visible, aimed spells couldn't resolve them). A UE instance name is
+-- "<Class>_<n>", so the class comes from the id itself; one find_all of that class, matched by short name.
+-- Read-only; never under pause. -> thing | nil
+local function find_actor_by_id(id, radius_m)
+    if rawget(_G, "DW_PAUSE") == true then return nil end
+    local s = M.module("sense")
+    local U = s and s.U
+    local cls = tostring(id):match("^([%w_]-)_%d+$")
+    if not (U and cls and cls ~= "") then return nil end
+    for _, a in ipairs(U.find_all(cls, { skip_defaults = true }) or {}) do
+        if U.short(a) == id then
+            local at = U.loc(a)
+            if not at then return nil end
+            local pos = U.to_wire(at)
+            local here = my_position()
+            local d = here and dist2d(here, pos)
+            local lim = radius_m or M.LOOK_MAX_RADIUS_M
+            if d and d > lim then
+                return nil, fail("unknown_target", { target = id, distance = math.floor(d + 0.5), detail = "it's " .. math.floor(d + 0.5) .. " m away, beyond " .. lim .. " m" })
+            end
+            local name = s.clean_class and s.clean_class(U.class_word(a)) or cls
+            return { id = id, class = U.class_word(a), name = name, position = pos, distance = d and math.floor(d * 10 + 0.5) / 10,
+                     category = "actors", kind = "actor", actions = { "go_to" } }
+        end
+    end
+    return nil
+end
+M._find_actor_by_id = find_actor_by_id
+
 local function find_thing(id, radius_m)
     if tostring(id):sub(1, 4) == "fol:" then
         local t, r = find_foliage(id, radius_m)
@@ -756,6 +786,8 @@ local function find_thing(id, radius_m)
     local things, r = census_things(radius_m or M.LOOK_MAX_RADIUS_M, 100)
     if not things then return nil, r end
     for _, t in ipairs(things) do if t.id == id then return t end end
+    local a, ar = find_actor_by_id(id, radius_m)
+    if a or ar then return a, ar end
     return nil, fail("unknown_target", { target = id, detail = "not perceived within " .. (radius_m or M.LOOK_MAX_RADIUS_M) .. " m" })
 end
 

@@ -47,8 +47,13 @@ function U.loc(a) local p = a.position; return { X = p[1] * 100, Y = p[2] * 100,
 function U.find_all(class)
     local out = {}
     for _, rows in pairs(F.world) do for _, r in ipairs(rows) do if r.class == class then out[#out + 1] = r end end end
+    -- live actors the census never lists (FAKE.actors_only: e.g. fishing nodes)
+    for _, r in ipairs(F.actors_only or {}) do if r.class == class then out[#out + 1] = r end end
     return out
 end
+function U.class_word(a) return a and a.class end
+function U.to_wire(v) return { v.X / 100, v.Y / 100, v.Z / 100 } end
+M.clean_class = function(c) return (tostring(c or "?"):gsub("^BP_", ""):gsub("_C$", ""):gsub("_", " ")) end
 M.U = U
 
 local PAWN = { id = "BP_PlayerCharacter_C_1", class = "BP_PlayerCharacter_C" }

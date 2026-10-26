@@ -32,6 +32,7 @@ PROOF_LINE = "claude this is a test line from the Tester account, please ignore"
 HEALTH_WATCH_S = 60
 HEALTH_EVERY_S = 10
 MOD_LOG_FRESH_S = 30
+REGISTER_SETTLE_S = 5
 SPEND_LIMIT_USD = 3.0  # the session's own spend (today's spend at the first mark is the baseline)
 # Generic co-play lines a player would type to a mate who is out doing his own thing. Written for this driver, not
 # taken from any eval or benchmark case. Mostly requests that need an action (the latency metric is chat -> first
@@ -91,7 +92,7 @@ def send_speech_direct(text: str, timeout: float = 30.0) -> tuple[bool, str]:
     """One line via the dev server mod's on-demand chat (debug_run speech_direct send). Refuses itself there
     unless `prove` passed this server run."""
     args = json.dumps({"module": "speech_direct", "args": {"action": "send", "confirm": True, "text": text,
-                                                           "name": TEST_SENDER}})
+                                                           "name": TEST_SENDER, "test_guid": True}})
     out = subprocess.run([sys.executable, "-m", "tools.bridge_cmd", "debug_run", args, "--body", "server",
                           "--timeout", str(timeout)], capture_output=True, text=True)
     return out.returncode == 0 and '"ok": true' in out.stdout.replace("'", '"').lower(), (out.stdout or out.stderr)[-300:]
@@ -131,8 +132,10 @@ def client_ping() -> bool:
 
 
 def mod_log_age_s() -> float | None:
-    logs = list((paths.log_dir() / "client").glob("mod_*.jsonl"))
-    return (time.time() - max(q.stat().st_mtime for q in logs)) if logs else None
+    """Age of the client's UE4SS log (written continuously while the client runs; the client watchdog's hang
+    signal). The mod's own jsonl is event-driven and can be quiet for minutes when the client is idle."""
+    f = paths.log_dir() / "client" / "client.log"
+    return (time.time() - f.stat().st_mtime) if f.exists() else None
 
 
 def watchdog_trouble_since(t0: float) -> list[str]:
@@ -171,6 +174,9 @@ def cmd_proof(a) -> int:
     if not a.confirm:
         print("refusing: proof sends one real chat line on the dev server; pass --confirm (after Luis's go-ahead)")
         return 2
+    reg_ok, reg = register_sender()
+    write({"kind": "proof_register", "ok": reg_ok, "detail": reg[-200:]})
+    time.sleep(REGISTER_SETTLE_S)  # let the name replicate to the client before the line arrives
     t0 = time.time()
     ok, detail = send_speech_direct(PROOF_LINE)
     write({"kind": "proof_send", "ok": ok, "detail": detail[-200:], "text": PROOF_LINE})
@@ -190,6 +196,14 @@ def cmd_proof(a) -> int:
         print(f"  {'ok  ' if v else 'FAIL'} {k}")
     print("PROOF PASSED" if passed else "PROOF FAILED: do not run the session; report it")
     return 0 if passed else 5
+
+
+def register_sender(timeout: float = 30.0) -> tuple[bool, str]:
+    """Register the test sender's display name for its test guid (no chat), so the client resolves it."""
+    args = json.dumps({"module": "speech_direct", "args": {"action": "register", "name": TEST_SENDER, "test_guid": True}})
+    out = subprocess.run([sys.executable, "-m", "tools.bridge_cmd", "debug_run", args, "--body", "server",
+                          "--timeout", str(timeout)], capture_output=True, text=True)
+    return out.returncode == 0 and '"ok": true' in out.stdout.replace("'", '"').lower(), (out.stdout or out.stderr)[-300:]
 
 
 def cmd_chat(a) -> int:

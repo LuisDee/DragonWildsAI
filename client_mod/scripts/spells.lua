@@ -38,6 +38,18 @@ M.cfg = {
                             -- "not here", and turned past: page_not_found after a full lap). DOUBLED each further lap
                             -- (0.2 / 0.4 / 0.8 s): the draw time isn't known, so a missed lap retries slower.
     page_laps = 3,          -- turn at most this many full laps of the wheel before page_not_found
+    -- APPROACH (Luis 2026-10-26: Confuse "too_far", the model's go_to + recast took seconds and the magpie moved on):
+    -- one cast call does the whole player motion. A target farther than reach - approach_margin_m is approached
+    -- (move.go_to on the LIVE target: move tracks a moving actor, its progress tracker judges "can't catch"), the
+    -- wheel opens the moment it is in reach, and the aim re-reads its position at release.
+    approach_margin_m = 3,  -- camera-to-target reach minus this (the camera sits behind him) = stand-off distance
+    approach_budget_s = 20, -- the whole approach; then a truthful "it got away / I can't get there"
+    approach_stall_s = 6,   -- no 0.5 m gain on the target for this long = stalled
+    reapproach_max = 2,     -- it moved out of reach while the wheel opened: walk again at most this often
+    -- TWO-STEP spells (data/spell_mechanics.json two_step; Recall: Luis + wiki 2026-10-26): the first cast leaves the
+    -- spell PREPARED (SpellBeingPreparedOrCast = it, nothing spent) = the beacon is down; a later cast returns to it.
+    beacon_settle_s = 1.5,  -- prepared this long after the select, nothing spent -> step 1 done (beacon placed)
+    beacon_arrive_m = 4,    -- step 2 verified: he ends this close to the beacon after the cast
     select_wait_s = 1.0,    -- after the quick key: wait for a spell mode or the cast to start
     verify_s = 4.0,         -- after the cast input: runes / cooldown must change within this ...
     cast_max_s = 12,
@@ -52,7 +64,7 @@ M.cfg = {
     aim_match_m = 3,        -- an aimed preview must sit this close (2D) to the target
     preview_checks = 2,     -- re-aim + re-read the preview this many times per candidate
     place_budget_s = 5,     -- the whole aim/placement search; then cancel (never cast it badly)      -- after a failed answer: keep checking this long for a late success        -- ... or, while the game is still casting it (spell input mode / casting state), this
-    wait_s = 22,           -- waiter deadline (the bridge answers expire() after it)
+    wait_s = 50,           -- waiter deadline (the bridge answers expire() after it): approach (<= 22 s) + wheel + verify
     typo_cutoff = 0.8,      -- fuzzy name match only above this similarity, and only if unique
     default_radius_m = 5,   -- harm radius when a harmful spell has no Shape module
     place_max_m = 15,       -- fallback camera-to-target limit (SpellcastingComponent.MaxDistanceFromCameraToPlaceSpell)
@@ -681,6 +693,56 @@ end
 -- A foliage id from look ("fol:<component>:<index>": a standing tree, bush, ...) that the bridge's
 -- capped census did not return: ask sense's own foliage reader around me (what look and gather use).
 -- -> {id, name, position (metres)} | nil (gone: felled, picked, or out of range)
+-- A live actor by its id (U.short name; the class is the id up to "_C"), within 80 m of `here` (m). One FindAllOf
+-- of that class only. -> {id, name, position} | nil
+function W.actor_thing(api, id, here)
+    local u = U()
+    local cls = type(id) == "string" and id:match("^(.-_C)_") or nil
+    if not cls then return nil end
+    for _, a in ipairs(u.find_all(cls, { skip_defaults = true }) or {}) do
+        if u.short(a) == id then
+            local p = to_m(u.loc(a))
+            if not p then return nil end
+            if here and d3(p, here) > 80 then return nil end
+            local name = u.str(u.try(function() return a.DisplayNameText end)) or u.class_word(a)
+            return { id = id, name = name, position = p }
+        end
+    end
+    return nil
+end
+
+-- move (the shared mover): go_to on the LIVE actor id (move tracks a moving actor) or the point; its status/stop.
+local function move_mod(api) local m = api.module and api.module("move"); return type(m) == "table" and m or nil end
+function W.move_go_to(api, target, opts)
+    local m = move_mod(api)
+    if not (m and m.go_to) then return nil end
+    local goal = (target.kind ~= "point" and target.id and not target.foliage) and target.id or target.position
+    return m.go_to(api.log, goal, opts)
+end
+function W.move_status(api) local m = move_mod(api); return m and m.status and m.status() or {} end
+function W.move_stop(api) local m = move_mod(api); if m and m.stop then pcall(m.stop, api.log) end end
+function W.why_words(api, why, thing)
+    local m = move_mod(api)
+    return (m and m.why_words and m.why_words(why, thing)) or "I can't find a way there"
+end
+-- A thing's / player's position now (m), from its live actor (cached on the job, re-validated each read).
+function W.live_position(api, tg, job)
+    local u = U()
+    local a = job._actor
+    if not (a and u.valid(a)) then
+        a = nil
+        local cls = tostring(tg.id):match("^(.-_C)_")
+        for _, x in ipairs(cls and u.find_all(cls, { skip_defaults = true }) or {}) do
+            if u.short(x) == tg.id then a = x; break end
+        end
+        if not a and tg.kind == "player" then
+            for _, p in ipairs(W.players(api)) do if p.id == tg.id or p.name == tg.name then return p.position end end
+        end
+        job._actor = a
+    end
+    return a and to_m(u.loc(a)) or nil
+end
+
 function W.foliage_thing(api, id)
     local s = api.module("sense")
     local pawn = W.pawn(api)
@@ -811,6 +873,9 @@ local function target_of(api, target, snap)
     end
     local t, r = api.find_thing(target)
     if not t and target:sub(1, 4) == "fol:" then t = W.foliage_thing(api, target) end
+    -- an actor id the census doesn't list (re-run 2026-10-26: fishing nodes from fishing_spots, Fishnado /
+    -- Fishing Frenzy "can't see what you want me to aim at"): the live actor itself, by its own name
+    if not t and target:sub(1, 4) ~= "fol:" then t = W.actor_thing(api, target, snap.position) end
     if not t then
         local d = copy(r and r.data)
         -- no raw ids in words meant for speech (L26): the id stays in data.target
@@ -1133,13 +1198,155 @@ local function verified_result(job, df, snap)
         d.detail = "I cast " .. job.row.name .. " but it landed " .. math.floor(d.landed_dist_m + 0.5) .. " m from where you wanted."
         return { ok = false, reason = "verification_failed", data = d }
     end
+    local b = M.beacon(job.row.id)
+    if b then
+        local here = snap and snap.position
+        local dist = here and d3(here, b.position)
+        d.beacon = { position = b.position, placed_s_ago = math.floor(M.wall() - b.at + 0.5) }
+        d.returned = dist ~= nil and dist <= M.cfg.beacon_arrive_m
+        mem().beacons[job.row.id] = nil
+        if d.returned then
+            d.detail = string.format("I cast %s again and came back to its beacon (%d m from where I was).", job.row.name, math.floor((d.moved_m or 0) + 0.5))
+        else
+            d.why = "not_returned"
+            d.detail = string.format("I cast %s again but I'm still %d m from its beacon, so it didn't bring me back (it may have run out).",
+                job.row.name, math.floor((dist or 0) + 0.5))
+            return { ok = false, reason = "verification_failed", data = d }
+        end
+    end
+    d.detail = d.detail or M.success_words(job.row.name, job.st.cost, d)
     return { ok = true, data = d }
+end
+
+-- The outcome in words (re-run 2026-10-26: an ok cast carried no sentence, so the model re-cast Vengeance and
+-- hit its cooldown). Only what was verified: runes from the inventory diff, the cooldown from the game's map.
+function M.success_words(name, cost, d)
+    local names = {}
+    for _, c in ipairs(cost or {}) do if c.item then names[c.item] = c.name end end
+    local spent = {}
+    for item, n in pairs(d.runes_spent or {}) do spent[#spent + 1] = string.format("%d %s", n, names[item] or item) end
+    table.sort(spent)
+    local s = "I cast " .. tostring(name)
+    if #spent > 0 then s = s .. ": used " .. table.concat(spent, ", ") end
+    if d.cooldown_started then s = s .. (#spent > 0 and "; " or ": ") .. "it's recharging now" end
+    return s .. "."
 end
 
 local function failed(job, reason, why, detail)
     job.d.why, job.d.detail, job.d.presses = why, detail, job.presses
     job.d.timing = M.timing(job, W.clock(job.api) or job.api.now())
     return { ok = false, reason = reason, data = job.d }
+end
+
+-- ------------------------------------------------------------------ multi-step mechanics (DATA)
+-- data/spell_mechanics.json (non-judge; sources inside): per spell id {two_step, how, window_s, sources}. Cached.
+function M.mechanics(id)
+    local m = mem()
+    if m.mech == nil then
+        m.mech = false
+        local root = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
+        local okj, json = pcall(function() return assert(loadfile(root .. "/client_mod/scripts/dkjson.lua"))() end)
+        local f = okj and io.open(root .. "/data/spell_mechanics.json", "rb")
+        if f then
+            local doc = json.decode(f:read("a")); f:close()
+            if type(doc) == "table" and type(doc.spells) == "table" then m.mech = doc.spells end
+        end
+    end
+    return m.mech and id and m.mech[id] or nil
+end
+-- The live beacon of a two-step spell (placed by step 1, this session; wall clock). -> {position, at} | nil
+function M.beacon(id)
+    local m = mem()
+    m.beacons = m.beacons or {}
+    local b = m.beacons[id]
+    local mech = M.mechanics(id)
+    local life = mech and tonumber(mech.window_s)
+    if b and life and M.wall() - b.at > life then m.beacons[id] = nil; return nil end
+    return b
+end
+function M.beacon_placed(job, snap, mech)
+    local m = mem()
+    m.beacons = m.beacons or {}
+    local pos = job.before.position or snap.position
+    m.beacons[job.row.id] = { position = pos, at = M.wall() }
+    local d = job.d
+    d.verified, d.step, d.beacon = true, 1, { position = pos }
+    d.evidence = "the game holds " .. job.row.name .. " prepared, nothing spent yet (step 1 of 2)"
+    d.timing = M.timing(job, W.clock(job.api) or job.api.now())
+    d.presses = job.presses
+    local p = pos and string.format("[%.0f, %.0f, %.0f]", pos[1], pos[2], pos[3] or 0) or "here"
+    local window = tonumber(mech.window_s)
+    d.detail = "I placed " .. job.row.name .. "'s beacon at " .. p .. ". Cast " .. job.row.name .. " again "
+        .. (window and ("within " .. math.floor(window) .. " s") or "before it runs out (I don't know its time limit yet)")
+        .. " to come back to it."
+    release(job, "done")
+    return { ok = true, data = d }
+end
+
+-- ------------------------------------------------------------------ approach (one call = the whole player motion)
+local function d2(a, b) return math.sqrt((a[1] - b[1]) ^ 2 + (a[2] - b[2]) ^ 2) end
+-- The target's live position (m): the actor (cached, re-validated) for a thing / player id, else as given.
+function M.refresh_target(job)
+    local tg = job.target
+    if not (tg and (tg.kind == "thing" or tg.kind == "player") and tg.id) or tg.foliage then return tg and tg.position end
+    local p = W.live_position(job.api, tg, job)
+    if p then tg.position = p end
+    return tg.position
+end
+local function reach_of(job, snap)
+    return job.st.reach_m or ((snap and snap.place_max_m and snap.place_max_m > 0) and snap.place_max_m) or M.cfg.place_max_m
+end
+-- Open the wheel now, or first walk into reach of a target that is too far (never for self casts).
+function M.begin_open(job, t, snap)
+    local cfg = M.cfg
+    if job.target.kind ~= "self" and not job.approached then
+        local pos = M.refresh_target(job)
+        local me = (snap and snap.position) or (W.snapshot(job.api) or {}).position
+        local stand = math.max(reach_of(job, snap) - cfg.approach_margin_m, 2)
+        if pos and me and d2(pos, me) > stand then
+            job.approach = { t0 = t, stand = stand, from_m = d2(pos, me) }
+            job.d.approach_from_m = math.floor(job.approach.from_m * 10 + 0.5) / 10
+            job.phase = "approach"
+            W.move_go_to(job.api, job.target, { tolerance_m = math.max(stand - 1, 1),
+                progress = { stall_s = cfg.approach_stall_s, budget_s = cfg.approach_budget_s } })
+            job.presses[#job.presses + 1] = "approach"
+            return nil
+        end
+    end
+    job.phase, job.until_t, job.tries = "open", t + cfg.open_wait_s, 1
+    press(job, "menu", job.acts.menu)
+    return nil
+end
+function M.approach_step(job, t)
+    local cfg, ap = M.cfg, job.approach
+    local snap = W.snapshot(job.api)
+    local pos, me = M.refresh_target(job), snap and snap.position
+    local name = job.target.name or "the target"
+    if not pos then
+        W.move_stop(job.api)
+        return failed(job, "unknown_target", "target_lost", "I lost sight of " .. name .. " while walking up to cast " .. job.row.name .. ".")
+    end
+    local d = me and d2(pos, me)
+    job.d.approach_m = d and math.floor(d * 10 + 0.5) / 10
+    if d and d <= ap.stand then
+        W.move_stop(job.api)
+        job.approached, job.d.approached_s = true, math.floor((t - ap.t0) * 10 + 0.5) / 10
+        return M.begin_open(job, t, snap)
+    end
+    local st = W.move_status(job.api) or {}
+    local pv = type(st.progress) == "table" and st.progress or {}
+    local res = type(st.result) == "table" and st.result or {}
+    local over = t - ap.t0 > cfg.approach_budget_s + 2
+    local ended = st.mode == "idle" and t - ap.t0 > 1
+    if pv.verdict == "stalled" or pv.verdict == "unreachable" or res.status == "failed" or over or ended then
+        W.move_stop(job.api)
+        local why = pv.why or res.reason or res.why or (over and "too_long") or "no_progress"
+        job.d.approach_why = why
+        local words = (why == "cant_catch") and "it keeps getting away from me" or W.why_words(job.api, why, name)
+        return failed(job, "too_far", "cant_get_in_range", "I couldn't get within reach of " .. name .. " to cast " .. job.row.name
+            .. " (it's " .. math.floor((d or 0) + 0.5) .. " m away, I need about " .. math.floor(ap.stand) .. " m): " .. words .. ".")
+    end
+    return nil
 end
 
 -- One step of the cast state machine; nil = carry on, else the result.
@@ -1152,14 +1359,13 @@ local function step(job)
         -- a wheel / placement left open by an earlier attempt: wait until it has closed, then open ours
         local s0 = W.snapshot(api)
         if s0 and s0.input_mode ~= cfg.gameplay_mode and t < job.until_t then return nil end
-        job.phase, job.until_t, job.tries = "open", t + cfg.open_wait_s, 1
-        press(job, "menu", job.acts.menu)
-        return nil
+        return M.begin_open(job, t, s0)
     end
+    if job.phase == "approach" then return M.approach_step(job, t) end
     if job.phase == "own" then
         local A = (not job.borrowed) and arbiter(api) or nil
         if A then
-            local r = A.request(api.log, { name = "spell:" .. job.row.id, level = cfg.level, uses_move = job.placed, lease_s = cfg.lease_s,
+            local r = A.request(api.log, { name = "spell:" .. job.row.id, level = cfg.level, uses_move = job.placed or job.target.kind ~= "self", lease_s = cfg.lease_s,
                                            resumable = false, on_stop = function(_, _, why) job.stopped = why or "stopped" end })
             if not (type(r) == "table" and r.ok) then
                 local o = type(r) == "table" and r.owner or nil
@@ -1197,9 +1403,7 @@ local function step(job)
             job.phase, job.until_t = "settle", t + 1.5
             return nil
         end
-        job.phase, job.until_t, job.tries = "open", t + cfg.open_wait_s, 1
-        press(job, "menu", job.acts.menu)
-        return nil
+        return M.begin_open(job, t, job.before)
     end
     if job.stopped then return failed(job, "interrupted", "stopped", "Something else took over (" .. tostring(job.stopped) .. "), so I stopped casting.") end
     if job.token then local A = arbiter(api); if A and A.renew then pcall(A.renew, job.token) end end
@@ -1379,6 +1583,7 @@ local function step(job)
             if sel and sel ~= job.row.id then
                 return failed(job, "verification_failed", "wrong_spell", "My wheel picked a different spell than " .. job.row.name .. ", so I cancelled.")
             end
+            M.refresh_target(job) -- re-aim at where it is NOW (a creature moves while the wheel opens)
             local aimed_at = job.target.kind ~= "self" and job.target.position or nil
             -- ONE loop for every spell that shows the game's preview (placed, or aimed with a visualizer):
             -- aim at what was asked for (a thing's body at a few heights, a point, or straight ahead),
@@ -1397,6 +1602,14 @@ local function step(job)
             if aimed_at then
                 local dist = W.aim(api, { aimed_at[1], aimed_at[2], (aimed_at[3] or 0) + cfg.aim_heights_m[1] })
                 local lim = job.st.reach_m or ((snap.place_max_m and snap.place_max_m > 0) and snap.place_max_m) or cfg.place_max_m
+                if dist and dist > lim + 0.5 and (job.reapproaches or 0) < cfg.reapproach_max and job.target.kind ~= "point" then
+                    -- it moved out of reach while the wheel opened: put the spell away, walk again, re-open
+                    job.reapproaches = (job.reapproaches or 0) + 1
+                    job.approached = nil
+                    press(job, "cancel", job.acts.cancel)
+                    job.phase, job.until_t = "settle", t + 1.5
+                    return nil
+                end
                 if dist and dist > lim + 0.5 then
                     return failed(job, "too_far", "too_far", "That's too far away for " .. job.row.name .. ": it's " .. math.floor(dist + 0.5)
                         .. " m from my view and I can reach about " .. math.floor(lim) .. " m, so I need to get closer.")
@@ -1424,6 +1637,17 @@ local function step(job)
             return failed(job, "verification_failed", "placement_closed", "The placement preview for " .. job.row.name .. " closed before I could place it.")
         end
         local lim = job.st.reach_m or ((snap.place_max_m and snap.place_max_m > 0) and snap.place_max_m) or cfg.place_max_m
+        if not job.checker and (job.target.kind == "thing" or job.target.kind == "player") and (job.reapproaches or 0) < cfg.reapproach_max then
+            -- it moved out of reach while the wheel opened: put the spell away, walk again, re-open
+            local pos, me = M.refresh_target(job), snap.position
+            if pos and me and d2(pos, me) > lim + 0.5 then
+                job.reapproaches, job.approached = (job.reapproaches or 0) + 1, nil
+                press(job, "cancel", job.acts.cancel)
+                job.phase, job.until_t = "settle", t + 1.5
+                return nil
+            end
+            job.spots = M.target_candidates(job.target, cfg) -- aim at where it is now
+        end
         if not job.checker then
             local P = M.placement(api)
             job.rejects = {}
@@ -1480,12 +1704,25 @@ local function step(job)
     -- verify (a placed spell plays its cast animation in a spell input mode first: live, Summon
     -- Shelter spent its runes only after the 4 s window, so keep waiting while the game is casting)
     job.cast_deadline = job.cast_deadline or (t + cfg.cast_max_s)
+    local mech = M.mechanics(job.row.id)
+    if mech and mech.two_step and not M.beacon(job.row.id) and snap.casting == job.row.id
+        and t - (job.marks and job.marks.selected or t) >= cfg.beacon_settle_s then
+        return M.beacon_placed(job, snap, mech)
+    end
     if t >= job.until_t and (in_spell_mode(mode) or (snap.casting and snap.casting == job.row.id)) and t < job.cast_deadline then
         return nil
     end
     if t >= job.until_t then
+        if snap.casting and snap.casting == job.row.id then
+            -- the game still holds THIS spell prepared (SpellBeingPreparedOrCast) with nothing spent: it never went
+            -- off. Re-run 2026-10-26: Recall (AllowMovementThenCastInstant) three times. What it needs to go off is
+            -- not observed yet (client_mod/commands/recall_probe.lua records it), so say exactly that.
+            job.d.prepared_s = math.floor((t - (job.marks and job.marks.selected or t)) * 10 + 0.5) / 10
+            return failed(job, "verification_failed", "still_preparing", "I started " .. job.row.name .. " but it never went off: the game still"
+                .. " has it prepared, no runes were used and it isn't recharging. I haven't learned yet what it needs to finish.")
+        end
         return failed(job, "verification_failed", "no_effect", "I tried to cast " .. job.row.name .. " but no runes were used and it didn't go on cooldown"
-            .. (snap.casting and " (still casting)" or "") .. ".")
+            .. (snap.casting and (" (the game is busy with " .. tostring(snap.casting_name or snap.casting) .. ")") or "") .. ".")
     end
     return nil
 end
@@ -1697,8 +1934,11 @@ function M.state_extras(api)
                 runes[tostring(c.name or c.item)] = c.count
                 if (c.have or 0) < (c.count or 0) then short = short or {}; short[tostring(c.name or c.item)] = c.count - (c.have or 0) end
             end
+            local mech, bc = M.mechanics(r.id), M.beacon(r.id)
             out[#out + 1] = { id = r.id, name = r.name, school = st.perk and st.perk.skill_name or nil, castable = r.castable == true,
-                              reason = (not r.castable) and r.reason or nil, runes = next(runes) and runes or nil, runes_short = short }
+                              reason = (not r.castable) and r.reason or nil, runes = next(runes) and runes or nil, runes_short = short,
+                              how = mech and mech.how or nil,
+                              beacon = bc and { position = bc.position, placed_s_ago = math.floor(M.wall() - bc.at + 0.5) } or nil }
         end
     end
     m.extras, m.extras_at = { spells = out }, now
@@ -1718,11 +1958,12 @@ M.HANDLERS = {
 local OBJ = { __jsontype = "object" }
 local function obj(t) return setmetatable(t or {}, OBJ) end
 M.MANIFEST = {
-    cast = { kind = "waiter", llm = true, moves = false, priority = "command", duration_s = 3, timeout_s = 30,
+    cast = { kind = "waiter", llm = true, moves = false, priority = "command", duration_s = 3, timeout_s = 60,
         detail_is_speech = true,
         description = "Cast one of your spells (wheel, then cast); verified by runes and cooldown. Pick from castable_spells by "
-            .. "what it does. Instant: on you. Placed/aimed: at target, or omit it and you find a valid spot or aim yourself. "
-            .. "Never at players. Runs alongside following.",
+            .. "what it does. Instant: on you. Placed/aimed: at target, or omit it and you find a valid spot or aim yourself; "
+            .. "a target out of reach (even a moving creature) is walked up to and cast at in this same call. A spell with "
+            .. "`how` in state.spells works in steps (e.g. cast once to set a beacon, again to return). Never at players.",
         args = { type = "object", required = { "spell" }, properties = obj({
             spell = { type = "string", description = "Exact name from castable_spells." },
             target = { description = "Placed/aimed: look id or [x,y,z] m; omit to choose.",

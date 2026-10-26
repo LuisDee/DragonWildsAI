@@ -68,6 +68,7 @@ def test_proof_run_records_its_checks(tmp_path, monkeypatch):
     monkeypatch.setattr(m.time, "time", lambda: clock["t"])
     monkeypatch.setattr(m.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
     monkeypatch.setattr(m, "send_speech_direct", lambda text: (True, "ok"))
+    monkeypatch.setattr(m, "register_sender", lambda: (True, "ok"))
     monkeypatch.setattr(m, "_chat_rows_since", lambda t0: [GOOD_ROW])
     monkeypatch.setattr(m, "_brain_heard_since", lambda t0, who: True)
     monkeypatch.setattr(m, "client_ping", lambda: True)

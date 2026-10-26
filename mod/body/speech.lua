@@ -117,7 +117,7 @@ function M.register_names(log, name, opts)
     local n, errors, pcs = 0, {}, U.player_controllers()
     for _, pc in ipairs(pcs) do
         local ps = U.try(function() return pc.PlayerState end)
-        local key = U.valid(ps) and ((U.fullname(ps) or "?") .. "|" .. name) or nil
+        local key = U.valid(ps) and ((U.fullname(ps) or "?") .. "|" .. name .. "|" .. U.guid_hex(M.GUID)) or nil
         if key and (opts.force or not s.registered[key]) then
             local ok, err = register_one(log, ps, name)
             if ok then s.registered[key], n = true, n + 1 else errors[#errors + 1] = tostring(err) end

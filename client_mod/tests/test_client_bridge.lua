@@ -410,6 +410,24 @@ test("L26: a foliage id resolves where the instance stood (converted actor, gone
     FAKE.foliage, FAKE.foliage_gone, FAKE.move.position = nil, nil, nil
 end)
 
+test("any live actor id a read hands out resolves (a fishing node the census doesn't list): inspect + go_to", function()
+    local node = { id = "BP_FishingNodeV2_Net_C_2147400001", class = "BP_FishingNodeV2_Net_C", position = { 12, 4, 3 } }
+    FAKE.actors_only = { node }
+    local r = rpc("inspect", { target = node.id })
+    assert(r.ok and r.data.id == node.id and r.data.position[1] == 12 and r.data.category == "actors", json.encode(r))
+    FAKE.move.calls = {}
+    local _, _, id = rpc("go_to", { target = node.id })
+    assert(FAKE.move.target and FAKE.move.target[1] == 12 and FAKE.move.target[2] == 4, json.encode(FAKE.move.target))
+    FAKE.move.mode, FAKE.move.result, FAKE.move.position = "idle", { status = "arrived", dist_m = 1.0 }, { 11.5, 4, 3 }
+    step()
+    local done = results(drain(), id)[1]
+    assert(done and done.ok, done and done.reason)
+    -- an id whose class has no such live instance is still unknown_target (never invented)
+    r = rpc("inspect", { target = "BP_FishingNodeV2_Net_C_999" })
+    assert(r.reason == "unknown_target", json.encode(r))
+    FAKE.actors_only, FAKE.move.position = nil, nil
+end)
+
 test("interact: a world item in reach -> aim, press, verified by the inventory gain and the item gone", function()
     FAKE.aims, FAKE.presses = 0, 0
     local first, _, id = rpc("interact", { target = "wi_1" })

@@ -172,7 +172,14 @@ W.inject = function(_, a)
         local s = spell_by(G.wheel[G.page * 12 + slot + 1])
         G.selected = s and s.asset
         if not s then G.mode = "DIM_Gameplay"; return true end
-        if s.cast_type == 0 and G.stay_in_mode then
+        if s.two_step_fake then -- Recall-like: 1st = beacon (prepared, nothing spent); 2nd = back to it (runes + cooldown)
+            G.mode = "DIM_Gameplay"
+            if not G.beacon then G.beacon, G.casting = { G.pos[1], G.pos[2], G.pos[3] }, s.asset
+            else
+                local bk = G.beacon
+                at(0.4, function() if not G.recall_broken then G.pos = { bk[1], bk[2], bk[3] } end; G.beacon, G.casting = nil, nil; effect(s) end)
+            end
+        elseif s.cast_type == 0 and G.stay_in_mode then
             G.mode = "DIM_SpellcastingMode" -- e.g. a camera mode the spell keeps open
             at(0.4, function() effect(s); if G.on_cast then G.on_cast() end end)
         elseif s.cast_type == 0 then
@@ -461,6 +468,35 @@ do
     local res = run_cast({ spell = "Windstep" })
     check("no rune/cooldown change -> verification_failed no_effect", res.reason == "verification_failed" and res.data.why == "no_effect", res.reason)
 end
+-- re-run 2026-10-26 (b): Recall stayed PREPARED (SpellBeingPreparedOrCast = it) with nothing spent: its own reason
+reset({ no_effect = true })
+do
+    local res = run_cast({ spell = "Windstep" }, { during = function(n) if n == 12 then G.casting = "USD_Windstep" end end })
+    check("still prepared at the deadline -> still_preparing, says it never went off", res.reason == "verification_failed"
+          and res.data.why == "still_preparing" and tostring(res.data.detail):find("never went off", 1, true) ~= nil, tostring(res.data and res.data.why))
+    G.casting = nil
+end
+-- (c): an ok cast carries a truthful sentence (re-run: Vengeance re-cast into its cooldown)
+reset({})
+do
+    local res = run_cast({ spell = "Windstep" })
+    check("ok cast: detail says it was cast, what it used, recharging", res.ok and tostring(res.data.detail):find("^I cast Windstep") ~= nil
+          and (not res.data.cooldown_started or tostring(res.data.detail):find("recharging", 1, true) ~= nil), tostring(res.data and res.data.detail))
+end
+check("success_words: runes by name + cooldown", SP.success_words("Vengeance", { { item = "ITEM_Rune_Astral", name = "Astral Rune" } },
+      { runes_spent = { ITEM_Rune_Astral = 20 }, cooldown_started = true }) == "I cast Vengeance: used 20 Astral Rune; it's recharging now.")
+-- (a)/fishing: an actor id the census doesn't list resolves through the live actor itself
+do
+    reset({ unlocked = { WINDSTEP, SHELTER }, wheel = { "USD_Windstep", "USD_SummonShelter" }, skills = {} })
+    local real = W.actor_thing
+    local asked
+    W.actor_thing = function(_, id) asked = id; if id == "BP_FishingNodeV2_Rod_X_C_UAID_1" then return { id = id, name = "Rod Fishing Spot", position = { 6, 2, 0 } } end end
+    local res = run_cast({ spell = "Summon Shelter", target = "BP_FishingNodeV2_Rod_X_C_UAID_1" })
+    check("census-less actor id: resolved by the live actor, cast goes ahead", res.ok and asked == "BP_FishingNodeV2_Rod_X_C_UAID_1", tostring(res.reason))
+    res = run_cast({ spell = "Summon Shelter", target = "BP_Gone_C_2" })
+    check("an id with no live actor: unknown_target, no raw id in words", res.reason == "unknown_target" and not tostring(res.data.detail):find("BP_", 1, true), tostring(res.reason))
+    W.actor_thing = real
+end
 
 -- ---------------------------------------------------------------- cast: placed
 reset({ unlocked = { WINDSTEP, SHELTER }, wheel = { "USD_Windstep", "USD_SummonShelter" }, skills = {} })
@@ -588,6 +624,103 @@ do
     check("foliage target gone -> unknown_target says felled or picked", res.reason == "unknown_target"
         and (res.data.detail or ""):find("felled or picked", 1, true), res.data.detail)
 end
+-- Recall (Luis + wiki 2026-10-26): cast 1 places a beacon (the game holds it prepared, nothing spent); cast 2 returns
+do
+    local RECALL = spell({ asset = "USD_TestRecall", name = "Recall", desc = "Place a temporary beacon.", cast_type = 3, two_step_fake = true,
+                           cost = { { item = AIR, name = "Air Rune", count = 30 } }, perk = { level = 57, skill = "SKILL_Agility", skill_name = "Agility" } })
+    reset({ unlocked = { RECALL }, wheel = { "USD_TestRecall" }, all = { RECALL } })
+    SP.mem().mech = { USD_TestRecall = { two_step = true, how = "Two casts: beacon, then back to it.", window_s = 120 } }
+    G.pos = { 10, 0, 0 }
+    local res = run_cast({ spell = "Recall" })
+    check("Recall step 1: ok, beacon placed at my position, says cast again to return", res.ok and res.data.step == 1 and res.data.beacon
+          and res.data.beacon.position[1] == 10 and tostring(res.data.detail):find("again within 120 s", 1, true) ~= nil, tostring(res.reason) .. " " .. tostring(res.data and res.data.detail))
+    local ex = SP.state_extras({ now = function() return 1e9 end, module = function() return nil end })
+    local row
+    for _, r in ipairs(ex.spells or {}) do if r.id == "USD_TestRecall" then row = r end end
+    check("state.spells: how + live beacon", row and row.how and row.beacon and row.beacon.position[1] == 10, row and row.how)
+    G.pos = { 60, 5, 0 } -- he walks off
+    res = run_cast({ spell = "Recall" })
+    check("Recall step 2: back at the beacon, verified from position", res.ok and res.data.returned == true and G.pos[1] == 10
+          and tostring(res.data.detail):find("came back to its beacon", 1, true) ~= nil, tostring(res.reason) .. " " .. tostring(res.data and res.data.detail))
+    -- step 2 that spends runes but leaves him where he was: not claimed as a return
+    reset({ unlocked = { RECALL }, wheel = { "USD_TestRecall" }, all = { RECALL } })
+    SP.mem().mech = { USD_TestRecall = { two_step = true, window_s = 120 } }
+    G.pos = { 10, 0, 0 }
+    run_cast({ spell = "Recall" })
+    G.pos, G.recall_broken = { 60, 5, 0 }, true
+    res = run_cast({ spell = "Recall" })
+    check("Recall step 2 without the teleport: not_returned, says how far from the beacon", res.reason == "verification_failed" and res.data.why == "not_returned",
+          tostring(res.reason) .. " " .. tostring(res.data and res.data.detail))
+    G.recall_broken = nil
+end
+
+-- Luis 2026-10-26 (Confuse "too_far", the magpie moved on): ONE cast call walks into reach of a MOVING creature,
+-- opens the wheel the moment it is in reach, re-aims at where it is at release; a faster creature -> truthful give-up
+do
+    local R = { move_go_to = W.move_go_to, move_status = W.move_status, move_stop = W.move_stop, live_position = W.live_position,
+                actor_thing = W.actor_thing }
+    local function rig(speed_creature, speed_me)
+        local M = { goal = nil, stopped = 0, t0 = nil, best = nil, best_t = nil }
+        G.creature = { 40, 0, 0 }
+        W.actor_thing = function(_, id) if id == "BP_AI_Magpie_C_1" then return { id = id, name = "Magpie", position = { G.creature[1], G.creature[2], 0 } } end end
+        W.live_position = function() return { G.creature[1], G.creature[2], 0 } end
+        W.move_go_to = function(_, target, opts) M.goal, M.tol, M.t0, M.best, M.best_t = target.id, opts.tolerance_m, T, nil, T; M.mode = "go_to" end
+        W.move_stop = function() M.stopped = M.stopped + 1; M.mode = "idle" end
+        W.move_status = function()
+            local d = math.sqrt((G.creature[1] - G.pos[1]) ^ 2 + (G.creature[2] - G.pos[2]) ^ 2)
+            if not M.best or d < M.best - 0.5 then M.best, M.best_t = d, T end
+            local stalled = M.mode == "go_to" and T - (M.best_t or T) > 6
+            return { mode = M.mode or "idle", progress = { verdict = stalled and "stalled" or "ok", why = stalled and "cant_catch" or nil } }
+        end
+        local function during()
+            G.creature[1] = G.creature[1] + speed_creature * 0.1
+            if M.mode == "go_to" then
+                local dx = G.creature[1] - G.pos[1]
+                local step = math.min(speed_me * 0.1, math.abs(dx))
+                G.pos = { G.pos[1] + (dx > 0 and step or -step), G.pos[2], 0 }
+            end
+        end
+        return M, during
+    end
+    reset({ unlocked = { AXTRAL }, wheel = { "USD_TestAxe" } })
+    local realaim = W.aim
+    W.aim = function(_, pos) G.aimed = pos; G.aims = (G.aims or 0) + 1; return math.sqrt((pos[1] - G.pos[1]) ^ 2 + (pos[2] - G.pos[2]) ^ 2 + 9) end
+    local M1, during = rig(1.0, 4.0)
+    local res = run_cast({ spell = "Astral Axe", target = "BP_AI_Magpie_C_1" }, { during = during })
+    local jp = table.concat(res.data and res.data.presses or {}, ",")
+    check("moving creature 40 m away: approached, then cast in ONE call", res.ok and jp:find("^approach,menu") ~= nil and M1.goal == "BP_AI_Magpie_C_1"
+          and res.data.approach_from_m and res.data.approach_from_m > 30, tostring(res.reason) .. " " .. jp .. " " .. tostring(res.data and res.data.detail))
+    check("stopped walking before casting", M1.stopped >= 1)
+    check("aim re-read at release: within 1 m of where the creature is", G.aimed and math.abs(G.aimed[1] - G.creature[1]) < 1.5,
+          tostring(G.aimed and G.aimed[1]) .. " vs " .. tostring(G.creature[1]))
+    -- it bolts 20 m while the wheel opens: the spell is put away, he walks again, then casts (one call)
+    reset({ unlocked = { AXTRAL }, wheel = { "USD_TestAxe" } })
+    local M4, during4 = rig(0, 4.0)
+    local jumped = false
+    res = run_cast({ spell = "Astral Axe", target = "BP_AI_Magpie_C_1" }, { during = function(n)
+        during4(n)
+        if M4.stopped == 1 and not jumped and G.mode ~= "DIM_Gameplay" then jumped = true; G.creature[1] = G.creature[1] + 20 end
+    end })
+    local jp4 = table.concat(res.data and res.data.presses or {}, ",")
+    check("bolted while the wheel opened: put away, walked again, cast", res.ok and select(2, jp4:gsub("approach", "")) == 2 and jumped,
+          tostring(res.reason) .. " " .. jp4 .. " " .. tostring(res.data and res.data.detail))
+    -- a creature faster than him: move's tracker says it can't be caught -> a truthful give-up, nothing cast
+    reset({ unlocked = { AXTRAL }, wheel = { "USD_TestAxe" } })
+    local M2, during2 = rig(5.0, 4.0)
+    res = run_cast({ spell = "Astral Axe", target = "BP_AI_Magpie_C_1" }, { during = during2 })
+    check("faster creature: too_far / cant_get_in_range, says it keeps getting away, nothing cast",
+          res.reason == "too_far" and res.data.why == "cant_get_in_range" and tostring(res.data.detail):find("keeps getting away", 1, true) ~= nil
+          and not presses():find("menu", 1, true) and M2.stopped >= 1, tostring(res.reason) .. " " .. tostring(res.data and res.data.detail) .. " " .. presses())
+    -- a self cast never walks
+    reset({})
+    local M3, during3 = rig(0, 4.0)
+    res = run_cast({ spell = "Windstep" }, { during = during3 })
+    check("self cast: no approach", res.ok and M3.goal == nil and not table.concat(res.data.presses or {}, ","):find("approach", 1, true), presses())
+    for k, v in pairs(R) do W[k] = v end
+    W.aim = realaim
+    G.creature = nil
+end
+
 -- L15: a placed spell aimed at an OBJECT (Splinter on a log): aim at the object, never flat-ground spots
 local SPLINTER = spell({ asset = "USD_TestSplinter", name = "Wood Splitter", desc = "Splits a log.", cast_type = 1,
                          cost = { { item = EARTH, name = "Earth Rune", count = 10 } }, perk = { level = 3, skill = "SKILL_Woodcutting", skill_name = "Woodcutting" } })
