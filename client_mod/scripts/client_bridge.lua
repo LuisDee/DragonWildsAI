@@ -606,7 +606,13 @@ R.equip = { needs = { { "inventory", "equip" } }, fn = function(args, ctx)
     if not need_str(args.item) then return fail("invalid_args", { detail = "item is required" }) end
     return call("inventory", "equip", args.item)
 end }
-R.unequip = { needs = { { "inventory", "unequip" } }, fn = function(args)
+R.unequip = { needs = { { "inventory", "unequip" } }, fn = function(args, ctx)
+    -- skills.lua's verified unequip (item or slot; answers once it is off) when present, like R.equip
+    local sk = M.module("skills")
+    if sk and type(sk.HANDLERS) == "table" and type(sk.HANDLERS.unequip) == "function" and fn_of("inventory", "list") then
+        ctx.api = M.API
+        return sk.HANDLERS.unequip(S.text_log, args, ctx)
+    end
     if args.slot == nil then return fail("invalid_args", { detail = "slot is required (HeldRight, Body, ... or index)" }) end
     return call("inventory", "unequip", args.slot)
 end }

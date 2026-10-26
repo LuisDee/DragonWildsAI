@@ -188,6 +188,8 @@ local function reset_game(opts)
         return true, { ImpactPoint = { Z = 0 }, ImpactNormal = { Z = 1 } }
     end
     Wb.storage_counts = function() return {}, {} end
+    Wb.preview_actor = function() return {} end
+    Wb.snap_only = function() return false end
 end
 -- the bridge services the action uses
 api.my_position = function() return G.pos end
@@ -294,7 +296,18 @@ check("unreadable preview: never pressed, preview_unreadable, left build mode", 
     r and r.data and r.data.why)
 reset_game({ no_hook = true })
 r = build({ piece = "campfire" })
-check("no validity hook event (MPC green only): no press", r and count(G.presses, "place") == 0 and r.data.why == "preview_unreadable", r and r.data and r.data.why)
+check("no validity hook (live P4: it never fires): MPC 2 on target -> pressed and verified", r and r.ok and count(G.presses, "place") == 1, r and r.reason)
+-- a snap piece (preview has plugs): colour 2 may be NeedsSnapping -> never pressed (known limit)
+reset_game({ no_hook = true })
+Wb.preview_actor = function() return {} end
+Wb.snap_only = function() return true end
+r = build({ piece = "campfire" })
+check("snap piece + colour 2 only: preview_ambiguous, no press", r and r.data.why == "preview_ambiguous" and count(G.presses, "place") == 0, r and r.data and r.data.why)
+-- MPC 1 and materials short (own + storage): missing_materials
+reset_game({ no_hook = true, state = function() return 6 end })
+CARRIED.ITEM_Resources_Stone = 0
+r = build({ piece = "campfire" })
+check("MPC 1 + short of stone: missing_materials with what's missing", r and r.reason == "missing_materials" and r.data.missing and r.data.missing[1].need == 6, r and r.reason)
 
 -- 7. NeedsSnapping is green in the MPC (P1b) but not Valid: never pressed
 reset_game({ state = function() return 4 end })

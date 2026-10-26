@@ -1819,3 +1819,25 @@ Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probe
   - "hey! what we up to?" was said at the start of a body-initiated board run, twice.
 - **Survival:** hydration fell to 18.7/75 with no drink; the reflex Clean Water use failed (`reflex_use_failed`).
 - **Spend:** Sonnet 7 requests ($0.11). Haiku made **38** Controller calls ($0.024), **over the 20 I had stated**. That is 12 board runs at 2–4 turns each plus notices. A future smoke needs a hard Controller-call stop, not only an estimate.
+
+## Build probes P2–P5 (2026-10-26 ~08:2x–08:3x UTC, dev world, client build 26162923)
+- **P2, the place key:** `IMC_BuildingMode` maps **`IA_Building_QuickInteract` = LeftMouseButton** (the place / quick-interact click). `IA_PrimaryAction` is NOT mapped in build mode: a press of it placed nothing (P5 attempt 2).
+  - Also in `IMC_BuildingMode`: RotateZ / OffsetZ / OffsetDistance = MouseWheelAxis, Cancel = Escape, BuildMenu = B, FreePlacement = Y, GhostPiece_Modifier = F, DestroyObject = MMB.
+  - `IMC_BuildingUI`: SelectPiece = LMB, GenericBack = B, tabs Q/E.
+  - Build input modes: `DIM_BuildMenu` (Selection), `DIM_BuildMode` (Placement), and DIM_OculusBuildMenu / DIM_OculusBuildMode / DIM_OculusRepairMode.
+- **P3, B toggles the menu:** IA_BuildMenu, one injected frame → `CurrentBuildMode` 1 (Selection), input mode DIM_BuildMenu. **One Cancel from Placement goes straight to None.**
+- **P4a, selecting a piece:** `BuildingUIAPI:CallOnBuildingItemSelected(<UBuildingPieceData>)` while in Selection → Placement (2), DIM_BuildMode.
+  - `CurrentlyPlacingPieceData` is a **TWeakObjectPtr**: read it with `:Get()`.
+  - The preview is a real **actor** (`BP_Station_Campfire_C`, `bIsPreview` = true, `PlayerControllerManagingPlacement` = our PC). Its location equals the MPC `CursorWorldPosition` (the vector's R, G, B = X, Y, Z in cm).
+  - `SetControlRotation` moves the preview: aiming works.
+- **MPC `PlacingValidityStateIndex`:** 1 with 0 stone (MissingMaterials). After 6 stone were granted (dev fixture, harness setup) it read 2 at every ground spot ~4–6 m away.
+- **The validity hooks NEVER fire.** These stayed silent across the 1→2 change, re-selects and aim changes, although both registered natively: `BuildModeComponent:OnValidityStateChange` and `BaseBuildingActor:OnValiditySpawnStateChanged`. They are called from C++, not ProcessEvent, and no validity property is reflected. → Press rule changed (main approved): MPC == 2 AND the preview within match_m of the spot AND a fresh read after the latest aim plus wait.
+- **Snap pieces:** colour 2 also covers NeedsSnapping. The data signal is the preview actor's loaded `BuildingPieceDerivedData.PlacementProfileRowHandle`, read with UE4SS `DataTable:FindRow(RowName)`, then `.bCanOnlyBeSnapped`.
+  - Campfire → `FloorPropNonOverlapProfile`: bCanOnlyBeSnapped = false, bCanOnlyBePlacedOnDefinedSurface = true.
+  - Snap-only or unreadable → no press (`preview_ambiguous`), a known limit until a positive snap signal is found.
+  - The preview's `BuildingSnapComponent.Plugs` is NOT a usable discriminator: the Campfire has plugs.
+- **P5 PASSED:** `build {piece: "campfire"}` → presses menu, select, place (QuickInteract), cancel → ok.
+  - spent `{ITEM_Resources_Stone: 6}`.
+  - evidence = **telemetry**: `Client_TelemetryOnBuildingPieceComplete` is a Client RPC and its post-hook DOES fire.
+  - Construction XP **+12** (not ConstructionXPOnBuild = 20: multipliers apply, as the review said).
+  - Build mode was None afterwards.

@@ -229,6 +229,10 @@ M.cfg.build = {
     standoff_m = 2.5, footprint_m = 1.5, reach_m = 7.0, open_wait_s = 1.5, select_wait_s = 2.0,
     verify_s = 6.0, leave_presses = 3, timeout_s = 110, match_m = 1.5, rotate_step_deg = 15,
     budget_s = 25,
+    -- live P4 (2026-10-26): the validity hooks never fire (C++ calls, not ProcessEvent), so the MPC colour index
+    -- (2 = Valid|NeedsSnapping) on a fresh, on-target preview authorises the press; the game refuses a
+    -- NeedsSnapping press itself and Client_ShowValidityNotification names why. true = also require the hook.
+    hook_required = false,
 }
 M.HOOK_PATHS = {
     validity = "/Script/Dominion.BuildModeComponent:OnValidityStateChange",
@@ -246,9 +250,9 @@ M.STATE_TEXT = { [1] = "Blocked", [2] = "You can't place this in the air.", [3] 
                  [11] = "You can only place this outside", [12] = "Cannot be placed in this region" }
 M.STATE_REASON = { [1] = "blocked", [2] = "blocked", [3] = "blocked", [4] = "blocked", [5] = "blocked", [6] = "missing_materials",
                    [7] = "blocked", [8] = "blocked", [9] = "no_permission", [10] = "limit_reached", [11] = "blocked", [12] = "blocked" }
--- [UNVERIFIED until P2]: the place input in IMC_BuildingMode (the community guide: LMB "Place / Quick Interact")
-M.PLACE_ACTIONS = { "/Game/Gameplay/Inputs/Actions/Basic/IA_PrimaryAction.IA_PrimaryAction",
-                    "/Game/Gameplay/Inputs/Actions/Building/IA_Building_QuickInteract.IA_Building_QuickInteract" }
+-- The place input (live P2, IMC_BuildingMode: IA_Building_QuickInteract = LeftMouseButton; IA_PrimaryAction is NOT
+-- mapped in build mode). Read from BuildInteractionComponent.QuickInteractAction, the path as fallback.
+M.PLACE_ACTIONS = { "/Game/Gameplay/Inputs/Actions/Building/IA_Building_QuickInteract.IA_Building_QuickInteract" }
 M.MENU_ACTION = "/Game/Gameplay/Inputs/Actions/UI/IA_BuildMenu.IA_BuildMenu"
 
 -- ---------- world reads/writes (every one replaceable in tests)
@@ -260,10 +264,12 @@ function W.bm(api)
     local bm = pc and U.try(function() return pc.BuildModeComponent end)
     return U.valid(bm) and bm or nil
 end
-function W.placing(api)
+function W.placing(api) -- CurrentlyPlacingPieceData is a TWeakObjectPtr: :Get() (live P4, 2026-10-26)
     local U = sense_U(api)
     local bm = W.bm(api)
-    return bm and asset(U, U.try(function() return bm.CurrentlyPlacingPieceData end)) or nil
+    local w = bm and U.try(function() return bm.CurrentlyPlacingPieceData end)
+    local d = w and U.try(function() return w:Get() end)
+    return d and asset(U, d) or nil
 end
 function W.press(api, action) -- the modal owner's own presses (raw: build owns the modal)
     local i = IN(api)
@@ -274,7 +280,10 @@ end
 function W.menu_action() return M.MENU_ACTION end
 function W.place_action(api)
     local U = sense_U(api)
-    for _, p in ipairs(M.PLACE_ACTIONS) do local a = U.find_object(p); if a then return a end end
+    local pc = W.pc(api)
+    local a = pc and U.try(function() return pc.BuildInteractionComponent.QuickInteractAction end)
+    if U.valid(a) then return a end
+    for _, p in ipairs(M.PLACE_ACTIONS) do local x = U.find_object(p); if x then return x end end
 end
 function W.rotate_action(api) local U = sense_U(api); local bm = W.bm(api); return bm and U.try(function() return bm.ModifyRotationAction end) end
 function W.select(api, data)
@@ -317,6 +326,40 @@ function W.mpc(api)
     local pos = U.try(function() return m.kml:GetVectorParameterValue(pawn, mpc, U.try(function() return bm.CursorWorldPositionMPN end)) end)
     local okp, x, y, z = pcall(function() return pos.R, pos.G, pos.B end)
     return { index = tonumber(idx), position = (okp and type(x) == "number") and { x / 100, y / 100, z / 100 } or nil }
+end
+-- The placement preview actor (BaseBuildingActor with bIsPreview, managed by my PC): found ONCE per job after
+-- select (one find_all), then re-validated. -> actor | nil
+function W.preview_actor(api, job)
+    local U = sense_U(api)
+    if job and job.preview_obj and U.valid(job.preview_obj) then return job.preview_obj end
+    local pc = W.pc(api)
+    for _, a in ipairs(U.find_all("BaseBuildingActor", { skip_defaults = true }) or {}) do
+        if U.try(function() return a.bIsPreview end) == true then
+            local m = U.try(function() return a.PlayerControllerManagingPlacement end)
+            if not pc or (U.valid(m) and U.short(m) == U.short(pc)) then
+                if job then job.preview_obj = a end
+                return a
+            end
+        end
+    end
+end
+-- Does this piece only place snapped (its placement profile's bCanOnlyBeSnapped)? Then colour 2 may mean
+-- NeedsSnapping. Read from the preview actor's loaded BuildingPieceDerivedData.PlacementProfileRowHandle via
+-- UE4SS's DataTable:FindRow (live P5 probe 2026-10-26: Campfire -> FloorPropNonOverlapProfile, false).
+-- -> true | false | nil (unreadable: treated as ambiguous)
+function W.snap_only(api, a)
+    local U = sense_U(api)
+    if paused() or not U.valid(a) then return nil end
+    local dd = U.try(function() return a.BuildingPieceDerivedData end)
+    local h = U.valid(dd) and U.try(function() return dd.PlacementProfileRowHandle end)
+    local dt = h and U.try(function() return h.DataTable end)
+    local name = h and U.str(U.try(function() return h.RowName end))
+    if not (U.valid(dt) and name) then return nil end
+    local ok, row = pcall(function() return dt:FindRow(name) end)
+    if not ok or row == nil then return nil end
+    local v = U.try(function() return row.bCanOnlyBeSnapped end)
+    if v == nil then return nil end
+    return v == true
 end
 function W.construction_xp(api)
     local me = api.me and api.me() or nil
@@ -510,7 +553,10 @@ local function start_build(api, args, ctx)
         if r and type(r.Yaw) == "number" then yaw = math.rad(r.Yaw) end
         center = { here[1] + math.cos(yaw) * (standoff + 0.5), here[2] + math.sin(yaw) * (standoff + 0.5), here[3] }
     end
+    local short = false
+    for _, x in ipairs(missing) do if (x.have + (x.in_storage or 0)) < x.need then short = true end end
     local job = { kind = "build", piece = piece, data = data, phase = "approach", missing = missing, center = center, exact = exact,
+                  short_materials = short,
                   standoff = standoff, presses = {}, spent = {}, counts0 = counts, storage0 = storage, opens = 0, leaves = 0 }
     job.xp0 = W.construction_xp(api)
     return job
@@ -534,8 +580,16 @@ local function preview_reader(api, job)
         local h = W.hook("validity")
         if not m or not m.position then return nil end
         if not h then
-            if m.index == 2 then return { valid = nil, position = m.position } end -- green but no exact state: unreadable
-            return { valid = false, why = "not_valid (colour " .. tostring(m.index) .. ")", position = m.position, fresh = true }
+            if m.index == 2 then
+                if M.cfg.build.hook_required then return { valid = nil, position = m.position } end -- no exact state: unreadable
+                -- known limit: a snap piece's colour 2 may be NeedsSnapping, and no positive snap signal is known
+                -- yet, so never press for one (main, 2026-10-26)
+                if job.snap then return { valid = false, why = "preview_ambiguous", position = m.position, fresh = true } end
+                return { valid = true, position = m.position, fresh = true, colour = 2 }
+            end
+            -- not green: name the likeliest game reason we can know without the exact state
+            local why = (job.short_materials and "MissingMaterials") or ("not_valid (colour " .. tostring(m.index) .. ")")
+            return { valid = false, why = why, position = m.position, fresh = true }
         end
         local fresh = h.seq > (job.aim_seq or 0)
         local valid = h.v == 0 and m.index == 2
@@ -630,6 +684,8 @@ local function step(api, job, t)
             read = preview_reader(api, job),
         }
         job.env = env
+        local pa = W.preview_actor(api, job)
+        job.snap = (pa and W.snap_only(api, pa)) ~= false -- unknown counts as snap (never press blind)
         local spots, skipped = P.spots(env, job.center, { footprint_m = M.cfg.build.footprint_m, standoff_m = 0.8,
                                                           around_m = job.exact and { 1.0 } or { 1.5, 3.0 }, around_n = 8 })
         if job.exact and spots[1] and not spots[1].exact then table.insert(spots, 1, { position = job.center, exact = true }) end
@@ -651,6 +707,10 @@ local function step(api, job, t)
             local code
             for s, name in pairs(M.STATES) do if name == common then code = s end end
             local reason = code and M.STATE_REASON[code] or "blocked"
+            if common == "preview_ambiguous" then
+                return leave_then(api.fail("verification_failed", { why = "preview_ambiguous", piece = job.piece.id,
+                    detail = "I can't tell whether the " .. job.piece.name .. " would snap into place there, so I didn't place it." }))
+            end
             if r.why == "preview_unreadable" then
                 return leave_then(api.fail("verification_failed", { why = "preview_unreadable", piece = job.piece.id,
                     detail = "I can't see the building preview, so I didn't place anything." }))

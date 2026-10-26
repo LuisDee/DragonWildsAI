@@ -370,3 +370,17 @@ Reasons: `container_full`, `inventory_full`, `not_in_container`, `not_a_containe
 | Game wiki Build Menu, https://dragonwilds.runescape.wiki/w/Build_Menu, and gamever's category list, https://gamever.io/knowledge-base/the-dragonwilds-build-menu-every-structure-category-and-what-you-unlock | B opens the menu; pieces unlock through progression (Vault Cores); there is a Farming group under Crafting | Farm plots are ordinary pieces when unlocked: no special case; unlocks are the Director's job, not a fixture |
 | In-repo: crafting.lua external-inventory transfer (`HandleSplitToExternalSlot` / `HandleExternalQuickTransfer`), its close-on-every-exit, DISCOVERIES l.677 (linked inventories: player + nearby chests as `AvailableInventories`), l.746 (privileges via `PrivilegeComponent:HasPrivilege`) | The transfer path, the linked-storage rule and the privilege read already existed | store/take use the shared inventory helpers; buildables/build count storage (advisory) and verify the spend across it; privilege preflights |
 | mineflayer-builder (PrismarineJS), https://github.com/PrismarineJS/mineflayer-builder | A blueprint-driven multi-block builder over a single place primitive | Deferred: a future "build from blueprint" compound (Phase 7 place) composes `build` calls with `near: <previous piece>` |
+
+### Rev 3 (2026-10-26, after live P2–P5): the press rule changed (main approved)
+- **Why:** the review's Q2 answer (and the Rev 2 proposal "hook Valid AND MPC 2") cannot work live. `OnValidityStateChange` / `OnValiditySpawnStateChanged` never reach a UE4SS post-hook: they are C++ calls, not ProcessEvent. No validity property is reflected either.
+- **Rule now:** press only when all of these hold:
+  - the MPC colour index == 2;
+  - the preview actor is within match_m of the spot;
+  - the read is fresh (after the latest aim plus the wait);
+  - and the piece is **not** snap-only (`PlacementProfile.bCanOnlyBeSnapped`, read via `DataTable:FindRow`; unreadable counts as snap).
+
+  A snap-only piece → `verification_failed why=preview_ambiguous`, no press. **Known limit** until a positive snap signal is found.
+- **Refusal reasons:** the `Client_ShowValidityNotification` post-hook (a Client RPC). **Verification is unchanged:** every requirement item fell AND (completion telemetry, live-proven, OR a new building actor OR Construction XP rising).
+- **MPC == 1 with own + storage materials short** → `missing_materials` with the missing rows.
+- **The place key is `BuildInteractionComponent.QuickInteractAction`** (IA_Building_QuickInteract, LMB in IMC_BuildingMode; P2). `IA_PrimaryAction` places nothing in build mode.
+- **P5 passed live:** one Campfire, 6 stone spent, telemetry, XP +12. P6 (store/take) waits for a chest (none unlocked on dev; unlocking through progression is the Director's job).

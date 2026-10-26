@@ -1000,6 +1000,20 @@ test("interact on an NPC: verified by the conversation it starts (changed = conv
         and r.data.detail:find("goodbye") and cancels == 2 and F.presses == 1, json.encode(r) .. " cancels=" .. cancels)
 end)
 
+test("unequip {item} reaches skills' verified unequip (not the bridge's slot-only route)", function()
+    reset()
+    local inv = B.module("inventory")
+    local eq0, un0 = inv.equip_state, inv.unequip
+    local held = true
+    local unequipped_slot
+    inv.equip_state = function(log, item) return { ok = true, data = held and { held = "right", item_id = "ITEM_Tool_Axe_Bronze" } or {} } end
+    inv.unequip = function(log, slot) unequipped_slot = slot; held = false; return { ok = true, data = {} } end
+    local r, id = rpc("unequip", { item = "Bronze Hatchet" })
+    if not r then r = run(id, 20) end
+    inv.equip_state, inv.unequip = eq0, un0
+    assert(r and r.ok and unequipped_slot == "HeldRight", json.encode(r) .. " slot=" .. tostring(unequipped_slot))
+end)
+
 test("store: no OpenChests privilege -> no_permission before any walk or press", function()
     chest_world()
     local sense = B.module("sense")
