@@ -91,6 +91,11 @@ class Agent:
         self.check_promises = True  # L5: a talk-only first turn gets one turn to call what it promised
         self._sampled_at: float | None = None  # last get_state the broker observed (situation_review)
         self._in_pump = False
+        # The model's line held back during a quick action (said after it, unless a failure replaces it): said
+        # as soon as the bridge reports the action accepted and still running (bridge_client.ACCEPTED_AFTER_S).
+        self._held: dict | None = None
+        if hasattr(game, "on_long_action"):
+            game.on_long_action = self._long_action
         # True when the body runs its own self-defence reflex (client combat.lua guard): an attacked
         # event then needs no brain-side attack (it would fight the body's reflex for the pawn).
         self.body_self_defends = False
@@ -463,7 +468,12 @@ class Agent:
                 # a move or a job that takes a while: the model's line is said as it starts (true then)
                 self.controller.say(d.speech)
                 spoken = True
-            outcome = self._run_task(Task(skill=call.name, args=call.arguments))
+            self._held = {"tool": call.name, "line": d.speech, "said": False} if d.speech and not spoken else None
+            try:
+                outcome = self._run_task(Task(skill=call.name, args=call.arguments))
+            finally:
+                held, self._held = self._held, None
+            spoken = spoken or bool(held and held["said"])
             ran.append(call.name)
             res = {"ok": outcome.ok, "reason": outcome.reason, "data": outcome.data}
             if not outcome.ok and outcome.reason in (Reason.UNKNOWN_TARGET, Reason.INVALID_ARGS, Reason.NOT_PERCEIVED,
@@ -553,6 +563,15 @@ class Agent:
             else:
                 self._stash.append(ev)
         return rec
+
+    def _long_action(self, tool: str, request_id: str) -> None:
+        """The bridge says a watched action is under way: say the turn's held line now, not when it ends.
+        A failure that comes back before this still replaces the line (it was never said)."""
+        held = self._held
+        if held and not held["said"] and tool == held["tool"]:
+            held["said"] = True
+            self.log.log("held_line_said", tool=tool, id=request_id)
+            self.controller.say(held["line"])
 
     def _player_spoke(self) -> bool:
         """Has a chat line arrived since this request started? (peeked, kept for the next pump)"""

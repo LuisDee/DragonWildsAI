@@ -44,6 +44,11 @@ WATCH_AFTER_S = 5.0  # waits longer than this are watched: addressed chat, bridg
 HEARTBEAT_S = 10.0  # ping the body this often during a watched wait
 BEAT_TIMEOUT_S = 3.0
 LOST_AFTER_BEATS = 2  # consecutive heartbeats without our id before a command counts as lost
+# A watched action still running this long (or that a heartbeat shows the body working on) has been accepted:
+# ``on_long_action`` fires once, so the agent can say the model's held line while it runs (M1 2026-10-26: a line
+# beside interact/craft was said only when the action ENDED, 62-107 s after the chat line). A quick failure
+# answers before this, so its failure line still replaces the model's line (single voice).
+ACCEPTED_AFTER_S = 2.0
 
 
 class BridgeClient(GameInterface):
@@ -60,6 +65,9 @@ class BridgeClient(GameInterface):
         self._started = None  # the body bridge's start epoch, from the last ping that carried one
         # L2(a): set by the agent: True for an event that must get the floor now (an addressed chat line)
         self.interrupt_check: Callable[[Event], bool] | None = None
+        # set by the agent: called once with (tool, request id) when a watched action has been accepted
+        self.on_long_action: Callable[[str, str], None] | None = None
+        self._announcing = False
         self._parked: dict[str, dict] = {}  # results that arrived while some request was reading
         self._progress: list[Event] = []  # progress events not yet handed to the listener
         self._listener: Callable[[Event], None] | None = None
@@ -141,6 +149,7 @@ class BridgeClient(GameInterface):
         # seen = 0: every event not yet polled counts, also one buffered just before this request started
         # (M1 2026-10-26 17:57:25/18:02:37: a line that arrived during the model call waited out a 70 s go_to)
         started0, seen, misses = self._started, 0, 0
+        accepted_at = time.monotonic() + ACCEPTED_AFTER_S if watch and self.on_long_action else None
         try:
             self.transport.send(msg)
             deadline = time.monotonic() + timeout
@@ -156,7 +165,10 @@ class BridgeClient(GameInterface):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
-                for incoming in self.transport.receive(min(remaining, HEARTBEAT_S) if watch else remaining):
+                wait = min(remaining, HEARTBEAT_S) if watch else remaining
+                if accepted_at is not None:
+                    wait = min(wait, max(0.0, accepted_at - time.monotonic()))
+                for incoming in self.transport.receive(wait):
                     self._dispatch(incoming)
                 self._drain_malformed()
                 if req_id not in self._parked:
@@ -170,6 +182,9 @@ class BridgeClient(GameInterface):
                     return fail(Reason.INTERRUPTED, tool=tool, id=req_id, by="chat",
                                 detail="the player spoke; the body may still be doing it")
                 seen = len(self._events)
+                if accepted_at is not None and time.monotonic() >= accepted_at:
+                    accepted_at = None
+                    self._accepted(tool, req_id)
                 # L2(b): bridge heartbeat: a restart or a dropped command fails the request at once
                 if time.monotonic() >= next_beat:
                     next_beat = time.monotonic() + HEARTBEAT_S
@@ -194,6 +209,9 @@ class BridgeClient(GameInterface):
                             act = beat.get("action") or {}
                             alive = act.get("id") == req_id or req_id in beat["waiters"]
                             misses = 0 if alive else misses + 1
+                            if alive and accepted_at is not None and req_id not in self._parked:
+                                accepted_at = None  # the body reports it working on it: accepted
+                                self._accepted(tool, req_id)
                             if misses >= LOST_AFTER_BEATS:
                                 self.log.log("bridge_command_lost", id=req_id, tool=tool, slot=act,
                                              waiters=beat["waiters"])
@@ -224,6 +242,18 @@ class BridgeClient(GameInterface):
         if data.get("started") is not None and self._started is None:
             self._started = data["started"]
         return data
+
+    def _accepted(self, tool: str, req_id: str) -> None:
+        """Tell the agent a watched action is under way (once; never from inside its own nested requests)."""
+        if self.on_long_action is None or self._announcing:
+            return
+        self._announcing = True
+        try:
+            self.on_long_action(tool, req_id)
+        except Exception as exc:  # a failed announcement never fails the action
+            self.log.log("long_action_hook_error", tool=tool, error=repr(exc))
+        finally:
+            self._announcing = False
 
     def _safe_check(self, ev: Event) -> bool:
         try:
