@@ -226,5 +226,21 @@ do
     hub.on = function(path, key, fn) G.hook = fn; return true end
 end
 
+-- V3: same short name, different objects -> not the same; V4: a job whose loop died releases its claim
+do
+    reset(); G.on_key = on_key; sync()
+    local a = proxy(R("DomConversationParticipant /Game/NPC.NPC_1.Participant_1"))
+    local b = proxy(R("DomConversationParticipant /Game/PC.PC_1.Participant_1"))
+    check("V3: same short name, different full names -> different", K._same(a, b) == false and K._same(a, proxy(R("DomConversationParticipant /Game/NPC.NPC_1.Participant_1"))) == true)
+    talk({})
+    G.on_key = function() end
+    local r = K.HANDLERS.talk(nil, { choose = 1 }, { id = "c" })
+    check("V4 setup: the job holds the claim", I.owner("conversation") ~= nil)
+    for k in pairs(loops) do loops[k] = nil end -- the bridge restarted: the frame loop is gone
+    T = T + 10
+    K.sweep_orphan()
+    check("V4: a stale job's claim is released", I.owner("conversation") == nil and K.status().job == nil)
+end
+
 print(string.format("test_talk_engine: %d passed, %d failed", pass, failn))
 if failn > 0 then os.exit(1) end

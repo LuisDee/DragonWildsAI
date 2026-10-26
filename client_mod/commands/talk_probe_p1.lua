@@ -40,6 +40,29 @@ return function(log)
         mapping = U.short(U.try(function() return panel.OptionSelectMappingContext end)),
     } or "none"
     out.input_mode = pc and U.short(U.try(function() return pc.CurrentInputMode end))
+    -- the panel's participant is OURS (full-name match: UObject wrappers never compare with ==)
+    if U.valid(panel) and U.valid(part) then
+        local pp = U.try(function() return panel.DomConversationParticipant end)
+        out.panel_participant_matches = U.fullname(pp) ~= nil and U.fullname(pp) == U.fullname(part)
+        out.panel_participant = U.fullname(pp)
+    end
+    out.participant_full = U.valid(part) and U.fullname(part) or nil
+    -- register the two count-only hooks talk.lua uses (review R6, P1): hookhub, paused-aware, never unregistered
+    local hub = B.API.module("hookhub")
+    out.hooks = {}
+    local k = rawget(_G, "DWTalkHook") or { count = 0 }
+    _G.DWTalkHook = k
+    if hub and hub.on then
+        for _, path in ipairs({ "/Script/CommonConversationRuntime.ConversationParticipantComponent:ClientUpdateConversation",
+                                "/Script/Dominion.PlayerConversationComponent:BP_HandleConversationUpdated" }) do
+            local ok, why = hub.on(path, "talk", function() local h = _G.DWTalkHook; h.count = h.count + 1 end, { log = log })
+            out.hooks[#out.hooks + 1] = { path = path, native = ok == true, why = why, hooked = hub.hooked and hub.hooked(path) or nil }
+        end
+        k.armed = true
+    else
+        out.hooks = "no hookhub"
+    end
+    out.hook_count = k.count
     local qc = pc and U.try(function() return pc.QuestProgressComponent end)
     out.quests = {}
     if U.valid(qc) then

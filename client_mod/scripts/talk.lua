@@ -227,7 +227,11 @@ function W.pawn(pc)
 end
 function W.pawn_id(pawn) return U.short(pawn) end
 function W.dead(pawn) return U.try(function() return pawn.HealthComponent:IsDead() end) == true end
-local function same(a, b) return a ~= nil and b ~= nil and U.short(a) ~= nil and U.short(a) == U.short(b) end -- R1
+local function same(a, b) -- R1 + V3: wrappers never compare with ==; the FULL name is exact (outer path included)
+    if a == nil or b == nil then return false end
+    local fa = U.fullname(a)
+    return fa ~= nil and fa == U.fullname(b)
+end
 M._same = same
 local function each(arr, fn, cap)
     if paused() or not arr then return end
@@ -671,6 +675,7 @@ function M.start(log, args, ctx)
     if not pawn then return bad("companion_down", "no_pawn") end
     pcall(W.arm_hook, log)
     local now = W.now(pawn)
+    M.reap_stale(now)
     local sc = W.scalars(pc)
     local note = conv_check(pc, sc, now)
     local has_target = type(args.target) == "string" and args.target ~= ""
@@ -779,6 +784,23 @@ end
 -- Finding 9: a conversation nobody owns (no talk conversation recorded, another NPC, or no talk call for
 -- abandon_s) is closed with the panel's own Cancel, at most cfg.cancels times (read back between), then reported
 -- stuck. Called by input.lua's sweep for the "conversation" modal and at the start of every talk call.
+-- V4: a job whose frame loop stopped ticking (a bridge restart, a reload mid-job) still holds the claim; after
+-- stale_s without a frame it is dropped, its claim released (Lua only).
+M.cfg.stale_s = 5
+function M.reap_stale(now)
+    local c = C()
+    local J = c.job
+    if J and not J.done and type(now) == "number" and type(J.t) == "number" and now - J.t > M.cfg.stale_s then
+        J.done = true
+        J.result = { ok = false, reason = "interrupted", data = { why = "stale_job", detail = "My last conversation step stopped half-way." } }
+        c.job = nil
+        W.release()
+        return true
+    end
+    if not c.job and c.claimed then W.release(); return true end
+    return false
+end
+
 function M.sweep_orphan(log)
     if paused() then return { ok = true, skipped = "paused" } end
     local c = C()
@@ -788,6 +810,7 @@ function M.sweep_orphan(log)
     if not pawn then return { ok = true, skipped = "no pawn" } end
     local now = W.now(pawn)
     if type(now) ~= "number" then return { ok = true, skipped = "no clock" } end -- R3: never mix clocks
+    M.reap_stale(now)
     local sc = W.scalars(pc)
     if not sc.active then c.orphan = nil; return { ok = true, state = "none" } end
     local cv = c.conv
