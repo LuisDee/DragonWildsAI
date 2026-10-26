@@ -792,5 +792,33 @@ do
     check("no spell names in code", #named == 0, named[1])
 end
 
+-- get_state.spells extras: unlocked spells with school, castable, runes needed / short (cached)
+do
+    reset({ unlocked = { WINDSTEP, SHELTER }, wheel = { "USD_Windstep" }, items = { [AIR] = 3, [AST] = 500, [EARTH] = 500 } })
+    SP.mem().extras = nil
+    local api = { now = function() return 100 end, fail = function(r, d) return { ok = false, reason = r, data = d } end }
+    local ex = SP.state_extras(api)
+    local by = {}
+    for _, r in ipairs(ex.spells or {}) do by[r.name] = r end
+    check("extras: unlocked spells listed", by.Windstep and by["Summon Shelter"] and #ex.spells == 2, ex.spells and #ex.spells)
+    check("extras: school from the unlocking perk", by.Windstep.school == "Agility" and by["Summon Shelter"].school == "Construction")
+    check("extras: not castable with the reason and the runes short", by.Windstep.castable == false and by.Windstep.reason == "not_enough_resources"
+          and by.Windstep.runes_short and by.Windstep.runes_short["Air Rune"] == 2, by.Windstep.reason)
+    check("extras: runes needed listed", by["Summon Shelter"].runes and by["Summon Shelter"].runes["Earth Rune"] == 10)
+    check("extras: a spell off the wheel is not castable", by["Summon Shelter"].castable == false and by["Summon Shelter"].reason == "not_on_wheel")
+    G.items[AIR] = 821
+    local cached
+    for _, r in ipairs(SP.state_extras(api).spells) do if r.name == "Windstep" then cached = r end end
+    check("extras: cached within the ttl (still the old read)", cached and cached.castable == false)
+    local api2 = { now = function() return 200 end }
+    local ex2 = SP.state_extras(api2)
+    local w2
+    for _, r in ipairs(ex2.spells) do if r.name == "Windstep" then w2 = r end end
+    check("extras: refreshed after the ttl (now castable)", w2 and w2.castable == true, w2 and w2.reason)
+    _G.DW_PAUSE = true
+    check("extras: nothing while paused", next(SP.state_extras(api2)) == nil)
+    _G.DW_PAUSE = nil
+end
+
 print(string.format("test_spells: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

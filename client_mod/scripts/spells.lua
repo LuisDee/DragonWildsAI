@@ -1648,6 +1648,35 @@ end
 
 M.NEEDS = { cast = { { "sense", "local_pc" }, { "sense", "local_pawn" }, { "sense", "census" } },
             spells = { { "sense", "local_pc" }, { "sense", "local_pawn" } } }
+-- get_state extras (Director's board `spell` leaf; read only, cached cfg.extras_ttl_s): the UNLOCKED spells with
+-- school (the skill whose perk unlocks it), castable now, why not, and runes needed vs carried.
+M.cfg.extras_ttl_s = M.cfg.extras_ttl_s or 5
+function M.state_extras(api)
+    if paused() or not api then return {} end
+    local m = mem()
+    local now = (api.now and api.now()) or os.time()
+    if m.extras and m.extras_at and now - m.extras_at >= 0 and now - m.extras_at < M.cfg.extras_ttl_s then return m.extras end
+    local ok, snap = pcall(W.snapshot, api)
+    if not ok or not snap then return {} end
+    local okr, rows = pcall(rows_of, api, snap, false)
+    if not okr then return {} end
+    local out = {}
+    for _, r in ipairs(rows or {}) do
+        if r.unlocked then
+            local st = W.static(snap.objects[r.id]) or {}
+            local runes, short = {}, nil
+            for _, c in ipairs(r.cost or {}) do
+                runes[tostring(c.name or c.item)] = c.count
+                if (c.have or 0) < (c.count or 0) then short = short or {}; short[tostring(c.name or c.item)] = c.count - (c.have or 0) end
+            end
+            out[#out + 1] = { id = r.id, name = r.name, school = st.perk and st.perk.skill_name or nil, castable = r.castable == true,
+                              reason = (not r.castable) and r.reason or nil, runes = next(runes) and runes or nil, runes_short = short }
+        end
+    end
+    m.extras, m.extras_at = { spells = out }, now
+    return m.extras
+end
+
 M.HANDLERS = {
     spells = function(log, args, ctx)
         local api = ctx and ctx.api
