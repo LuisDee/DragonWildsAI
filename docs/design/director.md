@@ -567,3 +567,35 @@ To abort: `tools/board.py cancel <id>` and pause the board through chat. If need
 **Amendment (2026-10-26):** the dev world may have no player to chat with or deliver to. Then the CLI path is the main test, with a job that needs no player: `tools/board.py add "chop 5 ash logs, then drop them on the ground next to you" --world dev_director`. It needs two tools, and its success is checkable from his own state: logs gained, then `lost` + `on_ground` near himself. The chat path (a) runs only if a dev player is online. Also expect the Wooden Shield prerequisite case (Luis, M1/M2) as a follow-up smoke once a Crafting Table exists on dev.
 
 **Evidence:** the brain log path, the goals.json snapshot, `tools/board.py list --json`, `tools/board.py gaps`, `tools/timeline.py` over the window, and the spend delta. File the results in DISCOVERIES ("Director live smoke (dev)") and PROGRESS.
+
+## 15. Live verification order for the 12 skill routes (M3; ready for when the client is back)
+
+This proves each route that the mock passes (tests/test_director_skills.py) on the real body, on dev only.
+
+**Method:**
+- One debug call per skill through the bridge (no model): read `get_state.skills` before and after.
+- **Pass** = that skill's `xp` rose by more than 0, by the body's own skill state (`skill_gain {name, xp: 1}`), and the tool answered `ok`.
+- Record each result in DISCOVERIES.
+
+**Order:** cheapest and least risky first. Each row lists the precondition he must meet first.
+
+| # | Skill | Call | Precondition | Risk / unknown |
+|---|---|---|---|---|
+| 1 | Woodcutting | `gather {resource: ash, count: 2}` | an axe; ash in reach | none (proven live) |
+| 2 | Mining | `gather {resource: stone, count: 2}` | a pickaxe; a boulder near | none (stone tier 1) |
+| 3 | Agility | `agility_course {}` (after `agility_courses`) | a course near, level ≥ its minimum | can it run a course |
+| 4 | Fishing | `fish {count: 1}` (after `fishing_spots`) | a net or rod that fits the spot | spot and tool fit |
+| 5 | Cooking | `craft {item: <a cooked food>}` at a Campfire | raw food carried; a lit campfire | campfire fuel |
+| 6 | Artisan | `craft {item: <cheapest>}` at a CraftingTable | inputs from `recipes` | none (craft proven) |
+| 7 | Attack | `attack {target: <weak creature>}` with a melee weapon | a low-power creature | a fight (immortal off on R2: HP watch) |
+| 8 | Construction | `build {piece: Campfire}` | 6 stone | build ships with a bridge_start |
+| 9 | Farming | `farm_plots` → `tend {item: <spade>}` on a plot | a plot (weeds, so dig first) and a spade | plot ownership |
+| 10 | Magic | `cast {spell: <combat spell>, target}`, or attack with a staff | runes; a target | whether utility casts give XP; runes |
+| 11 | Ranged | `attack {target, weapon: <bow>}` | a bow AND ammo (Sonnet's plan crafts arrows first) | ammo use, aim |
+| 12 | Runecrafting | `craft {item: Air Rune}` at a RuneAltar | Rune Essence; an altar in reach | **does craft drive the altar** (asked of the skills agent) |
+
+**Stop rules:**
+- Stop if health drops below 50% in rows 7, 10 or 11.
+- Stop and log a gap on any `not_implemented`, `unknown_tool` or `verification_failed`. The Director then names it as a gap (test_m3_a_lagging_skill_without_a_body_tool_is_a_named_gap_not_fake_progress).
+
+**After the routes:** one real-model run of an m3 `_initiative` case per skill that fails or is untested, with ≤ 10 Sonnet requests per batch.
