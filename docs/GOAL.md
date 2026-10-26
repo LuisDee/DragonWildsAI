@@ -48,6 +48,15 @@ Scoring world: the dev server (real game build, real client and server) with a d
 6. **Re-measure.** Keep the change only if its target metric improves and nothing else regresses; otherwise revert.
 7. **Persist.** Commit; update BUGS, PROGRESS, DISCOVERIES and the scoreboard.
 
+## 2b. Never idle (Luis, 2026-10-26)
+- If blocked on a decision from Luis, park ONLY what depends on it and keep everything else going. Never wait doing nothing. Questions go in plain text; never use a blocking prompt during /goal.
+- Parallelise: start agents on independent tasks in advance. Never run things one after another unless they truly depend on each other.
+- Spot bugs as you go and fix them as you go (BUGS.md row plus a regression test).
+- Search before building anything that needs thought: how others solved the same problem and the idiomatic approach.
+- Run /simplify after every large chunk of work, so the code stays clean, reusable and scalable.
+- Agents have standing approval for tested deploys (with the guards on) and in-budget measurements, so they never wait on main.
+- A 2-hourly cadence check answers waiting agents and starts measurements whenever the client has been idle.
+
 ## 3. Rules that prevent dead ends and fake progress
 - **Progress check:** if no target metric improves for 3 cycles, stop that line. Write a dead-end note (what was tried, the evidence), search for a different approach, and if that also stalls, ask Luis.
 - **Time box per bug:** 2 failed fixes → re-research and redesign; 3 → park it with evidence and move to the next cluster.
