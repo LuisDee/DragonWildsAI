@@ -83,7 +83,7 @@
           "kind": "recall_return",
           "within_m": 3.0,
           "observable": "probe+harness",
-          "why": "cast_type AllowMovementThenCastInstant, ExpireAfterDuration 1 s, ADominionPlayerCharacter:GetRecallSpellState: he is returned to where the spell was started after moving; needs the harness to move him between start and expiry (not built: a gap)"
+          "why": "two casts (wiki 'Recall' (data/wiki/pages/18010.json): \"summon and teleport back to a runic marker\"; metaforge: \"place a temporary beacon... return to it within a limited time\" (Luis, 2026-10-26)): the T0 setup has the body cast Recall once (the beacon) and walks him 8 m away; the case is HIS second cast, and the proof is that he ends within 3 m of the beacon after it. Cooldown 75 s in the data: assumed to start after the return, not after the beacon (unverified: a blocked second cast reads as a fail with the body's reason)"
         }
       ]
     },

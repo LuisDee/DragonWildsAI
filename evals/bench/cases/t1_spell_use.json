@@ -2516,7 +2516,7 @@
    "chat": [
     {
      "at_s": 0.0,
-     "text": "<phrase the need: he must leave this exact spot for a short errand and come straight back to it afterwards>",
+     "text": "<phrase the need: he must leave this exact spot for a short errand and come straight back to it afterwards (it takes two uses: the first marks the spot, the second, within a time limit, brings him back)>",
      "from": "player"
     }
    ],
@@ -2580,7 +2580,7 @@
    "oracle": {},
    "provenance": {
     "by": "generator.use_cases",
-    "situation": "he must leave this exact spot for a short errand and come straight back to it afterwards",
+    "situation": "he must leave this exact spot for a short errand and come straight back to it afterwards (it takes two uses: the first marks the spot, the second, within a time limit, brings him back)",
     "gap": null
    },
    "heldout": false,

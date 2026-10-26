@@ -233,3 +233,18 @@ def test_damaged_items_are_granted_below_full_durability(tmp_path):
     assert calls[-1]["durability_pct"] == 40.0
     t.setup("grant", item="ITEM_Sword_Bronze", count=1)
     assert "durability_pct" not in calls[-1]
+
+
+def test_recall_beacon_is_the_bodys_first_cast_then_a_walk_and_his_second_cast_is_scored(tmp_path):
+    """Recall = two casts (wiki 18010, Luis 2026-10-26): setup places the beacon and walks him away; the case is his
+    own second cast, and the observation carries the beacon for recall_return."""
+    t, _ = make(tmp_path)
+    pos = iter([[0.0, 0.0, 0.0], [8.0, 0.0, 0.0]])
+    t.probe = lambda: {"position": next(pos)}
+    seen = []
+    t.body_call = lambda tool, args: seen.append((tool, args)) or {"ok": True}
+    res = t.setup("recall_beacon", spell="Recall", offset_m=[8, 0, 0])
+    assert seen == [("cast", {"spell": "Recall"}), ("go_to", {"target": [8.0, 0.0, 0.0]})] and res["beacon"] == [0.0, 0.0, 0.0]
+    assert t.harness_after("cast", {"spell": "Windstep"}, {}, {}) is None
+    h = t.harness_after("cast", {"spell": "Recall"}, {}, {})
+    assert h == {"after_cast_move": {"start": [0.0, 0.0, 0.0], "mid": [8.0, 0.0, 0.0]}}

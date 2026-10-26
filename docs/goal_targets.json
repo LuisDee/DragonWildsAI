@@ -189,7 +189,7 @@
     },
     "_note": "pinned 2026-10-26 under Luis's standing yes (evals/bench/goal_drafts.py write): every main-variant case that lints clean as a suite case; quick twins never"
   },
-  "judge_tag": "goal-judge-20261026d",
+  "judge_tag": "goal-judge-20261026e",
   "final_gate": "Luis sign-off after goal_check prints GOAL MET",
   "capstone": {
     "brynmoor_progression": "advance through Brynmoor's progression himself, guided by the wiki (quests, gear tiers, skill gates); each stage is a pinned case",

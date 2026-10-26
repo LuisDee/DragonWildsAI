@@ -166,7 +166,7 @@ def _effect(e: dict, o, target: Any, ctx: dict | None = None) -> bool | None:
         seen = [x for x in (ctx or {}).get("referee") or [] if x.get("kind") == "dash" and x.get("phase")
                 and x.get("who") == "self" and float(x.get("t", 0)) >= o.wall0 - 1]
         return True if seen else (None if hyp else False)  # verified live 2026-10-26: absence now counts
-    if k == "recall_return":  # the harness walked him away after the cast; Recall must bring him back to the start
+    if k == "recall_return":  # beacon at `start` (setup cast), walked to `mid`; HIS cast must bring him back to the beacon
         h = (a.get("harness") or {}).get("after_cast_move")
         if not isinstance(h, dict) or not h.get("start") or not h.get("mid") or not a.get("position"):
             return None

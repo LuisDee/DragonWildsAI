@@ -151,9 +151,10 @@ def t0_cases(spells: dict | None = None, catalog: dict | None = None) -> tuple[l
             setup.append({"verb": "scene", "as": "tgt", "needs": "standing_trees",
                           "purpose": "standing trees in front, >= 40 m from a lodestone"})
         oracle = [{"tool": "cast", "args": args}]
-        if sp.get("cast_type") == "instant_after_move":  # Recall: the harness walks him away right after the cast
-            setup.append({"verb": "after_cast_move", "spell": name, "offset_m": [8, 0, 0], "wait_s": 6,
-                          "purpose": "harness motion between the cast and its expiry (walking)"})
+        if sp.get("cast_type") == "instant_after_move":  # Recall: beacon (setup cast) -> walk away -> HIS cast returns
+            setup.append({"verb": "recall_beacon", "spell": name, "offset_m": [8, 0, 0],
+                          "purpose": "Recall's first cast places the beacon (the body's own cast), then he walks 8 m away; "
+                                     "the case is his second cast"})
         mock_oracle = oracle
         if any(st.get("verb") == "scene" and st.get("as") == "tgt" for st in setup):  # mock aims at its tree; dev: the body picks
             mock_oracle = [{"tool": "cast", "args": {**args, "target": "$tgt.id"}}]

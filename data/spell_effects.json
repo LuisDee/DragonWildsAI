@@ -1,7 +1,7 @@
 {
  "version": 1,
  "build": "26161880",
- "generated_at": "2026-10-26T09:01:16Z",
+ "generated_at": "2026-10-26T16:54:25Z",
  "source": [
   "data/spells_26161880.json",
   "tools/gen_spell_effects.py LIVE (DISCOVERIES 'Client spells (R2)')",
@@ -2773,7 +2773,7 @@
    "purposes": [
     {
      "id": "return_to_spot",
-     "situation": "he must leave this exact spot for a short errand and come straight back to it afterwards",
+     "situation": "he must leave this exact spot for a short errand and come straight back to it afterwards (it takes two uses: the first marks the spot, the second, within a time limit, brings him back)",
      "world": {
       "needs": [
        {
@@ -2793,7 +2793,13 @@
      "observable": "state",
      "confidence": "data",
      "source": "description",
-     "for": "returning to a marked spot"
+     "for": "returning to a marked spot",
+     "mechanics": {
+      "casts": 2,
+      "first": "places the beacon",
+      "second": "teleports him back to it (within a limited time)",
+      "source": "wiki 'Recall' (data/wiki/pages/18010.json): \"summon and teleport back to a runic marker\"; metaforge: \"place a temporary beacon... return to it within a limited time\" (Luis, 2026-10-26)"
+     }
     }
    ],
    "for": "returning to a marked spot",

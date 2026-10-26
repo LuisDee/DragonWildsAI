@@ -3218,15 +3218,14 @@
       }
      },
      {
-      "verb": "after_cast_move",
+      "verb": "recall_beacon",
       "spell": "Recall",
       "offset_m": [
        8,
        0,
        0
       ],
-      "wait_s": 6,
-      "purpose": "harness motion between the cast and its expiry (walking)"
+      "purpose": "Recall's first cast places the beacon (the body's own cast), then he walks 8 m away; the case is his second cast"
      }
     ],
     "scene": {},
