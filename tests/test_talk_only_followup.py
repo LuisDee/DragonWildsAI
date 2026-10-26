@@ -95,3 +95,26 @@ def test_the_first_turn_check_is_not_doubled(tmp_path):
     r.at(0).step()
     assert r.body.said == ["not bad, you?"] and len(r.model.calls) == 2
     assert r.records("talk_only_check") == []
+
+
+def test_a_correction_without_a_call_replaces_a_line_it_cannot_back_up(tmp_path):
+    """Voice eval v2: a line the model can't back up (no tool or target for it) gets the model's own
+    correction, saying what's stopping it, instead of standing unbacked."""
+    r = _rig(tmp_path)
+    r.model.turns = [FakeLLM.say("walking to a fire now"), FakeLLM.say("can't see a fire anywhere, got any cooked food?")]
+    _run(r)
+    assert r.body.said == ["can't see a fire anywhere, got any cooked food?"]
+    assert [c[0] for c in r.body.calls] == ["interact"]
+    assert "what's stopping you" in TALK_ONLY_NOTE
+
+
+def test_turn_zero_promise_note_offers_the_honest_out_and_its_line_is_said(tmp_path):
+    from brain.agent import PROMISE_NOTE
+    r = Replay(tmp_path, STATES[5], tools=TOOLS)
+    r.model.replies["get some sleep"] = FakeLLM.say("heading to a flat spot for the shelter")
+    r.model.turns = [FakeLLM.say("actually can't pick a flat spot from here, no ground info")]
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude get some sleep"})
+    r.at(0).step()
+    assert PROMISE_NOTE in _notes(r) and "what's stopping you" in PROMISE_NOTE
+    assert r.body.said == ["heading to a flat spot for the shelter",
+                           "actually can't pick a flat spot from here, no ground info"]

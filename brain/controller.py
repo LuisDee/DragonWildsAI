@@ -127,8 +127,10 @@ can't sense that. reflex_rules lists the current orders; list_rules and clear_ru
 # gets ONE more model call before its line is said, to call what the line says it will do. Decided on the
 # reply's shape (text, no tool call), never on its words, like a stop hook that sends the model back once.
 TALK_ONLY_NOTE = ("You replied without calling any tool, and nothing has been said yet. If your line says you "
-                  "will do something now, or that you are doing it, call the tool(s) for it now, in order (keep "
-                  "or reword the line). Otherwise reply with no text at all and your line is said as it is.")
+                  "will do something, or that you are doing it, call the tool(s) for it now, in order (keep or "
+                  "reword the line). If you can't do it now (no tool or target for it, or something is missing), "
+                  "reply with the corrected line saying what's stopping you, and no tool call. Otherwise reply "
+                  "with no text at all and your line is said as it is.")
 
 LOOK_RULE = (": situation is only a short summary and misses many things (sticks, stones, plants, chests, "
              "stations). ALWAYS call look with about=<their words> first, before acting or saying you can't see it "
@@ -578,8 +580,9 @@ class Controller:
 
     def _talk_only_check(self, msgs: list[dict], d: Decision, speech: str) -> tuple[LLMResponse, list[dict], str]:
         """A follow-up turn that only talked (its line not yet said): the model gets one more call to add
-        the tool calls its line implies. Calls -> they run with its (possibly reworded) line; no calls ->
-        the original line stands. Information only: the model's reply is used as it is, never rewritten.
+        the tool calls its line implies. Calls -> they run with its (possibly reworded) line; a new line and
+        no calls -> its correction is said instead (it can't do what it first said); an empty reply -> the
+        original line stands. Information only: the model's own reply is used, never rewritten.
         The agent's first-turn check (agent.PROMISE_NOTE, passed as ``note``) is never doubled."""
         try:
             resp, out = self._loop(msgs + [{"role": "user", "content": TALK_ONLY_NOTE}], d, label="check")
@@ -587,10 +590,11 @@ class Controller:
             self.log.log("talk_only_check", speech=speech, error=repr(exc))
             return LLMResponse(content=speech), msgs, speech
         calls = [c.name for c in resp.tool_calls]
-        self.log.log("talk_only_check", speech=speech, actions=calls, reworded=strip_markers(resp.content))
-        if not resp.tool_calls:
+        reworded = strip_markers(resp.content)
+        self.log.log("talk_only_check", speech=speech, actions=calls, reworded=reworded)
+        if not resp.tool_calls and not reworded:
             return LLMResponse(content=speech), msgs, speech
-        return resp, out + [assistant_message(resp)], strip_markers(resp.content) or speech
+        return resp, out + [assistant_message(resp)], reworded or speech
 
     def _read(self, call: ToolCall, d: Decision) -> dict:
         """Run one read-only tool (no interrupt, no task) and return a compact result for the model."""

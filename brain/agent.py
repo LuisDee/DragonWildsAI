@@ -39,8 +39,14 @@ MAX_TURNS = 4
 ANNOUNCE_FIRST = {"go_to", "come_to", *LONG_ACTIONS}
 # A turn of only these is a standing behaviour, not a step of a plan: no continuation turn.
 STANDING = {"follow", "stop"}
-PROMISE_NOTE = ("You replied without calling any tool. If your reply says you will do something now, call the "
-                "tool(s) for it now, in order. Otherwise reply with no text at all.")
+# Voice eval v2 (2026-10-26): the old note offered only "call it" or "say nothing", so a line the model
+# could not back up (no tool or target for it, e.g. a walk to a spot it can't name) was left standing
+# with no reason. It now also covers "I'm doing X" claims and has an honest third option (Anthropic,
+# reduce-hallucinations: give the model an explicit out), per Luis's "say what you can't do and why".
+PROMISE_NOTE = ("You replied without calling any tool. That line has been said. If it says you will do "
+                "something, or that you are doing it, call the tool(s) for it now, in order. If you can't do it "
+                "now (no tool or target for it, or something is missing), say in a few words what's stopping you. "
+                "Otherwise (you only answered or asked something) reply with no text at all.")
 # Body situations (unreachable, resumed, vitals_low) are triaged by broker.EventBroker and phrased by
 # the Controller model; broker.fallback_line is the template safety net (streamline step 3).
 
