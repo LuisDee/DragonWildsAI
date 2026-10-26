@@ -78,18 +78,37 @@ def stop_brain(p: subprocess.Popen) -> None:
     p.wait(timeout=30)
 
 
-def wait_brain_up(since: float, timeout: float = 120) -> bool:
-    """A new brain-live log with a session_start row after ``since``."""
+def brain_started(lines, since: float) -> bool:
+    """A brain run is up once its log has, after ``since``, the bridge answering its ping (bridge_recv pong) or a
+    model prompt. (Brain-live logs have no session_start row early on: the first rows are bridge traffic.)"""
+    for line in lines:
+        try:
+            r = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(r, dict) or float(r.get("ts") or 0) < since:
+            continue
+        msg = r.get("msg") if isinstance(r.get("msg"), dict) else {}
+        if r.get("kind") == "bridge_recv" and (msg.get("data") or {}).get("pong") is True:
+            return True
+        if r.get("kind") == "prompt":
+            return True
+    return False
+
+
+def wait_brain_up(since: float, timeout: float = 180) -> bool:
     end = time.time() + timeout
     while time.time() < end:
         for f in paths.log_dir().glob("brain-live-*.jsonl"):
-            if f.stat().st_mtime >= since and '"session_start"' in f.read_text(encoding="utf-8", errors="replace")[:20000]:
-                return True
+            if f.stat().st_mtime >= since:
+                with open(f, encoding="utf-8", errors="replace") as fh:
+                    if brain_started(fh, since):
+                        return True
         time.sleep(3)
     return False
 
 
-def preflight() -> str | None:
+def preflight(jobs: bool = True) -> str | None:
     if not ms.client_ping():
         return "client bridge does not answer"
     if sh("tools.bridge_cmd", "ping", "--body", "server", "--timeout", "10").returncode != 0:
@@ -99,7 +118,7 @@ def preflight() -> str | None:
     ms.write({"kind": "prove", "out": (r.stdout or r.stderr)[-1500:]})
     if '"pass": true' not in r.stdout.replace("'", '"'):
         return "speech_direct prove did not pass"
-    for j in JOBS:
+    for j in (JOBS if jobs else []):
         sh("tools.board", "add", j, "--world", WORLD)
     return None
 
@@ -110,6 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--block-min", type=float, default=30)
     ap.add_argument("--per-hour", type=int, default=30)
     ap.add_argument("--dry", action="store_true", help="print the plan only")
+    ap.add_argument("--no-jobs", action="store_true", help="don't queue the board jobs (already queued)")
     a = ap.parse_args(argv)
     blocks = [b.strip() for b in a.blocks.split(",") if b.strip()]
     total = len(blocks) * a.block_min + 20
@@ -120,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
     wait_for_slot(total)
     brain = None
     try:
-        why = preflight()
+        why = preflight(jobs=not a.no_jobs)
         if why:
             say(f"STOP preflight: {why}")
             return 3

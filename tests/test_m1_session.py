@@ -76,3 +76,19 @@ def test_proof_run_records_its_checks(tmp_path, monkeypatch):
     assert m.main(["proof", "--confirm"]) == 0
     row = [r for r in m.rows() if r["kind"] == "proof"][-1]
     assert row["passed"] and len(row["pings"]) == m.HEALTH_WATCH_S // m.HEALTH_EVERY_S
+
+
+def test_m1_run_detects_a_real_brain_start():
+    import json as _j
+    from tools import m1_run
+    pong = _j.dumps({"ts": 105.0, "kind": "bridge_recv", "msg": {"data": {"pong": True}, "ok": True}})
+    other = _j.dumps({"ts": 106.0, "kind": "foliage"})
+    old = _j.dumps({"ts": 50.0, "kind": "prompt"})
+    assert m1_run.brain_started([other, pong], since=100.0)
+    assert m1_run.brain_started([_j.dumps({"ts": 101.0, "kind": "prompt"})], since=100.0)
+    assert not m1_run.brain_started([old, other, "not json"], since=100.0)
+    live = open(next(iter(sorted(__import__("pathlib").Path("logs").glob("brain-live-20261026-171238-*.jsonl")))), encoding="utf-8") \
+        if list(__import__("pathlib").Path("logs").glob("brain-live-20261026-171238-*.jsonl")) else None
+    if live:  # the 17:12:38 run the old check missed
+        with live:
+            assert m1_run.brain_started(live, since=1793031150.0)
