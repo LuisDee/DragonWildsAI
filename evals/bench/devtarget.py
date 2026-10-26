@@ -364,6 +364,13 @@ class DevTarget:
                 break
             time.sleep(1.5)
             res = ((self.server_debug(args).get("data") or {}).get("result")) or {}
+        if verb == "raise_skills" and a.get("best_effort") and not res.get("ok"):
+            rs = res.get("results") or {}
+            stuck = sorted(k for k, v in rs.items() if not (v or {}).get("ok") and (v or {}).get("error") == "no_xp_from_event")
+            if stuck and all((v or {}).get("ok") or k in stuck for k, v in rs.items()):
+                # live 2026-10-26: no known XP row raises Magic/Agility by fixture; the scene is still set, and the
+                # case records which skills could not be raised (they stay at their fresh level)
+                res = {**res, "ok": True, "unraisable": stuck}
         if verb == "raise_skills" and a.get("except") and a["except"] in (res.get("results") or {}):
             res = {"ok": False, "error": f"raise_skills touched the target skill {a['except']}"}  # main's condition
         self._log_setup(verb, a, purpose, res)

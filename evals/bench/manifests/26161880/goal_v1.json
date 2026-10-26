@@ -65,7 +65,7 @@
    },
    {
     "id": "m3_agility_initiative",
-    "hash": "dbe78c276203ad5f"
+    "hash": "bc538060a0a6e568"
    },
    {
     "id": "m3_agility_plus5",
@@ -77,7 +77,7 @@
    },
    {
     "id": "m3_artisan_initiative",
-    "hash": "bbc929bb445dac44"
+    "hash": "2a870bbd34f22dee"
    },
    {
     "id": "m3_artisan_plus5",
@@ -89,7 +89,7 @@
    },
    {
     "id": "m3_attack_initiative",
-    "hash": "764a89dbc53a9afb"
+    "hash": "3791b761350e4517"
    },
    {
     "id": "m3_attack_plus5",
@@ -101,7 +101,7 @@
    },
    {
     "id": "m3_construction_initiative",
-    "hash": "e9d90cedf5d26549"
+    "hash": "3872c64c02c1244a"
    },
    {
     "id": "m3_construction_plus5",
@@ -113,7 +113,7 @@
    },
    {
     "id": "m3_cooking_initiative",
-    "hash": "dee40367cf1fb54b"
+    "hash": "a9a1802e5e16c030"
    },
    {
     "id": "m3_cooking_plus5",
@@ -125,7 +125,7 @@
    },
    {
     "id": "m3_farming_initiative",
-    "hash": "ad408874d065e498"
+    "hash": "c7efac6cf51fbdb9"
    },
    {
     "id": "m3_farming_plus5",
@@ -137,7 +137,7 @@
    },
    {
     "id": "m3_fishing_initiative",
-    "hash": "0452da3641d1cc8e"
+    "hash": "5764b9b5de12eb47"
    },
    {
     "id": "m3_fishing_plus5",
@@ -149,7 +149,7 @@
    },
    {
     "id": "m3_magic_initiative",
-    "hash": "56896062e69240ff"
+    "hash": "3d89940fed82bb49"
    },
    {
     "id": "m3_magic_plus5",
@@ -161,7 +161,7 @@
    },
    {
     "id": "m3_mining_initiative",
-    "hash": "1539da4f33eff115"
+    "hash": "4de31f156aa2208b"
    },
    {
     "id": "m3_mining_plus5",
@@ -173,7 +173,7 @@
    },
    {
     "id": "m3_ranged_initiative",
-    "hash": "49dc283e3d07ed99"
+    "hash": "4111e9daa348fefa"
    },
    {
     "id": "m3_ranged_plus5",
@@ -185,7 +185,7 @@
    },
    {
     "id": "m3_runecrafting_initiative",
-    "hash": "50e25ba9fc713905"
+    "hash": "b7844252877c5913"
    },
    {
     "id": "m3_runecrafting_plus5",
@@ -197,7 +197,7 @@
    },
    {
     "id": "m3_woodcutting_initiative",
-    "hash": "c08890a291026bc0"
+    "hash": "96cf85c0b1b521fe"
    },
    {
     "id": "m3_woodcutting_plus5",

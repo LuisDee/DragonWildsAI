@@ -136,16 +136,29 @@ local function component_of(actor, cls)
         if U.try(function() return c:GetOwner() end) == actor then return c end
     end
 end
+local function magic_component(target)  -- the component may be owned by the pawn or by its controller
+    local c = component_of(target, "PlayerMagicComponent")
+    if c then return c end
+    local pc = U.try(function() return target.Controller end)
+    return U.valid(pc) and component_of(pc, "PlayerMagicComponent") or nil
+end
+-- each entry: candidate row handles in order; a candidate that gave no XP in 3 calls is skipped (live 2026-10-26:
+-- Magic SpellDamageXpEvent and Agility SprintXpEvent gave nothing on a fresh character)
 local XP_SOURCES = {
-    Magic = function(target)  -- UPlayerMagicComponent.SpellDamageXpEvent
-        local c = component_of(target, "PlayerMagicComponent")
-        return c and U.try(function() return c.SpellDamageXpEvent end)
+    Magic = function(target, n)
+        local c = magic_component(target)
+        local cands = { function() return c and c.SpellDamageXpEvent end }
+        return cands[n] and U.try(cands[n]) or nil
     end,
-    Agility = function(target)  -- ADominionPlayerCharacter.SprintComponent -> USprintComponent.SprintXpEvent
-        local c = U.try(function() return target.SprintComponent end)
-        return U.valid(c) and U.try(function() return c.SprintXpEvent end) or nil
+    Agility = function(target, n)
+        local cands = {
+            function() return target.WindstepXPEvent end,  -- ADominionPlayerCharacter.WindstepXPEvent
+            function() local c = target.SprintComponent; return c and c.SprintXpEvent end,
+        }
+        return cands[n] and U.try(cands[n]) or nil
     end,
-    Fishing = function()  -- UCatchableFishSpeciesData.Info.NormalDrop.OnFishingXpEvent (any loaded species)
+    Fishing = function(_, n)  -- UCatchableFishSpeciesData.Info.NormalDrop.OnFishingXpEvent (any loaded species)
+        if n > 1 then return nil end
         local d = U.find_all("CatchableFishSpeciesData", { skip_defaults = true })[1]
         return d and U.try(function() return d.Info.NormalDrop.OnFishingXpEvent end)
     end,
@@ -177,7 +190,12 @@ local function raise_skills(target, args)
             if prev and prev.added and r.xp and prev.xp and r.xp > prev.xp then prev.ratio = (r.xp - prev.xp) / prev.added end
             if not res.ok then
                 local src = XP_SOURCES[r.name]
-                local handle = (src and src(target)) or U.try(function() return d.DamageXPEvent end)
+                local cand = (prev and prev.cand) or 1
+                if prev and prev.added and r.xp == prev.xp and (prev.calls or 0) >= 3 and src then
+                    cand = cand + 1  -- this candidate gave nothing: the next one
+                    prev = { cand = cand }
+                end
+                local handle = (src and src(target, cand)) or (cand == 1 and U.try(function() return d.DamageXPEvent end)) or nil
                 res.source = src and "skill_specific" or "DamageXPEvent"
                 local need = U.try(function() return sk:GetTotalXPNeededForLevel(want) end)
                 res.need_total = need
@@ -185,11 +203,12 @@ local function raise_skills(target, args)
                 if not mult and need and r.xp then
                     local gap = need - r.xp
                     local ratio = prev and prev.ratio
-                    mult = math.max(1, math.ceil(ratio and (gap * 0.97 / ratio) or (gap * 0.25)))
+                    -- first call: a small probe step (XP per unit differs a lot: Attack ~0.8, Mining ~3, Fishing ~8)
+                    mult = math.max(1, math.ceil(ratio and (gap * 0.97 / ratio) or (gap * 0.03)))
                     res.ratio = ratio
                 end
-                if prev and prev.added and r.xp == prev.xp and (prev.calls or 0) >= 3 then
-                    res.error = "no_xp_from_event"  -- three calls, no XP: this row gives this skill nothing
+                if not handle and src then
+                    res.error = "no_xp_from_event"  -- every candidate row gave this skill nothing
                 elseif not handle then
                     res.error = "no_xp_event_handle"
                 elseif not mult then
@@ -198,8 +217,8 @@ local function raise_skills(target, args)
                     local ok1, e1 = pcall(function() sk:AddXpFromEvent(handle, "bench_fixture", mult + 0.0, true) end)
                     res.added = ok1 and mult or nil
                     res.error = (not ok1) and tostring(e1) or nil
-                    mem[key] = { xp = r.xp, added = ok1 and mult or nil, ratio = prev and prev.ratio,
-                                 calls = ((prev and r.xp == prev.xp) and (prev.calls or 0) or 0) + 1 }
+                    mem[key] = { xp = r.xp, added = ok1 and mult or nil, ratio = prev and prev.ratio, cand = cand,
+                                 calls = ((prev and prev.xp and r.xp == prev.xp) and (prev.calls or 0) or 0) + 1 }
                 end
             else
                 mem[key] = nil
