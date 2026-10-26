@@ -55,6 +55,8 @@ M.cfg = {
     special_gap_s = 6,
     telegraph_m = 6, telegraph_fresh_s = 1.0,
     disengage_m = 10,        -- back off this far to eat (orders.disengage)
+    boss_windows = 4, boss_flight_s = 20, meteor_dps = 2, poison_dps = 4, poison_uptime = 0.5, breath_share = 0.3,
+    dragon_shield_block = 0.7, magic_base_dmg = 10, eat_every_s = 8, attempts_max = 20, -- boss model priors (velgar.md gap 5)
     status_s = 0.5, cure_at = 0.05, -- statuses read every status_s in a fight; a harmful one above cure_at x max -> its cure
     odds_m = 40, odds_max = 6, odds_prep_s = 10, -- get_state fight_odds: creatures in sight
     memory_enabled = true, history_max = 10, steam_manifest = "C:/Program Files (x86)/Steam/steamapps/appmanifest_1374490.acf",
@@ -545,7 +547,7 @@ function M.on_damage(ctx, ev)
         c.me_dmg[#c.me_dmg + 1] = { seq = c.me_seq, t = t, amount = amount, inst = iid,
                                     absorbed = num(U.try(function() return e.AmountAbsorbedByShield end)) }
         if #c.me_dmg > 20 then table.remove(c.me_dmg, 1) end
-        if f then f.dmg_taken = (f.dmg_taken or 0) + amount end
+        if f then f.dmg_taken = (f.dmg_taken or 0) + amount; M.note_damage(f, amount) end
         c.last_mc_dmg_t = t
     end
     if vid == me and iid and not mine_i then
@@ -780,6 +782,8 @@ function M.boss_frame(F, me)
     local b = c.boss or {}
     local changed = b.index ~= idx or b.transitioning ~= tr or b.airborne ~= air
     c.boss = { index = idx, transitioning = tr, phases = n > 0 and n or nil, airborne = air or tr, why = why, t = F.t, target = F.target_name }
+    if idx and (not F.boss_max_phase or idx > F.boss_max_phase) then F.boss_max_phase = idx end
+    if n > 0 then F.boss_phases = n end
     if changed then
         say(F.log, string.format("boss phase %s/%s transitioning=%s airborne=%s (%s)", tostring(idx), tostring(n), tostring(tr), tostring(air), tostring(why)))
         M.emit_activity({ kind = "boss_phase", creature = F.target_name, phase = idx, phases = n > 0 and n or nil,
@@ -1074,6 +1078,7 @@ function M.memory(log, pawn)
         if c.press_cost[k] == nil then c.press_cost[k] = v end
     end
     m.history = type(doc.history) == "table" and doc.history or {}
+    m.boss_attempts = type(doc.boss_attempts) == "table" and doc.boss_attempts or nil
     m.status = build and "loaded" or "loaded_build_unknown"
     m.saved_at = doc.saved_at
     if log then
@@ -1082,6 +1087,47 @@ function M.memory(log, pawn)
         pcall(log, string.format("combat: memory loaded %s (build %s, %d attacks, %d creatures)", path, tostring(m.file_build), m.imported.attacks, n))
     end
     return m
+end
+
+-- Which threat a hit just now came from (gap 7): the defence window it fell in (an ability or a named melee
+-- attack), else poison when he is poisoned, else "other". Accumulated per fight in F.dmg_by.
+function M.note_damage(F, amount)
+    if not (F and amount and amount > 0) then return end
+    local d = F.def
+    local threat
+    if d and d.tel_t and F.t and F.t - d.tel_t <= 4 then
+        threat = (d.info and d.info.ability) and ("ability:" .. d.info.ability)
+            or ("melee:" .. tostring(d.key and tostring(d.key):match(":(.+)$") or "?"))
+    elseif ((C().statuses or {}).effects or {}).Poison then threat = "poison"
+    else threat = "other" end
+    F.dmg_by = F.dmg_by or {}
+    F.dmg_by[threat] = math.floor(((F.dmg_by[threat] or 0) + amount) * 10) / 10
+    F.last_threat = threat
+end
+
+-- A boss attempt (gap 7): phase reached, damage by threat, cause of death; newest last, at most cfg.attempts_max.
+function M.record_boss_attempt(m, F, res)
+    local name = F.target_name and tostring(F.target_name):lower()
+    if not (m and name and F.boss) then return end
+    m.boss_attempts = m.boss_attempts or {}
+    local a = m.boss_attempts[name] or {}
+    m.boss_attempts[name] = a
+    local died = (res.data or {}).died == true or res.reason == "companion_down"
+    a[#a + 1] = { at = os.time(), outcome = M._outcome_of(F, res), reason = res.reason,
+                  phase_reached = F.boss_max_phase, phases = F.boss_phases,
+                  damage_taken = math.floor((F.dmg_taken or 0) * 10) / 10, damage_by = F.dmg_by or {},
+                  cause_of_death = died and (F.last_threat or "unknown") or nil,
+                  boss_hp_left_pct = (F.target_hp and F.hp_start and F.hp_start > 0) and math.floor(100 * F.target_hp / F.hp_start) or nil,
+                  dur_s = F.t and F.t0 and math.floor(F.t - F.t0) or nil, heals = F.n_heals or 0, cures = F.n_cures or 0 }
+    while #a > M.cfg.attempts_max do table.remove(a, 1) end
+end
+function M.boss_attempts(name, m)
+    m = m or C().mem
+    local a = m and m.boss_attempts and name and m.boss_attempts[tostring(name):lower()] or nil
+    if not a or #a == 0 then return nil end
+    local dmg, phase, causes = {}, {}, {}
+    for i, e in ipairs(a) do dmg[i] = e.damage_taken; phase[i] = e.phase_reached; if e.cause_of_death then causes[#causes + 1] = e.cause_of_death end end
+    return { attempts = #a, damage_taken = dmg, phase_reached = phase, causes_of_death = causes, last = a[#a] }
 end
 
 -- One fight into the creature's history (newest last, at most cfg.history_max).
@@ -1107,7 +1153,7 @@ function M.memory_save(log, m)
     local D, R = mod("defense"), mod("ranged")
     local doc = { v = 1, build = m.build, world = m.world, character = m.char, saved_at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
                   defense = D and D.export and D.export() or nil, ranged = R and R.export and R.export() or nil,
-                  learned = c.learned, press_cost = c.press_cost, history = m.history }
+                  learned = c.learned, press_cost = c.press_cost, history = m.history, boss_attempts = m.boss_attempts }
     local ok, txt = pcall(J.encode, doc)
     if not ok or type(txt) ~= "string" then return false, "encode: " .. tostring(txt) end
     local path, dir = M.memory_path(m.world, m.char)
@@ -1285,6 +1331,7 @@ local function finish(F, res)
         local m = c.mem
         if m then
             pcall(M.record_fight, m, F, res)
+            pcall(M.record_boss_attempt, m, F, res)
             local okw, err = pcall(M.memory_save, F.log, m)
             if not okw then m.save_err = tostring(err) end
         end
@@ -2392,6 +2439,7 @@ local function frame(F)
         c.me_dmg[#c.me_dmg + 1] = { seq = c.me_seq, t = F.t, amount = F.hp_prev - me.hp, source = "hp_poll" }
         if #c.me_dmg > 20 then table.remove(c.me_dmg, 1) end
         F.dmg_taken = (F.dmg_taken or 0) + (F.hp_prev - me.hp)
+        M.note_damage(F, F.hp_prev - me.hp)
         -- who did it: no damage multicast reaches the client for AI hits, but the attacker's impact event
         -- (Multicast_SendDamageCacheData) does, just before the HP drop (live 09:41: a second Kebbit hit him
         -- 4 times while he looted, unanswered, because nothing recorded it as an attacker)
@@ -3033,6 +3081,7 @@ function M.combat_brief(log, target, ctx)
     d.weaknesses = wk
     local mem = M.memory(log, pawn)
     d.history = M.creature_history(cr.name, mem)
+    d.boss_attempts = M.boss_attempts(cr.name, mem)
     d.memory = { status = mem.status, detail = mem.detail, build = mem.build, file_build = mem.file_build }
     -- his weapons vs this creature
     local list = mcall("inventory", "list", log) or {}
@@ -3247,6 +3296,114 @@ function M.castable_prep()
 end
 
 local AFF_MULT = { weak = 1.5, resist = 0.6, immune = 0.05 }
+
+-- A long boss fight, prepared (gap 5; an ESTIMATE, every prior named in the result):
+--   time   = his damage window: boss HP / his prepared DPS, split into `windows` melee windows (arena PhaseData count
+--            when seen, else cfg.boss_windows) + (windows - 1) flights of cfg.boss_flight_s each (no damage dealt);
+--   intake = their melee DPS (the assess formula, x (1 - breath share x shield block) with an Anti-Dragon Shield)
+--            + poison DoT (cfg.poison_dps x cfg.poison_uptime x (1 - his best poison resistance), when the creature
+--            poisons: wiki text / observed abilities) during windows, + cfg.meteor_dps during flights;
+--   supply = HP + Tempest Shield + food, eaten at most once per cfg.eat_every_s (the game's own pace), every item counted;
+--   die_s  = when intake exceeds supply. -> {verdict, kill_s, die_s, windows, flights, dot_hps, uses, priors, not_counted}
+function M.boss_prepared(me, e, list, cast, known, attack_level, base)
+    local cfg = M.cfg
+    local items = M.weapons().items or {}
+    local c = C()
+    local windows = (c.boss and c.boss.phases) or cfg.boss_windows
+    local flights = math.max(0, windows - 1)
+    local uses = base and base.uses and { table.unpack(base.uses) } or {}
+    -- his DPS: the melee estimate from prepared_odds, or a ranged/magic weapon he carries (ammo/runes carried)
+    local dps = base and base.dps or 12
+    local carried = {}
+    for _, where in ipairs({ "loadout", "hotbar", "bag" }) do
+        for _, it in ipairs((list or {})[where] or {}) do if it.item then carried[it.item] = (carried[it.item] or 0) + (it.count or 1) end end
+    end
+    local has_runes, has_arrows, has_bolts = false, false, false
+    for id in pairs(carried) do
+        if id:find("Rune", 1, true) then has_runes = true end
+        if id:find("Arrow", 1, true) then has_arrows = true end
+        if id:find("Bolt", 1, true) then has_bolts = true end
+    end
+    for id in pairs(carried) do
+        local p = items[id]
+        if p and p.role == "weapon" and (p.kind == "magic" or p.kind == "ranged") then
+            local ok_ammo = (p.kind == "magic" and has_runes) or (p.ammo == "Arrows" and has_arrows) or (p.ammo == "Bolts" and has_bolts) or p.ammo == "Self"
+            local d = M.dps(p) or (p.kind == "magic" and p.mult and p.prim and p.prim.next_ms and (cfg.magic_base_dmg * p.mult) / (p.prim.next_ms / 1000))
+            if ok_ammo and d and d > dps then dps = d; uses[#uses + 1] = p.name .. (p.kind == "magic" and " (rune damage: estimate)" or "") end
+        end
+    end
+    -- their side
+    local gap = (tonumber(e.power_level or e.pl) or 1) - (me.pl or 1)
+    local melee = M.enemy_dps_prior(tonumber(e.power_level or e.pl)) * (1.25 ^ gap)
+    local my_dps = math.max(dps * (1.25 ^ (-math.max(gap, 0))), 0.1)
+    local shield -- by the entry's own display name (the item is not in every build's held-item data)
+    for _, where in ipairs({ "loadout", "hotbar", "bag" }) do
+        for _, it in ipairs((list or {})[where] or {}) do
+            local nm = it.name or ((items[it.item or ""] or {}).name)
+            if nm and tostring(nm):find("Anti%-Dragon") then shield = nm end
+        end
+    end
+    if shield then melee = melee * (1 - cfg.breath_share * cfg.dragon_shield_block); uses[#uses + 1] = shield .. " vs breath" end
+    local wr = M.wiki_creature(e.name)
+    local poisons = wr and wr.inflicts and (function() for _, x in ipairs(wr.inflicts) do if x == "Poison" then return true end end end)()
+    for _, r in pairs(c.ai_actions or {}) do if r.profile and r.profile.status == "Poison" and r.name == e.name then poisons = true end end
+    local dot, res = 0, 0
+    if poisons then
+        for _, where in ipairs({ "hotbar", "bag" }) do
+            for _, it in ipairs((list or {})[where] or {}) do
+                local info = M.consumable_info(it.name)
+                local r = info and info.resists and info.resists.Poison
+                if r and r > res then res = r end
+            end
+        end
+        res = math.min(res * 2, 99) -- a potion + a Fungal Fortitude food stack (wiki: 66%); at most the best x 2
+        dot = cfg.poison_dps * cfg.poison_uptime * (1 - res / 100)
+        if res > 0 then uses[#uses + 1] = string.format("poison resistance ~%d%%", res) end
+    end
+    local intake = melee + dot
+    local fight_s = (tonumber(e.hp or e.health) or 1000) / my_dps
+    local kill_s = fight_s + flights * cfg.boss_flight_s
+    -- supply over time: HP + shield + one food per eat_every_s while food lasts
+    local foods = {}
+    for _, where in ipairs({ "hotbar", "bag" }) do
+        for _, it in ipairs((list or {})[where] or {}) do
+            local h = tonumber(it.heal) or ((M.consumable_info(it.name) or {}).heal)
+            if it.consumable == "food" and h and h > 0 then for _ = 1, (it.count or 1) do foods[#foods + 1] = h end end
+        end
+    end
+    table.sort(foods, function(a, b) return a > b end)
+    local hp = (me.hp or 100) + ((cast and cast.tempest) and (50 + 7.5 * (attack_level or 1)) or 0)
+    local die_s, t, eaten, next_eat = nil, 0, 0, 0
+    local window_len = fight_s / windows
+    local cap = me.max_hp or 100
+    while t < 7200 do
+        t = t + 1
+        local in_flight = false
+        do -- time inside the fight: windows and flights alternate
+            local cyc = window_len + cfg.boss_flight_s
+            local k = math.floor(t / cyc)
+            in_flight = k < flights and (t - k * cyc) > window_len
+        end
+        hp = hp - (in_flight and cfg.meteor_dps or intake)
+        if hp < cap * 0.5 and eaten < #foods and t >= next_eat then
+            eaten = eaten + 1; hp = math.min(hp + foods[eaten], cap + 200); next_eat = t + cfg.eat_every_s
+        end
+        if hp <= 0 then die_s = t; break end
+        if t >= kill_s then break end
+    end
+    if #foods > 0 then uses[#uses + 1] = string.format("%d food (eaten %d by then)", #foods, eaten) end
+    local verdict = "likely_win" -- outlasts the whole fight
+    if die_s then
+        local ratio = die_s / math.max(kill_s, 1)
+        verdict = ratio / (ratio + 1) >= cfg.fight_enter and "likely_win" or "likely_lose"
+    end
+    return { verdict = verdict, kill_s = math.floor(kill_s),
+             die_s = die_s and math.floor(die_s) or nil, survives = die_s == nil or nil, windows = windows, flights = flights,
+             dot_hps = dot > 0 and math.floor(dot * 10) / 10 or nil, uses = uses, boss = true,
+             priors = { poison_dps = cfg.poison_dps, poison_uptime = cfg.poison_uptime, flight_s = cfg.boss_flight_s,
+                        meteor_dps = cfg.meteor_dps, breath_share = cfg.breath_share, dragon_shield_block = cfg.dragon_shield_block },
+             not_counted = "blocking, dodging (meteors assumed mostly dodged), armour, infusions/potions' damage buffs, a second fighter" }
+end
 -- The odds with his best preparation from what he owns and can cast (an estimate, labelled as such):
 --   his best weapon against what is KNOWN of the creature (any weapon kind with a known DPS; magic/ranged
 --   only with its ammo carried), an enchant he can cast whose type it is weak to (melee), Tempest Shield's
@@ -3312,6 +3469,9 @@ function M.prepared_odds(me, e, list, cast, known, attack_level)
                  pl = tonumber(e.power_level or e.pl), boss = e.boss == true }
     local ok, a = pcall(M.assess, { hp = hp, max_hp = hp, pl = me.pl, dps = dps }, { en }, { reflexonly = true }, nil, M.cfg)
     if not (ok and a) then return nil end
+    if e.boss == true then
+        return M.boss_prepared(me, e, list, cast, known, attack_level, { dps = dps, uses = uses })
+    end
     -- the times decide here (the PL-gap label "too_strong" would hide what the preparation changes)
     local verdict = a.verdict
     if verdict == "too_strong" then verdict = (a.u_fight or 0) >= M.cfg.fight_enter and "likely_win" or "likely_lose" end

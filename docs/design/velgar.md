@@ -113,6 +113,20 @@ The data comes from the wiki snapshot `data/wiki/pages` (Velgar, Velgar/Strategi
   - Cure and resist data come from the wiki snapshot: `tools/gen_consumable_wiki.py` → `client_mod/scripts/consumable_wiki.lua`, 320 consumables, 21 of them cure or resist a status.
   - In a fight, a harmful status above 5% of its maximum gets the best carried cure, curing before resisting and the hotbar before the bag. It is verified (`cured` event), or reported once if he has none (`status`, have_cure=false).
   - The perks taken are remembered with the wiki duration. get_state shows `status_effects` and `buffs_remembered` as digest lines.
+- **Gap 5, prepared odds for a long boss fight** (`combat.boss_prepared`, used by `prepared_odds` for a boss; an estimate with every prior named in `priors`):
+  - **Time:** his damage window (boss HP / his prepared DPS) split into the arena's phase count (prior 4) melee windows, plus one fewer flights of 20 s with no damage dealt.
+  - **Intake:**
+    - their melee DPS, reduced by `breath_share 0.3 × dragon_shield_block 0.7` when he carries an Anti-Dragon Shield (matched by name);
+    - plus poison DoT when the creature poisons (wiki `inflicts`, from the page's prose, or an observed poison ability): `4 HP/s × uptime 0.5 × (1 − resistance)`. Resistance is his best carried poison resist ×2 (a potion plus a Fungal Fortitude food: 66%);
+    - meteors at 2 HP/s during flights.
+  - **Supply:** HP + Tempest Shield + **every** carried food, eaten no faster than once per 8 s.
+  - **DPS:** melee, or a carried ranged weapon with its ammo, or a staff with runes (rune damage is a labelled estimate).
+  - **Check against the wiki:** PL 4 with the wiki's kit (Iron Mace, 20 Berry Drizzle, 20 Lesser Antipoison, Anti-Dragon Shield, Tempest Shield) is a **likely win**. The same kit at PL 3 or lower is a likely loss. Bare at PL 4, he dies in about 9 s. This matches the wiki's "difficult without PL 4 gear and being prepared".
+  - Not counted: blocking, dodging (meteors assumed mostly dodged), armour, infusions and potions' damage buffs, a second fighter.
+- **Gap 7, boss attempts:**
+  - Every hit taken in a fight is attributed: the defence window it fell in (`ability:<kind>` or `melee:<attack class>`), else `poison` while poisoned, else `other`.
+  - A boss fight's end records an attempt: phase reached, phases, damage taken, `damage_by`, cause of death (the last threat before dying), boss HP left %, duration, heals, cures.
+  - It is persisted in the combat memory (last 20 per boss) and shown in `combat_brief.boss_attempts`, so the damage and phase trend across attempts is measurable.
 - **Still to verify live** (S2/S3, read-only first):
   - that the multicasts fire on the client for him;
   - that `CurrentAction` is set when read;

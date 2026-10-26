@@ -58,6 +58,18 @@ def num(v: str | None) -> int | None:
     return int(m.group(1).replace(",", "")) if m else None
 
 
+INFLICT = {  # status -> phrases in the page's own prose that say the creature applies it (the infobox's immune list is cut first)
+    "Poison": r"poison(?:ous)? (?:breath|barrages?|spit|cloud|bolts?|attacks?|arrows?)|inflicts? poison|rapidly poison",
+    "Bleeding": r"inflicts? (?:the )?bleed|cause[sd]? bleed",
+    "Burning": r"fire breath|flame breath|sets? you (?:on fire|alight)|inflicts? burn",
+}
+
+
+def inflicts(text: str) -> list[str]:
+    low = re.sub(r"immune:[^:]*?(?=\b[a-z ]+:)", " ", text.lower())
+    return sorted(st for st, rx in INFLICT.items() if re.search(rx, low))
+
+
 def build() -> dict[str, dict]:
     dmg = damage_tags()
     out: dict[str, dict] = {}
@@ -92,6 +104,9 @@ def build() -> dict[str, dict]:
                     rec.setdefault(field, []).append(tag)
                 elif key == "immune":
                     rec.setdefault("immune_effects", []).append(w)
+        inf = inflicts(text)
+        if inf:
+            rec["inflicts"] = inf
         out[name.lower()] = rec
     return out
 

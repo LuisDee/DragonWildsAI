@@ -369,6 +369,27 @@ do
         check("prep: a castable enchant of a type it is weak to", table.concat(enc.uses, "|"):find("Enchant Weapon (Fire) vs fire-weak (prior)", 1, true) ~= nil, table.concat(enc.uses, "|"))
         local ka = Cm.known_affinities("Kalphite Worker")
         check("known: prior resistance with its source", ka and ka["DamageType.Physical.Stab"] and ka["DamageType.Physical.Stab"].src == "prior")
+        -- a long boss fight (velgar.md gap 5): windows + flights, poison DoT vs resistances, shield vs breath, every food
+        local velgar = { id = "v", name = "Velgar", hp = 6000, max_hp = 6000, power_level = 4, boss = true }
+        local me4 = { hp = 100, max_hp = 100, pl = 4 }
+        local kit = { loadout = {}, hotbar = { { item = "ITEM_Mace_Iron", name = "Iron Mace", count = 1 },
+                                               { item = "ITEM_Food_BerryDrizzle", name = "Berry Drizzle Pan-Seared", count = 20, consumable = "food", heal = 160 },
+                                               { item = "ITEM_Potion_Antipoison_Lesser", name = "Lesser Antipoison Potion", count = 20, consumable = "potion" } },
+                      bag = { { item = "ITEM_Shield_AntiDragon", name = "Anti-Dragon Shield", count = 1 } } }
+        local pv = Cm.prepared_odds(me4, velgar, kit, { tempest = true, enchant = {} }, nil, 5)
+        check("boss: the long-fight model (4 windows, 3 flights)", pv and pv.boss and pv.windows == 4 and pv.flights == 3, pv and pv.windows)
+        local u = table.concat(pv.uses, " | ")
+        check("boss: the shield vs breath, poison resistance, food eaten over time", u:find("Anti-Dragon Shield vs breath", 1, true) and u:find("poison resistance ~66%", 1, true)
+              and u:find("20 food (eaten", 1, true), u)
+        check("boss: poison DoT counted, reduced by the resistances", pv.dot_hps and pv.dot_hps < 4 * 0.5, pv.dot_hps)
+        check("boss: the kill time includes the flights", pv.kill_s >= 3 * 20, pv.kill_s)
+        check("boss: priors named in the result", pv.priors and pv.priors.poison_dps == 4 and pv.priors.flight_s == 20)
+        local bare = Cm.prepared_odds(me4, velgar, { hotbar = { { item = "ITEM_Mace_Iron", name = "Iron Mace", count = 1 } } }, { enchant = {} }, nil, 5)
+        check("boss: the kit makes a real difference", (bare.die_s or 1e9) < (pv.die_s or 1e9), tostring(bare.die_s) .. " vs " .. tostring(pv.die_s))
+        check("boss: no resistance -> the full DoT share", bare.dot_hps == 2, bare.dot_hps)
+        check("boss: PL 4 + the wiki's kit outlasts him (likely win)", pv.verdict == "likely_win" and pv.survives == true, pv.verdict)
+        local pl1 = Cm.prepared_odds({ hp = 100, max_hp = 100, pl = 1 }, velgar, kit, { tempest = true, enchant = {} }, nil, 5)
+        check("boss: the same kit at PL 1 is a likely loss", pl1.verdict == "likely_lose" and pl1.die_s ~= nil, pl1.verdict)
         local gd = Cm.known_affinities("Green Dragon")
         check("known: wiki weakness + resistance, labelled wiki", gd and gd["DamageType.Magical.Water"] and gd["DamageType.Magical.Water"].v == "weak"
               and gd["DamageType.Magical.Water"].src == "wiki" and gd["DamageType.Magical.Fire"].v == "resist")
@@ -1599,6 +1620,28 @@ do
     restart()
     local m4 = Cm.memory(nil, pawn)
     check("bak: recovered from the .bak", m4.status == "loaded" and Dm.status().attacks[key] ~= nil and Dm.status().attacks[key].impact_s == 0.8, m4.status)
+    -- boss attempts (velgar.md gap 7): damage by threat, phase reached, cause of death; persisted with the memory
+    local F = { t = 100, t0 = 10, target_name = "Velgar", boss = true, boss_max_phase = 2, boss_phases = 4, hp_start = 6000, target_hp = 2400,
+                n_heals = 6, n_cures = 2, kills = 0 }
+    F.def = { tel_t = 99, key = "Velgar:ATK_DragonVelgar_ClawAttack_Left_C", info = {} }
+    Cm.note_damage(F, 30)
+    F.def = { tel_t = 99.5, key = "Velgar:DAA_DragonVelgar_PoisonBreath_Front_C", info = { ability = "breath_cone" } }
+    Cm.note_damage(F, 25)
+    F.def = nil
+    Cm._state().statuses = { t = os.time(), effects = { Poison = { value = 40, max = 100, harmful = true } } }
+    Cm.note_damage(F, 12)
+    F.dmg_taken = 67
+    check("attempt: damage by threat", F.dmg_by["melee:ATK_DragonVelgar_ClawAttack_Left_C"] == 30 and F.dmg_by["ability:breath_cone"] == 25 and F.dmg_by.poison == 12)
+    restart()
+    local mm = Cm.memory(nil, pawn)
+    Cm.record_boss_attempt(mm, F, { ok = false, reason = "companion_down", data = { died = true } })
+    Cm.memory_save(nil)
+    restart()
+    Cm.memory(nil, pawn)
+    local ba = Cm.boss_attempts("Velgar")
+    check("attempt: persisted across a restart, phase reached + cause of death", ba and ba.attempts == 1 and ba.phase_reached[1] == 2
+          and ba.causes_of_death[1] == "poison" and ba.last.boss_hp_left_pct == 40 and ba.last.damage_by.poison == 12, ba and ba.attempts)
+    check("attempt: not recorded for an ordinary creature", (function() local G = { target_name = "Kebbit" }; Cm.record_boss_attempt(Cm._state().mem, G, { ok = true }); return Cm.boss_attempts("Kebbit") == nil end)())
     for _, x in ipairs({ path, path .. ".bak" }) do os.remove(x) end
     Cm.cfg.memory_enabled = false
     restart()
