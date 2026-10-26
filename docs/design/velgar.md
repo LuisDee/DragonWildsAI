@@ -97,6 +97,48 @@ The data comes from the wiki snapshot `data/wiki/pages` (Velgar, Velgar/Strategi
    The wiki's pedestal trick (teleport out and back so the horn holder stays) is a known strategy, but it looks like an exploit. Luis's call; I won't build it unasked.
 7. **Repeat-attempt telemetry:** a per-attempt summary into the fight history: phase reached, damage taken per threat kind, cause of death. Then `damage_taken_trend` measures progress against him specifically.
 
+## 3b. Built (offline, 2026-10-26): gaps 1, 3, 4
+
+- **Gap 1, ability telegraphs** (`combat.lua`):
+  - Read-only hooks on `DominionAIActionsComponent:Multicast_StartAIAction(int32 ActionId)` and `Multicast_StopCurrentAIAction`. The hook stores only the component and the scalar id; `CurrentAction`'s class is read on the next fight tick, as a property.
+  - Data profile `client_mod/scripts/ability_profiles.lua`, keyed by class-name tokens (PoisonBreath, EarthSpikes, MeteorStrike, Reposition…; side Front/Left/Right).
+  - A threatening ability near him is defended like a telegraph, with the key `<creature>:<action class>` and learned like an attack. It is unblockable (a dodge, never a jump over a breath) and the timings are labelled priors. Each ability emits a `creature_ability` activity event.
+  - The signatures are checked against the dump in `tests/test_dump_signatures.py`.
+- **Gap 3, phases and flight:**
+  - In a fight with a boss, the arena's replicated `PhaseRuntimeData {PhaseIndex, bTransitioningToNext}` and the `PhaseData` count are read once a second.
+  - While he is airborne (Reposition or MeteorStrike running) or transitioning, the L34 stall, chase and lost-target budgets are suspended (`fight.boss_hold`).
+  - `combat_status.boss`, get_state `boss_fight` (a digest line) and a `boss_phase` activity event on change.
+- **Gap 4, statuses and cures:**
+  - His tracked statuses are read by **property only**: `TrackedStatusEffectInstances` → `EffectType`, `CurrentValue`, `Config.MaximumValue`.
+  - Cure and resist data come from the wiki snapshot: `tools/gen_consumable_wiki.py` → `client_mod/scripts/consumable_wiki.lua`, 320 consumables, 21 of them cure or resist a status.
+  - In a fight, a harmful status above 5% of its maximum gets the best carried cure, curing before resisting and the hotbar before the bag. It is verified (`cured` event), or reported once if he has none (`status`, have_cure=false).
+  - The perks taken are remembered with the wiki duration. get_state shows `status_effects` and `buffs_remembered` as digest lines.
+- **Still to verify live** (S2/S3, read-only first):
+  - that the multicasts fire on the client for him;
+  - that `CurrentAction` is set when read;
+  - the arena actor's replication;
+  - that the status instance values match the HUD.
+
+## 3c. What combat needs from `move.lua` (gap 2, for the locomotion owner)
+
+Hazards are not a combat input; they are terrain that changes every second. Requested interface, all optional arguments with defaults that keep today's behaviour:
+
+```lua
+-- 1. Zones to keep out of while any move runs (go_to / follow / escape), replaced on every call (no merge):
+move.set_avoid_zones(log, zones)          -- zones = { {id, x, y, z, r_cm, until_s, kind = "circle"},
+                                          --           {id, x, y, z, r_cm, until_s, kind = "cone", yaw_deg, half_angle_deg} }
+                                          -- scalars only (R15); until_s = game-clock expiry; [] clears.
+-- 2. "Get me out now": the nearest point outside every zone, inside a bound (the arena volume, or a radius), reachable
+--    on the navmesh; walks there at once (sprint when time_s is short). Reports truthfully.
+move.escape_zones(log, { time_s = 1.2, bound = { x, y, z, r_cm } })
+  -> { ok, at = {x,y,z}, eta_s, why = nil | "no_safe_point" | "no_route" | "too_slow" }   -- too_slow: combat dodges instead
+-- 3. Path costs: while zones are set, go_to/follow plans around them (a cost, not a wall: when no other way exists,
+--    it may cross a zone that expires soonest, and says so in status().avoid = {crossing = id}).
+move.status().avoid = { zones = n, inside = id | nil, crossing = id | nil }
+```
+
+Combat fills the zones from a hazard census and the hooks (the projectile multicasts: `AAIGroundProjectile`, `AAIMeteorProjectile`, `ADelayedDamage`, `UEffectEmitterSphere` owners). It calls `escape_zones` when it is inside a zone that lands in less than its walk time, and dodges or Phase Dashes outward when `escape_zones` answers `too_slow`.
+
 ## 4. Staged plan (practice first, then him)
 
 | Stage | Creatures (dev world) | Proves | Body gaps it needs |

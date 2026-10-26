@@ -804,6 +804,101 @@ do
     A.reset(nil)
 end
 
+-- ================================================================ 10d. AI actions (dragon abilities) + boss phases (velgar.md gaps 1 and 3)
+reset_world()
+do
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local v = new_creature("BP_AI_DragonVelgar_Character_C_1", "Velgar", { X = 400, Y = 0, Z = 0 }, { hp = 6000, pl = 4, arch = 0, boss = true })
+    local cur = { cls = nil }
+    local acomp = obj({ GetOwner = function() return v end }, "BP_DragonVelgar_ActionsComponent_C /x")
+    setmetatable(acomp, { __index = function(_, k) if k == "CurrentAction" then
+        return cur.cls and obj({ GetClass = function() return obj({}, "BlueprintGeneratedClass /Game/AI/Dragon/" .. cur.cls .. "." .. cur.cls) end }, "Action /x") end end })
+    -- the arena's replicated phase
+    local arena = obj({ PhaseRuntimeData = { PhaseIndex = 0, bTransitioningToNext = false },
+                        PhaseData = { ForEach = function(_, f) for i = 1, 4 do f(i, {}) end end } }, "PhasedDragonArenaAILevelData /Game/L.L:PersistentLevel.Arena_1")
+    local real_ffo = FindFirstOf
+    FindFirstOf = function(cls) if cls == "PhasedDragonArenaAILevelData" then return arena end return real_ffo(cls) end
+    local n0 = #read_activity()
+    check("ability: fight starts on a boss", Cm._start_fight(nil, v, { mode = "attack", force = true, by = "brain" }).ok)
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 5)
+    -- 1. a poison breath to the front: answered like a telegraph (unblockable -> a dodge), keyed by its class
+    cur.cls = "DAA_DragonVelgar_PoisonBreath_Front_C"
+    hooks["/Script/Dominion.DominionAIActionsComponent:Multicast_StartAIAction"]({ get = function() return acomp end }, { get = function() return 7 end })
+    local defended = run_until(function() local f = Cm._state().fight; return f and f.phase == "defend" end, 1)
+    local f = Cm._state().fight
+    check("ability: the breath is defended", defended and f.def and f.def.key == "Velgar:DAA_DragonVelgar_PoisonBreath_Front_C", f and f.def and f.def.key)
+    check("ability: unblockable -> dodge", f and f.def and f.def.plan.action == "dodge", f and f.def and f.def.plan.action)
+    local ev
+    for i = n0 + 1, #read_activity() do local l = read_activity()[i]; if l:find('"kind":"creature_ability"', 1, true) then ev = l end end
+    check("ability: activity event with kind and side", ev and ev:find('"ability":"breath_cone"', 1, true) and ev:find('"side":"front"', 1, true), ev)
+    run_until(function() local g = Cm._state().fight; return g and g.phase ~= "defend" end, 5)
+    -- 2. he flies (Reposition) and the arena moves to the next phase: hold, never "too far" / "can't catch"
+    cur.cls = "DAA_DragonVelgar_Reposition_C"
+    hooks["/Script/Dominion.DominionAIActionsComponent:Multicast_StartAIAction"]({ get = function() return acomp end }, { get = function() return 8 end })
+    arena.PhaseRuntimeData = { PhaseIndex = 1, bTransitioningToNext = true }
+    v.loc = { X = 6000, Y = 0, Z = 2000 } -- 60 m up and away
+    local t0 = T
+    run_until(function() return Cm._state().fight == nil end, 45)
+    check("boss: no too_far / cant_catch / path_blocked while he is up (45 s)", Cm._state().fight ~= nil, Cm._state().last and Cm._state().last.result.reason)
+    local st = Cm.status()
+    check("boss: phase in combat_status", st.boss and st.boss.index == 1 and st.boss.transitioning == true and st.boss.airborne == true and st.boss.phases == 4,
+          st.boss and st.boss.index)
+    check("boss: the hold shows in the fight", st.fight and st.fight.boss_hold == true)
+    local ex = Cm.state_extras(nil, { nearby_entities = {} })
+    check("boss: get_state boss_fight for the digest", ex.boss_fight and ex.boss_fight.phase == 1 and ex.boss_fight.airborne == true)
+    local pev
+    for i = n0 + 1, #read_activity() do local l = read_activity()[i]; if l:find('"kind":"boss_phase"', 1, true) then pev = l end end
+    check("boss: boss_phase activity event", pev and pev:find('"phase":1', 1, true) and pev:find('"airborne":true', 1, true), pev)
+    -- 3. he lands (the action stops, the transition ends): the normal budgets apply again
+    hooks["/Script/Dominion.DominionAIActionsComponent:Multicast_StopCurrentAIAction"]({ get = function() return acomp end })
+    arena.PhaseRuntimeData = { PhaseIndex = 1, bTransitioningToNext = false }
+    run_until(function() return Cm._state().fight == nil end, 40)
+    local r = Cm._state().last.result
+    check("boss: landed but out of reach -> the normal truthful ending again", r and (r.reason == "too_far" or r.reason == "path_blocked"), r and r.reason)
+    FindFirstOf = real_ffo
+    A.reset(nil)
+end
+
+-- ================================================================ 10e. poisoned mid-fight: read the status (properties), use a cure from the wiki data
+reset_world()
+do
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local poison = { EffectType = 2, CurrentValue = 0, Config = { MaximumValue = 100 } }
+    pawn.TrackedStatusEffectsComponent = obj({ TrackedStatusEffectInstances = { ForEach = function(_, f)
+        f(1, { get = function() return obj(poison, "TrackedStatusEffectInstance /x") end }) end } }, "C /x")
+    local saved_hotbar = inv_list.hotbar
+    inv_list.hotbar = { { item = "ITEM_Consumable_Sandwich_Veggie", name = "Forager's Sandwich", count = 2, consumable = "food", heal = 70, slot = 1 },
+                        { item = "ITEM_Potion_Antipoison_Lesser", name = "Lesser Antipoison Potion", count = 3, consumable = "potion", slot = 2 } }
+    local gob = new_creature("BP_AI_RuntGoblin_Character_C_poison", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    local n0 = #read_activity()
+    Cm._start_fight(nil, gob, { mode = "attack", force = true, by = "brain" })
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    poison.CurrentValue = 40
+    world.on_step = function() for _, u in ipairs(INV.uses) do if u == "ITEM_Potion_Antipoison_Lesser" then poison.CurrentValue = 0 end end end
+    check("poison: a cure is used (the potion that cures beats the food that only resists)",
+          run_until(function() for _, u in ipairs(INV.uses) do if u == "ITEM_Potion_Antipoison_Lesser" then return true end end end, 3), table.concat(INV.uses, ","))
+    run_until(function() local f = Cm._state().fight; return f and (f.n_cures or 0) >= 1 end, 6)
+    local ev
+    for i = n0 + 1, #read_activity() do local l = read_activity()[i]; if l:find('"kind":"cured"', 1, true) then ev = l end end
+    check("poison: verified cure -> cured event", ev and ev:find('"status":"Poison"', 1, true) and ev:find('"before":40', 1, true), ev)
+    local ex = Cm.state_extras(nil, { nearby_entities = {} })
+    check("poison: the remembered perk is in get_state", ex.buffs_remembered and ex.buffs_remembered.Antipoison ~= nil, ex.buffs_remembered and next(ex.buffs_remembered))
+    -- no cure carried: said once, not spammed
+    world.on_step = nil
+    poison.CurrentValue = 30
+    inv_list.hotbar = { { item = "ITEM_Consumable_Sandwich_Veggie", name = "Seared Anchovies", count = 2, consumable = "food", heal = 30, slot = 1 } }
+    Cm._state().fight.next_eat = nil
+    run_until(function() return false end, 3)
+    local nst = 0
+    for i = n0 + 1, #read_activity() do if read_activity()[i]:find('"kind":"status"', 1, true) then nst = nst + 1 end end
+    check("poison: no cure -> one status event (have_cure false)", nst == 1, nst)
+    ex = Cm.state_extras(nil, { nearby_entities = {} })
+    check("poison: get_state status_effects", ex.status_effects and ex.status_effects.Poison == "30/100", ex.status_effects and ex.status_effects.Poison)
+    Cm.stop(nil, "test")
+    inv_list.hotbar, pawn.TrackedStatusEffectsComponent, world.on_step = saved_hotbar, nil, nil
+    A.reset(nil)
+end
+
 -- ================================================================ 11a. hit while looting (live 09:41): the impact event names the attacker, he fights back
 reset_world()
 do

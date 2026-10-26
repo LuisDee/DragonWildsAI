@@ -242,7 +242,7 @@ function D.plan(info, ctx, orders, rng)
     local st = ctx.stamina or 0
     local blockable = not info.unblockable
     local parryable = blockable and not info.unparryable
-    local can_jump = orders.allow_jump ~= false and (th.low or th.aoe)
+    local can_jump = orders.allow_jump ~= false and (th.low or th.aoe) and not info.no_jump -- (a breath cone is not jumped)
     local can_dodge = st >= (ctx.evade_cost or 15)
     local can_parry = ctx.can_parry and parryable and st >= (ctx.parry_cost or 10)
     local can_block = ctx.can_block and blockable and st >= (ctx.block_cost or 10)

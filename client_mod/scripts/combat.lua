@@ -55,6 +55,7 @@ M.cfg = {
     special_gap_s = 6,
     telegraph_m = 6, telegraph_fresh_s = 1.0,
     disengage_m = 10,        -- back off this far to eat (orders.disengage)
+    status_s = 0.5, cure_at = 0.05, -- statuses read every status_s in a fight; a harmful one above cure_at x max -> its cure
     odds_m = 40, odds_max = 6, odds_prep_s = 10, -- get_state fight_odds: creatures in sight
     memory_enabled = true, history_max = 10, steam_manifest = "C:/Program Files (x86)/Steam/steamapps/appmanifest_1374490.acf",
     chase_moved_m = 3, -- a stall while the target itself moved this far = it is running, not a wall
@@ -501,6 +502,11 @@ M.HOOKS = {
     { path = "/Script/Dominion.AiAttackComponent:Multicast_SendDamageCacheData", handler = "on_ai_impact" },
     { path = "/Script/Dominion.PlayerBlockingComponent:Multicast_NotifyActorsToDamagePendingParriedAttack", handler = "on_parried" },
     { path = "/Script/Dominion.PlayerBlockingComponent:Multicast_NotifyActorsToDamagePendingBlockedAttack", handler = "on_blocked" },
+    -- AI ACTIONS (dragon breath, earth spikes, meteor flight, reposition: velgar.md gap 1). Read-only: the hook
+    -- keeps the component and the int ActionId (a scalar) and nothing else; the action's class is read on the
+    -- next fight tick from the component's CurrentAction (a property read), never inside the hook.
+    { path = "/Script/Dominion.DominionAIActionsComponent:Multicast_StartAIAction", handler = "on_ai_action" },
+    { path = "/Script/Dominion.DominionAIActionsComponent:Multicast_StopCurrentAIAction", handler = "on_ai_action_stop" },
 }
 
 local function trim_map(m, t, keep_s)
@@ -672,6 +678,125 @@ local function on_block_event(ctx, kind)
     if #c.block_events > 20 then table.remove(c.block_events, 1) end
 end
 function M.on_parried(ctx) on_block_event(ctx, "parried") end
+-- An AI action started on some creature: remember it for the next tick (no reads beyond owner + id here).
+function M.on_ai_action(ctx, id_p)
+    if _G.DW_PAUSE then return end
+    local c = C()
+    local comp = ctx:get()
+    local a = U.try(function() return comp:GetOwner() end)
+    if not U.valid(a) then return end
+    local id = U.short(a)
+    local aid = id_p and U.try(function() return id_p:get() end)
+    c.ai_actions = c.ai_actions or {}
+    c.ai_actions[id] = { t = now(a), comp = comp, owner = a, action_id = type(aid) == "number" and aid or nil, running = true }
+    c.counts.ai_actions = (c.counts.ai_actions or 0) + 1
+end
+function M.on_ai_action_stop(ctx)
+    if _G.DW_PAUSE then return end
+    local c = C()
+    local comp = ctx:get()
+    local a = U.try(function() return comp:GetOwner() end)
+    local r = U.valid(a) and (c.ai_actions or {})[U.short(a)]
+    if r then r.running, r.stopped_t = false, now(a) end
+end
+
+-- The profile of an AI action class (client_mod/scripts/ability_profiles.lua, data): the first token of
+-- `order` found in the class name wins; the side (Front/Left/Right) is a token too. -> table or nil
+local ABIL
+function M.ability_profile(cls)
+    if type(cls) ~= "string" then return nil end
+    if ABIL == nil then
+        local ok, t = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/ability_profiles.lua"))() end)
+        ABIL = ok and type(t) == "table" and t or false
+    end
+    if not ABIL then return nil end
+    for _, tok in ipairs(ABIL.order or {}) do
+        if cls:find(tok, 1, true) then
+            local p = {}
+            for k, v in pairs(ABIL[tok] or {}) do p[k] = v end
+            p.token = tok
+            for word, side in pairs(ABIL.sides or {}) do
+                if cls:find("_" .. word, 1, true) then p.side = side end
+            end
+            return p
+        end
+    end
+    return nil
+end
+
+-- Per fight tick: resolve new AI actions (class -> profile) and answer a threatening one near Claude like a
+-- telegraphed attack (defence plan; the key is "<creature name>:<action class>", learned like any attack).
+function M.ability_frame(F, me)
+    local c = C()
+    for id, r in pairs(c.ai_actions or {}) do
+        if not r.cls and r.comp then
+            local cur = U.try(function() return r.comp.CurrentAction end)
+            local cls = U.valid(cur) and U.short(U.try(function() return cur:GetClass() end)) or nil
+            r.cls = cls or "?"
+            r.profile = M.ability_profile(cls)
+            r.name = r.owner and U.try(function() return text(r.owner.LoadedData.AIName) end) or nil
+            say(F.log, string.format("ai action %s on %s: %s (%s)", tostring(r.action_id), tostring(r.name or id), tostring(r.cls),
+                r.profile and r.profile.kind or "no profile"))
+            if r.profile and r.profile.kind ~= "idle" then
+                M.emit_activity({ kind = "creature_ability", creature = r.name, creature_id = id, ability = r.profile.kind,
+                                  side = r.profile.side, action_class = r.cls, airborne = r.profile.airborne or nil })
+            end
+            local pr = r.profile
+            if pr and pr.threat and not r.answered and (id == F.target_id or (r.owner and me.pos and U.loc(r.owner)
+                and U.dist(U.loc(r.owner), me.pos) <= (pr.reach_m or 20) * 100)) then
+                r.answered = true
+                local info = { key = tostring(r.name or "?") .. ":" .. r.cls, dmg_time = pr.impact_s, unblockable = pr.unblockable,
+                               ability = pr.kind, side = pr.side, no_jump = pr.jumpable == false or nil,
+                               shape = { reach_cm = (pr.reach_m or 20) * 100, aoe = pr.aoe or nil } }
+                if F.phase ~= "defend" and F.phase ~= "flee" and F.phase ~= "loot" and F.phase ~= "restore" then
+                    return M._start_defend(F, me, id, r.t, info)
+                end
+            end
+        end
+    end
+end
+
+-- Boss phases (velgar.md gap 3): the arena's replicated phase (APhasedDragonArenaAILevelData.PhaseRuntimeData
+-- {PhaseIndex, bTransitioningToNext}), read once a second while fighting a boss; a change is an activity event.
+M.BOSS_ARENA_CLASS = "PhasedDragonArenaAILevelData"
+function M.boss_frame(F, me)
+    if not F.boss then return end
+    if F.t - (F.boss_t or -9) < 1.0 then return end
+    F.boss_t = F.t
+    local c = C()
+    local lvl = c.boss_lvl
+    if not U.valid(lvl) then
+        if F.t - (c.boss_lvl_look_t or -99) < 5 then return end
+        c.boss_lvl_look_t = F.t
+        lvl = U.find_first(M.BOSS_ARENA_CLASS)
+        c.boss_lvl = U.valid(lvl) and lvl or nil
+        if not c.boss_lvl then return end
+    end
+    local idx = num(U.try(function() return lvl.PhaseRuntimeData.PhaseIndex end))
+    local tr = U.try(function() return lvl.PhaseRuntimeData.bTransitioningToNext end) == true
+    local n = 0
+    pcall(function() lvl.PhaseData:ForEach(function() n = n + 1 end) end)
+    local air, why = M.airborne(F.target_id)
+    local b = c.boss or {}
+    local changed = b.index ~= idx or b.transitioning ~= tr or b.airborne ~= air
+    c.boss = { index = idx, transitioning = tr, phases = n > 0 and n or nil, airborne = air or tr, why = why, t = F.t, target = F.target_name }
+    if changed then
+        say(F.log, string.format("boss phase %s/%s transitioning=%s airborne=%s (%s)", tostring(idx), tostring(n), tostring(tr), tostring(air), tostring(why)))
+        M.emit_activity({ kind = "boss_phase", creature = F.target_name, phase = idx, phases = n > 0 and n or nil,
+                          transitioning = tr or nil, airborne = (air or tr) or nil, why = why })
+    end
+end
+
+-- Is this creature off the ground or between boss phases right now? (no chase while it is up)
+function M.airborne(id)
+    local c = C()
+    local r = (c.ai_actions or {})[id]
+    if r and r.running and r.profile and r.profile.airborne then return true, r.profile.kind end
+    local b = c.boss
+    if b and b.transitioning then return true, "phase_transition" end
+    return false
+end
+
 function M.on_ai_impact(ctx)
     if _G.DW_PAUSE then return end
     local c = C()
@@ -692,7 +817,7 @@ function M.hooks_start(log)
     local pc0 = local_pc()
     if pc0 then c.pc_id = U.short(pc0) end
     c.handlers = { on_damage = M.on_damage, on_ai_attack = M.on_ai_attack, on_parried = M.on_parried, on_blocked = M.on_blocked,
-                   on_ai_impact = M.on_ai_impact }
+                   on_ai_impact = M.on_ai_impact, on_ai_action = M.on_ai_action, on_ai_action_stop = M.on_ai_action_stop }
     local res = {}
     for _, h in ipairs(M.HOOKS) do
         if c.hooks[h.path] then res[h.handler .. ":" .. h.path:match(":(.+)$")] = "kept"
@@ -808,6 +933,11 @@ end
 function M.approach_blocked(F, ms)
     local cfg = M.cfg
     local d = F.dist_m
+    if M.airborne(F.target_id) then -- a boss in the air / between phases: not "unreachable", not "running away"
+        F.appr_best, F.appr_best_t, F.appr_tick_t, F.boss_hold = nil, F.t, nil, true
+        return nil
+    end
+    F.boss_hold = nil
     if F.appr_phase_t ~= F.phase_t then F.appr_phase_t, F.appr_best, F.appr_best_t = F.phase_t, nil, nil end -- a new approach
     if d and (not F.appr_best or d < F.appr_best - cfg.approach_gain_m) then F.appr_best, F.appr_best_t, F.appr_best_tpos = d, F.t, F.target_pos end
     F.appr_best_t = F.appr_best_t or F.t
@@ -1129,7 +1259,7 @@ function M.emit_combat_end(F, res)
         target = F.target_name, target_id = F.target_id, outcome = outcome_of(F, res), reason = res.reason,
         damage_taken = F.dmg_taken or 0, damage_dealt = math.max(0, (F.hp_start or 0) - (F.target_hp or 0)),
         hp_end = F.hp_now, loot = F.loot_names, parries = F.n_parried or 0, blocks = F.n_blocked or 0,
-        dodges = F.n_dodges or 0, jumps = F.n_jumps or 0, heals = F.n_heals or 0, presses = F.presses, why = F.why,
+        dodges = F.n_dodges or 0, jumps = F.n_jumps or 0, heals = F.n_heals or 0, cures = F.n_cures or nil, presses = F.presses, why = F.why,
         fled_why = d.why })
 end
 
@@ -1300,7 +1430,131 @@ local function best_heal_food(list)
 end
 M.best_heal_food = best_heal_food
 
-local function eat_allowed(F)
+local eat_allowed -- (defined below; status_frame uses it)
+-- ------------------------------------------------------------------ status effects (velgar.md gap 4)
+-- His own tracked statuses, by PROPERTY reads only (pawn.TrackedStatusEffectsComponent.TrackedStatusEffectInstances:
+-- EffectType, CurrentValue, Config.MaximumValue; dump 26161880); no UFunction call. -> {Poison = {value, max}, ...}
+M.TRACKED = { [1] = "Cold", [2] = "Poison", [3] = "Burning", [4] = "Bleeding", [5] = "Slow", [6] = "WellRested", [7] = "Cosiness",
+              [8] = "Wither", [9] = "Scorch", [10] = "AnimaCharge", [11] = "SoulScourge", [12] = "Shocked", [13] = "Chilled",
+              [14] = "SlowBuildup", [15] = "OverEating", [16] = "Hamstrung" }
+M.HARMFUL = { Cold = true, Poison = true, Burning = true, Bleeding = true, Slow = true, Wither = true, Scorch = true, SoulScourge = true,
+              Shocked = true, Chilled = true, SlowBuildup = true, Hamstrung = true }
+function M.read_statuses(pawn)
+    local comp = U.try(function() return pawn.TrackedStatusEffectsComponent end)
+    if not U.valid(comp) then return nil end
+    local out = {}
+    pcall(function()
+        comp.TrackedStatusEffectInstances:ForEach(function(_, e)
+            local inst = U.try(function() return e:get() end) or e
+            if U.valid(inst) then
+                local ty = num(U.try(function() return inst.EffectType end))
+                local v = num(U.try(function() return inst.CurrentValue end))
+                local name = ty and M.TRACKED[ty]
+                if name and v and v > 0 then
+                    out[name] = { value = math.floor(v * 10) / 10, max = num(U.try(function() return inst.Config.MaximumValue end)),
+                                  harmful = M.HARMFUL[name] or nil }
+                end
+            end
+        end)
+    end)
+    return out
+end
+
+-- What a consumable does to statuses (client_mod/scripts/consumable_wiki.lua, generated from the wiki snapshot).
+local CONS
+function M.consumable_info(name)
+    if CONS == nil then
+        local ok, t = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/consumable_wiki.lua"))() end)
+        CONS = ok and type(t) == "table" and t or false
+    end
+    return CONS and name and CONS[tostring(name):lower()] or nil
+end
+
+-- The best carried item against a status: one that CURES it first, then the strongest resistance; the hotbar
+-- before the bag (inventory.use moves nothing; a bag item answers in_bag). -> entry, info, "cures"|"resists"
+function M.best_cure(list, status)
+    local best, binfo, bhow, bscore
+    for wi, where in ipairs({ "hotbar", "bag" }) do
+        for _, e in ipairs((list or {})[where] or {}) do
+            local info = M.consumable_info(e.name)
+            if info then
+                local cures = false
+                for _, st in ipairs(info.cures or {}) do if st == status then cures = true end end
+                local res = (info.resists or {})[status]
+                if cures or res then
+                    local sc = (cures and 1000 or 0) + (res or 0) + (wi == 1 and 5 or 0)
+                    if not bscore or sc > bscore then best, binfo, bhow, bscore = e, info, cures and "cures" or "resists", sc end
+                end
+            end
+        end
+    end
+    return best, binfo, bhow
+end
+
+-- Perks he took (remembered from his own use of an item, with the wiki duration): {perk = {until, from}}
+local function remember_buffs(c, item_name, info)
+    c.buffs = c.buffs or {}
+    for _, perk in ipairs((info and info.perks) or {}) do
+        c.buffs[perk] = { until_t = os.time() + (info.duration_s or 0), from = item_name, resists = info.resists }
+    end
+end
+function M.active_buffs()
+    local c, out, t = C(), {}, os.time()
+    for perk, b in pairs(c.buffs or {}) do
+        if b.until_t > t then out[perk] = { left_s = b.until_t - t, from = b.from, resists = b.resists } else c.buffs[perk] = nil end
+    end
+    return out
+end
+
+-- Per fight tick (every cfg.status_s): read the statuses; poisoned (or any status a carried item cures) above
+-- cfg.cure_at of its maximum -> use the cure (one at a time, verified: the value drops -> a "cured" event).
+function M.status_frame(F, pawn, me)
+    if F.t - (F.status_t or -9) < M.cfg.status_s then return end
+    F.status_t = F.t
+    local c = C()
+    local st = M.read_statuses(pawn)
+    if not st then return end
+    c.statuses = { t = os.time(), effects = st }
+    local cp = F.cure_pending
+    if cp and F.t - cp.t >= 3 then
+        F.cure_pending = nil
+        local now_v = (st[cp.status] or {}).value or 0
+        if now_v < cp.v0 - 0.5 then
+            F.n_cures = (F.n_cures or 0) + 1
+            M.emit_activity({ kind = "cured", by = F.by or "unknown", status = cp.status, item = cp.item, before = cp.v0, after = now_v })
+            say(F.log, string.format("cured %s %.0f -> %.0f (%s)", cp.status, cp.v0, now_v, cp.item))
+        else
+            F.cure_fails = (F.cure_fails or 0) + 1
+        end
+    end
+    if F.cure_pending or F.phase == "defend" then return end
+    for status, e in pairs(st) do
+        if e.harmful and e.value >= M.cfg.cure_at * (e.max or 100) then
+            local ok = eat_allowed(F)
+            if not ok then return end
+            local list = mcall("inventory", "list", F.log) or {}
+            local item, info, how = M.best_cure(list, status)
+            if not item then
+                if not (F.no_cure or {})[status] then
+                    F.no_cure = F.no_cure or {}
+                    F.no_cure[status] = true
+                    M.emit_activity({ kind = "status", by = F.by or "unknown", status = status, value = e.value, max = e.max,
+                                      have_cure = false })
+                end
+                return
+            end
+            F.next_eat = F.t + 8
+            local r = mcall("inventory", "use", F.log, item.item)
+            say(F.log, string.format("%s %s %.0f: use %s (%s) -> %s", status, how, e.value, tostring(item.name), tostring(item.item),
+                tostring(r and (r.via or r.reason))))
+            F.cure_pending = { t = F.t, status = status, v0 = e.value, item = item.name or item.item }
+            remember_buffs(c, item.name, info)
+            return
+        end
+    end
+end
+
+eat_allowed = function(F)
     if F.next_eat and F.t < F.next_eat then return false, "cooldown" end
     local st = mcall("inventory", "eat_status")
     if type(st) == "table" and st.can_eat == false then
@@ -2297,6 +2551,9 @@ local function frame(F)
             end
         end
     end
+    pcall(M.ability_frame, F, me)
+    do local okst, err = pcall(M.status_frame, F, pawn, me); if not okst then c.status_err = tostring(err) end end
+    if F.phase ~= "defend" then M.boss_frame(F, me) end
     if F.phase == "approach" or F.phase == "disengage" then
         for id, tt in pairs(c.telegraphs) do
             if F.t - tt <= M.cfg.telegraph_fresh_s and tt > (F.last_tele or 0) and id == F.target_id and (F.dist_m or 99) <= M.cfg.telegraph_m then
@@ -2327,7 +2584,7 @@ local function frame(F)
             set_phase(F, "approach")
         end
     elseif F.phase == "approach" then
-        if tgt and tgt.distance_m and tgt.distance_m > M.cfg.lost_m then
+        if tgt and tgt.distance_m and tgt.distance_m > M.cfg.lost_m and not M.airborne(F.target_id) then
             F.far_since = F.far_since or F.t
             if F.t - F.far_since > M.cfg.lost_s then return finish(F, result_of(F, false, "too_far", { dist_m = tgt.distance_m })) end
         else F.far_since = nil end
@@ -2417,7 +2674,7 @@ local function start_fight(log, actor, opts)
                 t0 = t, t = t, phase_t = t, inputs = {}, presses = 0, hits = 0, kills = 0, verified = 0, unverified_run = 0,
                 hit_seq = c.counts.hits, phase_log = {}, items_before = {}, loot_skip = {}, why = opts.why,
                 by = opts.by or (opts.mode == "reflex" and "reflex" or "debug"), hp_start = tgt.hp, loot_names = {},
-                style = opts.style, weapon_pref = opts.weapon }
+                style = opts.style, weapon_pref = opts.weapon, boss = tgt.boss or nil }
     for _, w in ipairs(U.find_all("WorldItem", { skip_defaults = true })) do F.items_before[U.short(w) or "?"] = true end
     -- distances are centre to centre: a big creature (a cow's capsule) keeps us farther away, so
     -- reach and follow distance grow with its capsule radius beyond a Kebbit-sized one
@@ -2531,7 +2788,7 @@ function M.status()
     local f = c.fight
     local fs
     if f then
-        fs = { mode = f.mode, phase = f.phase, reach = f.reach, radius_cm = f.target_radius_cm, target = f.target_name, target_id = f.target_id, dist_m = f.dist_m and math.floor(f.dist_m * 10) / 10,
+        fs = { mode = f.mode, phase = f.phase, boss_hold = f.boss_hold, reach = f.reach, radius_cm = f.target_radius_cm, target = f.target_name, target_id = f.target_id, dist_m = f.dist_m and math.floor(f.dist_m * 10) / 10,
                target_hp = f.target_hp, presses = f.presses, verified = f.verified, hits = f.hits, dmg = f.dmg, face_err = f.face_err and math.floor(f.face_err),
                weapon = f.equip_plan and f.equip_plan.weapon, assessment = f.assessment,
                ranged = f.rg and { key = f.rg.key, shots = f.rg.shots, hits = f.rg.hits, last = f.rg.last, aiming = f.rg.aiming,
@@ -2542,6 +2799,7 @@ function M.status()
     for k, v in pairs(c.learned) do learned[k] = v end
     return { ok = true, fight = fs, last = c.last, guard = c.guard ~= nil, guard_last = c.guard_last, guard_err = c.guard_err,
              hook_err = c.hook_err, counts = c.counts, on_target = c.on_target, orders = M.orders, learned = learned, lines = c.log_lines,
+             boss = c.boss, statuses = c.statuses,
              memory = c.mem and { status = c.mem.status, detail = c.mem.detail, path = c.mem.path, build = c.mem.build, file_build = c.mem.file_build,
                                   saves = c.mem.saves, save_err = c.mem.save_err, imported = c.mem.imported } or nil,
              hooks = (function() local n = 0; for _ in pairs(c.hooks) do n = n + 1 end; return n end)() }
@@ -2887,7 +3145,21 @@ function M.state_extras(api, data)
         end
         c.odds = { t = t, pl = me.pl, v = odds }
     end
-    return { held_actions = c.extras.v, power_level = c.odds.pl, fight_odds = c.odds.v }
+    local f = c.fight
+    local boss = f and f.boss and c.boss and { creature = c.boss.target, phase = c.boss.index, phases = c.boss.phases,
+        airborne = c.boss.airborne or nil, transitioning = c.boss.transitioning or nil } or nil
+    if not (c.statuses and os.time() - c.statuses.t < 3) then
+        local st = M.read_statuses(pawn)
+        if st then c.statuses = { t = os.time(), effects = st } end
+    end
+    local sts
+    for name, e in pairs((c.statuses or {}).effects or {}) do
+        if e.harmful then sts = sts or {}; sts[name] = e.max and string.format("%g/%g", e.value, e.max) or tostring(e.value) end
+    end
+    local buffs
+    for perk, b in pairs(M.active_buffs()) do buffs = buffs or {}; buffs[perk] = string.format("%d s left (from %s)", b.left_s, tostring(b.from)) end
+    return { held_actions = c.extras.v, power_level = c.odds.pl, fight_odds = c.odds.v, boss_fight = boss,
+             status_effects = sts, buffs_remembered = buffs }
 end
 
 -- What he knows about a creature's damage-type affinities, each with its source:

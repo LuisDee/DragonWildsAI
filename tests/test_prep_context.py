@@ -113,3 +113,13 @@ def test_wiki_immunities_are_shown():
     st["fight_odds"]["BP_AI_GreyDrake_C_7"]["immune_effects"] = ["Poison", "Burning"]
     c = next(l for l in summary(st) if l.startswith("Creatures"))
     assert "immune to Poison, Burning effects (wiki)" in c
+
+
+def test_boss_phase_statuses_and_buffs_reach_the_digest():
+    st = dict(STATE)
+    st.update({"status_effects": {"Poison": "30/100"}, "buffs_remembered": {"Antipoison": "590 s left (from Lesser Antipoison Potion)"},
+               "boss_fight": {"creature": "Velgar", "phase": 1, "phases": 4, "airborne": True}})
+    s = "\n".join(summary(st))
+    assert "Status effects: Poison 30/100" in s
+    assert "Buffs remembered: Antipoison 590 s left" in s
+    assert "Boss fight: creature Velgar, phase 1, phases 4, airborne True" in s
