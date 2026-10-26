@@ -115,7 +115,10 @@ W.actions = function() return ACTS end
 W.shown_icons = function()
     if G.no_icons then return nil end
     local out = {}
-    for i = 1, 12 do local s = spell_by(G.wheel[G.shown_page * 12 + i]); out[i] = s and s.icon or false end
+    for i = 1, 12 do
+        local s = spell_by(G.wheel[G.shown_page * 12 + i])
+        out[i] = s and ((G.icon_override and G.icon_override[s.asset]) or s.icon) or false
+    end
     return out
 end
 W.selected = function() return G.selected end
@@ -325,6 +328,22 @@ do
     local res = run_cast({ spell = "Windstep" })
     check("highlight shows another spell -> nothing accepted", res.reason == "verification_failed" and res.data.why == "highlight_mismatch"
         and not presses():find("accept", 1, true) and (res.data.detail or ""):find("Fire Spirit", 1, true), presses())
+end
+-- T0 2026-10-26: the slice of a newly unlocked spell shows a different texture than its SpellIcon (Enchant Weapon:
+-- Fire, page_not_found after 4 turns): on its page it is matched by the radial's own name, never another spell
+reset({ unlocked = { WINDSTEP, ENCHANT }, all = { WINDSTEP, SHELTER, ENCHANT }, wheel = { "USD_Windstep", "USD_TestEnchant" } })
+G.icon_override = { USD_TestEnchant = "T_Wheel_Variant" }
+do
+    local res = run_cast({ spell = "Enchant Weapon: Air" })
+    check("icon differs on its page: matched by name, cast", res.ok and presses():find("quick1", 1, true) and res.data.picked_by == "name", presses())
+    check("icon mismatch recorded as evidence", res.data.icon_mismatch and res.data.icon_mismatch.shown == "T_Wheel_Variant")
+end
+reset({ unlocked = { WINDSTEP, ENCHANT }, all = { WINDSTEP, SHELTER, ENCHANT }, wheel = { "USD_Windstep", "USD_TestEnchant" }, highlight_wrong = "Fire Spirit" })
+G.icon_override = { USD_TestEnchant = "T_Wheel_Variant" }
+do
+    local res = run_cast({ spell = "Enchant Weapon: Air" })
+    check("icon AND name differ: never picked, says what the slot shows", res.reason == "verification_failed" and res.data.why == "page_not_found"
+        and not presses():find("quick", 1, true) and (res.data.detail or ""):find("Fire Spirit", 1, true), tostring(res.data.why) .. " " .. presses())
 end
 reset()
 do

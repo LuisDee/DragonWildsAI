@@ -1281,7 +1281,26 @@ local function step(job)
             -- after a page turn, wait (up to page_max_s) until the slices actually show the new page
             if job.page_sig and sig == job.page_sig and t < (job.page_deadline or 0) then return nil end
             job.page_sig = sig
-            if icons[job.slot + 1] == job.st.icon then
+            -- The slice icon is the first check. On the page the wheel data puts the spell (recognised by its OTHER
+            -- slices), a slice whose icon differs from the spell's SpellIcon is checked by NAME instead: the radial's
+            -- own HighlightSlice + SpellName (T0 2026-10-26: Enchant Weapon: Fire was never matched by icon on any
+            -- page after its unlock, page_not_found after 4 turns). Never picks a slice that names another spell.
+            local by_name = false
+            if icons[job.slot + 1] ~= job.st.icon then
+                local cur = M.page_of(icons, job.before.wheel, job.per, job.icon_of)
+                local want = job.row.wheel_slot // job.per
+                if cur == want and not job.name_checked then
+                    job.name_checked = true
+                    local hl = W.highlight(api, job.slot)
+                    job.d.icon_mismatch = { slot = job.slot, shown = icons[job.slot + 1] or "empty", want = job.st.icon,
+                                            highlight = hl and hl.name or nil }
+                    if hl and hl.section == job.slot and norm_name(hl.name) == norm_name(job.row.name) then
+                        by_name = true
+                        job.d.picked_by = "name"
+                    end
+                end
+            end
+            if icons[job.slot + 1] == job.st.icon or by_name then
                 mark(job, "page_ok", t)
                 mark(job, "selected", t)
                 if job.slot < cfg.quick_keys and job.acts.quick[job.slot + 1] then
@@ -1304,7 +1323,9 @@ local function step(job)
             end
             job.flips = (job.flips or 0) + 1
             if job.flips > job.pages or not job.acts.next_page then
-                return failed(job, "verification_failed", "page_not_found", "I couldn't find " .. job.row.name .. " on my spell wheel's pages.")
+                local mm = job.d.icon_mismatch
+                return failed(job, "verification_failed", "page_not_found", "I couldn't find " .. job.row.name .. " on my spell wheel's pages"
+                    .. ((mm and mm.highlight and mm.highlight ~= "") and (" (its slot shows " .. mm.highlight .. ")") or "") .. ".")
             end
             local dir = "next"
             if job.acts.prev_page and not job.page_dir then

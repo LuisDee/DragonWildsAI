@@ -357,6 +357,8 @@ function W.fstate(comp)
         reel = num(U.try(function() return comp.FightingFishInternalState.ReelProgressFraction end)),
         my_stamina = num(U.try(function() return comp.FightingFishInternalState.PlayerStaminaFraction end)),
         fish_stamina = num(U.try(function() return comp.ReplicatedFishStaminaFraction end)),
+        -- what the minigame registered from our inputs (live check: does an injected pull reach it?)
+        pull_value = num(U.try(function() return comp.FightingFishInternalState.FightingFishPlayerInputValues.PullingRodValue end)),
     }
     local hit = U.try(function() return comp.InternalState.HitLocation end)
     if hit then s.hit = { X = num(U.try(function() return hit.X end)), Y = num(U.try(function() return hit.Y end)),
@@ -729,8 +731,8 @@ local function step_rod(J, pawn, pc, me)
         if J.t - (fl.trace_t or -1) >= 0.5 then -- a compact fight trace (live tuning; C().fights keeps the last 3)
             fl.trace_t = J.t
             fl.trace = fl.trace or {}
-            fl.trace[#fl.trace + 1] = string.format("%.1f %s %s r%.2f me%.2f fish%.2f", J.t - (J.fight_t or J.t), sw, which,
-                fs.reel or -1, fs.my_stamina or -1, fs.fish_stamina or -1)
+            fl.trace[#fl.trace + 1] = string.format("%.1f %s %s r%.2f me%.2f fish%.2f pull%s", J.t - (J.fight_t or J.t), sw, tostring(which),
+                fs.reel or -1, fs.my_stamina or -1, fs.fish_stamina or -1, tostring(fs.pull_value))
             if #fl.trace >= 60 then table.remove(fl.trace, 1) end
             local c = C()
             c.fights = c.fights or {}
