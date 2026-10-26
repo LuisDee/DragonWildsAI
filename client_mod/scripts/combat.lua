@@ -56,6 +56,8 @@ M.cfg = {
     telegraph_m = 6, telegraph_fresh_s = 1.0,
     disengage_m = 10,        -- back off this far to eat (orders.disengage)
     memory_enabled = true, history_max = 10, steam_manifest = "C:/Program Files (x86)/Steam/steamapps/appmanifest_1374490.acf",
+    chase_moved_m = 3, -- a stall while the target itself moved this far = it is running, not a wall
+    chase_max_s = 30, -- approaching (all episodes) this long without landing a hit: too_far, cant_catch
     approach_stall_s = 12, approach_gain_m = 0.5, -- approach: no 0.5 m gain for 12 s = blocked (path_blocked)
     impact_attrib_s = 0.8, max_retargets = 4, -- an HP drop this soon after a creature's impact event is its hit
     conversation_retry_s = 2.0, conversation_leave_s = 5.0, -- leaving an NPC dialogue for a fight (talk finding 8)
@@ -806,8 +808,23 @@ function M.approach_blocked(F, ms)
     local cfg = M.cfg
     local d = F.dist_m
     if F.appr_phase_t ~= F.phase_t then F.appr_phase_t, F.appr_best, F.appr_best_t = F.phase_t, nil, nil end -- a new approach
-    if d and (not F.appr_best or d < F.appr_best - cfg.approach_gain_m) then F.appr_best, F.appr_best_t = d, F.t end
+    if d and (not F.appr_best or d < F.appr_best - cfg.approach_gain_m) then F.appr_best, F.appr_best_t, F.appr_best_tpos = d, F.t, F.target_pos end
     F.appr_best_t = F.appr_best_t or F.t
+    -- the chase budget: time spent approaching since the fight's last landed hit, over every approach
+    -- episode (live 2026-10-25 22:01-22:03: a Kebbit on higher ground kept moving, so the distance kept
+    -- changing; the attack ran to the 120 s tool timeout twice)
+    if F.appr_tick_t and F.t > F.appr_tick_t and F.t - F.appr_tick_t < 1 then F.chase_s = (F.chase_s or 0) + (F.t - F.appr_tick_t) end
+    F.appr_tick_t = F.t
+    if F.last_hit_t and F.last_hit_t ~= F.chase_hit_t then F.chase_hit_t, F.chase_s = F.last_hit_t, 0 end
+    local fled_m = 0
+    if F.appr_best_tpos and F.target_pos then fled_m = U.dist(F.appr_best_tpos, F.target_pos) / 100 end
+    local stalled_moving = F.t - F.appr_best_t > cfg.approach_stall_s and fled_m > cfg.chase_moved_m
+    if (F.chase_s or 0) > cfg.chase_max_s or stalled_moving then
+        local name = tostring(F.target_name or "it")
+        return { reason = "too_far", why = "cant_catch", target = F.target_name, target_id = F.target_id,
+                 dist_m = d and math.floor(d * 10) / 10, chased_s = math.floor(F.chase_s or 0), target_moved_m = math.floor(fled_m * 10) / 10, best_m = F.appr_best and math.floor(F.appr_best * 10) / 10,
+                 detail = string.format("I chased the %s for %d s and couldn't get close enough to hit it (it keeps moving away).", name, math.floor(F.chase_s or 0)) }
+    end
     local un = type(ms) == "table" and (ms.unreachable or (ms.status == "unreachable" and {})) or nil
     local stalled = F.t - F.appr_best_t > cfg.approach_stall_s
     if not (un or stalled) then return nil end
@@ -817,6 +834,7 @@ function M.approach_blocked(F, ms)
     local words = {
         no_route = "there's no way through to it from here",
         target_above_jump_height = "it's higher up than I can jump",
+        leader_above_jump_height = "it's higher up than I can jump",
         wedged = "I'm wedged and can't move",
         no_progress = walls and "something is in the way (I keep bumping into it)" or "I'm not getting any closer",
     }
@@ -2316,7 +2334,11 @@ local function frame(F)
         if F.dist_m and F.dist_m <= F.reach then set_phase(F, "engage")
         else
             local blocked = M.approach_blocked(F, mcall("move", "status"))
-            if blocked then return finish(F, result_of(F, false, "path_blocked", blocked)) end
+            if blocked then
+                local reason = blocked.reason or "path_blocked"
+                blocked.reason = nil
+                return finish(F, result_of(F, false, reason, blocked))
+            end
         end
     elseif F.phase == "engage" then
         if F.rg then step_ranged(F, pawn, me, acts, tgt) else step_engage(F, pawn, me, acts, tgt) end

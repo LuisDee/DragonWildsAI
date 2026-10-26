@@ -734,6 +734,34 @@ do
     check("unreach: the detail is a sentence he can say", r2 and r2.data.detail == "I can't reach the Kebbit: there's no way through to it from here.", r2 and r2.data.detail)
     MV.extra, world.wall_x = nil, nil
     A.reset(nil)
+    -- (c) live 2026-10-25 22:01: move's verdict "leader_above_jump_height" (a Kebbit up a ledge) -> said plainly
+    reset_world()
+    local k3 = new_creature("BP_AI_Kebbit_Character_02_C_ledge", "Kebbit", { X = 1500, Y = 0, Z = 270 }, { hp = 30, pl = 1, arch = 1 })
+    world.wall_x = 100
+    Cm._start_fight(nil, k3, { mode = "attack", force = true, by = "brain" })
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "approach" end, 3)
+    MV.extra = { status = "unreachable", unreachable = { reason = "leader_above_jump_height", detail = "dz=2.7m d=13.7m lp_fail=verify_exhausted" }, lp_fail = "verify_exhausted" }
+    run_until(function() return Cm._state().fight == nil end, 10)
+    local r3 = Cm._state().last.result
+    check("ledge (22:01 replay): path_blocked, higher than he can jump", r3 and r3.reason == "path_blocked" and r3.data.detail == "I can't reach the Kebbit: it's higher up than I can jump.", r3 and r3.data and r3.data.detail)
+    MV.extra, world.wall_x = nil, nil
+    A.reset(nil)
+    -- (d) a target that keeps moving away (the distance keeps changing, so no single stall): the chase budget
+    reset_world()
+    local k4 = new_creature("BP_AI_Kebbit_Character_02_C_run", "Kebbit", { X = 1500, Y = 0, Z = 0 }, { hp = 30, pl = 1, arch = 1 })
+    world.on_step = function() -- runs away a touch slower than he walks, with a zig-zag
+        k4.loc.X = k4.loc.X + 4.96
+        k4.loc.Y = 300 * math.sin(T * 0.7)
+    end
+    local t0 = T
+    Cm._start_fight(nil, k4, { mode = "attack", force = true, by = "brain" })
+    run_until(function() return Cm._state().fight == nil end, 60)
+    local r4 = Cm._state().last.result
+    check("chase: too_far / cant_catch, never a bare timeout", r4 and r4.reason == "too_far" and r4.data.why == "cant_catch", r4 and r4.reason)
+    check("chase: ends on the chase budget (~30 s)", T - t0 < 40, T - t0)
+    check("chase: says what happened", r4 and r4.data.detail:find("chased the Kebbit", 1, true) ~= nil, r4 and r4.data and r4.data.detail)
+    world.on_step = nil
+    A.reset(nil)
 end
 
 -- ================================================================ 11a. hit while looting (live 09:41): the impact event names the attacker, he fights back
