@@ -225,6 +225,19 @@ def describe_rule(r: dict) -> str:
     return f"{r.get('id')}: {who} {trig} -> {', '.join(acts)}"
 
 
+# Engine ids in a body's failure sentence (live 22:20:56 said "Water Volume is already in sight (3.22 m,
+# id BP_WaterVolume_C_UAID_..._2108496385)": a raw_code_spoken anomaly). Same shapes tools/obs.py flags.
+ENGINE_ID = re.compile(r"\b(?:BP|ITEM|USD|DIM|WBP|ABP|DA|BM)_\w+|\bfol:\S+")
+
+
+def player_words(text: str, name: str | None = None) -> str:
+    """A body failure sentence as a player would say it: a bracketed aside that carries an engine id
+    (with its metres) is dropped, and any other id is replaced by the thing's in-game name."""
+    out = re.sub(r"\s*\([^()]*(?:\bid\b|" + ENGINE_ID.pattern + r")[^()]*\)", "", text)
+    out = ENGINE_ID.sub(name or "it", out)
+    return re.sub(r"\s{2,}", " ", out).strip()
+
+
 def clip(text: str, limit: int = MAX_SAY) -> str:
     """One chat line: whitespace collapsed, cut at a word boundary."""
     t = " ".join(str(text).split())
@@ -349,6 +362,8 @@ class Controller:
     def note_event(self, event: Event) -> None:
         if isinstance(event, PROGRESS_EVENTS):
             return  # progress is narrated, not context
+        if getattr(event, "type", None) in ("command_received", "chat_heard"):
+            return  # chat has its own memory (context "chat"); here it would push body results out of the window
         self.events.append(event.model_dump())
 
     # ---------------------------------------------------------------- context: spells and standing orders
@@ -819,9 +834,11 @@ class Controller:
         reason_base = (reason or "").split(":", 1)[0]
         detail = data.get("detail")
         speaks = tool == "gather" or (self.caps is not None and self.caps.speaks_detail(tool))
+        found = data.get("found") if isinstance(data.get("found"), dict) else {}
+        name = data.get("name") or found.get("name")  # the thing's in-game name, for player_words
         if speaks and isinstance(detail, str) and detail.strip() and reason not in Reason.CANT_YET:
             # the client skills write a truthful chat sentence for each failure (manifest detail_is_speech)
-            self.say(detail.strip())
+            self.say(player_words(detail.strip(), name))
         elif reason == Reason.CANT_SENSE:
             self.say("I can't sense that, so I can't react to it. I can watch for attacks starting, "
                      "health levels, enemies bunching up, stuns and spell cooldowns.")
@@ -860,6 +877,7 @@ class Controller:
             detail = data.get("detail")
             why = next((x for x in (reason, detail) if isinstance(x, str) and " " in x.strip()), None)  # a sentence
             why = re.sub(r"^[a-z_]+:\s*", "", why) if why else why  # "verification_failed: not following" -> the words
+            why = player_words(why, name) if why else why
             self.say(f"Sorry, I couldn't {SKILL_PHRASES.get(tool, tool.replace('_', ' '))}"
                      + (f": {why.strip().rstrip('.')}." if why else "."))
 

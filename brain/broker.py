@@ -37,6 +37,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from . import situation as sit
 from .interface import (PROGRESS_EVENTS, Activity, Attacked, Event, ItemsDropped, Resumed, TaskDone, TaskFailed,
                         Unreachable, VitalsLow)
 
@@ -69,6 +70,11 @@ REVIEW_NEAR_M = 15.0
 REVIEW_BAG_FULL = 0.9
 FIGHT_QUIET_S = 30.0  # an attack this recent = in combat: no review
 ACTIVITY_KEEP = 8  # recent_activity lines in every Controller context
+ACTIONS_KEEP = 5  # recent brain actions in body_status
+FAILURES_KEEP = 2  # failures older than those 5 still shown (within DIGEST_KEEP_S), so a run of ok steps
+#                    can't push the reason a thing failed out of view (live 22:19-22:20: 4 x too_far)
+NAMES_KEEP = 256  # id -> in-game name, from what was perceived (state, looks)
+ARG_TEXT_MAX = 40  # one free-text argument in the digest; ids and names are never cut
 
 # Fallback lines, used only when the model call for a situation fails (main, 2026-10-25: the model
 # phrases these; templates stay as the safety net). Keyed by the body's reason code.
@@ -229,6 +235,26 @@ class Verdict:
     event: dict = field(default_factory=dict)  # the structured event for the model (decide)
 
 
+def arg_text(args: dict, name: str | None = None) -> str:
+    """An action's arguments for body_status, cut per value and never inside an id (live 22:20: the
+    target id was cut at 48 characters, so it no longer matched the id in look). The target's in-game
+    name goes first when known: "Water Volume (BP_WaterVolume_..._2108496385)"."""
+    vals = []
+    for k, v in args.items():
+        if v in (None, "", [], {}) or isinstance(v, bool):
+            continue
+        if isinstance(v, (list, tuple)):
+            text = "[" + ", ".join(f"{x:.0f}" if isinstance(x, (int, float)) else str(x) for x in v) + "]"
+        else:
+            text = str(v)
+            if any(c.isspace() for c in text) and len(text) > ARG_TEXT_MAX:  # free text: cut; ids have no spaces
+                text = text[:ARG_TEXT_MAX].rstrip() + "..."
+        if k == "target" and name and name != text:
+            text = f"{name} ({text})"
+        vals.append(text)
+    return " ".join(vals)
+
+
 class EventBroker:
     def __init__(self, log=None, clock: Callable[[], float] = time.monotonic,
                  tool_of: Callable[[str], str | None] | None = None,
@@ -246,7 +272,10 @@ class EventBroker:
         self._activity: deque[tuple[float, Activity]] = deque(maxlen=ACTIVITY_KEEP)  # episodic memory
         self._progress: tuple[float, str] | None = None  # the running job's latest progress note
         self._seen: dict | None = None  # the last observed state (where am I, who is in sight)
-        self._actions: deque[tuple[float, str, dict, bool, str | None, str | None]] = deque(maxlen=5)  # brain actions
+        # brain actions: (t, tool, args, ok, reason, why, name of the target thing)
+        self._actions: deque[tuple] = deque(maxlen=ACTIONS_KEEP)
+        self._failures: deque[tuple] = deque(maxlen=FAILURES_KEEP)  # the same rows, failed ones only
+        self._names: dict[str, str] = {}  # id -> in-game name of things perceived lately
         # situation_review bookkeeping
         self._bands: dict[str, tuple[int, float]] = {}  # stat -> (band, pct) last observed
         self._reviewed_bands: dict[str, int] = {}  # stat -> band at the last review
@@ -282,7 +311,8 @@ class EventBroker:
     def action_finished(self, tool: str, args: dict, ok: bool, reason: str | None = None,
                         data: dict | None = None) -> None:
         why = (data or {}).get("detail") or (data or {}).get("why")
-        self._actions.append((self.clock(), tool, dict(args or {}), ok, reason, str(why) if why else None))
+        self._record(tool, dict(args or {}), ok, reason, str(why) if why else None,
+                     self.name_of((args or {}).get("target")) or (data or {}).get("name"))
         ep = self.episode
         if tool not in MOVE_TOOLS or ep is None or ep.ended is not None:
             return
@@ -290,6 +320,29 @@ class EventBroker:
             return  # a follow keeps running in the body after its reply
         ep.ended, ep.ok, ep.reason = self.clock(), ok, reason
         ep.why = str((data or {}).get("why") or (data or {}).get("detail") or "") or None
+
+    def _record(self, tool: str, args: dict, ok: bool, reason, why, name) -> None:
+        row = (self.clock(), tool, args, ok, reason, why, name if isinstance(name, str) and name else None)
+        self._actions.append(row)
+        if not ok:
+            self._failures.append(row)
+
+    def learn_names(self, state: dict | None = None, looks=()) -> None:
+        """Remember the in-game name of every perceived thing by id (state lists and this turn's looks),
+        so body_status can say WHAT an action was on, matching the ids the model sees."""
+        try:
+            things = sit.perceived(state or {}, looks)
+        except Exception:  # perception shapes vary by body; names are a nicety, never break a turn
+            return
+        for t in things:
+            if t.id and t.name and str(t.id) != t.name:
+                self._names.pop(str(t.id), None)
+                self._names[str(t.id)] = t.name
+        while len(self._names) > NAMES_KEEP:
+            self._names.pop(next(iter(self._names)))
+
+    def name_of(self, target) -> str | None:
+        return self._names.get(target) if isinstance(target, str) else None
 
     def _end(self, why: str) -> None:
         ep = self.episode
@@ -311,7 +364,7 @@ class EventBroker:
                 # the brain stopped waiting (the player spoke): this late result is what really happened
                 tool = self.tool_of(ev.task_id) or "action"
                 ok_ = isinstance(ev, TaskDone)
-                self._actions.append((self.clock(), tool, {}, ok_, None if ok_ else ev.reason, "finished after you stopped waiting"))
+                self._record(tool, {}, ok_, None if ok_ else ev.reason, "finished after you stopped waiting", None)
                 why = "late result of an abandoned wait: recorded in recent actions"
             elif isinstance(ev, (TaskDone, TaskFailed)):
                 why = "action result: the executor already has it (synchronous reply)"
@@ -523,6 +576,7 @@ class EventBroker:
             return
         now, pos = self.clock(), _pos(state.get("position"))
         self._seen = state
+        self.learn_names(state)
         if self._first_seen is None:
             self._first_seen = now
         self._watch(state)
@@ -685,13 +739,16 @@ class EventBroker:
         for t, line in self._reports:
             if now - t <= DIGEST_KEEP_S:
                 out.append(f"Body report {now - t:.0f}s ago: {line}")
-        recent = [(t, tool, args, ok, reason, why) for t, tool, args, ok, reason, why in self._actions
-                  if now - t <= DIGEST_KEEP_S]
-        if recent:  # live 21:43: "what are you working on?" must be answered from what really happened
-            def arg_text(args: dict) -> str:
-                vals = [str(v) for v in args.values() if v not in (None, "", [], {}) and not isinstance(v, bool)]
-                return " ".join(vals)[:48]
-            out.append("Your recent actions (oldest first): " + "; ".join(
-                f"{tool} {arg_text(args)}".strip() + (" ok" if ok else f" FAILED: {reason}" + (f" ({why})" if why else ""))
-                + f", {now - t:.0f}s ago" for t, tool, args, ok, reason, why in recent))
-        return out[:7]
+        recent = [r for r in self._actions if now - r[0] <= DIGEST_KEEP_S]
+        older = [r for r in self._failures if now - r[0] <= DIGEST_KEEP_S and r not in recent]
+        if recent or older:  # live 21:43: "what are you working on?" must be answered from what really happened
+
+            def line(row) -> str:
+                t, tool, args, ok, reason, why, name = row
+                return (f"{tool} {arg_text(args, name)}".strip()
+                        + (" ok" if ok else f" FAILED: {reason}" + (f" ({why})" if why else "")) + f", {now - t:.0f}s ago")
+            if older:  # a failure the newer steps would have pushed out: still in view while it is recent
+                out.append("Earlier failed actions: " + "; ".join(line(r) for r in older))
+            if recent:
+                out.append("Your recent actions (oldest first): " + "; ".join(line(r) for r in recent))
+        return out[:8]

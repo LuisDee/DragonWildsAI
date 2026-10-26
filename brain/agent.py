@@ -428,6 +428,7 @@ class Agent:
                                                            "args_help": self.controller.arg_help(failed_call.name)}
         extra: list[str] = []  # facts the body reported that the speech must carry (single voice)
         spoken, ran = False, []
+        self.broker.learn_names(looks=d.looks)  # body_status then names the things this turn's looks found
         for call in ([] if failure else d.actions):
             if call.name in ("remember", "forget_skill"):
                 res = self._remember(call.arguments, state, event.player) if call.name == "remember" \
