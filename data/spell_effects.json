@@ -1,7 +1,7 @@
 {
  "version": 1,
  "build": "26161880",
- "generated_at": "2026-10-26T07:28:44Z",
+ "generated_at": "2026-10-26T07:37:51Z",
  "source": [
   "data/spells_26161880.json",
   "tools/gen_spell_effects.py LIVE (DISCOVERIES 'Client spells (R2)')",
@@ -20,7 +20,7 @@
   "target_gone": "the targeted thing is gone/converted after the cast (data.target_after == 'gone')",
   "target_health_drop": "the targeted thing's health falls by at least `min` (data.target_health vs before)",
   "drops_spawned": "world items whose item id contains `item_contains` appear near the target (look/census)",
-  "held_item_effect": "the held weapon gains the enchant: its damage types include `damage_types` for `time_limit_s` (pawn PlayerEquipmentComponent held effect; to be read)",
+  "held_item_effect": "the held weapon's AHeldEquipmentActor.MagicalHeldEquipmentEffectInfo.EffectData becomes `effect` (data.effects.held); damage types `damage_types` for `time_limit_s`",
   "world_module": "the spell changes the world through game module `module` (crop growth, water, compost ...); the proof needs a module-specific read (TBD)",
   "needs_live_observation": "no observable module in the spell data (Blueprint-only): watch tags / GE / position / targets on a live cast, then add a LIVE entry",
   "view_target": "the camera view target switches to class `class` while the spell is active (data.effects.view_target)",
@@ -39,7 +39,7 @@
   "jump_apex_gain_m": "probe",
   "air_dash_m": "probe",
   "drops_spawned": "state",
-  "held_item_effect": false,
+  "held_item_effect": "cast_reply",
   "world_module": false,
   "needs_live_observation": false,
   "view_target": "cast_reply",
@@ -136,14 +136,19 @@
     ],
     "effect": [
      {
+      "kind": "input_mode",
+      "contains": "FocussedInGameUI",
+      "observable": "cast_reply"
+     },
+     {
       "kind": "ge_added",
       "class_contains": "DominionGameplayEffect",
       "observable": "cast_reply"
      }
     ]
    },
-   "confidence": "data",
-   "evidence": null,
+   "confidence": "live",
+   "evidence": "2026-10-26 07:35Z dev (unlocked as evidence setup): Law -20 Astral -15, cooldown, settled; the personal-storage screen opened (input mode DIM_FocussedInGameUI) and a DominionSpellActor spawned; no GE/tag. input.lua closes the orphaned container screen",
    "modules": [
     "Cast",
     "CostItems",
@@ -548,7 +553,7 @@
       "damage_types": [],
       "time_limit_s": 300.0,
       "effect": "HEED_CorruptionArrows",
-      "observable": false
+      "observable": "cast_reply"
      }
     ]
    },
@@ -962,7 +967,7 @@
       ],
       "time_limit_s": 300.0,
       "effect": "HEED_EnchantWeaponAir",
-      "observable": false
+      "observable": "cast_reply"
      }
     ]
    },
@@ -1050,7 +1055,7 @@
       ],
       "time_limit_s": 300.0,
       "effect": "HEED_EnchantWeaponEarth",
-      "observable": false
+      "observable": "cast_reply"
      }
     ]
    },
@@ -1109,17 +1114,16 @@
     "effect": [
      {
       "kind": "held_item_effect",
+      "effect": "HEED_EnchantWeaponFire",
       "damage_types": [
        "DamageType.Magical.Fire"
       ],
-      "time_limit_s": 300.0,
-      "effect": "HEED_EnchantWeaponFire",
-      "observable": false
+      "observable": "cast_reply"
      }
     ]
    },
-   "confidence": "data",
-   "evidence": null,
+   "confidence": "live",
+   "evidence": "2026-10-26 07:37Z dev (unlocked + sword granted as evidence setup): Fire -15 Astral -5, cooldown, settled; the held BP_Sword_Bronze_C's MagicalHeldEquipmentEffectInfo.EffectData = HEED_EnchantWeaponFire (ServerExpirationTime set); no GE/tag",
    "modules": [
     "Cast",
     "CostItems",
@@ -1205,7 +1209,7 @@
       ],
       "time_limit_s": 300.0,
       "effect": "HEED_EnchantWeaponWater",
-      "observable": false
+      "observable": "cast_reply"
      }
     ]
    },
@@ -2270,7 +2274,7 @@
       "damage_types": [],
       "time_limit_s": 120.0,
       "effect": "HEED_EnchantedRod",
-      "observable": false
+      "observable": "cast_reply"
      }
     ]
    },

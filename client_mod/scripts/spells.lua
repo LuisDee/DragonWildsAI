@@ -39,6 +39,8 @@ M.cfg = {
     late_watch_s = 15,
     cooldown_grace_s = 2,
     settle_after_leave_s = 2, -- ... and this long after leaving a spell's own mode
+    mode_linger_s = 1.0,    -- settled: let the game leave its spell mode by itself this long ...
+    leave_s = 6,            -- ... then leave it ourselves and wait this long for DIM_Gameplay (live: Oculus exit transition ~3-4 s)
     settle_s = 8,           -- after the first success sign: wait up to this long for runes AND cooldown to replicate   -- after the server's cooldown notice: wait this long for a success signal
     aim_heights_m = { 1.2, 0.8, 1.6, 0.5 }, -- a standing tree / plant (foliage, position = its base): aim at the trunk
     actor_aim_heights_m = { 0.3, 0.0, 0.8, 1.2 }, -- an actor (a log on the ground, a rock; position = its origin)
@@ -64,6 +66,14 @@ M.cfg = {
     radial_mode = "DIM_RadialMenu",
     spell_modes = { DIM_SpellcastingMode = true, DIM_SpellPlacementMode = true, DIM_SpellPlacementModeAdvancedMovement = true },
 }
+-- Modes a spell can put the player in that are NOT left with the spell keys (L29): the game's own
+-- component on the pawn, its "is active" check and its exit handler (the call the mode's Exit legend
+-- runs). DATA from the reflection dump (26161880), one row per game component, not per spell.
+M.MODE_EXITS = {
+    { component = "OculusComponent", active = "IsOculusActive", exit = "RequestExitOculusMode",
+      source = "UOculusComponent (Dominion.hpp:28618); the build legend's Exit; live 2026-10-26 it left DIM_OculusBuildMenu" },
+}
+
 -- EUtilitySpellCastType (CXX dump 26161880)
 M.CAST_TYPES = { [0] = "instant", [1] = "placed", [2] = "aimed", [3] = "instant_after_move" }
 -- Catalog roles (data/spells_<build>.json usage.role, a DATA profile) that mean "this hurts what it
@@ -391,9 +401,13 @@ function W.snapshot(api)
     -- with Claude's own shelter standing), so every UtilitySpell within 40 m is listed and a cast is
     -- matched to the NEW one nearest its preview point.
     local here = u.loc(pawn)
-    for _, a in ipairs(u.find_all("UtilitySpell", { skip_defaults = true })) do
-        local p = u.loc(a)
-        if p and here and u.dist(p, here) < 4000 then s.actors[u.short(a)] = { class = u.class_word(a), position = to_m(p) } end
+    -- (+ every DominionSpellActor: live 2026-10-26, Eye of Oculus and Summon Stone Spirits spawn a bare
+    -- DominionSpellActor, not a UtilitySpell)
+    for _, fam in ipairs({ "UtilitySpell", "DominionSpellActor" }) do
+        for _, a in ipairs(u.find_all(fam, { skip_defaults = true })) do
+            local p = u.loc(a)
+            if p and here and u.dist(p, here) < 4000 then s.actors[u.short(a)] = { class = u.class_word(a), position = to_m(p) } end
+        end
     end
     local gs = u.find_first("GameStateBase")
     s.server_time = gs and u.try(function() return gs:GetServerWorldTimeSeconds() end)
@@ -402,6 +416,8 @@ function W.snapshot(api)
     local gst = u.find_object("/Script/Engine.Default__GameplayStatics")
     s.world_time = gst and u.try(function() return gst:GetTimeSeconds(pawn) end)
     s.input_mode = u.short(u.try(function() return pc.CurrentInputMode end))
+    -- what the camera shows (a spell may switch the view: Eye of Oculus -> BP_OculusCamera_C)
+    s.view_target = u.class_word(u.try(function() return pc:GetViewTarget() end))
     s.falling = u.try(function() return pawn.CharacterMovement:IsFalling() end) == true
     local ge = u.try(function() return pawn.GameplayEffectsComponent end)
     if u.valid(ge) then
@@ -529,11 +545,19 @@ function W.clock(api)
 end
 
 -- One frame of an Enhanced Input action (the shared helper combat.lua verified live).
+-- Through the shared input layer (input.lua, the modal gate): spells OWNS the "mode" modal (the wheel, the
+-- placement / spell modes it opens), so it passes opts.modal = "mode"; a build-mode or container modal still
+-- blocks it. (Live 2026-10-26 08:1x: combat._inject, now gated, refused every press after Q because the wheel
+-- is a non-gameplay mode -> "not_selected", and the wheel stayed open.)
 function W.inject(api, action)
     local u = U()
     if not u.valid(action) then return false end
-    local c = api.module("combat")
-    if c and type(c._inject) == "function" then return c._inject(action) == true end
+    local inp = api.module("input")
+    if inp and type(inp.inject) == "function" then
+        local ok, blocked = inp.inject(action, nil, { modal = "mode" })
+        if not ok and blocked then mem().blocked = { kind = blocked.kind, mode = blocked.mode, at = os.time() } end
+        return ok == true
+    end
     local s = u.find_first("EnhancedInputLocalPlayerSubsystem")
     return s ~= nil and pcall(function() s:InjectInputVectorForAction(action, { X = 1.0, Y = 0.0, Z = 0.0 }, {}, {}) end)
 end
@@ -672,6 +696,27 @@ function W.foliage_thing(api, id)
         end
     end
     return nil
+end
+
+-- Which own modes (M.MODE_EXITS rows) are active on the pawn now. -> {row, ...}
+function W.own_modes(api)
+    local u = U()
+    local pawn = W.pawn(api)
+    local out = {}
+    if not u.valid(pawn) then return out end
+    for _, row in ipairs(M.MODE_EXITS) do
+        local c = u.try(function() return pawn[row.component] end)
+        if u.valid(c) and u.try(function() return c[row.active](c) end) == true then out[#out + 1] = row end
+    end
+    return out
+end
+
+-- Leave one own mode through the game's own exit handler. -> true if the call went through
+function W.exit_own_mode(api, row)
+    local u = U()
+    local pawn = W.pawn(api)
+    local c = u.valid(pawn) and u.try(function() return pawn[row.component] end)
+    return u.valid(c) and pcall(function() c[row.exit](c) end) or false
 end
 
 -- Players around: {{name, id, position}} (census, metres).
@@ -875,6 +920,12 @@ local function cleanup(job)
             W.inject(job.api, (mode == M.cfg.radial_mode and job.acts.menu) or job.acts.cancel or job.acts.menu)
             job.d.cancelled_mode = mode
         end
+        for _, row in ipairs(W.own_modes(job.api)) do
+            if W.exit_own_mode(job.api, row) then
+                job.d.exited_own_mode = job.d.exited_own_mode or {}
+                table.insert(job.d.exited_own_mode, row.component)
+            end
+        end
     end
     release(job, job.d.why or "done")
 end
@@ -951,6 +1002,8 @@ function M.diff(before, after, st)
     added(before.ge, after.ge, out.ge_added)
     added(before.tags, after.tags, out.tags_added)
     for id, a in pairs(after.actors or {}) do if not (before.actors or {})[id] then out.actors_added[#out.actors_added + 1] = { id = id, class = a.class, position = a.position } end end
+    if after.view_target and before.view_target and after.view_target ~= before.view_target then out.view_target = after.view_target end
+    if after.input_mode and after.input_mode ~= before.input_mode then out.mode = after.input_mode end
     return out
 end
 
@@ -1039,8 +1092,9 @@ local function verified_result(job, df, snap)
     -- how far the cast moved me (dash / leap spells), from fresh positions
     if snap and snap.position and job.before.position then d.moved_m = math.floor(d3(snap.position, job.before.position) * 100 + 0.5) / 100 end
     d.runes_spent, d.cooldown_started = df.runes_spent, df.cooldown_started == true
-    d.effects = { ge = df.ge_added, tags = df.tags_added }
-    d.effect_verified = (#df.ge_added + #df.tags_added + #df.actors_added) > 0
+    d.effects = { ge = df.ge_added, tags = df.tags_added, actors = {}, view_target = df.view_target or job.seen_view, mode = job.seen_mode or df.mode }
+    for _, a in ipairs(df.actors_added or {}) do d.effects.actors[#d.effects.actors + 1] = a.class end
+    d.effect_verified = (#df.ge_added + #df.tags_added + #df.actors_added) > 0 or d.effects.view_target ~= nil
     local a = M.own_actor(job, df) or df.actors_added[1]
     if a then
         d.spell_actor, d.landed_at = a.id, a.position
@@ -1107,6 +1161,13 @@ local function step(job)
         job.ev0 = #mem().events
         mark(job, "start", t)
         local m0 = job.before.input_mode
+        local own = W.own_modes(api)
+        if #own > 0 then
+            job.d.closed_previous = own[1].component
+            for _, row in ipairs(own) do job.presses[#job.presses + 1] = "exit:" .. row.component; W.exit_own_mode(api, row) end
+            job.phase, job.until_t = "settle", t + 2.5
+            return nil
+        end
         if m0 and m0 ~= cfg.gameplay_mode and (in_spell_mode(m0) or m0 == cfg.radial_mode) then
             job.d.closed_previous = m0
             press(job, "close_previous", (m0 == cfg.radial_mode and job.acts.menu) or job.acts.cancel)
@@ -1127,6 +1188,9 @@ local function step(job)
         if evs[i].ev == "on_cooldown" and not job.cd_seen then job.cd_seen = t end
     end
     local df = M.diff(job.before, snap, job.st)
+    -- remember transient evidence (a view switch / mode lasts only while the spell's mode is open)
+    if df.view_target then job.seen_view = job.seen_view or df.view_target end
+    if df.mode and df.mode ~= cfg.radial_mode then job.seen_mode = job.seen_mode or df.mode end
     if df.spent or df.cooldown_started or M.own_actor(job, df) then
         -- it went off. Wait (bounded) until the game state SETTLES: the rune spend and the cooldown
         -- record replicate separately and late (L25, dev run 23:32: shelter actor first, runes and
@@ -1134,13 +1198,41 @@ local function step(job)
         mark(job, "evidence", t)
         job.settle_until = job.settle_until or (t + cfg.settle_s)
         local settled = (df.spent or not next(job.st.cost or {})) and df.cooldown_started
-        if (not settled or in_spell_mode(snap.input_mode)) and t < job.settle_until then return nil end
+        local own = W.own_modes(api)
+        if settled then
+            job.settled_t = job.settled_t or t
+            -- settled: leave the spell's mode (the game's own exit for an own mode, else Esc), then
+            -- answer once the input mode is back to gameplay (L29: Oculus stayed in its build menu)
+            local linger = in_spell_mode(snap.input_mode) or #own > 0
+            if linger and t < job.settled_t + cfg.mode_linger_s then return nil end
+            if linger and not job.leaving then
+                job.leaving = true
+                job.d.left_mode = snap.input_mode
+                if #own > 0 then
+                    for _, row in ipairs(own) do job.presses[#job.presses + 1] = "exit:" .. row.component; W.exit_own_mode(api, row) end
+                    job.d.exited_own_mode = {}
+                    for _, row in ipairs(own) do table.insert(job.d.exited_own_mode, row.component) end
+                else
+                    press(job, "leave_mode", job.acts.cancel or job.acts.menu)
+                end
+                job.leave_until = t + cfg.leave_s
+                return nil
+            end
+            if linger and t < (job.leave_until or 0) then return nil end
+            job.d.mode_after = snap.input_mode
+        elseif t < job.settle_until then
+            return nil
+        end
         -- a spell that keeps its own mode open (Eye of Oculus: a camera mode) may record its cooldown
         -- only when the mode ends: leave the mode, then give the record a moment to land
-        if not settled and in_spell_mode(snap.input_mode) and not job.settle_cancelled then
+        if not settled and (in_spell_mode(snap.input_mode) or #own > 0) and not job.settle_cancelled then
             job.settle_cancelled = true
             job.d.left_mode = snap.input_mode
-            press(job, "leave_mode", job.acts.cancel or job.acts.menu)
+            if #own > 0 then
+                for _, row in ipairs(own) do job.presses[#job.presses + 1] = "exit:" .. row.component; W.exit_own_mode(api, row) end
+            else
+                press(job, "leave_mode", job.acts.cancel or job.acts.menu)
+            end
             job.settle_until = t + cfg.settle_after_leave_s
             return nil
         end

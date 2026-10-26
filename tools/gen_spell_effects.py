@@ -47,7 +47,7 @@ OBSERVABLE = {
     "runes_spent": "cast_reply", "cooldown_started": "cast_reply", "tag_added": "cast_reply", "ge_added": "cast_reply",
     "spell_actor": "cast_reply", "moved_m": "cast_reply", "target_gone": "cast_reply", "target_health_drop": "cast_reply",
     "jump_apex_gain_m": "probe", "air_dash_m": "probe", "drops_spawned": "state",
-    "held_item_effect": False, "world_module": False, "needs_live_observation": False,
+    "held_item_effect": "cast_reply", "world_module": False, "needs_live_observation": False,
     "view_target": "cast_reply", "input_mode": "cast_reply", "dodge_distance_gain_m": False,
 }
 PROBES = {
@@ -84,7 +84,7 @@ SIGNAL_KINDS = {
     "target_gone": "the targeted thing is gone/converted after the cast (data.target_after == 'gone')",
     "target_health_drop": "the targeted thing's health falls by at least `min` (data.target_health vs before)",
     "drops_spawned": "world items whose item id contains `item_contains` appear near the target (look/census)",
-    "held_item_effect": "the held weapon gains the enchant: its damage types include `damage_types` for `time_limit_s` (pawn PlayerEquipmentComponent held effect; to be read)",
+    "held_item_effect": "the held weapon's AHeldEquipmentActor.MagicalHeldEquipmentEffectInfo.EffectData becomes `effect` (data.effects.held); damage types `damage_types` for `time_limit_s`",
     "world_module": "the spell changes the world through game module `module` (crop growth, water, compost ...); the proof needs a module-specific read (TBD)",
     "needs_live_observation": "no observable module in the spell data (Blueprint-only): watch tags / GE / position / targets on a live cast, then add a LIVE entry",
     "view_target": "the camera view target switches to class `class` while the spell is active (data.effects.view_target)",
@@ -94,6 +94,14 @@ SIGNAL_KINDS = {
 
 # Live observations (2026-10-25, Shockbyte world, client build 26162923, data build 26161880).
 LIVE = {
+    "USD_EnchantWeapon_Fire": {
+        "effect": [{"kind": "held_item_effect", "effect": "HEED_EnchantWeaponFire", "damage_types": ["DamageType.Magical.Fire"]}],
+        "evidence": "2026-10-26 07:37Z dev (unlocked + sword granted as evidence setup): Fire -15 Astral -5, cooldown, settled; the held BP_Sword_Bronze_C's MagicalHeldEquipmentEffectInfo.EffectData = HEED_EnchantWeaponFire (ServerExpirationTime set); no GE/tag",
+    },
+    "USD_AccessPersonalChest": {
+        "effect": [{"kind": "input_mode", "contains": "FocussedInGameUI"}],
+        "evidence": "2026-10-26 07:35Z dev (unlocked as evidence setup): Law -20 Astral -15, cooldown, settled; the personal-storage screen opened (input mode DIM_FocussedInGameUI) and a DominionSpellActor spawned; no GE/tag. input.lua closes the orphaned container screen",
+    },
     "USD_EyeOfOculus": {
         "effect": [{"kind": "view_target", "class": "BP_OculusCamera_C"},
                    {"kind": "spell_actor", "class": "DominionSpellActor", "near": "self"},
