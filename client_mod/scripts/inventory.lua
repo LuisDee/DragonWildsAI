@@ -105,6 +105,19 @@ function M.consumable_kind(data)
     return nil
 end
 
+-- Soulscourge per consumable, from DATA (client_mod/scripts/consumable_wiki.lua, generated from the wiki snapshot:
+-- "provides 10 hydration but also 20 Soulscourge"). The item's StatSoulScourge is only the FText LABEL
+-- ("Soulscourge" on every item, live), never an amount. -> number | nil (no wiki page)
+local CONS
+function M.soulscourge_of(name)
+    if CONS == nil then
+        local ok, t = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/consumable_wiki.lua"))() end)
+        CONS = ok and type(t) == "table" and t or false
+    end
+    local e = CONS and type(name) == "string" and CONS[name:lower()]
+    return e and tonumber(e.soulscourge) or nil
+end
+
 function M.describe_item(it)
     if not U.valid(it) then return nil end
     local data = U.try(function() return it.ItemData end)
@@ -129,7 +142,7 @@ function M.describe_item(it)
         d.hydration = text(U.try(function() return data.StatHydration end))
     end
     if d.consumable then
-        d.soulscourge = text(U.try(function() return data.StatSoulScourge end))
+        d.soulscourge = M.soulscourge_of(d.name) -- amount (data), nil = unknown
         d.use_verb = text(U.try(function() return data.UseVerb end))
     end
     local mw = num(U.try(function() return it.NumMasterworkUpgradesApplied end))
@@ -606,8 +619,9 @@ local function best(list, kind, bad, wheres)
     for _, where in ipairs(wheres or { "hotbar", "bag" }) do
         for _, d in ipairs(list[where] or {}) do
             if d.consumable == kind and not (bad and bad[d.item]) then
-                local clean = not d.soulscourge
-                if not pick or (clean and pick.soulscourge) then pick = d end
+                -- clean first (no Soulscourge, or unknown), then the least Soulscourge
+                local s, ps = tonumber(d.soulscourge) or 0, pick and (tonumber(pick.soulscourge) or 0)
+                if not pick or s < ps then pick = d end
             end
         end
     end
@@ -746,7 +760,7 @@ function R.tick(log)
         local l = M.list(log)
         local pick
         for _, d in ipairs(l.hotbar or {}) do
-            if d.consumable == "food" and (tonumber(d.heal) or 0) > 0 and not R.bad[d.item] then
+            if d.consumable == "food" and (tonumber(d.heal) or 0) > 0 and not R.bad[d.item] and (tonumber(d.soulscourge) or 0) == 0 then
                 if not pick or (tonumber(d.heal) or 0) < (tonumber(pick.heal) or 0) then pick = d end -- smallest heal first
             end
         end
@@ -774,6 +788,19 @@ function R.tick(log)
                         reflex_emit({ action = "no_hotbar_" .. need[2], kind = need[2], stat = need[3],
                                       reason = need[2] .. " only in the bag; move it to the hotbar" })
                     end
+                end
+                -- Soulscourge (Dirty Water +20, damage over time at 100): only below the safety floor; above it the
+                -- brain is told to purify / fetch a clean one (Luis/main 2026-10-26: clean first, dirty only to survive)
+                if d and (tonumber(d.soulscourge) or 0) > 0 and not R.floor_hit then
+                    R.warned = R.warned or {}
+                    local key = "held_back_" .. need[2]
+                    if not R.warned[key] or t - R.warned[key] >= 60 then
+                        R.warned[key] = t
+                        reflex_emit({ action = key, kind = need[2], item = d.item, name = d.name, stat = need[3], soulscourge = d.soulscourge,
+                                      reason = string.format("only %s (+%d Soulscourge) to %s; kept for the safety floor (purify it or find a clean one)",
+                                          tostring(d.name), tonumber(d.soulscourge) or 0, need[2] == "drink" and "drink" or "eat") })
+                    end
+                    d = nil
                 end
                 if d then
                     R.last[need[2]] = t

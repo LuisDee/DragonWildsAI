@@ -14,6 +14,7 @@ local function copy(rel)
 end
 copy("/mod/body/util.lua"); copy("/client_mod/scripts/dkjson.lua")
 copy("/client_mod/scripts/input.lua") -- the REAL modal gate (L32 integration)
+copy("/client_mod/scripts/consumable_wiki.lua") -- the REAL soulscourge data (Dirty Water 20)
 
 -- ---------------------------------------------------------------- fake engine
 local function trivial() -- what UE4SS returns for a property the object lacks: non-nil, invalid
@@ -44,6 +45,8 @@ local DATA = {
     tea = item_data("ITEM_Consumable_Tea_Pumpkin", "Pumpkin Spice Infusion", { DrinkItemData = true }),
     sand = item_data("ITEM_Consumable_Sandwich_Veggie", "Forager's Sandwich", { FoodItemData = true }),
     rock = item_data("ITEM_Resources_Stone", "Stone", {}),
+    dirty = item_data("ITEM_Consumable_Water_Dirty", "Dirty Water", { DrinkItemData = true }),
+    clean = item_data("ITEM_Consumable_Water_Clean", "Clean Water", { DrinkItemData = true }),
 }
 local function item(data, count) return obj("Item /Engine/Transient.Item", { ItemData = data, Count = count }) end
 local function tarray(t, n)
@@ -334,6 +337,37 @@ do
     check(#S.presses == 1, "real input: build mode None -> drinks (presses " .. #S.presses .. ")")
     pc.BuildModeComponent = nil
     ALL.EnhancedInputLocalPlayerSubsystem = nil
+end
+
+-- Dirty Water (+20 Soulscourge, wiki data): only below the safety floor; Clean Water always first (main 2026-10-26)
+do
+    I.reflex_start(nil, { verify_s = 0 })
+    R = _G.DWFedReflex
+    local g0 = I._input_gate
+    I._input_gate = function() return nil end
+    _G.DWInput = nil
+    pc.CurrentInputMode = obj("DataAsset /Game/Input/DIM_Gameplay.DIM_Gameplay")
+    check(I.soulscourge_of("Dirty Water") == 20 and I.soulscourge_of("Clean Water") == 0, "soulscourge from data: Dirty Water 20, Clean Water 0")
+    S.effect[DATA.dirty:GetFullName()] = { "hyd", 10 }
+    S.effect[DATA.clean:GetFullName()] = { "hyd", 25 }
+    hotbar_items = { item(DATA.dirty, 5) }; bag_items = {}; refresh()
+    S.presses, S.hyd, S.sus, R.last, R.pending, R.warned = {}, 30, 80, {}, nil, nil
+    local h0 = events("held_back_drink")
+    R.tick_fn(nil)
+    check(#S.presses == 0, "dirty only, thirsty above the floor: not drunk (" .. table.concat(S.presses, ",") .. ")")
+    check(events("held_back_drink") == h0 + 1, "dirty only: held_back_drink told (purify / find clean)")
+    S.hyd, R.last = 5, {}
+    R.tick_fn(nil)
+    check(#S.presses == 1 and S.presses[1] == "Dirty Water", "dirty only, below the floor: drunk to survive (" .. table.concat(S.presses, ",") .. ")")
+    -- both carried (dirty in the first slot): Clean Water first, above or below the floor
+    hotbar_items = { item(DATA.dirty, 5), item(DATA.clean, 2) }; refresh()
+    S.presses, S.hyd, R.last, R.pending = {}, 30, {}, nil
+    R.tick_fn(nil)
+    check(#S.presses == 1 and S.presses[1] == "Clean Water", "both: Clean Water first above the floor (" .. table.concat(S.presses, ",") .. ")")
+    S.presses, S.hyd, R.last, R.pending = {}, 5, {}, nil
+    R.tick_fn(nil)
+    check(#S.presses == 1 and S.presses[1] == "Clean Water", "both: Clean Water first below the floor (" .. table.concat(S.presses, ",") .. ")")
+    I._input_gate = g0
 end
 
 print(fails == 0 and "ALL PASS" or (fails .. " FAILED"))
