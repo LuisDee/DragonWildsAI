@@ -922,6 +922,12 @@ Service: `client_mod/scripts/move.lua` (go_to / follow / stop / status). Command
   - Unstuck is now DISABLED by default (opt-in per call only; if used, it holds `_G.DW_PAUSE` across the teleport).
   - A wedged Claude reports `{stuck, ask:"lead_me", reason:"wedged"}` instead: a follow waits "unreachable"; a go_to waits for a lead.
   - A perched Claude (floor more than 60 cm below his feet at 3 of 4 points 90 cm round) first steps off: a jump forward, then 8 short pushes.
+- **One approach-progress watchdog (2026-10-26, offline):**
+  - Every go_to/follow fills `move.status().progress` = {verdict ok|stalled|unreachable, why, dist_m, best_dist_m, since_s, elapsed_s, target_moved_m}.
+  - It is set through `opts.progress` = {stall_s=12, gain_m=0.5, budget_s, moving_m=3, to={x,y,z}}; `move.progress_reset(log[, opts])` restarts the window.
+  - The whys are move's own reasons, plus cant_catch, too_long, blocked, no_progress and target_not_visible.
+  - `move.why_words(why, thing)` is the one words table, with grammar for "you", "it" or a name. It replaces the separate stall timers and word tables in combat, skills and shoot.
+  - It only reports; move never stops on its own verdict. Tests: test_move scenarios 37-44.
 - **Avoid zones for combat hazards (2026-10-26, OFFLINE ONLY, not yet live; spec `docs/design/velgar.md` §3c):**
   - Files: `client_mod/scripts/avoidzones.lua` (pure geometry), the move.lua API `set_avoid_zones` / `escape_zones` / `status().avoid`, and `localplan.lua` (`cell_cost(x, y, floor_z)` plus `dry_slack`).
   - Tests: `client_mod/tests/test_avoidzones.lua` and `test_move.lua` scenarios 25-36. Live-check commands: `move_zonetest`, `move_zoneescape`, `move_zoneclear`.

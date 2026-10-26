@@ -61,6 +61,12 @@
 --       the nearest point outside every zone inside the bound whose straight walk traces clear, walked at
 --       once (sprinting); too_slow = it would not get out within time_s (combat dodges instead, no walk).
 --   M.status().avoid = {zones = n, inside = id|nil, crossing = id|nil}
+-- APPROACH PROGRESS (one "can't get closer" watchdog for combat/skills/shoot): every go_to/follow fills
+--   M.status().progress = {verdict = "ok"|"stalled"|"unreachable", why, dist_m, best_dist_m, since_s (since
+--   the last gain), elapsed_s (approach time, idle-near excluded), target_moved_m}; opts.progress =
+--   {stall_s=12, gain_m=0.5, budget_s, moving_m=3, to={x,y,z}}. whys: move's reasons (no_route, ...,
+--   needs:X) | cant_catch | too_long | blocked | no_progress | target_not_visible. M.progress_reset(log[, opts]).
+--   M.why_words(why, thing) -> the clause for "I can't get to <thing>: <clause>." (one table for everyone).
 -- Units: metres on the API (wire units), centimetres inside.
 local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
 local NAV_REQ = ROOT .. "/client_io/nav/req.json"
@@ -155,6 +161,10 @@ M.cfg = {
     escape_sprint_cms = 680,
     escape_react_s = 0.25,     -- turn + sprint ack before the speed is reached
     escape_max_tests = 8,      -- candidates traced for reachability (nearest first)
+    -- approach progress tracker (status().progress), defaults for opts.progress
+    progress_stall_s = 12,     -- no gain of progress_gain_m for this long = stalled
+    progress_gain_m = 0.5,
+    progress_moving_m = 3,     -- target moved this far since the best distance = it is running away (cant_catch)
 }
 
 -- ------------------------------------------------------------------ helpers
@@ -786,6 +796,68 @@ local function is_character(pawn)
     return ok and mc ~= nil and mc:IsValid()
 end
 
+-- ------------------------------------------------------------------ approach progress (one watchdog for all)
+-- Every go_to/follow tracks whether it is getting closer, so callers (combat chase, skills interact, shoot)
+-- read one verdict from status().progress instead of each keeping its own "can't get closer" timer.
+-- opts.progress = { stall_s, gain_m, budget_s, moving_m, to = {x,y,z} m (measure to this point, e.g. the
+-- thing to use, when the goal is a standing spot) }. Pure bookkeeping: move never stops on its own verdict.
+local function progress_new(o)
+    o = type(o) == "table" and o or {}
+    local to = type(o.to) == "table" and tonumber(o.to[1]) and { X = o.to[1] * 100, Y = o.to[2] * 100, Z = (o.to[3] or 0) * 100 } or nil
+    return { stall_s = tonumber(o.stall_s) or M.cfg.progress_stall_s, gain = (tonumber(o.gain_m) or M.cfg.progress_gain_m) * 100,
+             budget_s = tonumber(o.budget_s), moving_cm = (tonumber(o.moving_m) or M.cfg.progress_moving_m) * 100,
+             to = to, elapsed = 0 }
+end
+
+local function progress_tick(st, t, me, goal, dist, near)
+    local P = st.prog_tr
+    if not P then return end
+    local d = P.to and d2(me, P.to) or dist
+    P.dist, P.tpos = d, v(goal)
+    -- a gap between frames (paused by the world-teardown guard, or the loop was starved) restarts the window
+    local gap = P.last_t and (t - P.last_t) or nil
+    if not gap or gap > 2 then P.best_t = t; P.best_tpos = v(goal) end
+    if near then
+        P.best, P.best_t, P.best_tpos = d, t, v(goal)
+    else
+        P.elapsed = P.elapsed + ((gap and gap >= 0 and gap <= 2) and gap or 0)
+        if not P.best or d < P.best - P.gain then P.best, P.best_t, P.best_tpos = d, t, v(goal) end
+    end
+    P.last_t = t
+end
+
+-- The verdict, from the tracker plus move's own states (no engine calls: safe from status()).
+local function progress_view(st)
+    local P = st.prog_tr
+    if not P then return nil end
+    local since = (P.last_t and P.best_t) and (P.last_t - P.best_t) or 0
+    local moved = (P.best_tpos and P.tpos) and d2(P.best_tpos, P.tpos) or 0
+    local verdict, why = "ok", nil
+    local r = st.result
+    if r and r.status == "arrived" then verdict = "ok"
+    elseif r and r.status == "failed" then
+        verdict = "unreachable"
+        why = r.why or r.reason
+    elseif st.unreach then verdict, why = "unreachable", st.unreach.reason
+    elseif st.far then verdict, why = "unreachable", "leader_far"
+    elseif st.lead and not st.lead.phase then verdict, why = "unreachable", st.lead.why
+    elseif st.status == "near" or st.status == "near_zone" then verdict = "ok"
+    else
+        local over = P.budget_s and P.elapsed > P.budget_s
+        if over or since > P.stall_s then
+            verdict = "stalled"
+            local walls = st.lp_fail == "verify_exhausted" or st.lp_fail == "unreachable_in_window" or (st.stuck_n or 0) > 0 or st.bug ~= nil
+            if st.status == "target_not_visible" then why = "target_not_visible"
+            elseif moved > P.moving_cm then why = "cant_catch"
+            elseif over then why = "too_long"
+            else why = walls and "blocked" or "no_progress" end
+        end
+    end
+    local function r1(x) return x and math.floor(x / 10 + 0.5) / 10 or nil end
+    return { verdict = verdict, why = why, dist_m = r1(P.dist), best_dist_m = r1(P.best), since_s = math.floor(since * 10) / 10,
+             elapsed_s = math.floor(P.elapsed * 10) / 10, target_moved_m = r1(moved), stall_s = P.stall_s, budget_s = P.budget_s }
+end
+
 local function tick(st, gen, log)
     if st.gen ~= gen then return "stale" end
     if paused() then st.status = "paused"; return end
@@ -862,6 +934,8 @@ local function tick(st, gen, log)
     local dist = d2(me, goal)
     st.dist_cm = dist
     if st.dz0 == nil then st.dz0 = goal.Z - me.Z end
+    -- "near" for the tracker: within tolerance, or a follow idling (incl. holding at a zone's edge)
+    progress_tick(st, t, me, goal, dist, dist <= st.tol_cm or (st.mode == "follow" and st.idle == true))
 
     -- AVOID ZONES (combat hazards): the zone we stand in (capsule overlap), and the leader's
     local zs, AZm = live_zones(t)
@@ -1852,6 +1926,7 @@ local function start(log, mode, opts)
     st.face_when_near = opts.face_when_near
     st.sprint_force = opts.sprint_force == true
     st.escape = type(opts.escape) == "table" and opts.escape or nil
+    st.prog_tr = progress_new(opts.progress)
 
     local g = opts.goal
     if type(g) == "table" and not g.actor then
@@ -1866,6 +1941,14 @@ local function start(log, mode, opts)
     -- replayable args (snapshot/restore): goal as metres or a name/id string, never a UObject
     local oc = {}
     for k, x in pairs(opts) do if k ~= "goal" and type(x) ~= "userdata" and type(x) ~= "table" then oc[k] = x end end
+    if type(opts.progress) == "table" then
+        local pc2 = {}
+        for k, x in pairs(opts.progress) do
+            if type(x) == "number" then pc2[k] = x
+            elseif k == "to" and type(x) == "table" then pc2.to = { tonumber(x[1]), tonumber(x[2]), tonumber(x[3]) } end
+        end
+        oc.progress = pc2
+    end
     st.args = { mode = mode, goal = st.goal and { g[1], g[2], g[3] } or st.target_spec,
                 distance_m = mode == "follow" and opts.tolerance_m or nil, opts = oc }
     st.handle = LoopInGameThreadWithDelay(1, function()
@@ -2010,9 +2093,63 @@ function M.status()
         unreach_episodes = st.unreach_episodes,
         aim = m3(st.aim), target_pos = m3(st.target_pos), target_kind = st.target_kind,
         avoid = M.avoid_status(st),
+        progress = progress_view(st),
         escape = st.escape and { zone = st.escape.zone, eta_s = st.escape.eta_s, at = st.escape.at } or nil,
     }
 end
+
+-- Restart the progress window of the running move (e.g. combat: a hit landed, or the boss is airborne
+-- so "not closer" means nothing). opts may replace the parameters ({stall_s, gain_m, budget_s, moving_m, to}).
+function M.progress_reset(log, opts)
+    local st = S()
+    if st.mode == "idle" then return { ok = false, error = "no move running" } end
+    local P = st.prog_tr
+    if opts ~= nil or not P then st.prog_tr = progress_new(opts or (st.args and st.args.opts and st.args.opts.progress)); P = st.prog_tr
+    else P.best, P.best_t, P.best_tpos, P.elapsed = nil, nil, nil, 0 end
+    P.last_t = nil -- the next frame starts a fresh window
+    return { ok = true }
+end
+
+-- ONE table of truthful words for every movement reason (move's own reasons, the tracker's verdict
+-- whys, escape answers). `thing` = who/what he can't reach: "you" (the leader), "the Kebbit", "it".
+-- Returns a clause for "I can't get to <thing>: <clause>."
+local function be(thing)
+    if thing == "you" then return "you're" end
+    if thing == "it" then return "it's" end
+    return thing .. " is"
+end
+local WHY = {
+    no_route = function(th) return "there's no way through to " .. th .. " from here" end,
+    target_above_jump_height = function(th) return be(th) .. " higher up than I can jump" end,
+    leader_above_jump_height = function(th) return be(th) .. " higher up than I can jump" end,
+    leader_windstepped = function(th) return (th == "you" and "you" or th) .. " Windstepped over somewhere I can't follow yet" end,
+    leader_double_jumped = function(th) return (th == "you" and "you" or th) .. " double-jumped somewhere I can't follow yet" end,
+    leader_far = function(th) return be(th) .. " too far away (a teleport?); I'd need a lodestone to catch up" end,
+    target_not_visible = function(th) return "I can't see " .. (th == "you" and "you" or th) .. " any more" end,
+    wedged = function() return "I'm wedged and can't move" end,
+    stuck = function() return "I keep getting stuck on the way" end,
+    blocked = function() return "something is in the way (I keep bumping into it)" end,
+    no_progress = function() return "I'm not getting any closer" end,
+    cant_catch = function(th) return (th == "you" and "you keep" or (th .. " keeps")) .. " moving away faster than I can catch up" end,
+    too_long = function() return "it's taking far too long to get there" end,
+    timeout = function() return "it's taking far too long to get there" end,
+    unreachable = function() return "I can't find a way there" end,
+    no_safe_point = function() return "there's nowhere safe to stand nearby" end,
+    too_slow = function() return "I can't get out of the way in time" end,
+    paused = function() return "the world is still loading" end,
+}
+function M.why_words(why, thing)
+    thing = (type(thing) == "string" and thing ~= "") and thing or "it"
+    why = tostring(why or "")
+    local f = WHY[why]
+    if f then return f(thing) end
+    local mv = why:match("^needs:(%w+)")
+    if mv then return "I'd need " .. mv:gsub("(%l)(%u)", "%1 %2") .. " to get there, and I can't do that yet" end
+    return "I can't find a way there"
+end
+M.WHY_KEYS = {}
+for k in pairs(WHY) do M.WHY_KEYS[#M.WHY_KEYS + 1] = k end
+table.sort(M.WHY_KEYS)
 
 -- ------------------------------------------------------------------ avoid zones (velgar.md 3c)
 local function half_h(pawn)

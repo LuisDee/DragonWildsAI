@@ -929,6 +929,95 @@ check("avoid: expired zones are dropped (straight there)", s.result and s.result
 MZ.stop(log)
 zreset()
 
+-- 37-44. APPROACH PROGRESS (status().progress) and M.why_words: one watchdog for combat/skills/shoot
+-- 37. a go_to that can't get closer (goal behind a long tall wall): "stalled" with a wall reason ~stall_s after
+--     reaching the wall (~1 s walk + planning), while move itself is still trying (pure information, no stop)
+walls = { { 400, 500, -3000, 3000, true } }
+MZ = dofile(MOVE)
+MZ.go_to(log, { 10, 0, 0 }, { tolerance_m = 1, timeout_s = 60, progress = { stall_s = 3 } })
+local p37, t37 = nil, T
+for _ = 1, 200 do run(1); local p = MZ.status().progress; if p and p.verdict ~= "ok" then p37 = p; break end end
+check("progress: blocked go_to -> stalled (walls) within ~stall_s, move still running",
+    p37 and p37.verdict == "stalled" and (p37.why == "blocked" or p37.why == "no_progress") and T - t37 < 9 and MZ.status().mode == "go_to",
+    p37 and (p37.verdict .. " " .. tostring(p37.why) .. " t=" .. (T - t37)) or "never")
+MZ.stop(log)
+check("progress: kept after stop (last verdict readable)", MZ.status().progress ~= nil)
+
+zreset()
+-- 38. a target running away faster than Claude can sprint: "stalled" / cant_catch
+luis.loc = { X = 800, Y = 0, Z = 0 }
+frame_hook = function() luis.loc.X = luis.loc.X + 800 * DT end
+MZ = dofile(MOVE)
+MZ.follow(log, { actor = luis }, 2, { progress = { stall_s = 3 } })
+local p38
+for _ = 1, 100 do run(1); local p = MZ.status().progress; if p.verdict ~= "ok" then p38 = p; break end end
+check("progress: fleeing target -> cant_catch", p38 and p38.verdict == "stalled" and p38.why == "cant_catch" and p38.target_moved_m > 3,
+    p38 and (p38.verdict .. " " .. tostring(p38.why)) or "never")
+MZ.stop(log); frame_hook = nil
+
+zreset()
+-- 39. follow that arrives and idles: stays "ok" however long he waits near the leader
+luis.loc = { X = 1000, Y = 0, Z = 0 }
+MZ = dofile(MOVE)
+MZ.follow(log, "Zezima", 3, { progress = { stall_s = 2 } })
+run(250)
+s = MZ.status()
+check("progress: idle near the leader stays ok", s.status == "near" and s.progress.verdict == "ok" and s.progress.since_s < 1, s.status .. " " .. s.progress.verdict .. " since=" .. tostring(s.progress.since_s))
+-- he walks away 12 m: approach time counts again, still ok while gaining
+luis.loc = { X = 2200, Y = 0, Z = 0 }
+run(10)
+check("progress: chasing again, gaining = ok", MZ.status().progress.verdict == "ok" and MZ.status().progress.elapsed_s > 0)
+MZ.stop(log)
+
+zreset()
+-- 40. budget: a long trip with budget_s = 2 -> too_long after 2 s even while gaining
+MZ = dofile(MOVE)
+MZ.go_to(log, { 60, 0, 0 }, { tolerance_m = 1, progress = { budget_s = 2 } })
+run(10)
+local p40a = MZ.status().progress
+run(20)
+local p40 = MZ.status().progress
+check("progress: budget exceeded -> too_long", p40a.verdict == "ok" and p40.verdict == "stalled" and p40.why == "too_long" and p40.elapsed_s > 2,
+    p40a.verdict .. " -> " .. p40.verdict .. " " .. tostring(p40.why))
+-- 41. progress_reset restarts the window (and can change the parameters)
+MZ.progress_reset(log, { budget_s = 30 })
+run(2)
+check("progress: progress_reset -> ok again", MZ.status().progress.verdict == "ok" and MZ.status().progress.elapsed_s < 1, MZ.status().progress.verdict)
+MZ.stop(log)
+
+zreset()
+-- 42. measure to a THING, not to the standing spot (skills interact)
+MZ = dofile(MOVE)
+MZ.go_to(log, { 5, 0, 0 }, { tolerance_m = 0.5, progress = { to = { 5, 3, 0 } } })
+run(60)
+s = MZ.status()
+check("progress: distance measured to opts.progress.to", s.result and s.result.status == "arrived" and math.abs(s.progress.dist_m - 3) < 0.6 and s.progress.verdict == "ok",
+    tostring(s.result and s.result.status) .. " d=" .. tostring(s.progress.dist_m))
+
+zreset()
+-- 43. move's own verdicts pass through: a failed go_to is "unreachable" with its why; the snapshot keeps opts.progress
+walls = { { -300, 300, 150, 250, true }, { -300, 300, -250, -150, true }, { 150, 250, -300, 300, true }, { -250, -150, -300, 300, true } }
+MZ = dofile(MOVE)
+MZ.go_to(log, { 10, 0, 0 }, { tolerance_m = 1, timeout_s = 120, progress = { stall_s = 4, to = { 10, 1, 0 } } })
+local snap43 = MZ.snapshot()
+run(1200)
+s = MZ.status()
+check("progress: failed go_to -> unreachable with move's reason", s.result and s.result.status == "failed" and s.progress.verdict == "unreachable" and s.progress.why ~= nil,
+    tostring(s.result and s.result.status) .. " " .. tostring(s.progress.verdict) .. " " .. tostring(s.progress.why))
+check("progress: snapshot keeps opts.progress", snap43 and snap43.opts.progress and snap43.opts.progress.stall_s == 4 and snap43.opts.progress.to[2] == 1)
+MZ.stop(log)
+
+-- 44. why_words: one table, truthful clauses, grammar for "you"/"it"/a name, needs:X, unknown
+local W = MZ.why_words
+check("words: every key has a clause", (function() for _, k in ipairs(MZ.WHY_KEYS) do local w = W(k, "the Kebbit"); if type(w) ~= "string" or #w < 8 then return false end end return #MZ.WHY_KEYS >= 15 end)())
+check("words: you're higher up", W("leader_above_jump_height", "you") == "you're higher up than I can jump", W("leader_above_jump_height", "you"))
+check("words: the Kebbit is higher up", W("target_above_jump_height", "the Kebbit") == "the Kebbit is higher up than I can jump")
+check("words: default thing is it", W("cant_catch") == "it keeps moving away faster than I can catch up", W("cant_catch"))
+check("words: windstep (you)", W("leader_windstepped", "you"):find("^you Windstepped") ~= nil)
+check("words: needs:DoubleJump", W("needs:DoubleJump") == "I'd need Double Jump to get there, and I can't do that yet", W("needs:DoubleJump"))
+check("words: unknown reason -> generic, never the raw code", W("zz_weird") == "I can't find a way there")
+zreset()
+
 _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/shockbyte/nav_memory.json")
 -- 7. arbiter hooks: actor target ({actor=obj}), snapshot/restore, face_when_near
 walls = {}; pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 1500, Y = 0, Z = 0 }; oracle = nil
