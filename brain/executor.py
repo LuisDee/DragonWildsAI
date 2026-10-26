@@ -50,12 +50,26 @@ def _delta(skill: str, args: dict, base: dict, now: dict) -> int:
 # (args, baseline_state, post_state, result_data) -> failure reason or None
 
 
+# A go_to target can sit below the walkable ground (a water volume's surface point, a resource's root):
+# arrival is judged on the ground plane, like the body's own dist_m and _v_come_to, with a separate
+# vertical bound so a target on another level still fails truthfully. Live 22:19:34 (episode 221904b):
+# the body arrived 0.77 m away on the ground, 3.1 m above the water point; the 3D distance said "still
+# 3.2m from target", a false failure the model retried 4 x and a template read out in metres.
+ARRIVE_VERTICAL_M = 4.0
+
+
 def _v_go_to(args, base, post, data):
     target = data.get("target_position")
     if target is None:
         return None
-    d = math.dist(post["position"], target)
-    return None if d <= data.get("arrive_tolerance", 3.0) else f"still {d:.1f}m from target"
+    pos = post["position"]
+    flat = math.dist(pos[:2], target[:2])
+    if flat > data.get("arrive_tolerance", 3.0):
+        return f"still {flat:.1f}m from target"
+    dz = (pos[2] - target[2]) if len(pos) > 2 and len(target) > 2 else 0.0
+    if abs(dz) > ARRIVE_VERTICAL_M:
+        return f"next to it but {abs(dz):.1f}m {'above' if dz > 0 else 'below'} it"
+    return None
 
 
 def _v_follow(args, base, post, data):

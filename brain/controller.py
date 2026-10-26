@@ -206,6 +206,8 @@ REASON_PHRASES = {
     Reason.UNKNOWN_RECIPE: "I don't know that recipe",
     Reason.NOT_INTERACTABLE: "there's nothing to do with it",
     Reason.BODY_ERROR: "something glitched in my body",
+    # the verifier's own words carry metres ("still 3.3m from target"): for the model, not for chat
+    Reason.VERIFICATION_FAILED: "it didn't work out when I checked",
 }
 
 
