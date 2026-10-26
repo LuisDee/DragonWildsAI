@@ -31,6 +31,19 @@
 -- services (client_bridge.lua M.API: call, census_things, find_thing, match_score, actor_of, counts,
 -- me, my_position, aim_at, move_status, reflex_owns_pawn, module, fail, reason_code, null, object).
 -- W = the few direct engine touches (facing nudge, grave owner); tests replace them.
+-- L28: never spawn a process on a hot path. A directory is created only if it is really missing
+-- (an open-for-append probe), and only once per load (cached).
+local DIRS_OK = {}
+local function ensure_dir(d)
+    d = tostring(d):gsub("\\", "/")
+    if DIRS_OK[d] then return end
+    local probe = d .. "/.dwclient_probe"
+    local f = io.open(probe, "a")
+    if f then f:close(); os.remove(probe); DIRS_OK[d] = true; return end
+    if package.config:sub(1, 1) == "\\" then os.execute('mkdir "' .. d:gsub("/", "\\") .. '" 2>nul')
+    else os.execute('mkdir -p "' .. d .. '"') end
+    DIRS_OK[d] = true
+end
 local M = {}
 
 M.cfg = {
@@ -50,7 +63,8 @@ M.cfg = {
     grave_radius_m = 80,
     lease_s = 15,
     busy_wait_s = 20,       -- the pawn held by an equal/higher owner this long (not a fight): fail "busy" naming it
-    timeout_s = { fetch = 110, consume = 115, come_to = 105, recover_grave = 110, give = 100, interact = 100, explore = 290 },
+    timeout_s = { fetch = 110, consume = 115, come_to = 105, recover_grave = 110, give = 100, interact = 100, explore = 290,
+                  store = 105, take = 105 },
 }
 
 local W = {}
@@ -137,9 +151,17 @@ local function acquire(api, job)
     if not A then job.own = "none"; return true end
     local r = A.request(api.log, { name = "skill:" .. job.kind, level = job.level or "command", uses_move = true,
                                    lease_s = M.cfg.lease_s, resumable = true,
-                                   on_suspend = function() job.own = "suspended" end,
+                                   on_suspend = function()
+                                       job.own = "suspended"
+                                       -- a modal (an open chest / build mode) is left at once: a reflex's input must
+                                       -- never land on it (build review finding 4)
+                                       if job.on_suspend then pcall(job.on_suspend) end
+                                   end,
                                    on_resume = function() job.own = "owner"; job.resumed = true; return true end,
-                                   on_stop = function(_, _, why) if job.own ~= "released" then job.stopped = why or "stopped" end end })
+                                   on_stop = function(_, _, why)
+                                       if job.own ~= "released" then job.stopped = why or "stopped" end
+                                       if job.cleanup then pcall(job.cleanup) end
+                                   end })
     if type(r) == "table" and r.ok then job.own, job.token = "owner", r.token; return true end
     job.own = "waiting"
     job.refused = type(r) == "table" and r or { reason = "busy" } -- the real owner, for the model (never a guess)
@@ -323,7 +345,16 @@ end
 function W.press_signals(api)
     local s = api.module("sense")
     local tod = s and type(s.time_of_day) == "function" and select(2, pcall(s.time_of_day)) or nil
-    return { sleeping = type(tod) == "table" and tod.sleeping or nil }
+    local wi = W.open_container(api)
+    return { sleeping = type(tod) == "table" and tod.sleeping or nil, container = wi and wi.owner or nil }
+end
+
+-- The container whose screen the game has open for him (inventory.world_inventory): {inv, owner} | nil.
+function W.open_container(api)
+    local inv = api.module("inventory")
+    if not (inv and type(inv.world_inventory) == "function") or paused() then return nil end
+    local ok, w = pcall(inv.world_inventory)
+    return ok and type(w) == "table" and w or nil
 end
 
 local function next_spot(e, api)
@@ -421,6 +452,10 @@ local function episode_poll(api, e, t)
         if not e.need_gain then
             local sig = W.press_signals(api)
             if sig.sleeping == true and not (e.sig_before and e.sig_before.sleeping) then changed = "sleeping" end
+            -- a chest / storage: the game opened ITS screen (deposit and withdraw: move_item with the container)
+            if not changed and sig.container == th.id and not (e.sig_before and e.sig_before.container == th.id) then
+                changed = "opened"
+            end
             if not changed then
                 local det = W.detector(api)
                 if det and det.prompt and e.prompt_before and det.prompt ~= e.prompt_before and same_target(th, det) then
@@ -503,6 +538,7 @@ local function action(api, ctx, job)
     local a = { kind = job.kind, id = ctx and ctx.id, timeout_s = M.cfg.timeout_s[job.kind] or 100 }
     a.cancel = function()
         if not paused() then api.call("move", "stop") end
+        if job.cleanup then pcall(job.cleanup) end
         release(api, job, "cancelled")
     end
     a.poll = function(self)
@@ -970,7 +1006,7 @@ end
 local function save_deaths()
     local j = json_mod()
     if not j then return end
-    os.execute('mkdir "' .. (ROOT .. "/client_io/state"):gsub("/", "\\") .. '" 2>nul')
+    ensure_dir(ROOT .. "/client_io/state")
     local f = io.open(M.DEATH_FILE, "wb")
     if f then f:write(j.encode({ deaths = deaths() })); f:close() end
 end
@@ -1217,8 +1253,11 @@ M.NEEDS = {
              { "move", "stop" } },
     move_item = { { "inventory", "list" }, { "inventory", "move" } },
     explore = { { "sense", "census" }, { "move", "go_to" }, { "move", "status" }, { "move", "stop" } },
+    store = plus(FIND, { { "inventory", "inventory_of" }, { "inventory", "external_rows" }, { "inventory", "to_external" } }),
+    take = plus(FIND, { { "inventory", "inventory_of" }, { "inventory", "external_rows" }, { "inventory", "from_external" } }),
     set_vitals_policy = { { "inventory", "set_vitals_policy" } },
     equip = { { "inventory", "list" }, { "inventory", "equip" } },
+    unequip = { { "inventory", "unequip" } },
 }
 
 -- ------------------------------------------------------------------ explore (BUGS L21)
@@ -1315,9 +1354,198 @@ local function start_explore(api, args, ctx)
     return job
 end
 
+-- ------------------------------------------------------------------ store / take (containers: build review finding 14)
+-- store {item, count?, container} / take {item, count?, container}: one coupled action each (PRINCIPLES 4b:
+-- approach + open + transfer + close belong together, and the open screen is modal state that must not
+-- leak). Real player path: walk to the chest and press use (the shared episode; the press is verified by the
+-- game opening THIS container's screen, W.press_signals.container), then the screen's own handlers move one
+-- stack per press (inventory.to_external = HandleSplitToExternalSlot, inventory.from_external =
+-- HandleSplitToSlotFromExternal; crafting.lua's furnace loading uses the same ones), verified by BOTH
+-- inventories' counts, then the screen's own close (input.close_container) on EVERY exit path. The modal
+-- is claimed in input.lua (no reflex input while it is open; an orphan is closed after 1 s). Never any game
+-- call under DW_PAUSE. A shared chest's contents are reported (CLAUDE.md §0: say what he used or took).
+local function carried_count(api, item)
+    local n = 0
+    local lr = api.call("inventory", "list")
+    for _, r in ipairs(inv_rows(lr.ok and lr.data or {})) do
+        if r.item == item then n = n + (tonumber(r.count) or 1) end
+    end
+    return n
+end
+local function free_or_same(rows, slots, item)
+    for _, r in ipairs(rows) do if r.item == item then return r.slot end end
+    local used = {}
+    for _, r in ipairs(rows) do used[r.slot] = true end
+    for i = 0, (slots or 0) - 1 do if not used[i] then return i end end
+    return nil
+end
+local function input_mod(api) local m = api.module("input"); return m and type(m.claim) == "function" and m or nil end
+local function in_container(rows, what, api)
+    local best, bs
+    for _, r in ipairs(rows) do
+        local s = (r.item == what or lower(r.name) == lower(what)) and 3 or api.match_score({ name = r.name, item = r.item }, what)
+        if s > 0 and (not best or s > bs) then best, bs = r, s end
+    end
+    return best
+end
+local function contents_words(rows)
+    local names = {}
+    for _, r in ipairs(rows) do names[#names + 1] = tostring(r.count) .. " " .. tostring(r.name) end
+    return names
+end
+
+local function start_transfer(api, args, ctx, deposit)
+    local kind = deposit and "store" or "take"
+    local invm = api.module("inventory")
+    if not (invm and type(invm.inventory_of) == "function" and type(invm.external_rows) == "function"
+            and type(invm.to_external) == "function" and type(invm.from_external) == "function") then
+        return api.fail("not_implemented", { detail = "I can't use chests yet." })
+    end
+    if not need_str(args.item) then return api.fail("invalid_args", { detail = "item is required" }) end
+    if not need_str(args.container) then return api.fail("invalid_args", { detail = "container is required (an id from look)" }) end
+    local sense = api.module("sense")
+    if sense and type(sense.has_privilege) == "function" and sense.has_privilege("open_chests") == false then
+        return api.fail("no_permission", { why = "open_chests",
+            detail = "The server hasn't given me rights to open chests here, so I can't use it." })
+    end
+    local t, r = api.find_thing(args.container)
+    if not t then
+        local d = copy(r and r.data); d.detail = "I can't see that chest anywhere near me."
+        return api.fail("unknown_target", d)
+    end
+    local inv = invm.inventory_of(api.actor_of(t))
+    if not inv then
+        return api.fail("not_a_container", { container = t.id, detail = "The " .. tostring(t.name or "thing") .. " isn't something I can store things in." })
+    end
+    local label = t.name or "chest"
+    local want = math.floor(tonumber(args.count) or 0)
+    local item, iname
+    if deposit then
+        local lr = api.call("inventory", "list")
+        local row = lr.ok and find_carried(api, lr.data, args.item) or nil
+        if not row then return api.fail("not_in_inventory", { item = args.item, detail = "I don't have any " .. args.item .. "." }) end
+        item, iname = row.item, row.name or row.item
+        local have = carried_count(api, item)
+        if want < 1 then want = have end
+        if want > have then
+            return api.fail("not_enough_resources", { item = item, have = have, want = want, detail = "I only have " .. have .. " " .. tostring(iname) .. "." })
+        end
+    end
+    local job = { kind = kind, container = t, moved = 0, phase = "open" }
+    local IN = input_mod(api)
+    if IN then IN.claim("container", kind) end
+    local function close()
+        if paused() then return end -- never a game call under pause; input.lua closes the orphan after resume
+        if IN then IN.close_container() elseif type(invm.close_world_inventory) == "function" then pcall(invm.close_world_inventory, api.log) end
+    end
+    local function finish(res)
+        close()
+        if IN then IN.release("container") end
+        return res
+    end
+    job.cleanup = function() close(); if IN then IN.release("container") end end
+    local function contents() return invm.external_rows(inv) end
+    local function press()
+        local left = want - job.moved
+        local c = contents()
+        if deposit then
+            local lr = api.call("inventory", "list")
+            local row
+            for _, x in ipairs(inv_rows(lr.ok and lr.data or {})) do if x.item == item and (tonumber(x.count) or 0) > 0 then row = x; break end end
+            if not row then return finish(api.fail("verification_failed", { item = item, moved = job.moved, detail = "I ran out of " .. tostring(iname) .. "." })) end
+            local to = free_or_same(c.rows, c.slots, item)
+            if not to then return finish(api.fail("container_full", { item = item, moved = job.moved, container = t.id,
+                detail = "The " .. label .. " is full" .. (job.moved > 0 and (" after " .. job.moved .. " " .. tostring(iname)) or "") .. "." })) end
+            local n = math.min(left, tonumber(row.count) or 1)
+            local before = carried_count(api, item) -- read BEFORE the press (the server may answer at once)
+            local res = invm.to_external(api.log, row, n, to, inv)
+            if not res.ok then return finish(api.fail("body_error", { detail = tostring(res.reason) })) end
+            job.pending = { n = n, carried = before - n, inside = (c.by_item[item] or 0) + n, until_t = api.now() + M.cfg.verify_s }
+        else
+            local src
+            for _, x in ipairs(c.rows) do if x.item == item then src = x; break end end
+            if not src then return finish(api.fail("verification_failed", { item = item, moved = job.moved, detail = "There's no more " .. tostring(iname) .. " in the " .. label .. "." })) end
+            local page = lower(args.to) == "hotbar" and "hotbar" or "bag"
+            local lr = api.call("inventory", "list")
+            local to
+            for _, x in ipairs(inv_rows(lr.ok and lr.data or {})) do if x.item == item and x.where == page then to = x.slot; break end end
+            if not to and type(invm.free_slot) == "function" then to = invm.free_slot(page == "hotbar" and "QuickAction" or "InventoryItems") end
+            if not to then return finish(api.fail("inventory_full", { item = item, moved = job.moved, detail = "My " .. page .. " is full." })) end
+            local n = math.min(left, tonumber(src.count) or 1)
+            local before = carried_count(api, item)
+            local res = invm.from_external(api.log, src.slot, inv, n, to, page)
+            if not res.ok then return finish(api.fail("body_error", { detail = tostring(res.reason) })) end
+            job.pending = { n = n, carried = before + n, inside = (c.by_item[item] or 0) - n, until_t = api.now() + M.cfg.verify_s }
+        end
+        return nil
+    end
+    local function begin_transfer()
+        if not deposit then -- what is inside is only certain once the screen is open (contents may replicate on open)
+            local c = contents()
+            local best = in_container(c.rows, args.item, api)
+            if not best then
+                local names = contents_words(c.rows)
+                return finish(api.fail("not_in_container", { item = args.item, container = t.id, contents = names,
+                    detail = "There's no " .. args.item .. " in the " .. label .. (#names > 0 and (" (it has " .. table.concat(names, ", ") .. ").") or "; it's empty.") }))
+            end
+            item, iname = best.item, best.name
+            local have = c.by_item[item] or 0
+            if want < 1 then want = have end
+            if want > have then
+                return finish(api.fail("not_enough_resources", { item = item, have = have, want = want,
+                    detail = "There are only " .. have .. " " .. tostring(iname) .. " in the " .. label .. "." }))
+            end
+        end
+        job.phase, job.start_inside = "transfer", contents().by_item[item] or 0
+        return press()
+    end
+    local wi = W.open_container(api)
+    if wi and wi.owner == t.id then job.phase = "ready" else job.ep = new_episode(api, t, { label = label }) end
+    -- pre-empted (a reflex): the screen was closed at once (on_suspend); on resume walk back and open it again
+    job.on_suspend = function() close(); job.pending = nil; if job.phase ~= "open" then job.reopen = true end end
+    job.on_resume = function()
+        if job.reopen then job.reopen, job.phase, job.ep = nil, "open", new_episode(api, t, { label = label })
+        elseif job.ep and job.phase == "open" then job.ep.phase, job.ep.moving = "approach", false end
+    end
+    job.step = function(tt)
+        if job.phase == "ready" then return begin_transfer() end
+        if job.phase == "open" then
+            local res = episode_poll(api, job.ep, tt)
+            if not res then return nil end
+            if not res.ok then return finish(res) end
+            local now = W.open_container(api)
+            if not (now and now.owner == t.id) then
+                return finish(api.fail("verification_failed", { container = t.id, detail = "I used the " .. label .. " but it didn't open." }))
+            end
+            return begin_transfer()
+        end
+        local p = job.pending
+        local carried, inside = carried_count(api, item), contents().by_item[item] or 0
+        if p and carried == p.carried and inside == p.inside then
+            job.moved, job.pending = job.moved + p.n, nil
+            if job.moved >= want then
+                return finish({ ok = true, data = { item = item, name = iname, count = job.moved, container = t.id, container_name = label,
+                    carried_now = carried, inside_now = inside, contents = contents_words(contents().rows) } })
+            end
+            return press()
+        end
+        if p and tt >= p.until_t then
+            return finish(api.fail("verification_failed", { item = item, moved = job.moved, container = t.id,
+                detail = "I tried to move the " .. tostring(iname) .. (deposit and " into " or " out of ") .. "the " .. label .. " but "
+                    .. (job.moved > 0 and ("only " .. job.moved .. " went") or "nothing moved") .. "." }))
+        end
+        return nil
+    end
+    return job
+end
+local function start_store(api, args, ctx) return start_transfer(api, args, ctx, true) end
+local function start_take(api, args, ctx) return start_transfer(api, args, ctx, false) end
+M._start_transfer = start_transfer
+
 -- ------------------------------------------------------------------ handlers
 local STARTERS ={ fetch = start_fetch, consume = start_consume, come_to = start_come_to, recover_grave = start_recover_grave,
-                   give = start_give, interact = start_interact, explore = start_explore }
+                   give = start_give, interact = start_interact, explore = start_explore,
+                   store = start_store, take = start_take }
 M.STARTERS = STARTERS
 
 local function handler(name)
@@ -1403,15 +1631,71 @@ M.HANDLERS.equip = function(log, args, ctx)
     end
     local w = { kind = "equip" }
     w.poll = function()
-        local _, h, eq = where_is(api, item)
+        -- the game's own read-back: held with the item's own held-actor class, or worn (inventory.equip_state)
+        local es = api.call("inventory", "equip_state", item)
+        if es.ok and type(es.data) == "table" and not es.data.unreadable then
+            local d = es.data
+            if d.equipped then
+                return { ok = true, data = { item = item, name = row and row.name, held = d.held, loadout_slot = d.loadout_slot,
+                                              worn = d.worn, actor_class = d.actor_class } }
+            end
+            w.last = d
+            return nil
+        end
+        local _, h, eq = where_is(api, item) -- an inventory module without equip_state (older fakes)
         if eq or (h and (h.right_item == item or h.left_item == item)) then
             return { ok = true, data = { item = item, name = row and row.name, held = h and (h.right or h.left) } }
         end
         return nil
     end
     w.expire = function()
-        return api.fail("verification_failed", { item = item, detail = "I tried to equip the " .. tostring(row and row.name or item)
-            .. " but it isn't in my hands or worn." })
+        local d = w.last or {}
+        local why = (d.held and d.actor_matches == false) and "wrong_held_actor" or (d.held and not d.actor) and "no_held_actor"
+            or (d.loadout_slot and not d.worn and not d.held) and "in_loadout_not_shown" or "not_equipped"
+        return api.fail("verification_failed", { item = item, why = why, held = d.held, loadout_slot = d.loadout_slot,
+            actor_class = d.actor_class, want_class = d.want_class,
+            detail = "Tried to equip " .. tostring(row and row.name or item) .. ": " .. why .. "." })
+    end
+    return { wait = w, wait_s = 4 }
+end
+
+-- unequip {item | slot}: put a held item away or take off a worn piece, the way a player does
+-- (inventory.unequip: the item's hotbar key again for a held hotbar item, else the inventory UI's drag
+-- into the bag); verified from the game's read-back (no longer held, no longer in the loadout).
+M.HANDLERS.unequip = function(log, args, ctx)
+    local api = ctx and ctx.api
+    if not api then return { ok = false, reason = "body_error", data = { detail = "needs ctx.api" } } end
+    local slot = args.slot
+    local item = args.item
+    if not need_str(item) and slot == nil then return api.fail("invalid_args", { detail = "item or slot is required" }) end
+    if need_str(item) and slot == nil then
+        local es = api.call("inventory", "equip_state", item)
+        local d = es.ok and es.data or {}
+        if not d.loadout_slot and not d.held then return { ok = true, data = { item = item, already = true } } end
+        slot = d.loadout_slot or (d.held == "left" and "HeldLeft" or "HeldRight")
+        item = d.item_id or item
+    end
+    local r = api.call("inventory", "unequip", slot)
+    if not r.ok then
+        local d = copy(r.data); d.detail = d.detail or ("Couldn't unequip " .. tostring(item or slot) .. ".")
+        return api.fail(r.reason, d)
+    end
+    if r.data and r.data.reason == "slot already empty" then return { ok = true, data = { slot = slot, already = true } } end
+    local w = { kind = "unequip" }
+    w.poll = function()
+        if not need_str(item) then
+            local lr = api.call("inventory", "list")
+            for _, e in ipairs((lr.ok and lr.data.loadout) or {}) do if tostring(e.loadout_slot) == tostring(slot) or e.slot == slot then return nil end end
+            return { ok = true, data = { slot = slot } }
+        end
+        local es = api.call("inventory", "equip_state", item)
+        local d = es.ok and es.data or {}
+        if not d.unreadable and not d.held and not d.loadout_slot then return { ok = true, data = { item = item, slot = slot } } end
+        return nil
+    end
+    w.expire = function()
+        return api.fail("verification_failed", { item = item, slot = slot, why = "still_equipped",
+            detail = "Tried to unequip " .. tostring(item or slot) .. ": still_equipped." })
     end
     return { wait = w, wait_s = 4 }
 end
@@ -1453,11 +1737,39 @@ M.MANIFEST = {
             slot = { type = "integer", minimum = 0, description = "Slot in that page (default: first free)." } }) },
         ground = obj({ item = "carried" }),
         reasons = { "not_in_inventory", "inventory_full", "verification_failed", "invalid_args" } },
+    store = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 8, timeout_s = 110,
+        detail_is_speech = SPEAKS,
+        description = "Put carried items into a chest or storage: walks there, opens it, moves them in, checks, closes it.",
+        args = { type = "object", required = { "item", "container" }, properties = obj({
+            item = str("A carried item's name or id."),
+            container = str("The chest's id (from situation or look)."),
+            count = { type = "integer", minimum = 1, description = "How many (default: all you carry)." } }) },
+        ground = obj({ item = "carried", container = "thing" }),
+        reasons = { "not_in_inventory", "not_enough_resources", "not_a_container", "container_full", "no_permission",
+                    "unknown_target", "too_far", "path_blocked", "not_interactable", "verification_failed", "timeout" } },
+    take = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 8, timeout_s = 110,
+        detail_is_speech = SPEAKS,
+        description = "Take items out of a chest or storage: walks there, opens it, moves them to your bag or hotbar, "
+            .. "checks, closes it. Shared chests are fine; say what you took.",
+        args = { type = "object", required = { "item", "container" }, properties = obj({
+            item = str("The item's name or id."),
+            container = str("The chest's id (from situation or look)."),
+            count = { type = "integer", minimum = 1, description = "How many (default: all of it)." },
+            to = { type = "string", enum = { "bag", "hotbar" }, default = "bag", description = "Where to put it." } }) },
+        ground = obj({ container = "thing" }),
+        reasons = { "not_in_container", "not_enough_resources", "not_a_container", "inventory_full", "no_permission",
+                    "unknown_target", "too_far", "path_blocked", "not_interactable", "verification_failed", "timeout" } },
     equip = { kind = "waiter", llm = true, moves = false, duration_s = 1, timeout_s = 10, detail_is_speech = SPEAKS,
-        description = "Equip a carried weapon, tool or armour piece.",
+        description = "Equip a carried weapon, tool, shield or armour piece; answers once the game shows it in your hands or worn.",
         args = { type = "object", required = { "item" }, properties = obj({ item = str("A carried item's name or id.") }) },
         ground = obj({ item = "carried" }),
         reasons = { "not_in_inventory", "verification_failed" } },
+    unequip = { kind = "waiter", llm = true, moves = false, duration_s = 1, timeout_s = 10, detail_is_speech = SPEAKS,
+        description = "Put away a held item or take off a worn piece (into your bag); answers once the game shows it off.",
+        args = { type = "object", properties = obj({ item = str("The equipped item's name or id."),
+            slot = str("Or a loadout slot: HeldRight, HeldLeft, Head, Body, Legs, Cape.") }) },
+        ground = obj({ item = "carried" }),
+        reasons = { "invalid_args", "verification_failed" } },
     set_vitals_policy = { kind = "waiter", llm = true, moves = false, duration_s = 0, timeout_s = 10,
         description = "Set when your reflex eats, drinks or eats to heal by itself (% of max; a 10% floor always applies).",
         args = { type = "object", properties = obj({

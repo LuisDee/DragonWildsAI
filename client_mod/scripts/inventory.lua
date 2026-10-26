@@ -310,6 +310,50 @@ function M.equip(log, what)
     return { ok = ok, reason = (not ok) and tostring(err) or nil, via = "inventory use", item = d, held_before = before }
 end
 
+-- Is `item` (id or name) equipped, according to the game itself? Read back after an equip/unequip:
+--   * held: the pawn's PlayerEquipmentComponent holds it (right, or LEFT for a two-handed tool: live
+--     DISCOVERIES R2), AND the spawned held actor is the item's own held-actor class (the item data's
+--     HeldEquipmentActorClass), so a half-done swap (data set, actor not yet spawned) doesn't count;
+--   * worn: it sits in a wearable loadout slot (Head/Body/Legs/Cape/...) and the pawn wears it;
+--   * in_loadout: the loadout references it (a held hotbar item stays in its hotbar slot AND is
+--     referenced by the loadout).
+-- -> {item, held = "right"|"left"|nil, actor, actor_class, actor_matches, loadout_slot, worn, equipped}
+local WEAR_SLOT = { Head = "head", Body = "body", Legs = "legs", Cape = "cape" }
+function M.equip_state(log, item, l)
+    l = l or M.list(log)
+    local st = { item = item }
+    if type(l) ~= "table" or l.ok == false then st.unreadable = true; return st end
+    local function is_it(e) return e and (e.item == item or e.name == item) end
+    for _, e in ipairs(l.loadout or {}) do
+        if is_it(e) then st.loadout_slot = e.loadout_slot; st.item_id = e.item; st.name = e.name end
+    end
+    local h = l.held or {}
+    if h.right_item == item or h.right == item then st.held = "right"
+    elseif h.left_item == item or h.left == item then st.held = "left" end
+    if st.held then
+        local pawn = M.pawn()
+        local eq = pawn and U.try(function() return pawn.PlayerEquipmentComponent end)
+        if U.valid(eq) then
+            local side = st.held == "right" and "Right" or "Left"
+            local actor = U.try(function() return eq["HeldEquipmentActor" .. side] end)
+            local data = U.try(function() return eq["GetHeldEquipmentData" .. side](eq) end)
+            st.actor = U.valid(actor) and U.short(actor) or nil
+            st.actor_class = U.valid(actor) and (U.class_name(actor) or ""):match("%.([%w_]+)$") or nil
+            local want = U.valid(data) and U.str(U.try(function() return data.HeldEquipmentActorClass:GetObjectID():GetAssetPathName() end))
+            st.want_class = want and want:match("%.([%w_]+)$") or nil
+            if st.want_class and st.actor_class then st.actor_matches = st.want_class == st.actor_class
+            elseif st.actor then st.actor_matches = nil end -- unreadable class: the actor exists
+        end
+    end
+    local ws = st.loadout_slot and WEAR_SLOT[st.loadout_slot]
+    if ws then
+        local worn = (h.worn or {})[ws]
+        st.worn = worn ~= nil and (worn == item or worn == st.name or worn == st.item_id) or nil
+    end
+    st.equipped = (st.held ~= nil and st.actor ~= nil and st.actor_matches ~= false) or st.worn == true
+    return st
+end
+
 -- Use (eat, drink, read...) `what` the way a player does: its hotbar number key if it is on the
 -- hotbar, else the inventory UI's use. Unlike equip, no "already equipped" check.
 function M.use(log, what, opts)
@@ -408,6 +452,77 @@ function M.move(log, what, to, to_slot)
     say(log, string.format("HandleInternalDragAndDrop(%d, %s, %d, %s) %s", d.slot, tostring(d.slot_type), slot, page, tostring(d.item)))
     local ok, err = pcall(function() api:HandleInternalDragAndDrop(d.slot, SLOT_TYPE[d.slot_type], slot, SLOT_TYPE[page]) end)
     return { ok = ok, reason = (not ok) and tostring(err) or nil, item = d, to = page, to_slot = slot }
+end
+
+-- ------------------------------------------------------------------ containers (chests, storage): the container screen
+-- A player opens a chest with the interact key; the game then shows it through the HUD's world-inventory
+-- API (InventoryUIAPI.WorldInventoryAPI.InventoryComponent = the open chest's inventory). Items move with
+-- the same screen's own handlers (UInventoryUIAPI, dump Dominion.hpp:25045): HandleSplitToExternalSlot
+-- (his slot -> a chest slot, an amount; the path crafting.lua's furnace loading uses) and
+-- HandleSplitToSlotFromExternal (a chest slot -> his slot, an amount). Scalars + object refs only.
+-- The inventory component of a container actor (graves, chests, storage), or nil.
+function M.inventory_of(actor)
+    if rawget(_G, "DW_PAUSE") or not U.valid(actor) then return nil end
+    local inv = U.try(function() return actor:GetInventory() end)
+    if not U.valid(inv) then inv = U.try(function() return actor.InventoryComponent end) end
+    return U.valid(inv) and inv or nil
+end
+-- Rows of an external inventory: {slots = n, rows = {{slot (0-based), item, name, count}}, by_item = {id = n}}
+function M.external_rows(inv)
+    local out = { slots = 0, rows = {}, by_item = {} }
+    if rawget(_G, "DW_PAUSE") or not U.valid(inv) then return out end
+    pcall(function()
+        local arr = inv.ItemSlots
+        out.slots = arr:GetArrayNum()
+        for i = 1, out.slots do
+            local it = arr[i]
+            if U.valid(it) then
+                local data = U.try(function() return it.ItemData end)
+                local id = item_id(data)
+                local n = tonumber(U.try(function() return it.Count end)) or tonumber(U.try(function() return it:GetStackSize() end)) or 1
+                if id then
+                    out.rows[#out.rows + 1] = { slot = i - 1, item = id, name = text(U.try(function() return data.Name end)) or id, count = n }
+                    out.by_item[id] = (out.by_item[id] or 0) + n
+                end
+            end
+        end
+    end)
+    return out
+end
+-- The container whose screen is open now: {inv, owner (actor short id)} | nil
+function M.world_inventory()
+    local api = M.ui_api()
+    local w = api and U.try(function() return api.WorldInventoryAPI end)
+    local inv = U.valid(w) and U.try(function() return w.InventoryComponent end)
+    if not U.valid(inv) then return nil end
+    local owner = U.try(function() return inv:GetOwner() end)
+    return { inv = inv, owner = U.valid(owner) and U.short(owner) or nil }
+end
+-- Close the container screen (its own close).
+function M.close_world_inventory(log)
+    local api = M.ui_api()
+    local w = api and U.try(function() return api.WorldInventoryAPI end)
+    if not U.valid(w) then return false end
+    say(log, "WorldInventoryAPI:CloseCurrentInventory()")
+    return pcall(function() w:CloseCurrentInventory() end)
+end
+-- `amount` of his row (slot, slot_type) into slot `to_slot` of the open external inventory.
+function M.to_external(log, row, amount, to_slot, inv)
+    local api = M.ui_api()
+    local st = row and SLOT_TYPE[row.slot_type]
+    if not (api and st and row.slot) then return { ok = false, reason = "no InventoryUIAPI / slot type" } end
+    say(log, string.format("HandleSplitToExternalSlot(%d, %s, %d, %d) %s", row.slot, tostring(row.slot_type), amount, to_slot, tostring(row.item)))
+    local ok, err = pcall(function() api:HandleSplitToExternalSlot(row.slot, st, amount, to_slot, inv) end)
+    return { ok = ok, reason = (not ok) and tostring(err) or nil }
+end
+-- `amount` from slot `from_slot` of the open external inventory into his `to_page` (hotbar|bag) slot `to_slot`.
+function M.from_external(log, from_slot, inv, amount, to_slot, to_page)
+    local api = M.ui_api()
+    local st = SLOT_TYPE[M.MOVE_PAGES[tostring(to_page or "bag"):lower()] or "InventoryItems"]
+    if not (api and st) then return { ok = false, reason = "no InventoryUIAPI" } end
+    say(log, string.format("HandleSplitToSlotFromExternal(%d, %d, %d, %s)", from_slot, amount, to_slot, tostring(to_page)))
+    local ok, err = pcall(function() api:HandleSplitToSlotFromExternal(from_slot, inv, amount, to_slot, st) end)
+    return { ok = ok, reason = (not ok) and tostring(err) or nil }
 end
 
 -- Drop `count` of `what` on the ground, as the inventory UI's drop. count nil = the whole stack.

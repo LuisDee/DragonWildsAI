@@ -456,7 +456,24 @@ local function eis()
     return c.eis
 end
 
+-- The shared modal gate (client_mod/scripts/input.lua, build review finding 4): while build mode is open
+-- the attack click is the PLACE click, and while a container screen is open inputs act on it, so no
+-- gameplay press goes out then (the gate also cleans up a modal nobody owns). Cached per frame.
+local function gated()
+    local inp = mod("input")
+    if not (inp and inp.gate) then return nil end
+    local c = C()
+    -- one gate read per game frame (combat's frame loop numbers them); outside a frame: always read
+    if c.frame_id and c.gate_frame == c.frame_id then return c.gate_res end
+    local ok, m = pcall(inp.gate)
+    c.gate_frame, c.gate_res = c.frame_id, ok and m or nil
+    if c.gate_res then c.counts.gated = (c.counts.gated or 0) + 1 end
+    return c.gate_res
+end
+M._gated = gated
+
 local function inject(action, vec)
+    if gated() then return false end
     local s = eis()
     if not (s and U.valid(action)) then return false end
     local v = vec or { X = 1.0, Y = 0.0, Z = 0.0 }
@@ -473,6 +490,7 @@ M.HOOKS = {
     { path = "/Script/Dominion.AiAttackComponent:Multicast_PerformAttackOnSimulatedProxies", handler = "on_ai_attack" },
     { path = "/Script/Dominion.AiRangedAttackComponent:Multicast_PerformAttackOnSimulatedProxies", handler = "on_ai_attack" },
     -- the server's verdict on Claude's block (PlayerBlockingComponent, NetMulticast; params not read)
+    { path = "/Script/Dominion.AiAttackComponent:Multicast_SendDamageCacheData", handler = "on_ai_impact" },
     { path = "/Script/Dominion.PlayerBlockingComponent:Multicast_NotifyActorsToDamagePendingParriedAttack", handler = "on_parried" },
     { path = "/Script/Dominion.PlayerBlockingComponent:Multicast_NotifyActorsToDamagePendingBlockedAttack", handler = "on_blocked" },
 }
@@ -514,6 +532,7 @@ function M.on_damage(ctx, ev)
                                     absorbed = num(U.try(function() return e.AmountAbsorbedByShield end)) }
         if #c.me_dmg > 20 then table.remove(c.me_dmg, 1) end
         if f then f.dmg_taken = (f.dmg_taken or 0) + amount end
+        c.last_mc_dmg_t = t
     end
     if vid == me and iid and not mine_i then
         c.attackers[iid] = t
@@ -645,6 +664,17 @@ local function on_block_event(ctx, kind)
     if #c.block_events > 20 then table.remove(c.block_events, 1) end
 end
 function M.on_parried(ctx) on_block_event(ctx, "parried") end
+function M.on_ai_impact(ctx)
+    if _G.DW_PAUSE then return end
+    local c = C()
+    local comp = ctx:get()
+    local a = U.try(function() return comp:GetOwner() end)
+    if not U.valid(a) then return end
+    c.impact_seq = (c.impact_seq or 0) + 1
+    c.impacts = c.impacts or {}
+    c.impacts[#c.impacts + 1] = { seq = c.impact_seq, id = U.short(a), t = now(a) }
+    if #c.impacts > 20 then table.remove(c.impacts, 1) end
+end
 function M.on_blocked(ctx) on_block_event(ctx, "blocked") end
 
 function M.hooks_start(log)
@@ -653,7 +683,8 @@ function M.hooks_start(log)
     if p then c.me_id = U.short(p) end
     local pc0 = local_pc()
     if pc0 then c.pc_id = U.short(pc0) end
-    c.handlers = { on_damage = M.on_damage, on_ai_attack = M.on_ai_attack, on_parried = M.on_parried, on_blocked = M.on_blocked }
+    c.handlers = { on_damage = M.on_damage, on_ai_attack = M.on_ai_attack, on_parried = M.on_parried, on_blocked = M.on_blocked,
+                   on_ai_impact = M.on_ai_impact }
     local res = {}
     for _, h in ipairs(M.HOOKS) do
         if c.hooks[h.path] then res[h.handler .. ":" .. h.path:match(":(.+)$")] = "kept"
@@ -1155,7 +1186,7 @@ local function start_defend(F, me, attacker_id, tt, info)
         or { action = "block", at_s = M.react_delay(), hold_s = 0.9, impact_s = 0.6, why = "no defense module" }
     F.def = { plan = plan, tel_t = tt, key = info.key, attacker = attacker_id, apos = apos, hp0 = me.hp, st0 = me.stamina,
               apos_tel = apos and { X = apos.X, Y = apos.Y, Z = apos.Z },
-              me_seq0 = c.me_seq or 0, blk_seq0 = c.block_seq or 0, info = info }
+              me_seq0 = c.me_seq or 0, blk_seq0 = c.block_seq or 0, imp_seq0 = c.impact_seq or 0, info = info }
     F.last_tele = tt
     if F.following then mcall("move", "stop", F.log); F.following = false end
     set_phase(F, "defend", string.format("%s %s impact %.2fs %s (%s)", plan.action, tostring(info.key), plan.impact_s or -1,
@@ -1172,6 +1203,7 @@ local function finish_defend(F)
     if d.parried then outcome = "parried"
     elseif (d.hit_amt or 0) > 0 then outcome = "hit"
     elseif d.blocked then outcome = "blocked"
+    elseif d.impact_seen and (act == "block" or act == "parry" or act == "tempest_shield" or (d.plan.input == "block")) then outcome = "blocked"
     elseif (act == "dodge" or act == "jump" or act == "retreat" or act:sub(-4) == "_pre") and (d.impact_t or d.evaded) then outcome = "avoided"
     elseif d.cast and d.cast.result and d.cast.result.ok and d.impact_t then outcome = "avoided"
     elseif d.cast and (d.cast.failed or (d.cast.result and not d.cast.result.ok)) then outcome = "whiff"; d.cast_failed = true
@@ -1343,6 +1375,9 @@ local function step_defend(F, pawn, me, acts)
         local ai = U.try(function() return pawn.Mesh:GetAnimInstance() end)
         local m = U.valid(ai) and U.short(U.try(function() return ai:GetCurrentActiveMontage() end)) or nil
         if m and m:find("Parry", 1, true) then d.parried, d.impact_t, d.montage = true, d.impact_t or F.t, m end
+    end
+    for _, e in ipairs(c.impacts or {}) do
+        if e.seq > (d.imp_seq0 or 0) and e.id == d.attacker then d.imp_seq0 = e.seq; d.impact_t = d.impact_t or e.t; d.impact_seen = true end
     end
     -- the attacker's position when the hit resolves (lunge learning)
     if d.impact_t and not d.apos_end then
@@ -1713,6 +1748,7 @@ local function frame(F)
     if F.casts then casts_frame(F) end
     if F.def and F.def.cast then defend_followup(F, pawn, actions(pawn)) end
     F.frame_n = (F.frame_n or 0) + 1
+    c.frame_id = (c.frame_id or 0) + 1
     if F.rg then ranged_frame(F, pawn) end
     -- per frame: held movement keys first (a directional evade samples them), then the queued taps
     if F.move_inject then
@@ -1744,6 +1780,15 @@ local function frame(F)
     end
     local me = read_me(pawn, pc)
     F.me_pos, F.hp_now, F.me_last = me.pos, me.hp, me
+    if F.hp_prev and me.hp and me.hp < F.hp_prev - 0.5 and F.t - (c.last_mc_dmg_t or -9) > 1.0 then
+        -- damage seen only as an HP drop: record it like a damage event (attacker unknown)
+        c.me_seq = (c.me_seq or 0) + 1
+        c.me_dmg = c.me_dmg or {}
+        c.me_dmg[#c.me_dmg + 1] = { seq = c.me_seq, t = F.t, amount = F.hp_prev - me.hp, source = "hp_poll" }
+        if #c.me_dmg > 20 then table.remove(c.me_dmg, 1) end
+        F.dmg_taken = (F.dmg_taken or 0) + (F.hp_prev - me.hp)
+    end
+    F.hp_prev = me.hp
     if not F.lat_t or F.t - F.lat_t > 5 then -- one-way latency for timed defence
         F.lat_t = F.t
         local ping = num(U.try(function() return pc.PlayerState:GetPingInMilliseconds() end))
@@ -1752,6 +1797,29 @@ local function frame(F)
     if me.dead then return finish(F, result_of(F, false, "companion_down", { died = true })) end
     if F.t - F.t0 > M.cfg.fight_timeout_s then return finish(F, result_of(F, false, "timeout")) end
     local acts = actions(pawn)
+    local mode = U.short(U.try(function() return pc.CurrentInputMode end))
+    F.input_mode = mode
+    if mode and mode ~= "DIM_Gameplay" and not F.casting then
+        F.mode_bad_since = F.mode_bad_since or F.t
+        if F.t - (F.mode_press_t or -9) >= 0.5 and (F.mode_presses or 0) < 4 then
+            -- leave it the way a player does: the mode's own back/cancel key (Escape)
+            F.mode_press_t, F.mode_presses = F.t, (F.mode_presses or 0) + 1
+            local back = U.find_object("/Game/Gameplay/Inputs/Actions/UI/IA_UI_GenericBack.IA_UI_GenericBack")
+            local cancel = U.find_object("/Game/Gameplay/Inputs/Actions/Spellcasting/IA_Spellcasting_Cancel.IA_Spellcasting_Cancel")
+            local a = (mode == "DIM_SpellcastingMode" or mode == "DIM_SpellPlacementMode") and cancel or back
+            -- raw: the gate blocks gameplay presses in a non-gameplay mode, but this IS the mode's own back key
+            local inp = mod("input")
+            if a then
+                if inp and inp.raw_inject then inp.raw_inject(a)
+                else local s = eis(); if s then pcall(function() s:InjectInputVectorForAction(a, { X = 1, Y = 0, Z = 0 }, {}, {}) end) end end
+            end
+            say(F.log, "input mode " .. tostring(mode) .. ": pressing back to reach gameplay")
+        end
+        if F.t - F.mode_bad_since > 5 then
+            return finish(F, result_of(F, false, "body_error", { why = "input_mode_blocked", mode = mode,
+                detail = "stuck in " .. tostring(mode) .. "; gameplay inputs do not work there" }))
+        end
+    else F.mode_bad_since, F.mode_presses = nil, 0 end
     if F.following then -- the follow may have ended on its own (stuck, target lost): start it again when needed
         local st = mcall("move", "status")
         if type(st) == "table" and st.mode ~= "follow" then F.following = false end
@@ -1768,6 +1836,18 @@ local function frame(F)
     end
     local tgt = U.alive(F.target) and read_creature(F.target, me.pos) or nil
     if tgt then
+        if F.target_hp and tgt.hp and tgt.hp < F.target_hp - 0.5 and F.t - (F.last_hit_t or -9) > 0.3 then
+            -- the target lost HP: our hit (the damage multicast did not reach the client live)
+            F.hits = F.hits + 1
+            F.dmg = (F.dmg or 0) + (F.target_hp - tgt.hp)
+            F.last_hit_t = F.t
+            c.counts.hits = c.counts.hits + 1
+            c.my_hits[#c.my_hits + 1] = { seq = c.counts.hits, t = F.t, victim = F.target_id, name = F.target_name,
+                                          amount = F.target_hp - tgt.hp, source = "hp_poll" }
+            if #c.my_hits > 30 then table.remove(c.my_hits, 1) end
+            F.hit_seq = c.counts.hits
+            if tgt.hp <= 0 then F.fatal_hit = true end
+        end
         F.target_pos, F.dist_m, F.target_hp = tgt.pos, tgt.distance_m or 99, tgt.hp
         if tgt.dead and not F.dead_seen then
             F.dead_seen = true
@@ -1819,7 +1899,9 @@ local function frame(F)
             F.no_food = true
         end
     end
-    if (F.phase == "engage" or F.phase == "approach") and not F.casting and F.t - (F.precast_t or -9) >= 0.25 then
+    -- (also late in a defence, once its hit has passed: the next attack's window may need casting now)
+    local past_hit = F.phase == "defend" and F.def and F.def.started and F.t - F.def.tel_t > (F.def.plan.impact_s or 0.6) + 0.1
+    if (F.phase == "engage" or F.phase == "approach" or past_hit) and not F.casting and F.t - (F.precast_t or -9) >= 0.25 then
         F.precast_t = F.t
         local D = mod("defense")
         if D and D.precast_decision then

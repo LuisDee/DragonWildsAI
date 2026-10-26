@@ -553,7 +553,7 @@ do
     local info = { key = "Goblin:ATK_Slash", dmg_time = 0.8, shape = Dm.shape_info({ class = "DominionShape_Wedge", depth = 200, zheight = 150, top_angle = 90 }, 90) }
     local p = Dm.plan(info, ctx, { defense = "auto" }, fixed)
     check("plan: parry when able", p.action == "parry" and p.src == "attack_data", p.action)
-    check("plan: parry press = T - 2L - window/2", math.abs(p.at_s - (0.8 - 0.06 - 0.05)) < 1e-6, p.at_s)
+    check("plan: parry press = T - 2L - block delay - window/2", math.abs(p.at_s - (0.8 - 0.06 - Dm.cfg.block_delay_s - 0.05)) < 1e-6, p.at_s)
     check("plan: parry hold covers impact", p.at_s + p.hold_s >= 0.8 + 0.3)
     local fast = Dm.plan({ key = "Rat:Bite", dmg_time = 0.25 }, ctx, {}, fixed)
     check("plan: too fast to parry -> block", fast.action == "block" and fast.why == "too_fast_to_parry", fast.action .. " " .. tostring(fast.why))
@@ -601,7 +601,7 @@ local function goblin_attack(goblin, dmg_time, opts)
             local own = obj({ GetOwner = function() return pawn end }, "C /x")
             local blocking = world.block_last and T - world.block_last < 0.05
             -- the server sees the press 2 x one-way latency (0.03 s default) later than the client's telegraph clock
-            local seen = world.block_start and (world.block_start + 0.06)
+            local seen = world.block_start and (world.block_start + 0.06 + 0.11) -- + the server's BlockDelay
             if blocking and seen and impact - seen <= 0.10 + 1e-6 and impact - seen >= -1e-6 then
                 hooks["/Script/Dominion.PlayerBlockingComponent:Multicast_NotifyActorsToDamagePendingParriedAttack"]({ get = function() return own end })
                 world.result = "parried"
@@ -872,7 +872,7 @@ do
         ability_status = function(asset) return { available = asset ~= "USD_Windstep", latency_s = 0.35 } end,
         cast_now = function(log, asset, opts)
             casts[#casts + 1] = { asset = asset, t = T, owner = opts and opts.owner_token }
-            world.active_spell = { asset = asset, t = T }
+            if asset == "USD_TempestShield" then world.shield_until = T + 60 else world.active_spell = { asset = asset, t = T } end
             local job = { t = T }
             function job.poll(self) if T - self.t >= 0.3 then return { ok = true, cast_t = self.t + 0.3 } end end
             return job
@@ -901,18 +901,21 @@ do
                 world.resolved = true
                 local sp = world.active_spell
                 local phasing = sp and sp.asset == "USD_PhaseDash" and T - sp.t < 2.0 and world.evading_until and world.evading_until > T
-                local shielded = sp and sp.asset == "USD_TempestShield" and world.block_last and T - world.block_last < 0.05
+                local shielded = world.shield_until and world.shield_until > T and world.block_last and T - world.block_last < 0.05
                 if phasing or shielded then world.result = "avoided"
                 else
                     pawn.hp = pawn.hp - 30
                     multicast(pawn, drake, 30)
                     world.result = "hit"
                 end
-                world.active_spell = nil
+                if phasing then world.active_spell = nil end -- the dash is used up; a shield lasts
+                -- the client receives the AI's damage-cache multicast at the impact either way
+                hooks["/Script/Dominion.AiAttackComponent:Multicast_SendDamageCacheData"]({ get = function() return comp end })
             end
         end
         run_until(function() local f = Cm._state().fight; return world.resolved and f and f.phase ~= "defend" end, 4)
         results[#results + 1] = world.result
+        if os.getenv("DBG") then local f = Cm._state().fight; print("round", i, world.result, f and f.last_defence and f.last_defence.action, f and f.n_precasts) end
         pawn.hp = 100 -- keep the fight going (heal between rounds)
         drake.loc.X = start_x
         step(80)
@@ -1020,6 +1023,7 @@ do
                     multicast(pawn, drake, 40)
                     world.result = "hit"
                 end
+                hooks["/Script/Dominion.AiAttackComponent:Multicast_SendDamageCacheData"]({ get = function() return comp end })
             end
         end
         run_until(function() return world.resolved end, 3)
@@ -1036,6 +1040,68 @@ do
     check("rhythm: the cast latency was learned", math.abs((Cm._state().ability_latency or {}).USD_PhaseDash or 0) - 2.05 < 0.05)
     Cm.stop(nil, "test")
     Cm.set_modules({ spells = false })
+    A.reset(nil)
+end
+
+-- ================================================================ 19. modal gate: no gameplay press while build mode is open
+reset_world()
+do
+    _G.DWInput = nil
+    local inp = assert(loadfile(root .. "/client_mod/scripts/input.lua"))()
+    inp.cfg.orphan_s = 999 -- keep the modal open for this test (its owner "build" is alive)
+    inp.claim("build", "test build job")
+    Cm.set_modules({ input = inp })
+    pc.BuildModeComponent = obj({ CurrentBuildMode = 2 }, "BuildModeComponent /x") -- Placement
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local gob = new_creature("BP_AI_RuntGoblin_Character_C_gate", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 60, pl = 1, arch = 0 })
+    Cm.guard_start(nil)
+    multicast(pawn, gob, 5) -- it hits Claude: the reflex takes the pawn
+    local injected0 = 0
+    for _, n in pairs(world.injected) do injected0 = injected0 + n end
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    step(150)
+    local injected = 0
+    for _, n in pairs(world.injected) do injected = injected + n end
+    check("gate: a reflex fight in build Placement mode presses nothing", injected == injected0 and Cm._state().fight ~= nil,
+          injected - injected0)
+    check("gate: the refusals are counted", (Cm._state().counts.gated or 0) > 0)
+    if os.getenv("DBG") then local f = Cm._state().fight; print("GATE", f and f.phase, table.concat(Cm._state().log_lines, " || "):sub(-900)) end
+    -- the build owner leaves build mode: presses go out again
+    pc.BuildModeComponent.CurrentBuildMode = 0
+    inp.release("build")
+    step(150)
+    local after = 0
+    for _, n in pairs(world.injected) do after = after + n end
+    check("gate: presses resume once build mode is closed", after > injected, after - injected)
+    Cm.stop(nil, "test")
+    Cm.guard_stop(nil)
+    pc.BuildModeComponent = nil
+    Cm.set_modules({ input = false })
+    A.reset(nil)
+end
+
+-- ================================================================ 20. a non-gameplay input mode (live 23:39: an Oculus build menu left open)
+reset_world()
+do
+    _G.DWInput = nil
+    local inp = assert(loadfile(root .. "/client_mod/scripts/input.lua"))()
+    Cm.set_modules({ input = inp })
+    local back = obj({}, "InputAction /Game/Gameplay/Inputs/Actions/UI/IA_UI_GenericBack.IA_UI_GenericBack")
+    local real_sfo = StaticFindObject
+    StaticFindObject = function(path) if path:find("IA_UI_GenericBack", 1, true) then return back end return real_sfo(path) end
+    pc.CurrentInputMode = obj({}, "DominionInputMode /Game/Inputs/DIM_OculusBuildMenu")
+    held.right, held.left = "ITEM_Dagger_Bone", "ITEM_Shield_Bronze"
+    local gob = new_creature("BP_AI_RuntGoblin_Character_C_mode", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 60, pl = 1, arch = 0 })
+    check("mode: fight starts", Cm._start_fight(nil, gob, { mode = "attack", force = true }).ok)
+    run_until(function() return Cm._state().fight == nil end, 10)
+    local res = Cm._state().last.result
+    check("mode: presses the mode's own back key (raw, past the gate)", (world.injected.IA_UI_GenericBack or 0) >= 2, world.injected.IA_UI_GenericBack)
+    check("mode: no attack while the mode stays open", (world.injected.IA_PrimaryAction or 0) == 0)
+    check("mode: a stuck mode fails loudly with its name", res and res.reason == "body_error" and res.data.why == "input_mode_blocked"
+          and res.data.mode == "DIM_OculusBuildMenu", res and res.data and res.data.why)
+    pc.CurrentInputMode = nil
+    StaticFindObject = real_sfo
+    Cm.set_modules({ input = false })
     A.reset(nil)
 end
 

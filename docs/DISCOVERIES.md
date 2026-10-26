@@ -1669,3 +1669,66 @@ Module `client_mod/scripts/spells.lua` (tools `spells`, `cast`). Read-only probe
   - So the actor replicates first and the spend and cooldown last. A cast reply must wait for both (L25).
   - Near the dev spawn lodestone (at 13–25 m from it) every shelter preview said `UI.Notification.SpellPlacement.Blocked`, even on flat ground; 40 m away it was accepted. Probably a no-build radius around lodestones (not confirmed in the data).
 - **Referee v1.2 hooks REGISTERED on dev (2026-10-26 ~07:10 UTC; not yet seen firing).** Client→server RPC post-hooks for Luis's redefined long tasks: `InventoryController:Server_MoveItemBetweenInventories` / `Server_SplitAndPutStack` / `Server_MoveAllItemsBetweenInventories` (container deposits; "his" container = absent at referee start), `InventoryController:Server_CraftRecipe` (craft), `BuildModeComponent:Server_SpawnBuilding` (built), `FarmCommandComponent:Server_TryPlantSeed` / `Server_TryHarvestPlot` (planted / harvested). Live verification waits for a container, a station and plots on dev. Building needs the body build tool (capability agent).
+
+## Build probes P1a/P1b (2026-10-26, dev world, client build 26162923; read-only, `client_mod/commands/build_probe_p1a.lua` / `build_probe_p1b.lua`)
+- **Owners exist on the PC:** `BuildModeComponent` (bUseNewComponent=true, CurrentBuildMode 0=None, Prev 1, SnappingMode 0=Basic), `BuildPlacementComponent`, `BuildInteractionComponent`, `BuildValidationComponent`. The input mode was `DIM_Gameplay`; the spells agent reports Oculus is another build-like mode, `DIM_OculusBuildMenu`.
+- **Actions** (read from the component, not asset paths):
+  - `CancelAction` = IA_Building_Cancel, `ModifyRotationAction` = IA_Building_RotateZ, `GhostModifierAction` = IA_Building_GhostPiece_Modifier;
+  - `BuildingMappingContext` = IMC_BuildingGeneral;
+  - BuildInteractionComponent `InteractAction` = IA_Interact, `QuickInteractAction` = IA_Building_QuickInteract.
+- **Limits:**
+  - placement: `MaxPlacementDistance` = `SelectionMaxPlacementDistance` = 700 cm, `MaxDistanceModifier` 350, `MaxHeightModifier` 300;
+  - interaction: `MinTimeBetweenBuildingPlacementRequests` = 0.25 s, `DetectionRange` 1500;
+  - settings CDO: `ModifyRotationStepDeg` = 15, height step 0.05, distance step 0.4, `MaxNumPieces` 8192;
+  - `PieceTagToMaxCountMap` = {BaseBuilding.PieceType.Prop.ProtectionTotem: 8}; `TagsToCountsMap` on the client = {} (empty: the counter does not replicate, or there is nothing here).
+- **Catalogue:** `BuildPieceCatalogue` is loaded (`DA_BuildPieceCatalogue_Default`).
+- **MPC:** `MPC_BuildingPieceGhost`, with params `PlacingValidityStateIndex` and `CursorWorldPosition`.
+- **`ValiditySpawnStateToScalarIndex` is NOT one-to-one:**
+
+  | Scalar | States |
+  |---|---|
+  | 2 | Valid (0), NeedsSnapping (4) |
+  | 1 | Overlapping, Floating, NeedsFoundation, Unstable, MissingMaterials, InsideVault, InsideProtectedArea, ReachedCountLimit, InsideBlockedRegion |
+  | 0 | WrongPhysicalSurface (7), None (13) |
+
+  ShelterCheckFailed (11) is absent. **So the MPC scalar cannot tell Valid from NeedsSnapping, or WrongPhysicalSurface from None.** It is a colour index, not the state. The exact state needs the `OnValidityStateChange` / `OnValiditySpawnStateChanged` post-hook, or another property (P4).
+- **The game's own words** (`BuildInteractionComponent.ValidityNotificationTextMap`):
+
+  | State | Text |
+  |---|---|
+  | 1 Overlapping | "Blocked" |
+  | 2 Floating | "You can't place this in the air." |
+  | 3 NeedsFoundation | "You need a foundation to build this." |
+  | 5 Unstable | "Unstable" |
+  | 6 MissingMaterials | "You require more materials to build this." |
+  | 7 WrongPhysicalSurface | "You can't build here" |
+  | 8 InsideVault | "You can't build here" |
+  | 9 InsideProtectedArea | "Only the Host can build here." |
+  | 10 ReachedCountLimit | "Placement limit reached for this piece." |
+  | 11 ShelterCheckFailed | "You can only place this outside" |
+  | 12 InsideBlockedRegion | "Cannot be placed in this region" |
+
+  There is no text for 0 or 4.
+- **Privileges** (`PlayerState.PrivilegeComponent:HasPrivilege`): Build=true, OpenChests=true, Chat=true, Owner=false.
+- **Unlocks:** `ProgressComponent.BuildingsUnlocked` holds 42 entries **with duplicates** (the 16 Deluxe Edition decorations appear twice), 26 unique. Useful ones:
+  - `BUILDPIECE_CraftingStation_Basic` "Crafting Table" (4 Ash Logs, 20 xp, idx 433);
+  - `BUILDPIECE_Campfire` "Campfire" (6 Stone, 20 xp, idx 26, `ShelterRequirementText` "Must Be Exposed");
+  - `BUILDPIECE_Interior_BedRoll` "Bedroll" (20 xp);
+  - `DA_BaseBuilding_Building_Protection_Totem` (**bOnlyAvailableToHost = true**, 0 xp);
+  - decorations (1 xp).
+
+  `bFarmingUnlocked` = false. `Category` reads "None" on Campfire and Crafting Table. Requirements read cleanly as `TArray<FResourceRequirement>` via `ForEach` + `:get()`. **No chest, no farm plot, no rune altar is unlocked on dev.** Unlocks come from item/actor discoveries (DISCOVERIES crafting).
+- **`HUDUISubsystem.BuildingAPI` exists headless:** 1 `BuildingUIAPI` object. `GlobalBuildingManager`: 1, with a `CounterComponent`.
+
+### Dev-world combat diagnosis (2026-10-26, from logs; docs/design/combat-basics-live.md)
+- **Server evidence (dev server log, category `EvadeAttack` Verbose):** `TryPerformAttack ... starting attack on authority against player`, `PredictPointDamage ... will receive D damage` / **`evaded 0.000000 damage`** (a successful dodge), `DomNetActIntIds: AUTH : Action Accepted : START : Evade|Block`, `DominionBlockComponent AuthorityApplyBlocking : BlockDelay [0.117] for REMOTE player`.
+- **Client:**
+  - The AI attack multicast arrives about 40 ms after the server starts the attack.
+  - `Multicast_SendDamageCacheData` ("received damage event on client") arrives at the impact: Kebbit +1.30 s; its data says 1.35 s.
+  - No `DamageComponent` damage multicast reached the client for the Kebbit's hits; only HP polls showed −7.
+  - Client log: `Player_AckRequestStartBlocking: BlockTime = Now + ~0.10`.
+- **Results:**
+  - 22:56, 3/3 dodges evaded (server-verified).
+  - 23:39, 8/8 hits landed through "blocks": a stale `DIM_OculusBuildMenu` input mode delayed the input, and the blocks arrived inside the server BlockDelay.
+- **ClaudeDev:** total level 12 (Attack 1), so `PerkV2_Attack_Parry` (Attack 5) and the specials (Attack 8) are locked.
+- **The Stone Logging Axe's block action (`PA_Block_PickAxe`) cannot parry.**

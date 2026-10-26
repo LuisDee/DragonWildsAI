@@ -25,6 +25,7 @@ local D = {}
 
 D.cfg = {
     parry_window_s = 0.10,  -- PlayerBlockingComponent.ParryWindowLength (100, ms) on Claude's client
+    block_delay_s = 0.11,   -- server "AuthorityApplyBlocking: BlockDelay [0.117]" for a remote player (dev log)
     react_s = { 0.15, 0.30 }, -- human reaction delay to the telegraph
     jitter_s = 0.025,       -- timing error of a human press
     block_tail_s = 0.40,    -- keep a block up this long past the expected impact
@@ -210,7 +211,7 @@ function D.plan(info, ctx, orders, rng)
     local r = S().attacks[key]
     local off = r and r.offset or 0
     -- a parry the telegraph leaves no time for becomes a block (a human would just raise the shield)
-    local parry_at = T - 2 * L - cfg.parry_window_s / 2 + off + err
+    local parry_at = T - 2 * L - cfg.block_delay_s - cfg.parry_window_s / 2 + off + err
     if pick == "parry" and parry_at < react then
         pick, p.why = can_block and "block" or (can_dodge and "dodge" or "retreat"), "too_fast_to_parry"
     end
