@@ -1292,6 +1292,77 @@ do
     A.reset(nil)
 end
 
+-- ================================================================ 10j. losing fast: end it before it is fatal (live 16:15: a "losing" flee 14 s in, died fleeing)
+reset_world()
+do
+    local saved = inv_list.hotbar
+    local o0 = { disengage = Cm.orders.disengage, heal_hp = Cm.orders.heal_hp, reengage_hp = Cm.orders.reengage_hp }
+    -- (a) self-defence, no food, HP falling ~6/s, his swings not landing (the runt does not die): flee EARLY, on the
+    -- trend (the estimate says "winnable": a 120 HP runt), long before 40 % HP
+    inv_list.hotbar = { { item = "ITEM_Dagger_Bone", slot = 5 } }
+    held.right, held.left = "ITEM_Dagger_Bone", nil
+    world.inputs_dead = true
+    local g = new_creature("BP_AI_RuntGoblin_Character_C_lose", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 120, pl = 1, arch = 0 })
+    Cm._start_fight(nil, g, { mode = "reflex", level = "reflex", why = "attacked_me" })
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "engage" end, 3)
+    world.on_step = function() if pawn.hp > 0 then pawn.hp = pawn.hp - 0.06 end end
+    local fled = run_until(function() local f = Cm._state().fight; return (f and f.phase == "flee") or f == nil end, 20)
+    local f = Cm._state().fight
+    check("losing fast: a self-defence fight with no food flees early", fled and f and f.phase == "flee" and pawn.hp > 40, tostring(pawn.hp))
+    check("losing fast: the reason names the time to live", f and (f.phase_log[#f.phase_log] or ""):find("losing fast", 1, true) ~= nil, f and f.phase_log[#f.phase_log])
+    world.on_step, world.inputs_dead = nil, nil
+    Cm.stop(nil, "test")
+    A.reset(nil)
+    -- (b) commanded, food carried, disengage orders (heal_hp 0.3): disengage to heal BEFORE 30 % (on the trend)
+    reset_world()
+    Cm.set_orders({ disengage = true, heal_hp = 0.3, reengage_hp = 0.8 })
+    inv_list.hotbar = { { item = "ITEM_Dagger_Bone", slot = 5 }, { item = "ITEM_Food_Sandwich", name = "Forager's Sandwich", consumable = "food", heal = 10, slot = 0 } }
+    held.right, held.left = "ITEM_Dagger_Bone", nil
+    pawn.hp = 100
+    local g2 = new_creature("BP_AI_RuntGoblin_Character_C_lose2", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    Cm._start_fight(nil, g2, { mode = "attack", force = true, by = "brain" })
+    run_until(function() local ff = Cm._state().fight; return ff and ff.phase == "engage" end, 3)
+    world.on_step = function() if pawn.hp > 0 then pawn.hp = pawn.hp - 0.06 end end
+    local dis = run_until(function() local ff = Cm._state().fight; return ff and ff.phase == "disengage" end, 20)
+    check("losing fast: a commanded fight disengages to heal before heal_hp", dis and pawn.hp > 60, tostring(pawn.hp))
+    world.on_step = nil
+    Cm.stop(nil, "test")
+    A.reset(nil)
+    -- (c) HP falling but the creature dies first: keep fighting (no flee, no disengage)
+    reset_world()
+    inv_list.hotbar = { { item = "ITEM_Dagger_Bone", slot = 5 } }
+    held.right, held.left = "ITEM_Dagger_Bone", nil
+    pawn.hp = 100
+    local g3 = new_creature("BP_AI_RuntGoblin_Character_C_win", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 60, pl = 1, arch = 0 })
+    Cm._start_fight(nil, g3, { mode = "reflex", level = "reflex", why = "attacked_me" })
+    world.on_step = function() if pawn.hp > 0 then pawn.hp = pawn.hp - 0.03 end end
+    run_until(function() return Cm._state().fight == nil end, 30)
+    world.on_step = nil
+    local r3 = Cm._state().last.result
+    check("winning while hurt: no early flee, the creature dies", r3 and r3.ok and g3.hp <= 0, r3 and r3.reason)
+    A.reset(nil)
+    -- (d) the stamina reserve: no swing that would leave less than a dodge (a defend-heavy fight keeps its dodge)
+    reset_world()
+    held.right, held.left = "ITEM_Dagger_Bone", nil
+    pawn.hp = 100
+    local g4 = new_creature("BP_AI_RuntGoblin_Character_C_stam", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 5000, pl = 1, arch = 0 })
+    Cm._start_fight(nil, g4, { mode = "attack", force = true, by = "brain" })
+    run_until(function() local ff = Cm._state().fight; return ff and ff.phase == "engage" end, 3)
+    local reserve = Cm.defence_reserve(Cm._state().fight)
+    world.on_step = function() stamina = reserve + 3 end -- below reserve + any swing's cost
+    local p0 = world.injected.IA_PrimaryAction or 0
+    run_until(function() return false end, 3)
+    check("stamina: no swing below the dodge reserve", (world.injected.IA_PrimaryAction or 0) == p0, (world.injected.IA_PrimaryAction or 0) - p0)
+    world.on_step = function() stamina = 80 end
+    run_until(function() return (world.injected.IA_PrimaryAction or 0) > p0 end, 3)
+    check("stamina: swings again with stamina to spare", (world.injected.IA_PrimaryAction or 0) > p0)
+    world.on_step = nil
+    Cm.stop(nil, "test")
+    Cm.set_orders(o0)
+    inv_list.hotbar = saved
+    A.reset(nil)
+end
+
 -- ================================================================ 11a. hit while looting (live 09:41): the impact event names the attacker, he fights back
 reset_world()
 do

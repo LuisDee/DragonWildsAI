@@ -60,6 +60,7 @@ M.cfg = {
     ai_action_resolve_s = 3, -- an AI action older than this is never resolved (it has ended; its creature may be gone)
     hazard_s = 0.25, hazard_window_s = 15, hazard_persist_s = 30, hazard_margin_cm = 40, -- ground hazards (gap 2)
     status_s = 0.5, cure_at = 0.05, no_cure_recheck_s = 10,
+    trend_s = 6, trend_min_s = 3, danger_ttl_s = 15, danger_win_margin = 0.8, -- losing fast: ttl < 15 s and win > 0.8 x ttl
     tool_jobs = { fishing = "fish", gather = "gather", farm = "tend", agility = "agility" }, -- module -> its arbiter name prefix
     ambient = nil, ambient_status_s = 2.0, -- out-of-fight hazards/cures: nil = env DW_COMBAT_AMBIENT ("1" = on); off by default -- statuses read every status_s in a fight; a harmful one above cure_at x max -> its cure
     odds_m = 40, odds_max = 6, facts_s = 30, census_s = 0.5, world_id_s = 60, odds_prep_s = 10, -- get_state fight_odds: creatures in sight
@@ -2921,6 +2922,39 @@ local function frame(F)
         F.assessment = a
         if a.decision == "flee" then return begin_flee(F, a.why) end
         F.decision = "fight"
+        -- the HP TREND (live 16:15: a "losing" flee began 14 s in and he died fleeing): time to live at the damage
+        -- rate of the last cfg.trend_s against the time to win (his observed damage rate on the target, else the
+        -- estimate). Losing fast -> disengage-heal now if he can, else (self-defence) flee now.
+        F.hp_trend = F.hp_trend or {}
+        local tr = F.hp_trend
+        tr[#tr + 1] = { t = F.t, hp = me.hp or 0 }
+        while #tr > 1 and F.t - tr[1].t > M.cfg.trend_s do table.remove(tr, 1) end
+        local dt = F.t - tr[1].t
+        local rate = dt >= M.cfg.trend_min_s and math.max(0, (tr[1].hp - (me.hp or 0)) / dt) or 0
+        if rate > 0.3 then
+            local ttl = (me.hp or 0) / rate
+            local fight_s = math.max(F.t - F.t0, 1)
+            local my_rate = (F.dmg or 0) / fight_s
+            -- his own observed damage rate decides once he has fought a while (5 s of no damage = not winning)
+            local ttw = (my_rate > 0.1 and F.target_hp) and (F.target_hp / my_rate) or (fight_s >= 5 and 1e9) or a.my_ttk or 1e9
+            a.ttl_s, a.ttw_s = math.floor(ttl), ttw < 1e8 and math.floor(ttw) or nil
+            if ttl < M.cfg.danger_ttl_s and ttw > ttl * M.cfg.danger_win_margin then
+                local why = string.format("losing fast: ~%ds to live, ~%s to win", math.floor(ttl), ttw < 1e8 and (math.floor(ttw) .. "s") or "?")
+                if M.orders.disengage ~= false and not F.dis and not F.no_food and (F.eat_fails or 0) < 3 and F.phase ~= "disengage"
+                    and F.t - (F.dis_end or -99) > 10 then
+                    local list = mcall("inventory", "list", F.log) or {}
+                    if M.best_heal_food(list) then
+                        F.dis = { step = "back", t = F.t }
+                        F.n_disengage = (F.n_disengage or 0) + 1
+                        F.danger_disengages = (F.danger_disengages or 0) + 1
+                        if F.phase == "defend" then return end -- (finish_defend goes back to the disengage)
+                        return set_phase(F, "disengage", why)
+                    end
+                    F.no_food = true
+                end
+                if F.mode == "reflex" and not F.dis then return begin_flee(F, why) end
+            end
+        end
         -- low HP but winnable: back off and eat first (the model's policy: orders.disengage / heal_hp)
         local frac = (me.max_hp and me.max_hp > 0) and (me.hp or 0) / me.max_hp or 1
         if M.orders.disengage ~= false and not F.dis and (F.phase == "engage" or F.phase == "approach")
