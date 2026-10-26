@@ -900,11 +900,11 @@ M.MANIFEST = {
             can_build_now = { type = "boolean", default = false, description = "Only pieces you have the materials for." },
             max = { type = "integer", minimum = 1, maximum = 60, default = 25, description = "At most this many pieces." } }) },
         reasons = { "state_unavailable" } },
-    -- llm = false until the live probes P2-P5 verify it (dev only; never Shockbyte without Luis's OK)
-    build = { kind = "action", llm = false, moves = true, priority = "command", duration_s = 12, timeout_s = 120,
+    -- offered to the model after live P5 (2026-10-26, a Campfire built and verified on dev)
+    build = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 12, timeout_s = 120,
         detail_is_speech = true,
-        description = "Build one piece (from buildables) like a player: walks to a spot, opens the build menu, picks it, "
-            .. "places it where the game's preview says it fits, checks it was built and the materials used.",
+        description = "Build one piece by its name from buildables (you need its materials). Walks to a spot, places it "
+            .. "where the game allows, checks it was built; if it can't, the reply says why.",
         args = { type = "object", required = { "piece" }, properties = obj({
             piece = { type = "string", description = "The piece's name or id from buildables." },
             at = { description = "Exactly here: [x, y, z] metres or an id." },
