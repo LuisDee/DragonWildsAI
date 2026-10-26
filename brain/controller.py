@@ -27,6 +27,7 @@ import os
 import re
 import time
 from collections import deque
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -133,6 +134,14 @@ TALK_ONLY_NOTE = ("You replied without calling any tool, and nothing has been sa
                   "reword the line). If you can't do it now (no tool or target for it, or something is missing), "
                   "reply with the corrected line saying what's stopping you, and no tool call. Otherwise reply "
                   "with no text at all and your line is said as it is.")
+
+# Addressed chat (a line from the player he is with) runs at this effort; everything else at the client's
+# own (DW_CONTROLLER_EFFORT, low). Anthropic's effort docs for Haiku 5.5: low for chat and short tool tasks,
+# but in long agent prompts low is "more likely to skip a search, stop early, or skip a check"; medium is
+# the model's default. Empty = off. Each level has its own prompt-cache entry (top-level effort is part
+# of the rendered prompt), so warm_up warms both. Set DW_CONTROLLER_EFFORT_ADDRESSED=medium to turn it on.
+ADDRESSED_EFFORT_ENV = "DW_CONTROLLER_EFFORT_ADDRESSED"
+ADDRESSED_EFFORT_DEFAULT = ""  # off until it passes the latency budget (A/B 2026-10-26: chat p50 2.45 -> 3.02 s)
 
 # Appended to every read-only tool's description (Controller._tool_list): how _loop really runs them.
 READ_ALONE = ("Runs only when called on its own: in a reply that also calls an action it is skipped, so look "
@@ -261,6 +270,7 @@ class Decision:
     invalid: list[ToolCall] = field(default_factory=list)  # calls refused before the body (the model hears why)
     looks: list[dict] = field(default_factory=list)  # look results this turn (data)
     inventory: dict | None = None  # an inventory read this turn (data)
+    effort: str | None = None  # the effort this request runs at, when not the client's default (addressed chat)
 
 
 class Controller:
@@ -292,6 +302,7 @@ class Controller:
         self.read_tools = set(READ_TOOLS) | (self.caps.read_tools() if self.caps else set()) | {"list_skills"}
         self.skills = skills  # SkillLibrary | None
         self.max_calls = max(1, max_calls)
+        self.addressed_effort = os.environ.get(ADDRESSED_EFFORT_ENV, ADDRESSED_EFFORT_DEFAULT).strip() or None
         self.check_talk_only = True  # TALK_ONLY_NOTE: one extra call for a talk-only follow-up turn
         self.progress_interval = progress_interval
         self.clock = clock
@@ -513,7 +524,10 @@ class Controller:
         messages = [{"role": "system", "content": self.persona()},
                     {"role": "user", "content": json.dumps(context, default=str, ensure_ascii=False)}]
         d = Decision()
-        resp, messages = self._loop(messages, d)
+        if addressed and (text or "").strip() and body_event is None:
+            d.effort = self.addressed_effort  # a player's line to him: think a little more (latency budget M1)
+        with self._effort(d.effort):
+            resp, messages = self._loop(messages, d)
         d.speech = strip_markers(resp.content)
         d.messages = messages + [assistant_message(resp)]
         self._collect(resp.tool_calls, d, state)
@@ -533,7 +547,7 @@ class Controller:
             tag = f"{label}{step}" if label else step
             self.log.log("prompt", component="controller", model=self.llm.model, step=tag,
                          messages=messages if step == 0 and not label else messages[-2:],
-                         effort=getattr(self.llm, "effort", None))  # the effort actually sent (L27)
+                         effort=self._sent_effort())  # the effort actually sent (L27)
             resp = self.llm.complete(messages, tools=self.tools)
             d.model_calls += 1
             self.log.log("llm_response", component="controller", step=tag, content=resp.content,
@@ -566,7 +580,7 @@ class Controller:
         messages.append({"role": "user", "content": FINAL_PASS_NOTE})
         tools = [t for t in self.tools if t["function"]["name"] not in self.read_tools]
         self.log.log("prompt", component="controller", model=self.llm.model, step=f"{tag}final", messages=messages[-2:],
-                     effort=getattr(self.llm, "effort", None))
+                     effort=self._sent_effort())
         try:
             final = self.llm.complete(messages, tools=tools)
         except Exception as exc:  # the turn ends as before (nothing done), the error is logged
@@ -578,6 +592,27 @@ class Controller:
         self.log.log("controller_final_pass", ok=True, actions=[c.name for c in final.tool_calls],
                      speech=strip_markers(final.content))
         return final, messages
+
+    def _sent_effort(self) -> str | None:
+        """The effort the next call sends (the client's output_config.effort), for the logs (L27)."""
+        kw = getattr(self.llm, "kwargs", None)
+        cfg = kw.get("output_config") if isinstance(kw, dict) else None
+        return cfg.get("effort") if isinstance(cfg, dict) else getattr(self.llm, "effort", None)
+
+    @contextmanager
+    def _effort(self, level: str | None):
+        """Run the calls inside at ``level`` (the client's output_config.effort, restored after). Only for a
+        client that already sends an effort (anthropic/ models via LiteLLMClient); a no-op otherwise."""
+        kw = getattr(self.llm, "kwargs", None)
+        cfg = kw.get("output_config") if isinstance(kw, dict) else None
+        if not level or not isinstance(cfg, dict) or cfg.get("effort") == level:
+            yield
+            return
+        kw["output_config"] = {**cfg, "effort": level}
+        try:
+            yield
+        finally:
+            kw["output_config"] = cfg
 
     def warm_up(self) -> dict | None:
         """L27 (dev run 23:32:58: the session's first model call took 11.2 s: litellm's ~5 s import, a
@@ -595,7 +630,16 @@ class Controller:
         except Exception as exc:  # a failed warm-up only means the first call is cold
             self.log.log("llm_warmup", ok=False, error=repr(exc))
             return None
-        self.log.log("llm_warmup", ok=True, model=self.llm.model, effort=getattr(self.llm, "effort", None), **res)
+        self.log.log("llm_warmup", ok=True, model=self.llm.model, effort=self._sent_effort(), **res)
+        kw = getattr(self.llm, "kwargs", None)
+        swappable = isinstance(kw, dict) and isinstance(kw.get("output_config"), dict)
+        if swappable and self.addressed_effort and self._sent_effort() not in (None, self.addressed_effort):
+            with self._effort(self.addressed_effort):  # the addressed-chat level has its own cache entry
+                try:
+                    more = warm(messages, self.tools)
+                    self.log.log("llm_warmup", ok=True, model=self.llm.model, effort=self.addressed_effort, **more)
+                except Exception as exc:
+                    self.log.log("llm_warmup", ok=False, effort=self.addressed_effort, error=repr(exc))
         return res
 
     def arg_help(self, tool: str) -> dict[str, str]:
@@ -629,12 +673,13 @@ class Controller:
             "player needs to hear it (an answer he asked for, a result he can't see, a problem); otherwise "
             "reply with no text at all.")})
         self._state_for_reads = state or {}
-        d2 = Decision()
-        resp, msgs = self._loop(msgs, d2, label="turn")
-        msgs = msgs + [assistant_message(resp)]
-        speech = strip_markers(resp.content)
-        if speech and not resp.tool_calls and note is None and self.check_talk_only:
-            resp, msgs, speech = self._talk_only_check(msgs, d2, speech)
+        d2 = Decision(effort=d.effort)  # the same request keeps its effort (and its cache entry)
+        with self._effort(d2.effort):
+            resp, msgs = self._loop(msgs, d2, label="turn")
+            msgs = msgs + [assistant_message(resp)]
+            speech = strip_markers(resp.content)
+            if speech and not resp.tool_calls and note is None and self.check_talk_only:
+                resp, msgs, speech = self._talk_only_check(msgs, d2, speech)
         d2.speech = speech
         d2.messages = msgs
         self._collect([c for c in resp.tool_calls if c.name not in self.read_tools], d2, state or {})

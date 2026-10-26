@@ -240,3 +240,18 @@ Other run-2 counts, old → new:
   - The judge's "human" score folds in truthfulness ("invented", "status-y"). About a quarter of the lost points came from fixture gaps (h1 small talk has no recent_activity, so he improvises his day), which no wording fixes.
   - The noise floor (sd 0.018–0.036 at k=3, n=25) is about the size of any effect a single bullet can have.
 - **Rule from here:** no more one-bullet persona tweaks for "human". Try levers that change how much the model reasons on the lines that matter (effort for addressed chat, below), richer fixtures (eval agent), or few-shots taken from fresh live chat, each measured once against the gate.
+
+### Effort medium for addressed chat (2026-10-26, voice agent)
+- **Need:** raise "human" without another wording tweak, inside the M1 latency budget (chat → first action p50 ≤ 2.5 s, p90 ≤ 4 s).
+- **Searched:** Anthropic's effort docs (https://platform.claude.com/docs/en/build-with-claude/effort) and the prompt-caching invalidation notes (claude-api skill, shared/prompt-caching.md).
+- **Found:**
+  - Haiku 5.5 defaults to `medium`. The docs recommend `low` for chat and short tool tasks, but in long agent prompts `low` is "more likely to skip a search, stop early, or skip a check". Lower effort is faster.
+  - Top-level effort is part of the rendered prompt: each level keeps its own cache entry, so a per-route level must be held for a whole request and warmed at session start. Per-message effort (beta) keeps the cache inside one conversation; our Controller calls are fresh requests, so it isn't needed.
+- **Decision:** adapt. `Controller._effort` runs a player's line (decide + its follow-up turns) at `DW_CONTROLLER_EFFORT_ADDRESSED`; body situations stay at `DW_CONTROLLER_EFFORT` (low); `warm_up` warms both levels. **Off by default** after the A/B below.
+- **A/B** (same fixtures, k=3; baseline logs/voice-eval-20261026-123332.jsonl at low, run logs/voice-eval-20261026-123703.jsonl with every case at medium; the eval can't switch effort per case, so the policy is estimated by pooling chat rows from the medium run with the other rows from the baseline):
+  | | score | human | silence | match | checks | chat latency p50 / p90 |
+  |---|---|---|---|---|---|---|
+  | low (baseline) | 0.744 | 3.72 | 4.17 | 3.91 | 0.933 | 2.45 / 5.01 s |
+  | medium everywhere | 0.785 (pooled 0.806) | 4.03 | 4.33 | 4.04 | 0.975 | 3.02 / 5.07 s |
+  | policy estimate (medium for chat only) | pooled 0.778 | 3.89 | 4.16 | 3.91 | 0.957 | 3.02 / 5.07 s |
+  - Quality: human rises and silence and match hold. Latency: the chat p50 goes over the 2.5 s budget, so the gate fails. latency_s is the whole case (all calls plus the continuation), not chat → first action, so it overstates the live number. The low baseline's p90 is already over 4 s on the same measure.
