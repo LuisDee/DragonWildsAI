@@ -1,0 +1,261 @@
+{
+ "schema": "dw_bench_manifest/1",
+ "version": 1,
+ "build": "26161880",
+ "name": "goal_v1",
+ "families": {
+  "long_task": [
+   {
+    "id": "goal_mining_run_home_chest",
+    "hash": "6acbbfa02eed529f"
+   },
+   {
+    "id": "goal_farm_mob_drop",
+    "hash": "2c0069bc788820b7"
+   },
+   {
+    "id": "goal_gear_upgrade_self_initiated",
+    "hash": "6411c2b1abf0be5b"
+   },
+   {
+    "id": "goal_brynmoor_quest_chain",
+    "hash": "b5a2d66bf7d6b1c7"
+   },
+   {
+    "id": "goal_farm_and_process_crop",
+    "hash": "dd63f696d8189fd8"
+   }
+  ],
+  "combat_basic": [
+   {
+    "id": "goal_basic_dodge_directional",
+    "hash": "9a8f9f06d7c9255d"
+   },
+   {
+    "id": "goal_basic_parry",
+    "hash": "01bbf4fa6b6ed99b"
+   },
+   {
+    "id": "goal_basic_disengage_heal",
+    "hash": "96386cf07f8ffbf9"
+   }
+  ],
+  "knowledge": [
+   {
+    "id": "goal_knowledge_recipe",
+    "hash": "5da86842f5db83c2"
+   },
+   {
+    "id": "goal_knowledge_weakness",
+    "hash": "e0017e7da167b417"
+   },
+   {
+    "id": "goal_knowledge_location",
+    "hash": "08450699fe3ec8e8"
+   },
+   {
+    "id": "goal_knowledge_no_lookup_needed",
+    "hash": "2ac832b3743f262f"
+   }
+  ],
+  "skill_train": [
+   {
+    "id": "m3_agility_asked",
+    "hash": "4c482820d9ba0758"
+   },
+   {
+    "id": "m3_agility_initiative",
+    "hash": "dbe78c276203ad5f"
+   },
+   {
+    "id": "m3_agility_plus5",
+    "hash": "337adcfde753d1cf"
+   },
+   {
+    "id": "m3_artisan_asked",
+    "hash": "c1fe6ee84e623bc1"
+   },
+   {
+    "id": "m3_artisan_initiative",
+    "hash": "bbc929bb445dac44"
+   },
+   {
+    "id": "m3_artisan_plus5",
+    "hash": "e58af90d4bb8b6bd"
+   },
+   {
+    "id": "m3_attack_asked",
+    "hash": "877e18241b270fcc"
+   },
+   {
+    "id": "m3_attack_initiative",
+    "hash": "764a89dbc53a9afb"
+   },
+   {
+    "id": "m3_attack_plus5",
+    "hash": "dbeef70e41e3bd09"
+   },
+   {
+    "id": "m3_construction_asked",
+    "hash": "2c173e844ddecebc"
+   },
+   {
+    "id": "m3_construction_initiative",
+    "hash": "e9d90cedf5d26549"
+   },
+   {
+    "id": "m3_construction_plus5",
+    "hash": "fc7a3f932bc3175f"
+   },
+   {
+    "id": "m3_cooking_asked",
+    "hash": "60cb4d2e79aefb08"
+   },
+   {
+    "id": "m3_cooking_initiative",
+    "hash": "dee40367cf1fb54b"
+   },
+   {
+    "id": "m3_cooking_plus5",
+    "hash": "a788c6bd1613ee22"
+   },
+   {
+    "id": "m3_farming_asked",
+    "hash": "c106ba3d0e388a75"
+   },
+   {
+    "id": "m3_farming_initiative",
+    "hash": "ad408874d065e498"
+   },
+   {
+    "id": "m3_farming_plus5",
+    "hash": "85a3451f1eecf15d"
+   },
+   {
+    "id": "m3_fishing_asked",
+    "hash": "6fc3c953fe72a5ba"
+   },
+   {
+    "id": "m3_fishing_initiative",
+    "hash": "0452da3641d1cc8e"
+   },
+   {
+    "id": "m3_fishing_plus5",
+    "hash": "0b1684b199418012"
+   },
+   {
+    "id": "m3_magic_asked",
+    "hash": "cf8e09b163b07d3d"
+   },
+   {
+    "id": "m3_magic_initiative",
+    "hash": "56896062e69240ff"
+   },
+   {
+    "id": "m3_magic_plus5",
+    "hash": "532d015cac4beaaa"
+   },
+   {
+    "id": "m3_mining_asked",
+    "hash": "c767b0d0352014b8"
+   },
+   {
+    "id": "m3_mining_initiative",
+    "hash": "1539da4f33eff115"
+   },
+   {
+    "id": "m3_mining_plus5",
+    "hash": "ca208546ab561164"
+   },
+   {
+    "id": "m3_ranged_asked",
+    "hash": "659e7dad18e78e6c"
+   },
+   {
+    "id": "m3_ranged_initiative",
+    "hash": "49dc283e3d07ed99"
+   },
+   {
+    "id": "m3_ranged_plus5",
+    "hash": "38f970c2603f6cb7"
+   },
+   {
+    "id": "m3_runecrafting_asked",
+    "hash": "b4e70243ec9dcea2"
+   },
+   {
+    "id": "m3_runecrafting_initiative",
+    "hash": "50e25ba9fc713905"
+   },
+   {
+    "id": "m3_runecrafting_plus5",
+    "hash": "fa0299036fbb15a9"
+   },
+   {
+    "id": "m3_woodcutting_asked",
+    "hash": "b59d7bdc10b84379"
+   },
+   {
+    "id": "m3_woodcutting_initiative",
+    "hash": "c08890a291026bc0"
+   },
+   {
+    "id": "m3_woodcutting_plus5",
+    "hash": "70707dce539b4276"
+   }
+  ],
+  "capstone_stage": [
+   {
+    "id": "capstone_stage_2_growing_pains",
+    "hash": "80c7de52f9184a02"
+   },
+   {
+    "id": "capstone_stage_3_shrimp_catcher",
+    "hash": "d23ecf6dfc53c9b5"
+   },
+   {
+    "id": "capstone_stage_4_restless_ghosts",
+    "hash": "4caebee966076b26"
+   },
+   {
+    "id": "capstone_stage_5_highlighting_the_problem",
+    "hash": "9b846ef7e269a140"
+   },
+   {
+    "id": "capstone_stage_6_iron_tools",
+    "hash": "12a5dcd0043cfa1d"
+   },
+   {
+    "id": "capstone_stage_7_challenge_horn",
+    "hash": "2571286d68ad456f"
+   },
+   {
+    "id": "capstone_stage_8_pl4_gear",
+    "hash": "704f0fdac3a556cf"
+   }
+  ],
+  "capstone": [
+   {
+    "id": "capstone_slay_velgar_solo",
+    "hash": "0cc44226578ab0bc"
+   }
+  ]
+ },
+ "trials_per_case": {
+  "long_task": 3,
+  "combat_basic": 3,
+  "knowledge": 1,
+  "skill_train": 1,
+  "capstone_stage": 1,
+  "capstone": 3
+ },
+ "denominators": {
+  "long_task": 15,
+  "combat_basic": 9,
+  "knowledge": 4,
+  "skill_train": 36,
+  "capstone_stage": 7,
+  "capstone": 3
+ },
+ "approved_by": "Luis (standing yes, 2026-10-26)"
+}

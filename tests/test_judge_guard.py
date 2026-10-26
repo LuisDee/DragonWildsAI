@@ -77,3 +77,12 @@ def test_hook_protocol_output(monkeypatch, tmp_path):
     p = subprocess.run([sys.executable, str(ROOT / "tools" / "hooks" / "judge_guard.py")], input=json.dumps(
         {"tool_name": "Edit", "tool_input": {"file_path": "brain/agent.py"}}), capture_output=True, text=True, env=env)
     assert p.returncode == 0 and p.stdout.strip() == ""
+
+
+def test_obs_and_the_voice_eval_are_judge_files():
+    """Luis 2026-10-26: tools/obs.py (and the voice eval) score GOAL targets, so they are frozen with the judge."""
+    from evals.bench import hashes
+    from tools.hooks import judge_guard as jg
+    for f in ("tools/obs.py", "tools/obs_tasks.py", "evals/voice_eval.py", "evals/voice_cases.jsonl"):
+        assert any(f.startswith(j) for j in jg.JUDGE), f
+        assert any(f == j or f.startswith(j + "/") or f.startswith(j) for j in hashes.JUDGE_PATHS), f

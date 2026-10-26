@@ -32,6 +32,9 @@ JUDGE = (
     "evals/bench/", "brain/predicates.py", "data/spell_effects.json", "data/spell_purposes.json",
     "client_mod/commands/bench_probe.lua", "mod/bench/", "logs/evals/scoreboard.jsonl", "logs/evals/validity/",
     "logs/evals/goal_checks.jsonl", "logs/evals/confirmations/", ".claude/settings.json", ".claude/settings.local.json",
+    # Luis 2026-10-26: the obs metrics and the voice eval score GOAL targets too
+    "tools/obs.py", "tools/obs_tasks.py", "evals/voice_eval.py", "evals/voice_fixtures.py", "evals/voice_cases.jsonl",
+    "evals/fixtures/",
     MARKER,
 )
 HELDOUT = ("logs/evals/heldout/", "logs/evals/heldout_runs/")

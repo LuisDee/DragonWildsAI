@@ -10,7 +10,7 @@
    "mode": "asked",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -79,7 +79,7 @@
    "mode": "initiative",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -166,7 +166,7 @@
    "mode": "plus5",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -238,7 +238,7 @@
    "mode": "asked",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -307,7 +307,7 @@
    "mode": "initiative",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -394,7 +394,7 @@
    "mode": "plus5",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -466,7 +466,7 @@
    "mode": "asked",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -535,7 +535,7 @@
    "mode": "initiative",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -622,7 +622,7 @@
    "mode": "plus5",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -694,7 +694,7 @@
    "mode": "asked",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -763,7 +763,7 @@
    "mode": "initiative",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -850,7 +850,7 @@
    "mode": "plus5",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -922,7 +922,7 @@
    "mode": "asked",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -991,7 +991,7 @@
    "mode": "initiative",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -1078,7 +1078,7 @@
    "mode": "plus5",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -1150,7 +1150,7 @@
    "mode": "asked",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -1219,7 +1219,7 @@
    "mode": "initiative",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -1306,7 +1306,7 @@
    "mode": "plus5",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -1378,7 +1378,7 @@
    "mode": "asked",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -1447,7 +1447,7 @@
    "mode": "initiative",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -1534,7 +1534,7 @@
    "mode": "plus5",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -1606,7 +1606,7 @@
    "mode": "asked",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -1675,7 +1675,7 @@
    "mode": "initiative",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -1762,7 +1762,7 @@
    "mode": "plus5",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -1834,7 +1834,7 @@
    "mode": "asked",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -1903,7 +1903,7 @@
    "mode": "initiative",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -1990,7 +1990,7 @@
    "mode": "plus5",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -2062,7 +2062,7 @@
    "mode": "asked",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -2131,7 +2131,7 @@
    "mode": "initiative",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -2218,7 +2218,7 @@
    "mode": "plus5",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -2290,7 +2290,7 @@
    "mode": "asked",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -2359,7 +2359,7 @@
    "mode": "initiative",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -2446,7 +2446,7 @@
    "mode": "plus5",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -2518,7 +2518,7 @@
    "mode": "asked",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -2587,7 +2587,7 @@
    "mode": "initiative",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -2674,7 +2674,7 @@
    "mode": "plus5",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {

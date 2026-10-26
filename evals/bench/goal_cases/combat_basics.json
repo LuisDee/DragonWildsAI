@@ -9,7 +9,7 @@
    "basic": "dodge_directional",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {
     "evidence": [
      "referee:defended",
@@ -111,7 +111,7 @@
    "basic": "parry",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {
     "evidence": [
      "referee:defended",
@@ -354,7 +354,7 @@
    "basic": "disengage_heal",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {
     "evidence": [
      "probe:creatures",

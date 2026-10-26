@@ -16,6 +16,8 @@ NOW = "2026-10-27T12:00:00Z"
 FRESH = "2026-10-27T10:00:00Z"
 OLD = "2026-10-25T10:00:00Z"
 TARGETS = json.loads((ROOT / "docs" / "goal_targets.json").read_text(encoding="utf-8"))
+# the synthetic suite below has its own case ids: the real pins (2026-10-26) are tested separately
+TARGETS["goal_cases"] = {**(TARGETS.get("goal_cases") or {}), "pinned_by_hash": {}}
 CUR = gc.Current(companion="comp1", judge="judge1", scorer="scorer1", body="body1", build="26161880", head="abc123", clean=True)
 SKILLS = gc.skill_manifest(ROOT)
 
@@ -88,7 +90,8 @@ OBS = {"schema": "dw_obs_metrics/1", "generated_at": FRESH, "window": {"since": 
        "latency": {"chat_to_first_action_s": {"p50": 1.9, "p90": 3.2, "n": 40}},
        "anomalies_per_hour": {"stat_narration": 0, "talk_without_action": 0, "stall_over_30s": 0},
        "stability": {"longest_run_without_crash_h": 2.5}, "deaths": {"starvation": 0}}
-VOICE_SUMMARY = {"cases": 25, "checks_pass_rate": 0.96, "judge:human": 4.3, "judge:silence": 4.4, "judge:match": 4.5}
+VOICE_SUMMARY = {"cases": 25, "checks_pass_rate": 0.96, "judge:human": 4.3, "judge:silence": 4.4, "judge:match": 4.5,
+                 "spread": {"k": 17}}
 
 
 def voice_row(root: Path, summary: dict = VOICE_SUMMARY, **over) -> dict:
@@ -415,3 +418,20 @@ def test_voice_score_is_the_weakest_part_and_rows_must_rederive_from_their_log(t
     for bad in (dict(good, score=0.99), dict(good, log_sha256="0" * 64), {k: v for k, v in good.items() if k != "log"},
                 dict(good, persona_ref="worktree"), {k: v for k, v in good.items() if k != "measured_commit"}):
         assert gc.voice(data(tmp_path, [bad], {}), "voice_score_min").status == gc.NO_DATA, bad
+
+
+def test_voice_needs_k17_samples(tmp_path):
+    """Luis 2026-10-26: the GOAL voice gate is k=17; a k=3 screen is never a GOAL score."""
+    row = voice_row(tmp_path, {**VOICE_SUMMARY, "spread": {"k": 3}})
+    assert gc.voice(data(tmp_path, [row], {}), "voice_score_min").status == gc.NO_DATA
+
+
+def test_the_real_pins_are_the_lint_clean_main_cases():
+    """Luis 2026-10-26 (standing yes): every pinnable main GOAL case is pinned by hash; quick twins never."""
+    from evals.bench import goal_drafts
+    from evals.bench.spec import case_hash
+    pins = json.loads((ROOT / "docs" / "goal_targets.json").read_text(encoding="utf-8"))["goal_cases"]["pinned_by_hash"]
+    cases = (goal_drafts.long_tasks() + goal_drafts.combat_basics() + goal_drafts.tactics_and_knowledge()
+             + goal_drafts.every_skill() + goal_drafts.capstone())
+    want = {c.id: case_hash(c) for c in cases if goal_drafts.pinnable(c)}
+    assert pins == want and not any(k.endswith("_quick") for k in pins)

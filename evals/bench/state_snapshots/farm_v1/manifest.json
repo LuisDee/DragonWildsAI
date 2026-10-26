@@ -1,0 +1,31 @@
+{
+  "schema": "dw_bench_snapshot/1",
+  "name": "farm_v1",
+  "status": "draft",
+  "describes": "The start of goal_farm_and_process_crop (Luis 2026-10-26, option b): a dev character that has the farming and processing recipes and quests UNLOCKED but has built NOTHING. Growing Pains is complete (Farming opened), and the Wooden Spade, Spinning Wheel, Kiln and Grindstone recipes are unlocked (their first-item triggers: flax, clay, granite already received once). No plot, station, chest or bed exists that he built; materials beyond a starter bag are NOT included: gathering them is part of the case.",
+  "grant_policy": "no stations, plots or built pieces (Luis: he builds his own); unlocks only",
+  "character_policy": "snapshot:farm_v1 - restored through evals/bench/snapshot.py (route B) in an announced capstone window; until the snapshot exists the case reads as a fixture gap",
+  "requires": [
+    {
+      "quest": {
+        "name": "Growing Pains",
+        "completed": true
+      }
+    },
+    {
+      "not": {
+        "built": {
+          "at_least": 1
+        }
+      }
+    }
+  ],
+  "how_to_make": [
+    "on a fresh dev character (devchar), play/fixture only the UNLOCK triggers: complete Growing Pains; receive 1 flax, 1 clay, 1 granite once, then drop them",
+    "verify no structure of his exists (referee built events: none; probe: none)",
+    "take the snapshot: python -m evals.bench.snapshot take farm_v1 --character <name> --case farm_v1_setup --yes (capstone window)"
+  ],
+  "open_questions": [
+    "Does receiving the item once (and dropping it) keep the recipe unlocked? (wiki: unlocks on first receipt)"
+  ]
+}

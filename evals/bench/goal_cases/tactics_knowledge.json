@@ -299,7 +299,7 @@
    "family": "knowledge",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -383,7 +383,7 @@
    "family": "knowledge",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -407,7 +407,7 @@
      },
      {
       "verb": "grant",
-      "item": "<a staff>",
+      "item": "ITEM_Staff_Ash",
       "count": 1,
       "purpose": "minimal: a caster (not what the case is about)"
      },
@@ -493,7 +493,7 @@
    "family": "knowledge",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {
@@ -511,7 +511,12 @@
     "setup": [
      {
       "verb": "teleport",
-      "at": "<a spot with no clay within census range>"
+      "at": [
+       100.0,
+       1892.0,
+       -31.0
+      ],
+      "purpose": "a Brynmoor start-area spot (dev_places standing_trees); clay is only in the Whispering Swamp (unverified on dev)"
      }
     ],
     "scene": {},
@@ -583,7 +588,7 @@
    "family": "knowledge",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {},
    "chat": [
     {

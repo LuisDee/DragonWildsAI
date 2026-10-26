@@ -150,7 +150,9 @@ def long_tasks() -> list[Case]:
            chat=[{"text": "get a little farm going at home and bake us some bread from what you grow"}],
            phrasing_heldout="grow your own wheat and turn it into bread",
            forbid_terms=["plot", "seed", "grinder", "kiln", "flour", "ground wheat"],
-           fixtures={"state_snapshot": "fresh_dev_v1"},
+           # Luis 2026-10-26 (b): start from a snapshot with the recipes and quests unlocked but NOTHING built (he must
+           # build his own plots and stations); the case measures farming + processing, not the whole tech tree
+           fixtures={"state_snapshot": "farm_v1", "character": "snapshot:farm_v1"},
            success={"all": [{"built": {"at_least": 1}}, {"planted": {"at_least": 1}}, {"harvested": {"at_least": 1}},
                             {"crafted": {"item": "ITEM_Resources_Ground_Wheat", "at_least": 1}},
                             {"crafted": {"item": "ITEM_Consumable_Bread", "at_least": 1}},
@@ -308,7 +310,7 @@ def tactics_and_knowledge() -> list[Case]:
            chat=[{"text": "kill that one, use whatever hurts it most"}], forbid_terms=["fire", "burn", "flame"],
            needs_fact={"kind": "weakness", "truth": "Fire"},
            fixtures={"setup": [{"verb": "spawn", "as": "foe", "class": RUNT},
-                               {"verb": "grant", "item": "<a staff>", "count": 1, "purpose": "minimal: a caster (not what the case is about)"},
+                               {"verb": "grant", "item": "ITEM_Staff_Ash", "count": 1, "purpose": "minimal: a caster (not what the case is about)"},
                                {"verb": "grant_runes", "runes": {"Fire": 100, "Water": 100, "Air": 100},
                                 "purpose": "minimal: three elements so the choice is his"}],
                      "state_snapshot": "fresh_dev_v1"},
@@ -321,7 +323,8 @@ def tactics_and_knowledge() -> list[Case]:
         _c(id="goal_knowledge_location", tier="T1", family="knowledge",
            chat=[{"text": "go get some clay"}], forbid_terms=["swamp", "Whispering"],
            needs_fact={"kind": "location", "truth": "Whispering Swamp"},
-           fixtures={"setup": [{"verb": "teleport", "at": "<a spot with no clay within census range>"}], "state_snapshot": "fresh_dev_v1"},
+           fixtures={"setup": [{"verb": "teleport", "at": [100.0, 1892.0, -31.0],
+                                "purpose": "a Brynmoor start-area spot (dev_places standing_trees); clay is only in the Whispering Swamp (unverified on dev)"}], "state_snapshot": "fresh_dev_v1"},
            success={"all": [{"gained": {"item": "Clay", "at_least": 5}}, {"xp_gained": {"skill": "Mining", "at_least": 1}}]},
            controls={"alt_means": [{"setup": "grant", "item": "ITEM_Resources_Clay", "count": 5}], "na": NA_ORACLE},
            limits={"wall_s": 1800}, oracle={"dev": "scripted:clay_v1"},
@@ -440,15 +443,48 @@ def capstone() -> list[Case]:
     return out
 
 
-def write(out: Path = OUT) -> list[str]:
+def pinnable(c: Case) -> bool:
+    """A main-variant case that lints clean as a suite case (no dev-fact placeholder, every snapshot has a manifest)."""
+    from .spec import lint
+    return c.variant != "quick" and not lint(c.model_copy(update={"status": "suite"}))
+
+
+def write(out: Path = OUT, pin: bool = True, root: Path = ROOT) -> list[str]:
+    """Luis 2026-10-26 (standing yes): every pinnable main case becomes a suite case, its hash goes into
+    docs/goal_targets.json goal_cases.pinned_by_hash, and the GOAL manifest (manifests/<build>/goal_v1.json, its
+    own full runs, separate from the 202-run spell suite) lists it with its trials. Quick twins are never pinned."""
+    from . import hashes
+    from .spec import case_hash
     groups = {"long_tasks.json": long_tasks(), "combat_basics.json": combat_basics(),
               "tactics_knowledge.json": tactics_and_knowledge(), "m3_every_skill.json": every_skill(),
               "m6_capstone.json": capstone()}
-    lines = []
+    lines, pins, fams, trials = [], {}, {}, {}
     for name, cases in groups.items():
+        if pin:
+            cases = [c.model_copy(update={"status": "suite"}) if pinnable(c) else c for c in cases]
+            for c in cases:
+                if c.status == "suite":
+                    pins[c.id] = case_hash(c)
+                    fams.setdefault(c.family, []).append({"id": c.id, "hash": pins[c.id]})
+                    trials[c.family] = max(trials.get(c.family, 1), int(c.limits.repeat or 1))
         dump_cases(cases, out / name)
         holes = sum(bool(re.search(r"<[^<>]+>", json.dumps(c.model_dump(exclude={"provenance"})))) for c in cases)
-        lines.append(f"{name}: {len(cases)} draft cases ({holes} still need a dev fact)")
+        lines.append(f"{name}: {len(cases)} cases, {sum(c.status == 'suite' for c in cases)} pinned "
+                     f"({holes} still need a dev fact)")
+    if pin:
+        tp = root / "docs" / "goal_targets.json"
+        t = json.loads(tp.read_text(encoding="utf-8"))
+        t.setdefault("goal_cases", {})["pinned_by_hash"] = dict(sorted(pins.items()))
+        t["goal_cases"]["_note"] = ("pinned 2026-10-26 under Luis's standing yes (evals/bench/goal_drafts.py write): every "
+                                    "main-variant case that lints clean as a suite case; quick twins never")
+        tp.write_text(json.dumps(t, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        mdir = root / "evals" / "bench" / "manifests" / str(hashes.game_build())
+        mdir.mkdir(parents=True, exist_ok=True)
+        man = {"schema": "dw_bench_manifest/1", "version": 1, "build": hashes.game_build(), "name": "goal_v1",
+               "families": fams, "trials_per_case": trials,
+               "denominators": {f: len(v) * trials[f] for f, v in fams.items()}, "approved_by": "Luis (standing yes, 2026-10-26)"}
+        (mdir / "goal_v1.json").write_text(json.dumps(man, indent=1), encoding="utf-8")
+        lines.append(f"pinned {len(pins)} GOAL cases -> docs/goal_targets.json + {mdir / 'goal_v1.json'}")
     return lines
 
 

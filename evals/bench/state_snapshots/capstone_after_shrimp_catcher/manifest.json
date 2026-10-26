@@ -1,0 +1,12 @@
+{
+  "schema": "dw_bench_snapshot/1",
+  "name": "capstone_after_shrimp_catcher",
+  "status": "draft",
+  "describes": "The verified end state of capstone stage 3 (shrimp_catcher): the dev world .sav and his character JSON taken by evals/bench/snapshot.py right after that stage passed (route B). Nothing is added or granted; it is exactly what he built, carried and learned himself.",
+  "grant_policy": "none: a verified end state, taken as is",
+  "character_policy": "chain:capstone_stage_3_shrimp_catcher",
+  "how_to_make": [
+    "when capstone_stage_3_shrimp_catcher passes: python -m evals.bench.snapshot take capstone_after_shrimp_catcher --character <name> --case capstone_stage_3_shrimp_catcher --yes (capstone window)"
+  ],
+  "requires": []
+}

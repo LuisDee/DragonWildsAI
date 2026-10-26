@@ -57,7 +57,8 @@ MANIFEST = HERE / "fixtures" / "voice_manifest.json"
 PERSONAS = {"old": HERE / "fixtures" / "persona_old.md", "new": persona_file.DEFAULT_PATH}
 JUDGE_BATCH = 13  # cases per judge call (25 cases -> 2 calls per persona)
 MAX_CALLS = 150  # one full run: k=3 x 25 (75) + reads + final passes + continuations (120 starved 3 samples) + judge
-K_SAMPLES = 3  # samples per case: the GOAL score is the k-mean; fewer samples are never a GOAL score
+K_SAMPLES = 3  # default samples per case: an A/B screen (a difference under ~0.1 is noise at k=3)
+GOAL_K = 17  # Luis 2026-10-26: the GOAL gate is k=17 (95% band +-0.03 at sd 0.063); MET = k-mean >= 0.8
 MAX_CHARS = 150
 MAX_STEPS = 3  # the live Controller's max_calls: read-only tools run inline, then it must act or reply
 LAST_STEP = "Last step: act now on what you found, or reply."  # Controller._loop's note, verbatim
@@ -676,7 +677,7 @@ def main(argv: list[str] | None = None) -> int:
         if skipped:
             print(f"WARNING: {skipped} sample(s) lost their live continuation to the call cap: not a GOAL score "
                   f"(raise --max-calls)")
-        full = (not a.ids and not a.limit and not a.no_judge and LIVE_PERSONA in variants and a.k >= K_SAMPLES
+        full = (not a.ids and not a.limit and not a.no_judge and LIVE_PERSONA in variants and a.k >= GOAL_K
                 and not skipped and a.persona_ref == "HEAD" and bool(os.environ.get("DW_VOICE_SNAPSHOT")))
         row = scoreboard_row(out["summary"].get(LIVE_PERSONA) or {}, Path(log.path), Path(log.path).stem,
                              time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -685,7 +686,7 @@ def main(argv: list[str] | None = None) -> int:
             append_scoreboard(row)
             print(f"voice score {row['score']} (n={row['n']}) -> {SCOREBOARD}")
         else:
-            print("no scoreboard row: only a full judged run of the live persona is a GOAL voice score")
+            print(f"no scoreboard row: only a full judged k>={GOAL_K} run of the live persona at HEAD is a GOAL voice score")
     return 0
 
 

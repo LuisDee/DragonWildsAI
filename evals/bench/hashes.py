@@ -21,6 +21,9 @@ JUDGE_PATHS = (
     "brain/predicates.py",
     "data/spell_effects.json", "data/spell_purposes.json",
     "client_mod/commands/bench_probe.lua", "mod/bench", "mod/scripts/bench.lua", "tools/hooks/judge_guard.py",
+    # Luis 2026-10-26: the obs metrics and the voice eval score GOAL targets too
+    "tools/obs.py", "tools/obs_tasks.py", "evals/voice_eval.py", "evals/voice_fixtures.py", "evals/voice_cases.jsonl",
+    "evals/fixtures",
 )
 # What is being judged: the brain, the client body and the data profiles (judge files excluded).
 COMPANION_PATHS = ("brain", "client_mod/scripts", "data")

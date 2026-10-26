@@ -463,7 +463,13 @@ def voice_row_ok(d: Data, r: dict) -> bool:
     for e in read_jsonl(p):
         if e.get("event") == "voice_summary" or e.get("kind") == "voice_summary":
             s = (e.get("summary") or {}).get(r.get("persona") or "new") or {}
-            return voice_score(s) == r["score"] and int(s.get("cases") or 0) == int(r.get("n") or -1)
+            k = int(((s.get("spread") or {}).get("k")) or 0)
+            try:
+                from evals.voice_eval import GOAL_K
+            except Exception:  # noqa: BLE001
+                GOAL_K = 17
+            return (voice_score(s) == r["score"] and int(s.get("cases") or 0) == int(r.get("n") or -1)
+                    and k >= GOAL_K)  # Luis 2026-10-26: k=17 samples per case
     return False
 
 

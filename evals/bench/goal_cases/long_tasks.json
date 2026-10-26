@@ -9,7 +9,7 @@
    "long_task": "mining_run_home_chest",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {
     "skills": [
      "Mining",
@@ -137,7 +137,7 @@
    "long_task": "farm_mob_drop",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {
     "uses": [
      "weakness"
@@ -278,7 +278,7 @@
    "long_task": "gear_upgrade_self_initiated",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {
     "evidence": [
      "probe:gear",
@@ -690,7 +690,7 @@
    "long_task": "brynmoor_quest_chain",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {
     "evidence": [
      "probe:quests"
@@ -794,7 +794,7 @@
    "long_task": "farm_and_process_crop",
    "variant": "main",
    "authored_by": "human",
-   "status": "draft",
+   "status": "suite",
    "tags": {
     "skills": [
      "Farming",
@@ -828,8 +828,9 @@
     "requires": [],
     "setup": [],
     "scene": {},
-    "state_snapshot": "fresh_dev_v1",
-    "player_body": false
+    "state_snapshot": "farm_v1",
+    "player_body": false,
+    "character": "snapshot:farm_v1"
    },
    "success": {
     "all": [

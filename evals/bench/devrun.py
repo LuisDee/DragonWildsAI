@@ -273,6 +273,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cases", default=str(Path(__file__).resolve().parent / "cases"))
     ap.add_argument("--only", default=None, help="comma list of case ids (a partial run: never counts for GOAL)")
+    ap.add_argument("--manifest", default="suite_v1", help="which frozen manifest a --full run covers: suite_v1 (the "
+                    "202-run spell suite) or goal_v1 (the pinned GOAL cases)")
     ap.add_argument("--resume", default=None, help="a --full run id to continue (the same run dir, in sittings)")
     ap.add_argument("--max-runs", type=int, default=None, help="stop this sitting after N new runs (yield the slot)")
     ap.add_argument("--full", action="store_true",
@@ -296,11 +298,12 @@ def main(argv: list[str] | None = None) -> int:
     manifest_path, trials = None, {}
     if a.full:
         from . import hashes
-        manifest_path = Path(__file__).resolve().parent / "manifests" / str(hashes.game_build()) / "suite_v1.json"
+        manifest_path = Path(__file__).resolve().parent / "manifests" / str(hashes.game_build()) / f"{a.manifest}.json"
         man = json.loads(manifest_path.read_text(encoding="utf-8"))
         ids = {e["id"] for fam in man["families"].values() for e in fam}
         trials = {f: int(n) for f, n in (man.get("trials_per_case") or {}).items()}
-        cases = [c for c in load_cases(Path(a.cases)) if c.id in ids]
+        roots = [Path(a.cases), Path(__file__).resolve().parent / "goal_cases"] if a.manifest != "suite_v1" else [Path(a.cases)]
+        cases = [c for r in roots for c in load_cases(r) if c.id in ids]
         missing = ids - {c.id for c in cases}
         if missing:
             ap.error(f"{len(missing)} manifest case(s) not found under {a.cases}: {sorted(missing)[:5]}")
@@ -359,6 +362,14 @@ def main(argv: list[str] | None = None) -> int:
         fresh = policy == "fresh"
         name = fresh_name(c.id, f"{rid[-4:]}{i}") if fresh else MAIN_CHARACTER
         try:
+            if policy.startswith("snapshot:"):
+                from .snapshot import SNAP_ROOT
+                snap = policy.split(":", 1)[1]
+                if not (SNAP_ROOT / snap / "manifest.json").exists():
+                    raise Abort(f"{policy}: snapshot {snap} has not been taken yet (state_snapshots/{snap}/manifest.json "
+                                "says how); restores run only in an announced capstone window")
+                raise Abort(f"{policy}: restoring {snap} stops the dev server: run it in a capstone window "
+                            "(python -m evals.bench.snapshot restore), then run this case with --only")
             if policy.startswith("chain:"):
                 raise Abort(f"{policy}: continuing a previous case's character needs the dev-save snapshot (route B), "
                             "not built yet")
