@@ -1050,24 +1050,54 @@ check("water goal: arrives in the pond (known water), no dry detour", first46 an
     tostring(first46 and first46.status) .. " " .. tostring(s.result and s.result.status) .. " said=" .. tostring(said46))
 MZ.stop(log)
 
--- 47. shore_point: the water's edge on Claude's side of the pond, from real traces (water channel)
+-- 47. shore_point: the WATERLINE on Claude's side of the pond, from real traces (live 18:3x: the game's
+--     interact target reads the water only from there, not from the dry bank)
 pawn.loc = { X = 0, Y = 0, Z = 0 }
 _G.DW_WATER_CH = { name = "vis", ch = 0 }
 _G.DW_TRACE_PROFILE = { name = "Player" } -- the pawn profile passes through water (live); Visibility sees the surface
+_G.DW_NAVMEM = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 MZ = dofile(MOVE)
 local sp = MZ.shore_point(log, { 10, 0, -3 })
-check("shore: stands on the bank facing the pond", sp.ok and sp.stand[1] > 3.8 and sp.stand[1] < 5.0 and math.abs(sp.stand[2]) < 0.5
-    and sp.edge[1] >= 5.0 and sp.edge[1] < 5.6 and math.abs(sp.edge[3] - (-0.4)) < 0.05,
-    sp.ok and (table.concat(sp.stand, ",") .. " edge " .. table.concat(sp.edge, ",")) or tostring(sp.why))
+check("shore: stands at the waterline (shallows), faces the water further out",
+    sp.ok and sp.stand[1] >= 5.0 and sp.stand[1] < 5.6 and math.abs(sp.stand[2]) < 0.5 and sp.depth_cm == 50
+    and sp.edge[1] > 6.3 and sp.edge[1] < 7.2 and math.abs(sp.edge[3] - (-0.4)) < 0.05 and sp.bank[1] < 5.0,
+    sp.ok and (table.concat(sp.stand, ",") .. " face " .. table.concat(sp.edge, ",") .. " depth " .. tostring(sp.depth_cm)) or tostring(sp.why))
 check("shore: alternatives along the bank", sp.ok and #sp.alts >= 2 and sp.how == "channel", sp.ok and #sp.alts)
 -- a volume pivot on dry land beside the water: found by walking from Claude toward it
 local sp2 = MZ.shore_point(log, { 16, 0, 0 })
-check("shore: pivot off the water -> still the near bank", sp2.ok and sp2.stand[1] < 5.0, sp2.ok and sp2.stand[1] or sp2.why)
--- no water channel and nothing learned -> says so
-_G.DW_WATER_CH = nil; _G.DW_NAVMEM = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+check("shore: pivot off the water -> still the near waterline", sp2.ok and sp2.stand[1] < 5.6, sp2.ok and sp2.stand[1] or sp2.why)
+-- the calibrated channel is wrong (sees nothing here): the other surface channels still find it
+_G.DW_WATER_CH = { name = "cam", ch = 1 }
+local sp2b = MZ.shore_point(log, { 10, 0, -3 })
+check("shore: a mis-calibrated channel doesn't hide the water", sp2b.ok and sp2b.stand[1] >= 5.0 and sp2b.stand[1] < 5.6, sp2b.ok and sp2b.stand[1] or sp2b.why)
+-- no water anywhere -> no_shore (truthful)
+local lakes_saved = lakes
+lakes = {}
 local sp3 = MZ.shore_point(log, { 10, 0, -3 })
-check("shore: no water sense -> no_water_sense", sp3.ok == false and sp3.why == "no_water_sense", sp3.why)
+check("shore: no water there -> no_shore", sp3.ok == false and sp3.why == "no_shore", sp3.why)
+lakes = lakes_saved
 check("words: no_shore", W("no_shore") == "I can't find the water's edge from here")
+
+-- 48. walking INTO the shallows: go_to opts.wade = true -> no water re-plan, arrives at the waterline spot
+pawn.loc = { X = 0, Y = 0, Z = 0 }
+local nlog48 = #logs
+MZ.go_to(log, { sp.stand[1] + 1, sp.stand[2], 0 }, { tolerance_m = 0.4, wade = true, timeout_s = 30 })
+run(150)
+s = MZ.status()
+local replanned48 = false
+for i = nlog48 + 1, #logs do if logs[i]:find("local plan #%d+ %(water") then replanned48 = true end end
+check("wade: arrives in the shallows with no water detour", s.result and s.result.status == "arrived" and not replanned48 and in_lake(pawn.loc.X, pawn.loc.Y),
+    tostring(s.result and s.result.status) .. " replanned=" .. tostring(replanned48) .. " x=" .. math.floor(pawn.loc.X))
+MZ.stop(log)
+
+-- 49. a spot where collecting WORKED is learned and offered first (persisted)
+local rw = MZ.remember_water_spot(log, { 10, 0, -3 }, { 5.3, 0.2, 0 })
+_G.DW_NAVMEM = nil -- reload from disk
+local sp4 = MZ.shore_point(log, { 10.5, 0, -3 })
+check("shore: the learned working spot wins", rw.ok and sp4.ok and sp4.how == "learned" and math.abs(sp4.stand[1] - 5.3) < 0.02 and sp4.edge[1] > 5.3,
+    sp4.ok and (sp4.how .. " " .. table.concat(sp4.stand, ",")) or tostring(sp4.why))
+MZ.remember_water_spot(log, { 10, 0, -3 }, { 5.4, 0.1, 0 })
+check("shore: a repeat success near it counts for the same spot", #(_G.DW_NAVMEM.water_spots or {}) == 1 and _G.DW_NAVMEM.water_spots[1].n_ok == 2)
 lakes = {}
 zreset()
 

@@ -344,7 +344,7 @@ local function new_episode(api, thing, opts)
             local sp = type(r) == "table" and (type(r.data) == "table" and r.data or r) or nil
             if sp and r.ok and sp.stand and sp.edge then
                 e.ipoint, e.ipoint_from, e.shore = sp.edge, "shore_" .. tostring(sp.how), true -- (the bank is above the surface: not "on top")
-                e.spots, e.spot_i = { sp.stand }, 1
+                e.spots, e.spot_i, e.tol = { sp.stand }, 1, 0.5 -- at the waterline, not near it
                 for _, a in ipairs(sp.alts or {}) do e.spots[#e.spots + 1] = a.stand end
             else
                 e.shore_why = sp and sp.why or nil
@@ -465,7 +465,8 @@ local function episode_poll(api, e, t)
             and not (e.tight and d > M.cfg.close_m + 0.3)
         -- water: on the bank within reach of the surface point counts as there, whichever spot he stopped at
         -- (move's water avoidance halts him at the edge, 0.9 m short of a wet spot: live too_far x10)
-        if e.water and not e.wading and here and e.ipoint and dist2d(here, e.ipoint) <= M.cfg.water_reach_m then near = true end
+        -- (not with a shore_point stand: that IS the waterline spot where the game reads the water, live 18:3x)
+        if e.water and not e.shore and not e.wading and here and e.ipoint and dist2d(here, e.ipoint) <= M.cfg.water_reach_m then near = true end
         if e.wading then near = d and d <= 0.6 end
         if near and not on_top then
             e.phase, e.face_until, e.moving = "face", t + M.cfg.face_s, false
@@ -482,7 +483,7 @@ local function episode_poll(api, e, t)
             -- while he stood on a tent roof and the client stopped answering right after
             -- move's shared approach-progress tracker measures to the THING (not the standing spot); its window restarts
             -- with each go_to, so the episode keeps the cross-spot window above (the 101 s case cycled 6 spots)
-            local mr = api.call("move", "go_to", goal, { tolerance_m = e.wading and 0.4 or e.tol, timeout_s = 60, allow_unstuck = false,
+            local mr = api.call("move", "go_to", goal, { tolerance_m = e.wading and 0.4 or e.tol, timeout_s = 60, allow_unstuck = false, wade = e.water or nil, -- water: walk INTO the shallows (no water detour)
                                                         progress = { to = e.ipoint, stall_s = M.cfg.no_progress_s, gain_m = M.cfg.progress_m } })
             if not mr.ok then return mr end
             e.moving, e.approaches = true, e.approaches + 1
@@ -572,6 +573,8 @@ local function episode_poll(api, e, t)
             end
         end
         if item or ((gone or changed) and not e.need_gain) then
+            -- water that WORKED: remember where he stood (move.shore_point offers it first next time)
+            if e.water and item then local here = api.my_position(); if here then pcall(api.call, "move", "remember_water_spot", th.position, here) end end
             return { ok = true, data = { target = th.id, item = item or api.null, count = n, gained = api.object(all),
                                          target_gone = gone, changed = changed or api.null,
                                          prompt = e.detector and e.detector.prompt or api.null } }

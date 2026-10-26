@@ -27,7 +27,8 @@
 --   M.go_to(log, goal, opts)   goal = {x,y,z} metres | "<player name>" | "<entity id>" (sense census
 --                              short name, e.g. BP_AI_Kebbit_Character_02_C_2147480001) | actor UObject
 --                              | {actor=obj}.  opts: tolerance_m=1.5, sprint_m=10, timeout_s=120,
---                              sprint=true, nav=nil(auto)|false, local_plan=true
+--                              sprint=true, nav=nil(auto)|false, local_plan=true, wade=false (true: the goal is IN
+--                              water on purpose, e.g. M.shore_point's stand: no water detours or re-plans)
 --   M.follow(log, goal, distance_m=3, opts)   same goal kinds; runs until stop(). opts.face_when_near
 --                              = keep facing the target while idle in range (combat).
 --   M.stop(log)   M.status()
@@ -708,7 +709,7 @@ local function lp_begin(st, pawn, me, far, why, log)
         cache = lp_cache(), now = function() return now(pawn) end, self_pos = v(me),
         cell_cost = function(x, y, fz)
             local mem, NMm = nav_mem()
-            local c = (mem and NMm.is_water(mem, { X = x, Y = y })) and M.cfg.water_cell_cost or 0
+            local c = (mem and not st.wade and NMm.is_water(mem, { X = x, Y = y })) and M.cfg.water_cell_cost or 0 -- opts.wade: water is no detour
             local zs, AZm = avoid().zones, az_module()
             if AZm and #zs > 0 then c = c + AZm.cost(zs, x, y, fz, st.lp_clock, M.cfg.avoid_margin_cm) end
             return c
@@ -716,7 +717,7 @@ local function lp_begin(st, pawn, me, far, why, log)
         -- a goal IN water (a pond to drink from, a ford) is aimed at as it is: no swap for dry ground
         dry_slack = (function()
             local mem, NMm = nav_mem()
-            if mem and NMm.is_water(mem, { X = far.X, Y = far.Y }) and d2(me, far) < M.cfg.lp_grid_m * 100 then return -math.huge end
+            if st.wade or (mem and NMm.is_water(mem, { X = far.X, Y = far.Y }) and d2(me, far) < M.cfg.lp_grid_m * 100) then return -math.huge end
             return (#avoid().zones > 0) and M.cfg.avoid_dry_slack_cm or nil
         end)(),
         water_probe = rawget(_G, "DW_WATER_CH") and function(x, y, floor_z)
@@ -1133,7 +1134,7 @@ local function tick(st, gen, log)
                 st.in_water = true
                 st.water_entries = (st.water_entries or 0) + 1
                 -- the goal itself is in the water close by (a pond to use, a ford): wading in is the point
-                local goal_wet = NMm.is_water(mem, feet_of(st, goal)) and dist < M.cfg.lp_grid_m * 100
+                local goal_wet = st.wade or (NMm.is_water(mem, feet_of(st, goal)) and dist < M.cfg.lp_grid_m * 100)
                 if log then log("move: entered water at " .. fmt(me) .. (goal_wet and "; the goal is in it" or "; re-planning round it")) end
                 if st.use_lp and not st.trail_i and not goal_wet then st.lpath, st.water_replan = nil, true end
             end
@@ -1637,7 +1638,7 @@ local function tick(st, gen, log)
             if lp_begin(st, pawn, me, far_goal(), "water", log) then st.status = "planning"; return end
         end
         -- known water a few metres ahead on the way (e.g. an oracle route through shallow water)
-        if not low and not st.lpath and not st.in_water and dist > 1000 and not st.trail_i then
+        if not low and not st.lpath and not st.in_water and not st.wade and dist > 1000 and not st.trail_i then
             local mem, NMm = nav_mem()
             if mem and next(mem.water or {}) then
                 for _, k in ipairs({ 300, 600, 900 }) do
@@ -1954,6 +1955,7 @@ local function start(log, mode, opts)
     if opts.sprint_m then M.cfg.sprint_on_cm = opts.sprint_m * 100; M.cfg.sprint_off_cm = math.min(M.cfg.sprint_off_cm, opts.sprint_m * 50) end
     st.face_when_near = opts.face_when_near
     st.sprint_force = opts.sprint_force == true
+    st.wade = opts.wade == true -- the goal is IN water on purpose (a pond to use): water avoidance off for this move
     st.escape = type(opts.escape) == "table" and opts.escape or nil
     st.prog_tr = progress_new(opts.progress)
 
@@ -2252,16 +2254,37 @@ end
 
 -- ------------------------------------------------------------------ the water's edge (ponds, rivers)
 -- A water volume's actor origin is deep inside it (live 2026-10-26 16:08: a pond's origin 3.1 m under the
--- surface; interact from 1.5 m round it failed with too_far x6). Players use water from its EDGE: stand on
--- the bank, face the surface. M.shore_point finds that edge with real traces: along rays out from the water
--- point (first toward Claude, then rotated), the last wet sample is the edge (its SURFACE point is what to
--- face) and the first dry one, nudged inland, is where to stand. Wet = the water channel (learned by
--- water_sense_calibrate on his first wade) reports a surface above the floor (the pawn profile passes
--- through water); without that channel, the cells navmem learned by wading.
---   M.shore_point(log, water = {x,y,z} m | nil (= nearest water toward Claude), opts = {from = {x,y,z} m,
---       max_m = 30, rays = 5}) -> {ok, stand = {x,y,z} (capsule centre, m), edge = {x,y,z} (surface, m),
---       dist_m (Claude -> stand), alts = {{stand, edge}, ...}, how = "channel"|"memory"} | {ok=false, why =
---       "no_water_sense" | "no_shore" | "no_pawn"}
+-- surface). The game's interact target reads the water only from AT its edge: live 2026-10-26 18:3x, from the
+-- dry bank point nothing was targeted; ~3-4 m nearer, feet at the waterline, one press gave +1 Dirty Water.
+-- M.shore_point finds that edge with real traces: along rays out from the water point (first toward Claude,
+-- then rotated), the last wet sample before dry ground is the waterline. Claude stands THERE (feet in the
+-- shallows, depth <= shallow_cm; a steep bank: right at the dry edge) and faces a surface point 1.5 m further out.
+-- Wet = a water-surface channel (Visibility / Camera; the calibrated one first) hits 15-250 cm above the
+-- Player-profile floor (that profile passes through water); without any, navmem's waded cells. A spot where
+-- a collect actually WORKED (M.remember_water_spot) wins over the traces.
+--   M.shore_point(log, water = {x,y,z} m | nil, opts = {from = {x,y,z} m, max_m = 30, rays = 5})
+--     -> {ok, stand = {x,y,z} (capsule centre, m), edge = {x,y,z} (surface point to face, m), bank = {x,y,z},
+--         depth_cm, dist_m, alts = {{stand, edge}, ...}, how = "learned"|"channel"|"memory"}
+--      | {ok = false, why = "no_water_sense" | "no_shore" | "no_pawn" | "paused"}
+--   M.remember_water_spot(log, water = {x,y,z} m, stand = {x,y,z} m) -> {ok, n}: a spot where it worked.
+-- Walk to `stand` with go_to opts.wade = true (water avoidance off for that move).
+M.cfg.shore_shallow_cm = 60   -- stand in water no deeper than this (else at the dry edge)
+M.cfg.shore_face_cm = 150     -- face a surface point this far out from where he stands
+M.cfg.water_spot_m = 40       -- a learned spot counts for a water point within this
+
+local SURFACE_CH = { { ch = 0, name = "vis" }, { ch = 1, name = "cam" } }
+
+function M.remember_water_spot(log, water, stand)
+    if type(stand) ~= "table" or not tonumber(stand[1]) then return { ok = false, error = "stand {x,y,z} m needed" } end
+    local mem, NMm = nav_mem()
+    if not (mem and NMm.add_water_spot) then return { ok = false, error = "no navmem" } end
+    local w = (type(water) == "table" and tonumber(water[1])) and { X = water[1] * 100, Y = water[2] * 100, Z = (tonumber(water[3]) or stand[3]) * 100 } or nil
+    local n = NMm.add_water_spot(mem, w, { X = stand[1] * 100, Y = stand[2] * 100, Z = (tonumber(stand[3]) or 0) * 100 })
+    pcall(NMm.save, mem)
+    if log then log(string.format("move: water spot remembered at (%.1f, %.1f, %.1f) m (%d known)", stand[1], stand[2], tonumber(stand[3]) or 0, n)) end
+    return { ok = true, n = n }
+end
+
 function M.shore_point(log, water, opts)
     opts = opts or {}
     if paused() then return { ok = false, why = "paused" } end
@@ -2272,64 +2295,96 @@ function M.shore_point(log, water, opts)
     local me = pawn:K2_GetActorLocation()
     local from = (type(opts.from) == "table" and tonumber(opts.from[1])) and { X = opts.from[1] * 100, Y = opts.from[2] * 100, Z = (opts.from[3] or me.Z / 100) * 100 } or v(me)
     local W = (type(water) == "table" and tonumber(water[1])) and { X = water[1] * 100, Y = water[2] * 100, Z = (tonumber(water[3]) or from.Z / 100) * 100 } or nil
-    local ch = rawget(_G, "DW_WATER_CH")
+    local function m(p) return { math.floor(p.X) / 100, math.floor(p.Y) / 100, math.floor(p.Z) / 100 } end
     local mem, NMm = nav_mem()
-    local has_mem = mem and next(mem.water or {}) ~= nil
-    if not ch and not has_mem then return { ok = false, why = "no_water_sense" } end
-    local zref = from.Z - hh
-    local traces, cap = 0, opts.max_traces or 300
-    -- -> wet (bool), floor_z, surface_z
-    local function probe(x, y)
-        if ch then
-            if traces >= cap then return nil end
-            traces = traces + 2
-            local okf, hf, of = pcall(raw_trace, pawn, { X = x, Y = y, Z = zref + 400 }, { X = x, Y = y, Z = zref - 1200 })
-            local fz = (okf and hf and of.ImpactPoint) and of.ImpactPoint.Z or nil
-            local oks, hs, os_ = pcall(trace_with, ch, pawn, { X = x, Y = y, Z = zref + 400 }, { X = x, Y = y, Z = zref - 1200 })
-            local sz = (oks and hs and os_.ImpactPoint) and os_.ImpactPoint.Z or nil
-            if fz and sz and sz > fz + 15 then return true, fz, sz end
-            return false, fz, sz
+    -- 1. a spot where collecting this water WORKED before
+    if mem and NMm.water_spot_near then
+        local ws = NMm.water_spot_near(mem, W or from, M.cfg.water_spot_m * 100)
+        if ws then
+            local s = ws.stand
+            local tw = ws.water or W
+            local edge = { X = s.X, Y = s.Y, Z = s.Z - hh }
+            if tw then
+                local dx, dy = tw.X - s.X, tw.Y - s.Y
+                local l = math.max(math.sqrt(dx * dx + dy * dy), 1)
+                edge = { X = s.X + dx / l * M.cfg.shore_face_cm, Y = s.Y + dy / l * M.cfg.shore_face_cm, Z = s.Z - hh + 30 }
+            end
+            if log then log(string.format("move: shore point (learned) %s, worked %d times", fmt(s), ws.n_ok or 1)) end
+            return { ok = true, stand = m(s), edge = m(edge), bank = m(s), alts = {}, how = "learned", depth_cm = nil,
+                     dist_m = math.floor(d2(from, s)) / 100, n_ok = ws.n_ok }
         end
-        local wet = NMm.is_water(mem, { X = x, Y = y })
-        return wet, zref, wet and (zref + 50) or nil
     end
+    -- 2. traces
+    local chans = {}
+    local cal = rawget(_G, "DW_WATER_CH")
+    if cal and cal.ch then chans[1] = cal end
+    for _, c in ipairs(SURFACE_CH) do if not (cal and cal.ch == c.ch) then chans[#chans + 1] = c end end
+    local has_mem = mem and next(mem.water or {}) ~= nil
+    local zref = from.Z - hh
+    local traces, cap = 0, opts.max_traces or 400
+    -- -> wet (bool) | nil (out of budget), floor_z, surface_z
+    local function probe(x, y)
+        if traces >= cap then return nil end
+        traces = traces + 1
+        local okf, hf, of = pcall(raw_trace, pawn, { X = x, Y = y, Z = zref + 400 }, { X = x, Y = y, Z = zref - 1200 })
+        local fz = (okf and hf and of.ImpactPoint) and of.ImpactPoint.Z or nil
+        if not fz then return false, nil, nil end
+        local sz = nil
+        for _, c in ipairs(chans) do
+            traces = traces + 1
+            local oks, hs, os_ = pcall(trace_with, c, pawn, { X = x, Y = y, Z = fz + 400 }, { X = x, Y = y, Z = fz - 50 })
+            local z = (oks and hs and os_.ImpactPoint) and os_.ImpactPoint.Z or nil
+            if z and z > fz + 15 and z < fz + 250 and (not sz or z < sz) then sz = z end
+        end
+        if sz then return true, fz, sz end
+        if has_mem and NMm.is_water(mem, { X = x, Y = y }) then return true, fz, fz + 50 end
+        return false, fz, nil
+    end
+    local function at(ox, oy, dx, dy, s) return ox + dx * s, oy + dy * s end
     local function ray(ox, oy, dx, dy, maxd)
         -- out from a wet origin: coarse 1 m steps to the first dry sample, then 25 cm refinement
-        local last_wet = nil
-        local s = 0
+        local last_wet, s = nil, 0
         while s <= maxd do
-            local x, y = ox + dx * s, oy + dy * s
+            local x, y = at(ox, oy, dx, dy, s)
             local wet, fz, sz = probe(x, y)
             if wet == nil then return nil end
-            if wet then last_wet = { X = x, Y = y, Z = sz, s = s }
+            if wet then last_wet = { X = x, Y = y, Z = sz, F = fz, s = s }
             elseif last_wet and fz then
                 local lo, hi = last_wet.s, s
                 local edge, dry = last_wet, { X = x, Y = y, Z = fz, s = s }
                 for _ = 1, 2 do
                     local mid = (lo + hi) / 2
-                    local mx, my = ox + dx * mid, oy + dy * mid
+                    local mx, my = at(ox, oy, dx, dy, mid)
                     local w2, f2, s2 = probe(mx, my)
                     if w2 == nil then break end
-                    if w2 then lo, edge = mid, { X = mx, Y = my, Z = s2, s = mid }
+                    if w2 then lo, edge = mid, { X = mx, Y = my, Z = s2, F = f2, s = mid }
                     elseif f2 then hi, dry = mid, { X = mx, Y = my, Z = f2, s = mid } end
                 end
-                -- stand 40 cm inland of the first dry sample (the bank, not the water line)
-                local inland = dry.s + 40
-                local ix, iy = ox + dx * inland, oy + dy * inland
-                local _, f3 = probe(ix, iy)
-                local stand_floor = f3 or dry.Z
-                return { stand = { X = ix, Y = iy, Z = stand_floor + hh }, edge = { X = edge.X, Y = edge.Y, Z = edge.Z } }
+                local depth = edge.Z - edge.F
+                -- stand at the waterline: in the shallows, or (a steep bank) on the dry edge 25 cm from it
+                local stand
+                if depth <= M.cfg.shore_shallow_cm then stand = { X = edge.X, Y = edge.Y, Z = edge.F + hh }
+                else
+                    local sx, sy = at(ox, oy, dx, dy, dry.s + 25)
+                    local _, f3 = probe(sx, sy)
+                    stand = { X = sx, Y = sy, Z = (f3 or dry.Z) + hh }
+                end
+                -- face the surface a little further out (toward the origin)
+                local fs = math.max(0, edge.s - M.cfg.shore_face_cm)
+                local fx, fy = at(ox, oy, dx, dy, fs)
+                local bx, by = at(ox, oy, dx, dy, dry.s + 40)
+                return { stand = stand, edge = { X = fx, Y = fy, Z = edge.Z }, bank = { X = bx, Y = by, Z = dry.Z + hh },
+                         depth = math.floor(depth) }
             end
             s = s + 100
         end
         return nil
     end
-    -- the water point: given, or the first wet sample walking from Claude toward... nothing: then search
+    -- the water point: given (over water), or the first wet sample walking from Claude toward it
     local base = W
     if base then
         local wet = probe(base.X, base.Y)
         if not wet then
-            -- the origin is not over water (a volume's pivot can sit on its edge): walk from Claude to it
             local L = d2(from, base)
             local hit = nil
             for s = 0, L, 100 do
@@ -2340,27 +2395,31 @@ function M.shore_point(log, water, opts)
             base = hit
         end
     end
-    if not base then return { ok = false, why = "no_shore", traces = traces } end
+    if not base then
+        if #chans == 0 and not has_mem then return { ok = false, why = "no_water_sense", traces = traces } end
+        if log then log(string.format("move: shore point: no water found (%d traces)", traces)) end
+        return { ok = false, why = "no_shore", traces = traces }
+    end
     local bx, by = from.X - base.X, from.Y - base.Y
-    local bl = math.sqrt(bx * bx + by * by)
-    local yaw0 = bl > 1 and math.atan(by, bx) or 0
+    local yaw0 = math.sqrt(bx * bx + by * by) > 1 and math.atan(by, bx) or 0
     local maxd = (opts.max_m or 30) * 100
     local found = {}
-    local rays = opts.rays or 5
     local offs = { 0, 30, -30, 60, -60, 90, -90, 180 }
-    for k = 1, math.min(rays, #offs) do
+    for k = 1, math.min(opts.rays or 5, #offs) do
         local a = yaw0 + math.rad(offs[k])
         local r = ray(base.X, base.Y, math.cos(a), math.sin(a), maxd)
         if r then found[#found + 1] = r end
     end
-    if #found == 0 then return { ok = false, why = "no_shore", traces = traces } end
-    local function m(p) return { math.floor(p.X) / 100, math.floor(p.Y) / 100, math.floor(p.Z) / 100 } end
+    if #found == 0 then
+        if log then log(string.format("move: shore point: no edge found (%d traces)", traces)) end
+        return { ok = false, why = "no_shore", traces = traces }
+    end
     local best = found[1]
     local alts = {}
     for k = 2, #found do alts[#alts + 1] = { stand = m(found[k].stand), edge = m(found[k].edge) } end
-    if log then log(string.format("move: shore point %s (edge %s), %d alternatives, %d traces", fmt(best.stand), fmt(best.edge), #alts, traces)) end
-    return { ok = true, stand = m(best.stand), edge = m(best.edge), dist_m = math.floor(d2(from, best.stand)) / 100,
-             alts = alts, how = ch and "channel" or "memory", traces = traces }
+    if log then log(string.format("move: shore point %s (depth %dcm, face %s), %d alternatives, %d traces", fmt(best.stand), best.depth, fmt(best.edge), #alts, traces)) end
+    return { ok = true, stand = m(best.stand), edge = m(best.edge), bank = m(best.bank), depth_cm = best.depth,
+             dist_m = math.floor(d2(from, best.stand)) / 100, alts = alts, how = "channel", traces = traces }
 end
 
 -- Can Claude walk the straight line me -> c? (wall at knee height, holes/ledges, steep climbs)

@@ -83,6 +83,32 @@ local function wkey(p) return math.floor(p.X / NM.cfg.water_cell_cm) .. ":" .. m
 function NM.mark_water(mem, p) mem.water = mem.water or {}; if not mem.water[wkey(p)] then mem.water[wkey(p)] = true; return true end end
 function NM.is_water(mem, p) return mem.water ~= nil and mem.water[wkey(p)] == true end
 
+-- ------------------------------------------------------------------ water spots (where collecting water WORKED)
+-- {water = {X,Y,Z} cm | nil, stand = {X,Y,Z} cm, n_ok, ts}: the place he stood when a press on water gave water
+-- (move.remember_water_spot). A new success within 3 m of a known spot counts for that spot.
+function NM.add_water_spot(mem, water, stand)
+    mem.water_spots = mem.water_spots or {}
+    for _, ws in ipairs(mem.water_spots) do
+        if math.sqrt((ws.stand.X - stand.X) ^ 2 + (ws.stand.Y - stand.Y) ^ 2) < 300 then
+            ws.n_ok, ws.ts, ws.stand = (ws.n_ok or 1) + 1, os.time(), stand
+            if water then ws.water = water end
+            return #mem.water_spots
+        end
+    end
+    mem.water_spots[#mem.water_spots + 1] = { water = water, stand = stand, n_ok = 1, ts = os.time() }
+    return #mem.water_spots
+end
+-- The known spot nearest to p (a water point or Claude) within max_cm (by its water point, else its stand).
+function NM.water_spot_near(mem, p, max_cm)
+    local best, bd
+    for _, ws in ipairs(mem.water_spots or {}) do
+        local q = ws.water or ws.stand
+        local d = math.sqrt((q.X - p.X) ^ 2 + (q.Y - p.Y) ^ 2)
+        if d <= (max_cm or 4000) and (not bd or d < bd) then best, bd = ws, d end
+    end
+    return best
+end
+
 function NM.load(root, world, map)
     local P = NM.paths(root, world, map)
     local J = json(root)
@@ -91,6 +117,7 @@ function NM.load(root, world, map)
     if s and J then local ok, t = pcall(J.decode, s); if ok and type(t) == "table" then mem = t end end
     mem = mem or NM.new_mem(world)
     mem.routes, mem.traps, mem.taboos = mem.routes or {}, mem.traps or {}, mem.taboos or {}
+    mem.water_spots = mem.water_spots or {}
     local wl = mem.water_cells or {}
     mem.water, mem.water_cells = {}, nil
     for _, k in ipairs(wl) do mem.water[k] = true end
@@ -114,7 +141,8 @@ end
 function NM.save(mem)
     local J = json(mem._root)
     if not J then return false end
-    local out = { v = 1, world = mem.world, next_id = mem.next_id, routes = {}, traps = {}, taboos = {}, water_cells = {} }
+    local out = { v = 1, world = mem.world, next_id = mem.next_id, routes = {}, traps = {}, taboos = {}, water_cells = {},
+                  water_spots = mem.water_spots or {} }
     for k in pairs(mem.water or {}) do out.water_cells[#out.water_cells + 1] = k end
     for _, r in ipairs(mem.routes) do if not r.seed then out.routes[#out.routes + 1] = r end end
     for _, t in ipairs(mem.traps) do if not t.seed then out.traps[#out.traps + 1] = t end end
