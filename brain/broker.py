@@ -484,8 +484,9 @@ class EventBroker:
             return Verdict("drop", f"said {now - last[0]:.0f}s ago and not worse ({ev.value:g} vs {last[1]:g})")
         value = cur if cur is not None else ev.value
         return Verdict("decide", f"{ev.stat} low and nothing to fix it carried",
-                       {"type": "vitals_low", "stat": ev.stat, "value": value, "max": ev.max,
-                        "fixed_by": need, "carrying_one": False})
+                       {"type": "vitals_low", "stat": ev.stat,
+                        "feels": sit.feel(ev.stat, 100.0 * value / ev.max if value is not None and ev.max else None),
+                        "value": value, "max": ev.max, "fixed_by": need, "carrying_one": False})
 
     def _dropped(self, ev: ItemsDropped, state: dict) -> Verdict:
         """Someone dropped things by him: the model decides (pick up? thanks?). Stale once they are gone."""
@@ -619,7 +620,8 @@ class EventBroker:
             prev = self._bands.get(name)
             self._bands[name] = (b, pct)
             if prev is not None and b > prev[0]:  # crossed a line downwards
-                self._change({"what": name, "from_pct": round(prev[1]), "to_pct": round(pct), "direction": "down"})
+                self._change({"what": name, "now": sit.feel(name, pct), "from_pct": round(prev[1]), "to_pct": round(pct),
+                              "direction": "down"})  # "now": the words to relay; the numbers are for decisions
         tod = state.get("time_of_day") if isinstance(state.get("time_of_day"), dict) else None
         if tod:
             phase = tod.get("phase") or (("night" if tod.get("is_night") else "day") if "is_night" in tod else None)

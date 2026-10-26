@@ -247,7 +247,7 @@ def test_digest_from_client_state():
     lines = summary(CLIENT_STATE)
     text = "\n".join(lines)
     assert len(lines) <= MAX_LINES
-    assert lines[0] == "You: HP 90%, water 9% (LOW), food 80%, holding Bronze Hatchet"
+    assert lines[0] == "You: health: healthy [90%], water: parched [9%], food: fed [80%], holding Bronze Hatchet"
     assert "Creatures: hostile Wolf (25 m, id wolf_3, HP 40/60); Deer (19 m, id deer_1, HP 30/60)" in text
     assert "Around: Oak Tree (5 m, id oak_1, chop, needs Hatchet T1, HP 220/220)" in text
     assert "Usable: Gravestone (4 m, id grave_1, Take All)" in text

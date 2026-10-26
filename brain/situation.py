@@ -333,13 +333,41 @@ def _line(label: str, items: list[str], cap: int = LINE_CHARS) -> str | None:
     return text[:cap]
 
 
+# How a stat feels, as the words a player would use (M1 2026-10-26: given "HP 2%, water 0%" the model said
+# "I'm at 2% HP"; it relays what it is given, so it is given words first). Perception, not phrasing: the
+# model still chooses whether and how to say it. Bands: (below %, word), checked in order.
+FEEL = {
+    "health": ((1, "dying"), (15, "nearly dead"), (35, "badly hurt"), (65, "hurt"), (90, "a bit hurt"),
+               (101, "healthy")),
+    "water": ((1, "out of water, parched and losing health"), (15, "parched"), (35, "thirsty"),
+              (60, "a bit thirsty"), (101, "not thirsty")),
+    "food": ((1, "out of food, starving and losing health"), (15, "starving"), (35, "hungry"),
+             (60, "a bit peckish"), (101, "fed")),
+    "rest": ((15, "exhausted"), (35, "tired"), (101, "rested")),
+}
+FEEL_ALIASES = {"hp": "health", "hydration": "water", "drink": "water", "sustenance": "food", "endurance": "rest"}
+
+
+def feel(stat: str, pct: float | None) -> str | None:
+    """The word for a stat at ``pct`` % of its max ("nearly dead", "thirsty"), None when unknown."""
+    bands = FEEL.get(FEEL_ALIASES.get(str(stat).lower(), str(stat).lower()))
+    if pct is None or not bands:
+        return None
+    return next((word for cut, word in bands if pct < cut), bands[-1][1])
+
+
+def _stat(word: str, pct: float) -> str:
+    """"health: nearly dead [2%]": the words to relay first, the number (decisions only) in brackets."""
+    return f"{word}: {feel(word, pct) or 'ok'} [{pct:.0f}%]"
+
+
 def _health(state: dict) -> str | None:
     hp, mx = _num(state.get("health")), _num(state.get("max_health"))
     if hp is None:
         return None
     if mx and mx > 0:
-        return f"HP {round(100 * hp / mx)}%"
-    return f"HP {round(100 * hp)}%" if hp <= 1 else f"HP {hp:g}"
+        return _stat("health", 100 * hp / mx)
+    return _stat("health", 100 * hp) if hp <= 1 else f"health {hp:g} HP"
 
 
 HELD_SLOTS = {"right", "left", "held_right", "held_left", "heldright", "heldleft"}
@@ -606,8 +634,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     for stat, word in (("hydration", "water"), ("sustenance", "food")):  # survival needs (client body)
         cur, mx = _num(state.get(stat)), _num(state.get(f"{stat}_max"))
         if cur is not None:
-            pct = round(100 * cur / mx) if mx else round(cur)
-            me.append(f"{word} {pct}%" + (" (LOW)" if pct < 15 else ""))
+            me.append(_stat(word, 100 * cur / mx if mx else cur))
     gear = state.get("gear") if isinstance(state.get("gear"), dict) else {}
     if state.get("held"):  # the client body names it already
         me.append(f"holding {state['held']}")
@@ -620,6 +647,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
         me.append(f"doing {state['action']}")
     if state.get("sleeping"):
         me.append("asleep")
+    # words first; the [n%] are for decisions (persona: never read numbers out)
     lines.append("You: " + (", ".join(me) or "ok"))
     from . import needs  # lazy: needs imports helpers from this module
     lines.extend(needs.lines(state))  # pressing needs -> the options the game offers (brain/needs.py)

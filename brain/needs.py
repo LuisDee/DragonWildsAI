@@ -22,6 +22,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from . import knowledge
+from . import situation as sit
 from .map_memory import lines_for
 from .situation import consumable_facts, consumable_rows, item_names, num as _num
 from .spells import effects as _spell_effects
@@ -258,8 +259,10 @@ def lines(state: dict, cat: dict | None = None) -> list[str]:
     people = _people(state)
     out = []
     for n in pressing(state):
-        head = f"Need {n['need']}" + (f" ({n['pct']:.0f}%" + (f", empty in ~{n['zero_min']} min at the current drain; at 0 it hurts until you die"
-                                                           if n.get("zero_min") is not None else "") + ")"
+        word = sit.feel(n["need"], n.get("pct"))  # the words to relay; the numbers are for decisions
+        head = f"Need {n['need']}" + (f" ({word + ', ' if word else ''}[{n['pct']:.0f}%]"
+                                      + (f", empty in ~{n['zero_min']} min at the current drain; at 0 it hurts until you die"
+                                         if n.get("zero_min") is not None else "") + ")"
                                       if n.get("pct") is not None else "")
         parts = []
         if n["need"] == "rest":

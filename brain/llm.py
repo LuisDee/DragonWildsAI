@@ -100,6 +100,14 @@ def with_cache_control(messages: list[dict]) -> list[dict]:
         if m.get("role") == "system" and isinstance(m.get("content"), str) and not out:
             m = {**m, "content": [{"type": "text", "text": m["content"], "cache_control": {"type": "ephemeral"}}]}
         out.append(m)
+    # Incremental caching (Anthropic prompt-caching docs: move a breakpoint to the end of the conversation each
+    # turn): the tail user message is a second breakpoint, so the next call of the same request (a chain turn,
+    # a read's follow-up) reads this whole prefix from cache instead of re-sending the context uncached
+    # (M1 2026-10-26: every chain turn showed cached=13418 of 18-22k prompt tokens). 2 of the 4 allowed.
+    last = out[-1] if len(out) > 1 else None
+    if last and out[0].get("role") == "system" and last.get("role") == "user" and isinstance(last.get("content"), str) \
+            and last["content"]:
+        out[-1] = {**last, "content": [{"type": "text", "text": last["content"], "cache_control": {"type": "ephemeral"}}]}
     return out
 
 

@@ -162,7 +162,7 @@ def test_what_are_you_wearing_names_the_worn_gear_and_the_axe():
     """Live bug (19:20): 'claude what are you wearing' got only the bag. The digest now says it."""
     lines = summary(WORN_STATE)
     text = "\n".join(lines)
-    assert lines[0].startswith("You: HP 100%, water 49%, food 64%, holding Mithril Logging Axe")
+    assert lines[0].startswith("You: health: healthy [100%], water: a bit thirsty [49%], food: fed [64%], holding Mithril Logging Axe")
     assert "Wearing: Hard Leather Cowl; Bronze Platebody; Adventurer's Leggings" in text
     assert "Carrying:" in text and "Mithril Pickaxe" in text
     ctx = {"command": {"player": "Zezima", "text": "what are you wearing", "addressed": True}, "situation": lines}
