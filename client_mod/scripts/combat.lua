@@ -1086,53 +1086,10 @@ local function sanitize(w)
     w = w and tostring(w):gsub("[^%w_%-]", "") or ""
     return w ~= "" and w or nil
 end
--- The world his memory is filed under. NEVER a silent "shockbyte" (live 2026-10-26: dev fights were filed under
--- shockbyte because the client process has no DW_WORLD_GUID). Order:
---   1. explicit: _G.DW_WORLD_GUID (scenario_run sets it), env DW_WORLD_GUID, client_io/world_guid.txt;
---   2. the server he actually JOINED: logs/state/last_join.json's addr (written by tools/client_boot.ps1) matched
---      against the boot targets' address lines (client_io/secrets/server.txt = shockbyte, server_<name>.txt =
---      <name>; only the first line, the address, is read: never the password);
---   3. an unknown joined server -> "server_<host_port>"; nothing known -> "unknown".
--- -> id, source. Cached for cfg.world_id_s.
-local function first_line(path)
-    local f = M.fs.open(path, "rb")
-    if not f then return nil end
-    local l = f:read("l"); f:close()
-    if not l then return nil end
-    return (l:gsub("^\239\187\191", ""):gsub("%s+$", "")) -- (a UTF-8 BOM from PowerShell)
-end
-local WORLD_CACHE
-function M.world_id()
-    local t = os.time()
-    if WORLD_CACHE and t - WORLD_CACHE.t < M.cfg.world_id_s then return WORLD_CACHE.id, WORLD_CACHE.source end
-    local id, src
-    local w = sanitize(rawget(_G, "DW_WORLD_GUID")) or sanitize(os.getenv("DW_WORLD_GUID"))
-    if w then id, src = w, "explicit" end
-    if not id then
-        local f = first_line(ROOT .. "/client_io/world_guid.txt")
-        if sanitize(f) then id, src = sanitize(f), "world_guid.txt" end
-    end
-    if not id then
-        local j = first_line(ROOT .. "/logs/state/last_join.json") or ""
-        local addr = j:match('"addr"%s*:%s*"([^"]+)"')
-        if addr then
-            local names = { "dev" }
-            local def = sanitize(first_line(ROOT .. "/logs/state/client_default_target.txt"))
-            if def and def ~= "dev" and def ~= "shockbyte" then names[#names + 1] = def end
-            if first_line(ROOT .. "/client_io/secrets/server.txt") == addr then id, src = "shockbyte", "joined"
-            else
-                for _, n in ipairs(names) do
-                    if first_line(ROOT .. "/client_io/secrets/server_" .. n .. ".txt") == addr then id, src = n, "joined" end
-                end
-            end
-            if not id then id, src = "server_" .. (sanitize((addr:gsub("[%.:]", "_"))) or "x"), "joined_unknown" end
-        end
-    end
-    if not id then id, src = "unknown", "unknown" end
-    WORLD_CACHE = { t = t, id = id, source = src }
-    return id, src
-end
-function M._reset_world_cache() WORLD_CACHE = nil end
+-- The world his memory is filed under: the shared resolver (mod/body/util.lua U.world_id: explicit settings, else the
+-- server he actually joined; never a silent "shockbyte"). M.fs lets tests fake the files. -> id, source
+function M.world_id() return U.world_id(ROOT, { fs = M.fs, cache_s = M.cfg.world_id_s }) end
+function M._reset_world_cache() U.world_reset() end
 local BUILD
 function M.client_build()
     if BUILD ~= nil then return BUILD or nil end

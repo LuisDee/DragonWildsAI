@@ -2149,7 +2149,7 @@ do
     check("world: nothing known -> unknown, never shockbyte", id == "unknown" and src == "unknown", id)
     _G.DW_WORLD_GUID = "dev_scenarios"
     id, src = wid()
-    check("world: an explicit DW_WORLD_GUID wins", id == "dev_scenarios" and src == "explicit", id)
+    check("world: an explicit DW_WORLD_GUID wins", id == "dev_scenarios" and src == "global", tostring(id) .. " " .. tostring(src))
     Cm.fs.open = real_open
     _G.DW_WORLD_GUID = saved
     Cm._reset_world_cache()
