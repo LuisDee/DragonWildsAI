@@ -11,4 +11,5 @@ Main keeps this list. Each change made to a judge file before the `goal-judge-YY
 | ab98850 | evals/bench/snapshot.py | snapshot/restore tool (route B) | starting points for the capstone chains |
 | b4d3c82 | brain/predicates.py | `structure` and `stored` predicates | the home-chest and farm long tasks |
 | pending | evals/bench/goal_cases/long_tasks.json, evals/bench/devtarget.py | remove the stale `body:build_tool` gap; add `built` to REFEREE_SUPPORTS | build is live; needs a live referee `built` proof first |
-| pending | evals/bench/dev_places.json | the standing-trees spot | Axtral case |
+| 63c9a19 | evals/bench/dev_places.json | the standing-trees spot | Axtral case (T0 PASS live) |
+| 63c9a19 | mod/bench/fixtures.lua, evals/bench/spawn_classes.json, devtarget.py | the spawn fixture loads the class via LoadAsset; raise_skills uses an adaptive step and per-skill XP rows | the M1 combat cases could not spawn a runt; Mining overshot; 3 skills got no XP |
