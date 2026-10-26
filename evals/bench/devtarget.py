@@ -302,8 +302,9 @@ class DevTarget:
         elif verb == "spawn":
             cls = a.get("class") or a.get("kind_id")
             args.update({"class": cls, "offset_m": a.get("offset_m") or a.get("at") or [5, 0, 0]})
-            if spawn_class_paths().get(str(cls)):
-                args["class_path"] = spawn_class_paths()[str(cls)]  # loaded first if nothing has loaded it yet
+            paths = spawn_class_paths().get(str(cls))
+            if paths:  # loaded first if nothing has loaded it yet; a list = unverified candidates, tried in order
+                args["class_paths"] = [paths] if isinstance(paths, str) else list(paths)
         else:
             args.update(a)
         r = self.server_debug(args)

@@ -1,5 +1,19 @@
 {
-  "_note": "Full object paths for creature classes the dev spawn fixture may need to LOAD first (not every class is loaded on a fresh dev world). From docs/research and the reflection dump.",
+  "_note": "Full object paths for creature classes the dev spawn fixture may need to LOAD first (not every class is loaded on a fresh dev world). A string = verified path (docs/research, dump). A list = UNVERIFIED candidates tried in order (LoadAsset of a missing path just returns nothing); the live survey replaces them with the real path.",
   "BP_AI_RuntGoblin_Character_C": "/Game/Gameplay/AI/GoblinFaction/MeleeGoblin/RuntGoblinVariant/BP_AI_RuntGoblin_Character.BP_AI_RuntGoblin_Character_C",
-  "BP_AI_MeleeGoblin_Character_C": "/Game/Gameplay/AI/GoblinFaction/MeleeGoblin/BP_AI_MeleeGoblin_Character.BP_AI_MeleeGoblin_Character_C"
+  "BP_AI_MeleeGoblin_Character_C": "/Game/Gameplay/AI/GoblinFaction/MeleeGoblin/BP_AI_MeleeGoblin_Character.BP_AI_MeleeGoblin_Character_C",
+  "BP_AI_Wolf_Character_C": [
+    "/Game/Gameplay/AI/Wolf/BP_AI_Wolf_Character.BP_AI_Wolf_Character_C",
+    "/Game/AI/Wolf/BP_AI_Wolf_Character.BP_AI_Wolf_Character_C"
+  ],
+  "BP_AI_DireWolf_Character_C": [
+    "/Game/Gameplay/AI/Wolf/DireWolfVariant/BP_AI_DireWolf_Character.BP_AI_DireWolf_Character_C",
+    "/Game/Gameplay/AI/Wolf/BP_AI_DireWolf_Character.BP_AI_DireWolf_Character_C",
+    "/Game/AI/Wolf/BP_AI_DireWolf_Character.BP_AI_DireWolf_Character_C"
+  ],
+  "BP_AI_ThugGoblin_Character_C": [
+    "/Game/Gameplay/AI/GoblinFaction/MeleeGoblin/ThugGoblinVariant/BP_AI_ThugGoblin_Character.BP_AI_ThugGoblin_Character_C",
+    "/Game/Gameplay/AI/GoblinFaction/ThugGoblin/BP_AI_ThugGoblin_Character.BP_AI_ThugGoblin_Character_C",
+    "/Game/Gameplay/AI/GoblinFaction/MeleeGoblin/BP_AI_GoblinThug_Character.BP_AI_GoblinThug_Character_C"
+  ]
 }

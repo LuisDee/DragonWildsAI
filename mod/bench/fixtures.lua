@@ -44,11 +44,15 @@ local function spawn(target, args)
         cls = U.valid(inst) and U.try(function() return inst:GetClass() end) or nil
     end
     local loaded = nil
-    if not U.valid(cls) and args.class_path and type(LoadAsset) == "function" then
+    local paths = type(args.class_paths) == "table" and args.class_paths or (args.class_path and { args.class_path }) or {}
+    for _, path in ipairs(paths) do
+        if U.valid(cls) or type(LoadAsset) ~= "function" then break end
         -- a class nothing has loaded yet (the runt on a fresh dev world, M1 blocker): UE4SS LoadAsset on the game
-        -- thread, then find it by its full object path (the same route as mod/body/sleep.lua's shelter class)
-        loaded = pcall(LoadAsset, tostring(args.class_path))
-        cls = U.try(StaticFindObject, tostring(args.class_path))
+        -- thread, then find it by its full object path (the same route as mod/body/sleep.lua's shelter class);
+        -- several paths = unverified candidates, the first that loads wins
+        loaded = pcall(LoadAsset, tostring(path))
+        cls = U.try(StaticFindObject, tostring(path))
+        if U.valid(cls) then loaded = tostring(path) end
     end
     if not U.valid(cls) then return { ok = false, error = "unknown_class", class = args.class, load_attempted = loaded } end
     local here = U.loc(target)

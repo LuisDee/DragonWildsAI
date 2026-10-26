@@ -161,3 +161,13 @@ def test_after_cast_move_walks_him_away_right_after_the_armed_cast(tmp_path, mon
     assert t.harness_after("cast", {"spell": "Windstep"}, {}, {"position": [0, 0, 0]}) is None  # another spell
     h = t.harness_after("cast", {"spell": "Recall"}, {}, {"position": [0.0, 0.0, 0.0]})
     assert walked == [("go_to", {"target": [8.0, 0.0, 0.0]})] and h["after_cast_move"]["mid"] == [8.0, 0.0, 0.0]
+
+
+def test_spawn_passes_verified_paths_and_unverified_candidates(tmp_path, monkeypatch):
+    t, calls = make(tmp_path)
+    monkeypatch.setattr(dt, "spawn_class_paths", lambda: {"BP_AI_RuntGoblin_Character_C": "/Game/R.R_C",
+                                                          "BP_AI_Wolf_Character_C": ["/Game/A.W_C", "/Game/B.W_C"]})
+    t.setup("spawn", **{"class": "BP_AI_RuntGoblin_Character_C"})
+    assert calls[-1]["class_paths"] == ["/Game/R.R_C"]
+    t.setup("spawn", **{"class": "BP_AI_Wolf_Character_C"})
+    assert calls[-1]["class_paths"] == ["/Game/A.W_C", "/Game/B.W_C"]
