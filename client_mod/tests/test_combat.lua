@@ -218,6 +218,12 @@ function fake_inv.equip(log, item)
     else held.left = item end
     return { ok = true, via = "hotbar key" }
 end
+function fake_inv.unequip(log, slot)
+    INV.unequips = INV.unequips or {}
+    INV.unequips[#INV.unequips + 1] = slot
+    if slot == "HeldRight" then held.right = nil else held.left = nil end
+    return { ok = true, via = "hotbar key" }
+end
 function fake_inv.use(log, item) INV.uses[#INV.uses + 1] = item; pawn.hp = math.min(100, pawn.hp + 10); return { ok = true, via = "hotbar key" } end
 function fake_inv.best_consumable(l, kind) for _, e in ipairs(l.hotbar) do if e.consumable == kind then return e end end end
 function fake_inv.interact_target()
@@ -1234,6 +1240,53 @@ do
     inv_list.hotbar, pawn.TrackedStatusEffectsComponent, world.on_step = saved_hotbar, nil, nil
     Cm._state().hazard_watch, Cm._state().ambient = nil, nil
     if own and own.token then A.release(nil, own.token, "test") end
+    A.reset(nil)
+end
+
+-- ================================================================ 10i. attacked while fishing (live 15:38:59: 4 swings of a rod, 0 hits, died)
+reset_world()
+do
+    local saved = inv_list.hotbar
+    local FISH = { stops = {} }
+    Cm.set_modules({ fishing = { stop = function(_, why) FISH.stops[#FISH.stops + 1] = why; return { ok = true } end } })
+    -- (a) no weapon at all: the rod is put away, he fights bare-handed, his hits land
+    inv_list.hotbar = { { item = "ITEM_FishingRod_Wood", name = "Wooden Fishing Rod", slot = 1 },
+                        { item = "ITEM_Food_Sandwich", name = "Forager's Sandwich", consumable = "food", heal = 10, slot = 0 } }
+    held.right, held.left = "ITEM_FishingRod_Wood", nil
+    INV.unequips = {}
+    local gob = new_creature("BP_AI_RuntGoblin_Character_C_fish", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 30, pl = 1, arch = 0 })
+    check("fishing: self-defence starts", Cm._start_fight(nil, gob, { mode = "reflex", level = "reflex", why = "attacked_me" }).ok)
+    run_until(function() return Cm._state().fight == nil end, 20)
+    local res = Cm._state().last.result
+    check("fishing: the rod is put away first (unequip HeldRight)", (INV.unequips or {})[1] == "HeldRight" and held.right == nil, table.concat(INV.unequips or {}, ","))
+    check("fishing: bare-handed hits land and the runt dies", res and res.ok and gob.hp <= 0, res and res.reason)
+    check("fishing: the fishing job was stopped (not suspended by the arbiter)", FISH.stops[1] ~= nil and FISH.stops[1]:find("attacked", 1, true) ~= nil, FISH.stops[1])
+    -- (b) a weapon in the bag: equipped over the rod (no bare hands)
+    reset_world()
+    inv_list.hotbar = { { item = "ITEM_FishingRod_Wood", name = "Wooden Fishing Rod", slot = 1 }, { item = "ITEM_Dagger_Bone", slot = 5 } }
+    held.right, held.left = "ITEM_FishingRod_Wood", nil
+    INV.unequips = {}
+    local gob2 = new_creature("BP_AI_RuntGoblin_Character_C_fish2", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 30, pl = 1, arch = 0 })
+    Cm._start_fight(nil, gob2, { mode = "reflex", level = "reflex", why = "attacked_me" })
+    run_until(function() return Cm._state().fight == nil end, 20)
+    check("fishing: a carried weapon is equipped over the rod", INV.equips[1] == "ITEM_Dagger_Bone" and #(INV.unequips or {}) == 0, INV.equips[1])
+    -- (c) a fishing job the arbiter SUSPENDED for the fight is left alone (it resumes after)
+    reset_world()
+    FISH.stops = {}
+    local job = A.request(nil, { name = "fish", level = "task", resumable = true, uses_move = true })
+    inv_list.hotbar = { { item = "ITEM_Dagger_Bone", slot = 5 } }
+    held.right = "ITEM_Dagger_Bone"
+    local gob3 = new_creature("BP_AI_RuntGoblin_Character_C_fish3", "Goblin Runt", { X = 150, Y = 0, Z = 0 }, { hp = 30, pl = 1, arch = 0 })
+    Cm._start_fight(nil, gob3, { mode = "reflex", level = "reflex", why = "attacked_me" })
+    run_until(function() return Cm._state().fight == nil end, 20)
+    check("fishing: a suspended fishing job is not stopped", #FISH.stops == 0, FISH.stops[1])
+    check("fishing: and it is resumed after the fight", A.owner() and A.owner().name == "fish", A.owner() and A.owner().name)
+    if job and job.token then A.release(nil, job.token, "test") end
+    check("fights_with: a rod / net / unknown item no, a dagger / shield / axe yes",
+          not Cm.fights_with("ITEM_FishingRod_Wood") and not Cm.fights_with("ITEM_FishingNet_CoarseNet") and Cm.fights_with("ITEM_Dagger_Bone")
+          and Cm.fights_with("ITEM_Shield_Bronze") and Cm.fights_with("ITEM_Logging_Axe_Mithril"))
+    Cm.set_modules({ fishing = false })
+    inv_list.hotbar = saved
     A.reset(nil)
 end
 

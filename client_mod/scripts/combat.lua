@@ -60,6 +60,7 @@ M.cfg = {
     ai_action_resolve_s = 3, -- an AI action older than this is never resolved (it has ended; its creature may be gone)
     hazard_s = 0.25, hazard_window_s = 15, hazard_persist_s = 30, hazard_margin_cm = 40, -- ground hazards (gap 2)
     status_s = 0.5, cure_at = 0.05, no_cure_recheck_s = 10,
+    tool_jobs = { fishing = "fish", gather = "gather", farm = "tend", agility = "agility" }, -- module -> its arbiter name prefix
     ambient = nil, ambient_status_s = 2.0, -- out-of-fight hazards/cures: nil = env DW_COMBAT_AMBIENT ("1" = on); off by default -- statuses read every status_s in a fight; a harmful one above cure_at x max -> its cure
     odds_m = 40, odds_max = 6, facts_s = 30, census_s = 0.5, odds_prep_s = 10, -- get_state fight_odds: creatures in sight
     memory_enabled = true, history_max = 10, steam_manifest = "C:/Program Files (x86)/Steam/steamapps/appmanifest_1374490.acf",
@@ -1460,8 +1461,32 @@ local function held_items(pawn)
 end
 
 -- equip phase: best weapon (and a shield for a one-handed weapon) from his own inventory
+-- Would this held item hit anything? A weapon (or a tool with a fighting score, like an axe) yes; a fishing rod,
+-- net, torch, spade, or an item the data does not know: no (live 15:38:59: killed while fishing, 4 swings of a rod,
+-- 0 hits).
+function M.fights_with(item_id)
+    local p = item_id and (M.weapons().items or {})[item_id]
+    if not p then return false end
+    if p.role == "shield" then return true end
+    if p.kind == "ranged" or p.kind == "magic" then return p.role == "weapon" end
+    return M.score_weapon(p, {}, nil) ~= nil
+end
+
 local function step_equip(F, pawn)
     if not F.equip_plan then
+        -- the tool job he was doing must not keep acting: a job the arbiter SUSPENDED for this fight has already
+        -- paused its inputs and resumes afterwards (left alone); one running outside the arbiter is stopped with its
+        -- module's own stop (a no-op when idle)
+        local suspended = {}
+        local arb = mod("arbiter")
+        local ast = arb and arb.status and arb.status() or {}
+        for _, r in ipairs(ast.suspended or {}) do suspended[#suspended + 1] = tostring(r.name) end
+        for name, job_prefix in pairs(M.cfg.tool_jobs) do
+            local paused = false
+            for _, n in ipairs(suspended) do if n:find(job_prefix, 1, true) == 1 then paused = true end end
+            local m = not paused and mod(name)
+            if m and type(m.stop) == "function" then pcall(m.stop, F.log, "attacked: " .. tostring(F.target_name)) end
+        end
         local list = mcall("inventory", "list", F.log) or {}
         local enemy = { name = F.target_name, affinities = F.affinities }
         local pick = M.best_weapon(list, enemy, nil, C().learned)
@@ -1485,6 +1510,14 @@ local function step_equip(F, pawn)
             if hp and (hp.kind == "ranged" or hp.kind == "magic") then pick = { weapon = { entry = { item = hid }, profile = hp, score = 0 } } end
         end
         F.equip_plan = { weapon = pick.weapon and pick.weapon.entry.item, shield = nil, sent = {}, t = F.t }
+        if not pick.weapon and F.weapon_pref ~= "held" then
+            -- no weapon he owns: put the held tool away and fight bare-handed (a rod would never land a hit)
+            local hr, hl = held_items(pawn)
+            local drop = {}
+            if hr and not M.fights_with(hr) then drop[#drop + 1] = "HeldRight" end
+            if hl and not M.fights_with(hl) then drop[#drop + 1] = "HeldLeft" end
+            if #drop > 0 then F.equip_plan.drop = drop end
+        end
         if pick.weapon then
             F.profile = pick.weapon.profile
             F.weapon_score = pick.weapon.score
@@ -1499,6 +1532,25 @@ local function step_equip(F, pawn)
     end
     local plan = F.equip_plan
     local right, left = held_items(pawn)
+    if plan.drop then -- hands free first (unequip the tool): verified by the held items, at most 4 s
+        local still = {}
+        for _, slot in ipairs(plan.drop) do
+            local item = slot == "HeldRight" and right or left
+            if item and not M.fights_with(item) then still[#still + 1] = slot end
+        end
+        if #still == 0 then plan.drop = nil; F.profile = nil; say(F.log, "tool put away: bare hands")
+        elseif F.t - plan.t > 4 then plan.drop = nil; say(F.log, "could not put the tool away in 4 s; fighting with it")
+        else
+            for _, slot in ipairs(still) do
+                if not plan.sent[slot] or F.t - plan.sent[slot] > 1.5 then
+                    plan.sent[slot] = F.t
+                    local r = mcall("inventory", "unequip", F.log, slot)
+                    say(F.log, "unequip " .. slot .. " (a tool, not a weapon) -> " .. tostring(r and (r.via or r.reason)))
+                end
+            end
+            return false
+        end
+    end
     local need_w = plan.weapon and right ~= plan.weapon and left ~= plan.weapon
     local need_s = plan.shield and not need_w and left ~= plan.shield
     if not need_w and not need_s then return true end
