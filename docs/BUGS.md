@@ -52,3 +52,11 @@ Lives in `brain/house_rules.md`, loaded into the persona; Luis can add lines.
 - Sleep in your own shelter. Don't use another player's shelter or bed unless that player asked you to.
 - Get up and out of bed as soon as it's day.
 - (PvP is off: never attack players.)
+
+### B-stuck-focused-ui (open, 2026-10-26 18:43 UTC)
+- **What happens:** during a third `consume Bread`, which failed `verification_failed`, the PC entered DIM_FocussedInGameUI and stayed there with no visible screen.
+- **What it blocks:** the spell wheel won't open (`wheel_not_opened`); the stay-fed reflex is blocked; every input-gated press is refused. The model's `consume` still works.
+- **Tried without success:** IA_UI_GenericBack/Accept/UnFocusRequirements; `DominionPlayerController.RefreshInputMode()`.
+- **Probes:** MainMenuUIAPI GetCurrentScreenType = 0; the only candidate widget in the viewport is WBP_InGameScreensRoot_C. Suspected screen: a lore or journal popup triggered by eating, possibly WBP_Panel_LorePopup_C (unconfirmed).
+- **Probe files:** `client_mod/commands/{focus_probe,visible_widgets,uiapi_funcs,pc_inputmode_funcs,ui_back,ui_accept,ui_unfocus,refresh_input_mode}.lua`
+- **Next:** identify the visible child screen, then add a general "leave a stuck focused UI" step to the input guard. Workaround: restart the client.
