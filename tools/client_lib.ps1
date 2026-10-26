@@ -47,6 +47,12 @@ function Get-FreeMB { [math]::Round((Get-CimInstance Win32_OperatingSystem).Free
 
 # Steam must run, logged in (HKCU ActiveProcess.ActiveUser = the logged-in account's 32-bit id, 0 = none).
 function Get-SteamState {
+    # Offline tests (tests/test_client_ops.py): DW_CLIENT_STEAM = "logged_in" | "running" | "down" fakes Steam, so
+    # the rig never depends on this machine's real Steam login (it broke 17 tests while Steam was logged out).
+    if ($env:DW_CLIENT_STEAM) {
+        $s = $env:DW_CLIENT_STEAM
+        return [ordered]@{ running = ($s -ne 'down'); pid = $null; logged_in = ($s -eq 'logged_in'); account_id = 0; fake = $true }
+    }
     $p = Get-Process steam -ErrorAction SilentlyContinue | Select-Object -First 1
     $u = 0
     try { $u = [int64](Get-ItemProperty 'HKCU:\Software\Valve\Steam\ActiveProcess' -ErrorAction Stop).ActiveUser } catch {}

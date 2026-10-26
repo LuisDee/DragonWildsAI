@@ -5,7 +5,7 @@ plays the DWClient command runner (answers client_io/cmd/<name>.lua in client_io
 scripted state), and temp dirs for logs/state/dumps. The DW_CLIENT_* overrides in tools/client_lib.ps1
 point the scripts at all of it. The watchdog always runs with -DryRun here (decisions are logged, nothing
 is killed or booted); boot runs for real but with -NoLaunch, so it never starts anything either.
-Needs Windows PowerShell (and Steam running, as on the VM: boot checks it first).
+Needs Windows PowerShell. Steam is faked too (DW_CLIENT_STEAM=logged_in), so the real login state never matters.
 """
 from __future__ import annotations
 
@@ -119,7 +119,8 @@ def rig(tmp_path):
     env = dict(os.environ, DW_CLIENT_PROC=fake, DW_CLIENT_IO=str(io), DW_CLIENT_STATE_DIR=str(tmp_path / "state"),
                DW_CLIENT_GAME_LOG=str(game_log), DW_CLIENT_MOD_LOG=str(mod_log), DW_CLIENT_DUMP_DIR=str(tmp_path / "dumps"),
                DW_CLIENT_HOLD=str(tmp_path / "client.stopped"), DW_CLIENT_WD_EVENTS=str(tmp_path / "wd.jsonl"),
-               DW_CLIENT_BOOT_LOG=str(tmp_path / "boot.log"), DW_CLIENT_SMOKE_DIR=str(tmp_path))
+               DW_CLIENT_BOOT_LOG=str(tmp_path / "boot.log"), DW_CLIENT_SMOKE_DIR=str(tmp_path),
+               DW_CLIENT_STEAM="logged_in")  # a fake Steam: never this machine's real login state
     for k in ("DW_CLIENT_DEFAULT_TARGET", "DW_CLIENT_FORBID_TARGETS"):  # per-machine settings never leak in
         env.pop(k, None)
     r = type("Rig", (), {})()
