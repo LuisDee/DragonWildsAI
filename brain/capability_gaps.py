@@ -32,7 +32,7 @@ KINDS = ("action", "perception")
 AUTO_REASONS = frozenset({Reason.NOT_IMPLEMENTED, Reason.UNKNOWN_TOOL})  # not UNKNOWN_SKILL (review M4)
 MAX_EXAMPLES = 5
 # board bookkeeping a predicate may miss (baseline, clock, tallies): not the body's perception
-BOOKKEEPING = tuple(getattr(P, "BOOKKEEPING_FIELDS", ("baseline", "clock", "tallies")))
+BOOKKEEPING = P.BOOKKEEPING_FIELDS
 
 
 def default_path(state_dir: Path | None = None) -> Path:

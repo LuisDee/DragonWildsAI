@@ -77,12 +77,16 @@ STATS = ("power_level", "tool_tier", "weight", "damage_multiplier", "max_durabil
 OPS: dict[str, Callable[[float, float], bool]] = {
     ">": lambda a, b: a > b, ">=": lambda a, b: a >= b, "<": lambda a, b: a < b, "<=": lambda a, b: a <= b}
 DEFAULT_NEAR_M = 5.0
+# fields a predicate may report missing that are board bookkeeping, not body perception (capability_gaps.py and
+# director.py read this; Director agent 2026-10-26)
+BOOKKEEPING_FIELDS = ("baseline", "clock", "tallies")
 
 # One line per leaf, for model prompts (the Director, eval authors): the format in the model's words.
 SCHEMA_DOC = """Success predicates (JSON, one key per object; checked by code on fresh game state):
 - {"have": {"item": <name or id>, "at_least": n}}       carried now
 - {"gained": {"item": ..., "at_least": n}}               gained since this step started
 - {"lost": {"item": ..., "at_least": n}}                 left your inventory since this step started
+  (gained and lost of the SAME item in one "all" can never both hold: they read one net delta. Use tally + on_ground)
 - {"on_ground": {"item": ..., "at_least": n, "player"|"place"|"position": ..., "within_m": m}}  lying near there now
 - {"tally": {"item": ..., "at_least": n}}                verified total gained over this task (all trips)
 - {"skill": {"name": <skill>, "at_least": level}} / {"skill_gain": {"name": ..., "levels": n}}
@@ -239,6 +243,30 @@ def validate(p: Any, items: Items | None = None, depth: int = 0) -> dict:
     if leaf.validate is not None:
         a = leaf.validate(a, items or Items())
     return {k: a}
+
+
+def net_conflicts(p: Any) -> list[str]:
+    """Items that one 'all' tests both as gained and as lost (unsatisfiable: both read one net delta; Director live
+    smoke 2026-10-26, "chop 5 logs then drop them"). Shared by the Director's Validator and the benchmark lint."""
+    if not isinstance(p, dict) or len(p) != 1:
+        return []
+    k, v = next(iter(p.items()))
+    out: list[str] = []
+    if k in ("all", "any") and isinstance(v, list):
+        if k == "all":
+            seen: dict[str, dict[str, str]] = {"gained": {}, "lost": {}}
+            for sub in v:
+                if isinstance(sub, dict) and len(sub) == 1 and next(iter(sub)) in seen:
+                    kk, a = next(iter(sub.items()))
+                    if isinstance(a, dict):
+                        for i in (a.get("ids") or [a.get("item")]):
+                            seen[kk][str(i)] = str(a.get("item"))
+            out += [seen["gained"][i] for i in seen["gained"] if i in seen["lost"]]
+        for sub in v:
+            out += net_conflicts(sub)
+    elif k == "not":
+        out += net_conflicts(v)
+    return list(dict.fromkeys(out))
 
 
 def errors(p: Any, items: Items | None = None) -> list[dict]:
@@ -435,11 +463,9 @@ def _best(state: dict, a: dict, cat: dict | None, where: str | None = None) -> t
     return best
 
 
-def _dist(a: Any, b: Any) -> float | None:
-    if not (isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)) and len(a) >= 2 and len(b) >= 2):
-        return None
-    n = 3 if len(a) >= 3 and len(b) >= 3 else 2
-    return math.dist([float(x) for x in a[:n]], [float(x) for x in b[:n]])
+from .geom import dist  # noqa: E402 (re-exported: the one distance helper lives in brain/geom.py)
+
+_dist = dist
 
 
 def _place_pos(places: dict, name: str) -> Any:

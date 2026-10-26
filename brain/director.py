@@ -480,34 +480,12 @@ def skills_progress(state: dict) -> dict:
 
 # ------------------------------------------------------------------------------ decision validation
 
-BOOKKEEPING = tuple(getattr(P, "BOOKKEEPING_FIELDS", ("baseline", "clock", "tallies")))
+BOOKKEEPING = P.BOOKKEEPING_FIELDS
 NET_CONFLICT = ("{where}: 'gained' and 'lost' of {item} in one 'all' read the same net count since the start "
                 "(one is the other with the sign flipped), so both can never be true. To test collect-then-drop, "
                 "use tally (what was collected over the job) with on_ground (what lies there now), or put gained "
                 "and lost in separate steps")
 
-
-def net_conflicts(p: Any) -> list[str]:
-    """Items that one 'all' tests both as gained and as lost (unsatisfiable: both read one net delta; live smoke
-    2026-10-26, "chop 5 logs then drop them")."""
-    if not isinstance(p, dict) or len(p) != 1:
-        return []
-    k, v = next(iter(p.items()))
-    out: list[str] = []
-    if k in ("all", "any") and isinstance(v, list):
-        if k == "all":
-            seen: dict[str, dict[str, str]] = {"gained": {}, "lost": {}}
-            for sub in v:
-                if isinstance(sub, dict) and len(sub) == 1 and next(iter(sub)) in seen:
-                    kk, a = next(iter(sub.items()))
-                    for i in (a.get("ids") or [a.get("item")]):
-                        seen[kk][str(i)] = str(a.get("item"))
-            out += [seen["gained"][i] for i in seen["gained"] if i in seen["lost"]]
-        for sub in v:
-            out += net_conflicts(sub)
-    elif k == "not":
-        out += net_conflicts(v)
-    return list(dict.fromkeys(out))
 
 
 class Validator:
@@ -532,7 +510,7 @@ class Validator:
                                                      if x.get("candidates") else "") for x in problems)
             return None
         v = P.validate(p, self.items)
-        bad = net_conflicts(v)
+        bad = P.net_conflicts(v)  # the judge's shared copy (brain/predicates.py)
         if bad:
             errs.extend(NET_CONFLICT.format(where=where, item=i) for i in bad)
             return None
