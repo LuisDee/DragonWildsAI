@@ -7,14 +7,22 @@
   "adversarial_cases_pct": 80,
   "long_tasks": {
     "required": [
-      "gather_coal_multitrip",
+      "mining_run_home_chest",
       "farm_mob_drop",
       "gear_upgrade_self_initiated",
       "brynmoor_quest_chain",
-      "farm_desert_weed"
+      "farm_and_process_crop"
     ],
     "dev_world_max_hints": 1,
-    "live_confirmed_required": false
+    "live_confirmed_required": false,
+    "definitions": {
+      "mining_run_home_chest": "build his own home base with a chest (and the stations he needs), then a long mining run in Brynmoor (copper/tin/iron only): fill the chest at home over >= 2 round trips (lodestone or walking), proved by Mining XP and harness-observed deposits into HIS chest",
+      "farm_mob_drop": "farm a Brynmoor creature's drop with the right weapon for its weakness; kills attributed to him; drops kept in his own storage",
+      "gear_upgrade_self_initiated": "on his own initiative raise his gear tier by crafting it himself (smelt bronze/iron, craft at his own stations); found or given items don't count; entitlement items excluded",
+      "brynmoor_quest_chain": "Rune Mysteries -> Goblin Diplomacy, completed in order (quest state from the harness probe)",
+      "farm_and_process_crop": "build farm plots himself, plant, grow and harvest a Brynmoor crop (wheat, flax, potatoes, cabbages, red/dwell berries), then process it (e.g. wheat -> flour -> bread at his own stations)"
+    },
+    "delivery_to_player": false
   },
   "latency_chat_to_action_p50_s": 2.5,
   "latency_chat_to_action_p90_s": 4.0,
@@ -29,7 +37,10 @@
     "positive_control_required": true,
     "negative_controls": [
       "do_nothing",
-      "claims_only"
+      "claims_only",
+      "wrong_action",
+      "alt_means",
+      "partial"
     ]
   },
   "spell_use_cases_pct": 80,
@@ -41,7 +52,12 @@
   "combat_tactics": {
     "prep_before_hard_fight_pct": 80,
     "telegraph_dodge_success_pct": 70,
-    "damage_taken_trend": "decreasing over 5 repeat fights"
+    "damage_taken_trend": "decreasing over 5 repeat fights",
+    "families": {
+      "prep_before_hard_fight_pct": "tactics_prep",
+      "damage_taken_trend": "tactics_trend",
+      "telegraph_dodge_success_pct": "tactics_telegraph"
+    }
   },
   "efficiency_vs_baseline_pct": 70,
   "knowledge_use": {
@@ -74,13 +90,13 @@
       "every_skill"
     ],
     "M4": [
-      "long_tasks:gather_coal_multitrip",
+      "long_tasks:mining_run_home_chest",
       "long_tasks:farm_mob_drop"
     ],
     "M5": [
       "long_tasks:gear_upgrade_self_initiated",
       "long_tasks:brynmoor_quest_chain",
-      "long_tasks:farm_desert_weed",
+      "long_tasks:farm_and_process_crop",
       "heldout"
     ],
     "M6": [
@@ -96,7 +112,9 @@
     "min_live_cases_per_family": 3,
     "long_tasks_repeats_k": 3,
     "long_tasks_rule": "pass^k (all k pass)",
-    "freshness": "measured at the current companion hash + game build; mixed hashes = NOT MET"
+    "freshness": "measured at the current companion hash + game build; mixed hashes = NOT MET",
+    "combat_basics_repeats_k": 3,
+    "capstone_repeats_k": 3
   },
   "spells_denominator": "all spells in the build manifest (data/spell_effects.json) minus a data-derived n/a list approved by Luis per build; every non-pass (unverifiable, skip, error) counts against",
   "heldout": {
@@ -118,7 +136,7 @@
   "final_gate": "Luis sign-off after goal_check prints GOAL MET",
   "capstone": {
     "brynmoor_progression": "advance through Brynmoor's progression himself, guided by the wiki (quests, gear tiers, skill gates); each stage is a pinned case",
-    "slay_velgar_solo": "defeat Vel'gar SOLO on the dev world (no player help): wiki research, prep (anti-poison, upgraded and levelled gear, food, enchant), live reading and answering of Vel'gar's attacks, survival",
+    "slay_velgar_solo": "defeat Vel'gar SOLO on the dev world (no player help): wiki research, prep (anti-poison, upgraded and levelled gear, food, enchant), live reading and answering of Vel'gar's attacks, survival; prep gear must be crafted by him",
     "required": [
       "brynmoor_progression",
       "slay_velgar_solo"
@@ -138,6 +156,33 @@
       "gains XP on his own initiative under an open 'level up' task",
       "reaches +N levels (N=5, or the next gate) per skill, unaided, on dev"
     ],
-    "rule": "each skill passes all three; a skill counts only if its XP rise is observed by the harness observer"
+    "rule": "each skill passes all three; a skill counts only if its XP rise is observed by the harness observer",
+    "skills_frozen": [
+      "Agility",
+      "Artisan",
+      "Attack",
+      "Construction",
+      "Cooking",
+      "Farming",
+      "Fishing",
+      "Magic",
+      "Mining",
+      "Ranged",
+      "Runecrafting",
+      "Woodcutting"
+    ],
+    "skills_na": {
+      "Prayer": "unreleased",
+      "Hunter": "unreleased",
+      "Slayer": "unreleased",
+      "Defence": "unreleased",
+      "Herblore": "unreleased",
+      "Thieving": "unreleased"
+    },
+    "xp_threshold": "calibrated per skill on dev vs an ambient run (evals/bench/manifests/<build>/skill_thresholds.json)"
+  },
+  "gear_rules": {
+    "must_craft_own": true,
+    "levelled_gear": "not checked until item instance levels are readable by the harness probe; gear tier (power_level) checked now"
   }
 }

@@ -13,7 +13,7 @@ Luis set this on 2026-10-25. It is the contract for unattended iteration: what "
 | Efficiency | resource/xp per minute within 70% of a scripted baseline (Luis's or an oracle run) on the same task; uses the abilities that speed the activity up; target and area selection improves over repeats | T1/T2 rate metrics + optimisation trend |
 | Knowledge use | on cases that need a fact not in his perception (a recipe, where a resource is, a creature weakness, a quest step), he looks it up (game data first, then wiki), and the fact he acts on is correct | T1/T2 knowledge cases: lookup-needed vs not, judged by the trace |
 | Thinking on his feet | ≥ 80% on adversarial cases (failure injection, vague chat, interruptions) | T1/T2 adversarial cases |
-| Long tasks, unaided | each completes on the dev world with ≤ 1 player hint, then once live with Luis: (a) gather 50 coal (wiki + lodestones, multi-trip); (b) farm a mob drop with the right weapon; (c) upgrade gear one tier on his own initiative; (d) one Brynmoor quest chain from the wiki; (e) farm desert weed at "our farm" | T3 cases |
+| Long tasks, unaided | each completes on the dev world with ≤ 1 player hint, then once live with Luis: (a) build his own base with a chest, then a long multi-trip mining run (copper/tin/iron) filling it; (b) farm a Brynmoor mob drop with the right weapon; (c) upgrade gear a tier on his own initiative by crafting it; (d) the Rune Mysteries -> Goblin Diplomacy chain from the wiki; (e) build farm plots, grow a Brynmoor crop and process it (e.g. wheat -> flour -> bread). Self-directed: nothing is delivered to a player, and only Brynmoor resources are used (Luis, 2026-10-26) | T3 cases |
 | Generalisation | held-out lower bound ≥ seen rate − 10 points, n ≥ 30, from a fresh draw generated after the code freeze | generator, sealed held-out |
 | Speed | chat → first action p50 ≤ 2.5 s, p90 ≤ 4 s | `tools/obs.py metrics` |
 | Voice | voice-eval score ≥ target; 0 stat narration and 0 talk-without-action per hour of play | voice eval + anomaly detectors |
@@ -23,8 +23,8 @@ Luis set this on 2026-10-25. It is the contract for unattended iteration: what "
 - **M1 Foundation:** speed, voice, stability, no deadlocks, no starving, T0 spells ≥ 95%, combat basics proven.
 - **M2 Use and tactics:** spells used to purpose (and the every-spell stress test), combat tactics, knowledge use, efficiency, crafting from scratch, ranged.
 - **M3 Every skill trains (key milestone):** for EVERY skill in the game data he gains XP when asked in chat (no tool or method named), gains XP on his own initiative under an open "level up" task, and reaches +5 levels (or the next gate) unaided. The harness observer verifies each.
-- **M4 Director jobs:** the task board, coal with lodestone hops, farming a mob drop.
-- **M5 Long horizon:** gear progression on his own initiative, a quest chain, farming, held-out generalisation.
+- **M4 Director jobs:** the task board, the home-chest mining run, farming a mob drop.
+- **M5 Long horizon:** crafted gear progression on his own initiative, the quest chain, building and running a farm, held-out generalisation.
 - **M6 Capstone:**
   - Brynmoor's progression from the wiki, each stage a pinned case;
   - **slay Vel'gar SOLO on the dev world**: research, prep (anti-poison, upgraded and levelled gear, food, enchant), reading and answering Vel'gar's attacks live, and surviving.
