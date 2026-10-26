@@ -31,14 +31,15 @@ M.cfg = {
     lease_s = 5,
     open_wait_s = 1.2,      -- after Q: wait for the radial input mode
     open_tries = 2,
-    page_wait_s = 0.4,      -- after switching the wheel page: let the slices refresh (live: updated within 0.4 s)
+    page_wait_s = 0.1,      -- after switching the wheel page: then poll until the slice icons change (live ~0.4 s)
     page_max_s = 1.5,       -- ... and wait up to this long for the slice icons to change
     select_wait_s = 1.0,    -- after the quick key: wait for a spell mode or the cast to start
     verify_s = 4.0,         -- after the cast input: runes / cooldown must change within this ...
     cast_max_s = 12,
     late_watch_s = 15,
     cooldown_grace_s = 2,
-    finish_s = 3,           -- after a verified cast: wait this long for the game to leave its spell mode   -- after the server's cooldown notice: wait this long for a success signal
+    settle_after_leave_s = 2, -- ... and this long after leaving a spell's own mode
+    settle_s = 8,           -- after the first success sign: wait up to this long for runes AND cooldown to replicate   -- after the server's cooldown notice: wait this long for a success signal
     aim_heights_m = { 1.2, 0.8, 1.6, 0.5 }, -- a standing tree / plant (foliage, position = its base): aim at the trunk
     actor_aim_heights_m = { 0.3, 0.0, 0.8, 1.2 }, -- an actor (a log on the ground, a rock; position = its origin)
     aim_match_m = 3,        -- an aimed preview must sit this close (2D) to the target
@@ -51,6 +52,7 @@ M.cfg = {
     landed_tolerance_m = 3, -- a targeted spell that lands farther than max(this, its radius) is reported as a miss
     preview_wait_s = 0.35,  -- after aiming at a spot: let the game's placement preview follow the camera
     preview_match_m = 2.5,  -- the preview must sit this close to the spot aimed at
+    placed_point_match_m = 4, -- ... for a placed spell at an asked point (live: the shelter preview centres 3.2 m off the aim point)
     max_spots = 10,
     spot_rings_m = { 3, 4.5, 6, 7.5, 9 }, -- (live: 11 m spots were beyond the camera's 15 m reach)
     far_rings_m = { 15, 20, 25, 30 }, -- when nothing nearby is accepted: where the flattest ground is (a hint) -- automatic spots around me (around a named target: itself, then 2 and 3.5 m rings)
@@ -456,6 +458,7 @@ function W.actions(api)
         if not (u.fullname(p) or ""):find("WidgetTree", 1, true) then
             a.menu = u.try(function() return p.TriggerSpellRadialInputAction end)
             a.next_page = u.try(function() return p.ChangeSpellRadialRightInputAction end)
+            a.prev_page = u.try(function() return p.ChangeSpellRadialLeftInputAction end)
             a.accept = u.try(function() return p.GenericAcceptInputAction end)
             local rw = u.try(function() return p.SpellRadialWidget end)
             each(rw and u.try(function() return rw.QuickAccessInputActions end), function(x) a.quick[#a.quick + 1] = x end, 16)
@@ -764,8 +767,9 @@ local function target_of(api, target, snap)
     if not t and target:sub(1, 4) == "fol:" then t = W.foliage_thing(api, target) end
     if not t then
         local d = copy(r and r.data)
-        d.detail = target:sub(1, 4) == "fol:" and ("I can't see that " .. "tree or plant any more (" .. target .. "); it may have been felled or picked.")
-            or ("I can't see " .. target .. " to aim at.")
+        -- no raw ids in words meant for speech (L26): the id stays in data.target
+        d.detail = target:sub(1, 4) == "fol:" and "I can't see that tree or plant any more; it may have been felled or picked."
+            or "I can't see what you want me to aim at any more."
         return nil, api.fail("unknown_target", d)
     end
     -- where the thing really is: felled logs roll away from their stale actor origin (DISCOVERIES:
@@ -839,7 +843,10 @@ local function new_cast(api, args)
         d.detail = "I can't tell which page of my spell wheel holds " .. row.name .. "."
         return nil, api.fail("verification_failed", d)
     end
+    local icon_of = {}
+    for a, o in pairs(snap.objects or {}) do local so = W.static(o); icon_of[a] = so and so.icon end
     local job = { api = api, row = row, st = st, d = d, acts = acts, slot = slot, target = tg, placed = placed, pages = snap.radials or 4,
+                  per = per, icon_of = icon_of,
                   before = snap, phase = "own", t0 = api.now(), presses = {} }
     return job
 end
@@ -872,8 +879,43 @@ local function cleanup(job)
     release(job, job.d.why or "done")
 end
 
+-- Which wheel page the open radial shows: the page whose spells' icons match the shown slice icons
+-- best (at least half of its filled slots). Pure. -> 0-based page | nil
+function M.page_of(icons, wheel, per, icon_of)
+    if not (icons and wheel and per and icon_of) then return nil end
+    local best, best_n, pages = nil, 0, math.floor(#wheel / per)
+    for pg = 0, pages - 1 do
+        local hit, filled = 0, 0
+        for i = 1, per do
+            local a = wheel[pg * per + i]
+            if a then
+                filled = filled + 1
+                if icon_of[a] and icons[i] == icon_of[a] then hit = hit + 1 end
+            end
+        end
+        if filled > 0 and hit * 2 >= filled and hit > best_n then best, best_n = pg, hit end
+    end
+    return best
+end
+
+-- Stage timing (L27): the first time each stage was reached, reported as data.timing.
+local function mark(job, name, t)
+    job.marks = job.marks or {}
+    if t and not job.marks[name] then job.marks[name] = t end
+end
+M._mark = mark
+function M.timing(job, t_end)
+    local m = job.marks or {}
+    local function span(a, b) return (m[a] and m[b]) and math.floor((m[b] - m[a]) * 100 + 0.5) / 100 or nil end
+    m.done = m.done or t_end
+    return { open_s = span("start", "opened"), pages_s = span("opened", "page_ok"), select_s = span("page_ok", "selected"),
+             aim_s = span("spell_mode", "released"), verify_s = span(m.released and "released" or "selected", "evidence"),
+             settle_s = span("evidence", "done"), total_s = span("start", "done"), page_turns = job.flips or 0 }
+end
+
 local function press(job, name, action)
     job.presses[#job.presses + 1] = name
+    if name == "place" then mark(job, "released", W.clock(job.api) or job.api.now()) end
     return W.inject(job.api, action)
 end
 
@@ -915,6 +957,7 @@ end
 -- (the shared failure shape; `failed` below is the same, defined later for the state machine)
 function M._fail(job, reason, why, detail)
     job.d.why, job.d.detail, job.d.presses = why, detail, job.presses
+    job.d.timing = M.timing(job, W.clock(job.api) or job.api.now())
     return { ok = false, reason = reason, data = job.d }
 end
 
@@ -992,6 +1035,7 @@ end
 local function verified_result(job, df, snap)
     local d = job.d
     d.verified = true
+    d.timing = M.timing(job, W.clock(job.api) or job.api.now())
     -- how far the cast moved me (dash / leap spells), from fresh positions
     if snap and snap.position and job.before.position then d.moved_m = math.floor(d3(snap.position, job.before.position) * 100 + 0.5) / 100 end
     d.runes_spent, d.cooldown_started = df.runes_spent, df.cooldown_started == true
@@ -1027,6 +1071,7 @@ end
 
 local function failed(job, reason, why, detail)
     job.d.why, job.d.detail, job.d.presses = why, detail, job.presses
+    job.d.timing = M.timing(job, W.clock(job.api) or job.api.now())
     return { ok = false, reason = reason, data = job.d }
 end
 
@@ -1060,6 +1105,7 @@ local function step(job)
         end
         W.hooks_start()
         job.ev0 = #mem().events
+        mark(job, "start", t)
         local m0 = job.before.input_mode
         if m0 and m0 ~= cfg.gameplay_mode and (in_spell_mode(m0) or m0 == cfg.radial_mode) then
             job.d.closed_previous = m0
@@ -1082,12 +1128,29 @@ local function step(job)
     end
     local df = M.diff(job.before, snap, job.st)
     if df.spent or df.cooldown_started or M.own_actor(job, df) then
-        -- it went off. Don't press Esc into the cast animation: let the game leave its spell mode first
-        -- (live 21:2x Splinter: the spell actor appeared while still in DIM_SpellcastingMode), up to
-        -- finish_s; then answer with the full evidence (the rune spend may land a moment later)
-        job.finish_until = job.finish_until or (t + cfg.finish_s)
-        if in_spell_mode(snap.input_mode) and t < job.finish_until then return nil end
+        -- it went off. Wait (bounded) until the game state SETTLES: the rune spend and the cooldown
+        -- record replicate separately and late (L25, dev run 23:32: shelter actor first, runes and
+        -- cooldown seconds later), and don't press Esc into the cast animation (Splinter, 21:2x).
+        mark(job, "evidence", t)
+        job.settle_until = job.settle_until or (t + cfg.settle_s)
+        local settled = (df.spent or not next(job.st.cost or {})) and df.cooldown_started
+        if (not settled or in_spell_mode(snap.input_mode)) and t < job.settle_until then return nil end
+        -- a spell that keeps its own mode open (Eye of Oculus: a camera mode) may record its cooldown
+        -- only when the mode ends: leave the mode, then give the record a moment to land
+        if not settled and in_spell_mode(snap.input_mode) and not job.settle_cancelled then
+            job.settle_cancelled = true
+            job.d.left_mode = snap.input_mode
+            press(job, "leave_mode", job.acts.cancel or job.acts.menu)
+            job.settle_until = t + cfg.settle_after_leave_s
+            return nil
+        end
         job.succeeded = true
+        job.d.settled = settled and true or false
+        if not settled then
+            job.d.unsettled = {}
+            if not df.cooldown_started then job.d.unsettled[#job.d.unsettled + 1] = "cooldown_started" end
+            if next(job.st.cost or {}) and not df.spent then job.d.unsettled[#job.d.unsettled + 1] = "runes_spent" end
+        end
         return verified_result(job, df, snap)
     end
     -- the server said "on cooldown": give a just-cast spell a moment to show its rune spend / cooldown
@@ -1098,6 +1161,7 @@ local function step(job)
     local mode = snap.input_mode
     if job.phase == "open" then
         if mode == cfg.radial_mode then
+            mark(job, "opened", t)
             if job.page_wait and t < job.page_wait then return nil end
             -- press the key only when the open page shows THIS spell in that slot (never cast another)
             local icons = W.shown_icons(api)
@@ -1107,6 +1171,8 @@ local function step(job)
             if job.page_sig and sig == job.page_sig and t < (job.page_deadline or 0) then return nil end
             job.page_sig = sig
             if icons[job.slot + 1] == job.st.icon then
+                mark(job, "page_ok", t)
+                mark(job, "selected", t)
                 if job.slot < cfg.quick_keys and job.acts.quick[job.slot + 1] then
                     job.phase, job.until_t = "select", t + cfg.select_wait_s
                     press(job, "quick" .. job.slot, job.acts.quick[job.slot + 1])
@@ -1129,7 +1195,18 @@ local function step(job)
             if job.flips > job.pages or not job.acts.next_page then
                 return failed(job, "verification_failed", "page_not_found", "I couldn't find " .. job.row.name .. " on my spell wheel's pages.")
             end
-            press(job, "next_page", job.acts.next_page)
+            local dir = "next"
+            if job.acts.prev_page and not job.page_dir then
+                local cur = M.page_of(icons, job.before.wheel, job.per, job.icon_of)
+                if cur then
+                    local want = job.row.wheel_slot // job.per
+                    local fwd, back = (want - cur) % job.pages, (cur - want) % job.pages
+                    job.page_dir = back < fwd and "prev" or "next"
+                    job.d.page_from = cur + 1
+                end
+            end
+            dir = job.page_dir or dir
+            if dir == "prev" then press(job, "prev_page", job.acts.prev_page) else press(job, "next_page", job.acts.next_page) end
             job.page_wait, job.page_deadline = t + cfg.page_wait_s, t + cfg.page_max_s
             job.until_t = t + cfg.open_wait_s + cfg.page_max_s
             return nil
@@ -1146,6 +1223,7 @@ local function step(job)
     end
     if job.phase == "select" then
         if in_spell_mode(mode) then
+            mark(job, "spell_mode", t)
             -- placed / aimed (or a spell the game wants confirmed): check it is OUR spell, aim, release LMB
             local sel = W.selected(api)
             if sel and sel ~= job.row.id then
@@ -1228,7 +1306,8 @@ local function step(job)
                 near = math.sqrt((vis.position[1] - sp.position[1]) ^ 2 + (vis.position[2] - sp.position[2]) ^ 2)
             else near = d3(vis.position, sp.position) end
         end
-        local match = sp.here or not near or near <= (sp.aim and cfg.aim_match_m or cfg.preview_match_m)
+        local lim_m = sp.aim and cfg.aim_match_m or (sp.exact and job.row.cast_type == "placed" and cfg.placed_point_match_m) or cfg.preview_match_m
+        local match = sp.here or not near or near <= lim_m
         if vis and vis.valid == true and match then
             job.d.spot, job.d.spot_flatness, job.d.preview_at, job.d.aim_height_m = sp.position, sp.spread_m, vis.position, sp.height_m
             if #job.rejects > 0 then job.d.rejected = job.rejects end

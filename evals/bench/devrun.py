@@ -32,6 +32,7 @@ from .spec import Case, calls_cap, load_cases
 
 ROOT = hashes.ROOT
 POLL_S = 0.25
+_WARMED = {"done": False}  # controller.warm_up() once per process, before the first case (broker review, L27)
 GUID = "E71C5DC146F0A55B69FF52A881255DEF"  # ClaudeDev on the dev server (DISCOVERIES 2026-10-25)
 
 
@@ -87,6 +88,12 @@ def build_dev_companion(game, workdir: Path, caps_cap: dict[str, int], log_name:
     agent = LiveAgent(game, controller, Planner(pln, store.skills, log), executor, store, log,
                       prefixes=["claude ", "claude,", "@claude "], calls_per_min=1000, debounce_s=0.0)
     agent.body_self_defends = "combat_status" in caps.extras
+    if not _WARMED["done"] and hasattr(controller, "warm_up"):
+        try:
+            controller.warm_up()  # primes the provider's prompt cache so case 1's latency isn't a cold start
+        except Exception as exc:  # warm-up is an optimisation; never a reason to fail a case
+            log.log("bench_warm_up_error", error=repr(exc))
+        _WARMED["done"] = True
     return agent, ctl, pln, log
 
 

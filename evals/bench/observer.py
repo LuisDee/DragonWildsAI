@@ -82,7 +82,8 @@ class ObservedGame(GameInterface):
     def _observe(self, tool: str, args: dict, run: Callable[[], dict]) -> dict:
         if self.guard:
             self.guard(tool, args)  # may raise Abort
-        before, t0, w0 = self._probe(), self.clock(), time.time()
+        t0, w0 = self.clock(), time.time()  # stamped BEFORE the probe: latency must not include the probe (broker review)
+        before = self._probe()
         reply = run()
         after, t1, w1 = self._probe(), self.clock(), time.time()
         self._drain_referee()

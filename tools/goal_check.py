@@ -371,7 +371,7 @@ def damage_trend(d: Data, name: str, spec: str) -> Row:
 
 def every_skill(d: Data, cfg: dict) -> list[Row]:
     """M3: per skill in the build's skill manifest, three modes (asked, initiative, plus5), each pass^1, valid."""
-    skills = skill_manifest(d.root)
+    skills = skill_manifest(d.root, d.targets)
     modes = ("asked", "initiative", "plus5")
     out = []
     for m in modes:
@@ -389,8 +389,12 @@ def every_skill(d: Data, cfg: dict) -> list[Row]:
     return out
 
 
-def skill_manifest(root: Path = ROOT) -> list[str]:
-    """Every skill named in the build's game data (SKILL_* assets in perks and recipes)."""
+def skill_manifest(root: Path = ROOT, targets: dict | None = None) -> list[str]:
+    """The frozen M3 skill list (goal_targets every_skill.skills_frozen, Luis 2026-10-26); the data scan only when
+    no frozen list exists."""
+    frozen = ((targets or read_json(root / "docs" / "goal_targets.json") or {}).get("every_skill") or {}).get("skills_frozen")
+    if frozen:
+        return sorted(frozen)
     import re
     names: set[str] = set()
     for f in sorted((root / "data").glob("*_*.json")):
@@ -474,13 +478,14 @@ def rows_for(d: Data, key: str) -> list[Row]:
             return [Row(key, MET if not bad and pinned_stage_count(t) <= len(ids) else NOT_MET,
                         f"{len(ids) - len(bad)}/{max(len(ids), pinned_stage_count(t))} stages", "all stages",
                         note=("open: " + ", ".join(bad[:5])) if bad else "")]
-        return [k_target(d, key, lambda c: c.get("capstone") == cid, 1, None)]
+        return [k_target(d, key, lambda c: c.get("capstone") == cid, int(rule.get("capstone_repeats_k", 1)), None)]
     if key in FAMILY_TARGETS:
         return [family_target(d, key, FAMILY_TARGETS[key], float(t[key]))]
     if key == "every_skill":
         return every_skill(d, t.get("every_skill") or {})
     if key == "combat_basics_live_proven":
-        return [k_target(d, f"{key}:{b}", lambda c, b=b: c.get("basic") == b, 1, None) for b in t.get(key) or []]
+        kb = int(rule.get("combat_basics_repeats_k", 1))
+        return [k_target(d, f"{key}:{b}", lambda c, b=b: c.get("basic") == b, kb, None) for b in t.get(key) or []]
     if key == "combat_tactics":
         cfg = t.get(key) or {}
         out = []

@@ -23,7 +23,7 @@ SKILLS = gc.skill_manifest(ROOT)
 @pytest.fixture(autouse=True)
 def _test_mode(monkeypatch):
     monkeypatch.setenv(gc.TEST_ENV, "1")  # the real "GOAL MET sha=" literal never appears in test output
-    monkeypatch.setattr(gc, "skill_manifest", lambda root=ROOT: SKILLS)
+    monkeypatch.setattr(gc, "skill_manifest", lambda root=ROOT, targets=None: SKILLS)
 
 
 def case(cid: str, family: str, result: str = "pass", **kw) -> dict:
@@ -37,9 +37,10 @@ SIZES = {"spell_cast": 80, "craft": 40, "spell_use": 20, "combat": 20, "adversar
 def full_suite() -> list[dict]:
     out = [case(f"{f}_{i}", f) for f, n in SIZES.items() for i in range(n)]
     out += [case(f"lt_{t}_{k}", "long_task", long_task=t, repeat_i=k) for t in TARGETS["long_tasks"]["required"] for k in range(3)]
-    out += [case(f"basic_{b}", "combat_basic", basic=b) for b in TARGETS["combat_basics_live_proven"]]
+    out += [case(f"basic_{b}_{k}", "combat_basic", basic=b, repeat_i=k) for b in TARGETS["combat_basics_live_proven"] for k in range(3)]
     out += [case(f"skill_{s}_{m}", "skill_train", skill=s, mode=m) for s in SKILLS for m in ("asked", "initiative", "plus5")]
-    out += [case("cap_velgar", "capstone", capstone="slay_velgar_solo"), case("capstone_stage_1", "capstone_stage")]
+    out += [case(f"cap_velgar_{k}", "capstone", capstone="slay_velgar_solo", repeat_i=k) for k in range(3)]
+    out += [case("capstone_stage_1", "capstone_stage")]
     out += [case(f"trend_{i}", "tactics_trend") for i in range(5)]
     for i, c in enumerate(out):
         c["process"] = {"shots": 10, "hits": 9, "telegraphs": 10, "dodged": 9, "efficiency_pct": 85.0,

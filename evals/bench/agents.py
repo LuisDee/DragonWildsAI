@@ -44,6 +44,12 @@ class CountingLLM:
     def model(self) -> str:
         return getattr(self.inner, "model", "unknown")
 
+    def __getattr__(self, name: str):
+        # warm (L27 cache warm-up) and other optional client features pass through; only complete() is capped
+        if name == "warm" and hasattr(self.inner, "warm"):
+            return self.inner.warm
+        raise AttributeError(name)
+
     def complete(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
         if self.calls >= self.cap:
             self.exceeded = True
