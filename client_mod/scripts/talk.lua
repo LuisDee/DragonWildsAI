@@ -22,6 +22,11 @@
 --           (finding 6), re-diffed on end.
 --   orphans sweep_orphan(): a conversation nobody owns is closed with the panel's own Cancel (finding 9).
 --   Never Server_* / the advance RPCs / HideConversationUI; reads only, presses through the input gate.
+-- Rev 3 (re-review v2, R1-R10): UObject wrappers are matched by U.short names, never ==; one clock (the pawn's
+-- GetRealTimeSeconds); the orphan sweep is re-entrancy-guarded and presses as the modal's owner; the input claim is
+-- held only while a talk job runs (between turns the sweep asks talk, which alone decides ownership); any read of
+-- an open conversation adopts it; the update counter hooks the client RPC + the BP event, and the highlight-confirm
+-- path is enabled only once the counter is proven live.
 -- W = the engine touches (tests replace them). Live state in _G.DWTalk (hot reload safe).
 local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
 local U = assert(loadfile(ROOT .. "/mod/body/util.lua"))()
@@ -32,10 +37,13 @@ M.cfg = {
     open_wait_s = 4.0, change_wait_s = 3.0, highlight_wait_s = 0.8, max_lines = 8, tap_frames = 1, -- ONE frame: a held key must never land on a newer node
     episode_timeout_s = 90, lease_s = 5, decide_s = 0.1,
     panel_class = "ConversationMainPanel", conversation_mode_word = "Conversation", gameplay_mode = "DIM_Gameplay",
-    hook_path = "/Script/Dominion.PlayerConversationComponent:HandleConversationUpdated",
-    orphan_s = 1.0, cancels = 3, abandon_s = 300,
+    -- R6: the update counter: the incoming client RPC (ProcessEvent-dispatched) and the BP implementable event
+    hook_paths = { "/Script/CommonConversationRuntime.ConversationParticipantComponent:ClientUpdateConversation",
+                   "/Script/Dominion.PlayerConversationComponent:BP_HandleConversationUpdated" },
+    hook_verified = false, -- true only after a live proof; the counter also proves itself (C().hook_proven)
+    orphan_s = 1.0, cancels = 3, abandon_s = 120, -- R5: a dialogue untouched by talk for 2 min is abandoned
     ui_handler_fallback = false, -- finding 18a step 2: enabled only after an offline + live probe of the handler
-    each_cap = 16,
+    each_cap = 16, each_cap_quest_fields = 64,
 }
 M.CHOICE = { [0] = "server_only", [1] = "available", [2] = "unavailable" } -- EConversationChoiceType
 M.QUEST = { [0] = "ungiven", [1] = "given", [2] = "complete" }          -- EQuestState
@@ -153,6 +161,23 @@ function M.quest_diff(q0, q1)
     return out
 end
 
+-- A stable text key of a quest diff (R10: a second change to the same quest is still a change).
+function M.diff_key(qd)
+    local parts = {}
+    for _, d in ipairs(qd or {}) do
+        local x = { tostring(d.quest), tostring(d.from), tostring(d.to), tostring(d.objective) }
+        for _, kind in ipairs({ "ints", "bools" }) do
+            local ks = {}
+            for k, v in pairs(d[kind] or {}) do ks[#ks + 1] = k .. "=" .. tostring(v.to) end
+            table.sort(ks)
+            x[#x + 1] = table.concat(ks, ",")
+        end
+        parts[#parts + 1] = table.concat(x, ";")
+    end
+    table.sort(parts)
+    return table.concat(parts, "|")
+end
+
 -- The node signature (finding 3): the node handle's fields as read, speaker, line, option texts and types.
 function M.signature(st)
     if not st or not st.active then return "inactive" end
@@ -179,13 +204,22 @@ end
 local W = {}
 M.W = W
 local GS
+-- ONE clock (R3): the game's real-time seconds with the pawn as world context; nil when unreadable (callers treat
+-- nil as "not now", never mixing in os.time()).
 function W.now(ctx)
     if M.clock then return M.clock() end
+    if not ctx then return nil end
     GS = GS or StaticFindObject("/Script/Engine.Default__GameplayStatics")
     local ok, t = pcall(function() return GS:GetRealTimeSeconds(ctx) end)
-    return ok and t or os.time()
+    return (ok and type(t) == "number") and t or nil
 end
-function W.pc() local s = mod("sense"); return s and s.local_pc and s.local_pc() or nil end
+-- R9: the cached, re-validated controller from input.lua (no FindAllOf per call); sense as the fallback.
+function W.pc()
+    local inp = mod("input")
+    if inp and inp.pc then local pc = inp.pc(); if pc then return pc end end
+    local s = mod("sense")
+    return s and s.local_pc and s.local_pc() or nil
+end
 function W.pawn(pc)
     if not U.valid(pc) then return nil end
     local p = U.try(function() return pc.Pawn end)
@@ -193,6 +227,8 @@ function W.pawn(pc)
 end
 function W.pawn_id(pawn) return U.short(pawn) end
 function W.dead(pawn) return U.try(function() return pawn.HealthComponent:IsDead() end) == true end
+local function same(a, b) return a ~= nil and b ~= nil and U.short(a) ~= nil and U.short(a) == U.short(b) end -- R1
+M._same = same
 local function each(arr, fn, cap)
     if paused() or not arr then return end
     local n = 0
@@ -224,10 +260,11 @@ end
 function W.panel(pc)
     local _, part = participant(pc)
     local c = C()
-    if c.panel and U.valid(c.panel) and U.try(function() return c.panel.DomConversationParticipant end) == part then return c.panel end
+    local function mine(p) return U.valid(p) and (part == nil or same(U.try(function() return p.DomConversationParticipant end), part)) end
+    if c.panel and mine(c.panel) then return c.panel end
     c.panel = nil
     for _, p in ipairs(U.find_all(M.cfg.panel_class, { skip_defaults = true }) or {}) do
-        if U.valid(p) and (part == nil or U.try(function() return p.DomConversationParticipant end) == part) then c.panel = p; break end
+        if mine(p) then c.panel = p; break end
     end
     return c.panel
 end
@@ -241,7 +278,12 @@ function W.read(pc)
     if msg then
         st.speaker = text(U.try(function() return msg.Message.ParticipantDisplayName end))
         st.line = text(U.try(function() return msg.Message.Text end))
-        st.node = U.str(U.try(function() return msg.CurrentNode.NodeGUID end)) or U.str(U.try(function() return msg.CurrentNode.NodeIndex end))
+        local g = U.try(function() return msg.CurrentNode.NodeGuid end) -- R8: the FGuid's four numbers
+        if g then
+            local parts = {}
+            for _, k in ipairs({ "A", "B", "C", "D" }) do parts[#parts + 1] = tostring(num(U.try(function() return g[k] end))) end
+            st.node = table.concat(parts, "-")
+        end
         each(U.try(function() return msg.Options end), function(o)
             st.options[#st.options + 1] = { text = text(U.try(function() return o.ChoiceText end)), type = num(U.try(function() return o.ChoiceType end)) }
         end)
@@ -255,7 +297,7 @@ function W.read(pc)
             if U.valid(d) then
                 local a = U.try(function() return d.InputAction end)
                 local n
-                for _, k in ipairs(keys) do if U.valid(a) and k.a == a then n = k.n end end
+                for _, k in ipairs(keys) do if U.valid(a) and same(k.a, a) then n = k.n end end
                 st.panel_rows[#st.panel_rows + 1] = { text = text(U.try(function() return d.DisplayName end)), act = U.valid(a) and a or nil, n = n or i, data = d }
             end
         end)
@@ -276,32 +318,43 @@ function W.quests(pc)
             local r = { quest = text(U.try(function() return d.QuestName end)) or U.short(d),
                         state = M.QUEST[num(U.try(function() return q.State end)) or -1] or tostring(U.try(function() return q.State end)),
                         objective = U.str(U.try(function() return q.CurrentObjective end)), ints = {}, bools = {} }
-            each(U.try(function() return q.QuestInts end), function(x) local k = U.str(U.try(function() return x.Name end)); if k then r.ints[k] = num(U.try(function() return x.Value end)) end end)
-            each(U.try(function() return q.QuestBools end), function(x) local k = U.str(U.try(function() return x.Name end)); if k then r.bools[k] = U.try(function() return x.Value end) == true end end)
+            each(U.try(function() return q.QuestInts end), function(x) local k = U.str(U.try(function() return x.Name end)); if k then r.ints[k] = num(U.try(function() return x.Value end)) end end, M.cfg.each_cap_quest_fields)
+            each(U.try(function() return q.QuestBools end), function(x) local k = U.str(U.try(function() return x.Name end)); if k then r.bools[k] = U.try(function() return x.Value end) == true end end, M.cfg.each_cap_quest_fields)
             out[#out + 1] = r
         end
     end, 128)
     return out
 end
 -- A UI press through the input gate: allowed only while the open modal is the dialogue itself (finding 7b).
+-- A UI press as the conversation modal's OWNER (R2): claim "conversation" for the press, so input's sweep (which
+-- calls talk.sweep_orphan for an unowned conversation) is never re-entered from our own press; released after,
+-- unless a talk job holds the claim.
 function W.ui_press(act)
     local inp = mod("input")
     if not inp then return false, "no input layer" end
     local m = inp.modal and inp.modal() or nil
     local kind = m and m.kind
     if m and not (kind == "conversation" or (kind == "mode" and M.is_conversation_mode(m.mode))) then return false, m end
-    if inp.inject then
-        local ok, why = inp.inject(act, nil, { modal = kind })
-        return ok == true, why
-    end
-    return false, "no input.inject"
+    if not inp.inject then return false, "no input.inject" end
+    local held = C().claimed
+    if not held and inp.claim then pcall(inp.claim, "conversation", "talk") end
+    local ok, r = pcall(inp.inject, act, nil, { modal = kind })
+    if not held and inp.release then pcall(inp.release, "conversation") end
+    if not ok then return false, tostring(r) end
+    return r == true, nil
 end
-function W.claim() local inp = mod("input"); if inp and inp.claim then pcall(inp.claim, "conversation", "talk") end end
-function W.release() local inp = mod("input"); if inp and inp.release then pcall(inp.release, "conversation") end end
+function W.claim() local inp = mod("input"); C().claimed = true; if inp and inp.claim then pcall(inp.claim, "conversation", "talk") end end
+function W.release() local inp = mod("input"); C().claimed = nil; if inp and inp.release then pcall(inp.release, "conversation") end end
 function W.arm_hook(log)
     local h = mod("hookhub")
     if not (h and h.on) then return false end
-    return h.on(M.cfg.hook_path, "talk", function() local k = HK(); k.count = k.count + 1 end, { log = log }) -- count only (finding 5b)
+    local any = false
+    for _, path in ipairs(M.cfg.hook_paths) do
+        local ok = h.on(path, "talk", function() local k = HK(); k.count = k.count + 1 end, { log = log }) -- count only
+        any = any or ok == true
+    end
+    HK().armed = any
+    return any
 end
 function W.skills() return mod("skills") end
 
@@ -343,6 +396,8 @@ local function result_of(J, ok, reason, data)
     data.options = public_options(J.shown or {})
     data.node = J.sig
     data.chose = J.chose
+    data.picked_via = J.picked_via
+    data.hook_armed, data.hook_count = HK().armed == true, HK().count
     data.note = data.note or J.note
     local base = (C().conv and C().conv.base) or J.q0
     local qd = M.quest_diff(base, W.quests(J.pc) or base)
@@ -356,12 +411,16 @@ local function finish(J, res)
     local c = C()
     if J.handle then pcall(CancelDelayedAction, J.handle) end
     J.handle, J.tap = nil, nil
+    W.release() -- R5: never held between turns (Lua only, safe under pause)
     if not paused() and res.data then
         if res.data.in_conversation then
-            W.claim()
-            if c.conv then c.conv.sig, c.conv.shown, c.conv.last_call = J.sig, J.shown, J.t end
+            local cv = c.conv
+            if not cv and J.st and J.st.npc then -- R4: adopt what we just read
+                cv = { npc = J.st.npc, npc_name = J.npc_name or J.st.speaker, pawn_id = J.pawn_id, base = J.q0, since = J.t }
+                c.conv = cv
+            end
+            if cv then cv.sig, cv.shown, cv.last_call = J.sig, J.shown, J.t end
         else
-            W.release()
             conv_clear("ended")
         end
     end
@@ -403,10 +462,20 @@ end
 -- read the node (full read, once per change), collect its line, continue through choice-less lines
 local function step_read(J)
     local st = W.read(J.pc)
+    local prev_sig = J.sig
     J.st = st
     J.sig = M.signature(st)
     J.shown = M.choices(st)
+    -- R6: the counter proves itself once it moved together with a real content change
+    if J.count_moved and prev_sig and J.sig ~= prev_sig and st.active then C().hook_proven = true end
+    J.count_moved = nil
+    -- R4: any read of an open conversation adopts it (opened by interact, a bridge restart, ...)
+    if st.active and st.npc and (not C().conv or C().conv.npc ~= st.npc) then
+        C().conv = { npc = st.npc, npc_name = J.npc_name or st.speaker, pawn_id = J.pawn_id, base = J.q0, since = J.t, last_call = J.t }
+    end
+    if J.mode == "choose" and not J.picked_via and J.sig ~= prev_sig then J.picked_via = "key" end
     if not st.active then
+        if J.mode == "choose" and not J.picked_via then J.picked_via = "key" end
         return finish(J, result_of(J, true, nil, { ended = true, detail = "The conversation ended." }))
     end
     if st.mode and not M.is_conversation_mode(st.mode) and st.mode ~= M.cfg.gameplay_mode then
@@ -422,10 +491,11 @@ local function step_read(J)
             tostring(st.line or "..."), options_words(J.shown)) }))
     end
     local qd = M.quest_diff((C().conv and C().conv.base) or J.q0, W.quests(J.pc) or {})
-    if #qd > (J.quest_changes or 0) and (J.advanced or 0) > 0 then
+    local qkey = M.diff_key(qd)
+    if J.quest_key ~= nil and qkey ~= J.quest_key and (J.advanced or 0) > 0 then -- R10: by content, not count
         return finish(J, result_of(J, true, nil, { detail = "A quest changed; stopping to look.", quest_stop = true }))
     end
-    J.quest_changes = #qd
+    J.quest_key = qkey
     -- finding 1: Continue only when THIS read shows no user options and the panel list is empty
     local any_user = false
     for _, o in ipairs(st.options or {}) do if o.type == 1 or o.type == 2 then if o.text then any_user = true end end end
@@ -449,6 +519,9 @@ local function frame(J)
         J.result = { ok = false, reason = "companion_down", data = { why = "paused", detail = "The world is reloading." } }
         if c.job == J then c.job = nil end
         conv_clear("paused")
+        W.release() -- R5: Lua-only releases are safe under pause
+        local arbp = mod("arbiter")
+        if arbp and J.token and not J.released then J.released = true; pcall(arbp.release, nil, J.token, "paused") end
         return
     end
     local pawn = W.pawn(J.pc)
@@ -508,7 +581,8 @@ local function frame(J)
     end
     if ph == "wait_update" then
         if J.tap then return end
-        if not sc.active or (sc.count or 0) > (J.count0 or 0) then return step_read(J) end
+        if (sc.count or 0) > (J.count0 or 0) then J.count_moved = true end
+        if not sc.active or J.count_moved then return step_read(J) end
         if J.t - J.phase_t > M.cfg.change_wait_s then
             local st = W.read(J.pc) -- the hook may be missing: one full read before giving up
             if M.signature(st) ~= J.sig then return step_read(J) end
@@ -519,17 +593,22 @@ local function frame(J)
     end
     if ph == "choose_wait" then
         if J.tap then return end
-        if not sc.active or (sc.count or 0) > (J.count0 or 0) then return step_read(J) end
+        if (sc.count or 0) > (J.count0 or 0) then J.count_moved = true end
+        if not sc.active or J.count_moved then return step_read(J) end
         local since = J.t - J.phase_t
+        local hook_ok = M.cfg.hook_verified or C().hook_proven == true
         if since >= M.cfg.highlight_wait_s and not J.confirmed then
             local st = W.read(J.pc)
             if M.signature(st) ~= J.sig then return step_read(J) end
-            -- finding 2: the key may only highlight; confirm ONLY when the highlight is the model's choice
-            if st.selected and st.selected == J.chose and st.continue then
+            -- finding 2 + R6 + R7: the key may only highlight; confirm ONLY when the counter is proven (so "no update"
+            -- really means none), the highlight CHANGED because of our key, and it is the model's choice
+            if hook_ok and st.selected and st.selected == J.chose and st.selected ~= J.selected0 and st.continue then
+                J.picked_via = "key+confirm"
                 J.confirmed = true
                 C().counts.confirms = C().counts.confirms + 1
                 say(J.log, "option highlighted, confirming")
                 if not press(J, st.continue, "confirm my answer") then return end
+                J.count0 = HK().count
                 J.phase_t = J.t
                 return
             end
@@ -537,6 +616,13 @@ local function frame(J)
         if since > M.cfg.change_wait_s then
             local st = W.read(J.pc)
             if M.signature(st) ~= J.sig then return step_read(J) end
+            if not hook_ok then
+                -- without a proven counter an identical hub and a deaf key look the same: say exactly that
+                J.st, J.shown = st, M.choices(st)
+                return fail(J, "verification_failed", "no_visible_change", string.format(
+                    "I picked \"%s\", but the conversation looks exactly the same: it may have come back to the same question, or my key didn't reach it.",
+                    tostring(J.chose)))
+            end
             return fail(J, "verification_failed", "input_not_reaching_ui", string.format(
                 "I pressed the key for \"%s\" but the conversation didn't react; I'll stop here and ask for help rather than guess.", tostring(J.chose)))
         end
@@ -554,7 +640,9 @@ local function new_job(log, ctx, mode, pc, extra)
     local J = { gen = c.gen, log = log, pc = pc, mode = mode, t0 = t, t = t, phase_t = t, lines = {}, api = ctx and ctx.api or M.api }
     for k, v in pairs(extra or {}) do J[k] = v end
     J.q0 = J.q0 or W.quests(pc) or {}
+    J.pawn_id = W.pawn_id(pawn)
     c.job = J
+    W.claim() -- held while this job runs; finish releases it (R5)
     return J
 end
 
@@ -602,6 +690,10 @@ function M.start(log, args, ctx)
         return { ok = true }
     end
     if args.choose ~= nil then
+        local running = C().job
+        if running and not running.done and running.mode == "choose" then
+            return bad("invalid_args", "answer_pending", "I'm still waiting to see what my last answer did.")
+        end
         if not sc.active then return bad("invalid_args", "not_in_conversation", note or "I'm not talking to anyone, so there's nothing to choose.") end
         local st = W.read(pc)
         local cv = C().conv
@@ -627,6 +719,7 @@ function M.start(log, args, ctx)
         if not act then return bad("body_error", "no_option_input", "I can see the options but not the key that picks them.") end
         local J = new_job(log, ctx, "choose", pc, { chose = o.text, q0 = cv.base, note = note })
         J.st, J.sig, J.shown, J.count0, J.npc_name = st, sig, now_shown, st.count, cv.npc_name
+        J.selected0 = st.selected
         C().counts.choices = C().counts.choices + 1
         if not press(J, act, "answer") then return J.result end
         set_phase(J, "choose_wait", "choose " .. o.n .. " " .. o.text)
@@ -689,9 +782,12 @@ end
 function M.sweep_orphan(log)
     if paused() then return { ok = true, skipped = "paused" } end
     local c = C()
+    if c.in_sweep then return { ok = true, skipped = "reentrant" } end -- R2
     local pc = W.pc()
-    if not W.pawn(pc) then return { ok = true, skipped = "no pawn" } end
-    local now = W.now()
+    local pawn = W.pawn(pc)
+    if not pawn then return { ok = true, skipped = "no pawn" } end
+    local now = W.now(pawn)
+    if type(now) ~= "number" then return { ok = true, skipped = "no clock" } end -- R3: never mix clocks
     local sc = W.scalars(pc)
     if not sc.active then c.orphan = nil; return { ok = true, state = "none" } end
     local cv = c.conv
@@ -703,8 +799,11 @@ function M.sweep_orphan(log)
     if now - o.since < M.cfg.orphan_s or (o.last and now - o.last < M.cfg.orphan_s) then return { ok = true, state = "orphan_wait" } end
     local st = W.read(pc)
     if not st.cancel then return { ok = false, state = "no_cancel_key", npc = sc.npc } end
-    local ok = W.ui_press(st.cancel)
-    o.cancels, o.last = o.cancels + 1, now
+    o.cancels, o.last = o.cancels + 1, now -- R2: counted BEFORE the press
+    c.in_sweep = true
+    local okp, ok = pcall(W.ui_press, st.cancel)
+    c.in_sweep = nil
+    ok = okp and ok
     c.counts.orphan_cancels = c.counts.orphan_cancels + 1
     say(log, string.format("orphan conversation with %s: Cancel %d -> %s", tostring(sc.npc), o.cancels, tostring(ok)))
     if cv then conv_clear("orphaned") end

@@ -202,7 +202,7 @@ do
     check("start: greyed option kept with available=false", res.data.options[3].available == false)
     check("start: node signature returned", type(res.data.node) == "string" and res.data.node ~= "inactive")
     check("start: one Continue for the one continue-only line", count(Wd.presses, "continue") == 1)
-    check("start: claimed", Wd.claimed == true and A.owner() == nil)
+    check("start: claim released between turns (R5)", Wd.claimed == false and A.owner() == nil)
 
     -- hub: the same node comes back identical; the update counter still proves the advance (finding 5)
     res = talk({ choose = 1 })
@@ -313,6 +313,18 @@ do
     Wd.modal = nil
     reset()
     check("unknown target", K.HANDLERS.talk(nil, { target = "nobody" }, { api = K.api }).reason == "unknown_target")
+end
+
+-- ---------------------------------------------------------------- a second choose while the first is pending
+do
+    reset()
+    talk({ target = "BP_NPC_WiseOldMan_C_1" })
+    local a = K.HANDLERS.talk(nil, { choose = 2 }, { api = K.api })
+    local b = K.HANDLERS.talk(nil, { choose = 2 }, { api = K.api })
+    check("double choose: the second waits for the first", a.pending ~= nil and b.reason == "invalid_args" and b.data.why == "answer_pending", b.data and b.data.why)
+    local res
+    pump(10, function() res = a.pending.poll(); return res ~= nil end)
+    check("double choose: the first one completes", res and res.ok == true)
 end
 
 -- ---------------------------------------------------------------- finding 9: orphan cleanup with the panel's Cancel

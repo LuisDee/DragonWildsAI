@@ -1,6 +1,6 @@
 # Talk to NPCs: `talk {target?, choose?, leave?}` (design, for review)
 
-Status: REV 2, 2026-10-26 (skills-coverage agent). Review docs/reviews/2026-10-26-talk-primitive-review.md (approve with changes) folded in, §8. Code: client_mod/scripts/talk.lua v2, awaiting a cold re-review. Build 26161880. Dev world only. Items marked **[UNVERIFIED]** come from the reflection dump and need the live probe in §7.
+Status: REV 3, 2026-10-26 (rev 2 re-review: CHANGES NEEDED, R1-R10, fixed in rev 3 §9) (skills-coverage agent). Review docs/reviews/2026-10-26-talk-primitive-review.md (approve with changes) folded in, §8. Code: client_mod/scripts/talk.lua v2, awaiting a cold re-review. Build 26161880. Dev world only. Items marked **[UNVERIFIED]** come from the reflection dump and need the live probe in §7.
 
 ## 1. Goal (what Luis will see)
 Claude walks up to an NPC (the Wise Old Man, Zanik, ...), talks to him, and reads the NPC's lines and the answer options. **He** picks an answer, the model does, from the option texts, and says what he chose and why. He sees the quest change that follows.
@@ -113,6 +113,21 @@ No NPC, quest or option names in code. Talkable targets are any interactable the
 | 20 | No dialogue UI | Active with no panel → `no_dialogue_ui` with the line; nothing pressed. |
 | 2c | Argument combinations | target with choose or leave → `invalid_args` (mixed_args). `{}` with a conversation open → re-read. `{}` without one → `not_in_conversation`. |
 | 22 | P3 changes quest state | P3 only on ClaudeDev; the before/after quest snapshot is logged. P1 (read-only, with the hook registration) runs first and separately. |
+
+## 9. Rev 3: the v2 re-review (R1-R10)
+| # | Finding | Rev 3 |
+|---|---|---|
+| R1 | UObject wrappers never compare equal with `==` | Panel ownership and option-key numbering compare `U.short` names (`M._same`). `test_talk_engine.lua` uses fresh wrapper tables per property read, so a `==` regression fails offline. |
+| R2 | sweep_orphan recursed through `input.gate` (197 Cancels in one frame) | A re-entrancy guard; Cancels are counted before the press; talk presses as the "conversation" owner (claim for the press), so input's sweep never re-enters. Through the real input.lua: at most 1 Cancel per `orphan_s`, ≤ 3 total. |
+| R3 | Two clocks | One clock: `GetRealTimeSeconds(pawn)` everywhere (`W.now(pawn)`; nil when unreadable = "not now", never `os.time()`). Tested with a 5000 s offset. |
+| R4 | A conversation talk did not open is never adopted | Every read of an open conversation adopts it (`conv` = npc, base quests, pawn, last call); `finish` stores the node signature. Tested: opened by interact → `{}` → choose 2. |
+| R5 | An abandoned dialogue is never swept; pause leaks | The input claim is held only while a talk job runs. Between turns, input's sweep asks `talk.sweep_orphan`, which decides: owned while talk's last call on that NPC is < `abandon_s` = 120 s old (about two brain turns' worth of silence plus margin), else Cancel. The pause path releases the claim and the arbiter (Lua only). input.lua must stop counting its own tries for the conversation kind (capability agent; test shows PENDING until then). |
+| R6 | The HandleConversationUpdated hook may never fire | The counter hooks `ConversationParticipantComponent:ClientUpdateConversation` (client RPC, ProcessEvent) and `PlayerConversationComponent:BP_HandleConversationUpdated` (BP event), count only. The confirm path is disabled until the counter is proven: `cfg.hook_verified` or it moved together with a real content change in this process. Replies carry `hook_armed`/`hook_count`. Without proof, an unchanged node after a pick is `no_visible_change` (it says it can't tell a hub from a deaf key), never a confirm press. |
+| R7 | Confirm only a highlight our key caused | `selected` is recorded before the press; confirm only if it changed to the chosen text. `picked_via = "key" / "key+confirm"`. |
+| R8 | The node part of the signature was empty | `NodeGuid.A/B/C/D` read as numbers. |
+| R9 | FindAllOf per frame | `W.pc` uses input.lua's cached `input.pc()`. |
+| R10 | Quest stop by count; truncated fields | The quest stop compares a content key of the diff; QuestInts/QuestBools read up to 64 each. |
+| — | A second choose while one is pending | `answer_pending`: it never presses twice on one node. |
 
 ## Search record
 - UE CommonConversationRuntime API, `FClientConversationOptionEntry` (choice_text, choice_type, choice_reference; extra_data is not sent back): https://docs.unrealengine.com/4.27/en-US/API/Plugins/CommonConversationRuntime/FClientConversationOptionEntry/index.html
