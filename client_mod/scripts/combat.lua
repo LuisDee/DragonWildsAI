@@ -58,7 +58,8 @@ M.cfg = {
     magic_base_dmg = 10, eat_every_s = 8, attempts_max = 20, -- odds: rune damage prior; the game's eating pace; boss attempts kept
     -- (boss fight priors: client_mod/scripts/boss_profiles.lua; item traits: item_traits.lua)
     hazard_s = 0.25, hazard_window_s = 15, hazard_persist_s = 30, hazard_margin_cm = 40, -- ground hazards (gap 2)
-    status_s = 0.5, cure_at = 0.05, no_cure_recheck_s = 10, -- statuses read every status_s in a fight; a harmful one above cure_at x max -> its cure
+    status_s = 0.5, cure_at = 0.05, no_cure_recheck_s = 10,
+    ambient = nil, ambient_status_s = 2.0, -- out-of-fight hazards/cures: nil = env DW_COMBAT_AMBIENT ("1" = on); off by default -- statuses read every status_s in a fight; a harmful one above cure_at x max -> its cure
     odds_m = 40, odds_max = 6, facts_s = 30, census_s = 0.5, odds_prep_s = 10, -- get_state fight_odds: creatures in sight
     memory_enabled = true, history_max = 10, steam_manifest = "C:/Program Files (x86)/Steam/steamapps/appmanifest_1374490.acf",
     chase_moved_m = 3, -- a stall while the target itself moved this far = it is running, not a wall
@@ -769,7 +770,7 @@ function M.ability_frame(F, me)
                 local info = { key = tostring(r.name or "?") .. ":" .. r.cls, dmg_time = pr.impact_s, unblockable = pr.unblockable,
                                ability = pr.kind, side = pr.side, no_jump = pr.jumpable == false or nil,
                                shape = { reach_cm = (pr.reach_m or 20) * 100, aoe = pr.aoe or nil } }
-                if F.phase ~= "defend" and F.phase ~= "flee" and F.phase ~= "loot" and F.phase ~= "restore" then
+                if not F.ambient and F.phase ~= "defend" and F.phase ~= "flee" and F.phase ~= "loot" and F.phase ~= "restore" then
                     return M._start_defend(F, me, id, r.t, info)
                 end
             end
@@ -1644,6 +1645,7 @@ function M.status_frame(F, pawn, me)
     local cp = F.cure_pending
     if cp and F.t - cp.t >= 3 then
         F.cure_pending = nil
+        if F.ambient then M.ambient_release(F, "cure checked") end
         local now_v = (st[cp.status] or {}).value or 0
         if now_v < cp.v0 - 0.5 then
             F.n_cures = (F.n_cures or 0) + 1
@@ -1675,6 +1677,7 @@ function M.status_frame(F, pawn, me)
             F.no_cure[status] = nil
             local ok = eat_allowed(F)
             if not ok then return end
+            if F.ambient and not M.ambient_acquire(F, "cure " .. status) then return end
             F.next_eat = F.t + M.cfg.eat_every_s
             local r = mcall("inventory", "use", F.log, item.item)
             say(F.log, string.format("%s %s %.0f: use %s (%s) -> %s", status, how, e.value, tostring(item.name), tostring(item.item),
@@ -2559,7 +2562,8 @@ function M.hazard_frame(F, pawn, me, acts)
         local st = mcall("move", "status")
         if F.t >= e.until_t or (type(st) == "table" and st.mode == "idle" and F.t - e.t > 0.3) then
             F.escape = nil
-            if e.prev then mcall("move", "restore", F.log, e.prev) end
+            if F.ambient then M.ambient_release(F, "hazard escaped") -- the arbiter resumes whoever had the pawn
+            elseif e.prev then mcall("move", "restore", F.log, e.prev) end
             F.following = false -- the fight's own follow starts again
             say(F.log, "hazard: out of " .. tostring(e.zone) .. " (" .. tostring(e.how) .. ")")
             return false
@@ -2577,6 +2581,7 @@ function M.hazard_frame(F, pawn, me, acts)
     if zin.id == F.escaped_zone and F.t - (F.escaped_t or -9) < 1.0 then return false end -- just tried this one
     F.escaped_zone, F.escaped_t = zin.id, F.t
     F.n_hazards = (F.n_hazards or 0) + 1
+    if F.ambient and not M.ambient_acquire(F, "hazard " .. tostring(info.hazard)) then return false end
     local r = mcall("move", "escape_zones", F.log, { time_s = info.land_s, bound = c.boss_bound })
     if type(r) == "table" and r.ok and not r.already_safe then
         F.escape = { t = F.t, until_t = F.t + (r.eta_s or 1) + 0.6, prev = r.prev, zone = zin.id, how = "walked" }
@@ -2593,9 +2598,16 @@ function M.hazard_frame(F, pawn, me, acts)
         start_cast(F, "phase_dash", pd.spell_asset, "hazard: " .. tostring(info.hazard))
     end
     if acts.evade and (me.stamina or 0) >= (c.evade_cost or 15) then
-        F.evade_dir = away_dir(me.pos, { X = zin.X, Y = zin.Y, Z = me.pos.Z }, "back")
-        F.evade_until = F.t + 0.35
-        tap(F, acts.evade, 4, "evade_hazard")
+        if F.ambient then
+            -- no fight input pump outside a fight: one evade press through the input gate (not directional)
+            local inp = mod("input")
+            if inp and inp.inject then pcall(inp.inject, acts.evade) end
+            M.ambient_release(F, "hazard dodged")
+        else
+            F.evade_dir = away_dir(me.pos, { X = zin.X, Y = zin.Y, Z = me.pos.Z }, "back")
+            F.evade_until = F.t + 0.35
+            tap(F, acts.evade, 4, "evade_hazard")
+        end
         F.n_dodges = (F.n_dodges or 0) + 1
     end
     M.emit_activity({ kind = "hazard", by = F.by or "unknown", hazard = info.hazard, answer = "dodge", why = why, land_s = info.land_s })
@@ -2998,6 +3010,77 @@ function M.stop(log, why)
 end
 
 -- ------------------------------------------------------------------ the reflex (guard)
+-- ------------------------------------------------------------------ ambient hazards + cures (outside fights)
+-- The same hazard and cure code as the fight loop (M.hazard_frame / M.status_frame) on a light context, from the
+-- combat_guard service's tick while no fight runs. OFF until the read-only live probe passes (cfg.ambient, or
+-- env DW_COMBAT_AMBIENT=1). Triggers only: the hazard census runs only while an AI action opened a hazard watch
+-- (or zones are down); statuses are read after a damage event, then every cfg.ambient_status_s while a harmful one
+-- stays. To ACT it takes a short reflex lease from the arbiter (the current owner, e.g. a follow or a gather, is
+-- suspended and resumed on release). Never under DW_PAUSE; nothing at all without a valid, living pawn.
+function M.ambient_enabled()
+    if M.cfg.ambient ~= nil then return M.cfg.ambient == true end
+    return os.getenv("DW_COMBAT_AMBIENT") == "1"
+end
+function M.ambient_acquire(A, why)
+    if A.token then
+        local arb = mod("arbiter")
+        if arb and arb.holds and arb.holds(A.token) then arb.renew(A.token); return true end
+        A.token = nil
+    end
+    local arb = mod("arbiter")
+    if not arb then return true end -- no arbiter (tests without one): act anyway
+    local r = arb.request(A.log, { name = "combat:ambient", level = "reflex", resumable = false, uses_move = true, lease_s = 8,
+                                   on_stop = function() A.token = nil; A.escape = nil end })
+    if not (r and r.ok) then
+        say(A.log, "ambient: no lease for " .. tostring(why) .. " (" .. tostring(r and r.reason) .. ")")
+        return false
+    end
+    A.token = r.token
+    A.n_leases = (A.n_leases or 0) + 1
+    say(A.log, "ambient: lease for " .. tostring(why))
+    return true
+end
+function M.ambient_release(A, why)
+    if not A.token then return end
+    local arb = mod("arbiter")
+    if arb then pcall(arb.release, A.log, A.token, why or "done") end
+    A.token = nil
+end
+function M.ambient_tick(log, pawn, pc)
+    if _G.DW_PAUSE or not M.ambient_enabled() then return end
+    if not U.valid(pawn) or U.try(function() return pawn.HealthComponent:IsDead() end) == true then return end
+    local c = C()
+    local A = c.ambient
+    if not A then A = { ambient = true, by = "ambient", phase = "idle", inputs = {} }; c.ambient = A end
+    A.log, A.pc = log, pc
+    A.t = now(pawn)
+    local me = read_me(pawn, pc)
+    A.me_last = me
+    -- AI actions seen since the last tick: resolved here too (their profiles open the hazard watch; no defence
+    -- outside a fight: the guard starts one if something attacks)
+    if next(c.ai_actions or {}) then pcall(M.ability_frame, A, me) end
+    -- hazards: only while watched / on the ground (M.hazard_frame keeps its own cadence)
+    local watched = next(c.hazard_watch or {}) ~= nil or (A.zones and #A.zones > 0) or A.escape ~= nil
+    if watched then
+        local okh, err = pcall(M.hazard_frame, A, pawn, me, actions(pawn))
+        if not okh then c.ambient_err = tostring(err) end
+        pcall(casts_frame, A)
+    end
+    -- statuses: after damage, then while a harmful one stays
+    local dmg_seen = (c.me_seq or 0) ~= (A.me_seq or 0)
+    A.me_seq = c.me_seq or 0
+    local due = dmg_seen or A.cure_pending or (A.harmful and A.t - (A.status_t or -99) >= M.cfg.ambient_status_s)
+    if due then
+        A.status_t = nil -- (status_frame's own cadence check)
+        local oks, err = pcall(M.status_frame, A, pawn, me)
+        if not oks then c.ambient_err = tostring(err) end
+        A.harmful = false
+        for _, e in pairs(((c.statuses or {}).effects) or {}) do if e.harmful then A.harmful = true end end
+        A.status_t = A.t
+    end
+    if A.token and not A.escape and not A.cure_pending then M.ambient_release(A, "nothing to do") end
+end
+
 local function guard_tick(log)
     if _G.DW_PAUSE then return end
     local c = C()
@@ -3009,6 +3092,8 @@ local function guard_tick(log)
     local t = now(pawn)
     trim_map(c.attackers, t, 60); trim_map(c.ally_attackers, t, 60); trim_map(c.telegraphs, t, 30)
     if c.fight then return end
+    do local oka, err = pcall(M.ambient_tick, log, pawn, pc); if not oka then c.ambient_err = tostring(err) end end
+    if c.ambient and (c.ambient.escape or c.ambient.token) then return end -- busy getting out of something
     if U.try(function() return pawn.HealthComponent:IsDead() end) == true then return end
     local origin = U.loc(pawn)
     local threats = M.pick_threats(creatures_near(origin, math.max(cfg.aggro_m, cfg.assist_m)), c.attackers, c.ally_attackers, M.orders, t, cfg)
@@ -3081,6 +3166,8 @@ function M.status()
     return { ok = true, fight = fs, last = c.last, guard = c.guard ~= nil, guard_last = c.guard_last, guard_err = c.guard_err,
              hook_err = c.hook_err, counts = c.counts, on_target = c.on_target, orders = M.orders, learned = learned, lines = c.log_lines,
              boss = c.boss, statuses = c.statuses,
+             ambient = { enabled = M.ambient_enabled(), leases = c.ambient and c.ambient.n_leases, holding = c.ambient and c.ambient.token ~= nil,
+                         escaping = c.ambient and c.ambient.escape ~= nil, err = c.ambient_err },
              memory = c.mem and { status = c.mem.status, detail = c.mem.detail, path = c.mem.path, build = c.mem.build, file_build = c.mem.file_build,
                                   saves = c.mem.saves, save_err = c.mem.save_err, imported = c.mem.imported } or nil,
              hooks = (function() local n = 0; for _ in pairs(c.hooks) do n = n + 1 end; return n end)() }

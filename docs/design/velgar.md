@@ -140,6 +140,15 @@ The data comes from the wiki snapshot `data/wiki/pages` (Velgar, Velgar/Strategi
   - Both odds models use one `loadout_capability` digest.
   - The hazard census runs only after an AI action whose profile names a hazard (ability_profiles `hazards`). Zones go to move only when their set changes, and "inside" is avoidzones' own `AZ.at`.
   - The approach watchdog is move's shared progress tracker (`opts.progress`, `progress_reset`, `why_words`).
+- **Always-on hazards and cures outside fights** (`combat.ambient_tick`, **off** until the read-only probe passes):
+  - **How it runs:** inside the combat_guard service's tick while no fight runs (no new bridge service), using the same `hazard_frame` and `status_frame` as the fight loop on a light context.
+  - **Triggers only:** AI actions are resolved there too, and their profiles open the hazard watch. Statuses are read after a damage event, then every 2 s while a harmful one stays.
+  - **To act:** it takes a short reflex lease from the arbiter, so a follow, gather or task is suspended and resumed.
+  - **Not done outside a fight:** no directional dodge (no input pump there; one evade press) and no defence.
+  - **Guards:** DW_PAUSE skips everything; nothing runs without a valid, living pawn.
+  - **Enable:** `cfg.ambient = true` or env `DW_COMBAT_AMBIENT=1`.
+  - **Probe:** `client_mod/commands/combat_probe_ambient.lua`, read-only. Statuses vs the HUD, every hazard class nearby, recorded AI actions, the cure he would pick, the arena actor. Its only side effect is the census noting first-seen times.
+  - **Tests:** test_combat §10h. Off by default; the cure while following, with the follow resumed; the AI action opening the watch outside a fight; the escape while following, with the follow resumed; nothing under DW_PAUSE or while dead.
 - **Still to verify live** (S2/S3, read-only first):
   - that the multicasts fire on the client for him;
   - that `CurrentAction` is set when read;

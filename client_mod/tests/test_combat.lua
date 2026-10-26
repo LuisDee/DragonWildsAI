@@ -1114,6 +1114,80 @@ do
     A.reset(nil)
 end
 
+-- ================================================================ 10h. ambient hazards + cures outside fights (always-on service, off by default)
+reset_world()
+do
+    local poison = { EffectType = 2, CurrentValue = 0, Config = { MaximumValue = 100 } }
+    pawn.TrackedStatusEffectsComponent = obj({ TrackedStatusEffectInstances = { ForEach = function(_, f)
+        f(1, { get = function() return obj(poison, "TrackedStatusEffectInstance /x") end }) end } }, "C /x")
+    local saved_hotbar = inv_list.hotbar
+    inv_list.hotbar = { { item = "ITEM_Potion_Antipoison_Lesser", name = "Lesser Antipoison Potion", count = 3, consumable = "potion", slot = 2 } }
+    world.on_step = function() for _, u in ipairs(INV.uses) do if u == "ITEM_Potion_Antipoison_Lesser" then poison.CurrentValue = 0 end end end
+    -- Claude is following Luis (a command owner of the pawn)
+    local own = A.request(nil, { name = "brain:follow", level = "command", uses_move = true, resumable = true })
+    fake_move.follow(nil, "Zezima", 3, {})
+    Cm.guard_start(nil)
+    local function hurt() poison.CurrentValue = 40; Cm._state().me_seq = (Cm._state().me_seq or 0) + 1 end
+    -- (a) off by default: poisoned and hurt, nothing is used
+    Cm.cfg.ambient = nil
+    hurt()
+    run_until(function() return false end, 2)
+    check("ambient: off by default (no env, no cfg)", #INV.uses == 0 and Cm.status().ambient.enabled == false, #INV.uses)
+    -- (b) on: a damage event -> statuses read -> the cure, under a short reflex lease; the follow is suspended and resumed
+    Cm.cfg.ambient = true
+    hurt()
+    local used = run_until(function() return #INV.uses >= 1 end, 3)
+    check("ambient: poisoned while following -> the cure is used", used and INV.uses[1] == "ITEM_Potion_Antipoison_Lesser", table.concat(INV.uses, ","))
+    check("ambient: it took the pawn with a reflex lease", (Cm._state().ambient.n_leases or 0) >= 1)
+    MV.calls = {}
+    local resumed = run_until(function() local o = A.owner(); return o and o.name == "brain:follow" end, 6)
+    check("ambient: the follow is resumed after", resumed, A.owner() and A.owner().name)
+    local back = false
+    for _, cl in ipairs(MV.calls) do if cl:find("Zezima", 1, true) then back = true end end
+    check("ambient: the follow's move is replayed", back, table.concat(MV.calls, ","))
+    -- (c) a hazard while following: walk out under the lease, then the follow comes back
+    local meteors = {}
+    local real_find = FindAllOf
+    FindAllOf = function(cls)
+        if cls == "AIMeteorProjectile" then local out = {}; for _, m in ipairs(meteors) do if not m._dead_obj then out[#out + 1] = m end end; return out end
+        return real_find(cls)
+    end
+    local drake = new_creature("BP_AI_DragonVelgar_Character_C_amb", "Velgar", { X = 3000, Y = 0, Z = 0 }, { hp = 6000, pl = 4, arch = 0, boss = true })
+    local acomp = obj({ GetOwner = function() return drake end, CurrentAction = obj({ GetClass = function()
+        return obj({}, "BlueprintGeneratedClass /Game/AI/X.DAA_DragonVelgar_MeteorStrike_C") end }, "A /x") }, "C /x")
+    hooks["/Script/Dominion.DominionAIActionsComponent:Multicast_StartAIAction"]({ get = function() return acomp end }, { get = function() return 9 end })
+    run_until(function() return false end, 0.5)
+    check("ambient: the AI action opens the hazard watch outside a fight", ((Cm._state().hazard_watch or {}).meteor or 0) > T)
+    local m = obj({ Radius = 400, TelegraphTime = 2.0, loc = { X = pawn.loc.X, Y = pawn.loc.Y, Z = 0 } }, "BP_Meteor_C /Game/L.L:PersistentLevel.MeteorA")
+    function m:K2_GetActorLocation() return { X = self.loc.X, Y = self.loc.Y, Z = self.loc.Z } end
+    meteors[1] = m
+    MV.escape_reply = { ok = true, at = { pawn.loc.X / 100 + 6, pawn.loc.Y / 100, 0 }, eta_s = 0.8 }
+    check("ambient: a meteor on him while following -> escape_zones", run_until(function() return (MV.escapes or 0) >= 1 end, 3), MV.escapes)
+    m._dead_obj = true
+    resumed = run_until(function() local o = A.owner(); return o and o.name == "brain:follow" end, 5)
+    check("ambient: the follow is resumed after the escape", resumed, A.owner() and A.owner().name)
+    -- (d) DW_PAUSE / (e) a dead pawn: nothing at all
+    _G.DW_PAUSE = true
+    hurt(); INV.uses = {}
+    run_until(function() return false end, 2)
+    _G.DW_PAUSE = nil
+    check("ambient: nothing under DW_PAUSE", #INV.uses == 0, #INV.uses)
+    local real_dead = pawn.HealthComponent.IsDead
+    pawn.HealthComponent.IsDead = function() return true end
+    hurt(); INV.uses = {}
+    run_until(function() return false end, 2)
+    pawn.HealthComponent.IsDead = real_dead
+    check("ambient: nothing while dead", #INV.uses == 0, #INV.uses)
+    Cm.guard_stop(nil)
+    Cm.cfg.ambient = nil
+    FindAllOf = real_find
+    MV.escape_reply, MV.escapes = nil, nil
+    inv_list.hotbar, pawn.TrackedStatusEffectsComponent, world.on_step = saved_hotbar, nil, nil
+    Cm._state().hazard_watch, Cm._state().ambient = nil, nil
+    if own and own.token then A.release(nil, own.token, "test") end
+    A.reset(nil)
+end
+
 -- ================================================================ 11a. hit while looting (live 09:41): the impact event names the attacker, he fights back
 reset_world()
 do
