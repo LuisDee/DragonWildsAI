@@ -136,11 +136,15 @@ local function reset_game(opts)
     for k, v in pairs(saved) do Wb[k] = v end
     G = { mode = "None", placing = nil, presses = {}, seq = 0, hook = {}, pos = { 0, 0, 0 }, xp = 1000, aims = 0,
           state = opts.state or function() return 0 end, menu_dead = opts.menu_dead, select_dead = opts.select_dead,
-          refuse = opts.refuse, no_spend = opts.no_spend, mpc_off = opts.mpc_off, no_hook = opts.no_hook, cancels = 0 }
+          refuse = opts.refuse, no_spend = opts.no_spend, mpc_off = opts.mpc_off, no_hook = opts.no_hook, cancels = 0,
+          sticky = opts.sticky, bounce = opts.bounce }
     CARRIED.ITEM_Resources_Stone, CARRIED.ITEM_Resources_Wood_Ash = 6, 1
     local function rec(kind, v) G.seq = G.seq + 1; G.hook[kind] = { seq = G.seq, v = v } end
     G.rec = rec
-    Wb.mode = function() return G.mode end
+    Wb.mode = function()
+        if G.rebound and G.mode == "None" then G.rebound = false; local m = G.mode; G.mode = "Placement"; return m end
+        return G.mode
+    end
     Wb.placing = function() return G.placing end
     Wb.menu_action = function() return "menu" end
     Wb.rotate_action = function() return "rotate" end
@@ -148,7 +152,11 @@ local function reset_game(opts)
     Wb.press = function(_, a)
         G.presses[#G.presses + 1] = a
         if a == "menu" and not G.menu_dead then G.mode = (G.mode == "None") and "Selection" or "None" end
-        if a == "cancel" then G.cancels = G.cancels + 1; G.mode = (G.mode == "Placement") and "Selection" or "None" end
+        if a == "cancel" then
+            G.cancels = G.cancels + 1
+            if not G.sticky then G.mode = "None" end -- live P3: one Cancel from Placement goes straight to None
+            if G.bounce and G.mode == "None" then G.bounce = false; G.rebound = true end -- the game re-opens placement once
+        end
         if a == "place" then
             if G.mode ~= "Placement" then G.stray_place = true end
             if G.refuse then rec("refused", G.refuse); return true end
@@ -258,6 +266,20 @@ check("a unique typo resolves (camfire -> Campfire)", r and r.ok, r and r.reason
 reset_game()
 r = build({ piece = "dragon throne" })
 check("unknown piece: unknown_target, no press", r.reason == "unknown_target" and #G.presses == 0)
+
+-- live 14:59: the build screen must be VERIFIED closed at the end (None read twice), on success and on failure
+reset_game({ bounce = true })
+r = build({ piece = "campfire" })
+check("leave: a None that bounces back to Placement is not 'closed': cancelled again, then confirmed None",
+    r and r.ok and G.mode == "None" and r.data.left_build_mode == true and G.cancels == 2, r and (tostring(G.mode) .. " cancels=" .. G.cancels))
+reset_game({ sticky = true })
+r = build({ piece = "campfire" })
+check("leave: Cancel never works -> bounded (3), reported left_build_mode=false with a warning, claim released",
+    r and r.ok and r.data.left_build_mode == false and r.data.warning and G.cancels == 3 and INPUT.claims.build == nil,
+    r and (tostring(r.data.left_build_mode) .. " cancels=" .. G.cancels))
+reset_game({ sticky = true, state = function() return 3 end })
+r = build({ piece = "campfire" })
+check("leave on failure too: blocked result still reports the screen state", r and r.reason == "blocked" and r.data.left_build_mode == false)
 
 -- ambiguous: two unlocked pieces with the same name -> ambiguous_target with candidates, never a guess
 do

@@ -227,7 +227,7 @@ end
 -- Never a game call under DW_PAUSE (the job just waits; input.lua cleans a leftover mode on resume).
 M.cfg.build = {
     standoff_m = 2.5, footprint_m = 1.5, reach_m = 7.0, open_wait_s = 1.5, select_wait_s = 2.0,
-    verify_s = 6.0, leave_presses = 3, timeout_s = 110, match_m = 1.5, rotate_step_deg = 15,
+    verify_s = 6.0, leave_presses = 3, leave_wait_s = 0.5, timeout_s = 110, match_m = 1.5, rotate_step_deg = 15,
     budget_s = 25,
     -- live P4 (2026-10-26): the validity hooks never fire (C++ calls, not ProcessEvent), so the MPC colour index
     -- (2 = Valid|NeedsSnapping) on a fresh, on-target preview authorises the press; the game refuses a
@@ -772,17 +772,35 @@ local function step(api, job, t)
                 detail = "I pressed place for the " .. job.piece.name .. " but " .. (evidence and "the materials weren't used" or "nothing was built") .. "." }))
         end
         return nil
-    else -- leave: Cancel until None, one per tick, bounded
+    else -- leave: Cancel until the mode is VERIFIED None (read twice, after the press has had time to land)
+        -- live 14:59 UTC: one Cancel then a single read must never count as "closed"; an unreadable mode is not
+        -- closed either. Bounded: cfg.leave_presses Cancels, one per cfg.leave_wait_s; the claim is released only
+        -- once None is confirmed, or when giving up (then input.lua's orphan sweep keeps cancelling).
         local mode = W.mode(api)
-        if mode == "None" or mode == nil or job.leaves >= cfg.leave_presses then
+        local function done(closed)
             if i then i.release("build") end
             local res = job.final or api.fail("verification_failed", { detail = "build ended" })
-            if mode ~= "None" and mode ~= nil then res.data = res.data or {}; res.data.left_build_mode = false end
+            res.data = res.data or {}
+            res.data.left_build_mode = closed
+            if not closed then
+                res.data.build_mode_after = mode or api.null
+                if res.ok then res.data.warning = "the build screen may still be open" end
+            end
             return res
         end
+        if job.leave_t and t < job.leave_t then return nil end
+        if mode == "None" then
+            job.none_reads = (job.none_reads or 0) + 1
+            if job.none_reads >= 2 then return done(true) end
+            job.leave_t = t + cfg.leave_wait_s
+            return nil
+        end
+        job.none_reads = 0
+        if job.leaves >= cfg.leave_presses then return done(false) end
         job.leaves = job.leaves + 1
         job.presses[#job.presses + 1] = "cancel"
         if i then i.leave_build_step(function(a) W.press(api, a) end) end
+        job.leave_t = t + cfg.leave_wait_s
         return nil
     end
 end
