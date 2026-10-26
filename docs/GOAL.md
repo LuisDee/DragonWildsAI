@@ -19,6 +19,10 @@ Luis set this on 2026-10-25. It is the contract for unattended iteration: what "
 | Voice | voice-eval score ≥ target; 0 stat narration and 0 talk-without-action per hour of play | voice eval + anomaly detectors |
 | Stability | 2 h of play without a crash or a stall over 30 s | watchdog + anomalies |
 
+## 1a. Tracked metric (Luis, 2026-10-26; not a gate yet)
+- For long tasks, log **idle time** and **the time between subtasks**: step done → next step's first action, split into thinking, waiting and dead time. Also the idle share and the longest idle stretch (`tools/obs.py task`, `metrics --json`).
+- Goal: make chains of small tasks seamless; optimise at the end.
+
 ## 1b. Milestones (Luis, 2026-10-25: everything runs and is scored on the DEV world)
 - **M1 Foundation:** speed, voice, stability, no deadlocks, no starving, T0 spells ≥ 95%, combat basics proven.
 - **M2 Use and tactics:** spells used to purpose (and the every-spell stress test), combat tactics, knowledge use, efficiency, crafting from scratch, ranged.
