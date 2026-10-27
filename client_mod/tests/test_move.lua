@@ -200,6 +200,7 @@ run(100)
 local s = M.status()
 check("go_to arrives via waypoints", s.result and s.result.status == "arrived", s.result and s.result.status)
 local saw_nav = false
+
 for _, l in ipairs(logs) do if l:find("src=nav") then saw_nav = true end end
 check("used nav waypoints (oracle heartbeat live)", (s.nav_requests or 0) >= 1 and saw_nav, s.nav_requests); if os.getenv("DBG") then for _, l in ipairs(logs) do print("  " .. l) end; print(pawn.loc.X, pawn.loc.Y) end
 check("sprint injected", injected > 0, injected)
@@ -1152,6 +1153,76 @@ do
     M.go_to(log, { 23, 0, 0 }, {})
     check("owner: unassociated move does not borrow existing owner", _G.DW_MOVE.owner_token == nil)
     M.stop(log); A.release(log, other.token, "done")
+end
+
+-- Borrowed Windstep jobs are owned by the movement action and require a verified landing.
+do
+    local f = assert(io.open(dir .. "/client_mod/scripts/traversal_moves.lua", "wb"))
+    f:write(assert(io.open(here .. "/../scripts/traversal_moves.lua", "rb")):read("a")); f:close()
+    M = dofile(MOVE)
+    local A = assert(loadfile(dir .. "/client_mod/scripts/arbiter.lua"))()
+    A.set_move(M)
+    local available, polls, cancelled, calls, result, cancelled_owned = true, 0, 0, 0, nil, false
+    M.set_spells({ ability_status = function() return { available = available, why = "on_cooldown" } end,
+        cast_now = function(_, _, opts)
+            calls = calls + 1
+            check("windstep: cast borrows movement owner", opts.owner_token == _G.DW_MOVE.owner_token and A.owns_move(opts.owner_token))
+            return { poll = function() polls = polls + 1; return result end, cancel = function() cancelled_owned = A.owns_move(opts.owner_token); cancelled = cancelled + 1 end }
+        end })
+    local function begin()
+        pawn.loc = { X = 0, Y = 0, Z = 0 }; air = 0; walls = {}; raised = {}; oracle = nil
+        M.go_to(log, { 20, 0, 0 }, { local_plan = false })
+        local st = _G.DW_MOVE
+        st.env = { step = 45, ws_up_cm = 500 }
+        st.lpath = { { X = 0, Y = 0, Z = -90, act = "walk" }, { X = 100, Y = 0, Z = -90, act = "superjump" } }
+        st.lwp, st.lp_jumped = 2, {}
+        return st
+    end
+    local st = begin(); run(1)
+    check("windstep: pending cast holds without jumping", polls > 0 and st.ws_exec and st.ws_exec.phase == "casting" and not st.jump_t)
+    local token = st.owner_token
+    M.go_to(log, { 21, 0, 0 }, {})
+    check("windstep: replacement cancels before owner rotates", cancelled == 1 and cancelled_owned and _G.DW_MOVE.owner_token ~= token)
+    M.stop(log)
+    available, result = false, nil
+    st = begin(); _G.DW_MOVE_WS = { t = T, r = { state = "castable" } }; local before = calls; run(1)
+    check("windstep: takeoff bypasses stale gate", calls == before and M.status().result.reason == "on_cooldown")
+    available, result = true, { ok = false, reason = "not_enough_resources", data = { detail = "no runes" } }
+    st = begin(); run(1)
+    check("windstep: cast failure is authoritative", M.status().result.reason == "not_enough_resources" and not st.jump_t)
+    result = { ok = true }
+    st = begin(); run(1)
+    check("windstep: successful cast starts jump", st.ws_exec and st.ws_exec.phase == "air" and st.jump_t)
+    pawn.loc = { X = 100, Y = 0, Z = 0 }; air = 1; run(1)
+    check("windstep: endpoint proximity in air cannot advance", st.lwp == 2)
+    air = 0; st.ws_exec.jump_t = T - 1; pawn.loc = { X = 100, Y = 0, Z = 0 }; run(1)
+    check("windstep: grounded endpoint advances", st.lwp > 2)
+    M.stop(log)
+    st = begin(); run(1); local oldpath = st.lpath
+    st.lpath = { oldpath[1], oldpath[2] }; run(1)
+    check("windstep: path replacement after cast fails before landing", M.status().result.reason == "windstep_interrupted")
+    st = begin(); run(1); st.lpath = nil; run(1)
+    check("windstep: path removal after cast fails before landing", M.status().result.reason == "windstep_interrupted")
+    st = begin(); run(1); st.ws_exec.jump_t = T - 1; pawn.loc = { X = 0, Y = 0, Z = 0 }; air = 0; run(1)
+    check("windstep: missed landing fails truthfully", M.status().result.reason == "windstep_landing_missed")
+    st = begin(); run(1); st.ws_exec.jump_t = T - 9
+    local ground_fn = pawn.CharacterMovement.IsMovingOnGround
+    pawn.CharacterMovement.IsMovingOnGround = function() error("missing ground") end
+    run(1); pawn.CharacterMovement.IsMovingOnGround = ground_fn
+    check("windstep: missing ground read times out", M.status().result.reason == "windstep_landing_timeout")
+    result = nil; st = begin(); run(1); local c = cancelled
+    st.ws_exec.token = -1; local before_polls = polls; run(1)
+    check("windstep: owner loss cancels without another poll", M.status().result.reason == "windstep_owner_lost" and polls == before_polls and cancelled == c + 1)
+    st = begin(); run(1); c = cancelled
+    local high = A.request(log, { name = "windstep-interrupt", level = "reflex", uses_move = true })
+    check("windstep: suspension cancels pending cast", high.ok and cancelled == c + 1)
+    A.release(log, high.token, "done"); M.stop(log)
+    M.stop(log)
+    st = begin(); st.lpath = nil
+    st.mpath = { { X = 0, Y = 0, Z = -90, act = "walk" }, { X = 10, Y = 0, Z = -90, act = "superjump" }, { X = 1000, Y = 0, Z = -90, act = "walk" } }
+    st.mwp = 2; run(1)
+    check("windstep: local edge barrier does not stall memory waypoint advance", st.mwp > 2)
+    M.stop(log); M.set_spells(nil)
 end
 
 for _, l in ipairs(logs) do if l:find("error") then print("LOG " .. l) end end

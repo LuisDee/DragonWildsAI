@@ -568,12 +568,12 @@ end
 -- Skip points already reached, or passed (closer to the next one than this one is), but only at
 -- the point's own level: |(me.Z - zoff) - p.Z| < dz_tol. zoff = 0 for capsule-centre points
 -- (leader crumbs), ~90 for floor points (local plan cells, navmesh waypoints).
-local function advance(pts, i, me, radius, dz_tol, zoff)
+local function advance(pts, i, me, radius, dz_tol, zoff, local_edges)
     dz_tol, zoff = dz_tol or 60, zoff or 0
     while i <= #pts do
         local p, nxt = pts[i], pts[i + 1]
         local dz = math.abs((me.Z - zoff) - p.Z)
-        if p.gap then break end -- never advance across a leader super-jump gap
+        if p.gap or (local_edges and p.act == "superjump") then break end -- local superjump requires verified landing
         -- slope-aware: an ordinary point may differ in height by ~0.9 x the horizontal distance
         -- (slopes up to ~42 deg); jump/link endpoints need us really up there (strict dz_tol)
         local strict = p.link or p.act == "jump" or p.act == "djump"
@@ -737,11 +737,11 @@ function M.set_spells(m) SP_MOD = m or false end
 -- Windstep's state from the spells module -> {state = castable|unlock|runes|cooldown|wheel|busy|unknown, why, detail}
 local WS_STATE = { not_unlocked = "unlock", not_enough_resources = "runes", on_cooldown = "cooldown", not_on_wheel = "wheel",
                    busy = "busy", requirement = "busy" }
-local function windstep_status(api, now_t)
+local function windstep_status(api, now_t, fresh)
     local prof = tm_profile().windstep
     if not prof or not prof.spell_asset then return { state = "unknown", detail = "no traversal profile" } end
     local m = rawget(_G, "DW_MOVE_WS")
-    if m and now_t and m.t and math.abs(now_t - m.t) < 1.0 then return m.r end
+    if not fresh and m and now_t and m.t and math.abs(now_t - m.t) < 1.0 then return m.r end
     local sp = spells_mod()
     local r
     if not sp then r = { state = "unknown", detail = "no spells module" }
@@ -949,7 +949,14 @@ local function release_implicit(st, log)
     if a and a.release_implicit then pcall(a.release_implicit, log, token) end
 end
 
+local function cancel_superjump(st)
+    local job = st.ws_job
+    st.ws_job = nil -- cancellation can re-enter movement cleanup
+    if job and job.cancel then pcall(job.cancel) end
+end
+
 local function finish(st, result, log)
+    cancel_superjump(st)
     if result and result.status == "arrived" then st.trip_ok = true end
     pcall(mem_flush, st, log, result and result.status)
     st.result = result
@@ -1058,6 +1065,10 @@ local function tick(st, gen, log)
     st.last_t = t
     local me = pawn:K2_GetActorLocation()
     st.ticks = st.ticks + 1
+    if st.ws_exec and (st.lpath ~= st.ws_exec.path or st.lwp ~= st.ws_exec.index
+        or not st.lpath or st.lpath[st.lwp] ~= st.ws_exec.endpoint or st.lpath[st.lwp].act ~= "superjump") then
+        return finish(st, { status = "failed", reason = "windstep_interrupted", detail = "planned traversal changed before landing" }, log)
+    end
 
     -- goal: a point, or a player's pawn (re-resolved at most once a second if it went away)
     local goal
@@ -1157,7 +1168,7 @@ local function tick(st, gen, log)
         if st.escape and not zone_in then
             return finish(st, { status = "arrived", out_of_zones = true, zone = st.escape.zone, dist_m = dist / 100, s = t - st.t0 }, log)
         end
-        if dist <= st.tol_cm then return finish(st, { status = "arrived", dist_m = dist / 100, s = t - st.t0 }, log) end
+        if dist <= st.tol_cm and not st.ws_exec and not (st.lpath and st.lpath[st.lwp] and st.lpath[st.lwp].act == "superjump") then return finish(st, { status = "arrived", dist_m = dist / 100, s = t - st.t0 }, log) end
         if t - st.t0 > st.timeout_s then return finish(st, { status = "failed", reason = "timeout", dist_m = dist / 100 }, log) end
     else
         local hold = st.idle and (st.tol_cm + M.cfg.follow_hysteresis_cm) or st.tol_cm
@@ -1584,7 +1595,7 @@ local function tick(st, gen, log)
         if st.backtrack_until then st.backtrack_until, st.backtrack_pt = nil, nil end
         if st.lpath then
             local i0 = st.lwp
-            st.lwp = advance(st.lpath, st.lwp, me, M.cfg.lp_radius_cm, math.max((st.env and st.env.step or 45) + 20, 60), st.half_h or 90)
+            st.lwp = advance(st.lpath, st.lwp, me, M.cfg.lp_radius_cm, math.max((st.env and st.env.step or 45) + 20, 60), st.half_h or 90, true)
             if st.lwp > i0 then
                 idx_progress = true
                 for k = i0, st.lwp - 1 do
@@ -1599,6 +1610,74 @@ local function tick(st, gen, log)
             else
                 local p = st.lpath[st.lwp]
                 aim, src = p, "local"
+                if p.act == "superjump" then
+                    local prev = st.lpath[st.lwp - 1]
+                    local ws = st.ws_exec
+                    local function fail(reason, detail)
+                        return finish(st, { status = "failed", reason = reason, detail = detail }, log)
+                    end
+                    if not ws and prev and d2(me, prev) < 50 then
+                        local a, token, generation = move_arbiter(), st.owner_token, st.gen
+                        local owned = a and a.owns_move and a.owns_move(token)
+                        if st.gen ~= generation or st.mode == "idle" then return end
+                        if not owned then return fail("windstep_owner_lost", "movement ownership lost before casting") end
+                        local okg, grounded = pcall(function() return pawn.CharacterMovement:IsMovingOnGround() end)
+                        if not okg or grounded ~= true then return fail("windstep_not_grounded", "grounded takeoff was not confirmed") end
+                        local gate = windstep_status(nil, t, true)
+                        if gate.state ~= "castable" then return fail(gate.why or "windstep_unavailable", gate.detail or gate.state) end
+                        local sp, prof = spells_mod(), tm_profile().windstep
+                        if not (sp and sp.cast_now and prof and st.env and st.env.ws_up_cm) then
+                            return fail("windstep_unavailable", "spell executor or measured envelope unavailable")
+                        end
+                        owned = a.owns_move(token)
+                        if st.gen ~= generation or st.mode == "idle" then return end
+                        if not owned then return fail("windstep_owner_lost", "movement ownership lost before casting") end
+                        local ok, job = pcall(sp.cast_now, log, prof.spell_asset, { owner_token = token })
+                        if st.gen ~= generation or st.mode == "idle" then if ok and job and job.cancel then pcall(job.cancel) end; return end
+                        if not ok or not job or type(job.poll) ~= "function" then return fail("windstep_cast_failed", tostring(job)) end
+                        st.ws_job, st.ws_exec = job, { phase = "casting", index = st.lwp, token = token, started_t = t, path = st.lpath, endpoint = p }
+                        ws = st.ws_exec
+                    elseif not ws and prev then aim = prev end
+                    if ws and ws.index == st.lwp then
+                        local a, generation = move_arbiter(), st.gen
+                        local owned = a and a.owns_move and a.owns_move(ws.token)
+                        if st.gen ~= generation or st.mode == "idle" then return end
+                        if not owned then return fail("windstep_owner_lost", "movement ownership lost during traversal") end
+                        if ws.phase == "casting" then
+                            local job = st.ws_job
+                            if t - ws.started_t > 15 then return fail("windstep_cast_timeout", "spell cast did not finish") end
+                            local ok, result = pcall(job.poll)
+                            if st.gen ~= generation or st.mode == "idle" or st.ws_job ~= job then return end
+                            if not ok then return fail("windstep_cast_failed", tostring(result)) end
+                            owned = a.owns_move(ws.token)
+                            if st.gen ~= generation or st.mode == "idle" or st.ws_job ~= job then return end
+                            if not owned then return fail("windstep_owner_lost", "movement ownership lost during casting") end
+                            if result then
+                                st.ws_job = nil
+                                if not result.ok then return fail(result.reason or "windstep_cast_failed", result.data and (result.data.detail or result.data.why)) end
+                                start_jump(st, t, pawn, false)
+                                ws.phase, ws.jump_t = "air", t
+                            else
+                                st.status = "casting"
+                                st.win_t, st.win_pos, st.prog_t = t, v(me), nil
+                                return -- no movement input while the spell job owns the player's input
+                            end
+                        else
+                            local okg, grounded = pcall(function() return pawn.CharacterMovement:IsMovingOnGround() end)
+                            if okg and grounded == false then ws.saw_air = true end
+                            if t - ws.jump_t > 0.4 and ws.saw_air and okg and grounded == true then
+                                local dz = math.abs((me.Z - (st.half_h or 90)) - p.Z)
+                                if d2(me, p) < M.cfg.lp_radius_cm and dz < math.max((st.env.step or 45) + 20, 60) then
+                                    pcall(emit_self_edge, st, prev, p, p.act)
+                                    st.lwp, st.ws_exec = st.lwp + 1, nil
+                                    idx_progress = true
+                                else return fail("windstep_landing_missed", "landed away from the planned endpoint") end
+                            elseif t - ws.jump_t > 8 then
+                                return fail("windstep_landing_timeout", "grounded landing was not confirmed")
+                            end
+                        end
+                    end
+                end
                 -- jump edges: take off AT the edge start (within 50 cm of the previous point) while
                 -- moving toward the landing point; re-armed after 1.5 s if we are still not up
                 if (p.act == "jump" or p.act == "djump") then
@@ -2092,6 +2171,7 @@ end
 local function start(log, mode, opts)
     if paused() then return { ok = false, error = "paused (world changing)" } end
     local st = S()
+    cancel_superjump(st) -- before timer cancellation or ownership rotation
     if st.handle then pcall(CancelDelayedAction, st.handle) end
     local pc = local_pc()
     local pawn = pc and pc.Pawn
@@ -2329,6 +2409,18 @@ local function be(thing)
     return thing .. (PLURAL and " are" or " is")
 end
 local WHY = {
+    windstep_owner_lost = function() return "I lost control of movement while using Windstep" end,
+    windstep_not_grounded = function() return "I couldn't confirm that I was on the ground before using Windstep" end,
+    windstep_unavailable = function() return "Windstep isn't available for that jump" end,
+    windstep_interrupted = function() return "the planned Windstep jump was interrupted" end,
+    windstep_cast_failed = function() return "the Windstep cast failed" end,
+    windstep_cast_timeout = function() return "the Windstep cast didn't finish in time" end,
+    windstep_landing_missed = function() return "I landed away from the planned Windstep landing" end,
+    windstep_landing_timeout = function() return "I couldn't confirm a landing after the Windstep jump" end,
+    not_enough_resources = function() return "I don't have enough runes to cast Windstep" end,
+    on_cooldown = function() return "Windstep is still on cooldown" end,
+    not_unlocked = function() return "I haven't unlocked Windstep" end,
+    not_on_wheel = function() return "Windstep isn't available on my spell wheel" end,
     no_route = function(th) return "there's no way through to " .. th .. " from here" end,
     target_above_jump_height = function(th) return be(th) .. " higher up than I can jump" end,
     leader_above_jump_height = function(th) return be(th) .. " higher up than I can jump" end,

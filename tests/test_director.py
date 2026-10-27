@@ -654,6 +654,66 @@ def test_a_slow_loop_triggers_a_reflect_decision_and_a_trend_line(tmp_path):
 # ------------------------------------------------------------------ the real Agent + the applied hooks
 
 
+@pytest.mark.parametrize("channel", ["text", "say"])
+def test_silent_board_results_get_a_reply_without_waiting_or_self_preemption(tmp_path, monkeypatch, channel):
+    from conftest import Rig
+    from brain.interface import CommandReceived
+
+    monkeypatch.setenv("DW_SPEECH_CHANNEL", channel)
+    rig = Rig(tmp_path)
+    worker = ManualExecutor()
+    director = D.Director(D.AgentPort(rig.agent, "Luis"), FakeLLM([], model="fake/director"),
+                          tmp_path / "board", executor=worker)
+    rig.agent.director = director
+    rig.controller.attach_director(director)
+
+    def spoken(text):
+        return LLMResponse(tool_calls=[FakeLLM.call("say", text=text)]) if channel == "say" else FakeLLM.say(text)
+
+    rig.controller_llm.push(LLMResponse(tool_calls=[FakeLLM.call("add_task", text="collect supplies", when="now")]),
+                            spoken("It's on my task list."))
+    rig.agent.handle_event(CommandReceived(player="Luis", text="collect supplies"))
+    task = director.ops.b.current_task()
+    assert task is not None and task.status == "active"
+    assert rig.companion_said() == ["It's on my task list."]
+    result = [json.loads(m["content"]) for m in rig.controller_llm.calls[1]["messages"]
+              if m.get("role") == "tool" and m.get("name") == "add_task"]
+    assert result and result[0]["ok"] and result[0]["data"]["id"] == task.id
+
+    director.tick()
+    future = director._future
+    assert future is not None and not future.done() and len(worker.jobs) == 1
+    rig.controller_llm.push(LLMResponse(tool_calls=[FakeLLM.call("board")]),
+                            spoken("The plan is still pending."))
+    rig.agent.handle_event(CommandReceived(player="Luis", text="what's happening with the task?"))
+    director.tick()
+    assert director._future is future and not future.done() and len(worker.jobs) == 1
+    assert task.status == "active"
+    assert rig.companion_said() == ["It's on my task list.", "The plan is still pending."]
+
+
+@pytest.mark.parametrize("channel", ["text", "say"])
+def test_failed_board_result_is_explained_without_claiming_success(tmp_path, monkeypatch, channel):
+    from conftest import Rig
+    from brain.interface import CommandReceived
+
+    monkeypatch.setenv("DW_SPEECH_CHANNEL", channel)
+    rig = Rig(tmp_path)
+    director = D.Director(D.AgentPort(rig.agent, "Luis"), FakeLLM([], model="fake/director"),
+                          tmp_path / "board", executor=ManualExecutor())
+    rig.agent.director = director
+    rig.controller.attach_director(director)
+    reply = "I need a task description."
+    speech = LLMResponse(tool_calls=[FakeLLM.call("say", text=reply)]) if channel == "say" else FakeLLM.say(reply)
+    rig.controller_llm.push(LLMResponse(tool_calls=[FakeLLM.call("add_task", text="")]), speech)
+    rig.agent.handle_event(CommandReceived(player="Luis", text="queue a task"))
+    assert rig.companion_said() == [reply]
+    assert not director.ops.b.tasks
+    results = [json.loads(m["content"]) for m in rig.controller_llm.calls[1]["messages"]
+               if m.get("role") == "tool" and m.get("name") == "add_task"]
+    assert results and results[0]["ok"] is False
+
+
 def test_end_to_end_with_the_real_agent_controller_and_hooks(tmp_path):
     """Chat -> add_task (a board tool through Agent._run_turn) -> a Sonnet plan -> run_directed (a body-initiated
     Controller run on the mock) -> gather verified -> the step and the job are done from fresh state -> the

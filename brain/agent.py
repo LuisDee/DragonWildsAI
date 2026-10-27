@@ -356,7 +356,8 @@ class Agent:
             if d.interrupts and self.active_goal:
                 self._cancelled = True
             t = self._run_turn(d, state, event)
-            acted = acted or bool(t["ran"])
+            nonbody_success = not t["ran"] and any(r.get("ok", True) for r in t["results"].values())
+            acted = acted or bool(t["ran"]) or nonbody_success
             ran_all.extend(t["ran"])
             if t["failure"] and t["failed_call"] is None:  # refused before the body (safety, no such tool)
                 self.controller.report_failure(*t["failure"])
@@ -374,6 +375,7 @@ class Agent:
             elif t["failure"][1] in Reason.INTERRUPTS:  # a newer command took over: it speaks
                 break
             more = bool(t["failure"]) or bool(set(t["ran"]) - STANDING)
+            more = more or (bool(event.text) and nonbody_success and not said)
             # L5 (live 21:02:56 "I'll walk closer and cast it on the tree", no tool call): a first turn that
             # only talked gets ONE more turn to call what it said it would do (or reply empty). Its line
             # is already said, so this costs no reply latency.
