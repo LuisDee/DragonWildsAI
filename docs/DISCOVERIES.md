@@ -13,6 +13,10 @@ See `docs/ARCHITECTURE.md`.
 
 ## Environment
 
+### Directed consumption with shared ownership (2026-10-27, dev client)
+
+At source checkpoint 62e7f81, live queue run 20261027-201444 collected two matching Dirty Water on its first attempt. The food check initially returned busy / consumable verification pending; its configured retry consumed Bread, observed sustenance 33 -> 63 and an inventory decrement, and left DIM_Gameplay. A subsequent independent read found no active transaction, bridge action or waiters, with fed/combat services running. Preserve the initial deferral. This verifies the directed native input and cleanup path; it does not establish long autonomous survival or perfect causal attribution. The check harness restored health before water collection, so the resulting health recovery is not a companion achievement.
+
 ### Bridge adoption preserves service loops (2026-10-27)
 
 On the local dev client, deploying the current bridge at an idle boundary adopted all six healthy services once (running, starts=1, adopt_pending=false). Fed loop 4 and combat guard loop 163 stayed unchanged, as did global vitals policy and combat orders. This confirms the existing idempotent start contracts can rebind current callbacks without duplicating loops. Private evidence: logs/recovery/automatic-adoption-20261027.json; code checkpoint 7c6a2e2.

@@ -2,6 +2,13 @@
 
 ## Current handoff — 2026-10-27, 15:13 Berlin
 
+### 20:18 Berlin — Current-code native checks complete
+
+- Tested source checkpoint **62e7f81** is pushed, full gate 1067/1 skipped. Client boot succeeded first attempt without restarting Steam: client 7076 / launcher 9952 on local dev server 7016, ClaudeDev, original memory retained. Watchdog/oracle adopted; no duplicate brain or tester. Free RAM about 659 MB; no parallel heavy workload.
+- Native queue **20261027-201444**: collect_water_regression passed first attempt (26.5 s, two matching Dirty Water from actual source); consume_food_input_mode first returned busy / consumable verification pending, then passed configured retry (5.0 s, Bread count decreased and sustenance 33 -> 63, DIM_Gameplay). Preserve first deferral; this is directed primitive verification, not overall autonomous success. Queue still incurs historical R11 ok_unprobed waits/re-arms.
+- After checks, native transaction generation 11 with no active gate, pending action or waiters; fed and combat guard running, world dev/joined. Independent probe health 100, sustenance 56.56, hydration 13.63, two berries, one bread and one Dirty Water. Initial pre-check probe health was 1 with hydration damage; water-regression setup restored health as its existing harness precondition. Do not call that recovery autonomous. No axe in inventory. Private before/after evidence: logs/recovery/consume-native-{before,after}-20261027.json.
+- Zero model calls for boot/native checks; spend remains $0.101 today. Reservation recovery-autonomy held 50 min for follow-up. Next: existing capped survival_diagnostic.py (max 20 Haiku, 0 Sonnet; save prior result), then original no-axe task with actual game-state proof. Observe RAM and account allowance; do not launch another heavy workload under critical pressure.
+
 ### 20:10 Berlin — Consumable candidate fully gated
 
 - **CHECK_ALL: GREEN, 1067 passed / 1 skipped**, 366.77 s. Log `logs/recovery/consumable-full-fixed-7862886332dc4ac2b4ed55906acf70d9/check-all.log`. Approved judge diff remains empty. Earlier full run failed only the design-note heading (1066/1/1); corrected, five focused design tests passed, full rerun green.
