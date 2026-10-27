@@ -109,17 +109,21 @@ local function move_snapshot()
 end
 A._move_snapshot = move_snapshot
 
-local function move_restore(log, snap)
+local function move_restore(log, snap, token)
     if type(snap) ~= "table" or snap.unreplayable then return false end
+    local opts = {}
+    for k, v in pairs(snap.opts or {}) do opts[k] = v end
+    opts.owner_token = token
+    local restored = { mode = snap.mode, goal = snap.goal, distance_m = snap.distance_m, opts = opts }
     local m = mv()
     if not m then return false end
     if m.restore and not snap.derived then
-        local ok, r = pcall(m.restore, log, snap)
+        local ok, r = pcall(m.restore, log, restored)
         return ok and type(r) == "table" and r.ok ~= false
     end
     local r
-    if snap.mode == "follow" then r = move_call("follow", log, snap.goal, (snap.opts or {}).tolerance_m or 3, snap.opts)
-    elseif snap.mode == "go_to" then r = move_call("go_to", log, snap.goal, snap.opts) end
+    if snap.mode == "follow" then r = move_call("follow", log, snap.goal, opts.tolerance_m or 3, opts)
+    elseif snap.mode == "go_to" then r = move_call("go_to", log, snap.goal, opts) end
     return type(r) == "table" and r.ok ~= false
 end
 
@@ -174,7 +178,7 @@ local function resume_next(log, s)
                 local okc, r = pcall(rec.on_resume, log, rec)
                 ok = okc and r ~= false
             elseif rec.uses_move ~= false and rec.move_snap then
-                ok = move_restore(log, rec.move_snap)
+                ok = move_restore(log, rec.move_snap, rec.token)
             end
             if ok then
                 s.counts.resumed = s.counts.resumed + 1
@@ -223,6 +227,40 @@ local function brief(rec)
 end
 A.brief = brief
 
+-- Associate a direct, already-started move with an implicit owner without replacing anyone.
+function A.adopt_move(log)
+    local s = S()
+    housekeep(log, s)
+    if s.owner or paused() or move_is_idle() then return nil end
+    local st = move_call("status") or {}
+    s.seq = s.seq + 1
+    local rec = { token = s.seq, name = "move:" .. tostring(st.mode), level = A.LEVELS.command,
+        resumable = true, uses_move = true, implicit = true, since = now(), state = "owner", lease_s = A.IMPLICIT_LEASE_S }
+    rec.renewed = rec.since
+    s.owner = rec
+    return rec.token
+end
+
+function A.owns_move(token)
+    local s = S()
+    housekeep(nil, s)
+    return token ~= nil and s.owner ~= nil and s.owner.token == token and s.owner.uses_move ~= false
+end
+
+function A.release_implicit(log, token)
+    local o = S().owner
+    if o and o.implicit and o.token == token then return A.release(log, token, "move ended") end
+end
+
+-- Replace a direct move without briefly resuming the owner suspended underneath it.
+function A.replace_implicit(token)
+    local s, o = S(), S().owner
+    if not (o and o.implicit and o.token == token) then return nil end
+    s.seq = s.seq + 1
+    o.token, o.renewed = s.seq, now()
+    return o.token
+end
+
 function A.request(log, spec)
     spec = spec or {}
     local s = S()
@@ -232,12 +270,8 @@ function A.request(log, spec)
     local cur = s.owner
     -- adopt unregistered movement (e.g. the bridge's follow) so it can be suspended and resumed
     if not cur and lvl > A.LEVELS.command - 1 and spec.adopt ~= false and not move_is_idle() then
-        local st = move_call("status") or {}
-        s.seq = s.seq + 1
-        cur = { token = s.seq, name = "move:" .. tostring(st.mode), level = A.LEVELS.command, resumable = true,
-                uses_move = true, implicit = true, since = now(), state = "owner", lease_s = A.IMPLICIT_LEASE_S }
-        cur.renewed = cur.since
-        s.owner = cur
+        A.adopt_move(log)
+        cur = s.owner
     end
     local preempted
     if cur then

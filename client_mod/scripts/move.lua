@@ -936,6 +936,19 @@ local function lp_work(st, t, log)
 end
 
 -- ------------------------------------------------------------------ the loop
+local function move_arbiter()
+    local ok, a = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/arbiter.lua"))() end)
+    return ok and a or nil
+end
+
+local function release_implicit(st, log)
+    if not st.owner_implicit or not st.owner_token then return end
+    local a = move_arbiter()
+    local token = st.owner_token
+    st.owner_token, st.owner_implicit = nil, nil
+    if a and a.release_implicit then pcall(a.release_implicit, log, token) end
+end
+
 local function finish(st, result, log)
     if result and result.status == "arrived" then st.trip_ok = true end
     pcall(mem_flush, st, log, result and result.status)
@@ -944,6 +957,7 @@ local function finish(st, result, log)
     if st.handle then pcall(CancelDelayedAction, st.handle) end
     st.handle = nil
     if log then log("move: " .. tostring(result.status) .. " " .. tostring(result.reason or "")) end
+    release_implicit(st, log)
 end
 
 -- World teardown guard: disconnect/join set _G.DW_PAUSE = true (cleared by the bridge once a new
@@ -2083,11 +2097,28 @@ local function start(log, mode, opts)
     local pawn = pc and pc.Pawn
     if not is_character(pawn) then return { ok = false, error = "no player character (main menu / loading?)" } end
     if st.mode ~= "idle" then pcall(mem_flush, st, log, "interrupted") end
+    local inherited_token
+    if st.owner_implicit and st.owner_token and not opts.owner_token then
+        local a = move_arbiter()
+        if a and a.replace_implicit then inherited_token = a.replace_implicit(st.owner_token) end
+    end
+    if not inherited_token then release_implicit(st, log) end
     local gen = st.gen + 1
     local keep = { gen = gen, nav_id = st.nav_id, eis = st.eis, pts = st.pts }
     for k in pairs(st) do st[k] = nil end
     for k, x in pairs(keep) do st[k] = x end
     st.mode, st.pc, st.ticks, st.stuck_n = mode, pc, 0, 0
+    local a = move_arbiter()
+    if inherited_token then
+        st.owner_token, st.owner_implicit = inherited_token, true
+    elseif a and opts.owner_token and a.owns_move and a.owns_move(opts.owner_token) then
+        st.owner_token = opts.owner_token
+        local owner = a.owner and a.owner()
+        st.owner_implicit = owner and owner.implicit == true or false
+    elseif a and not opts.owner_token and a.adopt_move then
+        st.owner_token = a.adopt_move(log)
+        st.owner_implicit = st.owner_token ~= nil
+    end
     st.crumbs, st.self_crumbs, st.lp_plans_np, st.trail_jumped, st.nav_jumped = {}, {}, 0, {}, {}
     st.half_h = tonumber((pcall(function() return pawn.CapsuleComponent:GetScaledCapsuleHalfHeight() end))
         and pawn.CapsuleComponent:GetScaledCapsuleHalfHeight()) or 90

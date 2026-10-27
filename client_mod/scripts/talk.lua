@@ -556,7 +556,7 @@ local function frame(J)
                 tostring(sc.npc), tostring(J.target.name or J.target.id)))
         end
         local SK = W.skills()
-        local res = SK._episode_poll(J.api, J.ep, J.t)
+        local res = SK._episode_poll(J.api, J.ep, J.t, J.token)
         if res == nil then
             if J.t - J.t0 > M.cfg.episode_timeout_s then return fail(J, "timeout", "timeout", "I couldn't get to them in time.") end
             return

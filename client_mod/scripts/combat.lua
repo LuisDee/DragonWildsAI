@@ -1459,7 +1459,7 @@ local function follow_target(F, dist_m, sprint)
     if F.t - (F.follow_t or -9) < 1.0 then return F.following end -- at most one (re)start per second
     F.follow_t = F.t
     local cfg = M.cfg
-    local r = mcall("move", "follow", F.log, F.target_id, dist_m, { sprint = sprint, face_when_near = true, nav = false,
+    local r = mcall("move", "follow", F.log, F.target_id, dist_m, { sprint = sprint, face_when_near = true, nav = false, owner_token = F.token,
         progress = { stall_s = cfg.approach_stall_s, gain_m = cfg.approach_gain_m, budget_s = cfg.chase_max_s, moving_m = cfg.chase_moved_m } })
     F.drove_move = true
     F.following = r and r.ok ~= false
@@ -1613,7 +1613,7 @@ local function begin_flee(F, why)
     set_phase(F, "flee", why)
     M.emit_activity({ kind = "fled", by = F.by or "unknown", from = F.target_name, from_id = F.target_id, why = why, hp = F.hp_now })
     local luis = M.orders.protect or M.cfg.protect or M.nearest_player_name(F.me_pos)
-    local r = luis and mcall("move", "follow", F.log, luis, 3, { sprint = true })
+    local r = luis and mcall("move", "follow", F.log, luis, 3, { sprint = true, owner_token = F.token })
     if r and r.ok ~= false and (r.target_visible ~= false) then F.flee_to = luis
     else
         -- away from the threat
@@ -1622,7 +1622,7 @@ local function begin_flee(F, why)
             local dx, dy = me.X - tp.X, me.Y - tp.Y
             local l = math.max(math.sqrt(dx * dx + dy * dy), 1)
             local g = { (me.X + dx / l * M.cfg.flee_far_m * 100) / 100, (me.Y + dy / l * M.cfg.flee_far_m * 100) / 100, me.Z / 100 }
-            mcall("move", "go_to", F.log, g, { sprint = true, tolerance_m = 3, timeout_s = M.cfg.flee_timeout_s })
+            mcall("move", "go_to", F.log, g, { sprint = true, tolerance_m = 3, timeout_s = M.cfg.flee_timeout_s, owner_token = F.token })
             F.flee_to = g
         end
     end
@@ -2266,7 +2266,7 @@ local function step_disengage(F, pawn, me, acts)
         if dir and me.pos then
             local far = M.cfg.disengage_m * 100
             local goal = { (me.pos.X + dir.X * far) / 100, (me.pos.Y + dir.Y * far) / 100, me.pos.Z / 100 }
-            mcall("move", "go_to", F.log, goal, { sprint = true, tolerance_m = 2, timeout_s = 8 })
+            mcall("move", "go_to", F.log, goal, { sprint = true, tolerance_m = 2, timeout_s = 8, owner_token = F.token })
             F.drove_move, F.following = true, false
         end
         g.step, g.t = "move", F.t
@@ -2583,7 +2583,7 @@ local function step_loot(F, pawn, me)
         end
         if not best then return set_phase(F, "restore", "no loot") end
         F.loot_item = best
-        mcall("move", "go_to", F.log, { best.pos.X / 100, best.pos.Y / 100, best.pos.Z / 100 }, { tolerance_m = 0.9, sprint = false, timeout_s = 10 })
+        mcall("move", "go_to", F.log, { best.pos.X / 100, best.pos.Y / 100, best.pos.Z / 100 }, { tolerance_m = 0.9, sprint = false, timeout_s = 10, owner_token = F.token })
         F.drove_move = true
         return
     end

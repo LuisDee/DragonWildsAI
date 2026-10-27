@@ -162,8 +162,8 @@ function W.banner()
 end
 function W.click_start(b) return pcall(function() b:OnStartCourseButtonClicked() end) end
 function W.face(pc, yaw) pcall(function() pc:SetControlRotation({ Pitch = 0, Yaw = yaw, Roll = 0 }) end) end
-function W.go_to(log, p, tol_m, timeout_s)
-    return mcall("move", "go_to", log, { p.X / 100, p.Y / 100, p.Z / 100 }, { tolerance_m = tol_m, timeout_s = timeout_s, sprint = true })
+function W.go_to(log, p, tol_m, timeout_s, owner_token)
+    return mcall("move", "go_to", log, { p.X / 100, p.Y / 100, p.Z / 100 }, { tolerance_m = tol_m, timeout_s = timeout_s, owner_token = owner_token, sprint = true })
 end
 function W.move_status() return mcall("move", "status") or {} end
 function W.move_stop(log) return mcall("move", "stop", log) end
@@ -232,7 +232,7 @@ end
 
 local function start_move(J, p, tol)
     J.goal, J.goal_tol = p, tol
-    W.go_to(J.log, p, tol, M.cfg.approach_timeout_s)
+    W.go_to(J.log, p, tol, M.cfg.approach_timeout_s, J.token)
     J.moving, J.move_t = true, J.t
 end
 local function move_done(J, me)

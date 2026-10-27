@@ -28,12 +28,19 @@
   {"probe": true, "save": "end"}
  ],
  "pass": [
+  {"ref": "fx_before.result.token", "truthy": true, "why": "probe reports a process token"},
+  {"ref": "fx_enchanted.result.token", "truthy": true, "why": "probe reports a process token"},
+  {"ref": "fx_enchanted.result.token", "eq": {"$ref": "fx_before.result.token"}, "why": "probe answered in the original client process"},
+  {"ref": "fx_recast.result.token", "truthy": true, "why": "probe reports a process token"},
+  {"ref": "fx_recast.result.token", "eq": {"$ref": "fx_before.result.token"}, "why": "probe answered in the original client process"},
+  {"ref": "fx_after.result.token", "truthy": true, "why": "probe reports a process token"},
+  {"ref": "fx_after.result.token", "eq": {"$ref": "fx_before.result.token"}, "why": "probe answered in the original client process"},
   {"ref": "equip.ok", "eq": true, "why": "the sword is held (an AHeldEquipmentActor exists)"},
   {"ref": "cast1.ok", "eq": true, "why": "the enchant went off (AddEquipmentFX ran with a NULL Niagara spawn)"},
-  {"delta": ["fx_before.runs", "fx_after.runs"], "gte": 3, "why": "the same client process answered through enchant, re-enchant and unequip (no crash)"}
+  {"delta": ["fx_before.result.runs", "fx_after.result.runs"], "gte": 3, "why": "the same client process answered through enchant, re-enchant and unequip (no crash)"}
  ],
- "observe": ["cast1.reason", "cast1.data.detail", "cast2.ok", "cast2.reason", "cast2.data.detail", "unequip.ok", "unequip.reason",
-             "fx_enchanted.held", "fx_recast.held", "fx_after.held", "fx_enchanted.status"],
+ "observe": ["fx_before.result.token", "fx_enchanted.result.token", "fx_recast.result.token", "fx_after.result.token", "cast1.reason", "cast1.data.detail", "cast2.ok", "cast2.reason", "cast2.data.detail", "unequip.ok", "unequip.reason",
+             "fx_enchanted.result.held", "fx_recast.result.held", "fx_after.result.held", "fx_enchanted.result.status"],
  "timeout_s": 300,
  "max_retries": 0
 }

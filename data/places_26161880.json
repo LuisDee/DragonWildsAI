@@ -2,11 +2,11 @@
  "schema": "dw_places/1",
  "build": "26161880",
  "map": "L_World",
- "generated_at": "2026-10-26T20:14:06Z",
+ "generated_at": "2026-10-26T22:35:51Z",
  "source": {
   "kind": "live_client_dump",
   "file": "logs\\places_raw_latest.json",
-  "wall": 1793044046,
+  "wall": 1793046259,
   "self_check": {
    "game_region": "Temple Woods",
    "computed_region": "Temple Woods",
@@ -164,8 +164,9 @@
     467.65,
     2062.35
    ],
+   "tag": "Location.Region.Brynmoor",
    "province": "Brynmoor",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/Temple_Woods"
+   "province_source": "game MapRegionTag Location.Region.Brynmoor"
   },
   {
    "name": "Bramblemead Valley",
@@ -383,8 +384,9 @@
     1131.97,
     1974.06
    ],
+   "tag": "Location.Region.Brynmoor",
    "province": "Brynmoor",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/Bramblemead_Valley"
+   "province_source": "game MapRegionTag Location.Region.Brynmoor"
   },
   {
    "name": "Whispering Swamp",
@@ -594,8 +596,9 @@
     1075.28,
     1546.05
    ],
+   "tag": "Location.Region.Brynmoor.Swamp",
    "province": "Brynmoor",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/Whispering_Swamp"
+   "province_source": "game MapRegionTag Location.Region.Brynmoor.Swamp"
   },
   {
    "name": "Fractured Plains",
@@ -969,8 +972,9 @@
     1594.54,
     1482.66
    ],
+   "tag": "Location.Region.Ghornfell",
    "province": "Ghornfell",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/Fractured_Plains"
+   "province_source": "game MapRegionTag Location.Region.Ghornfell"
   },
   {
    "name": "Stormtouched Highlands",
@@ -1148,8 +1152,9 @@
     635.15,
     1212.0
    ],
+   "tag": "Location.Region.Ghornfell.Highlands",
    "province": "Ghornfell",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/Stormtouched_Highlands"
+   "province_source": "game MapRegionTag Location.Region.Ghornfell.Highlands"
   },
   {
    "name": "Bloodblight Swamp",
@@ -1243,8 +1248,9 @@
     1389.72,
     1800.77
    ],
+   "tag": "Location.Region.Ghornfell.Swamp",
    "province": "Ghornfell",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/Bloodblight_Swamp"
+   "province_source": "game MapRegionTag Location.Region.Ghornfell.Swamp"
   },
   {
    "name": "Bleakfields Valley",
@@ -1362,8 +1368,9 @@
     1636.6,
     198.97
    ],
+   "tag": "Location.Region.Fellhollow",
    "province": "Fellhollow",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/Bleakfields_Valley"
+   "province_source": "game MapRegionTag Location.Region.Fellhollow"
   },
   {
    "name": "Hope's Fall",
@@ -1509,8 +1516,9 @@
     1525.03,
     -365.58
    ],
+   "tag": "Location.Region.Fellhollow",
    "province": "Fellhollow",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/Hope's_Fall"
+   "province_source": "game MapRegionTag Location.Region.Fellhollow"
   },
   {
    "name": "Lake of Lost Souls",
@@ -1736,8 +1744,9 @@
     1997.33,
     -119.04
    ],
+   "tag": "Location.Region.Fellhollow",
    "province": "Fellhollow",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/Lake_of_Lost_Souls"
+   "province_source": "game MapRegionTag Location.Region.Fellhollow"
   },
   {
    "name": "Coalridge Pass",
@@ -1899,8 +1908,9 @@
     2359.06,
     -442.28
    ],
+   "tag": "Location.Region.Fellhollow",
    "province": "Fellhollow",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/Coalridge_Pass"
+   "province_source": "game MapRegionTag Location.Region.Fellhollow"
   },
   {
    "name": "Silverthorn Keep",
@@ -2026,8 +2036,9 @@
     2493.4,
     33.99
    ],
+   "tag": "Location.Region.Fellhollow",
    "province": "Fellhollow",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/Silverthorn_Keep"
+   "province_source": "game MapRegionTag Location.Region.Fellhollow"
   },
   {
    "name": "Dragons' Run",
@@ -2109,8 +2120,9 @@
     1150.13,
     -352.7
    ],
+   "tag": "Location.Region.Fellhollow",
    "province": "Fellhollow",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/Dragon's_Run"
+   "province_source": "game MapRegionTag Location.Region.Fellhollow"
   },
   {
    "name": "Witchwillow Range",
@@ -2180,8 +2192,9 @@
     992.53,
     1.92
    ],
+   "tag": "Location.Region.Fellhollow",
    "province": "Fellhollow",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/Witchwillow_Range"
+   "province_source": "game MapRegionTag Location.Region.Fellhollow"
   },
   {
    "name": "Emberwood",
@@ -2271,8 +2284,9 @@
     770.08,
     -303.04
    ],
+   "tag": "Location.Region.Fellhollow",
    "province": "Fellhollow",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/Emberwood"
+   "province_source": "game MapRegionTag Location.Region.Fellhollow"
   },
   {
    "name": "Forgotten Temple",
@@ -2310,8 +2324,9 @@
     1492.78,
     500.52
    ],
+   "tag": "Location.Region.Fellhollow",
    "province": "Fellhollow",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/Forgotten_Temple"
+   "province_source": "game MapRegionTag Location.Region.Fellhollow"
   },
   {
    "name": "The Approach",
@@ -2425,8 +2440,9 @@
     2378.81,
     320.78
    ],
+   "tag": "Location.Region.DowdunReach",
    "province": "Dowdun Reach",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/The_Approach"
+   "province_source": "game MapRegionTag Location.Region.DowdunReach"
   },
   {
    "name": "The Library",
@@ -2536,8 +2552,9 @@
     2134.78,
     552.07
    ],
+   "tag": "Location.Region.DowdunReach",
    "province": "Dowdun Reach",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/The_Library"
+   "province_source": "game MapRegionTag Location.Region.DowdunReach"
   },
   {
    "name": "The Courtyard",
@@ -2667,8 +2684,9 @@
     2315.1,
     493.4
    ],
+   "tag": "Location.Region.DowdunReach",
    "province": "Dowdun Reach",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/The_Courtyard"
+   "province_source": "game MapRegionTag Location.Region.DowdunReach"
   },
   {
    "name": "The Menagerie",
@@ -2802,8 +2820,9 @@
     2120.79,
     793.88
    ],
+   "tag": "Location.Region.DowdunReach",
    "province": "Dowdun Reach",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/The_Menagerie"
+   "province_source": "game MapRegionTag Location.Region.DowdunReach"
   },
   {
    "name": "The Garrison",
@@ -2957,8 +2976,9 @@
     2506.26,
     422.16
    ],
+   "tag": "Location.Region.DowdunReach",
    "province": "Dowdun Reach",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/The_Garrison"
+   "province_source": "game MapRegionTag Location.Region.DowdunReach"
   },
   {
    "name": "The Nexus",
@@ -3028,8 +3048,9 @@
     2362.86,
     603.15
    ],
+   "tag": "Location.Region.DowdunReach",
    "province": "Dowdun Reach",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/The_Nexus"
+   "province_source": "game MapRegionTag Location.Region.DowdunReach"
   },
   {
    "name": "The Pastures",
@@ -3159,8 +3180,9 @@
     2705.29,
     493.97
    ],
+   "tag": "Location.Region.DowdunReach",
    "province": "Dowdun Reach",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/The_Pastures"
+   "province_source": "game MapRegionTag Location.Region.DowdunReach"
   },
   {
    "name": "The Cathedral",
@@ -3294,8 +3316,9 @@
     2275.16,
     728.39
    ],
+   "tag": "Location.Region.DowdunReach",
    "province": "Dowdun Reach",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/The_Cathedral"
+   "province_source": "game MapRegionTag Location.Region.DowdunReach"
   },
   {
    "name": "The Bastion",
@@ -3365,8 +3388,9 @@
     2456.55,
     860.69
    ],
+   "tag": "Location.Region.DowdunReach",
    "province": "Dowdun Reach",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/The_Bastion"
+   "province_source": "game MapRegionTag Location.Region.DowdunReach"
   },
   {
    "name": "The Grand Hall",
@@ -3484,8 +3508,9 @@
     2638.82,
     653.68
    ],
+   "tag": "Location.Region.DowdunReach",
    "province": "Dowdun Reach",
-   "province_source": "wiki infobox location: https://dragonwilds.runescape.wiki/w/The_Grand_Hall"
+   "province_source": "game MapRegionTag Location.Region.DowdunReach"
   },
   {
    "name": "Alcarrid Oasis",
@@ -3619,8 +3644,9 @@
     3230.05,
     1856.84
    ],
+   "tag": "Location.Region.UmbralSands",
    "province": "Umbral Sands",
-   "province_source": "wiki list: https://dragonwilds.runescape.wiki/w/Ashenfall#Umbral_Sands"
+   "province_source": "game MapRegionTag Location.Region.UmbralSands"
   },
   {
    "name": "Dunes of Uzzer",
@@ -3746,8 +3772,9 @@
     4075.78,
     2185.17
    ],
+   "tag": "Location.Region.UmbralSands",
    "province": "Umbral Sands",
-   "province_source": "wiki list: https://dragonwilds.runescape.wiki/w/Ashenfall#Umbral_Sands"
+   "province_source": "game MapRegionTag Location.Region.UmbralSands"
   },
   {
    "name": "Manafem Plains",
@@ -3845,8 +3872,9 @@
     3053.52,
     2748.5
    ],
+   "tag": "Location.Region.UmbralSands",
    "province": "Umbral Sands",
-   "province_source": "wiki list: https://dragonwilds.runescape.wiki/w/Ashenfall#Umbral_Sands"
+   "province_source": "game MapRegionTag Location.Region.UmbralSands"
   },
   {
    "name": "The Burning Spire",
@@ -3956,8 +3984,9 @@
     3680.24,
     2761.87
    ],
+   "tag": "Location.Region.UmbralSands",
    "province": "Umbral Sands",
-   "province_source": "wiki list: https://dragonwilds.runescape.wiki/w/Ashenfall#Umbral_Sands"
+   "province_source": "game MapRegionTag Location.Region.UmbralSands"
   },
   {
    "name": "Rasthin's Rest",
@@ -4023,8 +4052,9 @@
     -6695.83,
     7885.42
    ],
+   "tag": "Location.Region.ScornedWilderness.Hub",
    "province": "Scorned Wilderness",
-   "province_source": "geometry (inferred): it overlaps only Scorned Wilderness regions (Scorned Wilderness)"
+   "province_source": "game MapRegionTag Location.Region.ScornedWilderness.Hub"
   },
   {
    "name": "Scorned Wilderness",
@@ -4130,8 +4160,9 @@
     -6737.7,
     7855.5
    ],
+   "tag": "Location.Region.ScornedWilderness.Raid",
    "province": "Scorned Wilderness",
-   "province_source": "the region has the province's name (game EQuestRegion)"
+   "province_source": "game MapRegionTag Location.Region.ScornedWilderness.Raid"
   }
  ],
  "landmarks": [

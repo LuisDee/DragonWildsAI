@@ -477,7 +477,7 @@ local function start_move(J, goal_cm, tol_m, timeout_s)
     local me = J.me
     local far = me and U.dist2d(me, goal_cm) > 1200
     local r = mcall("move", "go_to", J.log, { goal_cm.X / 100, goal_cm.Y / 100, goal_cm.Z / 100 },
-        { tolerance_m = tol_m, timeout_s = timeout_s or M.cfg.approach_timeout_s, sprint = far })
+        { tolerance_m = tol_m, timeout_s = timeout_s or M.cfg.approach_timeout_s, sprint = far, owner_token = J.token })
     J.move_started = J.t
     return r and r.ok ~= false
 end

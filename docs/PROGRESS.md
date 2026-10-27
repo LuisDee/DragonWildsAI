@@ -325,3 +325,19 @@
   - Enchant Weapon: Air needs Attack 30 (wiki perk), well beyond the Attack 8 milestone;
   - the Dragon Slayer step texts are unknown until live;
   - vault/fight drops (Vault Shards, Opals, Dragon Tooth, Bloodwood Sap) aren't simulated.
+
+## 2026-10-26 — Codex recovery status
+
+- Recovered original goal, transcripts and late live results; pushed recovery snapshot 7921ff5 and history to origin/main. Preserved runtime memory in a private local archive and adopted the existing dev processes.
+- Implemented and focused-tested speech protocol repair, FX reference/token checks, test-fixture/debugger portability fixes, and movement ownership plumbing. Regenerated places from all 31 live region tags. These are infrastructure and correctness improvements; Windstep execution and autonomous task evidence remain pending.
+- Fresh full regression run: `logs/recovery/resume-check-d9d6a5820c534a45b9f0e432b147f876/check-all.log` (result pending at this entry). Earlier corrected baseline was 6 failed / 1045 passed / 1 skipped; focused tests for its failures now pass.
+- Survival diagnostic was ignored by addressed-chat routing because its text omitted `!c `: zero model calls, no gameplay improvement. Correct diagnostic routing before re-measuring. Daily API spend remains governed by the shared $10 UTC-day cap.
+- No fresh M1–M6 success claimed; planner responsiveness, traversal, survival and no-axe proof remain outstanding.
+- Full rerun finished: 1053 passed, 2 failed, 1 skipped. The two failures were WinError 5 during atomic test-state replacement; both passed immediately in isolation. A final full run is needed before GREEN. Created the requested five-hour continuation schedule in this thread.
+
+## 2026-10-27 — Recovery checkpoint verified
+
+- **CHECK_ALL: GREEN: 1057 passed, 1 skipped**, full suite on the corrected source (387.55 s). Private log: `logs/recovery/state-fixed-check-d1c78face399405685b82f4f7d293bfc/check-all.log`.
+- Reused the shared Windows-safe atomic writer for task-state persistence; regressions prove recovery from temporary denial and preservation/error propagation on permanent denial. Fresh Terra design and code review clear. Confirmed workspace Modify access and full owner access to the failed files, plus 50 successful probe replacements in that directory; no additional elevation required.
+- Approved judge diff is empty. Recovery fixes are ready for a coherent Git checkpoint; live FX/survival and unfinished traversal/planner work remain pending. No M1–M6 completion claim.
+- Requested five-hour continuation is ACTIVE in this thread (`resume-dragonwilds-companion`). Current UTC-day game-model spend read $0.00 / $10, zero calls; account five-hour allowance reset, latest reading 3% used.

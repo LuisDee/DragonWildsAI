@@ -98,8 +98,8 @@ function W.target_state(actor)
 end
 -- go_to with move's shared approach-progress tracker (measured to the TARGET; stalled = no 0.5 m gain for stall_s,
 -- too_long past budget_s) instead of a flat timer (simplify review 2026-10-26)
-function W.go_to(log, p, tol_m, to)
-    return mcall("move", "go_to", log, { p.X / 100, p.Y / 100, p.Z / 100 }, { tolerance_m = tol_m, timeout_s = M.cfg.approach_timeout_s + 15,
+function W.go_to(log, p, tol_m, to, owner_token)
+    return mcall("move", "go_to", log, { p.X / 100, p.Y / 100, p.Z / 100 }, { tolerance_m = tol_m, timeout_s = M.cfg.approach_timeout_s + 15, owner_token = owner_token,
         progress = { to = to and { to.X / 100, to.Y / 100, to.Z / 100 } or nil, stall_s = M.cfg.stall_s, budget_s = M.cfg.approach_timeout_s } })
 end
 function W.why_words(why, thing) local m = mod("move"); return m and m.why_words and m.why_words(why, thing) or "I can't find a way there" end
@@ -199,7 +199,7 @@ local function frame(J)
             if dist and dist < M.cfg.min_m and me then -- too close: step back along the line
                 goal = { X = me.X + (me.X - ts.pos.X), Y = me.Y + (me.Y - ts.pos.Y), Z = me.Z }
             end
-            W.go_to(J.log, goal, M.cfg.keep_m, ts.pos)
+            W.go_to(J.log, goal, M.cfg.keep_m, ts.pos, J.token)
             J.moving, J.move_t = true, J.t
         end
         local st = W.move_status() or {}

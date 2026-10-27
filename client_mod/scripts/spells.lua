@@ -1347,7 +1347,7 @@ function M.begin_open(job, t, snap)
             job.d.approach_from_m = math.floor(job.approach.from_m * 10 + 0.5) / 10
             job.phase = "approach"
             -- walk right up if need be (live 17:3x: the view was 7.4 m farther than him); stopped as soon as the VIEW is in reach
-            W.move_go_to(job.api, job.target, { tolerance_m = 1.5,
+            W.move_go_to(job.api, job.target, { tolerance_m = 1.5, owner_token = job.token,
                 progress = { stall_s = cfg.approach_stall_s, budget_s = cfg.approach_budget_s } })
             job.presses[#job.presses + 1] = "approach"
             return nil
@@ -1662,7 +1662,7 @@ local function step(job)
                 job.hold = { t0 = t, start = snap.position }
                 job.d.opened_at = snap.position
                 job.phase = "hold_walk"
-                W.move_go_to(api, job.walk_to, { tolerance_m = 1.5, progress = { stall_s = 8, budget_s = cfg.hold_walk_budget_s } })
+                W.move_go_to(api, job.walk_to, { tolerance_m = 1.5, owner_token = job.token, progress = { stall_s = 8, budget_s = cfg.hold_walk_budget_s } })
                 job.presses[#job.presses + 1] = "hold_walk"
                 return nil
             end

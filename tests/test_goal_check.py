@@ -308,7 +308,8 @@ def test_obs_exposure_and_staleness(tmp_path):
 
 def test_gates_judge_tag_and_clean_tree(tmp_path, monkeypatch):
     rows, val = everything(tmp_path)
-    d = data(tmp_path, rows, val)
+    # This case exercises an unapproved synthetic judge, irrespective of the real repo's approved tag.
+    d = data(tmp_path, rows, val, targets={**TARGETS, "judge_tag": None})
     gc.collect_runs(d)
     g = {x.target: x for x in gc.gates(d)}
     assert g["gate:judge_tag"].status == gc.NOT_MET  # null until Luis tags it

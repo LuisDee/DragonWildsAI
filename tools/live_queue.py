@@ -299,11 +299,19 @@ def evaluate(crit: list[dict], ctx: dict, logs: Callable[[str, str], list[str]])
     for c in crit:
         op = next(o for o in OPS if o in c)
         actual = value_of(c, ctx, logs)
-        good = compare(actual, op, c[op])
+        want = c[op]
+        missing_expected = False
+        if isinstance(want, dict) and set(want) == {"$ref"}:
+            try:
+                want = resolve(want, ctx)
+            except Blocked:
+                missing_expected = True
+        good = not missing_expected and compare(actual, op, want)
         ok = ok and good
         lhs = {k: c[k] for k in ("ref", "delta", "dist", "log") if k in c}
-        rows.append({**lhs, "op": op, "want": c[op], "actual": None if actual is _MISSING else actual,
-                     "missing": actual is _MISSING, "ok": good, "why": c.get("why")})
+        rows.append({**lhs, "op": op, "want": want, "actual": None if actual is _MISSING else actual,
+                     "missing": actual is _MISSING, "missing_expected": missing_expected,
+                     "ok": good, "why": c.get("why")})
     return ok, rows
 
 

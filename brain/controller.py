@@ -742,6 +742,7 @@ class Controller:
         msgs = msgs + [assistant_message(resp)]
         speech = self.speech_of(resp)
         if speech and not self.acts(resp) and note is None and self.check_talk_only:
+            self._answer_says(msgs, resp)  # the held line is a tool call too: answer it before the check request
             resp, msgs, speech = self._talk_only_check(msgs, d2, speech)
         d2.speech = speech
         d2.messages = msgs

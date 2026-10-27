@@ -457,7 +457,7 @@ local function next_spot(e, api)
     return true
 end
 
-local function episode_poll(api, e, t)
+local function episode_poll(api, e, t, owner_token)
     local th = e.thing
     local goal = (e.wading and e.wade_goal) or (e.spots and e.spots[e.spot_i]) or th.position
     if e.phase == "approach" then
@@ -509,7 +509,7 @@ local function episode_poll(api, e, t)
             -- while he stood on a tent roof and the client stopped answering right after
             -- move's shared approach-progress tracker measures to the THING (not the standing spot); its window restarts
             -- with each go_to, so the episode keeps the cross-spot window above (the 101 s case cycled 6 spots)
-            local mr = api.call("move", "go_to", goal, { tolerance_m = e.wading and 0.4 or e.tol, timeout_s = 60, allow_unstuck = false, wade = e.water or nil, -- water: walk INTO the shallows (no water detour)
+            local mr = api.call("move", "go_to", goal, { tolerance_m = e.wading and 0.4 or e.tol, timeout_s = 60, allow_unstuck = false, wade = e.water or nil, owner_token = owner_token, -- water: walk INTO the shallows (no water detour)
                                                         progress = { to = e.ipoint, stall_s = M.cfg.no_progress_s, gain_m = M.cfg.progress_m } })
             if not mr.ok then return mr end
             e.moving, e.approaches = true, e.approaches + 1
@@ -755,7 +755,7 @@ local function start_fetch(api, args, ctx, opts)
     begin(first)
     job.on_resume = resume_episode(job)
     job.step = function(t)
-        local r = episode_poll(api, job.ep, t)
+        local r = episode_poll(api, job.ep, t, job.token)
         if not r then return nil end
         if not r.ok then
             if job.total > 0 then -- some made it: say what we have
@@ -915,7 +915,7 @@ local function start_come_to(api, args, ctx, opts)
     local dist = math.max(1, tonumber(args.distance) or M.cfg.come_to_m)
     local job = { kind = opts.kind or "come_to", phase = "start" }
     local function begin()
-        local r = api.call("move", "follow", who, dist)
+        local r = api.call("move", "follow", who, dist, { owner_token = job.token })
         if not r.ok then return r end
         if r.data.target_visible == false then
             api.call("move", "stop")
@@ -1021,7 +1021,7 @@ local function start_recover_grave(api, args, ctx)
             end
             return nil
         end
-        local r = episode_poll(api, job.ep, t)
+        local r = episode_poll(api, job.ep, t, job.token)
         if not r then return nil end
         if not r.ok then return r end
         local d = r.data
@@ -1148,7 +1148,7 @@ local function start_interact(api, args, ctx)
     job.on_resume = resume_episode(job)
     job.step = function(tt)
         if job.leaving then return job.leave_step(tt) end
-        local res = episode_poll(api, job.ep, tt)
+        local res = episode_poll(api, job.ep, tt, job.token)
         -- talk review V2: the press started a conversation, but talk.lua isn't enabled. Never leave him trapped
         -- in an open dialogue (every gated action would be refused): leave with the panel's own Cancel
         -- (bounded, read back), then say truthfully what it was.
@@ -1536,7 +1536,7 @@ local function start_explore(api, args, ctx)
         while job.legs_done < legs do
             local p = pick()
             if not p then return false end
-            local mr = api.call("move", "go_to", p.goal, { tolerance_m = 3, timeout_s = 40, allow_unstuck = false })
+            local mr = api.call("move", "go_to", p.goal, { tolerance_m = 3, timeout_s = 40, allow_unstuck = false, owner_token = job.token })
             if mr.ok then job.leg, job.legs_done = p, job.legs_done + 1; return true end
             job.failed[p.deg] = true
         end
@@ -1719,7 +1719,7 @@ local function start_transfer(api, args, ctx, deposit)
     job.step = function(tt)
         if job.phase == "ready" then return begin_transfer() end
         if job.phase == "open" then
-            local res = episode_poll(api, job.ep, tt)
+            local res = episode_poll(api, job.ep, tt, job.token)
             if not res then return nil end
             if not res.ok then return finish(res) end
             local now = W.open_container(api)
@@ -1777,7 +1777,7 @@ local function start_collect_water(api, args, ctx)
     begin()
     job.on_resume = resume_episode(job)
     job.step = function(t)
-        local res = episode_poll(api, job.ep, t)
+        local res = episode_poll(api, job.ep, t, job.token)
         if not res then return nil end
         if res.ok and (tonumber(res.data and res.data.count) or 0) > 0 then
             job.got = job.got + res.data.count

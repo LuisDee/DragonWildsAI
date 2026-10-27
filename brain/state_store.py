@@ -12,7 +12,6 @@ With per-world memory the directory is <state>/worlds/<world_guid>/ (brain/world
 from __future__ import annotations
 
 import json
-import os
 import time
 import uuid
 from collections.abc import Iterable
@@ -22,6 +21,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, computed_field
 
 from . import paths
+from .fileio import atomic_write as _atomic_write
 from .interface import TOOLS, ActionResult, ok
 
 TaskStatus = Literal["pending", "running", "done", "failed"]
@@ -180,9 +180,3 @@ class StateStore:
         if self.rules_path.exists():
             return json.loads(self.rules_path.read_text(encoding="utf-8")).get("rules") or []
         return []
-
-
-def _atomic_write(path: Path, text: str) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)

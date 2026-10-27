@@ -1,4 +1,6 @@
 from brain import fileio
+from brain import state_store
+import pytest
 
 
 def test_atomic_write_and_read_json(tmp_path):
@@ -23,6 +25,32 @@ def test_atomic_write_retries_permission_error(tmp_path, monkeypatch):
     monkeypatch.setattr(fileio.os, "replace", flaky)
     fileio.atomic_write(tmp_path / "b.json", "{}", sleep=lambda s: None)
     assert calls["n"] == 3 and (tmp_path / "b.json").read_text() == "{}"
+
+
+@pytest.mark.parametrize("persistent", [False, True])
+def test_state_store_write_handles_windows_replacement_lock(tmp_path, monkeypatch, persistent):
+    target = tmp_path / "task_tree.json"
+    target.write_text("old memory", encoding="utf-8")
+    real_replace = fileio.os.replace
+    attempts = []
+
+    def locked_replace(source, destination):
+        attempts.append(source)
+        if persistent or len(attempts) < 3:
+            raise PermissionError("Windows replacement denied")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(fileio.os, "replace", locked_replace)
+    if persistent:
+        with pytest.raises(PermissionError):
+            state_store._atomic_write(target, "new memory")
+        assert len(attempts) == 5
+        assert target.read_text(encoding="utf-8") == "old memory"
+    else:
+        state_store._atomic_write(target, "new memory")
+        assert len(attempts) == 3
+        assert target.read_text(encoding="utf-8") == "new memory"
+    assert not list(tmp_path.glob("*.tmp"))
 
 
 def test_read_new_lines_partial_and_truncate(tmp_path):

@@ -116,11 +116,14 @@ def rig(tmp_path):
     exe = tmp_path / f"{fake}.exe"
     shutil.copy(r"C:\Windows\System32\PING.EXE", exe)
     proc = subprocess.Popen([str(exe), "-n", "600", "127.0.0.1"], stdout=subprocess.DEVNULL)
+    # The watchdog is always dry-run here: a file is sufficient for debugger discovery and is never executed.
+    cdb = tmp_path / "cdb.exe"
+    cdb.touch()
     env = dict(os.environ, DW_CLIENT_PROC=fake, DW_CLIENT_IO=str(io), DW_CLIENT_STATE_DIR=str(tmp_path / "state"),
                DW_CLIENT_GAME_LOG=str(game_log), DW_CLIENT_MOD_LOG=str(mod_log), DW_CLIENT_DUMP_DIR=str(tmp_path / "dumps"),
                DW_CLIENT_HOLD=str(tmp_path / "client.stopped"), DW_CLIENT_WD_EVENTS=str(tmp_path / "wd.jsonl"),
                DW_CLIENT_BOOT_LOG=str(tmp_path / "boot.log"), DW_CLIENT_SMOKE_DIR=str(tmp_path),
-               DW_CLIENT_STEAM="logged_in")  # a fake Steam: never this machine's real login state
+               DW_CLIENT_STEAM="logged_in", DW_CLIENT_CDB=str(cdb))  # fake Steam/debugger, never the host's
     for k in ("DW_CLIENT_DEFAULT_TARGET", "DW_CLIENT_FORBID_TARGETS"):  # per-machine settings never leak in
         env.pop(k, None)
     r = type("Rig", (), {})()
@@ -377,6 +380,16 @@ def test_watchdog_hang_takes_stack_then_kills(rig):
     rig.ps("client_watchdog.ps1", *WD, "-Loops", "1", "-ProbeFails", "1")
     ev = names(rig.events())
     assert ev[1:] == ["client_hang", "hang_stack", "client_kill", "boot_start"], ev
+
+
+def test_watchdog_hang_without_debugger_still_kills_and_recovers(rig):
+    rig.env["DW_CLIENT_CDB"] = str(rig.tmp / "missing-cdb.exe")
+    r = rig.start(in_world())
+    r.answer = False
+    rig.ps("client_watchdog.ps1", *WD, "-Loops", "1", "-ProbeFails", "1")
+    ev = rig.events()
+    assert names(ev)[1:] == ["client_hang", "stack_skipped", "client_kill", "boot_start"]
+    assert next(e for e in ev if e["event"] == "stack_skipped")["why"] == "cdb not found"
 
 
 def test_watchdog_disconnect_rejoins_without_kill(rig):

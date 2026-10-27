@@ -247,6 +247,11 @@ function Get-JoinFailure([datetime]$SinceUtc) {
 }
 
 function Get-Cdb {
+    # Explicit debugger location also lets dry-run tests stay independent of installed Store packages.
+    if ($env:DW_CLIENT_CDB) {
+        Get-Item -LiteralPath $env:DW_CLIENT_CDB -ErrorAction SilentlyContinue | Select-Object -First 1
+        return
+    }
     Get-ChildItem 'C:\Program Files\WindowsApps\Microsoft.WinDbg_*\amd64\cdb.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
 }
 

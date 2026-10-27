@@ -164,8 +164,8 @@ end
 function W.target(pawn) return mcall("inventory", "interact_target", pawn) end
 function W.press(log) return mcall("inventory", "press_interact", log) end
 function W.face(pc, yaw, pitch) pcall(function() pc:SetControlRotation({ Pitch = pitch or -20, Yaw = yaw, Roll = 0 }) end) end
-function W.go_to(log, p, tol_m, timeout_s)
-    return mcall("move", "go_to", log, { p.X / 100, p.Y / 100, p.Z / 100 }, { tolerance_m = tol_m, timeout_s = timeout_s })
+function W.go_to(log, p, tol_m, timeout_s, owner_token)
+    return mcall("move", "go_to", log, { p.X / 100, p.Y / 100, p.Z / 100 }, { tolerance_m = tol_m, timeout_s = timeout_s, owner_token = owner_token })
 end
 function W.move_status() return mcall("move", "status") or {} end
 function W.move_stop(log) return mcall("move", "stop", log) end
@@ -263,7 +263,7 @@ local function frame(J)
     local ph = J.phase
     if ph == "approach" then
         if d2(me, J.plot.pos) <= M.cfg.reach_m * 100 then if J.moving then W.move_stop(J.log); J.moving = false end; return set_phase(J, J.item and "equip" or "face") end
-        if not J.moving then W.go_to(J.log, J.plot.pos, M.cfg.stand_tol_m, M.cfg.approach_timeout_s); J.moving, J.move_t = true, J.t end
+        if not J.moving then W.go_to(J.log, J.plot.pos, M.cfg.stand_tol_m, M.cfg.approach_timeout_s, J.token); J.moving, J.move_t = true, J.t end
         local st = W.move_status() or {}
         local res = st.result or {}
         if res.status == "failed" or res.status == "stopped" or J.t - J.move_t > M.cfg.approach_timeout_s then

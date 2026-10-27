@@ -3,6 +3,16 @@
 One row per bug seen live. Every fix lands with a regression test (PRINCIPLES #10). Status: open → assigned → fixed (test name) → verified live.
 Evidence: `client_io/events/chat.jsonl`, `logs/brain-live-*.jsonl`, `logs/client/client.log` (UTC times).
 
+## 2026-10-26 — Recovery wave
+
+| ID | Symptom | Cause | Fix / evidence | Status |
+|---|---|---|---|---|
+| R1 | Strict provider rejects a speech-only follow-up | Pending say tool_use lacked matching tool_result before the next request | Controller answers say calls before the talk-only check; strict-provider tests in test_speech_channel.py | fixed offline; live confirmation pending |
+| R2 | FX checks report failure despite wrapped probe output | Paths omitted result wrapper; counter comparisons lacked process continuity | Wrapped paths, fail-closed expected references, nonempty stable token; test_fx_live_checks.py | fixed offline; fresh live checks pending |
+| R3 | Full suite depends on host debugger installation / synthetic judge approval | Dry-run fixture searched installed cdb; synthetic target inherited real judge tag | Explicit test debugger path and missing-debugger coverage; isolated fixture sets judge_tag=None | fixed; full gate GREEN, 1057 passed / 1 skipped |
+| R4 | Recovery survival diagnostic did nothing | CommandReceived was injected without an addressed-chat prefix and routed to ignore | Zero controller/planner calls in diagnostic log; local diagnostic now uses normal !c prefix | diagnostic corrected; rerun pending; no gameplay result |
+| R5 | Intermittent WinError 5 replacing task_tree.json in two full-suite tests | Duplicate task-state writer lacks the bounded Windows-lock retry used by other memory stores; ACL grants Full to the owner, exact lock holder unknown | Reuse brain.fileio.atomic_write; transient and persistent denial regressions in test_fileio.py; 43 focused tests pass, Terra cold review clear | fixed offline; full gate GREEN, 1057 passed / 1 skipped |
+
 ## 2026-10-25 evening (Shockbyte, build 26161880)
 
 | ID | Symptom (what Luis saw) | Root cause (from logs) | Owner | Fix / test | Status |

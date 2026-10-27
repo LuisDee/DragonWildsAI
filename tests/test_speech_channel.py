@@ -76,3 +76,45 @@ def test_a_say_beside_a_read_is_held_and_answered(srig):
     assert held and "not said yet" in held[0]["note"]  # every tool_use gets its tool_result
     said = srig.companion_said()
     assert "no sticks, just oak logs" in said and "let me look" not in said
+
+
+@pytest.mark.parametrize("check_outcome", ["action", "empty", "error"])
+def test_say_only_followup_answers_its_tool_before_the_check(srig, check_outcome):
+    """A strict provider rejects unmatched say calls even though the body never executes them."""
+    from brain.controller import TALK_ONLY_NOTE
+
+    srig.game.add_ground_item("oak_log", 2, [1, 0, 0])
+    srig.game.player_say("grab those logs")
+    last = reply(None, FakeLLM.call("go_to", target=[2, 0, 0])) if check_outcome == "action" else LLMResponse()
+    srig.controller_llm.push(reply(None, FakeLLM.call("pickup", target="nearest", item="oak")),
+                             reply("got the logs"), last, LLMResponse())
+    complete = srig.controller_llm.complete
+    violations, checks = [], []
+
+    def strict_complete(messages, tools=None, **kwargs):
+        pending = set()
+        for msg in messages:
+            if msg["role"] == "tool":
+                pending.discard(msg.get("tool_call_id"))
+            else:
+                if pending:
+                    violations.append(sorted(pending))
+                    raise RuntimeError("tool calls without results")
+                if msg["role"] == "assistant":
+                    pending.update(c["id"] for c in msg.get("tool_calls", []))
+        if pending:
+            violations.append(sorted(pending))
+            raise RuntimeError("tool calls without results")
+        if messages[-1].get("content") == TALK_ONLY_NOTE:
+            checks.append(messages)
+            if check_outcome == "error":
+                raise RuntimeError("provider unavailable")
+        return complete(messages, tools=tools, **kwargs)
+
+    srig.controller_llm.complete = strict_complete
+    srig.agent.step()
+    assert not violations
+    assert len(checks) == 1
+    assert any("not said yet" in r["note"] for r in tool_msgs({"messages": checks[0]}, SAY_TOOL))
+    assert srig.companion_said() == ["got the logs"]
+    assert bool(srig.calls("go_to")) == (check_outcome == "action")

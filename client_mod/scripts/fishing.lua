@@ -325,8 +325,8 @@ function W.inject(action)
     return f and f(action) or false
 end
 function W.face(pc, yaw, pitch) pcall(function() pc:SetControlRotation({ Pitch = pitch or 0, Yaw = yaw, Roll = 0 }) end) end
-function W.go_to(log, pos_cm, tol_m, timeout_s)
-    return mcall("move", "go_to", log, { pos_cm.X / 100, pos_cm.Y / 100, pos_cm.Z / 100 }, { tolerance_m = tol_m, timeout_s = timeout_s })
+function W.go_to(log, pos_cm, tol_m, timeout_s, owner_token)
+    return mcall("move", "go_to", log, { pos_cm.X / 100, pos_cm.Y / 100, pos_cm.Z / 100 }, { tolerance_m = tol_m, timeout_s = timeout_s, owner_token = owner_token })
 end
 function W.move_status() return mcall("move", "status") or {} end
 function W.move_stop(log) return mcall("move", "stop", log) end
@@ -459,7 +459,7 @@ end
 
 local function start_move(J, pos, tol_m)
     J.goal, J.goal_tol = pos, tol_m
-    local r = W.go_to(J.log, pos, tol_m, M.cfg.approach_timeout_s)
+    local r = W.go_to(J.log, pos, tol_m, M.cfg.approach_timeout_s, J.token)
     J.moving, J.move_t = true, J.t
     return r and r.ok ~= false
 end

@@ -614,7 +614,7 @@ local function step(api, job, t)
             if (job.approaches or 0) >= 2 then
                 return api.fail("too_far", { piece = job.piece.id, distance = d, detail = "I can't get to a spot to build the " .. job.piece.name .. " from." })
             end
-            local mr = api.call("move", "go_to", stand_point(here or job.center, job.center, job.standoff + 0.5), { tolerance_m = 0.8, timeout_s = 60, allow_unstuck = false })
+            local mr = api.call("move", "go_to", stand_point(here or job.center, job.center, job.standoff + 0.5), { tolerance_m = 0.8, timeout_s = 60, allow_unstuck = false, owner_token = job.token })
             if not mr.ok then return mr end
             job.moving, job.approaches = true, (job.approaches or 0) + 1
             return nil

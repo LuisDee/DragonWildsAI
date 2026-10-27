@@ -868,7 +868,7 @@ local function open_poll(api, job, t)
                 return api.fail("too_far", { station = row.id, distance = d and r1(d), detail = "I can't get close enough to the " .. tostring(row.name) .. "." })
             end
             local mr = api.call("move", "go_to", e.goal or stand_point(here or row.position, row.position, M.cfg.stand_m),
-                                { tolerance_m = M.cfg.approach_tol_m, timeout_s = 60 })
+                                { tolerance_m = M.cfg.approach_tol_m, timeout_s = 60, owner_token = job.token })
             if not mr.ok then return mr end
             e.moving, e.approaches = true, e.approaches + 1
             return nil
