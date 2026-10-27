@@ -1572,21 +1572,27 @@ local function supervise(force)
         else
             local okh, healthy = pcall(svc.healthy, mod)
             healthy = okh and healthy == true
-            local reloaded = (st.loads ~= nil and st.loads ~= loads) or S.rearm == true
-            -- a start that keeps failing (e.g. a hook path missing in this build) backs off to once a minute
-            local backoff = not healthy and not reloaded and st.starts >= 3 and st.last_try and t - st.last_try < 60
-            if healthy and not reloaded then
-                st.state = "running"
+            local reloaded = st.loads == nil or st.loads ~= loads or S.rearm == true
+            if reloaded then st.adopt_pending = true end
+            local needs_start = not healthy or st.adopt_pending
+            -- Failed adoption is retried under the same bounded backoff as an unhealthy service.
+            local backoff = needs_start and not reloaded and st.starts >= 3 and st.last_try and t - st.last_try < 60
+            if not needs_start then
+                st.state, st.detail = "running", nil
             elseif backoff then
                 st.state = "starting"
             else
                 st.last_try = t
                 local ok, r = pcall(mod[svc.start], S.text_log)
-                st.starts, st.loads, st.last_start = st.starts + 1, loads, os.date("!%H:%M:%SZ")
+                local started = ok and r ~= false and not (type(r) == "table" and r.ok == false)
+                st.starts, st.last_start = st.starts + 1, os.date("!%H:%M:%SZ")
                 okh, healthy = pcall(svc.healthy, mod)
-                st.state = (okh and healthy == true) and "running" or "starting"
-                st.detail = (not ok) and tostring(r) or (type(r) == "table" and r.reason) or nil
-                ev("client_service_start", { name = svc.name, ok = ok, state = st.state, reloaded = reloaded,
+                healthy = okh and healthy == true
+                st.adopt_pending = not (started and healthy)
+                st.state = not st.adopt_pending and "running" or "starting"
+                st.detail = (not ok) and tostring(r) or (not started and ((type(r) == "table" and r.reason) or "start failed"))
+                    or (not healthy and "service not healthy") or nil
+                ev("client_service_start", { name = svc.name, ok = started, state = st.state, reloaded = reloaded,
                                              detail = st.detail, starts = st.starts })
             end
             st.loads = loads

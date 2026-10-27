@@ -353,3 +353,9 @@
 - **CHECK_ALL: GREEN, 1067 passed / 1 skipped**, 454.32 s. This includes calibration integrity, actual-source water reporting, bounded escape continuation and true failure activity. Focused suites: 60 skills, 396 combat/arbiter; independent reviews complete. Live remeasurement remains pending.
 - Repaired the final interrupted gate's bare scenario lease replacement and reused the shared writer for client-slot/live-queue state. Six denial-injection regressions and 38 focused operations tests pass; existing data is preserved on permanent denial. Approved judges unchanged.
 - Confirmed the five-hour schedule did start at 13:01, but the app rejected it for account usage until 13:05. Updated scheduled instructions for allowance checks/checkpoint margin; Goal mode is separately paused. No automatic-retry guarantee. Current task resumed on Luis's instruction.
+
+## 2026-10-27, 15:55 Berlin — Live attribution and service adoption
+
+- Water regression passed its second allowed attempt: correctly named Dirty Water, actual source, independent inventory +2; first attempt path-blocked retained. Calibration remains unmeasured after readiness refused uneven/obstructed ground. Memory backed up beforehand; no envelope created.
+- Manual use of existing service APIs refreshed stale callbacks, preserving policy/orders; native reflex then drank carried water and verified hydration 0 -> 19.54. Added the general supervisor adoption correction with pending failure/backoff and idempotent existing-loop reuse.
+- **CHECK_ALL: GREEN, 1067 passed / 1 skipped**, 386.40 s; focused bridge tests 11 passed. Automatic native adoption and a short M1 pilot are next. No two-hour exposure/stability or overall-goal completion claim.

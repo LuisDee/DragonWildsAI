@@ -834,6 +834,102 @@ test("restart via start(): old loop cancelled, new instance answers", function()
     assert(H.loops[handle] == nil, "stop cancels the loop")
 end)
 
+test("fresh bridge adopts a healthy existing service handler exactly once", function()
+    _G.ADOPT_TEST = { handle = {}, policy = { drink = 27 }, starts = 0, handler = "old" }
+    local handle = _G.ADOPT_TEST.handle
+    install("inventory", [[
+        local M = {}
+        function M.reflex_status() return { running = _G.ADOPT_TEST.handle ~= nil } end
+        function M.reflex_start()
+            _G.ADOPT_TEST.starts = _G.ADOPT_TEST.starts + 1
+            _G.ADOPT_TEST.handler = "current"
+            return { ok = true }
+        end
+        return M
+    ]])
+    local B2 = assert(loadfile(REPO .. "/client_mod/scripts/client_bridge.lua"))()
+    B2.clock = function() return T end
+    B2.start({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = CHAT,
+        vitals_events = base .. "/vitals.jsonl", jlog = H.log, no_loop = true, start_modules = true })
+    B2._supervise(true)
+    assert(_G.ADOPT_TEST.handler == "current" and _G.ADOPT_TEST.starts == 1, "current callback must be adopted")
+    assert(_G.ADOPT_TEST.handle == handle and _G.ADOPT_TEST.policy.drink == 27, "existing loop and policy survive")
+    T = T + B2.SERVICE_CHECK_S
+    B2._supervise(true)
+    assert(_G.ADOPT_TEST.starts == 1, "healthy service must not be restarted each check")
+    B2.stop(); _G.ADOPT_TEST = nil; install("inventory")
+end)
+
+test("failed adoption remains pending and uses bounded retry", function()
+    _G.ADOPT_TEST = { handle = {}, policy = { drink = 27 }, starts = 0, handler = "old", fail = true }
+    local handle = _G.ADOPT_TEST.handle
+    install("inventory", [[
+        local M = {}
+        function M.reflex_status() return { running = _G.ADOPT_TEST.handle ~= nil } end
+        function M.reflex_start()
+            local a = _G.ADOPT_TEST
+            a.starts = a.starts + 1
+            if a.fail then return { ok = false, reason = "adoption refused" } end
+            a.handler = "current"
+            return { ok = true }
+        end
+        return M
+    ]])
+    local B2 = assert(loadfile(REPO .. "/client_mod/scripts/client_bridge.lua"))()
+    B2.clock = function() return T end
+    B2.start({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = CHAT,
+        vitals_events = base .. "/vitals.jsonl", jlog = H.log, no_loop = true, start_modules = true })
+    local st = B2._state().services.fed_reflex
+    assert(st.starts == 1 and st.adopt_pending and st.state == "starting" and st.detail == "adoption refused")
+    T = T + 10; B2._supervise(true)
+    T = T + 10; B2._supervise(true)
+    assert(st.starts == 3 and _G.ADOPT_TEST.handler == "old")
+    T = T + 10; B2._supervise(true)
+    assert(st.starts == 3, "failed adoption backs off despite old healthy loop")
+    _G.ADOPT_TEST.fail = false
+    T = T + 61; B2._supervise(true)
+    assert(st.starts == 4 and not st.adopt_pending and st.state == "running" and _G.ADOPT_TEST.handler == "current")
+    assert(_G.ADOPT_TEST.handle == handle and _G.ADOPT_TEST.policy.drink == 27)
+    T = T + 10; B2._supervise(true)
+    assert(st.starts == 4, "successful adoption is not repeated")
+    B2.stop(); _G.ADOPT_TEST = nil; install("inventory")
+end)
+
+test("bare false adoption remains pending and uses bounded retry", function()
+    _G.ADOPT_TEST = { handle = {}, policy = { drink = 27 }, starts = 0, handler = "old", fail = true }
+    local handle = _G.ADOPT_TEST.handle
+    install("inventory", [[
+        local M = {}
+        function M.reflex_status() return { running = _G.ADOPT_TEST.handle ~= nil } end
+        function M.reflex_start()
+            local a = _G.ADOPT_TEST
+            a.starts = a.starts + 1
+            if a.fail then return false end
+            a.handler = "current"
+            return { ok = true }
+        end
+        return M
+    ]])
+    local B2 = assert(loadfile(REPO .. "/client_mod/scripts/client_bridge.lua"))()
+    B2.clock = function() return T end
+    B2.start({ root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = CHAT,
+        vitals_events = base .. "/vitals.jsonl", jlog = H.log, no_loop = true, start_modules = true })
+    local st = B2._state().services.fed_reflex
+    assert(st.starts == 1 and st.adopt_pending and st.state == "starting" and st.detail == "start failed")
+    T = T + 10; B2._supervise(true)
+    T = T + 10; B2._supervise(true)
+    assert(st.starts == 3 and _G.ADOPT_TEST.handler == "old")
+    T = T + 10; B2._supervise(true)
+    assert(st.starts == 3, "failed adoption backs off despite old healthy loop")
+    _G.ADOPT_TEST.fail = false
+    T = T + 61; B2._supervise(true)
+    assert(st.starts == 4 and not st.adopt_pending and st.state == "running" and _G.ADOPT_TEST.handler == "current")
+    assert(_G.ADOPT_TEST.handle == handle and _G.ADOPT_TEST.policy.drink == 27)
+    T = T + 10; B2._supervise(true)
+    assert(st.starts == 4, "successful adoption is not repeated")
+    B2.stop(); _G.ADOPT_TEST = nil; install("inventory")
+end)
+
 -- ------------------------------------------------------------------ run
 for _, t in ipairs(tests) do
     local ok, err = pcall(t[2])
