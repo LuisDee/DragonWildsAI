@@ -602,6 +602,34 @@ do -- category discovery offers identities only; exact and substring names retai
     check("category: absent is unknown", #none == 0)
     C.set_data(REAL)
 end
+do -- unknown unlocks and raw condition bundles remain distinct and read-only
+    local path = "/fixture/ITEM_Potion"
+    local q1 = "ANY ITEMS[ Glowcap, Pebble ] AND ALL ACTORS[ BP_Station_Kettle_C ]"
+    local q2 = "UNKNOWN_FN[ x ] OR ALL ITEMS[ Berries ]"
+    local fake = { items = { [path] = { id = "ITEM_Potion", name = "Potion" } },
+                   stations = { Kettle = { name = "Brew Kettle", classes = { "BP_Station_Kettle_C" } } },
+                   recipes = { R = { path = "/fixture/R", inputs = {}, outputs = {{ path, 1 }}, stations = { "Kettle" }, uq = {q1, q2} } } }
+    C.set_data(fake)
+    local locked = C.assess("R", 1, { have = {}, unlocked = {}, near = {} })
+    check("unlock: confirmed locked retains exact queries", locked.status == "not_unlocked"
+          and locked.unlock_queries[1] == q1 and locked.unlock_queries[2] == q2
+          and locked.unlock:find("relation between conditions unknown", 1, true) ~= nil)
+    local card = C.card(locked)
+    check("unlock: card carries raw queries and context", card.unlock_queries[1] == q1
+          and card.unlock_context:find("actor%-class interactions")
+          and card.unlock_query_source == "generated recipe catalog (whitespace normalized)")
+    local known = C.plan_tree({ recipe = "R" }, 1, { have = {}, unlocked = {}, near = {} })
+    check("unlock: locked plan retains condition facts", known.root.status == "not_unlocked"
+          and known.root.unlock_queries[2] == q2 and has_step(known.steps, "unlock"))
+    local unknown = C.plan_tree({ recipe = "R" }, 1, { have = {}, unlocked = nil, near = {} })
+    check("unlock: unreadable state remains unknown without unlock step", unknown.root.status == "unlock_unknown"
+          and not has_step(unknown.steps, "unlock") and unknown.root.unlock_queries[1] == q1)
+    fake.recipes.R.uq = { q1 }
+    local single = C.assess("R", 1, { have = {}, unlocked = {}, near = {} })
+    check("unlock: one condition has no invented relation", single.unlock_queries[1] == q1
+          and not single.unlock:find("relation between conditions", 1, true))
+    C.set_data(REAL)
+end
 do -- get_state extras: stations nearby with the furnace's state, from the census rows
     reset({ stations = { TABLE(), FURNACE({ res = { { slot = 0, item = "ITEM_Resources_IronOre", name = "Iron Ore", count = 3 } } }) } })
     local rows = api.census_things()

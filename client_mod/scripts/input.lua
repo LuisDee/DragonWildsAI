@@ -141,6 +141,21 @@ function M.open_screens()
     end
     return out
 end
+
+-- Unlike the cleanup census, verification must distinguish a closed screen
+-- from an unavailable or non-boolean native read.
+function M.observe_screens()
+    if paused() then return nil end
+    local api, pc = M.input_manager(), M.pc()
+    if not (api and pc) then return nil end
+    local out = {}
+    for _, e in ipairs(M.SCREENS) do
+        local ok, v = pcall(function() return api:IsOpen(pc, e[1]) end)
+        if not ok or type(v) ~= "boolean" then return nil end
+        if v then out[#out + 1] = { type = e[1], name = e[2] } end
+    end
+    return out
+end
 -- The game's own close for every open screen (or only the EWidgetTypes in the list `types`), in M.SCREENS
 -- order, re-reading IsOpen before each close (a coupled widget closes with its parent).
 -- InputManagerUIAPI:CloseWidgetIfOpen(PC, Type, bIsTriggeredByOutsideWidget=false, bShouldCheckPauseBlock=false):
@@ -195,6 +210,16 @@ end
 function M.claim(kind, owner) st().owners[kind] = { owner = owner or "?", at = M.clock() } end
 function M.release(kind) st().owners[kind] = nil end
 function M.owner(kind) return st().owners[kind] end
+function M.claim_if_free(kind, owner)
+    if next(st().owners) ~= nil then return false end
+    M.claim(kind, owner)
+    return true
+end
+function M.release_if_owned(kind, owner)
+    local current = M.owner(kind)
+    if current and current.owner == owner then M.release(kind); return true end
+    return false
+end
 
 -- One Cancel toward leaving build mode, as a player presses Esc (Cancel may step Placement -> Selection ->
 -- None, so callers read the mode back NEXT tick and call again, at most cfg.cancels times; input lands on the
@@ -320,6 +345,9 @@ M._sweep = sweep
 function M.after_action(why, log)
     if paused() then return nil end
     local s = st()
+    -- An interaction releases its own claim before finishing. Any remaining
+    -- screen claim belongs to another action and must not be cleared here.
+    if why == "interact" and s.owners.screen then return nil end
     -- a "screen" claim lives only as long as the action that opened the screen (crafting, lodestone): the action
     -- has ended, so the claim is stale even when an exit path (a failure step, an interrupt) didn't release it
     s.owners.screen = nil

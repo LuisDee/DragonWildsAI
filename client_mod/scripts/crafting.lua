@@ -218,9 +218,11 @@ local function unlock_text(r)
             return sid and station_name(sid) or cw
         end))
     end
-    return table.concat(out, " OR ")
+    return table.concat(out, "; ") .. (#out > 1 and " (relation between conditions unknown)" or "")
 end
 M.unlock_text = unlock_text
+local UNLOCK_CONTEXT = "Progress records item first pickups and actor-class interactions separately; "
+    .. "the relationship between separate condition queries is not established."
 
 -- ------------------------------------------------------------------ the pure plan (one recipe)
 local function per_craft(r, item)
@@ -297,7 +299,13 @@ function M.assess(rid, crafts, ctx)
     local vendor = sid and (station_info(sid) or {}).vendor == true
     local unl
     if ctx.unlocked == nil then unl = nil else unl = ctx.unlocked[rid] == true end
-    if not unl then a.unlock = unlock_text(r) end
+    if not unl then
+        a.unlock = unlock_text(r)
+        if type(r.uq) == "table" and #r.uq > 0 then
+            a.unlock_queries, a.unlock_context = r.uq, UNLOCK_CONTEXT
+            a.unlock_query_source = "generated recipe catalog (whitespace normalized)"
+        end
+    end
     if #(r.stations or {}) == 0 then
         a.status, a.detail = "no_station_type", "nothing in the game crafts " .. tostring(a.name or rid) .. " at a station"
     elseif vendor then
@@ -305,7 +313,7 @@ function M.assess(rid, crafts, ctx)
         a.detail = (a.name or rid) .. " is bought from " .. tostring(a.station_name) .. ", and I can't trade with vendors yet"
     elseif unl == false then
         a.status = "not_unlocked"
-        a.detail = "I haven't unlocked " .. tostring(a.name or rid) .. " yet" .. (a.unlock and (" (it unlocks with: " .. a.unlock .. ")") or "")
+        a.detail = "I haven't unlocked " .. tostring(a.name or rid) .. " yet" .. (a.unlock and (" (catalog conditions: " .. a.unlock .. ")") or "")
     elseif unl == nil then
         a.status, a.detail = "unlock_unknown", "I can't read which recipes I've unlocked right now"
     elseif #a.missing > 0 then
@@ -348,6 +356,9 @@ function M.card(a)
                 station_name = a.station_name, kind = a.kind, inputs = a.inputs, outputs = a.outputs, detail = a.detail }
     if #a.missing > 0 then c.missing = a.missing end
     if a.unlock then c.unlock = a.unlock end
+    if a.unlock_queries then
+        c.unlock_queries, c.unlock_context, c.unlock_query_source = a.unlock_queries, a.unlock_context, a.unlock_query_source
+    end
     if a.station_row then c.station_id, c.station_distance = a.station_row.id, a.station_row.distance end
     return c
 end
@@ -386,8 +397,13 @@ function M.plan_tree(goal, count, ctx)
         end
         stack[item] = nil
         if a.status == "vendor" or a.status == "not_unlocked" or a.status == "unlock_unknown" then
-            n.status, n.unlock, n.detail = a.status == "vendor" and "vendor" or "not_unlocked", a.unlock, a.detail
-            if a.status ~= "vendor" then steps[#steps + 1] = { ["do"] = "unlock", recipe = rid, name = a.name, how = a.unlock } end
+            n.status, n.unlock, n.detail = a.status, a.unlock, a.detail
+            n.unlock_queries, n.unlock_context, n.unlock_query_source = a.unlock_queries, a.unlock_context, a.unlock_query_source
+            if a.status == "not_unlocked" then
+                steps[#steps + 1] = { ["do"] = "unlock", recipe = rid, name = a.name, how = a.unlock,
+                                      unlock_queries = a.unlock_queries, unlock_context = a.unlock_context,
+                                      unlock_query_source = a.unlock_query_source }
+            end
         elseif not a.station_row then
             n.status, n.detail = "no_station", a.detail
             steps[#steps + 1] = { ["do"] = "find_station", station = a.station, name = a.station_name, recipe = rid }
@@ -1040,7 +1056,9 @@ local function start_craft(api, args, ctx0)
         local reason = ({ not_unlocked = "not_unlocked", unlock_unknown = "state_unavailable", missing_input = "missing_materials",
                           no_station = "nothing_in_range", vendor = "not_implemented", no_station_type = "unknown_recipe" })[best.status] or "unknown_recipe"
         return api.fail(reason, { recipe = best.recipe, item = best.item, missing = (#best.missing > 0) and best.missing or nil,
-            unlock = best.unlock, station = best.station_name, candidates = (#list > 1) and cand_wire(list) or nil,
+            unlock = best.unlock, unlock_queries = best.unlock_queries, unlock_context = best.unlock_context,
+            unlock_query_source = best.unlock_query_source,
+            station = best.station_name, candidates = (#list > 1) and cand_wire(list) or nil,
             detail = (best.detail or "I can't make that.") .. "." })
     end
     local row, perr = pick_station(api, a, args, ctx)

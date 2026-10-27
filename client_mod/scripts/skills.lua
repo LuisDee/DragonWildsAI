@@ -352,6 +352,7 @@ local function new_episode(api, thing, opts)
     opts = opts or {}
     local e = { thing = thing, phase = "approach", moving = false, approaches = 0, presses = 0, tol = M.cfg.approach_m,
                 before = api.counts() or {}, accept = opts.accept, label = opts.label or thing.name or "that",
+                screen_job = opts.screen_job,
                 ipoint = thing.position }
     local small = thing.category == "items" or tostring(thing.id):sub(1, 4) == "fol:" or thing.kind == "gatherable"
     if not small and thing.position then
@@ -443,6 +444,33 @@ function W.open_container(api)
     if not (inv and type(inv.world_inventory) == "function") or paused() then return nil end
     local ok, w = pcall(inv.world_inventory)
     return ok and type(w) == "table" and w or nil
+end
+
+-- A station screen is evidence only when its native active station belongs to
+-- the actor the detector selected. Other screen families remain unknown here.
+function W.screen_target(api, screens, actor)
+    if not actor then return nil end
+    local craft = api.module("crafting")
+    if not (craft and craft.W and type(craft.W.open_station) == "function") then return nil end
+    for _, screen in ipairs(screens) do
+        local kind = screen.type == 6 and "crafting" or (screen.type == 15 and "processing" or nil)
+        if kind then
+            local ok, owner = pcall(craft.W.open_station, api, kind)
+            if ok and owner == actor then return { screen = screen.name, owner = owner } end
+        end
+    end
+end
+
+local function interaction_screen_ready(api, e)
+    local input = api.module("input")
+    if not (input and type(input.observe_screens) == "function" and type(input.input_mode) == "function"
+            and type(input.is_gameplay_mode) == "function" and type(input.modal) == "function") then
+        return nil, "screen state unavailable"
+    end
+    local screens, mode = input.observe_screens(), input.input_mode()
+    if not screens or not mode then return nil, "screen state unavailable" end
+    if #screens > 0 or not input.is_gameplay_mode(mode) or input.modal() then return nil, "a screen or modal is open" end
+    return input
 end
 
 local function next_spot(e, api)
@@ -545,6 +573,17 @@ local function episode_poll(api, e, t, owner_token)
         local det = W.detector(api)
         e.detector = det
         if same_target(th, det) or (det and not det.none and e.accept and e.accept(det)) then
+            if e.screen_job then
+                local input, why = interaction_screen_ready(api, e)
+                if not input then return api.fail("verification_failed", { target = th.id, detail = why }) end
+                local existing = input.owner and input.owner("screen")
+                if not (existing and existing.owner == e.screen_job.screen_owner)
+                    and not (type(input.claim_if_free) == "function" and input.claim_if_free("screen", e.screen_job.screen_owner)) then
+                    return api.fail("busy", { target = th.id, detail = "screen is owned by another action" })
+                end
+                e.screen_job.screen_input = input
+                e.screen_actor = det.actor
+            end
             e.sig_before = W.press_signals(api)
             e.prompt_before = det.prompt
             if e.water and e.need_gain then
@@ -620,8 +659,22 @@ local function episode_poll(api, e, t, owner_token)
         local gone = tostring(source.id):sub(1, 4) ~= "fol:" and api.actor_of(source) == nil and api.find_thing(source.id, 10) == nil
         local changed
         if not e.need_gain then
+            if e.screen_job then
+                local input = e.screen_job.screen_input
+                local own = input and input.owner and input.owner("screen")
+                if not own or own.owner ~= e.screen_job.screen_owner then
+                    return api.fail("interrupted", { target = th.id, detail = "screen ownership lost" })
+                end
+                local screens = input.observe_screens()
+                if not screens then return api.fail("verification_failed", { target = th.id, detail = "screen state unavailable after use" }) end
+                if #screens > 0 and not (item or gone or W.open_container(api) or W.conversation_npc(api)) then
+                    local seen = W.screen_target(api, screens, e.screen_actor)
+                    if seen then changed = "screen_opened"; e.screen_observed = seen
+                    else return api.fail("verification_failed", { target = th.id, detail = "the open screen could not be attributed to the selected target" }) end
+                end
+            end
             local sig = W.press_signals(api)
-            if sig.sleeping == true and not (e.sig_before and e.sig_before.sleeping) then changed = "sleeping" end
+            if not changed and sig.sleeping == true and not (e.sig_before and e.sig_before.sleeping) then changed = "sleeping" end
             -- a chest / storage: the game opened ITS screen (deposit and withdraw: move_item with the container)
             if not changed and sig.container == th.id and not (e.sig_before and e.sig_before.container == th.id) then
                 changed = "opened"
@@ -640,8 +693,11 @@ local function episode_poll(api, e, t, owner_token)
         if item or ((gone or changed) and not e.need_gain) then
             -- water that WORKED: remember where he stood (move.shore_point offers it first next time)
             if e.water and item then local here = api.my_position(); if here and source.position then pcall(api.call, "move", "remember_water_spot", source.position, here) end end
-            return { ok = true, data = { target = source.id, item = item or api.null, count = n, gained = api.object(all),
+            return { ok = true, data = { target = e.screen_observed and e.screen_observed.owner or source.id,
+                                         requested_target = e.screen_observed and e.screen_observed.owner ~= source.id and source.id or nil,
+                                         item = item or api.null, count = n, gained = api.object(all),
                                          target_gone = gone, changed = changed or api.null,
+                                         screen = e.screen_observed,
                                          prompt = e.detector and e.detector.prompt or api.null } }
         end
         if t >= e.verify_until then
@@ -730,23 +786,47 @@ local function action(api, ctx, job)
         if job.cleanup then pcall(job.cleanup) end
         release(api, job, "cancelled")
     end
-    if job.kind == "consume" then
+    if job.kind == "consume" or job.screen_owner then
         -- State-only cleanup: bridge may call this while the world is tearing down.
         a.pause_cleanup = function()
             if job.consume_inv and job.consume_tx then
                 job.consume_inv.consume_finish(job.consume_tx, job.token, true); job.consume_tx = nil
             end
+            if job.screen_owner and job.cleanup then pcall(job.cleanup) end
             release(api, job, "paused")
         end
     end
     a.poll = function(self)
         local h = hold(api, job, self)
         if h == false then return nil end
-        if type(h) == "table" then release(api, job, "interrupted"); return h end
+        if type(h) == "table" then if job.screen_owner and job.cleanup then pcall(job.cleanup) end; release(api, job, "interrupted"); return h end
         if h == "resumed" and job.on_resume then job.on_resume() end
-        local res = job.step(api.now())
+        if job.screen_owner and job.token then
+            local A = arbiter(api)
+            if not (A and A.holds and A.holds(job.token)) then
+                if job.cleanup then pcall(job.cleanup) end
+                release(api, job, "interrupted")
+                return api.fail("interrupted", { detail = "interaction ownership lost" })
+            end
+        end
+        local res
+        if job.screen_owner then
+            local ok
+            ok, res = pcall(job.step, api.now())
+            if not ok then
+                if job.cleanup then pcall(job.cleanup) end
+                release(api, job, "body_error")
+                return api.fail("body_error", { detail = tostring(res) })
+            end
+        else res = job.step(api.now()) end
         if res then
-            if job.verify_final and res.ok then res = job.verify_final(res) end
+            if job.verify_final and res.ok then
+                if job.screen_owner then
+                    local verified, final = pcall(job.verify_final, res)
+                    res = verified and final or api.fail("body_error", { detail = tostring(final) })
+                else res = job.verify_final(res) end
+            end
+            if job.screen_owner and job.cleanup then pcall(job.cleanup) end
             release(api, job, res.ok and "done" or tostring(res.reason))
         end
         return res
@@ -1210,7 +1290,14 @@ local function start_interact(api, args, ctx)
         end
         return job
     end
-    job.ep = new_episode(api, t, { accept = accept })
+    job.screen_owner = "interact:" .. tostring(job)
+    job.cleanup = function()
+        local input = job.screen_input
+        if input and type(input.release_if_owned) == "function" then input.release_if_owned("screen", job.screen_owner) end
+        job.screen_input = nil
+    end
+    job.on_suspend = job.cleanup
+    job.ep = new_episode(api, t, { accept = accept, screen_job = job })
     job.ep.secondary = args.secondary == true
     if tostring(t.class or ""):find("Gravestone", 1, true) then
         job.verify_final = function(res)

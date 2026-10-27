@@ -27,6 +27,13 @@ autonomous test configuration.
   case rather than repeatedly exercising already-proven easy cases. Resource
   guards still apply: a full gate or world load may require a short validation
   pause, and isolated development does not create another client or live tester.
+- Luis approved the validation order on 2026-10-27: offline checks, then a
+  developer-driven session through the real client controls on the tested
+  deployment, then the unassisted deployment-model (Haiku controller) test.
+  Attribute every session to its driver. Developer-directed success diagnoses
+  capabilities and never counts as unaided completion. Preserve progress and
+  record any setup or assistance so later measurements cannot inherit a false
+  autonomous pass.
 - Announce game/client restarts before executing them. Never restart Steam as a
   routine repair: the previous login was not persistent and may require Luis's
   Steam Guard approval. Use `tools/steam_restart.py` for its safety check.

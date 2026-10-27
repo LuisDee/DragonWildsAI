@@ -179,6 +179,8 @@ Rules:
   it and what it requires; a required quest not in me.quests.complete is a prerequisite job (add_tasks).
 - steps_so_far shows what failed and why: change what you try, or ask. If you can't make progress with his tools
   and what you know, ask the player ONE specific question (ask_help).
+- Choose one decision: work (steps and any prerequisites), ask_help and wait now, or done for an open-ended job.
+  Do not combine ask_help or done with work or each other. A conditional later question can be decided if work fails.
 Answer with ONE JSON object only:
 {output}"""
 
@@ -671,10 +673,36 @@ class Validator:
         raw = json.loads(extract_json(text))
         if not isinstance(raw, dict):
             raise ValueError("answer with one JSON object")
+        for field, expected in (("steps", list), ("add_tasks", list), ("loops", dict)):
+            if raw.get(field) is not None and not isinstance(raw[field], expected):
+                raise ValueError(f"{field} must be a {expected.__name__} or null")
+        if raw.get("ask_help") is not None and not isinstance(raw["ask_help"], str):
+            raise ValueError("ask_help must be a string or null")
+        if raw.get("ask_help") and not raw["ask_help"].strip():
+            raise ValueError("ask_help must be a nonblank question or empty")
+        if raw.get("done") is not None and type(raw["done"]) is not bool:
+            raise ValueError("done must be a boolean or null")
+        if any(not isinstance(s, dict) for s in (raw.get("steps") or [])):
+            raise ValueError("steps must contain objects")
+        if any(not isinstance(t, dict) or not isinstance(t.get("text"), str) or not t["text"].strip()
+               for t in (raw.get("add_tasks") or [])):
+            raise ValueError("add_tasks must contain objects with nonempty text")
+        if any(not isinstance(g, str) or not isinstance(lp, dict) or lp.get("until") is None
+               for g, lp in (raw.get("loops") or {}).items()):
+            raise ValueError("loops must map group names to objects with an until test")
+        help_now = bool((raw.get("ask_help") or "").strip())
+        done = raw.get("done") is True
+        work = bool(raw.get("steps") or raw.get("add_tasks") or raw.get("loops"))
+        if sum((help_now, done, work)) > 1:
+            raise ValueError("choose one: work (steps, add_tasks, loops), ask_help now, or done; do not combine them")
+        if raw.get("loops") and not raw.get("steps"):
+            raise ValueError("loops require steps in the same decision")
+        if done and self.task.get("kind") != "open":
+            raise ValueError("done is only for open-ended jobs")
         errs: list[str] = []
         info: list[str] = []
         out: dict[str, Any] = {k: raw.get(k) for k in ("description", "explanation", "ask_help")}
-        out["done"] = bool(raw.get("done"))
+        out["done"] = done
         out["facts"] = [f for f in raw.get("facts") or [] if isinstance(f, dict)]
         self.unknown_seen += [f for f in out["facts"] if f.get("status") == "unknown"]
         fresh = {"baseline": P.snapshot(self.state, t=0), "tallies": {}, "episodes": [], "stored": [], "now": 0,
@@ -736,7 +764,7 @@ class Validator:
         if self.kind in ("plan", "help_answer") and self.task.get("kind") == "specific" and not self.task.get("success") \
                 and out["task_success"] is None and not out["ask_help"]:
             errs.append("task_success is required for the first plan of a specific job")
-        if not steps and not out["ask_help"] and not out["done"] and self.kind != "review":
+        if not steps and not out["ask_help"] and not out["done"] and self.kind not in ("review", "reflect"):
             errs.append("give steps, ask_help, or done")
         if errs:
             raise ValueError("; ".join(errs[:12]))

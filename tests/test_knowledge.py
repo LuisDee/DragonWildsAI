@@ -11,7 +11,7 @@ from conftest import Rig
 
 from brain.controller import LOOKUP_RULE
 from brain.interface import BODY_TOOLS, BRAIN_TOOLS, READ_TOOLS
-from brain.knowledge import Knowledge
+from brain.knowledge import Knowledge, game_docs
 from brain.llm import FakeLLM
 from tools import wiki_mirror as wm
 
@@ -197,6 +197,56 @@ def test_mirror_is_incremental_by_revid(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------- the index
 
 
+def test_recipe_unlock_queries_preserve_operators_and_unknown_relation(tmp_path):
+    data = make_data(tmp_path / "data")
+    path = data / "recipes_999.json"
+    recipes = json.loads(path.read_text(encoding="utf-8"))
+    queries = ["ANY ITEMS[ Glowcap, Pebble ] AND ALL ACTORS[ BP_Station_Kettle_C ]",
+               "UNKNOWN_FN[ x ] OR ALL ITEMS[ Berries ]"]
+    recipes["recipes"]["RECIPE_Brew"]["unlock"]["bundles"] = [{"query": q} for q in queries]
+    path.write_text(json.dumps(recipes), encoding="utf-8")
+    docs, _ = game_docs(data)
+    body = next(d["body"] for d in docs if d["title"] == "Glowcap Brew")
+    assert all(q in body for q in queries)
+    assert "source: recipe JSON" in body
+    assert "relationship between separate condition queries is not established" in body
+    assert "item first pickups and actor-class interactions" in body
+    k = Knowledge(data=data, wiki=tmp_path / "no-wiki")
+    text = k.lookup("glowcap brew", k_wiki=0)["data"]["results"][0]["text"]
+    assert all(q in text for q in queries)
+    k.db.close()
+
+
+def test_large_unlock_details_do_not_evict_recipe_alternatives(tmp_path):
+    data = make_data(tmp_path / "data")
+    path = data / "recipes_999.json"
+    recipes = json.loads(path.read_text(encoding="utf-8"))
+    base = recipes["recipes"]["RECIPE_Brew"]
+    recipes["recipes"].pop("RECIPE_Brew")
+    queries = []
+    for i in range(5):
+        r = json.loads(json.dumps(base))
+        r["inputs"] = [{"item": f"ITEM_Part{i}", "name": f"Part {i}", "count": i + 1}]
+        query = f"ALL ITEMS[ {i} " + "LongToken" * 40 + " ]"
+        r["unlock"] = {"bundles": [{"query": query}]}
+        recipes["recipes"][f"RECIPE_Alt{i}"] = r
+        queries.append(query)
+    path.write_text(json.dumps(recipes), encoding="utf-8")
+    docs, _ = game_docs(data)
+    body = next(d["body"] for d in docs if d["title"] == "Glowcap Brew")
+    for i in range(4):
+        assert queries[i] in body and f"[RECIPE_Alt{i}]" in body
+    assert queries[4] not in body  # existing four-recipe card limit
+    k = Knowledge(data=data, wiki=tmp_path / "no-wiki")
+    text = k.lookup("glowcap brew", k_wiki=0)["data"]["results"][0]["text"]
+    for i in range(4):
+        assert f"{i + 1} Part {i} at Brew Kettle" in text
+        assert queries[i] not in text  # no partial raw expressions
+    assert "Some unlock details omitted" in text and "craft_plan or recipes" in text
+    assert len(text) <= 900
+    k.db.close()
+
+
 def test_game_data_first_and_authoritative_wiki_second_with_links(know):
     res = know.lookup("glowcap brew")
     assert res["ok"]
@@ -255,6 +305,21 @@ def test_index_is_cached_and_rebuilt_when_a_source_changes(tmp_path):
     os.utime(f, ns=(time.time_ns(), time.time_ns() + 10**9))
     k3 = Knowledge(data=data, wiki=wiki)
     assert "Lights up tunnels" in k3.lookup("glow", kind="spell")["data"]["results"][0]["text"]
+
+
+def test_stale_format_rebuilds_cached_recipe_cards(tmp_path):
+    data, wiki = make_data(tmp_path / "data"), make_wiki(tmp_path / "wiki")
+    k = Knowledge(data=data, wiki=wiki)
+    old_signature = json.loads(k._meta("signature"))
+    old_signature[0] -= 1
+    k.db.execute("UPDATE meta SET v=? WHERE k='signature'", (json.dumps(old_signature),))
+    k.db.execute("UPDATE docs SET body='old card' WHERE title='Glowcap Brew' AND tier=0")
+    k.db.commit()
+    k.db.close()
+    refreshed = Knowledge(data=data, wiki=wiki)
+    text = refreshed.lookup("glowcap brew", k_wiki=0)["data"]["results"][0]["text"]
+    assert "unlock catalog queries" in text and "old card" not in text
+    refreshed.db.close()
 
 
 def test_game_only_without_a_mirror(tmp_path):

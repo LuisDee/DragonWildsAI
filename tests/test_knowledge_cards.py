@@ -27,3 +27,15 @@ def test_clip_card_cuts_by_whole_fields_and_says_what_it_left_out():
     kept = how[len(K.HOW):].split(K.OR)
     assert all(a in alts for a in kept[:-1]) and re.fullmatch(r"\d+ more way\(s\): look up its recipes", kept[-1])
     assert K._clip_card("short card", 500) == "short card"
+
+
+def test_oversized_alternative_is_wholly_omitted_and_notice_survives():
+    huge = "1 Thing from 1 " + "material " * 120 + "at Station"
+    query = "ANY ITEMS[ " + "long_identifier " * 80 + "]"
+    body = K.NL.join(["Type: Material", K.HOW + huge,
+                      f"{K.UNLOCK_DETAIL} [RECIPE_A]: {query}", "Weight 1"])
+    out = K._clip_card(body, 300)
+    assert len(out) <= 300
+    assert "1 more way(s): look up its recipes" in out
+    assert huge not in out and query not in out and "ANY ITEMS[" not in out
+    assert K.UNLOCK_OMITTED in out

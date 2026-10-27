@@ -186,6 +186,13 @@ do
     _G.DWInput = nil
     I = assert(loadfile(root .. "/client_mod/scripts/input.lua"))()
     I.clock = function() return T end
+    check("screen observation: closed is known", type(I.observe_screens()) == "table" and #I.observe_screens() == 0)
+    local read0 = mgr.IsOpen
+    mgr.IsOpen = function(_, p, t) if t == 6 then error("unreadable") end return read0(_, p, t) end
+    check("screen observation: errors are unknown", I.observe_screens() == nil)
+    mgr.IsOpen = function(_, p, t) if t == 6 then return nil end return read0(_, p, t) end
+    check("screen observation: nonboolean is unknown", I.observe_screens() == nil)
+    mgr.IsOpen = read0
     local function campfire_left_open() open[15], open[11] = true, true; W.input_mode = "DIM_FocussedInGameUI" end
     local function logf(m) logs[#logs + 1] = m end
 

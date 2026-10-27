@@ -20,9 +20,12 @@ local IN, OUT = DIR .. "/brain_to_client.jsonl", DIR .. "/client_to_brain.jsonl"
 local function read(path) local f = assert(io.open(path, "rb")); local s = f:read("a"); f:close(); return s end
 local function write(path, s, mode) local f = assert(io.open(path, mode or "ab")); f:write(s); f:close() end
 for _, n in ipairs({ "chat", "move", "sense", "inventory" }) do write(SCRIPTS .. "/" .. n .. ".lua", read(here .. "/fakes/" .. n .. ".lua"), "wb") end
-for _, n in ipairs({ "skills", "manifest", "arbiter", "quests" }) do
+for _, n in ipairs({ "skills", "manifest", "arbiter", "quests", "input" }) do
     write(SCRIPTS .. "/" .. n .. ".lua", read(REPO .. "/client_mod/scripts/" .. n .. ".lua"), "wb")
 end
+write(SCRIPTS .. "/crafting.lua", [[return { W = { open_station = function(_, kind)
+    return FAKE.screen_kind == kind and FAKE.screen_owner or nil
+end } }]], "wb")
 
 -- ------------------------------------------------------------------ wire helpers
 local out_offset = 0
@@ -148,6 +151,15 @@ local function reset()
     F.me_pos, F.detector_override, F.press_noop, F.use_noop, F.follow, F.held_item, F.held_name = nil, nil, nil, nil, nil, nil, nil
     F.auto_arrive, F.aims, F.presses, F.uses, F.equips, F.pickup_where, F.move_noop = true, 0, 0, 0, 0, nil, nil
     _G.DW_PAUSE, _G.DWSkills, _G.DW_LIFE = nil, nil, nil
+    _G.DWInput = nil
+    F.screens, F.screen_owner, F.screen_kind, F.screen_unknown = {}, nil, nil, nil
+    local inp = B.module("input")
+    inp.clock = function() return T end
+    inp.observe_screens = function() if F.screen_unknown then return nil end return F.screens end
+    inp.input_mode = function() return #F.screens > 0 and "DIM_CraftingMenu" or "DIM_Gameplay" end
+    inp.modal = function() return #F.screens > 0 and { kind = "screen", mode = "DIM_CraftingMenu" } or nil end
+    inp.close_screens = function() F.screens = {}; return { "Crafting" }, {} end
+    inp.close_container = function() return B.module("inventory").close_world_inventory() end
     local sk = B.module("skills")
     sk.W.grave_owner = function() return nil end
     sk.DEATH_FILE = base .. "/last_death.json" -- never the live client's file
@@ -707,6 +719,210 @@ test("interact: a pond (water volume) -> walk to its shore and face the surface,
     assert(r and r.reason ~= "too_far", json.encode(r)) -- reached and faced it (the water item itself is verified elsewhere)
 end)
 
+test("interact verifies target-owned screen before cleanup, one press", function()
+    for _, family in ipairs({ { 6, "Crafting", "crafting" }, { 15, "Processing", "processing" } }) do
+        reset()
+        local sk, inv, inp = B.module("skills"), B.module("inventory"), B.module("input")
+        local station = { id = "station_heldout", class = "BP_Station_C", name = "Station", kind = "crafting_station",
+                          prompt = "Use", position = { 1, 2, 3 } }
+        table.insert(F.world.interactables, station)
+        local det0, p0 = sk.W.detector, inv.press_interact
+        sk.W.detector = function() return { actor = station.id, prompt = "Use" } end
+        local presses = 0
+        inv.press_interact = function()
+            presses = presses + 1
+            F.screen_owner, F.screen_kind = station.id, family[3]
+            F.screens = { { type = family[1], name = family[2] } }
+            inp.gate(); T = T + 2; inp.gate()
+            assert(#F.screens == 1, "owned screen survived orphan sweep")
+            return { ok = true }
+        end
+        local _, id = rpc("interact", { target = station.id })
+        local result = run(id, 35)
+        sk.W.detector, inv.press_interact = det0, p0
+        assert(result and result.ok and result.data.changed == "screen_opened" and result.data.screen.owner == station.id,
+               json.encode(result))
+        assert(presses == 1 and #F.screens == 0 and not inp.owner("screen"), "one press, then cleanup")
+    end
+end)
+
+test("interact refuses pre-existing, unknown, or unrelated screen without retry", function()
+    for _, situation in ipairs({ "preexisting", "unknown", "other", "conflict" }) do
+        reset()
+        local sk, inv, inp = B.module("skills"), B.module("inventory"), B.module("input")
+        local station = { id = "station_other", class = "BP_Station_C", name = "Station", kind = "crafting_station",
+                          prompt = "Use", position = { 1, 2, 3 } }
+        table.insert(F.world.interactables, station)
+        local det0, p0 = sk.W.detector, inv.press_interact
+        sk.W.detector = function() return { actor = station.id, prompt = "Use" } end
+        if situation == "preexisting" then F.screens = { { type = 6, name = "Crafting" } } end
+        if situation == "unknown" then F.screen_unknown = true end
+        if situation == "conflict" then inp.claim("screen", "other-owner") end
+        local presses = 0
+        inv.press_interact = function()
+            presses = presses + 1
+            F.screens, F.screen_kind, F.screen_owner = { { type = 6, name = "Crafting" } }, "crafting", "wrong_actor"
+            return { ok = true }
+        end
+        local _, id = rpc("interact", { target = station.id })
+        local result = run(id, 35)
+        sk.W.detector, inv.press_interact = det0, p0
+        assert(result and not result.ok and presses == (situation == "other" and 1 or 0), json.encode(result))
+        if situation == "conflict" then assert(inp.owner("screen").owner == "other-owner") end
+    end
+end)
+
+test("interaction screen claim releases on cancel and cannot clear another owner", function()
+    for _, situation in ipairs({ "cancel", "lost" }) do
+        reset()
+        local sk, inv, inp = B.module("skills"), B.module("inventory"), B.module("input")
+        local station = { id = "station_lifecycle", class = "BP_Station_C", name = "Station", kind = "crafting_station",
+                          prompt = "Use", position = { 1, 2, 3 } }
+        table.insert(F.world.interactables, station)
+        local det0, p0 = sk.W.detector, inv.press_interact
+        sk.W.detector = function() return { actor = station.id, prompt = "Use" } end
+        local presses = 0
+        inv.press_interact = function()
+            presses = presses + 1
+            F.screens, F.screen_kind, F.screen_owner = { { type = 6, name = "Crafting" } }, "crafting", station.id
+            return { ok = true }
+        end
+        local _, id = rpc("interact", { target = station.id })
+        for _ = 1, 30 do if presses > 0 then break end; T = T + 0.5; B.step() end
+        assert(presses == 1 and inp.owner("screen"), "interaction holds claim during verification")
+        if situation == "cancel" then
+            rpc("stop")
+            assert(not inp.owner("screen"), "cancel releases own claim")
+        else
+            inp.release("screen"); inp.claim("screen", "other-owner")
+            local result = run(id, 5)
+            assert(result and result.reason == "interrupted" and inp.owner("screen").owner == "other-owner",
+                   json.encode(result))
+        end
+        sk.W.detector, inv.press_interact = det0, p0
+    end
+end)
+
+test("screen ownership follows the detector's accepted alternate target", function()
+    reset()
+    local sk, inv = B.module("skills"), B.module("inventory")
+    local target = { id = "requested_1", class = "BP_Item_C", name = "Object", item = "ITEM_Fixture",
+                     category = "items", position = { 1, 2, 3 }, actions = { "interact" } }
+    table.insert(F.world.items, target)
+    local det0, p0 = sk.W.detector, inv.press_interact
+    sk.W.detector = function() return { actor = "alternate_1", item = target.item, prompt = "Use" } end
+    inv.press_interact = function()
+        F.screens, F.screen_kind, F.screen_owner = { { type = 6, name = "Crafting" } }, "crafting", "alternate_1"
+        return { ok = true }
+    end
+    local _, id = rpc("interact", { target = target.id })
+    local result = run(id, 35)
+    sk.W.detector, inv.press_interact = det0, p0
+    assert(result and result.ok and result.data.target == "alternate_1" and result.data.requested_target == target.id,
+           json.encode(result))
+end)
+
+test("interaction retries only after a known-closed screen", function()
+    for _, unknown in ipairs({ false, true }) do
+        reset()
+        local sk, inv = B.module("skills"), B.module("inventory")
+        local station = { id = "station_retry", class = "BP_Station_C", name = "Station", kind = "crafting_station",
+                          prompt = "Use", position = { 1, 2, 3 } }
+        table.insert(F.world.interactables, station)
+        local det0, p0 = sk.W.detector, inv.press_interact
+        sk.W.detector = function() return { actor = station.id, prompt = "Use" } end
+        local presses = 0
+        inv.press_interact = function()
+            presses = presses + 1
+            if unknown then F.screen_unknown = true
+            elseif presses == 2 then
+                F.screens, F.screen_kind, F.screen_owner = { { type = 6, name = "Crafting" } }, "crafting", station.id
+            end
+            return { ok = true }
+        end
+        local _, id = rpc("interact", { target = station.id })
+        local result = run(id, 50)
+        sk.W.detector, inv.press_interact = det0, p0
+        assert(result and ((unknown and not result.ok and presses == 1) or (not unknown and result.ok and presses == 2)),
+               json.encode(result))
+    end
+end)
+
+test("interaction releases screen on suspension and re-baselines after resume", function()
+    reset()
+    local sk, inv, inp, A = B.module("skills"), B.module("inventory"), B.module("input"), B.module("arbiter")
+    local station = { id = "station_resume", class = "BP_Station_C", name = "Station", kind = "crafting_station",
+                      prompt = "Use", position = { 1, 2, 3 } }
+    table.insert(F.world.interactables, station)
+    local det0, p0 = sk.W.detector, inv.press_interact
+    sk.W.detector = function() return { actor = station.id, prompt = "Use" } end
+    local presses = 0
+    inv.press_interact = function()
+        presses = presses + 1
+        F.screens, F.screen_kind, F.screen_owner = { { type = 6, name = "Crafting" } }, "crafting", station.id
+        return { ok = true }
+    end
+    local _, id = rpc("interact", { target = station.id })
+    for _ = 1, 30 do if presses > 0 then break end; T = T + 0.5; B.step() end
+    assert(presses == 1 and inp.owner("screen"))
+    local fight = A.request(nil, { name = "combat:reflex", level = "reflex", uses_move = true })
+    assert(fight.ok and fight.preempted.suspended and not inp.owner("screen"))
+    inp.close_screens() -- the reflex's existing modal safety exit
+    A.release(nil, fight.token, "won")
+    local result = run(id, 50)
+    sk.W.detector, inv.press_interact = det0, p0
+    assert(result and result.ok and presses == 2 and result.data.changed == "screen_opened", json.encode(result))
+end)
+
+test("pause releases only the interaction claim without native screen reads", function()
+    reset()
+    local sk, inv, inp = B.module("skills"), B.module("inventory"), B.module("input")
+    local station = { id = "station_pause", class = "BP_Station_C", name = "Station", kind = "crafting_station",
+                      prompt = "Use", position = { 1, 2, 3 } }
+    table.insert(F.world.interactables, station)
+    local det0, p0, observe0 = sk.W.detector, inv.press_interact, inp.observe_screens
+    sk.W.detector = function() return { actor = station.id, prompt = "Use" } end
+    local presses, reads = 0, 0
+    inp.observe_screens = function() reads = reads + 1; return observe0() end
+    inv.press_interact = function()
+        presses = presses + 1
+        F.screens, F.screen_kind, F.screen_owner = { { type = 6, name = "Crafting" } }, "crafting", station.id
+        return { ok = true }
+    end
+    local _, id = rpc("interact", { target = station.id })
+    for _ = 1, 30 do if presses > 0 then break end; T = T + 0.5; B.step() end
+    assert(presses == 1 and inp.owner("screen"))
+    local before = reads
+    _G.DW_PAUSE = true; B.step(); _G.DW_PAUSE = nil
+    assert(reads == before and not inp.owner("screen"), "pause performed only state cleanup")
+    local result = result_of(drain(), id)
+    assert(result and result.reason == "companion_down", json.encode(result))
+    sk.W.detector, inv.press_interact, inp.observe_screens = det0, p0, observe0
+end)
+
+test("lost pawn token interrupts and releases interaction screen ownership", function()
+    reset()
+    local sk, inv, inp, A = B.module("skills"), B.module("inventory"), B.module("input"), B.module("arbiter")
+    local station = { id = "station_token", class = "BP_Station_C", name = "Station", kind = "crafting_station",
+                      prompt = "Use", position = { 1, 2, 3 } }
+    table.insert(F.world.interactables, station)
+    local det0, p0, holds0 = sk.W.detector, inv.press_interact, A.holds
+    sk.W.detector = function() return { actor = station.id, prompt = "Use" } end
+    local presses = 0
+    inv.press_interact = function()
+        presses = presses + 1
+        F.screens, F.screen_kind, F.screen_owner = { { type = 6, name = "Crafting" } }, "crafting", station.id
+        return { ok = true }
+    end
+    local _, id = rpc("interact", { target = station.id })
+    for _ = 1, 30 do if presses > 0 then break end; T = T + 0.5; B.step() end
+    assert(presses == 1 and inp.owner("screen"))
+    A.holds = function() return false end
+    local result = run(id, 5)
+    A.holds, sk.W.detector, inv.press_interact = holds0, det0, p0
+    assert(result and result.reason == "interrupted" and not inp.owner("screen"), json.encode(result))
+end)
+
 test("interact: a blocked side -> the next standing spot", function()
     reset()
     local sk = B.module("skills")
@@ -781,7 +997,7 @@ end)
 
 test("interact on the bed he is lying in: one press gets him up, verified by the resting area clearing", function()
     reset()
-    local sk = B.module("skills")
+    local sk, inp = B.module("skills"), B.module("input")
     local bed = { id = "BP_Magic_SummonShelter_C_2", class = "BP_Magic_SummonShelter_C", name = "Summon Shelter",
                   kind = "resting_area", prompt = "Sleep", position = { 1, 3, 3 } }
     table.insert(F.world.interactables, bed)
@@ -790,12 +1006,30 @@ test("interact on the bed he is lying in: one press gets him up, verified by the
     sk.W.resting_in = function() return lying and bed.id or nil end
     local inv = B.module("inventory")
     local p0 = inv.press_interact
+    local mode0, modal0, observe0 = inp.input_mode, inp.modal, inp.observe_screens
+    local native = assert(loadfile(REPO .. "/client_mod/scripts/inventory.lua"))()
+    local action, subsystem = {}, {}
+    native.pawn = function() return { InteractionManager = { InteractAction = action } } end
+    native.U.valid = function(o) return o ~= nil end
+    native.U.find_first = function(name) assert(name == "EnhancedInputLocalPlayerSubsystem"); return subsystem end
+    native.U.short = function() return "IA_Interact" end
     local pressed = 0
-    inv.press_interact = function() pressed = pressed + 1; lying = false; return { ok = true } end
+    native.U.find_object = function(path)
+        assert(path == native.IA_INTERACT_FN)
+        return function(sub, ia, vec) assert(sub == subsystem and ia == action and vec.X == 1); pressed = pressed + 1; lying = false end
+    end
+    inp.input_mode = function() return lying and "DIM_Resting" or "DIM_Gameplay" end
+    inp.modal = function() return lying and { kind = "mode", mode = "DIM_Resting" } or nil end
+    local screen_reads = 0
+    inp.observe_screens = function() screen_reads = screen_reads + 1; return {} end
+    assert(inp.gate().mode == "DIM_Resting", "normal modal gate blocks resting mode")
+    inv.press_interact = native.press_interact
     local r1, id = rpc("interact", { target = bed.id })
     local r = r1 or run(id, 10)
     sk.W.resting_in, inv.press_interact = r0, p0
+    inp.input_mode, inp.modal, inp.observe_screens = mode0, modal0, observe0
     assert(r and r.ok and r.data.changed == "got_up" and pressed == 1, json.encode(r))
+    assert(screen_reads == 0 and not inp.owner("screen"), "rest exit does not enter screen verification")
     assert(#F.move.calls == 0, "no walking to get up")
 end)
 
@@ -1190,6 +1424,7 @@ test("interact on an NPC: verified by the conversation it starts (changed = conv
     local cancels = 0
     local fake_input = { leave_conversation_step = function(press) cancels = cancels + 1; press("cancel"); return true end,
                          raw_inject = function(a) if a == "cancel" and cancels >= 2 then talking = nil end; return true end }
+    setmetatable(fake_input, { __index = B.module("input") })
     local mod0 = B.API.module
     B.API.module = function(n) if n == "input" then return fake_input end return mod0(n) end
     _, id = rpc("interact", { target = "npc_1" })

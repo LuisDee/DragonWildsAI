@@ -422,6 +422,13 @@ def recent_life(state: dict) -> list[str]:
     return out + grave_lines[:3]
 
 
+def sleep_timeframe(state: dict) -> str:
+    """Report only the game's sleep-timeframe signal, not whether rest is usable."""
+    t = state.get("time_of_day") if isinstance(state.get("time_of_day"), dict) else {}
+    v = t.get("sleep_allowed")
+    return "sleep timeframe " + ("open" if v is True else "closed" if v is False else "unknown")
+
+
 def world_line(state: dict) -> str | None:
     """In-game clock, the sleep window and bag space (client get_state time_of_day / bag)."""
     bits = []
@@ -433,14 +440,13 @@ def world_line(state: dict) -> str | None:
         bits.append(str(t["phase"]))
     if t.get("resting_in"):
         bits.append(f"you are lying in {t['resting_in']} (movement is disabled while resting)")
-    if isinstance(t.get("sleep_allowed"), bool):
-        bits.append("sleeping is possible now" if t["sleep_allowed"] else "too early to sleep")
+    bits.append(sleep_timeframe(state))
     b = state.get("bag") if isinstance(state.get("bag"), dict) else {}
     if isinstance(b.get("used"), int) and isinstance(b.get("capacity"), int):
         bits.append(f"bag {b['used']}/{b['capacity']} slots")
     end, mx = state.get("endurance"), state.get("endurance_max")
     if isinstance(end, (int, float)) and isinstance(mx, (int, float)) and mx:
-        bits.append(f"rested {round(100 * end / mx)}% (endurance, restored by sleep)")
+        bits.append(f"endurance {round(100 * end / mx)}%")
     return ("World: " + ", ".join(bits)) if bits else None
 
 

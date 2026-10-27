@@ -155,6 +155,73 @@ def test_plan_run_verify_done_from_state_only(tmp_path):
     assert port.ticks_inside_run >= 1  # tick() was re-entered during runs and did nothing
 
 
+@pytest.mark.parametrize("repair_to_help", [False, True])
+def test_mixed_work_help_repairs_before_any_board_side_effect(tmp_path, repair_to_help):
+    mixed = decision(task_success=have(COPPER, 5), steps=[step("mine", gained(COPPER, 5))],
+                     add_tasks=[{"text": "a separate job"}], ask_help="If it fails, can you help?")
+    d, port, world, llm, clock = make(tmp_path, mine(COPPER, 5), [mixed])
+    t = d.handle_tool("add_task", {"text": "mine copper", "when": "now"}, "Zezima")["data"]
+    def repair(messages, tools):
+        task = d.ops.b.task(t["id"])
+        assert len(d.ops.b.tasks) == 1 and not task.steps and task.success is None
+        assert task.status != "waiting_help" and not port.events and not port.said
+        assert "choose one" in messages[-1]["content"]
+        fixed = decision(ask_help="Where can I find ore?") if repair_to_help else decision(
+            task_success=have(COPPER, 5), steps=[step("mine", gained(COPPER, 5))])
+        return LLMResponse(content=fixed)
+    llm.push(repair)
+    ticks(d, 4)
+    task = d.ops.b.task(t["id"])
+    assert len(llm.calls) == 2 and d.window.left() == 18 and len(d.ops.b.tasks) == 1
+    if repair_to_help:
+        assert task.status == "waiting_help" and not task.steps
+        assert not any(e["type"] == "board_step" for e in port.events)
+    else:
+        assert task.status == "done" and task.steps[0].title == "mine"
+        assert any(e["type"] == "board_step" for e in port.events)
+
+
+@pytest.mark.parametrize("fields", [
+    {"steps": "bad"}, {"loops": []}, {"add_tasks": "bad"}, {"steps": ["bad"]},
+    {"add_tasks": [{}]}, {"loops": {"g": "bad"}}, {"done": "false"}, {"ask_help": True},
+    {"ask_help": "need help", "add_tasks": [{"text": "prep"}]},
+    {"ask_help": "need help", "loops": {"g": {"until": {"elapsed": {"seconds": 3}}}}},
+    {"ask_help": "need help", "done": True},
+    {"done": True, "steps": [step("work", gained(COPPER, 1))]},
+    {"loops": {"g": {"until": {"elapsed": {"seconds": 3}}}}},
+    {"done": True},
+])
+def test_invalid_decision_shapes_require_repair(fields):
+    validator = D.Validator("plan", World().state, {"kind": "specific"}, research_left=lambda: False)
+    with pytest.raises(ValueError):
+        validator(decision(**fields), 0)
+
+
+@pytest.mark.parametrize("kind", ["review", "reflect"])
+def test_no_change_and_review_prerequisite_remain_valid(kind):
+    validator = D.Validator(kind, World().state, {"kind": "specific", "success": {}}, research_left=lambda: False)
+    value, _ = validator(decision(description="keep plan"), 0)
+    assert value["steps"] == [] and not value["done"] and not value["ask_help"]
+    value, _ = validator(decision(add_tasks=[{"text": "prepare separately"}]), 0)
+    assert value["add_tasks"][0]["text"] == "prepare separately"
+
+
+def test_conflict_repairs_remain_bounded_and_budgeted():
+    from brain.llm_json import BudgetStop, DecisionError, json_decision
+    mixed = decision(steps=[step("work", gained(COPPER, 1))], ask_help="Help now?")
+    validator = D.Validator("plan", World().state, {"kind": "specific"}, research_left=lambda: False)
+    requests = []
+    with pytest.raises(DecisionError):
+        json_decision(FakeLLM([mixed] * 3), [{"role": "user", "content": "plan"}], validator,
+                      max_repairs=2, before_request=lambda: requests.append(1) or True)
+    assert len(requests) == 3
+    requests.clear()
+    with pytest.raises(BudgetStop):
+        json_decision(FakeLLM([mixed] * 3), [{"role": "user", "content": "plan"}], validator,
+                      max_repairs=2, before_request=lambda: len(requests) < 1 and not requests.append(1))
+    assert len(requests) == 1
+
+
 def test_the_director_prompt_carries_tools_predicates_and_the_job(tmp_path):
     d, port, world, llm, clock = make(tmp_path, mine(COPPER, 5), [
         decision(task_success=have(COPPER, 5), steps=[step("mine", gained(COPPER, 5))])])

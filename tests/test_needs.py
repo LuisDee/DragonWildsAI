@@ -7,12 +7,14 @@ The live model said "I'll look for a fire to cook raw meat" and considered nothi
 import json
 from pathlib import Path
 
+import pytest
+
 from brain import needs
 from brain.controller import Controller
 from brain.interface import GameInterface, ok
 from brain.jsonl_log import JsonlLogger
 from brain.llm import FakeLLM
-from brain.situation import summary
+from brain.situation import summary, world_line
 from brain.state_store import StateStore
 
 FIX = Path(__file__).parent / "fixtures" / "state_2117_hungry.json"
@@ -60,9 +62,43 @@ def test_rest_and_health_needs():
                             "distance": 5.0, "owner": "Zezima"}]
     st["time_of_day"] = {"sleep_allowed": True}
     rest = next(l for l in needs.lines(st) if l.startswith("Need rest"))
-    assert "Magic Summon Shelter" in rest and "owner Zezima" in rest and "sleeping is possible now" in rest
+    assert "Magic Summon Shelter" in rest and "owner Zezima" in rest and "sleep timeframe open" in rest
     st["health"] = 30.0
     assert any(l.startswith("Need health") for l in needs.lines(st))
+
+
+@pytest.mark.parametrize("raw,expected", [(True, "open"), (False, "closed"), (None, "unknown"),
+                                         ("false", "unknown"), (0, "unknown")])
+def test_sleep_timeframe_is_not_rest_availability_or_recovery(raw, expected):
+    st = {"endurance": 0, "endurance_max": 100, "time_of_day": {"sleep_allowed": raw}}
+    world = world_line(st)
+    rest = next(line for line in needs.lines(st, cat={}) if line.startswith("Need rest"))
+    for line in (world, rest):
+        assert f"sleep timeframe {expected}" in line
+        assert all(text not in line for text in ("too early to sleep", "sleeping is possible",
+                                                  "resting still restores", "restored by sleep",
+                                                  "no bed or shelter near"))
+    assert "endurance 0%" in world
+
+
+def test_rest_perception_keeps_actual_prompts_and_resting_state():
+    st = {"endurance": 20, "endurance_max": 100,
+          "time_of_day": {"sleep_allowed": False, "resting_in": "object-7"},
+          "interactables": [{"id": "object-7", "name": "Covered place", "kind": "resting_area",
+                             "prompt": "Rest", "distance": 2, "owner": "Dev"}]}
+    world = world_line(st)
+    rest = next(line for line in needs.lines(st, cat={}) if line.startswith("Need rest"))
+    assert "lying in object-7" in world and "endurance 20%" in world
+    assert "Covered place" in rest and "prompt Rest" in rest and "owner Dev" in rest
+    assert "sleep timeframe closed" in world and "sleep timeframe closed" in rest
+
+
+def test_missing_sensors_do_not_claim_any_rest_object_or_endurance():
+    st = {"endurance": 0, "endurance_max": 100}
+    assert "sleep timeframe unknown" in world_line(st)
+    rest = next(line for line in needs.lines(st, cat={}) if line.startswith("Need rest"))
+    assert "sleep timeframe unknown" in rest and "no bed" not in rest
+    assert "endurance" not in world_line({"time_of_day": {}})
 
 
 class _Body(GameInterface):

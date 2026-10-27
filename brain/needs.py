@@ -221,16 +221,13 @@ def _people(state: dict) -> list[str]:
 
 
 def _rest(state: dict) -> list[str]:
-    out = []
+    out = [sit.sleep_timeframe(state)]
     for t in state.get("interactables") or []:
         if isinstance(t, dict) and t.get("kind") in ("bed", "resting_area"):
             bits = [f"{t['distance']:.0f} m" if _num(t.get("distance")) is not None else "", f"id {t.get('id')}",
                     f"prompt {t.get('prompt')}" if t.get("prompt") else "",
                     f"owner {t['owner']}" if t.get("owner") else "", f"claimed by {t['claimed_by']}" if t.get("claimed_by") else ""]
             out.append(f"{t.get('name')} ({', '.join(b for b in bits if b)})")
-    tod = state.get("time_of_day") if isinstance(state.get("time_of_day"), dict) else {}
-    if isinstance(tod.get("sleep_allowed"), bool):
-        out.append("sleeping is possible now" if tod["sleep_allowed"] else "too early to sleep (resting still restores)")
     return out[:MAX_OPTIONS]
 
 
@@ -266,7 +263,7 @@ def lines(state: dict, cat: dict | None = None) -> list[str]:
                                       if n.get("pct") is not None else "")
         parts = []
         if n["need"] == "rest":
-            parts.append("rest: " + ("; ".join(_rest(state) + lines_for(state, ["bed"])[:1]) or "no bed or shelter near"))
+            parts.append("rest: " + "; ".join(_rest(state) + lines_for(state, ["bed"])[:1]))
         elif n["need"] == "tool":
             parts.extend(_tool(state, n["tool"], cat))
         else:

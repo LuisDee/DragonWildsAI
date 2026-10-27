@@ -30,7 +30,7 @@ from typing import Any, Iterable
 from .fileio import read_json
 from .paths import REPO_ROOT, _env_path
 
-SCHEMA = 9  # bump when the doc format changes (forces a rebuild)
+SCHEMA = 11  # bump when the doc format changes (forces a rebuild)
 GAME_K, WIKI_K = 3, 2  # results per tier
 POOL = 200  # BM25 candidates per tier for the title re-rank
 SNIPPET = {0: 900, 1: 520}  # characters per snippet, by tier (game cards are cut by whole fields: _clip_card)
@@ -93,6 +93,10 @@ def _clip(text: str, limit: int) -> str:
 NL = chr(10)  # game cards hold one field per line
 HOW = "How to get: "
 OR = " | OR | "
+UNLOCK_DETAIL = "unlock catalog queries (source: recipe JSON)"
+UNLOCK_READABLE = "readable conditions"
+UNLOCK_CONTEXT = "Unlock context: "
+UNLOCK_OMITTED = "Some unlock details omitted; use craft_plan or recipes for full catalog conditions."
 
 
 def _clip_card(body: str, limit: int) -> str:
@@ -112,6 +116,26 @@ def _clip_card(body: str, limit: int) -> str:
             lines[i] = f"{head}: {', '.join(names[:4])}" + ("…" if len(names) > 4 else "")
     if total() > limit:
         lines = [x for x in lines if not x.startswith("Description: ")]
+    def detail(line: str) -> bool:
+        return line.startswith((UNLOCK_DETAIL, UNLOCK_READABLE, UNLOCK_CONTEXT))
+
+    # Drop whole condition fields before touching the compact recipe alternatives.
+    # Once any detail is lost, keep an explicit notice throughout subsequent clipping.
+    omitted = False
+    while total() > limit:
+        j = next((j for j in range(len(lines) - 1, -1, -1) if detail(lines[j])), None)
+        if j is None:
+            break
+        lines.pop(j)
+        if not omitted:
+            lines.append(UNLOCK_OMITTED)
+            omitted = True
+    while total() > limit:
+        drop = next((j for j in range(len(lines) - 1, -1, -1)
+                     if not lines[j].startswith(HOW) and lines[j] != UNLOCK_OMITTED), None)
+        if drop is None:
+            break
+        lines.pop(drop)
     for i, ln in enumerate(lines):
         if total() <= limit or not ln.startswith(HOW):
             continue
@@ -119,13 +143,15 @@ def _clip_card(body: str, limit: int) -> str:
         other = total() - len(ln) - 1
         keep: list[str] = []
         for a in alts:
-            if keep and other + len(HOW + OR.join(keep + [a])) + 60 > limit:
+            remaining = len(alts) - len(keep) - 1
+            trial = keep + [a] + ([f"{remaining} more way(s): look up its recipes"] if remaining else [])
+            if other + len(HOW + OR.join(trial)) + 1 > limit:
                 break
             keep.append(a)
         more = len(alts) - len(keep)
-        lines[i] = HOW + OR.join(keep) + (f"{OR}{more} more way(s): look up its recipes" if more else "")
+        lines[i] = HOW + OR.join(keep + ([f"{more} more way(s): look up its recipes"] if more else []))
     while total() > limit and len(lines) > 2:  # trailing facts go last; the first line and How to get stay
-        drop = next((j for j in range(len(lines) - 1, 0, -1) if not lines[j].startswith(HOW)), None)
+        drop = next((j for j in range(len(lines) - 1, 0, -1) if not lines[j].startswith(HOW) and lines[j] != UNLOCK_OMITTED), None)
         if drop is None:
             break
         lines.pop(drop)
@@ -169,11 +195,11 @@ def game_docs(data: Path) -> tuple[list[dict], str | None]:
         return st.get("display_name") or _humanize(sid.split("@")[0])
 
     live_recipes = {rid: r for rid, r in (recipes.get("recipes") or {}).items() if not _deprecated(r)}
-    made_by: dict[str, list[dict]] = {}
+    made_by: dict[str, list[tuple[str, dict]]] = {}
     used_in: dict[str, list[str]] = {}
-    for r in live_recipes.values():
+    for rid, r in live_recipes.items():
         for o in r.get("outputs") or []:
-            made_by.setdefault(o.get("item"), []).append(r)
+            made_by.setdefault(o.get("item"), []).append((rid, r))
         for i in r.get("inputs") or []:
             outs = [o.get("name") or o.get("item") for o in r.get("outputs") or []]
             used_in.setdefault(i.get("item"), []).extend(outs)
@@ -208,9 +234,6 @@ def game_docs(data: Path) -> tuple[list[dict], str | None]:
         if r.get("alternative"):
             alt = r["alternative"]
             line += f", sometimes {alt.get('count', 1)} {item_names.get(alt.get('item')) or alt.get('item')} instead"
-        unlock = [x.get("query") for x in (r.get("unlock") or {}).get("bundles") or [] if x.get("query")]
-        if unlock:
-            line += f"; unlock: {unlock_text(unlock[0])}"
         return line
 
     # ---- items: the full equipment catalog merged with every item recipes/stations reference
@@ -236,9 +259,24 @@ def game_docs(data: Path) -> tuple[list[dict], str | None]:
             if flav:
                 parts.append(f"Description: {flav.rstrip('.')}")
         recs = made_by.get(iid) or []
-        crafted = [r for r in recs if not all(is_vendor(x) for x in r.get("stations") or [])]
+        crafted = [(rid, r) for rid, r in recs if not all(is_vendor(x) for x in r.get("stations") or [])]
         if recs:
-            parts.append("How to get: " + " | OR | ".join(recipe_line(r) for r in (crafted + [r for r in recs if r not in crafted])[:4]))
+            represented = (crafted + [pair for pair in recs if pair not in crafted])[:4]
+            parts.append(HOW + OR.join(recipe_line(r) for _, r in represented))
+            has_unlock = False
+            for rid, r in represented:
+                for bundle in (r.get("unlock") or {}).get("bundles") or []:
+                    q = bundle.get("query")
+                    if not q:
+                        continue
+                    has_unlock = True
+                    parts.append(f"{UNLOCK_DETAIL} [{rid}]: {q}")
+                    readable = unlock_text(q)
+                    if readable != " ".join(q.split()):
+                        parts.append(f"{UNLOCK_READABLE} [{rid}]: {readable}")
+            if has_unlock:
+                parts.append(UNLOCK_CONTEXT + "progress records item first pickups and actor-class interactions separately; "
+                             "the relationship between separate condition queries is not established")
         if not crafted:
             parts.append("No crafting recipe makes it (gathered, dropped or found in the world)")
         stats = [f"{s.get('name')} {s.get('value')}" for s in it.get("custom_stats") or [] if s.get("name")]
