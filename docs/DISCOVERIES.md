@@ -13,6 +13,10 @@ See `docs/ARCHITECTURE.md`.
 
 ## Environment
 
+### Material acquisition does not establish the requested work (2026-10-27, dev)
+
+No-axe task87658e1c at clean code HEAD0e00f54 was marked done by its model-chosen AshLogs+1 predicate after gather returned source=sticks, swings=hits=broken=0. Native before/after probes show wood4->5 but WoodcuttingXP206, Construction36 and Artisan16 unchanged; no axe or bench/craft action occurred. This is a false runtime goal completion, not a passing recovery or benchmark result. The same-item material fallback is useful for prerequisites, but must be described separately from operations and actual evidence. Existing broken counts can include child/pickup targets; their use as matching-root proof is not verified. Sources: private brain-live-20261027-203109-8512.jsonl and noaxe-before/after probes; research/design in docs/design/gather-operation-recovery.md.
+
 ### Directed consumption with shared ownership (2026-10-27, dev client)
 
 At source checkpoint 62e7f81, live queue run 20261027-201444 collected two matching Dirty Water on its first attempt. The food check initially returned busy / consumable verification pending; its configured retry consumed Bread, observed sustenance 33 -> 63 and an inventory decrement, and left DIM_Gameplay. A subsequent independent read found no active transaction, bridge action or waiters, with fed/combat services running. Preserve the initial deferral. This verifies the directed native input and cleanup path; it does not establish long autonomous survival or perfect causal attribution. The check harness restored health before water collection, so the resulting health recovery is not a companion achievement.
