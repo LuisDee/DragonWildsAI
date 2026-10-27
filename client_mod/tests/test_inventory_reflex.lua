@@ -12,7 +12,7 @@ local function copy(rel)
     local src = assert(io.open(repo .. rel, "rb")):read("a")
     local f = assert(io.open(dir .. rel, "wb")); f:write(src); f:close()
 end
-copy("/mod/body/util.lua"); copy("/client_mod/scripts/dkjson.lua")
+copy("/mod/body/util.lua"); copy("/client_mod/scripts/dkjson.lua"); copy("/client_mod/scripts/arbiter.lua")
 copy("/client_mod/scripts/input.lua") -- the REAL modal gate (L32 integration)
 copy("/client_mod/scripts/consumable_wiki.lua") -- the REAL soulscourge data (Dirty Water 20)
 os.execute('mkdir "' .. (dir .. "/data"):gsub("/", "\\") .. '" 2>nul')
@@ -179,6 +179,7 @@ S.hyd = 15; R.last = {}
 R.tick_fn(nil)
 check(#S.presses == 1, "below 20%: drinks")
 check(I.set_vitals_policy(nil, { drink_below_pct = 2 }).policy.drink_below_pct == 10, "clamped to the safety floor")
+I.reflex_start(nil, { verify_s = 0 }) -- release any previous in-flight owner before resetting fixture
 S.presses, S.hyd, R.last, R.pending = {}, 5, {}, nil
 R.tick_fn(nil)
 check(#S.presses == 1, "below the floor: drinks whatever the policy")
@@ -190,6 +191,7 @@ pawn.HealthComponent = obj("Health", { IsDead = function() return false end, Get
                                        GetMaxHealth = function() return 100 end })
 S.effect[heal_food:GetFullName()] = { "hp", 20 }
 hotbar_items = { item(heal_food, 2) }; refresh()
+I.reflex_start(nil, { verify_s = 0 }) -- release any previous in-flight owner before resetting fixture
 S.presses, S.hyd, S.sus, R.last, R.pending = {}, 80, 80, {}, nil
 I.set_vitals_policy(nil, { heal_below_pct = 0 })
 R.tick_fn(nil)
@@ -204,6 +206,7 @@ do
     local g0 = I._input_gate
     hotbar_items = { item(DATA.tea, 48) }; refresh()
     S.effect[DATA.tea:GetFullName()] = { "hyd", 60 }
+    I.reflex_start(nil, { verify_s = 0 }) -- release any previous in-flight owner before resetting fixture
     S.presses, S.hyd, R.last, R.pending, R.bad = {}, 10, {}, nil, {}
     I._input_gate = function() return { kind = "conversation", mode = "DIM_ConversationUI" } end
     R.tick_fn(nil)
@@ -246,6 +249,7 @@ do
     local g0 = I._input_gate
     I._input_gate = function() return nil end
     hotbar_items = { item(DATA.pick, 1) }; bag_items = {}; refresh()
+    I.reflex_start(nil, { verify_s = 0 }) -- release any previous in-flight owner before resetting fixture
     S.presses, S.hyd, S.sus, R.last, R.pending, R.warned = {}, 5, 80, {}, nil, nil
     local n0 = events("no_drink")
     R.tick_fn(nil); R.tick_fn(nil)
@@ -284,6 +288,7 @@ do
     hotbar_items = { item(DATA.tea, 48) }; bag_items = {}; refresh()
     S.effect[DATA.tea:GetFullName()] = { "hyd", 60 }
     -- above the floor (thirsty by policy, 20 < 40%) -> blocked, no leave
+    I.reflex_start(nil, { verify_s = 0 }) -- release any previous in-flight owner before resetting fixture
     S.presses, S.hyd, S.sus, R.last, R.pending = {}, 20, 80, {}, nil
     R.tick_fn(nil)
     check(leaves == 0 and #S.presses == 0, "thirsty above the floor: build screen left alone, nothing pressed")
@@ -297,6 +302,7 @@ do
     check(R.floor_leaves == nil, "leave count reset once unblocked")
     -- bounded: a screen that never closes gets at most floor_leaves steps
     modal, leaves = { kind = "build", mode = "Placement" }, -100
+    I.reflex_start(nil, { verify_s = 0 }) -- release any previous in-flight owner before resetting fixture
     S.presses, S.hyd, R.last, R.pending = {}, 5, {}, nil
     for _ = 1, 12 do R.tick_fn(nil) end
     check(leaves == -100 + 6, "never-closing screen: at most 6 leave steps (got " .. (leaves + 100) .. ")")
@@ -315,6 +321,7 @@ do
     modal, leaves = { kind = "screen", mode = "DIM_FocussedInGameUI", screens = { "Processing", "Inventory" } }, 0
     R.floor_leaves = nil
     I._input_leave = function(m) leaves = leaves + 1; modal = nil; return m.kind == "screen" end
+    I.reflex_start(nil, { verify_s = 0 }) -- release any previous in-flight owner before resetting fixture
     S.presses, S.hyd, R.last, R.pending = {}, 5, {}, nil
     R.tick_fn(nil); R.tick_fn(nil)
     check(leaves == 1 and #S.presses == 1, "stray screen at the floor: left once, then drinks (leaves " .. leaves .. ", presses " .. #S.presses .. ")")
@@ -338,12 +345,26 @@ do
     IN.claim("build", "build:campfire") -- a live (or leaked) owner: the orphan sweep would not touch it
     hotbar_items = { item(DATA.tea, 48) }; bag_items = {}; refresh()
     S.effect[DATA.tea:GetFullName()] = { "hyd", 60 }
+    I.reflex_start(nil, { verify_s = 0 }) -- release any previous in-flight owner before resetting fixture
     S.presses, S.hyd, R.last, R.pending = {}, 5, {}, nil
     R.tick_fn(nil)
-    check(#injected == 1 and injected[1]:find("IA_Build_Cancel", 1, true) and #S.presses == 0,
-          "real input: owned Placement at the floor -> the build's Cancel injected, no hotbar press (" .. table.concat(injected, ",") .. ")")
+    for _ = 1, 8 do R.tick_fn(nil) end
+    check(#injected == 0 and #S.presses == 0 and (R.floor_leaves or 0) == 0,
+        "real input: orphan claim defers without consuming leave budget")
+    IN.release("build")
+    local A = assert(loadfile(dir .. "/client_mod/scripts/arbiter.lua"))()
+    A.reset(nil)
+    IN.claim("build", "build:cooperative")
+    local suspended = false
+    local owner = A.request(nil, { name = "build:cooperative", level = "command", uses_move = false,
+        on_suspend = function() suspended = true; IN.release("build") end })
     R.tick_fn(nil)
-    check(#S.presses == 1, "real input: build mode None -> drinks (presses " .. #S.presses .. ")")
+    check(owner.ok and suspended and #injected == 1 and bm.CurrentBuildMode == 0,
+        "real input: safety floor preempts owner and cooperatively leaves released modal")
+    A.reset(nil)
+    IN.release("build"); bm.CurrentBuildMode = 0
+    R.tick_fn(nil)
+    check(#S.presses == 1, "real input: after owner releases and mode closes, drinks (presses " .. #S.presses .. ")")
     pc.BuildModeComponent = nil
     ALL.EnhancedInputLocalPlayerSubsystem = nil
 end
@@ -360,6 +381,7 @@ do
     S.effect[DATA.dirty:GetFullName()] = { "hyd", 10 }
     S.effect[DATA.clean:GetFullName()] = { "hyd", 25 }
     hotbar_items = { item(DATA.dirty, 5) }; bag_items = {}; refresh()
+    I.reflex_start(nil, { verify_s = 0 }) -- release any previous in-flight owner before resetting fixture
     S.presses, S.hyd, S.sus, R.last, R.pending, R.warned = {}, 30, 80, {}, nil, nil
     local h0 = events("held_back_drink")
     R.tick_fn(nil)
@@ -373,9 +395,11 @@ do
           "real risk data: Dirty Water no longer a crash risk (BUGS L38 fixed)")
     -- both carried (dirty in the first slot): Clean Water first, above or below the floor
     hotbar_items = { item(DATA.dirty, 5), item(DATA.clean, 2) }; refresh()
+    I.reflex_start(nil, { verify_s = 0 }) -- release any previous in-flight owner before resetting fixture
     S.presses, S.hyd, R.last, R.pending = {}, 30, {}, nil
     R.tick_fn(nil)
     check(#S.presses == 1 and S.presses[1] == "Clean Water", "both: Clean Water first above the floor (" .. table.concat(S.presses, ",") .. ")")
+    I.reflex_start(nil, { verify_s = 0 }) -- release any previous in-flight owner before resetting fixture
     S.presses, S.hyd, R.last, R.pending = {}, 5, {}, nil
     R.tick_fn(nil)
     check(#S.presses == 1 and S.presses[1] == "Clean Water", "both: Clean Water first below the floor (" .. table.concat(S.presses, ",") .. ")")
@@ -426,6 +450,176 @@ do
     check(I.find(l, "clean water").item == "ITEM_Consumable_Water_Clean", "find: case-insensitive exact name")
     l.hotbar[2] = nil
     check(I.find(l, "Clean Water") == nil, "find(Clean Water) with only the Water Rune: no match")
+end
+
+-- Real inventory transaction: no raw use, one live owner, interrupted use cannot be replayed.
+do
+    I.reflex_stop()
+    local A = assert(loadfile(dir .. "/client_mod/scripts/arbiter.lua"))()
+    A.reset(nil)
+    S.presses = {}; hotbar_items = { item(DATA.tea, 4) }; refresh()
+    local raw = I.use(nil, "Pumpkin Spice Infusion", { require = "drink", hotbar_only = true })
+    check(not raw.ok and #S.presses == 0, "transaction: raw consumable use fails closed")
+    local real_time, fake_time = os.time, os.time()
+    os.time = function() return fake_time end
+    local grant = A.request(nil, { name = "test", level = "command", uses_move = false })
+    local tx = I.consume_begin(grant.token, "test", 4, "ITEM_Consumable_Tea_Pumpkin")
+    local duplicate = I.consume_begin(grant.token, "second", 4, "ITEM_Consumable_Tea_Pumpkin")
+    check(tx and not duplicate, "transaction: same owner cannot overlap another use")
+    local ok = I.use(nil, "Pumpkin Spice Infusion", { require = "drink", hotbar_only = true, owner_token = grant.token, transaction = tx })
+    check(ok.ok and #S.presses == 1, "transaction: current owner may press")
+    local repeat_use = I.use(nil, "Pumpkin Spice Infusion", { require = "drink", hotbar_only = true, owner_token = grant.token, transaction = tx })
+    check(not repeat_use.ok and #S.presses == 1, "transaction: one input per transaction")
+    fake_time = fake_time + 6
+    check(I.consume_owned(tx, grant.token) and not I.consume_begin(grant.token, "waiter", 4, "ITEM_Consumable_Tea_Pumpkin"),
+        "transaction: active waiter does not expire")
+    local I2 = assert(loadfile(repo .. "/client_mod/scripts/inventory.lua", "t",
+        setmetatable({ os = setmetatable({ getenv = function(k) return k == "DW_CLIENT_ROOT" and env_root or os.getenv(k) end },
+                                         { __index = os }) }, { __index = _G })))()
+    check(not I2.consume_begin(grant.token, "reload", 4, "ITEM_Consumable_Tea_Pumpkin"), "transaction: reload shares active gate")
+    fake_time = fake_time - 6
+    _G.DW_PAUSE = true
+    check(not I.consume_owned(tx, grant.token), "transaction: pause invalidates waiter")
+    _G.DW_PAUSE = nil
+    check(not I.consume_owned(tx, grant.token), "transaction: pause cannot resume old waiter")
+    I.consume_finish(tx, grant.token, true)
+    check(not I.consume_owned(tx, grant.token) and not I.consume_begin(grant.token, "later", 4, "ITEM_Consumable_Tea_Pumpkin"), "transaction: interrupted press invalidates waiter and retains gate")
+    fake_time = fake_time + 6
+    local next_tx = I.consume_begin(grant.token, "later", 4, "ITEM_Consumable_Tea_Pumpkin")
+    check(next_tx ~= nil and next_tx ~= tx, "transaction: original bounded window permits a later use")
+    hotbar_items = { item(DATA.tea, 4), item(DATA.clean, 4) }; refresh()
+    local wrong = I.use(nil, "Clean Water", { require = "drink", owner_token = grant.token, transaction = next_tx })
+    check(not wrong.ok and #S.presses == 1, "transaction: intended item enforced")
+    I.consume_finish(next_tx, grant.token, false)
+    A.release(nil, grant.token, "test"); os.time = real_time
+end
+
+-- A real reflex tick must defer while a command owns the pawn, without charging its cooldown.
+do
+    I.reflex_stop()
+    local A = assert(loadfile(dir .. "/client_mod/scripts/arbiter.lua"))()
+    A.reset(nil)
+    hotbar_items = { item(DATA.tea, 4) }; bag_items = {}; refresh()
+    S.presses, S.hyd, S.sus = {}, 30, 80
+    S.effect[DATA.tea:GetFullName()] = { "hyd", 20 }
+    I.reflex_start(nil, { verify_s = 0 })
+    R.last = {}
+    local grant = A.request(nil, { name = "command:test", level = "command", uses_move = false })
+    R.tick_fn(nil)
+    check(#S.presses == 0 and R.last.drink == nil, "real reflex defers to command without cooldown")
+    A.release(nil, grant.token, "test")
+    R.tick_fn(nil)
+    check(#S.presses == 1, "real reflex presses after command releases")
+    I.reflex_stop(); A.reset(nil)
+    S.hyd, S.presses = 30, {}
+    S.effect[DATA.tea:GetFullName()] = nil
+    I.reflex_start(nil, { verify_s = 0 }); R.last = {}; R.tick_fn(nil)
+    S.hyd = nil
+    R.tick_fn(nil)
+    check(not (R.strikes or {})["ITEM_Consumable_Tea_Pumpkin"], "unknown post-read does not strike drink")
+    I.reflex_stop(); A.reset(nil); S.hyd = 80
+end
+
+-- The real bridge and skills action share the real inventory transaction with the real reflex.
+do
+    I.reflex_stop()
+    local previous = _G.DWConsumableTransaction.active
+    if previous and previous.interrupted then previous.until_t = 0 end
+    local H = dofile(repo .. "/mod/tests/bridge_harness.lua")
+    local json = require("dkjson")
+    local scriptdir, bridgedir = dir .. "/integrated_scripts", dir .. "/integrated_bridge"
+    os.execute('mkdir "' .. scriptdir:gsub("/", "\\") .. '" 2>nul')
+    os.execute('mkdir "' .. bridgedir:gsub("/", "\\") .. '" 2>nul')
+    local function cp(src, dst)
+        local f = assert(io.open(src, "rb")); local text = f:read("a"); f:close()
+        f = assert(io.open(dst, "wb")); f:write(text); f:close()
+    end
+    for _, n in ipairs({ "skills", "manifest", "arbiter", "quests" }) do cp(repo .. "/client_mod/scripts/" .. n .. ".lua", scriptdir .. "/" .. n .. ".lua") end
+    for _, n in ipairs({ "chat", "move", "sense" }) do cp(here .. "/fakes/" .. n .. ".lua", scriptdir .. "/" .. n .. ".lua") end
+    _G.FAKE = { move = { mode = "idle", calls = {} }, auto_arrive = true }
+    local B = assert(loadfile(repo .. "/client_mod/scripts/client_bridge.lua"))()
+    local t = 500
+    B.clock = function() return t end
+    B.start({ root = repo, dir = bridgedir, scripts = scriptdir, chat_events = dir .. "/chat.jsonl",
+        vitals_events = dir .. "/vitals.jsonl", move_events = dir .. "/move.jsonl", gather_events = dir .. "/gather.jsonl", jlog = H.log, no_loop = true })
+    local original_module = B.module
+    B.module = function(name) if name == "inventory" then return I end; return original_module(name) end
+    local sense = B.module("sense")
+    sense.me = function() return { ok = true, position = { 0, 0, 0 }, survival = { hydration = { S.hyd, 100 }, sustenance = { S.sus, 100 } }, health = 100 } end
+    local A = B.module("arbiter"); A.reset(nil)
+    local move = B.module("move"); A.set_move(move)
+    pc.CurrentInputMode = obj("DataAsset /Game/Input/DIM_Gameplay.DIM_Gameplay")
+    hotbar_items = { item(DATA.tea, 4) }; bag_items = {}; refresh()
+    S.hyd, S.sus, S.presses = 30, 80, {}
+    S.effect[DATA.tea:GetFullName()] = nil
+    I.reflex_start(nil, { verify_s = 5 }); R.last = {}
+    local f = assert(io.open(bridgedir .. "/brain_to_client.jsonl", "ab"))
+    f:write(json.encode({ v = 1, type = "cmd", id = "real-overlap", tool = "consume", args = { item = "drink" } }) .. "\n"); f:close()
+    B.step(); t = t + 0.5; B.step()
+    check(#S.presses == 1 and B._state().action ~= nil, "real bridge and skills command press once while held")
+    R.tick_fn(nil)
+    check(#S.presses == 1 and R.last.drink == nil, "real skills command and reflex cannot overlap")
+    f = assert(io.open(bridgedir .. "/brain_to_client.jsonl", "ab"))
+    f:write(json.encode({ v = 1, type = "cmd", id = "real-stop", tool = "stop", args = {} }) .. "\n"); f:close()
+    t = t + 0.5; B.step()
+    local stopped = B._state().action == nil
+    local held = A.request(nil, { name = "after-cancel", level = "command", uses_move = false })
+    local denied = I.consume_begin(held and held.token, "after-cancel", 5, "ITEM_Consumable_Tea_Pumpkin")
+    check(stopped and not denied and #S.presses == 1, "real bridge stop cancels command and retains interrupted gate")
+    if held and held.ok then A.release(nil, held.token, "test") end
+    if _G.DWConsumableTransaction.active then _G.DWConsumableTransaction.active.until_t = 0 end
+    S.hyd, R.last = 30, {}
+    f = assert(io.open(bridgedir .. "/brain_to_client.jsonl", "ab"))
+    f:write(json.encode({ v = 1, type = "cmd", id = "real-preempt", tool = "consume", args = { item = "drink" } }) .. "\n"); f:close()
+    t = t + 0.5; B.step(); t = t + 0.5; B.step()
+    local pressed_before = #S.presses
+    S.hyd = 5; R.tick_fn(nil)
+    t = t + 0.5; B.step()
+    f = assert(io.open(bridgedir .. "/client_to_brain.jsonl", "rb")); local replies = f:read("a"); f:close()
+    local interrupted = false
+    for line in replies:gmatch("[^\n]+") do
+        local result = json.decode(line)
+        if result and result.id == "real-preempt" and result.type == "result" and result.reason == "interrupted" then interrupted = true end
+    end
+    check(pressed_before == 2 and #S.presses == 2 and interrupted,
+        "real safety preemption invalidates command without replay or competing press")
+    if _G.DWConsumableTransaction.active then _G.DWConsumableTransaction.active.until_t = 0 end
+    S.hyd, R.last = 30, {}
+    f = assert(io.open(bridgedir .. "/brain_to_client.jsonl", "ab"))
+    f:write(json.encode({ v = 1, type = "cmd", id = "real-pause", tool = "consume", args = { item = "drink" } }) .. "\n"); f:close()
+    t = t + 0.5; B.step(); t = t + 0.5; B.step()
+    local pause_tx = _G.DWConsumableTransaction.active
+    local prior_find, scans = FindAllOf, 0
+    FindAllOf = function(...) scans = scans + 1; return prior_find(...) end
+    _G.DW_PAUSE = true; t = t + 0.5; B.step()
+    FindAllOf = prior_find
+    check(pause_tx and pause_tx.interrupted and B._state().action == nil and scans == 0,
+        "real bridge pause performs state-only transaction cleanup")
+    sense.local_pawn = function() return obj("BP_PlayerCharacter_C /Game/L_World.L_World:PersistentLevel.Pawn") end
+    t = t + 6; B.step(); t = t + 4; B.step()
+    check(not _G.DW_PAUSE and B._state().action == nil and pause_tx.interrupted,
+        "real bridge unpause cannot resume old transaction")
+    local next_owner = A.request(nil, { name = "post-pause", level = "command", uses_move = false })
+    local premature = I.consume_begin(next_owner.token, "post-pause", 5, "ITEM_Consumable_Tea_Pumpkin")
+    check(not premature, "real bridge pause retains verification gate")
+    A.release(nil, next_owner.token, "test")
+    pause_tx.until_t = 0
+    local old = A.request(nil, { name = "abandoned", level = "command", uses_move = false })
+    local abandoned = I.consume_begin(old.token, "abandoned", 5, "ITEM_Consumable_Tea_Pumpkin")
+    I.use(nil, "Pumpkin Spice Infusion", { require = "drink", owner_token = old.token, transaction = abandoned })
+    A.release(nil, old.token, "abandoned without cleanup")
+    local fresh = A.request(nil, { name = "new owner", level = "command", uses_move = false })
+    local blocked = I.consume_begin(fresh.token, "new owner", 5, "ITEM_Consumable_Tea_Pumpkin")
+    local tombstone = _G.DWConsumableTransaction.active
+    check(not blocked and tombstone and tombstone.interrupted, "lost owner turns abandoned press into bounded tombstone")
+    tombstone.until_t = 0
+    local recovered = I.consume_begin(fresh.token, "new owner", 5, "ITEM_Consumable_Tea_Pumpkin")
+    check(recovered ~= nil, "lost owner gate clears after original window")
+    I.consume_finish(recovered, fresh.token, false); A.release(nil, fresh.token, "test")
+    I.reflex_stop(); B.stop(); A.reset(nil)
+    -- Expire the interrupted test transaction without waiting or modifying game state.
+    local active = _G.DWConsumableTransaction.active
+    if active and active.interrupted then active.until_t = 0 end
 end
 
 print(fails == 0 and "ALL PASS" or (fails .. " FAILED"))

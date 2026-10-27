@@ -1421,9 +1421,21 @@ function M.emit_combat_end(F, res)
         fled_why = d.why, detail = d.detail, still_chased = d.still_chased })
 end
 
+-- State-only transaction cleanup, safe during world teardown and arbiter callbacks.
+local function cancel_consumables(F)
+    local inv = mod("inventory")
+    if inv and inv.consume_finish then
+        for _, pending in ipairs({ F.cure_pending or {}, F.heal_pending or {} }) do
+            if pending.tx then inv.consume_finish(pending.tx, F.token, true) end
+        end
+    end
+    F.cure_pending, F.heal_pending = nil, nil
+end
+
 local function finish(F, res)
     if F.done then return end
     F.done = true
+    cancel_consumables(F)
     local c = C()
     if F.handle then pcall(CancelDelayedAction, F.handle) end
     F.handle = nil
@@ -1702,14 +1714,15 @@ M.HARMFUL = { Cold = true, Poison = true, Burning = true, Bleeding = true, Slow 
 function M.read_statuses(pawn)
     local comp = U.try(function() return pawn.TrackedStatusEffectsComponent end)
     if not U.valid(comp) then return nil end
-    local out = {}
-    pcall(function()
+    local out, observed = {}, {}
+    local read_ok = pcall(function()
         comp.TrackedStatusEffectInstances:ForEach(function(_, e)
             local inst = U.try(function() return e:get() end) or e
             if U.valid(inst) then
                 local ty = num(U.try(function() return inst.EffectType end))
                 local v = num(U.try(function() return inst.CurrentValue end))
                 local name = ty and M.TRACKED[ty]
+                if name and v then observed[name] = v end
                 if name and v and v > 0 then
                     out[name] = { value = math.floor(v * 10) / 10, max = num(U.try(function() return inst.Config.MaximumValue end)),
                                   harmful = M.HARMFUL[name] or nil }
@@ -1717,7 +1730,8 @@ function M.read_statuses(pawn)
             end
         end)
     end)
-    return out
+    if not read_ok then return nil end
+    return out, observed
 end
 
 -- What a consumable does to statuses (client_mod/scripts/consumable_wiki.lua, generated from the wiki snapshot).
@@ -1769,9 +1783,9 @@ function M.refresh_statuses(pawn, max_age_s)
     local c = C()
     local cur = c.statuses
     if cur and max_age_s and os.clock() - (cur.clock or -99) < max_age_s then return cur.effects end
-    local st = M.read_statuses(pawn)
+    local st, observed = M.read_statuses(pawn)
     if st then c.statuses = { t = os.time(), clock = os.clock(), effects = st } end
-    return st
+    return st, observed
 end
 
 -- Carried items' signature (what a "no cure" verdict depends on).
@@ -1788,13 +1802,17 @@ function M.status_frame(F, pawn, me)
     if F.t - (F.status_t or -9) < M.cfg.status_s then return end
     F.status_t = F.t
     local c = C()
-    local st = M.refresh_statuses(pawn, nil)
-    if not st then return end
+    local st, observed = M.refresh_statuses(pawn, nil)
     local cp = F.cure_pending
     if cp and F.t - cp.t >= 3 then
         F.cure_pending = nil
+        local inv = mod("inventory")
+        local owned = inv and inv.consume_owned and inv.consume_owned(cp.tx, F.token)
+        if inv and inv.consume_finish then inv.consume_finish(cp.tx, F.token, not owned) end
+        if not owned then return end
         if F.ambient then M.ambient_release(F, "cure checked") end
-        local now_v = (st[cp.status] or {}).value or 0
+        local now_v = observed and observed[cp.status]
+        if type(now_v) ~= "number" or type(cp.v0) ~= "number" then return end
         if now_v < cp.v0 - 0.5 then
             F.n_cures = (F.n_cures or 0) + 1
             M.emit_activity({ kind = "cured", by = F.by or "unknown", status = cp.status, item = cp.item, before = cp.v0, after = now_v })
@@ -1803,7 +1821,7 @@ function M.status_frame(F, pawn, me)
             F.cure_fails = (F.cure_fails or 0) + 1
         end
     end
-    if F.cure_pending or F.phase == "defend" then return end
+    if not st or F.cure_pending or F.phase == "defend" then return end
     F.no_cure = F.no_cure or {}
     for status, e in pairs(st) do
         local nc = F.no_cure[status]
@@ -1826,11 +1844,27 @@ function M.status_frame(F, pawn, me)
             local ok = eat_allowed(F)
             if not ok then return end
             if F.ambient and not M.ambient_acquire(F, "cure " .. status) then return end
+            local inv = mod("inventory")
+            local tx = inv and inv.consume_begin and inv.consume_begin(F.token, "combat cure", 3, item.item)
+            if not tx then return end
+            -- Acquiring the ambient lease may run another owner's callbacks. Take the
+            -- baseline again after that grant and reject an unreadable or stale status.
+            local fresh, observed = M.read_statuses(pawn)
+            local baseline = observed and observed[status]
+            local current = fresh and fresh[status]
+            if not inv.consume_owned(tx, F.token) or type(baseline) ~= "number" or not current
+                or baseline < M.cfg.cure_at * (current.max or 100) then
+                inv.consume_finish(tx, F.token, true)
+                if F.ambient then M.ambient_release(F, "cure no longer needed or unreadable") end
+                return
+            end
+            e = current
+            local r = mcall("inventory", "use", F.log, item.item, { owner_token = F.token, transaction = tx })
             F.next_eat = F.t + M.cfg.eat_every_s
-            local r = mcall("inventory", "use", F.log, item.item)
+            if not (r and r.ok and inv.consume_owned(tx, F.token)) then inv.consume_finish(tx, F.token, true); return end
             say(F.log, string.format("%s %s %.0f: use %s (%s) -> %s", status, how, e.value, tostring(item.name), tostring(item.item),
                 tostring(r and (r.via or r.reason))))
-            F.cure_pending = { t = F.t, status = status, v0 = e.value, item = item.name or item.item }
+            F.cure_pending = { t = F.t, status = status, v0 = e.value, item = item.name or item.item, tx = tx }
             remember_buffs(c, item.name, info)
             return
         end
@@ -1848,12 +1882,16 @@ eat_allowed = function(F)
 end
 
 local function try_eat(F, me, force)
-    if not me.max_hp or me.max_hp <= 0 then return end
     -- verify the previous bite: HP went up -> healed event
     local hp_ = F.heal_pending
     if hp_ and F.t - hp_.t >= 2.5 then
         F.heal_pending = nil
-        if (me.hp or 0) > hp_.hp0 + 0.5 then
+        local inv = mod("inventory")
+        local owned = inv and inv.consume_owned and inv.consume_owned(hp_.tx, F.token)
+        if inv and inv.consume_finish then inv.consume_finish(hp_.tx, F.token, not owned) end
+        if not owned then return end
+        if type(me.hp) ~= "number" or type(hp_.hp0) ~= "number" then return end
+        if me.hp > hp_.hp0 + 0.5 then
             F.n_heals = (F.n_heals or 0) + 1
             M.emit_activity({ kind = "healed", by = F.by or "unknown", food = hp_.food, hp_before = hp_.hp0, hp_after = me.hp })
             say(F.log, string.format("healed %.0f -> %.0f (%s)", hp_.hp0, me.hp or -1, tostring(hp_.food)))
@@ -1862,6 +1900,7 @@ local function try_eat(F, me, force)
         end
     end
     if F.heal_pending then return end
+    if type(me.hp) ~= "number" or type(me.max_hp) ~= "number" or me.max_hp <= 0 then return end
     local frac = (me.hp or 0) / me.max_hp
     if not force and frac >= M.cfg.eat_hp then return end
     local ok, why = eat_allowed(F)
@@ -1869,11 +1908,15 @@ local function try_eat(F, me, force)
     local list = mcall("inventory", "list", F.log) or {}
     local pick = best_heal_food(list) or mcall("inventory", "best_consumable", list, "food")
     if not pick then F.no_food = true; return false, "no_food" end
+    local inv = mod("inventory")
+    local tx = inv and inv.consume_begin and inv.consume_begin(F.token, "combat heal", 3, pick.item)
+    if not tx then return false, "consumable busy" end
+    local r = mcall("inventory", "use", F.log, pick.item, { owner_token = F.token, transaction = tx })
     F.next_eat = F.t + M.cfg.eat_every_s
-    local r = mcall("inventory", "use", F.log, pick.item)
+    if not (r and r.ok and inv.consume_owned(tx, F.token)) then inv.consume_finish(tx, F.token, true); return false, "consumable interrupted" end
     say(F.log, "eat " .. tostring(pick.item) .. " hp=" .. tostring(me.hp) .. " -> " .. tostring(r and (r.via or r.reason)))
     F.ate = (F.ate or 0) + 1
-    F.heal_pending = { t = F.t, hp0 = me.hp or 0, food = pick.name or pick.item }
+    F.heal_pending = { t = F.t, hp0 = me.hp, food = pick.name or pick.item, tx = tx }
     return true
 end
 M._try_eat = try_eat
@@ -2697,6 +2740,7 @@ end
 local function abort_paused(F)
     if F.done then return end
     F.done = true
+    cancel_consumables(F)
     local c = C()
     if F.handle then pcall(CancelDelayedAction, F.handle) end
     F.handle = nil
@@ -3249,7 +3293,7 @@ function M.ambient_acquire(A, why)
     local arb = mod("arbiter")
     if not arb then return true end -- no arbiter (tests without one): act anyway
     local r = arb.request(A.log, { name = "combat:ambient", level = "reflex", resumable = false, uses_move = true, lease_s = 8,
-                                   on_stop = function() A.token = nil; A.escape = nil end })
+                                   on_stop = function() cancel_consumables(A); A.token = nil; A.escape = nil end })
     if not (r and r.ok) then
         say(A.log, "ambient: no lease for " .. tostring(why) .. " (" .. tostring(r and r.reason) .. ")")
         return false
@@ -3351,6 +3395,10 @@ function M.guard_stop(log)
     local c = C()
     if c.guard then pcall(CancelDelayedAction, c.guard) end
     c.guard, c.guard_fn = nil, nil
+    if c.ambient then
+        cancel_consumables(c.ambient)
+        M.ambient_release(c.ambient, "guard stopped")
+    end
     return { ok = true }
 end
 

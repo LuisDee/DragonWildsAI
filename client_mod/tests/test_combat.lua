@@ -224,6 +224,10 @@ function fake_inv.unequip(log, slot)
     if slot == "HeldRight" then held.right = nil else held.left = nil end
     return { ok = true, via = "hotbar key" }
 end
+local A, test_tx
+function fake_inv.consume_begin(token) if not A or not A.holds(token) or test_tx then return nil end; test_tx = { id = 1, token = token }; return 1 end
+function fake_inv.consume_owned(id, token) return test_tx and test_tx.id == id and test_tx.token == token and A.holds(token) end
+function fake_inv.consume_finish(id, token) if test_tx and test_tx.id == id and test_tx.token == token then test_tx = nil end end
 function fake_inv.use(log, item) INV.uses[#INV.uses + 1] = item; pawn.hp = math.min(100, pawn.hp + 10); return { ok = true, via = "hotbar key" } end
 function fake_inv.best_consumable(l, kind) for _, e in ipairs(l.hotbar) do if e.consumable == kind then return e end end end
 function fake_inv.interact_target()
@@ -241,7 +245,7 @@ function fake_inv.press_interact()
 end
 
 -- ---------------------------------------------------------------- load the modules under test
-local A = assert(loadfile(root .. "/client_mod/scripts/arbiter.lua"))()
+A = assert(loadfile(root .. "/client_mod/scripts/arbiter.lua"))()
 A.set_move(fake_move)
 A.clock = function() return T end
 local Cm = assert(loadfile(root .. "/client_mod/scripts/combat.lua"))()
@@ -349,7 +353,7 @@ local function reset_world()
     INV.equips, INV.uses, INV.interacts = {}, {}, 0
     held.right, held.left = nil, "ITEM_Logging_Axe_Mithril"
     pawn.loc, pawn.hp, stamina, special = { X = 0, Y = 0, Z = 0 }, 100, 80, 100
-    _G.DWCombat, _G.DWArbiter, _G.DWDefense = nil, nil, nil
+    _G.DWCombat, _G.DWArbiter, _G.DWDefense, test_tx = nil, nil, nil, nil
     Cm.orders.stance, Cm.orders.force, Cm.orders.avoid = "defensive", false, {}
 end
 
@@ -839,6 +843,9 @@ do
     new_creature("BP_AI_Kebbit_Character_02_C_8", "Kebbit", { X = 900, Y = 0, Z = 0 }, { hp = 100, pl = 1 })
     check("pause test: fight starts", Cm.attack(nil, "Kebbit").ok)
     run_until(function() local f = Cm._state().fight; return f and f.phase == "approach" end, 3)
+    local fight = Cm._state().fight
+    local pending_tx = fake_inv.consume_begin(fight.token)
+    fight.cure_pending = { tx = pending_tx }
     local ncalls = #MV.calls
     local gets = 0
     local real_find = FindAllOf
@@ -847,6 +854,7 @@ do
     step(5)
     FindAllOf = real_find
     local res = Cm._state().last and Cm._state().last.result
+    check("pause cleans pending fight consumable before releasing token", pending_tx and test_tx == nil)
     check("pause ends the fight as interrupted", Cm._state().fight == nil and res and res.reason == "interrupted", res and res.reason)
     check("pause: no move calls and no object scans", #MV.calls == ncalls and gets == 0, (#MV.calls - ncalls) .. " " .. gets)
     check("pause: suspended stack dropped, nothing resumed", A.owner() == nil and #A.status().suspended == 0)
@@ -1257,6 +1265,11 @@ do
     world.on_step = function() for _, u in ipairs(INV.uses) do if u == "ITEM_Potion_Antipoison_Lesser" then poison.CurrentValue = 0 end end end
     check("poison: a cure is used (the potion that cures beats the food that only resists)",
           run_until(function() for _, u in ipairs(INV.uses) do if u == "ITEM_Potion_Antipoison_Lesser" then return true end end end, 3), table.concat(INV.uses, ","))
+    local f = Cm._state().fight
+    local uses_before = #INV.uses
+    f.next_eat = nil
+    local ate, why = Cm._try_eat(f, { hp = 20, max_hp = 100 }, true)
+    check("consumable: combat heal defers to cure on same token", not ate and why == "consumable busy" and #INV.uses == uses_before and f.next_eat == nil)
     run_until(function() local f = Cm._state().fight; return f and (f.n_cures or 0) >= 1 end, 6)
     local ev
     for i = n0 + 1, #read_activity() do local l = read_activity()[i]; if l:find('"kind":"cured"', 1, true) then ev = l end end
@@ -1435,6 +1448,11 @@ do
     check("ambient: poisoned while following -> the cure is used", used and INV.uses[1] == "ITEM_Potion_Antipoison_Lesser", table.concat(INV.uses, ","))
     check("ambient: it took the pawn with a reflex lease", (Cm._state().ambient.n_leases or 0) >= 1)
     MV.calls = {}
+    local replacement = A.request(nil, { name = "replace ambient", level = "reflex", uses_move = false })
+    check("ambient: stop cleans cure before clearing token", replacement.ok and test_tx == nil and not Cm._state().ambient.cure_pending)
+    A.release(nil, replacement.token, "test")
+    poison.CurrentValue = 40; INV.uses = {}; hurt()
+    run_until(function() return #INV.uses > 0 end, 3)
     local resumed = run_until(function() local o = A.owner(); return o and o.name == "brain:follow" end, 6)
     check("ambient: the follow is resumed after", resumed, A.owner() and A.owner().name)
     local back = false
@@ -1481,6 +1499,21 @@ do
     Cm._state().hazard_watch, Cm._state().ambient = nil, nil
     if own and own.token then A.release(nil, own.token, "test") end
     A.reset(nil)
+end
+
+-- Ambient acquisition can invoke the previous owner's callbacks before the cure is pressed.
+reset_world()
+do
+    local poison = { EffectType = 2, CurrentValue = 40, Config = { MaximumValue = 100 } }
+    pawn.TrackedStatusEffectsComponent = obj({ TrackedStatusEffectInstances = { ForEach = function(_, f)
+        f(1, { get = function() return obj(poison, "TrackedStatusEffectInstance /x") end }) end } }, "C /x")
+    local old_hotbar = inv_list.hotbar
+    inv_list.hotbar = { { item = "ITEM_Potion_Antipoison_Lesser", name = "Lesser Antipoison Potion", count = 1, consumable = "potion" } }
+    A.request(nil, { name = "prior", level = "command", uses_move = false, on_suspend = function() poison.CurrentValue = 0 end })
+    local context = { ambient = true, by = "ambient", phase = "idle", t = 100 }
+    Cm.status_frame(context, pawn, {})
+    check("ambient cure: re-read after grant prevents stale press", #INV.uses == 0 and test_tx == nil and not context.cure_pending)
+    inv_list.hotbar = old_hotbar; pawn.TrackedStatusEffectsComponent = nil; A.reset(nil)
 end
 
 -- ================================================================ 10i. attacked while fishing (live 15:38:59: 4 swings of a rod, 0 hits, died)

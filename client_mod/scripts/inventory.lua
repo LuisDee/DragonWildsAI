@@ -347,6 +347,7 @@ function M.equip(log, what)
     if where == "loadout" then return { ok = true, reason = "already equipped", item = d } end
     local refuse = M.crash_refusal(d.item, d.name, d.consumable) -- its hotbar key would consume it
     if refuse then say(log, "equip refused (crash-safety): " .. tostring(d.item)); return refuse end
+    if d.consumable then return { ok = false, reason = "consumable requires consume transaction" } end
     -- A held hotbar item is ALSO referenced by the loadout; pressing its key again would put it away.
     for _, e in ipairs(l.loadout or {}) do
         if e.item == d.item then return { ok = true, reason = "already equipped", item = e } end
@@ -410,6 +411,49 @@ function M.equip_state(log, item, l)
     return st
 end
 
+-- Shared across separately loaded inventory modules: one in-process consumable use at a time.
+local TX = _G.DWConsumableTransaction or { seq = 0 }
+_G.DWConsumableTransaction = TX
+local function tx_arbiter()
+    local ok, a = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/arbiter.lua"))() end)
+    return ok and a or nil
+end
+local function tx_owner(token)
+    local a = tx_arbiter()
+    return token ~= nil and a and a.holds and a.holds(token) == true
+end
+function M.consume_begin(token, caller, seconds, item)
+    if _G.DW_PAUSE or not tx_owner(token) then return nil, "consumable owner unavailable" end
+    local now = os.time()
+    local prior = TX.active
+    if prior and not prior.interrupted then
+        local held = tx_owner(prior.token)
+        if TX.active == prior and not held then M.consume_finish(prior.id, prior.token, true) end
+    end
+    if _G.DW_PAUSE or not tx_owner(token) then return nil, "consumable owner unavailable" end
+    if TX.active and TX.active.interrupted and TX.active.until_t <= now then TX.active = nil end
+    if TX.active then return nil, "consumable verification pending" end
+    TX.seq = TX.seq + 1
+    TX.active = { id = TX.seq, token = token, caller = caller, item = item, duration = (seconds or 6) + ((seconds or 6) > 0 and 1 or 0), until_t = now, pressed = false }
+    return TX.seq
+end
+function M.consume_owned(id, token)
+    local x = TX.active
+    if not x or x.interrupted or x.id ~= id or x.token ~= token then return false end
+    if _G.DW_PAUSE then M.consume_finish(id, token, true); return false end
+    local held = tx_owner(token)
+    if TX.active ~= x or x.interrupted or x.id ~= id or x.token ~= token then return false end
+    if _G.DW_PAUSE or not held then M.consume_finish(id, token, true); return false end
+    return true
+end
+function M.consume_finish(id, token, interrupted)
+    local x = TX.active
+    if not x or x.id ~= id or x.token ~= token then return false end
+    if interrupted and x.pressed and os.time() < x.until_t then x.interrupted = true
+    else TX.active = nil end
+    return true
+end
+
 -- Use (eat, drink, read...) `what` the way a player does: its hotbar number key if it is on the
 -- hotbar, else the inventory UI's use. Unlike equip, no "already equipped" check.
 function M.use(log, what, opts)
@@ -430,10 +474,13 @@ function M.use(log, what, opts)
     if opts.require and M.consumable_kind(data) ~= opts.require then
         return { ok = false, reason = "not " .. opts.require, item = d }
     end
+    if d.consumable and not M.consume_owned(opts.transaction, opts.owner_token) then return { ok = false, reason = "consumable transaction required" } end
     if where == "hotbar" then
         local bar = M.hotbar()
         if not bar then return { ok = false, reason = "no hotbar widget" } end
         say(log, "use: hotbar UseItemInSlot(" .. d.slot .. ") " .. tostring(d.item))
+        if d.consumable and (not M.consume_owned(opts.transaction, opts.owner_token) or TX.active.pressed or TX.active.item ~= d.item) then return { ok = false, reason = "consumable transaction invalid" } end
+        if d.consumable then TX.active.pressed = true; TX.active.until_t = os.time() + TX.active.duration end
         local ok, err = pcall(function() bar:UseItemInSlot(d.slot) end)
         return { ok = ok, reason = (not ok) and tostring(err) or nil, via = "hotbar key " .. (d.slot + 1), item = d }
     end
@@ -441,6 +488,8 @@ function M.use(log, what, opts)
     local api = M.ui_api()
     if not api then return { ok = false, reason = "no InventoryUIAPI" } end
     say(log, "use: HandleInternalUseItem(" .. d.slot .. ", " .. tostring(d.slot_type) .. ") " .. tostring(d.item))
+    if d.consumable and (not M.consume_owned(opts.transaction, opts.owner_token) or TX.active.pressed or TX.active.item ~= d.item) then return { ok = false, reason = "consumable transaction invalid" } end
+    if d.consumable then TX.active.pressed = true; TX.active.until_t = os.time() + TX.active.duration end
     local ok, err = pcall(function() api:HandleInternalUseItem(d.slot, SLOT_TYPE[d.slot_type]) end)
     return { ok = ok, reason = (not ok) and tostring(err) or nil, via = "inventory use", item = d }
 end
@@ -719,8 +768,58 @@ local function strike(item, ok)
     if R.strikes[item] >= (M.REFLEX_CFG.bad_after or 3) then R.bad[item] = true end
 end
 
+local function reflex_release(interrupted)
+    local p = R.pending
+    if p and p.tx then M.consume_finish(p.tx, p.token, interrupted) end
+    if p and p.token then local a = tx_arbiter(); if a then pcall(a.release, nil, p.token, "fed verification ended") end end
+    R.pending = nil
+end
+local function reflex_input(log, emergency, fn)
+    local a = tx_arbiter()
+    if not a then return nil end
+    local grant = a.request(log, { name = "fed:input", level = emergency and "reflex" or "task", uses_move = false,
+        resumable = false, replace_same = false, lease_s = 3 })
+    if not (grant and grant.ok and a.holds(grant.token)) then return nil end
+    local ok, result = pcall(fn)
+    local owned = a.holds(grant.token)
+    a.release(log, grant.token, "fed input ended")
+    return ok and owned and result or nil
+end
+local function reflex_use(log, item, kind, before, t, cfg)
+    local a = tx_arbiter()
+    if not a then return nil end
+    local tx, token
+    local function interrupted() if tx and token then M.consume_finish(tx, token, true) end end
+    local r = a.request(log, { name = "fed:" .. kind, level = R.floor_hit and "reflex" or "task", uses_move = false, resumable = false,
+        replace_same = false, lease_s = cfg.verify_s + 2, on_suspend = interrupted, on_stop = interrupted })
+    if not (r and r.ok) then return nil end
+    token = r.token
+    tx = M.consume_begin(r.token, "fed", cfg.verify_s, item)
+    if not tx then a.release(log, r.token, "consumable busy"); return nil end
+    local pawn = M.pawn()
+    if kind == "drink" then before = stat(pawn, "HydrationComponent", "GetCurrentHydration")
+    elseif kind == "food" then before = stat(pawn, "SustenanceComponent", "GetCurrentSustenance")
+    else before = U.try(function() return pawn.HealthComponent:GetAuthoritativeHealth() end) end
+    if not M.consume_owned(tx, r.token) or type(before) ~= "number" then
+        M.consume_finish(tx, r.token, true); a.release(log, r.token, "baseline unavailable"); return nil
+    end
+    local result = M.use(log, item, { require = kind == "heal" and "food" or kind, hotbar_only = not cfg.allow_bag,
+        owner_token = r.token, transaction = tx })
+    if not M.consume_owned(tx, r.token) then
+        M.consume_finish(tx, r.token, true); a.release(log, r.token, "use interrupted"); return nil
+    end
+    if not result.ok then
+        M.consume_finish(tx, r.token, true); a.release(log, r.token, "use failed"); return result
+    end
+    R.pending = { kind = kind, item = item, before = before, t = t, token = r.token, tx = tx }
+    return result
+end
+
 function R.tick(log)
-    if _G.DW_PAUSE then return end -- set by disconnect/travel commands: no UObject access during teardown
+    if _G.DW_PAUSE then
+        if R.pending and R.pending.tx then M.consume_finish(R.pending.tx, R.pending.token, true); R.pending = nil end
+        return
+    end -- set by disconnect/travel commands: no UObject access during teardown
     local cfg = M.REFLEX_CFG
     local p = M.pawn()
     if not p or U.try(function() return p.HealthComponent:IsDead() end) == true then return end
@@ -739,12 +838,17 @@ function R.tick(log)
     local pend = R.pending
     local hp = U.try(function() return p.HealthComponent:GetAuthoritativeHealth() end)
     local hp_max = U.try(function() return p.HealthComponent:GetMaxHealth() end)
+    if pend and not M.consume_owned(pend.tx, pend.token) then
+        reflex_release(true); pend = nil
+    end
     if pend and t - pend.t >= cfg.verify_s then
-        local now_v = (pend.kind == "drink" and hyd) or (pend.kind == "heal" and hp) or sus
-        local ok = now_v and pend.before and now_v > pend.before + 0.5
+        local now_v
+        if pend.kind == "drink" then now_v = hyd elseif pend.kind == "heal" then now_v = hp else now_v = sus end
+        local known = type(now_v) == "number" and type(pend.before) == "number"
+        local ok = known and now_v > pend.before + 0.5
         reflex_emit({ action = "verify", kind = pend.kind, item = pend.item, before = pend.before, after = now_v, ok = ok == true })
-        strike(pend.item, ok)
-        R.pending = nil
+        if known then strike(pend.item, ok) end
+        reflex_release(false)
         pend = nil
     end
     -- Nothing to drink / eat carried at all (live 2026-10-26 15:06: hydration 0, HP falling, and the reflex
@@ -797,9 +901,12 @@ function R.tick(log)
         end
         R.floor_leaves = R.floor_leaves or 0
         if usable and R.floor_leaves < (cfg.floor_leaves or 6) then
-            R.floor_leaves = R.floor_leaves + 1
-            local pressed = M._input_leave(blocked)
             local owner = M._input_owner(blocked.kind)
+            local pressed = reflex_input(log, true, function()
+                if M._input_owner(blocked.kind) then return false end
+                return M._input_leave(blocked)
+            end)
+            if pressed ~= nil then R.floor_leaves = R.floor_leaves + 1 end
             reflex_emit({ action = "floor_leave", kind = blocked.kind, mode = blocked.mode, owner = owner, need = usable,
                           ok = pressed == true, try = R.floor_leaves,
                           reason = "below the safety floor: leaving the " .. tostring(blocked.kind) .. " screen to " .. usable })
@@ -828,11 +935,12 @@ function R.tick(log)
             end
         end
         if pick then
+            local r = reflex_use(log, pick.item, "heal", hp, t, cfg)
+            if not r then return end
             R.last.heal = t
-            local r = M.use(log, pick.item, { require = "food", hotbar_only = true })
             reflex_emit({ action = "use", kind = "heal", item = pick.item, name = pick.name, stat = hp, ok = r.ok, via = r.via,
                           reason = r.reason })
-            if r.ok then R.pending = { kind = "heal", item = pick.item, before = hp, t = t } else strike(pick.item, false) end
+            if not r.ok then strike(pick.item, false) end
             return
         end
     end
@@ -866,12 +974,12 @@ function R.tick(log)
                     d = nil
                 end
                 if d then
+                    local r = reflex_use(log, d.item, need[2], need[3], t, cfg)
+                    if not r then return end
                     R.last[need[2]] = t
-                    local r = M.use(log, d.item, { require = need[2], hotbar_only = not cfg.allow_bag })
                     reflex_emit({ action = "use", kind = need[2], item = d.item, name = d.name, stat = need[3], ok = r.ok,
                                   via = r.via, reason = r.reason })
-                    if r.ok then R.pending = { kind = need[2], item = d.item, before = need[3], t = t }
-                    else strike(d.item, false) end
+                    if not r.ok then strike(d.item, false) end
                 end
             end
         end
@@ -888,8 +996,8 @@ function R.tick(log)
             local is_drink, is_food = kind == "drink", kind == "food"
             if (thirsty and is_drink) or (hungry and is_food) then
                 R.last.collect = t
-                local r = M.press_interact(log)
-                reflex_emit({ action = "collect", item = tg.item, name = tg.name, ok = r.ok })
+                local r = reflex_input(log, R.floor_hit, function() return M.press_interact(log) end)
+                if r then reflex_emit({ action = "collect", item = tg.item, name = tg.name, ok = r.ok }) end
             end
         end
     end
@@ -899,6 +1007,7 @@ end
 function M.reflex_start(log, opts)
     for k, v in pairs(opts or {}) do M.REFLEX_CFG[k] = v end
     R.cfg = M.REFLEX_CFG
+    reflex_release(true)
     R.bad, R.pending, R.strikes = {}, nil, {} -- a (re)start forgets items marked bad
     R.tick_fn = R.tick
     if not R.loop then
@@ -914,6 +1023,7 @@ function M.reflex_start(log, opts)
 end
 
 function M.reflex_stop()
+    reflex_release(true)
     if R.loop and CancelDelayedAction then pcall(CancelDelayedAction, R.loop) end
     R.loop = nil
     return { ok = true }

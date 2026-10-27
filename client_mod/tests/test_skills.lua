@@ -272,6 +272,21 @@ test("fetch failures carry a reason and a sayable detail", function()
     assert(rr and rr.reason == "path_blocked" and rr.data.why == "no_route" and rr.data.detail:find("no way through", 1, true), json.encode(rr)) -- move.why_words (one word table)
 end)
 
+test("consume waits for actual pawn ownership before pressing", function()
+    local saved_t = T
+    reset()
+    F.cons = { { name = "Clean Water", item = "ITEM_Consumable_Water_Clean", count = 2, consumable = "drink", where = "hotbar", stat = "hydration", amount = 25 } }
+    local A = B.module("arbiter")
+    local held = A.request(nil, { name = "combat", level = "reflex", uses_move = false })
+    local _, id = rpc("consume", { item = "drink" })
+    for _ = 1, 4 do T = T + 0.1; B.step() end
+    assert((F.uses or 0) == 0, "must not press before grant")
+    A.release(nil, held.token, "done")
+    local result = run(id, 15)
+    assert(result and result.ok and F.uses == 1, json.encode(result))
+    T = saved_t
+end)
+
 test("consume from the hotbar: verified by the stat rising", function()
     reset()
     F.cons = { { name = "Clean Water", item = "ITEM_Consumable_Water_Clean", count = 2, consumable = "drink", where = "hotbar",
@@ -475,6 +490,25 @@ test("give: walk to the player, drop at his feet, verified by the count falling"
     assert(F.dropped and F.dropped[2] == 2)
     assert(rpc("give", { player = "Luis", item = "Dragon Bones", count = 1 }).reason == "not_in_inventory")
     assert(rpc("give", { player = "Luis", item = "Oak Logs", count = 99 }).reason == "not_enough_resources")
+end)
+
+test("give: unreadable counts fail truthfully before or after drop", function()
+    local real_counts = B.API.counts
+    for fail_at = 1, 3 do
+        reset(); F.follow = "near"; F.dropped = nil
+        local calls = 0
+        B.API.counts = function()
+            calls = calls + 1
+            if calls >= fail_at then return nil end
+            return real_counts()
+        end
+        local r, id = rpc("give", { player = "Luis", item = "Oak Logs", count = 2 })
+        if not r then r = run(id, 40) end
+        B.API.counts = real_counts
+        assert(r and r.reason == "verification_failed" and r.data.detail:find("read my inventory"), json.encode(r))
+        if fail_at <= 2 then assert(not F.dropped, "must not drop without a baseline")
+        else assert(F.dropped, "post-drop failure must report uncertain verification") end
+    end
 end)
 
 test("arbiter: a reflex fight suspends a fetch (no timeout while it fights), then it re-approaches and finishes", function()

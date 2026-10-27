@@ -725,9 +725,19 @@ M._find_carried = find_carried
 local function action(api, ctx, job)
     local a = { kind = job.kind, id = ctx and ctx.id, timeout_s = M.cfg.timeout_s[job.kind] or 100 }
     a.cancel = function()
-        if not paused() then api.call("move", "stop") end
+        local A = arbiter(api)
+        if not paused() and job.kind ~= "consume" and A and job.token and A.holds(job.token) then api.call("move", "stop") end
         if job.cleanup then pcall(job.cleanup) end
         release(api, job, "cancelled")
+    end
+    if job.kind == "consume" then
+        -- State-only cleanup: bridge may call this while the world is tearing down.
+        a.pause_cleanup = function()
+            if job.consume_inv and job.consume_tx then
+                job.consume_inv.consume_finish(job.consume_tx, job.token, true); job.consume_tx = nil
+            end
+            release(api, job, "paused")
+        end
     end
     a.poll = function(self)
         local h = hold(api, job, self)
@@ -838,8 +848,10 @@ local function stat_now(api, stat)
 end
 
 local function count_of(api, item)
-    local c = api.counts() or {}
-    return c[item] or 0
+    local c = api.counts()
+    if type(c) ~= "table" then return nil end
+    if c[item] == nil then return 0 end
+    return tonumber(c[item])
 end
 
 local function start_consume(api, args, ctx)
@@ -865,9 +877,18 @@ local function start_consume(api, args, ctx)
                 detail = "The " .. tostring(r.name) .. " is in my bag, not on my hotbar; I can only use things from the hotbar." })
         end
         job.stat = STAT_OF[r.consumable]
-        job.row, job.before, job.before_n = r, stat_now(api, job.stat), count_of(api, r.item)
-        local ur = api.call("inventory", "use", r.item, { require = r.consumable, hotbar_only = true })
+        job.row = r
+        local A = arbiter(api)
+        if not (A and job.token and A.holds(job.token)) then return api.fail("busy", { detail = "Consumable owner unavailable." }) end
+        local inv = api.module("inventory")
+        local tx, why = inv.consume_begin(job.token, "command", M.cfg.consume_verify_s, r.item)
+        if not tx then return api.fail("busy", { detail = why }) end
+        job.consume_tx, job.consume_inv = tx, inv
+        job.before, job.before_n = stat_now(api, job.stat), count_of(api, r.item)
+        if not inv.consume_owned(tx, job.token) then return api.fail("interrupted", { detail = "Consumption interrupted before input." }) end
+        local ur = api.call("inventory", "use", r.item, { require = r.consumable, hotbar_only = true, owner_token = job.token, transaction = tx })
         if not ur.ok then
+            inv.consume_finish(tx, job.token, true); job.consume_tx = nil
             local d = copy(ur.data); d.detail = d.detail or ("I tried to use the " .. tostring(r.name) .. " but the game didn't take it.")
             return api.fail(ur.reason == "body_error" and "body_error" or ur.reason, d)
         end
@@ -899,11 +920,16 @@ local function start_consume(api, args, ctx)
         return api.fail("not_in_inventory", { item = what, kind = kind,
             detail = "I don't have anything to " .. (kind == "food" and "eat" or "drink") .. " on me." })
     else
-        local r = use_step(row)
-        if r then return r end
+        job.row, job.phase = row, "use"
     end
+    job.cleanup = function()
+        local inv = api.module("inventory")
+        if inv and job.consume_tx then inv.consume_finish(job.consume_tx, job.token, true); job.consume_tx = nil end
+    end
+    job.on_suspend = job.cleanup
     job.on_resume = function() if job.fetch and job.fetch.on_resume then job.fetch.on_resume() end end
     job.step = function(t)
+        if job.phase == "use" then return use_step(job.row) end
         if job.phase == "fetch" then
             local fr = job.fetch.step(t)
             if not fr then return nil end
@@ -916,22 +942,29 @@ local function start_consume(api, args, ctx)
             job.fetched = true
             return use_step(r2)
         end
+        local inv = api.module("inventory")
+        if not (inv and inv.consume_owned(job.consume_tx, job.token)) then return api.fail("interrupted", { detail = "Consumption verification interrupted." }) end
         local now_v, now_n = stat_now(api, job.stat), count_of(api, job.row.item)
+        if not inv.consume_owned(job.consume_tx, job.token) then return api.fail("interrupted", { detail = "Consumption verification interrupted." }) end
         local rose = now_v and job.before and now_v > job.before + 0.5
-        local used = now_n < job.before_n
+        local used = now_n ~= nil and job.before_n ~= nil and now_n < job.before_n
         if rose or (used and t >= job.until_t - M.cfg.consume_verify_s / 2) then
+            inv.consume_finish(job.consume_tx, job.token, false); job.consume_tx = nil
             return { ok = true, data = { item = job.row.item, name = job.row.name, kind = job.row.consumable, stat = job.stat,
                 before = job.before, after = now_v, stat_rose = rose == true, count_left = now_n, fetched = job.fetched == true,
                 risk = job.row.risk } }
         end
         if t >= job.until_t then
+            inv.consume_finish(job.consume_tx, job.token, false); job.consume_tx = nil
             if used then
                 return { ok = true, data = { item = job.row.item, name = job.row.name, kind = job.row.consumable, stat = job.stat,
                     before = job.before, after = now_v, stat_rose = false, count_left = now_n, fetched = job.fetched == true,
                     risk = job.row.risk } }
             end
+            local known_stat = type(now_v) == "number" and type(job.before) == "number"
             return api.fail("verification_failed", { item = job.row.item, stat = job.stat, before = job.before, after = now_v,
-                detail = "I tried to use the " .. tostring(job.row.name) .. " but my " .. tostring(job.stat) .. " didn't go up." })
+                detail = known_stat and ("I tried to use the " .. tostring(job.row.name) .. " but my " .. tostring(job.stat) .. " didn't go up.")
+                    or ("I tried to use the " .. tostring(job.row.name) .. " but could not verify the outcome.") })
         end
         return nil
     end
@@ -1108,6 +1141,7 @@ local function start_give(api, args, ctx)
             detail = "I don't have any " .. args.item .. " to give you." })
     end
     local have = count_of(api, row.item)
+    if have == nil then return api.fail("verification_failed", { detail = "I couldn't read my inventory count." }) end
     if have < n then
         return api.fail("not_enough_resources", { item = row.item, have = have, want = n,
             detail = "I only have " .. have .. " " .. tostring(row.name) .. "." })
@@ -1123,19 +1157,21 @@ local function start_give(api, args, ctx)
             if not r then return nil end
             if not r.ok then return r end
             job.before = count_of(api, row.item)
+            if job.before == nil then return api.fail("verification_failed", { detail = "I couldn't read my inventory count before dropping." }) end
             local dr = api.call("inventory", "drop", row.item, n)
             if not dr.ok then return dr end
             job.phase, job.until_t = "verify", t + M.cfg.give_wait_s
             return nil
         end
         local now_n = count_of(api, row.item)
-        if now_n <= job.before - n then
+        if now_n ~= nil and now_n <= job.before - n then
             return { ok = true, data = { item = row.item, name = row.name, count = n, player = args.player, at = "feet",
                                          inventory_left = now_n } }
         end
         if t >= job.until_t then
             return api.fail("verification_failed", { item = row.item, count = n,
-                detail = "I dropped the " .. tostring(row.name) .. " but it didn't leave my inventory." })
+                detail = now_n == nil and "I dropped it, but couldn't read my inventory to verify the result."
+                    or ("I dropped the " .. tostring(row.name) .. " but it didn't leave my inventory.") })
         end
         return nil
     end

@@ -1,5 +1,7 @@
 # Consumable ownership recovery
 
+Current status (2026-10-27 evening): revised lifecycle passed independent cold review and the full gate, **1067 passed / 1 skipped, CHECK_ALL: GREEN** (366.77 s). Native remeasurement remains pending. Earlier pending-candidate/checkpoint sections below preserve the review history.
+
 - **Goal:** command, stay-fed and combat uses cannot overlap or credit another in-process use; uncertain outcomes remain truthful.
 - **Evidence (UTC):** at 15:04:02Z command hydration rose 19.5â†’29.5; at 15:04:03Z another command and fed-reflex use overlapped, and that command failed verification at 15:04:09Z. Reflex use at :09 verified later. `skills.start_consume` invokes `inventory.use` before `run_job` acquires its pawn token; `inventory.R.tick` calls `M.use` independently. Overlap is established; cooldown or other game restrictions remain hypotheses.
 - **Decision:** reuse `arbiter` for pawn priority and `skills.run_job` lifecycle, plus one shared in-flight **consumable transaction** in inventory's global hot-reload state. Pawn ownership alone cannot serialize cure and heal under one combat token. A transaction is a unique generation/id bound to the current arbiter token, caller, item and verification phase. Proposed inventory API: begin(token, caller, item) atomically checks current pawn ownership and no active transaction; press(id, token, ...) rechecks both immediately before actual use; finish/cancel(id, token, outcome) verifies identity and releases exactly once. Every use entry point must fail closed for missing/stale owner or transaction; recheck identity after any reentrant call. API names are design placeholders, not a second competing pawn arbiter.
@@ -9,13 +11,19 @@
 - **Generality and principles:** one transaction per real use, independent of item, phrase and location; real game input and observed state only. This is deterministic ownership and outcome reporting, not a model-choice override. No gameplay result is synthesized.
 - **Acceptance:** fake-engine regressions cover pre-grant/no-token and stale/reentrant token, command versus ordinary reflex, safety-floor preemption with modal ownership, combat heal versus cure on one pawn token, consumable equip/raw use, nonconsumable unaffected, input/verification interruption and cleanup across pause/reload/timeout/stop, nil baselines, an interrupted waiter and retained gate through its original window, deferred subsequent use while unresolved, concurrent same-item changes with the documented attribution limit, and no false strikes or replay. Ordinary uninterrupted matching deltas remain observable success, without claiming engine-source correlation. Offline tests first; later dev measurement uses live reservation and budget. No source implementation until fresh review approves this revised evidence boundary.
 
-## Search and decision
+## Search record
 
 Repository precedent: `client_mod/scripts/arbiter.lua` provides priority, ownership, suspend and release; `skills.lua` provides held job lifecycle; `inventory.lua` provides the existing reflex and modal gate; `combat.lua` contains cure and healing uses; `docs/DISCOVERIES.md` records earlier consume verification. Reuse and adapt these with one global transaction, rather than building another pawn controller. UE4SS documents game-thread execution; Epic documents ability lifecycle/cancellation; Python documents mutual exclusion as a conceptual precedent. These are conceptual references, not claims about this game's internal implementation.
 
 - https://docs.ue4ss.com/dev/lua-api/global-functions/executeingamethread.html
 - https://dev.epicgames.com/documentation/en-us/unreal-engine/gameplay-ability-system-for-unreal-engine
 - https://docs.python.org/3/library/threading.html#lock-objects
+
+Fresh coordinator queries for this same issue were `site.docs.ue4ss.com CancelDelayedAction LoopInGameThreadWithDelay`, `site:docs.python.org asyncio cancellation try finally cleanup`, and `site:dev.epicgames.com behavior tree observer aborts lower priority unreal engine`. The following primary pages were opened and read. They support explicit game-thread handle lifetime, finally-style cancellation cleanup, and event-driven abort/ownership patterns respectively. Reuse the existing arbiter and lifecycle, adapting state-only cleanup and a shared known-use gate; no new framework or engine API is introduced. Python and behavior-tree APIs are conceptual precedents, not interfaces called by this Lua implementation. The detailed implementation search below records the author's additional sources.
+
+- https://docs.ue4ss.com/dev/lua-api/global-functions/delayedactions.html
+- https://docs.python.org/3.12/library/asyncio-task.html#task-cancellation
+- https://dev.epicgames.com/documentation/en-us/unreal-engine/behavior-tree-in-unreal-engine---overview?application_version=5.6
 
 ## Ownership and review
 
@@ -35,3 +43,18 @@ Focused checks: 26 Python wrapper tests for skill contract, bridge and combat S1
 ## Implementation checkpoint, 2026-10-27 16:25 Berlin
 
 The revised design and observed-state evidence boundary were independently approved. One owner edited the coupled inventory/skills/combat files and focused tests. Initial focused checks passed but cold review rejected the candidate for active-expiry/duplicate-input, unreadable-state, fresh-baseline and missing integrated race coverage. A partial revision was interrupted at 95% account allowance; it is unvalidated and must remain offline. Current recovery handoff carries exact blockers. Source is uncommitted in the shared working tree with a private patch backup; this design note is a plan, not evidence of completed implementation.
+
+
+## Focused offline recovery candidate
+
+The fake-engine integration now runs the real bridge, skills command, inventory module, arbiter and fed reflex together: a command holds the use through verification, ordinary reflex defers, bridge stop preserves the interrupted gate, and safety-floor preemption interrupts the command without replay or a competing press. The real input gate also exercises a cooperative modal owner releasing its claim on suspension and an orphaned claim deferring without exhausting the leave budget. Same-token combat cure/heal contention and unreadable reflex post-state are covered. These are offline checks; the observed-state attribution limits above remain and live remeasurement is pending. Fresh cold review and full gate are still required.
+
+
+## Lifecycle search and cleanup contract (2026-10-27)
+
+- Need: prevent a canceled or paused user of the shared gate from leaving it permanently owned, without allowing live verification to expire.
+- Repository search: `docs/DISCOVERIES.md`, `docs/research/`, and `docs/ARCHITECTURE.md` for pause, ambient and ownership; inspected `client_bridge.lua` pause, `arbiter.lua` suspend/stop/release, and combat pause and ambient teardown. Existing code explicitly avoids game-object access during world teardown and uses owner callbacks for handoff.
+- Web queries: `site:docs.ue4ss.com ExecuteInGameThread lua API documentation`; `site:docs.python.org threading lock try finally release lock`; `site:dev.epicgames.com Unreal gameplay ability cancellation end ability cleanup`. Opened [UE4SS ExecuteInGameThread](https://docs.ue4ss.com/dev/lua-api/global-functions/executeingamethread.html), [Epic ability lifecycle](https://dev.epicgames.com/documentation/unreal-engine/using-gameplay-abilities-in-unreal-engine?lang=en-US), [Epic ability tasks](https://dev.epicgames.com/documentation/unreal-engine/gameplay-ability-tasks-in-unreal-engine?lang=en-US), and [Python lock context managers](https://docs.python.org/3/library/threading.html#using-locks-conditions-and-semaphores-in-the-with-statement). UE4SS describes scheduling on the game thread; Epic describes cancellation followed by end cleanup and child-task lifetime; Python demonstrates release on scope exit. The latter two are conceptual precedents, not evidence that this game implements its consumables using those APIs or that a Lua transaction is a Python lock.
+- Decision: reuse the existing arbiter, transaction and bridge lifecycle; adapt explicit finally-like, state-only cleanup for pause/stop, and treat an abandoned lost-owner press as an interrupted tombstone until its existing verification deadline. Never age out an uninterrupted live waiter. No new engine calls, package, ability API or guessed cooldown. The approved evidence boundary and principles are unchanged.
+
+Coordinator also searched and opened [UE4SS delayed actions](https://docs.ue4ss.com/dev/lua-api/global-functions/delayedactions.html), [Python 3.12 task cancellation](https://docs.python.org/3.12/library/asyncio-task.html#task-cancellation), and [Epic behavior tree overview](https://dev.epicgames.com/documentation/en-us/unreal-engine/behavior-tree-in-unreal-engine---overview?application_version=5.6), using queries `site.docs.ue4ss.com CancelDelayedAction LoopInGameThreadWithDelay`, `site:docs.python.org asyncio cancellation try finally cleanup`, and `site:dev.epicgames.com behavior tree observer aborts lower priority unreal engine`. The findings were game-thread delayed callback and cancellation handles, finally-style cancellation cleanup, and event-driven observer/abort patterns, respectively. Python and behavior trees are conceptual precedent; the implementation introduces no new UE4SS API and retains the existing local arbiter and lifecycle.

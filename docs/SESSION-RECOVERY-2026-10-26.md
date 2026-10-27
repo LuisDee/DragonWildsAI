@@ -2,6 +2,20 @@
 
 ## Current handoff — 2026-10-27, 15:13 Berlin
 
+### 20:10 Berlin — Consumable candidate fully gated
+
+- **CHECK_ALL: GREEN, 1067 passed / 1 skipped**, 366.77 s. Log `logs/recovery/consumable-full-fixed-7862886332dc4ac2b4ed55906acf70d9/check-all.log`. Approved judge diff remains empty. Earlier full run failed only the design-note heading (1066/1/1); corrected, five focused design tests passed, full rerun green.
+- R14 source and regression candidate independently approved. Real bridge/skills/inventory/arbiter/reflex tests cover overlap, stop, pause/unpause and modal ownership; combat suite 400 checks. Combat pause/replacement fixtures use fake inventory transactions, while bridge pause/lost-owner fixtures use actual inventory+arbiter. Do not overstate this as live success.
+- World memory backup `logs/recovery/memory-before-consume-live-20261027T185613Z.zip`, 13 files / 45214 bytes. Dev server 7016, watchdog and oracle adopted. Client remains down/held until tested checkpoint is saved; configured character ClaudeDev, target dev, Shockbyte forbidden and Steam active session verified. Announce and use existing client_boot -Target dev -Release; no Steam restart or duplicate workload.
+- Next native checks use existing live reservation/queue: consume_food_input_mode and appropriate water check, independent inventory/input-mode evidence plus `logs/recovery/consumable_transaction_status.lua`. Zero game-model calls. Then capped autonomous self-care/no-axe recovery proof; preserve original M1–M6 and frozen judges.
+- API spend before live work: $0.101 / $10, 39 calls today. Development allowance permits work (1% of returned weekly window at last check); goal confirmed active. Older paused/exhausted entries below are historical.
+
+### Resumed 2026-10-27 evening
+
+- Luis resumed the goal; goal service is confirmed **active**. Fresh account check permits ordinary usage (0% used in the returned weekly window); the earlier exhausted five-hour reading is historical, not the current blocker.
+- Current HEAD 99b15dc; seven intentional unfinished consumable source/test files remain dirty. Dev server 7016, watchdog and oracle 144/10016 adopted; dev client remains down/held and no brain/test runner exists. Effective target dev and Shockbyte forbidden verified. Preserve this hold until offline candidate passes.
+- One fresh bounded Terra owner is finishing R14's existing coupled source/tests and regressions. Main reviews/integrates and owns live work. Next: targeted candidate checks, fresh cold review, full gate, then announce/release dev client and remeasure before claiming fixed. No new milestone success.
+
 ### Stop/checkpoint at 16:25 Berlin — allowance margin
 
 - Tested main checkpoints are pushed through **139d2a0** (pilot/adoption evidence); code at 7c6a2e2 passed 1067/1 skipped. **Current working tree additionally contains unfinished R14 candidate source/tests and is NOT full-gate validated. Do not load it or call it green.** No stash/reset/restore/checkout used.

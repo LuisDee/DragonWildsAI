@@ -7,6 +7,15 @@ _G.FAKE = _G.FAKE or {}
 local F = _G.FAKE
 F.inv = F.inv or { oak_bag = 5, oak_bar = 3 }
 F.extra = F.extra or {} -- item id -> count, things picked up by interact
+local function owner(token) return _G.DWArbiter and _G.DWArbiter.owner and _G.DWArbiter.owner.token == token end
+function M.consume_begin(token)
+    if not owner(token) or F.consumable_tx then return nil, "consumable busy" end
+    F.consumable_seq = (F.consumable_seq or 0) + 1
+    F.consumable_tx = { id = F.consumable_seq, token = token }
+    return F.consumable_seq
+end
+function M.consume_owned(id, token) return owner(token) and F.consumable_tx and F.consumable_tx.id == id and F.consumable_tx.token == token end
+function M.consume_finish(id, token) if F.consumable_tx and F.consumable_tx.id == id and F.consumable_tx.token == token then F.consumable_tx = nil end end
 function M.list(log)
     if F.pending_drop then
         F.inv.oak_bag = math.max(0, F.inv.oak_bag - F.pending_drop)

@@ -209,7 +209,7 @@ local function finish(a, res)
     ev("client_action_end", { kind = a.kind, id = a.id, ok = res.ok, reason = res.reason })
     -- the general stray-screen guard (input.after_action, BUGS B-stuck-focused-ui): an action that left a HUD
     -- screen open (a Campfire's Processing + Inventory panels) must not leave him in DIM_FocussedInGameUI
-    local inp = M.module("input")
+    local inp = not rawget(_G, "DW_PAUSE") and M.module("input") or nil
     if type(inp) == "table" and type(inp.after_action) == "function" then
         local okg, rec = pcall(inp.after_action, a.kind, S.text_log)
         if okg and type(rec) == "table" then
@@ -1627,6 +1627,7 @@ local function on_pause_start()
     ev("client_paused", {})
     local a = S.action
     if a then
+        if a.pause_cleanup then pcall(a.pause_cleanup) end
         a.cancel = nil
         finish(a, fail("companion_down", { detail = "client paused (disconnect or join in progress)" }))
     end

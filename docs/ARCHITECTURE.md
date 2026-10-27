@@ -404,6 +404,18 @@ Route R2 (`docs/design/real-player-remediation.md`): Claude plays through a real
   - autostarts the bridge with `loadfile` (`DW_CLIENT_BRIDGE=0` turns this off);
   - uses dkjson for runner output.
 - Everything below `main.lua` reloads without a restart. `client_mod/commands/bridge_start.lua` restarts the bridge from the newest file: it stops the old loop and keeps the chat hooks. `bridge_status.lua` and `bridge_stop.lua` complete the set.
+- Consumable input and verification share `inventory.lua`'s per-process transaction
+  gate across separately loaded module instances. `consume_begin(token, caller,
+  seconds, item)` binds a real pawn owner and item; `consume_owned(id, token)`
+  revalidates ownership; `consume_finish(id, token, interrupted)` releases or retains
+  an interrupted press through its original verification window. Only one press
+  is accepted per transaction. Command, fed-reflex and combat cure/heal callers
+  use this contract; consumable equip/raw use cannot bypass it. Unknown reads
+  remain unknown, and observed deltas do not establish perfect source attribution.
+- A pending action may expose `pause_cleanup` for state-only teardown. The bridge
+  invokes it before finishing an action on world pause, without normal cancel or
+  the input `after_action` sweep. Consume cleanup invalidates its transaction and
+  releases its lease; combat and reflex teardown do likewise before losing tokens.
 - Bridge events go to `logs/client/mod_<ts>.jsonl` (dwlog); module text logs go to `logs/client/client.log`.
 - **Background services are supervised by the bridge** (`client_bridge.SERVICES`):
   - `chat.start` (receive hooks), `sense.vitals_start` (vitals watcher), `combat.guard_start` (self-defence; `DW_COMBAT_REFLEX=0` off), `inventory.reflex_start` (stay fed) and `tickguard.start` (slows the deadlock-prone `LightFlickeringWorldSubSystem` tick; DISCOVERIES "Client hang (R2)");

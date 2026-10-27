@@ -64,6 +64,8 @@ autonomous test configuration.
 - `--basetemp` deletes an existing target: use a unique new directory under
   `logs/recovery/` for focused tests. For the full `tools/check_all.ps1` command,
   a task-local TMP/TEMP directory can avoid the inaccessible inherited temp root.
+- If design notes change, run `tests/test_design_notes.py` before the full gate
+  so a missing research-record heading does not waste a full regression cycle.
 
 ## Memory, evidence and budget
 
