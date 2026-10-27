@@ -2,6 +2,15 @@
 
 ## Current handoff — 2026-10-27, 15:13 Berlin
 
+### Stop/checkpoint at 16:25 Berlin — allowance margin
+
+- Tested main checkpoints are pushed through **139d2a0** (pilot/adoption evidence); code at 7c6a2e2 passed 1067/1 skipped. **Current working tree additionally contains unfinished R14 candidate source/tests and is NOT full-gate validated. Do not load it or call it green.** No stash/reset/restore/checkout used.
+- Development account reached **95% five-hour used / 46% weekly** at 16:24; reset **18:59:17 UTC / 19:59:17 Berlin**. Both Terra agents interrupted/stopped to preserve handoff margin. No usage-limit retry loop. Game-model spend remains $0.101 / $10 today.
+- R14 candidate spans inventory.lua, skills.lua, combat.lua and their focused tests. Initial candidate had 26 focused Python wrappers, inventory/reflex ALL PASS and combat 396 pass, but cold review found material gaps. A subsequent revision is partial and has NOT been revalidated; these earlier results do not validate current bytes.
+- Resume with cold-review blockers: active uninterrupted transaction must not expire behind its waiter; only interrupted tombstone can age out. Enforce one press per ID and intended item; recheck transaction identity after reentrant owner housekeeping. Unknown reflex/heal/cure baseline/postread cannot strike or count success. Snapshot reflex baseline after actual grant and do not charge cooldown for refused acquisition. Add real command/reflex overlap and preemption/cancel/reload/pause gate tests, same-token combat cure/heal contention, cooperative modal release/preemption plus orphan claim deferral. Some code revisions may already address these; compare actual diff, do not assume complete. Then fresh review, targeted tests, full gate, controlled native deployment and live remeasurement.
+- **Operational hold set by this agent for unfinished-code/allowance safety, not a user pause:** normal bridge/fed/guard stop preceded `tools/stop_client.ps1 -Hold`. The client watchdog must keep the dev client down; Steam and dev server stay running. After offline gate, announce client launch and use `tools/client_boot.ps1 -Target dev -Release` to clear this operational hold; adopt existing processes first. Never launch with unfinished candidate automatically adopted. No world/memory reset.
+- Private WIP archive: `logs/recovery/consumable-wip-20261027-1625/candidate.patch` plus design snapshot; original working files remain in place. Preserve this archive and world memory. Maintenance reservation is released after stopping the client. Five-hour heartbeat remains ACTIVE; account reset is separate from its cadence and Goal mode remains paused.
+
 ### Update at 16:16 Berlin
 
 - Latest pushed code: **7c6a2e2**, complete gate **1067 passed / 1 skipped, CHECK_ALL: GREEN**. Automatic native bridge adoption verified at 15:59: six services running with starts=1/adopt_pending=false, original fed loop 4 and guard loop 163 retained, policy/orders preserved. Private evidence `logs/recovery/automatic-adoption-20261027.json`.

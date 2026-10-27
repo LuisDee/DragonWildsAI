@@ -368,3 +368,9 @@
 - Pilot used 29 Controller, 3 Director and 1 warmup request; $0.096 incremental, UTC-day total $0.101 / $10 (39 priced calls). Runner brain stopped, reservation released, native client idle in dev. No game/client/Steam restart and no world memory reset. Low RAM was observed; single-heavy-workload rule retained.
 
 - Fresh bounded pilot window (15:03:41–15:10:40 UTC): 0.111 active hours, 21 world-changing calls, zero measured crashes/deaths/stalls. Companion bridge and fed/guard loops then stopped through normal cached APIs at an idle boundary to prevent automatic adoption of incomplete source edits. Game/server remain running; policy/orders retained. Explicit offline gate and controlled rearm required.
+
+## 2026-10-27, 16:25 Berlin — Unfinished candidate saved before allowance exhaustion
+
+- Account 95% five-hour used, 46% weekly; reset 19:59 Berlin. Delegation stopped. Tested main evidence checkpoint 139d2a0 pushed; unfinished consumable candidate stays in working tree with private patch backup, not presented as tested or pushed source.
+- Initial targeted green candidate failed cold review on transaction expiry/duplicate input, unknown readings, stale reflex baselines and insufficient real integration coverage. Partial revisions remain unvalidated. Recovery handoff lists exact next steps.
+- Companion services stopped and dev client held through existing stop_client.ps1 -Hold while offline code is incomplete; Steam/dev server retained. This is an agent operational hold, not a human pause. Resume offline checks first, then announce/release/relaunch dev client only after approval by tests/review. M1–M6 remain unmet.
