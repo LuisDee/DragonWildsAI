@@ -27,3 +27,7 @@ All six start contracts were inspected: chat.start reuses registered hooks; sens
 Focused bridge suite: 11 passed, including an already healthy old callback, an explicit failed adoption with bounded backoff and subsequent successful rebind, stable handle/policy, and no repeated start after success. Live service adoption remains independently verified only by the earlier manual refresh, not by this code change.
 
 Cold review found that bare boolean false also needed rejection; corrected with the same retry/rebind regression. Full gate GREEN: 1067 passed, 1 skipped (386.40 s). The initial one-line edit preceded independent review; the pending/backoff revision followed the review conditions, and the final failure contract was checked by cold review. Automatic adoption still needs native remeasurement.
+
+## Native deployment, 2026-10-27 15:59 Berlin
+
+Current bridge deployed at an idle maintenance boundary using its normal start API, without restarting the game or Steam. All six services reported running, loads=1, starts=1 and adopt_pending=false. Fed loop ID 4 and guard loop ID 163 were unchanged across adoption; policy and orders identity were preserved. No bridge action or waiters remained. Private evidence: logs/recovery/automatic-adoption-20261027.json. This verifies automatic service adoption; it does not establish autonomous survival or the broader M1 targets.

@@ -359,3 +359,12 @@
 - Water regression passed its second allowed attempt: correctly named Dirty Water, actual source, independent inventory +2; first attempt path-blocked retained. Calibration remains unmeasured after readiness refused uneven/obstructed ground. Memory backed up beforehand; no envelope created.
 - Manual use of existing service APIs refreshed stale callbacks, preserving policy/orders; native reflex then drank carried water and verified hydration 0 -> 19.54. Added the general supervisor adoption correction with pending failure/backoff and idempotent existing-loop reuse.
 - **CHECK_ALL: GREEN, 1067 passed / 1 skipped**, 386.40 s; focused bridge tests 11 passed. Automatic native adoption and a short M1 pilot are next. No two-hour exposure/stability or overall-goal completion claim.
+
+## 2026-10-27, 16:16 Berlin — Native adoption and short M1 pilot
+
+- 7c6a2e2 is pushed; automatic native adoption now verified with all six services current and no duplicate fed/guard loop. Global policy/orders preserved. Full gate remains 1067 passed / 1 skipped.
+- Five-minute A1 pilot completed; chat/health proof passed. Actual water collection, hydration increase, berry gathering and eating observed. Three scheduled chats plus proof; latest A1 p50 9.0 s / p90 9.92 s, n=4, so latency targets remain unmet. Exposure 0.102 h is insufficient for M1 stability. Top-level report also includes old phases; preserve that distinction.
+- Found command/reflex consume input overlap; R14 is open. Reviewed generic transaction design precedes implementation. Stale grave targets, failed interaction and interrupted actions also remain in evidence.
+- Pilot used 29 Controller, 3 Director and 1 warmup request; $0.096 incremental, UTC-day total $0.101 / $10 (39 priced calls). Runner brain stopped, reservation released, native client idle in dev. No game/client/Steam restart and no world memory reset. Low RAM was observed; single-heavy-workload rule retained.
+
+- Fresh bounded pilot window (15:03:41–15:10:40 UTC): 0.111 active hours, 21 world-changing calls, zero measured crashes/deaths/stalls. Companion bridge and fed/guard loops then stopped through normal cached APIs at an idle boundary to prevent automatic adoption of incomplete source edits. Game/server remain running; policy/orders retained. Explicit offline gate and controlled rearm required.

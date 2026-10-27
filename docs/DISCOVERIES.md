@@ -13,6 +13,10 @@ See `docs/ARCHITECTURE.md`.
 
 ## Environment
 
+### Bridge adoption preserves service loops (2026-10-27)
+
+On the local dev client, deploying the current bridge at an idle boundary adopted all six healthy services once (running, starts=1, adopt_pending=false). Fed loop 4 and combat guard loop 163 stayed unchanged, as did global vitals policy and combat orders. This confirms the existing idempotent start contracts can rebind current callbacks without duplicating loops. Private evidence: logs/recovery/automatic-adoption-20261027.json; code checkpoint 7c6a2e2.
+
 ### Client vs server version check (2026-10-25 22:25 UTC)
 - Steam build ids are per app, so they never match. The client (app 1374490) is on **26162923** and the dedicated server (app 4019830) on **26161880**. Both logs report `LogInit: Build: ++dominion+hotfix-CL-254097` and `Net CL: 254097`, so it is the same game version.
 - **Compare `Net CL` from the client and server logs, not Steam build ids**, to tell whether a patch needs a server update. `update_server.ps1` reported 26161880 -> 26161880, with nothing to update.
