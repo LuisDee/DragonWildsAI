@@ -48,6 +48,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from brain.fileio import atomic_write
+
 ROOT = Path(__file__).resolve().parents[1]
 SUITE = ROOT / "tools" / "scenarios" / "dev_suite.json"
 REPORT_DIR = ROOT / "logs" / "scenarios"
@@ -130,9 +132,7 @@ def relaunched(boot_result: dict) -> bool:
 
 def write_lease(target: str, minutes: float, by: str) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = LEASE.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"target": target, "until": iso(now() + minutes * 60), "by": by}), encoding="utf-8")
-    os.replace(tmp, LEASE)
+    atomic_write(LEASE, json.dumps({"target": target, "until": iso(now() + minutes * 60), "by": by}))
 
 
 def clear_lease() -> None:

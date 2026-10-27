@@ -19,3 +19,9 @@ Reuse > adapt > build: repository docs/DISCOVERIES.md already records Windows fi
 Fresh Terra design review approved reuse before implementation. Its limitation is preserved: cleanup assertions cover exhausted PermissionError, not every possible filesystem error. Concurrent read-modify-write serialization is outside this change. Fresh Terra cold code review found no concrete defect. Focused fileio, controller-loop, scenarios and design-note tests: 43 passed.
 
 Full regression on the corrected source: 1057 passed, 1 skipped; CHECK_ALL: GREEN. A disposable probe also completed 50 writes/replacements and deletion in the previously failing test directory without another permission grant.
+
+## Operations writers (2026-10-27)
+
+The later survival-fixes full run finished RED: 1060 passed, 1 failed, 1 skipped. The sole failure was the same bare replacement pattern in tools.scenario_run.write_lease. A bounded audit found duplicate persisted JSON writers in client_slot and live_queue as well. Reuse the shared writer for these three entry points, preserving serialization and schema. Six injected-lock regressions cover recovery and permanent-denial preservation/cleanup at each entry point. Command-file publishers and existing retrying helpers are outside this correction; no judge or target semantics change, and no live target switching is performed by the tests. Fresh review and gate follow.
+
+Fresh Terra cold review clear; 38 focused operations tests passed. Complete corrected-source gate: 1067 passed, 1 skipped, CHECK_ALL: GREEN (454.32 s).

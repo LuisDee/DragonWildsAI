@@ -365,7 +365,7 @@ local function read_creature(a, origin)
     }
     d.dead = U.try(function() return a.HealthComponent:IsDead() end) == true or (hp ~= nil and hp <= 0)
     local al = num(U.try(function() return a.CurrentAlertnessState end))
-    d.in_combat = al == 3 or al == 4
+    if al ~= nil then d.in_combat = al == 3 or al == 4 end
     if origin and at then d.distance_m = U.dist(origin, at) / 100 end
     return d
 end
@@ -1377,7 +1377,7 @@ function M._outcome_of(F, res)
     local r = res.reason
     if r == "unknown_target" or r == "too_far" then return "lost" end
     if r == "timeout" then return "timeout" end
-    if r == "unsafe" then return "fled" end
+    if r == "unsafe" then return "failed" end
     return res.ok and "done" or "interrupted"
 end
 
@@ -1418,7 +1418,7 @@ function M.emit_combat_end(F, res)
         hp_end = F.hp_now, loot = F.loot_names, parries = F.n_parried or 0, blocks = F.n_blocked or 0,
         dodges = F.n_dodges or 0, jumps = F.n_jumps or 0, heals = F.n_heals or 0, cures = F.n_cures or nil, presses = F.presses, why = F.why,
         pack = (F.max_pack or 0) > 1 and F.max_pack or nil, kills = F.kills, multi_swings = F.n_multi, hazards = F.n_hazards,
-        fled_why = d.why })
+        fled_why = d.why, detail = d.detail, still_chased = d.still_chased })
 end
 
 local function finish(F, res)
@@ -1605,29 +1605,75 @@ local function enemies_for_assess(F, origin)
     return list
 end
 
-local function begin_flee(F, why)
-    C().counts.flees = C().counts.flees + 1
-    F.flee_why = why
-    F.decision = "flee"
-    F.inputs = {}
-    set_phase(F, "flee", why)
-    M.emit_activity({ kind = "fled", by = F.by or "unknown", from = F.target_name, from_id = F.target_id, why = why, hp = F.hp_now })
-    local luis = M.orders.protect or M.cfg.protect or M.nearest_player_name(F.me_pos)
-    local r = luis and mcall("move", "follow", F.log, luis, 3, { sprint = true, owner_token = F.token })
-    if r and r.ok ~= false and (r.target_visible ~= false) then F.flee_to = luis
-    else
-        -- away from the threat
-        local me, tp = F.me_pos, F.target_pos
-        if me and tp then
-            local dx, dy = me.X - tp.X, me.Y - tp.Y
-            local l = math.max(math.sqrt(dx * dx + dy * dy), 1)
-            local g = { (me.X + dx / l * M.cfg.flee_far_m * 100) / 100, (me.Y + dy / l * M.cfg.flee_far_m * 100) / 100, me.Z / 100 }
-            mcall("move", "go_to", F.log, g, { sprint = true, tolerance_m = 3, timeout_s = M.cfg.flee_timeout_s, owner_token = F.token })
-            F.flee_to = g
+-- Flee uses one fresh, observed threat set for both safety and escape geometry.
+local function flee_threats(F, me)
+    if not me.pos then return nil, "position unavailable" end
+    local ok, actors = pcall(FindAllOf, "DominionAICharacter")
+    if not ok or type(actors) ~= "table" then return nil, "threat census unavailable" end
+    local out, c, seen = {}, C(), {}
+    for _, actor in ipairs(actors) do
+        if U.alive(actor) and not (U.fullname(actor) or ""):find("Default__", 1, true) then
+            local id, pos = U.short(actor), U.loc(actor)
+            if id then seen[id] = true end
+            local hit, tele = id and c.attackers[id], id and c.telegraphs[id]
+            local recent = (hit and F.t - hit <= M.cfg.attacker_memory_s) or (tele and F.t - tele <= M.cfg.attacker_memory_s)
+            if recent or id == F.target_id then
+                if not pos then return nil, "observed threat position unavailable" end
+                if U.dist(me.pos, pos) <= M.cfg.safe_m * 100 then
+                    local good, cr = pcall(read_creature, actor, me.pos)
+                    if not good or not cr or (id == F.target_id and not recent and cr.in_combat == nil) then return nil, "threat state unavailable" end
+                    if not cr.dead and (recent or (id == F.target_id and cr.in_combat)) then out[#out + 1] = { id = id, pos = pos } end
+                end
+            end
         end
     end
-    F.drove_move = true
-    F.safe_since = nil
+    for _, tracked in ipairs({ c.attackers, c.telegraphs }) do
+        for id, t in pairs(tracked) do
+            if F.t - t <= M.cfg.attacker_memory_s and not seen[id] then return nil, "recent threat not visible" end
+        end
+    end
+    return out
+end
+
+local function flee_owned(F)
+    local a = mod("arbiter")
+    local token, gen = F.token, F.gen
+    local ok = a and a.owns_move and a.owns_move(token)
+    return ok and C().fight == F and C().gen == gen and not F.done and F.phase == "flee" and F.token == token
+end
+
+local function flee_move(F, me, threats)
+    if not flee_owned(F) then return nil, "movement ownership lost" end
+    local sx, sy = 0, 0
+    for _, threat in ipairs(threats) do sx, sy = sx + threat.pos.X, sy + threat.pos.Y end
+    if #threats == 0 then return nil, "no observed threat position" end
+    local dx, dy = me.pos.X - sx / #threats, me.pos.Y - sy / #threats
+    local length = math.sqrt(dx * dx + dy * dy)
+    if length < 1 then return nil, "threat direction unresolved" end
+    local far = M.cfg.flee_far_m * 100
+    local goal = { (me.pos.X + dx / length * far) / 100, (me.pos.Y + dy / length * far) / 100, me.pos.Z / 100 }
+    local r = mcall("move", "go_to", F.log, goal, { sprint = true, tolerance_m = 3,
+        timeout_s = M.cfg.flee_timeout_s, owner_token = F.token })
+    if not flee_owned(F) then return nil, "movement ownership lost" end
+    if type(r) ~= "table" or r.ok ~= true then return nil, "escape movement rejected" end
+    F.flee_to, F.drove_move, F.flee_follow, F.flee_move_pending = goal, true, false, true
+    return true
+end
+
+local function begin_flee(F, why)
+    C().counts.flees = C().counts.flees + 1
+    F.flee_why, F.decision, F.inputs = why, "flee", {}
+    set_phase(F, "flee", why)
+    M.emit_activity({ kind = "flee_started", by = F.by or "unknown", from = F.target_name, from_id = F.target_id, why = why, hp = F.hp_now })
+    F.safe_since, F.flee_retry_t, F.flee_failures = nil, F.t - 1, 0
+    local luis = M.orders.protect or M.cfg.protect or M.nearest_player_name(F.me_pos)
+    if luis and flee_owned(F) then
+        local r = mcall("move", "follow", F.log, luis, 3, { sprint = true, owner_token = F.token })
+        if not flee_owned(F) then return end
+        if type(r) == "table" and r.ok == true and r.target_visible ~= false then
+            F.flee_to, F.drove_move, F.flee_follow = luis, true, true
+        end
+    end
 end
 
 -- Eat the food that heals most, the way a player does (its hotbar key / the inventory UI's use).
@@ -1834,22 +1880,54 @@ M._try_eat = try_eat
 
 local function step_flee(F, pawn, me)
     try_eat(F, me)
-    local threats = 0
-    for _, cr in ipairs(creatures_near(me.pos, M.cfg.safe_m)) do
-        local hit = C().attackers[cr.id]
-        if not cr.dead and (cr.id == F.target_id and cr.in_combat or (hit and F.t - hit <= M.cfg.attacker_memory_s)) then threats = threats + 1 end
-    end
-    if threats == 0 then
+    if not flee_owned(F) then return end
+    local threats, why = flee_threats(F, me)
+    if not flee_owned(F) then return end
+    if not threats then
+        F.safe_since = nil
+        F.flee_error = why
+    elseif #threats == 0 then
         F.safe_since = F.safe_since or F.t
         if F.t - F.safe_since >= M.cfg.safe_s then
             return finish(F, result_of(F, F.mode ~= "attack", F.mode == "attack" and "unsafe" or nil,
                 { fled = true, why = F.flee_why, hp = me.hp }))
         end
-    else F.safe_since = nil end
-    if F.t - F.phase_t > M.cfg.flee_timeout_s then
-        return finish(F, result_of(F, false, "unsafe", { fled = true, why = F.flee_why, still_chased = threats > 0 }))
+    else
+        F.safe_since = nil
+        if F.t - (F.flee_retry_t or -9) >= 1 then
+            local st = mcall("move", "status")
+            if not flee_owned(F) then return end
+            if type(st) ~= "table" then
+                F.flee_error = "escape movement status unavailable"
+            elseif st.mode == "idle" then
+                F.flee_retry_t = F.t
+                if F.flee_move_pending then
+                    F.flee_move_pending = false
+                    if st.result and st.result.status == "failed" then
+                        F.flee_failures = (F.flee_failures or 0) + 1
+                        F.flee_error = "escape movement failed: " .. tostring(st.result.reason or st.result.why or "unknown")
+                    end
+                end
+                if (F.flee_failures or 0) >= 3 then
+                    return finish(F, result_of(F, false, "unsafe", { fled = false, why = F.flee_why, still_chased = true, detail = F.flee_error }))
+                end
+                local ok, err = flee_move(F, me, threats)
+                if not flee_owned(F) then return end
+                if not ok then F.flee_failures, F.flee_error = (F.flee_failures or 0) + 1, err end
+            end
+        end
+    end
+    if F.t - F.phase_t > M.cfg.flee_timeout_s or (F.flee_failures or 0) >= 3 then
+        local chased = threats and (#threats > 0) or nil
+        if threats and #threats == 0 then chased = false end
+        local detail = threats and #threats == 0 and "safety was not yet confirmed"
+            or F.flee_error or "escape timed out while threats remained"
+        return finish(F, result_of(F, false, "unsafe", { fled = false, why = F.flee_why,
+            still_chased = chased, detail = detail }))
     end
 end
+
+M._step_flee = step_flee
 
 -- Defence against one telegraphed attack. defense.lua plans it (parry / block / dodge / jump /
 -- retreat, timed from the attack's own data and learned per attack); it is executed here and the

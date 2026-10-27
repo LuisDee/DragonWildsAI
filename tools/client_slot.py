@@ -17,6 +17,8 @@ import sys
 import time
 from pathlib import Path
 
+from brain.fileio import atomic_write
+
 STATE = Path(__file__).resolve().parents[1] / "logs" / "state" / "client_slot.json"
 
 
@@ -29,9 +31,7 @@ def _load() -> dict:
 
 def _save(d: dict) -> None:
     STATE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = STATE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(d, indent=1), encoding="utf-8")
-    tmp.replace(STATE)
+    atomic_write(STATE, json.dumps(d, indent=1))
 
 
 RESERVE_S = 180   # a handed-off owner must `take` within this, else the slot moves on to the next in line

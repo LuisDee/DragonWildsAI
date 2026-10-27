@@ -416,20 +416,34 @@ local function envelope(pawn, pc)
         local txt = f:read("a"); f:close()
         local okd, m = pcall(J.decode, txt)
         if okd and type(m) == "table" then
+            local provenance = type(m.measurement_provenance) == "table" and m.measurement_provenance or {}
+            local function measured(field, value)
+                local proof, n = provenance[field], tonumber(value)
+                return type(proof) == "table" and proof.verified == true and n and n > 0 and n < math.huge
+            end
             local ju = type(m.jump_up_m) == "table" and m.jump_up_m.stand or m.jump_up_m
-            if tonumber(ju) then env.jump = tonumber(ju) * 100 end
-            if dj and tonumber(m.dj_up_m) then env.djump = tonumber(m.dj_up_m) * 100; env.dj_measured = true end
+            env.jump_measured = measured("jump_up_m.stand", ju) and true or false
+            if env.jump_measured then env.jump = tonumber(ju) * 100 end
+            local dj_measured = measured("dj_up_m", m.dj_up_m)
+            if dj_measured then
+                env.dj_measured, env.dj_measured_up_cm = true, tonumber(m.dj_up_m) * 100
+                if dj then
+                    env.djump = env.dj_measured_up_cm
+                    if tonumber(m.dj_delay_s) then env.dj_delay_s = tonumber(m.dj_delay_s) end
+                end
+            end
             if not dj then env.djump = env.jump end
-            if tonumber(m.dj_delay_s) then env.dj_delay_s = tonumber(m.dj_delay_s) end
-            -- the Windstep super-jump rise: planned only while the spell is castable (lp_begin sets env.superjump)
-            if tonumber(m.windstep_up_m) then env.ws_up_cm = tonumber(m.windstep_up_m) * 100 end
-            if tonumber(m.windstep_jump_delay_s) then env.ws_jump_delay_s = tonumber(m.windstep_jump_delay_s) end
-            env.jump_measured = tonumber(ju) ~= nil
-            env.source = "measured " .. tostring(m.measured)
+            -- A separately verified Windstep measurement is required, as well as live castability.
+            if measured("windstep_up_m", m.windstep_up_m) then
+                env.ws_up_cm = tonumber(m.windstep_up_m) * 100
+                if tonumber(m.windstep_jump_delay_s) then env.ws_jump_delay_s = tonumber(m.windstep_jump_delay_s) end
+            end
+            if env.jump_measured or env.dj_measured or env.ws_up_cm then env.source = "verified measurements" end
         end
     elseif f then f:close() end
     return env
 end
+M._envelope = envelope -- fake-engine regression access
 
 -- ------------------------------------------------------------------ nav oracle client (optional)
 local function oracle_alive()
@@ -765,7 +779,7 @@ function M.traverse_caps(env, ws)
     return {
         jump = { have = true, up_m = m(env.jump), measured = env.jump_measured == true },
         double_jump = { have = env.double_jump == true, measured = env.dj_measured == true,
-                        up_m = env.dj_measured and m(env.djump) or nil,
+                        up_m = env.dj_measured and m(env.dj_measured_up_cm or env.djump) or nil,
                         unlock = env.dj_level and ("Agility " .. env.dj_level) or djp.unlock,
                         planned = env.double_jump == true and env.dj_measured == true },
         windstep = { have = ws.state ~= "unlock" and ws.state ~= "unknown", state = ws.state, castable = ws.state == "castable",

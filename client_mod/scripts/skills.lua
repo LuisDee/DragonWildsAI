@@ -335,6 +335,19 @@ function W.is_water(thing)
     return lower(thing.prompt):find("collect water", 1, true) ~= nil
 end
 
+-- The source's reflected output asset, not a named-item rule or an inventory guess.
+function W.water_item(api, thing)
+    local ok, actor, U = pcall(api.actor_of, thing)
+    if not ok or not actor or not U then return nil end
+    local good, item = pcall(function()
+        if not U.valid(actor) then return nil end
+        local data = actor.WaterItemData
+        if not U.valid(data) then return nil end
+        return U.short(data)
+    end)
+    return good and type(item) == "string" and item ~= "" and item or nil
+end
+
 local function new_episode(api, thing, opts)
     opts = opts or {}
     local e = { thing = thing, phase = "approach", moving = false, approaches = 0, presses = 0, tol = M.cfg.approach_m,
@@ -534,6 +547,21 @@ local function episode_poll(api, e, t, owner_token)
         if same_target(th, det) or (det and not det.none and e.accept and e.accept(det)) then
             e.sig_before = W.press_signals(api)
             e.prompt_before = det.prompt
+            if e.water and e.need_gain then
+                local source = det.actor == th.id and th or (det.actor and api.find_thing(det.actor, M.cfg.water_search_m))
+                local output = source and source.id == det.actor and W.water_item(api, source)
+                if not output or output ~= e.want_item then
+                    return api.fail("verification_failed", { target = det.actor, why = output and "water_output_changed" or "water_output_unknown",
+                        detail = output and "The water source under my crosshair produces a different item."
+                            or "I can't verify which item this water source produces." })
+                end
+                local okc, snapshot = pcall(api.counts)
+                if not okc or type(snapshot) ~= "table" then
+                    return api.fail("verification_failed", { target = source.id, why = "inventory_unavailable",
+                        detail = "I can't read my inventory to verify the water collection." })
+                end
+                e.before, e.water_source = snapshot, source
+            end
             local pr = api.call("inventory", "press_interact", e.secondary and { secondary = true } or nil)
             if not pr.ok then return pr end
             e.presses = e.presses + 1
@@ -576,9 +604,20 @@ local function episode_poll(api, e, t, owner_token)
         end
         return nil
     else -- verify
-        local item, n, all = gained(e.before, api.counts(), e.want_item)
+        local source = e.water_source or th
+        local now_counts
+        if e.water and e.need_gain then
+            local okc, snapshot = pcall(api.counts)
+            if not okc or type(snapshot) ~= "table" then
+                return api.fail("verification_failed", { target = source.id, why = "inventory_unavailable",
+                    detail = "I pressed Collect Water but can't read my inventory to verify what arrived." })
+            end
+            now_counts = snapshot
+        else now_counts = api.counts() end
+        local item, n, all = gained(e.before, now_counts, e.want_item)
         if not item and not e.want_item then item, n, all = gained(e.before, api.counts()) end
-        local gone = tostring(th.id):sub(1, 4) ~= "fol:" and api.actor_of(th) == nil and api.find_thing(th.id, 10) == nil
+        if e.water and e.need_gain then all = item and { [item] = n } or {} end
+        local gone = tostring(source.id):sub(1, 4) ~= "fol:" and api.actor_of(source) == nil and api.find_thing(source.id, 10) == nil
         local changed
         if not e.need_gain then
             local sig = W.press_signals(api)
@@ -600,16 +639,16 @@ local function episode_poll(api, e, t, owner_token)
         end
         if item or ((gone or changed) and not e.need_gain) then
             -- water that WORKED: remember where he stood (move.shore_point offers it first next time)
-            if e.water and item then local here = api.my_position(); if here then pcall(api.call, "move", "remember_water_spot", th.position, here) end end
-            return { ok = true, data = { target = th.id, item = item or api.null, count = n, gained = api.object(all),
+            if e.water and item then local here = api.my_position(); if here and source.position then pcall(api.call, "move", "remember_water_spot", source.position, here) end end
+            return { ok = true, data = { target = source.id, item = item or api.null, count = n, gained = api.object(all),
                                          target_gone = gone, changed = changed or api.null,
                                          prompt = e.detector and e.detector.prompt or api.null } }
         end
         if t >= e.verify_until then
             -- never a second press while a conversation is up: E would advance or close the dialogue
             if e.presses < M.cfg.presses and not W.conversation_npc(api) then e.phase, e.face_until = "face", t + M.cfg.face_s; return nil end
-            return api.fail("verification_failed", { target = th.id, prompt = e.detector and e.detector.prompt,
-                detail = (e.water and e.need_gain) and "I pressed Collect Water but no water came into my inventory"
+            return api.fail("verification_failed", { target = source.id, prompt = e.detector and e.detector.prompt,
+                detail = (e.water and e.need_gain) and "I pressed Collect Water but couldn't verify a gain of its expected item"
                     or ("pressed use on the " .. e.label .. "; nothing changed (inventory, the thing, sleep state, its prompt)") })
         end
         return nil
@@ -1772,8 +1811,22 @@ local function start_collect_water(api, args, ctx)
         end
         if not src then return api.fail("nothing_in_range", { radius_m = M.cfg.water_search_m, detail = "I can't see any water I could collect near me." }) end
     end
-    local job = { kind = "collect_water", got = 0, item = nil }
-    local function begin() job.ep = new_episode(api, src, { label = src.name or "water" }); job.ep.need_gain = true end
+    local expected = W.water_item(api, src)
+    if not expected then
+        return api.fail("verification_failed", { target = src.id, why = "water_output_unknown",
+            detail = "I can't verify which item this water source produces." })
+    end
+    local job = { kind = "collect_water", got = 0, item = nil, sources = {} }
+    local function sources_of()
+        local rows = {}
+        for target, count in pairs(job.sources) do rows[#rows + 1] = { target = target, count = count } end
+        table.sort(rows, function(a, b) return a.target < b.target end)
+        return rows, #rows == 1 and rows[1].target or api.null
+    end
+    local function begin()
+        job.ep = new_episode(api, src, { label = src.name or "water" })
+        job.ep.need_gain, job.ep.want_item = true, expected
+    end
     begin()
     job.on_resume = resume_episode(job)
     job.step = function(t)
@@ -1782,14 +1835,18 @@ local function start_collect_water(api, args, ctx)
         if res.ok and (tonumber(res.data and res.data.count) or 0) > 0 then
             job.got = job.got + res.data.count
             job.item = job.item or res.data.item
+            job.sources[res.data.target] = (job.sources[res.data.target] or 0) + res.data.count
             if job.got >= want then
-                return { ok = true, data = { item = job.item, count = job.got, wanted = want, target = src.id } }
+                local sources, target = sources_of()
+                return { ok = true, data = { item = job.item, count = job.got, wanted = want, target = target, sources = sources } }
             end
             begin()
             return nil
         end
         if job.got > 0 then -- some came in, then a press failed: say exactly that
             local d = copy(res.data or {})
+            d.stopped_target = d.target
+            d.sources, d.target = sources_of()
             d.item, d.count, d.wanted, d.partial = job.item, job.got, want, true
             d.detail = "I collected " .. job.got .. " of " .. want .. " water, then " .. tostring(res.data and res.data.detail or res.reason) .. "."
             return { ok = true, data = d }

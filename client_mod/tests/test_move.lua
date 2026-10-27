@@ -695,7 +695,7 @@ end
 -- (the stuck ladder may still TRY a double jump with the perk; only PLANNED edges wait for a measurement)
 check("dj (a): unmeasured -> the planner never plans a double-jump edge", not planned_d)
 MD.stop(log)
-do local f = io.open(envf, "w"); f:write('{"character":"Claude","measured":"test","jump_up_m":{"stand":1.05},"dj_up_m":2.6,"dj_delay_s":0.33}'); f:close() end
+do local f = io.open(envf, "w"); f:write('{"character":"Claude","measured":"test","jump_up_m":{"stand":1.05},"dj_up_m":2.6,"dj_delay_s":0.33,"measurement_provenance":{"jump_up_m.stand":{"verified":true},"dj_up_m":{"verified":true}}}'); f:close() end
 _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
 pawn.loc = { X = 0, Y = 0, Z = 0 }
 local MD2 = dofile(MOVE)
@@ -710,6 +710,24 @@ end
 check("dj (b): measured envelope -> planned double jump up the ledge", s.result and s.result.status == "arrived" and planned_d2,
     tostring(s.result and s.result.status) .. " dj=" .. tostring(s.double_jumps) .. " env=" .. tostring(s.env and s.env.source))
 MD2.stop(log)
+local function envelope_fixture(text)
+    local f = assert(io.open(envf, "wb")); f:write(text); f:close()
+    return MD2._envelope(pawn, pc)
+end
+local legacy = envelope_fixture('{"jump_up_m":{"stand":1.05},"dj_up_m":2.6,"windstep_up_m":5,"measurement_provenance":{"jump_up_m.stand":{"verified":true}}}')
+local legacy_caps = MD2.traverse_caps(legacy, { state = "castable" })
+check("provenance: old double and Windstep remain unmeasured", legacy.jump_measured and not legacy_caps.double_jump.measured and not legacy_caps.windstep.measured and not legacy_caps.windstep.planned)
+local verified = envelope_fixture('{"dj_up_m":2.6,"windstep_up_m":5,"measurement_provenance":{"dj_up_m":{"verified":true},"windstep_up_m":{"verified":true}}}')
+local available = MD2.traverse_caps(verified, { state = "castable" })
+check("provenance: separately verified capabilities can be planned", available.double_jump.measured and available.double_jump.planned and available.windstep.measured and available.windstep.planned)
+for _, gate in ipairs({ "cooldown", "runes", "unlock" }) do
+    local caps = MD2.traverse_caps(verified, { state = gate })
+    check("provenance: Windstep " .. gate .. " remains measured but unavailable", caps.windstep.measured and not caps.windstep.planned and caps.windstep.state == gate)
+end
+HAS_DJ = false
+local locked = MD2._envelope(pawn, pc)
+local locked_caps = MD2.traverse_caps(locked, { state = "castable" })
+check("provenance: missing perk preserves measurement but prevents planning", locked_caps.double_jump.measured and not locked_caps.double_jump.have and not locked_caps.double_jump.planned and locked.djump == locked.jump)
 os.remove(envf); HAS_DJ = false; raised = {}
 
 _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")

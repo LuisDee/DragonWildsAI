@@ -1152,6 +1152,7 @@ local function water_world()
     F.world.items, F.world.resources = {}, {}
     local w = { id = "BP_WaterVolume_NoSlow_C_1", class = "BP_WaterVolume_NoSlow_C", name = "Water Volume", kind = "interactable",
                 prompt = "Collect Water", position = { 50, 2, 3 } }
+    w.WaterItemData = { id = "ITEM_Consumable_Water_Dirty" }
     table.insert(F.world.interactables, w)
     local inv = B.module("inventory")
     local p0 = inv.press_interact
@@ -1220,6 +1221,148 @@ test("collect_water: truthful failures (no water near, the water doesn't take, a
 end)
 
 -- ------------------------------------------------------------------ run
+test("collect_water: unrelated inventory gains never count as water", function()
+    local w, restore = water_world()
+    local inv, mv = B.module("inventory"), B.module("move")
+    local remember, learned = mv.remember_water_spot, 0
+    mv.remember_water_spot = function(...) learned = learned + 1; if remember then return remember(...) end end
+    inv.press_interact = function()
+        F.extra.UNRELATED_LOOT = (F.extra.UNRELATED_LOOT or 0) + 2
+        return { ok = true }
+    end
+    local _, id = rpc("collect_water", {})
+    local r = run(id, 240)
+    mv.remember_water_spot = remember; restore()
+    assert(r and not r.ok and r.reason == "verification_failed" and learned == 0, json.encode(r))
+end)
+
+test("collect_water: larger unrelated gains cannot replace its source-derived output", function()
+    local w, restore = water_world()
+    local inv = B.module("inventory")
+    local press = inv.press_interact
+    inv.press_interact = function(log)
+        F.extra.UNRELATED_LOOT = (F.extra.UNRELATED_LOOT or 0) + 2
+        return press(log)
+    end
+    local _, id = rpc("collect_water", {})
+    local r = run(id, 150)
+    restore()
+    assert(r and r.ok and r.data.item == w.WaterItemData.id and r.data.count == 1, json.encode(r))
+end)
+
+test("collect_water: matching gains during approach are outside the accepted-press baseline", function()
+    local w, restore = water_world()
+    local inv, mv = B.module("inventory"), B.module("move")
+    local go = mv.go_to
+    mv.go_to = function(...)
+        F.extra[w.WaterItemData.id] = (F.extra[w.WaterItemData.id] or 0) + 4
+        return go(...)
+    end
+    inv.press_interact = function() return { ok = true } end
+    local _, id = rpc("collect_water", {})
+    local r = run(id, 240)
+    mv.go_to = go; restore()
+    assert(r and not r.ok and r.reason == "verification_failed", json.encode(r))
+end)
+
+test("collect_water: unreadable source identity and changed detector output fail before pressing", function()
+    for _, changed in ipairs({ false, true }) do
+        local w, restore = water_world()
+        local sk = B.module("skills")
+        local detector = sk.W.detector
+        if changed then
+            local other = { id = "other_water", class = w.class, prompt = w.prompt, name = "Other source",
+                kind = w.kind, position = w.position, WaterItemData = { id = "OTHER_WATER_OUTPUT" } }
+            table.insert(F.world.interactables, other)
+            sk.W.detector = function() return { actor = other.id, prompt = other.prompt } end
+        else w.WaterItemData = nil end
+        local r, id = rpc("collect_water", {})
+        r = r or run(id, 150)
+        sk.W.detector = detector; restore()
+        assert(r and not r.ok and r.reason == "verification_failed" and (F.presses or 0) == 0, json.encode(r))
+    end
+end)
+
+test("collect_water: inventory read failure cannot verify a press", function()
+    for _, after_press in ipairs({ false, true }) do
+        local w, restore = water_world()
+        local inv = B.module("inventory")
+        local list, press = inv.list, inv.press_interact
+        local bad = function() return { ok = false, reason = "inventory unavailable" } end
+        if after_press then inv.press_interact = function(log) local r = press(log); inv.list = bad; return r end
+        else inv.list = bad end
+        local r, id = rpc("collect_water", {})
+        r = r or run(id, 150)
+        inv.list = list; restore()
+        assert(r and not r.ok and r.reason == "verification_failed" and r.data.why == "inventory_unavailable", json.encode(r))
+    end
+end)
+
+test("collect_water: later source-data loss preserves the earlier verified partial count", function()
+    local w, restore = water_world()
+    local inv = B.module("inventory")
+    local press = inv.press_interact
+    inv.press_interact = function(log) local r = press(log); w.WaterItemData = nil; return r end
+    local _, id = rpc("collect_water", { count = 2 })
+    local r = run(id, 150)
+    restore()
+    assert(r and r.ok and r.data.partial and r.data.count == 1 and r.data.wanted == 2
+        and r.data.why == "water_output_unknown", json.encode(r))
+end)
+
+test("collect_water: actual same-output sources survive the final result and shore learning", function()
+    for _, multiple in ipairs({ false, true }) do
+        local w, restore = water_world()
+        local other = { id = "alternate_water", class = w.class, prompt = w.prompt, name = "Alternate source",
+            kind = w.kind, position = { 51, 2, 3 }, WaterItemData = w.WaterItemData }
+        table.insert(F.world.interactables, other)
+        local sk, inv, mv = B.module("skills"), B.module("inventory"), B.module("move")
+        local detector, remember = sk.W.detector, mv.remember_water_spot
+        local presses, remembered = 0, {}
+        sk.W.detector = function()
+            local source = multiple and presses > 0 and w or other
+            return { actor = source.id, prompt = source.prompt }
+        end
+        inv.press_interact = function()
+            presses = presses + 1
+            F.extra[w.WaterItemData.id] = (F.extra[w.WaterItemData.id] or 0) + 1
+            return { ok = true }
+        end
+        mv.remember_water_spot = function(log, source, here) remembered[#remembered + 1] = source end
+        local _, id = rpc("collect_water", { count = multiple and 2 or 1 })
+        local r = run(id, 200)
+        sk.W.detector, mv.remember_water_spot = detector, remember; restore()
+        assert(r and r.ok and remembered[1][1] == other.position[1], json.encode(r))
+        if multiple then
+            assert(#r.data.sources == 2 and remembered[2][1] == w.position[1], json.encode(r))
+            assert(r.data.target ~= w.id and r.data.target ~= other.id, json.encode(r))
+        else assert(r.data.target == other.id and r.data.sources[1].target == other.id, json.encode(r)) end
+    end
+end)
+
+test("collect_water: partial no-gain timeout names the actual stopped source", function()
+    local w, restore = water_world()
+    local other = { id = "stopped_alternate", class = w.class, prompt = w.prompt, name = "Alternate source",
+        kind = w.kind, position = { 51, 2, 3 }, WaterItemData = w.WaterItemData }
+    table.insert(F.world.interactables, other)
+    local sk, inv = B.module("skills"), B.module("inventory")
+    local detector, presses = sk.W.detector, 0
+    sk.W.detector = function()
+        local source = presses == 0 and w or other
+        return { actor = source.id, prompt = source.prompt }
+    end
+    inv.press_interact = function()
+        presses = presses + 1
+        if presses == 1 then F.extra[w.WaterItemData.id] = (F.extra[w.WaterItemData.id] or 0) + 1 end
+        return { ok = true }
+    end
+    local _, id = rpc("collect_water", { count = 2 })
+    local r = run(id, 240)
+    sk.W.detector = detector; restore()
+    assert(r and r.ok and r.data.partial and r.data.count == 1 and r.data.target == w.id
+        and r.data.sources[1].target == w.id and r.data.stopped_target == other.id, json.encode(r))
+end)
+
 for _, t in ipairs(tests) do
 
     local ok, err = pcall(t[2])

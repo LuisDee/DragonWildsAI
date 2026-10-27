@@ -343,3 +343,13 @@
 - Requested five-hour continuation is ACTIVE in this thread (`resume-dragonwilds-companion`). Current UTC-day game-model spend read $0.00 / $10, zero calls; account five-hour allowance reset, latest reading 3% used.
 
 - Follow-up wave: board-result continuation and bounded Windstep executor implemented with independent reviews and regressions. **CHECK_ALL: GREEN, 1061 passed, 1 skipped** (379.17 s). Specific cast/landing failures remain explicit; live performance and calibration pending. All 40 queued live-check definitions validate; dev target and Shockbyte prohibition confirmed. Main reserved the idle client while testing.
+
+- Pushed that wave as b9d2015. Fresh FX run: two existing checks passed, enchant failed busy/fighting; same process token throughout, Splinter still interrupted/uncovered. No broad FX completion claim.
+- Fresh capped survival diagnostic: 6 Haiku calls / 0 Sonnet, $0.0050. It fought, gathered food and drank, but **died to a Goblin Runt and did not rest**. Failure retained in the handoff; no goal milestone credited. Investigating escape continuation and defense evidence.
+- New dirty-tree work: calibration integrity/provenance reviewed and targeted-tested; water gain attribution fixed with 60 capability regressions passing and cold review clear; flee continuation under final review. These changes still require a fresh full gate and live remeasurement. No judge changes or memory resets.
+
+## 2026-10-27, 15:13 Berlin — Survival fixes verified offline
+
+- **CHECK_ALL: GREEN, 1067 passed / 1 skipped**, 454.32 s. This includes calibration integrity, actual-source water reporting, bounded escape continuation and true failure activity. Focused suites: 60 skills, 396 combat/arbiter; independent reviews complete. Live remeasurement remains pending.
+- Repaired the final interrupted gate's bare scenario lease replacement and reused the shared writer for client-slot/live-queue state. Six denial-injection regressions and 38 focused operations tests pass; existing data is preserved on permanent denial. Approved judges unchanged.
+- Confirmed the five-hour schedule did start at 13:01, but the app rejected it for account usage until 13:05. Updated scheduled instructions for allowance checks/checkpoint margin; Goal mode is separately paused. No automatic-retry guarantee. Current task resumed on Luis's instruction.

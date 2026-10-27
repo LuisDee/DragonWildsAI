@@ -339,10 +339,10 @@ def load_state(p: Path = STATE_FILE) -> dict:
 
 
 def save_state(st: dict, p: Path = STATE_FILE) -> None:
+    from brain.fileio import atomic_write
+
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(st, indent=1), encoding="utf-8")
-    os.replace(tmp, p)
+    atomic_write(p, json.dumps(st, indent=1))
 
 
 def entry(st: dict, cid: str, h: str) -> dict:

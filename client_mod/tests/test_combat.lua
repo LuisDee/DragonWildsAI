@@ -606,6 +606,174 @@ do
     A.reset(nil)
 end
 
+-- Flee continuation: movement completion is not safety while observed threats remain.
+reset_world()
+do
+    Cm.guard_start(nil)
+    local enemy = new_creature("BP_AI_TestThreat_C_1", "Threat", { X = 400, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+    multicast(pawn, enemy, 30); pawn.hp = 40
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "flee" end, 4)
+    local f = Cm._state().fight
+    check("flee continuation: active protect follow is retained", f and MV.mode == "follow")
+    local calls = #MV.calls
+    step(30)
+    check("flee continuation: active follow does not churn", #MV.calls == calls)
+    MV.mode = "idle"
+    run_until(function() return MV.mode == "go_to" end, 3)
+    check("flee continuation: arrived while chased starts escape", MV.mode == "go_to" and MV.opts.owner_token == f.token and Cm._state().fight == f)
+    local oldgoal = MV.goal
+    local other = new_creature("BP_AI_TestThreat_C_2", "Other", { X = 0, Y = 600, Z = 0 }, { hp = 100, pl = 1, arch = 0, alert = 0 })
+    Cm._state().telegraphs["BP_AI_TestThreat_C_2"] = T
+    MV.mode = "idle"; step(120)
+    check("flee continuation: recent telegraph contributes to direction", MV.goal and MV.goal[2] < -1 and oldgoal and oldgoal[2] == 0)
+    Cm.guard_stop(nil); A.reset(nil)
+end
+
+reset_world()
+do
+    Cm.guard_start(nil)
+    local enemy = new_creature("BP_AI_TestThreat_C_3", "Threat", { X = 400, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+    multicast(pawn, enemy, 30); pawn.hp = 40
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "flee" end, 4)
+    local f = Cm._state().fight
+    local other = new_creature("BP_AI_TestThreat_C_4", "Other", { X = -400, Y = 0, Z = 0 }, { hp = 100, pl = 1, arch = 0, alert = 0 })
+    Cm._state().telegraphs["BP_AI_TestThreat_C_4"] = T
+    MV.mode = "idle"
+    run_until(function() return Cm._state().fight == nil end, 6)
+    local result = Cm._state().last and Cm._state().last.result
+    check("flee continuation: opposing threats fail specifically", result and not result.ok and result.data.detail == "threat direction unresolved", result and result.data.detail)
+    Cm.guard_stop(nil); A.reset(nil)
+end
+
+reset_world()
+do
+    Cm.guard_start(nil)
+    local enemy = new_creature("BP_AI_TestThreat_C_5", "Threat", { X = 400, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+    multicast(pawn, enemy, 30); pawn.hp = 40
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "flee" end, 4)
+    local f = Cm._state().fight
+    local original_go = fake_move.go_to
+    fake_move.go_to = function() return { ok = false } end
+    MV.mode = "idle"
+    run_until(function() return Cm._state().fight == nil end, 6)
+    local result = Cm._state().last and Cm._state().last.result
+    check("flee continuation: rejected moves fail without false safety", result and not result.ok and result.data.detail == "escape movement rejected")
+    fake_move.go_to = original_go
+    Cm.guard_stop(nil); A.reset(nil)
+end
+
+reset_world()
+do
+    Cm.guard_start(nil)
+    local enemy = new_creature("BP_AI_TestThreat_C_6", "Threat", { X = 400, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+    multicast(pawn, enemy, 30); pawn.hp = 40
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "flee" end, 4)
+    local f = Cm._state().fight
+    local real_status = fake_move.status
+    fake_move.status = function() A.reset(nil); return { mode = "idle" } end
+    local before = #MV.calls
+    f.flee_retry_t = -100
+    Cm._step_flee(f, pawn, { pos = pawn.loc, hp = pawn.hp, max_hp = 100 })
+    local moved = false; for i = before + 1, #MV.calls do if MV.calls[i] == "go_to" then moved = true end end
+    check("flee continuation: owner loss during status does not issue escape", not moved)
+    fake_move.status = real_status
+    Cm.guard_stop(nil); A.reset(nil)
+end
+
+reset_world()
+do
+    Cm.guard_start(nil)
+    local enemy = new_creature("BP_AI_TestThreat_C_7", "Threat", { X = 400, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+    multicast(pawn, enemy, 30); pawn.hp = 40
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "flee" end, 4)
+    local f = Cm._state().fight
+    local emitted, emit = {}, Cm.emit_activity
+    Cm.emit_activity = function(ev) emitted[#emitted + 1] = ev end
+    MV.mode = "idle"; MV.extra = { result = { status = "failed", reason = "no_route" } }
+    world.on_step = function() if MV.mode == "go_to" then MV.mode = "idle" end end
+    run_until(function() return Cm._state().fight == nil end, 8)
+    local result = Cm._state().last.result
+    local last = emitted[#emitted]
+    check("flee: completed move failures retain reason and emit failed outcome", not result.ok and result.data.detail == "escape movement failed: no_route" and last and last.outcome == "failed" and last.detail == result.data.detail, tostring(result.data.detail) .. " / " .. tostring(last and last.outcome) .. " / " .. tostring(last and last.detail))
+    MV.extra, world.on_step = nil, nil; Cm.emit_activity = emit; Cm.guard_stop(nil); A.reset(nil)
+end
+
+reset_world()
+do
+    Cm.guard_start(nil)
+    local enemy = new_creature("BP_AI_TestThreat_C_8", "Threat", { X = 400, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+    multicast(pawn, enemy, 30); pawn.hp = 40
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "flee" end, 4)
+    local f = Cm._state().fight
+    Cm._state().attackers["unseen_attacker"] = T
+    enemy.loc = { X = 6000, Y = 0, Z = 0 }; Cm._state().attackers[f.target_id] = nil
+    enemy.CurrentAlertnessState = 0; step(500)
+    check("flee: recent unseen attacker prevents false safety", Cm._state().fight == f and f.flee_error == "recent threat not visible")
+    Cm._state().attackers["unseen_attacker"] = T - Cm.cfg.attacker_memory_s - 1
+    check("flee: expired observation and stale target can clear", run_until(function() return Cm._state().fight == nil end, 8))
+    Cm.guard_stop(nil); A.reset(nil)
+end
+
+reset_world()
+do
+    Cm.guard_start(nil)
+    local enemy = new_creature("BP_AI_TestThreat_C_9", "Threat", { X = 400, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+    multicast(pawn, enemy, 30); pawn.hp = 40
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "flee" end, 4)
+    local f = Cm._state().fight
+    local original_find = FindAllOf
+    FindAllOf = function(cls) if cls == "DominionAICharacter" then error("census failed") end return original_find(cls) end
+    f.phase_t = T - Cm.cfg.flee_timeout_s - 1; f.t = T
+    local emitted, emit = {}, Cm.emit_activity
+    Cm.emit_activity = function(ev) emitted[#emitted + 1] = ev end
+    Cm._step_flee(f, pawn, { pos = pawn.loc, hp = pawn.hp, max_hp = 100 })
+    local result, ev = Cm._state().last.result, emitted[#emitted]
+    check("flee: census failure times out truthfully", not result.ok and result.data.detail == "threat census unavailable" and result.data.still_chased == nil and ev.detail == result.data.detail and ev.still_chased == nil)
+    Cm.emit_activity = emit; FindAllOf = original_find; Cm.guard_stop(nil); A.reset(nil)
+end
+
+reset_world()
+do
+    Cm.guard_start(nil)
+    local enemy = new_creature("BP_AI_TestThreat_C_10", "Threat", { X = 400, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+    multicast(pawn, enemy, 30); pawn.hp = 40
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "flee" end, 4)
+    local f = Cm._state().fight
+    local getloc = enemy.K2_GetActorLocation
+    enemy.K2_GetActorLocation = function() error("unreadable position") end
+    Cm._step_flee(f, pawn, { pos = pawn.loc, hp = pawn.hp, max_hp = 100 })
+    check("flee: missing threat position is unresolved", f.flee_error == "observed threat position unavailable")
+    enemy.K2_GetActorLocation = getloc
+    Cm._state().attackers[f.target_id] = nil; enemy.CurrentAlertnessState = nil
+    Cm._step_flee(f, pawn, { pos = pawn.loc, hp = pawn.hp, max_hp = 100 })
+    check("flee: unreadable target combat state is unresolved", f.flee_error == "threat state unavailable")
+    enemy.CurrentAlertnessState = 4; Cm._state().attackers[f.target_id] = T
+    local oldgo = fake_move.go_to
+    fake_move.go_to = function() A.reset(nil); return { ok = true } end
+    MV.mode = "idle"; f.flee_retry_t = -100
+    Cm._step_flee(f, pawn, { pos = pawn.loc, hp = pawn.hp, max_hp = 100 })
+    check("flee: reentrant owner loss cannot claim movement", not f.flee_move_pending)
+    fake_move.go_to = oldgo; Cm.guard_stop(nil); A.reset(nil)
+end
+
+reset_world()
+do
+    Cm.guard_start(nil)
+    local enemy = new_creature("BP_AI_TestThreat_C_11", "Threat", { X = 400, Y = 0, Z = 0 }, { hp = 900, pl = 6, arch = 0, alert = 4 })
+    multicast(pawn, enemy, 30); pawn.hp = 40
+    run_until(function() local f = Cm._state().fight; return f and f.phase == "flee" end, 4)
+    local f = Cm._state().fight
+    enemy.loc = { X = 6000, Y = 0, Z = 0 }; enemy.CurrentAlertnessState = 0
+    Cm._state().attackers = {}; Cm._state().telegraphs = {}
+    f.phase_t, f.t, f.safe_since, f.flee_error = T - Cm.cfg.flee_timeout_s - 1, T, T, "earlier census failure"
+    local emitted, emit = {}, Cm.emit_activity
+    Cm.emit_activity = function(ev) emitted[#emitted + 1] = ev end
+    Cm._step_flee(f, pawn, { pos = pawn.loc, hp = pawn.hp, max_hp = 100 })
+    local result, ev = Cm._state().last.result, emitted[#emitted]
+    check("flee: deadline before safe dwell reports unconfirmed safety", not result.ok and result.data.still_chased == false and result.data.detail == "safety was not yet confirmed" and ev.still_chased == false and ev.detail == result.data.detail)
+    Cm.emit_activity = emit; Cm.guard_stop(nil); A.reset(nil)
+end
+
 -- ================================================================ 6. telegraph -> block with the shield; inputs that do nothing fail loudly
 reset_world()
 do
