@@ -297,11 +297,10 @@ class BridgeClient(GameInterface):
     def attack(self, target: str) -> ActionResult:
         return self._tool("attack", target=target)
 
-    def gather(self, resource: str, count: int, radius: float | None = None) -> ActionResult:
-        args = {"resource": resource, "count": count}
-        if radius is not None:
-            args["radius"] = radius
-        return self._tool("gather", **args)
+    def gather(self, resource: str, count: int, radius: float | None = None,
+               mode: str | None = None) -> ActionResult:
+        return self._tool("gather", **_drop_none({"resource": resource, "count": count,
+                                                  "radius": radius, "mode": mode}))
 
     def craft(self, item: str, count: int = 1) -> ActionResult:
         return self._tool("craft", item=item, count=count)

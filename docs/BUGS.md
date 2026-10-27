@@ -25,6 +25,12 @@ Evidence: `client_io/events/chat.jsonl`, `logs/brain-live-*.jsonl`, `logs/client
 | R16 | Self-care model deferred resting to night with endurance0 | Context says restored by sleep and too early to sleep, omitting observed UI distinction between daytime nap/rest and night skip; sole causality unproven | Native UI text/prompts in DISCOVERIES; read-only research locates situation.py and sense sleep-window data. Actual daytime recovery still needs measurement | open perception/knowledge gap; parked behind R15 |
 | R17 | Some repeated consumable uses still fail verification after serialization | Game refusal/cooldown or delayed-effect cause unverified; failed press is reported rather than fabricated success | Self-care evening run one drink failure then successful retry. Dump has CanUseItem reason/cooldown/use-delay candidates, not yet verified safe or relevant | open mechanics investigation; no guessed timing workaround |
 
+## 2026-10-27 — Transport contract follow-up
+
+| ID | Symptom | Cause | Fix / evidence | Status |
+|---|---|---|---|---|
+| R18 | New tree task selects chop, then directed run raises unexpected keyword mode | Typed schema emits optional mode (including None); real BridgeClient.gather and mock adapters omitted it | Optional parameter propagated, null pruned from transport; real Executor/JSONL/Lua regression for explicit/omitted/null | reviewed;31 focused passed; full GREEN1070/5skip plus4dump checks passed; live transport remeasure next |
+
 ## 2026-10-25 evening (Shockbyte, build 26161880)
 
 | ID | Symptom (what Luis saw) | Root cause (from logs) | Owner | Fix / test | Status |

@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+# Lua suites inherit this process environment. A stale live root otherwise makes
+# nested loadfile calls silently exercise the deployed tree instead of this one.
+os.environ["DW_CLIENT_ROOT"] = str(ROOT)
 
 # Most scripted tests write the model's line as free text (FakeLLM.say / plain strings): they run on the
 # legacy text channel. The say channel (the live default) has its own tests (test_speech_channel.py).

@@ -409,7 +409,10 @@ class GearWorld(MockGame):
                 return True
         return False
 
-    def gather(self, resource: str, count: int, radius: float | None = None) -> ActionResult:
+    def gather(self, resource: str, count: int, radius: float | None = None,
+               mode: str | None = None) -> ActionResult:
+        if mode is not None:
+            return fail(Reason.NOT_IMPLEMENTED, tool="gather", detail="mock does not support acquisition mode")
         if "gather" in self.removed:
             return fail(Reason.NOT_IMPLEMENTED, tool="gather")
         rule = self._begin("gather", resource=resource, count=count)

@@ -396,3 +396,14 @@
 
 - Reviewed Phase A passed CHECK_ALL: GREEN, 1069 passed /1 skipped in366.57s; frozen judge diff empty. Optional gather mode survives typed validation and learned skills, fallback remains available, profile/expected-training labels no longer imply actual operation provenance. No live improvement or no-axe completion yet.
 - Stable runtime plus isolated candidate development is the agreed next operating arrangement. One live operator keeps relevant cases moving; client-off publication/resource windows remain bounded. Server never stopped; client relaunch follows this checkpoint.
+
+## 2026-10-27, 21:32 Berlin — Concurrent stable runtime and candidate work
+
+- Client relaunched dev and remained available while code was edited in a managed isolated candidate. The real no-axe run immediately found a transport-signature gap missed by schema-only tests; model selected chop, bridge rejected mode. No game action/felling/XP gain occurred. Stopped promptly and preserved task. New adapter regression covers actual Executor to Lua transport.31focused tests pass; full/live fix verification next.
+- Native FX enchant queue passed22.3s, zero API calls; setup sword/runes/unlock grants are not autonomous evidence. Noaxe remainsunproved. UTC spend.6067/10,115 calls.
+
+## 2026-10-27, 21:49 Berlin — Adapter and isolated candidate verification
+
+- Candidate fullgate GREEN1070passed/5skipped,367.17s. Four dump-signature skips repaired by provisioning the exact private header inputs; four tests then passed. Existing incomplete cassette remains the single intentional skip. New transport regression covers explicit, omitted and null mode through real Executor/JSONL/Lua.
+- Separate candidate supports targeted tests while stable dev client stays online. Initial full RED69/1000/6 exposed ignored dependency, path-length and raw manifest EOL portability issues; setup corrected without changing criteria or repinning. Source fix now ready for Python-only deployment and live tree rerun; no noaxe/M1-M6 success.
+- Live directed FX held enchant and dirtywater tests passed,0modelcalls. Brain-off exposure showed hp1/nofood; not autonomous maintenance. API total remains.6067/10,115calls.

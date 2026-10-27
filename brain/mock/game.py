@@ -379,7 +379,10 @@ class MockGame(GameInterface):
         e.hp, e.alive = 0, False
         return ok(target=target, killed=True)
 
-    def gather(self, resource: str, count: int, radius: float | None = None) -> ActionResult:
+    def gather(self, resource: str, count: int, radius: float | None = None,
+               mode: str | None = None) -> ActionResult:
+        if mode is not None:
+            return fail(Reason.NOT_IMPLEMENTED, tool="gather", detail="mock does not support acquisition mode")
         rule = self._begin("gather", resource=resource, count=count)
         reach = GATHER_RANGE if radius is None else max(float(radius), GATHER_RANGE)
         attacked = rule is not None and rule.reason == "attacked"

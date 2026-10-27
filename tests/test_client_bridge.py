@@ -15,11 +15,13 @@ from brain import paths, run_live
 from brain.bridge_client import BridgeClient
 from brain.capabilities import discover
 from brain.dry_run_llm import DryRunController, DryRunPlanner
+from brain.executor import Executor
 from brain.fake_body import FakeBody
 from brain.interface import ChatHeard, CommandReceived  # noqa: F401
 from brain.jsonl_log import JsonlLogger
 from brain.mock import MockGame
 from brain.run_live import LiveOptions, LiveSession
+from brain.state_store import StateStore, Task
 from brain.transport import (BODY_TO_BRAIN, BRAIN_TO_BODY, BRAIN_TO_CLIENT, CLIENT_TO_BRAIN, JsonlFileTransport,
                              endpoint_files, file_transport_pair)
 from tests.test_lua_bridge import LUA
@@ -144,6 +146,27 @@ def lua_client(tmp_path):
         yield client, body, log
     finally:
         body.close()
+
+
+@needs_lua
+@pytest.mark.parametrize("extra, expected", [({}, None), ({"mode": None}, None), ({"mode": "chop"}, "chop")])
+def test_executor_gather_mode_reaches_lua_transport(lua_client, tmp_path, extra, expected):
+    client, body, log = lua_client
+    executor = Executor(client, StateStore(tmp_path / "state"), log, max_attempts=1)
+    task = Task(skill="gather", args={"resource": "log", "count": 1, **extra})
+    # The fake Lua body need not implement gathering: the real transport file is
+    # evidence that validated arguments reached it, not evidence of game success.
+    executor.run_task(task)
+    commands = [json.loads(line) for line in (body.bridge / BRAIN_TO_CLIENT).read_text(encoding="utf-8").splitlines()]
+    gather = [m for m in commands if m.get("tool") == "gather"]
+    assert len(gather) == 1
+    assert gather[0]["args"] == {"resource": "log", "count": 1, **({"mode": expected} if expected else {})}
+
+
+def test_mock_gather_rejects_unimplemented_mode():
+    game = MockGame.default_world()
+    result = game.call("gather", {"resource": "log", "count": 1, "mode": "chop"})
+    assert not result["ok"] and result["reason"] == "not_implemented"
 
 
 @needs_lua

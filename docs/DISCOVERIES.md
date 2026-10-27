@@ -2224,3 +2224,13 @@ Builds: client 26162923, dump 26161880.
 ## Gathering evidence contract (2026-10-27)
 
 - Offline negative control confirms a selected gather profile may collect existing loose drops with inventory gain and zero swings/hits/breaks. Profile selection and expected training are capability metadata, not observations of tree felling or XP. Keep operation-specific proof independent of inventory count. Optional mode now reaches actual Controller validation and learned-skill expansion; full regression1069/1 skipped. Live effect remains to be measured.
+
+## Candidate and transport boundary observations (2026-10-27)
+
+- Lua harness location alone does not isolate nested module loads: gather.lua reads DW_CLIENT_ROOT and otherwise loads C:/gameserver/mod/body/util.lua. Instrumented real loadfile rejected that runtime path; inherited candidate root selected the candidate util and109 assertions passed. Test root must propagate through subprocess environment.
+- Live body accepts gather mode=chop and, without an axe, truthfully returns wrong_tool/no_tool. The Python adapter failure occurred before any command reached it; typed schema validation alone was insufficient transport coverage. Native FX enchant regression20261027-212908 passed with directed preparation, not autonomous choice.
+
+## Worktree bootstrap requirements verified (2026-10-27)
+
+- Short unique TMP/TEMP prevents reproduced Windows path-length failure at271-character snapshot destinations. Wiki is an independent allowlisted snapshot with SQLite read-only-source backup; source hashes unchanged. Candidate dump signatures need Dominion.hpp/Dominion_enums.hpp (2.39MB), exact copies SHA checked.
+- Raw state-snapshot manifest bytes enter frozen case hashes; Git EOL normalization changed those hashes in the fresh checkout. Preserve exact approved deployed bytes and verify unchanged index blobs/empty judge diff; do not repin. Candidate root now reaches nested Lua modules. Python-only publication may retain the client only when no loaded body/server file changes and pre/post byte checks agree.

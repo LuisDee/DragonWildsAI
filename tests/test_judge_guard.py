@@ -28,7 +28,7 @@ def test_inactive_allows_everything(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("path", ["docs/goal_targets.json", str(ROOT / "evals" / "bench" / "leaves.py"),
-                                  "C:\\gameserver\\brain\\predicates.py", "./data/spell_effects.json", "mod/bench/fixtures.lua",
+                                  str(ROOT / "brain" / "predicates.py"), "./data/spell_effects.json", "mod/bench/fixtures.lua",
                                   "logs/evals/scoreboard.jsonl", "logs/evals/validity/abc.json", ".claude/settings.json",
                                   "logs/goal_active"])
 def test_file_edits_to_judge_files_are_denied(on, path):
