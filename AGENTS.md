@@ -38,6 +38,13 @@ autonomous test configuration.
 - Use `.claude/skills/search-before-building/SKILL.md`: search repository research
   and primary sources, then reuse > adapt > build. Record the search in a design
   note, review against PRINCIPLES, implement a regression, and re-measure live.
+- Luis reinforced on 2026-10-27: for each distinct implementation or problem,
+  actually web-search established solutions and idiomatic approaches before
+  choosing a fix or editing code, and open the relevant primary documentation
+  or source. Repository notes supplement that search. Record the actual queries,
+  findings and reuse/adapt/build decision; distinguish conceptual precedent from
+  APIs verified in this game/runtime. Reuse that search for subsequent edits to
+  the same problem instead of repeating it for every line or file.
 
 ## Delegation, integration and resources
 
