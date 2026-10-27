@@ -435,3 +435,10 @@
 - Current runtime remains cde, no brain or live tester. Last API spend0.9880/10 with197 priced calls; subsequent direct diagnostics0 model calls. Both original pilot tasks parked as assisted. Full fresh no-axe chain and M1–M6 remain unmet.
 
 - Integrated gate62885 completed GREEN1126 passed/1 skipped in378.54s. Fresh UTC spend scan confirmed0.9880/10,197 calls,0 unpriced. Source frozen; main announced client-only publication restart, with server/Steam/world memory retained. Native candidate remeasurement follows deployment.
+
+## 2026-10-28 — Deployed528ae99 and completed validation cycle
+
+- Source checkpoint528ae99 pushed/deployed afterGREEN1126/1skip; all24 affected bytes verified, world memory/SQLite backup preserved, server/Steam retained through client-only restart. New ClaudeDev client11752. Native developer tests now pass both crafting and processing menus: correct owner, one press, screen_opened, clean Gameplay.
+- First2-call Haiku pilot exposed an unpumped diagnostic queue. Private corrected harness passed5 offline regressions and independent review; it then executed model-selected work in the real client.
+- Corrected pilot10Haiku0Sonnet collected3 berries; reflex consumption contributed to health/food/water gains. Water failed too_far and artificial planner cap0 prevented repair; no complete survival, rest or fresh-goal proof. Both pilots terminal, body idle, slot released; final UTC spend1.0021/10,209 priced/0 unpriced.
+- R24 design ready/approved contingent on verified getter ABI/read-only contract; no body implementation yet. Original no-axe chain, positive calibration and full M1–M6 remain active/unmet. Next failure-recovery pilot must use appropriate planner allowance and disclose assisted starting state.

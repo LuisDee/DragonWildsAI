@@ -13,6 +13,12 @@ See `docs/ARCHITECTURE.md`.
 
 ## Environment
 
+### Current-code UI proof and partial Controller pilot (2026-10-28)
+
+Release528ae99 passed1126/1-skipped full gate, deployed with24 affected paths byte-verified and preserved memory. On client11752, developer Crafting Table and Campfire/Processing interactions each returned screen_opened for the actual target owner after1 IA_Interact; cleanup followed verification and restored Gameplay with no claim leak. This covers two UI families, not all interactions or autonomous composition.
+
+Corrected Controller-only diagnostic10 Haiku/0 Sonnet actually executed model-queued work and collected3 berries. Observed reflex consumption contributed to HP1->39.5, sustenance0->14.4, hydration0->17.8. Water acquisition failed65.4m away and cap0 prevented planner repair; returned stuck, no rest improvement. No new pilot supplies/hints; earlier developer structures/fixtures make this an assisted world. The unpumped first pilot is excluded from capability conclusions. End total1.0021/10 UTC-day,209 priced/0 unpriced. Private survival-pumped-result-20261028-002619.json and brain-live-20261028-002618-8932.jsonl retain evidence; no complete/fresh survival or goal proof claimed.
+
 ### Daytime rest and spell-created shelter, developer-driven (2026-10-27)
 
 On deployed cde20004, real Summon Shelter casts each spent10 Astral and10 Earth runes, placed a native shelter with BedComponent/RestingAreaComponent and reported a verified actor effect. These spells/runes were already present; their original fixture provenance is retained. A first bed was absent by the next interaction after intervening dehydration damage; damage-dispel is consistent with its catalog description, not an independently traced destruction cause.

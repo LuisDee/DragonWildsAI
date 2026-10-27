@@ -19,7 +19,15 @@ Update: R23 candidate implemented/reviewed in isolated UI tree, then integrated.
 
 ### R24 — Reports path blocked while the requested shelter is already being used (2026-10-27, open)
 
+Latest R23 status: release528ae99 deployed byte-verified and passed developer-live Crafting Table and Campfire/Processing cases with correct owner,1 press, screen_opened, Gameplay cleanup and no leaked claims. R23 is verified live under developer control; other families/autonomous stress remain. R22 is regression/gate verified, not exercised by the Controller-only pilot.
+
 Controlled developer case234836 on cde: one IA_Interact at22:48:53, movement retries, path_blocked at22:49:26. Subsequent probes independently showed the requested resting-area actor, restingtrue/sleepingfalse/timeframefalse, endurance33->54 over20s. Same-bed exit235156 returned got_up with native restingfalse/Gameplay. This proves daytime rest under the declared test conditions, not the cause/timing of entry or autonomous composition. Source W.press_signals drops resting_in and tests only IsSleeping; its retry can then reapproach while resting. Private audit `logs/recovery/r24-rest-postmortem-20261027.md` records evidence and uncertainty. No repair included in the current candidate; distinguish resting from nighttime sleep and use actual target-linked state, not a bed-name rule or failure suppression.
+
+R24 design independently approved with an explicit prerequisite to establish the getter's actual ABI/read-only contract before production use. The design's known-nonresting baseline is narrower than the older audit's different/empty wording and is authoritative. No implementation yet.
+
+### Diagnostic harness: queued work never executed (2026-10-28, corrected privately)
+
+Original survival_diagnostic.py exited after handle_event while run_skill was queued; first528 pilot2 Haiku calls ran no skill. Reviewed private pumped copy uses actual Agent.step only for pending work, with native evidence/bounds/operator stop;5 real-Rig/fake-model tests passed. Corrected pilot executed its selected skill and collected3 berries, but water failed too_far65.4m and its cap0 planner could not repair. Returned stuck; do not call it complete survival or infer production cannot replan. Trace and learned memory retained. Production/judges unchanged.
 
 | ID | Symptom | Cause | Fix / evidence | Status |
 |---|---|---|---|---|
