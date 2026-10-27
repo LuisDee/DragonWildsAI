@@ -937,6 +937,51 @@ test("activity: XP/min per skill and item gains/min over the window, with the be
     assert(a.items[1].item == "ITEM_Resources_Wood_Oak" and a.items[1].per_min == 3, json.encode(a.items))
 end)
 
+test("queue restart command forwards try_once without force", function()
+    local original, captured = loadfile, nil
+    loadfile = function(path)
+        assert(path:find("client_bridge.lua", 1, true))
+        return function() return { restart_when_idle = function(opts) captured = opts; return { ok = false } end } end
+    end
+    local command = assert(load("local ARGS = {try_once = true}\n" .. read(REPO .. "/client_mod/commands/bridge_start.lua")))()
+    command(function() end)
+    loadfile = original
+    assert(captured.immediate_only and not captured.force)
+end)
+
+test("immediate restart refuses busy without scheduling, idle starts a polling loop", function()
+    reset()
+    rpc("follow", { player = "Luis" })
+    local old, count = _G.__dwc_bridge, H.next_handle
+    local fresh = assert(loadfile(REPO .. "/client_mod/scripts/client_bridge.lua"))()
+    local opts = { root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = base .. "/chat.jsonl",
+                   vitals_events = base .. "/vitals.jsonl", move_events = base .. "/move.jsonl",
+                   gather_events = base .. "/gather.jsonl", activity_events = base .. "/activity.jsonl",
+                   jlog = H.log, immediate_only = true }
+    local saved_why = rawget(_G, "why")
+    _G.why = "sentinel"
+    local legacy = assert(loadfile(REPO .. "/client_mod/scripts/client_bridge.lua"))()
+    local pending = legacy.restart_when_idle({ no_loop = true })
+    assert(pending.deferred and _G.why == "sentinel", "legacy busy must not mutate global why")
+    local r = fresh.restart_when_idle(opts)
+    assert(not r.ok and r.refused and r.why:find("follow"), json.encode(r))
+    assert(H.next_handle == count and _G.__dwc_bridge == old and fresh.restart_poll == nil)
+    rpc("stop")
+    H.tick()
+    assert(_G.__dwc_bridge == old, "no delayed restart after becoming idle")
+    r = fresh.restart_when_idle(opts)
+    assert(r.ok and r.started and H.next_handle > count and fresh._state().loop, "idle start must schedule polling")
+    assert(not fresh.restart_poll and _G.why == "sentinel", "idle must not schedule a restart retry")
+    _G.why = saved_why
+    B = fresh
+    assert(rpc("ping").ok)
+    local saved = _G.__dwc_bridge
+    _G.__dwc_bridge = { busy = function() error("unknown") end }
+    local failed = assert(loadfile(REPO .. "/client_mod/scripts/client_bridge.lua"))().restart_when_idle(opts)
+    assert(not failed.ok and failed.refused and failed.why:find("unavailable"))
+    _G.__dwc_bridge = saved
+end)
+
 test("BUGS L20: bridge restart waits for idle, refuses with the reason, force overrides, unread commands survive", function()
     reset()
     local opts = { root = REPO, dir = DIR, scripts = SCRIPTS, chat_events = base .. "/chat.jsonl", vitals_events = base .. "/vitals.jsonl",

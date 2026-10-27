@@ -2234,3 +2234,10 @@ Builds: client 26162923, dump 26161880.
 
 - Short unique TMP/TEMP prevents reproduced Windows path-length failure at271-character snapshot destinations. Wiki is an independent allowlisted snapshot with SQLite read-only-source backup; source hashes unchanged. Candidate dump signatures need Dominion.hpp/Dominion_enums.hpp (2.39MB), exact copies SHA checked.
 - Raw state-snapshot manifest bytes enter frozen case hashes; Git EOL normalization changed those hashes in the fresh checkout. Preserve exact approved deployed bytes and verify unchanged index blobs/empty judge diff; do not repin. Candidate root now reaches nested Lua modules. Python-only publication may retain the client only when no loaded body/server file changes and pre/post byte checks agree.
+
+## a124 live no-axe evidence and calibration limits (2026-10-27)
+
+- A rememberedgravegoal atZ-75.18 andreturnedpositionZ-45.74 hadhorizontaldistance1.32m; two2D-onlychecksdeclaredarrival. KillZVolume fatal event anddeath/reviveindependentlyrecorded, notproofexactfalltrajectory. Respawnexplainswhyhealth100afterwards cannotcountasrecovery. Grave-lootedlogs didnotcompleteWoodcuttingXP+1 task.
+- DirectorhourlyadmissionreservesMAX_REQUESTS5; count9/12 meanswaitingdespite3unusedslots. Hardnewcallwrappersanddailyspendcaps areseparate; preserveexistingwindow.
+- Nativecategorymetadata ispresentinrecipeJSON but absentfromgeneratedLua catalog; genericcategorycandidateexposure isdata-driven, notsynonymmapping. Recipepresence isnotliveunlock/craftproof.
+- Calibrationatcurrentrespawnarea sampled16floors,55cmvariation,guardlimit30cm; truthfullyrefused. No actualjumpmeasurementornewenvelopewritten. Queue20261027-220906 rawfailedverdict preserved.

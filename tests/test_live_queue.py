@@ -18,7 +18,8 @@ class FakeEnv(lq.Env):
         self.t = 1_000_000.0
         self.tmp = tmp
         self.hold = None
-        self.status = {"state": "in_world", "ts": lq.iso(self.t)}
+        self.status = {"state": "in_world", "ts": lq.iso(self.t), "pid": 10}
+        self.mono = 0.0
         self.replies = replies or {}          # tool -> list of replies (popped) or one reply
         self.probes = list(probes or [])      # successive probe dicts; the last one repeats
         self.calls: list = []
@@ -31,10 +32,14 @@ class FakeEnv(lq.Env):
     def now(self):
         return self.t
 
+    def monotonic(self):
+        return self.mono
+
     def sleep(self, s):
         self.t += max(s, 0.01)
+        self.mono += max(s, 0.01)
         if getattr(self, "relaunch_at", None) and self.t >= self.relaunch_at:  # the watchdog's relaunch finished
-            self.status, self.relaunch_at = {"state": "in_world", "ts": lq.iso(self.t)}, None
+            self.status, self.relaunch_at = {"state": "in_world", "ts": lq.iso(self.t), "pid": 11}, None
         self.status["ts"] = lq.iso(self.t) if self.status.get("state") == "in_world" else self.status.get("ts")
 
     def held(self):
@@ -75,7 +80,7 @@ class FakeEnv(lq.Env):
         self.calls.append(("cmd", Path(rel).name, args))
         if Path(rel).name == "input_gate_once.lua" and len(self.probes) > 1:
             self.probes.pop(0)
-        return {"ok": True, "result": {"ok": True}}
+        return {"ok": True, "result": {"ok": True, "started": True}}
 
     def probe(self):
         self.calls.append(("probe",))
@@ -195,7 +200,7 @@ def test_drain_passes_under_slot_and_releases(world):
     assert s["checks"] == {"c1": "passed"}
     assert set(o for o in env.slot_owner_seen) == {lq.OWNER}               # every bridge call under our slot
     assert lq._slot_json(cs.main, ["status"])["free"]                       # released
-    assert ("cmd", "bridge_start.lua", None) in env.calls
+    assert ("cmd", "bridge_start.lua", {"try_once": True}) in env.calls
     st = lq.load_state(world / "lq_state.json")["checks"]["c1"]
     assert st["status"] == "passed" and st["attempts"] == 1
     ev = [r for r in rows(world) if r["event"] == "check"][0]
@@ -228,6 +233,184 @@ def test_hold_refuses_and_releases(world):
     assert lq._slot_json(cs.main, ["status"])["free"]
 
 
+def test_unprobed_wait_is_status_only_and_same_pid_recovery_does_not_restart(world):
+    p = write_check(world, basic())
+    env = FakeEnv(world)
+    env.status["state"] = "ok_unprobed"
+    original_sleep = env.sleep
+    def sleep(s):
+        original_sleep(s)
+        env.status.update(state="in_world", ts=lq.iso(env.t))
+    env.sleep = sleep
+    def transient(e, tool, args):
+        if tool == "craft":
+            e.status.update(state="ok_unprobed", ts=lq.iso(e.t))
+    env.on_bridge = transient
+    summary = runner(env, world).drain([(p, basic())])
+    assert summary["checks"] == {"c1": "passed"}
+    assert len([c for c in env.calls if c[0] == "cmd" and c[1] == "bridge_start.lua"]) == 1
+    assert len([c for c in env.calls if c[0] == "reset_bridge"]) == 1
+    assert len([r for r in rows(world) if r["event"] == "readiness_ready"]) == 2
+
+
+@pytest.mark.parametrize("state,pid,age", [("paused", 10, 0), ("menu", 10, 0),
+                                          ("in_world", None, 0), ("in_world", 10, 181),
+                                          ("ok_unprobed", 10, -5)])
+def test_unready_status_fails_without_actions(world, state, pid, age):
+    p = write_check(world, basic())
+    env = FakeEnv(world)
+    env.status = {"state": state, "pid": pid, "ts": lq.iso(env.t - age)}
+    summary = runner(env, world).drain([(p, basic())])
+    assert "precheck_failed" in summary and not env.calls and not env.fixtures
+    assert lq._slot_json(cs.main, ["status"])["free"]
+
+
+def test_unprobed_timeout_uses_monotonic_and_releases_slot(world):
+    p = write_check(world, basic())
+    env = FakeEnv(world)
+    env.status["state"] = "ok_unprobed"
+    def sleep(s):
+        env.mono += s
+        env.t += 1000 if int(env.mono) % 4 else -1000
+        env.status["ts"] = lq.iso(env.t)
+    env.sleep = sleep
+    summary = runner(env, world).drain([(p, basic())])
+    assert "timed out" in summary["precheck_failed"] and env.mono == lq.READINESS_WAIT_S
+    assert not env.calls and lq._slot_json(cs.main, ["status"])["free"]
+
+
+def test_hold_during_unprobed_wait_stops_without_actions(world):
+    p = write_check(world, basic())
+    env = FakeEnv(world)
+    env.status["state"] = "ok_unprobed"
+    old = env.sleep
+    def sleep(s):
+        old(s)
+        env.hold = "hold"
+    env.sleep = sleep
+    summary = runner(env, world).drain([(p, basic())])
+    assert summary["stopped"] == "hold hold" and not env.calls
+    assert lq._slot_json(cs.main, ["status"])["free"]
+
+
+def test_identity_change_during_admission_wait_fails_closed(world):
+    p = write_check(world, basic())
+    env = FakeEnv(world)
+    env.status["state"] = "ok_unprobed"
+    old = env.sleep
+    def sleep(s):
+        old(s)
+        env.status.update(state="in_world", pid=11, ts=lq.iso(env.t))
+    env.sleep = sleep
+    summary = runner(env, world).drain([(p, basic())])
+    assert "identity changed" in summary["precheck_failed"] and not env.calls and not env.fixtures
+
+
+def test_guard_failure_after_unprobed_wait_does_not_rearm(world):
+    p = write_check(world, basic())
+    env = FakeEnv(world)
+    env.status["state"] = "ok_unprobed"
+    env.guard_error = "forbidden"
+    old = env.sleep
+    def sleep(s):
+        old(s)
+        env.status.update(state="in_world", ts=lq.iso(env.t))
+    env.sleep = sleep
+    summary = runner(env, world).drain([(p, basic())])
+    assert "forbidden" in summary["precheck_failed"] and not env.calls and not env.fixtures
+
+
+def test_changed_pid_recovery_refusal_never_resets_bridge(world):
+    p = write_check(world, basic())
+    env = FakeEnv(world)
+    calls = 0
+    original_cmd = env.client_cmd
+    def cmd(rel, args, timeout):
+        nonlocal calls
+        if Path(rel).name == "bridge_start.lua":
+            calls += 1
+            if calls == 2:
+                return {"ok": True, "result": {"ok": False, "refused": True, "why": "busy"}}
+        return original_cmd(rel, args, timeout)
+    env.client_cmd = cmd
+    env.on_bridge = lambda e, tool, args: e.status.update(pid=11) if tool == "craft" else None
+    summary = runner(env, world).drain([(p, basic())])
+    assert summary["stopped"] == "client did not recover"
+    assert len([c for c in env.calls if c[0] == "reset_bridge"]) == 1
+    assert any(r["event"] == "recover_failed" and "busy" in r["problem"] for r in rows(world))
+
+
+def test_changed_pid_wrong_server_never_rearms(world):
+    p = write_check(world, basic())
+    env = FakeEnv(world)
+    def wrong_server(e, tool, args):
+        if tool == "craft":
+            e.status.update(pid=11)
+            e.guard_error = "forbidden server"
+    env.on_bridge = wrong_server
+    summary = runner(env, world).drain([(p, basic())])
+    assert summary["stopped"] == "client did not recover"
+    assert len([c for c in env.calls if c[0] == "cmd" and c[1] == "bridge_start.lua"]) == 1
+    assert any(r["event"] == "recover_failed" and "forbidden" in r["problem"] for r in rows(world))
+
+
+def test_watchdog_down_then_new_pid_menu_and_pawn_waits_for_ready(world):
+    p = write_check(world, basic())
+    env = FakeEnv(world)
+    def crash(e, tool, args):
+        if tool == "craft" and not getattr(e, "crashed", False):
+            e.crashed = True
+            e.status = {"state": "down", "pid": None, "ts": lq.iso(e.t)}
+    env.on_bridge = crash
+    old = env.sleep
+    def sleep(s):
+        old(s)
+        state = "menu" if env.mono < 20 else "no_pawn" if env.mono < 30 else "in_world"
+        env.status = {"state": state, "pid": 11, "ts": lq.iso(env.t)}
+    env.sleep = sleep
+    summary = runner(env, world).drain([(p, basic())])
+    assert summary["checks"] == {"c1": "passed"}
+    assert len([c for c in env.calls if c[0] == "cmd" and c[1] == "bridge_start.lua"]) == 2
+    assert any(r["event"] == "recover_bridge_start" for r in rows(world))
+
+
+@pytest.mark.parametrize("state,pid", [("menu", 10), ("no_pawn", 10), ("unknown", None)])
+def test_recovery_does_not_wait_on_unproven_identity(world, state, pid):
+    p = write_check(world, basic())
+    env = FakeEnv(world)
+    env.on_bridge = lambda e, tool, args: e.status.update(state=state, pid=pid) if tool == "craft" else None
+    summary = runner(env, world).drain([(p, basic())])
+    assert summary["stopped"] == "client did not recover"
+    assert len([c for c in env.calls if c[0] == "cmd" and c[1] == "bridge_start.lua"]) == 1
+
+
+def test_relaunch_deadline_bounds_unprobed_wait(world, monkeypatch):
+    monkeypatch.setattr(lq, "RELAUNCH_WAIT_S", 12)
+    p = write_check(world, basic())
+    env = FakeEnv(world)
+    env.on_bridge = lambda e, tool, args: e.status.update(state="down", pid=None) if tool == "craft" else None
+    old = env.sleep
+    def sleep(s):
+        old(s)
+        env.status = {"state": "ok_unprobed", "pid": 11, "ts": lq.iso(env.t)}
+    env.sleep = sleep
+    summary = runner(env, world).drain([(p, basic())])
+    assert summary["stopped"] == "client did not recover" and env.mono == 12
+    assert len([c for c in env.calls if c[0] == "cmd" and c[1] == "bridge_start.lua"]) == 1
+
+
+@pytest.mark.parametrize("reply", [None, {"ok": False}, {"ok": True, "result": {"ok": True, "deferred": True}},
+                                   {"ok": True, "result": {"ok": False, "refused": True}},
+                                   {"ok": True, "result": {"ok": True}}])
+def test_unconfirmed_restart_stops_without_reset_or_check(world, reply):
+    p = write_check(world, basic())
+    env = FakeEnv(world)
+    env.client_cmd = lambda *args: reply
+    summary = runner(env, world).drain([(p, basic())])
+    assert "bridge start not completed" in summary["precheck_failed"]
+    assert not env.fixtures and not any(c[0] == "reset_bridge" or (c[0] == "bridge" and c[1] != "ping") for c in env.calls)
+
+
 def test_slot_busy_runs_nothing(world):
     p = write_check(world, basic())
     lq._slot_json(cs.main, ["take", "someone", "30"])
@@ -253,7 +436,7 @@ def test_crash_waits_for_watchdog_relaunch_then_retries(world):
     def crash(e, tool, args):
         if tool == "craft" and not getattr(e, "crashed", False):
             e.crashed = True
-            e.status = {"state": "booting", "ts": lq.iso(e.t)}
+            e.status = {"state": "booting", "ts": lq.iso(e.t), "pid": 10}
             e.relaunch_at = e.t + 95
     env.on_bridge = crash
     s = runner(env, world).drain([(p, basic())])
@@ -268,7 +451,7 @@ def test_client_never_back_stops_run(world, monkeypatch):
     monkeypatch.setattr(lq, "RELAUNCH_WAIT_S", 60)
     a, b = write_check(world, basic("a1")), write_check(world, basic("b1"))
     env = FakeEnv(world, replies={"craft": {"ok": False, "reason": "timeout", "data": {}}})
-    env.on_bridge = lambda e, t, a_: e.status.update(state="gone") if t == "craft" else None
+    env.on_bridge = lambda e, t, a_: e.status.update(state="down", pid=None) if t == "craft" else None
     s = runner(env, world).drain([(a, basic("a1")), (b, basic("b1"))])
     assert s["checks"] == {"a1": "error"} and s["stopped"] == "client did not recover"
     e = lq.load_state(world / "lq_state.json")["checks"]["a1"]

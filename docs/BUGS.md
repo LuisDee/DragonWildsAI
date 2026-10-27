@@ -31,6 +31,14 @@ Evidence: `client_io/events/chat.jsonl`, `logs/brain-live-*.jsonl`, `logs/client
 |---|---|---|---|---|
 | R18 | New tree task selects chop, then directed run raises unexpected keyword mode | Typed schema emits optional mode (including None); real BridgeClient.gather and mock adapters omitted it | Optional parameter propagated, null pruned from transport; real Executor/JSONL/Lua regression for explicit/omitted/null | reviewed;31 focused passed; full GREEN1070/5skip plus4dump checks passed; live transport remeasure next |
 
+## 2026-10-27 — Navigation and discovery from live a124
+
+| ID | Symptom | Evidence / cause | Status |
+|---|---|---|---|
+| R19 | go_to says arrived during KillZ death,29.44m wrongheight | a124trace20:57:57 +vitalsdeath/revive; move andbridge bothverify2Donly. Falltrajectory/cause unproven | coldreviewaccepted; fullGREEN1096/1skip; livepending, no fallpreventionclaim |
+| R20 | Repeated craft_plan(Hatchet) says unknown_recipe with nocandidates | Matchingnativecategory existsinJSON butgenerator dropsit fromLua catalog; modelneverlookedup/listedrecipes intrace | coldreviewaccepted; fullGREEN1096/1skip; livepending; no automaticchoiceorstatic synonym |
+| R21 | waitingbudget message understatesdelay thoughdaily/casecapsallowcalls | Directorreserves5requests, hourlywindow9/12 cannotadmit; wait_s helperonlywaitsfor1slot | verifiedschedulinggap; no windowreset or codechange; futurecasehourlimitmustaccountforpreservedwindow+reserve |
+
 ## 2026-10-25 evening (Shockbyte, build 26161880)
 
 | ID | Symptom (what Luis saw) | Root cause (from logs) | Owner | Fix / test | Status |

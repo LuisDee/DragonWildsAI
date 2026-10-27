@@ -50,7 +50,7 @@ local M = {}
 M.POLL_MS = 100            -- bridge poll + action tick + waiters + chat tail (game thread)
 M.RELOAD_CHECK_S = 2       -- re-read a module file at most this often
 M.GOTO_TIMEOUT_S = 290     -- brain gives up at 300 s (move.lua may wait 60 s for a lead out of a trap, then walk on)
-M.GOTO_TOL_M = 3.0         -- arrival tolerance reported to the brain for coordinates (move.lua stops at 1.5 m)
+M.GOTO_TOL_M = 1.5         -- default movement tolerance, in metres
 M.SAY_ECHO_S = 4           -- wait this long for the server's echo of a chat line
 M.DROP_WAIT_S = 5          -- wait this long for the inventory to show a drop
 M.NEARBY_M = 50            -- census radius for get_state
@@ -136,6 +136,12 @@ local function to_m(p)
     return nil
 end
 M._to_m = to_m
+
+local function has_z(p)
+    if type(p) == "table" and type(p[1]) == "number" then return type(p[3]) == "number" end
+    local ok, z = pcall(function() return p and p.Z end)
+    return ok and type(z) == "number"
+end
 
 local function dist2d(a, b)
     if not (a and b) then return nil end
@@ -223,7 +229,14 @@ local function finish(a, res)
     end
     if a.quiet then return end
     if res.ok then ch.emit_event("task_done", { task_id = a.id, data = ch.object(res.data or {}) })
-    else ch.emit_event("task_failed", { task_id = a.id, reason = res.reason or "body_error" }) end
+    else
+        -- Held follow already replied; its event is the only way to report a terminal failure.
+        -- TaskFailed.reason is the existing brain-facing string field, so retain the specific
+        -- observed detail there when available instead of emitting a duplicate movement event.
+        local why = res.reason or "body_error"
+        if a.kind == "follow" and type(res.data) == "table" and type(res.data.detail) == "string" and res.data.detail ~= "" then why = res.data.detail end
+        ch.emit_event("task_failed", { task_id = a.id, reason = why })
+    end
 end
 
 local function preempt(by)
@@ -491,17 +504,21 @@ M._resting_failure = resting_failure
 
 R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function(args, ctx)
     local target = args.target
-    if target == nil or (type(target) == "table" and #target < 2) or (type(target) == "string" and target == "") then
+    if target == nil or (type(target) == "table" and (type(target[1]) ~= "number" or type(target[2]) ~= "number" or type(target[3]) ~= "number")) or (type(target) == "string" and target == "") then
         return fail("invalid_args", { detail = "target is required ([x,y,z] metres, a player, an entity id or a place)" })
     end
     local rf = resting_failure()
     if rf then return rf end
+    if args.tolerance ~= nil and (not tonumber(args.tolerance) or tonumber(args.tolerance) <= 0) then
+        return fail("invalid_args", { detail = "tolerance must be positive" })
+    end
     local coords = type(target) == "table" and to_m(target) or nil
     local gts = type(target) == "string" and (target == "my_grave" and "" or target:match("^my_grave:(.+)$"))
     if gts then -- BUGS L19/L22: a remembered death spot (newest, or my_grave:<ts>), at any distance
         local sk = M.module("skills")
         local d = sk and type(sk.death_memory) == "function" and sk.death_memory(gts ~= "" and gts or nil) or nil
         if not (d and d.position) then return fail("unknown_target", { target = target, detail = "no remembered grave like that" }) end
+        if not has_z(d.position) then return fail("verification_failed", { detail = "destination height unavailable" }) end
         coords = to_m(d.position)
     end
     -- every id that look / get_state return resolves (BUGS L8): a perceived thing's position, except
@@ -509,12 +526,15 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
     if not coords and type(target) == "string" then
         -- go_to reaches as far as a known actor is (a fishing node 134 m off, live 2026-10-26), not only look's 80 m
         local t = M.API.find_thing(target, M.GOTO_FIND_M)
-        if t and t.position and t.category ~= "creatures" and t.category ~= "players" then coords = to_m(t.position) end
+        if t and t.position and t.category ~= "creatures" and t.category ~= "players" then
+            if not has_z(t.position) then return fail("verification_failed", { detail = "destination height unavailable" }) end
+            coords = to_m(t.position)
+        end
     end
     local r = call("move", "go_to", coords or tostring(target), { tolerance_m = tonumber(args.tolerance) })
     if not r.ok then return r end
     local a = { kind = "go_to", id = ctx.id, target = target, timeout_s = M.GOTO_TIMEOUT_S, target_position = coords,
-                tol = M.GOTO_TOL_M, polls = 0 }
+                tol = tonumber(args.tolerance) or M.GOTO_TOL_M, polls = 0 }
     a.cancel = function() call("move", "stop") end
     a.poll = function(self)
         if reflex_owns_pawn() then self.started = now_s(); return nil end -- fighting back; resumes after
@@ -524,14 +544,28 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
         local res = type(st.result) == "table" and st.result or {}
         local here = my_position()
         if res.status == "arrived" then
-            -- verified against a fresh position read, not the module's word alone
-            local d = self.target_position and here and dist2d(here, self.target_position)
-            if d and d > self.tol * 1.5 then
-                return fail("verification_failed", { detail = string.format("move said arrived but %.1f m away", d),
-                                                     position = here, target_position = self.target_position })
+            local fresh = call("sense", "me")
+            local raw_pos = fresh.ok and (fresh.data.position or fresh.data.location) or nil
+            if not has_z(raw_pos) then return fail("verification_failed", { detail = "position height unavailable" }) end
+            here = to_m(raw_pos)
+            -- Movement independently re-reads the controlled pawn, life, ground and original/current
+            -- goal. A missing verifier or perception is not a successful arrival.
+            local verified = call("move", "verify_arrival")
+            if not verified.ok then return fail(reason_code(verified.reason or "verification_failed"),
+                { detail = verified.data and verified.data.detail or "arrival could not be verified", position = here }) end
+            local goal = verified.data.target_position
+            local d = goal and here and dist2d(here, goal)
+            local z = goal and here and type(goal[3]) == "number" and type(here[3]) == "number" and math.abs(here[3] - goal[3]) or nil
+            local vp = verified.data.position
+            if not (d and z and vp and type(vp[3]) == "number") or d > self.tol or math.abs(here[3] - vp[3]) > 0.1
+                or dist2d(here, vp) > 0.1 or (self.target_position and
+                    (dist2d(self.target_position, goal) > 0.01 or math.abs(self.target_position[3] - goal[3]) > 0.01)) then
+                return fail("verification_failed", { detail = "fresh position does not confirm arrival", position = here, target_position = goal })
             end
-            return { ok = true, data = { target_position = self.target_position or S.bridge.null, target = tostring(target),
-                                         position = here or S.bridge.null, arrive_tolerance = self.tol, dist_m = res.dist_m } }
+            return { ok = true, data = { target_position = goal, target = tostring(target),
+                                         position = here, arrive_tolerance = self.tol, dist_m = res.dist_m,
+                                         vertical_distance_m = verified.data.vertical_distance_m,
+                                         vertical_tolerance_m = verified.data.vertical_tolerance_m } }
         end
         if res.status == "failed" then
             return fail(reason_code(res.reason or "path_blocked"), { detail = res.why or res.detail or res.reason,
@@ -565,7 +599,7 @@ R.follow = { needs = { { "move", "follow" }, { "move", "status" } }, fn = functi
         local st = move_status()
         if st.mode == "follow" then return nil end
         local res = type(st.result) == "table" and st.result or {}
-        if res.status == "failed" then return fail(reason_code(res.reason or "unknown_target"), { detail = res.detail or res.reason }) end
+        if res.status == "failed" then return fail(reason_code(res.reason or "unknown_target"), { detail = res.detail }) end
         return fail("interrupted", { detail = "follow ended (" .. tostring(res.status) .. ")" })
     end
     local data = copy(r.data)
@@ -1291,6 +1325,7 @@ local function forward_vitals()
             local life = rawget(_G, "DW_LIFE") or {}
             _G.DW_LIFE = life
             if m.type == "death" then
+                life.move_death_seq = (life.move_death_seq or 0) + 1
                 life.died_at, life.respawned_at = tonumber(m.ts) or now_s(), nil
                 -- BUGS L19: remember WHERE he died and what he carried, persisted, until the grave is recovered
                 local sk = M.module("skills")
@@ -1870,7 +1905,19 @@ M.RESTART_WAIT_S, M.RESTART_POLL_MS = 5, 250
 function M.restart_when_idle(opts)
     opts = opts or {}
     local prev = rawget(_G, "__dwc_bridge")
-    local why = prev and type(prev.busy) == "function" and select(2, pcall(prev.busy)) or nil
+    local why
+    if opts.immediate_only and prev then
+        if type(prev.busy) ~= "function" then
+            return { ok = false, refused = true, why = "bridge busy state unavailable" }
+        end
+        local ok_busy, busy = pcall(prev.busy)
+        if not ok_busy or (busy ~= nil and type(busy) ~= "string") then
+            return { ok = false, refused = true, why = "bridge busy state unavailable" }
+        end
+        if busy then return { ok = false, refused = true, why = busy } end
+    else
+        why = prev and type(prev.busy) == "function" and select(2, pcall(prev.busy)) or nil
+    end
     if type(why) ~= "string" then why = nil end
     if not why or opts.force then
         local st = M.start(opts)

@@ -177,7 +177,35 @@ function M.resolve_item(q)
     end
     table.sort(hits)
     if #hits == 1 then return hits[1] end
-    return nil, hits
+    if #hits > 0 then return nil, hits end
+    local want = lower(q):match("^%s*(.-)%s*$")
+    for id in pairs(I.by_output) do
+        local item = (M.data().items or {})[I.path_of[id]] or {}
+        local category = item.category
+        if type(category) == "string" then
+            local tag = lower(category)
+            local leaf = tag:match("([^%.]+)$")
+            if want ~= "" and (want == tag or want == leaf) then hits[#hits + 1] = id end
+        end
+    end
+    table.sort(hits)
+    return nil, hits, #hits > 0 and "category" or nil
+end
+
+-- Suggestions are metadata, never an implicit selection, even for one match.
+local function item_resolution_failure(api, query, hits, kind, limit)
+    local c = {}
+    for i = 1, math.min(#(hits or {}), limit) do
+        local id = hits[i]
+        local item = (M.data().items or {})[idx().path_of[id]] or {}
+        c[i] = { item = id, name = name_of_id(id), category = kind == "category" and item.category or nil }
+    end
+    local total = #(hits or {})
+    local detail = total == 0 and ("I don't know how to make " .. tostring(query) .. ".")
+        or (total == 1 and ("\"" .. query .. "\" matches this item; choose it explicitly.")
+            or ("\"" .. query .. "\" matches these items; choose one explicitly."))
+    return api.fail(total > 0 and "ambiguous_target" or "unknown_recipe",
+                    { item = query, candidates = c, total = total, truncated = total > #c, detail = detail })
 end
 
 -- Unlock rule text with actor class words turned into station names (data, not code).
@@ -962,15 +990,9 @@ local function resolve_candidates(api, args, ctx)
         return { M.assess(rid, count, ctx) }, nil, nil
     end
     if not need_str(args.item) then return nil, api.fail("invalid_args", { detail = "item or recipe is required" }) end
-    local id, hits = M.resolve_item(args.item)
+    local id, hits, kind = M.resolve_item(args.item)
     if not id then
-        if hits and #hits > 1 then
-            local c = {}
-            for i = 1, math.min(#hits, 10) do c[i] = { item = hits[i], name = name_of_id(hits[i]) } end
-            return nil, api.fail("ambiguous_target", { item = args.item, candidates = c,
-                detail = "\"" .. args.item .. "\" could be several things; which one do you mean?" })
-        end
-        return nil, api.fail("unknown_recipe", { item = args.item, detail = "I don't know how to make " .. tostring(args.item) .. "." })
+        return nil, item_resolution_failure(api, args.item, hits, kind, 10)
     end
     local list = M.candidates(id, count, ctx)
     if #list == 0 then
@@ -1409,12 +1431,9 @@ local function recipes_tool(api, args)
     local limit = math.max(1, math.min(50, math.floor(tonumber(args.limit) or M.cfg.list_limit)))
     local list
     if need_str(args.item) then
-        local id, hits = M.resolve_item(args.item)
+        local id, hits, kind = M.resolve_item(args.item)
         if not id then
-            local c = {}
-            for i = 1, math.min(#(hits or {}), 15) do c[i] = { item = hits[i], name = name_of_id(hits[i]) } end
-            return api.fail(#c > 0 and "ambiguous_target" or "unknown_recipe", { item = args.item, candidates = c,
-                detail = #c > 0 and ("\"" .. args.item .. "\" could be several things.") or ("I don't know how to make " .. args.item .. ".") })
+            return item_resolution_failure(api, args.item, hits, kind, 15)
         end
         list = M.candidates(id, tonumber(args.count) or 1, ctx)
     elseif need_str(args.station) then
@@ -1440,12 +1459,9 @@ local function plan_tool(api, args)
     local goal
     if need_str(args.recipe) then goal = { recipe = args.recipe }
     elseif need_str(args.item) then
-        local id, hits = M.resolve_item(args.item)
+        local id, hits, kind = M.resolve_item(args.item)
         if not id then
-            local c = {}
-            for i = 1, math.min(#(hits or {}), 15) do c[i] = { item = hits[i], name = name_of_id(hits[i]) } end
-            return api.fail(#c > 0 and "ambiguous_target" or "unknown_recipe", { item = args.item, candidates = c,
-                detail = #c > 0 and ("\"" .. args.item .. "\" could be several things.") or ("I don't know how to make " .. args.item .. ".") })
+            return item_resolution_failure(api, args.item, hits, kind, 15)
         end
         goal = { item = id }
     else return api.fail("invalid_args", { detail = "item or recipe is required" }) end

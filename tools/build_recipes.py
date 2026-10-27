@@ -476,6 +476,8 @@ def lua_data(cat: dict) -> dict:
         k, v = by_path.get(p, (asset(p), {}))
         items[p] = {"id": k, "name": v.get("name"), "max_stack": v.get("max_stack"), "durability": v.get("durability"),
                     "fuel": v.get("fuel_value")}
+        if v.get("category") is not None:
+            items[p]["category"] = v["category"]
     snap = (cat.get("players") or [{}])[0]
     return {"schema": "dw_recipe_data/1", "build": cat["build"],
             "interaction_ranges": ((cat.get("interaction_ranges") or {}).get("ranges")) or {},

@@ -407,3 +407,13 @@
 - Candidate fullgate GREEN1070passed/5skipped,367.17s. Four dump-signature skips repaired by provisioning the exact private header inputs; four tests then passed. Existing incomplete cassette remains the single intentional skip. New transport regression covers explicit, omitted and null mode through real Executor/JSONL/Lua.
 - Separate candidate supports targeted tests while stable dev client stays online. Initial full RED69/1000/6 exposed ignored dependency, path-length and raw manifest EOL portability issues; setup corrected without changing criteria or repinning. Source fix now ready for Python-only deployment and live tree rerun; no noaxe/M1-M6 success.
 - Live directed FX held enchant and dirtywater tests passed,0modelcalls. Brain-off exposure showed hp1/nofood; not autonomous maintenance. API total remains.6067/10,115calls.
+
+## 2026-10-27, 22:15 Berlin — No-axe pilot and next coherent batch
+
+- Published/pusheda12412a withverifiedunchangedbodybytes; nativegatherfood/water andconsume worked, but noaxe proofFAILED. NewWoodcuttingXPconditiondidnotacceptgrave-lootedlogs. ActualKillZdeathoverlappedfalse2Darrival; preserveworld/graves andreportedfailure. $0.133run,UTCtotal.7397/10,145calls.
+- Reviewedqueue,3D/life-arrival andcatalog-categorydiscoverycandidates areisolated; fullgatehasNOTstarted. Batchthem afterfinalnavreviewbeforeonecoherentgate+briefbodyrestart. No M1-M6 completion. Nativecalibrationrefusednonflat55cmspot, nojumps/envelopechange; positivecalibrationstillpending.
+
+## 2026-10-27, 22:25 Berlin — Combined outcome/discovery/queue gate
+
+- CHECK_ALL: GREEN1096passed/1skipped,371.46s; approvedjudgediffempty. Queue samePIDreadiness, immediate-onlybusyrefusal, truthfulheight/lifearrival andcatalogcategorycandidates independentlyreviewed andintegrated90focusedchecks beforefull.
+- Devclientrestartannounced forbodypublication; stableclientwasonline throughoutdevelopment/tests. ServerandSteamremainadopted. Backups/affectedpathmanifest and44memoryfiles savedprivately. Nativecurrent-codeverificationstillnext; no axe/bench/felling, no fallprevention/M1-M6 claim.

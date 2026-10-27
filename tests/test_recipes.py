@@ -107,17 +107,21 @@ def test_normalise_recipes_stations_unlocks(cat):
 
 
 def test_lua_data_shape_and_serialiser(cat, tmp_path):
+    cat["items"]["ITEM_IronBar"]["category"] = "Item.Material.Ingot"
     d = br.lua_data(cat)
     assert d["recipes"]["RECIPE_IronBar"]["inputs"] == [[ORE, 3]]
     assert "TestOnlyFuel" not in d["stations"]
     assert d["stations"]["Furnace"]["fuels"] == [CHAR]
     assert d["items"][CHAR]["fuel"] == 120.0
+    assert d["items"][BAR]["category"] == "Item.Material.Ingot"
+    assert "category" not in d["items"][CHAR]
     assert br.lua('a "q" \\ b\n') == '"a \\"q\\" \\\\ b\\n"'
     assert br.lua({"x": [1, 2.5, True, None], "a-b": "s"}) == '{["a-b"] = "s", x = {1, 2.5, true, nil}}'
     out = br.write_lua(cat, tmp_path / "recipe_data.lua")
     if LUA:
         code = (f"local D = dofile([[{out.as_posix()}]]); assert(D.recipes.RECIPE_IronBar.inputs[1][2] == 3); "
-                f"assert(D.stations.Furnace.classes[1] == 'BP_Station_Smelter_C'); print('ok')")
+                f"assert(D.stations.Furnace.classes[1] == 'BP_Station_Smelter_C'); "
+                f"assert(D.items[{br.lua(BAR)}].category == 'Item.Material.Ingot'); print('ok')")
         proc = subprocess.run([LUA, "-e", code], capture_output=True, text=True, timeout=30)
         assert proc.returncode == 0 and "ok" in proc.stdout, proc.stdout + proc.stderr
 

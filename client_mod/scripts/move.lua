@@ -994,6 +994,63 @@ local function is_character(pawn)
     return ok and mc ~= nil and mc:IsValid()
 end
 
+-- Never infer life or ground state from a failed native read.
+local function life_check(st, pawn)
+    if st.pawn and pawn ~= st.pawn then return false, "interrupted", "controlled character changed" end
+    local life = rawget(_G, "DW_LIFE")
+    if st.life_seq ~= nil and type(life) == "table" and (life.move_death_seq or 0) ~= st.life_seq then
+        return false, "companion_down", "death observed during movement"
+    end
+    local ok, dead = pcall(function() return pawn.HealthComponent:IsDead() end)
+    if not ok or type(dead) ~= "boolean" then return false, "verification_failed", "health state unavailable" end
+    if dead then return false, "companion_down", "character is dead" end
+    local okh, hp = pcall(function() return pawn.HealthComponent:GetAuthoritativeHealth() end)
+    if not okh or type(hp) ~= "number" or hp ~= hp then return false, "verification_failed", "health value unavailable" end
+    if hp <= 0 then return false, "companion_down", "character has no health" end
+    return true
+end
+
+local function ground_check(pawn)
+    local ok, ground = pcall(function() return pawn.CharacterMovement:IsMovingOnGround() end)
+    if not ok or type(ground) ~= "boolean" then return nil end
+    return ground
+end
+
+-- Target Z may be an actor origin or floor point. One capsule's full height covers the
+-- known pawn-centre/floor offset (DISCOVERIES); closer stacked floors can still overlap
+-- this provisional allowance, which is exposed to callers for honest interpretation.
+local function reached(st, me, goal)
+    if not (me and goal and type(me.X) == "number" and type(me.Y) == "number" and type(me.Z) == "number"
+        and type(goal.X) == "number" and type(goal.Y) == "number" and type(goal.Z) == "number") then return nil end
+    return d2(me, goal) <= st.tol_cm and math.abs(me.Z - goal.Z) <= 2 * st.half_h
+end
+
+function M.verify_arrival()
+    local st = S()
+    if paused() then return { ok = false, reason = "verification_failed", detail = "world changing" } end
+    local pc = local_pc()
+    local pawn = pc and pc.Pawn
+    if not is_character(pawn) then return { ok = false, reason = "verification_failed", detail = "player character unavailable" } end
+    local alive, reason, detail = life_check(st, pawn)
+    if not alive then return { ok = false, reason = reason, detail = detail } end
+    local grounded = ground_check(pawn)
+    if grounded ~= true then return { ok = false, reason = "verification_failed", detail = grounded == false and "character is airborne" or "ground state unavailable" } end
+    if st.escape then return { ok = false, reason = "verification_failed", detail = "escape outcome needs zone verification" } end
+    local okp, here = pcall(function() return pawn:K2_GetActorLocation() end)
+    local okg, goal = pcall(function()
+        if st.target_name then
+            if not (st.target and st.target:IsValid()) then return nil end
+            return st.target:K2_GetActorLocation()
+        end
+        return st.goal
+    end)
+    local near = okp and okg and reached(st, here, goal)
+    if near ~= true then return { ok = false, reason = "verification_failed", detail = near == false and "position differs from requested destination" or "position or destination unavailable" } end
+    return { ok = true, position = { here.X / 100, here.Y / 100, here.Z / 100 },
+        target_position = { goal.X / 100, goal.Y / 100, goal.Z / 100 }, tolerance_m = st.tol_cm / 100,
+        vertical_distance_m = math.abs(here.Z - goal.Z) / 100, vertical_tolerance_m = 2 * st.half_h / 100 }
+end
+
 -- ------------------------------------------------------------------ approach progress (one watchdog for all)
 -- Every go_to/follow tracks whether it is getting closer, so callers (combat chase, skills interact, shoot)
 -- read one verdict from status().progress instead of each keeping its own "can't get closer" timer.
@@ -1071,9 +1128,11 @@ local function tick(st, gen, log)
     if st.gen ~= gen then return "stale" end
     if paused() then st.status = "paused"; return end
     local pc, pawn = st.pc, nil
-    if not (pc and pc:IsValid()) then st.status = "paused"; return end
+    if not (pc and pc:IsValid()) then return finish(st, { status = "failed", reason = "verification_failed", detail = "controller unavailable" }, log) end
     pawn = pc.Pawn
-    if not is_character(pawn) then st.status = "paused"; st.prog_t = nil; return end
+    if not is_character(pawn) then return finish(st, { status = "failed", reason = "verification_failed", detail = "player character unavailable" }, log) end
+    local alive, life_reason, life_detail = life_check(st, pawn)
+    if not alive then return finish(st, { status = "failed", reason = life_reason, detail = life_detail }, log) end
     local t = now(pawn)
     local dt = st.last_t and (t - st.last_t) or 0
     st.last_t = t
@@ -1148,7 +1207,8 @@ local function tick(st, gen, log)
     st.dist_cm = dist
     if st.dz0 == nil then st.dz0 = goal.Z - me.Z end
     -- "near" for the tracker: within tolerance, or a follow idling (incl. holding at a zone's edge)
-    progress_tick(st, t, me, goal, dist, dist <= st.tol_cm or (st.mode == "follow" and st.idle == true))
+    local same_level = type(goal.Z) == "number" and type(me.Z) == "number" and math.abs(goal.Z - me.Z) <= 2 * st.half_h
+    progress_tick(st, t, me, goal, dist, (dist <= st.tol_cm and same_level) or (st.mode == "follow" and st.idle == true and same_level))
 
     -- AVOID ZONES (combat hazards): the zone we stand in (capsule overlap), and the leader's
     local zs, AZm = live_zones(t)
@@ -1182,7 +1242,14 @@ local function tick(st, gen, log)
         if st.escape and not zone_in then
             return finish(st, { status = "arrived", out_of_zones = true, zone = st.escape.zone, dist_m = dist / 100, s = t - st.t0 }, log)
         end
-        if dist <= st.tol_cm and not st.ws_exec and not (st.lpath and st.lpath[st.lwp] and st.lpath[st.lwp].act == "superjump") then return finish(st, { status = "arrived", dist_m = dist / 100, s = t - st.t0 }, log) end
+        local at_goal = reached(st, me, goal)
+        if at_goal == nil then return finish(st, { status = "failed", reason = "verification_failed", detail = "position or destination unavailable" }, log) end
+        if at_goal and not st.ws_exec and not (st.lpath and st.lpath[st.lwp] and st.lpath[st.lwp].act == "superjump") then
+            local grounded = ground_check(pawn)
+            if grounded == nil then return finish(st, { status = "failed", reason = "verification_failed", detail = "ground state unavailable" }, log) end
+            if grounded then return finish(st, { status = "arrived", dist_m = dist / 100, s = t - st.t0 }, log) end
+            if t - st.t0 <= st.timeout_s then st.status = "awaiting_landing"; return end
+        end
         if t - st.t0 > st.timeout_s then return finish(st, { status = "failed", reason = "timeout", dist_m = dist / 100 }, log) end
     else
         local hold = st.idle and (st.tol_cm + M.cfg.follow_hysteresis_cm) or st.tol_cm
@@ -1202,7 +1269,7 @@ local function tick(st, gen, log)
             end
             exit_pt = st.zone_exit
         end
-        if (dist <= hold or edge_hold) and not exit_pt then
+        if ((dist <= hold and same_level) or edge_hold) and not exit_pt then
             st.idle, st.status = true, edge_hold and "near_zone" or "near"
             if st.trip and #st.trip >= 4 then st.trip_ok = true; pcall(mem_flush, st, log, "near"); st.trip = { feet_of(st, me) } end
             if st.unreach then
@@ -2185,11 +2252,21 @@ end
 local function start(log, mode, opts)
     if paused() then return { ok = false, error = "paused (world changing)" } end
     local st = S()
-    cancel_superjump(st) -- before timer cancellation or ownership rotation
-    if st.handle then pcall(CancelDelayedAction, st.handle) end
     local pc = local_pc()
     local pawn = pc and pc.Pawn
     if not is_character(pawn) then return { ok = false, error = "no player character (main menu / loading?)" } end
+    local alive, life_reason, life_detail = life_check({}, pawn)
+    if not alive then return { ok = false, reason = life_reason, detail = life_detail } end
+    local okh, half_height = pcall(function() return pawn.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
+    if not okh or type(half_height) ~= "number" or half_height ~= half_height or half_height <= 0 or half_height == math.huge then
+        return { ok = false, reason = "verification_failed", detail = "character capsule height unavailable" }
+    end
+    local g = opts.goal
+    if type(g) == "table" and not g.actor and (type(g[1]) ~= "number" or type(g[2]) ~= "number" or type(g[3]) ~= "number") then
+        return { ok = false, reason = "invalid_args", detail = "destination needs x, y and z" }
+    end
+    cancel_superjump(st) -- before timer cancellation or ownership rotation
+    if st.handle then pcall(CancelDelayedAction, st.handle) end
     if st.mode ~= "idle" then pcall(mem_flush, st, log, "interrupted") end
     local inherited_token
     if st.owner_implicit and st.owner_token and not opts.owner_token then
@@ -2202,6 +2279,9 @@ local function start(log, mode, opts)
     for k in pairs(st) do st[k] = nil end
     for k, x in pairs(keep) do st[k] = x end
     st.mode, st.pc, st.ticks, st.stuck_n = mode, pc, 0, 0
+    st.pawn = pawn
+    local life = rawget(_G, "DW_LIFE")
+    st.life_seq = type(life) == "table" and (life.move_death_seq or 0) or 0
     local a = move_arbiter()
     if inherited_token then
         st.owner_token, st.owner_implicit = inherited_token, true
@@ -2214,8 +2294,7 @@ local function start(log, mode, opts)
         st.owner_implicit = st.owner_token ~= nil
     end
     st.crumbs, st.self_crumbs, st.lp_plans_np, st.trail_jumped, st.nav_jumped = {}, {}, 0, {}, {}
-    st.half_h = tonumber((pcall(function() return pawn.CapsuleComponent:GetScaledCapsuleHalfHeight() end))
-        and pawn.CapsuleComponent:GetScaledCapsuleHalfHeight()) or 90
+    st.half_h = half_height
     st.t0 = now(pawn)
     st.tol_cm = (opts.tolerance_m or 1.5) * 100
     st.timeout_s = opts.timeout_s or 120
@@ -2230,7 +2309,6 @@ local function start(log, mode, opts)
     st.escape = type(opts.escape) == "table" and opts.escape or nil
     st.prog_tr = progress_new(opts.progress)
 
-    local g = opts.goal
     if type(g) == "table" and not g.actor then
         st.goal = { X = g[1] * 100, Y = g[2] * 100, Z = g[3] * 100 }
     else

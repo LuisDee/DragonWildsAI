@@ -564,6 +564,44 @@ do
     r = C.HANDLERS.craft_plan(nil, {}, { api = api })
     check("craft_plan: invalid args", r.reason == "invalid_args")
 end
+do -- category discovery offers identities only; exact and substring names retain precedence
+    reset({ stations = { TABLE() }, unlocked = {} })
+    local id, hits, kind = C.resolve_item("  hAtChEt  ")
+    local has_stone = false
+    for _, item in ipairs(hits or {}) do if item == "ITEM_Logging_Axe_Stone" then has_stone = true end end
+    check("category: native hatchet finds stone axe", not id and kind == "category" and has_stone)
+    local _, full, full_kind = C.resolve_item("Item.Equipment.Tool.Hatchet")
+    check("category: full tag and leaf match", full_kind == "category" and #full == #hits)
+    for _, tool in ipairs({ "recipes", "craft_plan", "craft" }) do
+        local r = C.HANDLERS[tool](nil, { item = "Hatchet" }, { api = api })
+        check(tool .. ": category candidates not a selection", not r.ok and r.reason == "ambiguous_target"
+              and r.data.total == #hits and r.data.candidates[1].category == "Item.Equipment.Tool.Hatchet"
+              and r.data.truncated == (#hits > #r.data.candidates))
+    end
+    check("category: no craft action or movement", not F.goal and not F.moves and not F.ui)
+    local fake = { items = {}, recipes = {}, stations = {} }
+    for i = 1, 17 do
+        local path = "/fake/ITEM_" .. i
+        fake.items[path] = { id = "ITEM_" .. i, name = "Object " .. i, category = "Item.Tool.Bundle" }
+        fake.recipes["R" .. i] = { path = "/fake/R" .. i, inputs = {}, outputs = {{ path, 1 }}, stations = {} }
+    end
+    fake.items["/fake/only"] = { id = "ITEM_only", name = "One Object", category = "Item.Tool.Special" }
+    fake.recipes.ONLY = { path = "/fake/ONLY", inputs = {}, outputs = {{ "/fake/only", 1 }}, stations = {} }
+    C.set_data(fake)
+    local single, one, one_kind = C.resolve_item("special")
+    check("category: single still requires selection", not single and #one == 1 and one_kind == "category")
+    local r = C.HANDLERS.craft_plan(nil, { item = "special" }, { api = api })
+    check("category: singular detail is truthful", r.reason == "ambiguous_target" and r.data.total == 1
+          and not r.data.truncated and not r.data.detail:find("these items", 1, true))
+    r = C.HANDLERS.recipes(nil, { item = "bundle" }, { api = api })
+    check("category: bounded sorted candidates", r.reason == "ambiguous_target" and r.data.total == 17
+          and #r.data.candidates == 15 and r.data.truncated and r.data.candidates[1].item < r.data.candidates[2].item)
+    check("category: exact name wins", C.resolve_item("One Object") == "ITEM_only")
+    check("category: unique substring wins", C.resolve_item("One Obj") == "ITEM_only")
+    local _, none = C.resolve_item("does-not-exist")
+    check("category: absent is unknown", #none == 0)
+    C.set_data(REAL)
+end
 do -- get_state extras: stations nearby with the furnace's state, from the census rows
     reset({ stations = { TABLE(), FURNACE({ res = { { slot = 0, item = "ITEM_Resources_IronOre", name = "Iron Ore", count = 3 } } }) } })
     local rows = api.census_things()

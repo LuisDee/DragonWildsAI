@@ -113,6 +113,7 @@ end
 function pawn:StopJumping() end
 pawn.CharacterMovement = obj({ MaxStepHeight = 45, GetMaxJumpHeightWithJumpTime = function() return 120 end,
     IsMovingOnGround = function() return air <= 0 end, MinFallDamageHeight = 500 })
+pawn.HealthComponent = obj({ IsDead = function() return false end, GetAuthoritativeHealth = function() return 100 end })
 pawn.CapsuleComponent = obj({ GetScaledCapsuleHalfHeight = function() return 90 end,
     GetCollisionProfileName = function() return { ToString = function() return "Custom" end } end })
 pawn.EnvironmentComponent = obj({ GetNormalizedWaterDepth = function() return in_lake(pawn.loc.X, pawn.loc.Y) and 0.6 or 0 end })
@@ -1235,12 +1236,58 @@ do
     local high = A.request(log, { name = "windstep-interrupt", level = "reflex", uses_move = true })
     check("windstep: suspension cancels pending cast", high.ok and cancelled == c + 1)
     A.release(log, high.token, "done"); M.stop(log)
+    st = begin(); run(1); c = cancelled
+    pawn.HealthComponent.IsDead = function() return true end; run(1)
+    check("windstep: death cancels pending cast and releases owner", M.status().result.reason == "companion_down" and cancelled == c + 1 and A.owner() == nil)
+    pawn.HealthComponent.IsDead = function() return false end
     M.stop(log)
     st = begin(); st.lpath = nil
     st.mpath = { { X = 0, Y = 0, Z = -90, act = "walk" }, { X = 10, Y = 0, Z = -90, act = "superjump" }, { X = 1000, Y = 0, Z = -90, act = "walk" } }
     st.mwp = 2; run(1)
     check("windstep: local edge barrier does not stall memory waypoint advance", st.mwp > 2)
     M.stop(log); M.set_spells(nil)
+end
+
+do
+    local hc, mc = pawn.HealthComponent, pawn.CharacterMovement
+    walls, raised, oracle, frame_hook, air = {}, {}, nil, nil, 0
+    pawn.loc = { X = 0, Y = 0, Z = 0 }
+    local started = M.go_to(log, { 0, 0, 0 }, { tolerance_m = 0.5 }); run(1)
+    check("integrity: normal grounded arrival", started.ok and M.status().result.status == "arrived" and M.verify_arrival().ok)
+    M.go_to(log, { 0, 0, -30 }, { timeout_s = 0.05, local_plan = false }); run(1)
+    check("integrity: same XY lower floor not arrived", M.status().result and M.status().result.status == "failed")
+    M.go_to(log, { 0, 0, 30 }, { timeout_s = 0.05, local_plan = false }); run(1)
+    check("integrity: same XY higher floor not arrived", M.status().result and M.status().result.status == "failed")
+    M.go_to(log, { 0, 0, 0 }, { tolerance_m = 0.5 }); air = 1; run(1)
+    check("integrity: airborne cannot arrive", M.status().mode == "go_to" and M.status().status == "awaiting_landing")
+    air = 0; run(1); check("integrity: arrival after landing", M.status().result.status == "arrived")
+    hc.IsDead = function() return true end
+    local dead = M.go_to(log, { 5, 0, 0 }, {}); check("integrity: dead at start", not dead.ok and dead.reason == "companion_down")
+    hc.IsDead = function() return false end
+    M.go_to(log, { 5, 0, 0 }, {}); hc.IsDead = function() return true end; run(1)
+    check("integrity: death interrupts", M.status().result.reason == "companion_down" and not _G.DW_MOVE.trip_ok)
+    hc.IsDead = function() return false end
+    M.go_to(log, { 5, 0, 0 }, {}); _G.DW_LIFE = { move_death_seq = 1 }; run(1)
+    check("integrity: observed death and revival same pawn interrupts", M.status().result.reason == "companion_down")
+    _G.DW_LIFE = nil
+    M.go_to(log, { 5, 0, 0 }, {}); pc.Pawn = obj({ CharacterMovement = mc }); run(1); pc.Pawn = pawn
+    check("integrity: pawn replacement interrupts", M.status().result.reason == "interrupted")
+    hc.IsDead = function() error("unavailable") end
+    local unknown = M.go_to(log, { 5, 0, 0 }, {}); check("integrity: unknown health is not death", not unknown.ok and unknown.reason == "verification_failed")
+    hc.IsDead = function() return false end
+    local missing = M.go_to(log, { 5, 0 }, {}); check("integrity: missing Z rejected", not missing.ok and missing.reason == "invalid_args")
+    local capsule = pawn.CapsuleComponent.GetScaledCapsuleHalfHeight
+    pawn.CapsuleComponent.GetScaledCapsuleHalfHeight = function() error("unavailable") end
+    local no_capsule = M.go_to(log, { 5, 0, 0 }, {})
+    check("integrity: unavailable capsule fails closed", not no_capsule.ok and no_capsule.reason == "verification_failed")
+    pawn.CapsuleComponent.GetScaledCapsuleHalfHeight = function() return math.huge end
+    no_capsule = M.go_to(log, { 5, 0, 0 }, {})
+    check("integrity: nonfinite capsule fails closed", not no_capsule.ok and no_capsule.reason == "verification_failed")
+    pawn.CapsuleComponent.GetScaledCapsuleHalfHeight = capsule
+    pawn.loc = { X = 0, Y = 0, Z = 0 }; M.go_to(log, { 2, 0, 0 }, { tolerance_m = 0.5, local_plan = false }); run(1)
+    check("integrity: custom tolerance used", not (M.status().result and M.status().result.status == "arrived")); M.stop(log)
+    M.go_to(log, { 0, 0, 0 }, {}); mc.IsMovingOnGround = function() error("unavailable") end; run(1)
+    check("integrity: unavailable ground fails", M.status().result.reason == "verification_failed"); mc.IsMovingOnGround = function() return air <= 0 end
 end
 
 for _, l in ipairs(logs) do if l:find("error") then print("LOG " .. l) end end

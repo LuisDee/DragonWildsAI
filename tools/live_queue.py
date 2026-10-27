@@ -66,6 +66,7 @@ OWNER = "live-queue"
 MAX_INCONCLUSIVE_RUNS = 3
 STATUS_FRESH_S = 180
 RELAUNCH_WAIT_S = 480
+READINESS_WAIT_S = 45
 INFRA_REASONS = {"timeout", "body_restarted", "lost_by_body", "paused", "no_reply"}
 DONE = {"passed", "failed", "observed"}
 FIXTURE_VERBS = {"grant", "grant_runes", "unlock", "set_health", "set_time", "teleport", "spawn", "raise_skills",
@@ -372,6 +373,9 @@ class Env:
     def now(self) -> float:
         return time.time()
 
+    def monotonic(self) -> float:
+        return time.monotonic()
+
     def sleep(self, s: float) -> None:
         time.sleep(max(0.0, s))
 
@@ -494,6 +498,7 @@ class Runner:
     state_path: Path = STATE_FILE
     run_id: str = field(default_factory=lambda: datetime.now().strftime("%Y%m%d-%H%M%S"))
     verbose: bool = True
+    client_pid: int | None = field(default=None, init=False)
 
     def write(self, event: str, **kv) -> None:
         row = {"t": iso(self.env.now()), "run": self.run_id, "event": event, **kv}
@@ -504,48 +509,107 @@ class Runner:
             print(json.dumps(row, default=str)[:600], flush=True)
 
     # ---- health and recovery
-    def precheck(self) -> None:
+    def precheck(self, expected_pid: int | None = None, wait_s: float = READINESS_WAIT_S) -> int:
         h = self.env.held()
         if h:
             raise HoldSet(h)
-        st = self.env.client_status()
-        age = self.env.now() - _ts(st.get("ts"))
-        if st.get("state") != "in_world" or age > STATUS_FRESH_S:
-            raise InfraError(f"client not in world (watchdog status {st.get('state')!r}, {age:.0f} s old)")
+        start = self.env.monotonic()
+        waiting_pid = expected_pid
+        waited = False
+        while True:
+            if self.env.held():
+                raise HoldSet(self.env.held())
+            st = self.env.client_status()
+            age = self.env.now() - _ts(st.get("ts"))
+            pid = st.get("pid")
+            if type(pid) is not int or pid <= 0 or not 0 <= age <= STATUS_FRESH_S:
+                raise InfraError(f"invalid watchdog identity or timestamp (pid {pid!r}, age {age:.0f} s)")
+            if waiting_pid is not None and pid != waiting_pid:
+                raise InfraError(f"client identity changed ({waiting_pid} -> {pid})")
+            if st.get("state") == "in_world":
+                break
+            if st.get("state") != "ok_unprobed":
+                raise InfraError(f"client not in world (watchdog status {st.get('state')!r}, {age:.0f} s old)")
+            waiting_pid = pid
+            if not waited:
+                self.write("readiness_wait", pid=pid)
+                waited = True
+            elapsed = self.env.monotonic() - start
+            if elapsed >= wait_s:
+                self.write("readiness_timeout", pid=pid, state=st.get("state"), elapsed_s=round(elapsed, 1))
+                raise InfraError(f"client readiness timed out ({st.get('state')}, pid {pid})")
+            self.env.sleep(min(2, wait_s - elapsed))
+        if waited:
+            self.write("readiness_ready", pid=pid, elapsed_s=round(self.env.monotonic() - start, 1))
         self.env.guard()
         r = self.env.bridge("ping", {}, 8)
         if not r.get("ok"):
             raise InfraError(f"bridge ping failed: {r.get('reason')}")
+        return pid
 
     def bridge_start(self) -> dict:
-        r = self.env.client_cmd("client_mod/commands/bridge_start.lua", None, 30) or {"ok": False, "error": "no_reply"}
+        r = self.env.client_cmd("client_mod/commands/bridge_start.lua", {"try_once": True}, 30) or {"ok": False, "error": "no_reply"}
+        result = r.get("result") if isinstance(r, dict) else None
+        if not (isinstance(r, dict) and r.get("ok") is True and isinstance(result, dict) and result.get("ok") is True
+                and result.get("started") is True and not result.get("deferred") and not result.get("refused")):
+            raise InfraError(f"bridge start not completed: {short(r, 600)}")
         self.env.reset_bridge()
+        ping = self.env.bridge("ping", {}, 8)
+        if not ping.get("ok"):
+            raise InfraError(f"bridge ping after start failed: {ping.get('reason')}")
         return short(r, 600)
 
     def recover(self, why: str) -> bool:
         """After a check: crashed client -> wait for the watchdog's relaunch + bridge_start; stuck input mode -> the
         gate's sweep once. False = could not recover (the run stops)."""
-        t0 = self.env.now()
+        t0 = self.env.monotonic()
         try:
-            self.precheck()
-            healthy = True
+            pid = self.precheck(self.client_pid)
         except InfraError as x:
-            healthy, first = False, str(x)
-        if not healthy:
+            first = str(x)
+            st = self.env.client_status()
+            # A changed identity or an actual watchdog restart state warrants
+            # waiting; ordinary same-client menu and guard/ping errors do not.
+            state, current_pid = st.get("state"), st.get("pid")
+            changed = type(current_pid) is int and current_pid > 0 and current_pid != self.client_pid
+            restart_state = state in ("down", "hung", "crashed", "booting")
+            if not changed and not restart_state:
+                self.write("recover_failed", why=why, problem=first)
+                return False
             self.write("recover_wait", why=why, problem=first)
-            while self.env.now() - t0 < RELAUNCH_WAIT_S:
+            while self.env.monotonic() - t0 < RELAUNCH_WAIT_S:
                 if self.env.held():
                     raise HoldSet(self.env.held())
-                self.env.sleep(10)
-                try:
-                    self.precheck()
+                st = self.env.client_status()
+                state, current_pid = st.get("state"), st.get("pid")
+                age = self.env.now() - _ts(st.get("ts"))
+                valid_pid = type(current_pid) is int and current_pid > 0
+                changed = valid_pid and current_pid != self.client_pid
+                if not 0 <= age <= STATUS_FRESH_S:
+                    self.write("recover_failed", why=why, problem="invalid or stale watchdog timestamp")
+                    return False
+                if state in ("in_world", "ok_unprobed"):
+                    try:
+                        remaining = RELAUNCH_WAIT_S - (self.env.monotonic() - t0)
+                        pid = self.precheck(wait_s=min(READINESS_WAIT_S, remaining))
+                        if pid == self.client_pid:
+                            raise InfraError("recovery did not confirm a changed client identity")
+                        self.write("recover_bridge_start", result=self.bridge_start())
+                    except InfraError as x:
+                        self.write("recover_failed", why=why, problem=str(x))
+                        return False
                     break
-                except InfraError:
-                    continue
+                allowed = ((state == "down" and current_pid is None) or
+                           (state in ("hung", "crashed", "booting") and valid_pid) or
+                           (state in ("menu", "no_pawn") and changed))
+                if not allowed:
+                    self.write("recover_failed", why=why, problem=f"unexpected watchdog state {state!r} pid {current_pid!r}")
+                    return False
+                self.env.sleep(min(10, RELAUNCH_WAIT_S - (self.env.monotonic() - t0)))
             else:
-                self.write("recover_failed", why=why, problem=first, waited_s=round(self.env.now() - t0))
+                self.write("recover_failed", why=why, problem=first, waited_s=round(self.env.monotonic() - t0))
                 return False
-            self.write("recover_bridge_start", result=self.bridge_start())
+        self.client_pid = pid
         try:
             mode = self.env.probe().get("input_mode")
         except InfraError as x:
@@ -672,12 +736,13 @@ class Runner:
             if self.env.held():
                 raise HoldSet(self.env.held())
             try:
-                self.precheck()
+                self.client_pid = self.precheck()
+                start = self.bridge_start()
             except InfraError as x:
                 self.write("run_precheck_failed", why=str(x))
                 summary["precheck_failed"] = str(x)
                 return summary
-            self.write("run_start", checks=[s["id"] for s in todo], bridge_start=self.bridge_start())
+            self.write("run_start", checks=[s["id"] for s in todo], bridge_start=start)
             for spec in todo:
                 if self.env.held():
                     raise HoldSet(self.env.held())

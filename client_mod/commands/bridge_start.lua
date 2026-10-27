@@ -9,5 +9,7 @@
 return function(log)
     local root = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
     local B = assert(loadfile(root .. "/client_mod/scripts/client_bridge.lua"))()
-    return B.restart_when_idle({ root = root, log = log, start_modules = true, force = rawget(_G, "FORCE") == true })
+    local try_once = type(ARGS) == "table" and ARGS.try_once == true
+    return B.restart_when_idle({ root = root, log = log, start_modules = true, immediate_only = try_once,
+                                 force = not try_once and rawget(_G, "FORCE") == true })
 end

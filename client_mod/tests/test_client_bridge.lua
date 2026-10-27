@@ -230,6 +230,16 @@ test("follow ending on its own (move stopped elsewhere) emits task_failed, no se
     assert(rpc("get_state").data.following == nil)
 end)
 
+test("follow native life failure reports one specific held-action failure and clears follow", function()
+    local r, _, id = rpc("follow", { player = "Luis" })
+    assert(r.ok)
+    FAKE.move.mode, FAKE.move.result = "idle", { status = "failed", reason = "companion_down", detail = "character is dead" }
+    step(); local out = drain(); local tf = events(out, "task_failed")
+    assert(#tf == 1 and tf[1].task_id == id and tf[1].reason == "character is dead", json.encode(tf))
+    assert(#results(out, id) == 0 and rpc("get_state").data.following == nil)
+    step(); assert(#events(drain(), "task_failed") == 0, "failure emitted twice")
+end)
+
 test("go_to pre-empts follow silently, replies when move.status says arrived (verified)", function()
     rpc("follow", { player = "Luis" })
     FAKE.move.calls = {}
@@ -244,7 +254,8 @@ test("go_to pre-empts follow silently, replies when move.status says arrived (ve
     local out = drain()
     local r = results(out, id)[1]
     assert(r and r.ok, "arrived reply")
-    assert(r.data.target_position[1] == 10 and r.data.position[1] == 9 and r.data.arrive_tolerance == 3 and r.data.dist_m == 1.4)
+    assert(r.data.target_position[1] == 10 and r.data.position[1] == 9 and r.data.arrive_tolerance == 1.5 and r.data.dist_m == 1.4)
+    assert(r.data.vertical_distance_m == 0 and r.data.vertical_tolerance_m == 1.8)
     local done = events(out, "task_done")
     assert(#done == 1 and done[1].task_id == id)
     assert(rpc("get_state").data.following == nil, "follow ended")
@@ -258,12 +269,46 @@ test("go_to: arrival claim far from the target -> verification_failed", function
     assert(r and r.ok == false and r.reason == "verification_failed", r and r.reason)
 end)
 
-test("go_to a player: no target_position, module reasons mapped", function()
+test("go_to rejects false arrival on another floor or while airborne", function()
+    for _, state in ipairs({ "height", "airborne", "unknown_life" }) do
+        local _, _, id = rpc("go_to", { target = { 10, 0, 0 }, tolerance = 0.5 })
+        FAKE.move.mode, FAKE.move.result = "idle", { status = "arrived" }
+        FAKE.move.position = state == "height" and { 10, 0, -30 } or { 10, 0, 0 }
+        FAKE.move.airborne, FAKE.move.unknown_life = state == "airborne", state == "unknown_life"
+        step(); local r = results(drain(), id)[1]
+        assert(r and not r.ok and r.reason == "verification_failed", state)
+    end
+    FAKE.move.airborne, FAKE.move.unknown_life = nil, nil
+    assert(rpc("go_to", { target = { 10, 0 } }).reason == "invalid_args")
+end)
+
+test("go_to rejects a projected endpoint and dead pawn", function()
+    local _, _, id = rpc("go_to", { target = { 10, 0, 0 } })
+    FAKE.move.mode, FAKE.move.result, FAKE.move.position = "idle", { status = "arrived" }, { 10, 0, 3 }
+    FAKE.move.target = { 10, 0, 3 } -- a projected endpoint is not the requested goal
+    step(); local r = results(drain(), id)[1]
+    assert(r and not r.ok and r.reason == "verification_failed")
+    _, _, id = rpc("go_to", { target = { 10, 0, 0 } })
+    FAKE.move.mode, FAKE.move.result, FAKE.move.position, FAKE.move.dead = "idle", { status = "arrived" }, { 10, 0, 0 }, true
+    step(); r = results(drain(), id)[1]
+    assert(r and not r.ok and r.reason == "companion_down")
+    FAKE.move.dead = nil
+end)
+
+test("go_to rejects missing fresh position height", function()
+    local _, _, id = rpc("go_to", { target = { 10, 0, 0 } })
+    FAKE.move.mode, FAKE.move.result, FAKE.move.position = "idle", { status = "arrived" }, { 10, 0 }
+    step(); local r = results(drain(), id)[1]
+    assert(r and not r.ok and r.reason == "verification_failed", r and r.reason)
+    FAKE.move.position = nil
+end)
+
+test("go_to a player: verifies current target position, module reasons mapped", function()
     local _, _, id = rpc("go_to", { target = "Luis" })
-    FAKE.move.mode, FAKE.move.result = "idle", { status = "arrived", dist_m = 1.0 }
+    FAKE.move.mode, FAKE.move.result, FAKE.move.position = "idle", { status = "arrived", dist_m = 1.0 }, { 3, 4, 3 }
     step()
     local r = results(drain(), id)[1]
-    assert(r.ok and r.data.target_position == nil and r.data.target == "Luis")
+    assert(r.ok and r.data.target_position[1] == 3 and r.data.target == "Luis")
     for reason, want in pairs({ stuck = "path_blocked", target_not_visible = "unknown_target", timeout = "timeout",
                                 error = "body_error" }) do
         _, _, id = rpc("go_to", { target = "Luis" })

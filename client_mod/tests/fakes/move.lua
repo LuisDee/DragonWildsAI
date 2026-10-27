@@ -10,7 +10,20 @@ function M.go_to(log, goal, opts)
     table.insert(S.move.calls, "go_to")
     S.move.mode, S.move.status, S.move.result = "go_to", "moving", nil
     S.move.target = type(goal) == "table" and goal or LUIS
+    S.move.tolerance = opts.tolerance_m or 1.5
     return { ok = true, mode = "go_to", gen = 1 }
+end
+function M.verify_arrival()
+    local p, g = S.move.position or S.me_pos or { 1, 2, 3 }, S.move.target
+    if S.no_pawn or S.move.dead then return { ok = false, reason = "companion_down", detail = "character unavailable" } end
+    if S.move.unknown_life or S.move.airborne then return { ok = false, reason = "verification_failed", detail = "state unavailable" } end
+    if not (p and g and p[3] and g[3]) then return { ok = false, reason = "verification_failed", detail = "position unavailable" } end
+    local d = math.sqrt((p[1] - g[1]) ^ 2 + (p[2] - g[2]) ^ 2)
+    if d > S.move.tolerance or math.abs(p[3] - g[3]) > 1.8 then
+        return { ok = false, reason = "verification_failed", detail = "destination not reached" }
+    end
+    return { ok = true, position = p, target_position = g, tolerance_m = S.move.tolerance,
+        vertical_distance_m = math.abs(p[3] - g[3]), vertical_tolerance_m = 1.8 }
 end
 function M.follow(log, player_name, distance_m, opts)
     table.insert(S.move.calls, "follow:" .. player_name)
