@@ -5,6 +5,10 @@ Evidence: `client_io/events/chat.jsonl`, `logs/brain-live-*.jsonl`, `logs/client
 
 ## 2026-10-26 — Recovery wave
 
+### 2026-10-27 follow-up: mixed work/help decision (R22, open)
+
+On deployed cde20004, Director proposed work steps including opening the newly built Crafting Table and also supplied conditional `ask_help`. `_apply` immediately parked task552d7ceb as waiting_help before the plan ran, then selected an older self-care task. Evidence: brain-live-20261027-225655-8912.jsonl and private tree-cde-ordinary-handoff.txt. This does not prove bench interaction fails or that Luis must grant an axe. Inspect and repair the generic decision contract with explicit validation feedback; no phrase matching, silent choice rewriting or benchmark-specific fallback. No fix or regression implemented yet.
+
 | ID | Symptom | Cause | Fix / evidence | Status |
 |---|---|---|---|---|
 | R1 | Strict provider rejects a speech-only follow-up | Pending say tool_use lacked matching tool_result before the next request | Controller answers say calls before the talk-only check; strict-provider tests in test_speech_channel.py | fixed offline; live confirmation pending |

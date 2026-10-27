@@ -417,3 +417,10 @@
 
 - CHECK_ALL: GREEN1096passed/1skipped,371.46s; approvedjudgediffempty. Queue samePIDreadiness, immediate-onlybusyrefusal, truthfulheight/lifearrival andcatalogcategorycandidates independentlyreviewed andintegrated90focusedchecks beforefull.
 - Devclientrestartannounced forbodypublication; stableclientwasonline throughoutdevelopment/tests. ServerandSteamremainadopted. Backups/affectedpathmanifest and44memoryfiles savedprivately. Nativecurrent-codeverificationstillnext; no axe/bench/felling, no fallprevention/M1-M6 claim.
+
+## 2026-10-27 — 23:10 Berlin: live-throughput and process diagnosis
+
+- Confirmed one ChatGPT app root with renderer/service children, one dev client/server, no active game brain or leftover test runner. Retained development agents completed. Both game processes normal priority8; app summed working sets about1.6GiB, host8GiB with576–1178MiB available during diagnosis. No confirmed orphan killed and no working-set trimming.
+- Live operator used queue20261027-230505 for read-only FPS/floor checks:2s active,20s readiness blocked,0 model calls/grants, slot released. Configured client limit30FPS; actual rate unmeasured. Positive jump calibration blocked by HP1/food0/endurance0.5 and unverified route, not by an offline gate.
+- Found scheduling gap: pending queue consisted of4 blocked cases; no DragonwildsLiveQueue task in scheduled-task inventory. Keep a single operator selecting relevant ready cases and recording idle reasons. Do not claim a live/offline ratio from spot checks or auto-run legacy fixtures into the autonomous task.
+- Saved previously completed cde construction evidence and new R22 mixed plan/help failure in recovery/BUGS/DISCOVERIES. Unlock-information candidate remains uncommitted and unpublished, no new full gate; next implementation is generic Director decision-contract repair, then integrated gate/publication/live resumption. Goal remains active, no axe/felling/M1–M6 completion.
