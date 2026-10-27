@@ -246,6 +246,10 @@ local function tool_word(p) return TOOL_WORD[p.tool or ""] or tostring(p.tool) e
 local function result_of(J, ok, reason, data)
     data = data or {}
     data.resource, data.item, data.want = J.key, J.item, J.want
+    data.selected_profile, data.mode = J.key, J.profile.mode
+    local training = J.profile.trains
+    data.expected_training = training == false and "none" or training
+    data.asked, data.fallback_reason = J.via and J.via.asked or nil, J.via and J.via.because or nil
     data.gathered = J.gained or 0
     data.total = J.have
     data.swings, data.hits, data.broken, data.targets = J.swings, J.hits, J.broken, J.targets
@@ -976,12 +980,10 @@ local function frame(J)
     refresh_count(J)
     if J.done then return end
     if J.item and (J.gained or 0) >= J.want then
-        local trains = J.profile and J.profile.trains
         local v = J.via
-        local detail = v and string.format("Got %d %s from %s (no usable %s for %s).", J.gained, v.asked, J.key, v.tool_word, v.asked)
-            or string.format("Got %d %s.", J.gained, J.key)
-        return finish(J, result_of(J, true, nil, { detail = detail, source = J.key, asked = v and v.asked or nil,
-            trains = trains == false and "none" or trains })) -- the skill this gives XP (profile data; "none" = verified none)
+        local detail = v and string.format("Got %d additional items; selected %s profile because I have no usable %s for %s.", J.gained, J.key, v.tool_word, v.asked)
+            or string.format("Got %d additional items using the %s profile.", J.gained, J.key)
+        return finish(J, result_of(J, true, nil, { detail = detail }))
     end
     local me = W.loc(pawn)
     J.me = me
@@ -1013,13 +1015,40 @@ function M.start(log, args, ctx)
     args = args or {}
     if _G.DW_PAUSE then return { ok = false, reason = "companion_down", data = { why = "paused", detail = "The world is loading." } } end
     local P = M.profiles()
+    local mode = args.mode
+    if mode ~= nil then
+        local valid = false
+        if type(mode) == "string" and mode ~= "" and P and P.RESOURCES then
+            for _, p in pairs(P.RESOURCES) do if p.mode == mode then valid = true; break end end
+        end
+        if not valid then return { ok = false, reason = "invalid_args", data = { detail = "Unknown or empty acquisition mode: " .. tostring(mode) } } end
+    end
     local key, profile
     if P then key, profile = P.resolve(args.resource) end
     local category, candidates
+    if mode and profile then
+        -- A resolved name may identify an item shared by several acquisition modes.
+        local matches = {}
+        for k, p in pairs(P.RESOURCES) do
+            if p.mode == mode and (k == key or (profile.item and p.item == profile.item)) then matches[#matches + 1] = k end
+        end
+        table.sort(matches)
+        if #matches == 0 then
+            return { ok = false, reason = "unknown_target", data = { why = "no_source_for_mode", resource = args.resource, mode = mode,
+                detail = "No known source for that resource with acquisition mode " .. mode .. "." } }
+        end
+        local selected = profile.mode == mode and key or matches[1]
+        key, profile = selected, P.RESOURCES[selected]
+    end
     if not profile and P and P.category then
         -- a generic word ("ore", "rock", "logs"): every profile whose game identifiers carry it; the
         -- nearest one with a usable node around him wins (gather_profiles.category, no word list)
         candidates = P.category(args.resource)
+        if mode then
+            local filtered = {}
+            for _, k in ipairs(candidates) do if P.RESOURCES[k].mode == mode then filtered[#filtered + 1] = k end end
+            candidates = filtered
+        end
         if #candidates > 0 then
             category = args.resource
             local pawn0 = W.pawn(W.pc())
@@ -1080,7 +1109,8 @@ function M.start(log, args, ctx)
                      profile.min_tier, tool_word(profile), tool.name or "?", tool.tier) } }
         end
         if fail then
-            local ak, ap = tool_free_alternative()
+            local ak, ap
+            if not mode then ak, ap = tool_free_alternative() end
             if not ak then return fail end
             via = { asked = key, source = ak, because = fail.data.why, tool_word = tool_word(profile) }
             key, profile, tool = ak, ap, nil
@@ -1137,7 +1167,7 @@ function M.start(log, args, ctx)
         end
     end)
     return { ok = true, data = { resource = key, item = profile.item, want = want, have = J.have, tool = tool and tool.name,
-             category = category, candidates = candidates,
+             category = category, candidates = candidates, mode = profile.mode,
              tool_tier = tool and tool.tier, radius_m = J.radius_cm / 100, timeout_s = J.timeout_s } }
 end
 
@@ -1192,13 +1222,19 @@ do
     local function obj(t) return setmetatable(t or {}, OBJ) end
     local ok_t, trains = pcall(function() return M.trains_summary(M.profiles()) end)
     trains = (ok_t and trains ~= "") and (" " .. trains .. " (other profiles: not measured).") or ""
+    local modes, seen = {}, {}
+    for _, p in pairs((M.profiles() or {}).RESOURCES or {}) do
+        if p.mode and not seen[p.mode] then seen[p.mode] = true; modes[#modes + 1] = p.mode end
+    end
+    table.sort(modes)
     M.MANIFEST = {
         gather = { kind = "action", llm = true, moves = true, priority = "task", duration_s = 120, timeout_s = 1800,
             detail_is_speech = true,
-            description = "Harvest a resource (a profile key, e.g. oak, ash, copper, stone_boulder, loose_stones) until you have count MORE; finds targets and equips your tool. The result's `trains` names the skill it gave XP to (none = no XP)." .. trains,
+            description = "Gather additional inventory items, including nearby drops. Optional mode selects profile (" .. table.concat(modes, ", ") .. ") and disables cross-mode fallback; it does not prove work occurred. Without mode a same-item tool-free source may substitute. Result selected_profile and expected_training describe profile metadata, not item provenance or observed XP." .. trains,
             args = { type = "object", required = { "resource", "count" }, properties = obj({
-                resource = { type = "string", description = "A resource (oak, copper, stone_boulder = mine a stone boulder with a pickaxe, Mining XP; loose_stones = pick stones up off the ground, no XP) or a kind (ore, rock, logs, stone: the nearest of that kind)." },
-                count = { type = "integer", minimum = 1, description = "How many more." },
+                resource = { type = "string", description = "A profile key, item, alias or kind; a category selects the nearest matching profile. Inventory gains may include nearby drops." },
+                count = { type = "integer", minimum = 1, description = "How many additional inventory items, in every mode." },
+                mode = { type = "string", description = "Optional acquisition mode from profile data, such as chop or pickup. Limits sources and disables cross-mode fallback; it does not prove a particular target was worked." },
                 radius = { type = "number", minimum = 1, maximum = 120, description = "Search radius, m (default 30)." },
                 stumps = { type = "boolean", description = "Also chop stumps." },
                 style = { type = "string", description = "One of the tool's actions (see held_actions), e.g. Overhead Chop." } }) },
@@ -1217,7 +1253,7 @@ M.HANDLERS = {
             return { ok = false, reason = "invalid_args", data = { detail = "count must be 1 or more" } }
         end
         local r = M.start(log, { resource = args.resource, count = args.count or 1, radius = args.radius, stumps = args.stumps,
-                                 style = args.style }, ctx)
+                                 style = args.style, mode = args.mode }, ctx)
         if not r.ok then return r end
         local J = C().job
         local a = { kind = "gather", id = ctx and ctx.id, timeout_s = (J and J.timeout_s or 600) + 15 }

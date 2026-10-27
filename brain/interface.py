@@ -123,6 +123,7 @@ class AttackArgs(BaseModel):
 class GatherArgs(BaseModel):
     resource: str = Field(description="Resource to harvest, e.g. 'oak' (oak logs), 'ash', 'stone' or 'rune_essence'.")
     count: int = Field(ge=1, description="How many more to gather (counted in the inventory).")
+    mode: str | None = Field(None, description="Optional profile acquisition mode.")
     radius: float | None = Field(None, gt=0, le=120,
                                  description="Initial search radius in metres (default 30; it widens when nothing is found).")
 

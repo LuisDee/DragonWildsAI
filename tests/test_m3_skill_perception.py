@@ -82,3 +82,39 @@ def test_vendor_recipes_are_flagged():
     recs = [r for rs in recipes_by_output().values() for r in rs]
     vend = [r for r in recs if r["vendor"]]
     assert vend and all(r["recipe"].startswith("DA_Recipe_Vendor") for r in vend[:50])
+
+
+def test_gather_mode_reaches_controller_and_director(tmp_path):
+    from brain.capabilities import Capabilities
+    from brain.director import _arg_list, SYSTEM
+
+    lua = _lua()
+    if not lua:
+        pytest.skip("no Lua interpreter")
+    out = subprocess.run([lua, str(ROOT / "client_mod/tests/dump_manifest.lua"), str(tmp_path)],
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-2000:]
+    rows = json.loads(out.stdout)["manifest"]
+    entry = next(row for row in rows if row["name"] == "gather")
+    caps = Capabilities(tools=["gather"], source="capabilities", manifest={"gather": entry})
+    function = caps.function_schema("gather")["function"]
+    assert "mode" in function["parameters"]["properties"]
+    assert "not item provenance or observed XP" in function["description"]
+    assert caps.validate("gather", {"resource": "x", "count": 1, "mode": "chop"})["mode"] == "chop"
+    assert "mode" in _arg_list(entry["args"])
+    assert "selects profile" in entry["description"]
+    assert "Item possession or gain alone does not establish" in SYSTEM
+
+
+def test_inventory_only_is_not_evidence_of_operation():
+    from brain import predicates as P
+
+    item = "ITEM_Resources_Wood_Ash"
+    baseline = {"inventory": {item: 4}, "skills": [{"skill": "Woodcutting", "level": 1, "xp": 206}]}
+    pickup = {"inventory": {item: 5}, "skills": [{"skill": "Woodcutting", "level": 1, "xp": 206}]}
+    item_gain = P.validate({"gained": {"item": item, "at_least": 1}})
+    xp_gain = P.validate({"skill_gain": {"name": "Woodcutting", "xp": 1}})
+    assert P.evaluate(item_gain, pickup, {"baseline": baseline}).passed is True
+    assert P.evaluate(xp_gain, pickup, {"baseline": baseline}).passed is False
+    unknown = {"inventory": {item: 5}, "skills": [{"skill": "Woodcutting", "level": 1}]}
+    assert P.evaluate(xp_gain, unknown, {"baseline": baseline}).passed is None

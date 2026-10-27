@@ -391,3 +391,8 @@
 - No-axe task87658e1c FAILED independent audit despite board done: one tool-free stick pickup satisfied the model-chosen AshLogs+1 predicate; zero swings/hits/breaks, no axe/craft/bench, WCXP206 unchanged. Log brain-live-20261027-203109-8512.jsonl; before/after probes preserved. Runtime planner success was too weak; frozen benchmark judges are unchanged.
 - Run including old/background jobs used31 Controller /18 Director /1 warmup. UTC-day total $0.4827,95 calls. Owned brain stopped and remaining body action cleared through normal main-channel stop. Client now down/held for next body work; server/Steam/memory retained, freeRAM~3.3GB.
 - Primary-source gathering-operation design conditionally approved. PhaseA contract/guidance implementation underway; root-count rewrite deferred pending actual native signals. No no-axe, M1 or broader completion claimed.
+
+## 2026-10-27, 21:23 Berlin — Gather contract gated; live throughput priority
+
+- Reviewed Phase A passed CHECK_ALL: GREEN, 1069 passed /1 skipped in366.57s; frozen judge diff empty. Optional gather mode survives typed validation and learned skills, fallback remains available, profile/expected-training labels no longer imply actual operation provenance. No live improvement or no-axe completion yet.
+- Stable runtime plus isolated candidate development is the agreed next operating arrangement. One live operator keeps relevant cases moving; client-off publication/resource windows remain bounded. Server never stopped; client relaunch follows this checkpoint.

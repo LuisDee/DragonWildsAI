@@ -492,7 +492,7 @@ do
     local res = run_job({ resource = "rock", count = 3 }, 200)
     check("mine a stone rock", res.ok == true and res.data.gathered >= 3, tostring(res.reason) .. " " .. tostring(res.data and res.data.why))
     check("mining equipped the pickaxe", Wd.equips[1] == "ITEM_Pickaxe_Mithril", Wd.equips[1])
-    check("mining a boulder: the result names Mining", res.data and res.data.trains == "Mining", res.data and res.data.trains)
+    check("mining a boulder: the result names Mining", res.data and res.data.expected_training == "Mining", res.data and res.data.expected_training)
 end
 
 -- ================================================================ 11b. "stone" is ambiguous (live skill_routes 2026-10-26)
@@ -569,7 +569,7 @@ do
     local res = run_job({ resource = "stones", count = 2 }, 120)
     check("pickup stones", res.ok == true and Wd.presses >= 2, tostring(res.reason) .. " " .. tostring(res.data and res.data.why) .. " presses=" .. Wd.presses)
     check("pickups need no tool", #Wd.equips == 0, #Wd.equips)
-    check("loose stones: the result says no XP (trains none)", res.data and res.data.trains == "none", res.data and res.data.trains)
+    check("loose stones: the result says no XP (trains none)", res.data and res.data.expected_training == "none", res.data and res.data.expected_training)
     -- unknown item id (flax has no item in its profile): learned from the inventory gain
     reset()
     fake_pc.Pawn = Wd.pawn
@@ -630,9 +630,9 @@ do
     add_foliage_tree("Ash", { X = 900, Y = 900, Z = 0 })
     branches(3)
     res = run_job({ resource = "ash", count = 2 }, 120)
-    check("no axe, 'ash': collected from branches", res.ok == true and res.data.source == "sticks" and res.data.asked == "ash" and #Wd.equips == 0,
-          tostring(res.reason) .. " source=" .. tostring(res.data and res.data.source))
-    check("the reply names the source and why", res.data and tostring(res.data.detail):find("from sticks", 1, true)
+    check("no axe, 'ash': collected from branches", res.ok == true and res.data.selected_profile == "sticks" and res.data.asked == "ash" and #Wd.equips == 0,
+          tostring(res.reason) .. " source=" .. tostring(res.data and res.data.selected_profile))
+    check("the reply names the source and why", res.data and tostring(res.data.detail):find("selected sticks profile", 1, true)
           and tostring(res.data.detail):find("no usable", 1, true), res.data and res.data.detail)
     -- with an axe: the tree, as asked (no fallback)
     reset()
@@ -640,14 +640,51 @@ do
     add_foliage_tree("Ash", { X = 600, Y = 0, Z = 0 })
     branches(3)
     res = run_job({ resource = "ash", count = 2 }, 400)
-    check("with an axe, 'ash' chops the tree", res.ok == true and res.data.source == "ash" and res.data.asked == nil,
-          tostring(res.reason) .. " source=" .. tostring(res.data and res.data.source))
+    check("with an axe, 'ash' chops the tree", res.ok == true and res.data.selected_profile == "ash" and res.data.asked == nil,
+          tostring(res.reason) .. " source=" .. tostring(res.data and res.data.selected_profile))
     -- no axe and no branches: the truthful wrong_tool, unchanged
     reset({ inv = {} })
     fake_pc.Pawn = Wd.pawn
     add_foliage_tree("Ash", { X = 600, Y = 0, Z = 0 })
     local r0 = G.start(nil, { resource = "ash", count = 2 })
     check("no axe, no branches: wrong_tool no_tool", r0.ok == false and r0.reason == "wrong_tool" and r0.data.why == "no_tool", r0.reason)
+end
+
+-- Mode is a source policy, not proof of work; counts still mean inventory items.
+do
+    reset({ inv = {} }); fake_pc.Pawn = Wd.pawn
+    add_foliage_tree("Ash", { X = 900, Y = 900, Z = 0 }); branches(3)
+    for _, name in ipairs({ "ash", "ash logs", "ITEM_Resources_Wood_Ash" }) do
+        local r = G.HANDLERS.gather(nil, { resource = name, count = 1, mode = "chop" }, { id = "mode" })
+        check("constrained source needs tool: " .. name, r.ok == false and r.reason == "wrong_tool", r.reason)
+    end
+    local r = G.HANDLERS.gather(nil, { resource = "ash", count = 1, mode = "pickup" }, { id = "mode" })
+    check("handler passes pickup mode", r.pending and _G.DWGather.job.profile.mode == "pickup")
+    if r.pending then r.pending.cancel() end
+    local res = run_job({ resource = "ash", count = 1, mode = "pickup" }, 120)
+    check("constrained pickup reports source and mode", res.ok and res.data.selected_profile == "sticks" and res.data.mode == "pickup" and res.data.gathered >= 1)
+    reset({ inv = {} }); fake_pc.Pawn = Wd.pawn
+    add_foliage_tree("Ash", { X = 900, Y = 900, Z = 0 }); branches(3)
+    r = G.HANDLERS.gather(nil, { resource = "logs", count = 1, mode = "chop" }, { id = "category" })
+    check("category filtered before nearest and no fallback", r.ok == false and r.reason == "wrong_tool", r.reason)
+    r = G.HANDLERS.gather(nil, { resource = "ash", count = 1, mode = "" }, { id = "bad" })
+    check("empty mode invalid", r.reason == "invalid_args")
+    r = G.HANDLERS.gather(nil, { resource = "ash", count = 1, mode = "nonsense" }, { id = "bad" })
+    check("unknown mode invalid", r.reason == "invalid_args")
+    check("manifest distinguishes expected XP", G.MANIFEST.gather.description:find("not item provenance or observed XP", 1, true) ~= nil)
+    check("manifest exposes mode", G.MANIFEST.gather.args.properties.mode ~= nil)
+end
+
+-- Existing nearby drops can satisfy inventory count with no work on the selected profile.
+do
+    reset(); fake_pc.Pawn = Wd.pawn
+    spawn_drops({ X = 100, Y = 0, Z = 0 }, 1, "ITEM_Resources_Wood_Ash")
+    local res = run_job({ resource = "ash", count = 1, mode = "chop" }, 120)
+    check("drop-only succeeds by inventory gain", res.ok and res.data.gathered >= 1)
+    check("drop-only names profile, not physical provenance", res.data.selected_profile == "ash" and res.data.source == nil)
+    check("drop-only reports no tool work", res.data.swings == 0 and res.data.hits == 0 and res.data.broken == 0)
+    check("drop-only reports expected profile training, not XP", res.data.expected_training == "Woodcutting" and res.data.trains == nil and res.data.xp == nil)
+    check("drop-only speech does not claim a tree or source", not res.data.detail:find("from", 1, true) and not res.data.detail:find("chop", 1, true))
 end
 
 -- ================================================================ 13. pause / death / handler args

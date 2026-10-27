@@ -2220,3 +2220,7 @@ Builds: client 26162923, dump 26161880.
 
 - The late places dump contains hierarchical game tags for all 31 regions. Regenerating with tools.build_places replaces fallback province inference with game-tag provenance in data/places_26161880.json. Historical notes saying tags are unavailable are superseded by this dump.
 - LiveAgent.handle_event routes CommandReceived through the same addressed-chat parser. A direct diagnostic injection without a companion prefix is ignored; the recovery survival run therefore made zero model calls. It is not evidence of autonomous survival behavior.
+
+## Gathering evidence contract (2026-10-27)
+
+- Offline negative control confirms a selected gather profile may collect existing loose drops with inventory gain and zero swings/hits/breaks. Profile selection and expected training are capability metadata, not observations of tree felling or XP. Keep operation-specific proof independent of inventory count. Optional mode now reaches actual Controller validation and learned-skill expansion; full regression1069/1 skipped. Live effect remains to be measured.

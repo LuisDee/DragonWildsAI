@@ -1,6 +1,26 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
-## Current handoff — 2026-10-27, 15:13 Berlin
+## Current handoff — 2026-10-27, 21:23 Berlin
+
+### Latest tested checkpoint and next live work
+
+- Gathering Phase A full rerun is terminal **CHECK_ALL: GREEN: 1069 passed, 1 skipped, 366.57s**. Log: logs/recovery/gather-contract-fixed-full-67a99530987540f88247f3bd15bcc78f/check-all.log. Session65400 is finished; do not rerun it. Frozen judge diff remains empty. Independent implementation/design review accepted the candidate.
+- Committing model-selected gather mode, preserved default material fallback, truthful selected_profile/expected_training metadata and generic planning guidance. This is not proof of tree felling: loose drops can still satisfy an inventory count. No-axe remains FAILED pending remeasurement.
+- Announced dev client relaunch; server7016, Steam, watchdog9888 and oracle144/10016 retained. No active delegated agent, brain or pytest found at21:22. Next: release/relaunch dedicated ClaudeDev on dev, then one live operator repeats the plain task and stops immediately on target terminal state. Preserve before/after and per-world memories. Spend last verified $0.4827/10,95 priced calls.
+- Runtime-isolation design now reviewed with exact-commit ff-only publication, verified client-off barrier, isolated candidate dependencies/output and forward-revert recovery. Implement only in separate development checkout while deployed code remains clean; no extra game client/server. Historical running-gate notes below are superseded.
+
+### User live-throughput steering and current gate
+
+- User challenged process memory and excessive client downtime. Read-only process audit: one ChatGPT/Codex app root12032, nine renderers, GPU/network/storage/audio helpers and two crash handlers, all in the same app process tree; aggregate working sets about1.6GB (shared pages may be counted repeatedly). No independent/orphan app identified from this evidence; do not equate app helper count with agent count or kill components by name. Server7016 remains running (~474MB working set), not resource-capped by this work; client held because the deployed tree was edited directly. That coupling caused avoidable downtime.
+- New operating priority in AGENTS: a stable deployed tree and isolated development worktree, one scheduled live operator, short integration/resource windows instead of holding client throughout coding. Researched staged design docs/design/live-runtime-isolation.md is in fresh review. Phase1 uses normal client STOP/HOLD plus verified absence for exact tested committed integration; it does not claim idle-plus-copy is atomic or require a new hot-publication platform. No worktree or isolation deployment has yet been created. Keep runtime identity, per-world memory and frozen judges intact.
+- Prior gather full gate17335 is terminal RED: 1067 passed/2 failed/1 skipped, both expected normalized dictionaries omitted new mode=None. Author preserved existing model_dump semantics, updated expectations, and added explicit-mode preservation through direct validation and learned-skill expansion. Forty focused compatibility tests and29 final preflight tests pass; source unchanged by that correction.
+- **Adopt new full gate session65400**, not old17335: `logs/recovery/gather-contract-fixed-full-67a99530987540f88247f3bd15bcc78f/check-all.log`. Running against frozen candidate with corrected tests. Client remains held until this completes; no duplicate fullgate/worldload/brain. Save actual result before committing/deploying source, then keep the validated runtime live while arranging Phase1 isolation.
+
+### Current continuation — gathering full gate running
+
+- PhaseA reporting correction passed independent review: gather job results use selected_profile / expected_training, not physical-source or observed-XP claims. Drop-only negative control proves inventory gain with zero swings/hits/breaks remains possible. Focused results 109 Lua /58 Python passed. Fields have no production consumers depending on removed ambiguous gather source/trains names. Frozen judges untouched.
+- **Adopt existing full gate, do not duplicate it:** exec session **17335**, log `logs/recovery/gather-contract-full-9cebadf119534c4189934c55239a2e26/check-all.log`. Started after the corrected candidate was frozen. Poll the same session or inspect its actual pytest process if observation expires; no new full test or client/brain launch until terminal.
+- Candidate source/tests and design are still uncommitted pending full result; latest pushed handoff6280769, completed prior source62e7f81. Client down/held, no brain/tester reservation, server/watchdog/oracle retained. Main integrates after actual GREEN, then announces dev client release/relaunch and repeats no-axe request. A profile mode is not proof work occurred; reject pickup-only completion again if seen. Goal active, no milestone completion.
 
 ### 20:48 Berlin — No-axe false completion measured; next contract fix
 

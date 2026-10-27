@@ -34,8 +34,9 @@ def test_tool_table_matches_catalog():
 
 
 def test_gather_args_schema():
-    assert validate_args("gather", {"resource": "oak", "count": 4}) == {"resource": "oak", "count": 4, "radius": None}
+    assert validate_args("gather", {"resource": "oak", "count": 4}) == {"resource": "oak", "count": 4, "mode": None, "radius": None}
     assert validate_args("gather", {"resource": "stone", "count": 2, "radius": 50})["radius"] == 50
+    assert validate_args("gather", {"resource": "stone", "count": 2, "mode": "chop"})["mode"] == "chop"
 
 
 def test_gather_reasons_are_deterministic():

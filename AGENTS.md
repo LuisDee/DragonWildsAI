@@ -16,6 +16,17 @@ autonomous test configuration.
 - Confirm the effective client target is dev and Shockbyte is forbidden before
   live work. Use the existing client reservation and live-check queue. One live
   tester at a time; never reload the bridge with an action in flight.
+- Luis's live-throughput priority (2026-10-27): keep the single client scheduled
+  for meaningful validation on the last tested deployed version while candidate
+  work happens in an isolated development tree. Avoid holding it throughout
+  ordinary development. Until isolation is verified, do not expose it to dirty
+  auto-reloaded files. Use brief client-off integration/recovery windows; keep
+  server, Steam and per-world state. One live operator owns the slot and queue;
+  main analysis must not leave an unrelated brain spending after a target ends.
+- Record live-active time and blocked reasons; queue the next relevant unmet
+  case rather than repeatedly exercising already-proven easy cases. Resource
+  guards still apply: a full gate or world load may require a short validation
+  pause, and isolated development does not create another client or live tester.
 - Announce game/client restarts before executing them. Never restart Steam as a
   routine repair: the previous login was not persistent and may require Luis's
   Steam Guard approval. Use `tools/steam_restart.py` for its safety check.

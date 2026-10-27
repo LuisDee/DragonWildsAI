@@ -175,7 +175,11 @@ def test_expand_repeat_products_and_composition(tmp_path):
                                 {"skill": "go_to", "args": {"target": "Luis"}}]))
     tasks = lib.expand("stacks_to_luis", {"r": "oak"}, reg)
     assert [t.skill for t in tasks] == ["gather", "gather", "drop", "go_to"]
-    assert tasks[2].args["count"] == 10 and tasks[0].args == {"resource": "oak", "count": 5, "radius": None}
+    assert tasks[2].args["count"] == 10 and tasks[0].args == {"resource": "oak", "count": 5, "mode": None, "radius": None}
+    lib.save(SkillRecord(name="mode_gather", description="Gather with a selected mode.",
+                         params={"mode": {"type": "str"}},
+                         steps=[{"skill": "gather", "args": {"resource": "oak", "count": 1, "mode": "$mode"}}]))
+    assert lib.expand("mode_gather", {"mode": "chop"}, reg)[0].args["mode"] == "chop"
     with pytest.raises(ValueError):
         lib.expand("stacks_to_luis", {}, reg)  # missing param
 

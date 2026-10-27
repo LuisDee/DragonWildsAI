@@ -149,6 +149,7 @@ Rules:
   lookup (game data before the wiki; the wiki is community text, may be outdated). Don't look up what you know.
 - Steps are things his tools can do, in order, each with a test that measures the work. Tests already true now
   are trivial: choose ones that measure what the step changes. Prefer tests that can't be null.
+- Item possession or gain alone does not establish that a requested operation happened. Choose available state evidence appropriate to the work, and distinguish expected training from observed XP. If suitable evidence is unavailable, report a perception gap rather than claiming the operation is verified.
 - "start", "gained", "lost" and "elapsed" in a STEP's test mean since that step began; in the job's done test,
   since the job began. So compare gear with "start" in the job's done test, and test a step that equips
   something with "equipped".
