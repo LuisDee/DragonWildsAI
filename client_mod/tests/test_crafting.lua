@@ -40,10 +40,24 @@ local function contents(rows)
     return { rows = rows, by_item = by, slots = 2 }
 end
 
-local MOVE = {}
-function MOVE.go_to(log, pos) F.goal = { pos[1], pos[2], pos[3] }; F.moves = (F.moves or 0) + 1; return { ok = true } end
-function MOVE.status() if F.goal then F.pos, F.goal = F.goal, nil end; return { mode = "idle", result = { status = "arrived" } } end
-function MOVE.stop() F.goal = nil; return { ok = true } end
+local MOVE = { gen=0 }
+local ARB = { owner=nil, seq=0 }
+function ARB.request(_,spec) ARB.seq=ARB.seq+1;ARB.owner={token=ARB.seq,state="owner",name=spec.name};return {ok=true,token=ARB.seq} end
+function ARB.owns_move(token) return ARB.owner~=nil and ARB.owner.token==token end
+function ARB.holds(token) return ARB.owns_move(token) end
+function ARB.renew(token) return ARB.owns_move(token) end
+function ARB.release(_,token) if ARB.owns_move(token) then ARB.owner=nil;return {ok=true} end return {ok=false} end
+function MOVE.go_to(log,pos,opts)
+    MOVE.gen=MOVE.gen+1; MOVE.token=opts and opts.owner_token
+    F.goal={pos[1],pos[2],pos[3]};F.moves=(F.moves or 0)+1;return {ok=true,gen=MOVE.gen}
+end
+function MOVE.status() if F.goal then F.pos,F.goal=F.goal,nil end;return {mode="idle",result={status="arrived"}} end
+function MOVE.stop() F.goal=nil;return {ok=true} end
+function MOVE.child_status(_,gen,token) return {ok=gen==MOVE.gen and token==MOVE.token and ARB.owns_move(token),mode=F.goal and "go_to" or "idle"} end
+function MOVE.stop_owned(_,gen,token)
+    if gen~=MOVE.gen or token~=MOVE.token or not ARB.owns_move(token) then return {ok=false} end
+    F.goal=nil;return {ok=true}
+end
 
 local INV = {}
 function INV.count_item(path)
@@ -98,7 +112,7 @@ local SENSE = { local_pawn = function() return { AddMovementInput = function() e
 local api = {
     module = function(n)
         if n == "skills" then return SK elseif n == "move" then return MOVE elseif n == "inventory" then return INV
-        elseif n == "sense" then return SENSE elseif n == "gather_profiles" then return GP
+        elseif n == "sense" then return SENSE elseif n == "arbiter" then return ARB elseif n == "gather_profiles" then return GP
         elseif n == "input" then return INPUTF end
     end,
     call = function(mod, fn, ...)
@@ -220,6 +234,8 @@ end
 local function reset(o)
     o = o or {}
     T = 1000
+    ARB.owner=nil
+    _G.DWArbiter=ARB
     _G.DWCraft, _G.DW_PAUSE = { results = {}, seq = 0 }, nil
     F = { pos = { 0, 0, 0 }, inv = {}, items = o.items or {}, stations = o.stations or {}, unlocked = (o.unlocked == nil) and {} or o.unlocked }
     for item, n in pairs(o.have or {}) do add_inv(item, n) end
@@ -471,7 +487,14 @@ do -- the output lies at the station, whose interaction wins a near miss (live 2
     reset({ stations = { FURNACE() }, unlocked = U({ "RECIPE_Process_IronBar" }),
             have = { ITEM_Resources_IronOre = 3, ITEM_Fuel_Resources_Charcoal = 1 } })
     F.station_behind = true
+    local old_poll=SK._episode_poll;local owned_polls=0
+    SK._episode_poll=function(api_,ep,t,token)
+        if token and ARB.owns_move(token) then owned_polls=owned_polls+1 end
+        return old_poll(api_,ep,t,token)
+    end
     local r = run({ recipe = "RECIPE_Process_IronBar" })
+    SK._episode_poll=old_poll
+    check("processing pickup inherits craft owner token",owned_polls>0)
     check("proc/station behind: collected", r.ok and inv_counts().ITEM_Resources_IronBar == 1,
           tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
     local st = F.stations[1].position
@@ -495,7 +518,8 @@ do -- a generic pickup the detector loses to a neighbour: the next sides avoid w
     local e = SK._new_episode(api, F.items[1], { label = "Iron Bar" })
     e.want_item, e.need_gain = "ITEM_Resources_IronBar", true
     local res
-    for _ = 1, 200 do T = T + 0.25; res = SK._episode_poll(api, e, T); if res then break end end
+    local owner=ARB.request(nil,{name="test:episode"})
+    for _ = 1, 200 do T = T + 0.25; res = SK._episode_poll(api, e, T, owner.token); if res then break end end
     check("episode: other sides avoid the station it picked", res and res.ok and e.avoid and e.avoid[1] == 8 and inv_counts().ITEM_Resources_IronBar == 1,
           res and (tostring(res.reason) .. " " .. tostring((res.data or {}).detail)))
     api.find_thing = function(id) for _, it in ipairs(F.items) do if it.id == id then return it end end end
@@ -966,6 +990,17 @@ do -- Root stock remains available when a descendant genuinely needs it.
     t=C.plan_tree({item="P"},1,ctx)
     check("additional mode preserves cycle detection",t.root.inputs[1].inputs[1].status=="cycle")
     C.set_data(REAL)
+end
+do -- A malformed successful movement response must not release its parent or press UI.
+    reset({stations={TABLE()},have={ITEM_Resources_Wood_Ash=6,ITEM_Resources_Stone=8},unlocked=U({"RECIPE_Pickaxe_Stone"})})
+    local original=MOVE.go_to
+    MOVE.go_to=function(log,pos,opts) local r=original(log,pos,opts);r.gen=nil;return r end
+    local h=C.HANDLERS.craft(nil,{recipe="RECIPE_Pickaxe_Stone"},{api=api,id="missing-gen"})
+    local a=h.pending;a.started=T
+    for _=1,10 do T=T+.25;a.poll(a) end
+    check("unconfirmed child generation retains parent and does not press",ARB.owner~=nil and not F.presses and not F.sent and F.moves==1,
+      "owner="..tostring(ARB.owner~=nil).." presses="..tostring(F.presses).." sent="..tostring(F.sent).." goal="..tostring(F.goal~=nil).." moves="..tostring(F.moves))
+    MOVE.go_to=original;ARB.owner=nil;F.goal=nil
 end
 print(string.format("test_crafting: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

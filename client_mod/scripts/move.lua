@@ -2787,6 +2787,35 @@ end
 local function start(log, mode, opts)
     if paused() then return { ok = false, error = "paused (world changing)" } end
     local st = S()
+    local old_gen, old_token, old_mode = st.gen, st.owner_token, st.mode
+    local function death_seq()
+        local life=rawget(_G,"DW_LIFE")
+        return type(life)=="table" and (life.move_death_seq or 0) or 0
+    end
+    local start_life_seq=death_seq()
+    local raw_arb = rawget(_G,"DWArbiter")
+    local old_owner = type(raw_arb)=="table" and raw_arb.owner or nil
+    local old_owner_token = old_owner and old_owner.token
+    local function unchanged()
+        return not paused() and death_seq()==start_life_seq and rawget(_G,"DW_MOVE")==st and st.gen==old_gen and st.owner_token==old_token
+            and st.mode==old_mode and rawget(_G,"DWArbiter")==raw_arb
+            and (type(raw_arb)~="table" or raw_arb.owner==old_owner)
+            and (not old_owner or old_owner.token==old_owner_token)
+    end
+    local arb = move_arbiter()
+    if not unchanged() then return {ok=false,reason="interrupted"} end
+    if opts.owner_token then
+        -- A resumed implicit record is intentionally owner while its old move is
+        -- idle; housekeeping would otherwise discard it before restore starts.
+        local restoring_implicit = old_mode=="idle" and old_owner and old_owner.implicit == true and
+            old_owner.state=="owner" and old_owner.uses_move~=false and old_owner.token==opts.owner_token
+        if not restoring_implicit and not (arb and arb.owns_move and arb.owns_move(opts.owner_token)) then
+            return {ok=false,reason="interrupted",detail="movement ownership unavailable"}
+        end
+        if not unchanged() then return {ok=false,reason="interrupted",detail="movement ownership changed"} end
+    elseif old_owner and not (old_owner.implicit and st.owner_implicit and old_owner.token==old_token) then
+        return {ok=false,reason="busy",detail="movement owner token required"}
+    end
     local pc = local_pc()
     local pawn = pc and pc.Pawn
     if not is_character(pawn) then return { ok = false, error = "no player character (main menu / loading?)" } end
@@ -2800,37 +2829,99 @@ local function start(log, mode, opts)
     if type(g) == "table" and not g.actor and (type(g[1]) ~= "number" or type(g[2]) ~= "number" or type(g[3]) ~= "number") then
         return { ok = false, reason = "invalid_args", detail = "destination needs x, y and z" }
     end
-    cancel_superjump(st) -- before timer cancellation or ownership rotation
+    local start_world=world_identity()
+    if opts.owner_token and not start_world then return {ok=false,reason="verification_failed",detail="movement world unavailable"} end
+    local function oldsafe()
+        local current_world=world_identity()
+        local ok,current=pcall(function() return pc.Pawn end)
+        local living=ok and current==pawn and life_check({},pawn)
+        return current_world==start_world and living==true and death_seq()==start_life_seq and unchanged()
+    end
+    if not oldsafe() then return {ok=false,reason="interrupted"} end
+    cancel_superjump(st) -- callbacks may replace the mover
+    if not oldsafe() then return {ok=false,reason="interrupted"} end
     if st.handle then pcall(CancelDelayedAction, st.handle) end
+    if not oldsafe() then return {ok=false,reason="interrupted"} end
     if st.mode ~= "idle" then pcall(mem_flush, st, log, "interrupted") end
+    if not oldsafe() then return {ok=false,reason="interrupted"} end
     local inherited_token
     if st.owner_implicit and st.owner_token and not opts.owner_token then
         local a = move_arbiter()
         if a and a.replace_implicit then inherited_token = a.replace_implicit(st.owner_token) end
     end
-    if not inherited_token then release_implicit(st, log) end
+    if inherited_token then
+        local current_world=world_identity()
+        local ok,current=pcall(function() return pc.Pawn end)
+        if current_world~=start_world or not ok or current~=pawn or paused() or death_seq()~=start_life_seq or rawget(_G,"DW_MOVE")~=st or st.gen~=old_gen or st.owner_token~=old_token or st.mode~=old_mode or
+            rawget(_G,"DWArbiter")~=raw_arb or not old_owner or raw_arb.owner~=old_owner or old_owner.token~=inherited_token then
+            return {ok=false,reason="interrupted"}
+        end
+    elseif not oldsafe() then return {ok=false,reason="interrupted"} end
+    if not inherited_token then
+        local had_implicit = st.owner_implicit and st.owner_token ~= nil
+        release_implicit(st, log)
+        if had_implicit then
+            -- release may resume another owner; never replace it.
+            local current_world=world_identity()
+            local ok,current=pcall(function() return pc.Pawn end)
+            if current_world~=start_world or not ok or current~=pawn or paused() or death_seq()~=start_life_seq or rawget(_G,"DW_MOVE")~=st or st.gen~=old_gen or st.mode~=old_mode or
+                rawget(_G,"DWArbiter")~=raw_arb or (raw_arb and raw_arb.owner~=nil) then return {ok=false,reason="interrupted"} end
+        elseif not oldsafe() then return {ok=false,reason="interrupted"} end
+    end
     local gen = st.gen + 1
     local keep = { gen = gen, nav_id = st.nav_id, eis = st.eis, pts = st.pts }
     for k in pairs(st) do st[k] = nil end
     for k, x in pairs(keep) do st[k] = x end
     st.mode, st.pc, st.ticks, st.stuck_n = mode, pc, 0, 0
     st.pawn = pawn
-    local life = rawget(_G, "DW_LIFE")
-    st.life_seq = type(life) == "table" and (life.move_death_seq or 0) or 0
-    local a = move_arbiter()
-    if inherited_token then
-        st.owner_token, st.owner_implicit = inherited_token, true
-    elseif a and opts.owner_token and a.owns_move and a.owns_move(opts.owner_token) then
-        st.owner_token = opts.owner_token
-        local owner = a.owner and a.owner()
-        st.owner_implicit = owner and owner.implicit == true or false
-    elseif a and not opts.owner_token and a.adopt_move then
-        st.owner_token = a.adopt_move(log)
-        st.owner_implicit = st.owner_token ~= nil
+    st.owner_world = start_world
+    st.life_seq = start_life_seq
+    local provisional={};st.start_guard=provisional
+    local candidate, implicit
+    local function abort_start()
+        local raw=rawget(_G,"DWArbiter");local owner=type(raw)=="table" and raw.owner
+        if rawget(_G,"DW_MOVE")==st and st.gen==gen and st.mode==mode and st.start_guard==provisional and
+            st.pc==pc and st.pawn==pawn and st.handle==nil and (st.owner_token==nil or st.owner_token==candidate) then
+            st.mode="idle";st.owner_token=nil;st.owner_implicit=nil;st.start_guard=nil
+            st.result={status="failed",reason="interrupted",detail="movement ownership unavailable"}
+            if not paused() and implicit and candidate and owner and owner.token==candidate then
+                local old=move_arbiter();if old and old.release_implicit then pcall(old.release_implicit,log,candidate) end
+            end
+        end
+        return {ok=false,reason="interrupted",detail="movement ownership unavailable"}
     end
+    local a = move_arbiter()
+    if paused() or death_seq()~=start_life_seq or rawget(_G,"DW_MOVE")~=st or st.gen~=gen or st.mode~=mode then return abort_start() end
+    if inherited_token then
+        candidate, implicit = inherited_token, true
+    elseif a and opts.owner_token and a.owns_move then
+        local owns = a.owns_move(opts.owner_token)
+        if paused() or death_seq()~=start_life_seq or rawget(_G,"DW_MOVE")~=st or st.gen~=gen or st.mode~=mode then return abort_start() end
+        if owns then
+            local owner = a.owner and a.owner()
+            if paused() or death_seq()~=start_life_seq or rawget(_G,"DW_MOVE")~=st or st.gen~=gen or st.mode~=mode then return abort_start() end
+            candidate, implicit = opts.owner_token, owner and owner.implicit == true or false
+        end
+    elseif a and not opts.owner_token and a.adopt_move then
+        candidate = a.adopt_move(log)
+        if paused() or death_seq()~=start_life_seq or rawget(_G,"DW_MOVE")~=st or st.gen~=gen or st.mode~=mode then return abort_start() end
+        implicit = candidate ~= nil
+    end
+    local current_world=world_identity()
+    local ok_current,current_pawn=pcall(function() return pc.Pawn end)
+    local still_alive=ok_current and current_pawn==pawn and life_check(st,pawn)
+    local admitted_arb=rawget(_G,"DWArbiter")
+    local admitted_owner=type(admitted_arb)=="table" and admitted_arb.owner
+    if paused() or death_seq()~=start_life_seq or current_world~=start_world or not still_alive or rawget(_G,"DW_MOVE")~=st or st.gen~=gen or st.mode~=mode or not candidate or
+        not admitted_owner or admitted_owner.token~=candidate or admitted_owner.uses_move==false then
+        return abort_start()
+    end
+    st.owner_token, st.owner_implicit = candidate, implicit
     st.crumbs, st.self_crumbs, st.lp_plans_np, st.trail_jumped, st.nav_jumped = {}, {}, 0, {}, {}
     st.half_h = half_height
     st.t0 = now(pawn)
+    if paused() or death_seq()~=start_life_seq or rawget(_G,"DW_MOVE")~=st or st.gen~=gen or st.mode~=mode or
+        rawget(_G,"DWArbiter")~=admitted_arb or admitted_arb.owner~=admitted_owner then return abort_start() end
     st.tol_cm = (opts.tolerance_m or 1.5) * 100
     st.timeout_s = opts.timeout_s or 120
     st.sprint = opts.sprint ~= false
@@ -2866,7 +2957,13 @@ local function start(log, mode, opts)
     end
     st.args = { mode = mode, goal = st.goal and { g[1], g[2], g[3] } or st.target_spec,
                 distance_m = mode == "follow" and opts.tolerance_m or nil, opts = oc }
-    st.handle = LoopInGameThreadWithDelay(1, function()
+    local final_world=world_identity()
+    local final_ok,final_pawn=pcall(function() return pc.Pawn end)
+    local final_alive=final_ok and final_pawn==pawn and life_check(st,pawn)
+    if paused() or death_seq()~=start_life_seq or final_world~=start_world or not final_alive or
+        rawget(_G,"DW_MOVE")~=st or st.gen~=gen or st.mode~=mode or st.start_guard~=provisional or
+        rawget(_G,"DWArbiter")~=admitted_arb or admitted_arb.owner~=admitted_owner then return abort_start() end
+    local handle = LoopInGameThreadWithDelay(1, function()
         if paused() then
             if st.gen == gen and st.local_binding then
                 st.local_authority, st.local_binding, st.lpath, st.lp, st.lp_state, st.lp_observe = nil,nil,nil,nil,nil,nil
@@ -2880,6 +2977,15 @@ local function start(log, mode, opts)
             if st.gen == gen then finish(st, { status = "failed", reason = "error", detail = tostring(err) }, log) end
         end
     end)
+    local scheduled_world=world_identity()
+    local scheduled_ok,scheduled_pawn=pcall(function() return pc.Pawn end)
+    local scheduled_alive=scheduled_ok and scheduled_pawn==pawn and life_check(st,pawn)
+    if paused() or death_seq()~=start_life_seq or scheduled_world~=start_world or not scheduled_alive or rawget(_G,"DW_MOVE")~=st or st.gen~=gen or st.mode~=mode or
+        st.start_guard~=provisional or rawget(_G,"DWArbiter")~=admitted_arb or admitted_arb.owner~=admitted_owner then
+        if handle then pcall(CancelDelayedAction,handle) end
+        return abort_start()
+    end
+    st.handle=handle;st.start_guard=nil
     return { ok = true, mode = mode, gen = gen, target_visible = st.target ~= nil or st.goal ~= nil }
 end
 
@@ -2905,13 +3011,19 @@ function M.stop(log, context)
     local function context_valid()
         if context == nil then return true end
         local rec=context.record
+        if context.expected_generation ~= nil then
+            local world=world_identity()
+            return world and world==st.owner_world and not paused() and rawget(_G,"DW_MOVE")==st and
+                arb and rawget(_G,"DWArbiter")==arb and rec and arb.owner==rec and rec.token==context.token and
+                context.token==st.owner_token and st.gen==context.expected_generation and rec.state=="owner"
+        end
         return arb and rawget(_G,"DWArbiter")==arb and arb.move_stop_context==context and rec and
             context.token==rec.token and rec.token==st.owner_token and (rec.state=="stopped" or rec.state=="suspended")
     end
     if not context_valid() then return {ok=false,was=was,reason="interrupted"} end
     if was == "idle" then return {ok=true,was=was} end
     local b=binding(st,st.pawn)
-    local allow_nil=context ~= nil and context_valid()
+    local allow_nil=context ~= nil and context.expected_generation == nil and context_valid()
     if not same_binding(b,allow_nil) then
         local arb=rawget(_G,"DWArbiter"); local owner=arb and arb.owner
         local ok, current_pawn=false,nil
@@ -2929,7 +3041,49 @@ function M.stop(log, context)
     if not context_valid() or not same_binding(b,allow_nil) then return {ok=false,was=was,reason="interrupted"} end
     st.gen = st.gen + 1
     finish(st, ok and { status = "stopped" } or {status="failed",reason="verification_failed",detail="jump release unconfirmed"}, log)
+    if context and context.expected_generation ~= nil and (rawget(_G,"DW_MOVE")~=st or st.gen~=b.gen+1 or st.mode~="idle" or rawget(_G,"DWArbiter")~=arb or arb.owner~=context.record) then
+        return {ok=false,was=was,reason="interrupted"}
+    end
     return { ok=ok, was=was, reason=not ok and "verification_failed" or nil }
+end
+
+-- Interaction episodes may finish only the exact move generation they started.
+function M.child_status(log, generation, token)
+    local st=rawget(_G,"DW_MOVE");local arb=rawget(_G,"DWArbiter")
+    local owner=type(arb)=="table" and arb.owner
+    if paused() or type(generation)~="number" or not st or not token then return {ok=false,reason="interrupted"} end
+    if st.gen~=generation then
+        local same_parent_active=st.mode~="idle" and st.owner_token==token and owner and owner.token==token
+        return {ok=true,mode="superseded",gen=st.gen,same_parent_active=same_parent_active==true}
+    end
+    if st.owner_token~=token or not owner or owner.token~=token or owner.state~="owner" then
+        return {ok=false,reason="interrupted"}
+    end
+    local b=binding(st,st.pawn)
+    local world=world_identity()
+    if not world or world~=st.owner_world or paused() or rawget(_G,"DW_MOVE")~=st or st.gen~=generation or
+        rawget(_G,"DWArbiter")~=arb or arb.owner~=owner then return {ok=false,reason="interrupted"} end
+    if st.mode=="idle" then
+        local ok,pawn=pcall(function() return b.pc.Pawn end)
+        local alive=ok and pawn==b.pawn and life_check(st,pawn)
+        local again,current=pcall(function() return b.pc.Pawn end)
+        local world_again=world_identity()
+        if world_again~=world or not alive or not again or current~=b.pawn or paused() or rawget(_G,"DW_MOVE")~=st or st.gen~=generation or st.life_seq~=b.life or
+            rawget(_G,"DWArbiter")~=arb or arb.owner~=owner then return {ok=false,reason="interrupted"} end
+        return {ok=true,mode="idle",gen=generation}
+    end
+    if not owned(b) then return {ok=false,reason="interrupted"} end
+    local world_again=world_identity()
+    if world_again~=world or paused() or rawget(_G,"DW_MOVE")~=st or st.gen~=generation or
+        st.owner_token~=token or rawget(_G,"DWArbiter")~=arb or arb.owner~=owner then return {ok=false,reason="interrupted"} end
+    return {ok=true,mode=st.mode,gen=generation}
+end
+function M.stop_owned(log, generation, token)
+    local check=M.child_status(log,generation,token)
+    if not check.ok then return check end
+    if check.mode=="idle" or check.mode=="superseded" then return {ok=true,was=check.mode,same_parent_active=check.same_parent_active} end
+    local arb=rawget(_G,"DWArbiter");local rec=arb and arb.owner
+    return M.stop(log,{expected_generation=generation,token=token,record=rec})
 end
 
 -- The game's own Unstuck, through the UI a player uses: open the pause menu

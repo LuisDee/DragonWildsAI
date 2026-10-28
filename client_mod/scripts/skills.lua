@@ -172,6 +172,11 @@ end
 
 local function release(api, job, why)
     if job.token and job.own ~= "released" then
+        local move = rawget(_G, "DW_MOVE")
+        if move and move.mode ~= "idle" and move.owner_token == job.token then
+            if api.log then api.log("cleanup unconfirmed: parent still owns active movement") end
+            return false
+        end
         local A = arbiter(api)
         job.own = "released"
         if A then pcall(A.release, api.log, job.token, why) end
@@ -498,10 +503,60 @@ local function next_spot(e, api)
     return true
 end
 
+-- A child is stopped only while its exact parent token and generation still own it.
+local function episode_cleanup(api, e, owner_token)
+    if not e or not e.child_gen then return not (e and e.moving) end
+    if paused() or not owner_token or e.child_token~=owner_token then return false end
+    local r=api.call("move", "stop_owned", e.child_gen, owner_token)
+    if not (r and r.ok) then return false end
+    local was=(r.data and r.data.was) or r.was
+    local same_parent_active=(r.data and r.data.same_parent_active) or r.same_parent_active
+    if was=="superseded" then
+        e.child_lost=true
+        if same_parent_active then return false end
+    end
+    e.child_gen, e.child_token, e.moving = nil, nil, false
+    return true
+end
+M._episode_cleanup = episode_cleanup
+
 local function episode_poll(api, e, t, owner_token)
     local th = e.thing
+    if e.child_gen then
+        local bound=api.call("move","child_status",e.child_gen,owner_token)
+        if not (bound and bound.ok) then return nil end
+        if ((bound.data and bound.data.mode) or bound.mode)=="superseded" then
+            e.child_lost=true
+        end
+    end
+    if e.child_lost then return api.fail("interrupted",{detail="interaction movement was replaced"}) end
     local goal = (e.wading and e.wade_goal) or (e.spots and e.spots[e.spot_i]) or th.position
     if e.phase == "approach" then
+        local bed = W.resting_in(api)
+        if bed and bed ~= th.id then
+            return api.fail("resting", { resting_in = bed, detail = "lying in " .. tostring(bed)
+                .. "; movement is disabled until he gets up (interact on that bed)" })
+        end
+        local here = api.my_position()
+        local d = here and goal and dist2d(here, goal)
+        local on_top = here and e.ipoint and e.spots and not e.shore and not e.small and (here[3] - (e.ipoint[3] or here[3])) > M.cfg.on_top_m
+        -- Exact native focus can establish reach even when a generated stand point is missed.
+        -- The face phase re-reads focus before pressing; no fuzzy or alternate-target shortcut.
+        local focus = not e.water and W.detector(api) or nil
+        local reach = here and e.ipoint and dist2d(here, e.ipoint)
+        if not e.water and type(reach) == "number" and reach == reach and reach < math.huge and reach <= M.cfg.reach_m and not on_top and th.id and type(focus) == "table" and focus.none ~= true and focus.actor and focus.actor == th.id then
+            local A = arbiter(api)
+            if paused() or not owner_token or not (A and A.owns_move and A.owns_move(owner_token)) then return nil end
+            local state = rawget(_G, "DWArbiter")
+            if paused() or not (state and state.owner and state.owner.token == owner_token) then return nil end
+            if not episode_cleanup(api, e, owner_token) then return nil end
+            state = rawget(_G, "DWArbiter")
+            if paused() or not (state and state.owner and state.owner.token == owner_token) then return nil end
+            if e.child_lost then return api.fail("interrupted", {detail="interaction movement was replaced"}) end
+            e.phase, e.face_until, e.moving = "face", t + M.cfg.face_s, false
+            W.face(api, e.ipoint, false)
+            return nil
+        end
         -- fail-fast progress watchdog (like combat's L34): the approach must get closer to the THING (not to the
         -- current standing spot); a poll gap (suspended by a reflex, then resumed) restarts the window
         local here0 = api.my_position()
@@ -512,7 +567,7 @@ local function episode_poll(api, e, t, owner_token)
             if not e.best_d or dth < e.best_d - M.cfg.progress_m then e.best_d, e.best_t = dth, t end
             e.best_t = e.best_t or t
             if t - e.best_t > M.cfg.no_progress_s then
-                if e.moving then pcall(api.call, "move", "stop"); e.moving = false end
+                if not episode_cleanup(api, e, owner_token) then return nil end
                 local why = e.last_move_why or "no_progress"
                 return api.fail("path_blocked", { target = th.id, why = why, dist_m = math.floor(dth * 10 + 0.5) / 10,
                     no_progress_s = M.cfg.no_progress_s, spots_tried = e.spots and e.spot_i,
@@ -520,14 +575,6 @@ local function episode_poll(api, e, t, owner_token)
                         why_words(why, "the " .. e.label, api), e.best_d or dth, M.cfg.no_progress_s) })
             end
         end
-        local bed = W.resting_in(api)
-        if bed and bed ~= th.id then
-            return api.fail("resting", { resting_in = bed, detail = "lying in " .. tostring(bed)
-                .. "; movement is disabled until he gets up (interact on that bed)" })
-        end
-        local here = api.my_position()
-        local d = here and goal and dist2d(here, goal)
-        local on_top = here and e.ipoint and e.spots and not e.shore and not e.small and (here[3] - (e.ipoint[3] or here[3])) > M.cfg.on_top_m
         local near = d and d <= math.max(e.spots and (e.tol + 0.3) or M.cfg.reach_m, e.tol + 0.3)
             and not (e.tight and d > M.cfg.close_m + 0.3)
         -- water: on the bank within reach of the surface point counts as there, whichever spot he stopped at
@@ -536,6 +583,8 @@ local function episode_poll(api, e, t, owner_token)
         if e.water and not e.shore and not e.wading and here and e.ipoint and dist2d(here, e.ipoint) <= M.cfg.water_reach_m then near = true end
         if e.wading then near = d and d <= 0.6 end
         if near and not on_top then
+            if not episode_cleanup(api, e, owner_token) then return nil end
+            if e.child_lost then return api.fail("interrupted",{detail="interaction movement was replaced"}) end
             e.phase, e.face_until, e.moving = "face", t + M.cfg.face_s, false
             W.face(api, e.ipoint, false) -- look at it first (the camera), as a player turns to what he wants
             return nil
@@ -550,17 +599,30 @@ local function episode_poll(api, e, t, owner_token)
             -- while he stood on a tent roof and the client stopped answering right after
             -- move's shared approach-progress tracker measures to the THING (not the standing spot); its window restarts
             -- with each go_to, so the episode keeps the cross-spot window above (the 101 s case cycled 6 spots)
+            local A=arbiter(api)
+            if not owner_token or not (A and A.owns_move and A.owns_move(owner_token)) then
+                return api.fail("interrupted", {detail="interaction movement ownership unavailable"})
+            end
             local mr = api.call("move", "go_to", goal, { tolerance_m = e.wading and 0.4 or e.tol, timeout_s = 60, allow_unstuck = false, wade = e.water or nil, owner_token = owner_token, -- water: walk INTO the shallows (no water detour)
                                                         progress = { to = e.ipoint, stall_s = M.cfg.no_progress_s, gain_m = M.cfg.progress_m } })
             if not mr.ok then return mr end
-            e.moving, e.approaches = true, e.approaches + 1
+            e.moving=true -- keep ownership if a successful start lacks its generation
+            local gen=(mr.data and mr.data.gen) or mr.gen
+            if type(gen)~="number" or gen%1~=0 then return api.fail("verification_failed",{detail="interaction movement generation unavailable"}) end
+            e.child_gen,e.child_token,e.moving=gen,owner_token,true
+            local bound=api.call("move","child_status",gen,owner_token)
+            if not (bound and bound.ok) then return nil end
+            if ((bound.data and bound.data.mode) or bound.mode)=="superseded" then
+                e.child_lost=true;return api.fail("interrupted",{detail="interaction movement was replaced"})
+            end
+            e.approaches = e.approaches + 1
             return nil
         end
         local st = api.move_status()
         local pv = type(st.progress) == "table" and st.progress or nil
         if pv and (pv.verdict == "stalled" or pv.verdict == "unreachable") and pv.why then e.last_move_why = pv.why end
         if st.mode == "go_to" then return nil end
-        e.moving = false
+        if not episode_cleanup(api, e, owner_token) then return nil end
         -- a wade step ends where move let him go (its water avoidance may stop him at the very edge): face from there
         if e.wading then e.phase, e.face_until = "face", t + M.cfg.face_s; W.face(api, e.ipoint, true); return nil end
         local res = type(st.result) == "table" and st.result or {}
@@ -782,8 +844,12 @@ local function action(api, ctx, job)
     local a = { kind = job.kind, id = ctx and ctx.id, timeout_s = M.cfg.timeout_s[job.kind] or 100 }
     a.cancel = function()
         local A = arbiter(api)
-        if not paused() and job.kind ~= "consume" and A and job.token and A.holds(job.token) then api.call("move", "stop") end
-        if job.cleanup then pcall(job.cleanup) end
+        if job.ep and not episode_cleanup(api,job.ep,job.token) then return end
+        if not paused() and job.kind ~= "consume" and not job.ep and A and job.token and A.holds(job.token) then api.call("move", "stop") end
+        if job.cleanup then
+            local ok, cleaned = pcall(job.cleanup)
+            if not ok or cleaned == false then if api.log then api.log("cleanup unconfirmed: action cleanup failed") end; return end
+        end
         release(api, job, "cancelled")
     end
     if job.kind == "consume" or job.screen_owner then
@@ -799,8 +865,14 @@ local function action(api, ctx, job)
     a.poll = function(self)
         local h = hold(api, job, self)
         if h == false then return nil end
-        if type(h) == "table" then if job.screen_owner and job.cleanup then pcall(job.cleanup) end; release(api, job, "interrupted"); return h end
-        if h == "resumed" and job.on_resume then job.on_resume() end
+        if type(h) == "table" then
+            if job.ep and not episode_cleanup(api,job.ep,job.token) then return nil end
+            if job.screen_owner and job.cleanup then pcall(job.cleanup) end; release(api, job, "interrupted"); return h
+        end
+        if (h == "resumed" or job.resume_pending) and job.on_resume then
+            if job.on_resume() == false then job.resume_pending=true;return nil end
+            job.resume_pending=nil
+        end
         if job.screen_owner and job.token then
             local A = arbiter(api)
             if not (A and A.holds and A.holds(job.token)) then
@@ -809,25 +881,26 @@ local function action(api, ctx, job)
                 return api.fail("interrupted", { detail = "interaction ownership lost" })
             end
         end
-        local res
-        if job.screen_owner then
+        local res=job.pending_result
+        if not res then
             local ok
-            ok, res = pcall(job.step, api.now())
-            if not ok then
-                if job.cleanup then pcall(job.cleanup) end
-                release(api, job, "body_error")
-                return api.fail("body_error", { detail = tostring(res) })
-            end
-        else res = job.step(api.now()) end
+            ok, res=pcall(job.step, api.now())
+            if not ok then res=api.fail("body_error", {detail=tostring(res)}) end
+            if res then job.pending_result=res end
+        end
         if res then
+            if job.ep and not episode_cleanup(api,job.ep,job.token) then return nil end
             if job.verify_final and res.ok then
                 if job.screen_owner then
                     local verified, final = pcall(job.verify_final, res)
                     res = verified and final or api.fail("body_error", { detail = tostring(final) })
                 else res = job.verify_final(res) end
             end
-            if job.screen_owner and job.cleanup then pcall(job.cleanup) end
-            release(api, job, res.ok and "done" or tostring(res.reason))
+            if job.screen_owner and job.cleanup then
+                local ok, cleaned = pcall(job.cleanup)
+                if not ok or cleaned == false then if api.log then api.log("cleanup unconfirmed: screen cleanup failed") end; return nil end
+            end
+            if release(api, job, res.ok and "done" or tostring(res.reason)) == false then return nil end
         end
         return res
     end
@@ -842,7 +915,15 @@ end
 --   verify_final?), timeout cfg.timeout_s[kind] or 100.
 M._acquire, M._release, M._hold, M.run_job = acquire, release, hold, action
 
-local function resume_episode(job) return function() if job.ep then job.ep.phase, job.ep.moving = "approach", false end end end
+local function resume_episode(api,job)
+    return function()
+        if job.ep then
+            if (job.ep.child_gen or job.ep.moving) and not episode_cleanup(api,job.ep,job.token) then return false end
+            job.ep.phase,job.ep.moving,job.ep.child_lost="approach",false,nil
+        end
+        return true
+    end
+end
 
 -- ------------------------------------------------------------------ fetch
 local function start_fetch(api, args, ctx, opts)
@@ -882,7 +963,7 @@ local function start_fetch(api, args, ctx, opts)
         job.ep.want_item, job.ep.need_gain = job.want_item, true
     end
     begin(first)
-    job.on_resume = resume_episode(job)
+    job.on_resume = resume_episode(api,job)
     job.step = function(t)
         local r = episode_poll(api, job.ep, t, job.token)
         if not r then return nil end
@@ -1157,7 +1238,7 @@ local function start_recover_grave(api, args, ctx)
     local job = { kind = "recover_grave", grave = mine, phase = "grave" }
     job.ep = new_episode(api, mine, { label = "grave" })
     job.ep.need_gain = false
-    job.on_resume = resume_episode(job)
+    job.on_resume = resume_episode(api,job)
     local mem = memory()
     job.step = function(t)
         if job.phase == "equip" then -- re-equip the tool he held before he died (best effort, never fails the job)
@@ -1307,7 +1388,7 @@ local function start_interact(api, args, ctx)
             return res
         end
     end
-    job.on_resume = resume_episode(job)
+    job.on_resume = resume_episode(api,job)
     job.step = function(tt)
         if job.leaving then return job.leave_step(tt) end
         local res = episode_poll(api, job.ep, tt, job.token)
@@ -1951,7 +2032,7 @@ local function start_collect_water(api, args, ctx)
         job.ep.need_gain, job.ep.want_item = true, expected
     end
     begin()
-    job.on_resume = resume_episode(job)
+    job.on_resume = resume_episode(api,job)
     job.step = function(t)
         local res = episode_poll(api, job.ep, t, job.token)
         if not res then return nil end

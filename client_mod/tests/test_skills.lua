@@ -73,6 +73,21 @@ local function patch()
     local inv, mv, sense, sk, arb = mods()
     arb.clock = function() return T end
     arb.set_move(mv)
+    if not mv._ownership_fixture then
+        local go, stop = mv.go_to, mv.stop
+        mv.go_to=function(log,goal,opts)
+            local r=go(log,goal,opts);F.move.gen=(F.move.gen or 0)+1;F.move.owner_token=opts and opts.owner_token
+            r.gen=F.move.gen;return r
+        end
+        mv.child_status=function(log,gen,token)
+            return {ok=F.move.gen==gen and F.move.owner_token==token and arb.owns_move(token),mode=F.move.mode}
+        end
+        mv.stop_owned=function(log,gen,token)
+            if F.move.gen~=gen or F.move.owner_token~=token or not arb.owns_move(token) then return {ok=false,reason="interrupted"} end
+            return stop(log)
+        end
+        mv._ownership_fixture=true
+    end
     if inv._patched then return end
     inv._patched = true
     local list0, press0 = inv.list, inv.press_interact
@@ -977,9 +992,10 @@ test("interact: no progress toward the thing for no_progress_s -> path_blocked a
     local started
     mv.go_to = function(log, goal, opts)
         calls = calls + 1
+        local result = go0(log, goal, opts)
         F.auto_arrive = false
         started = T
-        return { ok = true }
+        return result
     end
     mv.status = function()
         if started and T - started < 15 then return { mode = "go_to" } end
@@ -1675,6 +1691,22 @@ test("collect_water: partial no-gain timeout names the actual stopped source", f
     sk.W.detector = detector; restore()
     assert(r and r.ok and r.data.partial and r.data.count == 1 and r.data.target == w.id
         and r.data.sources[1].target == w.id and r.data.stopped_target == other.id, json.encode(r))
+end)
+
+test("terminal result is not replayed while owned child cleanup is retried", function()
+    reset()
+    local sk,mv,arb=B.module("skills"),B.module("move"),B.module("arbiter")
+    local owner=arb.request(nil,{name="test:pending-result",level="command",uses_move=true,adopt=false})
+    local started=mv.go_to(nil,{20,0,0},{owner_token=owner.token})
+    local calls=0
+    local job={kind="fetch",own="owner",token=owner.token,ep={moving=true,child_gen=started.gen,child_token=owner.token},
+        step=function() calls=calls+1;return {ok=true,data={count=1}} end}
+    local action=sk.run_job(B.API,{id="pending-result"},job).pending;action.started=T
+    local original=mv.stop_owned;local attempts=0
+    mv.stop_owned=function(...) attempts=attempts+1;if attempts==1 then return {ok=false,reason="verification_failed"} end;return original(...) end
+    assert(action.poll(action)==nil and calls==1 and arb.owns_move(owner.token))
+    local result=action.poll(action);mv.stop_owned=original
+    assert(result and result.ok and calls==1 and not arb.owns_move(owner.token))
 end)
 
 for _, t in ipairs(tests) do

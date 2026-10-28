@@ -1056,6 +1056,11 @@ local function acquire(api, job)
 end
 local function release(api, job, why)
     if job.token and job.own ~= "released" then
+        local move = rawget(_G, "DW_MOVE")
+        if move and move.mode ~= "idle" and move.owner_token == job.token then
+            if api.log then api.log("cleanup unconfirmed: parent still owns active movement") end
+            return false
+        end
         local A = arbiter(api)
         job.own = "released"
         if A then pcall(A.release, api.log, job.token, why) end
@@ -1102,20 +1107,39 @@ local function open_poll(api, job, t)
         local here = api.my_position()
         local d = here and dist2d(here, row.position)
         local at_goal = e.goal and here and dist2d(here, e.goal) <= 0.8
-        if (not e.goal and d and d <= M.cfg.reach_m) or at_goal then e.phase, e.face_until = "face", t + M.cfg.face_s; return nil end
+        if (not e.goal and d and d <= M.cfg.reach_m) or at_goal then
+            local sk=api.module("skills")
+            if e.moving and not (sk and sk._episode_cleanup and sk._episode_cleanup(api,e,job.token)) then return nil end
+            if e.child_lost then return api.fail("interrupted",{detail="craft movement was replaced"}) end
+            e.phase, e.face_until = "face", t + M.cfg.face_s; return nil
+        end
         if not e.moving then
             if e.approaches >= M.cfg.approaches then
                 return api.fail("too_far", { station = row.id, distance = d and r1(d), detail = "I can't get close enough to the " .. tostring(row.name) .. "." })
             end
+            local A=arbiter(api)
+            if not job.token or not (A and A.owns_move and A.owns_move(job.token)) then
+                return api.fail("interrupted",{detail="craft movement ownership unavailable"})
+            end
             local mr = api.call("move", "go_to", e.goal or stand_point(here or row.position, row.position, M.cfg.stand_m),
                                 { tolerance_m = M.cfg.approach_tol_m, timeout_s = 60, owner_token = job.token })
             if not mr.ok then return mr end
-            e.moving, e.approaches = true, e.approaches + 1
+            e.moving=true -- keep ownership if a successful start lacks its generation
+            local gen=(mr.data and mr.data.gen) or mr.gen
+            if type(gen)~="number" or gen%1~=0 then return api.fail("verification_failed",{detail="craft movement generation unavailable"}) end
+            e.child_gen,e.child_token,e.moving=gen,job.token,true
+            local bound=api.call("move","child_status",gen,job.token)
+            if not (bound and bound.ok) then return nil end
+            if ((bound.data and bound.data.mode) or bound.mode)=="superseded" then
+                e.child_lost=true;return api.fail("interrupted",{detail="craft movement was replaced"})
+            end
+            e.approaches = e.approaches + 1
             return nil
         end
         local st = api.move_status()
         if st.mode == "go_to" then return nil end
-        e.moving = false
+        local sk=api.module("skills")
+        if not (sk and sk._episode_cleanup and sk._episode_cleanup(api,e,job.token)) then return nil end
         local res = type(st.result) == "table" and st.result or {}
         if res.status == "arrived" or res.status == "stopped" then return nil end
         -- a failed approach that still ended within reach is fine (stations are big): next tick checks
@@ -1587,8 +1611,9 @@ local function proc_step(api, job, t)
     else -- collect: stored outputs by quick transfer, then world items (pickup episode, output ids only)
         if job.ep then
             local sk = api.module("skills")
-            local r = sk._episode_poll(api, job.ep, t)
+            local r = sk._episode_poll(api, job.ep, t, job.token)
             if r == nil then return nil end
+            if not (sk._episode_cleanup and sk._episode_cleanup(api,job.ep,job.token)) then return nil end
             job.ep = nil
             if not r.ok then job.pickup_fail = r end
             job.picks = (job.picks or 0) + 1
@@ -1667,19 +1692,22 @@ local function action(api, ctx, job)
     local a = { kind = "craft", id = ctx and ctx.id,
                 timeout_s = 120 + math.floor((job.plan.seconds or 0) * M.cfg.proc_slack + M.cfg.proc_extra_s) }
     local function finish(why)
+        local sk=api.module("skills")
+        if job.open and (job.open.child_gen or job.open.moving) and not (sk and sk._episode_cleanup and sk._episode_cleanup(api,job.open,job.token)) then return false end
+        if job.ep and (job.ep.child_gen or job.ep.moving) and not (sk and sk._episode_cleanup and sk._episode_cleanup(api,job.ep,job.token)) then return false end
         if job.ui_open and not paused() then pcall(W.close, api, job.plan.kind); job.ui_open = false end
         local IN = api.module("input")
         if IN and IN.release then pcall(IN.release, "screen") end
-        release(api, job, why)
+        if release(api, job, why) == false then return false end
+        return true
     end
     a.cancel = function()
-        if not paused() then api.call("move", "stop") end
         finish("cancelled")
     end
     a.poll = function(self)
         if paused() then self.started = api.now(); return nil end
         if job.stopped then
-            finish("interrupted")
+            if not finish("interrupted") then return nil end
             return api.fail("interrupted", { why = job.stopped, detail = "Something else took over (" .. tostring(job.stopped) .. "), so I stopped crafting." })
         end
         if not acquire(api, job) or job.own == "suspended" or api.reflex_owns_pawn() then
@@ -1688,13 +1716,21 @@ local function action(api, ctx, job)
         end
         if job.token then local A = arbiter(api); if A and A.renew then pcall(A.renew, job.token) end end
         if job.resumed then
+            local sk=api.module("skills")
+            if job.open and (job.open.child_gen or job.open.moving) and not (sk and sk._episode_cleanup and sk._episode_cleanup(api,job.open,job.token)) then return nil end
+            if job.ep and (job.ep.child_gen or job.ep.moving) and not (sk and sk._episode_cleanup and sk._episode_cleanup(api,job.ep,job.token)) then return nil end
             job.resumed = nil
-            if job.phase == "open" then job.open.phase, job.open.moving = "approach", false end
-            if job.ep then job.ep.phase, job.ep.moving = "approach", false end
+            if job.phase == "open" then job.open.phase, job.open.moving, job.open.child_lost = "approach", false, nil end
+            if job.ep then job.ep.phase, job.ep.moving, job.ep.child_lost = "approach", false, nil end
         end
-        local ok, res = pcall(craft_step, api, job, api.now())
-        if not ok then res = api.fail("body_error", { detail = "crafting: " .. tostring(res) }) end
-        if res then finish(res.ok and "done" or tostring(res.reason)) end
+        local res=job.pending_result
+        if not res then
+            local ok
+            ok, res = pcall(craft_step, api, job, api.now())
+            if not ok then res = api.fail("body_error", { detail = "crafting: " .. tostring(res) }) end
+            if res then job.pending_result=res end
+        end
+        if res and not finish(res.ok and "done" or tostring(res.reason)) then return nil end
         return res
     end
     return { pending = a }

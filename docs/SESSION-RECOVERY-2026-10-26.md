@@ -1,5 +1,36 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Latest override: Lodestone chain candidate, full gate running (2026-10-28)
+
+Read R/logs/recovery/ACTIVE-HANDOFF.txt for actual runtime. Root owns sole
+root-lodestone slot; client13000/13100 stopped with hold for full gate; verify
+processes. Server7016/Steam3284 preserved. R97fcf1e/9516Python/e920Lua until
+publication. W nine-file movement/interaction/crafting/Lodestone candidate
+cold approved, targeted passed; full gate logs/recovery/lodestone-gate-bfed7f2c,
+session22830. Frozen source-before manifest; no llm exposure yet. Do not start
+a second gate/client/brain. Judges unchanged, no game-model calls this wave.
+
+Explicit user materials assisted:64 Stone40 Essence2 Core and food/water;
+22-file prefixture copy/stability evidence under R lodestone-20261028.
+Developer built native Lodestone32/20/1,+80XP; leaves one set for Haiku.
+Two native component teleports ~160m confirmed RPC/arrival/Law -2 each, now1606.
+No compound/model pass. Map cleanup can remain stuck under normal0.4 root
+stack transitions; actual screen census disagrees with MapAPI. Proper MenuAPI
+Back passed with zero configured BEFORE first map and once after restore0.4;
+next normal0.4 readiness failed (newAPIparent/oldstack), no teleport issued.
+
+Next after gate: fresh existing DEV client boot (announce; never Steam), set
+public root-stack transition duration0 before map, capture original exact
+stack identity; KEEP fixed across two consecutive native selection/arrival/
+MenuAPIBack/actualUIcleanup controls. Sol approved temporary presentation
+configuration, not a root-cause fix. If two pass, use same declared fixed
+configuration for deployed candidate full-compound developer proof; only
+then expose teleport and run bounded Haiku natural walk~300m/build/use chain.
+Any source exposure edit still needs its gate. No grants/actions/hints during
+Haiku episode. Preserve all world memory and record assistance. If fail, park
+only UI dependency and continue lowest independent recovery task. Details in
+research/r29-lodestone-chain-20261028.md; source ownership live_operator.
+
 ## 9516fc3 manifest repair deployed; next decision-context wave (2026-10-28 14:50 Berlin)
 
 FINAL RUNTIME OVERRIDE: after metadata651abb9, a fresh read showed health1,
@@ -1384,3 +1415,5 @@ Review/finish the explicit speech channel and explain the prior full-suite failu
 ## GitHub recovery checkpoint
 
 At Luis's request, this report and RECOVERED-GOAL.md accompany a WIP snapshot of all 25 interrupted source/data/test files. The snapshot preserves unfinished work; it is not a green release or a claim that the goal is met. Raw Claude transcripts, runtime logs, saves, local wiki data, credentials and SSH keys stay outside version control. The original commit history and judge tags are preserved.
+
+Full candidate gate bfed7f2c completed:1241 passed,1 known cassette skip,453.10s, CHECK_ALL: GREEN. All9 frozen file hashes unchanged after gate; teleport remains llmfalse pending deployed compound proof.

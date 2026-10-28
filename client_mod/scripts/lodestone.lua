@@ -100,25 +100,53 @@ function W.try_teleport(api, from, to)
     local ok, err = pcall(function() c:TryTeleport(from.guid, to.guid) end)
     return ok, (not ok) and tostring(err) or nil
 end
-function W.map_open(api)
-    local m = mem()
-    if not (m.map_api and U.valid(m.map_api)) then m.map_api = U.find_all("MapUIAPI", { skip_defaults = true })[1] end
-    if not U.valid(m.map_api) then return nil end
-    return U.try(function() return m.map_api:IsShowingMap() end) == true
-end
--- The game's own HUD close for the Map widget (InputManagerUIAPI:CloseWidgetIfOpen, EWidgetType Map 13, via
--- input.close_screens: the close verified live on the Processing panel, BUGS B-stuck-focused-ui); the UI's own
--- back key (IA_UI_GenericBack, as Esc) only when that API is missing.
 M.MAP_WIDGET = 13
-function W.close_map(api)
-    local IN = api.module("input")
-    if IN and type(IN.close_screens) == "function" then
-        local ok, closed = pcall(IN.close_screens, { M.MAP_WIDGET })
-        if ok and closed then return true end
-    end
-    local a = U.find_object("/Game/Gameplay/Inputs/Actions/UI/IA_UI_GenericBack.IA_UI_GenericBack")
-    if IN and a then return IN.raw_inject(a) end
+local function same_object(a, b)
+    if not (U.valid(a) and U.valid(b)) then return false end
+    local ok, result = pcall(function() return a:GetAddress() == b:GetAddress() end)
+    return ok and result == true
+end
+-- Native widget census, not MapUIAPI:IsShowingMap (which can disagree).
+function W.map_open(api)
+    local input = api.module("input")
+    local screens = input and input.observe_screens and input.observe_screens()
+    if type(screens) ~= "table" then return nil end
+    for _, screen in ipairs(screens) do if screen.type == M.MAP_WIDGET then return true end end
     return false
+end
+function W.map_closed(api)
+    local input = api.module("input")
+    local screens = input and input.observe_screens and input.observe_screens()
+    local mode = input and input.input_mode and input.input_mode()
+    if type(screens) ~= "table" or type(mode) ~= "string" then return nil end
+    for _, screen in ipairs(screens) do if screen.type == 13 or screen.type == 29 then return false end end
+    return mode ~= "DIM_FullScreenUIMap"
+end
+-- The menu must be the current local player's actual active map parent.
+function W.map_ready(api)
+    if paused() then return nil end
+    local input = api.module("input")
+    local pc = input and input.pc and input.pc()
+    local menus = U.find_all("MainMenuUIAPI", { skip_defaults = true }) or {}
+    if not U.valid(pc) or #menus ~= 1 then return nil end
+    local menu = menus[1]
+    local parent = U.try(function() return menu:GetCurrentScreenWidget() end)
+    local owner = U.valid(parent) and U.try(function() return parent:GetOwningPlayer() end)
+    local current = U.valid(parent) and U.try(function() return parent.CurrentScreenWidget end)
+    local panel = U.valid(parent) and U.try(function() return parent.MapPanel end)
+    local root = U.try(function() return menu.MainMenuWidget end)
+    local stack = U.valid(root) and U.try(function() return root.MainMenuStack end)
+    local active = U.valid(stack) and U.try(function() return stack:GetActiveWidget() end)
+    if not (same_object(owner, pc) and same_object(current, panel) and same_object(active, parent)) then return nil end
+    local final_pc = input.pc()
+    local final_parent = U.try(function() return menu:GetCurrentScreenWidget() end)
+    local final_active = U.try(function() return stack:GetActiveWidget() end)
+    if paused() or not (same_object(final_pc, pc) and same_object(final_parent, parent) and same_object(final_active, parent)) then return nil end
+    return { menu = menu, parent = parent, pc = pc }
+end
+function W.close_map(api, ready)
+    if not ready or paused() then return false end
+    return pcall(function() ready.menu:NavigateBack(ready.parent) end)
 end
 function W.arm_hook(api)
     local m = mem()
@@ -209,8 +237,12 @@ M.HANDLERS.teleport = function(log, args, ctx)
     end
     local stone -- the lodestone ACTOR nearest me (to walk to and press use on)
     for _, t in ipairs(api.census_things(80, 40) or {}) do
-        if t.category == "interactables" and (t.class or ""):find("Lodestone", 1, true) and (t.prompt or "") ~= "" then
+        if t.category == "interactables" and t.kind == "lodestone" and type(t.actions) == "table" then
+            local actionable = false
+            for _, action in ipairs(t.actions) do if action == "interact" then actionable = true; break end end
+            if actionable then
             if not stone or (t.distance or 1e9) < (stone.distance or 1e9) then stone = t end
+            end
         end
     end
     if not stone then
@@ -219,31 +251,86 @@ M.HANDLERS.teleport = function(log, args, ctx)
     W.arm_hook(api)
     local job = { kind = "teleport", phase = "use", from = from, to = to, start = here }
     job.ep = sk._new_episode(api, stone, { label = "lodestone" })
-    local IN = api.module("input") -- the map is MEANT to be open during this job (input's stray-screen guard)
-    if IN and IN.claim then pcall(IN.claim, "screen", "teleport") end
-    local function close()
-        if IN and IN.release then pcall(IN.release, "screen") end
-        if not paused() and W.map_open(api) then W.close_map(api) end
+    local IN = api.module("input")
+    job.screen_owner = "teleport:" .. tostring(job)
+    local function close(suspending)
+        if not job.has_screen then return true end
+        local arb = rawget(_G, "DWArbiter")
+        local owner = arb and arb.owner
+        if job.token and not ((owner and owner.token == job.token) or (suspending and job.own == "suspended" and not owner)) then return false end
+        local claim = IN and IN.owner and IN.owner("screen")
+        if not (claim and claim.owner == job.screen_owner) or paused() then return false end
+        local closed = W.map_closed(api)
+        if closed == nil then return false end
+        if not closed then
+            if job.close_requested then return false end
+            local ready = W.map_ready(api)
+            claim = IN and IN.owner and IN.owner("screen")
+            if not ready or not (claim and claim.owner == job.screen_owner) then return false end
+            if not W.close_map(api, ready) then return false end
+            job.close_requested = true
+            return false -- observe on a later poll, never equate submission with closure
+        end
+        claim = IN and IN.owner and IN.owner("screen")
+        if not (claim and claim.owner == job.screen_owner) then return false end
+        local released = IN.release_if_owned and IN.release_if_owned("screen", job.screen_owner) == true
+        if released then job.has_screen = false end
+        return released
     end
-    local function fail_close(reason, d) close(); return api.fail(reason, d) end
+    local function fail_close(reason, d) return api.fail(reason, d) end
     job.cleanup = close
-    job.on_resume = function() if job.phase == "use" then job.ep.phase, job.ep.moving = "approach", false end end
+    job.on_suspend = function() return close(true) end
+    job.on_resume = function()
+        if job.phase == "use" or job.phase == "map_wait" or (job.phase == "map" and not job.issued) then
+            if (job.ep.child_gen or job.ep.moving) and not (sk._episode_cleanup and sk._episode_cleanup(api, job.ep, job.token)) then return false end
+            job.ep.phase, job.ep.moving, job.ep.child_lost = "approach", false, nil
+            if not job.has_screen then job.phase, job.close_requested = "use", nil end
+        end
+        return true
+    end
     job.step = function(t)
+        if job.close_requested and job.has_screen then
+            if not close() then return nil end
+            job.close_requested = nil
+            if not job.issued then
+                job.phase = "use"
+                job.ep.phase, job.ep.moving, job.ep.child_lost = "approach", false, nil
+            end
+        end
+        local claim = IN and IN.owner and IN.owner("screen")
+        if job.phase ~= "travel" and not (claim and claim.owner == job.screen_owner) then
+            local already_open = W.map_open(api)
+            if already_open == nil then return api.fail("state_unavailable", { detail = "I can't verify the map screen." }) end
+            if already_open then return api.fail("busy", { detail = "A map is already open." }) end
+            if not (IN and IN.claim_if_free and IN.claim_if_free("screen", job.screen_owner)) then
+                return api.fail("busy", { detail = "The screen belongs to another action." })
+            end
+            job.has_screen = true
+        end
         if job.phase == "use" then
-            if W.map_open(api) then job.phase = "map" else
-                local r = sk._episode_poll(api, job.ep, t)
+            local open = W.map_open(api)
+            if open == nil then return nil end
+            if open then job.phase = "map" else
+                local r = sk._episode_poll(api, job.ep, t, job.token)
                 if r and not r.ok then return r end
                 if r then job.phase, job.map_until = "map_wait", t + M.cfg.map_wait_s end
                 return nil
             end
         end
         if job.phase == "map_wait" then
-            if W.map_open(api) then job.phase = "map"
+            local open = W.map_open(api)
+            if open == nil then return nil end
+            if open then job.phase = "map"
             elseif t >= job.map_until then return api.fail("verification_failed", { why = "map_not_open", detail = "I used the lodestone but its map didn't open." })
             else return nil end
         end
         if job.phase == "map" then
+            local ready = W.map_ready(api)
+            local owner = rawget(_G, "DWArbiter")
+            claim = IN and IN.owner and IN.owner("screen")
+            if not ready or not (owner and owner.owner and owner.owner.token == job.token) or not (claim and claim.owner == job.screen_owner) then return nil end
             job.seq0 = W.success_seq()
+            job.issued = true
             local ok, err = W.try_teleport(api, from, to)
             if not ok then return fail_close("verification_failed", { why = "try_teleport_failed", detail = "The teleport didn't start (" .. tostring(err) .. ")." }) end
             job.phase, job.until_t = "travel", t + M.cfg.success_wait_s
@@ -253,7 +340,6 @@ M.HANDLERS.teleport = function(log, args, ctx)
         local dest = to.respawn or to.position
         local arrived = now and dest and d2(now, dest) <= M.cfg.arrive_m
         if W.success_seq() > (job.seq0 or 0) and arrived then
-            close()
             return { ok = true, data = { from = "lodestone:" .. from.key, to = "lodestone:" .. to.key, position = now,
                 travelled_m = job.start and math.floor(d2(job.start, now) + 0.5) or api.null,
                 cost = n and { count = n, item = item.name } or api.null } }

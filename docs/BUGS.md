@@ -1,5 +1,23 @@
 # Live bug ledger
 
+### Nested movement lifetime and headless Lodestone UI lifecycle (2026-10-28)
+
+Source-confirmed: crafting collection omitted parent move token; episode near
+transition could abandon a running child; terminal parent release did not
+ensure child cleanup. Candidate propagates token, binds exact child generation
+and drains only that child. Sol review/targeted tests passed; full/native
+revalidation pending. Bridge timeout still drops its action without confirming
+cancel cleanup; do not claim universal cleanup guarantee.
+
+Lodestone old map close treated an empty closed-list table as success and
+trusted MapUIAPI false while Map13/TopBar29 still blocked gameplay. Candidate
+reads actual screens, exact active local menu ownership and later closure.
+A repeated normal0.4 interaction produced a new API parent but stale active
+root-stack widget. No teleport was sent. Fresh zero-duration control completed
+one real teleport and UI cleanup; repeated fixed-zero control next. NullRHI
+Slate transition hypothesis remains unproved, temporary presentation guard is
+not a final fix. Keep native/Haiku chain status unpassed. See r29 research.
+
 ### Published model arguments disappear before dispatch (2026-10-28, verified)
 
 Controller live dispatch repaired in 9516fc3, full gate GREEN and native

@@ -1,5 +1,21 @@
 # Discoveries
 
+### Native Lodestone construction and selection route (2026-10-28)
+
+Receiving materials unlocked BUILDPIECE_Lodestone; actual real-menu build used
+32 Stone/20 Rune Essence/1 Vault Core and gained80 Construction XP. Catalog
+750XP estimate differs from native outcome. Registry added developer stone;
+existing Temple destination and two Law Rune cost verified. The existing local
+component TryTeleport(from.guid,to.guid), after real use opened the map, caused
+a native success RPC sequence increase and independently observed arrival.
+Do not confuse these developer controls with autonomous capability proof.
+
+MapUIAPI.IsShowingMap can be false with actual Map13/TopBar29 and blocking map
+input still present. The real MainMenuUIAPI.NavigateBack(current parent) can
+close both; active root-stack identity and later screen/input observations
+are required. Repeated normal0.4 activation showed stale stack/new API parent;
+headless compatibility remains under test. No forced widget state/callbacks.
+
 ### Advertised inventory mode now survives the real dispatch path (2026-10-28)
 
 Read-only control on the same dev body: baseline 9345dec normalized the

@@ -723,6 +723,249 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     M.go_to(log, {20,0,0}, {nav=false,local_plan=false}); run(60)
     check("explicit direct opt-out moves", pawn.loc.X > 0, pawn.loc.X)
     M.stop(log)
+    do -- Actual arbiter + mover + interaction episode, no fake ownership layer.
+        local A=assert(loadfile(dir.."/client_mod/scripts/arbiter.lua"))(); A.set_move(M)
+        local SK=assert(loadfile(here.."/../scripts/skills.lua"))()
+        local faces=0
+        SK.W.interaction_point=function(_,thing) return thing.position,"actor_origin" end
+        SK.W.resting_in=function() return nil end
+        SK.W.face=function() faces=faces+1 end
+        local api={module=function(n) if n=="arbiter" then return A elseif n=="move" then return M end end,
+            my_position=function() return {pawn.loc.X/100,pawn.loc.Y/100,pawn.loc.Z/100} end,
+            counts=function() return {} end,
+            fail=function(reason,data) return {ok=false,reason=reason,data=data} end,
+            call=function(mod,fn,...) local r=M[fn](nil,...);return {ok=r.ok,reason=r.reason,data=r} end,
+            move_status=function() return M.status() end}
+        pawn.loc={X=0,Y=0,Z=0};air=0;M.stop(log)
+        local owner=A.request(log,{name="test:parent",level="command",uses_move=true,adopt=false})
+        local thing={id="target",name="target",category="items",position={4,0,0}}
+        local e=SK._new_episode(api,thing,{})
+        local gen0=_G.DW_MOVE.gen;local denied=SK._episode_poll(api,e,T,nil)
+        check("nested nil parent denied before movement",denied and not denied.ok and _G.DW_MOVE.gen==gen0 and _G.DW_MOVE.mode=="idle")
+        local unowned=M.go_to(log,{4,0,0},{nav=false,local_plan=false})
+        local invalid=M.go_to(log,{4,0,0},{nav=false,local_plan=false,owner_token=owner.token+100})
+        check("direct nil or invalid parent rejected before mutation",not unowned.ok and not invalid.ok and _G.DW_MOVE.gen==gen0 and _G.DW_MOVE.mode=="idle" and A.owns_move(owner.token))
+        local p=SK._episode_poll(api,e,T,owner.token)
+        local child=_G.DW_MOVE.gen
+        check("nested episode uses parent token",p==nil and e.child_gen==child and _G.DW_MOVE.owner_token==owner.token and A.owns_move(owner.token))
+        pawn.loc={X=250,Y=0,Z=0}
+        local stop0=M.stop_owned;M.stop_owned=function() return {ok=false,reason="verification_failed"} end
+        SK._episode_poll(api,e,T+0.1,owner.token)
+        check("unconfirmed child cleanup cannot face",faces==0 and e.phase=="approach" and e.child_gen==child and A.owns_move(owner.token))
+        M.stop_owned=stop0;SK._episode_poll(api,e,T+0.2,owner.token)
+        check("nested near transition stops exact child before facing",faces==1 and e.phase=="face" and _G.DW_MOVE.mode=="idle" and A.owns_move(owner.token))
+        -- Focus shortcut uses exact actor and must drain the real running child.
+        local old_detector=SK.W.detector
+        local focus={none=true}
+        SK.W.detector=function() return focus end
+        pawn.loc={X=0,Y=0,Z=0}
+        local fe=SK._new_episode(api,thing,{})
+        SK._episode_poll(api,fe,T,owner.token)
+        local focus_gen=fe.child_gen
+        focus={actor="other"};SK._episode_poll(api,fe,T+.1,owner.token)
+        check("wrong focus cannot shortcut",fe.phase=="approach" and _G.DW_MOVE.mode=="go_to")
+        focus={actor="target"};SK._episode_poll(api,fe,T+.15,owner.token)
+        check("distant exact focus cannot bypass reach",fe.phase=="approach" and _G.DW_MOVE.mode=="go_to")
+        pawn.loc={X=250,Y=0,Z=0};fe.spots={{100,0,0}};fe.spot_i=1
+        focus={none=true,actor="target"};SK._episode_poll(api,fe,T+.16,owner.token)
+        check("explicit none rejects matching actor within reach",fe.phase=="approach" and _G.DW_MOVE.mode=="go_to")
+        focus={actor="target",class="Thing",prompt="Use"}
+        local real_stop=M.stop_owned;M.stop_owned=function() return {ok=false,reason="verification_failed"} end
+        SK._episode_poll(api,fe,T+.2,owner.token)
+        check("exact focus waits for confirmed child cleanup",fe.phase=="approach" and fe.child_gen==focus_gen)
+        M.stop_owned=real_stop;SK._episode_poll(api,fe,T+.3,owner.token)
+        check("exact focus drains moving child outside stand tolerance",fe.phase=="face" and _G.DW_MOVE.mode=="idle")
+        focus={none=true};local oldcall=api.call;local presses=0
+        api.call=function(mod,fn,...) if mod=="inventory" then presses=presses+1;return {ok=true} end return oldcall(mod,fn,...) end
+        SK._episode_poll(api,fe,T+.4,owner.token)
+        check("lost focus is rechecked before press",presses==0)
+        api.call=oldcall
+        local test_focus=SK._new_episode(api,thing,{})
+        focus={actor="target"};pawn.loc={X=0,Y=0,Z=200}
+        test_focus.spots={{0,0,0}};test_focus.spot_i=1;test_focus.ipoint={4,0,0};test_focus.small=false
+        SK._episode_poll(api,test_focus,T+.5,owner.token)
+        check("exact focus does not bypass on-top guard",test_focus.phase=="approach")
+        if _G.DW_MOVE.mode~="idle" then M.stop_owned(log,_G.DW_MOVE.gen,owner.token) end
+        pawn.loc={X=0,Y=0,Z=0}
+        test_focus=SK._new_episode(api,thing,{})
+        local gen_before=_G.DW_MOVE.gen
+        SK._episode_poll(api,test_focus,T+.6,owner.token+999)
+        check("exact focus cannot use foreign owner",test_focus.phase=="approach" and _G.DW_MOVE.gen==gen_before)
+        _G.DW_PAUSE=true;SK._episode_poll(api,test_focus,T+.7,owner.token);_G.DW_PAUSE=nil
+        check("paused exact focus does not change phase",test_focus.phase=="approach")
+        local reflex=A.request(log,{name="focus:reflex",level="reflex",uses_move=false,adopt=false})
+        SK._episode_poll(api,test_focus,T+.8,owner.token)
+        check("suspended parent cannot use exact focus",reflex.ok and test_focus.phase=="approach" and A.owner() and A.owner().token==reflex.token)
+        A.release(log,reflex.token,"done")
+        SK.W.detector=old_detector
+        A.release(log,owner.token,"done")
+        -- Actual Lodestone handler + real skills episode + mover + arbiter.
+        local L=assert(loadfile(here.."/../scripts/lodestone.lua"))()
+        local IN={claim=nil}
+        IN.owner=function() return IN.claim end
+        IN.claim_if_free=function(_,name) if IN.claim then return false end IN.claim={owner=name};return true end
+        IN.release_if_owned=function(_,name) if IN.claim and IN.claim.owner==name then IN.claim=nil;return true end return false end
+        L.W.registry_lodestones=function() return {{key="aaaa",guid={},position={0,0,0}},{key="bbbb",guid={},position={20,0,0}}} end
+        L.W.can_teleport=function() return true end;L.W.cost=function() return 1,true end
+        L.W.cost_item=function() return {name="Rune"} end;L.W.arm_hook=function() return true end
+        L.W.map_open=function() return false end
+        L.W.map_closed=function() return true end
+        api.module=function(n) if n=="arbiter" then return A elseif n=="move" then return M elseif n=="skills" then return SK elseif n=="input" then return IN end end
+        api.census_things=function() return {{id="lodestone",kind="lodestone",category="interactables",actions={"interact"},position={4,0,0},distance=4}} end
+        api.now=function() return T end;api.log=log;api.reflex_owns_pawn=function() return false end
+        pawn.loc={X=0,Y=0,Z=0}
+        local lh=L.HANDLERS.teleport(log,{to="lodestone:bbbb"},{api=api,id="lodestone-composed"})
+        local la=lh.pending;la.started=T;la.poll(la)
+        local lowner=_G.DWArbiter.owner;local lgen=_G.DW_MOVE.gen
+        check("real lodestone episode owns mover with no prompt",lowner and _G.DW_MOVE.mode=="go_to" and _G.DW_MOVE.owner_token==lowner.token and IN.claim~=nil)
+        local suspended=A.request(log,{name="lodestone:reflex",level="reflex",uses_move=false,adopt=false})
+        local stopped_gen=_G.DW_MOVE.gen
+        A.release(log,suspended.token,"done")
+        local resumed=la.poll(la)
+        check("real lodestone resumes after reflex",suspended.ok and resumed==nil and A.owner() and A.owner().token==lowner.token and _G.DW_MOVE.mode=="go_to" and _G.DW_MOVE.gen>stopped_gen and _G.DW_MOVE.owner_token==lowner.token)
+        la.cancel(la)
+        check("real lodestone cancel drains its child and screen",_G.DW_MOVE.gen>=lgen and _G.DW_MOVE.mode=="idle" and A.owner()==nil and IN.claim==nil, string.format("gen=%s expected=%s mode=%s owner=%s claim=%s",tostring(_G.DW_MOVE.gen),tostring(lgen),tostring(_G.DW_MOVE.mode),tostring(A.owner() and A.owner().token),tostring(IN.claim and IN.claim.owner)))
+        -- Compose the actual candidate crafting action with skills, mover and arbiter.
+        local C=assert(loadfile(here.."/../scripts/crafting.lua"))()
+        local function up(fn,name)
+            for i=1,40 do local n,v=debug.getupvalue(fn,i);if not n then break end;if n==name then return v end end
+        end
+        local craft_fn=up(C.HANDLERS.craft,"fn");local make_action=craft_fn and up(craft_fn,"action")
+        assert(make_action,"actual crafting action closure")
+        C.W.station_state=function() return {} end
+        api.module=function(n) if n=="arbiter" then return A elseif n=="move" then return M elseif n=="skills" then return SK elseif n=="crafting" then return C end end
+        api.actor_of=function() return {} end;api.reflex_owns_pawn=function() return false end;api.now=function() return T end
+        api.log=log
+        owner=A.request(log,{name="skill:craft",level="command",uses_move=true,adopt=false});pawn.loc={X=0,Y=0,Z=0}
+        local job={kind="craft",phase="collect",own="owner",token=owner.token,station={id="station",name="Station"},
+                   plan={kind="processing"},ep=SK._new_episode(api,thing,{})}
+        local pending=make_action(api,{id="composed"},job).pending;pending.started=T
+        pending.poll(pending)
+        local captured=job.ep.child_gen
+        check("actual craft pickup propagates owner into mover",captured and _G.DW_MOVE.owner_token==owner.token and _G.DW_MOVE.gen==captured)
+        pawn.loc={X=250,Y=0,Z=0};pending.poll(pending)
+        check("actual craft pickup drains child before face",job.ep.phase=="face" and _G.DW_MOVE.mode=="idle" and A.owns_move(owner.token))
+        pending.cancel(pending)
+        check("actual craft cancellation releases only after child idle",_G.DW_MOVE.mode=="idle" and A.owner()==nil)
+        owner=A.request(log,{name="skill:craft",level="command",uses_move=true,adopt=false});pawn.loc={X=0,Y=0,Z=0}
+        job={kind="craft",phase="collect",own="owner",token=owner.token,station={id="station",name="Station"},
+             plan={kind="processing"},ep=SK._new_episode(api,thing,{})}
+        pending=make_action(api,{id="supersession"},job).pending;pending.started=T;pending.poll(pending)
+        local old_child=job.ep.child_gen
+        local same_parent=M.go_to(log,{9,0,0},{nav=false,local_plan=false,owner_token=owner.token})
+        local same_handle=_G.DW_MOVE.handle
+        local blocked=pending.poll(pending)
+        check("craft terminal retains same-parent successor",blocked==nil and same_parent.gen>old_child and _G.DW_MOVE.gen==same_parent.gen and _G.DW_MOVE.handle==same_handle and A.owns_move(owner.token))
+        pending.cancel(pending)
+        check("craft cancellation retains same-parent successor",_G.DW_MOVE.gen==same_parent.gen and _G.DW_MOVE.handle==same_handle and A.owns_move(owner.token))
+        M.stop_owned(log,same_parent.gen,owner.token)
+        local ended=pending.poll(pending)
+        if not ended then ended=pending.poll(pending) end
+        check("craft releases only after successor ends",ended and not ended.ok and A.owner()==nil)
+        -- A stale child must never stop a successor, even with the same parent.
+        owner=A.request(log,{name="test:parent2",level="command",uses_move=true,adopt=false});pawn.loc={X=0,Y=0,Z=0}
+        e=SK._new_episode(api,thing,{})
+        SK._episode_poll(api,e,T,owner.token);local prior=e.child_gen
+        local newer=M.go_to(log,{9,0,0},{nav=false,local_plan=false,owner_token=owner.token});local handle=_G.DW_MOVE.handle
+        local result=SK._episode_poll(api,e,T+0.1,owner.token)
+        check("nested stale cleanup preserves successor",newer.ok and newer.gen>prior and _G.DW_MOVE.gen==newer.gen and _G.DW_MOVE.handle==handle and _G.DW_MOVE.mode=="go_to")
+        M.stop_owned(log,newer.gen,owner.token);A.release(log,owner.token,"done")
+        -- Suspension ends the child under arbiter context; cleanup never stops reflex.
+        owner=A.request(log,{name="test:parent3",level="command",uses_move=true,adopt=false});pawn.loc={X=0,Y=0,Z=0}
+        e=SK._new_episode(api,thing,{});SK._episode_poll(api,e,T,owner.token);prior=e.child_gen
+        local reflex=A.request(log,{name="test:reflex",level="reflex",uses_move=true})
+        local after=_G.DW_MOVE.gen;local cleanup=SK._episode_cleanup(api,e,owner.token)
+        check("suspended child cleanup never stops reflex",reflex.ok and _G.DWArbiter.owner.token==reflex.token and _G.DW_MOVE.gen==after and after>prior and cleanup==true)
+        A.release(log,reflex.token,"done");A.release(log,owner.token,"done")
+        -- Native release can reenter; stale checked stop cannot mutate successor.
+        owner=A.request(log,{name="test:parent4",level="command",uses_move=true,adopt=false})
+        local moving=M.go_to(log,{5,0,0},{nav=false,local_plan=false,owner_token=owner.token})
+        local old_stop=pawn.StopJumping;local changed=false
+        pawn.StopJumping=function() changed=true;_G.DWArbiter.owner={token=99999,state="owner",uses_move=true} end
+        local stopped=M.stop_owned(log,moving.gen,owner.token);pawn.StopJumping=old_stop
+        check("checked stop reentry preserves successor owner",changed and not stopped.ok and _G.DWArbiter.owner.token==99999 and _G.DW_MOVE.gen==moving.gen)
+        _G.DWArbiter.owner=nil;_G.DW_MOVE.mode="idle"
+        owner=A.request(log,{name="test:replace-reentry",level="command",uses_move=true,adopt=false})
+        local old=M.go_to(log,{5,0,0},{nav=false,local_plan=false,owner_token=owner.token});local st=_G.DW_MOVE
+        local fired=false;local successor
+        st.ws_job={cancel=function() fired=true;successor=M.go_to(log,{8,0,0},{nav=false,local_plan=false,owner_token=owner.token}) end}
+        local outer=M.go_to(log,{7,0,0},{nav=false,local_plan=false,owner_token=owner.token})
+        check("start cancel reentry preserves successor",fired and successor and successor.ok and not outer.ok and st.gen==successor.gen and st.mode=="go_to" and st.handle~=nil)
+        M.stop_owned(log,successor.gen,owner.token)
+        M.go_to(log,{5,0,0},{nav=false,local_plan=false,owner_token=owner.token});st=_G.DW_MOVE
+        st.trip={{X=0,Y=0,Z=-90},{X=10000,Y=0,Z=-90}};st.trip_ok=true
+        fired=false;successor=nil
+        local function reentrant_log(message)
+            if not fired and message:find("memory: self route",1,true) then
+                fired=true;successor=M.go_to(log,{9,0,0},{nav=false,local_plan=false,owner_token=owner.token})
+            end
+        end
+        outer=M.go_to(reentrant_log,{7,0,0},{nav=false,local_plan=false,owner_token=owner.token})
+        check("start memory-flush reentry preserves successor",fired and successor and successor.ok and not outer.ok and st.gen==successor.gen and st.mode=="go_to" and st.handle~=nil)
+        M.stop_owned(log,successor.gen,owner.token);A.release(log,owner.token,"done")
+        owner=A.request(log,{name="test:world-change",level="command",uses_move=true,adopt=false});pawn.loc={X=0,Y=0,Z=0}
+        e=SK._new_episode(api,thing,{});SK._episode_poll(api,e,T,owner.token);local original_world=_G.DW_WORLD_GUID
+        _G.DW_WORLD_GUID="different-world";pawn.loc={X=250,Y=0,Z=0};local old_faces=faces
+        SK._episode_poll(api,e,T+.1,owner.token)
+        check("world replacement cannot authorize face or stop",faces==old_faces and e.child_gen~=nil and _G.DW_MOVE.mode=="go_to")
+        _G.DW_WORLD_GUID=original_world;M.stop_owned(log,e.child_gen,owner.token);A.release(log,owner.token,"done")
+        owner=A.request(log,{name="test:stop-reentry",level="command",uses_move=true,adopt=false})
+        local pending_move=M.go_to(log,{5,0,0},{nav=false,local_plan=false,owner_token=owner.token})
+        local oldstop=pawn.StopJumping;successor=nil
+        pawn.StopJumping=function() pawn.StopJumping=oldstop;successor=M.go_to(log,{8,0,0},{nav=false,local_plan=false,owner_token=owner.token}) end
+        local stale=M.stop_owned(log,pending_move.gen,owner.token);pawn.StopJumping=oldstop
+        check("checked stop preserves reentrant same-owner successor",successor and successor.ok and not stale.ok and _G.DW_MOVE.gen==successor.gen and _G.DW_MOVE.mode=="go_to")
+        M.stop_owned(log,successor.gen,owner.token);A.release(log,owner.token,"done")
+        owner=A.request(log,{name="test:stop-world",level="command",uses_move=true,adopt=false})
+        pending_move=M.go_to(log,{5,0,0},{nav=false,local_plan=false,owner_token=owner.token});oldstop=pawn.StopJumping
+        original_world=_G.DW_WORLD_GUID
+        pawn.StopJumping=function() _G.DW_WORLD_GUID="changed-during-stop" end
+        stale=M.stop_owned(log,pending_move.gen,owner.token);pawn.StopJumping=oldstop
+        check("checked stop rejects world change during native release",not stale.ok and _G.DW_MOVE.gen==pending_move.gen and _G.DW_MOVE.mode=="go_to")
+        _G.DW_WORLD_GUID=original_world;M.stop_owned(log,pending_move.gen,owner.token);A.release(log,owner.token,"done")
+        local original_life=_G.DW_LIFE;_G.DW_LIFE={move_death_seq=41}
+        local capsule=pawn.CapsuleComponent.GetScaledCapsuleHalfHeight
+        pawn.CapsuleComponent.GetScaledCapsuleHalfHeight=function() _G.DW_LIFE.move_death_seq=42;return 90 end
+        local before=_G.DW_MOVE.gen;local refused=M.go_to(log,{5,0,0},{nav=false,local_plan=false})
+        pawn.CapsuleComponent.GetScaledCapsuleHalfHeight=capsule;_G.DW_LIFE=original_life
+        check("death sequence change rejects same healthy pawn before mutation",not refused.ok and _G.DW_MOVE.gen==before and _G.DW_MOVE.mode=="idle")
+        owner=A.request(log,{name="test:provisional-parent",level="command",uses_move=true,adopt=false})
+        local saved_pawn=pc.Pawn;pc.Pawn=nil;local foreign={token=99001,state="owner",uses_move=true};local fired=false
+        setmetatable(pc,{__index=function(_,k)
+            if k=="Pawn" then
+                if _G.DW_MOVE.start_guard and not fired then fired=true;_G.DWArbiter.owner=foreign end
+                return saved_pawn
+            end
+        end})
+        local rejected=M.go_to(log,{5,0,0},{nav=false,local_plan=false,owner_token=owner.token})
+        setmetatable(pc,nil);pc.Pawn=saved_pawn
+        check("foreign takeover rolls back only provisional move",fired and not rejected.ok and _G.DWArbiter.owner==foreign and _G.DW_MOVE.mode=="idle" and _G.DW_MOVE.handle==nil)
+        _G.DWArbiter.owner=nil
+        original_life=_G.DW_LIFE;_G.DW_LIFE={move_death_seq=51}
+        owner=A.request(log,{name="test:provisional-life",level="command",uses_move=true,adopt=false})
+        saved_pawn=pc.Pawn;pc.Pawn=nil;fired=false
+        setmetatable(pc,{__index=function(_,k)
+            if k=="Pawn" then
+                if _G.DW_MOVE.start_guard and not fired then fired=true;_G.DW_LIFE.move_death_seq=52 end
+                return saved_pawn
+            end
+        end})
+        rejected=M.go_to(log,{5,0,0},{nav=false,local_plan=false,owner_token=owner.token})
+        setmetatable(pc,nil);pc.Pawn=saved_pawn;_G.DW_LIFE=original_life
+        check("death sequence change during provisional admission rolls back",fired and not rejected.ok and _G.DW_MOVE.mode=="idle" and _G.DW_MOVE.handle==nil and A.owns_move(owner.token))
+        A.release(log,owner.token,"done")
+    end
+    do
+        local A=assert(loadfile(dir.."/client_mod/scripts/arbiter.lua"))(); A.set_move(M)
+        _G.DWArbiter.owner=nil;_G.DWArbiter.stack={};_G.DW_MOVE.mode="idle";pawn.loc={X=0,Y=0,Z=0}
+        local d=M.go_to(log,{20,0,0},{nav=false,local_plan=false});local prior=_G.DW_MOVE.owner_token
+        local high=A.request(log,{name="restore-reflex",level="reflex",uses_move=true})
+        local rel=A.release(log,high.token,"done")
+        local owner=A.owner()
+        check("nested implicit suspension restores original",d.ok and owner and owner.token==prior and _G.DW_MOVE.owner_token==prior and _G.DW_MOVE.mode=="go_to",
+              "prior="..tostring(prior).." owner="..tostring(owner and owner.token).." sttoken="..tostring(_G.DW_MOVE.owner_token).." mode="..tostring(_G.DW_MOVE.mode).." resumed="..tostring(rel.resumed))
+        M.stop(log)
+    end
     os.exit(fails == 0 and 0 or 1)
 end
 
@@ -1688,10 +1931,11 @@ do
     check("owner: skill move resumes with its token", A.owns_move(skill.token) and _G.DW_MOVE.owner_token == skill.token)
     M.stop(log); A.release(log, skill.token, "done")
     local other = A.request(log, { name = "non-mover", level = "command", uses_move = false })
-    M.go_to(log, { 22, 0, 0 }, { owner_token = other.token })
-    check("owner: non-mover cannot be borrowed", _G.DW_MOVE.owner_token == nil and not A.owns_move(other.token))
-    M.go_to(log, { 23, 0, 0 }, {})
-    check("owner: unassociated move does not borrow existing owner", _G.DW_MOVE.owner_token == nil)
+    local prior_gen, prior_handle = _G.DW_MOVE.gen, _G.DW_MOVE.handle
+    local refused=M.go_to(log, { 22, 0, 0 }, { owner_token = other.token })
+    check("owner: non-mover cannot be borrowed", not refused.ok and _G.DW_MOVE.gen==prior_gen and _G.DW_MOVE.handle==prior_handle and not A.owns_move(other.token))
+    refused=M.go_to(log, { 23, 0, 0 }, {})
+    check("owner: unassociated move does not borrow existing owner", not refused.ok and _G.DW_MOVE.gen==prior_gen and _G.DW_MOVE.handle==prior_handle)
     M.stop(log); A.release(log, other.token, "done")
 end
 

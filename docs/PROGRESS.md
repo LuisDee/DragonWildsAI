@@ -1,5 +1,24 @@
 # Progress log (append-only)
 
+### Materials-assisted Lodestone chain: developer controls, candidate gate pending (2026-10-28)
+
+Luis approved travel/build/use with granted materials. Harness granted64 Stone,
+40 Rune Essence,2 Vault Core and food/water, after preserving22 existing local
+state/save files with per-file stability records. Developer real-menu build
+spent32/20/1 and gained80 Construction XP. Two exact existing local component
+teleports produced native success signals, ~160m arrival and Law1610->1608->1606.
+These are assisted developer controls; no Haiku chain or milestone is claimed.
+
+Nested movement ownership, interaction focus and Lodestone cleanup candidate
+passed targeted suites and independent Sol cold review. Full gate running at
+logs/recovery/lodestone-gate-bfed7f2c with client off, unchanged server/Steam.
+Teleport remains hidden pending deployed full-compound control. Repeated
+normal0.4 map control failed pre-click with API/stack widget mismatch; one
+zero-duration full native cycle passed. Next approved discriminator keeps
+public root-stack duration0 across two cycles on fresh client; temporary
+headless presentation guard only, not a proven root-cause fix. No model calls.
+Research/evidence: research/r29-lodestone-chain-20261028.md.
+
 ### Manifest dispatch repair deployed and checked live (2026-10-28)
 
 Pushed/deployed 9516fc3 preserves manifest-valid arguments through Controller,
@@ -925,3 +944,5 @@ Root now owns client-off publication and supervised walk/one jump verification; 
 - 2026-10-28: added the standalone disabled native floor reader after design/cold review,33 actual-hub assertions and GREEN1158/1skip (382.51s). One explicit stationary source smoke succeeded with no additional native registration and owned cleanup. Staged walking reached450cm/s release and observed7.399cm horizontal post-release on one slope, HP100 retained; no general braking/prevention pass. The8-input overrun result remains partial. Next is actual support-guard integration with traversal-phase handling, not more stationary compatibility work.
 
 - Published source5cf1c8a additively:383 existing runtime files SHA256-unchanged, no restart or normal enable; current companion/body hashes0263243d9b28900f/ee34af4478a8b40a. Frozen judge diff empty. Publication/native source digest preserved; earlier pulses remain prior-hash diagnostics, not GOAL scores.
+
+Full candidate gate bfed7f2c completed:1241 passed,1 known cassette skip,453.10s, CHECK_ALL: GREEN. All9 frozen file hashes unchanged after gate; teleport remains llmfalse pending deployed compound proof.
