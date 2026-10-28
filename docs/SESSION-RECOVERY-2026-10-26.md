@@ -1,5 +1,53 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Current handoff: deployed inventory perception verified (2026-10-28, 05:00 UTC)
+
+- **Source83f0ce315a9b44130491da349a6eb1426374d4a4 is pushed/deployed.**
+  Companion0a0581215e563a39/bodyde557a16bbfb20c8, clean code and approvedjudge
+  diffempty. Full gate TERMINALGREEN1168passed/1skipped364.52s in
+  logs/recovery/cf-394651d8/check-all.log; do not repeat. Oldcf-84ece854RED
+  remains unchanged. Source/test/design before/afterSHA matched.
+- Announced client-only integration verified old10824/launcher10544 exited,
+  retained server7016/Steam3284 and all21 memory/envelope/client-state files
+  unchanged acrossdiskpublication. Gitff reconciled only our4canonicaldirty
+  docs after exactold-content assertion anddry-run; no stash/reset/restore.
+  Deployed runtime bytes match testedW. Two normalized-equal files needed
+  indexstatrefresh, no stageddiff or running-file rewrite. Archive:
+  R/logs/recovery/inventory-read-publication-47d69c3a/published.json.
+- DEVboot explicit-Targetdev-Release completed50.4s; newclient12340, pawn
+  BP_PlayerCharacter_C_2147473119, ClaudeDev, actual127.0.0.1:7777. Steam/
+  server never restarted. No game-model brain, slotFREE after verification.
+- Nativeget_state andinventory tool exposeper-scope readstatus. ALL8prepub
+  positive carried counts were preserved exactly; pagescomplete with8verified
+  quickslots, carried/loadoutpartial andhandsunknown becauseemptywrapperABI
+  remainsunverified. Actualnewbrain digest sayspartial/lowerbounds andretains
+  observeditems, nofalseempty. Dataarchive native-perception-result.json.
+  Nativehealth0.5 afterdiagnosticidlefood/waterdepletion: thiswasread-only, no
+  movement or survivalpass. Currentposition[63.15,1875.57,-35.45].
+  Freshresources/corridor/PID/characteradmission needed foranyphysicaltest.
+- FloorreadernewleaseAPI isnowondisk, unreferenced/disabled; previousprivate
+  hook/closedfactory markers belonged to oldprocess10824 and aregone. Do not
+  blindlyrerunexisting-hook-onlyprobes on12340 or claimreaderwasenabled.
+- NEXT: implement reviewed navigation-route-authority design in W (private
+  design copiedto publicationarchive). Pilotfatal04:31:52 occurred after4
+  no_path replies, localexhaustion andstraightfallback. Holdrequiredlongtrip
+  movement pendingownedpath; truthfulboundedfailure/partialend, singleflight
+  retainedthroughlocaltimeout, uniqueIPCepoch/nonce andmetadataunknowns.
+  Review explicitly requiredtypedserver->Python->Lua tests, follow/direct/
+  wade/jump preservation, stalled-progresshold andno falselearning. nav_id
+  survivesordinarymoveresets; do not repeat the earlierincorrect resetclaim.
+  Helperrestartisnotproofoldserverworkended. No furthergrave-route/model
+  travel untilbenignnegative+positivecontrols provebehavior. Universal
+  continuoussupport stillopen; inventory count-sensitiveverification and
+  nativeempty/nullcontrols also remain.
+- TreepilotwasFAILED5Haikucontroller/0planner/0Sonnet, extra$0.0052, daily
+  total$0.0125/11pricedcalls/no unpriced. Manualcancelwaslateafterdeath, not
+  aninterception. Driverterminated; rootverifiedidleafter native respawn,
+  preservedchangedmemory/death andreleasedownslot. NoAXE/tree/no-axe orM1-M6
+  pass. Alloriginalrecoverytargets andsoloVel'gar goalACTIVE/unmet.
+  R26harnessnutritiontotal30Bread/49Water; preserveactualdeathloss.
+
+
 ## Current checkpoint: inventory perception GREEN, publication pending (2026-10-28)
 
 - Frozen/reviewed inventory.lua/client_bridge.lua/situation.py + regressions passed

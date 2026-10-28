@@ -1,5 +1,18 @@
 # Live bug ledger
 
+### Inventory checkpoint published and checked natively (2026-10-28)
+
+Source83f0ce3, companion0a0581215e563a39/bodyde557a16bbfb20c8 is deployed
+after one50.4s client-only integration; newDEV12340/ClaudeDev, server/Steam
+retained, all21preservedfiles unchanged. Nativeinventory/getstatekeptall8
+knownpositivecounts andexposedpartial/unknownreadstatus. The actualdigest
+showslowerbounds ratherthanfalseempty. FullgateGREEN1168/1skip364.52s.
+NoemptyABI/count-verification/milestoneclaim. Nativehealth0.5 fromidle
+starvation; noinputtest orrestoration. Slotfree,noAPIbrain. Nextbehaviorfix
+is ownedno-path/partialroutehandling; failedtreepilot/cost$0.0125/day and
+itsdeath/memory arepreserved.
+
+
 ### Inventory perception checkpoint GREEN (2026-10-28)
 
 Full gate1168 passed/1 skipped364.52s, CHECK_ALL: GREEN; source hashes unchanged
