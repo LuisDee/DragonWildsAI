@@ -1,5 +1,84 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Latest: crafting alternatives GREEN, publication next (2026-10-28)
+
+The acquisition contract passed1197/1skip428.81s CHECK_ALL: GREEN, terminal
+session40253, W/logs/recovery/cf-19872224/. All10 saved files unchanged through
+the gate; subsequent handoff/progress updates are administrative. Judge diff
+fromgoal-judge-20261026g remains empty. Crafting rawSHA256
+5AD323B4AF60F1811C912E993EE6AC2A8002C147E55EEDA304D743BE9DAF34F8.
+Commit/push then brief client-off Lua publication; retain server/Steam/helper.
+Verify deployed same-snapshot native craft_plan alternatives before any modelrun.
+Do not repeat the full gate absent source changes or a new failure/concern.
+
+Latest developer controls: normal local slope go_to arrived within its1.5m
+tolerance, next upper approach failed after partialroute, changed-start Stone
+pickup failed3attempts/gathered0. NativeHP100, finalpositionapproximately
+[81.7451,1872.1527,-34.8831], actualrawidle/slotreleaseverified. Nutrition R26
+totals52Bread/77Water, no crafting grants; API$0.0259/23Haiku. Private archives
+R/logs/recovery/local-slope-walk-20261028.json,local-slope-upper-walk-20261028.json,
+loose-stone-after-ascent-20261028.json,local-terrain-nutrition-20261028.json.
+No ingredient acquisition or autonomy gain yet. Navmesh-context hypothesis is
+unproved; a bounded private metadata/paired-query diagnostic is being reviewed.
+Adopt running work from W/logs/recovery/crafting-active-20261028.json and R's
+ACTIVE-HANDOFF before launching anything. Full original goal remains ACTIVE.
+
+## Current checkpoint: model view deployed; acquisition fix isolated (2026-10-28)
+
+- Authoritative runtime source9cacd96, companion23ce2b4dae31e309,
+  body023b06997f5e31de, judgesb5057d95be92c264 unchanged. Pushed main and deployed
+  Python-only, no restart. Gate1197passed/1skipped417.84s terminal GREEN,
+  W/logs/recovery/cf-a529e3d4/check-all.log; all8 saved hashes unchanged.
+  Historical publication-pending sections below are superseded by this entry.
+- Developer native inventory->actual Controller/FakeLLM confirmed12963->1724
+  UTF8bytes, raw/enriched/positives/uncertainty/ToolCallID preserved,0APIcalls.
+  Native absence proof remains blocked on verified accessor/layout and VM_READ
+  access; do not infer empty inventory from partial reads or old dump offsets.
+- Natural trialtree_gap_7c819a7c6b68 terminal:6Haiku/0planner,21.375s,$0.005,
+  noaxe/tree/XPgain,HP100. It called craft_plan but no inventory; no compaction
+  behavior inference. Three graves returned no_path. Original private cleanup
+  false negative preserved; root independently verified rawidle/processesgone
+  before releasing its slot. Raw R/logs/recovery/no-axe-tree_gap_7c819a7c6b68/.
+- Craft graph falsely flattened one acquisition branch and discarded inventory
+  completeness. One worker owns crafting.lua/client_bridge.lua/tests/design
+  for reviewed generic alternatives and same-snapshot uncertainty. Keep actual
+  execution gates and approved judges unchanged. Cold review, targeted/design
+  checks, one fresh full gate, then controlled integration required before use.
+- On tested R, root ran one queued developer loose-stone pickup control:
+  run20261028-075354,13.9s including8ssettle; gather2.9s/path_blocked after3
+  unreachable attempts/gathered0,HP100. Position now approximately
+  [70.7631,1861.4225,-35.0345], observed inventory unchanged. Fresh resources
+  ~3mabove initialZ; second worker diagnosing actual trace/nav evidence read-only.
+  Queue terminal, finalpingidle/nowaiters, actualslotfree. Private registration
+  archived/removed, no automaticrepeat. Declared nutrition R26 totals46Bread/
+  71Water; gameAPI day$0.0259/23pricedHaiku/0planner/Sonnet/unpriced.
+- Retain/adopt client1416/launcher8632,server7016,Steam3284,watchdog12580,
+  helper3228+1980 (onejob). Fresh DEVtarget127.0.0.1:7777,ClaudeDev/pawn
+  BP_PlayerCharacter_C_2147473121 verified. No brain/queue/gate remains active.
+  Candidate W is isolated; inspect workers before launching work. Root is sole
+  live operator. Preserve brain dev_director/native navdev memory and all state.
+- Next: integrate independently reviewed acquisition contract; diagnose the new
+  loose-pickup route failure without guard removal. Developer controls precede
+  any fresh capped natural Haiku test. No repeated identical pilots or full gate
+  absent codechanges. Full original M1-M6/Brynmoor/soloVel'gar goal ACTIVE/unmet.
+  See docs/research/r26-model-gap-native-retry-20261028.md.
+
+### Follow-up before acquisition full gate
+
+Craft acquisition source frozen after cold-review corrections: execution_unknown
+leaves ready absent; conditional craft suggestions preserve actual model choice
+and native execution. Actual serialized bridge regression covers the boundary.
+Reviewer approved full gate; focused crafting/bridge and5design checks passed.
+Only craft_plan is uncertainty-correct in this wave; legacy recipes/craftable
+assessment remains a separate gap. Source needs its own full gate/publication.
+
+Root's single-flight stationary comparison used the retained helper and matching
+epoch/nonce/unique diagnostic IDs. Both resource heights returned identical
+partial1.23m paths. Nearby2m contrast partialfalse still projected~1.28m from
+originalgoal. No pawnmovement/thresholdchange, HP1 from unattended depletion.
+Raw R/logs/recovery/stationary-nav-height-comparison-20261028.json. Inspect root
+slot and terrain/nutrition process before integration; do not duplicate it.
+
 ## Current checkpoint: model gap-summary GREEN, publication pending (2026-10-28)
 
 - TERMINAL GREEN1197passed/1skipped417.84s, W/logs/recovery/cf-a529e3d4/check-all.log.

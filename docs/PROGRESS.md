@@ -1,5 +1,43 @@
 # Progress log (append-only)
 
+### Craft acquisition alternatives passed the full gate (2026-10-28)
+
+The independently reviewed craft_plan wave passed1197tests/1skipped428.81s,
+CHECK_ALL: GREEN (terminalsession40253; pytestlogcf-19872224/check-all.log).
+All10 saved source/test/design/evidence hashes matched through the gate.
+Plans expose OR acquisition alternatives and AND recipe inputs, preserve
+same-snapshot count uncertainty and avoid unsupported readiness/craft claims.
+Actual native craft execution gates and frozen judges are unchanged. Client-only
+publication and fresh native response validation are next. Legacy recipes and
+craftable assessment remain a separate count-uncertainty gap.
+
+Developer live controls made one short slope arrival, followed by a partial
+upper approach and another failed loose-stone acquisition from the new start.
+Health100, no observed resource gain; no autonomous capability pass. Latest
+position~[81.7451,1872.1527,-34.8831]. Nutrition support totals52Bread/77Water,
+API day unchanged$0.0259/23Haiku. A bounded private nav-context comparison is
+being reviewed to discriminate mesh selection from local graph disconnection.
+
+### Model view deployed; next prerequisite defects measured (2026-10-28)
+
+Source9cacd96 is pushed/deployed after1197passed/1skipped CHECK_ALL: GREEN.
+Fresh native inventory through the actual Controller/FakeLLM path measured
+12963->1724UTF8bytes, preserving raw/enriched/positive/unknown evidence and
+ToolCallID, zero provider calls. The subsequent bounded natural tree trial used
+6Haiku/0planner,21.375s,$0.005 and consulted craft_plan, but did not craft or
+fell a tree. It did not call inventory, so no behavioral compaction effect is
+claimed. HP100/XP219 held; strict initial axe absence remains unknown.
+
+The graph flattened one catalog acquisition into mandatory42currency while
+hiding gather options; it also discarded inventory completeness. A generic
+alternatives/uncertainty design passed independent conditional review and is
+being implemented in isolation. Separately the tested runtime ran one queued
+developer loose-stone pickup: path_blocked after3target attempts, gathered0,
+HP100, no observed inventory gain. This new live evidence directs a parallel
+navigation diagnosis, not another identical Haiku retry. Queue terminal/slot
+free; nutrition totals46Bread/71Water. Day spend$0.0259/23Haiku,0unpriced.
+See docs/research/r26-model-gap-native-retry-20261028.md. M1-M6 remain unmet.
+
 ### Model gap-summary candidate GREEN (2026-10-28)
 
 Full gate1197passed/1skipped417.84s, CHECK_ALL: GREEN,

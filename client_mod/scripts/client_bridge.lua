@@ -962,9 +962,16 @@ R.inspect = { needs = { { "sense", "census" } }, fn = function(args)
     return { ok = true, data = d }
 end }
 
-local function counts()
+local function counts_with_status()
     local lr = call("inventory", "list")
-    return lr.ok and (inventory_view(lr.data)) or nil
+    if not lr.ok or type(lr.data) ~= "table" then return nil, nil end
+    local have = inventory_view(lr.data)
+    return have, inventory_read_status(lr.data).carried
+end
+
+local function counts()
+    local have = counts_with_status()
+    return have
 end
 
 -- Aim the camera at a point, as the mouse does (the same call move.lua steers with).
@@ -1205,6 +1212,7 @@ M.API = {
     actor_of = function(t) return actor_of(t) end,
     contents_of = function(t) local a, U = actor_of(t); if a and U then return contents_of(a, U) end end,
     counts = function() return counts() end,
+    counts_with_status = function() return counts_with_status() end,
     aim_at = function(p) return aim_at(p) end,
     move_status = function() return move_status() end,
     reflex_owns_pawn = function() return reflex_owns_pawn() end,

@@ -1,5 +1,27 @@
 # Live bug ledger
 
+### Acquisition options flattened; nearby loose pickup unreachable (2026-10-28)
+
+On9cacd96 the model called craft_plan, whose flattened steps/missing made one
+catalog recipe branch look mandatory:42currency for basic materials, despite
+nested gather hints. The station kind and recipe name do not prove vendor or
+native craft capability. Planning also drops inventory completeness and assumes
+absent keys mean exact0. Reviewed generic OR-options/AND-inputs and snapshot
+uncertainty work is isolated; actual craft execution gates must be preserved.
+
+A separate developer loose_stones/count1/pickup/radius15 control failed
+path_blocked after3unreachable attempts, gathered0. Position moved~5.2m,HP100,
+observed inventory unchanged. Fresh loose resources were visible~3m above the
+starting character Z. Investigate actual approach/nav evidence; do not relax
+safety, claim pickup or infer why from geometry alone. Raw run20261028-075354;
+report docs/research/r26-model-gap-native-retry-20261028.md. No retry loop.
+
+Trace audit found partial paths, not helper failure/no_path. A matched-v2
+stationary comparison returned the same partial endpoint for resource XY at
+both heights. Destination-height adjustment alone is unsupported. A nearby
+partial=false path projected~1.28m away from the original requested goal;
+partial=false/projection success must not be counted as original-goal arrival.
+
 ### Natural task stops before prerequisite discovery (2026-10-28)
 
 After route admission, the bounded natural tree retry survived but did not craft

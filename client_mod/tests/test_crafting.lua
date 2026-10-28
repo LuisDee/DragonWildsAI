@@ -17,7 +17,7 @@ C.set_data(REAL)
 
 local function path_of(id) return C.index().path_of[id] end
 local function has_step(steps, what, key, val)
-    for _, s in ipairs(steps) do if s["do"] == what and (key == nil or s[key] == val) then return s end end
+    for _, s in ipairs(steps or {}) do if s["do"] == what and (key == nil or s[key] == val) then return s end end
 end
 
 -- ------------------------------------------------------------------ fake world
@@ -242,26 +242,27 @@ do
     local ctx = { have = {}, unlocked = U({ "RECIPE_Pickaxe_Stone" }), near = near("CraftingTable"), gather_for = C.W.gather_for(api) }
     local t = C.plan_tree({ item = "ITEM_Pickaxe_Stone" }, 1, ctx)
     check("tree: stone pickaxe root recipe", t and t.root.recipe == "RECIPE_Pickaxe_Stone", t and t.root.recipe)
-    check("tree: craft_after (inputs first)", t.root.status == "craft_after", t.root.status)
-    check("tree: gather stone step", has_step(t.steps, "gather", "item", "ITEM_Resources_Stone") ~= nil)
-    check("tree: gather ash step", has_step(t.steps, "gather", "item", "ITEM_Resources_Wood_Ash") ~= nil)
+    check("tree: alternatives unresolved", t.root.status == "choices_unresolved", t.root.status)
+    check("tree: no unconditional steps with choices", t.steps == nil)
+    check("tree: input acquisition options exposed", #t.root.inputs >= 2 and t.root.inputs[1].options_total >= 1)
     local cs = has_step(t.steps, "craft", "recipe", "RECIPE_Pickaxe_Stone")
-    check("tree: craft step last + station", cs and t.steps[#t.steps] == cs and cs.station == "CraftingTable")
+    check("tree: no premature craft step", cs == nil)
     -- with the inputs carried the root is ready
     ctx.have = { ITEM_Resources_Wood_Ash = 6, ITEM_Resources_Stone = 8 }
     t = C.plan_tree({ item = "ITEM_Pickaxe_Stone" }, 1, ctx)
-    check("tree: ready when carried", t.ready and t.root.status == "craft", t.root.status)
+    check("tree: carried inputs do not prove execution", t.ready == nil and t.root.status == "execution_unknown" and t.root.suggestion and t.root.suggestion.conditional, t.root.status)
     -- the shared pool: 2 pickaxes need 12 ash, 6 carried -> gather 6 more
     t = C.plan_tree({ item = "ITEM_Pickaxe_Stone" }, 2, ctx)
-    local g = has_step(t.steps, "gather", "item", "ITEM_Resources_Wood_Ash")
-    check("tree: pool counts carried once", g and g.count == 6, g and g.count)
+    local g
+    for _, v in ipairs(t.root.inputs or {}) do if v.item == "ITEM_Resources_Wood_Ash" then g = v end end
+    check("tree: pool counts carried once", g and g.need == 12 and g.observed_have == 6, g and g.observed_have)
 end
 do -- alternatives listed; locked recipes carry their unlock text with station names
     local ctx = { have = {}, unlocked = U({ "RECIPE_Process_BronzeBar" }), near = near("Furnace"), gather_for = C.W.gather_for(api) }
     local t = C.plan_tree({ item = "ITEM_Resources_BronzeBar" }, 2, ctx)
-    check("tree: bronze bar expands the unlocked ore recipe", t.root.recipe == "RECIPE_Process_BronzeBar", t.root.recipe)
-    check("tree: bronze alternatives listed", t.root.alternatives and #t.root.alternatives >= 2, t.root.alternatives and #t.root.alternatives)
-    check("tree: 2 bars = 1 craft", t.root.crafts == 1, t.root.crafts)
+    check("tree: bronze bar exposes recipes", t.root.options and t.root.options_total >= 1)
+    check("tree: bronze alternatives listed", t.root.options and t.root.options_total >= 2, t.root.options_total)
+    check("tree: bronze alternatives not flattened", t.steps == nil)
     local cands = C.candidates("ITEM_Resources_IronBar", 1, { have = {}, unlocked = {}, near = {} })
     check("candidates: iron bar has every recipe", #cands >= 2, #cands)
     local a
@@ -290,7 +291,7 @@ do -- cycle + depth guards on a synthetic catalog
                  items = { [A] = { id = "ITEM_A", name = "A" }, [B] = { id = "ITEM_B", name = "B" } },
                  recipes = { R_A = { inputs = { { B, 1 } }, outputs = { { A, 1 } }, stations = { "Bench" } },
                              R_B = { inputs = { { A, 1 } }, outputs = { { B, 1 } }, stations = { "Bench" } } } })
-    local t = C.plan_tree({ item = "ITEM_A" }, 1, { have = {}, unlocked = U({ "R_A", "R_B" }), near = near("Bench") })
+    local t = C.plan_tree({ item = "ITEM_A" }, 1, { have = {}, count_status = {status="complete",count_semantics="exact"}, unlocked = U({ "R_A", "R_B" }), near = near("Bench") })
     local leaf = t.root.inputs[1].inputs[1]
     check("cycle guard", leaf.status == "cycle", leaf and leaf.status)
     check("cycle reported missing", #t.missing == 1)
@@ -560,7 +561,7 @@ do
     r = C.HANDLERS.recipes(nil, { item = "Iron Bar" }, { api = api })
     check("recipes: every iron bar recipe with status", r.ok and r.data.total >= 2 and r.data.recipes[1].status ~= nil)
     r = C.HANDLERS.craft_plan(nil, { item = "Stone Pickaxe", count = 1 }, { api = api })
-    check("craft_plan: tool works", r.ok and r.data.root.status == "craft")
+    check("craft_plan: execution remains unknown", r.ok and r.data.ready == nil and r.data.root.status == "execution_unknown" and r.data.root.suggestion.conditional)
     r = C.HANDLERS.craft_plan(nil, {}, { api = api })
     check("craft_plan: invalid args", r.reason == "invalid_args")
 end
@@ -620,7 +621,7 @@ do -- unknown unlocks and raw condition bundles remain distinct and read-only
           and card.unlock_query_source == "generated recipe catalog (whitespace normalized)")
     local known = C.plan_tree({ recipe = "R" }, 1, { have = {}, unlocked = {}, near = {} })
     check("unlock: locked plan retains condition facts", known.root.status == "not_unlocked"
-          and known.root.unlock_queries[2] == q2 and has_step(known.steps, "unlock"))
+          and known.root.unlock_queries[2] == q2 and known.root.unlock_status == "locked")
     local unknown = C.plan_tree({ recipe = "R" }, 1, { have = {}, unlocked = nil, near = {} })
     check("unlock: unreadable state remains unknown without unlock step", unknown.root.status == "unlock_unknown"
           and not has_step(unknown.steps, "unlock") and unknown.root.unlock_queries[1] == q1)
@@ -645,6 +646,84 @@ for name in pairs(C.HANDLERS) do
     check("needs entry " .. name, C.NEEDS[name] ~= nil)
 end
 check("manifest: craft is an action, plan is read", C.MANIFEST.craft.kind == "action" and C.MANIFEST.craft_plan.kind == "read")
+
+do -- held-out acquisition alternatives and count provenance
+    local A,B,CUR,GOAL = "/fixture/ITEM_A", "/fixture/ITEM_B", "/fixture/ITEM_Currency", "/fixture/ITEM_Goal"
+    local fake = {items={ [A]={id="ITEM_A",name="A"}, [B]={id="ITEM_B",name="B"},
+                          [CUR]={id="ITEM_Currency",name="Currency"}, [GOAL]={id="ITEM_Goal",name="Goal"} },
+        stations={Bench={name="Bench",kind="crafting",classes={"BP_Bench_C"}},
+                  Merchant={name="Merchant",kind="crafting",classes={}}},
+        recipes={ R_Goal={inputs={{B,1},{A,2}},outputs={{GOAL,1}},stations={"Bench"}},
+                  R_B={inputs={{A,2}},outputs={{B,1}},stations={"Merchant"}} } }
+    C.set_data(fake)
+    local function sources(item) if item=="ITEM_B" then return {"pickup_b", "extract_b"} end return {} end
+    local ctx={have={ITEM_A=3},count_status={status="complete",count_semantics="exact"},
+               unlocked=U({"R_Goal","R_B"}),near=near("Bench"),gather_for=sources}
+    local t=C.plan_tree({recipe="R_Goal"},1,ctx)
+    local b,a=t.root.inputs[1],t.root.inputs[2]
+    check("options: pinned root preserves OR alternatives", b.options_total==3 and #b.options==3 and t.steps==nil and t.missing==nil)
+    check("options: gather capability not availability", b.options[1].type=="gather" and b.options[1].availability=="unknown")
+    local recipe
+    for _,opt in ipairs(b.options) do if opt.type=="recipe" then recipe=opt end end
+    check("options: recipe AND inputs and unknown execution", recipe and #recipe.inputs==1 and recipe.inputs[1].item=="ITEM_A" and recipe.execution_capability=="unknown")
+    check("options: sibling uses conservative branch pool", a.observed_have==1 and a.have_semantics=="lower_bound" and a.sufficiency=="unknown")
+    ctx.have={};ctx.count_status={status="partial",count_semantics="lower_bound"}
+    t=C.plan_tree({recipe="R_Goal"},1,ctx)
+    b=t.root.inputs[1]
+    check("options: incomplete zero unknown", b.observed_have==0 and b.sufficiency=="unknown" and b.short==nil and b.options[1].quantity_semantics=="upper_bound")
+    ctx.have={ITEM_B=1,ITEM_A=3}
+    t=C.plan_tree({recipe="R_Goal"},1,ctx)
+    check("options: lower bound enough proves snapshot sufficiency", t.root.inputs[1].sufficiency=="enough" and t.root.inputs[2].sufficiency=="enough")
+    ctx.have={ITEM_A=1};ctx.count_status={status="complete",count_semantics="exact"};ctx.gather_for=nil
+    t=C.plan_tree({recipe="R_Goal"},1,ctx)
+    check("options: exact insufficient short", t.root.inputs[2].sufficiency=="short" and t.root.inputs[2].short~=nil)
+    ctx.have={ITEM_Goal=9,ITEM_B=1,ITEM_A=2}
+    t=C.plan_tree({recipe="R_Goal"},1,ctx)
+    check("options: explicit recipe requests one craft even if output carried", t.root.crafts==1 and t.root.output_count==1)
+    C.set_data(REAL)
+end
+
+do -- bounded choices, vendor metadata, and multiple independent profiles
+    local X,G="/heldout/ITEM_X", "/heldout/ITEM_G"
+    local recipes={R_G={inputs={{X,1}},outputs={{G,1}},stations={"Bench"}}}
+    for i=1,10 do recipes[string.format("R_%02d",i)]={inputs={},outputs={{X,1}},stations={i==1 and "Trader" or "Bench"}} end
+    local fake={items={[X]={id="ITEM_X",name="X"},[G]={id="ITEM_G",name="G"}},
+        stations={Bench={name="Bench",kind="crafting",classes={}}, Trader={name="Trader",kind="crafting",vendor=true,classes={}}}, recipes=recipes}
+    C.set_data(fake)
+    local all={"R_G"}; for i=1,10 do all[#all+1]=string.format("R_%02d",i) end
+    local ctx={have={},count_status={status="complete",count_semantics="exact"},unlocked=U(all),near=near("Bench")}
+    local t=C.plan_tree({recipe="R_G"},1,ctx)
+    local x=t.root.inputs[1]
+    check("options: capped deterministic alternatives", x.options_total==10 and #x.options==8 and x.options_truncated and t.truncated and not t.steps)
+    check("options: confirmed vendor unsupported", x.options[1].recipe=="R_01" and x.options[1].execution_capability=="unsupported_vendor")
+    local profile_api={module=function(n) return n=="gather_profiles" and {RESOURCES={z={item="ITEM_X"},a={item="ITEM_X"},b={item="other"}}} end}
+    local gather=C.W.gather_options(profile_api)("ITEM_X")
+    check("options: all matching profiles ordered", #gather==2 and gather[1]=="a" and gather[2]=="z")
+    check("options: absent profile does not invent source", #C.W.gather_options(profile_api)("ITEM_Missing")==0)
+    ctx.count_status={status="complete",count_semantics="bad"}
+    t=C.plan_tree({recipe="R_G"},1,ctx)
+    check("options: malformed exact status unknown", t.root.inputs[1].have_semantics=="lower_bound" and t.root.inputs[1].sufficiency=="unknown")
+    C.set_data(REAL)
+end
+
+do -- observed generic station and enough inputs do not establish execution capability
+    local input, goal = "/heldout/ITEM_Input", "/heldout/ITEM_Product"
+    local fake={items={[input]={id="ITEM_Input",name="Input"},[goal]={id="ITEM_Product",name="Product"}},
+        stations={Bench={name="Bench",kind="crafting",classes={"BP_GenericBench_C"}}},
+        recipes={R_Product={inputs={{input,2}},outputs={{goal,1}},stations={"Bench"}}}}
+    C.set_data(fake)
+    local ctx={have={ITEM_Input=2},count_status={status="complete",count_semantics="exact"},
+               unlocked=U({"R_Product"}),near=near("Bench")}
+    local t=C.plan_tree({recipe="R_Product"},1,ctx)
+    check("execution: enough exact input retained", t.root.inputs[1].sufficiency=="enough" and t.root.inputs[1].observed_have==2)
+    check("execution: observed station retained", t.root.station_id=="Bench_1" and t.root.unlock_status=="unlocked")
+    check("execution: capability unknown and no ready", t.root.execution_capability=="unknown" and t.root.status=="execution_unknown" and t.ready==nil)
+    check("execution: suggestion explicitly conditional", t.root.suggestion and t.root.suggestion.conditional==true and t.steps==nil)
+    ctx.have={ITEM_Input=1}; t=C.plan_tree({recipe="R_Product"},1,ctx)
+    local craft=has_step(t.steps,"craft")
+    check("execution: future craft step conditional", craft and craft.conditional==true and craft.ready==nil)
+    C.set_data(REAL)
+end
 
 print(string.format("test_crafting: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

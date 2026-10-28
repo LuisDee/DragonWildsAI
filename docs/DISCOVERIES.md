@@ -1,5 +1,21 @@
 # Discoveries
 
+### Deployed model view and actual prerequisite response (2026-10-28)
+
+On9cacd96, a fresh native inventory passed through actual Controller._read to
+FakeLLM next-turn input measured12963->1724UTF8bytes while retaining original
+raw/enriched state, read uncertainty, positive rows and matching ToolCallID.
+No provider calls. A subsequent natural Haiku run used craft_plan but no
+inventory call, so it does not show a behavioral effect from view compaction.
+
+Actual craft_plan expanded basic ingredient catalog recipes into42currency
+and merchant station/craft steps; gathering appeared only in nested hints.
+The fresh developer census independently saw loose Stone/AshLogs and a table
+~33m away. Their visibility does not prove reachability. A one-item loose
+pickup control then failed path_blocked, with no observed acquisition and
+HP100. Preserve these failed observations and native uncertainty; no complete
+prerequisite chain or autonomous pass. See the r26 model-gap native report.
+
 ### Actual inventory context size and current read access (2026-10-28)
 
 The natural retry's actual enriched inventory tool result was13,068UTF8bytes.

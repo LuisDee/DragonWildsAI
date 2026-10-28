@@ -1007,6 +1007,52 @@ test("bare false adoption remains pending and uses bounded retry", function()
     B2.stop(); _G.ADOPT_TEST = nil; install("inventory")
 end)
 
+test("craft plan reads counts and status from the same inventory snapshot", function()
+    install("sense")
+    local addition = [[
+        function M.list(log)
+            FAKE.inventory_snapshot_calls=(FAKE.inventory_snapshot_calls or 0)+1
+            if FAKE.inventory_exact_control then
+                return {ok=true, hotbar={}, bag={{item="ITEM_Input",name="Input",count=2}}, unmapped={}, loadout={},
+                    read_status={carried={status="complete"}}}
+            end
+            if FAKE.inventory_snapshot_calls == 1 then
+                return {ok=true, hotbar={}, bag={{item="ITEM_Input",name="Input",count=1}}, unmapped={}, loadout={},
+                    read_status={carried={status="partial",reason="slot_read_failed"}}}
+            end
+            return {ok=true, hotbar={}, bag={}, unmapped={}, loadout={}, read_status={carried={status="complete"}}}
+        end
+        return M
+    ]]
+    local edited, replacements=FAKES.inventory:gsub("return M%s*$",addition)
+    assert(replacements==1); install("inventory",edited)
+    local f=assert(io.open(REPO .. "/client_mod/scripts/crafting.lua", "rb")); local text=f:read("a");f:close()
+    install("crafting",text)
+    local C=B.module("crafting")
+    local input, goal="/fixture/ITEM_Input", "/fixture/ITEM_Goal"
+    C.set_data({items={[input]={id="ITEM_Input",name="Input"},[goal]={id="ITEM_Goal",name="Goal"}},
+        stations={Bench={name="Bench",kind="crafting",classes={}}},
+        recipes={R_Goal={inputs={{input,2}},outputs={{goal,1}},stations={"Bench"}}}})
+    C.W.unlocked=function() return {R_Goal=true},1 end
+    _G.DWCraft=nil; FAKE.inventory_snapshot_calls=0
+    local response=rpc("craft_plan",{recipe="R_Goal"})
+    assert(response and response.ok, response and response.reason)
+    local input_node=response.data.root.inputs[1]
+    assert(FAKE.inventory_snapshot_calls==1, "counts and status must use the same one inventory call")
+    assert(input_node.observed_have==1 and input_node.have_semantics=="lower_bound" and input_node.sufficiency=="unknown")
+    assert(response.data.steps==nil and response.data.missing==nil, "unknown cannot be a definite shortage")
+    assert(response.data.choices_unresolved==nil, "unknown inventory is not an alternative choice")
+    FAKE.inventory_exact_control=true; FAKE.inventory_snapshot_calls=0
+    C.stations=function() return {{id="bench_1", station="Bench", name="Bench", distance=1}} end
+    local exact=rpc("craft_plan",{recipe="R_Goal"})
+    assert(exact and exact.ok and exact.data.root.status=="execution_unknown")
+    assert(exact.data.ready==nil, "serialized unknown readiness must be absent, not false")
+    assert(exact.data.choices_unresolved==nil, "execution uncertainty is not an alternative choice")
+    assert(exact.data.root.suggestion and exact.data.root.suggestion.conditional==true)
+    assert(FAKE.inventory_snapshot_calls==1)
+    FAKE.inventory_exact_control=nil; uninstall("crafting"); install("inventory")
+end)
+
 -- ------------------------------------------------------------------ run
 for _, t in ipairs(tests) do
     local ok, err = pcall(t[2])
