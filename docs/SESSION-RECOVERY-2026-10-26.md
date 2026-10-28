@@ -21,10 +21,18 @@
   preserves observed items without claiming empty inventory. This fixes
   perception, not count-sensitive action verification or frozen predicates.
 - **Current state:** position `[63.15,1875.57,-35.45]`, native health **0.5**
-  after food/water depletion during diagnostics. The publication check was
-  read-only; no survival or movement success is implied. Body/arbiter idle,
-  reservation released, no game-model brain running. Fresh resources, identity,
-  target and corridor checks are required before physical testing.
+  after food/water depletion during diagnostics at the initial read-only check.
+  A subsequent reserved native compatibility check supplied2Bread/2CleanWater: 
+  the existing real-input reflex consumed them, food0->59.31/water0->49.08 and
+  HP0.5->51.5 after15s, thenHP100 on the next read. No health writes or autonomous
+  resource-acquisition claim. R26 nutrition totals are32Bread/51Water. The check
+  is TERMINAL, body/arbiter idle and the actual runtime slot free; no API brain.
+  Fresh resources, identity, target and corridor checks still precede input.
+- Run runtime Python commands with working directory `C:/gameserver`. Using its
+  venv from W still imports W tools; verify `client_slot.STATE` before runtime
+  reservations. One initial compatibility queue attempt was correctly blocked
+  by our still-held publication reservation, then the actual R reservation was
+  released and the check ran under its own queue lease.
 - The opt-in floor-reader lease API is now on disk, with no startup, bridge or
   movement consumer. The old private hook/factory markers belonged to exited
   process10824 and are gone. Do not rerun an existing-hook-only probe on12340

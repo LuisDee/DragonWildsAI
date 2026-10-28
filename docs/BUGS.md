@@ -1,5 +1,17 @@
 # Live bug ledger
 
+### Native food-reflex compatibility after publication (2026-10-28)
+
+A reserved check supplied two Bread and two Clean Water. The existing client
+reflex consumed them through real inputs: food0->59.31, water0->49.08 and
+HP0.5->51.5 after15 seconds, thenHP100 on the next read. Read status remained
+partial with verified page mapping; this confirms the perception change did
+not break this positive use path. No model calls, health writes or autonomous
+resource-acquisition claim. The queue and owned cleanup are terminal, and the
+actual runtime reservation is free. R26 supplied nutrition totals32Bread/51Water.
+Raw evidence: inventory-read-publication-47d69c3a/native-reflex-compatibility-result.json.
+
+
 ### Inventory checkpoint published and checked natively (2026-10-28)
 
 Source `83f0ce3` is deployed: companion `0a0581215e563a39`, body
