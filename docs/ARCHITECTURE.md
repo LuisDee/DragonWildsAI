@@ -1,5 +1,15 @@
 # Architecture: how to add features without reinventing the wheel
 
+## Current accepted implementation steer
+
+Read [Accepted steer — Luis, 2026-10-28](design/autonomy-plan.md#accepted-steer--luis-2026-10-28)
+before choosing implementation work. The main proof path is the complete Sonnet
+Director/research/task-board -> Haiku execution -> observed game-result loop.
+Isolated controller, developer and simulated results remain diagnostics. New
+tasks should normally require knowledge and model plans; native controls and
+state readers remain reusable. This changes work selection and validation, not
+the original M1-M6 objective or approved judges.
+
 ## Real-client inventory read completeness (2026-10-28 candidate)
 
 The real-client inventory module preserves positive rows with per-scope

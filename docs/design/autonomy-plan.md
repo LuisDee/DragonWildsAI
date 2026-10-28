@@ -1,5 +1,129 @@
 # Speed and long-horizon autonomy plan (2026-10-25, after the 21:00–21:16 session)
 
+## Accepted steer — Luis, 2026-10-28
+
+**Read this section first.** Luis explicitly approved this steer and requested
+durable persistence because earlier decisions were diluted across context and
+recovery notes. It controls implementation priorities over the historical task
+lists below. The original M1-M6 objective, milestone order, approved judges,
+evidence requirements and sign-off remain unchanged.
+
+### Standing decisions
+
+1. **Keep the reusable, two-speed architecture.** Sonnet researches and maintains
+   the plan; Haiku selects and executes actions from current observations; native
+   movement, interaction and reflex services handle frame-rate work. The models
+   own intent, alternatives and sequencing. Do not add phrase-to-tool maps,
+   crop/recipe-specific workflows, hidden hints or code that rewrites choices.
+2. **Make the complete agent the primary live acceptance path.** Enable and verify
+   the Sonnet Director, Haiku Controller, research access, persistent task board,
+   execution and feedback together. Record actual model names and Director state
+   before calls. A Director-off or all-Haiku experiment is a labelled component
+   diagnostic; it cannot demonstrate the full research/planning agent. Do not
+   silently substitute it when full-stack admission fails.
+3. **Drive work from one end-to-end job and its evidence.** Select a job appropriate
+   to the lowest unmet milestone and actual unlocks. Establish developer positive
+   controls for its interactions, then let the full agent attempt it without
+   operator hints. Classify failures as knowledge, planning, perception/memory,
+   control/navigation or test-harness defects. Repair the demonstrated generic
+   gap and remeasure the entire job. Tool count and passing offline tests alone
+   are not capability progress. Preserve the existing offline -> developer ->
+   deployment-model validation order, with the full Sonnet/Haiku system last.
+4. **Complete research through reusable retrieval.** Prefer current game data,
+   then sourced cached wiki knowledge; retrieve missing/stale pages on demand
+   when needed. Retain source/version/confidence and cache useful findings.
+   This is a requirement, not a claim that live page retrieval is implemented.
+   Distinguish mandatory prerequisites from yield/efficiency optimizations and
+   compare acquisition alternatives against the user's actual requested outcome.
+5. **Provide sufficient truthful perception and controls.** Models need current
+   inventory, task progress, relevant entity/station state and specific verified
+   failures. Unknown is not empty, zero or success. A new UI/mechanic may require
+   a reusable adapter; another crop using existing actions should be data and a
+   model-generated plan. Keep historical/world memory while preventing stale
+   observations from masquerading as current facts.
+6. **Measure generalisation after freezing the integration.** Try unfamiliar job
+   variations without adding task-specific code after seeing them. One diagnostic
+   success is early evidence, not the formal held-out or repeat requirements.
+   Keep the existing frozen goal criteria and negative controls intact.
+7. **Keep the operating constraints.** DEV character/server only, one live
+   operator/client/server, one heavy local workload, world memory preserved,
+   at most two bounded Terra workers, shared $10 UTC-day model cap, and explicit
+   driver/setup/model/call-count provenance. Stop workers and model spending at
+   target end or pause; scheduled wakeups never undo a pause.
+
+### Immediate work order on resume
+
+- Persist this decision and its startup/handoff pointers before more feature work.
+- Audit and prepare a bounded full-stack diagnostic using the existing Director
+  and harness. Pick the exact M1-appropriate job after checking available state;
+  advanced Desert Weed farming is an architectural example, not a new immediate
+  milestone or permission to skip Brynmoor/M1 requirements.
+- In parallel, perform one bounded navigation discrimination: agent/data selection,
+  real connectivity and streaming coverage. Correcting elevation alone did not
+  make the measured destination reachable. Do not implement a horizontal-goal
+  interface as though that alone solves the observed partial route.
+- Close only generic research, observation or interaction gaps required by the
+  selected job. Farming's basic tools, compost handling and growth observation
+  require live verification before any autonomous full-cycle claim.
+- After reviewed offline checks and a frozen full gate, developer-drive the changed
+  layer, then measure the complete Sonnet/Haiku job. Commit coherent checkpoints
+  and update PROGRESS, BUGS, DISCOVERIES and the recovery handoff.
+
+### Persistence and reporting contract
+
+AGENTS.md and ARCHITECTURE.md point here. Every recovery handoff must start with
+the current Goal status, this steer's path, current tested/deployed code, actual
+runtime ownership and the next end-to-end experiment. Report developer, isolated
+Haiku, simulated and full-stack outcomes separately. Explicitly say when no new
+autonomous task passed. This steer remains in force across compaction/restarts
+until Luis changes it; new implementation work must not quietly revert to a
+sequence of disconnected tool repairs and controller-only demonstrations.
+
+### Separate friend-server trial — planned while development is paused
+
+Luis separately requested a supervised friend-server trial and paused the
+development Goal. This does not change the original DEV-only M1-M6 objective
+or authorize development benchmarks, grants or world changes on that server.
+No join, character creation or map reveal has been performed for this trial.
+
+- Reuse the established arrangement: companion client on the chosen remote
+  server, local DEV server retained as the navigation-data backend. Inspect the
+  existing join profile and verify navigation compatibility with the target;
+  do not assume remote and local dynamic world state are identical.
+- Create a separate fresh companion character. Preserve the existing DEV and
+  other characters, their inventories, saves and progress. Requested exception:
+  reveal this character's map exploration only, using a verified supported
+  mechanism. No automatic skill, quest, equipment or progression unlocks.
+- Goal is access to the friend's existing Lodestones, including Umbral Sands.
+  Map visibility alone is not proof of teleport eligibility. Verify the actual
+  destination registry, native availability, Law Rune cost, physical source
+  interaction, real arrival and clean UI with the new character. Do not emulate
+  teleportation or grant map/network state speculatively.
+- Give the friend world a distinct stable memory identity and connection profile;
+  do not reuse dev_director/dev navigation memories or carry DEV fixture stock.
+- Obtain the hosting/join method and target address/port before configuring the
+  connection. Keep passwords in the existing gitignored local secrets mechanism.
+  Begin with controlled basic tasks and explicitly record this as a friend trial,
+  not a goal benchmark or proof that long autonomous tasks are ready.
+
+### Search record for the accepted steer
+
+Reuse the same-problem primary research already examined and recorded in the
+architecture audit and knowledge-lookup design. Anthropic's tool/agent feedback
+guidance, Mineflayer's reusable goal abstractions, and Epic's explicit navigation
+projection/path semantics support the architecture; they do not prove this game's
+controls or this agent's live competence. Decision: reuse the existing Director,
+controller, task board, retrieval and client services; adapt their integration
+and verify the whole loop before building another framework.
+
+- https://www.anthropic.com/research/building-effective-agents
+- https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview
+- https://github.com/PrismarineJS/mineflayer-pathfinder
+- https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/AIModule/FAIMoveRequest
+
+The sections below preserve historical measurements and plans, not a substitute
+for this accepted work order or current runtime evidence.
+
 ## 1. Where the time goes (measured from logs/brain-live-*.jsonl, last two sessions)
 | Stage | Measured | Note |
 |---|---|---|

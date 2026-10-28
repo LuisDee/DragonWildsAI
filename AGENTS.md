@@ -1,5 +1,19 @@
 # Dragonwilds companion: working agreements
 
+## Accepted implementation steer (Luis, 2026-10-28)
+
+Before selecting work, read the **Accepted steer** at the top of
+`docs/design/autonomy-plan.md`. This is the current implementation priority;
+older task lists and recovery chronology must not dilute it. Keep the original
+M1-M6 objective and frozen judges unchanged. Primary autonomous validation uses
+the complete **Sonnet Director + Haiku Controller** with research, persistent
+task progress and observed results. Haiku-only, developer-driven and simulated
+runs are explicitly labelled diagnostics, not full-agent acceptance. Select an
+end-to-end job appropriate to the lowest unmet milestone and current unlocks;
+repair generic gaps demonstrated by its trace. New crops/recipes/tasks should
+normally require knowledge and model plans, not new scripted workflows.
+Every handoff and substantial delegation must carry this steer and its link.
+
 Read the current user request first. For the autonomous companion goal, read
 `docs/GOAL.md`, `docs/goal_targets.json`, `docs/SESSION-RECOVERY-2026-10-26.md`,
 `docs/ARCHITECTURE.md`, and `docs/design/PRINCIPLES.md`. The recovered original

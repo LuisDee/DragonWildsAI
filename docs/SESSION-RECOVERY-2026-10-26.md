@@ -1,5 +1,49 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Latest override: accepted steer persisted; Goal paused for friend-trial planning
+
+Luis approved the full-agent steer and requested durable persistence, then
+paused development to discuss testing on a friend's server. The Goal service
+confirmed paused; do not resume implementation, diagnostics, live trials or
+workers without an explicit resume. **Read the Accepted steer at the top of docs/design/autonomy-plan.md before
+choosing work.** AGENTS.md and ARCHITECTURE.md now make it a startup requirement.
+The original M1-M6 objective and frozen judges remain unchanged. Main validation
+must exercise Sonnet Director/research/persistent plan plus Haiku execution and
+fresh results; controller-only diagnostics are not full-agent acceptance.
+
+Runtime/source2201844 is pushed/deployed, companionbfd0150b20567376 and body
+33d4fe52c46cf411; approved judges unchanged. Full gate1249pass/1knownskip GREEN
+467.43s in R/logs/recovery/g-82ed55c9. Client9936/pawn3101, server7016,
+Steam3284 and oracle3228/1980 were adopted; no model brain or test runner was
+present at resume. Inspect fresh processes, reservation and DEV guard before input.
+Current development tree is feedback-loop; old companion-development is preserved.
+
+Post-deployment developer controls passed: wrong-height movement remained a
+failure with truthful route metadata, corrected-height arrival passed after a
+drink-reflex busy result, and a real Lodestone159m/2Law/native success/UI-cleanup
+control passed. Headless root-menu transition0 remains a declared temporary setup.
+Haiku300m/build/return FAILED8calls/61.079s/$0.0063:35.51m displacement, no build
+or teleport, HP100/idle. It saw the new feedback and corrected a vertical-axis
+mistake, but later routes were unavailable/partial. No new autonomous chain passed.
+Last verified day spend$0.1032/111Haiku calls,0planner/unpriced; re-read before runs.
+
+Native projection found the far point's ground atZ-7.09 rather than the requested
+Z-35.05, but developer travel to the corrected point STILL returned a partial
+route ending near[83.2,1873.92,-32.1]. Height-only UI changes are insufficient.
+Read-only navmesh evidence shows Default/Gigantic meshes and7loaded chunks;
+agent/data selection is a hypothesis, not a verified cause. Next: bounded
+navigation discrimination plus a full-stack readiness audit, then an M1-appropriate
+end-to-end job. No new navigation mode/helper was implemented before this resume.
+Keep all world state and assistance provenance. Private proofs and current handoff
+are under R/logs/recovery/navigation-feedback-20261028 and ACTIVE-HANDOFF.txt.
+
+The separate friend-trial plan is saved in the same autonomy-plan section:
+fresh character plus requested map exploration reveal only, normal starting
+progression, separate friend-world memory, real shared-network Lodestone use
+with Law Runes. Preserve the local DEV server as navigation backend, as in the
+historical remote-client setup. Verify compatibility and the map-reveal method;
+no new character, map reveal, connection change or friend-server action has
+been made. Hosting method/address are still needed. No model brain is running.
 ## Latest override: navigation candidate GREEN; publish and measure next
 
 Goal ACTIVE, all M1-M6 unmet. F navigation-result-feedback candidate is frozen,
