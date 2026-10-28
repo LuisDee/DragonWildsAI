@@ -1,5 +1,14 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Current checkpoint: 2026-10-28, tested jump ownership ready for publication
+
+- W source move.lua/arbiter.lua/test_move.lua plus movement-jump-binding.md is frozen, independently approved and full-gate GREEN1158/1 skipped378.82s (`logs/recovery/cf-a810de39/check-all.log`); no repeat needed. R is still0a1590d until the next publication record. Candidate changes affect already loaded Lua: announce a CLIENT-ONLY stop/hold, verify old process tree gone, publish, then boot explicitly `-Target dev -Release`; preserve server7016, Steam3284 and world memory. Archive pointer W/logs/recovery/jump-binding-publication-active.txt records current source digests, old runtime, registered checks and preserved memory. Gate log has no pre-gate digests; owners report source freeze. Judges remain unchanged.
+- Three flat walking release trials A/B/C completed with450cm/s and post-release drift7.5254/6.9539/7.3936cm, native stable/HP100/owned cleanup acknowledged. These used deployed0a1590d, not the unpublished jump change. No support-guard or global braking proof. Position `[58.409619219816,1820.9338122242,-30.754987309636]`; setup DEV teleport and4Bread/8CleanWater, R26 total14Bread/21CleanWater. Latest prepublication probe found starvation/dehydration0 and HP1 after diagnostic idle: replenish declared harness supplies through real consumption/healing before movement; do not write health or call this autonomous survival.
+- Private supervised helper `logs/recovery/jump-binding-live-check-20261028.lua` and actual-module fake were independently approved: ordinary short walk first, then ONE declared synthetic150cm same-height jump edge, native intent/air/landing observations and exact owned stopping/cleanup. Cooperative<=0.25s driven window plus independent monotonic signal watchdog; no-air stays unverified, no retry. Fresh PID/target/character/vitals/runout/idle guards and before/after nav hashes required. Not run live yet.
+- At this checkpoint slot FREE, no game-model brain, client11752/launcher8760, server7016/Steam3284/watchdog9888/oracle144+10016 adopted. Development allowance32% weekly used, ordinary requests allowed. This wave adds zero model API calls; UTC-day last$0.0073/10,6Haiku/0Sonnet. Parallel Terra design/review work has no production/live ownership.
+- Next after publication/live ownership verification: reviewed continuous-support integration design `logs/recovery/r26-support-next-design-20261028.md` and floor-reader lifecycle. No floor-support guard is implemented yet. Preserve all original targets, no-axe recovery and M1-M6/solo Vel'gar; goal ACTIVE and unmet.
+
+
 
 ## Current checkpoint: 2026-10-28, walking measurement and opt-in reader
 

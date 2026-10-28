@@ -1,5 +1,10 @@
 # Live bug ledger
 
+## Jump cleanup could affect a successor movement (2026-10-28)
+
+Old jump calls could advance one-shot progress after a failed or superseded native call; second jumps lacked a verified airborne binding. Stop cleanup could run after callbacks transferred ownership, and a reentrant route-memory flush could clear a successor trip. Frozen fix captures and revalidates the old movement binding, introduces an exact scoped arbiter stop context, and performs owned native cleanup before completion callbacks. Actual-module regressions include failed calls, pause, transition/reentry, successor preservation and persisted successful arrival. Full gate1158/1 skipped GREEN; live verification and publication pending. No floor-support prevention claim.
+
+
 One row per bug seen live. Every fix lands with a regression test (PRINCIPLES #10). Status: open → assigned → fixed (test name) → verified live.
 Evidence: `client_io/events/chat.jsonl`, `logs/brain-live-*.jsonl`, `logs/client/client.log` (UTC times).
 

@@ -1,5 +1,10 @@
 # Discoveries
 
+## 2026-10-28: repeated flat walking release and ownership evidence
+
+On DEV client11752 and deployed source0a1590d, three12-input developer flat walking trials reached450cm/s. Horizontal drift after owned input release was7.5254347176,6.9538611515 and7.3935943663cm, with observed stable rest and HP100. Actual callback cadence was about33ms. Sparse capsule observations showed walkable nonpenetrating flat support locally; they do not establish a general sprint/drop/streaming stopping margin. R/logs/recovery/r26-flat-{a,b,c}-operator-result-20261028.json retains raw status and cleanup evidence. The calibration character was harness-positioned and supplied; none is autonomous task evidence.
+
+
 Each entry: what it is, the parameters, what it does, how it was verified, the build ID, and the sources.
 Server build: **26161880** (Steam app 4019830, installed 2026-10-25). Engine **UE 5.6** (from UE4SS.log). Game module: `Dominion` (classes under `/Script/Dominion.*`).
 

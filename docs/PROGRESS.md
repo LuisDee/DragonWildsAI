@@ -1,5 +1,14 @@
 # Progress log (append-only)
 
+## 2026-10-28: jump ownership checkpoint, publication pending
+
+Frozen movement/arbiter changes bind Jump/StopJumping and caller progress to the exact movement generation, token, controller, pawn and life. Arbiter transitions provide a scoped stop context; cleanup and route-memory callbacks revalidate ownership. A failed native call cannot consume jump progress, and accepted intent remains distinct from observed flight. Arrival success still persists in per-world navigation memory. Independent design/code reviews approved; focused design/move/arbiter tests passed6, and full gate `logs/recovery/cf-a810de39/check-all.log` is TERMINAL GREEN:1158 passed/1 skipped in378.82s. This is not a floor-support guard or a live jump pass.
+
+Three developer flat walking repetitions on preceding deployed source0a1590d reached450cm/s with7.5254,6.9539,7.3936cm horizontal post-release drift; all observed stable, HP100 and owned cleanup acknowledged. These are local walking measurements, not sprint/terrain-wide stopping bounds. Setup used a declared DEV teleport and4Bread/8CleanWater; total R26 supplied14Bread/21CleanWater. No health/physics writes, no autonomous credit. Original no-axe chain and M1-M6 remain unmet.
+
+Root now owns client-off publication and supervised walk/one jump verification; a bounded Terra design worker and independent reviewer work in parallel. No duplicate client or game-model brain. Development allowance32% weekly used; zero new game-model API calls, last UTC-day spend$0.0073/10 across6Haiku/0Sonnet.
+
+
 ## 2026-10-25 — Session 1
 
 - Toolchain: Git 2.56.0 and Python 3.12.10 installed via winget (`--source winget`; the msstore source fails with a certificate error on this VM). The session runs elevated (admin: True).

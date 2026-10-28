@@ -81,6 +81,7 @@ local TM_PATH = ROOT .. "/client_mod/scripts/traversal_moves.lua" -- DATA: doubl
 local SP_PATH = ROOT .. "/client_mod/scripts/spells.lua"          -- Windstep: its public ability_status / cast_now
 
 local M = {}
+local move_arbiter, life_check, finish, paused
 
 M.cfg = {
     wp_radius_cm = 120,        -- waypoint / crumb reached (2D)
@@ -519,11 +520,49 @@ local function press_to_sprint(st)
     return st.pts
 end
 
-local function start_jump(st, t, pawn, double)
-    if st.jump_t then return end
-    pcall(function() pawn:Jump() end)
+local function binding(st, pawn)
+    return { st=st, gen=st.gen, token=st.owner_token, pawn=pawn, pc=st.pc, life=st.life_seq }
+end
+local function same_binding(b, allow_nil_owner)
+    local st=b.st
+    if paused() or rawget(_G,"DW_MOVE") ~= st or st.gen ~= b.gen or st.mode == "idle" or
+        st.owner_token ~= b.token or not b.token or st.pawn ~= b.pawn or st.pc ~= b.pc or st.life_seq ~= b.life then return false end
+    local raw=rawget(_G,"DWArbiter"); local owner=raw and raw.owner
+    if not raw or (owner and owner.token ~= b.token) or (not owner and not allow_nil_owner) then return false end
+    local ok, p=pcall(function() return b.pc.Pawn end)
+    if not ok or p ~= b.pawn then return false end
+    local alive=life_check(st,b.pawn)
+    local again,pawn_again=pcall(function() return b.pc.Pawn end)
+    return alive == true and again and pawn_again == b.pawn and not paused() and rawget(_G,"DW_MOVE") == st and st.gen == b.gen and st.owner_token == b.token and
+        st.pc == b.pc and st.pawn == b.pawn and st.life_seq == b.life and st.mode ~= "idle" and rawget(_G,"DWArbiter") == raw and (raw.owner == owner)
+end
+local function owned(b)
+    if not same_binding(b,false) then return false end
+    local a=move_arbiter(); local ok,v=pcall(function() return a and a.owns_move and a.owns_move(b.token) end)
+    return ok and v == true and same_binding(b,false)
+end
+local function reject_binding(b,log)
+    local s, arb=b.st,rawget(_G,"DWArbiter")
+    if paused() then return "superseded" end
+    local ok, pawn=pcall(function() return b.pc.Pawn end)
+    if not paused() and rawget(_G,"DW_MOVE")==s and s.gen==b.gen and s.mode~="idle" and s.owner_token==b.token and
+        s.pawn==b.pawn and s.pc==b.pc and s.life_seq==b.life and ok and pawn==b.pawn and arb and arb.owner and arb.owner.token==b.token then
+        finish(s,{status="failed",reason="verification_failed",detail="jump ownership or character state unavailable"},log)
+        return "failed"
+    end
+    return "superseded"
+end
+local function start_jump(st, t, pawn, double, log)
+    if st.jump_t then return "busy" end
+    local b=binding(st,pawn)
+    if not owned(b) then return reject_binding(b,log) end
+    local ok=pcall(function() pawn:Jump() end)
+    if not owned(b) then return reject_binding(b,log) end
+    if not ok then finish(st,{status="failed",reason="verification_failed",detail="jump input failed"},log); return "failed" end
     st.jump_t, st.jump_release, st.jump_double = t, true, double
+    st.jump_observation = {intent="first", submitted=true, airborne="unknown", generation=st.gen}
     st.jumps = (st.jumps or 0) + 1
+    return "accepted"
 end
 
 -- ------------------------------------------------------------------ trails
@@ -691,12 +730,18 @@ local function feet_of(st, p) return { X = p.X, Y = p.Y, Z = p.Z - (st.half_h or
 -- that reached the leader) and the leader's walked trail (human-proven). Called when a move ends,
 -- including when a new command interrupts it (live 19:42: a follow's demo trail was lost that way).
 local function mem_flush(st, log, why)
+    local gen, token, trip, crumbs = st.gen, st.owner_token, st.trip, st.crumbs
+    local function current()
+        return rawget(_G,"DW_MOVE")==st and st.gen==gen and st.owner_token==token and st.trip==trip and st.crumbs==crumbs
+    end
     local mem, NMm = nav_mem()
-    if not mem then return end
+    if not mem or not current() then return end
     local changed = false
     if st.trip and #st.trip >= 2 and st.trip_ok then
         local okr, r, how = pcall(NMm.add_route, mem, st.trip, { src = "self" })
+        if not current() then return end
         if okr and r then changed = true; if log then log("move: memory: self route " .. tostring(r.id) .. " " .. tostring(how)) end end
+        if not current() then return end
     end
     if st.target_kind == "player" and st.crumbs and #st.crumbs - (st.crumb_mark or 0) >= 2 then
         local pts = {}
@@ -706,9 +751,12 @@ local function mem_flush(st, log, why)
         end
         st.crumb_mark = #st.crumbs
         local okr, r, how = pcall(NMm.add_route, mem, pts, { src = "demo:" .. tostring(st.target_name) })
+        if not current() then return end
         if okr and r then changed = true; if log then log("move: memory: leader route " .. tostring(r.id) .. " " .. tostring(how)) end end
+        if not current() then return end
     end
     if changed then pcall(NMm.save, mem) end
+    if not current() then return end
     st.trip, st.trip_ok = nil, nil
 end
 
@@ -950,7 +998,7 @@ local function lp_work(st, t, log)
 end
 
 -- ------------------------------------------------------------------ the loop
-local function move_arbiter()
+move_arbiter = function()
     local ok, a = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/arbiter.lua"))() end)
     return ok and a or nil
 end
@@ -969,22 +1017,36 @@ local function cancel_superjump(st)
     if job and job.cancel then pcall(job.cancel) end
 end
 
-local function finish(st, result, log)
+finish = function(st, result, log)
+    if st.mode == "idle" then return end
+    local gen, token, pawn, pc = st.gen, st.owner_token, st.pawn, st.pc
+    local initial_arb = rawget(_G,"DWArbiter")
+    local initial_owner = initial_arb and initial_arb.owner
+    local function current()
+        local arb=rawget(_G,"DWArbiter"); local owner=arb and arb.owner
+        return rawget(_G,"DW_MOVE")==st and st.gen==gen and st.owner_token==token and st.pawn==pawn and st.pc==pc and
+            arb==initial_arb and owner==initial_owner and (not owner or owner.token==token)
+    end
+    if not current() then return end
     cancel_superjump(st)
+    if not current() then return end
     if result and result.status == "arrived" then st.trip_ok = true end
     pcall(mem_flush, st, log, result and result.status)
+    if not current() then return end
+    local handle=st.handle
+    if handle then pcall(CancelDelayedAction, handle) end
+    if not current() or st.handle ~= handle then return end
     st.result = result
     st.mode = "idle"
-    if st.handle then pcall(CancelDelayedAction, st.handle) end
     st.handle = nil
     if log then log("move: " .. tostring(result.status) .. " " .. tostring(result.reason or "")) end
-    release_implicit(st, log)
+    if current() then release_implicit(st, log) end
 end
 
 -- World teardown guard: disconnect/join set _G.DW_PAUSE = true (cleared by the bridge once a new
 -- pawn has been stable for 3 s). A UFunction call during teardown crashed the client (18:08:42
 -- access violation), so while paused, or with an invalid controller/pawn, the loop does NOTHING.
-local function paused() return rawget(_G, "DW_PAUSE") == true end
+paused = function() return rawget(_G, "DW_PAUSE") == true end
 
 -- Only a real player CHARACTER may be driven: in the main menu (L_FrontEnd) the controller owns a
 -- DefaultPawn at (0,0,0) (live 23:10: a go_to "drove" it). A player character has CharacterMovement.
@@ -995,7 +1057,7 @@ local function is_character(pawn)
 end
 
 -- Never infer life or ground state from a failed native read.
-local function life_check(st, pawn)
+life_check = function(st, pawn)
     if st.pawn and pawn ~= st.pawn then return false, "interrupted", "controlled character changed" end
     local life = rawget(_G, "DW_LIFE")
     if st.life_seq ~= nil and type(life) == "table" and (life.move_death_seq or 0) ~= st.life_seq then
@@ -1574,8 +1636,8 @@ local function tick(st, gen, log)
             if (L.needs and L.needs.sprint) or L.move == "sprint_jump" then st.sprint_want = true end
             local along = (me.X - from.X) * hx + (me.Y - from.Y) * hy
             if d2(me, from) < 50 or along > 0 then
-                start_jump(st, t, pawn, L.move == "double_jump" and st.env and st.env.double_jump)
-                lx.phase, lx.t_jump = "air", t
+                local jr=start_jump(st, t, pawn, L.move == "double_jump" and st.env and st.env.double_jump, log)
+                if jr == "accepted" then lx.phase, lx.t_jump = "air", t elseif jr ~= "busy" then return end
             end
         elseif lx.phase == "air" then
             aim, src = to, "link"
@@ -1736,7 +1798,11 @@ local function tick(st, gen, log)
                             if result then
                                 st.ws_job = nil
                                 if not result.ok then return fail(result.reason or "windstep_cast_failed", result.data and (result.data.detail or result.data.why)) end
-                                start_jump(st, t, pawn, false)
+                                local jr=start_jump(st, t, pawn, false, log)
+                                if jr ~= "accepted" then
+                                    if jr == "busy" then return fail("windstep_interrupted", "another jump is still active") end
+                                    return
+                                end
                                 ws.phase, ws.jump_t = "air", t
                             else
                                 st.status = "casting"
@@ -1765,8 +1831,8 @@ local function tick(st, gen, log)
                     local prev = st.lpath[st.lwp - 1]
                     local last = st.lp_jumped[st.lwp]
                     if prev and d2(me, prev) < 50 and (not last or t - last > 1.5) then
-                        st.lp_jumped[st.lwp] = t
-                        start_jump(st, t, pawn, p.act == "djump" and st.env and st.env.double_jump)
+                        local jr=start_jump(st, t, pawn, p.act == "djump" and st.env and st.env.double_jump, log)
+                        if jr == "accepted" then st.lp_jumped[st.lwp] = t elseif jr ~= "busy" then return end
                     elseif prev and d2(me, prev) >= 50 and not last and d2(me, p) > d2(prev, p) then
                         aim = prev -- walk to the take-off spot first
                     end
@@ -1791,12 +1857,14 @@ local function tick(st, gen, log)
                 end
                 -- the leader jumped here: take off when we reach the start of his airborne run
                 if cr.air and d2(me, cr) < 150 and not st.trail_jumped[cr] then
-                    for k = st.trail_i, #st.crumbs do
-                        if not st.crumbs[k].air then break end
-                        st.trail_jumped[st.crumbs[k]] = true
-                    end
-                    start_jump(st, t, pawn, false)
-                    st.trail_jumps = (st.trail_jumps or 0) + 1
+                    local jr=start_jump(st, t, pawn, false, log)
+                    if jr == "accepted" then
+                        for k = st.trail_i, #st.crumbs do
+                            if not st.crumbs[k].air then break end
+                            st.trail_jumped[st.crumbs[k]] = true
+                        end
+                        st.trail_jumps = (st.trail_jumps or 0) + 1
+                    elseif jr ~= "busy" then return end
                 end
             end
         end
@@ -1815,8 +1883,8 @@ local function tick(st, gen, log)
                     st.mem_jumped = st.mem_jumped or {}
                     local last = st.mem_jumped[st.mwp]
                     if d2(me, prevp) < 60 and (not last or t - last > 1.5) then
-                        st.mem_jumped[st.mwp] = t
-                        start_jump(st, t, pawn, false)
+                        local jr=start_jump(st, t, pawn, false, log)
+                        if jr == "accepted" then st.mem_jumped[st.mwp] = t elseif jr ~= "busy" then return end
                     elseif d2(me, prevp) >= 60 and not last and d2(me, mp) > d2(prevp, mp) then
                         aim = { X = prevp.X, Y = prevp.Y, Z = prevp.Z + (st.half_h or 90) }
                     end
@@ -1835,9 +1903,8 @@ local function tick(st, gen, log)
                 if prev and aim.link then
                     local last = st.nav_jumped[st.wp]
                     if d2(me, prev) < 60 and (not last or t - last > 1.5) then
-                        st.nav_jumped[st.wp] = t
-                        start_jump(st, t, pawn, false)
-                        st.link_jumps = (st.link_jumps or 0) + 1
+                        local jr=start_jump(st, t, pawn, false, log)
+                        if jr == "accepted" then st.nav_jumped[st.wp] = t; st.link_jumps = (st.link_jumps or 0) + 1 elseif jr ~= "busy" then return end
                     elseif d2(me, prev) >= 60 and not last and d2(me, aim) > d2(prev, aim) then
                         aim = prev -- reach the take-off spot first
                     end
@@ -1943,9 +2010,8 @@ local function tick(st, gen, log)
                     low = true
                     st.probe_t = t - M.cfg.probe_every_s + 0.05 -- watch it closely until we jump
                     if 60 + (tonumber(out.Distance) or 999) < M.cfg.hop_dist_cm and not st.jump_t then
-                        start_jump(st, t, pawn, false)
-                        st.hops = (st.hops or 0) + 1
-                        if log then log("move: hop over a low obstacle") end
+                        local jr=start_jump(st, t, pawn, false, log)
+                        if jr == "accepted" then st.hops = (st.hops or 0) + 1; if log then log("move: hop over a low obstacle") end elseif jr ~= "busy" then return end
                     end
                 elseif lp_begin(st, pawn, me, far_goal(), "wall_ahead", log) then
                     st.status = "planning"
@@ -2007,12 +2073,37 @@ local function tick(st, gen, log)
 
     -- jump sequencing: release after 0.25 s; double jump 0.35 s after the first
     if st.jump_t then
-        if st.jump_release and t - st.jump_t > 0.25 then pcall(function() pawn:StopJumping() end); st.jump_release = false end
-        if st.jump_double and t - st.jump_t > ((st.env and st.env.dj_delay_s) or 0.33) then
-            pcall(function() pawn:Jump() end); st.jump_double = false; st.jump_t2 = t; st.double_jumps = (st.double_jumps or 0) + 1
+        local jb=binding(st,pawn)
+        if st.jump_release and t - st.jump_t > 0.25 then
+            if not owned(jb) then reject_binding(jb,log); return end
+            local ok=pcall(function() pawn:StopJumping() end)
+            if not owned(jb) then reject_binding(jb,log); return end
+            if not ok then return finish(st,{status="failed",reason="verification_failed",detail="jump release unconfirmed"},log) end
+            st.jump_release = false
         end
-        if st.jump_t2 and t - st.jump_t2 > 0.25 then pcall(function() pawn:StopJumping() end); st.jump_t2 = nil end
-        if t - st.jump_t > 1.2 then st.jump_t = nil end
+        if st.jump_double and t - st.jump_t > ((st.env and st.env.dj_delay_s) or 0.33) then
+            if not owned(jb) then reject_binding(jb,log); return end
+            local grounded=ground_check(pawn)
+            if not owned(jb) then reject_binding(jb,log); return end
+            st.jump_observation = {intent="second", submitted=false, airborne=grounded == nil and "unknown" or not grounded, generation=st.gen}
+            if grounded == false then
+                local ok=pcall(function() pawn:Jump() end)
+                if not owned(jb) then reject_binding(jb,log); return end
+                if not ok then return finish(st,{status="failed",reason="verification_failed",detail="second jump input failed"},log) end
+                st.jump_double = false; st.jump_t2 = t; st.double_jumps = (st.double_jumps or 0) + 1
+                st.jump_observation.submitted = true
+            elseif t - st.jump_t > 1.2 then
+                return finish(st,{status="failed",reason="verification_failed",detail="airborne state unconfirmed for second jump"},log)
+            end
+        end
+        if st.jump_t2 and t - st.jump_t2 > 0.25 then
+            if not owned(jb) then reject_binding(jb,log); return end
+            local ok=pcall(function() pawn:StopJumping() end)
+            if not owned(jb) then reject_binding(jb,log); return end
+            if not ok then return finish(st,{status="failed",reason="verification_failed",detail="second jump release unconfirmed"},log) end
+            st.jump_t2 = nil
+        end
+        if t - st.jump_t > 1.2 and not st.jump_double and not st.jump_t2 and not st.jump_release then st.jump_t = nil end
     end
 
     -- stuck detection over 1 s windows, and the unstuck ladder
@@ -2045,11 +2136,13 @@ local function tick(st, gen, log)
                     if okf and (not hitf or (outf.ImpactPoint and outf.ImpactPoint.Z < feet - 60)) then below = below + 1 end
                 end
                 if below >= 3 then
-                    st.stepoff_tried = true
-                    st.stepoff = { i = 0, t0 = t, start = v(me), yaw0 = math.deg(math.atan(goal.Y - me.Y, goal.X - me.X)) }
-                    start_jump(st, t, pawn, false)
-                    if log then log("move: perched on geometry; stepping off") end
-                    planned = true
+                    local jr=start_jump(st, t, pawn, false, log)
+                    if jr == "accepted" then
+                        st.stepoff_tried = true
+                        st.stepoff = { i = 0, t0 = t, start = v(me), yaw0 = math.deg(math.atan(goal.Y - me.Y, goal.X - me.X)) }
+                        if log then log("move: perched on geometry; stepping off") end
+                        planned = true
+                    elseif jr ~= "busy" then return end
                 end
             end
             if st.use_lp and not planned and n == 1 and t - (st.lp_fail_t or -100) > M.cfg.lp_cooldown_s and st.lp_plans_np < M.cfg.lp_max_plans then
@@ -2058,7 +2151,8 @@ local function tick(st, gen, log)
             end
             if not planned then
                 st.env = st.env or envelope(pawn, pc)
-                start_jump(st, t, pawn, n >= 2 and st.env.double_jump)
+                local jr=start_jump(st, t, pawn, n >= 2 and st.env.double_jump, log)
+                if jr ~= "accepted" and jr ~= "busy" then return end
                 if n >= 3 then
                     st.strafe_dir = (n % 2 == 0) and 1 or -1
                     st.strafe_until = t + 0.7
@@ -2355,14 +2449,40 @@ function M.follow(log, player_name, distance_m, opts)
     return start(log, "follow", opts)
 end
 
-function M.stop(log)
-    local st = S()
+function M.stop(log, context)
+    local st = rawget(_G,"DW_MOVE")
+    if context ~= nil and st == nil then return {ok=false,reason="interrupted"} end
+    st = st or S()
     local was = st.mode
-    if was ~= "idle" then pcall(mem_flush, st, log, "stopped") end
-    st.gen = st.gen + 1 -- any running loop exits on its next frame even if the cancel misses
-    finish(st, { status = "stopped" }, log)
-    pcall(function() local pc = local_pc(); if pc and pc.Pawn then pc.Pawn:StopJumping() end end)
-    return { ok = true, was = was }
+    local arb=rawget(_G,"DWArbiter")
+    local function context_valid()
+        if context == nil then return true end
+        local rec=context.record
+        return arb and rawget(_G,"DWArbiter")==arb and arb.move_stop_context==context and rec and
+            context.token==rec.token and rec.token==st.owner_token and (rec.state=="stopped" or rec.state=="suspended")
+    end
+    if not context_valid() then return {ok=false,was=was,reason="interrupted"} end
+    if was == "idle" then return {ok=true,was=was} end
+    local b=binding(st,st.pawn)
+    local allow_nil=context ~= nil and context_valid()
+    if not same_binding(b,allow_nil) then
+        local arb=rawget(_G,"DWArbiter"); local owner=arb and arb.owner
+        local ok, current_pawn=false,nil
+        if not paused() then ok,current_pawn=pcall(function() return b.pc.Pawn end) end
+        if ok and current_pawn==b.pawn and not paused() and rawget(_G,"DW_MOVE")==st and st.gen==b.gen and st.owner_token==b.token and b.token and
+            st.pawn==b.pawn and st.pc==b.pc and arb and rawget(_G,"DWArbiter")==arb and arb.owner==owner and context_valid() and (owner and owner.token==b.token or not owner and allow_nil) then
+            st.gen=st.gen+1
+            finish(st,{status="failed",reason="verification_failed",detail="jump release unconfirmed"},log)
+            return {ok=false,was=was,reason="verification_failed"}
+        end
+        return {ok=false,was=was,reason="interrupted"}
+    end
+    if not context_valid() then return {ok=false,was=was,reason="interrupted"} end
+    local ok=pcall(function() b.pawn:StopJumping() end)
+    if not context_valid() or not same_binding(b,allow_nil) then return {ok=false,was=was,reason="interrupted"} end
+    st.gen = st.gen + 1
+    finish(st, ok and { status = "stopped" } or {status="failed",reason="verification_failed",detail="jump release unconfirmed"}, log)
+    return { ok=ok, was=was, reason=not ok and "verification_failed" or nil }
 end
 
 -- The game's own Unstuck, through the UI a player uses: open the pause menu
@@ -2451,6 +2571,7 @@ function M.status()
     local st = S()
     return {
         mode = st.mode, status = st.status, result = st.result, target = st.target_name,
+        jump_observation = st.jump_observation,
         dist_m = st.dist_cm and math.floor(st.dist_cm) / 100, source = st.source,
         lwp = st.lwp, n_lwp = st.lpath and #st.lpath, lp_state = st.lp_state, lp_runs = st.lp_runs,
         lp_fail = st.lp_fail, lp_why = st.lp_why, traces = st.traces, env = st.env,

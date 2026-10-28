@@ -134,10 +134,18 @@ end
 
 local function expired(rec) return rec.lease_s and now() - (rec.renewed or rec.since) > rec.lease_s end
 
+local function stop_move_for(log, s, rec)
+    local previous=s.move_stop_context
+    local context={token=rec.token,record=rec}
+    s.move_stop_context=context
+    pcall(move_call, "stop", log, context)
+    if rawget(_G,"DWArbiter")==s and s.move_stop_context==context then s.move_stop_context=previous end
+end
+
 local function stop_rec(log, rec, why)
     rec.state = "stopped"
     if rec.on_stop then pcall(rec.on_stop, log, rec, why) end
-    if rec.uses_move ~= false then move_call("stop", log) end
+    if rec.uses_move ~= false then stop_move_for(log, S(), rec) end
     history(S(), { ev = "stop", name = rec.name, why = why })
 end
 
@@ -147,7 +155,7 @@ local function suspend_rec(log, s, rec, by)
     rec.suspended_by = by
     if rec.uses_move ~= false then
         rec.move_snap = move_snapshot()
-        move_call("stop", log)
+        stop_move_for(log, s, rec)
     end
     if rec.on_suspend then pcall(rec.on_suspend, log, rec) end
     table.insert(s.stack, rec)

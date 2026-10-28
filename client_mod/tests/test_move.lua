@@ -7,7 +7,7 @@ os.execute('mkdir "' .. (dir .. "/client_io/nav"):gsub("/", "\\") .. '" 2>nul')
 os.execute('mkdir "' .. (dir .. "/client_mod/scripts"):gsub("/", "\\") .. '" 2>nul')
 local here = (debug.getinfo(1, "S").source:match("^@(.*)[/\\][^/\\]*$")) or "."
 do -- move.lua loads <root>/client_mod/scripts/{localplan,navmem,dkjson}.lua
-    for _, n in ipairs({ "localplan.lua", "navmem.lua", "dkjson.lua", "avoidzones.lua" }) do
+    for _, n in ipairs({ "localplan.lua", "navmem.lua", "dkjson.lua", "avoidzones.lua", "arbiter.lua", "move.lua" }) do
         local src = assert(io.open(here .. "/../scripts/" .. n, "rb")):read("a")
         local f = assert(io.open(dir .. "/client_mod/scripts/" .. n, "wb")); f:write(src); f:close()
     end
@@ -145,7 +145,9 @@ local function step(n)
         T = T + DT
         pawn.input = nil
         if frame_hook then frame_hook() end
-        for _, fn in pairs(loops) do fn() end
+        local scheduled={}
+        for id, fn in pairs(loops) do scheduled[#scheduled+1]={id=id,fn=fn} end
+        for _, item in ipairs(scheduled) do if loops[item.id]==item.fn then item.fn() end end
         if pawn.input then
             local sp = (sprinting and 680 or 450) * DT
             if in_lake(pawn.loc.X, pawn.loc.Y) then sp = 150 * DT; water_frames = water_frames + 1 end
@@ -1210,6 +1212,24 @@ do
     st = begin(); run(1)
     check("windstep: cast failure is authoritative", M.status().result.reason == "not_enough_resources" and not st.jump_t)
     result = { ok = true }
+    do
+        local old_jump = pawn.Jump
+        local attempted = 0
+        pawn.Jump = function() attempted = attempted + 1; error("windstep jump rejected") end
+        st = begin(); run(1)
+        check("windstep: rejected jump never enters air or consumes jump",attempted==1 and st.result and st.result.reason=="verification_failed" and not st.jump_t and not (st.ws_exec and st.ws_exec.phase=="air"))
+        pawn.Jump = old_jump
+    end
+    do
+        local old_jump=pawn.Jump; local attempted=0
+        pawn.Jump=function()
+            attempted=attempted+1; pawn.Jump=old_jump
+            M.go_to(log,{30,0,0},{nav=false,local_plan=false})
+        end
+        st=begin(); local previous=st.gen; run(1)
+        check("windstep: preempted jump cannot advance successor",attempted==1 and st.gen>previous and st.mode=="go_to" and not st.ws_exec and not st.jump_t)
+        pawn.Jump=old_jump; M.stop(log)
+    end
     st = begin(); run(1)
     check("windstep: successful cast starts jump", st.ws_exec and st.ws_exec.phase == "air" and st.jump_t)
     pawn.loc = { X = 100, Y = 0, Z = 0 }; air = 1; run(1)
@@ -1290,6 +1310,236 @@ do
     check("integrity: unavailable ground fails", M.status().result.reason == "verification_failed"); mc.IsMovingOnGround = function() return air <= 0 end
 end
 
+do
+    walls, raised, oracle, frame_hook, air = {}, {}, nil, nil, 0
+    pawn.loc = {X=0,Y=0,Z=0}
+    local old_jump, old_stop = pawn.Jump, pawn.StopJumping
+    M.stop(log)
+    M.go_to(log,{20,0,0},{nav=false,local_plan=false})
+    local st=_G.DW_MOVE
+    st.mpath={{X=0,Y=0,Z=-90,act="walk"},{X=500,Y=0,Z=-90,act="jump"}}
+    st.mwp=2
+    pawn.Jump=function() error("fake input failure") end
+    run(1)
+    check("jump binding: failed input does not consume route marker",st.result and st.result.reason=="verification_failed" and not (st.mem_jumped and st.mem_jumped[2]) and not st.jump_t)
+    pawn.Jump=old_jump
+    M.go_to(log,{20,0,0},{nav=false,local_plan=false})
+    st=_G.DW_MOVE
+    st.mpath={{X=0,Y=0,Z=-90,act="walk"},{X=500,Y=0,Z=-90,act="jump"}}; st.mwp=2
+    local started=0
+    pawn.Jump=function(self) started=started+1; old_jump(self) end
+    run(1)
+    check("jump binding: accepted input marks once",started==1 and st.mem_jumped[2]~=nil and st.jump_observation.submitted==true)
+    pawn.Jump=old_jump
+    M.stop(log)
+    M.go_to(log,{20,0,0},{nav=false,local_plan=false})
+    local oldgen=_G.DW_MOVE.gen; local calls=0
+    pawn.StopJumping=function(self)
+        calls=calls+1
+        pawn.StopJumping=old_stop
+        M.go_to(log,{30,0,0},{nav=false,local_plan=false})
+    end
+    local stopped=M.stop(log)
+    check("jump binding: reentrant stop cannot finish successor",not stopped.ok and calls==1 and _G.DW_MOVE.gen>oldgen and M.status().mode=="go_to")
+    pawn.StopJumping=old_stop; M.stop(log)
+    M.go_to(log,{20,0,0},{nav=false,local_plan=false})
+    pawn.StopJumping=function() error("fake release failure") end
+    stopped=M.stop(log)
+    check("jump binding: release failure stops loop truthfully",not stopped.ok and M.status().mode=="idle" and M.status().result.detail=="jump release unconfirmed")
+    pawn.StopJumping=old_stop
+    M.go_to(log,{20,0,0},{nav=false,local_plan=false}); st=_G.DW_MOVE
+    st.jump_t=T-0.5; st.jump_double=true; st.jump_release=false
+    started=0; pawn.Jump=function(self) started=started+1; old_jump(self) end
+    air=0; run(1)
+    check("jump binding: second jump waits for airborne",started==0 and st.jump_double==true)
+    air=1; run(1)
+    check("jump binding: second jump submits once when airborne",started==1 and st.jump_double==false and st.double_jumps==1)
+    pawn.Jump=old_jump; M.stop(log)
+    M.go_to(log,{20,0,0},{nav=false,local_plan=false}); st=_G.DW_MOVE
+    st.jump_t=T-2; st.jump_double=true; st.jump_release=false
+    local ground=pawn.CharacterMovement.IsMovingOnGround
+    pawn.CharacterMovement.IsMovingOnGround=function() error("unknown ground") end
+    run(1)
+    check("jump binding: unknown airborne ends truthfully",st.result and st.result.detail=="airborne state unconfirmed for second jump")
+    pawn.CharacterMovement.IsMovingOnGround=ground; air=0
+    pawn.loc={X=0,Y=0,Z=0}; M.go_to(log,{20,0,0},{nav=false,local_plan=false}); st=_G.DW_MOVE
+    st.mpath={{X=0,Y=0,Z=-90,act="walk"},{X=500,Y=0,Z=-90,act="jump"}}; st.mwp=2
+    oldgen=st.gen; started=0
+    pawn.Jump=function(self)
+        started=started+1
+        pawn.Jump=old_jump
+        M.go_to(log,{30,0,0},{nav=false,local_plan=false})
+    end
+    run(1)
+    check("jump binding: superseded during input cannot mark successor",started==1 and st.gen>oldgen and st.mode=="go_to" and not st.mem_jumped and not st.jump_t)
+    pawn.Jump=old_jump; M.stop(log)
+    M.go_to(log,{20,0,0},{nav=false,local_plan=false}); st=_G.DW_MOVE; calls=0
+    pawn.StopJumping=function() calls=calls+1 end; _G.DW_PAUSE=true
+    stopped=M.stop(log)
+    check("jump binding: pause has no native cleanup",not stopped.ok and calls==0 and st.mode=="go_to")
+    _G.DW_PAUSE=nil; pawn.StopJumping=old_stop; M.stop(log)
+    local A=assert(loadfile(dir.."/client_mod/scripts/arbiter.lua"))(); A.set_move(M)
+    M.go_to(log,{20,0,0},{nav=false,local_plan=false}); calls=0
+    pawn.StopJumping=function() calls=calls+1 end
+    local higher=A.request(log,{name="jump-binding-reflex",level="reflex",uses_move=true})
+    check("jump binding: nil-owner suspension releases old input once",higher.ok and calls==1 and M.status().mode=="idle")
+    pawn.StopJumping=old_stop; A.release(log,higher.token,"done"); M.stop(log)
+    M.go_to(log,{20,0,0},{nav=false,local_plan=false}); st=_G.DW_MOVE; local old_owner=_G.DWArbiter.owner
+    local beforegen,beforehandle=st.gen,st.handle; calls=0; pawn.StopJumping=function() calls=calls+1 end
+    _G.DWArbiter.owner=nil; stopped=M.stop(log)
+    check("jump binding: orphan nil owner cannot stop",not stopped.ok and calls==0 and st.gen==beforegen and st.handle==beforehandle and st.mode=="go_to")
+    _G.DWArbiter.owner=old_owner
+    stopped=M.stop(log,{token=old_owner.token,record=old_owner})
+    check("jump binding: forged context cannot stop",not stopped.ok and calls==0 and st.gen==beforegen and st.handle==beforehandle)
+    pawn.StopJumping=old_stop; M.stop(log)
+    M.go_to(log,{20,0,0},{nav=false,local_plan=false})
+    higher=A.request(log,{name="expiry-reflex",level="reflex",uses_move=true})
+    M.go_to(log,{30,0,0},{nav=false,local_plan=false,owner_token=higher.token})
+    st=_G.DW_MOVE; beforegen,beforehandle=st.gen,st.handle
+    local high_record=_G.DWArbiter.owner
+    _G.DWArbiter.stack[#_G.DWArbiter.stack].suspended_at=os.time()-A.MAX_SUSPEND_S-1
+    calls=0; pawn.StopJumping=function() calls=calls+1 end
+    A.release(log,higher.token,"expire old suspended")
+    check("jump binding: expired suspended owner cannot stop foreign move",calls==0 and st.gen==beforegen and st.handle==beforehandle and st.mode=="go_to" and st.owner_token==higher.token)
+    _G.DWArbiter.owner=high_record; pawn.StopJumping=old_stop; M.stop(log); A.release(log,higher.token,"cleanup")
+    M.go_to(log,{20,0,0},{nav=false,local_plan=false}); st=_G.DW_MOVE
+    st.jump_t=T-0.5; st.jump_release=true; st.jump_double=false; oldgen=st.gen; calls=0
+    pawn.StopJumping=function()
+        calls=calls+1; pawn.StopJumping=old_stop; M.go_to(log,{30,0,0},{nav=false,local_plan=false})
+    end
+    run(1)
+    check("jump binding: timed release reentry preserves successor",calls==1 and st.gen>oldgen and st.mode=="go_to" and not st.jump_t)
+    pawn.StopJumping=old_stop; M.stop(log)
+    local prior={marker=true}; _G.DWArbiter.move_stop_context=prior
+    local dummy={status=function() return {mode="idle"} end,stop=function() error("injected stop") end}
+    A.set_move(dummy)
+    local first=A.request(log,{name="throw-old",level="command",uses_move=true,adopt=false})
+    local next_owner=A.request(log,{name="throw-new",level="command",uses_move=true,adopt=false})
+    check("jump binding: stop context restored after throw",first.ok and next_owner.ok and _G.DWArbiter.move_stop_context==prior)
+    _G.DWArbiter.move_stop_context=nil; A.release(log,next_owner.token,"cleanup"); A.set_move(M)
+end
+do
+    local original_jump=pawn.Jump
+    local function setup()
+        pawn.Jump=original_jump; M.stop(log)
+        walls, raised, oracle, frame_hook, air = {}, {}, nil, nil, 0
+        pawn.loc={X=0,Y=0,Z=0}; M.go_to(log,{20,0,0},{nav=false,local_plan=false})
+        return _G.DW_MOVE
+    end
+    local attempts=0
+    local function refuse() attempts=attempts+1; error("rejected fake jump") end
+    local st=setup(); st.lpath={{X=0,Y=0,Z=-90,act="walk"},{X=500,Y=0,Z=-90,act="djump"}}; st.lwp=2; st.lp_jumped={}; st.env={step=45,double_jump=true}
+    pawn.Jump=refuse; attempts=0; run(1)
+    check("jump paths: local djump rejection preserves marker",attempts==1 and st.result and st.result.reason=="verification_failed" and not st.lp_jumped[2] and not st.jump_t)
+    st=setup(); local crumb={X=140,Y=0,Z=0,air=true}
+    st.crumbs={{X=0,Y=0,Z=0},crumb,{X=500,Y=0,Z=0}}; st.trail_i=2
+    pawn.Jump=refuse; attempts=0; run(1)
+    check("jump paths: trail rejection preserves crumbs",attempts==1 and st.result and st.result.reason=="verification_failed" and not st.trail_jumped[crumb] and not st.trail_jumps)
+    st=setup(); local link={id="test-link",from={0,0,-0.9},to={5,0,-0.9},move="jump"}
+    local exec={link=link,phase="run",t0=T}; st.link_exec=exec
+    pawn.Jump=refuse; attempts=0; run(1)
+    check("jump paths: learned link rejection preserves phase",attempts==1 and st.result and st.result.reason=="verification_failed" and exec.phase=="run" and not exec.t_jump)
+    st=setup(); st.win_t=T-2; st.win_pos={X=0,Y=0,Z=0}; st.stepoff_tried=true
+    pawn.Jump=refuse; attempts=0; run(1)
+    check("jump paths: stuck rejection has no strafe or jump",attempts==1 and st.result and st.result.reason=="verification_failed" and not st.jump_t and not st.strafe_until)
+    st=setup(); pawn.loc.Z=300; st.win_t=T-2; st.win_pos={X=0,Y=0,Z=300}
+    pawn.Jump=refuse; attempts=0; run(1)
+    check("jump paths: stepoff rejection preserves attempt",attempts==1 and st.result and st.result.reason=="verification_failed" and not st.stepoff_tried and not st.stepoff)
+    st=setup(); walls={{70,150,-50,50}}; st.use_lp=true; st.probe_t=T-10
+    local old_trace=KSL_BASE
+    KSL_BASE=function(self,ctx,a,b,ch,cx,ign,dbg,out)
+        local hit=old_trace(self,ctx,a,b,ch,cx,ign,dbg,out)
+        if hit and not out.Distance and out.ImpactPoint then
+            out.Distance=math.sqrt((a.X-out.ImpactPoint.X)^2+(a.Y-out.ImpactPoint.Y)^2+(a.Z-out.ImpactPoint.Z)^2)
+        end
+        return hit
+    end
+    pawn.Jump=refuse; attempts=0; run(1); KSL_BASE=old_trace
+    check("jump paths: reactive hop rejection preserves counter",attempts==1 and st.result and st.result.reason=="verification_failed" and not st.hops and not st.jump_t)
+    st=setup(); st.use_nav=true; st.nav_t=T; st.path={{X=0,Y=0,Z=0},{X=500,Y=0,Z=100,link=true}}; st.wp=2; st.path_goal={X=2000,Y=0,Z=0}
+    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{5,0,1}}}"):format(id) end; pump_oracle()
+    pawn.Jump=refuse; attempts=0; run(1)
+    check("jump paths: oracle link rejection preserves marker",attempts==1 and st.result and st.result.reason=="verification_failed" and not st.nav_jumped[2] and not st.link_jumps)
+    local scenarios={
+        {name="local",prepare=function(s) s.lpath={{X=0,Y=0,Z=-90,act="walk"},{X=500,Y=0,Z=-90,act="jump"}}; s.lwp=2; s.lp_jumped={}; return s.lp_jumped,2 end},
+        {name="trail",prepare=function(s) local c={X=140,Y=0,Z=0,air=true}; s.crumbs={{X=0,Y=0,Z=0},c,{X=500,Y=0,Z=0}}; s.trail_i=2; return s.trail_jumped,c end},
+        {name="memory",prepare=function(s) s.mpath={{X=0,Y=0,Z=-90,act="walk"},{X=500,Y=0,Z=-90,act="jump"}}; s.mwp=2; s.mem_jumped={}; return s.mem_jumped,2 end},
+        {name="link",prepare=function(s) local e={phase="run",t0=T,link={id="t",from={0,0,-.9},to={5,0,-.9},move="jump"}}; s.link_exec=e; return e,"t_jump" end},
+        {name="oracle",prepare=function(s)
+            s.use_nav=true; s.nav_t=T; s.path={{X=0,Y=0,Z=0},{X=500,Y=0,Z=100,link=true}}; s.wp=2; s.path_goal={X=2000,Y=0,Z=0}
+            oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{5,0,1}}}"):format(id) end; pump_oracle()
+            return s.nav_jumped,2
+        end},
+        {name="stepoff",prepare=function(s) pawn.loc.Z=300; s.win_t=T-2; s.win_pos={X=0,Y=0,Z=300}; return s,"stepoff_tried" end},
+        {name="reactive hop",prepare=function(s)
+            walls={{70,150,-50,50}}; s.use_lp=true; s.probe_t=T-10
+            old_trace=KSL_BASE
+            KSL_BASE=function(self,ctx,a,b,ch,cx,ign,dbg,out)
+                local hit=old_trace(self,ctx,a,b,ch,cx,ign,dbg,out)
+                if hit and not out.Distance and out.ImpactPoint then out.Distance=math.sqrt((a.X-out.ImpactPoint.X)^2+(a.Y-out.ImpactPoint.Y)^2+(a.Z-out.ImpactPoint.Z)^2) end
+                return hit
+            end
+            return s,"hops"
+        end,cleanup=function() KSL_BASE=old_trace end},
+    }
+    for _,scenario in ipairs(scenarios) do
+        st=setup(); local marker,key=scenario.prepare(st); local before=st.gen; local created_token,created_handle; attempts=0
+        pawn.Jump=function()
+            attempts=attempts+1; pawn.Jump=original_jump
+            M.go_to(log,{30,0,0},{nav=false,local_plan=false})
+            created_token,created_handle=st.owner_token,st.handle
+        end
+        run(1)
+        check("jump preemption: "..scenario.name.." preserves successor and marker",attempts==1 and st.gen>before and st.mode=="go_to" and st.owner_token==created_token and st.handle==created_handle and loops[created_handle] and marker[key]==nil)
+        if scenario.cleanup then scenario.cleanup() end
+    end
+    pawn.Jump=original_jump; M.stop(log)
+end
+do
+    walls, raised, oracle, frame_hook, air = {}, {}, nil, nil, 0
+    M.stop(log)
+    local prior_world,prior_memory,prior_trap=_G.DW_MOVE_WORLD,_G.DW_NAVMEM,_G.DW_TRAP_CAND
+    local world="jump-arrival-route-regression"
+    _G.DW_MOVE_WORLD={id=world,t=os.time()}; _G.DW_NAVMEM=nil; _G.DW_TRAP_CAND=nil
+    pawn.loc={X=0,Y=0,Z=0}; M.go_to(log,{25,0,0},{nav=false,local_plan=false,sprint=false}); run(100)
+    local NM=assert(loadfile(dir.."/client_mod/scripts/navmem.lua"))()
+    local saved=NM.load(dir,world,"L_World")
+    local found=false
+    for _,route in ipairs(saved.routes or {}) do
+        if route.src=="self" and #route.pts>=2 and route.pts[#route.pts][1]-route.pts[1][1]>=10 then found=true end
+    end
+    check("jump memory: ordinary arrival persists own route",M.status().result and M.status().result.status=="arrived" and found)
+    _G.DW_MOVE_WORLD,_G.DW_NAVMEM,_G.DW_TRAP_CAND=prior_world,prior_memory,prior_trap
+end
+do
+    walls, raised, oracle, frame_hook, air = {}, {}, nil, nil, 0
+    pawn.loc={X=0,Y=0,Z=0}; M.stop(log); M.go_to(log,{20,0,0},{nav=false,local_plan=false})
+    local st=_G.DW_MOVE; local fired=false; local successor_gen,successor_token,successor_handle
+    st.ws_job={cancel=function()
+        if fired then return end
+        fired=true
+        M.go_to(log,{30,0,0},{nav=false,local_plan=false})
+        successor_gen,successor_token,successor_handle=st.gen,st.owner_token,st.handle
+    end}
+    M.stop(log)
+    check("jump reentry: cancel job preserves successor",fired and st.gen==successor_gen and st.owner_token==successor_token and st.handle==successor_handle and loops[successor_handle] and st.mode=="go_to")
+    M.stop(log)
+    M.go_to(log,{20,0,0},{nav=false,local_plan=false}); st=_G.DW_MOVE
+    st.trip={{X=0,Y=0,Z=-90},{X=10000,Y=0,Z=-90}}; st.trip_ok=true
+    fired=false; local sentinel={{X=10,Y=20,Z=30}}
+    local function reentrant_log(message)
+        if not fired and message:find("memory: self route",1,true) then
+            fired=true
+            M.go_to(log,{30,0,0},{nav=false,local_plan=false})
+            successor_gen,successor_token,successor_handle=st.gen,st.owner_token,st.handle
+            st.trip=sentinel
+        end
+    end
+    M.stop(reentrant_log)
+    check("jump reentry: memory flush preserves successor",fired and st.gen==successor_gen and st.owner_token==successor_token and st.handle==successor_handle and loops[successor_handle] and st.mode=="go_to" and st.trip==sentinel,
+        string.format("fired=%s gen=%s token=%s handle=%s loop=%s mode=%s trip=%s",tostring(fired),tostring(st.gen==successor_gen),tostring(st.owner_token==successor_token),tostring(st.handle==successor_handle),tostring(loops[successor_handle]~=nil),tostring(st.mode),tostring(st.trip==sentinel)))
+    M.stop(log)
+end
 for _, l in ipairs(logs) do if l:find("error") then print("LOG " .. l) end end
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)
