@@ -43,6 +43,63 @@ from .spells import SpellBook
 from .state_store import StateStore
 from .voice import Voice
 
+def _model_read_view(result):
+    """Copy a read result and compact only repeated, simple read-status gaps."""
+    from copy import deepcopy
+
+    view = deepcopy(result)
+
+    def compact(gaps):
+        if not isinstance(gaps, list):
+            return gaps
+        groups = {}
+        for gap in gaps:
+            if (isinstance(gap, dict) and set(gap) == {"raw", "reason"} and
+                    isinstance(gap["reason"], str) and gap["reason"] and
+                    (gap["raw"] is None or type(gap["raw"]) is int)):
+                groups.setdefault(gap["reason"], []).append(gap["raw"])
+        out, emitted = [], set()
+        for gap in gaps:
+            if (isinstance(gap, dict) and set(gap) == {"raw", "reason"} and
+                    isinstance(gap["reason"], str) and gap["reason"] and
+                    (gap["raw"] is None or type(gap["raw"]) is int) and
+                    len(groups[gap["reason"]]) > 3):
+                reason = gap["reason"]
+                if reason not in emitted:
+                    indices = groups[reason]
+                    out.append({"reason": reason, "count": len(indices), "sample_raw": indices[:3],
+                                "omitted": len(indices) - 3, "truncated": True})
+                    emitted.add(reason)
+            else:
+                out.append(gap)
+        return out
+
+    def scope(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "gaps":
+                    node[key] = compact(value)
+                else:
+                    scope(value)
+        elif isinstance(node, list):
+            for item in node:
+                scope(item)
+
+    def find_status(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in ("read_status", "inventory_read_status") and isinstance(value, dict):
+                    scope(value)
+                else:
+                    find_status(value)
+        elif isinstance(node, list):
+            for item in node:
+                find_status(item)
+
+    find_status(view)
+    return view
+
+
 MAX_SAY = 200  # one chat line (DW_SAY_MODE=direct sends real chat)
 
 PERSONA = """You are {name}, an AI companion playing RuneScape: Dragonwilds with {player}.
@@ -818,8 +875,9 @@ class Controller:
             if args.get("about"):  # say it plainly to the model too (the body only ranks by match score)
                 res = {**res, "data": {**res["data"], "matched": bool(sit.look_matched(look))}}
         if not res.get("ok") and res.get("reason") in Reason.CANT_YET:
-            return {"ok": False, "reason": res["reason"], "note": f"you can't {call.name} yet"}
-        return res
+            res = {**res}
+            res.setdefault("note", f"you can't {call.name} yet")
+        return _model_read_view(res)
 
     def _brain_read(self, tool: str, args: dict) -> dict:
         if tool == "lookup" and self.knowledge is not None:

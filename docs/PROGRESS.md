@@ -1,5 +1,33 @@
 # Progress log (append-only)
 
+### Model gap-summary candidate GREEN (2026-10-28)
+
+Full gate1197passed/1skipped417.84s, CHECK_ALL: GREEN,
+logs/recovery/cf-a529e3d4/check-all.log. All8 saved file hashes matched before/
+after. Independent review approved full raw/enriched preservation and the copied
+model view. Actual recorded inventory message13068->1929UTF8bytes, with exact
+gap counts and positive/unknown facts. Publish Python-only code, then developer
+native read-to-view validation and one bounded model measurement; no behavioral
+success or strict no-axe baseline is claimed from this offline checkpoint.
+
+### Natural retry survived; repeated model diagnostics targeted (2026-10-28)
+
+The exact natural tree request on deployed50111a7 used6Haiku controller calls,
+0planner,45.766s and$0.0084. The grave move was rejected by the actual v2 no_path
+reply; HP100, no tree/axe/resource or Woodcutting XP gain. The model asked for a
+spare hatchet rather than use available crafting/research tools. Strict no-axe
+absence remains unknown; declared nutrition totals42Bread/63Water. UTC total
+$0.0209/17Haiku,0Sonnet/unpriced. Original failed private cleanup result is kept;
+root separately verified processes gone and raw body/arbiter idle before release.
+
+The next reviewed candidate compacts repeated read_status gaps only in a copied
+model result. Raw logs, full enriched inventory and positive/unknown evidence
+are retained. Actual recorded message replay:13068->1929UTF8bytes;50 focused
+tests passed. No provider token or decision improvement is claimed. Fresh VM_READ
+handle access for client1416 was denied(error5); native empty verification is
+parked without blocking this independent work. See
+docs/research/r26-tree-retry-20261028.md. Full gate/publication still pending.
+
 ### Route authority deployed and checked through the real client (2026-10-28)
 
 Source50111a7 is pushed/deployed, companion8b196d3efadaabdc and

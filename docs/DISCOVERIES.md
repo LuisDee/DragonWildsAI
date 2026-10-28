@@ -1,5 +1,21 @@
 # Discoveries
 
+### Actual inventory context size and current read access (2026-10-28)
+
+The natural retry's actual enriched inventory tool result was13,068UTF8bytes.
+The reviewed copied model view is1,929bytes with the same ToolCall ID, positive
+fields, uncertainty and exact166/8/20 gap counts; full diagnostic logs and
+controller inventory remain unchanged. This is a replay measurement, not a
+provider token or behavior measurement. Research/crafting schemas were present
+but unused. See docs/research/r26-tree-retry-20261028.md.
+
+Current client1416 independently denied an OpenProcess handle requesting only
+VM_READ and QUERY_LIMITED_INFORMATION(error5), despite successful identity and
+other process-control access. No memory read or privilege mutation followed.
+Prior pinned UE4SS TArray source can AddZeroed on out-of-range index access;
+do not call a speculative index probe read-only or infer current layout from
+the older26161880 dump. Native absence proof remains unverified.
+
 ### Current-code route admission exercised natively (2026-10-28)
 
 Deployed50111a7 completed v2 recovery with one helper job, preserving server

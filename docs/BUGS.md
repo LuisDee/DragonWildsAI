@@ -1,5 +1,26 @@
 # Live bug ledger
 
+### Natural task stops before prerequisite discovery (2026-10-28)
+
+After route admission, the bounded natural tree retry survived but did not craft
+an axe or fell a tree. Craft/recipe/station/lookup schemas were available; the
+model never invoked them or a planner, so no missing-tool or planner-failure
+claim is justified. It gathered unsuccessfully, tried a remembered grave, saw
+no_path, then asked for a spare. Woodcutting219->219 and inventory unchanged.
+
+The inventory read returned166/8/20 repetitive carried/loadout/personal gap
+entries and13,068UTF8bytes. The next prompt grew18,956->25,988tokens, but this
+does not establish decision causality. The reviewed candidate preserves all raw
+evidence/positive fields/uncertainty while sending a1,929byte model view for that
+recorded result. Native ABI/empty-slot proof remains separate and blocked on
+current reflected layout plus independent memory access; fresh VM_READ denied.
+
+The private pilot's terminal check falsely rejected omission of an empty arbiter
+owner field. Its original exit1/unknown cleanup result was not overwritten;
+parent verified raw owner/stack idle, correct living avatar and driver processes
+terminal before release. The final speech appeared once; the extra model reply
+was talk-only verification, not duplicate spoken chat. No automatic retry loop.
+
 ### Required-route fallback replaced; broader safety remains open (2026-10-28)
 
 Deployed50111a7 now rejects a native no_path required move with no observed

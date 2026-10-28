@@ -1,5 +1,76 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Current checkpoint: model gap-summary GREEN, publication pending (2026-10-28)
+
+- TERMINAL GREEN1197passed/1skipped417.84s, W/logs/recovery/cf-a529e3d4/check-all.log.
+  All8 saved files unchanged through gate; later progress/handoff edits are
+  administrative only. Candidate controllerSHA256
+  F556B9BDD785E5FCBFC93482FE7795542E34D69CC6E99408A583738019149851.
+  No Lua/body/judge changes. Independent cold review passed; actual recorded
+  inventory view13068->1929UTF8bytes with originalraw/enriched state preserved.
+- Runtime still50111a7/metadatac3aeb3b until publication. No model/pilot remains;
+  root separately verified terminal process/raw body idle after the previous
+  pilot's strict empty-owner-key cleanup false negative and released its slot.
+  Client1416/server7016/Steam3284/watchdog12580/helper3228+1980 retained.
+- Next commit/push and fast-forward cleanR; copy exact tested controller.py only
+  if checkout line endings differ. This Python-only publication needs no client
+  restart or bridge reload. Verify no live brain before publication. Run developer
+  native inventory->actual Controller._read modelview using faked provider/no
+  modelcalls, retaining full raw logs and matchingToolCallID; then fresh capped
+  natural task measurement if confirmed. Do not repeat the full gate absent a
+  new code change/failure/concern. Original fullgoal remains ACTIVE/unmet.
+- The native access dependency is now pinned more precisely: current token is
+  not elevated and lists no SeDebugPrivilege (whoami/priv), so it cannot simply
+  enable that privilege. Microsoft AdjustTokenPrivileges cannot add privileges.
+  VM_READ was denied(error5); no adjustment, memory read or patch was attempted.
+  Preserve unknown inventory/held semantics and continue independent work.
+
+## Active wave: model read-gap compaction after natural retry (2026-10-28)
+
+- Runtime remains clean50111a7/metadatac3aeb3b, companion8b196d3efadaabdc and
+  body023b06997f5e31de. Client1416/ClaudeDev/pawnBP_PlayerCharacter_C_2147473121,
+  server7016/Steam3284, watchdog12580 and onehelper3228/1980 retained. No restarts
+  in this wave. Root verified pilot processes12708/12884 terminal, correct
+  living avatar and raw arbiter/bridge idle, then released its reservation.
+- Natural request unchanged: Can you cut down a tree? Trialtree_retry_34901294b65d
+  used6Haiku controller/0planner calls,45.766s,$0.0084 extra. TotalUTC$0.0209,
+  17pricedHaiku,0Sonnet/unpriced. The independent150s watchdog did not expire.
+  Inventory->gather ash tree(path_blocked sticks)->grave(no_path held)->lookaxe
+  ->ask spare. No lookup/planner/craft/build. XP219->219, inventory unchanged,
+  HP100, no axe/tree pass. Strictnoaxeabsence remainsunknown. Declared support
+  2Bread4Water; R26 totals42Bread/63Water. No methods/prerequisites supplied.
+- Last native position[66.507065556422,1858.4079742088,-34.724125698353],HP100;
+  fresh admission still required. Grave/death/navigation/world memories kept.
+  Raw archive R/logs/recovery/no-axe-tree_retry_34901294b65d/ preserves before/
+  after state, actual trace and original exit1 terminal_idle=false result.
+  Driver required an explicit empty-owner key that the actual arbiter omits;
+  root-terminal-verification.json is separate independent raw-state proof,
+  not a rewrite of that result. One final chat line, not duplicate speech.
+- W has isolated uncommitted model-view source/test/design plus evidence docs.
+  Candidate changes only Controller inline-read presentation: log raw, retain
+  enriched d.inventory, deep-copy and aggregate >3 exact simple raw/reason gaps
+  under explicit read-status scopes, preserving positives, failure fields,
+  unknown/lower-bound semantics and ToolCall IDs. Direct action history unchanged.
+  Independent design/cold review passed;50 focusedtests passed t-f3e12b9d.
+  Actual recorded enriched tool replay13068->1929UTF8bytes; no decision/token
+  improvement claim. Public design docs/design/model-read-gap-summary.md.
+- NEXT: design-note check, one full gate with frozen file manifests, coherent
+  commit/push, then publish this Python-only change without client restart or
+  changing auto-reloaded Lua. Developer read-only inventory-to-model-view check
+  on current deployed code, then one bounded natural model retry only if that
+  supports measurement. Do not repeatedly rerun identical failed pilots.
+- Native inventory empty proof is separate. Private reviewed investigation:
+  W/logs/recovery/inventory-empty-verification-design-20261028.md. Fresh current
+  VM_READ|QUERY_LIMITED handle access denied(error5), no memory reads/privilege
+  changes. R/logs/recovery/inventory-vmread-access-20261028.json records it.
+  Old dump offsets/void getter signatures and wrapper IsValid false cannot prove
+  emptiness. Pinned TArray source can AddZeroed on out-of-range access; native
+  indexing is not approved until current layout and a safe accessor are proved.
+  Park this dependency, continue independent context work; do not weaken judges.
+- Existing50111a7 full gate1192passed/1skipped remains valid for that deployed
+  version. New candidate needs its own gate. OriginalM1-M6/Brynmoor/soloVel'gar
+  and strict from-scratch axe/tree objective remain ACTIVE and unmet.
+
 ## Current handoff: route authority live controls verified (2026-10-28, 06:01 UTC)
 
 - Deployed source50111a7163e7042b97a1ded800c0e953c19896ef is pushed to main.
