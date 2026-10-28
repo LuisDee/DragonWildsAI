@@ -1,5 +1,16 @@
 # Live bug ledger
 
+### Required route hold excludes a candidate short local climb (2026-10-28)
+
+The actual local planner found a7point upper-level candidate with a157cm jump,
+while the default required-route flow stops before local planning on this class
+of upward goal. This is evidence for a missing admission path, not proof of a
+safe climb. Existing ordinary jump/djump waypoint advancement can also occur
+before verified landing and trigger premature success learning. The isolated
+fix couples complete original-goal local admission with an owned landing
+transaction; it is not deployed yet. Preserve long/partial oracle behavior and
+strict requested tolerances; do not clear memory to force a developer result.
+
 ### Craft-plan alternatives fixed; physical acquisition still blocked (2026-10-28)
 
 b29d97b's native response exposes the ingredient alternatives and retains count

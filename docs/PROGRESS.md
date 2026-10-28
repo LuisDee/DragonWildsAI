@@ -1,5 +1,32 @@
 # Progress log (append-only)
 
+### Reviewed short-route movement passed full gate (2026-10-28 10:11 Berlin)
+
+The eight-file frozen candidate passed CHECK_ALL: GREEN: 1197 passed, one
+skipped, 485.40 seconds (terminal exit 0, cf-320e06f3). All eight SHA256
+hashes matched after completion; frozen judge diff remains empty. Short local
+routes now require an admitted endpoint and observed jump/landing before
+advancement. No physical traversal or new autonomous chain is claimed yet.
+The 10:15 delivery checkpoint was met. Next: client-only publication, developer
+real traversal and inventory controls, then a bounded unaided Haiku attempt.
+
+### Real local-planner route found; movement integration underway (2026-10-28)
+
+The bounded developer movement control followed memory instead of the local
+planner and was correctly inconclusive. A separate no-input actual-LP probe
+then found7points to the upper level with one157.3cm jump under the measured
+164cm envelope. Endpoint~0.539mXY/0.0074mZ fromrequestedfloorpoint; no tolerance
+was supplied by that probe. Position unchanged/HP100, cleanup verified,0APIcalls.
+This is a planner candidate, not walked terrain or an autonomous task pass.
+
+The isolated mover integration now addresses short local authority and actual
+jump landing before advancement/learning. Focused admission checks pass; full
+movement regression/cold review/gate/live validation remain before deployment.
+Runtime stillb29d97b. Native evidence and limits:
+docs/research/r26-short-local-planner-20261028.md. Goal check on current runtime
+reports GOAL NOT MET with no counted current-hash runs; approved judges remain
+unchanged. Luis requested hourly updates; the existing heartbeat is now hourly.
+
 ### Craft plan deployed; native acquisition alternatives verified (2026-10-28)
 
 b29d97b is pushed/deployed, companioncab3d4711522f3e9/bodydcc17e2a19b68b81.

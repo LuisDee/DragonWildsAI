@@ -1,5 +1,15 @@
 # Discoveries
 
+### Actual local planner supplies an upper-level candidate (2026-10-28)
+
+The read-only real-LP control lp_observe_4457c972ea returned7points, including
+a157.3cm planned jump under the measured164cm envelope, to within~0.539mXY
+and0.0074mZ of the requested floor point. No tolerance was supplied; a future
+0.5m request must still reject this endpoint. No pawn input or displacement,
+HP100,741traces/3replans and completed cleanup. This establishes planner output,
+not an executed jump or safe route. A prior slower observer timed out and is
+unknown rather than no-path. See docs/research/r26-short-local-planner-20261028.md.
+
 ### Current crafting response and navigation-context contrast (2026-10-28)
 
 On deployedb29d97b, native craft_plan exposes3acquisition options each for Stone

@@ -228,6 +228,178 @@ check("used nav waypoints (oracle heartbeat live)", (s.nav_requests or 0) >= 1 a
 check("sprint injected", injected > 0, injected)
 if os.getenv("MOVE_PROTOCOL_WIRE_ONLY") == "1" then os.exit(fails == 0 and 0 or 1) end
 
+do
+    -- Drive the actual move module with a deterministic planner result. The real planner's
+    -- nearest-node contract is covered separately; these isolate admission and ownership.
+    local function observe_case(endpoint, tolerance, act)
+        pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}
+        offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no)
+        oracle=function() return nil end; pump_oracle()
+        M.go_to(log,{8,0,3},{tolerance_m=tolerance})
+        step(1)
+        local move=_G.DW_MOVE
+        local held=move.lp_state=="sampling" and pawn.input==nil and move.nav_pending~=nil
+        local goal_seen
+        if act == "djump" then move.env.double_jump=true; move.env.dj_measured=true end
+        move.lp={step=function() return "ready" end,
+            plan=function(_,g) goal_seen=g; return {{X=0,Y=0,Z=-90,act="walk"},endpoint} end,
+            verify=function() return "ok" end}
+        step(1)
+        local still_held=pawn.input==nil and move.lp_state=="verifying"
+        step(1)
+        return move,held,still_held,goal_seen
+    end
+    local localmove, held, verified_hold, feetgoal=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
+    check("local observation holds through sampling and verification",held and verified_hold, tostring(held).." "..tostring(verified_hold))
+    check("local planner gets original goal in feet coordinates",feetgoal and feetgoal.X==800 and feetgoal.Z==210, feetgoal and feetgoal.Z)
+    check("complete local path admitted while oracle remains pending",localmove.local_authority and localmove.nav_pending and localmove.lpath and pawn.input~=nil, localmove.status)
+    local path_copy=localmove.lpath
+    pawn.loc={X=700,Y=0,Z=300}; step(1)
+    check("final waypoint retained outside exact tolerance",localmove.local_authority and localmove.lwp==#localmove.lpath and pawn.input~=nil,localmove.lwp)
+    _G.DW_WORLD_GUID="changed-world"; step(1)
+    check("local authority rejects world change before input",pawn.input==nil and not localmove.local_authority,localmove.status)
+    _G.DW_WORLD_GUID="test-world"; M.stop(log)
+    local partial=observe_case({X=746.1,Y=0,Z=210,act="walk"},0.5)
+    check("53.9 cm nearest endpoint fails 50 cm tolerance",not partial.local_authority and pawn.input==nil,partial.status)
+    M.stop(log)
+    local default=observe_case({X=746.1,Y=0,Z=210,act="walk"},1.5)
+    check("53.9 cm endpoint meets default tolerance",default.local_authority and pawn.input~=nil,default.status)
+    M.stop(log)
+    local wrong=observe_case({X=800,Y=0,Z=-90,act="walk"},0.5)
+    check("wrong level local endpoint rejected",not wrong.local_authority and pawn.input==nil,wrong.status)
+    M.stop(log)
+    local jump=observe_case({X=300,Y=0,Z=210,act="jump"},6)
+    -- A complete endpoint must also reach the goal: adjust only the requested tolerance for this edge.
+    check("typed local edge accepts real jump input",jump.local_authority and jump.lp_jump_exec and pawn.jumps>0,jump.status)
+    local jump_index=jump.lwp
+    step(1)
+    check("airborne jump cannot advance path",jump.lwp==jump_index and jump.lp_jump_exec and jump.lp_jump_exec.saw_air,jump.lwp)
+    pawn.loc={X=300,Y=0,Z=300}; air=0; step(1)
+    check("grounded endpoint advances only after observed air",jump.lp_jump_exec==nil and jump.lwp==#jump.lpath+1 and jump.lpath[#jump.lpath].act=="walk",jump.status)
+    M.stop(log); air=0
+    local before_double=pawn.jumps
+    local double=observe_case({X=300,Y=0,Z=210,act="djump"},6,"djump")
+    step(14)
+    check("double jump uses airborne second input",double.lp_jump_exec and double.lp_jump_exec.saw_air and pawn.jumps==before_double+2,double.status)
+    M.stop(log); air=0
+    local missed=observe_case({X=300,Y=0,Z=210,act="jump"},6)
+    step(1); pawn.loc={X=-200,Y=0,Z=300}; air=0; step(1)
+    check("missed landing fails without path success",missed.result and missed.result.reason=="verification_failed" and missed.lp_jump_exec~=nil,missed.status)
+    M.stop(log); air=0
+    pawn.loc={X=0,Y=0,Z=0}; luis.loc={X=800,Y=200,Z=300}
+    offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no); pump_oracle()
+    M.follow(log,"Zezima",6); step(1)
+    local follower=_G.DW_MOVE
+    follower.lp={step=function() return "ready" end,plan=function() return {{X=0,Y=0,Z=-90,act="walk"},{X=300,Y=0,Z=210,act="jump"}} end,verify=function() return "ok" end}
+    step(3); pawn.loc={X=-200,Y=0,Z=300}; air=0; step(1)
+    check("failed local jump preserves persistent follow",follower.mode=="follow" and follower.status=="unreachable" and follower.unreach and follower.unreach.reason=="no_route",follower.status)
+    M.stop(log); air=0
+    local changed=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
+    changed.goal.X=801; step(1)
+    check("changed original goal invalidates local input",pawn.input==nil and not changed.local_authority,changed.status)
+    M.stop(log)
+    local swapped=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
+    swapped.lpath={{X=0,Y=0,Z=-90,act="walk"},{X=800,Y=0,Z=210,act="walk"}}; step(1)
+    check("replaced local path cannot authorize input",pawn.input==nil and not swapped.local_authority,swapped.status)
+    M.stop(log)
+    local paused_move=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
+    _G.DW_PAUSE=true; step(1)
+    check("pause invalidates local route without input",pawn.input==nil and not paused_move.local_authority and not paused_move.local_binding,paused_move.status)
+    _G.DW_PAUSE=nil; M.stop(log)
+    pawn.loc={X=0,Y=0,Z=0}; offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no); pump_oracle()
+    M.go_to(log,{8,0,3},{tolerance_m=0.5}); step(1)
+    local prior=_G.DW_MOVE.gen
+    _G.DW_MOVE.lp={step=function() return "ready" end,plan=function()
+        M.go_to(log,{20,0,0},{nav=false,local_plan=false})
+        return {{X=0,Y=0,Z=-90,act="walk"},{X=800,Y=0,Z=210,act="walk"}}
+    end}
+    step(1)
+    check("planner reentry preserves successor state",_G.DW_MOVE.gen>prior and _G.DW_MOVE.mode=="go_to" and not _G.DW_MOVE.lp_pts and not _G.DW_MOVE.local_authority and pawn.input==nil,_G.DW_MOVE.mode)
+    M.stop(log)
+    do -- strict observation owns neither global trace profile nor malformed evidence
+        local old_profile, saved_profile, old_cache = _G.DW_TRACE_PROFILE, KSL.LineTraceSingleByProfile, _G.DW_LP_CACHE
+        for _, case in ipairs({"nonboolean", "throw", "geometry", "pause"}) do
+            pawn.loc={X=0,Y=0,Z=0}; air=0
+            offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no); pump_oracle()
+            local selected={name="Player"}; _G.DW_TRACE_PROFILE=selected
+            local cache={cells={}}; _G.DW_LP_CACHE=cache
+            M.go_to(log,{8,0,3},{tolerance_m=0.5}); step(1)
+            local m=_G.DW_MOVE; local P=m.lp
+            KSL.LineTraceSingleByProfile=function(self,ctx,a,b,prof,cx,ign,dbg,out,...)
+                if case=="throw" then error("fake profile error") end
+                if case=="pause" then _G.DW_PAUSE=true; return false end
+                if case=="nonboolean" then return "unknown" end
+                out.ImpactPoint={X=0/0,Y=0,Z=0}; out.Distance=1; return true
+            end
+            P.step=function(self) self.trace({X=0,Y=0,Z=0},{X=100,Y=0,Z=0},true); return "ready" end
+            step(1)
+            check("strict observation rejects "..case,pawn.input==nil and not m.local_authority and _G.DW_TRACE_PROFILE==selected and _G.DW_LP_CACHE==cache and next(cache.cells)==nil, m.status)
+            _G.DW_PAUSE=nil; KSL.LineTraceSingleByProfile=saved_profile; M.stop(log)
+        end
+        _G.DW_TRACE_PROFILE=nil; pawn.loc={X=0,Y=0,Z=0}
+        offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no); pump_oracle()
+        M.go_to(log,{8,0,3},{tolerance_m=0.5}); step(1)
+        check("observation selects profile locally without calibration mutation",_G.DW_MOVE.lp~=nil and _G.DW_TRACE_PROFILE==nil and pawn.input==nil,_G.DW_MOVE.status)
+        M.stop(log); _G.DW_TRACE_PROFILE=old_profile; _G.DW_LP_CACHE=old_cache
+    end
+    do -- A target read after ownership may change pawn or death sequence.
+        local original_loc=luis.K2_GetActorLocation
+        for _, case in ipairs({"pawn","life"}) do
+            pawn.loc={X=0,Y=0,Z=0}; luis.loc={X=800,Y=200,Z=300}; air=0; _G.DW_LIFE={move_death_seq=0}
+            offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no); pump_oracle()
+            M.follow(log,"Zezima",0.5); step(1)
+            local m=_G.DW_MOVE
+            m.lp={step=function() return "ready" end, plan=function() return {{X=0,Y=0,Z=-90,act="walk"},{X=800,Y=200,Z=210,act="walk"}} end,verify=function() return "ok" end}
+            step(2)
+            local olddead=pawn.HealthComponent.IsDead; local health_reads=0; local fired=false; local rotations=0
+            local oldrot=pc.SetControlRotation
+            pawn.HealthComponent.IsDead=function(...) health_reads=health_reads+1; return olddead(...) end
+            luis.K2_GetActorLocation=function(self)
+                if health_reads>=3 and not fired then
+                    fired=true
+                    if case=="pawn" then pc.Pawn=obj({}) else _G.DW_LIFE.move_death_seq=1 end
+                end
+                return original_loc(self)
+            end
+            pc.SetControlRotation=function(...) rotations=rotations+1; return oldrot(...) end
+            step(1)
+            check("post-owner target read rejects changed "..case,fired and rotations==0 and pawn.input==nil and m.gen==_G.DW_MOVE.gen,rotations)
+            pc.Pawn=pawn; pawn.HealthComponent.IsDead=olddead; luis.K2_GetActorLocation=original_loc; pc.SetControlRotation=oldrot; _G.DW_LIFE=nil; M.stop(log)
+        end
+    end
+    do -- world resolver can reenter after ownership as well
+        local saved_getenv=os.getenv
+        for _, case in ipairs({"pawn","life"}) do
+            pawn.loc={X=0,Y=0,Z=0}; air=0; _G.DW_LIFE={move_death_seq=0}
+            offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no); pump_oracle()
+            M.go_to(log,{8,0,3},{tolerance_m=0.5}); step(1)
+            local m=_G.DW_MOVE
+            m.lp={step=function() return "ready" end,plan=function() return {{X=0,Y=0,Z=-90,act="walk"},{X=800,Y=0,Z=210,act="walk"}} end,verify=function() return "ok" end}
+            step(2)
+            local olddead=pawn.HealthComponent.IsDead; local reads=0; local fired=false; local rotations=0
+            local oldrot=pc.SetControlRotation
+            pawn.HealthComponent.IsDead=function(...) reads=reads+1; return olddead(...) end
+            _G.DW_WORLD_GUID=nil
+            os.getenv=function(k)
+                if k=="DW_WORLD_GUID" then
+                    if reads>=3 and not fired then
+                        fired=true
+                        if case=="pawn" then pc.Pawn=obj({}) else _G.DW_LIFE.move_death_seq=1 end
+                    end
+                    return "test-world"
+                end
+                return saved_getenv(k)
+            end
+            pc.SetControlRotation=function(...) rotations=rotations+1; return oldrot(...) end
+            step(1)
+            check("post-owner world read rejects changed "..case,fired and rotations==0 and pawn.input==nil and m.gen==_G.DW_MOVE.gen,rotations)
+            os.getenv=saved_getenv; _G.DW_WORLD_GUID="test-world"; pc.Pawn=pawn; pawn.HealthComponent.IsDead=olddead; pc.SetControlRotation=oldrot; _G.DW_LIFE=nil; M.stop(log)
+        end
+    end
+    offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no)
+
+end
+
 if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }; walls = {}; oracle = function() return nil end
     pump_oracle()
@@ -378,7 +550,7 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     before_jumps=pawn.jumps; step(1)
     local ordinary_accepted=flight.jump_t ~= nil and pawn.jumps==before_jumps+1
     luis.loc={X=2000,Y=200,Z=0}; step(100)
-    check("ordinary jump cannot repeatedly bypass authority", ordinary_accepted and pawn.jumps==before_jumps+1 and flight.nav_required and flight.status=="planning", flight.status)
+    check("ordinary jump cannot repeatedly bypass authority", ordinary_accepted and pawn.jumps==before_jumps+1 and flight.nav_required and flight.status=="planning", string.format("status=%s required=%s jumps=%s accepted=%s deferred=%s jump_t=%s release=%s",tostring(flight.status),tostring(flight.nav_required),tostring(pawn.jumps-before_jumps),tostring(ordinary_accepted),tostring(flight.nav_deferred_required),tostring(flight.jump_t),tostring(flight.jump_release)))
     M.stop(log); pawn.loc={X=0,Y=0,Z=0}
     M.go_to(log, {20,0,0}, {nav=false,local_plan=false}); run(60)
     check("explicit direct opt-out moves", pawn.loc.X > 0, pawn.loc.X)

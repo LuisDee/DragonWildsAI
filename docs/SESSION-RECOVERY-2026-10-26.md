@@ -1,5 +1,48 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Latest checkpoint: movement gate GREEN, publication next (2026-10-28 10:15 Berlin)
+
+Root verified all eight cf-320e06f3 manifest hashes; full gate terminal exit0,
+1197passed/1skipped/485.40s, CHECK_ALL: GREEN; approved judge diff empty.
+The source is reviewed and ready to publish; runtime remains b29d97b until
+client-off integration. No physical new-code traversal or autonomous pass yet.
+Root owns live slot/publication. Keep server7016, Steam3284 and helper; client
+restart must be announced and explicitly DEV. Preserve all21 world/statefiles.
+Approved private default-route control uses pawn-centre target
+[77.41,1869.65,-31.30], default1.5m tolerance. Scalar inventory control approved
+for one guarded aggregate/positive observation; absence still unproven.
+Berlin commitments:10:30 developercontrol/baseline,10:45 beginHaiku,
+11:00 pass/failverdict,12:45 repeat/generalisation/M1audit. Report slips.
+Existing heartbeat is hourly ACTIVE. Full M1-M6 goal ACTIVE; none newlymet.
+
+## Active implementation: short local routes and grounded landing (2026-10-28)
+
+Runtime remains testedb29d97b/metadatab9b90e. New source is isolated in W;
+/root/short_route_implementation is sole owner ofmove.lua/test_move.lua/design.
+The earlier candidate author released ownership after an incomplete attempt;
+do not duplicate or overwrite current work. Focused admission tests now pass;
+full movement suite and independentcoldreview/fullgate still required. Root
+owns integration/live; no secondoperator/server/client/brain or fullgate.
+
+Native actualLP observation lp_observe_4457c972ea found7points including157cm
+planned jump tofloorendpoint[77,1870,-32.17258] againstfloorrequest
+[77.41,1869.65,-32.18]. XY.539m/Z.0074m, no suppliedtolerance; future.5must
+reject/default1.5fits. No movement,HP100,timer/watchdog/cleanup terminal. Earlier
+slowcadence timeout UNKNOWN. Directoptout typed_control_af1cef4509 usedONLY
+memory route/nojump and wasinconclusive. Preservememoryandfailedrecords.
+
+Currentclient4124/ClaudeDev/pawnBP_PlayerCharacter_C_2147473119,server7016,
+Steam3284,watchdog12580/helper3228+1980 retained. Lastpositionapproximately
+[77.0456,1875.1556,-35.098],freshvitalsneeded. R26nutrition60Bread83Water;
+noAPIcallssince$0.0259/23Haiku. Nativeobservers/controlledmove are terminal,
+actualslotfree; no gate/brain/queue. Rootprivatehandoff local-typed-active-
+20261028.json recordslatestcase. Public report r26-short-local-planner-20261028.md.
+
+OriginalM1-M6 goal user-setACTIVE; current goal_check reports no counted
+current-hash runs and GOAL NOT MET. Hourlyprogress reports enabled by updating
+existing resume-dragonwilds-companion heartbeat, preserving singlethread.
+Do not count earliercraftdeployment as new work in the latest40min report.
+
 ## Authoritative deployed handoff: b29d97b (2026-10-28)
 
 - Crafting acquisition sourceb29d97b pushed/deployed and natively verified.
