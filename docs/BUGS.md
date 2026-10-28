@@ -1,5 +1,41 @@
 # Live bug ledger
 
+### Published model arguments disappear before dispatch (2026-10-28, verified)
+
+Capabilities.validate accepts the native manifest, then legacy Pydantic
+models silently discard craft station/recipe/fuel, attack weapon/style/force,
+gather stumps/style and inventory raw. Recipe-only craft can be rejected by
+the older required item field. Actual water log response line150 selected
+a station, dispatch line170 omitted it. Manifest must be authoritative,
+with explicit validation failures and declared defaults; no hidden rewrite.
+See research/2026-10-28-sol-adversarial-architecture-audit.md.
+
+### Continuation inference lacks refreshed surroundings (2026-10-28, verified)
+
+Agent refreshes state, but Controller.next_turn appends only tool results
+and generic instructions to the prior messages; the fresh state feeds reads
+and collection, not the next provider observation. Long actions therefore
+leave original location/vitals/station context in history. A current bounded
+observation with freshness/uncertainty and unchanged root intent is needed.
+Do not replace this with task-specific instructions or blame every failure
+on Haiku. Fix and compare captured provider inputs before live measurement.
+
+### Successful processing leaves an ownerless approach mover (2026-10-28, reproduced)
+
+Developer Clean Water and the natural Haiku water chain both completed
+processing but failed clean terminal admission: bridge/action/waiters empty,
+arbiter no owner/stack, move mode go_to spinning stationary. Gen7 capture:
+owner_token absent, owner_implicit=false, target distance1.1905m, tolerance0.4m.
+Ordinary stop returned interrupted and failed to clear it. A guarded normal
+go_to to current position recovered idle without raw-state writes/reload.
+
+Source defects: processing-output pickup omits job.token; shared interaction
+episode may switch to facing without draining its child; crafting finish
+releases parent. Exact original generation attribution remains a hypothesis.
+Fix design nested-interaction-move-ownership.md requires ownership admission
+before mutation and generation-bound teardown with reentry/suspension tests.
+See r28-clean-water-chain-20261028.md. Do not convert the red pilot to a pass.
+
 ### Phase Dash diagnostics lack the base Air Dash prerequisite (2026-10-28)
 
 Four-pump directional native controls retained 1.2173 m before a fresh cast

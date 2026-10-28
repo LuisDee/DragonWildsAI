@@ -1,5 +1,40 @@
 # Progress log (append-only)
 
+### Independent Sol architecture audit completed (2026-10-28)
+
+Read-only source and captured-input review found three priority contracts:
+manifest-valid model arguments must survive dispatch; continuation inference
+must receive fresh observations; terminal results must account for child
+cleanup. Four tool families currently lose published fields through legacy
+typed normalization (craft, attack, gather, inventory). The water trace proves
+chosen station was discarded. Fresh state is fetched after actions but is
+not appended to continuation model input. Useful autonomous choices coexist
+with these harness defects and genuine model intent errors.
+
+Full evidence, recent September 2026 primary research, alternatives and
+bounded implementation gates: research/2026-10-28-sol-adversarial-architecture-audit.md.
+Keep the existing two-speed architecture and per-world memory. No new model
+calls, live gameplay capability or milestone pass resulted from the audit.
+The source repair starts with authoritative manifest validation; its design
+is under independent review. The Lua ownership candidate remains parked,
+not approved or deployed; distinguish observed child-lifetime defects from
+additional unobserved UI callback hazards.
+
+### Haiku completed water gameplay chain; cleanup regression reproduced (2026-10-28 13:50 Berlin)
+
+On the unchanged tested body, Haiku chose craft2 -> drink -> collect2 more
+from the pond -> recover no-station-in-range by returning to its known
+campfire -> craft2 for reserve. Native inventory ended with two Clean Water,
+Cooking XP 111 to 115, wood 35 to 33, health 100. Eleven controller calls,
+164.5 seconds, $0.0068. Initial ingredients/station were assisted; second
+water acquisition and the rest of the episode were model-selected, no hints
+or grants during it. Source and evidence: r28-clean-water-chain-20261028.md.
+
+Overall pilot remains RED: processing left an ownerless internal go_to after
+the task. Root preserved evidence and recovered through supported same-place
+go_to, not a reload or raw-state patch. The generic nested-ownership fix is
+being implemented in isolated W; full review/gate/live repetition still due.
+
 ### Native positive and negative controls executed (2026-10-28 13:22 Berlin)
 
 Guarded control runner a43c429 is pushed/deployed without a game restart.

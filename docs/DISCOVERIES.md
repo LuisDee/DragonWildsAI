@@ -1,5 +1,31 @@
 # Discoveries
 
+### Two-speed control is sound; decision contracts need repair (2026-10-28)
+
+Independent Sol source/trace review confirms Haiku chose the water chain,
+including replenishment and return to the station after a real failure.
+It also establishes silent chosen-argument loss, stale continuation context,
+incomplete lifecycle/UI/perk information and prompt clipping. No phrase map
+was found in inspected paths; compatibility aliases, read/action suppression,
+executor retries and native reflexes do exist and must be attributed honestly.
+
+September 2026 PUBG Ally and Gander primary papers support refreshed
+observations, carried unfinished intent and explicit action lifecycle;
+they do not provide a drop-in Dragonwilds runtime or prove stock Haiku can
+master the game. Reuse bridge, observer, broker, arbiter and per-world stores;
+adapt their missing contracts before adding another planner/framework.
+Sources, limitations and staged evidence are in
+research/2026-10-28-sol-adversarial-architecture-audit.md.
+
+### Model-selected water replenishment and failure recovery worked (2026-10-28)
+
+Haiku made four Clean Water across two batches, directed a drink, collected
+new pond water for reserve, and returned to the known campfire after processing
+truthfully reported out of range. Native final reserve two, Cooking +4 XP,
+health100. Initial ingredients/station were assisted and overall terminal
+check failed on an orphan mover; this is meaningful gameplay evidence, not
+a complete stable run. Details: r28-clean-water-chain-20261028.md.
+
 ### Frozen spell judge discriminates real cast from a claim (2026-10-28)
 
 The new non-judge native control runner used the exact Windstep case and

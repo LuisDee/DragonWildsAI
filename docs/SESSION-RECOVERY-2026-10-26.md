@@ -1,5 +1,88 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Architecture audit and next repair (2026-10-28)
+
+Latest user asked for independent Sol adversarial review of model autonomy,
+feedback, current perception, failures and recent precedent. Completed report:
+docs/research/2026-10-28-sol-adversarial-architecture-audit.md. It finds actual
+manifest-to-legacy argument loss in four tools and fresh state missing from
+continuation model inputs. Preserve the existing two-speed architecture;
+repair schema authority, fresh decision context and terminal child cleanup.
+Do not claim that Haiku chooses every reflex/frame or that a stronger model
+alone solves these defects. Existing memory stays intact; historic notes
+need freshness/provenance rather than deletion.
+
+R is unchanged tested e9200ff body / a43c429 tools /9345dec metadata.
+No brain/test runner remains; client8568/server7016/Steam3284 adopted.
+At the latest guarded read, ClaudeDev health100/hydration34.4, DirtyWater3,
+wood33, stone axe1, no berries, position[52.48,1805.85,-30.79], strict idletrue.
+Inspect fresh vitals/slot before live actions; survival supplies are falling.
+Live reservation was free, root remains sole operator. Runtime handoff was
+corrected: prior collect10 exec32999 is terminal, not ongoing work.
+
+Lua ownership candidate still DIRTY and NOT approved/deployed after review
+found finalization/reentry concerns. No test_move_authority.lua exists;
+actual composition regressions are in test_move.lua. The current amendment
+is design only. Keep observed missing-token/child-drain defects separate
+from additional UI ownership hazards; do not grow a new concurrency framework.
+
+Terra manifest_contract_repair owns only brain/capabilities.py,
+tests/test_manifest_contract.py and docs/design/manifest-argument-authority.md.
+Design-first review is pending; no source edit at this entry. Sol reviewer
+sol_architecture_adversary owns the report. Root integrates/checkpoints.
+Game-model spend remains recorded $0.0546/52Haiku, no audit provider calls;
+development account ordinary requests allowed, latest23% weekly used.
+Judges and original M1-M6 requirements unchanged; Goal ACTIVE, none certified.
+
+## Water chain observed; nested-ownership fix in W (2026-10-28 13:50 Berlin)
+
+R remains tested body e9200ff / tools a43c429 / metadata9345dec; W is DIRTY
+under /root/live_operator ownership fix (crafting.lua, skills.lua, move.lua,
+matching tests plus test_move_authority.lua, design note). Do not publish
+before freeze, cold review, focused checks and full gate. Judges unchanged.
+Root solely owns live slot root-m1-controls; inspect actual lease/processes.
+Client8568/server7016/Steam3284 unchanged. No model brain remains.
+
+Developer water collection6 succeeded; native reflex drank one. First craft
+failed because Campfire74.73m away exceeds60m search; developer navigated
+into range and crafted1CleanWater through real UI, Cooking110->111/level4.
+The reflex drank it. Haiku then received only the ordinary clean-water/drink/
+reserve request. It crafted2, drank (after transient busy verification),
+collected2more from pond, recovered station-range failure by going to its
+known Campfire, crafted2more. Native before operator cleanup: CleanWater2
+reserve, wood35->33, Cooking111->115, health100. ElevenHaiku, zero planner,
+164.5s/$0.0068. Initial ingredients/station assisted; no episode grants,
+teleports, hints or operator actions; second water collection model-selected.
+
+Pilot RED: terminal_idle=false, despite observed gameplay objectives. Parent
+and child8984 terminal, no watchdog expiry. Raw R/logs/recovery/
+no-axe-pilot-20261028-124426-3264e046.json,
+haiku-water-water_95f03194d5/parent.json,
+haiku-water-native-after-before-cleanup-20261028.json,
+logs/brain-live-20261028-134140-12220.jsonl. UTC API $0.0546 /52Haiku.
+
+Processing reproduced stationary ownerless internal mover twice. Gen7 raw
+capture has nil token, implicit=false, goal near campfire output, tolerance
+0.4m/dist1.1905m, high ticks, no arbiter owner/stack or bridge action/waiters.
+Stop returned interrupted and did not clean it. Guarded normal go_to to the
+fresh current position legitimately replaced it, adopted ownership, arrived
+and verified idle. Same supported recovery after model episode. No raw state
+patch or bridge reload. Raw water-orphan-supported-replacement-20261028.json
+and haiku-water-orphan-recovery-20261028.json. Preserve original red evidence.
+
+Source diagnosis confirmed missing processing pickup parent token and shared
+episode near-transition/terminal child-cleanup omissions. Exact gen7 creation
+still hypothesis. Design nested-interaction-move-ownership.md fresh-approved.
+Author is implementing generation/owner-bound admission and teardown with
+real-module reentry/suspension regressions. Root will integrate and repeat
+developer processing then exact natural request on tested deployment.
+
+Developer berry control harvested9Redberries+1seed, no food grants, health100,
+idletrue: m1-food-developer-b02e9da2/evidence.json. At that point CleanWater1,
+Bread1 remained; inspect fresh vitals/resources before integration. Root
+must save current runtime handoff before any new action or stopping. Goal
+ACTIVE; no milestone certified. See research/r28-clean-water-chain-20261028.md.
+
 ## a43c429 native controls measured; no milestone certification (2026-10-28 13:22 Berlin)
 
 Latest tested/pushed/deployed tools commit a43c429. Full gate cf-8b3396c6
