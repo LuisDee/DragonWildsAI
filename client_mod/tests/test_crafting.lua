@@ -919,5 +919,53 @@ do -- Candidate limits and observed catalog/unlock metadata.
     check("24 candidates all visible with 25",r.data.total==24 and #r.data.candidates==24 and not r.data.truncated)
     C.set_data(REAL)
 end
+do -- Root inventory observations and requested new production are distinct.
+    local A,P="/mode/A.A","/mode/P.P"
+    C.set_data({stations={Bench={kind="crafting",name="Bench"}},items={[A]={id="A",name="Input"},[P]={id="P",name="Product"}},
+      recipes={R={path="/mode/R.R",inputs={{A,3}},outputs={{P,2}},stations={"Bench"}}}})
+    local native=function(p) return {status="observed",count=p==P and 1 or 3,scope="main_inventory",path=p,observed_at=55} end
+    local ctx={have={},count_status={status="unknown"},unlocked=U({"R"}),near=near("Bench"),native_count=native}
+    local target=C.plan_tree({item="P"},1,ctx)
+    check("pure default retains inventory target",target.root.status=="have" and target.root.observed_have==1 and target.quantity_mode=="inventory_target")
+    ctx.quantity_mode="additional_output"
+    local add=C.plan_tree({item="P"},1,ctx)
+    check("additional root reports stock but allocates none",add.root.observed_have==1 and add.root.allocated_from_inventory==0 and add.root.status~="have" and add.ready~=true)
+    check("additional plan expands recipe and reuses inputs",add.root.recipe=="R" and add.root.inputs[1].observed_have==3 and add.root.inputs[1].sufficiency=="enough")
+    check("additional yield reports rounding",add.root.requested_additional_output==1 and add.root.output_count==2 and add.root.crafts==1)
+    ctx.native_count=function(p) if p==P then return {status="unknown"} end return native(p) end
+    local unknown=C.plan_tree({item="P"},1,ctx)
+    check("unknown root observation stays unknown",unknown.root.observed_have==nil and unknown.root.allocated_from_inventory==0 and unknown.root.recipe=="R")
+    local pinned=C.plan_tree({recipe="R"},2,ctx)
+    check("pinned recipe count means crafts",pinned.count_unit=="crafts" and pinned.requested_count==2 and pinned.root.crafts==2 and pinned.root.output_count==4)
+    C.set_data(REAL)
+end
+do -- Public mode defaults, explicit stock target, schema and validation.
+    reset({stations={TABLE()},have={ITEM_Pickaxe_Stone=1,ITEM_Resources_Wood_Ash=6,ITEM_Resources_Stone=8},unlocked=U({"RECIPE_Pickaxe_Stone"})})
+    local a=C.HANDLERS.craft_plan(nil,{item="Stone Pickaxe"},{api=api})
+    check("public plan defaults to additional output",a.ok and a.data.quantity_mode=="additional_output" and a.data.root.observed_have==1 and a.data.root.status~="have")
+    local target=C.HANDLERS.craft_plan(nil,{item="Stone Pickaxe",quantity_mode="inventory_target"},{api=api})
+    check("explicit inventory target retains held result",target.ok and target.data.quantity_mode=="inventory_target" and target.data.root.status=="have")
+    local bad=C.HANDLERS.craft_plan(nil,{item="Stone Pickaxe",quantity_mode="invalid"},{api=api})
+    check("unknown mode rejected",bad.reason=="invalid_args")
+    bad=C.HANDLERS.craft_plan(nil,{recipe="RECIPE_Pickaxe_Stone",quantity_mode="inventory_target"},{api=api})
+    check("recipe with stock target rejected",bad.reason=="invalid_args")
+    local schema=C.MANIFEST.craft_plan.args.properties.quantity_mode
+    check("manifest exposes mode and default",schema and schema.default=="additional_output" and #schema.enum==2)
+end
+do -- Root stock remains available when a descendant genuinely needs it.
+    local A,P="/cycle/A.A","/cycle/P.P"
+    C.set_data({stations={Bench={kind="crafting",name="Bench"}},items={[A]={id="A",name="Input"},[P]={id="P",name="Product"}},
+      recipes={RP={path="/cycle/RP",inputs={{A,1}},outputs={{P,1}},stations={"Bench"}},
+               RA={path="/cycle/RA",inputs={{P,1}},outputs={{A,1}},stations={"Bench"}}}})
+    local ctx={have={},count_status={status="unknown"},unlocked=U({"RP","RA"}),near=near("Bench"),quantity_mode="additional_output",
+      native_count=function(p) return {status="observed",count=p==P and 1 or 0,path=p,scope="main_inventory"} end}
+    local t=C.plan_tree({item="P"},1,ctx)
+    local descendant=t.root.inputs[1].inputs[1]
+    check("additional root stock remains available to descendant once",t.root.allocated_from_inventory==0 and descendant.sufficiency=="enough" and descendant.observed_have==1)
+    ctx.native_count=function(p) return {status="observed",count=0,path=p,scope="main_inventory"} end
+    t=C.plan_tree({item="P"},1,ctx)
+    check("additional mode preserves cycle detection",t.root.inputs[1].inputs[1].status=="cycle")
+    C.set_data(REAL)
+end
 print(string.format("test_crafting: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

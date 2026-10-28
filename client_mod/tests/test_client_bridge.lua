@@ -1016,8 +1016,8 @@ test("craft plan uses scoped native item counts without inventory enumeration", 
         end
         function M.count_item(path)
             FAKE.native_count_calls=(FAKE.native_count_calls or 0)+1
-            if path=="/fixture/ITEM_Input" and FAKE.inventory_exact_control then
-                return {status="observed",count=2,path=path,scope="main_inventory",semantics="component_at_read",
+            if (path=="/fixture/ITEM_Input" or path=="/fixture/ITEM_Goal") and FAKE.inventory_exact_control then
+                return {status="observed",count=path=="/fixture/ITEM_Input" and 2 or 1,path=path,scope="main_inventory",semantics="component_at_read",
                         observed_at=123,world="dev",controller=10,pawn=11,component=12,asset=13}
             end
             return {status="unknown",reason="asset_or_binding_unavailable",path=path,scope="main_inventory"}
@@ -1052,6 +1052,13 @@ test("craft plan uses scoped native item counts without inventory enumeration", 
     assert(exact.data.ready==nil, "serialized unknown readiness must be absent, not false")
     assert(exact.data.choices_unresolved==nil, "execution uncertainty is not an alternative choice")
     assert(exact.data.root.suggestion and exact.data.root.suggestion.conditional==true)
+    assert(exact.data.quantity_mode=="additional_output" and exact.data.count_unit=="crafts")
+    local target=rpc("craft_plan",{item="Goal",quantity_mode="inventory_target"})
+    assert(target.ok and target.data.quantity_mode=="inventory_target" and target.data.root.status=="have")
+    local add=rpc("craft_plan",{item="Goal"})
+    assert(add.ok and add.data.quantity_mode=="additional_output" and add.data.root.observed_have==1 and add.data.root.status~="have")
+    local bad=rpc("craft_plan",{recipe="R_Goal",quantity_mode="inventory_target"})
+    assert(not bad.ok and bad.reason=="invalid_args")
     assert(FAKE.inventory_snapshot_calls==0 and FAKE.native_count_calls>0)
     FAKE.inventory_exact_control=nil; uninstall("crafting"); install("inventory")
 end)

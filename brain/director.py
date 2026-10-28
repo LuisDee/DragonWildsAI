@@ -466,9 +466,12 @@ RESEARCH_TOOLS = [
         {"query": {"type": "string"}}),
 ]
 PROXY_TOOL_DOCS = {
-    "craft_plan": _fn("craft_plan", "His own crafting planner over the game's recipes and what he carries: the tree "
-                      "of gather / craft / unlock / find-station steps to make an item, with alternatives.",
-                      {"item": {"type": "string"}, "count": {"type": "integer"}}, ["item"]),
+    "craft_plan": _fn("craft_plan", "Plan additional item production by default, or an inventory target; "
+                      "the tree shows ingredients, acquisition alternatives and execution uncertainty.",
+                      {"item": {"type": "string"},
+                       "count": {"type": "integer", "description": "Additional item units, or final stock units in inventory_target mode."},
+                       "quantity_mode": {"type": "string", "enum": ["additional_output", "inventory_target"],
+                                         "default": "additional_output"}}, ["item"]),
     "recipes": _fn("recipes", "Recipes: for an item (every recipe and its status) or a station type.",
                    {"item": {"type": "string"}, "station": {"type": "string"}}),
     "stations": _fn("stations", "Crafting and processing stations near him and their state.", {}),

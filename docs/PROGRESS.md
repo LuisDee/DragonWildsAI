@@ -1,5 +1,20 @@
 # Progress log (append-only)
 
+### Recipe visibility deployed; production intent remains unfinished (2026-10-28)
+
+Source 72a8e37 is pushed and deployed after 1198 passed / one skipped GREEN.
+All 15 frozen hashes matched; judges are unchanged; all 21 saved state files
+were preserved. The Controller receives all 24 axe candidates including the
+unlocked stone axe and native scoped counts. The repeat chose stone but used
+the old axe after craft_plan treated owned stock as satisfying its target.
+No new axe or station: the compound request still failed. Additional production
+versus inventory-target semantics are a separate isolated W candidate.
+
+A developer-selected Tempest Shield cast used 15 air runes and produced the
+native shield tag and effect, health 100 and body idle. This proves casting,
+not autonomous tactical selection. Spend: $0.0402 / 35 Haiku calls. Evidence:
+docs/research/r26-postfix-and-shield-20261028.md.
+
 ### Combined crafting and route candidate passed the gate (2026-10-28 11:50 Berlin)
 
 The reviewed wave passed 1198 tests with one skip in 389.34 seconds,

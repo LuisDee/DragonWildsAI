@@ -394,6 +394,7 @@ end
 function M.plan_tree(goal, count, ctx)
     count = math.max(1, math.floor(tonumber(count) or 1))
     ctx = ctx or {}
+    local quantity_mode = ctx.quantity_mode or (goal.recipe and "additional_output" or "inventory_target")
     local cs = ctx.count_status
     local exact = type(cs) == "table" and cs.status == "complete" and cs.count_semantics == "exact"
     local max_options, max_nodes = 8, 100
@@ -523,22 +524,29 @@ function M.plan_tree(goal, count, ctx)
         end
         return out, steps, missing, has_choices or has_unknown or a.status == "ready"
     end
-    node = function(item, need, pool, depth, stack, pinned)
+    node = function(item, need, pool, depth, stack, pinned, is_root)
         used = used + 1
+        local additional_root = is_root and quantity_mode == "additional_output"
         local n = { item = item, name = name_of_id(item), need = need }
         if ctx.native_count then
             n.count_scope = "main_inventory"
             n.asset_path = not idx().ambiguous[item] and idx().path_of[item] or nil
         end
         local accounted
-        if pinned then
+        if pinned or additional_root then
             local snapshot = clone(pool)
             n.observed_have, n.have, n.have_semantics, n.sufficiency, accounted, n.count_observations = observed(snapshot, item, need)
         else
             n.observed_have, n.have, n.have_semantics, n.sufficiency, accounted, n.count_observations = observed(pool, item, need)
         end
-        if n.sufficiency == "enough" and not pinned then n.status = "have"; return n, {}, {}, false end
-        local remaining = pinned and need or (need - accounted)
+        if additional_root then
+            n.allocated_from_inventory = 0
+            n.requested_additional_output = need
+            n.have = nil
+            n.sufficiency = "not_allocated"
+        end
+        if n.sufficiency == "enough" and not pinned and not additional_root then n.status = "have"; return n, {}, {}, false end
+        local remaining = (pinned or additional_root) and need or (need - accounted)
         if n.sufficiency == "short" then n.short = remaining end
         if used > max_nodes or depth > M.cfg.plan_depth then
             n.status, n.options_total, n.options_truncated = "depth", 0, true
@@ -583,7 +591,7 @@ function M.plan_tree(goal, count, ctx)
             else
                 option, steps, missing, unresolved = recipe_option(spec.recipe, item, remaining, branch, depth, stack)
             end
-            option.quantity_semantics = pinned and "requested" or (n.sufficiency == "unknown" and "upper_bound" or "exact_shortfall")
+            option.quantity_semantics = (pinned or additional_root) and "requested" or (n.sufficiency == "unknown" and "upper_bound" or "exact_shortfall")
             n.options[#n.options + 1], branches[#branches + 1] = option, branch
             alternatives_steps[i], alternatives_missing[i] = steps, missing
             if unresolved then option.unresolved = true end
@@ -619,7 +627,7 @@ function M.plan_tree(goal, count, ctx)
         item = r.outputs[1] and item_id(r.outputs[1][1])
         need = count * per_craft(r, item)
     else item, need = goal.item, count end
-    local root, steps, missing, unresolved = node(item, need, pool, 0, {}, rid)
+    local root, steps, missing, unresolved = node(item, need, pool, 0, {}, rid, true)
     local ready
     if root.status == "have" then ready = true
     elseif root.status ~= "execution_unknown" and not unresolved then ready = false end
@@ -631,6 +639,7 @@ function M.plan_tree(goal, count, ctx)
         return false
     end
     return { root=root, steps=not unresolved and steps or nil, missing=not unresolved and missing or nil,
+             quantity_mode=quantity_mode, count_unit=goal.recipe and "crafts" or "items", requested_count=count,
              ready=ready, choices_unresolved=has_choices(root) or nil, truncated=truncated or nil }
 end
 
@@ -1748,9 +1757,17 @@ local function recipes_tool(api, args)
 end
 
 local function plan_tool(api, args)
+    local mode = args.quantity_mode == nil and "additional_output" or args.quantity_mode
+    if mode ~= "additional_output" and mode ~= "inventory_target" then
+        return api.fail("invalid_args", {detail="quantity_mode must be additional_output or inventory_target."})
+    end
+    if mode == "inventory_target" and need_str(args.recipe) then
+        return api.fail("invalid_args", {detail="inventory_target requires an item, not a recipe."})
+    end
     local ctx, bad = context(api, nil, true)
     if not ctx then return bad end
     ctx.gather_for = W.gather_options(api)
+    ctx.quantity_mode = mode
     local goal
     if need_str(args.recipe) then goal = { recipe = args.recipe }
     elseif need_str(args.item) then
@@ -1860,12 +1877,14 @@ M.MANIFEST = {
             limit = { type = "integer", minimum = 1, maximum = 50, default = 25 } }) },
         reasons = { "unknown_recipe", "ambiguous_target", "unknown_target", "state_unavailable" } },
     craft_plan = { kind = "read", llm = true, moves = false, duration_s = 0.5, timeout_s = 15,
-        description = "Inspect a goal item's required inputs and alternative acquisitions. Counts may be lower "
-            .. "bounds; recipe execution and suggested craft steps can be conditional or unknown. Read only.",
+        description = "Plan additional production by default, or choose inventory_target to plan a final stock level. "
+            .. "Counts may be lower bounds; recipe execution and suggested steps can be conditional or unknown. Read only.",
         args = { type = "object", properties = obj({
             item = str("Goal item name or id."),
             recipe = str("Or a recipe id."),
-            count = { type = "integer", minimum = 1, default = 1, description = "How many." } }) },
+            count = { type = "integer", minimum = 1, default = 1, description = "Additional items, or crafts with recipe; final item total for inventory_target." },
+            quantity_mode = { type = "string", enum = { "additional_output", "inventory_target" }, default = "additional_output",
+                description = "Plan new output (default), or reach a final item inventory target." } }) },
         reasons = { "unknown_recipe", "ambiguous_target", "invalid_args", "state_unavailable" } },
     stations = { kind = "read", llm = true, moves = false, duration_s = 0.5, timeout_s = 15,
         description = "Stations near you: type, distance, unlocked recipes, what you can make now, and a furnace's "

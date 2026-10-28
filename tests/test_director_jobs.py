@@ -603,3 +603,17 @@ def test_goal_farm_seeds_on_a_new_weedy_plot_fail_truthfully_until_he_digs():
     assert not r["ok"] and r["reason"] == "verification_failed" and "the plot says: weeds" in r["data"]["detail"]
     assert g.tend(item=SPADE)["data"]["changed"]["soil"]["to"] == "clear"
     assert g.tend(item=WHEAT_SEED)["ok"] and g.plots[pid]["crop"] == WHEAT
+
+
+def test_mock_craft_plan_respects_quantity_mode(tmp_path):
+    rig = JobRig(tmp_path, [])
+    pickaxe_world(rig)
+    rig.game.inventory[BRONZE_PICK] = 1
+    additional = rig.game.craft_plan("Bronze Pickaxe")
+    assert additional["ok"] and additional["data"]["quantity_mode"] == "additional_output"
+    assert additional["data"]["root"]["observed_have"] == 1
+    assert additional["data"]["root"]["allocated_from_inventory"] == 0
+    assert additional["data"]["root"]["status"] == "craft"
+    target = rig.game.craft_plan("Bronze Pickaxe", quantity_mode="inventory_target")
+    assert target["data"]["root"]["status"] == "have"
+    assert rig.game.craft_plan("Bronze Pickaxe", quantity_mode="bad")["reason"] == "invalid_args"

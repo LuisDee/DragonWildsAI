@@ -103,8 +103,10 @@ def manifest() -> dict[str, dict]:
                   {"item": s, "count": i, "at": {"type": "string", "enum": ["feet", "player"]}, "player": s},
                   ["item", "count"], kind="waiter"),
         "attack": a("Fight a creature by its id until it is dead.", {"target": s}, ["target"]),
-        "craft_plan": a("Plan how to make an item from the game's recipes over what you carry (read-only).",
-                        {"item": s, "count": i}, ["item"], kind="read"),
+        "craft_plan": a("Plan additional production by default or a final inventory target (read-only).",
+                        {"item": s, "count": i, "quantity_mode": {"type": "string",
+                         "enum": ["additional_output", "inventory_target"], "default": "additional_output"}},
+                        ["item"], kind="read"),
         "buildables": a("Pieces you can build: name, materials, what you're still missing (read-only).",
                         {"about": s}, kind="read"),
         "build": a("Build one piece by its name from buildables (you need its materials), beside you.",
@@ -701,25 +703,32 @@ class GearWorld(MockGame):
         self.gear[slot] = iid
         return ok(item=iid, slot=slot, replaced=old)
 
-    def craft_plan(self, item: str, count: int = 1) -> ActionResult:
+    def craft_plan(self, item: str, count: int = 1, quantity_mode: str = "additional_output") -> ActionResult:
+        if quantity_mode not in ("additional_output", "inventory_target"):
+            return fail(Reason.INVALID_ARGS, detail="invalid quantity_mode")
         iid = self.resolve_item(item)
         if iid is None:
             return fail(Reason.UNKNOWN_RECIPE, item=item)
 
         def node(i: str, n: int, depth: int) -> dict:
             have = self._carried(i)
-            out: dict[str, Any] = {"item": i, "name": self.name_of(i), "need": n, "have": have}
+            additional_root = depth == 0 and quantity_mode == "additional_output"
+            allocated = 0 if additional_root else min(have, n)
+            out: dict[str, Any] = {"item": i, "name": self.name_of(i), "need": n, "observed_have": have,
+                                   "allocated_from_inventory": allocated}
+            if not additional_root:
+                out["have"] = have
             recs = self._recipes_for(i)
-            if have >= n or depth > 4 or not recs:
-                out["status"] = "have" if have >= n else ("gather" if not recs else "depth")
+            if (not additional_root and have >= n) or depth > 4 or not recs:
+                out["status"] = "have" if not additional_root and have >= n else ("gather" if not recs else "depth")
                 return out
             rid, r = self._best_recipe(i, recs)
             per = sum(o.get("count", 1) for o in r["outputs"] if o.get("item") == i) or 1
-            crafts = math.ceil((n - have) / per)
+            crafts = math.ceil((n - allocated) / per)
             out.update(status="craft", recipe=rid, station=r["stations"], crafts=crafts,
                        inputs=[node(x["item"], x["count"] * crafts, depth + 1) for x in r["inputs"]])
             return out
-        return ok(root=node(iid, count, 0))
+        return ok(root=node(iid, count, 0), quantity_mode=quantity_mode, count_unit="items", requested_count=count)
 
     def _best_recipe(self, item: str, recs: list[tuple[str, dict]]) -> tuple[str, dict]:
         """Rank like the client planner (crafting.lua candidates): a station of its type near, then how many of

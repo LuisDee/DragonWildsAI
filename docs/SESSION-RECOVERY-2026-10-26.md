@@ -1,5 +1,44 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Deployed 72a8e37; quantity-mode candidate next (2026-10-28 12:10 Berlin)
+
+Source 72a8e37 is pushed/deployed. Runtime companion bec14c6d064ec51c, body
+f0158e63a3dfbeb4, judges b5057d95be92c264. Gate cf-93b8a707: 1198 passed,
+one skipped, 389.34 seconds, GREEN; 15 frozen hashes verified. Publication
+R/logs/recovery/recipe-publication-65caa55b preserved all 21 state files.
+Client 9820 / ClaudeDev / BP_PlayerCharacter_C_2147473115 / DEV loopback;
+server 7016 and Steam 3284 retained. Inspect fresh state and reservation.
+
+Actual Controller read validation receives all 24 candidates and observed
+unlocked stone axe, plus exact scoped wood 17 / stone 0. The exact new-axe
+request then chose stone but used the existing axe because craft_plan treated
+owned output as satisfying its target. Four Haiku calls / 60.86 seconds;
+no craft or build, axe stayed one. Gather reported five; native wood 17 to 28,
+Woodcutting XP 269 to 343. Both pilot and parent terminated idle, no expiry.
+Raw result: R/logs/recovery/no-axe-pilot-20261028-105806-bf394f01.json.
+Source and outcome details: docs/research/r26-postfix-and-shield-20261028.md.
+
+Developer-selected Tempest Shield then succeeded through normal input: Air
+231 to 216, new native shield tag and gameplay-effect instance, health 100,
+no action/waiter. Raw developer-tempest-shield-20261028.json. Not autonomous
+tactical use. UTC API spend $0.0402 / 35 Haiku, zero planner/unpriced. Support
+totals 76 bread / 107 water and earlier health reset/test-scene position;
+no tools/materials/stations grants. Preserve all progress and failure records.
+
+W contains a new isolated quantity-mode candidate, owner /root/live_operator:
+crafting.lua and tests, Director proxy schema, mock and focused caller tests,
+docs/design/craft-plan-quantity-mode.md. /root/route_throughput_review approved
+the design; cold review/full gate/live validation remain. Public additional
+output default differs intentionally from inventory_target; pure plan_tree
+keeps its older default. Frozen judges must remain untouched. No candidate
+may enter R until review/gate and announced client-only publication.
+
+The private generic pilot driver stays SHA70AB87...37F69, 37 focused tests,
+strict initial/final idle, 20 shared Haiku attempts, 300-second matching external
+watchdog. No model brain remains after the episode. Goal and hourly heartbeat
+remain ACTIVE; the 12:45 repeat/generalisation/M1 audit is still due. Manual
+capability proof does not count as a formal GOAL MET or full milestone.
+
 ## Combined candidate gate GREEN; publication next (2026-10-28 11:50 Berlin)
 
 Retry cf-93b8a707 completed GREEN: 1198 passed, one skipped, 389.34 seconds,

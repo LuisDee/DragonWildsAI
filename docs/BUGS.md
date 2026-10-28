@@ -1,5 +1,15 @@
 # Live bug ledger
 
+### Craft planning confuses owned stock with additional production (2026-10-28)
+
+After candidate visibility was fixed, the same new-axe request selected the
+unlocked stone axe, but craft_plan count 1 returned an already-owned result.
+Haiku used the old axe. A new axe/station was not created. The generic quantity
+mode design separates additional output from reaching an inventory target;
+it must preserve real observations, ingredient stock and model choice. No
+phrase mapping or equipment deletion is a solution. The W candidate is under
+review/testing; deployed R remains tested 72a8e37 until publication.
+
 ### Recipe candidate truncation hid a viable basic tool (2026-10-28)
 
 A request to make a new axe and cut a tree matched 24 recipe outputs, but the

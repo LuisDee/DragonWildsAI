@@ -444,7 +444,7 @@ def test_a_hung_decision_times_out_twice_then_parks_and_says_so(tmp_path):
 
 
 def test_body_reads_from_the_worker_are_served_on_the_agent_loop(tmp_path):
-    calls = [LLMResponse(tool_calls=[ToolCall("craft_plan", {"item": "Bronze Pickaxe"}, "c1")]),
+    calls = [LLMResponse(tool_calls=[ToolCall("craft_plan", {"item": "Bronze Pickaxe", "count": 2, "quantity_mode": "inventory_target"}, "c1")]),
              decision(task_success=have(COPPER, 5), steps=[step("mine", gained(COPPER, 5))])]
     pool = cf.ThreadPoolExecutor(max_workers=1)
     d, port, world, llm, clock = make(tmp_path, None, calls, executor=pool,
@@ -458,6 +458,10 @@ def test_body_reads_from_the_worker_are_served_on_the_agent_loop(tmp_path):
         threading.Event().wait(0.01)
     pool.shutdown()
     assert port.reads and port.reads[0][0] == "craft_plan" and port.reads[0][2] == main
+    assert port.reads[0][1] == {"item": "Bronze Pickaxe", "count": 2, "quantity_mode": "inventory_target"}
+    props = D.PROXY_TOOL_DOCS["craft_plan"]["function"]["parameters"]["properties"]
+    assert props["quantity_mode"]["enum"] == ["additional_output", "inventory_target"]
+    assert props["quantity_mode"]["default"] == "additional_output"
     assert d.ops.b.current_task().steps[0].title == "mine"
 
 

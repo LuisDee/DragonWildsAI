@@ -1,5 +1,16 @@
 # Discoveries
 
+### Native effects verified a current-code shield cast (2026-10-28)
+
+Developer-selected Tempest Shield used 15 Air Runes and independently added
+Player.Status.TempestShield and BP_TempestShieldGameplayEffectInstance_C to
+the native probe. Both were absent before; health stayed 100 and the UI/body
+returned idle. This demonstrates the real casting path, not autonomous spell
+choice or full coverage. The same deployment also exposes all 24 axe recipe
+candidates, including the observed unlocked stone recipe. Production intent
+still requires a separate quantity-mode fix. Evidence:
+docs/research/r26-postfix-and-shield-20261028.md.
+
 ### Grave perception and persistent memory supported a real chain (2026-10-28)
 
 The current state exposed a verified own grave 5.31 m away, containing an axe

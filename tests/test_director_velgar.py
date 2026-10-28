@@ -57,7 +57,7 @@ def world(rig):
     want.update({i: 1 for i in kit_items(g)})
     need = {"items": {}, "stations": set()}
     for item, n in want.items():
-        leaves(g.craft_plan(item, n)["data"]["root"], need)
+        leaves(g.craft_plan(item, n, quantity_mode="inventory_target")["data"]["root"], need)
     for item, n in need["items"].items():
         g.carry(item, n)
     for i, st in enumerate(sorted(x for x in need["stations"] if x)):
@@ -93,7 +93,7 @@ def stand_in(seen):
             if not results:
                 item = test.split(" ", 2)[2]
                 n = int(test.split(" ")[1])
-                return LLMResponse(tool_calls=[ToolCall("craft_plan", {"item": item, "count": n}, "c1")])
+                return LLMResponse(tool_calls=[ToolCall("craft_plan", {"item": item, "count": n, "quantity_mode": "inventory_target"}, "c1")])
             steps = craft_steps(results[0]["data"]["root"], [])
             return LLMResponse(content=json.dumps({"description": "craft it from the planner's tree", "steps": steps}))
         if "power_level >= 4" in test:  # the kit: compare gear per slot, then plan each piece
@@ -104,7 +104,7 @@ def stand_in(seen):
             if len(results) == len(slots):
                 picks = [min([o for o in r["options"] if (o.get("power_level") or 0) >= 4 and o.get("recipes")],
                              key=lambda o: (o["power_level"], o["item"]))["item"] for r in results]
-                return LLMResponse(tool_calls=[ToolCall("craft_plan", {"item": i, "count": 1}, f"p{k}")
+                return LLMResponse(tool_calls=[ToolCall("craft_plan", {"item": i, "count": 1, "quantity_mode": "inventory_target"}, f"p{k}")
                                                for k, i in enumerate(picks)])
             steps = []
             worn = {g.get("item") if isinstance(g, dict) else g for g in (me.get("gear") or {}).values()}
