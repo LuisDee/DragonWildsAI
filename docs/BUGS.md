@@ -1,5 +1,21 @@
 # Live bug ledger
 
+### Production request dropped despite corrected planning contract (2026-10-28)
+
+On deployed e9200ff, native Controller validation proves additional_output
+plans one new axe despite holding one; inventory_target reports stock satisfied.
+The natural request repeat never invoked craft_plan: after recipes/stations,
+Haiku attacked an unknown tree target, then chopped with its old axe and ended.
+No new axe/table; Artisan and Construction XP unchanged. Remaining failure is
+not evidence that the corrected planner returned owned stock as new output.
+Inspect supplied intent/continuation context before another implementation;
+do not force tools or delete equipment to conceal the failure. Trace:
+R/logs/brain-live-20261028-123103-7084.jsonl, episode chat-0001-0b2c.
+Cold review confirms the full request reached the model and accumulated
+messages remain in subsequent calls; no conversation-loss defect established.
+The model also treated unknown recipe unlocks as if excluded. Replay captured
+context offline to assess repeatability before changing implementation.
+
 ### Craft planning confuses owned stock with additional production (2026-10-28)
 
 After candidate visibility was fixed, the same new-axe request selected the

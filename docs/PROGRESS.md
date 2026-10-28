@@ -1,5 +1,26 @@
 # Progress log (append-only)
 
+### Additional-production contract deployed and measured (2026-10-28 12:33 Berlin)
+
+Source e9200ff passed 1199 tests / one skip in 385.47 seconds, CHECK_ALL:
+GREEN (cf-a4bb9349); all 14 frozen hashes and unchanged judges verified.
+Client-only publication preserved all 21 saved state files, server and Steam.
+Actual Controller reads now report the owned axe truthfully while allocating
+zero of it to an additional-output request; inventory_target retains old behavior.
+
+The exact new-axe-then-tree repeat still failed its crafting objective. Four
+Haiku calls / 45.312 seconds / $0.0048: recipes, stations, failed attack target,
+then gather with the existing axe; no craft_plan, craft or build call. Native
+wood 28 to 36 and Woodcutting XP 343 to 372; axe remains one, Artisan and
+Construction XP unchanged. Child and parent terminated, independently idle,
+no watchdog expiry. This separates the fixed tool contract from a remaining
+intent-persistence/model-choice problem. No replacement crafting is claimed.
+
+Current-code goal audit is complete: M1-M6 remain NOT MET; historical partial
+runs do not count. Raw audit: R/logs/recovery/goal-audit-e9200ff-20261028.txt.
+The promised repeat and first current-code audit were delivered before 12:45;
+this is not a held-out generalisation measurement. See recovery handoff.
+
 ### Recipe visibility deployed; production intent remains unfinished (2026-10-28)
 
 Source 72a8e37 is pushed and deployed after 1198 passed / one skipped GREEN.

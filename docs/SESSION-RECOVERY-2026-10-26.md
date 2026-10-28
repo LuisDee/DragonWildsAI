@@ -1,5 +1,61 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## e9200ff deployed; latest new-axe repeat skipped production (2026-10-28 12:33 Berlin)
+
+Source e9200ff pushed/deployed. Companion 7f54b5fea959c273, body
+f04cf05ebc5ee552, judges b5057d95be92c264. Gate cf-a4bb9349 GREEN:
+1199 passed, one skipped, 385.47 seconds; all 14 file hashes verified,
+approved judge diff empty. Publication quantity-publication-812badc2 retained
+all 21 saved state files, server 7016 and Steam 3284. Client 8568,
+ClaudeDev / BP_PlayerCharacter_C_2147473112 / DEV loopback. Inspect fresh.
+
+The public additional-output contract is independently verified through real
+Controller reads: owned axe observed one, allocated zero, root expands one
+craft with normal ingredients/station; inventory_target still reports have.
+R/logs/recovery/quantity-native-controller-20261028.json. No provider calls.
+
+Exact unchanged request "Can you make yourself a new axe, then cut down a
+tree?" repeated with record_only existing equipment retained. Four Haiku
+controller calls, zero planner, 45.312 seconds, incremental $0.0048. It read
+recipes/stations, attempted attack with unknown target, then gathered with
+the old axe. No craft_plan/build/craft call. Native wood 28 to 36,
+Woodcutting XP 343 to 372; axe remains one, Artisan 36 / Construction 48
+unchanged. New-axe objective FAILED. The tool fix is live; model handling of
+intent/uncertainty is the remaining diagnostic. Do not add phrase rules or
+force tool choice. Cold review confirms the original request reached the
+model intact and accumulated conversation is passed on follow-ups; no
+conversation-loss defect is established. The model called unknown recipe
+unlocks locked by implication. Actual response distinguishes unknown from
+the one observed unlocked recipe. Review: trace lines 11, 16-27, 37-38, 54-62;
+controller.py 656-674. Next use a captured-context offline replay to assess
+repeatability before another live or implementation cycle.
+
+Raw R evidence: no-axe-pilot-20261028-113152-27866e44.json,
+haiku-quantity-quantity_ae067c3bd7/parent.json,
+quantity-independent-terminal-20261028.json,
+logs/brain-live-20261028-123103-7084.jsonl. Child 12400 and parent terminal,
+strict and independent idle, no watchdog expiry. An earlier admission
+quantity_40d80668c9 stopped before any model calls because root accidentally
+took W's advisory reservation rather than R's; corrected R reservation,
+preserved original failure. Root owns root-quantity-live until release/expiry.
+
+Declared support before this test: 12 bread + 12 clean water and health reset
+100 after idle dehydration reached health 0.5. R26 support totals now 88 bread,
+119 clean water, two health resets, and earlier declared test-scene position.
+Not autonomous survival; no crafting inputs/tools/stations granted.
+UTC API spend $0.045 / 39 Haiku calls, zero planner/unpriced. Development
+allowance ordinary permitted, 16% weekly used before this run.
+
+Current-code audit goal-audit-e9200ff-20261028.txt says GOAL NOT MET:
+M1 0/13, M2 0/11, M3 0/3, M4 0/2, M5 0/4, M6 0/2, judges/clean-tree/dev
+gates met; historical partial --only runs do not count. Repeat plus first
+current-code M1 audit finished before 12:45, not held-out generalisation.
+Review agent /root/route_throughput_review completed the bounded read-only
+diagnosis above. Root remains sole live operator until releasing the slot.
+Next: captured-context replay, then generic design/research/review only if
+evidence warrants implementation; prepare counted M1 measurements on a
+stable code hash. Full goal and hourly heartbeat remain ACTIVE.
+
 ## Deployed 72a8e37; quantity-mode candidate next (2026-10-28 12:10 Berlin)
 
 Source 72a8e37 is pushed/deployed. Runtime companion bec14c6d064ec51c, body

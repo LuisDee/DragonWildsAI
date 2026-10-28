@@ -1,5 +1,16 @@
 # Discoveries
 
+### Additional production and stock targets differ correctly live (2026-10-28)
+
+Deployed e9200ff, actual Controller read: native owned axe count one remains
+observed_have=1, allocated_from_inventory=0 for default additional_output,
+with one craft, eight wood, six stone and Crafting Table dependencies.
+Explicit inventory_target remains satisfied by the owned axe. This verifies
+information semantics, not executed crafting. The subsequent Haiku repeat
+did not call craft_plan and harvested with the existing axe instead.
+Evidence: R/logs/recovery/quantity-native-controller-20261028.json and
+no-axe-pilot-20261028-113152-27866e44.json. No materials/tools/stations granted.
+
 ### Native effects verified a current-code shield cast (2026-10-28)
 
 Developer-selected Tempest Shield used 15 Air Runes and independently added
