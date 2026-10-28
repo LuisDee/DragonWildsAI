@@ -19,6 +19,11 @@ typed posthook matched `CurrentFloor` at one stationary current position, with
 its subscriber removed afterward; its dormant native registration persists.
 This enables further reviewed measurement, not a production support classifier.
 Do not substitute `Distance == 0` as a penetration or support certificate.
+Nine nearby offset observations and a one-input pilot are now recorded there.
+The pilot moved1.39cm and stopped; it does not validate representative braking.
+Requested50ms callbacks actually had66.67-120.96ms gaps. Latest private velocity
+recording passed113 offline checks but has no live measurement. Use measured
+cadence and actual release speed before selecting guard thresholds.
 
 Before implementing any behavior guard or choosing a threshold, root schedules brief, read-only observations on the existing dev client under its sole operator; no telemetry here acts on the client. Sample safe, stable flat ground and a known low step/benign drop, at rest and during separately authorized ordinary movement. Record timestamp, world, pawn/capsule dimensions and foot height, ground/movement mode, native velocity if already verified available (otherwise measured displacement and mark native velocity unavailable), movement source, intended direction, trace profile and raw hit/impact Z/normal/distance plus both reported penetration flag and the distance-based interpretation, exact offsets, sample ages, latency and trace count. Contrast direct nearby samples with planner-prefetch cells and show that gear, layer choice, water and `Custom`/Visibility fallback do not cause false support claims. Record tick rate and game-thread cost; enforce a small fixed trace/time budget and stop on uncertainty or resource pressure. Flat observation is not an edge calibration; the 55 cm floor-spread jump calibration correctly refused its 30 cm limit and proves neither a jump nor a guard threshold.
 
