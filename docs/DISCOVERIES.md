@@ -1,5 +1,16 @@
 # Discoveries
 
+### Model-selected Lodestone travel verified on53fd3f7 (2026-10-28)
+
+Haiku independently queried lodestones and selected teleport to the existing
+developer-built base. Starting36m from Temple, the real tool approached/used
+it and travelled129m; native Law1600 -> 1598, success sequence1 -> 2, destination
+position, HP100 and empty Map13/29/Gameplay/strict ownership cleanup corroborate
+the result. Four controller calls/no planner for the containing episode.
+Construction was omitted, so only this subtask passed. Tested setup used public
+root-stack transition duration0 configured before any map, a temporary headless
+presentation measure; no autonomous construction or300m-chain claim.
+
 ### Haiku composes pickaxe production, equip and native mining (2026-10-28)
 
 One stock-assisted diagnostic on5d2f662 produced a new Stone Pickaxe through

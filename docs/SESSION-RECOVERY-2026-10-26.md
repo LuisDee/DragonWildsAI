@@ -1,5 +1,41 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Latest override:53fd3f7 deployed; Haiku teleport passes, navigation blocks chain
+
+Goal ACTIVE, all M1-M6 unmet. R/F source53fd3f7, companion ee12f9111f4e7d6b,
+body9d70103c99a38e31, judgesb5057d95be92c264 unchanged. Full gate1248/1knownskip
+GREEN408.67s in R/logs/recovery/g-12787d74. Current client12972/pawn3101 DEV
+ClaudeDev, server7016/Steam3284 retained. All pilots/test runners/children are
+terminal; root-feedback is sole operator, inspect/renew slot before input.
+
+Developer full compound passed21m approach -> map -> native success0->1,
+150m travel/2Law -> confirmed UI closure/strict idle. Independent review agrees.
+Menu stack duration0 configured BEFORE first map in fresh client, from0.4;
+still fixed0. This temporary headless setup is a declared proof limitation.
+Model admission now open only under this measured setup/current source.
+
+Haiku300m/build/return trial FAILED7calls42.172s/$0.0057,36m displacement/no
+construction. Local build/teleport FAILED overall4calls24.765s/$0.0028, but
+Haiku teleport129m/2Law/native seq1->2/clean state PASSED once. It falsely
+claimed missing materials despite can_build_now=true. Construction-only trial
+FAILED6calls95.031s/$0.0034: actual build chosen, native nearby placements
+invalid; two reposition attempts failed. All trials HP100/strict idle at end.
+Day spend$0.0969/103Haiku calls, no planner/unpriced. Six water/six bread were
+pre-episode DEV grants; no episode assistance. Last native position
+[180.002,1797.002,-27.594], Construction152, stock45Stone20Essence1Core remains.
+
+Next bounded work: improve truthful navigation feedback before retrying long
+travel. Raw historical oracle request/reply pairs were recovered without another
+query/world load: original300m target unprojectable/no_path, alternate path
+partial=true ending short. Later guessed Z=-33 projected to floorZ=-28.38,
+complete path; pawn reached XY but exact vertical goal remained unmet. Preserve
+exact-target safety and model decision ownership; no silent Z rewrite, phrase
+map or benchmark plan. Primary research appended to architecture audit; no new
+navigation implementation/design approval yet. Existing oracle3228/1980 adopted;
+do not launch duplicate or invoke CLI query while its lock is held. Oracle run
+is not wholly read-only: it can stream anchors/rebuild links. Old W preserved.
+Private proofs/raw pairs and runtime handoff are under R/logs/recovery.
+
 ### Lodestone candidate full gate GREEN; deployment control pending (2026-10-28)
 
 1248 passed,1 known cassette skip,408.67s,CHECK_ALL: GREEN. All8 frozen

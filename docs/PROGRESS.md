@@ -1,5 +1,38 @@
 # Progress log (append-only)
 
+### Lodestone deployed and independently used by Haiku; full chain still fails (2026-10-28)
+
+Checkpoint53fd3f7 is pushed/deployed, companion ee12f9111f4e7d6b and body
+9d70103c99a38e31. Full gate1248passed/1knownskip GREEN,408.67s; eight frozen
+hashes and approved judges unchanged. Client-only restart took52.1s; server7016,
+Steam3284 and per-world memory retained. Fresh client12972/pawn3101.
+
+Developer compound passed in4.828s from21.03m: real approach/map/teleport,
+native success sequence0 -> 1, about150m arrival, Law1602 -> 1600, HP100,
+Map13/29 absent, Gameplay, no actions/waiters/owners/suspended claims and mover
+idle. Independent Terra review agrees. Root menu stack transition duration was
+set0 before first map, from0.4: temporary headless presentation setup, not a
+production root-cause fix. It remains set0 for these measurements.
+
+Three fresh Haiku diagnostics, no episode hints/grants/operator inputs:
+- 300m/build/return FAILED:7calls,42.172s,$0.0057. No path to first goal;
+  alternate route was partial and ended36m from start. No build or teleport.
+- Local build/teleport FAILED overall, but autonomous teleport PASSED once:
+ 4calls,24.765s,$0.0028. Haiku selected and used teleport from36m away,
+ travelled129m Temple -> developer-built base, spent2Law, native sequence1 -> 2,
+ HP100/clean UI/strict idle. It skipped build despite can_build_now=true and
+ falsely claimed missing materials. Do not count the full requested chain.
+- Construction-only FAILED:6calls,95.031s,$0.0034. Haiku did choose build;
+ native preview rejected attempted nearby spots. Repositioning failed, no new
+ Lodestone/material cost/ConstructionXP. No global construction incapability
+ inferred from this occupied-site trial.
+
+Starting stock was assisted:45Stone,20Essence,1Core and existing runes/tools;
+six Clean Water and six Bread granted before the first episode. UTC model
+total$0.0969/103Haiku calls,0planner. All pilots terminal and native idle/HP100.
+Private evidence: R/logs/recovery/lodestone-20261028/verified-haiku-{300m,local,build}-53fd3f7.json,
+deployed-full-compound-53fd3f7.json and recorded-nav-raw-pairs.json. No M1-M6 pass.
+
 ### Lodestone candidate full gate GREEN; deployment control pending (2026-10-28)
 
 1248 passed,1 known cassette skip,408.67s,CHECK_ALL: GREEN. All8 frozen

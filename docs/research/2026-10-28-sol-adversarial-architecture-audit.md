@@ -1,5 +1,39 @@
 # Independent Sol architecture audit — 2026-10-28
 
+## Navigation follow-up: measured route failures (2026-10-28)
+
+Need: recover model-selected travel/build/return without inventing terrain
+heights, substituting model decisions or relaxing exact arrival checks.
+Actual searches: `site:dev.epicgames.com UNavigationPath IsPartial ProjectPointToNavigation FindPathToLocationSynchronously partial path end goal`;
+`site:dev.epicgames.com Unreal navigation invoker runtime navmesh partial path world partition navigation`.
+Opened primary [World Partitioned Navigation Mesh](https://dev.epicgames.com/documentation/en-us/unreal-engine/world-partitioned-navigation-mesh),
+[ProjectPointToNavigation](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/NavigationSystem/UNavigationSystemV1/ProjectPointToNavigation),
+and [IsPartial](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/NavigationSystem/UNavigationPath/IsPartial).
+The last page returned no useful API text. Epic documents streamed navmesh
+chunks, loaded-space limits and explicit point projection. These are relevant
+concepts/APIs, not proof of this run's terrain or streaming cause.
+
+Correlating existing server bridge request/reply IDs recovered thirteen raw
+pairs without another oracle query/world load. Private evidence:
+R/logs/recovery/lodestone-20261028/recorded-nav-raw-pairs.json. The300m target
+[50.65,1590,-35.05] loaded its corridor then returned no_path,
+goal_projected=false and no points. Alternate[120,1800,-35] returned partial=true,
+goal_projected=true, five points ending[67.2,1857.6,-35.5]. Later construction
+repositioning to[192,1797,-22] was unprojectable/no_path; [180,1797,-33] returned
+partial=false, goal_projected=true and endpoint[180,1797,-28.38]. The pawn reached
+that XY at Z=-27.59, but its requested underground-height goal remained unmet.
+These distinguish route exhaustion and projection/height mismatch; they do not
+establish why the first point was off-navmesh or how to cross that terrain.
+
+Decision: reuse the oracle, native projection/partial evidence and strict
+arrival checks. Adapt result feedback after a reviewed bounded design; no new
+navigation implementation has started. Give Haiku measured facts to choose a
+different target; never silently replace its XYZ goal with a projected floor.
+Oracle.run is not wholly read-only: it moves/creates streaming anchors and can
+rebuild links. The adopted helper retains its lock; do not start a second one.
+Distinct explore behavior is entity text search: Open in a chest prompt matched
+'open flat ground', which is not a terrain-flatness measurement.
+
 ## Verdict and scope
 
 Keep the existing two-speed architecture. Repair three contracts before buying more planning: **the model's valid arguments survive dispatch; every decision sees fresh relevant state; completion means the action and its owned children have ended.** The evidence establishes useful model-selected chains alongside serious interface/body defects. It does not establish reliable autonomous play, nor that a stronger model is the principal missing component.

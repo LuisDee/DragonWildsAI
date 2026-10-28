@@ -1,5 +1,27 @@
 # Live bug ledger
 
+### Lodestone task chain now blocked by navigation/placement and model choices
+
+OPEN (2026-10-28). On53fd3f7 the full developer approach/use/arrival/UI-cleanup
+passes, and one unaided Haiku teleport129m passes under declared fixed-zero
+headless menu presentation. The original300m/build/return remains FAILED.
+
+Recorded server bridge pairs establish: first300m goal has goal_projected=false,
+no_path after corridor loading; alternate goal has goal_projected=true and
+partial=true, ending[67.2,1857.6,-35.5], not at[120,1800,-35]. Do not infer an
+engine crash, particular terrain cause or repair from these flags. Existing
+explore searches entity text: 'open flat ground' matched a chest's Open prompt;
+it does not measure terrain flatness.
+
+Local chain's buildables card said can_build_now=true, but Haiku chose only
+teleport and claimed missing32Stone/20Essence/1Core, all carried. No code
+overrode the raw provider choices. Separate construction-only request did
+produce build; real preview rejected near-base spots. Its repositioning guessed
+Z=-22 (no projection/path) then Z=-33: native full projected path ended at
+[180,1797,-28.38], while pawn reached[180,1797,-27.59]; go_to still failed
+no_route. Exact-Z semantics/ground projection feedback need a bounded design;
+do not silently substitute a projected floor or loosen arrival criteria.
+
 ### Mining level-up: failed action feedback and bounded continuation (2026-10-28)
 
 OPEN. In mining_level_83115a601a Haiku initially selected an observed depleted
