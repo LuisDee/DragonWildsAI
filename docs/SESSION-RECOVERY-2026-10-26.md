@@ -1,5 +1,94 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Combined candidate gate GREEN; publication next (2026-10-28 11:50 Berlin)
+
+Retry cf-93b8a707 completed GREEN: 1198 passed, one skipped, 389.34 seconds,
+terminal session 98541 exit 0. All 15 saved file hashes matched after the gate;
+approved judge diff remains empty. Native item counts, generic recipe candidate
+visibility, stalled-route recovery and integration fixtures passed together.
+The earlier cf-e32f11a8 RED and its fixture correction remain archived.
+
+Commit/push and announced client-only publication are next. R still runs tested
+3e95e40 until that window. Preserve server/Steam and all world/client state.
+After boot, verify actual native count/recipe responses, then the model's real
+tool context includes all returned candidates and observed unlock metadata.
+Repeat the exact new-axe request only after developer validation. No new tools,
+crafting inputs or stations are to be granted. Formal goal remains NOT MET.
+
+## Combined gate retry (2026-10-28 11:42 Berlin)
+
+The combined gate cf-e32f11a8 completed RED: 1197 passed, one skipped, one
+failure in the client-bridge integration fixture (460.18 seconds). All 14 frozen
+candidate hashes matched. The old fixture required inventory.list; the new
+recipe path deliberately uses scoped native counts. Updated fixture preserves
+unknown/no-false-shortage and conditional-readiness checks, requires no list
+fallback, passed its focused pytest and cold review. Its SHA256 is
+cf17e56ec4cb7e2060835b2fbb7737889cdc26c7da372f5cae9a911a180de064.
+A fresh full gate with all 15 files is next; use its actual running handle.
+R remains clean tested 3e95e40; no candidate has been deployed. No model brain
+is running. Nutrition was replenished during the gate pause: R26 totals are
+now 76 bread and 107 water, with no new health reset or crafting input grants.
+The formal R goal audit still reports GOAL NOT MET and no counted current-code
+benchmark cases; manual native tree evidence is a capability result, not a
+formal milestone tick. Audit: R/logs/recovery/goal-audit-3e95e40-20261028.txt.
+
+## Latest runtime and capability checkpoint (2026-10-28 11:30 Berlin)
+
+Runtime R is tested `3e95e40`, pushed and deployed: companion
+`e3f9a092f12fa582`, body `9c45ee68cf63c8ed`, judges `b5057d95be92c264`.
+Full gate: 1197 passed, one skipped, 396.81 seconds, `CHECK_ALL: GREEN`;
+all eight frozen hashes matched (`cf-413f27e8`). Publication archive:
+R/logs/recovery/throughput-publication-5c942076. All 21 memory/state files were
+unchanged while the client was off. Client 5656, pawn
+BP_PlayerCharacter_C_2147473121, ClaudeDev, DEV 127.0.0.1:7777; server 7016
+and Steam 3284 retained. Inspect fresh processes and reservation before use.
+
+The church route now planned 745 traces and moved 2.8 m, then stalled before
+the typed jump and invalidated its route. Physical climbability remains
+unproven. Root declared an existing measured standing-trees scene teleport to
+isolate gathering/crafting. All world memory and failed evidence were retained.
+Developer berry control collected three redberries in three seconds. R26
+support totals: 68 bread, 99 clean water, one health restoration to 100. No
+axes, crafting materials or stations were granted for these episodes.
+
+The 11:00 Haiku tree episode independently recovered its verified own grave,
+equipped the axe, felled/split wood and collected five fresh logs: four calls,
+42.234 seconds, Woodcutting XP 219→239, tree→stump, health 100. Eight grave logs
+are excluded from harvested wood. The original cleanup mismatch is retained;
+root independently proved child 8196 terminal and raw body/arbiter idle.
+
+The next explicit new-axe-plus-tree request failed its craft objective: four
+calls, 38.922 seconds, no craft call, axe count one unchanged, wood 13→17.
+The recipe tool returned 15 of 24 matches despite limit 25, hiding stone axe;
+Haiku chose bronze and then used the old tool. This is not crafting success.
+Raw reports: R/logs/recovery/no-axe-pilot-20261028-100116-7866eb47.json and
+no-axe-pilot-20261028-102045-f1df2a56.json. Both parents are terminal; second
+pilot independently reported terminal idle. Public evidence:
+docs/research/r26-unaided-tree-chain-20261028.md. UTC spend $0.0353 / 31 Haiku,
+zero planner or unpriced calls. A live metadata check confirms a crafting table
+costs four ash logs; stone axe needs eight ash logs and six stone. It has enough
+wood, but stone and a station are still required.
+
+W is intentionally dirty and isolated from R. Frozen, cold-reviewed candidates:
+- /root/short_route_implementation: move.lua, test_move.lua and short-route
+  design. Recovery holds new steering, preserves the oracle and bounds re-admission.
+- /root/live_operator: inventory.lua, crafting.lua, their focused tests and two
+  design notes. Native per-item count certainty and generic candidate visibility.
+- /root/route_throughput_review reviewed all candidates. Combined full gate is
+  next; no candidate is deployed. Do not edit frozen files during that gate.
+
+The private generic pilot is frozen/cold-approved at driver SHA
+70AB87C4838D691ED645EDD8360FC0064C691EDDFA70A7DFA74B5398D5E37F69.
+It supports --request and --baseline-policy record_only, strict initial/final
+idle checks, 20 shared Haiku attempts and a 300-second cooperative limit. Use
+the independent R/logs/recovery/r26_watchdog_signal_20261028.py with matching
+trial/path/limit, fresh target, slot, identity and spend. Do not leave a model
+brain running after an episode. Existing axe and world progress are preserved.
+
+The 11:15 chain verdict was delivered early; crafting and full M1–M6 remain
+unmet. The 12:45 repeat/generalisation and M1 audit are still due. Goal and
+hourly heartbeat remain ACTIVE. Respect any later explicit pause/cancellation.
+
 ## Current live source2bff707; throughput repair isolated (2026-10-28 10:35 Berlin)
 
 Root published2bff707,21statefiles unchanged duringclientoff, client7704/pawn

@@ -1007,20 +1007,20 @@ test("bare false adoption remains pending and uses bounded retry", function()
     B2.stop(); _G.ADOPT_TEST = nil; install("inventory")
 end)
 
-test("craft plan reads counts and status from the same inventory snapshot", function()
+test("craft plan uses scoped native item counts without inventory enumeration", function()
     install("sense")
     local addition = [[
         function M.list(log)
             FAKE.inventory_snapshot_calls=(FAKE.inventory_snapshot_calls or 0)+1
-            if FAKE.inventory_exact_control then
-                return {ok=true, hotbar={}, bag={{item="ITEM_Input",name="Input",count=2}}, unmapped={}, loadout={},
-                    read_status={carried={status="complete"}}}
+            return {ok=false,reason="unsafe_inventory_enumeration"}
+        end
+        function M.count_item(path)
+            FAKE.native_count_calls=(FAKE.native_count_calls or 0)+1
+            if path=="/fixture/ITEM_Input" and FAKE.inventory_exact_control then
+                return {status="observed",count=2,path=path,scope="main_inventory",semantics="component_at_read",
+                        observed_at=123,world="dev",controller=10,pawn=11,component=12,asset=13}
             end
-            if FAKE.inventory_snapshot_calls == 1 then
-                return {ok=true, hotbar={}, bag={{item="ITEM_Input",name="Input",count=1}}, unmapped={}, loadout={},
-                    read_status={carried={status="partial",reason="slot_read_failed"}}}
-            end
-            return {ok=true, hotbar={}, bag={}, unmapped={}, loadout={}, read_status={carried={status="complete"}}}
+            return {status="unknown",reason="asset_or_binding_unavailable",path=path,scope="main_inventory"}
         end
         return M
     ]]
@@ -1034,22 +1034,25 @@ test("craft plan reads counts and status from the same inventory snapshot", func
         stations={Bench={name="Bench",kind="crafting",classes={}}},
         recipes={R_Goal={inputs={{input,2}},outputs={{goal,1}},stations={"Bench"}}}})
     C.W.unlocked=function() return {R_Goal=true},1 end
-    _G.DWCraft=nil; FAKE.inventory_snapshot_calls=0
+    _G.DWCraft=nil; FAKE.inventory_snapshot_calls=0; FAKE.native_count_calls=0
     local response=rpc("craft_plan",{recipe="R_Goal"})
     assert(response and response.ok, response and response.reason)
     local input_node=response.data.root.inputs[1]
-    assert(FAKE.inventory_snapshot_calls==1, "counts and status must use the same one inventory call")
-    assert(input_node.observed_have==1 and input_node.have_semantics=="lower_bound" and input_node.sufficiency=="unknown")
+    assert(FAKE.inventory_snapshot_calls==0 and FAKE.native_count_calls>0, "scoped counts must not fall back to inventory enumeration")
+    assert(input_node.observed_have==nil and input_node.have==nil and input_node.have_semantics=="unknown" and input_node.sufficiency=="unknown")
     assert(response.data.steps==nil and response.data.missing==nil, "unknown cannot be a definite shortage")
     assert(response.data.choices_unresolved==nil, "unknown inventory is not an alternative choice")
-    FAKE.inventory_exact_control=true; FAKE.inventory_snapshot_calls=0
+    FAKE.inventory_exact_control=true; FAKE.inventory_snapshot_calls=0; FAKE.native_count_calls=0
     C.stations=function() return {{id="bench_1", station="Bench", name="Bench", distance=1}} end
     local exact=rpc("craft_plan",{recipe="R_Goal"})
     assert(exact and exact.ok and exact.data.root.status=="execution_unknown")
+    assert(exact.data.root.inputs[1].observed_have==2 and exact.data.root.inputs[1].sufficiency=="enough")
+    local obs=exact.data.root.inputs[1].count_observations[1]
+    assert(obs.scope=="main_inventory" and obs.path==input and obs.observed_at==123 and obs.component==12)
     assert(exact.data.ready==nil, "serialized unknown readiness must be absent, not false")
     assert(exact.data.choices_unresolved==nil, "execution uncertainty is not an alternative choice")
     assert(exact.data.root.suggestion and exact.data.root.suggestion.conditional==true)
-    assert(FAKE.inventory_snapshot_calls==1)
+    assert(FAKE.inventory_snapshot_calls==0 and FAKE.native_count_calls>0)
     FAKE.inventory_exact_control=nil; uninstall("crafting"); install("inventory")
 end)
 

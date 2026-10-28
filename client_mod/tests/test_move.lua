@@ -253,6 +253,94 @@ do
     check("local observation holds through sampling and verification",held and verified_hold, tostring(held).." "..tostring(verified_hold))
     check("local planner gets original goal in feet coordinates",feetgoal and feetgoal.X==800 and feetgoal.Z==210, feetgoal and feetgoal.Z)
     check("complete local path admitted while oracle remains pending",localmove.local_authority and localmove.nav_pending and localmove.lpath and pawn.input~=nil, localmove.status)
+    -- A stalled, admitted route is withdrawn before another movement command,
+    -- and the oracle request remains independently owned while observing again.
+    local recovery=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
+    local pending=recovery.nav_pending; local original_path=recovery.lpath
+    recovery.win_t=T-2; recovery.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z}
+    local original_jump_count=pawn.jumps; step(1)
+    check("local stall holds input and preserves pending oracle",pawn.input==nil and not recovery.local_authority and not recovery.lpath and recovery.local_replans==1 and recovery.nav_pending==pending and pawn.jumps==original_jump_count,recovery.status)
+    step(1)
+    check("local stall starts observational replan",recovery.lp_state=="sampling" and recovery.lp_observe==true and recovery.nav_pending==pending and pawn.input==nil,recovery.lp_state)
+    recovery.lp={step=function() return "ready" end,plan=function() return {{X=0,Y=0,Z=-90,act="walk"},{X=800,Y=0,Z=210,act="walk"}} end,verify=function() return "ok" end}
+    step(2)
+    check("repackaged failed waypoint cannot regain authority",not recovery.local_authority and recovery.nav_fail=="local_replan_repeats_stalled_waypoint" and pawn.input==nil,recovery.status)
+    M.stop(log)
+    do -- Different replacement routes cannot evade the per-move retry limit.
+        local old_limit=M.cfg.lp_max_plans; M.cfg.lp_max_plans=2
+        local bounded=observe_case({X=700,Y=0,Z=210,act="walk"},1.5)
+        for _, x in ipairs({750,800}) do
+            bounded.win_t=T-2; bounded.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z}; step(1)
+            step(1)
+            local endx=x
+            bounded.lp={step=function() return "ready" end,plan=function() return {{X=0,Y=0,Z=-90,act="walk"},{X=endx,Y=0,Z=210,act="walk"}} end,verify=function() return "ok" end}
+            step(2)
+            check("distinct replacement route admitted within retry bound",bounded.local_authority and bounded.lpath[#bounded.lpath].X==x,bounded.status)
+        end
+        bounded.win_t=T-2; bounded.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z}; step(1)
+        check("distinct routes still exhaust bounded replan",not bounded.local_authority and bounded.local_replans==3 and bounded.nav_fail=="local_replan_limit" and pawn.input==nil,bounded.status)
+        step(1)
+        check("exhausted replan reports specific failure",bounded.result and bounded.result.reason=="verification_failed" and bounded.result.detail:find("local_replan_limit",1,true),bounded.status)
+        M.stop(log); M.cfg.lp_max_plans=old_limit
+    end
+    do -- A complete late oracle route may win, without mixing local waypoints.
+        local race=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
+        local pending=race.nav_pending
+        race.win_t=T-2; race.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z}; step(1); step(1)
+        local reply=assert(io.open(dir.."/client_io/nav/resp.lua","w"))
+        reply:write(('return {version=2,epoch="%s",nonce="%s",id=%d,ok=true,partial=false,points={{0,0,0},{8,0,3}}}'):format(pending.epoch,pending.nonce,pending.id));reply:close()
+        step(1)
+        check("late complete oracle route supersedes observation without mixing",race.path and not race.local_authority and not race.lpath and not race.lp_state and not race.nav_pending,race.status)
+        M.stop(log)
+    end
+    do -- Follow retains ownership and reports an unreachable episode on exhaustion.
+        local old_limit=M.cfg.lp_max_plans;M.cfg.lp_max_plans=0
+        pawn.loc={X=0,Y=0,Z=0};luis.loc={X=800,Y=200,Z=300};air=0
+        offer.no=offer.no+1;offer.nonce=fake_nonce(offer.no);pump_oracle()
+        M.follow(log,"Zezima",0.5);step(1)
+        local follow=_G.DW_MOVE
+        follow.lp={step=function() return "ready" end,plan=function() return {{X=0,Y=0,Z=-90,act="walk"},{X=800,Y=200,Z=210,act="walk"}} end,verify=function() return "ok" end};step(2)
+        follow.win_t=T-2;follow.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z};step(2)
+        check("exhausted local recovery preserves follow",follow.mode=="follow" and follow.status=="unreachable" and follow.unreach and follow.unreach.reason=="no_route" and pawn.input==nil,follow.status)
+        M.stop(log);M.cfg.lp_max_plans=old_limit
+    end
+    do -- Owner can replace the move during the final stalled-route check.
+        local owned_move=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
+        local prior=owned_move.gen;owned_move.win_t=T-2;owned_move.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z}
+        local old_height=pawn.CapsuleComponent.GetScaledCapsuleHalfHeight;local calls=0;local fired=false
+        pawn.CapsuleComponent.GetScaledCapsuleHalfHeight=function(...)
+            calls=calls+1
+            if calls==2 then fired=true;M.go_to(log,{20,0,0},{nav=false,local_plan=false}) end
+            return old_height(...)
+        end
+        step(1);pawn.CapsuleComponent.GetScaledCapsuleHalfHeight=old_height
+        check("stall ownership reentry preserves successor",fired and _G.DW_MOVE.gen>prior and _G.DW_MOVE.mode=="go_to" and not _G.DW_MOVE.local_replans and pawn.input==nil,_G.DW_MOVE.mode)
+        M.stop(log)
+    end
+    do -- A coasting pawn invalidates the sampled first segment before admission.
+        pawn.loc={X=0,Y=0,Z=0};air=0;offer.no=offer.no+1;offer.nonce=fake_nonce(offer.no);pump_oracle()
+        M.go_to(log,{8,0,3},{tolerance_m=.5});step(1)
+        local coast=_G.DW_MOVE;local pending=coast.nav_pending
+        coast.lp={step=function() return "ready" end,plan=function() return {{X=0,Y=0,Z=-90,act="walk"},{X=800,Y=0,Z=210,act="walk"}} end,verify=function() return "ok" end}
+        step(1);pawn.loc.X=60;step(1)
+        check("coasting discards stale first segment without input",not coast.local_authority and not coast.lpath and coast.local_replans==1 and coast.nav_pending==pending and pawn.input==nil,coast.status)
+        M.stop(log)
+    end
+    do -- Position read after verification can replace the move.
+        pawn.loc={X=0,Y=0,Z=0};air=0;offer.no=offer.no+1;offer.nonce=fake_nonce(offer.no);pump_oracle()
+        M.go_to(log,{8,0,3},{tolerance_m=.5});step(1)
+        local old=_G.DW_MOVE.gen;local fire=false;local fired=false;local original=pawn.K2_GetActorLocation
+        _G.DW_MOVE.lp={step=function() return "ready" end,plan=function() return {{X=0,Y=0,Z=-90,act="walk"},{X=800,Y=0,Z=210,act="walk"}} end,verify=function() fire=true;return "ok" end}
+        step(1)
+        pawn.K2_GetActorLocation=function(self)
+            if fire and not fired then fired=true;M.go_to(log,{20,0,0},{nav=false,local_plan=false}) end
+            return original(self)
+        end
+        step(1);pawn.K2_GetActorLocation=original
+        check("post-plan position reentry preserves successor",fired and _G.DW_MOVE.gen>old and _G.DW_MOVE.mode=="go_to" and not _G.DW_MOVE.local_authority and pawn.input==nil,_G.DW_MOVE.mode)
+        M.stop(log)
+    end
+    localmove=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
     local path_copy=localmove.lpath
     pawn.loc={X=700,Y=0,Z=300}; step(1)
     check("final waypoint retained outside exact tolerance",localmove.local_authority and localmove.lwp==#localmove.lpath and pawn.input~=nil,localmove.lwp)
@@ -272,8 +360,11 @@ do
     -- A complete endpoint must also reach the goal: adjust only the requested tolerance for this edge.
     check("typed local edge accepts real jump input",jump.local_authority and jump.lp_jump_exec and pawn.jumps>0,jump.status)
     local jump_index=jump.lwp
+    local jumping_path=jump.lpath
+    jump.win_t=T-2;jump.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z}
     step(1)
     check("airborne jump cannot advance path",jump.lwp==jump_index and jump.lp_jump_exec and jump.lp_jump_exec.saw_air,jump.lwp)
+    check("stuck window cannot interrupt owned jump",jump.lpath==jumping_path and jump.local_authority and not jump.local_replans,jump.status)
     pawn.loc={X=300,Y=0,Z=300}; air=0; step(1)
     check("grounded endpoint advances only after observed air",jump.lp_jump_exec==nil and jump.lwp==#jump.lpath+1 and jump.lpath[#jump.lpath].act=="walk",jump.status)
     M.stop(log); air=0

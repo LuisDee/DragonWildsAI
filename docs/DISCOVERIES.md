@@ -1,5 +1,18 @@
 # Discoveries
 
+### Grave perception and persistent memory supported a real chain (2026-10-28)
+
+The current state exposed a verified own grave 5.31 m away, containing an axe
+and eight logs. Haiku chose to recover it and subsequently harvested five new
+logs, with native +20 Woodcutting XP and a tree-to-stump transition. Persistent
+death records also survive client restart in `client_io/state/last_death.json`.
+Recovering an existing tool is useful autonomy; it does not prove new crafting.
+
+Four typed hand getters returned null wrapper addresses and false validity,
+with explicit null and valid-pawn controls and the installed UE4SS commit
+`83330635` source checked. No VM-read permissions or binary changes were needed.
+See `docs/research/r26-unaided-tree-chain-20261028.md` for evidence and limits.
+
 ### Ownership checks recursively compile the mover (2026-10-28)
 
 move_arbiter loads a fresh arbiter; owns_move runs housekeeping, whose mv()

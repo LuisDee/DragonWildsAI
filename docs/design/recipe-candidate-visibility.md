@@ -1,0 +1,11 @@
+# Recipe candidate visibility
+
+`recipes(item, limit)` already clamps its result limit to 1–50, default 25, but ambiguity candidates are independently truncated to 15. Use the resolved caller limit for ambiguity and the existing default 25 for `craft_plan`, which has no limit argument. Preserve sorted order, total, truncated and explicit model selection; no relevance ranking or implicit choice. For each candidate include a catalog category only if a unique item identity has a nonempty known category. List each catalog recipe's observed unlock state from the existing unlock set. Explicit members are `unlocked`; omitted members are `unknown` because the existing reader can skip unreadable entries. An unavailable set is also `unknown`; never infer locked from absence. A candidate without recipes reports no recipes, and multiple recipes retain their individual states instead of conflating one unlocked recipe with all unlocked. This is read-only metadata, not a promise that crafting is possible.
+
+Actual regressions: 24 generic candidates at default and explicit 25, 1 and clamped 50, 51+ truncated, stable order and total; known/unknown category, unknown unlock set, multi-recipe observed and unknown unlock states and no recipe. Test actual Lua module, then targeted design checks. No judge or model choice changes. PRINCIPLES: truthful observation and uncertainty, generic data, explicit selection by the model, no scripted benchmark solution.
+
+## Search record
+
+Root actually searched `site:google.aip.dev 158 pagination page_size maximum default` and `site:learn.microsoft.com azure search search-query-odata-select top skip count sort relevance` and opened [Google pagination guidance](https://google.aip.dev/158), [Azure query controls](https://learn.microsoft.com/en-us/azure/search/search-query-create), and [OData query options](https://learn.microsoft.com/en-us/odata/concepts/queryoptions-overview). They show explicit bounded requested sizes and response shaping; they are conceptual precedent, not this project's API. Reuse current limit/clamp and catalog indexes, adapt existing ambiguity response; build no paging service or search framework.
+
+The existing broader crafting assessment still treats absent unlock-set members as locked; correcting that separate behavior is outside this candidate-metadata change.

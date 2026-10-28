@@ -1,5 +1,25 @@
 # Live bug ledger
 
+### Recipe candidate truncation hid a viable basic tool (2026-10-28)
+
+A request to make a new axe and cut a tree matched 24 recipe outputs, but the
+ambiguity response returned only 15 despite a requested limit of 25. The basic
+stone axe was outside that slice. Haiku chose locked bronze, abandoned crafting
+and chopped with its old axe. The compound request failed; neither a new axe
+nor a station was created. The reviewed generic visibility fix honors limits
+and exposes observed unlock information without choosing a recipe.
+
+The new metadata treats omitted unlock entries as unknown. Older assessment
+and plan-tree paths still treat absence from a partially readable unlock set
+as locked; that remains a separate truthfulness limitation. Processing still
+uses existing inventory traversal to locate transfer slots; this wave does
+not certify all slot reads or atomic inventory snapshots.
+
+The first successful tree pilot also reported an idle-schema mismatch because
+Lua omits a nil arbiter owner. Root independently verified terminal process and
+raw idle state, retaining the original report. The private generic pilot now
+checks a complete idle schema both at admission and cleanup; 37 tests passed.
+
 ### Active: local-route sampling exceeds real control window (2026-10-28)
 
 On deployed2bff707, default local observation reached only272traces/17ticks

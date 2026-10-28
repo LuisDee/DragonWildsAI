@@ -106,6 +106,59 @@ function M.hotbar()
     end
 end
 
+-- Candidate body for M.count_item; draft only, not a loaded module.
+function M.count_item(path)
+ local unknown=function(reason) return {status='unknown',reason=reason,scope='main_inventory'} end
+ if type(path)~='string' or path=='' or #path>400 or rawget(_G,'DW_PAUSE') then return unknown('invalid_or_paused') end
+ local ok,result=pcall(function()
+  local function need(v,reason) if not v then error(reason) end;return v end
+  local function call(f,...) if rawget(_G,'DW_PAUSE') then error('paused') end;local ok,v=pcall(f,...);if rawget(_G,'DW_PAUSE') or not ok then error('read_failed') end;return v end
+  local function valid(v) return v~=nil and call(function() return v:IsValid() end)==true end
+  local function address(v) need(valid(v),'invalid_object');local n=call(function() return v:GetAddress() end);need(type(n)=='number' and n>0 and n%1==0 and n<math.huge,'invalid_address');return n end
+  local function name(v) return call(function() return v:GetFullName() end) end
+  local ic=call(StaticFindObject,'/Script/Dominion.InventoryComponent')
+  local it=call(StaticFindObject,'/Script/Dominion.ItemData')
+  local fn=call(StaticFindObject,'/Script/Dominion.InventoryComponent:GetNumItemsByData')
+  need(valid(ic) and valid(it) and valid(fn),'metadata_unavailable')
+  local flags=call(function() return fn:GetFunctionFlags() end)
+  need(type(flags)=='number' and flags%1==0 and flags>=0 and flags<=0xffffffff and (flags & 0x10000000)~=0 and (flags & 0x40000000)~=0 and (flags & 0x812051c0)==0,'metadata_flags')
+  local types=rawget(_G,'PropertyTypes');need(type(types)=='table' and types.IntProperty and types.ObjectProperty,'property_types')
+  local props={};local n=0
+  call(function() fn:ForEachProperty(function(p)
+   if rawget(_G,'DW_PAUSE') then error('paused') end;n=n+1;need(n<=2,'extra_parameter')
+   local key=call(function() return p:GetFName():ToString() end);need(type(key)=='string' and not props[key],'property_name')
+   local isobj=call(function() return p:IsA(types.ObjectProperty) end);local isint=call(function() return p:IsA(types.IntProperty) end)
+   local cls;if isobj then cls=call(function() return p:GetPropertyClass() end);need(valid(cls),'property_class');cls=name(cls) end
+   props[key]={obj=isobj,int=isint,cls=cls}
+  end) end)
+  need(n==2 and props.ItemData and props.ItemData.obj==true and props.ItemData.cls=='Class /Script/Dominion.ItemData' and props.ReturnValue and props.ReturnValue.int==true,'metadata_shape')
+  local pc=M.pc();local pawn=M.pawn(pc);need(pc and pawn,'no_pawn')
+  local inv=call(function() return pc.InventoryComponent end);local asset=call(StaticFindObject,path)
+  need(valid(inv) and call(function() return inv:IsA(ic) end)==true,'inventory_unknown')
+  need(valid(asset) and call(function() return asset:IsA(it) end)==true and type(name(asset))=='string' and name(asset):match('^%S+ (.+)$')==path,'asset_unknown')
+  local pcid,pid,iid,aid=address(pc),address(pawn),address(inv),address(asset)
+  local world=U.world_id and call(U.world_id,ROOT,{cache_s=0});need(type(world)=='string' and world~='' and world~='unknown','world_unknown')
+  local bridge=rawget(_G,'__dwc_bridge');local arb=rawget(_G,'DWArbiter');local mv=rawget(_G,'DW_MOVE')
+  local owner=type(arb)=='table' and arb.owner;local gen=type(mv)=='table' and mv.gen
+  local function stable()
+   need(address(M.pc())==pcid,'controller_changed')
+   need(not rawget(_G,'DW_PAUSE') and call(U.world_id,ROOT,{cache_s=0})==world and address(pc)==pcid,'world_or_controller_changed')
+   local cp=call(function() return pc.Pawn end);need(address(cp)==pid,'pawn_changed')
+   local ci=call(function() return pc.InventoryComponent end);need(address(ci)==iid,'component_changed')
+   local ca=call(StaticFindObject,path);need(address(ca)==aid,'asset_changed')
+   local current_pc=M.pc();need(address(current_pc)==pcid,'controller_changed')
+   local cp2=call(function() return current_pc.Pawn end);local ci2=call(function() return current_pc.InventoryComponent end)
+   need(address(cp2)==pid and address(ci2)==iid and not rawget(_G,'DW_PAUSE') and rawget(_G,'__dwc_bridge')==bridge and rawget(_G,'DWArbiter')==arb and (type(arb)~='table' or arb.owner==owner) and rawget(_G,'DW_MOVE')==mv and (type(mv)~='table' or mv.gen==gen),'binding_changed')
+  end
+  local method=call(function() return inv.GetNumItemsByData end);need(method~=nil,'method_missing')
+  stable();local amount=call(method,inv,asset);stable()
+  need(type(amount)=='number' and amount==amount and amount>=0 and amount<math.huge and amount%1==0,'invalid_count')
+  return {status='observed',count=amount,scope='main_inventory',path=path,semantics='component_at_read',observed_at=os.time(),world=world,controller=pcid,pawn=pid,component=iid,asset=aid}
+ end)
+ if not ok then return unknown(tostring(result)) end
+ return result
+end
+
 -- ------------------------------------------------------------------ reading
 -- Page table of the main inventory: list of {type, type_name, first (raw index), n}.
 function M.pages(inv)

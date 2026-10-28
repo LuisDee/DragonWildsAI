@@ -1612,7 +1612,8 @@ local function tick(st, gen, log)
                         st.local_binding = b
                         local ok_begin, begun = pcall(lp_begin,st,pawn,me,goal,"route_observation",log,true)
                         if not local_route_owned(st,gen,pawn,pc,goal) then return end
-                        if not ok_begin or not begun then st.local_observe_done=true end
+                        if not ok_begin or not begun then st.local_observe_done=true
+                        else st.local_sample_start=v(me) end
                     end
                 end
                 if b and not st.local_observe_done then
@@ -1621,9 +1622,43 @@ local function tick(st, gen, log)
                     if not local_route_owned(st,gen,pawn,pc,goal) then return end
                     if not worked then st.lp=nil; st.lp_state=nil; st.local_observe_done=true end
                     if st.lp_state == "observed" then
+                        -- Input is no longer submitted while observing, but previous
+                        -- input/inertia can still move the pawn. Recheck the start of
+                        -- the verified first segment using existing waypoint bounds.
+                        local okpos, sample_now=pcall(function() return pawn:K2_GetActorLocation() end)
+                        if not local_route_owned(st,gen,pawn,pc,goal) then return end
+                        if not okpos or not sample_now or type(sample_now.X)~="number" or
+                            type(sample_now.Y)~="number" or type(sample_now.Z)~="number" or
+                            sample_now.X~=sample_now.X or sample_now.Y~=sample_now.Y or sample_now.Z~=sample_now.Z or
+                            math.abs(sample_now.X)==math.huge or math.abs(sample_now.Y)==math.huge or math.abs(sample_now.Z)==math.huge then
+                            st.lp,st.lp_state,st.nav_fail,st.local_observe_done=nil,nil,"local_position_unknown",true
+                            return
+                        end
+                        local origin=st.local_sample_start
+                        if not origin or d2(sample_now,origin)>M.cfg.lp_radius_cm or
+                            math.abs(sample_now.Z-origin.Z)>math.max((st.env and st.env.step or 45)+20,60) then
+                            st.local_replans=(st.local_replans or 0)+1
+                            st.lp,st.lp_state,st.lp_observe,st.local_binding=nil,nil,nil,nil
+                            st.local_observe_done=st.local_replans>M.cfg.lp_max_plans
+                            if st.local_observe_done then st.nav_fail="local_replan_limit" end
+                            st.status="planning"
+                            return
+                        end
                         local pts = st.lp_pts; local last = pts and pts[#pts]
                         st.local_observe_done=true
-                        if last and #pts >= 2 and d2(last,goal) <= st.tol_cm and
+                        -- Ignore path table identities and prefix/index differences: an
+                        -- equivalent failed destination cannot be made safe by repackaging it.
+                        local repeats = false
+                        for _, p in ipairs(pts or {}) do
+                            for _, failed in ipairs(st.local_failed_points or {}) do
+                                if p.X == failed.X and p.Y == failed.Y and
+                                    math.abs(p.Z-failed.Z) <= math.max((st.env and st.env.step or 45), 1) then repeats=true; break end
+                            end
+                            if repeats then break end
+                        end
+                        if repeats then
+                            st.lp, st.lp_state, st.nav_fail = nil, nil, "local_replan_repeats_stalled_waypoint"
+                        elseif last and #pts >= 2 and d2(last,goal) <= st.tol_cm and
                             math.abs((last.Z + st.half_h) - goal.Z) <= 2 * st.half_h then
                             local copied = {}
                             for i, p in ipairs(pts) do copied[i] = { X=p.X, Y=p.Y, Z=p.Z, act=p.act } end
@@ -2447,6 +2482,28 @@ local function tick(st, gen, log)
         end
     end
 
+    -- A required local route cannot use the ordinary stuck ladder: that ladder
+    -- replaces its path and can issue raw jumps. Hold this frame before input,
+    -- then re-admit a fresh observation under the original goal.
+    if st.local_authority and not st.lp_jump_exec and not st.ws_exec and not st.jump_t and
+        st.win_t and st.win_pos and t-st.win_t >= M.cfg.stuck_window_s and
+        d2(me,st.win_pos) < M.cfg.stuck_min_cm then
+        local old_binding, old_path = st.local_binding, st.lpath
+        if not local_route_owned(st,gen,pawn,pc,goal) then return end
+        local p = old_path and old_path[st.lwp]
+        if not p or not local_route_owned(st,gen,pawn,pc,goal) or
+            st.local_binding ~= old_binding or st.lpath ~= old_path then return end
+        st.local_failed_points = st.local_failed_points or {}
+        st.local_failed_points[#st.local_failed_points+1] = {X=p.X,Y=p.Y,Z=p.Z}
+        st.local_replans = (st.local_replans or 0) + 1
+        st.local_authority, st.local_binding, st.lpath, st.lp, st.lp_state, st.lp_observe = nil,nil,nil,nil,nil,nil
+        st.local_observe_done = st.local_replans > M.cfg.lp_max_plans
+        if st.local_observe_done then st.nav_fail = "local_replan_limit" end
+        st.status = "planning"
+        st.win_t,st.win_pos,st.prog_t,st.prog_pos = t,v(me),t,v(me)
+        return
+    end
+
     -- face where we go (control rotation = camera yaw; the pawn orients to its movement)
     if st.nav_required then
         if st.local_authority then if not local_route_owned(st,gen,pawn,pc,goal) then return end
@@ -2485,6 +2542,11 @@ local function tick(st, gen, log)
         end
     end
 
+    -- An owned airborne or landing transaction must not enter the ordinary stuck ladder.
+    if st.local_authority and (st.lp_jump_exec or st.ws_exec or st.jump_t) then
+        st.win_t, st.win_pos = t, v(me)
+        return
+    end
     -- stuck detection over 1 s windows, and the unstuck ladder
     if not st.win_t then st.win_t, st.win_pos = t, v(me) end
     if t - st.win_t >= M.cfg.stuck_window_s then

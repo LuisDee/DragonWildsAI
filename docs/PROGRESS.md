@@ -1,5 +1,38 @@
 # Progress log (append-only)
 
+### Combined crafting and route candidate passed the gate (2026-10-28 11:50 Berlin)
+
+The reviewed wave passed 1198 tests with one skip in 389.34 seconds,
+CHECK_ALL: GREEN. All 15 frozen file hashes matched; judges are unchanged.
+It adds scoped native ingredient/output counts, consistent recipe candidate
+limits and observed unlock metadata, and bounded observational route recovery.
+The integration fixture was updated and re-reviewed after the first gate found
+its obsolete inventory-list expectation. Publication and native/model-context
+validation are next; no new crafted axe or station is claimed yet.
+
+### Unaided tree chain verified; new-axe objective still unmet (2026-10-28)
+
+On tested deployment `3e95e40`, Haiku answered “Can you cut down a tree?” by
+checking inventory, recovering its own grave, equipping the recovered axe,
+felling/splitting wood and collecting five new logs. Four calls took 42.234
+seconds and cost $0.0043. Independent native evidence: Woodcutting XP 219→239,
+a standing tree became a stump, and health stayed 100. The eight logs recovered
+from the grave are excluded from the five freshly gathered logs. This proves
+a recovery/equip/woodcutting/collection chain, not crafting or a full milestone.
+
+The explicit follow-up “Can you make yourself a new axe, then cut down a tree?”
+failed its crafting objective: four calls, 38.922 seconds, no craft call, axe
+count unchanged at one, wood 13→17. Its search requested 25 candidates but got
+15 of 24 matches, hiding the basic stone axe. It chose locked bronze, then used
+its existing axe. Generic candidate visibility, native count and route recovery
+changes passed focused tests and cold review; the combined gate is next.
+
+Nutrition, test-scene positioning and the original private cleanup mismatch
+are declared in `docs/research/r26-unaided-tree-chain-20261028.md`. Root verified
+terminal processes and idle body/arbiter independently. UTC model spend is
+$0.0353 across 31 Haiku calls, with no planner or unpriced calls. R remains on
+`3e95e40`; W candidates are isolated until the gate and controlled publication.
+
 ### Live short-route throughput failure isolated (2026-10-28 10:35 Berlin)
 
 Reviewed2bff707 is pushed/deployed after1197passed/1skip GREEN. First live
