@@ -2,50 +2,53 @@
 
 ## Current handoff: deployed inventory perception verified (2026-10-28, 05:00 UTC)
 
-- **Source83f0ce315a9b44130491da349a6eb1426374d4a4 is pushed/deployed.**
-  Companion0a0581215e563a39/bodyde557a16bbfb20c8, clean code and approvedjudge
-  diffempty. Full gate TERMINALGREEN1168passed/1skipped364.52s in
-  logs/recovery/cf-394651d8/check-all.log; do not repeat. Oldcf-84ece854RED
-  remains unchanged. Source/test/design before/afterSHA matched.
-- Announced client-only integration verified old10824/launcher10544 exited,
-  retained server7016/Steam3284 and all21 memory/envelope/client-state files
-  unchanged acrossdiskpublication. Gitff reconciled only our4canonicaldirty
-  docs after exactold-content assertion anddry-run; no stash/reset/restore.
-  Deployed runtime bytes match testedW. Two normalized-equal files needed
-  indexstatrefresh, no stageddiff or running-file rewrite. Archive:
-  R/logs/recovery/inventory-read-publication-47d69c3a/published.json.
-- DEVboot explicit-Targetdev-Release completed50.4s; newclient12340, pawn
-  BP_PlayerCharacter_C_2147473119, ClaudeDev, actual127.0.0.1:7777. Steam/
-  server never restarted. No game-model brain, slotFREE after verification.
-- Nativeget_state andinventory tool exposeper-scope readstatus. ALL8prepub
-  positive carried counts were preserved exactly; pagescomplete with8verified
-  quickslots, carried/loadoutpartial andhandsunknown becauseemptywrapperABI
-  remainsunverified. Actualnewbrain digest sayspartial/lowerbounds andretains
-  observeditems, nofalseempty. Dataarchive native-perception-result.json.
-  Nativehealth0.5 afterdiagnosticidlefood/waterdepletion: thiswasread-only, no
-  movement or survivalpass. Currentposition[63.15,1875.57,-35.45].
-  Freshresources/corridor/PID/characteradmission needed foranyphysicaltest.
-- FloorreadernewleaseAPI isnowondisk, unreferenced/disabled; previousprivate
-  hook/closedfactory markers belonged to oldprocess10824 and aregone. Do not
-  blindlyrerunexisting-hook-onlyprobes on12340 or claimreaderwasenabled.
-- NEXT: implement reviewed navigation-route-authority design in W (private
-  design copiedto publicationarchive). Pilotfatal04:31:52 occurred after4
-  no_path replies, localexhaustion andstraightfallback. Holdrequiredlongtrip
-  movement pendingownedpath; truthfulboundedfailure/partialend, singleflight
-  retainedthroughlocaltimeout, uniqueIPCepoch/nonce andmetadataunknowns.
-  Review explicitly requiredtypedserver->Python->Lua tests, follow/direct/
-  wade/jump preservation, stalled-progresshold andno falselearning. nav_id
-  survivesordinarymoveresets; do not repeat the earlierincorrect resetclaim.
-  Helperrestartisnotproofoldserverworkended. No furthergrave-route/model
-  travel untilbenignnegative+positivecontrols provebehavior. Universal
-  continuoussupport stillopen; inventory count-sensitiveverification and
-  nativeempty/nullcontrols also remain.
-- TreepilotwasFAILED5Haikucontroller/0planner/0Sonnet, extra$0.0052, daily
-  total$0.0125/11pricedcalls/no unpriced. Manualcancelwaslateafterdeath, not
-  aninterception. Driverterminated; rootverifiedidleafter native respawn,
-  preservedchangedmemory/death andreleasedownslot. NoAXE/tree/no-axe orM1-M6
-  pass. Alloriginalrecoverytargets andsoloVel'gar goalACTIVE/unmet.
-  R26harnessnutritiontotal30Bread/49Water; preserveactualdeathloss.
+- **Deployed source:** `83f0ce315a9b44130491da349a6eb1426374d4a4`, pushed to
+  origin/main. Companion hash `0a0581215e563a39`, body hash
+  `de557a16bbfb20c8`, clean code and unchanged approved judges. Full gate is
+  TERMINAL GREEN: **1,168 passed, 1 skipped, 364.52 seconds**,
+  `logs/recovery/cf-394651d8/check-all.log`. Do not repeat it. The earlier red
+  gate remains preserved; its single stale wording assertion was corrected.
+- **Runtime:** DEV client **12340**, character **ClaudeDev**, pawn
+  `BP_PlayerCharacter_C_2147473119`, actual target `127.0.0.1:7777`. The
+  announced client-only integration took 50.4 seconds. Server **7016**, Steam
+  **3284**, watchdog and navigation oracle were retained. All 21 backed-up
+  memory, envelope and client-state files were unchanged across publication.
+  Archive: `R/logs/recovery/inventory-read-publication-47d69c3a/`.
+- **Native verification:** inventory/get_state preserved all eight previously
+  observed carried counts. Pages are complete with eight verified quick slots;
+  carried/loadout reads are partial and hand reads unknown because native empty
+  wrappers remain unverified. The actual model digest shows lower bounds and
+  preserves observed items without claiming empty inventory. This fixes
+  perception, not count-sensitive action verification or frozen predicates.
+- **Current state:** position `[63.15,1875.57,-35.45]`, native health **0.5**
+  after food/water depletion during diagnostics. The publication check was
+  read-only; no survival or movement success is implied. Body/arbiter idle,
+  reservation released, no game-model brain running. Fresh resources, identity,
+  target and corridor checks are required before physical testing.
+- The opt-in floor-reader lease API is now on disk, with no startup, bridge or
+  movement consumer. The old private hook/factory markers belonged to exited
+  process10824 and are gone. Do not rerun an existing-hook-only probe on12340
+  or claim that publishing the file enabled the reader.
+- **Next behavior change:** implement the reviewed private
+  `logs/recovery/navigation-route-authority-design-20261028.md`. The failed tree
+  pilot received four `no_path` replies and exhausted local segments, then
+  continued straight toward the raw goal. Oracle-required long trips must hold
+  pending owned route evidence; failed or partial routes need truthful bounded
+  handling. Timed-out work retains the single-flight slot until observed
+  terminal; a helper restart does not prove the previous server operation ended.
+  Preserve direct opt-outs, nearby movement, follow, wade and verified traversal
+  semantics; test metadata serialization, progress clocks and stale responses.
+  `nav_id` survives ordinary move resets: do not repeat the earlier mistaken
+  reset claim. No new grave-route/model travel before benign negative and
+  positive controls validate the fix. Broader continuous support remains open.
+- **Failed pilot:** five Haiku controller calls, zero planner/Sonnet calls,
+  $0.0052 extra; UTC total **$0.0125, 11 priced Haiku calls, none unpriced**.
+  KillZ death occurred before manual cancellation; this was not an interception.
+  The driver terminated, and root independently verified native revival and
+  idle state before releasing its slot. Changed memory/death data were retained,
+  never restored. No axe crafting, tree felling, no-axe recovery or M1–M6 pass.
+  R26 harness nutrition totals30Bread/49Water; preserve the actual death losses.
+  The full original recovery and solo Vel'gar goal remains **ACTIVE and unmet**.
 
 
 ## Current checkpoint: inventory perception GREEN, publication pending (2026-10-28)

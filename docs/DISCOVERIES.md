@@ -2,15 +2,18 @@
 
 ### Inventory checkpoint published and checked natively (2026-10-28)
 
-Source83f0ce3, companion0a0581215e563a39/bodyde557a16bbfb20c8 is deployed
-after one50.4s client-only integration; newDEV12340/ClaudeDev, server/Steam
-retained, all21preservedfiles unchanged. Nativeinventory/getstatekeptall8
-knownpositivecounts andexposedpartial/unknownreadstatus. The actualdigest
-showslowerbounds ratherthanfalseempty. FullgateGREEN1168/1skip364.52s.
-NoemptyABI/count-verification/milestoneclaim. Nativehealth0.5 fromidle
-starvation; noinputtest orrestoration. Slotfree,noAPIbrain. Nextbehaviorfix
-is ownedno-path/partialroutehandling; failedtreepilot/cost$0.0125/day and
-itsdeath/memory arepreserved.
+Source `83f0ce3` is deployed: companion `0a0581215e563a39`, body
+`de557a16bbfb20c8`. The client-only integration took 50.4 seconds; new DEV
+client12340/ClaudeDev, server and Steam retained, all21 preserved files
+unchanged. Native inventory/get_state preserved all eight known carried counts
+and exposed partial/unknown reads. The model digest shows lower bounds rather
+than false emptiness. Full gate: **1,168 passed, 1 skipped, GREEN**, 364.52s.
+
+Native empty-slot semantics and count-sensitive verification remain open.
+Health was0.5 from diagnostic idle starvation; this read-only check is not
+a survival pass. The slot is free and no API brain remains. Next is generic
+no-path/partial-route handling. The failed tree pilot, death and memory remain
+preserved; total daily API spend is **$0.0125**.
 
 
 ### Inventory perception checkpoint GREEN (2026-10-28)
