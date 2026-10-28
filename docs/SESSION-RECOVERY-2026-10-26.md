@@ -2,6 +2,17 @@
 
 ## 9516fc3 manifest repair deployed; next decision-context wave (2026-10-28 14:50 Berlin)
 
+FINAL RUNTIME OVERRIDE: after metadata651abb9, a fresh read showed health1,
+sustenance0,DirtyWater1 and no berries with the model brain OFF. Client was
+strict idle. Root announced and set a client-only hold with
+tools/stop_client.ps1 -Hold, preserving server7016/Steam3284 and world state.
+Do not leave a low-supply idle client running at a handoff. Inspect stop
+completion/processes and hold files; next operator uses reviewed client_boot
+-Release -Target dev -Attempts1 -Quiet, then prepares food/water and verifies
+health before trials. Do not restart Steam or clear memory. Live slot released.
+Goal remains ACTIVE; this is a client runtime hold, not a user goal pause.
+Raw final read: R/logs/recovery/manifest-final-runtime-20261028.json.
+
 Runtime R now 9516fc3627190c667e8fc435ef50acc93f1b786f, companion
 92d835e5526b5741, body f04cf05ebc5ee552, judges b5057d95be92c264;
 approved judge diff []. No client/server/Steam restart; client8568,
