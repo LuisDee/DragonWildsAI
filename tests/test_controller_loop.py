@@ -435,3 +435,20 @@ def test_unavailable_observation_preserves_each_tool_result_id(rig):
     observation = next(m for m in messages if isinstance(m.get("content"), str) and m["content"].startswith("Current observation: "))
     assert json.loads(observation["content"].removeprefix("Current observation: "))["status"] == "unavailable"
     assert messages[0]["content"] == "original request"
+
+
+def test_route_feedback_reaches_provider_with_original_tool_id(rig):
+    from brain.controller import Decision
+    from brain.llm import ToolCall, assistant_message
+    prior = FakeLLM.say("", ToolCall("go_to", {"target": [20, 0, -4]}, "route-call"))
+    decision = Decision(messages=[{"role": "user", "content": "original request"}, assistant_message(prior)])
+    rig.controller_llm.push(FakeLLM.say(""))
+    feedback = {"goal_projected": False, "requested_xyz": [20, 0, -4],
+                "route_endpoint": [5, 0, 0], "vertical_error_m": 4}
+    rig.controller.next_turn(decision, {"route-call": {"ok": False, "reason": "verification_failed",
+                                                       "data": {"route_feedback": feedback}}}, {}, failed=True)
+    messages = rig.controller_llm.calls[0]["messages"]
+    result = next(m for m in messages if m.get("role") == "tool")
+    assert result["tool_call_id"] == "route-call"
+    assert json.loads(result["content"])["data"]["route_feedback"] == feedback
+    assert messages[0]["content"] == "original request"

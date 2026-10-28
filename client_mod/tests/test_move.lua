@@ -587,6 +587,7 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     check("stale nonce cannot authorize input", pawn.loc.X == 0 and _G.DW_MOVE.nav_pending ~= nil, pawn.loc.X)
     _G.DW_WORLD_GUID = "other-world"; step(2)
     check("world identity change fails closed", pawn.loc.X == 0 and M.status().result and M.status().result.reason == "verification_failed", M.status().status)
+    check("world replacement cannot donate route feedback", M.status().result and M.status().result.route_feedback == nil)
     _G.DW_WORLD_GUID = "test-world"
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
     offer.no = offer.no + 1; offer.nonce = fake_nonce(offer.no)
@@ -599,17 +600,73 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     restart:write(('return {version=2,epoch="33333333-3333-4333-8333-333333333333",state="recovering",updated=%d}'):format(os.time())); restart:close()
     step(1)
     check("new helper epoch rejects old matching response", pawn.loc.X == 0 and M.status().result and M.status().result.detail:find("oracle_restarted",1,true), M.status().status)
+    check("old helper response supplies no feedback", M.status().result and M.status().result.route_feedback == nil)
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
     offer.no = offer.no + 1; offer.nonce = fake_nonce(offer.no)
-    oracle = function(id) return ("return {id=%d,ok=false,reason='no_path',points={}}"):format(id) end
+    oracle = function(id) return ("return {id=%d,ok=false,reason='no_path',goal_projected=false,points={}}"):format(id) end
     pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(20)
     local bad = M.status()
     check("no path fails without raw movement", pawn.loc.X == 0 and bad.result and bad.result.reason == "verification_failed", bad.status)
+    local f=bad.result and bad.result.route_feedback
+    check("matched no path preserves false projection and requested 3D goal", f and f.goal_projected==false and f.requested_xyz[1]==20 and f.route_endpoint==nil and f.final_position[1]==0 and f.horizontal_error_m==20, f and f.goal_projected)
+    _G.DW_WORLD_GUID = "other-world"
+    check("terminal world replacement suppresses evidence", M.status().result.route_feedback == nil)
+    _G.DW_WORLD_GUID = "test-world"
+    check("terminal evidence cannot revive after world restoration", M.status().result.route_feedback == nil)
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
-    oracle = function(id) return ("return {id=%d,ok=true,partial=true,points={{0,0,0},{5,0,0}}}"):format(id) end
+    oracle = function(id)
+        _G.DW_MOVE.goal.X = _G.DW_MOVE.goal.X + 1 -- smaller than ordinary repath threshold
+        return ("return {id=%d,ok=false,reason='no_path',goal_projected=false,points={}}"):format(id)
+    end
+    pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(20)
+    check("changed exact goal suppresses feedback without changing failure", M.status().result and M.status().result.reason == "verification_failed" and M.status().result.route_feedback == nil)
+    M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
+    oracle = function(id)
+        _G.DW_MOVE.unreach = {reason="no_route"}
+        return ("return {id=%d,ok=true,partial=false,goal_projected=true,points={{0,0,0},{20,0,4.62}}}"):format(id)
+    end
+    pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(20)
+    local rejected=M.status().result; f=rejected and rejected.route_feedback
+    check("policy-rejected valid route retains endpoint evidence", rejected and rejected.reason=="verification_failed" and pawn.loc.X==0 and f and f.partial==false and f.route_endpoint[3]==4.62)
+    M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
+    oracle = function(id) return ("return {id=%d,ok=true,partial=false,goal_projected=true,points={{0,0,0},{4,0,7.62}}}"):format(id) end
+    pump_oracle(); M.go_to(log, {4,0,3}, {tolerance_m=0.5}); run(120)
+    local short=M.status().result; f=short and short.route_feedback
+    check("short route rejected for height retains endpoint evidence", short and short.reason=="verification_failed" and f and f.partial==false and f.requested_xyz[3]==3 and f.route_endpoint[3]==7.62, short and short.detail)
+    M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
+    oracle = function(id) return ("return {id=%d,ok=true,partial=true,goal_projected=true,points={{0,0,0},{5,0,0}}}"):format(id) end
     pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(80)
     local partial = M.status()
     check("partial endpoint does not fall through to raw goal", partial.result and partial.result.reason == "verification_failed" and pawn.loc.X < 600, tostring(pawn.loc.X) .. " " .. tostring(partial.status) .. " " .. tostring(partial.result and partial.result.detail))
+    f=partial.result and partial.result.route_feedback
+    check("partial result carries admitted route endpoint", f and f.partial==true and f.goal_projected==true and f.route_endpoint[1]==5 and f.requested_xyz[1]==20 and f.vertical_error_m==0 and f.absolute_vertical_error_m==0)
+    pc.Pawn = obj({CharacterMovement=mc})
+    check("terminal pawn replacement suppresses evidence", M.status().result.route_feedback == nil)
+    pc.Pawn = pawn
+    check("terminal evidence cannot revive after pawn restoration", M.status().result.route_feedback == nil)
+    M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
+    for _, invalid in ipairs({"controller", "pawn", "foreign", "world"}) do
+        oracle = function(id) return ("return {id=%d,ok=true,partial=true,points={{0,0,0},{5,0,0}}}"):format(id) end
+        pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(2)
+        local active = _G.DW_MOVE
+        check("retained evidence before "..invalid.." termination", active.route_feedback ~= nil)
+        local original_loc, original_pc_valid, original_pawn_valid, original_dead = pawn.K2_GetActorLocation, pc.IsValid, pawn.IsValid, pawn.HealthComponent.IsDead
+        local reads = 0
+        pawn.K2_GetActorLocation = function(self) reads=reads+1; return original_loc(self) end
+        if invalid == "controller" then pc.IsValid=function() return false end
+        elseif invalid == "pawn" then pawn.IsValid=function() return false end
+        elseif invalid == "foreign" then pc.Pawn=obj({CharacterMovement=mc, HealthComponent=pawn.HealthComponent})
+        else pawn.HealthComponent.IsDead=function() _G.DW_WORLD_GUID="other-world"; return true end end
+        step(1)
+        local outcome=active.result
+        check("invalid "..invalid.." finish never reads cached pawn", reads==0 and outcome and outcome.status=="failed" and outcome.route_feedback==nil, reads)
+        pc.IsValid, pawn.IsValid, pc.Pawn, pawn.K2_GetActorLocation, pawn.HealthComponent.IsDead = original_pc_valid, original_pawn_valid, pawn, original_loc, original_dead
+        _G.DW_WORLD_GUID="test-world"; M.stop(log); pawn.loc={X=0,Y=0,Z=0}
+    end
+    oracle = function(id) return ("return {id=%d,ok=true,partial=false,goal_projected=true,points={{0,0,0},{20,0,0}}}"):format(id) end
+    pump_oracle(); M.go_to(log, {20,0,-4}, {local_plan=false}); run(200)
+    local vertical=M.status().result; f=vertical and vertical.route_feedback
+    check("route endpoint does not replace requested height",vertical and vertical.reason=="verification_failed" and f and f.partial==false and f.requested_xyz[3]==-4 and f.route_endpoint[3]==0 and f.vertical_error_m==4 and f.absolute_vertical_error_m==4,vertical and vertical.detail)
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }; _G.DW_TRAP_CAND = nil
     oracle = function(id) return ("return {id=%d,ok=true,points={{0,0,0},{5,0,0}}}"):format(id) end
     pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(80)
@@ -619,6 +676,7 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     oracle = function(id) return ("return {id=%d,ok=true,points={{0,0,0},{1e308,0,0}}}"):format(id) end
     pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(20)
     check("overflowing converted waypoint is rejected", pawn.loc.X == 0 and M.status().result and M.status().result.reason == "verification_failed", M.status().status)
+    check("malformed waypoint supplies no feedback", M.status().result and M.status().result.route_feedback == nil)
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }; luis.loc = { X=2000, Y=200, Z=0 }
     local evpath = dir .. "/client_io/events/move.jsonl"
     os.execute('mkdir "' .. (dir .. "/client_io/events"):gsub("/", "\\") .. '" 2>nul')
@@ -726,6 +784,18 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     do -- Actual arbiter + mover + interaction episode, no fake ownership layer.
         local A=assert(loadfile(dir.."/client_mod/scripts/arbiter.lua"))(); A.set_move(M)
         local SK=assert(loadfile(here.."/../scripts/skills.lua"))()
+        pawn.loc={X=0,Y=0,Z=0}; air=0; M.stop(log)
+        oracle=function(id) return ("return {id=%d,ok=true,partial=true,points={{0,0,0},{5,0,0}}}"):format(id) end
+        pump_oracle(); local original=M.go_to(log,{20,0,0},{local_plan=false}); run(2)
+        local old_feedback=_G.DW_MOVE.route_feedback
+        local reflex=A.request(log,{name="feedback:reflex",level="reflex",uses_move=true})
+        A.release(log,reflex.token,"done")
+        local resumed_gen=_G.DW_MOVE.gen
+        oracle=function(id) return ("return {id=%d,ok=false,reason='no_path',goal_projected=false,points={}}"):format(id) end
+        pump_oracle(); run(20)
+        local resumed=M.status().result
+        check("real suspend resume cannot donate old generation feedback",original.ok and old_feedback and reflex.ok and resumed_gen~=original.gen and resumed and resumed.status=="failed" and (not resumed.route_feedback or resumed.route_feedback.generation~=original.gen))
+        M.stop(log); pawn.loc={X=0,Y=0,Z=0}; oracle=nil; pump_oracle()
         local faces=0
         SK.W.interaction_point=function(_,thing) return thing.position,"actor_origin" end
         SK.W.resting_in=function() return nil end
@@ -1394,6 +1464,7 @@ if os.getenv("DBG19") then for _, l in ipairs(logs) do if l:find("water sense") 
 s = MW2.status()
 check("water: second trip goes round (less wading)", s.result and s.result.status == "arrived" and w2 < w1 * 0.5,
     string.format("w1=%d w2=%d %s", w1, w2, tostring(s.result and s.result.status)))
+check("water detour does not report unrelated route feedback", s.result and s.result.route_feedback == nil)
 MW2.stop(log)
 lakes = {}
 

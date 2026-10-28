@@ -550,7 +550,7 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
     local r = call("move", "go_to", coords or tostring(target), { tolerance_m = tonumber(args.tolerance) })
     if not r.ok then return r end
     local a = { kind = "go_to", id = ctx.id, target = target, timeout_s = M.GOTO_TIMEOUT_S, target_position = coords,
-                tol = tonumber(args.tolerance) or M.GOTO_TOL_M, polls = 0 }
+                accepted_generation = r.data and r.data.gen, tol = tonumber(args.tolerance) or M.GOTO_TOL_M, polls = 0 }
     a.cancel = function() call("move", "stop") end
     a.poll = function(self)
         if reflex_owns_pawn() then self.started = now_s(); return nil end -- fighting back; resumes after
@@ -584,9 +584,14 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
                                          vertical_tolerance_m = verified.data.vertical_tolerance_m } }
         end
         if res.status == "failed" then
-            return fail(reason_code(res.reason or "path_blocked"), { detail = res.why or res.detail or res.reason,
-                                                                      why = res.why, asked = res.asked, position = here,
-                                                                      dist_m = res.dist_m })
+            local data = { detail = res.why or res.detail or res.reason, why = res.why, asked = res.asked,
+                           position = here, dist_m = res.dist_m }
+            local f = res.route_feedback
+            if type(self.accepted_generation) == "number" and type(f) == "table" and f.generation == self.accepted_generation then
+                data.route_feedback = f
+                if type(self.target) == "string" and #self.target <= 256 then data.requested_target = self.target end
+            end
+            return fail(reason_code(res.reason or "path_blocked"), data)
         end
         if res.status == "stopped" or self.polls > 3 then
             return fail("interrupted", { detail = "the move ended without arriving (" .. tostring(res.status) .. ")",

@@ -1,5 +1,37 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Latest override: navigation candidate GREEN; publish and measure next
+
+Goal ACTIVE, all M1-M6 unmet. F navigation-result-feedback candidate is frozen,
+design/cold-approved, targeted49pass and actual mover Lua passed; full gate
+1249passed/1knownskip GREEN467.43s in R/logs/recovery/g-82ed55c9. Verify all6
+frozen hashes and approved judge diff before commit/publication. Implementation
+touches move.lua/client_bridge.lua plus tests/note only; it adds failure metadata,
+not steering, retries, arrival relaxation or model overrides. Resume/changed
+generation cannot donate evidence. Valid matched no_path false flags survive;
+route-policy rejection does not erase valid endpoint facts. Native validity
+guards precede new diagnostic reads, with post-read checks. Mixed prior route
+plus water-detour regression remains a known non-blocking gap.
+
+R remains tested4baff5f/source53fd3f7 until publication. Client12972/pawn3101,
+server7016/Steam3284/oracle3228+1980 adopted. No brain or other heavy workload
+besides the just-completed gate. Slot released; acquire before live/publication.
+Client prepositioned at base D0DF node using real travel. Announce client-only
+restart, preserve Steam/server/world memory, deploy exact tested bytes and boot
+explicit DEV. New client requires fresh identity and reviewed root-stack zero
+transition setting BEFORE any map. This headless setup remains temporary.
+
+Developer baseline controls passed while F isolated:21mwalk/build (80XP,
+Construction152->232/level6), independently registered EDDE node, newnode->Temple
+152m/1Law/native seq2->3/clean state. Fire Spirit native effect/tag/actor verified.
+No autonomous construction or300m-chain pass. Pre-episode fixture replaced
+32Stone20Essence1Core and added6water6bread, all explicit; no model ran during
+setup. Day spend$0.0969/103Haiku calls. Next: developer wrong-height failure
+must expose truthful endpoint/error while remaining failure, corrected-height
+control must retain strict arrival; then bounded Haiku natural chained task.
+Inspect processes/slot/DEV guard/current spend, use reviewed external watchdog
+and pilot, preserve memories and never duplicate oracle/client/brain.
+
 ## Latest override:53fd3f7 deployed; Haiku teleport passes, navigation blocks chain
 
 Goal ACTIVE, all M1-M6 unmet. R/F source53fd3f7, companion ee12f9111f4e7d6b,

@@ -557,8 +557,9 @@ local function nav_request(st, from, to, offer, world)
     end
     if not sent then return false end
     _G.DW_NAV_USED[key] = true
+    st.route_feedback = nil
     st.nav_pending, st.nav_goal = { id=st.nav_id, epoch=offer.epoch, nonce=offer.nonce,
-        gen=st.gen, token=st.owner_token, pawn=st.pawn, world=world }, v(to)
+        gen=st.gen, token=st.owner_token, pawn=st.pawn, world=world, metadata_goal=v(to) }, v(to)
     return true
 end
 
@@ -1189,6 +1190,57 @@ finish = function(st, result, log)
             arb==initial_arb and owner==initial_owner and (not owner or owner.token==token)
     end
     if not current() then return end
+    -- Optional terminal feedback is measured before release and never changes outcome.
+    local evidence = st.route_feedback
+    if result and result.status == "failed" and st.mode == "go_to" and evidence and not paused() and
+        evidence.gen == gen and evidence.token == token and evidence.pawn == pawn and
+        st.goal and evidence.goal and st.goal.X == evidence.goal.X and st.goal.Y == evidence.goal.Y and st.goal.Z == evidence.goal.Z and
+        initial_owner and initial_owner.token == token then
+        local w = world_identity()
+        local okc, controller_valid = pcall(function() return pc and pc:IsValid() end)
+        local okp, actual_pawn = false, nil
+        if okc and controller_valid == true and not paused() and current() then
+            okp, actual_pawn = pcall(function() return pc.Pawn end)
+        end
+        local okv, pawn_valid = false, nil
+        if okp and actual_pawn == pawn and not paused() and current() then
+            okv, pawn_valid = pcall(function() return pawn and pawn:IsValid() end)
+        end
+        local w_before = not paused() and world_identity() or nil
+        local okp_final, pawn_final = false, nil
+        if okv and pawn_valid == true and w and w == evidence.world and w_before == w and not paused() and current() then
+            okp_final, pawn_final = pcall(function() return pc.Pawn end)
+        end
+        local w_final = not paused() and world_identity() or nil
+        local okl, x, y, z = false, nil, nil, nil
+        if okp_final and pawn_final == pawn and w_final == w and w_final == evidence.world and
+            not paused() and current() then
+            okl, x, y, z = pcall(function()
+                local loc = pawn:K2_GetActorLocation()
+                return loc.X, loc.Y, loc.Z
+            end)
+        end
+        local okp_after, pawn_after = false, nil
+        if okl and not paused() and current() then okp_after, pawn_after = pcall(function() return pc.Pawn end) end
+        local w2 = not paused() and world_identity() or nil
+        local function finite(x) return type(x) == "number" and x == x and math.abs(x) < math.huge end
+        if not paused() and w and w == evidence.world and w2 == w and okp_after and pawn_after == pawn and okl and
+            finite(x) and finite(y) and finite(z) and finite(evidence.goal.X) and finite(evidence.goal.Y) and finite(evidence.goal.Z) and current() and st.goal and
+            st.goal.X == evidence.goal.X and st.goal.Y == evidence.goal.Y and st.goal.Z == evidence.goal.Z then
+            local g = evidence.goal
+            local dx, dy, dz = (x-g.X)/100, (y-g.Y)/100, (z-g.Z)/100
+            local horizontal = math.sqrt(dx*dx+dy*dy)
+            if finite(dx) and finite(dy) and finite(dz) and finite(horizontal) then
+                evidence.owner = initial_owner
+                local f = {generation=gen, requested_xyz={g.X/100,g.Y/100,g.Z/100}, final_position={x/100,y/100,z/100},
+                    horizontal_error_m=horizontal, vertical_error_m=dz, absolute_vertical_error_m=math.abs(dz),
+                    partial=evidence.partial, goal_projected=evidence.goal_projected}
+                if evidence.endpoint then local q=evidence.endpoint; f.route_endpoint={q.X/100,q.Y/100,q.Z/100} end
+                result.route_feedback = f
+            end
+        end
+    end
+    if not current() then return end
     cancel_superjump(st)
     if not current() then return end
     if result and result.status == "arrived" then st.trip_ok = true end
@@ -1500,9 +1552,13 @@ local function tick(st, gen, log)
         if not st.local_authority and not st.lp_observe and st.nav_goal and (d2(goal, st.nav_goal) > M.cfg.repath_goal_move_cm or
             math.abs(goal.Z - st.nav_goal.Z) > M.cfg.repath_goal_move_cm) then
             st.path, st.nav_pending, st.nav_goal, st.nav_fail = nil, nil, nil, nil
+            st.route_feedback = nil
             st.nav_wait_t = nil
         end
         local world = world_identity()
+        local prior = st.route_feedback
+        if prior and (prior.gen ~= gen or prior.token ~= st.owner_token or prior.pawn ~= pawn or prior.world ~= world or
+            not goal or prior.goal.X ~= goal.X or prior.goal.Y ~= goal.Y or prior.goal.Z ~= goal.Z) then st.route_feedback = nil end
         local pending = st.nav_pending
         if pending and not st.local_authority then
             local helper = oracle_offer()
@@ -1534,6 +1590,7 @@ local function tick(st, gen, log)
                             pts[#pts + 1] = { X=p[1]*100, Y=p[2]*100, Z=p[3]*100 }
                         end
                     end
+                    local shape_valid = valid
                     if valid then
                         local last = pts[#pts]
                         local short_local = st.nav_required and st.use_lp and st.original_goal_xy and
@@ -1542,6 +1599,22 @@ local function tick(st, gen, log)
                             (r.partial ~= false or d2(last, goal) > st.tol_cm or math.abs(last.Z-goal.Z) > 2*st.half_h) then
                             valid = false
                         end
+                    end
+                    -- Evidence is optional and cannot affect route admission.  Exact goal
+                    -- matching here is stricter than the normal repath threshold.
+                    local pg = pending.metadata_goal
+                    local metadata_match = helper and helper.epoch == pending.epoch and pg and goal and
+                        pg.X == goal.X and pg.Y == goal.Y and pg.Z == goal.Z
+                    local flags_ok = (r.partial == nil or type(r.partial) == "boolean") and
+                        (r.goal_projected == nil or type(r.goal_projected) == "boolean")
+                    local matched_no_path = r.ok == false and r.reason == "no_path" and
+                        (r.points == nil or (type(r.points) == "table" and next(r.points) == nil))
+                    if metadata_match and flags_ok and (shape_valid or matched_no_path) then
+                        st.route_feedback = {gen=gen, token=pending.token, pawn=pawn, world=world, goal=v(pg),
+                            partial=r.partial, goal_projected=r.goal_projected,
+                            endpoint=shape_valid and v(pts[#pts]) or nil}
+                    else
+                        st.route_feedback = nil
                     end
                     if valid then
                         for i = 2, #pts do
@@ -3170,8 +3243,35 @@ local function m3(p) return p and { math.floor(p.X) / 100, math.floor(p.Y) / 100
 
 function M.status()
     local st = S()
+    local result = st.result
+    if result and result.route_feedback then
+        local original_result = result
+        local e = st.route_feedback
+        local world = not paused() and world_identity() or nil
+        local okc, cv, ok, pawn, okv, pv = false, nil, false, nil, false, nil
+        if e and world and world == e.world and not paused() then
+            okc, cv = pcall(function() return st.pc and st.pc:IsValid() end)
+        end
+        if okc and cv == true and not paused() then ok, pawn = pcall(function() return st.pc.Pawn end) end
+        if ok and pawn == e.pawn and not paused() then okv, pv = pcall(function() return pawn and pawn:IsValid() end) end
+        local world2 = not paused() and world_identity() or nil
+        local arb = rawget(_G, "DWArbiter")
+        local owner = arb and arb.owner
+        if not (e and world and world == e.world and world2 == world and ok and pawn == e.pawn and okv and pv == true and
+            rawget(_G, "DW_MOVE") == st and st.gen == e.gen and
+            (st.owner_token == e.token or (st.owner_token == nil and owner == nil)) and st.pawn == e.pawn and
+            st.goal and st.goal.X == e.goal.X and st.goal.Y == e.goal.Y and st.goal.Z == e.goal.Z and
+            not paused() and (not owner or (owner == e.owner and owner.token == e.token))) then
+            result = {}
+            for k, v in pairs(original_result) do if k ~= "route_feedback" then result[k] = v end end
+            if rawget(_G, "DW_MOVE") == st and st.result == original_result and st.route_feedback == e then
+                st.result = result
+                st.route_feedback = nil
+            end
+        end
+    end
     return {
-        mode = st.mode, status = st.status, result = st.result, target = st.target_name,
+        mode = st.mode, status = st.status, result = result, target = st.target_name,
         jump_observation = st.jump_observation,
         dist_m = st.dist_cm and math.floor(st.dist_cm) / 100, source = st.source,
         lwp = st.lwp, n_lwp = st.lpath and #st.lpath, lp_state = st.lp_state, lp_runs = st.lp_runs,

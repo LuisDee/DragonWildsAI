@@ -1,5 +1,33 @@
 # Progress log (append-only)
 
+### Navigation result feedback gate passed; live measurement next (2026-10-28)
+
+The isolated candidate preserves requested XYZ and existing movement behavior,
+but adds bounded route endpoint, partial/projection flags and measured position/
+height error to a matching failed go_to result. It does not report the endpoint
+as a projected goal. Unknown or invalid identity remains unknown; resumed or
+replacement generations cannot donate metadata. Sol design/cold reviews passed
+after correcting a pre-native-read validity check. Targeted checks49passed and
+the actual Lua mover suite passed; full gate1249passed/1knownskip GREEN467.43s,
+private R/logs/recovery/g-82ed55c9/check-all.log. Frozen-file and judge checks
+must agree before publication. Mixed prior-oracle-route plus water-detour
+coverage remains a declared non-blocking gap. No current-code Haiku pass yet.
+
+While the candidate stayed isolated, developer controls on deployed53fd3f7
+walked21m to a valid site, built a Lodestone in12.46s, spent32Stone/20Essence/
+1Core, and gained80ConstructionXP (152->232, level4->6). Registry independently
+shows new node EDDE9FD844BE5F19890B94B8B4A96470. Using it reached Temple152m
+away, consumed1Law and advanced native success2->3, with HP100 and clean UI.
+This is a placement positive control, not model construction or the300m chain.
+Fire Spirit also passed a developer control: native FireSpiritGameplayEffectInstance
+and Player.Status.FireSpirit appeared,10FireRune spent, HP100/clean input.
+
+No new API calls: day total$0.0969/103Haiku calls. Before the next episode,
+DEV setup supplied32Stone/20Essence/1Core and6water/6bread after construction;
+record the actual future baseline and keep this assistance explicit. All prior
+models are terminal. Client was prepositioned at the base through normal
+Lodestone travel for the upcoming height-error control. M1-M6 remain unmet.
+
 ### Lodestone deployed and independently used by Haiku; full chain still fails (2026-10-28)
 
 Checkpoint53fd3f7 is pushed/deployed, companion ee12f9111f4e7d6b and body

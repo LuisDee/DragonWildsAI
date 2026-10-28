@@ -1,5 +1,20 @@
 # Discoveries
 
+### Nearby Lodestone construction/use and Fire Spirit controls (2026-10-28)
+
+Developer-only on53fd3f7: normal21m movement and real build-menu placement
+created node EDDE9FD844BE5F19890B94B8B4A96470, independently read from registry.
+Native materials decreased32Stone/20Essence/1Core; Construction152->232. Its
+real teleport to Temple travelled152m, consumed1Law and produced native success
+sequence2->3. HP100, Gameplay and cleared ownership independently observed.
+Existing-site placement failures do not establish unavailable construction.
+
+Separate developer Fire Spirit control added native FireSpiritGameplayEffectInstance
+and Player.Status.FireSpirit from an empty native effect list, with10FireRune
+spent and the spell actor observed. This is direct effect evidence on the tested
+body, not a formal spell-family score or an unaided Haiku result. Private evidence
+is in R/logs/recovery/lodestone-20261028 and feedback-loop-20261028.
+
 ### Model-selected Lodestone travel verified on53fd3f7 (2026-10-28)
 
 Haiku independently queried lodestones and selected teleport to the existing

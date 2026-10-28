@@ -1,5 +1,21 @@
 # Live bug ledger
 
+### Navigation failure feedback implemented; deployment proof pending
+
+2026-10-28: candidate retains validated route endpoint/partial/projection facts
+even when movement policy rejects that route, and reports measured horizontal
+and signed/absolute height error without rewriting the requested goal. Exact
+query-goal identity is metadata-only; no routing/retry/arrival changes. Stale,
+malformed, foreign or resumed-generation evidence is omitted. Cold review caught
+an unsafe diagnostic read before pawn/controller validity; guarded before and
+after native reads, with zero-read invalid-identity regressions. Full gate1249/
+1knownskip GREEN. This does not yet establish better unaided navigation.
+
+The nearby construction failure has a positive control: on unchanged deployed
+53fd3f7, moving21m to a different site then building/using a new Lodestone worked.
+The model's earlier false missing-materials claim and original300m chain remain
+open; do not introduce a forced plan or infer every failed placement's cause.
+
 ### Lodestone task chain now blocked by navigation/placement and model choices
 
 OPEN (2026-10-28). On53fd3f7 the full developer approach/use/arrival/UI-cleanup
