@@ -229,6 +229,50 @@ test("manifest: one entry per implemented tool; primitives offered, compounds de
     assert(raw:find('"properties":{}', 1, true), "empty properties encode as {}")
 end)
 
+test("capsule bottom uses measured scale and fails closed on identity changes", function()
+    reset()
+    local sk=B.module("skills")
+    local height, center, world, pawn_id = 88, -2748, "dev", 1
+    local capsule={}
+    function capsule:IsValid() return true end
+    function capsule:K2_GetComponentLocation() return {Z=center} end
+    function capsule:GetScaledCapsuleHalfHeight() return height end
+    local pawn={CapsuleComponent=capsule}
+    function pawn:IsValid() return true end
+    function pawn:GetAddress() return pawn_id end
+    local U={valid=function(x) return x and x.IsValid and x:IsValid() end,
+        world_id=function() return world end,try=function(fn) local ok,v=pcall(fn);if ok then return v end end}
+    local sense={U=U,local_pawn=function() return pawn end}
+    local api={module=function(name) if name=="sense" then return sense end end}
+    local feet,status=sk.W.capsule_feet_z(api)
+    assert(status=="ok" and math.abs(feet - (-28.36))<0.0001)
+    height=120;feet,status=sk.W.capsule_feet_z(api);assert(status=="ok" and math.abs(feet - (-28.68))<0.0001)
+    for _,bad in ipairs({0,-1,math.huge,0/0}) do height=bad;feet,status=sk.W.capsule_feet_z(api);assert(feet==nil and status=="unknown") end
+    height=88;local calls=0;U.world_id=function() calls=calls+1;if calls==1 then return "dev" end return "other" end
+    feet,status=sk.W.capsule_feet_z(api);assert(feet==nil and status=="changed")
+    _G.DW_PAUSE=true;feet,status=sk.W.capsule_feet_z(api);_G.DW_PAUSE=nil;assert(feet==nil and status=="changed")
+end)
+
+test("interaction on-top guard uses measured bottom conservatively", function()
+    reset()
+    local sk=B.module("skills")
+    local oldfeet,olddet,oldrest,oldface=sk.W.capsule_feet_z,sk.W.detector,sk.W.resting_in,sk.W.face
+    local feet,status=-28.36,"ok"
+    sk.W.capsule_feet_z=function() return feet,status end
+    sk.W.detector=function() return {actor="stone",prompt="Use"} end
+    sk.W.resting_in=function() return nil end;sk.W.face=function() end
+    local owner={token=777,state="owner"};local oldarb=_G.DWArbiter;_G.DWArbiter={owner=owner}
+    local api={my_position=function() return {0,0,-27.48} end,
+       module=function(name) if name=="arbiter" then return {request=function() end,owns_move=function(t) return t==777 end} end end,
+       call=function() return {ok=true} end,fail=function(reason,data) return {ok=false,reason=reason,data=data} end}
+    local function episode() return {thing={id="stone",position={1,0,-28.76}},phase="approach",spots={{9,0,0}},spot_i=1,ipoint={1,0,-28.76},tol=.4,approaches=0} end
+    local e=episode();sk._episode_poll(api,e,1,777);assert(e.phase=="face")
+    feet=-27.0;e=episode();sk._episode_poll(api,e,1,777);assert(e.phase=="approach")
+    feet=nil;status="unknown";e=episode();sk._episode_poll(api,e,1,777);assert(e.phase=="approach")
+    status="changed";e=episode();sk._episode_poll(api,e,1,777);assert(e.phase=="approach")
+    _G.DWArbiter=oldarb;sk.W.capsule_feet_z,sk.W.detector,sk.W.resting_in,sk.W.face=oldfeet,olddet,oldrest,oldface
+end)
+
 test("manifest follows the modules: no move.follow -> no come_to/give (and no alias without fetch)", function()
     reset()
     local mv = B.module("move")
@@ -676,6 +720,8 @@ test("interact on a shelter: walk to the INTERACTION point's open side (not the 
     table.insert(F.world.interactables, shelter)
     F.move.position = { 20, 20, 5 } -- standing ON the tent (the 20:46 bug)
     local det0, sig0 = sk.W.detector, sk.W.press_signals
+    local feet0 = sk.W.capsule_feet_z
+    sk.W.capsule_feet_z = function() return nil, "unknown" end -- stable pawn, unavailable capsule: conservative center fallback
     local slept = false
     sk.W.detector = function()
         local p = F.move.position
@@ -690,7 +736,7 @@ test("interact on a shelter: walk to the INTERACTION point's open side (not the 
     sk.W.press_signals = function() return { sleeping = slept } end
     local _, id = rpc("interact", { target = shelter.id })
     local r = run(id, 40)
-    sk.W.detector, sk.W.press_signals, inv.press_interact = det0, sig0, p0
+    sk.W.detector, sk.W.press_signals, inv.press_interact, sk.W.capsule_feet_z = det0, sig0, p0, feet0
     assert(r and r.ok and r.data.changed == "sleeping", json.encode(r))
     local tg = F.move.target
     assert(math.abs(tg[1] - 22.5) < 0.01 and tg[2] == 20, "walked to the open side of the collider, not the origin: " .. json.encode(tg))

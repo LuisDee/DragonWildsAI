@@ -270,6 +270,30 @@ M.cfg.on_top_m = 1.0       -- standing this much above the interaction point = o
 local COLLIDER_PROPS = { "InteractionCollider", "InteractionCollision", "InteractionVolume", "InteractionBox",
                          "InteractionSphere", "InteractionComponent", "Interaction" }
 
+-- Read capsule bottom only when the old center-based guard says we may be on top.
+-- Unknown geometry keeps that conservative guard; identity changes defer the poll.
+function W.capsule_feet_z(api)
+    local sense = api.module("sense")
+    local U = sense and sense.U
+    if paused() or not (sense and sense.local_pawn and U and U.valid and U.world_id) then return nil, "changed" end
+    local root = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
+    local ok, world = pcall(U.world_id, root, {cache_s=0})
+    local pawn = sense.local_pawn()
+    if not ok or type(world) ~= "string" or world == "" or world == "unknown" or not U.valid(pawn) then return nil, "changed" end
+    local good, z, h = pcall(function()
+        local capsule = pawn.CapsuleComponent
+        if not U.valid(capsule) then return nil, nil end
+        local center = capsule:K2_GetComponentLocation()
+        return center and center.Z, capsule:GetScaledCapsuleHalfHeight()
+    end)
+    local again = sense.local_pawn()
+    local okw, world2 = pcall(U.world_id, root, {cache_s=0})
+    local same = U.valid(again) and U.try(function() return again:GetAddress() == pawn:GetAddress() end) == true
+    if paused() or not okw or world2 ~= world or not same then return nil, "changed" end
+    if not good or type(z) ~= "number" or z ~= z or math.abs(z) == math.huge or type(h) ~= "number" or h ~= h or h <= 0 or h == math.huge then return nil, "unknown" end
+    return (z - h) / 100, "ok"
+end
+
 function W.interaction_point(api, thing)
     local a = api.actor_of(thing)
     local s = api.module("sense")
@@ -539,7 +563,17 @@ local function episode_poll(api, e, t, owner_token)
         end
         local here = api.my_position()
         local d = here and goal and dist2d(here, goal)
-        local on_top = here and e.ipoint and e.spots and not e.shore and not e.small and (here[3] - (e.ipoint[3] or here[3])) > M.cfg.on_top_m
+        local on_top = false
+        if e.spots and not e.shore and not e.small then
+            local z, target_z = here and here[3], e.ipoint and e.ipoint[3]
+            if type(z) ~= "number" or z ~= z or math.abs(z) == math.huge or type(target_z) ~= "number" or target_z ~= target_z or math.abs(target_z) == math.huge then return nil end
+            on_top = z - target_z > M.cfg.on_top_m
+            if on_top then
+                local feet, status = W.capsule_feet_z(api)
+                if status == "changed" then return nil end
+                if feet ~= nil then on_top = feet - target_z > M.cfg.on_top_m end
+            end
+        end
         -- Exact native focus can establish reach even when a generated stand point is missed.
         -- The face phase re-reads focus before pressing; no fuzzy or alternate-target shortcut.
         local focus = not e.water and W.detector(api) or nil

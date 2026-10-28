@@ -21,7 +21,7 @@
 --                   position within cfg.arrive_m of the destination. Reasons: not_unlocked, missing_materials,
 --                   unknown_target, already_there, too_far, path_blocked, verification_failed, interrupted.
 -- Job plumbing (arbiter, pause, busy-wait, reflex, lease renewal, cancel/cleanup) is skills.lua's run_job.
--- UNVERIFIED live: steps 1-3 above; the map-close input after a refusal.
+-- Developer controls verified component teleport, success RPC and arrival; compound approach and cleanup require deployment validation.
 local ROOT = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
 local U = assert(loadfile(ROOT .. "/mod/body/util.lua"))()
 local M = { W = {} }
@@ -72,8 +72,8 @@ function W.can_teleport(api, from, to)
     local c = W.component(api)
     if not c or paused() then return nil end
     local v = U.try(function() return c:CanTeleport(from.guid, to.guid) end)
-    if v == nil then return nil end
-    return v == true
+    if type(v) ~= "boolean" then return nil end
+    return v
 end
 -- The cost item the game names (TeleportationCostItemData), read once per session -> {item, name} | nil
 function W.cost_item(api)
@@ -92,7 +92,9 @@ function W.cost(api, from, to)
     if not c or paused() then return nil, nil end
     local n = tonumber(U.try(function() return c:GetTeleportationCost(from.guid, to.guid) end))
     local afford = U.try(function() return c:CanAffordTeleportationCost(from.guid, to.guid) end)
-    return n, afford == nil and nil or afford == true
+    if not n or n ~= n or n == math.huge or n < 0 then n = nil end
+    if type(afford) ~= "boolean" then afford = nil end
+    return n, afford
 end
 function W.try_teleport(api, from, to)
     local c = W.component(api)
@@ -127,6 +129,9 @@ function W.map_ready(api)
     if paused() then return nil end
     local input = api.module("input")
     local pc = input and input.pc and input.pc()
+    local pawn = U.valid(pc) and U.try(function() return pc.Pawn end)
+    local world = U.world_id and U.try(function() return U.world_id(ROOT, {cache_s=0}) end)
+    if type(world) ~= "string" or world == "" or world == "unknown" or not U.valid(pawn) then return nil end
     local menus = U.find_all("MainMenuUIAPI", { skip_defaults = true }) or {}
     if not U.valid(pc) or #menus ~= 1 then return nil end
     local menu = menus[1]
@@ -140,9 +145,14 @@ function W.map_ready(api)
     if not (same_object(owner, pc) and same_object(current, panel) and same_object(active, parent)) then return nil end
     local final_pc = input.pc()
     local final_parent = U.try(function() return menu:GetCurrentScreenWidget() end)
+    local final_pawn = U.valid(final_pc) and U.try(function() return final_pc.Pawn end)
+    local final_world = U.world_id and U.try(function() return U.world_id(ROOT, {cache_s=0}) end)
     local final_active = U.try(function() return stack:GetActiveWidget() end)
-    if paused() or not (same_object(final_pc, pc) and same_object(final_parent, parent) and same_object(final_active, parent)) then return nil end
-    return { menu = menu, parent = parent, pc = pc }
+    if paused() or final_world ~= world or not (same_object(final_pc, pc) and same_object(final_pawn, pawn) and same_object(final_parent, parent) and same_object(final_active, parent)) then return nil end
+    return { menu = menu, parent = parent, pc = pc, pawn = pawn, world = world }
+end
+function W.same_ready(a, b)
+    return a and b and a.world == b.world and same_object(a.menu,b.menu) and same_object(a.parent,b.parent) and same_object(a.pc,b.pc) and same_object(a.pawn,b.pawn)
 end
 function W.close_map(api, ready)
     if not ready or paused() then return false end
@@ -175,7 +185,7 @@ local function describe(api, l, from, here, item)
     local p = l.respawn or l.position
     local r = { id = "lodestone:" .. l.key, position = p, distance = here and p and math.floor(d2(here, p) + 0.5) or nil }
     if from and from.key ~= l.key then
-        r.reachable = W.can_teleport(api, from, l)
+        r.can_teleport_now = W.can_teleport(api, from, l)
         local n, afford = W.cost(api, from, l)
         r.cost = n and { count = n, item = item and item.name or nil, can_afford = afford } or nil
     elseif from then r.here = true end
@@ -226,15 +236,7 @@ M.HANDLERS.teleport = function(log, args, ctx)
     local to = M.resolve(list, args.to)
     if not to then return api.fail("unknown_target", { to = args.to, detail = "I don't know that lodestone." }) end
     if to.key == from.key then return api.fail("already_there", { detail = "That's the lodestone I'm next to." }) end
-    if W.can_teleport(api, from, to) == false then
-        return api.fail("not_unlocked", { to = "lodestone:" .. to.key, detail = "I can't teleport there yet: that lodestone isn't unlocked for me." })
-    end
-    local n, afford = W.cost(api, from, to)
-    local item = W.cost_item(api) or { item = nil, name = "runes" }
-    if afford == false then
-        return api.fail("missing_materials", { missing = { { item = item.item, name = item.name, need = n } },
-            detail = "Teleporting there costs " .. tostring(n or "some") .. " " .. tostring(item.name) .. ", and I don't have enough." })
-    end
+    local n, item
     local stone -- the lodestone ACTOR nearest me (to walk to and press use on)
     for _, t in ipairs(api.census_things(80, 40) or {}) do
         if t.category == "interactables" and t.kind == "lodestone" and type(t.actions) == "table" then
@@ -329,6 +331,17 @@ M.HANDLERS.teleport = function(log, args, ctx)
             local owner = rawget(_G, "DWArbiter")
             claim = IN and IN.owner and IN.owner("screen")
             if not ready or not (owner and owner.owner and owner.owner.token == job.token) or not (claim and claim.owner == job.screen_owner) then return nil end
+            local can = W.can_teleport(api, from, to)
+            local count, afford = W.cost(api, from, to)
+            local cost_item = W.cost_item(api)
+            local again = W.map_ready(api)
+            owner = rawget(_G, "DWArbiter")
+            claim = IN and IN.owner and IN.owner("screen")
+            if not (again and W.same_ready(ready, again) and owner and owner.owner and owner.owner.token == job.token and claim and claim.owner == job.screen_owner) or paused() then return nil end
+            if can == false then return api.fail("verification_failed", {why="teleport_unavailable_now",detail="The game cannot teleport between these lodestones right now."}) end
+            if can ~= true or type(afford) ~= "boolean" or type(count) ~= "number" then return api.fail("state_unavailable", {detail="I can't verify teleport availability and cost right now."}) end
+            if not afford then return api.fail("missing_materials", { missing = {{item=cost_item and cost_item.item, name=cost_item and cost_item.name, need=count}}, detail="I can't afford the teleport cost." }) end
+            n, item = count, cost_item or {name="runes"}
             job.seq0 = W.success_seq()
             job.issued = true
             local ok, err = W.try_teleport(api, from, to)
@@ -355,14 +368,14 @@ M.HANDLERS.teleport = function(log, args, ctx)
     return h
 end
 
--- ---------- manifest (llm = false until verified live: steps 1-3 in the header are UNVERIFIED)
+-- ---------- manifest (model use remains operationally gated on the deployed compound developer control)
 local OBJ = { __jsontype = "object" }
 local function obj(t) return setmetatable(t or {}, OBJ) end
 M.MANIFEST = {
     lodestones = { kind = "read", llm = true, moves = false, duration_s = 0.5, timeout_s = 15,
-        description = "Lodestones you could fast-travel to: where they are, whether you can reach them from the nearest one, and the cost. Read-only.",
+        description = "Lodestones you could fast-travel to: where they are, whether teleport is currently available from the nearest one, and the cost. Read-only.",
         args = { type = "object", properties = obj() }, reasons = { "state_unavailable", "companion_down" } },
-    teleport = { kind = "action", llm = false, moves = true, priority = "command", duration_s = 20, timeout_s = 170,
+    teleport = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 20, timeout_s = 170,
         detail_is_speech = true,
         description = "Fast-travel like a player: walk to the nearest lodestone, use it, pick the destination on its map; checks you arrived.",
         args = { type = "object", required = { "to" }, properties = obj({

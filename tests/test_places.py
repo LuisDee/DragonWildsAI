@@ -104,7 +104,7 @@ def test_npc_copies_outside_any_known_province(places):
 
 
 def test_province_query_lists_regions_lodestones_and_known_points(places):
-    lodes = [{"id": "L2", "name": "Village stone", "position": [50, 50, 0], "reachable": True},
+    lodes = [{"id": "L2", "name": "Village stone", "position": [50, 50, 0], "can_teleport_now": True},
              {"id": "L1", "position": [-40, 40, 0]}]
     seen = [{"kind": "station", "name": "Furnace", "position": [30, 70, 0], "last_seen": 1}]
     top = res(places, "Northmoor", lodestones=lodes, remembered=seen)["results"][0]
@@ -154,13 +154,13 @@ def test_unknown_place_never_guessed(places):
 
 
 def test_own_knowledge_and_lodestones(places):
-    lodes = [{"id": "L2", "name": "Village stone", "position": [50, 50, 0], "reachable": True}]
+    lodes = [{"id": "L2", "name": "Village stone", "position": [50, 50, 0], "can_teleport_now": True}]
     saved = {"my base": {"position": [80, 10, 0], "note": "chests"}}
     seen = [{"kind": "station", "name": "Furnace", "position": [30, 70, 0], "last_seen": 1}]
     d = res(places, "my base", lodestones=lodes, saved=saved, remembered=seen)
     top = d["results"][0]
     assert top["kind"] == "saved" and top["position"] == [80, 10, 0] and "chests" in top["basis"]
-    assert top["nearest_lodestone"]["id"] == "L2" and top["nearest_lodestone"]["reachable"] is True
+    assert top["nearest_lodestone"]["id"] == "L2" and top["nearest_lodestone"]["can_teleport_now"] is True
     assert res(places, "furnace", remembered=seen)["results"][0]["source"] == "map memory"
     assert res(places, "village stone", lodestones=lodes)["results"][0]["kind"] == "lodestone"
     # a region's best point can be one he saw himself
@@ -266,3 +266,17 @@ def test_real_data_provinces():
     assert all(s["province"] for s in z["spots"])
     f = p.where("Fellhollow", temple)["data"]["results"][0]
     assert f["kind"] == "province" and "Bleakfields Valley" in [r["name"] for r in f["regions"]]
+
+
+@pytest.mark.parametrize("available", [True, False, None])
+def test_current_teleport_availability_survives_place_views(places, available):
+    lodes = [{"id": "L2", "position": [50, 50, 0], "can_teleport_now": available}]
+    saved = {"my base": {"position": [80, 10, 0]}}
+    nearest = res(places, "my base", lodestones=lodes, saved=saved)["results"][0]["nearest_lodestone"]
+    province = res(places, "Northmoor", lodestones=lodes)["results"][0]["lodestones"][0]
+    for view in (nearest, province):
+        assert "reachable" not in view
+        if available is None:
+            assert "can_teleport_now" not in view
+        else:
+            assert view["can_teleport_now"] is available

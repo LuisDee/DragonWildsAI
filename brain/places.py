@@ -204,7 +204,7 @@ class Places:
             ln = min(lodestones, key=lambda l: _d(l["position"], pos) or 1e12)
             out["nearest_lodestone"] = {k: v for k, v in {
                 "id": ln.get("id"), "name": ln.get("name"), "distance_from_it_m": _d(ln["position"], pos),
-                "reachable": ln.get("reachable"), "cost": ln.get("cost")}.items() if v is not None}
+                "can_teleport_now": ln.get("can_teleport_now"), "cost": ln.get("cost")}.items() if v is not None}
         return out
 
     def _landmark_answer(self, name: str, how: str, here, lodestones, within: list[dict] | None = None) -> dict:
@@ -302,7 +302,7 @@ class Places:
             ans["lodestones"] = [{k: v for k, v in {
                 "id": l.get("id"), "name": l.get("name"), "region": self.region_name(l["position"]),
                 "distance_m": _d(here, l["position"]) if here is not None else None,
-                "reachable": l.get("reachable")}.items() if v is not None} for l in lodes_in[:5]]
+                "can_teleport_now": l.get("can_teleport_now")}.items() if v is not None} for l in lodes_in[:5]]
         mine = sorted(((k, p) for k, p in known if self._in_province(p, name) and not k.startswith("lodestone")),
                       key=lambda c: far(c[1]))
         if mine:
@@ -336,7 +336,7 @@ class Places:
               remembered: Iterable[dict] | None = None, saved: dict | None = None, limit: int = 4) -> dict:
         """Honest facts about where ``query`` is. ``remembered``: map memory sightings ({name, position, kind,
         last_seen}); ``saved``: StateStore.places() ({name: {position, note}}); ``lodestones``: the body's
-        lodestones read ({id, name?, position, reachable?, cost?})."""
+        lodestones read ({id, name?, position, can_teleport_now?, cost?})."""
         q = _terms(query)
         if not q:
             return {"ok": False, "reason": "invalid_args", "data": {"error": "empty place name"}}

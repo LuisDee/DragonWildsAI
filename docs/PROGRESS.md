@@ -1,5 +1,43 @@
 # Progress log (append-only)
 
+### Lodestone candidate full gate GREEN; deployment control pending (2026-10-28)
+
+1248 passed,1 known cassette skip,408.67s,CHECK_ALL: GREEN. All8 frozen
+file hashes unchanged and approved judge diff empty. Gate: private
+R/logs/recovery/g-12787d74/check-all.log. Cold integration review approved.
+This checkpoint stages teleport exposure but authorizes NO model on the new
+body until the deployed compound developer control verifies approach, map,
+success RPC+arrival, observed UI cleanup and strict idle under the recorded
+pre-map fixed-zero headless presentation setup. Current models remain off.
+Navigation preposition reached[181.68,1818.18,-29.14] healthy, but reported
+route_ended_before_goal against an elevated supplied target; retain failure,
+not a go_to success. One earlier local jump landing failed; short bypass passed.
+
+### Pickaxe chain passes; open Mining level-up request remains unfinished (2026-10-28)
+
+On deployed 5d2f662 (companion dfb9f381f3bef0d3, body bdd353601322c576),
+Haiku answered “Can you make yourself a pickaxe, equip it, and mine some stone?”
+by querying recipes/stations, crafting and equipping a Stone Pickaxe, breaking
+a stone node and collecting 13 Stone. Five Haiku controller calls, no planner,
+45.562 seconds, $0.0050. Native Mining 22/level1 -> 35/level2 and Artisan
+56/level2 -> 76/level3; health100 and strict idle afterward. Carried resources,
+existing self-built table and earlier DEV grants make this a stock-assisted
+diagnostic, not a from-scratch or formal M1-M6 pass.
+
+The separate request “Train your Mining skill until you gain another level”
+FAILED: Mining35 -> 42, level2 unchanged, 11 Haiku calls, 129.984 seconds,
+$0.0098. A gather reported zero hits/six swings/body_error; Haiku chose loose
+stone collection, replenished water, then exhausted continuation turns with
+an explicit unfinished reply. Neither the 20-call nor 300-second pilot cap hit.
+Developer follow-up on the unchanged body succeeded: observed living boulder
+75HP -> 0, ten Stone, Mining42 -> 55, pickaxe durability1144 -> 1116,
+26.5 seconds and clean ownership afterward. The earlier failure cause is open.
+
+Private evidence: R/logs/recovery/feedback-loop-20261028/verified-pickaxe-chain.json,
+verified-mining-level.json and developer-mining-feedback-control.json. No hints,
+grants or operator input occurred during either Haiku episode; developer results
+remain separate. UTC API total after both trials: $0.0850,86 Haiku calls.
+
 ### Original new-axe-then-tree request completes from carried stock (2026-10-28)
 
 On unchanged5d2f662 code, Haiku initially received no-station-in-range fromcraft,

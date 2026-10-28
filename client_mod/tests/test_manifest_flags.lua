@@ -14,7 +14,9 @@ local function entry(mod, tool) local m = load(mod); return m.MANIFEST and m.MAN
 local want = {
     { "build", "build", true, "action" }, { "build", "buildables", true, "read" },
     { "quests", "quests", true, "read" },
-    { "lodestone", "teleport", false, "action" }, { "lodestone", "lodestones", true, "read" },
+    -- Lodestone staging: two native component controls passed; full compound proof is pending.
+    -- All model launches remain forbidden until that proof passes on the final deployed code.
+    { "lodestone", "teleport", true, "action" }, { "lodestone", "lodestones", true, "read" },
     { "shoot", "shoot", false, "action" },
 }
 for _, w in ipairs(want) do

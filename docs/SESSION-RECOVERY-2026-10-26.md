@@ -1,5 +1,41 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+### Lodestone candidate full gate GREEN; deployment control pending (2026-10-28)
+
+1248 passed,1 known cassette skip,408.67s,CHECK_ALL: GREEN. All8 frozen
+file hashes unchanged and approved judge diff empty. Gate: private
+R/logs/recovery/g-12787d74/check-all.log. Cold integration review approved.
+This checkpoint stages teleport exposure but authorizes NO model on the new
+body until the deployed compound developer control verifies approach, map,
+success RPC+arrival, observed UI cleanup and strict idle under the recorded
+pre-map fixed-zero headless presentation setup. Current models remain off.
+Navigation preposition reached[181.68,1818.18,-29.14] healthy, but reported
+route_ended_before_goal against an elevated supplied target; retain failure,
+not a go_to success. One earlier local jump landing failed; short bypass passed.
+
+## Latest override: third Haiku chain passed; Mining level-up failed
+
+Goal ACTIVE. Runtime R7a57779 carries tested5d2f662 source; no API brain remains.
+Client4964/pawn3115, server7016, Steam3284 remain adopted. Root owns root-feedback
+slot; inspect/renew before actions. Pickaxe chain passed5calls/45.562s/$0.0050:
+craft/equip/mine13Stone, native Mining22 -> 35(level2), Artisan56 -> 76(level3).
+Next open Mining level-up trial failed11calls/129.984s/$0.0098:35 -> 42XP,
+level2 unchanged; body_error then pickup/water/continuation bound. Developer
+repeat on living boulder passed75HP -> 0,+10Stone,+13XP, durability1144 -> 1116,
+strict idle. No root-cause or autonomous level-up claim. Private evidence is in
+R/logs/recovery/feedback-loop-20261028; API total$0.0850/86calls, no unpriced.
+
+F is the feedback-loop worktree, isolated from R. Eight copied Lodestone/places
+files are independently cold-approved; full gate g-12787d74 is running under
+parent exec58750, frozen hashes in its private folder. No new native source is
+deployed yet. After GREEN/hash agreement, checkpoint and brief announced
+client-only publication, retain server/Steam/world memories. Configure reviewed
+public menu-stack zero transition BEFORE any map in the fresh client, record
+this temporary headless setup, and prove full developer approach/map/use/
+success RPC+arrival/verified UI cleanup/strict idle before ANY model on that
+new body. Staged manifest llm=true alone is not admission. Old W remains dirty
+and preserved. All M1-M6 remain unmet. See newer overrides above this one.
+
 ## Latest override: second clean Haiku chain; new axe produced and tree felled
 
 GoalACTIVE, Rmaincode5d2f662/companiondfb9f381/bodybdd353, metadataD611ornewer.

@@ -1,5 +1,15 @@
 # Discoveries
 
+### Haiku composes pickaxe production, equip and native mining (2026-10-28)
+
+One stock-assisted diagnostic on5d2f662 produced a new Stone Pickaxe through
+the real table, equipped BP_Pickaxe_Stone_C and broke a native stone node,
+collecting13Stone. Independent Mining22 -> 35/level1 -> 2 and Artisan56 -> 76
+corroborate production/work; all5provider calls used Haiku, no planner.
+This is the third completed diagnostic task chain on the feedback repair,
+not statistical generalisation or a milestone pass. A subsequent open level-up
+request failed and remains in BUGS rather than being counted as another pass.
+
 ### Haiku recovers missing crafting station and completes production request
 
 Recipe/stationfeedbackledtobuildingCraftingTable(4AshLogs,12ConstructionXP),

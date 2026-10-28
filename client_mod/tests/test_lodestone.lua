@@ -13,7 +13,7 @@ function StaticFindObject() return nil end
 
 local L = assert(loadfile(root .. "/client_mod/scripts/lodestone.lua"))()
 local W = L.W
-local native_open, native_closed, native_ready = W.map_open, W.map_closed, W.map_ready
+local native_open, native_closed, native_ready, native_cost = W.map_open, W.map_closed, W.map_ready, W.cost
 local T = 0
 local G
 local INPUT
@@ -32,7 +32,8 @@ local function reset(opts)
     W.cost_item = function() return { item = "ITEM_Rune_Law", name = "Law Rune" } end
     W.map_open = function() return G.map end
     W.map_closed = function() return not G.map end
-    W.map_ready = function() if G.ready == false then return nil end return {menu={},parent={}} end
+    W.map_ready = function() if G.ready == false then return nil end return {menu={},parent={},pc={}} end
+    W.same_ready = function() return true end
     W.close_map = function() G.closes = G.closes + 1; G.map = false; return true end
     W.try_teleport = function(_, f, t)
         G.tries[#G.tries + 1] = { f.key, t.key }
@@ -102,15 +103,36 @@ check("teleport by id: ok", r and r.ok)
 -- the game's gates before any walk or press
 reset({ can = false })
 r = teleport({ to = "lodestone:bbbb" })
-check("CanTeleport false: not_unlocked, no press", r.reason == "not_unlocked" and #G.tries == 0 and G.ep_polls == 0)
+check("CanTeleport false at map: currently unavailable, no teleport", r.reason == "verification_failed" and r.data.why == "teleport_unavailable_now" and #G.tries == 0 and G.ep_polls > 0)
 reset({ afford = false })
 r = teleport({ to = "lodestone:bbbb" })
-check("can't afford the runes: missing_materials with the cost", r.reason == "missing_materials" and r.data.detail:find("3 Law Rune"), r.data and r.data.detail)
+check("can't afford the runes: missing_materials with the cost", r.reason == "missing_materials" and r.data.missing[1].need == 3, r.data and r.data.detail)
 reset()
 r = teleport({ to = "lodestone:aaaa" })
 check("the one I'm at: already_there", r.reason == "already_there")
 r = teleport({ to = "Manafem Plains" })
 check("a name is not resolved here (no false promise): unknown_target", r.reason == "unknown_target")
+
+-- Availability is checked at the open map, not at the remote starting point.
+reset({can=false})
+local dynamic=L.HANDLERS.teleport(nil,{to="lodestone:bbbb"},{api=api,id="dynamic"})
+T=T+1;dynamic.pending:poll(); G.can=true
+local dynamic_result
+for _=1,20 do T=T+1;dynamic_result=dynamic.pending:poll();if dynamic_result then break end end
+check("availability can change during approach",dynamic_result and dynamic_result.ok and #G.tries==1)
+reset(); W.can_teleport=function() return nil end
+r=teleport({to="lodestone:bbbb"})
+check("unknown availability cannot submit",r and r.reason=="state_unavailable" and #G.tries==0)
+reset(); W.cost=function() return 3,nil end
+r=teleport({to="lodestone:bbbb"})
+check("unknown affordability cannot submit",r and r.reason=="state_unavailable" and #G.tries==0)
+reset(); W.can_teleport=function() return "yes" end
+r=teleport({to="lodestone:bbbb"})
+check("nonboolean availability cannot submit",r and r.reason=="state_unavailable" and #G.tries==0)
+reset(); W.can_teleport=function() _G.DWArbiter.owner={token=99};return true end
+dynamic=L.HANDLERS.teleport(nil,{to="lodestone:bbbb"},{api=api,id="replacement"})
+for _=1,5 do T=T+1;dynamic.pending:poll() end
+check("owner change during check prevents submit",#G.tries==0)
 
 -- the map never opens -> verification_failed, no teleport
 reset({ no_map = true })
@@ -164,6 +186,12 @@ check("suspend requests own map closure and retains claim", not G.map and G.clos
 G.job.on_suspend()
 check("suspend releases claim after observed closure", INPUT.current == nil)
 
+-- Real scalar adapter preserves an unreadable affordability rather than false.
+reset()
+W.component=function() return {GetTeleportationCost=function() return 3 end,CanAffordTeleportationCost=function() return nil end} end
+local scalar_count,scalar_afford=native_cost(api,{guid={}},{guid={}})
+check("native nil affordability remains unknown",scalar_count==3 and scalar_afford==nil)
+
 -- The production widget census distinguishes closed from unknown; IsShowingMap is not used.
 reset()
 INPUT.observe_screens = function() return {{type=13,name="Map"},{type=29,name="TopBarMenu"}} end
@@ -182,6 +210,7 @@ local function object(id)
             GetFullName=function() return "Class /Transient/" .. tostring(id) end}
 end
 local pc, other, panel, parent, stack, root_widget, menu = object(1),object(2),object(3),object(4),object(5),object(6),object(7)
+pc.Pawn=object(8);_G.DW_WORLD_GUID="dev"
 parent.GetOwningPlayer=function() return pc end;parent.MapPanel=panel;parent.CurrentScreenWidget=panel
 stack.GetActiveWidget=function() return parent end;root_widget.MainMenuStack=stack;menu.MainMenuWidget=root_widget
 menu.GetCurrentScreenWidget=function() return parent end
@@ -223,7 +252,7 @@ check("suspension does not replay issued teleport",#G.tries==1 and res and res.o
 reset()
 local lr = L.HANDLERS.lodestones(nil, {}, { api = api })
 check("lodestones: nearest first, the far one reachable with the cost item the game names", lr.ok and lr.data.lodestones[1].here == true
-    and lr.data.lodestones[2].reachable == true and lr.data.lodestones[2].cost.count == 3 and lr.data.lodestones[2].cost.item == "Law Rune")
+    and lr.data.lodestones[2].can_teleport_now == true and lr.data.lodestones[2].cost.count == 3 and lr.data.lodestones[2].cost.item == "Law Rune")
 
 print(string.format("%d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

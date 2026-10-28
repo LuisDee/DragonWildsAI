@@ -1,5 +1,22 @@
 # Live bug ledger
 
+### Mining level-up: failed action feedback and bounded continuation (2026-10-28)
+
+OPEN. In mining_level_83115a601a Haiku initially selected an observed depleted
+boulder for attack/interact; the subsequent gather independently approached a
+living boulder and returned inputs_not_reaching_game (0hits/6swings), while
+native Mining XP rose35 -> 42 across the episode. Do not infer attribution or
+root cause from that discrepancy. It then selected pickup mode (honest
+expected_training=none), handled hydration and exhausted the allowed continuation
+slice with the original request retained. Level2 did not advance. Eleven calls
+and130s were below the private pilot's20-call/300s limits.
+
+One developer repeat on unchanged5d2f662 verified a different living boulder
+75HP -> 0, six reported hits/seven swings,10Stone,+13MiningXP and28durability
+spent. Thus a universal broken mining input path is not established. Preserve
+both traces; next diagnosis must discriminate the failing target/observation
+and control conditions before changing policy, caps or hit accounting.
+
 ### New-axe intent failure no longer reproduces in one carried-stock trial
 
 Unchanged exactrequest completed: afterinitialcraft no-station failure Haiku
