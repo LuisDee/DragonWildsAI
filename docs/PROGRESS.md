@@ -1,5 +1,25 @@
 # Progress log (append-only)
 
+### Haiku built its own missing station and completed water chain (2026-10-28)
+
+On deployed5d2f662/companiondfb9f381f3bef0d3/bodybdd353601322c576, Haiku
+received a natural additional-water request. It drank, fetched2 pondwater,
+queried nearby stations, foundnone, examinedbuildables, builtCampfire near
+pond and crafted2CleanWater atitsown newstation. No hints/grants/operator
+inputs duringepisode. Startingstockincluded previouslygrantedStone, tools,
+food/runes and prior developercontrols: resources-assisted, notfromscratch.
+
+Nativeproof: Construction128->140 (+12),Cooking131->133 (+2),Stone32->26,
+netCleanWater+1 after1drink and2outputs, health100. ActualnewstationID observed
+instateandcraftresult. 7Haiku controllercalls/0planner,79.77s episode,
+106.03s totalmonitoredprocess,$0.0055. Strictterminalidle/noowner/noUI,
+external300swatchdognotexpired; independentafterprobeagreed. All3action
+continuationpromptscontained suppliedfreshobservations (unknownstations at
+pond, thennewcampfireID/distance). ThisisN=1 diagnosticgameplayPASS, no formal
+M1-M6 orstatisticalcausalclaim. RawR/feedback-loop-20261028/verified-water-chain.json
+and no-axe-pilot-20261028-171029-c117f4b6.json, source/driver/setup retained.
+SharedUTCspend$0.0601/59calls0unpriced. RemainingLODstock26Stone20Essence1Core.
+
 ### Continuation feedback repair: gate passed, live trial next (2026-10-28)
 
 Isolated feedback candidate adds the already-read current observation to the

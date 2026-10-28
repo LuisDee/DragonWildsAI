@@ -1,5 +1,33 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Latest override: feedback5d2f662 deployed; clean Haiku station/water PASS
+
+GoalACTIVEexplicitlyresumed. CurrentFfeedback-loop clean sourcecheckpoint,
+Rmain5d2f662 pushed/deployed; sourcefullgate1245/1skipGREEN410.69s fourhashes
+verified, judgeb5057d95be92c264diff[]. Pythononlypublication; client4964 pawn3115,
+server7016Steam3284 unchanged. Bodybdd353601322c576 unchanged; no restart.
+
+Haikutrialfeedback_5815c23438 TERMINALexit0,7controller/0planner calls79.77s,
+$0.0055; parent106.03s/watchdog300sNOTexpired. Drank/fetchedpondwater/readstations/
+builtownCampfire/crafted2CleanWater; nativeConstruction+12,Cooking+2,netwater+1,
+health100,strictidle/noowner/Gameplay. All3continuationscarryfreshobs. Starting
+stock/food andpriorStonegrantsareassistance; no episodeinterventions. Single
+trialdiagnosticPASS, noGOALmilestone/causalrateclaim. RawRlogs/recovery/feedback-loop-20261028/
+verified-water-chain.json andhaiku-independent-after.json; trialparent/stdout
+infeedback_5815c23438; pilotresultno-axe-pilot-20261028-171029-c117f4b6.json.
+No modelbrain remains; rootsole root-feedback slot currently reserved. Client
+atnewCampfire[157.37,1914.22,-31.06], stationID BP_Station_Campfire_C_2147462563.
+SharedUTC$0.0601/59calls0unpriced. Stock31AshLogs26Stone20Essence1VaultCore,
+8CleanWater10Bread atindependentafterprobe; modelused6ofLODreservedStone.
+
+Nextmeaningful measurement: original make-new-axe-then-tree request with
+carriedstock, no recipe/method hints and actualnewaxe/count/station/tree/XP
+plusstrictcleanup evidence. Reusereviewed20call300spilot/SignalWatchdog,
+refreshDEV/identity/slot/budget beforebatch. Explicitlyattributeexistingresources.
+OldWcompanion-development dirtyLOD/placecandidate preserveduntouched/unpublished;
+notpartofthisGREEN andnotrequiredforfeedbacktrial. LowestM1stillunmet; donot
+claimoriginalfromscratchaxeobjectiveorothermilestone fromwater success.
+
 ## Latest override: Goal resumed, isolated feedback repair GREEN (2026-10-28)
 
 Luis explicitly resumed Goal ACTIVE. F is current clean-scope development tree:

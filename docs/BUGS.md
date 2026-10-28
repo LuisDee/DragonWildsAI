@@ -1,5 +1,16 @@
 # Live bug ledger
 
+### Continuation feedback repair verified in actual Haiku input (2026-10-28)
+
+5d2f662 is pushed/deployed. All3actioncontinuations of7callwater/build/process
+trial carried the newboundedcurrentobservation, including changedposition,
+hydration and newstationID/distance. Originalrequest andper-callresults stayed
+inactualproviderinput. Nativeoutcomesandstrictcleanup passed. This verifies
+feedbackdelivery; N=1 anddifferenthistoricalbodydo notestablish causalrate
+gain orfullperceptioncoverage. Freshinventorysummarycanstillclip low-priority
+items behindlarge rune stacks; honestomission/readconfidence remainsvisible.
+Initialsummary/perk/UIcoverageandlegacyPlanner pathsremainfollowups.
+
 ### Fresh continuation state omitted from provider input: repair gated (2026-10-28)
 
 Controller.next_turn now appends bounded supplied-current observation after

@@ -1,5 +1,15 @@
 # Discoveries
 
+### Haiku independently constructs a missing processing station (2026-10-28)
+
+Aftercollecting2pondwater, stationreadreturnednone; Haiku chosebuildables,
+builtCampfire andselecteditsactualnewID forcrafting2CleanWater. Nativebuild
+cost6Stone, Construction+12XP (catalogestimate20),Cooking+2XP. No episode
+operatorhints/grants/actions. SixStonecamefromcarriedassistedstock, so this
+provesplanning/construction/usewithmaterials, notstoneacquisition. Health100,
+strictidle/noclaims/Gameplay atterminal. ActualHaikuinputshowedunknownstation
+coverageaftertravel andthefreshnewstation2.87m awayafterconstruction.
+
 ### Native water chain now settles its mover (2026-10-28)
 
 Developer control on tested19302df: collect2 pond water, return to campfire,
