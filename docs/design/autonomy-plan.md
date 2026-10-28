@@ -8,6 +8,33 @@ recovery notes. It controls implementation priorities over the historical task
 lists below. The original M1-M6 objective, milestone order, approved judges,
 evidence requirements and sign-off remain unchanged.
 
+### Immediate priority — Luis, 2026-10-29
+
+The active Goal now uses [the updated prompt](../NEXT-GOAL-PROMPT.md).
+Reliable traversal, truthful perception and sustained tasks take priority over
+the historical recovery/setup order below. First prove three unassisted complete
+Sonnet/Haiku walking round trips: temple lodestone -> at least 200 metres outside
+the temple -> the same lodestone on the correct floor. No temple-specific code,
+hidden intermediate waypoints or teleportation. Verify a changed destination and
+another slope/doorway. These are additional diagnostics; original M1-M6 judges
+and completion requirements are unchanged.
+
+Diagnose agent/NavData selection, projection/floor identity, coordinate units,
+capsule feet/centre, collision/steps/slopes, streaming, waypoint authority and
+moving targets before selecting a repair. A partial route is not proof of no
+walkable route. Audit the actual headless observation -> target selection ->
+native interaction -> UI state -> verified outcome loop. Follow with purposeful
+exploration and sustained gather/return/deposit work, then original progression.
+
+After each failed live experiment inspect its trace and search primary sources
+before another experiment; do not keep repeating an unchanged failed attempt.
+Persist evidence and reuse/adapt/build decisions. The initial source/tooling
+survey is in [the research record](../research/2026-10-29-traversal-perception-direction.md).
+Luis explicitly requested an Astra adversarial navigation review and a separate
+Sol headless interaction/source review. Root owns integration and the one DEV
+client; those reviewers do not operate it. No new autonomous pass is implied by
+research, offline tests, manual help or a diagnostic probe.
+
 ### Standing decisions
 
 1. **Keep the reusable, two-speed architecture.** Sonnet researches and maintains
