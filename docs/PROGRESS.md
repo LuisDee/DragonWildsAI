@@ -1,5 +1,22 @@
 # Progress log (append-only)
 
+### Original new-axe-then-tree request completes from carried stock (2026-10-28)
+
+On unchanged5d2f662 code, Haiku initially received no-station-in-range fromcraft,
+queriedbuildables, gathered5AshLogs, builtCraftingTable, crafted1StoneLoggingAxe,
+called equip, then felledanotherstandingAshTree andcollected5morelogs. Exact
+originalrequest, no recipe/method hints oroperatorinputs/grants duringepisode.
+Resourcesassisted: carriedstockincludedearliergrantedStone; notallingredients
+weregatheredfromscratch. Equipreportedalready=true; useofnewaxeinstanceisnotproven.
+
+Native: axe1->2,Stone26->20,Ash31->29 (+10gathered-4table-8axe),Artisan36->56,
+Construction140->152,Woodcutting372->446(level8->9),health100. ElevenHaiku
+controllercalls/0planner,123.02s episode,148.05s monitoredprocess,$0.0101.
+Pilotandindependentafterproof strictidle/noowner/Gameplay,watchdognotexpired.
+DiagnosticPASSofcarried-resource request; originalfromscratchvariantandM1-M6
+remainunmet. RawRfeedback-loop-20261028/verified-newaxe-chain.json and
+no-axe-pilot-20261028-172215-2545dd24.json. SharedUTC$0.0702/70calls0unpriced.
+
 ### Haiku built its own missing station and completed water chain (2026-10-28)
 
 On deployed5d2f662/companiondfb9f381f3bef0d3/bodybdd353601322c576, Haiku

@@ -1,5 +1,27 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Latest override: second clean Haiku chain; new axe produced and tree felled
+
+GoalACTIVE, Rmaincode5d2f662/companiondfb9f381/bodybdd353, metadataD611ornewer.
+Ffeedback-loop clean source, oldWdirtyLODcandidate preserveduntouched. Client4964
+pawn3115/server7016/Steam3284 unchanged. Rootsole root-feedbackslotoperator.
+newaxe_bfdbc18868 TERMINALexit0/watchdognotexpired,11Haikucalls123.02s/$0.0101.
+Exactoldrequestcompletedfromcarriedstock: initialcraftno-station -> gather5logs
+-> buildCraftingTable -> craftnewaxe -> equip(alreadyheld) -> fellanother tree
+andgather5logs. Axe1->2,Construction+12,Artisan+20,Woodcutting+74(level9),health100,
+strictidle/noowner/Gameplay independentlychecked. StartingStoneassisted;
+newinstanceusage/fromscratchobjective/M1-M6 NOTproven. RawRfeedback-loop-20261028/
+verified-newaxe-chain.json,newaxe-independent-after.json; pilotresult
+no-axe-pilot-20261028-172215-2545dd24.json. No modelbrain currentlyrunning.
+
+Resourceslastprobe29AshLogs20Stone20Essence1VaultCore; twoStoneLoggingAxes.
+WaterfirstchainalsoPASSN1fromstock, builtownCampfire/+12CXP/+2Cooking.
+SharedUTC$0.0702/70calls0unpriced. Reuseexistingtesteddeploymentfornextdistinct
+capabilitycase; no fullgatererunorclientrestartunlesscodechanges. Nextsmall
+transfercaseunderconsideration: makepickaxe/equip/mineStone usingcurrenttable,
+20calls300s, notformalheldoutclaim. DEV/slot/identity/budget/idle beforelaunch.
+Preserveworldmemory. Do notrestoreoldWoverR; LODrepairisstillparkedunpublished.
+
 ## Latest override: feedback5d2f662 deployed; clean Haiku station/water PASS
 
 GoalACTIVEexplicitlyresumed. CurrentFfeedback-loop clean sourcecheckpoint,

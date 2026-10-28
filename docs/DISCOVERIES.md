@@ -1,5 +1,14 @@
 # Discoveries
 
+### Haiku recovers missing crafting station and completes production request
+
+Recipe/stationfeedbackledtobuildingCraftingTable(4AshLogs,12ConstructionXP),
+thenStoneLoggingAxe(8AshLogs+6Stone,20ArtisanXP), thena secondstandingtreefell
+andnewwoodcollected. Nativeaxeaggregate1->2 independentlyverified. Existing
+loggingaxeremainedheld(equipalready); do notclaimnewinstanceequipped. Two
+harvestsadded10logs/+74WoodcuttingXP, reachinglvl9. No mid-episodeassistance;
+startingStonewaspreviouslygranted, soresourceacquisitionfromscratchunproven.
+
 ### Haiku independently constructs a missing processing station (2026-10-28)
 
 Aftercollecting2pondwater, stationreadreturnednone; Haiku chosebuildables,

@@ -1,5 +1,13 @@
 # Live bug ledger
 
+### New-axe intent failure no longer reproduces in one carried-stock trial
+
+Unchanged exactrequest completed: afterinitialcraft no-station failure Haiku
+builtCraftingTable, craftedadditionalaxe andfelledanother tree. Stock/different
+worldhistory confoundhistoricalcomparison; thisisonepostfixsuccess, notproof
+feedbackrepairalonefixedmodelintent. Newaxeinstanceusageunknown(equipalready).
+Keep originalfailures/fromscratchresourceobjective open untilmatchedrepeats.
+
 ### Continuation feedback repair verified in actual Haiku input (2026-10-28)
 
 5d2f662 is pushed/deployed. All3actioncontinuations of7callwater/build/process
