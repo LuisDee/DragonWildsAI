@@ -18,6 +18,7 @@ typed params, runAsAction timeout).
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -143,20 +144,23 @@ class Capabilities:
         return new, (mapper(args) if mapper else dict(args))
 
     def validate(self, name: str, args: dict) -> dict:
-        """Check args against the body's published schema, fill its top-level defaults, then (when the
-        brain has a typed model for the tool) normalise through it. Raises ManifestError/ValueError."""
+        """Validate manifest args and its top-level defaults; otherwise use the legacy typed model."""
         e = self.manifest.get(name)
-        clean = {k: v for k, v in (args or {}).items() if v is not None}
         if e is not None:
-            schema = e.get("args") or {"type": "object"}
+            clean = deepcopy(args if args is not None else {})
+            schema = e.get("args", {"type": "object"})
             try:
+                jsonschema.validate(clean, schema)
+                if isinstance(schema, dict):
+                    for k, p in (schema.get("properties") or {}).items():
+                        if k not in clean and isinstance(p, dict) and "default" in p:
+                            clean[k] = deepcopy(p["default"])
                 jsonschema.validate(clean, schema)
             except jsonschema.ValidationError as exc:
                 raise ManifestError(f"{name}: {exc.message}") from exc
-            for k, p in (schema.get("properties") or {}).items():
-                if k not in clean and isinstance(p, dict) and "default" in p:
-                    clean[k] = p["default"]
-        if name in TOOLS:  # typed defaults; unset optionals stay absent (the body's schema decides them)
+            return clean
+        clean = {k: v for k, v in (args or {}).items() if v is not None}
+        if name in TOOLS:
             return {k: v for k, v in validate_args(name, clean).items() if v is not None}
         return clean
 
@@ -188,9 +192,10 @@ def discover(client: BridgeClient, log: JsonlLogger | None = None, timeout: floa
     else:
         caps = probe(client, timeout)
         caps.missing.setdefault(protocol.CAPABILITIES, str(res["reason"]))
+    client.manifest_tools = frozenset(caps.manifest)
+    client.manifest_validator = caps.validate if caps.manifest else None
     if caps.manifest:
         client.timeouts.update(caps.timeouts())
-        client.manifest_tools = frozenset(n for n in caps.manifest if n not in BODY_TOOLS)
     if log:
         log.log("capabilities", source=caps.source, tools=caps.tools, skills=caps.skills(), missing=caps.missing,
                 manifest=sorted(caps.manifest), llm_tools=caps.llm_tools() if caps.manifest else None,

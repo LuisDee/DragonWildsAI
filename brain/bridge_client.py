@@ -276,7 +276,9 @@ class BridgeClient(GameInterface):
         return self.request(name, args)
 
     def get_state(self) -> ActionResult:
-        res = self._tool("get_state")
+        return self._state_result(self._tool("get_state"))
+
+    def _state_result(self, res: ActionResult) -> ActionResult:
         if res.get("ok") and isinstance(res.get("data"), dict):
             for hook in self.state_hooks:
                 try:
@@ -366,6 +368,10 @@ class BridgeClient(GameInterface):
     def call_raw(self, tool: str, args: dict) -> ActionResult:
         # composite skills (fetch, consume, come_to, recover_grave) and manifest-only tools
         return self.request(tool, _drop_none(args))
+
+    def call_manifest(self, tool: str, args: dict) -> ActionResult:
+        res = self.request(tool, args)
+        return self._state_result(res) if tool == "get_state" else res
 
     def poll_events(self) -> list[Event]:
         for msg in self.transport.receive(0.0):

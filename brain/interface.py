@@ -623,12 +623,18 @@ class GameInterface(ABC):
     def clear_rule(self, id: str | None = None, enemy: str | None = None, all: bool = False) -> ActionResult:
         return fail(Reason.NOT_IMPLEMENTED, tool="clear_rule")
 
-    # Tools a body's capability manifest added that the brain has no model for (validated by the
-    # Controller against the manifest's JSON schema, sent as is). Set by brain.capabilities.discover.
+    # Set by discover; mocks may still register extra tools without a validator.
     manifest_tools: frozenset[str] = frozenset()
+    manifest_validator = None
 
     def call(self, tool: str, args: dict) -> ActionResult:
         """Dispatch a tool by name after validating its arguments."""
+        if tool in self.manifest_tools and self.manifest_validator is not None:
+            try:
+                clean = self.manifest_validator(tool, args)
+            except Exception as exc:
+                return fail(Reason.INVALID_ARGS, tool=tool, detail=str(exc))
+            return self.call_manifest(tool, clean)
         if tool not in BODY_TOOLS:
             if tool in self.manifest_tools:
                 return self.call_raw(tool, dict(args))
@@ -648,6 +654,10 @@ class GameInterface(ABC):
         if not any(p.kind == p.VAR_KEYWORD for p in params.values()):
             clean = {k: v for k, v in clean.items() if k in params or v is not None}
         return method(self, **clean)
+
+    def call_manifest(self, tool: str, args: dict) -> ActionResult:
+        """Dispatch already validated manifest args; bridge clients preserve them on the wire."""
+        return self.call_raw(tool, args)
 
     def call_raw(self, tool: str, args: dict) -> ActionResult:
         """Send a tool without a typed method (bodies that can: the bridge client)."""
