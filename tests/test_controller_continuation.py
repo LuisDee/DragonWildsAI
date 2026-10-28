@@ -495,8 +495,36 @@ def test_ambient_between_selected_actions_preserves_partial_turn(tmp_path):
     assert results['first-id']['data']['target'] == INFUSION
     assert results['second-id']['data']['target_position'] == [1, 2, 3]
     assert r.body.said.count('Doing it.') == 1
+    action_rows = [row for row in r.records('tool_call') if row.get('tool') in ('interact', 'go_to')]
+    result_rows = [row for row in r.records('tool_result') if row.get('tool') in ('interact', 'go_to')]
+    episode = action_rows[0]['episode_id']
+    assert all(row.get('episode_id') == episode for row in action_rows + result_rows)
+    assert next(row for row in r.records('say') if row.get('text') == 'Doing it.')['episode_id'] == episode
+    assert all(row.get('episode_id') == episode for row in r.records('chain_turn'))
+    ambient = next(row for row in r.records('chat_decision') if row.get('player') == 'Other')
+    assert ambient['episode_id'] != episode
+    assert r.log.episode_id is None
     r.at(5).step()
     assert len(r.body.calls) == 7 and len(r.model.calls) == 8
+
+
+def test_real_agent_deferred_work_restores_original_episode(rig):
+    for i in range(6):
+        rig.controller_llm.push(action(i))
+    rig.controller_llm.push(FakeLLM.say('Finished.'), FakeLLM.say(''))
+    rig.game.player_say('visit both places in order')
+    with rig.log.episode('original-request'):
+        rig.agent.step()
+    assert len(rig.calls('go_to')) == 5
+    with rig.log.episode('outer-context'):
+        rig.agent.step()
+        assert rig.log.episode_id == 'outer-context'
+    rows = rig.log.read_all()
+    calls = [row for row in rows if row['kind'] in ('tool_call', 'tool_result') and row.get('tool') == 'go_to']
+    assert len(calls) == 12 and all(row.get('episode_id') == 'original-request' for row in calls)
+    assert all(row.get('episode_id') == 'original-request' for row in rows if row['kind'] == 'chain_turn')
+    assert next(row for row in rows if row['kind'] == 'say' and row.get('text') == 'Finished.')['episode_id'] == 'original-request'
+    assert rig.log.episode_id is None
 
 
 def test_addressed_between_selected_actions_cancels_remainder(tmp_path):

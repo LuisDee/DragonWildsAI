@@ -357,6 +357,11 @@ class Agent:
         return os.environ.get("DW_WORLD_GUID"), world_guid, state.get("name"), state.get("pawn")
 
     def _resume_continuation(self, ready) -> None:
+        # A yielded command is still the same episode; nested chat temporarily owns its own episode.
+        with self.log.episode(ready.get("episode_id")):
+            self._resume_continuation_in_episode(ready)
+
+    def _resume_continuation_in_episode(self, ready) -> None:
         if (self.pending_goal or self.active_goal or self._cancelled or
                 (self.director is not None and (self.director.running or self.director.ops.b.paused))):
             return self._discard_continuation("another job took ownership")
@@ -582,7 +587,7 @@ class Agent:
                                           "results": {**t["results"], "say": say_res},
                                           "failed": bool(t["failure"]), "note": PROMISE_NOTE if promise_check else None,
                                           "deadline": deadline, "identity": self._continuation_identity(state),
-                                          "epoch": self._continuation_epoch}
+                                          "epoch": self._continuation_epoch, "episode_id": self.log.episode_id}
                     self.log.log("continuation_queued", turns=turn)
                     break
                 if not spoke and continuation is not None and not t["failure"]:
