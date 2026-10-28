@@ -1,5 +1,15 @@
 # Live bug ledger
 
+### Craft-plan alternatives fixed; physical acquisition still blocked (2026-10-28)
+
+b29d97b's native response exposes the ingredient alternatives and retains count
+uncertainty. Legacy recipes/craftable remains a separate information gap.
+Pickup/path failure persists. A current paired context experiment found the
+same partial path for nil/Default; Gigantic completes only after displacing its
+start projection several metres. Do not switch mesh or mistake this for a route
+from the actual pawn. Existing short typed traversal is the next controlled
+capability boundary; keep the failed cases and original goal criteria intact.
+
 ### Acquisition options flattened; nearby loose pickup unreachable (2026-10-28)
 
 On9cacd96 the model called craft_plan, whose flattened steps/missing made one

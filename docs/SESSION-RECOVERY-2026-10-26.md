@@ -1,5 +1,42 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Authoritative deployed handoff: b29d97b (2026-10-28)
+
+- Crafting acquisition sourceb29d97b pushed/deployed and natively verified.
+  Companioncab3d4711522f3e9/bodydcc17e2a19b68b81/judgesb5057d95be92c264.
+  Full gate1197passed/1skip428.81s terminal GREEN;10savedfiles unchanged through
+  gate cf-19872224. Subsequent evidence docs only; no repeat gate without cause.
+- Native craft_plan exposes3options each for Stone/AshLogs, lower-bound/unknown
+  semantics and no unconditional mandatorycurrency steps/missing.0APIcalls.
+  Actual craft execution unchanged; legacy recipes/craftable uncertainty still
+  separate. No unaided axe/tree or full prerequisite-chain pass.
+- Announced client-only publication retained server7016/Steam3284/watchdog12580
+  and onehelper3228+1980. Old1416/8632terminal; currentclient4124/launcher1460,
+  ClaudeDev/pawnBP_PlayerCharacter_C_2147473119,DEV127.0.0.1:7777. Boot48.5s;
+  all21 preservedfiles unchanged duringpublication. Keep dev_director brain/dev
+  native-navigation memories and all learned/grave/world state.
+- Actual stationary nav-context comparison: nil/Default samepartial2.269m path;
+  Giganticcomplete4.029m onlyafterstartprojection~3.1mup/~3.1mXY. No mesh switch,
+  no pathfromrealstart proved. Current reflectedparameterclasses observed;
+  nativepairedcallscompleted. Nativeposition unchanged within0.01m,HP100.
+  Privateexperiment exactfile archived/removed; noinput/anchor/navpropertywrites.
+  Rawidle/threshold1000/actualslotfree verified, no brain/queue/gate remains.
+- Private evidence R/logs/recovery/crafting-publication-d05b3419/ includes full
+  nativecraftresponse, binding/comparison, memorymanifest and terminalproof.
+  Public report docs/research/r26-crafting-deployment-nav-context-20261028.md.
+  Latestpositionapproximately[81.7451,1872.1527,-34.8831]; freshadmission needed.
+  R26 nutrition52Bread/77Water; APIUTC$0.0259/23Haiku/0planner/Sonnet/unpriced.
+- User replaced recovery/setup goal with original fullM1-M6 objective and set
+  statusACTIVE (confirmedget_goal). Main priority is actual fluid gameplay and
+  complete unaidedchains; no setup checklist substitutes for completion.
+- Next: bounded private developercontrol of existinglocalplanner/typedtraversal
+  via explicitdirectoptout on a freshobserved≤5mcase, ownership/deadline/native
+  air→ground/endpoint evidence. Designreview passed conditionally; candidate
+  owns logs/recovery/local_typed_control_20261028.lua+fakes/private note. Inspect
+  liveagents/files before duplicating. Coldreview beforeexecution; optoutcontrol
+  is assisteddiagnosis only, no productionguardrelaxation/meshfix yet. Rootsole
+  liveoperator; atmost2workers and1heavyworkload. Fullgoal ACTIVE/unmet.
+
 ## Latest: crafting alternatives GREEN, publication next (2026-10-28)
 
 The acquisition contract passed1197/1skip428.81s CHECK_ALL: GREEN, terminal

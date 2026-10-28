@@ -1,5 +1,22 @@
 # Progress log (append-only)
 
+### Craft plan deployed; native acquisition alternatives verified (2026-10-28)
+
+b29d97b is pushed/deployed, companioncab3d4711522f3e9/bodydcc17e2a19b68b81.
+Native craft_plan now exposes3options each for basic stone/log ingredients,
+preserves lower-bound/unknown counts and omits the mandatory currency list.
+No provider calls; this is an information-contract improvement, not a new
+unaided gameplay pass. Client-only boot48.5s, all21 statefiles unchanged during
+publication; client4124/ClaudeDev, server7016/Steam3284/helper3228+1980 retained.
+
+The bounded stationary context comparison returned identical partial paths for
+nil/Default. Gigantic returned complete only after shifting start~3.1m upward
+and~3.1m horizontally; it does not supply a route from the actual pawn. No mesh
+switch was made. Position/HP100 unchanged, diagnostic removed, rawidle/slotfree.
+Next isolate existing short typed traversal empirically before changing route
+admission. Full M1-M6 goal reactivated by Luis; no autonomous chain pass yet.
+See docs/research/r26-crafting-deployment-nav-context-20261028.md.
+
 ### Craft acquisition alternatives passed the full gate (2026-10-28)
 
 The independently reviewed craft_plan wave passed1197tests/1skipped428.81s,

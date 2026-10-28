@@ -1,5 +1,18 @@
 # Discoveries
 
+### Current crafting response and navigation-context contrast (2026-10-28)
+
+On deployedb29d97b, native craft_plan exposes3acquisition options each for Stone
+and AshLogs, lower-bound counts and unknown insufficiency; no unconditional
+currency shopping list. This was a developer read,0modelcalls, not autonomy.
+
+Current reflected parameter classes and actual native calls supported the
+paired navdata comparison. Nil/Default returned identical partial paths;
+Gigantic's complete result began~3.1m above and~3.1m sideways from actualstart.
+That contrast rejects a naive mesh-switch fix. No pawn movement/HP change or
+navigation writes; exact evidence and research are in
+docs/research/r26-crafting-deployment-nav-context-20261028.md.
+
 ### Deployed model view and actual prerequisite response (2026-10-28)
 
 On9cacd96, a fresh native inventory passed through actual Controller._read to
