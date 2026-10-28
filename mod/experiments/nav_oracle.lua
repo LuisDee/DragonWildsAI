@@ -47,11 +47,15 @@ local function world_ctx()
     end
 end
 
+local function finite(v) return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge end
+
 local function vec_cm(t)
     if type(t) ~= "table" then return nil end
     local x, y, z = tonumber(t[1] or t.x), tonumber(t[2] or t.y), tonumber(t[3] or t.z)
-    if not (x and y and z) then return nil end
-    return { X = x * 100, Y = y * 100, Z = z * 100 }
+    if not (finite(x) and finite(y) and finite(z)) then return nil end
+    local cx, cy, cz = x * 100, y * 100, z * 100
+    if not (finite(cx) and finite(cy) and finite(cz)) then return nil end
+    return { X = cx, Y = cy, Z = cz }
 end
 
 local function r2(v) return math.floor(v * 100 + 0.5) / 100 end
@@ -62,11 +66,18 @@ local function wire(v) return { r2(v.X / 100), r2(v.Y / 100), r2(v.Z / 100) } en
 -- start area: waypoint 2.6 m straight above Claude). The wide box is only the fallback.
 M.PROJECT_TIGHT = { X = 150, Y = 150, Z = 150 }
 local function project(nav, ctx, p, ext)
+    local unknown = false
     for _, e in ipairs(ext and { ext } or { M.PROJECT_TIGHT, M.PROJECT_EXTENT }) do
         local out = { X = p.X, Y = p.Y, Z = p.Z }
-        local hit = U.try(function() return nav:K2_ProjectPointToNavigation(ctx, p, out, nil, nil, e) end)
-        if hit == true then return { X = out.X, Y = out.Y, Z = out.Z } end
+        local ok, hit = pcall(function() return nav:K2_ProjectPointToNavigation(ctx, p, out, nil, nil, e) end)
+        if ok and hit == true then
+            if finite(out.X) and finite(out.Y) and finite(out.Z) then return { X = out.X, Y = out.Y, Z = out.Z }, true end
+            unknown = true
+        end
+        if not ok or hit ~= false then unknown = true end
     end
+    if not unknown then return nil, false end
+    return nil, nil
 end
 
 -- ---------------------------------------------------------------- nav anchor (dev server only)
@@ -240,26 +251,33 @@ function M.run(log, args)
             rebuild_links_around(log, c.goal) -- the goal area gets jump links too
         end
     end
-    local pa, pb = project(nav, ctx, a), project(nav, ctx, b)
+    local pa, start_projected = project(nav, ctx, a)
+    local pb, goal_projected = project(nav, ctx, b)
     if not pa then
         local loading = (anc.age_s or 0) < M.ANCHOR_SETTLE_S
-        return { ok = false, reason = loading and "loading" or "start_off_navmesh", retry = loading }
+        return { ok = false, reason = loading and "loading" or (start_projected == false and "start_off_navmesh" or "start_projection_unknown"), retry = loading, goal_projected = goal_projected }
     end
     -- An unprojectable goal (off the navmesh, or not streamed in yet) is still sent raw: Recast
     -- then returns a partial path toward it if it can.
     local path, err = U.try_err(function() return nav:FindPathToLocationSynchronously(ctx, pa, pb or b, nil, nil) end)
-    if not U.valid(path) then return { ok = false, reason = "no_path", detail = err } end
+    if not U.valid(path) then return { ok = false, reason = "no_path", detail = err, goal_projected = goal_projected } end
     local pts = {}
-    U.try(function()
-        path.PathPoints:ForEach(function(_, e) pts[#pts + 1] = wire(e:get()) end)
+    local points_ok = pcall(function()
+        path.PathPoints:ForEach(function(_, e)
+            local v = e:get()
+            if not v or not finite(v.X) or not finite(v.Y) or not finite(v.Z) then error("invalid path point") end
+            pts[#pts + 1] = wire(v)
+        end)
     end)
-    local partial = U.try(function() return path:IsPartial() end) == true
+    if not points_ok then return { ok = false, reason = "invalid_path_payload", points = {}, goal_projected = goal_projected } end
+    local ok_partial, partial = pcall(function() return path:IsPartial() end)
+    if not ok_partial or type(partial) ~= "boolean" then partial = nil end
     local len = tonumber(U.try(function() return path:GetPathLength() end))
     local ok = #pts >= 2
     local res = {
         ok = ok, reason = (not ok) and ((anc.age_s or 0) < M.ANCHOR_SETTLE_S and "loading" or "no_path") or nil,
         retry = (not ok) and (anc.age_s or 0) < M.ANCHOR_SETTLE_S or nil,
-        points = pts, n = #pts, partial = partial, goal_projected = pb ~= nil, links_rebuilt = links_rebuilt,
+        points = pts, n = #pts, partial = partial, goal_projected = goal_projected, links_rebuilt = links_rebuilt,
         corridor = corridor,
         length_m = len and len > 0 and r2(len / 100) or nil, ms = math.floor((os.clock() - t0) * 1000),
     }

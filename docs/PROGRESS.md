@@ -1,5 +1,35 @@
 # Progress log (append-only)
 
+### Owned route admission passed the full gate (2026-10-28)
+
+The independently reviewed route-authority wave passed **1,192 tests,1 skipped,
+427.07s, CHECK_ALL: GREEN** (`cf-d8781fb6/check-all.log`), with all14 saved
+file hashes unchanged through the gate. It holds required long trips without
+owned route evidence, preserves typed unknown metadata, binds one-use requests
+to the current movement/world/owner, reports route failures truthfully and keeps
+follow persistent. Accepted traversal finishes before the next authority
+boundary. Cold review fixed a real Python/Lua UUID mismatch and reentrant owner
+checks; actual producer/consumer and focused movement regressions now run in the
+normal gate. No judge changes. Runtime publication and benign native controls
+are next; this offline checkpoint is not a no-axe/tree or milestone pass.
+
+### Stationary navigation contrast and isolated candidate work (2026-10-28)
+
+On deployed83f0ce3, the reserved developer query to the character's XY+50mZ
+returned no_path/zero points; the nearby2m contrast returned two points and a
+2.02m route. Position stayed identical and HP100; no movement/model calls.
+These are observations, not autonomous passes. The two registered checks are
+terminal and their private registrations archived. Native-active durations:
+17.6s declared nutrition setup and2.1s stationary navigation; further travel
+awaits review/gating/publication of the actual route-authority candidate.
+
+The DEV reflex consumed declared harness supplies through real input. R26
+nutrition totals40Bread/59CleanWater. API spend remains$0.0125/11Haiku calls,
+no Sonnet/unpriced calls. Separate file owners are implementing helper protocol
+and movement admission; helper metadata/lifecycle cold review passed after an
+overflow regression. Candidate work remains isolated from the running client.
+See docs/research/r26-route-controls-20261028.md. No axe/tree or M1-M6 pass.
+
 ### Native food-reflex compatibility after publication (2026-10-28)
 
 A reserved check supplied two Bread and two Clean Water. The existing client

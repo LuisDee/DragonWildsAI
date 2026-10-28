@@ -1,5 +1,23 @@
 # Discoveries
 
+### Stationary route controls and process identity evidence (2026-10-28)
+
+At `[63.153,1875.565,-35.446]` on deployed83f0ce3, the existing DEV oracle
+returned no_path/zero points for sameXY+50mZ and a two-point2.02m route for a
+nearby2m goal. Native before/after position and health were unchanged; this is
+an observed navigation contrast, not movement or autonomous-task success. The
+legacy false metadata can still conflate getter errors. See
+docs/research/r26-route-controls-20261028.md for raw evidence and limitations.
+
+Read-only PROCESS_QUERY_LIMITED_INFORMATION queries obtained exact Win32
+creation FILETIMEs and full images for retained server7016 and legacy helper
+wrapper144/worker10016. CIM's missing command line was not evidence of process
+absence or insufficient permission for this narrower query. These identities
+were recorded privately before any process replacement. No privilege or ACL
+change was needed. The reviewed helper requires independently terminal legacy
+writers, pinned server/bridge/file continuity and a correlated FIFO ping; lock
+ownership or a new helper PID alone cannot establish server idleness.
+
 ### Native food-reflex compatibility after publication (2026-10-28)
 
 A reserved check supplied two Bread and two Clean Water. The existing client

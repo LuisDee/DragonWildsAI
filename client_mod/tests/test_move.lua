@@ -12,7 +12,11 @@ do -- move.lua loads <root>/client_mod/scripts/{localplan,navmem,dkjson}.lua
         local f = assert(io.open(dir .. "/client_mod/scripts/" .. n, "wb")); f:write(src); f:close()
     end
     os.execute('mkdir "' .. (dir .. "/data/nav"):gsub("/", "\\") .. '" 2>nul')
+    os.execute('mkdir "' .. (dir .. "/mod/body"):gsub("/", "\\") .. '" 2>nul')
+    local util = assert(io.open(here .. "/../../mod/body/util.lua", "rb")):read("a")
+    local f = assert(io.open(dir .. "/mod/body/util.lua", "wb")); f:write(util); f:close()
 end
+_G.DW_WORLD_GUID = "test-world"
 package.path = here .. "/?.lua;" .. package.path
 
 -- ---- fake engine
@@ -169,17 +173,32 @@ local function step(n)
     end
 end
 local oracle = nil -- function(req) -> lua text, or nil for no answer
+local function fake_nonce(n) return ("22222222-2222-4222-8222-%012x"):format(n) end
+local offer = { no=1, nonce=fake_nonce(1), epoch="11111111-1111-4111-8111-111111111111" }
+do local wire_offer = os.getenv("MOVE_ORACLE_OFFER_FILE")
+if wire_offer then
+    local offered = assert(assert(loadfile(wire_offer))())
+    assert(offered.version == 2 and offered.state == "offered")
+    offer.epoch, offer.nonce = assert(offered.epoch), assert(offered.nonce)
+end
+end
 local function pump_oracle()
     if oracle then
-        local hb = io.open(dir .. "/client_io/nav/alive.lua", "w"); hb:write("return " .. os.time()); hb:close()
+        local hb = io.open(dir .. "/client_io/nav/alive.lua", "w")
+        hb:write(('return {version=2,epoch="%s",state="offered",nonce="%s",updated=%d}'):format(offer.epoch, offer.nonce, os.time())); hb:close()
     else
         os.remove(dir .. "/client_io/nav/alive.lua")
     end
     local f = io.open(dir .. "/client_io/nav/req.json"); if not f then return end
     local s = f:read("a"); f:close()
     local id = tonumber(s:match('"id":(%d+)'))
-    if oracle and id then
-        local w = io.open(dir .. "/client_io/nav/resp.lua", "w"); w:write(oracle(id)); w:close()
+    local nonce = s:match('"nonce":"([^"]+)"')
+    if oracle and id and nonce == offer.nonce then
+        local raw = oracle(id)
+        if not raw then return end
+        local response = raw:gsub('^return%s*{', ('return {version=2,epoch="%s",nonce="%s",'):format(offer.epoch, nonce))
+        local w = io.open(dir .. "/client_io/nav/resp.lua", "w"); w:write(response); w:close()
+        offer.no = offer.no + 1; offer.nonce = fake_nonce(offer.no)
     end
 end
 
@@ -201,17 +220,176 @@ pump_oracle() -- heartbeat first, as with a running helper
 M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1 })
 run(100)
 local s = M.status()
-check("go_to arrives via waypoints", s.result and s.result.status == "arrived", s.result and s.result.status)
+check("go_to arrives via waypoints", s.result and s.result.status == "arrived", s.result and (tostring(s.result.status) .. " " .. tostring(s.result.detail)))
 local saw_nav = false
 
 for _, l in ipairs(logs) do if l:find("src=nav") then saw_nav = true end end
 check("used nav waypoints (oracle heartbeat live)", (s.nav_requests or 0) >= 1 and saw_nav, s.nav_requests); if os.getenv("DBG") then for _, l in ipairs(logs) do print("  " .. l) end; print(pawn.loc.X, pawn.loc.Y) end
 check("sprint injected", injected > 0, injected)
+if os.getenv("MOVE_PROTOCOL_WIRE_ONLY") == "1" then os.exit(fails == 0 and 0 or 1) end
 
--- 2. no oracle -> straight line fallback, wall -> stuck ladder jumps over it
+if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
+    M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }; walls = {}; oracle = function() return nil end
+    pump_oracle()
+    M.go_to(log, { 20, 0, 0 }, { local_plan=false })
+    run(20)
+    local waiting = M.status()
+    check("pending request holds actual input", pawn.loc.X == 0 and waiting.status == "planning" and (waiting.nav_requests or 0) == 1, waiting.status)
+    check("pending does not accrue progress time", waiting.progress and (waiting.progress.elapsed_s or 0) < 0.1, waiting.progress and waiting.progress.elapsed_s)
+    local pending_id = _G.DW_MOVE.nav_pending.id
+    local stale = assert(io.open(dir .. "/client_io/nav/resp.lua", "w"))
+    stale:write(('return {version=2,epoch="old-process",nonce="%s",id=%d,ok=true,partial=false,points={{0,0,0},{20,0,0}}}'):format(offer.nonce,pending_id)); stale:close()
+    step(20)
+    check("stale epoch cannot authorize input", pawn.loc.X == 0 and _G.DW_MOVE.nav_pending ~= nil, pawn.loc.X)
+    stale = assert(io.open(dir .. "/client_io/nav/resp.lua", "w"))
+    stale:write(('return {version=2,epoch="11111111-1111-4111-8111-111111111111",nonce="wrong-offer",id=%d,ok=true,points={{0,0,0},{20,0,0}}}'):format(pending_id)); stale:close()
+    step(10)
+    check("stale nonce cannot authorize input", pawn.loc.X == 0 and _G.DW_MOVE.nav_pending ~= nil, pawn.loc.X)
+    _G.DW_WORLD_GUID = "other-world"; step(2)
+    check("world identity change fails closed", pawn.loc.X == 0 and M.status().result and M.status().result.reason == "verification_failed", M.status().status)
+    _G.DW_WORLD_GUID = "test-world"
+    M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
+    offer.no = offer.no + 1; offer.nonce = fake_nonce(offer.no)
+    oracle = function() return nil end; pump_oracle()
+    M.go_to(log, {20,0,0}, {local_plan=false}); run(1)
+    local old_pending = _G.DW_MOVE.nav_pending
+    local old_reply = assert(io.open(dir .. "/client_io/nav/resp.lua", "w"))
+    old_reply:write(('return {version=2,epoch="%s",nonce="%s",id=%d,ok=true,points={{0,0,0},{20,0,0}}}'):format(old_pending.epoch,old_pending.nonce,old_pending.id)); old_reply:close()
+    local restart = assert(io.open(dir .. "/client_io/nav/alive.lua", "w"))
+    restart:write(('return {version=2,epoch="33333333-3333-4333-8333-333333333333",state="recovering",updated=%d}'):format(os.time())); restart:close()
+    step(1)
+    check("new helper epoch rejects old matching response", pawn.loc.X == 0 and M.status().result and M.status().result.detail:find("oracle_restarted",1,true), M.status().status)
+    M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
+    offer.no = offer.no + 1; offer.nonce = fake_nonce(offer.no)
+    oracle = function(id) return ("return {id=%d,ok=false,reason='no_path',points={}}"):format(id) end
+    pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(20)
+    local bad = M.status()
+    check("no path fails without raw movement", pawn.loc.X == 0 and bad.result and bad.result.reason == "verification_failed", bad.status)
+    M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
+    oracle = function(id) return ("return {id=%d,ok=true,partial=true,points={{0,0,0},{5,0,0}}}"):format(id) end
+    pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(80)
+    local partial = M.status()
+    check("partial endpoint does not fall through to raw goal", partial.result and partial.result.reason == "verification_failed" and pawn.loc.X < 600, tostring(pawn.loc.X) .. " " .. tostring(partial.status) .. " " .. tostring(partial.result and partial.result.detail))
+    M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }; _G.DW_TRAP_CAND = nil
+    oracle = function(id) return ("return {id=%d,ok=true,points={{0,0,0},{5,0,0}}}"):format(id) end
+    pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(80)
+    local unknown = M.status()
+    check("unknown partial endpoint fails without learning a trap", unknown.result and unknown.result.reason == "verification_failed" and pawn.loc.X < 600 and _G.DW_TRAP_CAND == nil, unknown.status)
+    M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
+    oracle = function(id) return ("return {id=%d,ok=true,points={{0,0,0},{1e308,0,0}}}"):format(id) end
+    pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(20)
+    check("overflowing converted waypoint is rejected", pawn.loc.X == 0 and M.status().result and M.status().result.reason == "verification_failed", M.status().status)
+    M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }; luis.loc = { X=2000, Y=200, Z=0 }
+    local evpath = dir .. "/client_io/events/move.jsonl"
+    os.execute('mkdir "' .. (dir .. "/client_io/events"):gsub("/", "\\") .. '" 2>nul')
+    os.remove(evpath)
+    oracle = function(id) return ("return {id=%d,ok=true,partial=true,points={{0,0,0},{5,0,0}}}"):format(id) end
+    pump_oracle(); M.follow(log, "Zezima", 3, {local_plan=false}); run(80)
+    local follow = M.status(); local blocked = pawn.loc.X
+    check("partial routed follow remains owned and unreachable", follow.mode == "follow" and follow.status == "unreachable", follow.status)
+    oracle = function(id) return ("return {id=%d,ok=false,reason='no_path',points={}}"):format(id) end
+    run(30)
+    local count = 0; local events = io.open(evpath, "r")
+    if events then for line in events:lines() do if line:find('"type":"unreachable"') then count=count+1 end end; events:close() end
+    check("routed follow holds and emits one unreachable event", math.abs(pawn.loc.X-blocked)<1 and count==1 and M.status().mode == "follow", count)
+    oracle = function(id) return ("return {id=%d,ok=true,partial=false,points={{%.2f,%.2f,0},{20,2,0}}}"):format(id,pawn.loc.X/100,pawn.loc.Y/100) end
+    run(130)
+    check("routed follow resumes on fresh admitted route", M.status().mode == "follow" and M.status().status == "near", M.status().status)
+    M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }; oracle = nil; pump_oracle()
+    local original_timeout = M.cfg.nav_timeout_s; M.cfg.nav_timeout_s = 0.5
+    M.go_to(log, {20,0,0}, {local_plan=false}); run(20)
+    check("missing service reports unavailable without input", pawn.loc.X == 0 and M.status().result and
+        M.status().result.detail:find("oracle_unavailable", 1, true) ~= nil, M.status().result and M.status().result.detail)
+    M.stop(log); M.cfg.nav_timeout_s = original_timeout
+    walls={{900,1100,-500,500}}; pawn.loc={X=0,Y=0,Z=0}
+    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{5,6,0},{12,6,0},{20,0,0}}}"):format(id) end
+    pump_oracle()
+    local saved_rename=os.rename
+    os.rename=function(a,b) if tostring(b):find("req%.json$") then return nil,"denied" end return saved_rename(a,b) end
+    M.go_to(log,{20,0,0},{tolerance_m=1}); run(100); os.rename=saved_rename
+    check("refused rename still obtains admitted route", M.status().result and M.status().result.status == "arrived", tostring(M.status().status) .. " requests=" .. tostring(M.status().nav_requests))
+    M.stop(log); walls={}; pawn.loc={X=0,Y=0,Z=0}; oracle=nil; pump_oracle()
+    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{20,0,0}}}"):format(id) end
+    pump_oracle(); M.go_to(log,{20,0,0},{local_plan=false}); run(1)
+    local owner = _G.DWArbiter.owner
+    local saved_rotation = pc.SetControlRotation
+    local rotated = false
+    pc.SetControlRotation = function() rotated=true; _G.DWArbiter.owner=nil end
+    step(1)
+    check("owner lost before input cannot dispatch", rotated and pawn.loc.X == 0 and pawn.input == nil, pawn.loc.X)
+    _G.DWArbiter.owner=owner; pc.SetControlRotation=saved_rotation; M.stop(log)
+    for _, boundary in ipairs({2,3}) do
+        pawn.loc={X=0,Y=0,Z=0}
+        oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{20,0,0}}}"):format(id) end
+        pump_oracle(); M.go_to(log,{20,0,0},{local_plan=false}); run(1)
+        local prior = _G.DW_MOVE.gen
+        local real_loadfile, own_calls, rotations, fired = loadfile, 0, 0, false
+        local original_rotation = pc.SetControlRotation
+        pc.SetControlRotation=function(...) rotations=rotations+1; return original_rotation(...) end
+        loadfile=function(path,...)
+            local chunk,err=real_loadfile(path,...)
+            if chunk and tostring(path):find("arbiter%.lua$") then
+                return function()
+                    local a=chunk(); local original=a.owns_move
+                    a.owns_move=function(token)
+                        local result=original(token); own_calls=own_calls+1
+                        if not fired and own_calls==boundary then
+                            fired=true; M.go_to(log,{30,0,0},{nav=false,local_plan=false})
+                        end
+                        return result
+                    end
+                    return a
+                end
+            end
+            return chunk,err
+        end
+        step(1); loadfile=real_loadfile; pc.SetControlRotation=original_rotation
+        local successor=_G.DW_MOVE
+        check("ownership reentry at boundary "..boundary.." preserves successor", fired and successor.gen>prior and successor.mode=="go_to" and pawn.input==nil and rotations==(boundary==2 and 0 or 1), rotations)
+        M.stop(log)
+    end
+    oracle=nil; pump_oracle()
+    -- A real accepted link jump retains its existing landing transaction when the
+    -- followed target crosses the primary boundary; the following input is held.
+    pawn.loc={X=0,Y=0,Z=0}; luis.loc={X=900,Y=200,Z=0}; air=0
+    M.follow(log,"Zezima",3,{local_plan=false})
+    local flight=_G.DW_MOVE
+    local link={id="boundary-test",move="jump",from={0,0,-0.9},to={3,0,-0.9}}
+    flight.link_exec={link=link,phase="run",t0=T}
+    local before_jumps=pawn.jumps
+    step(1)
+    local accepted=flight.jump_t ~= nil and pawn.jumps == before_jumps+1 and flight.link_exec and flight.link_exec.phase=="air"
+    local flight_owner=flight.owner_token
+    luis.loc={X=2000,Y=200,Z=0}; step(1)
+    check("boundary preserves accepted link transaction", accepted and flight.nav_deferred_required and flight.link_exec and flight.owner_token==flight_owner, flight.status)
+    local injected_after_required=0
+    local saved_add=pawn.AddMovementInput
+    pawn.AddMovementInput=function(self,d,sc,...)
+        if flight.nav_required then injected_after_required=injected_after_required+1 end
+        return saved_add(self,d,sc,...)
+    end
+    step(100); pawn.AddMovementInput=saved_add
+    check("landing completes before required-route hold", flight.link_exec==nil and flight.nav_required and flight.status=="planning" and injected_after_required==0, flight.status)
+    M.stop(log); pawn.loc={X=0,Y=0,Z=0}; luis.loc={X=900,Y=200,Z=0}; air=0
+    M.follow(log,"Zezima",3,{local_plan=false})
+    flight=_G.DW_MOVE
+    flight.lpath={{X=0,Y=0,Z=-90,act="walk"},{X=500,Y=0,Z=-90,act="jump"}}
+    flight.lwp=2; flight.lp_jumped={}
+    before_jumps=pawn.jumps; step(1)
+    local ordinary_accepted=flight.jump_t ~= nil and pawn.jumps==before_jumps+1
+    luis.loc={X=2000,Y=200,Z=0}; step(100)
+    check("ordinary jump cannot repeatedly bypass authority", ordinary_accepted and pawn.jumps==before_jumps+1 and flight.nav_required and flight.status=="planning", flight.status)
+    M.stop(log); pawn.loc={X=0,Y=0,Z=0}
+    M.go_to(log, {20,0,0}, {nav=false,local_plan=false}); run(60)
+    check("explicit direct opt-out moves", pawn.loc.X > 0, pawn.loc.X)
+    M.stop(log)
+    os.exit(fails == 0 and 0 or 1)
+end
+
+-- 2. explicit direct mode: wall -> stuck ladder jumps over it
 walls = { { 900, 1000, -500, 500 } }
 pawn.loc = { X = 0, Y = 0, Z = 0 }; oracle = nil; pawn.jumps = 0
-M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1 })
+M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1, nav=false })
 run(150)
 s = M.status()
 check("straight fallback", s.source == "straight", s.source)
@@ -221,7 +399,7 @@ check("arrived after unstuck", s.result and s.result.status == "arrived", s.resu
 -- 3. follow a moving player, idle when near, stop
 walls = {}; pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 3000, Y = 0, Z = 0 }
 oracle = function(id) return ("return {id=%d,ok=false,reason='no_path',points={}}"):format(id) end
-M.follow(log, "Zezima", 3)
+M.follow(log, "Zezima", 3, {nav=false})
 run(100)
 s = M.status()
 check("follow reached and idles", s.status == "near" and s.dist_m <= 4.1, s.status .. " " .. tostring(s.dist_m))
@@ -235,22 +413,23 @@ run(20)
 check("stop halts", r.was == "follow" and M.status().mode == "idle" and pawn.loc.X == before.X)
 
 -- 4. stale loop from an older load exits
-M.go_to(log, { 100, 0, 0 }, {})
+M.go_to(log, { 100, 0, 0 }, {nav=false})
 local M2 = dofile(MOVE)
 M2.stop(log)
 run(5)
 local n = 0; for _ in pairs(loops) do n = n + 1 end
 check("no loops left after stop from a fresh load", n == 0, n)
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
--- 5. breadcrumbs: a tall wall the dev navmesh doesn't know; nav gives a partial path into it;
---    the leader walks around the wall's end; Claude must retrace the leader's trail
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
+-- 5. Direct-mode breadcrumb/local mechanism: leader walks around the wall's end.
 walls = { { 900, 1100, -2000, 600, true } }
 pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 200, Y = 0, Z = 0 }
 oracle = function(id) return ("return {id=%d,ok=true,partial=true,points={{0,0,0},{5,0,0}}}"):format(id) end
 local route = { { 200, 0 }, { 200, 1000 }, { 2000, 1000 }, { 2000, 0 } }
 local seg = 1
+local max_pawn_y = 0
 frame_hook = function()
+    max_pawn_y = math.max(max_pawn_y, pawn.loc.Y)
     local tgt = route[seg + 1]
     if not tgt then return end
     local dx, dy = tgt[1] - luis.loc.X, tgt[2] - luis.loc.Y
@@ -259,22 +438,22 @@ frame_hook = function()
     if d <= sp then luis.loc.X, luis.loc.Y = tgt[1], tgt[2]; seg = seg + 1
     else luis.loc.X, luis.loc.Y = luis.loc.X + dx / d * sp, luis.loc.Y + dy / d * sp end
 end
-M.follow(log, "Zezima", 3)
+M.follow(log, "Zezima", 3, {nav=false})
 run(400)
 s = M.status()
 local dl = math.sqrt((pawn.loc.X - luis.loc.X) ^ 2 + (pawn.loc.Y - luis.loc.Y) ^ 2)
 check("breadcrumbs: reached leader around the wall", dl < 450, string.format("d=%.0f status=%s res=%s", dl, tostring(s.status), tostring(s.result and s.result.reason)))
-check("breadcrumbs or local planner routed around it", (s.trail_entries or 0) >= 1 or (s.lp_runs or 0) >= 1, s.trail_entries)
+check("direct follow actually went around the wall", max_pawn_y > 600, max_pawn_y)
 M.stop(log)
 frame_hook = nil
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 6. bounded give-up: walled in, no trail -> stops with "stuck" after > 5 s, not a loop
 walls = { { 300, 400, -5000, 5000, true } }
 pawn.loc = { X = 0, Y = 0, Z = 0 }; oracle = nil
 luis.loc = { X = 90000, Y = 90000, Z = 0 } -- nobody near to lead us out
 local t_start = T
-M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1, timeout_s = 120 })
+M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1, timeout_s = 120, nav=false })
 run(1200)
 s = M.status()
 check("go_to gives up (stuck or unreachable)", s.result and (s.result.reason == "stuck" or s.result.reason == "unreachable"), s.result and s.result.reason)
@@ -284,7 +463,7 @@ local stuck_logged = false
 for _, l in ipairs(logs) do if l:find("move: stuck n=") and l:find("aim=") then stuck_logged = true end end
 check("stuck events log me/aim/goal/waypoints", stuck_logged)
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 8. leader on a 6 m plateau reached by a ramp ~23 m away (outside the 9 m planner window):
 --    the local plan must fail as "unreachable", and Claude must retrace the leader's trail up
 walls = {}; oracle = nil
@@ -304,7 +483,7 @@ frame_hook = function()
     end
     luis.loc.Z = (wall_top(luis.loc.X, luis.loc.Y) or FLOOR) + 90
 end
-M.follow(log, "Zezima", 3)
+M.follow(log, "Zezima", 3, {nav=false})
 run(500)
 s = M.status()
 local dl = math.sqrt((pawn.loc.X - luis.loc.X) ^ 2 + (pawn.loc.Y - luis.loc.Y) ^ 2)
@@ -316,7 +495,7 @@ M.stop(log)
 frame_hook = nil
 raised = {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 9. persistent follow: the leader Windsteps onto a plateau Claude can't reach (no ramp), so
 --    follow goes "unreachable" (once, with reason leader_windstepped), then he jumps back down
 --    and follow resumes by itself
@@ -328,7 +507,7 @@ os.remove(ev_path)
 pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 300, Y = 0, Z = 0 }
 local lground = true
 luis.CharacterMovement = obj({ IsMovingOnGround = function() return lground end })
-M.follow(log, "Zezima", 3)
+M.follow(log, "Zezima", 3, {nav=false})
 run(30)
 -- windstep: airborne, rises 8 m, lands on the plateau at x = 1500
 local ws = 0
@@ -360,7 +539,7 @@ M.stop(log)
 luis.CharacterMovement = nil
 raised = {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 10. oracle path with an auto-generated nav LINK (a 1 m step up): jump from the take-off point.
 --     Local planner off so only the nav-link logic can get us up.
 walls = {}
@@ -375,11 +554,11 @@ check("nav link: jumped up the step and arrived", s.result and s.result.status =
     tostring(s.result and s.result.status) .. " link_jumps=" .. tostring(s.link_jumps))
 raised = {}; oracle = nil
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 11. world-teardown guard: while _G.DW_PAUSE is set, the loop makes no engine calls at all
 walls = {}; oracle = nil
 pawn.loc = { X = 0, Y = 0, Z = 0 }
-M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1 })
+M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1, nav=false })
 _G.DW_PAUSE = true
 local calls = 0
 local real_add = pawn.AddMovementInput
@@ -388,13 +567,13 @@ run(30)
 check("paused: no movement input / no engine calls", calls == 0 and pawn.loc.X == 0, calls)
 check("paused: start() refuses", not M.go_to(log, { 1, 1, 0 }, {}).ok)
 _G.DW_PAUSE = nil
-M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1 })
+M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1, nav=false })
 run(100)
 if os.getenv("DBG11") then for i = math.max(1, #logs - 12), #logs do print("  " .. logs[i]) end; print("POS", pawn.loc.X, pawn.loc.Y, "walls", #walls, "raised", #raised) end
 check("unpaused: moves again", M.status().result and M.status().result.status == "arrived", M.status().status)
 pawn.AddMovementInput = real_add
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 12. learned traversal links (traverse_learn.lua API): Luis on a 6 m plateau, no ramp; a learned
 --     "jump" link exists at x = 9 m (only there can you get up). Expect: give-up -> best_link ->
 --     approach -> jump at link.from -> landing verified -> record_attempt(ok) -> follow reaches him.
@@ -415,7 +594,7 @@ raised = { { 800, 4000, -1000, 1000, 600, 600 } }
 portals = { { 500, 0 } }
 pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 1500, Y = 0, Z = 690 }
 _G.TL_MODE = "link"
-M3.follow(log, "Zezima", 3)
+M3.follow(log, "Zezima", 3, {nav=false})
 run(500)
 s = M3.status()
 if os.getenv("DBG12") then for i = math.max(1, #logs - 8), #logs do print("  " .. logs[i]) end; local q = M3.status(); print("ST", q.mode, q.status, q.lp_state, q.stuck_n, q.ticks, q.source, pawn.loc.X, pawn.loc.Z, T) end
@@ -427,7 +606,7 @@ M3.stop(log)
 _G.TL_MODE = "needs"
 pawn.loc = { X = 0, Y = 0, Z = 0 }
 local M4 = dofile(MOVE)
-M4.follow(log, "Zezima", 3)
+M4.follow(log, "Zezima", 3, {nav=false})
 run(400)
 s = M4.status()
 check("unreachable reason = needs:DoubleJump", s.unreachable and s.unreachable.reason == "needs:DoubleJump", s.unreachable and s.unreachable.reason)
@@ -435,7 +614,7 @@ M4.stop(log)
 os.remove(dir .. "/client_mod/scripts/traverse_learn.lua")
 raised, portals = {}, {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 13. self-collision regression (live 19:22): with Claude's gear blocking traces, an open-field
 --     go_to must not see "walls" around him (no endless wall_ahead plans, no "walls everywhere")
 GEAR = true
@@ -443,7 +622,7 @@ walls = { { 900, 1000, -300, 300 } } -- one real (jumpable) obstacle so a plan i
 oracle = nil; raised = {}
 pawn.loc = { X = 0, Y = 0, Z = 0 }
 local nlog0 = #logs
-M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1 })
+M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1, nav=false })
 run(200)
 s = M.status()
 local plans, everywhere = 0, false
@@ -457,7 +636,7 @@ check("gear: no 'walls everywhere', few plans", not everywhere and plans <= 3, "
 GEAR = false
 walls = {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 14. cliff + far ramp, plain go_to (no leader trail): the ORACLE route around must lead; the local
 --     planner may only handle the obstacle in front of the next waypoint (live 19:44: it fought the cliff)
 walls = {}
@@ -472,20 +651,20 @@ check("cliff: go_to reaches the plateau via the oracle route", s.result and s.re
     tostring(s.result and s.result.status) .. " " .. tostring(s.result and s.result.reason))
 raised = {}; oracle = nil
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 15. NAVIGATION MEMORY: a walled pit (respawn trap) whose only exit is 15 m north, outside the
 --     9 m planner window; the goal is east, beyond the east wall.
 local PIT = { { 300, 400, -2000, 1500, true }, { -400, -300, -2000, 1500, true }, { -400, 400, -400, -300, true } }
 local function pit_world() walls = PIT; raised = {}; oracle = nil; pawn.loc = { X = 0, Y = 0, Z = 0 }; _G.DW_LP_CACHE = nil end
 local seedf = dir .. "/data/nav/L_World_seeds.json"
-local memf = dir .. "/data/skills/unknown/nav_memory.json"
+local memf = dir .. "/data/skills/test-world/nav_memory.json"
 os.remove(memf); _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil
 -- (a) seeded trap: the seed's exit gets him out
 do local f = io.open(seedf, "w"); f:write([==[{"v":1,"traps":[{"id":"pit","center":[0,0,-0.9],"radius_m":5,"z_max":0.5,"z_min":-3,
   "exit":[[0,8,-0.9],[0,16,-0.9],[0,18,-0.9]]}],"taboos":[],"routes":[]}]==]); f:close() end
 pit_world()
 local MN = dofile(MOVE)
-MN.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 120 })
+MN.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 120, nav=false })
 run(500)
 s = MN.status()
 if os.getenv("DBG15") then for i = math.max(1, #logs - 30), #logs do print("  " .. logs[i]) end end
@@ -496,7 +675,7 @@ os.remove(seedf); os.remove(memf); _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil
 pit_world()
 luis.loc = { X = 90000, Y = 90000, Z = 0 } -- nobody near to lead (else the go_to waits for a lead)
 local MB = dofile(MOVE)
-MB.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 60 })
+MB.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 60, nav=false })
 run(400)
 s = MB.status()
 check("memory (b1): without memory the pit go_to fails", s.result and s.result.status == "failed", s.result and s.result.status)
@@ -513,7 +692,7 @@ frame_hook = function()
     if d <= sp then luis.loc.X, luis.loc.Y = tgt[1], tgt[2]; seg3 = seg3 + 1
     else luis.loc.X, luis.loc.Y = luis.loc.X + dx / d * sp, luis.loc.Y + dy / d * sp end
 end
-MB.follow(log, "Zezima", 3)
+MB.follow(log, "Zezima", 3, {nav=false})
 run(500)
 frame_hook = nil
 MB.stop(log)
@@ -528,7 +707,7 @@ if fm then fm:close() end
 _G.DW_NAVMEM = nil
 pit_world()
 local MB2 = dofile(MOVE)
-MB2.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 120 })
+MB2.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 120, nav=false })
 run(500)
 s = MB2.status()
 if os.getenv("DBG15") then for i = math.max(1, #logs - 14), #logs do print("  " .. logs[i]) end; local fm2 = io.open(memf); if fm2 then print("MEM", (fm2:read("a"):gsub("%s+", " "):sub(1, 900))); fm2:close() end end
@@ -536,7 +715,7 @@ check("memory (b3): learned exit -> unaided go_to out of the pit", s.result and 
 MB2.stop(log)
 walls = {}; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(memf)
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 16. BUG2: a 34 m tall wall across the way, its north end 14 m off (outside the 9 m planner window),
 --     no oracle, no memory, nobody to ask: wall-following rounds it and the go_to arrives
 walls = { { 500, 600, -2000, 1400, true } }
@@ -544,7 +723,7 @@ raised = {}; oracle = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil
 luis.loc = { X = 90000, Y = 90000, Z = 0 }
 pawn.loc = { X = 0, Y = 0, Z = 0 }
 local MB2b = dofile(MOVE)
-MB2b.go_to(log, { 15, 0, 0 }, { tolerance_m = 1.5, timeout_s = 120 })
+MB2b.go_to(log, { 15, 0, 0 }, { tolerance_m = 1.5, timeout_s = 120, nav=false })
 run(900)
 s = MB2b.status()
 local bug_used = false
@@ -554,7 +733,7 @@ check("bug2: rounds a long wall and arrives", s.result and s.result.status == "a
 MB2b.stop(log)
 walls = {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 17. ASK FOR HELP: in the pit with Luis near: "lead_me" event, go_to waits, Luis walks out, Claude
 --     follows his trail, then carries on to the goal by himself (one go_to, one result)
 local evf = dir .. "/client_io/events/move.jsonl"
@@ -563,7 +742,7 @@ os.remove(evf)
 walls = PIT; raised = {}; oracle = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(memf)
 pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = -150, Y = 300, Z = 0 }
 local MH = dofile(MOVE)
-MH.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 300 })
+MH.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 300, nav=false })
 local waited = false
 for _ = 1, 160 do run(5); if MH.status().status == "waiting_for_lead" then waited = true; break end end
 check("help: go_to waits for a lead", waited, MH.status().status)
@@ -590,7 +769,7 @@ check("help: led out, then the same go_to arrives", s.result and s.result.status
 MH.stop(log)
 walls = {}; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(memf)
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 18. FELLED LOG: a 50 cm log across the whole way (no way round): hop it, don't plan around it
 walls = { { 900, 960, -5000, 5000 } } -- short wall = jumpable (fake: 80 cm)
 raised = {}; oracle = nil; lakes = {}
@@ -598,7 +777,7 @@ luis.loc = { X = 90000, Y = 90000, Z = 0 }
 pawn.loc = { X = 0, Y = 0, Z = 0 }
 local ML = dofile(MOVE)
 local t_log = T
-ML.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 60 })
+ML.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 60, nav=false })
 run(300)
 s = ML.status()
 check("log: hops the felled log and arrives quickly", s.result and s.result.status == "arrived" and (T - t_log) < 30,
@@ -606,7 +785,7 @@ check("log: hops the felled log and arrives quickly", s.result and s.result.stat
 ML.stop(log)
 walls = {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 19. WATER: a lake straight across the way; the first crossing learns the water cells (persisted),
 --     the second trip goes round (less time in water)
 lakes = { { 500, 1500, -500, 500 } }
@@ -614,7 +793,7 @@ walls = {}; raised = {}; oracle = nil
 pawn.loc = { X = 0, Y = 0, Z = 0 }
 local MW = dofile(MOVE)
 water_frames = 0
-MW.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 120 })
+MW.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 120, nav=false })
 run(600)
 local w1 = water_frames
 s = MW.status()
@@ -625,7 +804,7 @@ _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil -- reload memory from disk
 pawn.loc = { X = 0, Y = 0, Z = 0 }
 local MW2 = dofile(MOVE)
 water_frames = 0
-MW2.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 120 })
+MW2.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 120, nav=false })
 run(600)
 local w2 = water_frames
 if os.getenv("DBG19") then for _, l in ipairs(logs) do if l:find("water sense") then print("  WS " .. l) end end; for i = math.max(1, #logs - 14), #logs do print("  " .. logs[i]) end; local mem = _G.DW_NAVMEM; local n = 0; for _ in pairs(mem and mem.water or {}) do n = n + 1 end; print("WATER cells", n) end
@@ -635,7 +814,7 @@ check("water: second trip goes round (less wading)", s.result and s.result.statu
 MW2.stop(log)
 lakes = {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 20. TRACE PROFILE regression: the capsule reports "Custom" (not a preset); traces must not use it
 --     (the engine finds no such profile and returns no hit), but a validated preset ("Player"), and
 --     Visibility when no preset validates
@@ -644,7 +823,7 @@ pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 90000, Y = 90000, Z = 0 }
 profile_not_found = 0
 _G.DW_TRACE_PROFILE = nil
 local MP = dofile(MOVE)
-MP.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 60 })
+MP.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 60, nav=false })
 run(400)
 s = MP.status()
 check("profile: never traces with the capsule's 'Custom' name", profile_not_found == 0, profile_not_found)
@@ -653,10 +832,10 @@ check("profile: planning works (arrives round the wall)", s.result and s.result.
 MP.stop(log)
 VALID_PROFILES = {} -- a game with neither preset: fall back to Visibility, still plans
 _G.DW_TRACE_PROFILE = nil -- a new client run re-validates
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 pawn.loc = { X = 0, Y = 0, Z = 0 }
 local MP2 = dofile(MOVE)
-MP2.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 60 })
+MP2.go_to(log, { 20, 0, 0 }, { tolerance_m = 1.5, timeout_s = 60, nav=false })
 run(400)
 s = MP2.status()
 check("profile: no preset -> Visibility fallback, still arrives", s.trace_profile == "visibility" and s.result and s.result.status == "arrived",
@@ -665,7 +844,7 @@ MP2.stop(log)
 VALID_PROFILES = { Player = true, Pawn = true }
 walls = {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 21. MAIN MENU: the controller's pawn is a DefaultPawn (no CharacterMovement) -> refuse / pause
 local real_cm = pawn.CharacterMovement
 pawn.CharacterMovement = nil
@@ -687,7 +866,7 @@ luis.loc = { X = 90000, Y = 90000, Z = 0 }
 pawn.loc = { X = 0, Y = 0, Z = 0 }
 local MD = dofile(MOVE)
 local nlog22 = #logs
-MD.go_to(log, { 15, 0, 2.3 }, { tolerance_m = 1.5, timeout_s = 90 })
+MD.go_to(log, { 15, 0, 2.3 }, { tolerance_m = 1.5, timeout_s = 90, nav=false })
 run(900)
 s = MD.status()
 local planned_d = false
@@ -699,10 +878,10 @@ end
 check("dj (a): unmeasured -> the planner never plans a double-jump edge", not planned_d)
 MD.stop(log)
 do local f = io.open(envf, "w"); f:write('{"character":"Claude","measured":"test","jump_up_m":{"stand":1.05},"dj_up_m":2.6,"dj_delay_s":0.33,"measurement_provenance":{"jump_up_m.stand":{"verified":true},"dj_up_m":{"verified":true}}}'); f:close() end
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 pawn.loc = { X = 0, Y = 0, Z = 0 }
 local MD2 = dofile(MOVE)
-MD2.go_to(log, { 15, 0, 2.3 }, { tolerance_m = 1.5, timeout_s = 90 })
+MD2.go_to(log, { 15, 0, 2.3 }, { tolerance_m = 1.5, timeout_s = 90, nav=false })
 run(600)
 s = MD2.status()
 local planned_d2 = false
@@ -733,7 +912,7 @@ local locked_caps = MD2.traverse_caps(locked, { state = "castable" })
 check("provenance: missing perk preserves measurement but prevents planning", locked_caps.double_jump.measured and not locked_caps.double_jump.have and not locked_caps.double_jump.planned and locked.djump == locked.jump)
 os.remove(envf); HAS_DJ = false; raised = {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 23. TRUTHFUL REASON (live 07:05): on a 3 m plateau, a tall wall across its whole width (it runs
 --     past the plateau's edges); the goal is level with us beyond the wall. The escape must not walk
 --     him off the plateau (Bug2 did), and the reason must be "no_route" (walls), not "above jump height"
@@ -744,7 +923,7 @@ luis.loc = { X = 90000, Y = 90000, Z = 0 }
 pawn.loc = { X = 0, Y = 0, Z = 300 }
 local nlog23 = #logs
 local MR = dofile(MOVE)
-MR.go_to(log, { 12, 0, 3.0 }, { tolerance_m = 1.5, timeout_s = 120 })
+MR.go_to(log, { 12, 0, 3.0 }, { tolerance_m = 1.5, timeout_s = 120, nav=false })
 run(1500)
 s = MR.status()
 check("reason: stays on the plateau (no wall-following off the ledge)", pawn.loc.Z >= 290, pawn.loc.Z)
@@ -753,7 +932,7 @@ check("reason: truthful 'no_route' for a level goal behind walls", s.result and 
 MR.stop(log)
 walls = {}; raised = {}
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 24. Windows refuses the request file's rename (AV/indexer handle; made test 1 flaky under load):
 --     the oracle request must still be sent (direct write) and its waypoints used
 walls = { { 900, 1100, -500, 500 } }; raised = {}; lakes = {}; portals = {}
@@ -771,7 +950,7 @@ s = MQ.status()
 local saw_nav24 = false
 for i = nlog24 + 1, #logs do if logs[i]:find("src=nav") then saw_nav24 = true end end
 check("refused rename: oracle request still sent, waypoints used, arrives", s.result and s.result.status == "arrived" and saw_nav24 and (s.nav_requests or 0) >= 1,
-    tostring(s.result and s.result.status) .. " nav=" .. tostring(saw_nav24))
+    tostring(s.result and s.result.status) .. " nav=" .. tostring(saw_nav24) .. " status=" .. tostring(s.status) .. " requests=" .. tostring(s.nav_requests))
 MQ.stop(log)
 walls = {}; oracle = nil
 
@@ -779,7 +958,7 @@ walls = {}; oracle = nil
 local AZt = dofile(here .. "/../scripts/avoidzones.lua")
 local function zreset()
     _G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; _G.DW_AVOID = nil
-    os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+    os.remove(dir .. "/data/skills/test-world/nav_memory.json")
     walls = {}; raised = {}; lakes = {}; portals = {}; oracle = nil; frame_hook = nil
     luis.loc = { X = 90000, Y = 90000, Z = 0 }; pawn.loc = { X = 0, Y = 0, Z = 0 }; sprinting = false
 end
@@ -815,7 +994,7 @@ local Z26 = { { id = "fire", x = 7.5, y = 0, z = 0, r_cm = 250, until_s = T + 12
 MZ.set_avoid_zones(log, Z26)
 local w26 = watch_zone(Z26)
 local nlog26 = #logs
-MZ.go_to(log, { 15, 0, 0 }, { tolerance_m = 1, timeout_s = 60 })
+MZ.go_to(log, { 15, 0, 0 }, { tolerance_m = 1, timeout_s = 60, nav=false })
 local saw_cross26 = false
 for _ = 1, 400 do run(1); if MZ.status().avoid.crossing then saw_cross26 = true end; if MZ.status().mode == "idle" then break end end
 s = MZ.status()
@@ -832,7 +1011,7 @@ walls = { { -500, 2500, 150, 3000, true }, { -500, 2500, -3000, -150, true } }
 MZ = dofile(MOVE)
 MZ.set_avoid_zones(log, { { id = "breath", x = 10, y = 0, z = 0, r_cm = 400, until_s = T + 120 } })
 local nlog27 = #logs
-MZ.go_to(log, { 20, 0, 0 }, { tolerance_m = 1, timeout_s = 90 })
+MZ.go_to(log, { 20, 0, 0 }, { tolerance_m = 1, timeout_s = 90, nav=false })
 local cross27, inside27 = nil, false
 for _ = 1, 800 do
     run(1)
@@ -854,7 +1033,7 @@ MZ = dofile(MOVE)
 local Z28 = { { id = "pool", x = 15, y = 0, z = 0, r_cm = 400, until_s = T + 120 } }
 MZ.set_avoid_zones(log, Z28)
 local w28 = watch_zone(Z28)
-MZ.follow(log, "Zezima", 3)
+MZ.follow(log, "Zezima", 3, {nav=false})
 run(200)
 s = MZ.status()
 check("avoid: follow holds at the edge of the leader's zone", s.status == "near_zone" and w28.inside == 0 and pawn.loc.X > 600,
@@ -871,7 +1050,7 @@ zreset()
 luis.loc = { X = 150, Y = 0, Z = 0 }; pawn.loc = { X = -100, Y = 0, Z = 0 } -- both in the zone: walking to him stays inside
 MZ = dofile(MOVE)
 MZ.set_avoid_zones(log, { { id = "puddle", x = 0, y = 0, z = 0, r_cm = 200, until_s = T + 120 } })
-MZ.follow(log, "Zezima", 3)
+MZ.follow(log, "Zezima", 3, {nav=false})
 run(100)
 s = MZ.status()
 local dz29 = math.sqrt(pawn.loc.X ^ 2 + pawn.loc.Y ^ 2) -- zone centre (0,0), r 2 m + 40 cm capsule
@@ -941,7 +1120,7 @@ MZ = dofile(MOVE)
 MZ.set_avoid_zones(log, { { id = "old", x = 7.5, y = 0, z = 0, r_cm = 250, until_s = T + 0.2 } })
 run(5)
 local nlog36 = #logs
-MZ.go_to(log, { 15, 0, 0 }, { tolerance_m = 1 })
+MZ.go_to(log, { 15, 0, 0 }, { tolerance_m = 1, nav=false })
 run(150)
 local planned36 = false
 for i = nlog36 + 1, #logs do if logs[i]:find("avoid_zone") then planned36 = true end end
@@ -956,7 +1135,7 @@ zreset()
 --     reaching the wall (~1 s walk + planning), while move itself is still trying (pure information, no stop)
 walls = { { 400, 500, -3000, 3000, true } }
 MZ = dofile(MOVE)
-MZ.go_to(log, { 10, 0, 0 }, { tolerance_m = 1, timeout_s = 60, progress = { stall_s = 3 } })
+MZ.go_to(log, { 10, 0, 0 }, { tolerance_m = 1, timeout_s = 60, nav=false, progress = { stall_s = 3 } })
 local p37, t37 = nil, T
 for _ = 1, 200 do run(1); local p = MZ.status().progress; if p and p.verdict ~= "ok" then p37 = p; break end end
 check("progress: blocked go_to -> stalled (walls) within ~stall_s, move still running",
@@ -970,7 +1149,7 @@ zreset()
 luis.loc = { X = 800, Y = 0, Z = 0 }
 frame_hook = function() luis.loc.X = luis.loc.X + 800 * DT end
 MZ = dofile(MOVE)
-MZ.follow(log, { actor = luis }, 2, { progress = { stall_s = 3 } })
+MZ.follow(log, { actor = luis }, 2, { nav=false, progress = { stall_s = 3 } })
 local p38
 for _ = 1, 100 do run(1); local p = MZ.status().progress; if p.verdict ~= "ok" then p38 = p; break end end
 check("progress: fleeing target -> cant_catch", p38 and p38.verdict == "stalled" and p38.why == "cant_catch" and p38.target_moved_m > 3,
@@ -981,7 +1160,7 @@ zreset()
 -- 39. follow that arrives and idles: stays "ok" however long he waits near the leader
 luis.loc = { X = 1000, Y = 0, Z = 0 }
 MZ = dofile(MOVE)
-MZ.follow(log, "Zezima", 3, { progress = { stall_s = 2 } })
+MZ.follow(log, "Zezima", 3, { nav=false, progress = { stall_s = 2 } })
 run(250)
 s = MZ.status()
 check("progress: idle near the leader stays ok", s.status == "near" and s.progress.verdict == "ok" and s.progress.since_s < 1, s.status .. " " .. s.progress.verdict .. " since=" .. tostring(s.progress.since_s))
@@ -994,7 +1173,7 @@ MZ.stop(log)
 zreset()
 -- 40. budget: a long trip with budget_s = 2 -> too_long after 2 s even while gaining
 MZ = dofile(MOVE)
-MZ.go_to(log, { 60, 0, 0 }, { tolerance_m = 1, progress = { budget_s = 2 } })
+MZ.go_to(log, { 60, 0, 0 }, { tolerance_m = 1, nav=false, progress = { budget_s = 2 } })
 run(10)
 local p40a = MZ.status().progress
 run(20)
@@ -1046,7 +1225,7 @@ zreset()
 --     the height, not a bare "timeout" (live 2026-10-26 16:05: branches on a rock)
 raised = { { 500, 1500, -1500, 1500, 400, 400 } }
 MZ = dofile(MOVE)
-MZ.go_to(log, { 8, 0, 4.9 }, { tolerance_m = 0.35, timeout_s = 10, progress = { stall_s = 3 } })
+MZ.go_to(log, { 8, 0, 4.9 }, { tolerance_m = 0.35, timeout_s = 10, nav=false, progress = { stall_s = 3 } })
 run(150)
 s = MZ.status()
 check("progress: ledge goal -> timeout reported as target_above_jump_height", s.result and s.result.status == "failed" and s.result.reason == "timeout"
@@ -1077,7 +1256,7 @@ MZ.stop(log)
 pawn.loc = { X = 0, Y = 0, Z = 0 }
 _G.DW_WATER_CH = { name = "vis", ch = 0 }
 _G.DW_TRACE_PROFILE = { name = "Player" } -- the pawn profile passes through water (live); Visibility sees the surface
-_G.DW_NAVMEM = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_NAVMEM = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 MZ = dofile(MOVE)
 local sp = MZ.shore_point(log, { 10, 0, -3 })
 check("shore: stands at the waterline (shallows), faces the water further out",
@@ -1123,10 +1302,10 @@ check("shore: a repeat success near it counts for the same spot", #(_G.DW_NAVMEM
 lakes = {}
 zreset()
 
-_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/unknown/nav_memory.json")
+_G.DW_LP_CACHE = nil; _G.DW_NAVMEM = nil; _G.DW_TRAP_CAND = nil; os.remove(dir .. "/data/skills/test-world/nav_memory.json")
 -- 7. arbiter hooks: actor target ({actor=obj}), snapshot/restore, face_when_near
 walls = {}; pawn.loc = { X = 0, Y = 0, Z = 0 }; luis.loc = { X = 1500, Y = 0, Z = 0 }; oracle = nil
-M.follow(log, { actor = luis }, 2, { sprint = true, face_when_near = true })
+M.follow(log, { actor = luis }, 2, { sprint = true, face_when_near = true, nav=false })
 run(80)
 s = M.status()
 check("follows an actor target", s.target_kind == "actor" and s.status == "near", tostring(s.target_kind) .. " " .. tostring(s.status))
@@ -1192,7 +1371,7 @@ do
         end })
     local function begin()
         pawn.loc = { X = 0, Y = 0, Z = 0 }; air = 0; walls = {}; raised = {}; oracle = nil
-        M.go_to(log, { 20, 0, 0 }, { local_plan = false })
+        M.go_to(log, { 20, 0, 0 }, { local_plan = false, nav=false })
         local st = _G.DW_MOVE
         st.env = { step = 45, ws_up_cm = 500 }
         st.lpath = { { X = 0, Y = 0, Z = -90, act = "walk" }, { X = 100, Y = 0, Z = -90, act = "superjump" } }
@@ -1202,7 +1381,7 @@ do
     local st = begin(); run(1)
     check("windstep: pending cast holds without jumping", polls > 0 and st.ws_exec and st.ws_exec.phase == "casting" and not st.jump_t)
     local token = st.owner_token
-    M.go_to(log, { 21, 0, 0 }, {})
+    M.go_to(log, { 21, 0, 0 }, {nav=false})
     check("windstep: replacement cancels before owner rotates", cancelled == 1 and cancelled_owned and _G.DW_MOVE.owner_token ~= token)
     M.stop(log)
     available, result = false, nil
@@ -1456,8 +1635,8 @@ do
     end
     pawn.Jump=refuse; attempts=0; run(1); KSL_BASE=old_trace
     check("jump paths: reactive hop rejection preserves counter",attempts==1 and st.result and st.result.reason=="verification_failed" and not st.hops and not st.jump_t)
-    st=setup(); st.use_nav=true; st.nav_t=T; st.path={{X=0,Y=0,Z=0},{X=500,Y=0,Z=100,link=true}}; st.wp=2; st.path_goal={X=2000,Y=0,Z=0}
-    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{5,0,1}}}"):format(id) end; pump_oracle()
+    st=setup(); st.use_nav=true
+    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{2,0,1}}}"):format(id) end; pump_oracle(); run(1)
     pawn.Jump=refuse; attempts=0; run(1)
     check("jump paths: oracle link rejection preserves marker",attempts==1 and st.result and st.result.reason=="verification_failed" and not st.nav_jumped[2] and not st.link_jumps)
     local scenarios={
@@ -1466,8 +1645,8 @@ do
         {name="memory",prepare=function(s) s.mpath={{X=0,Y=0,Z=-90,act="walk"},{X=500,Y=0,Z=-90,act="jump"}}; s.mwp=2; s.mem_jumped={}; return s.mem_jumped,2 end},
         {name="link",prepare=function(s) local e={phase="run",t0=T,link={id="t",from={0,0,-.9},to={5,0,-.9},move="jump"}}; s.link_exec=e; return e,"t_jump" end},
         {name="oracle",prepare=function(s)
-            s.use_nav=true; s.nav_t=T; s.path={{X=0,Y=0,Z=0},{X=500,Y=0,Z=100,link=true}}; s.wp=2; s.path_goal={X=2000,Y=0,Z=0}
-            oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{5,0,1}}}"):format(id) end; pump_oracle()
+            s.use_nav=true
+            oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{2,0,1}}}"):format(id) end; pump_oracle(); run(1)
             return s.nav_jumped,2
         end},
         {name="stepoff",prepare=function(s) pawn.loc.Z=300; s.win_t=T-2; s.win_pos={X=0,Y=0,Z=300}; return s,"stepoff_tried" end},
@@ -1485,6 +1664,7 @@ do
     for _,scenario in ipairs(scenarios) do
         st=setup(); local marker,key=scenario.prepare(st); local before=st.gen; local created_token,created_handle; attempts=0
         pawn.Jump=function()
+            if scenario.name == "oracle" then marker = st.nav_jumped end
             attempts=attempts+1; pawn.Jump=original_jump
             M.go_to(log,{30,0,0},{nav=false,local_plan=false})
             created_token,created_handle=st.owner_token,st.handle

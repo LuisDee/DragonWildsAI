@@ -1,5 +1,90 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Current checkpoint: route authority GREEN, publication pending (2026-10-28)
+
+- Full gate is TERMINAL GREEN: **1,192 passed, 1 skipped, 427.07s**,
+  W/logs/recovery/cf-d8781fb6/check-all.log. All14 source/test/design/document
+  hashes matched before/after; verified-after.json records that proof. Later
+  changes in this checkpoint are administrative progress/handoff text only.
+  Do not repeat the full gate without new code, failure or unresolved evidence.
+- Final movement SHA256
+  `d47bcd0824857b0ff03a71c1be20438b950128ee5aa5d680f7b76d3fbe89b650`;
+  helperSHA256
+  `23b0a226da5b3accf4d38e227ad8ff4f2818d6068b633c9bc48c316f22c6ed9a`.
+  Independent cold review approved the integrated wave after fixing compact
+  versus hyphenated UUID mismatch and reentrant arbiter ownership. The gate
+  now includes actual Authority-to-Lua-to-Authority identity compatibility and
+  the focused movement authority/owner/follow/traversal cases.
+- Runtime is still OLD clean deployed83f0ce3/HEAD77f9bbf, DEV12340, server7016,
+  Steam3284, watchdog9888, legacy oracle wrapper144/worker10016. No candidate
+  source is published yet. Native last read HP100, same stationary position;
+  no model calls, daily API$0.0125/11Haiku,0Sonnet/unpriced. Supplied R26
+  nutrition totals40Bread/59Water. Fresh identity/vitals/slot checks required.
+- IMPORTANT server publication target is a COPY, not a junction:
+  `C:/GameServers/Dragonwilds/RSDragonwilds/Binaries/Win64/ue4ss/Mods/DWCompanion/experiments/nav_oracle.lua`.
+  The server debug log confirms that path. Back up and replace ONLY that tested
+  experiment while old helpers are stopped; do not run wholesale deploy_mod
+  or restart the retained server. Verify target raw hash against the gate.
+- Next main action: commit/push tested source; reserve the actual R client slot,
+  announce client-only/helper integration, preserve current memory and deployed
+  experiment, coordinate watchdog (client hold does not pause its helpers), stop
+  client and legacy helpers and independently verify them terminal. Capture
+  retired identities from W/logs/recovery/nav-legacy-identities-20261028.json;
+  write the reviewed private recovery_policy.json, publish tested runtime files
+  and the actual server experiment, start exactly one v2 helper and verify its
+  FIFO recovery/offer. Keep server/Steam and all world memory.
+- After fresh DEV admission, perform the reviewed sameXY+50mZ negative and2m
+  positive controls. The positive may temporarily use100cm oracle_primary_cm
+  only with exact-value restoration and a configuration-assisted label; it is
+  not default long-distance or autonomous evidence. Main-owned private command
+  W/logs/recovery/route-control-20261028.lua passed independent review and21
+  lightweight refusal cases. Copy it only after integration; its corrected
+  bridge accessor is __dwc_bridge.module.module(...). Retain reservation on
+  uncertain idle/config restoration. It does not instrument native input calls.
+- Server-restart bootstrap remains open: the helper policy is tied to the
+  independently verified server/bridge lifetime. Broader continuous support,
+  native empty-inventory semantics, the unaided no-axe chain and original M1-M6
+  remain unmet. Approved judges are unchanged. No grave/model travel before
+  benign current-code live controls pass.
+
+## Active development: route authority candidate (2026-10-28, 05:33 UTC)
+
+- Runtime remains clean deployed83f0ce3 (metadataHEAD77f9bbf), DEV12340/ClaudeDev,
+  server7016/Steam3284 and legacy oracle144/10016 retained. No candidate source
+  has been published. The runtime client slot and queue are free after two
+  completed developer diagnostics; inspect processes/state again before work.
+- W has uncommitted source/test/design changes: reviewed metadata and helperv2,
+  plus movement authority still under implementation/broad regression. Do not
+  deploy or claim GREEN for this candidate yet. Separate owners have helper and
+  movement files; main owns integration/docs. At most two active children.
+- Helper cold review approved after response-waypoint unit overflow was fixed;
+  focused metadata/lifecycle/design tests27passed (`t-9a4145d7`). HelperSHA256
+  `390AC4985D1D85A46A4DFCFADA606B62F4607B797BCEC86BFBAF01DECD5A0B97`.
+  Movement must retain nearby optional routing, explicit direct opt-outs,
+  persistent follow, real world identity, owned input and paused progress clocks.
+  Its broader legacy tests are not yet green; await freeze and cold review.
+- Stationary controls on the tested deployment: sameXY+50mZ gave no_path/zero;
+  nearby2m gave a two-point2.02m route. Position identical, HP100, terminal idle.
+  Active duration2.1s; preceding declared8Bread/8Water setup17.6s. R26 harness
+  totals40Bread/59Water. API total unchanged$0.0125,11Haiku,0Sonnet/unpriced.
+  No movement/model test or autonomous-task pass. Full evidence:
+  R/logs/recovery/route-oracle-baseline-20261028.json; completed registrations
+  archived at R/logs/recovery/route-control-registrations-20261028/.
+- Win32 read-only identities captured before legacy helper termination:
+  W/logs/recovery/nav-legacy-identities-20261028.json. Exact process FILETIME
+  and full images are readable without privilege changes. The v2 helper needs
+  a private NAV_DIR/recovery_policy.json scoped to this server/bridge lifetime.
+  Root must independently stop/verify legacy writers during announced client-off
+  integration, write the reviewed policy, then prove FIFO recovery and actual
+  route holds/nearby arrival. Client hold alone does NOT pause watchdog helper
+  restarts; coordinate the watchdog before replacement. Preserve Steam/server
+  and per-world state. Unattended server-restart bootstrap remains open.
+- Next: finish actual movement tests/review, publish the full reviewed design,
+  design-note check, one full regression gate with source manifests, then an
+  announced controlled integration and benign live negative/positive controls.
+  No repeat of grave/model travel until those pass. The original no-axe task
+  and M1-M6 including solo Vel'gar remain ACTIVE and unmet. Judges unchanged.
+
 ## Current handoff: deployed inventory perception verified (2026-10-28, 05:00 UTC)
 
 - **Deployed source:** `83f0ce315a9b44130491da349a6eb1426374d4a4`, pushed to

@@ -1,5 +1,18 @@
 # Live bug ledger
 
+### Route authority candidate: live failure remains open (2026-10-28)
+
+The failed tree pilot's no-path-to-straight fallback remains the deployed
+behavior until the isolated replacement passes review, offline gates and benign
+live negative/positive controls. A stationary +50mZ query now supplies a native
+no_path contrast; a nearby2m query supplies a positive route. Neither moved the
+character or validates the candidate. The helper's reviewed v2 recovery policy
+is pinned to one independently verified server/bridge lifetime; unattended
+bootstrap after a server restart remains unsupported and must fail unavailable.
+Do not repeat the grave trip, hide learned/death memory, or count a paused
+planner as a completed task. Native empty-inventory semantics and broader
+continuous support remain separate open issues.
+
 ### Native food-reflex compatibility after publication (2026-10-28)
 
 A reserved check supplied two Bread and two Clean Water. The existing client

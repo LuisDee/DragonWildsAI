@@ -15,9 +15,9 @@
 --      by being stuck; plans a SEGMENT toward the far goal (Baritone-style segmented planning),
 --      re-plans at the segment end if still blocked.
 --   2. LEADER BREADCRUMBS when following (the leader's grounded trail is known walkable).
---   3. Optional dev-server NAV ORACLE (tools/nav_oracle.py), used ONLY while its heartbeat file is
---      fresh (client_io/nav/alive.lua), so a missing oracle costs nothing.
---   4. Straight line to the goal.
+--   3. Dev-server NAV ORACLE (tools/nav_oracle.py): required before long-trip input unless nav=false;
+--      nearby moves may use it opportunistically. A missing or unanswered required route holds.
+--   4. Straight line for nearby or explicitly direct movement.
 -- Unstuck ladder: local plan -> jump -> double jump -> strafe + backtrack along our own trail.
 -- Bounded: no net progress toward the goal for > give_up_s -> stop with reason "stuck".
 -- Never teleports the pawn. One loop (LoopInGameThreadWithDelay(1, ...)), cancellable, and a
@@ -81,7 +81,7 @@ local TM_PATH = ROOT .. "/client_mod/scripts/traversal_moves.lua" -- DATA: doubl
 local SP_PATH = ROOT .. "/client_mod/scripts/spells.lua"          -- Windstep: its public ability_status / cast_now
 
 local M = {}
-local move_arbiter, life_check, finish, paused
+local move_arbiter, life_check, finish, paused, world_identity
 
 M.cfg = {
     wp_radius_cm = 120,        -- waypoint / crumb reached (2D)
@@ -90,9 +90,7 @@ M.cfg = {
     sprint_off_cm = 500,       -- ... and stop asking below this
     sprint_retry_s = 1.0,      -- toggle sprint: wait this long for the server ack before pressing again
     repath_goal_move_cm = 300, -- nav: a moving goal that drifted this far from the path's end -> repath
-    repath_min_s = 1.0,
-    nav_timeout_s = 4.0,
-    nav_retry_s = 5.0,
+    nav_timeout_s = 40.0,      -- includes helper's 25 s loading budget and an in-flight 10 s bridge call
     nav_alive_s = 5,           -- oracle heartbeat older than this -> oracle considered absent
     stuck_window_s = 1.0,      -- progress is measured over this window
     stuck_min_cm = 50,         -- less 2D movement than this in a window, while pushing = stuck
@@ -447,17 +445,46 @@ end
 M._envelope = envelope -- fake-engine regression access
 
 -- ------------------------------------------------------------------ nav oracle client (optional)
-local function oracle_alive()
+local function oracle_offer()
     local chunk = loadfile(NAV_ALIVE)
-    if not chunk then return false end
-    local ok, t = pcall(chunk)
-    return ok and type(t) == "number" and os.time() - t <= M.cfg.nav_alive_s
+    if not chunk then return nil, "oracle_unavailable" end
+    local ok, h = pcall(chunk)
+    if not ok or type(h) ~= "table" or h.version ~= 2 or type(h.epoch) ~= "string"
+        or type(h.updated) ~= "number" or h.updated ~= h.updated or math.abs(h.updated) == math.huge or
+        math.abs(os.time() - h.updated) > M.cfg.nav_alive_s then return nil, "oracle_unavailable" end
+    if h.state == "recovering" then return h, "oracle_recovering" end
+    if h.state == "unresolved" then return h, "oracle_unresolved" end
+    if h.state == "busy" then return h, "oracle_busy" end
+    if h.state ~= "offered" then return nil, "oracle_unavailable" end
+    return h
 end
 
-local function nav_request(st, from, to)
+local function nav_request(st, from, to, offer, world)
+    local function uuid(s)
+        return type(s) == "string" and #s == 36 and
+            s:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$") ~= nil
+    end
+    if not offer or offer.state ~= "offered" or type(offer.nonce) ~= "string"
+        or not uuid(offer.epoch) or not uuid(offer.nonce) then return false end
+    _G.DW_NAV_USED = _G.DW_NAV_USED or {}
+    local key = offer.epoch .. ":" .. offer.nonce
+    if _G.DW_NAV_USED[key] then return false end
+    -- A previous client may have written this offer before the helper consumed it.
+    local old = io.open(NAV_REQ, "r")
+    if old then
+        local body = old:read("a"); old:close()
+        if body:match('"epoch"%s*:%s*"([^"]+)"') == offer.epoch and
+           body:match('"nonce"%s*:%s*"([^"]+)"') == offer.nonce then return false end
+    end
+    for _, p in ipairs({from, to}) do
+        for _, k in ipairs({"X", "Y", "Z"}) do
+            local x = p[k]
+            if type(x) ~= "number" or x ~= x or math.abs(x) == math.huge then return false end
+        end
+    end
     st.nav_id = (st.nav_id or 0) + 1
-    local body = string.format('{"id":%d,"from":[%.2f,%.2f,%.2f],"to":[%.2f,%.2f,%.2f]}',
-        st.nav_id, from.X / 100, from.Y / 100, from.Z / 100, to.X / 100, to.Y / 100, to.Z / 100)
+    local body = string.format('{"version":2,"epoch":"%s","nonce":"%s","id":%d,"from":[%.2f,%.2f,%.2f],"to":[%.2f,%.2f,%.2f]}',
+        offer.epoch, offer.nonce, st.nav_id, from.X / 100, from.Y / 100, from.Z / 100, to.X / 100, to.Y / 100, to.Z / 100)
     local f = io.open(NAV_REQ .. ".tmp", "w")
     if not f then return false end
     f:write(body)
@@ -476,7 +503,9 @@ local function nav_request(st, from, to)
         os.remove(NAV_REQ .. ".tmp")
     end
     if not sent then return false end
-    st.nav_pending, st.nav_goal = st.nav_id, v(to)
+    _G.DW_NAV_USED[key] = true
+    st.nav_pending, st.nav_goal = { id=st.nav_id, epoch=offer.epoch, nonce=offer.nonce,
+        gen=st.gen, token=st.owner_token, pawn=st.pawn, world=world }, v(to)
     return true
 end
 
@@ -484,7 +513,9 @@ local function nav_poll(st)
     local chunk = loadfile(NAV_RESP)
     if not chunk then return nil end
     local ok, r = pcall(chunk)
-    if ok and type(r) == "table" and r.id == st.nav_pending then return r end
+    local p = st.nav_pending
+    if ok and type(r) == "table" and type(p) == "table" and r.version == 2 and
+        r.id == p.id and r.epoch == p.epoch and r.nonce == p.nonce then return r end
 end
 
 -- ------------------------------------------------------------------ input
@@ -695,6 +726,34 @@ end
 
 -- The per-world navigation memory (cached in _G.DW_NAVMEM across reloads of this file).
 local UTIL_MOD
+world_identity = function()
+    if UTIL_MOD == nil then
+        local okc, chunk = pcall(loadfile, ROOT .. "/mod/body/util.lua")
+        local okm, mod = false, nil
+        if okc and chunk then okm, mod = pcall(chunk) end
+        UTIL_MOD = (okm and type(mod) == "table" and mod.world_id) and mod or false
+    end
+    if not UTIL_MOD then return nil end
+    -- Do not use the resolver's 60 s joined-server cache for route authority.
+    local ok, id = pcall(UTIL_MOD.world_id, ROOT, { cache_s = 0 })
+    if not ok or type(id) ~= "string" or id == "" or id == "unknown" then return nil end
+    return id
+end
+local function route_owned(st, gen, pawn, pc)
+    local b = st.nav_binding
+    if not b then return false end
+    local token, world = b.token, b.world
+    local a = move_arbiter()
+    local ok, owns = pcall(function() return a and a.owns_move and a.owns_move(token) end)
+    local okp, current_pawn = pcall(function() return pc.Pawn end)
+    local current_world = world_identity()
+    local arb = rawget(_G,"DWArbiter")
+    local owner = arb and arb.owner
+    return ok and owns == true and okp and current_pawn == pawn and not paused() and
+        rawget(_G,"DW_MOVE") == st and st.gen == gen and st.owner_token == token and
+        st.pawn == pawn and b.gen == gen and b.pawn == pawn and world ~= nil and
+        current_world == world and owner and owner.token == token
+end
 local function nav_mem()
     local NMm = nm_module()
     if not NMm then return nil end
@@ -703,14 +762,7 @@ local function nav_mem()
     local wc = rawget(_G, "DW_MOVE_WORLD")
     local tw = os.time()
     if not wc or tw - wc.t >= 5 then
-        if UTIL_MOD == nil then
-            local okc, chunk = pcall(loadfile, ROOT .. "/mod/body/util.lua")
-            local okm, mod = false, nil
-            if okc and chunk then okm, mod = pcall(chunk) end
-            UTIL_MOD = (okm and type(mod) == "table" and mod.world_id) and mod or false
-        end
-        local w = "unknown"
-        if UTIL_MOD then local okw, x = pcall(UTIL_MOD.world_id, ROOT); if okw and x then w = x end end
+        local w = world_identity() or "unknown"
         wc = { t = tw, id = w }
         _G.DW_MOVE_WORLD = wc
     end
@@ -1268,6 +1320,143 @@ local function tick(st, gen, log)
     local dist = d2(me, goal)
     st.dist_cm = dist
     if st.dz0 == nil then st.dz0 = goal.Z - me.Z end
+    -- Long trips require an admitted route before any planner, traversal or raw input.
+    -- Once required, keep the authority until the real three-dimensional arrival.
+    local route_far = dist > M.cfg.oracle_primary_cm or
+        (goal.Z - me.Z) > ((st.env and st.env.jump or 165) + 20)
+    if st.use_nav ~= false and not st.nav_required and (route_far or st.nav_deferred_required) then
+        if st.ws_exec or st.link_exec or st.jump_t then
+            -- Let the already-owned traversal finish its existing landing/release transaction.
+            st.nav_deferred_required = true
+        else
+            st.nav_required, st.nav_deferred_required = true, nil
+            -- Existing short/direct plans are not authority for the newly required route.
+            st.lpath, st.lp_state, st.trail_i, st.mpath = nil, nil, nil, nil
+        end
+    end
+    local at_route_goal = reached(st, me, goal)
+    if st.use_nav ~= false and not at_route_goal then
+        local arb = move_arbiter()
+        local owns = arb and arb.owns_move and st.owner_token and arb.owns_move(st.owner_token)
+        if not owns or rawget(_G, "DW_MOVE") ~= st or st.gen ~= gen or pawn ~= st.pawn or paused() then return end
+        if st.nav_goal and (d2(goal, st.nav_goal) > M.cfg.repath_goal_move_cm or
+            math.abs(goal.Z - st.nav_goal.Z) > M.cfg.repath_goal_move_cm) then
+            st.path, st.nav_pending, st.nav_goal, st.nav_fail = nil, nil, nil, nil
+            st.nav_wait_t = nil
+        end
+        local world = world_identity()
+        local pending = st.nav_pending
+        if pending then
+            local helper = oracle_offer()
+            if helper and helper.epoch ~= pending.epoch then
+                st.nav_pending, st.path, st.nav_fail = nil, nil, "oracle_restarted"
+            elseif pending.gen ~= gen or pending.token ~= st.owner_token or pending.pawn ~= pawn or
+                not world or pending.world ~= world then
+                st.nav_pending, st.path = nil, nil
+                st.nav_fail = "route_identity_changed"
+            else
+                local r = nav_poll(st)
+                if r then
+                    st.nav_pending = nil
+                    local pts, valid = {}, type(r.ok) == "boolean" and r.ok == true and type(r.points) == "table" and #r.points >= 2
+                    if r.partial ~= nil and type(r.partial) ~= "boolean" then valid = false end
+                    if r.goal_projected ~= nil and type(r.goal_projected) ~= "boolean" then valid = false end
+                    if valid then
+                        for _, p in ipairs(r.points) do
+                            if type(p) ~= "table" or #p ~= 3 then valid = false; break end
+                            for k in pairs(p) do
+                                if type(k) ~= "number" or k < 1 or k > 3 or k % 1 ~= 0 then valid = false; break end
+                            end
+                            if not valid then break end
+                            for i = 1, 3 do
+                                if type(p[i]) ~= "number" or p[i] ~= p[i] or math.abs(p[i]) == math.huge or
+                                    math.abs(p[i] * 100) == math.huge then valid = false; break end
+                            end
+                            if not valid then break end
+                            pts[#pts + 1] = { X=p[1]*100, Y=p[2]*100, Z=p[3]*100 }
+                        end
+                    end
+                    if valid then
+                        local last = pts[#pts]
+                        if st.unreach and st.unreach.reason == "no_route" and
+                            (r.partial ~= false or d2(last, goal) > st.tol_cm or math.abs(last.Z-goal.Z) > 2*st.half_h) then
+                            valid = false
+                        end
+                    end
+                    if valid then
+                        for i = 2, #pts do
+                            if pts[i].Z - pts[i-1].Z > 60 and d2(pts[i-1], pts[i]) < 300 then pts[i].link = true end
+                        end
+                        st.path, st.wp, st.path_partial = pts, 2, r.partial
+                        st.path_goal, st.nav_jumped = v(st.nav_goal), {}
+                        st.nav_binding = pending
+                        st.nav_fail = nil
+                        if st.unreach and st.unreach.reason == "no_route" then
+                            pcall(emit_move_event, "reachable_again", { leader_pos=goal, my_pos=me, after_s=t-st.unreach.since })
+                            if rawget(_G,"DW_MOVE") ~= st or st.gen ~= gen or st.owner_token ~= pending.token then return end
+                            st.unreach = nil
+                        end
+                    else
+                        st.path, st.nav_fail = nil, r.reason or "invalid_route"
+                    end
+                end
+            end
+        end
+        if st.path then
+            local b = st.nav_binding
+            if not b or b.gen ~= gen or b.token ~= st.owner_token or b.pawn ~= pawn or
+                not world or b.world ~= world then return end
+            if not st.lpath and not st.trail_i and not st.mpath and not st.link_exec then
+                st.wp = advance(st.path, st.wp, me, M.cfg.wp_radius_cm,
+                    math.max((st.env and st.env.step or 45) + 20, 60), st.half_h or 90)
+            end
+            if st.wp > #st.path then
+                local last = st.path[#st.path]
+                if last and d2(last, goal) <= st.tol_cm and math.abs(last.Z - goal.Z) <= 2 * st.half_h then
+                    st.wp = #st.path -- steer to the admitted endpoint, never substitute the raw goal
+                else
+                    st.path, st.nav_fail = nil, "route_ended_before_goal"
+                end
+            end
+        end
+        if st.mode == "follow" and not st.nav_pending and st.nav_fail and st.unreach and st.unreach.reason == "no_route" and
+            t - st.unreach.check_t > M.cfg.unreachable_check_s then
+            st.unreach.check_t, st.nav_fail, st.nav_wait_t = t, nil, t
+        end
+        if not st.path and not st.nav_pending and not st.nav_fail then
+            local offer, offer_reason = oracle_offer()
+            st.nav_live = offer ~= nil
+            st.nav_wait_reason = offer_reason or "oracle_unavailable"
+            if world and nav_request(st, me, goal, offer, world) then
+                st.nav_sent_t = t
+                st.nav_requests = (st.nav_requests or 0) + 1
+            end
+        end
+        if not st.path and st.nav_required then
+            st.nav_wait_t = st.nav_wait_t or t
+            st.status = st.unreach and "unreachable" or "planning"
+            st.prog_t, st.prog_pos, st.win_t, st.win_pos = t, v(me), t, v(me)
+            if st.prog_tr then st.prog_tr.last_t = nil end
+            if st.mode == "go_to" and t - st.t0 > st.timeout_s then
+                return finish(st, { status="failed", reason="timeout", detail="route not yet verified" }, log)
+            end
+            if st.nav_fail or t - st.nav_wait_t > M.cfg.nav_timeout_s then
+                local why = st.nav_fail or (st.nav_pending and "oracle_timeout") or st.nav_wait_reason or "oracle_unavailable"
+                if st.mode == "go_to" then
+                    return finish(st, { status="failed", reason="verification_failed", detail="route unavailable: " .. tostring(why) }, log)
+                end
+                if not st.unreach then
+                    st.nav_fail = why
+                    st.unreach = { reason="no_route", since=t, check_t=t, leader_pos=v(goal) }
+                    pcall(emit_move_event, "unreachable", { reason="no_route", detail="route unavailable: " .. tostring(why), leader_pos=goal, my_pos=me, mode="follow" })
+                    if rawget(_G,"DW_MOVE") ~= st or st.gen ~= gen then return end
+                end
+                st.status = "unreachable"
+            end
+            return
+        end
+        st.nav_wait_t = nil
+    end
     -- "near" for the tracker: within tolerance, or a follow idling (incl. holding at a zone's edge)
     local same_level = type(goal.Z) == "number" and type(me.Z) == "number" and math.abs(goal.Z - me.Z) <= 2 * st.half_h
     progress_tick(st, t, me, goal, dist, (dist <= st.tol_cm and same_level) or (st.mode == "follow" and st.idle == true and same_level))
@@ -1507,7 +1696,7 @@ local function tick(st, gen, log)
 
     -- memory routing, once per move (needs our position): a known trap's exit first; else a
     -- remembered route for long trips (human-proven / self routes, Dijkstra)
-    if not st.mem_checked then
+    if not st.mem_checked and not st.nav_required then
         st.mem_checked = true
         local mem, NMm = nav_mem()
         if mem then
@@ -1547,49 +1736,9 @@ local function tick(st, gen, log)
         end
     end
 
-    -- optional nav oracle (only with a live heartbeat; never waits)
-    if st.use_nav ~= false then
-        if st.ticks % (st.nav_live and 200 or 50) == 1 then st.nav_live = oracle_alive() end
-        if st.nav_live then
-            if st.nav_pending then
-                if st.ticks % 4 == 0 then
-                    local r = nav_poll(st)
-                    if r then
-                        st.nav_pending, st.nav_t = nil, t
-                        if r.ok and r.points and #r.points >= 2 then
-                            local pts = {}
-                            for i, p in ipairs(r.points) do pts[i] = { X = p[1] * 100, Y = p[2] * 100, Z = p[3] * 100 } end
-                            for i = 2, #pts do -- mark nav-link endpoints (rise > step over a short run)
-                                if pts[i].Z - pts[i - 1].Z > 60 and d2(pts[i - 1], pts[i]) < 300 then pts[i].link = true end
-                            end
-                            st.path, st.wp, st.path_partial, st.path_goal = pts, 2, r.partial, st.nav_goal
-                            st.nav_jumped = {}
-                        else
-                            st.path, st.nav_fail = nil, r.reason or "no_path"
-                        end
-                    elseif t - st.nav_sent_t > M.cfg.nav_timeout_s then
-                        st.nav_pending, st.nav_t, st.nav_fail = nil, t, "oracle_timeout"
-                    end
-                end
-            else
-                local since = t - (st.nav_t or -100)
-                local need = not st.nav_t or (not st.path and since > M.cfg.nav_retry_s)
-                    or (st.path and st.path_goal and d2(st.path_goal, goal) > M.cfg.repath_goal_move_cm and since > M.cfg.repath_min_s)
-                local far = dist > M.cfg.oracle_primary_cm or (goal.Z - me.Z) > ((st.env and st.env.jump or 165) + 20)
-                if st.nav_force then need, st.nav_force = true, false end
-                if need and (far or (not st.trail_i and not st.lpath)) and nav_request(st, me, goal) then
-                    st.nav_sent_t = t
-                    st.nav_requests = (st.nav_requests or 0) + 1
-                end
-            end
-        else
-            st.path = nil
-        end
-    end
-
     -- leader breadcrumbs: when the straight/nav route is failing
     local path = st.path
-    if st.target and not st.trail_i and #st.crumbs >= 2 then
+    if not st.nav_required and st.target and not st.trail_i and #st.crumbs >= 2 then
         local nav_bad = (path and st.path_partial and st.wp > #path) and dist > M.cfg.trail_min_dist_cm
         local above = (goal.Z - me.Z) > ((st.env and st.env.jump or 165) + 100) and dist < 1500
         if nav_bad or above or st.want_trail or st.stuck_n >= M.cfg.trail_enter_stuck then
@@ -1893,7 +2042,6 @@ local function tick(st, gen, log)
         end
         if not st.lpath and not st.trail_i and not st.mpath and path then
             local i0 = st.wp
-            st.wp = advance(path, st.wp, me, M.cfg.wp_radius_cm, math.max((st.env and st.env.step or 45) + 20, 60), st.half_h or 90)
             if st.wp > i0 then idx_progress = true end
             if st.wp <= #path then
                 aim, src = path[st.wp], "nav"
@@ -1913,6 +2061,13 @@ local function tick(st, gen, log)
         end
     end
     if zone_in and st.zone_exit and not st.escape then aim, src, idx_progress = st.zone_exit, "avoid_exit", true end
+    if st.nav_required and src == "straight" then
+        if st.mode == "go_to" then
+            return finish(st, { status="failed", reason="verification_failed", detail="route ended before destination" }, log)
+        end
+        st.status = "unreachable"
+        return
+    end
     st.source, st.aim = src, aim
 
     local dx, dy = aim.X - me.X, aim.Y - me.Y
@@ -1925,6 +2080,9 @@ local function tick(st, gen, log)
 
     -- far goal for the local planner: a crumb a little ahead on the trail, else the goal
     local function far_goal()
+        if st.nav_required and st.path and st.wp and st.wp <= #st.path then
+            return st.path[st.wp]
+        end
         if st.trail_i then
             return st.crumbs[math.min(#st.crumbs, st.trail_i + M.cfg.trail_lookahead)]
         end
@@ -2042,11 +2200,17 @@ local function tick(st, gen, log)
     end
 
     -- face where we go (control rotation = camera yaw; the pawn orients to its movement)
+    if st.nav_required then
+        if not route_owned(st, gen, pawn, pc) then return end
+    end
     pc:SetControlRotation({ Pitch = 0, Yaw = math.deg(math.atan(dy, dx)), Roll = 0 })
     if st.hold_gap then
         st.hold_gap = nil
         st.move_acc, st.bt_tested = M.cfg.self_stuck_cm, t -- holding on purpose: not wedged
     else
+        if st.nav_required then
+            if not route_owned(st, gen, pawn, pc) then return end
+        end
         pawn:AddMovementInput({ X = dx, Y = dy, Z = 0 }, 1.0, false)
         st.status = "moving"
     end
