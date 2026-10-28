@@ -1,5 +1,17 @@
 # Discoveries
 
+### Ownership checks recursively compile the mover (2026-10-28)
+
+move_arbiter loads a fresh arbiter; owns_move runs housekeeping, whose mv()
+loads the entire move module into that fresh instance. Actual-module offline
+instrumentation measured520arbiter+520nestedmove loads per160samplingtraces.
+The existing public set_move(actualM) dependency injection removed nestedloads
+while preserving all route/world checks;4.208->0.463s CPU in one fake comparison.
+Live cost/benefit remains unproven. Runtime getters also returned coherent
+filled-slot/quantity counts and known-positive rune counts without slot-array
+traversal; main10observedrows/8702quantity matched10filled/8702items.
+See docs/research/r26-short-local-planner-20261028.md; hands remain unknown.
+
 ### Actual local planner supplies an upper-level candidate (2026-10-28)
 
 The read-only real-LP control lp_observe_4457c972ea returned7points, including

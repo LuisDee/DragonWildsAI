@@ -1,5 +1,27 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Current live source2bff707; throughput repair isolated (2026-10-28 10:35 Berlin)
+
+Root published2bff707,21statefiles unchanged duringclientoff, client7704/pawn
+BP_PlayerCharacter_C_2147473120/ClaudeDev DEVloopback;server7016/Steam3284 kept.
+Nativecontrol first refusedHP1/hydration0; DEVrestoration8Bread/8Water+HP100,
+R26total68Bread91Water; actualdrink statrose. Freshcontrol default_8f91aadfe5
+stayed sampling272traces/17ticks/13.3seconds,noinput/jump/acquisition; cleanup
+rawidle and parentwatchdogterminal. Current sourcehas no newunaidedpass.
+
+/root/short_route_implementation owns narrowW mover/test/design repair: fresh
+arbiter.set_move(currentM) avoids recursivefullmover compilation, no removed
+checks/caches. Private160trace comparison4.208->0.463CPU, same510routechecks/
+1030worldreads. Source/coldreview/fullgate/live remain; rootsoleintegration.
+/root/live_operator onlyprivatehandsnull design, no liveaccess. Scalarpositive
+control verified rune counts and stoneaxe0; componentrowcountsreconcile but
+handsunknown. Rootslot root-short-route-control, no brain/queue/action running.
+Freshslotonoperationrequired; do not run duplicateclients/server/heavytests.
+
+10:30deadline slipped. RevisedBerlin10:45developer,11:00Haiku,11:15verdict,
+12:45repeat/generalisation/M1audit; reportfurther slips. API$0.0259/23Haiku,
+0planner/unpriced. GoalACTIVE, judgesunchanged, hourlyheartbeatACTIVE.
+
 ## Latest checkpoint: movement gate GREEN, publication next (2026-10-28 10:15 Berlin)
 
 Root verified all eight cf-320e06f3 manifest hashes; full gate terminal exit0,

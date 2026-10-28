@@ -1155,7 +1155,12 @@ end
 
 -- ------------------------------------------------------------------ the loop
 move_arbiter = function()
-    local ok, a = pcall(function() return assert(loadfile(ROOT .. "/client_mod/scripts/arbiter.lua"))() end)
+    local ok, a = pcall(function()
+        local arb = assert(loadfile(ROOT .. "/client_mod/scripts/arbiter.lua"))()
+        assert(type(arb) == "table" and type(arb.set_move) == "function", "arbiter setter unavailable")
+        arb.set_move(M) -- use this active mover for housekeeping, without another move.lua load
+        return arb
+    end)
     return ok and a or nil
 end
 

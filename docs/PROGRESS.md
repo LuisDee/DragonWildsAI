@@ -1,5 +1,21 @@
 # Progress log (append-only)
 
+### Live short-route throughput failure isolated (2026-10-28 10:35 Berlin)
+
+Reviewed2bff707 is pushed/deployed after1197passed/1skip GREEN. First live
+control refused at HP1/hydration0; declared DEV fixtures restored health100
+and8Bread/8Water (R26 totals68/91), actual consumption raised hydration.
+Default control then started but remained sampling:17ticks/272traces over
+13.3game seconds, no movement/acquisition/jump. Timer/watchdog/idle terminal.
+
+Actual-module instrumentation found a fresh arbiter lazily recompiles the whole
+mover during every ownership check. Reusing the existing set_move(actualM)
+API in a private experiment removed520nested mover compilations per160traces,
+CPU4.208->0.463s, preserving510route checks/1030uncachedworld resolutions.
+This is offline evidence; narrow candidate regression/review/gate/live pending.
+No new autonomous capability or formal milestone is claimed.10:30deadline
+slipped; revised developer10:45,Haiku11:00,verdict11:15,repeat/M1audit12:45Berlin.
+
 ### Reviewed short-route movement passed full gate (2026-10-28 10:11 Berlin)
 
 The eight-file frozen candidate passed CHECK_ALL: GREEN: 1197 passed, one

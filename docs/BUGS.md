@@ -1,5 +1,16 @@
 # Live bug ledger
 
+### Active: local-route sampling exceeds real control window (2026-10-28)
+
+On deployed2bff707, default local observation reached only272traces/17ticks
+in13.3game seconds, no physical movement. Independent watchdog and cleanup
+completed; no goal pass. A fresh arbiter recursively compiling move.lua on
+each ownership check is a measured repeated-work source; narrow existing
+set_move(actualM) injection is under regression/review. Preserve all existing
+world/pawn/life/target/capsule/owner checks and owns_move lease housekeeping.
+The separate health1/hydration0 preflight refusal was accurately blocked;
+developer nutrition/health fixtures are declared assistance, not survivalproof.
+
 ### Required route hold excludes a candidate short local climb (2026-10-28)
 
 The actual local planner found a7point upper-level candidate with a157cm jump,

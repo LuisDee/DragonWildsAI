@@ -396,6 +396,83 @@ do
             os.getenv=saved_getenv; _G.DW_WORLD_GUID="test-world"; pc.Pawn=pawn; pawn.HealthComponent.IsDead=olddead; pc.SetControlRotation=oldrot; _G.DW_LIFE=nil; M.stop(log)
         end
     end
+    -- The actual planner and real arbiter exercise injection, not an isolated mock.
+    do
+        local real_loadfile=loadfile
+        local arb_loads, move_loads, injections=0,0,0
+        loadfile=function(path,...)
+            local chunk,err=real_loadfile(path,...)
+            if tostring(path):find("arbiter.lua",1,true) and chunk then
+                arb_loads=arb_loads+1
+                return function()
+                    local a=chunk(); local setter=a.set_move
+                    a.set_move=function(m) if m==M then injections=injections+1 end; return setter(m) end
+                    return a
+                end
+            elseif tostring(path):find("move.lua",1,true) then move_loads=move_loads+1 end
+            return chunk,err
+        end
+        pawn.loc={X=0,Y=0,Z=0}; air=0; offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no); pump_oracle()
+        M.go_to(log,{8,0,3},{tolerance_m=.5}); step(1)
+        local m=_G.DW_MOVE; arb_loads,move_loads,injections=0,0,0
+        local before=m.traces or 0; step(1)
+        check("active mover injected for owned planner without nested move loads",m.lp_state=="sampling" and (m.traces or 0)-before==16 and arb_loads>0 and injections==arb_loads and move_loads==0 and pawn.input==nil,move_loads)
+        loadfile=real_loadfile; M.stop(log)
+    end
+    do -- A broken/missing setter is not permission to drive the pawn.
+        for _, kind in ipairs({"missing","throw","load"}) do
+            pawn.loc={X=0,Y=0,Z=0}; air=0; offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no); pump_oracle()
+            M.go_to(log,{8,0,3},{tolerance_m=.5}); step(1)
+            local m,gen,owner=_G.DW_MOVE,_G.DW_MOVE.gen,_G.DWArbiter.owner
+            local real_loadfile=loadfile
+            loadfile=function(path,...)
+                local chunk,err=real_loadfile(path,...)
+                if tostring(path):find("arbiter.lua",1,true) then
+                    if kind=="load" then return nil,"unavailable" end
+                    return function() local a=chunk(); if kind=="missing" then a.set_move=nil else a.set_move=function() error("setter failed") end end; return a end
+                end
+                return chunk,err
+            end
+            step(1); loadfile=real_loadfile
+            check("arbiter "..kind.." cannot authorize planner or input",pawn.input==nil and m.gen==gen and _G.DWArbiter.owner==owner and not m.local_authority,kind)
+            M.stop(log)
+        end
+    end
+    do -- Real housekeeping still expires a lease and resumes its suspended owner.
+        pawn.loc={X=0,Y=0,Z=0}; air=0; offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no); pump_oracle()
+        M.go_to(log,{8,0,3},{tolerance_m=.5}); step(1)
+        local st,old=_G.DW_MOVE,_G.DWArbiter.owner
+        local stops,resumes=0,0
+        old.implicit=false; old.lease_s=1; old.renewed=os.time()-5
+        old.on_stop=function(_,_,why) if why=="lease_expired" then stops=stops+1 end end
+        local nextowner={token=old.token+100,name="suspended",level=1,uses_move=false,state="suspended",suspended_at=os.time(),on_resume=function() resumes=resumes+1; return true end}
+        _G.DWArbiter.stack={nextowner}
+        step(1)
+        check("injected mover retains real lease expiry and resume",stops==1 and resumes==1 and _G.DWArbiter.owner==nextowner and pawn.input==nil and not st.local_authority,st.status)
+        _G.DWArbiter.owner=old; _G.DWArbiter.stack={}; old.implicit=true; old.lease_s=30; old.renewed=os.time(); M.stop(log)
+    end
+    do -- Setter can reenter: ownership must not publish into its successor.
+        pawn.loc={X=0,Y=0,Z=0}; air=0; offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no); pump_oracle()
+        M.go_to(log,{8,0,3},{tolerance_m=.5}); step(1)
+        local prior=_G.DW_MOVE.gen; local real_loadfile=loadfile; local fired=false
+        loadfile=function(path,...)
+            local chunk,err=real_loadfile(path,...)
+            if tostring(path):find("arbiter.lua",1,true) and chunk then
+                return function()
+                    local a=chunk(); local setter=a.set_move
+                    a.set_move=function(m)
+                        if not fired then fired=true; M.go_to(log,{20,0,0},{nav=false,local_plan=false}) end
+                        return setter(m)
+                    end
+                    return a
+                end
+            end
+            return chunk,err
+        end
+        step(1); loadfile=real_loadfile
+        check("setter reentry preserves successor",fired and _G.DW_MOVE.gen>prior and _G.DW_MOVE.mode=="go_to" and not _G.DW_MOVE.local_authority and pawn.input==nil,_G.DW_MOVE.mode)
+        M.stop(log)
+    end
     offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no)
 
 end
