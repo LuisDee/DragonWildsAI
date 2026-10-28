@@ -1,5 +1,33 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Latest override: Goal resumed, isolated feedback repair GREEN (2026-10-28)
+
+Luis explicitly resumed Goal ACTIVE. F is current clean-scope development tree:
+C:/Users/Administrator/.codex/worktrees/feedback-loop/gameserver, from19302df.
+OldW companion-development dirtyLOD/placecandidate is preserved/parked unchanged.
+R C:/gameserver remains tested19302df until this publication. Only Fcontroller,
+2controller tests and new continuation-observation-feedback design are source
+changes. Sol design/cold reviews approved. Focused65+preflight24+7passed;
+fullgate Flogs/recovery/g-087bbea1 GREEN1245/1knownskip410.69s,4hashesverified.
+Short unique RtaskTMP avoidsMAX_PATH. Existingprivatewiki/2headers and10exact
+approved rawmanifestbytes reproduced withJSONequality/provenance; judgesdiff[].
+
+Root sole root-feedback operator. Client4964 pawn3115 DEV active atcampfire
+~[100.54,1868.51,-30.69], server7016Steam3284 unchanged; no brain/API calls yet.
+Developer control collected2 pond water, returned, processed2CleanWater,+2XP,
+81s, health100/strictidle/noowner/Gameplay. Root kept stableidleclientduringfull
+gate while freeRAM~909MB stayedabovewarning700/critical350. No nativeLua edits
+infeedbackwave, so Python publication needs no client restart.
+
+Next: verifyfrozenhashes/judges,commitpushF/Rff, freshguard+slot+idle+spend, then
+reviewed pilot70AB87.../externalSignalWatchdog for naturaladditional-waterchain,
+20Haiku calls300sDirectorOFF. No hints/grants during episode. Rootoperator
+cleanup+native outcome and actualproviderobservation verification required.
+Recordedoldwaterinputbaseline only (controllerblobidenticale920/19302); do not
+claim matchedgameplaycausality fromhistoricalbody. Preserveallworldmemory.
+LatestAPI$0.0546/52calls0unpriced, refreshbeforebatch. TeleportstillhiddenR;
+itsunfinishedoldWwave mustpassitsownfullgate/developercompoundcontrol.
+
 ## Latest override: Lodestone chain candidate, full gate running (2026-10-28)
 
 Read R/logs/recovery/ACTIVE-HANDOFF.txt for actual runtime. Root owns sole

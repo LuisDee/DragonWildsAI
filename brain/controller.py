@@ -23,6 +23,7 @@ standing orders and the last N events. No transcript; a loop step appends only t
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import time
@@ -369,6 +370,52 @@ class ContinuationInvalidated(RuntimeError):
         super().__init__(reason)
         self.silent = silent
 
+
+
+def continuation_observation(state: dict | None) -> dict:
+    """Bounded facts from this state read; unknown never means an empty census."""
+    def number(value):
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return None
+        try:
+            return value if math.isfinite(value) else None
+        except OverflowError:
+            return None
+
+    if not isinstance(state, dict) or not state or state.get("unavailable"):
+        return {"status": "unavailable", "position": None, "vitals": None,
+                "inventory_read": "unknown", "inventory": "unknown", "stations": {"status": "unknown"}}
+
+    raw_pos = state.get("position")
+    if isinstance(raw_pos, (list, tuple)) and len(raw_pos) == 3:
+        pos = [number(v) for v in raw_pos]
+        if any(v is None for v in pos):
+            pos = None
+    else:
+        pos = None
+    vitals = {key: number(state.get(key)) for key in
+              ("health", "max_health", "hydration", "hydration_max", "sustenance", "sustenance_max", "endurance", "endurance_max")}
+    raw_stations = state.get("stations_nearby")
+    stations = {"status": "unknown"}
+    if isinstance(raw_stations, list):
+        rows = []
+        for row in raw_stations[:6]:
+            if not isinstance(row, dict):
+                rows.append({"status": "unknown"})
+                continue
+            name, ident = row.get("name") or row.get("station"), row.get("id")
+            rows.append({"name": name[:80] if isinstance(name, str) else None,
+                         "name_truncated": isinstance(name, str) and len(name) > 80,
+                         "id": ident if isinstance(ident, str) and len(ident) <= 80 else None,
+                         "id_truncated": isinstance(ident, str) and len(ident) > 80,
+                         "distance_m": number(row.get("distance"))})
+        stations = {"status": "observed", "rows": rows, "omitted": max(0, len(raw_stations) - len(rows))}
+    def bounded(text):
+        return text if len(text) <= 240 else text[:224] + "... [truncated]"
+
+    return {"status": "observed", "position": pos, "vitals": vitals,
+            "inventory_read": bounded(sit.inventory_read_line(state)),
+            "inventory": bounded(sit.carrying(state, sit.item_names(state))), "stations": stations}
 
 class Controller:
     def __init__(self, llm: LLMClient, game: GameInterface, store: StateStore, logger: JsonlLogger,
@@ -807,6 +854,8 @@ class Controller:
                 if name in self.read_tools else results.get(SAY_TOOL) or self._say_result(failed)
                 if name == SAY_TOOL and self.say_channel else {"ok": None, "note": "not run"})
             msgs.append(tool_result_message(ToolCall(name or "?", {}, tc.get("id")), res))
+        observation = continuation_observation(state)
+        msgs.append({"role": "user", "content": "Current observation: " + json.dumps(observation, ensure_ascii=False)})
         msgs.append({"role": "user", "content": note or (
             "A step did not work (results above). Fix it with the right tool or another way; if you can't, "
             "tell the player in one short plain line what's wrong and what you need." if failed else

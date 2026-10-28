@@ -1,5 +1,27 @@
 # Progress log (append-only)
 
+### Continuation feedback repair: gate passed, live trial next (2026-10-28)
+
+Isolated feedback candidate adds the already-read current observation to the
+next model input after all paired tool results. Original request/history,
+failures, cancellation and continuation admission remain intact. It exposes
+bounded position/vitals/inventory confidence/current carrying/station readings;
+unknown remains unknown and long IDs are not fabricated into prefixes.
+No added game/provider calls. Sol design/code reviews approved;65 focused,
+24 input/design preflight and7 publication/path/design checks passed.
+Full gate g-087bbea1 GREEN:1245 passed,1 known cassette skip,410.69s.
+All4 frozen hashes unchanged; judges untouched. Existing DEV client stayed
+idle during gate, free RAM observed909MB above700MB warning/350MB critical.
+
+Developer water control on unchanged19302df body collected2 pond waters,
+returned and processed2CleanWater,+2CookingXP in81.05s, healthy100 and strict
+idle/noowner/Gameplay. This validates the existing body, not Haiku success.
+Recorded old water trace is the input baseline; controller blob identical
+between e9200ff and19302df. Fresh native observation preview726 characters.
+Publication and bounded Haiku additional-water trial follow; no new autonomous
+pass is claimed at this checkpoint. Old companion-development Lodestone/place
+candidate remains parked unchanged; it is not a dependency of this repair.
+
 ### Materials-assisted Lodestone chain: developer controls, candidate gate pending (2026-10-28)
 
 Luis approved travel/build/use with granted materials. Harness granted64 Stone,

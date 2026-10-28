@@ -1,0 +1,15 @@
+# Continuation observation feedback
+
+## Goal and approach
+
+The companion's next model decision should see the fresh game state already read after an action. `Agent._fresh_state` feeds `Controller.next_turn`, but `next_turn` currently puts only tool results and a continuation instruction into provider messages. Adapt `next_turn` in `brain/controller.py` to append one bounded current-observation block after every paired tool result and before its existing instruction. Keep the initial command, model history, exact tool-call IDs and failure results intact; preserve deferred continuation ownership, cancellation, identity and budget checks. Do not perform a new game read or model call.
+
+Reuse `situation.carrying`, `item_names` and `inventory_read_line` for current carried items and existing confidence semantics. Add a small bounded explicit selection of already supplied position, health/food/water/endurance and nearby station identity/distance because the summary may truncate station and location lines. Omitted, malformed or unavailable observations must be labeled unknown rather than zero or stale. A failed state read must not reuse `broker.digest`'s older observed state; include it only if its freshness is assured. Bound station count, individual strings and total observation size, preserving exact station IDs or marking them unknown when too long, without replacing the original task or results; say when station entries are omitted. State is the current read, not a timestamp or change claim unless real sample metadata is present. Do not inject decisions, plans, phrase maps or entity rules.
+
+## Acceptance and principles
+
+Use existing `Rig` and `FakeLLM.calls[*].messages` tests in `test_controller_loop.py` and `test_controller_continuation.py`: mutate position, vitals, inventory confidence and station distances after an action; assert the next provider input contains the new bounded observation, original request, each paired ID/result and failure, including deferred resume. Exercise unavailable and malformed state, truncation, and confirm no added model calls. Then run focused checks, review, full gate, developer control and model trial. This preserves real input and model choice, reports only supplied state, uses one file owner and does not weaken judges (PRINCIPLES 1–7, 9–10).
+
+## Search record
+
+Actual searches: `site:platform.claude.com docs tool use tool_result messages agent loop computer use screenshots feedback`; `site:anthropic.com engineering building effective agents environmental feedback tools`. Opened [Anthropic tool-use overview](https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview), [computer-use tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool), and [Building effective agents](https://www.anthropic.com/research/building-effective-agents). These describe preserving tool-result pairing and feeding environment observations into the next decision; they are conceptual precedent, not Dragonwilds APIs. Reuse the existing state read and renderer; adapt its continuation message; build only the missing focused regression.

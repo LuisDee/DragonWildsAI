@@ -1,5 +1,16 @@
 # Live bug ledger
 
+### Fresh continuation state omitted from provider input: repair gated (2026-10-28)
+
+Controller.next_turn now appends bounded supplied-current observation after
+all call-ID results and before continuation instructions. Captured-provider
+regressions cover changed position/vitals/inventory/station distance, failures,
+unavailable reads and deferred resume without action replay/extra calls.
+Sol approved, full gate1245/1skip GREEN410.69s. Native/model repetition still
+required before claiming improved gameplay decisions. No broker history is
+substituted for an unavailable current read. Initial-summary clipping and
+broader lifecycle/perk/UI coverage remain separate known limitations.
+
 ### Nested movement lifetime and headless Lodestone UI lifecycle (2026-10-28)
 
 Source-confirmed: crafting collection omitted parent move token; episode near

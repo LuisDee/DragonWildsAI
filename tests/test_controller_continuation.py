@@ -574,3 +574,28 @@ def test_ambient_after_final_action_keeps_results_for_next_model_turn(tmp_path):
     next_messages = r.model.calls[-2]['messages']
     assert any(m.get('tool_call_id') == 'completed-id' and json.loads(m['content'])['data']['target'] == 'done-first'
                for m in next_messages if m.get('role') == 'tool')
+
+
+def test_deferred_provider_receives_fresh_observation_without_replay(rig):
+    start(rig)
+    read = rig.game.get_state
+    def changed_state():
+        result = read()
+        if len(rig.calls("go_to")) == 5:
+            result["data"].update(position=[91, 22, 3], hydration=0,
+                                  stations_nearby=[{"id": "station-new", "distance": 42}])
+        return result
+    rig.game.get_state = changed_state
+    rig.agent.step()
+    assert len(rig.calls("go_to")) == 6
+    messages = rig.controller_llm.calls[5]["messages"]
+    assert json.loads(messages[1]["content"])["command"]["text"] == "visit both places in order"
+    tool = next(m for m in reversed(messages) if m.get("role") == "tool")
+    assert tool["tool_call_id"] == "id-4" and json.loads(tool["content"])["ok"] is True
+    obs = json.loads(next(m["content"].removeprefix("Current observation: ") for m in reversed(messages)
+                          if isinstance(m.get("content"), str) and m["content"].startswith("Current observation: ")))
+    assert obs["position"] == [91, 22, 3] and obs["vitals"]["hydration"] == 0
+    assert obs["stations"]["rows"][0]["distance_m"] == 42
+    count = len(rig.controller_llm.calls)
+    rig.agent.step()
+    assert len(rig.controller_llm.calls) == count

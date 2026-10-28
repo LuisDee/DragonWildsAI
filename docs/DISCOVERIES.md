@@ -1,5 +1,14 @@
 # Discoveries
 
+### Native water chain now settles its mover (2026-10-28)
+
+Developer control on tested19302df: collect2 pond water, return to campfire,
+process2CleanWater through realUI, CookingXP129->131,81.05s. Independent native
+end: health100, bridge action/waiters empty, noarbiter owner/suspended work,
+moveidle andGameplay input. This is current native cleanup evidence for the
+ownership repair; autonomous water repeat is still pending. Feedback candidate
+renders that actual terminal state in726 characters without new game reads.
+
 ### Native Lodestone construction and selection route (2026-10-28)
 
 Receiving materials unlocked BUILDPIECE_Lodestone; actual real-menu build used

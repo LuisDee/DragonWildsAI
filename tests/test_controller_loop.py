@@ -368,3 +368,70 @@ def test_direct_gather_failure_still_reports_why(rig):
     rig.controller_llm.push(FakeLLM.say("Mining gold.", FakeLLM.call("gather", resource="gold", count=5)))
     rig.agent.step()
     assert rig.companion_said() == ["Mining gold.", "There's no gold anywhere near me."]
+
+
+def test_continuation_observation_reaches_provider_after_failed_action(rig):
+    read = rig.game.get_state
+    reads = []
+    def state():
+        result = read()
+        reads.append(1)
+        if rig.calls("pickup"):
+            result["data"].update(position=[4, 5, 6], health=0, hydration=12,
+                inventory_read_status={"carried": {"status": "partial", "count_semantics": "lower_bound"}},
+                inventory={"oak_log": 7},
+                stations_nearby=[{"name": "Workshop", "id": "station-1", "distance": 7},
+                                 {"name": "Other", "id": "z" * 81, "distance": 9}])
+        return result
+    rig.game.get_state = state
+    rig.game.player_say("pick up missing things")
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("pickup", target="nearest", item="missing")), FakeLLM.say(""))
+    rig.agent.step()
+    assert len(rig.controller_llm.calls) == 2
+    messages = rig.controller_llm.calls[1]["messages"]
+    initial = json.loads(messages[1]["content"])
+    assert initial["command"]["text"] == "pick up missing things"
+    result_index = next(i for i, m in enumerate(messages) if m.get("role") == "tool")
+    assert json.loads(messages[result_index]["content"])["ok"] is False
+    assert messages[result_index]["tool_call_id"]
+    obs = json.loads(messages[result_index + 1]["content"].removeprefix("Current observation: "))
+    assert obs["position"] == [4, 5, 6] and obs["vitals"]["health"] == 0
+    assert obs["vitals"]["hydration"] == 12 and "carried partial" in obs["inventory_read"]
+    assert obs["stations"]["rows"][0]["distance_m"] == 7
+    assert "7" in obs["inventory"] and "at least" in obs["inventory"]
+    assert obs["stations"]["rows"][1]["id"] is None and obs["stations"]["rows"][1]["id_truncated"] is True
+    assert reads  # the normal state read supplied the observation
+
+
+def test_continuation_observation_unknown_and_bounded():
+    from brain.controller import continuation_observation
+    for value in (None, {}, {"unavailable": "offline"}, "bad"):
+        assert continuation_observation(value)["stations"]["status"] == "unknown"
+    obs = continuation_observation({"position": [True, 0, float("nan")], "health": False,
+        "hydration": float("inf"), "stations_nearby": [{"name": "x" * 1000, "distance": False}] * 9})
+    assert obs["position"] is None and obs["vitals"]["health"] is None and obs["vitals"]["hydration"] is None
+    assert obs["stations"]["status"] == "observed" and len(obs["stations"]["rows"]) == 6
+    assert obs["stations"]["omitted"] == 3 and len(obs["stations"]["rows"][0]["name"]) == 80
+    assert obs["stations"]["rows"][0]["name_truncated"] is True
+    assert obs["stations"]["rows"][0]["distance_m"] is None
+    assert continuation_observation({"stations_nearby": []})["stations"] == {"status": "observed", "rows": [], "omitted": 0}
+
+
+def test_unavailable_observation_preserves_each_tool_result_id(rig):
+    from brain.controller import Decision
+    from brain.llm import ToolCall, assistant_message
+    prior = FakeLLM.say("", ToolCall("go_to", {"target": "a"}, "first"),
+                        ToolCall("go_to", {"target": "b"}, "second"))
+    decision = Decision(messages=[{"role": "user", "content": "original request"}, assistant_message(prior)])
+    rig.controller_llm.push(FakeLLM.say(""))
+    game_calls_before = list(rig.game.calls)
+    rig.controller.next_turn(decision, {"first": {"ok": False, "reason": "blocked"},
+                                        "second": {"ok": True}}, {"unavailable": "offline"}, failed=True)
+    assert len(rig.controller_llm.calls) == 1 and rig.game.calls == game_calls_before
+    messages = rig.controller_llm.calls[0]["messages"]
+    results = [m for m in messages if m.get("role") == "tool"]
+    assert [m["tool_call_id"] for m in results] == ["first", "second"]
+    assert json.loads(results[0]["content"])["reason"] == "blocked" and json.loads(results[1]["content"])["ok"] is True
+    observation = next(m for m in messages if isinstance(m.get("content"), str) and m["content"].startswith("Current observation: "))
+    assert json.loads(observation["content"].removeprefix("Current observation: "))["status"] == "unavailable"
+    assert messages[0]["content"] == "original request"
