@@ -1,5 +1,21 @@
 # Progress log (append-only)
 
+### Route authority deployed and checked through the real client (2026-10-28)
+
+Source50111a7 is pushed/deployed, companion8b196d3efadaabdc and
+body023b06997f5e31de, clean code and unchanged judges. Full gate1192passed,
+1skipped427.07s GREEN. All21 preserved files were unchanged during disk
+publication. Server7016/Steam3284 retained; client1416, helper3228/1980 and
+watchdog12580 adopted. The real server experiment copy matches tested bytes.
+
+Developer negative sameXY+50mZ failed truthfully with no_path and no observed
+displacement/health loss. The configuration-assisted2m required positive
+arrived through a matched v2 route, moving1.8m within0.4m tolerance. Exact1000cm
+threshold restoration and idle cleanup independently verified before release.
+Neither is an unaided or default long-trip pass. Native step times2.5s and3.8s
+including positive cleanup; no game-model calls. The next recovery task is the
+capped natural tree test. See docs/research/r26-route-controls-20261028.md.
+
 ### Owned route admission passed the full gate (2026-10-28)
 
 The independently reviewed route-authority wave passed **1,192 tests,1 skipped,

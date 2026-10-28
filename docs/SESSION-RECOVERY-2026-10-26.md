@@ -1,5 +1,54 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Current handoff: route authority live controls verified (2026-10-28, 06:01 UTC)
+
+- Deployed source50111a7163e7042b97a1ded800c0e953c19896ef is pushed to main.
+  Clean companion8b196d3efadaabdc/body023b06997f5e31de; approved judges unchanged.
+  Full gate TERMINAL GREEN1192passed/1skipped427.07s, cf-d8781fb6/check-all.log.
+  All14 saved files matched through that gate. Later edits are evidence/handoff
+  metadata only; do not rerun the gate without a new reason.
+- Runtime DEV client1416/ClaudeDev, pawnBP_PlayerCharacter_C_2147473121,
+  actualtarget127.0.0.1:7777. Server7016 and Steam3284 retained. Old client
+  12340/7904, watchdog9888, helper144/10016 independently verified terminal
+  before publication. Current one helper job is wrapper3228/worker1980;
+  watchdog12580. No model brain/test runner or live queue process remains.
+- R was fast-forwarded cleanly. Exact tested runtime bytes and the actual
+  separately deployed server nav_oracle.lua COPY were published. All21 backed-up
+  memory/envelope/client-state files were unchanged during publication. Archive:
+  R/logs/recovery/route-authority-publication-a8613c4e/, including gate/source
+  snapshot, process identities, memory manifests, native before/final and both
+  raw request/response pairs. Policy is R/client_io/nav/recovery_policy.json,
+  scoped to the verified server/bridge lifetime. New server/bridge identity
+  still requires independent fresh recovery evidence, not blind force/retry.
+- Native developer negative: required sameXY+50mZ, matching v2 zero-point
+  no_path, truthful verification_failed/route unavailable:no_path in0.5s,
+  identical native position, HP100, progress elapsed0, terminal idle. It proves
+  no observed displacement, not a native input-call count.
+- Native developer positive: temporarily lowered existing oracle_primary_cm
+  1000->100cm for the measured2m corridor, required-route source nav with matching
+  epoch/nonce, gen2/token3/worlddev; arrived0.849s, moved1.8m, native distance
+  0.269m within0.4m tolerance and vertical0.196m within1.76m tolerance. HP100.
+  Exact1000cm restoration, no override, idle bridge/arbiter and no waiters were
+  independently verified before releasing root-route-integration. This is
+  configuration-assisted, not default long-trip or unaided-task coverage.
+- Current position[64.953480300842,1875.569511199,-35.25008882518], HP100 at
+  finalread. Fresh dev/identity/vitals/slot/corridor admission still required.
+  Root-owned reservation and queue are free; no client hold. Native check step
+  time2.5s negative and3.3s+0.5s cleanup positive. Boot37.3s. No Steam/server
+  restart, health/inventory outcome emulation, memory reset or model calls.
+- UTC API total remains$0.0125,11 priced Haiku calls,0Sonnet/unpriced. R26
+  declared nutrition40Bread/59Water. Dev account last42%weekly used, ordinary
+  requests allowed; inspect again before substantial delegation.
+- NEXT: fresh admission and review/reuse the bounded natural-tree pilot driver
+  W/logs/recovery/no_axe_pilot_20261028.py, its current-code/PID/world guards,
+  cooperative cancellation and owned cleanup. Previous pilot failed KillZ and
+  was not intercepted; its evidence/death/memory remain. Do not spoon-feed
+  methods/materials/stations. Route controls now permit another capped natural
+  test, not replay of the dangerous grave route as a developer destination.
+  Native inventory emptiness remains unknown, so distinguish a useful retry
+  from proof of the strict no-axe/from-scratch baseline. All original M1-M6,
+  Brynmoor and solo Vel'gar requirements remain ACTIVE/unmet.
+
 ## Current checkpoint: route authority GREEN, publication pending (2026-10-28)
 
 - Full gate is TERMINAL GREEN: **1,192 passed, 1 skipped, 427.07s**,

@@ -1,5 +1,16 @@
 # Live bug ledger
 
+### Required-route fallback replaced; broader safety remains open (2026-10-28)
+
+Deployed50111a7 now rejects a native no_path required move with no observed
+displacement, and a configuration-assisted nearby required route completes
+through v2 identity binding. The original grave path was not repeated. The
+full gate and independent review cover pending/failed/partial routes, ownership
+reentry and traversal boundaries; this does not prove universal terrain support.
+An unaided tree/crafting retry is still required. The helper's server-restart
+bootstrap and native empty-inventory semantics remain open. Keep the raw failed
+pilot, death and per-world learning; no memory reset or weakened judge.
+
 ### Route authority candidate: live failure remains open (2026-10-28)
 
 The failed tree pilot's no-path-to-straight fallback remains the deployed

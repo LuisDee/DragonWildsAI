@@ -1,5 +1,18 @@
 # Discoveries
 
+### Current-code route admission exercised natively (2026-10-28)
+
+Deployed50111a7 completed v2 recovery with one helper job, preserving server
+and Steam. A required sameXY+50mZ move matched a no_path response and failed
+without observed displacement; a scoped100cm route threshold let the measured
+2m corridor exercise actual required-route execution. It arrived within0.4m,
+and exact1000cm restoration and terminal idle were independently verified.
+The actual binding world wasdev, with no namespace migration. These are bounded
+developer controls, not an unassisted task, default long-route proof or a native
+input-call count. The server loads its own experiment COPY; publication must
+verify that file's raw hash, not merely update R/mod/experiments. See
+docs/research/r26-route-controls-20261028.md for detailed evidence and limits.
+
 ### Stationary route controls and process identity evidence (2026-10-28)
 
 At `[63.153,1875.565,-35.446]` on deployed83f0ce3, the existing DEV oracle
