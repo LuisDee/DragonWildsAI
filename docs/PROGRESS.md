@@ -1,5 +1,28 @@
 # Progress log (append-only)
 
+### M1 spells measured; live-control runner under full gate (2026-10-28 12:56 Berlin)
+
+On unchanged deployed body e9200ff, developer controls opened Personal Chest
+through real input (20 Law / 15 Astral, new cooldown, focused storage UI), then
+cast Windstep (5 Air, independently new Player.Spell.WindStep and
+DominionStatusEffect). The normal modal sweep returned the chest UI to gameplay.
+Haiku subsequently cast Windstep unaided: two controller calls, zero planner,
+12.422 seconds, independent native new tag/effect, health 100 and terminal idle.
+Incremental model spend $0.0028; UTC total $0.0478 / 41 Haiku calls.
+
+Phase Dash cast twice through real input, but the old air-dash probe measured
+zero horizontal displacement both without and with a cast. It injected evade
+once and no movement direction; production combat uses directional movement
+plus a four-frame evade tap. Effect remains unproven. A reviewed private
+directional-control design is being implemented; no production fix is implied.
+
+Cold-reviewed tools/dev_controls.py adds native control diagnostics outside
+the frozen judges, with strict scripts, immediate dispatch admission, checked
+backup manifests and raw evidence. Official validity promotion stays disabled,
+including for client build 26162923 versus catalog 26161880. Focused/design
+tests: 36 passed. Full gate cf-8b3396c6 completed GREEN: 1230 passed, one
+skipped, 410.18 seconds; all three frozen hashes matched, judges unchanged.
+
 ### Additional-production contract deployed and measured (2026-10-28 12:33 Berlin)
 
 Source e9200ff passed 1199 tests / one skip in 385.47 seconds, CHECK_ALL:

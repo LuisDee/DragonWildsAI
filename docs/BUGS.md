@@ -1,5 +1,26 @@
 # Live bug ledger
 
+### Native controls and build provenance missing from formal evidence (2026-10-28)
+
+The frozen goal checker requires native DEV positive/negative controls, while
+the existing controls command only performs mock lint. No DEV validity writer
+or scripted combat oracle exists. Catalog/game_build is 26161880, whereas the
+running client reports 26162923. New non-judge control diagnostics preserve
+both builds and do not publish official validity; review actual correspondence
+before claiming current-build certification. Full-manifest preflight was
+actually checked: 202 trials x six Haiku calls ceiling $4.27 plus spend fits
+the $10 cap; --max-runs still preflights all trials, and final scoreboard only
+appears after the full manifest. Do not count partial --only runs.
+
+### Old air-dash probe does not establish directional evade (2026-10-28)
+
+Developer comparison on e9200ff: both before and after a successful Phase Dash
+cast, the probe saw a 1.8 m jump, falling=true and injected=true but horizontal
+motion zero. It injects EvadeAction for one frame with no MovementAction;
+production combat supplies direction plus a four-frame tap. This is not proof
+that production dodge or the spell is broken. A reviewed private directional
+control must isolate this difference and measure native retained movement.
+
 ### Production request dropped despite corrected planning contract (2026-10-28)
 
 On deployed e9200ff, native Controller validation proves additional_output

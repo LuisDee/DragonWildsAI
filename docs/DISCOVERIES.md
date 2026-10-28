@@ -1,5 +1,16 @@
 # Discoveries
 
+### Windstep chosen and cast by Haiku with native confirmation (2026-10-28)
+
+After developer validation on e9200ff, the ordinary request "Please use
+Windstep." produced two Haiku calls and a cast without Director assistance.
+The independent native probe changed from no tags/effects to
+Player.Spell.WindStep and DominionStatusEffect; health stayed 100, session
+ended idle, parent watchdog did not expire. 12.422 seconds / $0.0028.
+Raw R/logs/recovery/no-axe-pilot-20261028-114914-c1fdfcc8.json; parent
+haiku-windstep-windstep_0286482672. This proves a requested cast, not choosing
+it to solve a ledge or a full spell-coverage milestone.
+
 ### Additional production and stock targets differ correctly live (2026-10-28)
 
 Deployed e9200ff, actual Controller read: native owned axe count one remains

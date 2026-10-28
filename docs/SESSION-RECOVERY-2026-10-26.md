@@ -1,5 +1,61 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## M1 control candidate GREEN; Windstep native/model proof (2026-10-28 12:58 Berlin)
+
+R remains tested e9200ff body with e94180e metadata. Full gate for W's new
+non-judge tools/dev_controls.py / tests/test_dev_controls.py /
+docs/design/live-control-validation.md finished GREEN in cf-8b3396c6,
+session 50364 terminal exit zero: 1230 passed, one skipped, 410.18 seconds.
+All three frozen file hashes matched; judges unchanged. Cold approved,
+36 focused tests. Root owns root-m1-controls
+reservation until renewed/released/expired; client 8568, server 7016, Steam
+3284 adopted unchanged. No model brain remains after the Windstep episode.
+
+Developer Personal Chest succeeded via real input, rune deltas and cooldown,
+with independently observed focused storage UI. Referee saw generic spell
+actor, not its named spell_state event; do not invent that event. Existing
+modal sweep subsequently returned to DIM_Gameplay. Raw:
+R/logs/recovery/m1-personal-chest-control-78e49dc8/evidence.json.
+
+Developer Windstep independently added its native tag/effect. Haiku then used
+Windstep unaided on unchanged body: two calls, zero planner, 12.422 seconds,
+native before empty tags/GE to Player.Spell.WindStep / DominionStatusEffect,
+health 100, terminal idle, no watchdog expiry. Native pilot result:
+no-axe-pilot-20261028-114914-c1fdfcc8.json; parent
+haiku-windstep-windstep_0286482672; child 10884 terminal. API UTC spend
+$0.0478 / 41 Haiku calls, zero planner/unpriced. No new nutrition fixtures.
+
+Developer Phase Dash casts spent 20 Air + 10 Astral each, but the existing
+air_dash_test.lua produced zero horizontal movement both before/after, with
+normal jump apex 1.8 m. It supplies one evade injection and no direction;
+production combat supplies movement plus four-frame evade. Spell effect
+remains unproven. Raw m1-mobility-casts-ad691074/evidence.json and
+m1-phase-dash-effect-c0da634c/evidence.json. Private directional design
+logs/recovery/phase-dash-directional-control-design-20261028.md cold approved;
+owner /root/short_route_implementation may write helper/fakes but must not
+execute tests until full gate terminal. Root owns live validation.
+
+New control runner can execute strict list-script native diagnostics without
+editing judges. Dispatch guard and real copied-file backup validation passed
+cold review. Official validity promotion is disabled. Root prepared
+R/logs/recovery/m1-controls-backup-0fe36248/backup-manifest.json: 22 selected
+state/save/character files plus two native-dev skill files, every source hash
+unchanged across the whole copy; no restore or server/client restart. This
+is not a stopped-world crash-consistent snapshot. The tool requires operator
+ownership/watchdog, source publication manifest and exact expected identity.
+Use R quantity-publication-812badc2/manifest.json as current body source proof.
+
+Formal gaps: existing controls CLI is mock-only; scripted combat oracles are
+missing; snapshot/chain cases need separate compatible implementation. Current
+game_build() reports catalog 26161880, actual client 26162923. Preserve both,
+no certification by relabelling or weaker judges. Full suite preflight actually
+fits budget: 202 trials, 1212 Haiku ceiling, $4.27 worst case plus current spend
+below $10. Ordering begins with stress cases and repeated cooldown-dependent
+casts, so validate preconditions before starting/resuming counted sittings.
+Read-only 2h obs snapshot m1-obs-e9200ff-20261028.json includes mixed sources;
+not current-hash certification. It shows 0 active hours under the active-play
+definition and five short sessions; no 2h stability proof. Goal stays ACTIVE.
+
 ## e9200ff deployed; latest new-axe repeat skipped production (2026-10-28 12:33 Berlin)
 
 Source e9200ff pushed/deployed. Companion 7f54b5fea959c273, body
