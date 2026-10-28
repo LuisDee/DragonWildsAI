@@ -27,8 +27,13 @@ those capabilities are wholly absent.
 
 The earlier statement that he was 29 m away exactly when saying "here" was too
 strong: the closest 23:06:51.836 UTC sample was 15.09 m away; 28.9 m was measured
-two seconds later. Named one-shot movement can reach a snapshot of a moving
-player; a chat claim of current arrival needs fresh verification.
+two seconds later. Astra's source/trace review found that named-player `go_to`
+updates the target while moving and verifies the live position at arrival. A
+sample at 23:06:49.564 UTC corroborates arrival about one metre from the player;
+the player then moved before the later chat reply. This is a completed one-shot
+action versus persistent following/speech freshness distinction, not a proved
+start-snapshot defect. The separate model-chosen intermediate-coordinate false
+completion remains distinct evidence.
 
 Private evidence remains outside Git under
 `C:/gameserver/logs/recovery/friend-trial-20261028/`, especially
@@ -121,3 +126,54 @@ target/identity, preserve memory, measure selected context and projection/floor
 against the physically traversable route. Offline checks precede changed-layer
 developer validation, then full Sonnet/Haiku autonomous repetitions and a second
 location. No new model calls or autonomous task passed during this survey.
+
+## Controlled DEV measurements after resumption
+
+Root adopted the existing DEV server/client/oracle; no duplicate brain or game
+process was started. Selected ClaudeDev, joined 127.0.0.1:7777, native world
+override `dev`; Shockbyte remains forbidden. The one client slot is held by
+`root-dev-navigation`. Offline design-record/probe tests: **6 passed**. This is
+not a full gate or a movement acceptance pass.
+
+The probe was copied to the actual server mod's experiments directory after an
+initial bridge resolve refusal revealed the repository copy was not the loaded
+mod location. Its SHA256 was
+`232753c41153d94d2f8f3085b72684163754cdbbc9e358dfa07ee95701fc725a`.
+No production movement file was deployed. Indexed native PathPoints reads worked.
+
+| Query | Result | Implication / limit |
+| --- | --- | --- |
+| Actual repeat start/goal, nil context | Six points, partial, ends `[71.68,1862.08,-35.2]`, length 18.614 m. | Reproduces the friend endpoint without the mover. |
+| Same query, explicit Default | Identical points/projections/partial result. | Simply selecting Default is insufficient; nil identity is still not directly observed. |
+| Same query, explicit Gigantic | Partial, ends `[70.4,1874.24,-34.2]`, length 8.183 m. | Switching to the larger mesh is not a solution. |
+| Physically climbed short segment, tight +/-1.5 m projection | Both endpoints off-navmesh; path query not issued. | Coverage/projection differs from player walkability. Expected feet are already inside this vertical window; widening alone could select another floor. |
+
+These are serialized server queries; the client position/pawn/health remained
+unchanged before and after. Private results are
+`C:/gameserver/logs/recovery/nav-dev-20261029/context{0,1,2}-native.json` and
+`manual-climb-segment-native.json`.
+
+One developer-driven baseline using the existing normal `go_to` also failed:
+`[82.33,1874.22,-31.27]` -> requested `[76.8,1867.8,-31.13]`, ending
+`[80.45,1873.82,-34.81]`, `jump landing missed`, health 100 throughout. Before
+the experiment the approved DEV harness supplied five Bread/five Clean Water;
+the existing survival reflex consumed supplies and recovered health. This is
+recorded setup and not autonomous survival or traversal credit; no model calls.
+
+The movement log explains a different immediate cause: trap `t7` was selected,
+its first saved exit point was over three metres below the upper floor, and
+stuck recovery called this "perched" and stepped off. The controller subsequently
+used a local `[walk,walk,drop]` path and failed landing verification. Stored
+`n_ok=58` is not proof that its connector is safe now. Preserve the memory and
+repair generic floor/connector validation; do not delete the trap to hide the
+failure or patch temple coordinates. This does not establish the same trap
+caused the friend-world long-route failure.
+
+After that failed baseline root searched `UCharacterMovementComponent FindFloor
+bStartPenetrating FloorDist walkable slope capsule navigation mesh player` and
+`Unreal Engine navigation links jump CharacterMovement NavWalking Walking floor`.
+Opened Epic FFindFloorResult and FindFloor documentation; the initial legacy
+FindFloor URL returned no content, so the working current URL is:
+https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UCharacterMovementComponent/FindFloor?lang=en-US
+It describes a capsule floor sweep; cross-version API documentation does not
+validate a reflected call or prove a particular sampled surface is traversable.
