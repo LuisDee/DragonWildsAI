@@ -12,6 +12,14 @@ The a124 incident has a verified rapid descent and KillZ death; the departure ge
 
 ## Measurement first
 
+The [2026-10-28 native observations](../research/r26-floor-observations-20261028.md)
+supersede earlier penetration-bit interpretations: UE4SS's output-table copier
+does not mask packed Booleans. All such copied flags are unknown. A reviewed
+typed posthook matched `CurrentFloor` at one stationary current position, with
+its subscriber removed afterward; its dormant native registration persists.
+This enables further reviewed measurement, not a production support classifier.
+Do not substitute `Distance == 0` as a penetration or support certificate.
+
 Before implementing any behavior guard or choosing a threshold, root schedules brief, read-only observations on the existing dev client under its sole operator; no telemetry here acts on the client. Sample safe, stable flat ground and a known low step/benign drop, at rest and during separately authorized ordinary movement. Record timestamp, world, pawn/capsule dimensions and foot height, ground/movement mode, native velocity if already verified available (otherwise measured displacement and mark native velocity unavailable), movement source, intended direction, trace profile and raw hit/impact Z/normal/distance plus both reported penetration flag and the distance-based interpretation, exact offsets, sample ages, latency and trace count. Contrast direct nearby samples with planner-prefetch cells and show that gear, layer choice, water and `Custom`/Visibility fallback do not cause false support claims. Record tick rate and game-thread cost; enforce a small fixed trace/time budget and stop on uncertainty or resource pressure. Flat observation is not an edge calibration; the 55 cm floor-spread jump calibration correctly refused its 30 cm limit and proves neither a jump nor a guard threshold.
 
 On safe flat terrain, measure displacement after the existing player input is released at representative walking and sprinting speeds, in repeated bounded trials owned by the operator. Reconcile lag, jitter, turns, downhill movement and any already-queued input with stopping distance. A formula or safety distance cannot be asserted from the incident's 6.8 m/s alone. Gather controlled fixtures for flat/slope/stairs, shallow water and a benign step before agreeing any limits. A missing floor on an unloaded cell or line occluded by equipment is **unknown**, not a verified drop. Moving-platform support requires fresh observations; stale world-aligned cached data cannot certify it. The sole operator retains the slot; queue only after the current task yields, with dev/forbidden-target guards and measured budget. Record results without clearing or migrating per-world memory or envelopes.

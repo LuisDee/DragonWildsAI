@@ -2289,3 +2289,10 @@ FatalDamageInfo namedKillZVolume at00:26:58, independentclientmodeDead and healt
 ### Stationary support baseline after revival (2026-10-28, source6da33fe)
 
 Read-only queue014058 observed current dry site[65.02,1874.58,-35.15]: mode1/depth0, centre Z-3514.60cm and downward impact Z-3606.75cm, capsule half-height88cm, MaxStepHeight45cm, WalkableFloorAngle45.5deg. Reported penetration=true is ambiguous, not permission to move or evidence of the fatal geometry. Two side rays with profileCustom matched Visibility here (94/112cm), so do not generalize earlier Custom failures to every trace or assume general validity from this match. No input, health change or envelope write. Raw r26-floor-baseline-result-20261028.json retains exact output; safe step/drop/braking evidence is still required before a forward-support guard.
+
+
+### Mask-aware floor observation (2026-10-28)
+
+At one stationary current position, typed K2_FindFloor posthook output matched CurrentFloor including bLineTrace=false and HitResult.bStartPenetrating=false. The output-table copier instead produced true for both, explained by the installed UE4SS source's unmasked GetNonTrivialLocal Boolean branch. Treat ALL copied packed flags as unknown; historical Distance==0 advice does not certify penetration/support. One native registration is now dormant without subscribers until client restart; never unregister or blindly repeat the one-shot probe. This is current-position compatibility only. See [evidence, source and unresolved limits](research/r26-floor-observations-20261028.md).
+
+Native snapshot-only adapter independently read CurrentFloor,34/88cmcapsule, zero actor/CMCvelocity, mode1/dry/grounded and actual survival values in queue20261028-022558. Namespace dev/sourcejoined is a label backed separately by external target guard. World clock is labeled as such; runtime sampler wiring refused. One stationary sample does not prove cross-sample identity, moving velocity or safe stopping.
