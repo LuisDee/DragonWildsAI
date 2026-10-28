@@ -273,7 +273,10 @@ def test_get_your_stuff_is_interact_on_his_own_grave(lua_caps, tmp_path):
     digest = "\n".join(summary(rig.game.state))
     assert "YOUR gravestone is 2 m away (id BP_PlayerGravestone_C_2147463090) holding 12 of your items" in digest
     assert "you died 5 min ago and respawned" in digest
-    assert "Pumpkin Spice Infusion x1 (drink, hotbar)" in digest and "Pumpkin Spice Infusion x2 (" in digest
+    assert "Inventory read: carried unknown; hands right unknown, left unknown" in digest
+    assert "Pumpkin Spice Infusion x1 (at least)" in digest
+    assert "Pumpkin Spice Infusion x1 at least (drink, hotbar)" in digest
+    assert "Pumpkin Spice Infusion x2 (4 m, id BP_RuntimeSpawnedWorldItem_C_2147465124, drink)" in digest
     rig.command("get your stuff from your grave",
                 FakeLLM.say("Grabbing my gear.", FakeLLM.call("interact", target="BP_PlayerGravestone_C_2147463090")))
     assert rig.game.body_calls() == [("interact", {"target": "BP_PlayerGravestone_C_2147463090"})]

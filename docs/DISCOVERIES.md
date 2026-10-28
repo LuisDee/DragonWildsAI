@@ -1,5 +1,16 @@
 # Discoveries
 
+### Inventory perception checkpoint GREEN (2026-10-28)
+
+Full gate1168 passed/1 skipped364.52s, CHECK_ALL: GREEN; source hashes unchanged
+(`logs/recovery/cf-394651d8/check-all.log`). Positive observations, per-scope
+read uncertainty and lower-bound counts now reach the model without a false
+empty claim or guessed item slot. Count-sensitive verification/nativeemptyABI
+remain separate. Runtime publication/native read confirmation pending. Natural
+tree pilot failedKillZ; route-authority behavior is the next fix, not a success
+claim or another known-dangerous travel attempt. UTC spend$0.0125/11Haiku.
+
+
 ### Native floor controls and scoped lifecycle measured (2026-10-28)
 
 Eight native query calls completed on DEV10824 without moving the pawn: six

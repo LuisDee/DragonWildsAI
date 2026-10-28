@@ -335,17 +335,30 @@ local function bucket_census(c)
 end
 
 local function item_key(row) return row.item or row.name end
+local function inventory_read_status(d)
+    local source=type(d)=="table" and type(d.read_status)=="table" and d.read_status or {}
+    local function scope(v)
+        if type(v)=="table" and (v.status=="complete" or v.status=="partial" or v.status=="unknown") then return copy(v) end
+        return {status="unknown",reason="read_status_unavailable",gaps={}}
+    end
+    local held=type(source.held)=="table" and source.held or {}
+    local carried=scope(source.carried)
+    carried.count_semantics=carried.status=="complete" and "exact" or "lower_bound"
+    return {carried=carried,pages=scope(source.pages),loadout=scope(source.loadout),
+            personal=scope(source.personal),held={right=scope(held.right),left=scope(held.left)}}
+end
 
 -- inventory.list -> inventory {item: count} (hotbar + bag: what he carries and can use), inventory_items
 -- (instances; loadout ones equipped=true), gear {loadout slot: item} + held.
 local function inventory_view(d)
     local inv, items, gear = {}, {}, {}
-    for _, where in ipairs({ "hotbar", "bag" }) do
+    for _, where in ipairs({ "hotbar", "bag", "unmapped" }) do
         for _, it in ipairs(d[where] or {}) do
             local key = item_key(it)
-            if key then inv[key] = (inv[key] or 0) + (tonumber(it.count) or 1) end
+            local count=tonumber(it.count)
+            if key and count and count==count and count~=math.huge and count>0 then inv[key] = (inv[key] or 0) + count end
             local row = copy(it)
-            row.id, row.where = tostring(it.slot_type or where) .. ":" .. tostring(it.slot), where
+            row.id, row.where = tostring(it.slot_type or where) .. ":" .. tostring(it.slot ~= nil and it.slot or it.raw), where
             items[#items + 1] = row
         end
     end
@@ -371,6 +384,7 @@ function M.get_state()
     local data = { position = b.null, health = b.null, inventory = b.object(), following = M.following() or b.null,
                    players = {}, nearby_entities = {}, nearby_resources = {}, structures = {}, places = {},
                    action = S.action and S.action.kind or b.null, body = "client" }
+    data.inventory_read_status = inventory_read_status(nil)
     local missing = { structures = true, places = true }
     local mine, mr = me()
     if not mine then
@@ -395,11 +409,13 @@ function M.get_state()
         if ir.ok then
             local inv, items, gear = inventory_view(ir.data)
             data.inventory, data.inventory_items, data.gear = b.object(inv), items, b.object(gear)
+            data.inventory_read_status = inventory_read_status(ir.data)
             local held = type(ir.data.held) == "table" and ir.data.held or {}
             data.held = held.right or held.left or b.null -- display name of what is in his hands
             data.held_item = held.right_item or held.left_item or b.null
         else
             missing.inventory = true
+            data.inventory_read_status = inventory_read_status(nil)
         end
     end
     if mine then
@@ -673,20 +689,22 @@ local function slim(it, with_slot)
     return o
 end
 function M.compact_inventory(d)
-    local worn, hotbar, bag = {}, {}, {}
+    local worn, hotbar, bag, unmapped = {}, {}, {}, {}
     for _, it in ipairs(d.loadout or {}) do
         local slot = it.loadout_slot or tostring(it.slot)
         if slot ~= "HeldRight" and slot ~= "HeldLeft" then worn[slot] = it.name or it.item end
     end
     for _, it in ipairs(d.hotbar or {}) do hotbar[#hotbar + 1] = slim(it, true) end
     for _, it in ipairs(d.bag or {}) do bag[#bag + 1] = slim(it, false) end
+    for _, it in ipairs(d.unmapped or {}) do local row=slim(it,false); row.raw=it.raw; unmapped[#unmapped+1]=row end
     local held = type(d.held) == "table" and d.held or {}
     return { worn = S.bridge.object(worn), held = S.bridge.object({ right = held.right, left = held.left }),
-             hotbar = hotbar, bag = bag, weight = d.weight, empty_slots = d.empty_slots }
+             hotbar = hotbar, bag = bag, unmapped=unmapped, read_status=inventory_read_status(d), weight = d.weight, empty_slots = d.empty_slots }
 end
 R.inventory = { needs = { { "inventory", "list" } }, fn = function(args)
     local r = call("inventory", "list")
-    if not r.ok or args.raw == true then return r end
+    if not r.ok then return r end
+    if args.raw == true then r.data.read_status=inventory_read_status(r.data); return r end
     return { ok = true, data = M.compact_inventory(r.data) }
 end }
 R.census = { needs = { { "sense", "census" } }, fn = function(args) return call("sense", "census", args) end }

@@ -28,23 +28,66 @@ M.SLOT_TYPE = SLOT_TYPE
 local LOADOUT_INDEX = {}
 for k, v in pairs(M.LOADOUT_SLOTS) do LOADOUT_INDEX[v:lower()] = k end
 
-local function text(v) local s = U.str(v); if s and s ~= "" and s ~= "None" then return s end end
+local function attempt_read(f,...)
+    if rawget(_G,"DW_PAUSE") then return false,nil end
+    local ok,v=pcall(f,...)
+    if rawget(_G,"DW_PAUSE") then return false,nil end
+    return ok,v
+end
+local function try_read(f,...)
+    local ok,v=attempt_read(f,...)
+    if ok then return v end
+end
+local function invoke_read(o,method,...)
+    if o==nil then return nil end
+    local f=try_read(function() return o[method] end)
+    if f==nil then return nil end
+    return try_read(f,o,...)
+end
+local function valid_read(o)
+    return o~=nil and invoke_read(o,"IsValid")==true and not rawget(_G,"DW_PAUSE")
+end
+local function text(v)
+    local s=type(v)=="string" and v or invoke_read(v,"ToString")
+    if not rawget(_G,"DW_PAUSE") and s and s ~= "" and s ~= "None" then return s end
+end
 local function num(v) return type(v) == "number" and v or nil end
-local function item_id(data) local p = U.valid(data) and U.path_of(data); return p and p:match("%.([%w_]+)$") or nil end
+local function item_id(data)
+    if not valid_read(data) then return nil end
+    local n=invoke_read(data,"GetFullName")
+    local p=type(n)=="string" and (n:match("^%S+%s+(.*)$") or n)
+    return p and p:match("%.([%w_]+)$") or nil
+end
+local function identity(o)
+    if not valid_read(o) then return nil end
+    local n=invoke_read(o,"GetAddress")
+    if type(n)=="number" and n==n and n~=math.huge and n~=-math.huge and n~=0 then return n end
+end
+local function read_status(reason, observed, gaps)
+    return {status=reason and (observed and observed>0 and "partial" or "unknown") or "complete",
+            reason=reason, gaps=gaps or {}}
+end
 
 local function say(log, msg) if log then pcall(log, "inventory: " .. msg) end end
 
 -- ------------------------------------------------------------------ handles
 function M.pc()
-    for _, pc in ipairs(U.find_all("BP_PlayerController_C", { skip_defaults = true })) do
-        if U.try(function() return pc:IsLocalController() end) == true then return pc end
+    local pcs=try_read(FindAllOf,"BP_PlayerController_C") or {}
+    for _, pc in ipairs(pcs) do
+        if rawget(_G,"DW_PAUSE") then return nil end
+        if valid_read(pc) and invoke_read(pc,"HasAnyInternalFlags",U.GARBAGE_OR_UNREACHABLE)~=true then
+            local name=invoke_read(pc,"GetFullName")
+            if not (type(name)=="string" and name:find("Default__",1,true)) and invoke_read(pc,"IsLocalController")==true then return pc end
+        end
     end
 end
 
 function M.pawn(pc)
     pc = pc or M.pc()
-    local p = pc and U.try(function() return pc.Pawn end)
-    return U.alive(p) and p or nil
+    local p = pc and try_read(function() return pc.Pawn end)
+    if not valid_read(p) then return nil end
+    local flagged=invoke_read(p,"HasAnyInternalFlags",U.GARBAGE_OR_UNREACHABLE)
+    return not rawget(_G,"DW_PAUSE") and flagged~=true and p or nil
 end
 
 -- The HUD's InventoryUIAPI for the local player (lives in HUDUISubsystem).
@@ -67,18 +110,47 @@ end
 -- Page table of the main inventory: list of {type, type_name, first (raw index), n}.
 function M.pages(inv)
     local pages, first = {}, 0
-    if not U.valid(inv) then return pages end -- array reads on an invalid object crash natively (21:49:34)
-    local quick = num(U.try(function() return inv.NumberOfQuickActionSlots end)) or 0
+    if not valid_read(inv) then return pages,read_status("component_unavailable") end
+    local before=identity(inv)
+    local quick=try_read(function() return inv.NumberOfQuickActionSlots end)
+    local quick_ok=type(quick)=="number" and quick>=0 and quick%1==0
+    local reason=not before and "component_identity_unknown" or nil
+    if not quick_ok then reason=reason or "quick_slot_count_unknown"; quick=0 end
     if quick > 0 then pages[1] = { type = 0, type_name = "QuickAction", first = 0, n = quick }; first = quick end
-    pcall(function()
-        inv.InventoryPages:ForEach(function(_, e)
-            local p = e:get()
-            local t, n = p.SlotType, p.NumSlots
+    local seen=0
+    local ok=pcall(function()
+        local function guarded(f)
+            if rawget(_G,"DW_PAUSE") then error("paused") end
+            local v=f()
+            if rawget(_G,"DW_PAUSE") then error("paused") end
+            return v
+        end
+        local arr=guarded(function() return inv.InventoryPages end)
+        local get_count=guarded(function() return arr.GetArrayNum end)
+        local total=guarded(function() return get_count(arr) end)
+        if type(total)~="number" or total<0 or total%1~=0 then error("invalid page count") end
+        local foreach=guarded(function() return arr.ForEach end)
+        guarded(function() return foreach(arr,function(_, e)
+            local getter=guarded(function() return e.get end)
+            local p = guarded(function() return getter(e) end)
+            local t=guarded(function() return p.SlotType end)
+            local n=guarded(function() return p.NumSlots end)
+            if type(t)~="number" or M.SLOT_TYPES[t]==nil or type(n)~="number" or n<0 or n%1~=0 then error("invalid page") end
             pages[#pages + 1] = { type = t, type_name = M.SLOT_TYPES[t], first = first, n = n }
             first = first + n
-        end)
+            seen=seen+1
+        end) end)
+        get_count=guarded(function() return arr.GetArrayNum end)
+        if seen~=total or guarded(function() return get_count(arr) end)~=total then error("page count changed") end
     end)
-    return pages
+    if not ok then reason=reason or "page_traversal_incomplete" end
+    local after=identity(inv)
+    if not before or after~=before then reason=reason or "component_identity_changed_or_unknown" end
+    local quick_after=try_read(function() return inv.NumberOfQuickActionSlots end)
+    if not quick_ok or quick_after~=quick then reason=reason or "quick_slot_count_changed_or_unknown" end
+    local status=read_status(reason,#pages)
+    if quick_ok and before and after==before and quick_after==quick and not rawget(_G,"DW_PAUSE") then status.verified_quick_slots=quick end
+    return pages,status
 end
 
 -- raw ItemSlots index -> slot type, index within that page (the UI's SlotNum).
@@ -91,14 +163,14 @@ end
 local KIND_CLASSES = { { "food", "/Script/Dominion.FoodItemData" }, { "drink", "/Script/Dominion.DrinkItemData" },
                        { "potion", "/Script/Dominion.PotionItemData" } }
 local function is_a(obj, path)
-    local cls = U.find_object(path)
-    return cls ~= nil and U.valid(obj) and U.try(function() return obj:IsA(cls) end) == true
+    local cls = try_read(U.find_object,path)
+    return cls ~= nil and valid_read(obj) and invoke_read(obj,"IsA",cls) == true
 end
 M.is_a = is_a
 
 -- "food" | "drink" | "potion" | nil for a UItemData, by class (equipment is never consumable).
 function M.consumable_kind(data)
-    if not U.valid(data) or is_a(data, "/Script/Dominion.EquipmentData") then return nil end
+    if not valid_read(data) or is_a(data, "/Script/Dominion.EquipmentData") then return nil end
     for _, k in ipairs(KIND_CLASSES) do
         if is_a(data, k[2]) then return k[1] end
     end
@@ -148,16 +220,18 @@ function M.crash_refusal(item, name, kind)
 end
 
 function M.describe_item(it)
-    if not U.valid(it) then return nil end
-    local data = U.try(function() return it.ItemData end)
+    if not valid_read(it) then return nil end
+    local data = try_read(function() return it.ItemData end)
+    local fullname=valid_read(it) and invoke_read(it,"GetFullName")
+    local category=try_read(function() return data.Category end)
     local d = {
-        name = text(U.try(function() return data.Name end)) or text(U.try(function() return it:GetPlayerFacingName() end)),
+        name = text(try_read(function() return data.Name end)) or text(invoke_read(it,"GetPlayerFacingName")),
         item = item_id(data),
-        count = num(U.try(function() return it.Count end)),
-        durability = num(U.try(function() return it.Durability end)),
-        max_durability = num(U.try(function() return it:GetMaxDurability() end)),
-        kind = U.class_word(it), -- Item / HeldEquipmentItem / WearableEquipment / ...
-        category = text(U.try(function() return data.Category.TagName end)),
+        count = num(try_read(function() return it.Count end)),
+        durability = num(try_read(function() return it.Durability end)),
+        max_durability = num(invoke_read(it,"GetMaxDurability")),
+        kind = type(fullname)=="string" and fullname:match("^(%S+)"),
+        category = text(try_read(function() return category.TagName end)),
     }
     if d.max_durability and d.max_durability <= 0 then d.max_durability, d.durability = nil, nil end
     -- Food / drink / potion by CLASS (UObject:IsA on the item data). Never by property presence:
@@ -165,88 +239,221 @@ function M.describe_item(it)
     -- `data.StatSustenance ~= nil` is true for a pickaxe (live bug 18:20 UTC: the reflex "ate" one).
     d.consumable = M.consumable_kind(data)
     if d.consumable == "food" then
-        d.sustenance = text(U.try(function() return data.StatSustenance end))
-        d.heal = num(U.try(function() return data.AmountToHealOnConsume end))
+        d.sustenance = text(try_read(function() return data.StatSustenance end))
+        d.heal = num(try_read(function() return data.AmountToHealOnConsume end))
     elseif d.consumable == "drink" then
-        d.hydration = text(U.try(function() return data.StatHydration end))
+        d.hydration = text(try_read(function() return data.StatHydration end))
     end
     if d.consumable then
         d.soulscourge = M.soulscourge_of(d.name) -- amount (data), nil = unknown
         local rk = M.risk_of(d.item)
         if rk then d.risk = rk.detail end
-        d.use_verb = text(U.try(function() return data.UseVerb end))
+        d.use_verb = text(try_read(function() return data.UseVerb end))
     end
-    local mw = num(U.try(function() return it.NumMasterworkUpgradesApplied end))
+    local mw = num(try_read(function() return it.NumMasterworkUpgradesApplied end))
     if mw and mw > 0 then d.masterwork = mw end
-    if U.try(function() return it:IsEnchanted() end) == true then d.enchanted = true end
-    if U.try(function() return it:IsBroken() end) == true then d.broken = true end
+    if invoke_read(it,"IsEnchanted") == true then d.enchanted = true end
+    if invoke_read(it,"IsBroken") == true then d.broken = true end
     return d
 end
 
 local function slots_of(comp, fn)
-    if rawget(_G, "DW_PAUSE") or not U.valid(comp) then return end -- pcall cannot catch the native crash
-    pcall(function()
-        local arr = comp.ItemSlots
-        for i = 1, arr:GetArrayNum() do
-            local it = arr[i]
-            if U.valid(it) then fn(i - 1, it) end
+    if not valid_read(comp) then return read_status("component_unavailable") end
+    local before=identity(comp)
+    local gaps, observed, reason={},0,not before and "component_identity_unknown" or nil
+    local function gap(raw, why)
+        reason=reason or why; gaps[#gaps+1]={raw=raw,reason=why}
+    end
+    local ok,arr=attempt_read(function() return comp.ItemSlots end)
+    if not ok or arr==nil then return read_status("slot_array_unavailable",0) end
+    local count_method=try_read(function() return arr.GetArrayNum end)
+    local nok,n=attempt_read(count_method,arr)
+    if not nok or type(n)~="number" or n~=n or n==math.huge or n<0 or n%1~=0 then return read_status("slot_count_unavailable",0) end
+    if n==0 then gap(nil,"empty_representation_unverified") end
+    for i=1,n do
+        if rawget(_G,"DW_PAUSE") then gap(i-1,"paused"); break end
+        local got,it=attempt_read(function() return arr[i] end)
+        if rawget(_G,"DW_PAUSE") then gap(i-1,"paused"); break end
+        if not got then gap(i-1,"slot_read_failed")
+        elseif not valid_read(it) then
+            if rawget(_G,"DW_PAUSE") then gap(i-1,"paused"); break end
+            gap(i-1,"slot_invalid_or_empty_unverified")
+        else
+            observed=observed+1
+            local called,accepted,why=pcall(fn,i-1,it)
+            if rawget(_G,"DW_PAUSE") then gap(i-1,"paused"); break end
+            if not called then gap(i-1,"item_read_failed")
+            elseif accepted==false then gap(i-1,why or "item_read_incomplete") end
         end
-    end)
+    end
+    if not rawget(_G,"DW_PAUSE") then
+        local last_method=try_read(function() return arr.GetArrayNum end)
+        local end_ok,last=attempt_read(last_method,arr)
+        if not end_ok or last~=n then gap(nil,"slot_count_changed_or_unknown") end
+        if not before or identity(comp)~=before then gap(nil,"component_identity_changed_or_unknown") end
+    end
+    return read_status(reason,observed,gaps)
 end
 
 -- Held items, read from the pawn (what other players see in his hands).
 function M.held(pawn)
+    if rawget(_G,"DW_PAUSE") then local s=read_status("paused"); return {read_status={right=s,left=s}} end
     pawn = pawn or M.pawn()
-    local eq = pawn and U.try(function() return pawn.PlayerEquipmentComponent end)
-    if not U.valid(eq) then return {} end
-    local function name(data) return U.valid(data) and (text(U.try(function() return data.Name end)) or item_id(data)) or nil end
-    local r = U.try(function() return eq:GetHeldEquipmentDataRight() end)
-    local l = U.try(function() return eq:GetHeldEquipmentDataLeft() end)
+    if not valid_read(pawn) then local s=read_status("pawn_unavailable"); return {read_status={right=s,left=s}} end
+    local pawn_id=identity(pawn)
+    local got,eq=attempt_read(function() return pawn and pawn.PlayerEquipmentComponent end)
+    local unknown=read_status(got and "equipment_component_unavailable" or "equipment_component_read_failed")
+    if not valid_read(eq) then return {read_status={right=unknown,left=unknown}} end
+    local eq_id=identity(eq)
+    local function name(data) return valid_read(data) and (text(try_read(function() return data.Name end)) or item_id(data)) or nil end
+    local function hand(side)
+        if rawget(_G,"DW_PAUSE") then return nil,read_status("paused") end
+        local method=try_read(function() return eq["GetHeldEquipmentData"..side] end)
+        local ok,data=attempt_read(method,eq)
+        if not ok then return nil,read_status("hand_getter_failed") end
+        if not valid_read(data) then return nil,read_status("hand_empty_or_invalid_unverified") end
+        local n,id=name(data),item_id(data)
+        local why=not id and "hand_item_identity_unknown" or nil
+        local current_eq=try_read(function() return pawn.PlayerEquipmentComponent end)
+        if not eq_id or not pawn_id or identity(eq)~=eq_id or identity(current_eq)~=eq_id or identity(pawn)~=pawn_id then why=why or "hand_identity_changed_or_unknown" end
+        return {name=n,item=id},read_status(why,1)
+    end
+    local r,rs=hand("Right")
+    local l,ls=hand("Left")
+    if rawget(_G,"DW_PAUSE") then return {read_status={right=rs,left=ls}} end
+    local final_eq=try_read(function() return pawn.PlayerEquipmentComponent end)
+    if not eq_id or not pawn_id or identity(pawn)~=pawn_id or identity(final_eq)~=eq_id then
+        for _,s in ipairs({rs,ls}) do
+            if s.status=="complete" then s.status="partial" end
+            s.reason=s.reason or "hand_identity_changed_or_unknown"
+        end
+        return {right=r and r.name,right_item=r and r.item,left=l and l.name,left_item=l and l.item,
+                read_status={right=rs,left=ls}}
+    end
     local worn = {}
     for _, s in ipairs({ "Head", "Body", "Legs", "Cape" }) do
-        worn[s:lower()] = name(U.try(function() return eq["Current" .. s .. "Wearable"] end))
+        worn[s:lower()] = name(try_read(function() return eq["Current" .. s .. "Wearable"] end))
     end
-    return { right = name(r), right_item = item_id(r), left = name(l), left_item = item_id(l),
-             right_actor = U.short(U.try(function() return eq.HeldEquipmentActorRight end)),
-             left_actor = U.short(U.try(function() return eq.HeldEquipmentActorLeft end)), worn = worn }
+    local function short(data)
+        if not valid_read(data) then return nil end
+        local fullname=invoke_read(data,"GetFullName")
+        return type(fullname)=="string" and (fullname:match("([%w_]+)$") or fullname) or nil
+    end
+    return { right = r and r.name, right_item = r and r.item, left = l and l.name, left_item = l and l.item,
+             right_actor = short(try_read(function() return eq.HeldEquipmentActorRight end)),
+             left_actor = short(try_read(function() return eq.HeldEquipmentActorLeft end)), worn = worn,
+             read_status={right=rs,left=ls} }
 end
 
 -- Everything he owns: hotbar, bag (by page), loadout (equipped, by ELoadoutSlot), personal chest
 -- inventory, and held items. Each entry has the raw slot plus the UI's (slot_type, slot).
 function M.list(log)
+    if rawget(_G,"DW_PAUSE") then return {ok=false,reason="paused"} end
     local pc = M.pc()
     if not pc then return { ok = false, reason = "no local player controller" } end
-    local inv = U.try(function() return pc.InventoryComponent end)
-    local out = { ok = true, hotbar = {}, bag = {}, loadout = {}, personal = {} }
-    if U.valid(inv) then
-        local pages = M.pages(inv)
+    local pc_id=identity(pc)
+    local function component(field)
+        if rawget(_G,"DW_PAUSE") then return nil,"paused" end
+        local ok,v=attempt_read(function() return pc[field] end)
+        if not ok then return nil,"component_read_failed" end
+        if not valid_read(v) then return nil,"component_unavailable" end
+        return v
+    end
+    local inv,inv_reason = component("InventoryComponent")
+    local out = { ok = true, hotbar = {}, bag = {}, unmapped = {}, loadout = {}, personal = {}, read_status={} }
+    local function unmap()
+        for _,rows in ipairs({out.hotbar,out.bag}) do
+            for _,d in ipairs(rows) do d.slot_type,d.slot=nil,nil; out.unmapped[#out.unmapped+1]=d end
+        end
+        out.hotbar,out.bag={},{}
+    end
+    local function check_component(field,obj,before,status,observed)
+        local current=component(field)
+        if not before or identity(obj)~=before or identity(current)~=before then
+            if status.status=="complete" then status.status=observed>0 and "partial" or "unknown" end
+            status.reason=status.reason or "component_identity_changed_or_unknown"
+            status.verified_quick_slots=nil
+            status.gaps[#status.gaps+1]={reason="component_identity_changed_or_unknown"}
+            return true
+        end
+        return false
+    end
+    if valid_read(inv) then
+        local inv_id=identity(inv)
+        local pages, page_status = M.pages(inv)
+        out.read_status.pages=page_status
         out.pages = {}
         for _, p in ipairs(pages) do out.pages[#out.pages + 1] = p.type_name .. ":" .. p.n end
-        slots_of(inv, function(raw, it)
+        out.read_status.carried=slots_of(inv, function(raw, it)
             local d = M.describe_item(it)
-            local t, s = page_of(pages, raw)
+            if type(d)~="table" then return false,"item_description_unavailable" end
+            local t, s
+            if page_status.status=="complete" then t,s=page_of(pages,raw)
+            elseif page_status.verified_quick_slots and raw<page_status.verified_quick_slots then t,s=0,raw end
             d.raw, d.slot_type, d.slot = raw, M.SLOT_TYPES[t], s
-            table.insert(t == 0 and out.hotbar or out.bag, d)
+            local bag_page=t==1 or t==2 or t==3 or t==4 or t==7
+            table.insert(t==0 and out.hotbar or (bag_page and out.bag or out.unmapped), d)
+            if type(d.item)~="string" or d.item=="" or type(d.count)~="number" or d.count~=d.count or d.count==math.huge or d.count<=0 then return false,"item_identity_or_quantity_unknown" end
         end)
-        out.empty_slots = num(U.try(function() return inv:GetNumEmptySlots() end))
-        out.weight = num(U.try(function() return inv:ComputeCurrentWeight() end))
+        check_component("InventoryComponent",inv,inv_id,out.read_status.carried,#out.hotbar+#out.bag+#out.unmapped)
+        local page_changed=check_component("InventoryComponent",inv,inv_id,page_status,#out.pages)
+        if #out.unmapped>0 and page_status.status=="complete" then page_status.status="partial"; page_status.reason="slot_not_in_carried_page_map" end
+        if page_changed then unmap() end
+        if not rawget(_G,"DW_PAUSE") then
+            out.empty_slots = num(invoke_read(inv,"GetNumEmptySlots"))
+            out.weight = num(invoke_read(inv,"ComputeCurrentWeight"))
+        end
+    else
+        out.read_status.carried=read_status(inv_reason or "component_unavailable")
+        out.read_status.pages=read_status(inv_reason or "component_unavailable")
     end
-    local lo = U.try(function() return pc.LoadoutComponent end)
-    if U.valid(lo) then
-        slots_of(lo, function(raw, it)
+    local lo,lo_reason = component("LoadoutComponent")
+    if valid_read(lo) then
+        local lo_id=identity(lo)
+        out.read_status.loadout=slots_of(lo, function(raw, it)
             local d = M.describe_item(it)
+            if type(d)~="table" then return false,"item_description_unavailable" end
             d.slot, d.loadout_slot = raw, M.LOADOUT_SLOTS[raw]
             out.loadout[#out.loadout + 1] = d
+            if type(d.item)~="string" or d.item=="" or type(d.count)~="number" or d.count~=d.count or d.count==math.huge or d.count<=0 then return false,"item_identity_or_quantity_unknown" end
         end)
-    end
-    local pi = U.try(function() return pc.PersonalInventoryComponent end)
-    if U.valid(pi) then
-        slots_of(pi, function(raw, it)
-            local d = M.describe_item(it); d.slot = raw
+        check_component("LoadoutComponent",lo,lo_id,out.read_status.loadout,#out.loadout)
+    else out.read_status.loadout=read_status(lo_reason or "component_unavailable") end
+    local pi,pi_reason = component("PersonalInventoryComponent")
+    if valid_read(pi) then
+        local pi_id=identity(pi)
+        out.read_status.personal=slots_of(pi, function(raw, it)
+            local d = M.describe_item(it); if type(d)~="table" then return false,"item_description_unavailable" end; d.slot = raw
             out.personal[#out.personal + 1] = d
+            if type(d.item)~="string" or d.item=="" or type(d.count)~="number" or d.count~=d.count or d.count==math.huge or d.count<=0 then return false,"item_identity_or_quantity_unknown" end
         end)
+        check_component("PersonalInventoryComponent",pi,pi_id,out.read_status.personal,#out.personal)
+    else out.read_status.personal=read_status(pi_reason or "component_unavailable") end
+    local current_pawn=not rawget(_G,"DW_PAUSE") and M.pawn(pc) or nil
+    local pawn_id=identity(current_pawn)
+    out.held = M.held(current_pawn)
+    out.read_status.held=out.held.read_status
+    local final_pawn=not rawget(_G,"DW_PAUSE") and M.pawn(pc) or nil
+    if not pawn_id or identity(final_pawn)~=pawn_id then
+        for _,side in ipairs({"right","left"}) do
+            local s=out.read_status.held[side]; s.status=s.status=="complete" and "partial" or s.status
+            s.reason=s.reason or "pawn_identity_changed_or_unknown"
+        end
     end
-    out.held = M.held(M.pawn(pc))
+    local final_pc=not rawget(_G,"DW_PAUSE") and M.pc() or nil
+    if not pc_id or identity(final_pc)~=pc_id then
+        for _,field in ipairs({"carried","pages","loadout","personal"}) do
+            local s=out.read_status[field]
+            s.status=s.status=="complete" and "partial" or s.status
+            s.reason=s.reason or "controller_identity_changed_or_unknown"
+        end
+        for _,side in ipairs({"right","left"}) do
+            local s=out.read_status.held[side]; s.status=s.status=="complete" and "partial" or s.status
+            s.reason=s.reason or "controller_identity_changed_or_unknown"
+        end
+        unmap()
+    end
+    out.read_status.carried.count_semantics=out.read_status.carried.status=="complete" and "exact" or "lower_bound"
     return out
 end
 
@@ -259,7 +466,7 @@ function M.find(list, what, prefer_kind)
     if type(what) ~= "string" or what == "" then return nil end
     local lw = what:lower()
     local function scan(test)
-        for _, where in ipairs({ "hotbar", "bag", "loadout" }) do
+        for _, where in ipairs({ "hotbar", "bag", "loadout", "unmapped" }) do
             for _, d in ipairs(list[where] or {}) do
                 if test(d) then return d, where end
             end
@@ -344,6 +551,7 @@ function M.equip(log, what)
     if not l.ok then return l end
     local d, where = M.find(l, what)
     if not d then return { ok = false, reason = "not in inventory: " .. tostring(what) } end
+    if where=="unmapped" then return {ok=false,reason="verification_failed",item=d,detail="Item observed, but its inventory slot could not be verified."} end
     if where == "loadout" then return { ok = true, reason = "already equipped", item = d } end
     local refuse = M.crash_refusal(d.item, d.name, d.consumable) -- its hotbar key would consume it
     if refuse then say(log, "equip refused (crash-safety): " .. tostring(d.item)); return refuse end
@@ -462,6 +670,7 @@ function M.use(log, what, opts)
     if not l.ok then return l end
     local d, where = M.find(l, what, opts.require)
     if not d or where == "loadout" then return { ok = false, reason = "not in hotbar/bag: " .. tostring(what) } end
+    if where=="unmapped" then return {ok=false,reason="verification_failed",item=d,detail="Item observed, but its inventory slot could not be verified."} end
     local refuse = M.crash_refusal(d.item, d.name, d.consumable)
     if refuse then say(log, "use refused (crash-safety): " .. tostring(d.item)); return refuse end
     -- Fresh check of the exact slot about to be pressed: the item there must be this item and,
@@ -550,6 +759,7 @@ function M.move(log, what, to, to_slot)
     if not l.ok then return l end
     local d, where = M.find(l, what)
     if not d then return { ok = false, reason = "not in inventory: " .. tostring(what) } end
+    if where=="unmapped" then return {ok=false,reason="verification_failed",item=d,detail="Item observed, but its inventory slot could not be verified."} end
     if where == "loadout" then return { ok = false, reason = "invalid_args", detail = "it is equipped: unequip it first" } end
     if d.slot_type == page then return { ok = true, already = true, item = d } end
     local slot = tonumber(to_slot) or M.free_slot(page)
@@ -638,6 +848,7 @@ function M.drop(log, what, count)
     if not l.ok then return l end
     local d, where = M.find(l, what)
     if not d then return { ok = false, reason = "not in inventory: " .. tostring(what) } end
+    if where=="unmapped" then return {ok=false,reason="verification_failed",item=d,detail="Item observed, but its inventory slot could not be verified."} end
     local api = M.ui_api()
     if not api then return { ok = false, reason = "no InventoryUIAPI" } end
     local t = where == "loadout" and SLOT_TYPE.Loadout or SLOT_TYPE[d.slot_type]
@@ -874,12 +1085,19 @@ function R.tick(log)
                 end
             elseif need[1] and not best(carried, need[2], R.bad, { "hotbar", "bag" }) then
                 local failed = best(carried, need[2], nil, { "hotbar", "bag" }) ~= nil
+                local unknown = best(carried, need[2], nil, { "unmapped" })
+                local read = carried.read_status and carried.read_status.carried
+                local incomplete = type(read)~="table" or read.status~="complete"
                 R.warned = R.warned or {}
-                local key = "no_" .. need[2]
-                if not R.warned[key] or t - R.warned[key] >= 60 then
-                    R.warned[key] = t
+                local key = unknown and "inventory_location_unknown" or (incomplete and "inventory_read_unknown" or "no_" .. need[2])
+                local warnkey=key..":"..need[2]
+                if not R.warned[warnkey] or t - R.warned[warnkey] >= 60 then
+                    R.warned[warnkey] = t
                     reflex_emit({ action = key, kind = need[2], stat = need[3], max = need[4], floor = R.floor_hit == true,
-                                  reason = failed and ("every " .. need[2] .. " I carry failed to work")
+                                  item = unknown and unknown.item or nil,
+                                  reason = unknown and "item observed but its inventory slot could not be verified"
+                                      or incomplete and "inventory could not be read completely"
+                                      or failed and ("every " .. need[2] .. " I carry failed to work")
                                       or ("no " .. need[2] .. " carried, hotbar or bag") })
                 end
             end

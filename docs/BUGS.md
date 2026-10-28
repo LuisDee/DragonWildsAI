@@ -1,5 +1,28 @@
 # Live bug ledger
 
+### Inventory perception checkpoint GREEN (2026-10-28)
+
+Full gate1168 passed/1 skipped364.52s, CHECK_ALL: GREEN; source hashes unchanged
+(`logs/recovery/cf-394651d8/check-all.log`). Positive observations, per-scope
+read uncertainty and lower-bound counts now reach the model without a false
+empty claim or guessed item slot. Count-sensitive verification/nativeemptyABI
+remain separate. Runtime publication/native read confirmation pending. Natural
+tree pilot failedKillZ; route-authority behavior is the next fix, not a success
+claim or another known-dangerous travel attempt. UTC spend$0.0125/11Haiku.
+
+
+### R26 repeated with generic no-path fallback evidence (2026-10-28, OPEN)
+
+Natural tree request selected an old axe grave and died inKillZ04:31:52. Four
+structured no_path/zero-point replies did not stop raw-goal straight steering
+after local segments. Sourcepath drops failed results and defaults aim togoal
+while pending/exhausted. Rootmanualmonitor was too slow; no safety interception
+claimed. Plan: existing oracle-required long-trips must hold until owned route
+evidence, handle failure/partialend truthfully and retain unresolvedsingleflight
+through timeout, without special entity/goal rules. Design approved for bounded
+implementation/tests only; no prevention fix yet. Fullfailedtrace/memory kept.
+
+
 ### R26 contrasting typed controls (2026-10-28)
 
 Native -100cm query: floor-block=false but hit-block=true/penetrating=true;

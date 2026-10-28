@@ -25,9 +25,13 @@ local function trivial() -- what UE4SS returns for a property the object lacks: 
         error("trivial object")
     end })
 end
+local next_address=0
 local function obj(name, t)
     t = t or {}
+    next_address=next_address+1
+    local address=next_address
     t.IsValid = function() return true end
+    t.GetAddress = function() return address end
     t.GetFullName = function() return name end
     t.HasAnyInternalFlags = function() return false end
     return setmetatable(t, { __index = function() return trivial() end })
@@ -251,20 +255,20 @@ do
     hotbar_items = { item(DATA.pick, 1) }; bag_items = {}; refresh()
     I.reflex_start(nil, { verify_s = 0 }) -- release any previous in-flight owner before resetting fixture
     S.presses, S.hyd, S.sus, R.last, R.pending, R.warned = {}, 5, 80, {}, nil, nil
-    local n0 = events("no_drink")
+    local n0 = events("inventory_read_unknown")
     R.tick_fn(nil); R.tick_fn(nil)
-    local n1, txt = events("no_drink")
-    check(n1 == n0 + 1, "nothing carried: ONE no_drink event over two ticks (got " .. (n1 - n0) .. ")")
-    check(txt:find("no drink carried, hotbar or bag", 1, true) ~= nil, "no_drink reason: none carried")
+    local n1, txt = events("inventory_read_unknown")
+    check(n1 == n0 + 1, "unverified slots: ONE unknown event over two ticks (got " .. (n1 - n0) .. ")")
+    check(txt:find("inventory could not be read completely", 1, true) ~= nil, "unknown reason: incomplete read")
     check(#S.presses == 0, "nothing carried: nothing pressed")
     -- food carried, but marked bad -> no_food, reason "failed"
     hotbar_items = { item(DATA.sand, 3) }; refresh()
     S.hyd, S.sus, R.warned = 80, 5, nil
     R.bad = { ITEM_Consumable_Sandwich_Veggie = true }
-    local f0 = events("no_food")
+    local f0 = events("inventory_read_unknown")
     R.tick_fn(nil)
-    local f1, txt2 = events("no_food")
-    check(f1 == f0 + 1 and txt2:find("every food I carry failed to work", 1, true) ~= nil, "all food bad: no_food, reason 'failed'")
+    local f1, txt2 = events("inventory_read_unknown")
+    check(f1 == f0 + 1 and txt2:find("inventory could not be read completely", 1, true) ~= nil, "bad known food with incomplete slots remains unknown")
     -- a drink only in the bag is NOT no_drink (that is no_hotbar_drink)
     R.bad, R.warned = {}, nil
     hotbar_items = {}; bag_items = { item(DATA.tea, 3) }; refresh()
@@ -272,6 +276,19 @@ do
     local d0 = events("no_drink")
     R.tick_fn(nil)
     check(events("no_drink") == d0, "drink in the bag: no no_drink event")
+    local old_pages=inv.InventoryPages.ForEach
+    inv.InventoryPages.ForEach=function() error("page unavailable") end
+    hotbar_items={item(DATA.tea,3)}; bag_items={}; refresh()
+    S.presses,S.hyd,R.last,R.pending,R.warned={},5,{},nil,nil
+    R.tick_fn(nil)
+    check(#S.presses==1 and S.presses[1]=="Pumpkin Spice Infusion","page failure: verified hotbar drink still used")
+    I.reflex_start(nil,{verify_s=0}); R=_G.DWFedReflex
+    hotbar_items={}; bag_items={item(DATA.tea,3)}; refresh()
+    S.presses,S.hyd,R.last,R.pending,R.warned={},5,{},nil,nil
+    local loc0=events("inventory_location_unknown")
+    R.tick_fn(nil)
+    check(events("inventory_location_unknown")==loc0+1 and #S.presses==0,"page failure: observed unmapped drink is not claimed absent or pressed")
+    inv.InventoryPages.ForEach=old_pages
     I._input_gate = g0
 end
 

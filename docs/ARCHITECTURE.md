@@ -1,5 +1,18 @@
 # Architecture: how to add features without reinventing the wheel
 
+## Real-client inventory read completeness (2026-10-28 candidate)
+
+The real-client inventory module preserves positive rows with per-scope
+`read_status` for carried items, page mapping, loadout, personal inventory and
+both hands. `get_state.inventory_read_status` mirrors it; partial carried counts
+are lower bounds, legacy/missing status is unknown, and unmapped observed rows
+retain raw identity without guessed actionable slots. The guaranteed situation
+digest preserves those distinctions and positive unknown-quantity observations.
+This is perception only: count-based action verification and native empty/null
+semantics need separate work; the approved judges are unchanged. Candidate
+publication requires its current GREEN gate and controlled client integration.
+
+
 This is the single source of truth for **where code goes** and **which rules it follows**. CLAUDE.md says *what* we are building and *why*. DISCOVERIES.md says *what is proven* in the game. This file says *how the code is organised* so that each new feature reuses what exists.
 
 Read it before adding a skill, a hook, a service or an experiment. When the layout changes, update this file in the same change.

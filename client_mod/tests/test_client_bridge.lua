@@ -189,6 +189,37 @@ test("get_state from the real module shapes: buckets, inventory, gear, extras", 
     assert(d.gear.HeldRight == "ITEM_Tool_Axe_Bronze" and d.gear.held_right == "ITEM_Tool_Axe_Bronze")
     assert(d.players_online[2] == "Luis")
     assert(has(d.not_implemented, "structures") and has(d.not_implemented, "places") and not has(d.not_implemented, "position"))
+    assert(d.inventory_read_status.carried.status == "unknown" and d.inventory_read_status.held.right.status == "unknown", "legacy missing status stays unknown")
+end)
+
+test("inventory read status and unmapped observations reach state and compact tool", function()
+    local addition = [[
+        local previous = M.list
+        function M.list(log)
+            local d = previous(log)
+            d.unmapped = { {name="Observed",item="ITEM_Observed",count=4,raw=7},
+                           {name="Quantity unknown",item="ITEM_Unknown",raw=8} }
+            d.read_status = { carried={status="partial",reason="slot_read_failed",gaps={{raw=9,reason="slot_read_failed"}}},
+                pages={status="unknown",reason="page_traversal_incomplete"},
+                loadout={status="complete"},personal={status="unknown",reason="component_unavailable"},
+                held={right={status="complete"},left={status="unknown",reason="hand_getter_failed"}} }
+            return d
+        end
+        return M
+    ]]
+    local edited, replacements=FAKES.inventory:gsub("return M%s*$",addition)
+    assert(replacements==1); install("inventory",edited)
+    local d=rpc("get_state").data
+    assert(d.inventory.ITEM_Observed==4 and d.inventory.ITEM_Unknown==nil, json.encode(d.inventory))
+    assert(d.inventory_read_status.carried.status=="partial" and d.inventory_read_status.carried.count_semantics=="lower_bound" and d.inventory_read_status.carried.gaps[1].raw==9)
+    assert(d.inventory_read_status.held.left.reason=="hand_getter_failed")
+    local found=false
+    for _,row in ipairs(d.inventory_items) do if row.item=="ITEM_Observed" then found=row.where=="unmapped" and row.raw==7 end end
+    assert(found,"unmapped row preserved")
+    local compact=rpc("inventory",{}).data
+    assert(compact.read_status.pages.status=="unknown" and #compact.unmapped==2 and compact.unmapped[1].raw==7)
+    assert(compact.unmapped[2].item=="ITEM_Unknown" and compact.unmapped[2].count==nil)
+    install("inventory")
 end)
 
 test("get_state: controller but no pawn -> companion_down", function()
@@ -637,6 +668,7 @@ test("inventory tool: compact worn / held / hotbar with durability / bag; raw on
     assert(#d.bag >= 1 and d.bag[1].count >= 1)
     local raw = rpc("inventory", { raw = true })
     assert(raw.ok and raw.data.loadout and raw.data.loadout[1].loadout_slot == "HeldRight")
+    assert(raw.data.read_status.carried.status == "unknown", "legacy raw read status is unknown")
 end)
 
 test("a reflex fight owns the pawn: go_to and follow wait (no interrupted), then carry on", function()

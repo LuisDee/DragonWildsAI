@@ -1,5 +1,41 @@
 # Progress log (append-only)
 
+### Inventory perception checkpoint GREEN (2026-10-28)
+
+Full gate1168 passed/1 skipped364.52s, CHECK_ALL: GREEN; source hashes unchanged
+(`logs/recovery/cf-394651d8/check-all.log`). Positive observations, per-scope
+read uncertainty and lower-bound counts now reach the model without a false
+empty claim or guessed item slot. Count-sensitive verification/nativeemptyABI
+remain separate. Runtime publication/native read confirmation pending. Natural
+tree pilot failedKillZ; route-authority behavior is the next fix, not a success
+claim or another known-dangerous travel attempt. UTC spend$0.0125/11Haiku.
+
+
+### Natural tree-task pilot failed; no-path fallback confirmed (2026-10-28)
+
+Five Haiku controller/zero planner calls ($0.0052, UTC total$0.0125/11calls)
+selected inventory then a remembered grave containing an axe. Actual target
+`[88.74,1675.65,-101.47]`; repeated oracle no_path/zero-point replies and
+exhausted local segments still led to straight sprinting. Native KillZ death
+04:31:52Z; revival04:31:59Z. No tree/axe crafting, no no-axe recovery proof.
+Manual cancellation was late, after death/action completion; the timer did not
+prevent it. No repeat of this route before the generic authority fix. Driver
+exited1 on dead cleanup; root separately verified terminal process, fresh
+DEV/samepawn/HP100/idle after respawn and released the slot. Full trace, failed
+result and changed per-world memory retained, no restore/reset. Details:
+docs/research/r26-tree-pilot-20261028.md. Current position
+`[63.152076661332,1875.5658766807,-35.446093180758]`, old flat operators stale.
+
+Inventory perception source is independently reviewed and isolated in W; full
+gatecf-84ece854 was RED only on a legacy wording assertion (1167passed/1skip).
+That test now preserves its food/grave/action checks and requires the intended
+unknown/lower-bound wording; focused test passed. New full gate is running
+via logs/recovery/inventory-read-active-full-gate.txt. Do not relabel the old
+red run or deploy the candidate before the new gate is GREEN. Count-sensitive
+action verification, native empty representation and frozen judges remain
+unchanged/unproven by this perception wave. Original goal ACTIVE/unmet.
+
+
 ### Native floor controls and scoped lifecycle measured (2026-10-28)
 
 Eight native query calls completed on DEV10824 without moving the pawn: six
