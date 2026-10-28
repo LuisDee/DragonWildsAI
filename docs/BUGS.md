@@ -1,5 +1,26 @@
 # Live bug ledger
 
+### Phase Dash diagnostics lack the base Air Dash prerequisite (2026-10-28)
+
+Four-pump directional native controls retained 1.2173 m before a fresh cast
+and 1.0414 m after; no dash benefit established. Read-only native active_perks
+contains DoubleJump/Hopper but no Air Dash; Agility is 22 while the wiki
+describes Air Dash at 32. Artificial utility-spell unlock does not establish
+the base movement perk. Treat this as a likely prerequisite/setup gap, not a
+verified production failure or reason to patch movement. No leveling/reset
+fixture was used. Full evidence in r27-m1-controls-and-mobility-20261028.md.
+
+### Passive native control observations collide with food/drink ownership (2026-10-28)
+
+The new diagnostic runner correctly refuses unknown/busy effect dispatch,
+but it also demands idle for every read-only final probe and passive wait.
+Food/drink reflexes therefore interrupt otherwise completed native controls;
+root preserved these blocked runs and retried only after actual idle. Positive
+and claims-only controls completed; do-nothing full-window remains unrun.
+Before implementing an observation-only admission path, research/review it;
+retain strict dispatch/identity/foreign-owner protections and record ambient
+behavior rather than disabling survival reflexes.
+
 ### Native controls and build provenance missing from formal evidence (2026-10-28)
 
 The frozen goal checker requires native DEV positive/negative controls, while

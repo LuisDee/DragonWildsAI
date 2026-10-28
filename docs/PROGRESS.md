@@ -1,5 +1,18 @@
 # Progress log (append-only)
 
+### Native positive and negative controls executed (2026-10-28 13:22 Berlin)
+
+Guarded control runner a43c429 is pushed/deployed without a game restart.
+The unchanged Windstep judge passed a real cast and rejected a claims-only
+negative (50 s / 38.047 s; no API calls). Interrupted controls remained blocked,
+including native food/drink work and a root lease-expiry mistake. No validity
+was promoted. Private directional arms measured 1.2173 m without a fresh
+Phase Dash cast and 1.0414 m after; its effect remains unproven. Native active
+perks lack Air Dash on the level-22 character, while wiki unlock is level 32:
+a likely prerequisite gap for the artificial spell-unlock setup. No levels
+were raised/reset. See r27-m1-controls-and-mobility-20261028.md for evidence.
+Current code audit still reports M1-M6 NOT MET. UTC spend $0.0478 / 41 Haiku.
+
 ### M1 spells measured; live-control runner under full gate (2026-10-28 12:56 Berlin)
 
 On unchanged deployed body e9200ff, developer controls opened Personal Chest

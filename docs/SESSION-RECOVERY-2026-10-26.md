@@ -1,5 +1,59 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## a43c429 native controls measured; no milestone certification (2026-10-28 13:22 Berlin)
+
+Latest tested/pushed/deployed tools commit a43c429. Full gate cf-8b3396c6
+GREEN 1230 passed / one skip / 410.18 s; frozen hashes verified. Publication
+dev-controls-publication-2c6a664a changed only tools/tests/docs, no game restart.
+Companion 7f54b5fea959c273, body f04cf05ebc5ee552, judges b5057d95be92c264;
+judge diff empty. Client 8568 / BP_PlayerCharacter_C_2147473112 / ClaudeDev /
+DEV loopback, server 7016 and Steam 3284 unchanged. Root last independently
+verified health 100 and idle, no remaining model/control process.
+
+Frozen Windstep oracle completed: result pass / observed_expected / 50 s.
+Claims-only completed: result fail / not_achieved / observed_expected /
+38.047 s. Zero model calls. Raw R/logs/recovery/windstep-control-oracle-20261028.json
+and windstep-control-claims-only-20261028.json link raw journals. Original
+blocked attempts retained: insufficient 180 s admission, expired root lease,
+fed:drink/food during observations. Root stopped only its owned referee after
+verified idle. Case-declared rune/unlock fixtures were applied, including
+partial setup on blocked attempts; raw journals preserve exact grant counts.
+Do-nothing/wrong-action remain unrun, official validity promotion disabled.
+
+Private directional helper tested/reviewed with 35 fake assertions. Actual
+direction+four-evade-pump control without a fresh cast retained 1.2173 m;
+after a fresh Phase Dash cast retained 1.0414 m. Both landed/settled, cancelled
+their exact timer, released their exact owner, were cleaned and independently
+idle; watchdogs terminal without expiry. No Phase Dash effect proved.
+R/logs/recovery/phase-directional-dir_affc64fb46/evidence.json and
+phase-directional-castdir_7b3fc3b15a/evidence.json. Native namespace is dev;
+brain memory stays dev_director. Helper source/private design/fakes are in W
+logs/recovery, exact reviewed hashes recorded in the thread; no body edits.
+
+New read-only native dump phase-native-catalog-20261028.json shows 52 loaded
+spell IDs, same set as old catalog; Phase Dash/Windstep data fields agree.
+The exporter hard-codes 26161880; actual client is 26162923. Never treat that
+label as fresh-build proof. Active native perks include DoubleJump/Hopper,
+not Air Dash; Agility22 and wiki Air Dash32 suggest missing base prerequisite
+in the artificial utility-spell-unlock setup. No skills raised or reset.
+Actual Phase Dash module has ExpireAfterDuration2s, which does not by itself
+prove movement-charge lifetime. Avoid another identical cast-only test.
+
+Native terminal snapshot m1-current-code-terminal-20261028.json: health100,
+hydration19.7/sustenance55.9, skills unchanged, idle. Food/water reflex remains
+enabled. Game API UTC $0.0478 /41 Haiku, zero planner/unpriced. Source/body
+unchanged since model Windstep proof. Full current audit
+goal-audit-a43c429-20261028.txt remains GOAL NOT MET (M1 0/13 etc.).
+
+Next lowest M1 work: verify native Air Dash prerequisite and a legitimate
+progression/declared diagnostic setup; finish native controls (passive reads
+must tolerate observed survival work without weakening effect dispatch), and
+run stable-code active exposure. Sonnet/Director remains off in these small
+controller-only tests. Complex prerequisite jobs need a separately bounded
+full-stack run, not a claim that Sonnet already helped. Native spell/control
+evidence does not certify crafting, combat basics or 2h stability. Keep the
+full goal ACTIVE; see docs/research/r27-m1-controls-and-mobility-20261028.md.
+
 ## M1 control candidate GREEN; Windstep native/model proof (2026-10-28 12:58 Berlin)
 
 R remains tested e9200ff body with e94180e metadata. Full gate for W's new

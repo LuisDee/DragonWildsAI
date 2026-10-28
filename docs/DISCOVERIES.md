@@ -1,5 +1,14 @@
 # Discoveries
 
+### Frozen spell judge discriminates real cast from a claim (2026-10-28)
+
+The new non-judge native control runner used the exact Windstep case and
+judge_dev: real cast passed, claims-only failed/not_achieved. Both independently
+started not achieved. No model calls or validity promotion. Fresh native
+loaded spell dump lists the same 52 IDs as the old catalog, but its exporter's
+hard-coded label is not actual-build provenance. Current client remains
+26162923, catalog label 26161880. See r27-m1-controls-and-mobility-20261028.md.
+
 ### Windstep chosen and cast by Haiku with native confirmation (2026-10-28)
 
 After developer validation on e9200ff, the ordinary request "Please use
