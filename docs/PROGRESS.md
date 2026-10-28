@@ -1,5 +1,31 @@
 # Progress log (append-only)
 
+### Manifest dispatch repair deployed and checked live (2026-10-28)
+
+Pushed/deployed 9516fc3 preserves manifest-valid arguments through Controller,
+GameInterface and BridgeClient, using one registered schema validator. This
+repairs the two lossy typed normalization boundaries and preserves accepted
+nulls on the wire. Legacy/mock dispatch remains unchanged. Independent Sol
+design/code reviews approved; targeted checks 32+78 passed.
+
+Clean isolated full gate cf-319765ee: 1237 passed,5 skipped,411.12s,
+CHECK_ALL: GREEN. Four missing-dump skips passed separately after supplying
+the unchanged existing native headers; remaining skip is the known incomplete
+desert_weed recording. The earlier red gate lacked private wiki data and
+approved raw snapshot bytes; both setup problems were corrected without
+changing judges. Exact tested files/logs/provenance saved in W and R under
+logs/recovery/manifest-authority-20261028/.
+
+Real read-only before/after control: old code requested inventory(raw=true),
+sent {}, returned compact worn data. Candidate and deployed repair sent
+raw=true and returned native loadout/pages/personal detail. No model calls,
+grants, game or Steam restart. Health100/strict idle after publication;
+client8568/server7016 unchanged. Native crafting/combat/gather options and
+nullable interpretation still need controls; no unassisted rerun or new
+milestone is claimed. Legacy Planner/learned-skill typed validation remains
+follow-up. Next: fresh continuation observations, observed child-lifetime
+repair, then developer and unchanged natural Haiku task measurements.
+
 ### Independent Sol architecture audit completed (2026-10-28)
 
 Read-only source and captured-input review found three priority contracts:

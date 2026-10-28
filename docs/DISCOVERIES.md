@@ -1,5 +1,16 @@
 # Discoveries
 
+### Advertised inventory mode now survives the real dispatch path (2026-10-28)
+
+Read-only control on the same dev body: baseline 9345dec normalized the
+requested raw=true to {}, yielding compact worn fields. Repaired 9516fc3
+sent raw=true unchanged and the native handler returned loadout/pages/personal
+fields. Candidate and post-deployment controls agree; no model inference,
+grant or restart. Raw R logs/recovery/manifest-raw-{baseline,live,deployed}-20261028.*.
+Forwarding for craft/attack/gather is regression-covered, not yet native
+gameplay proof; native null interpretation and legacy planner paths remain
+separate. Full evidence gate is recorded in PROGRESS and recovery notes.
+
 ### Two-speed control is sound; decision contracts need repair (2026-10-28)
 
 Independent Sol source/trace review confirms Haiku chose the water chain,

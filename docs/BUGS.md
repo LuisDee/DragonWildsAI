@@ -2,6 +2,12 @@
 
 ### Published model arguments disappear before dispatch (2026-10-28, verified)
 
+Controller live dispatch repaired in 9516fc3, full gate GREEN and native
+inventory raw-mode before/after control passed. GameInterface was a second
+lossy normalization boundary; both now use the manifest. Keep this issue
+open for legacy Planner/learned-skill schema drift and native option controls;
+do not claim complete full-stack schema authority yet.
+
 Capabilities.validate accepts the native manifest, then legacy Pydantic
 models silently discard craft station/recipe/fuel, attack weapon/style/force,
 gather stumps/style and inventory raw. Recipe-only craft can be rejected by

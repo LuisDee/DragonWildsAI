@@ -1,5 +1,52 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## 9516fc3 manifest repair deployed; next decision-context wave (2026-10-28 14:50 Berlin)
+
+Runtime R now 9516fc3627190c667e8fc435ef50acc93f1b786f, companion
+92d835e5526b5741, body f04cf05ebc5ee552, judges b5057d95be92c264;
+approved judge diff []. No client/server/Steam restart; client8568,
+server7016 and Steam3284 unchanged. No brain or test runner remains.
+Root owns root-m1-controls; inspect actual lease before takeover.
+
+Full regression on a942738 plus exactly the five manifest repair files in
+managed manifest-validation checkout: cf-319765ee GREEN,1237 passed,
+5 skipped,411.12s. Four native-header checks passed separately after their
+existing dump files were supplied; known desert_weed cassette skip remains.
+Prior cf-554271cf red was missing wiki snapshot plus LF/CRLF raw snapshot
+manifest differences. Copied unchanged R wiki input; exact R approved raw
+manifest bytes reproduced without changing JSON or judge definitions.
+Failed checks then passed before full repetition. Test input provenance,
+both gate logs, frozen five-file manifest and exact tested sources are
+preserved in W/R logs/recovery/manifest-authority-20261028/.
+
+Native readonly proof R/logs/recovery/manifest-raw-baseline-20261028.*:
+old code requested raw=true, sent{}, returned compact worn view. Candidate
+manifest-raw-live-20261028.* and deployed manifest-raw-deployed-20261028.*
+sent raw=true, native loadout/pages/personal returned. Post-deploy health100,
+strict idle true. No model calls or grants. Source SHA256s match full gate.
+
+W retains ONLY the unrelated parked Lua ownership candidate plus metadata
+until this handoff is committed. Do not deploy it without scope review,
+approval, its own gate and live cleanup controls. Its design amendment is
+not an approval; no test_move_authority.lua exists.
+
+Next lowest independent repair: current state must reach every continuation
+model input (currently only tool results do). Reuse fetched state and broker;
+preserve exact original request, uncertainties and previous failures. Design,
+fresh review, regression on actual provider input, then matched developer/
+Haiku trials. No phrase maps or task-specific solution. Legacy Planner and
+learned-skill known-tool schemas remain a separate authority gap, not fixed
+by this Controller dispatch wave. New native option controls still required.
+
+Survival maintenance during audit was developer-assisted: gathered10DirtyWater
+and10Redberries+seed through real actions. Native starvation damage down to1HP
+was observed and subsequent feeding restored100HP; no reset/grants. Supplies
+were falling at last read (2berries/10DirtyWater at14:34); inspect fresh before
+more work, do not leave the client idle for an extended period. Current native
+position[182.42,1795.6,-27.75]. Preserve all per-world state. API remains recorded
+$0.0546/52Haiku for UTC day; this wave used no game-model calls. Goal ACTIVE,
+original M1-M6 unchanged, no new milestone certified. Audit a942738 is pushed.
+
 ## Architecture audit and next repair (2026-10-28)
 
 Latest user asked for independent Sol adversarial review of model autonomy,
@@ -26,10 +73,33 @@ actual composition regressions are in test_move.lua. The current amendment
 is design only. Keep observed missing-token/child-drain defects separate
 from additional UI ownership hazards; do not grow a new concurrency framework.
 
-Terra manifest_contract_repair owns only brain/capabilities.py,
+Terra manifest_contract_repair completed the independently design/code-reviewed
+repair in brain/capabilities.py, brain/interface.py, brain/bridge_client.py,
 tests/test_manifest_contract.py and docs/design/manifest-argument-authority.md.
-Design-first review is pending; no source edit at this entry. Sol reviewer
-sol_architecture_adversary owns the report. Root integrates/checkpoints.
+Its five files are frozen; focused checks 32+78 passed. Both Controller and
+GameInterface had typed normalization; discovery now registers the same schema
+validator, dispatch preserves its accepted fields and nulls, get_state hooks
+and legacy paths remain. Legacy Planner/learned-skill validation is separate
+unfinished work. No native option support is implied by offline forwarding.
+
+Full gate uses a942738 plus exactly these five files in managed isolated
+manifest-validation/gameserver, excluding the parked Lua candidate. First
+cf-554271cf was RED: 1213 passed,23 failed,6 skipped,441s. The clean checkout
+lacked private data/wiki, causing knowledge/skill failures and generated case
+pin mismatches. No judge change. Copy the existing R wiki snapshot unchanged,
+check those failures first, then repeat the full gate. No source deployment
+or source commit until GREEN. Raw source manifest and logs remain in that
+validation checkout until copied to W/R recovery before archiving it.
+
+Root performed real-input maintenance while the gate ran: collect_water10,
+gather redberries8 yielded10 berries and a seed. Native vitals show idle
+starvation damage down to1HP, then feeding/healing back to100. No health/item
+grants, no model calls; these are developer-assisted supplies, not autonomous
+results. Raw R/logs/recovery/schema-gate-survival-{water,food}-20261028.json.
+Latest read health100/sustenance30.8/hydration14.4,2 berries/10 dirty water,
+position[182.42,1795.6,-27.75]. Inspect fresh state; do not leave low food idle.
+Root holds root-m1-controls; no native action remains, strict idle confirmed
+after maintenance. Server/client/Steam unchanged. Root integrates/checkpoints.
 Game-model spend remains recorded $0.0546/52Haiku, no audit provider calls;
 development account ordinary requests allowed, latest23% weekly used.
 Judges and original M1-M6 requirements unchanged; Goal ACTIVE, none certified.
