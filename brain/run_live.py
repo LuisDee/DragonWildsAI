@@ -247,9 +247,11 @@ class LiveAgent(Agent):
         return bool(self._pending)
 
     def step(self) -> GoalResult | None:
+        ready = self._continuation
         self.pump()
         self.flush_chat()
-        return super().step()
+        self.pump()
+        return self._after_pump(ready)
 
     def handle_event(self, event: Event) -> None:
         if isinstance(event, ChatHeard):
@@ -364,6 +366,7 @@ class LiveSession:
         # Luis's daily $ cap (cap from tools/spend.py). The reader runs on its own thread (started now, so the
         # cold first read overlaps the model warm-up below); allows() never waits for it.
         self.agent.budget = Budget(None if opts.dry_run else default_spend_fn(), log=self.log, background=True).start()
+        self.agent.continuation_budget_required = not opts.dry_run
         self.director = None
         if opts.director:
             from .director import Director  # docs/design/director.md

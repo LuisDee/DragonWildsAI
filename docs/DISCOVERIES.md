@@ -2271,3 +2271,13 @@ Builds: client 26162923, dump 26161880.
 - DirectorhourlyadmissionreservesMAX_REQUESTS5; count9/12 meanswaitingdespite3unusedslots. Hardnewcallwrappersanddailyspendcaps areseparate; preserveexistingwindow.
 - Nativecategorymetadata ispresentinrecipeJSON but absentfromgeneratedLua catalog; genericcategorycandidateexposure isdata-driven, notsynonymmapping. Recipepresence isnotliveunlock/craftproof.
 - Calibrationatcurrentrespawnarea sampled16floors,55cmvariation,guardlimit30cm; truthfullyrefused. No actualjumpmeasurementornewenvelopewritten. Queue20261027-220906 rawfailedverdict preserved.
+
+### Water collection and reflex competition, developer-driven528ae99 (2026-10-28)
+
+Queue20261028-005549 collected one Dirty Water in12.4s of check time, native inventory+1, shore point[52.21,1805.74,-30.87], source2108496385. Successful main-channel reflex_use ts1793145368 then consumed that item; the later recipes/craft check honestly reported missing_input0. No supply grants, model calls or reflex disabling. This proves the existing collection path and observed reflex consumption under these conditions, not an unaided food-water-rest chain or guaranteed boiling. Private queue results retain exact native IDs/state.
+
+### Native single/double envelope and water processing on528ae99 (2026-10-28)
+
+R10 nine-trial calibration and separate runtime-reader check passed on ClaudeDev/build26162923: single179cm; double minimum322cm at0.40s; saved1.64m/3.07m with existing margin and verified per-field provenance. Actual dry-site full guard passed; its >=12-of16 floor-hit requirement must not be called all16verified. HP100 retained. Typed traversal/Windstep remain unproved. Private r10-positive-calibration-result-20261028.json and r10-envelope-direct-read-result-20261028.json contain exact trials/state.
+
+Developer collect6->boil1 used actual water inputs and1carriedAsh at existing Campfire, produced1CleanWater and CookingXP107->108. Main-channel successful reflex_use1793145682 then drank the CleanWater. No grant, memory reset or API call; this is developer composition plus body reflex, not unaided model completion.

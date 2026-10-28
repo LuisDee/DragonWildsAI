@@ -301,6 +301,18 @@ class Decision:
     effort: str | None = None  # the effort this request runs at, when not the client's default (addressed chat)
 
 
+class ContinuationBudgetDenied(RuntimeError):
+    """A deferred turn cannot safely make another provider request."""
+
+
+class ContinuationInvalidated(RuntimeError):
+    """The deferred turn no longer owns its action or has lost its body state."""
+
+    def __init__(self, reason: str, silent: bool = False):
+        super().__init__(reason)
+        self.silent = silent
+
+
 class Controller:
     def __init__(self, llm: LLMClient, game: GameInterface, store: StateStore, logger: JsonlLogger,
                  name: str = "Claude", player: str = "Luis", recent_events: int = 10,
@@ -309,6 +321,8 @@ class Controller:
                  progress_interval: float = 20.0, clock: Callable[[], float] = time.monotonic, caps=None,
                  knowledge=None):
         self.llm = llm
+        self.continuation_admission = None  # set only while an autonomous deferred turn is running
+        self.continuation_validate = None
         self.knowledge = knowledge  # brain.knowledge.Knowledge | None: the lookup tool is offered only with one
         self.game = game
         self.store = store
@@ -623,6 +637,8 @@ class Controller:
                      effort=self._sent_effort(d))
         try:
             final = self._complete(messages, tools, d)
+        except (ContinuationBudgetDenied, ContinuationInvalidated):
+            raise
         except Exception as exc:  # the turn ends as before (nothing done), the error is logged
             self.log.log("controller_final_pass", ok=False, error=repr(exc))
             return resp, base
@@ -676,9 +692,13 @@ class Controller:
 
     def _complete(self, messages: list[dict], tools: list[dict], d: Decision) -> LLMResponse:
         """One model call at the request's effort (passed only when it overrides the client's default)."""
-        if d.effort:
-            return self.llm.complete(messages, tools=tools, effort=d.effort)
-        return self.llm.complete(messages, tools=tools)
+        if self.continuation_admission is not None and not self.continuation_admission():
+            raise ContinuationBudgetDenied("continuation model budget unavailable or exhausted")
+        response = (self.llm.complete(messages, tools=tools, effort=d.effort) if d.effort else
+                    self.llm.complete(messages, tools=tools))
+        if self.continuation_validate is not None:
+            self.continuation_validate()
+        return response
 
     def warm_up(self) -> dict | None:
         """L27 (dev run 23:32:58: the session's first model call took 11.2 s: litellm's ~5 s import, a
@@ -758,6 +778,8 @@ class Controller:
         The agent's first-turn check (agent.PROMISE_NOTE, passed as ``note``) is never doubled."""
         try:
             resp, out = self._loop(msgs + [{"role": "user", "content": TALK_ONLY_NOTE}], d, label="check")
+        except (ContinuationBudgetDenied, ContinuationInvalidated):
+            raise
         except Exception as exc:  # a failed check only means the line is said as it was
             self.log.log("talk_only_check", speech=speech, error=repr(exc))
             return LLMResponse(content=speech), msgs, speech

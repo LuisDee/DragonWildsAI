@@ -14,12 +14,13 @@ planner call; "what have you learned?" and "forget <skill>" are answered without
 """
 from __future__ import annotations
 
+import os
 import time
 from typing import Literal
 
 from . import situation as sit
 from .broker import BODY_SITUATIONS, REVIEW_SAMPLE_S, EventBroker, facts, fallback_line
-from .controller import LONG_ACTIONS, Controller, describe_rule
+from .controller import LONG_ACTIONS, ContinuationBudgetDenied, ContinuationInvalidated, Controller, describe_rule
 from .executor import Executor, Outcome, StateUnavailable
 from .interface import (RULE_TOOLS, Activity, Attacked, ChatHeard, CommandReceived, Event, GameInterface, Reason,
                         TaskDone, TaskFailed)
@@ -35,6 +36,7 @@ GoalResult = Literal["done", "stuck", "interrupted"]
 HELP_REPEAT_S = 60.0
 # The agent loop: model turns after the first, per request (every turn's results go back to the model).
 MAX_TURNS = 4
+CONTINUATION_SECONDS = 300.0
 # Tools that take a while: the turn's line is said as they start, so it is true when said.
 ANNOUNCE_FIRST = {"go_to", "come_to", *LONG_ACTIONS}
 # A turn of only these is a standing behaviour, not a step of a plan: no continuation turn.
@@ -77,6 +79,11 @@ class Agent:
         self.pending_tasks: list[Task] | None = None
         self.pending_skill: str | None = None
         self._cancelled = False
+        self._continuation = None
+        self._continuation_running = False
+        self._continuation_epoch = 0
+        self._continuation_check = None
+        self.continuation_budget_required = False  # live sessions enable this, dry/fake rigs need no reader
         self._last_reason: str | None = None
         self._help_said: dict[str, float] = {}  # help key -> monotonic time last said
         # Event hygiene (streamline step 3): triage, movement episodes, digest, episodic memory.
@@ -112,8 +119,15 @@ class Agent:
 
     def step(self) -> GoalResult | None:
         """Handle pending events, then start any goal the controller queued."""
+        ready = self._continuation
         self.pump()
+        return self._after_pump(ready)
+
+    def _after_pump(self, ready) -> GoalResult | None:
+        if ready is not None and self._continuation is ready and not self._chat_waiting() and not self._chat_stashed():
+            self._resume_continuation(ready)
         if self.pending_goal:
+            self._discard_continuation("another goal took ownership")
             goal, tasks, skill = self.pending_goal, self.pending_tasks, self.pending_skill
             self.pending_goal, self.pending_tasks, self.pending_skill = None, None, None
             if self.budget is not None and not self.budget.allows("planner"):
@@ -142,6 +156,8 @@ class Agent:
         finally:
             self._in_pump = False
         self.flush_situations()
+        if self._continuation is not None or self._continuation_running:
+            return  # pending chat continuation owns the next turn, ahead of review and Director
         self._review_tick()
         if self.director is not None:
             self.director.tick()  # the board: decisions (worker) applied, the next step run started
@@ -306,15 +322,101 @@ class Agent:
     # ---------------------------------------------------------------- commands
 
     def _command(self, event: CommandReceived, addressed: bool = True, body_events: list[dict] | None = None) -> None:
-        if self._directed is None or not event.text:
-            return self._command_run(event, addressed, body_events)
-        prev, self._directed_origin = self._directed_origin, "chat"  # a chat command nested in a board run
+        if addressed and event.text and (self._continuation is not None or self._continuation_running):
+            self._continuation_epoch += 1
+            self._discard_continuation("a new request took ownership", silent=True)
+        # A nested new request has its own ordinary chat/situation policy, not the old continuation's guard.
+        admission, validate, check = self.controller.continuation_admission, self.controller.continuation_validate, self._continuation_check
+        if self._continuation_running:
+            self.controller.continuation_admission = self.controller.continuation_validate = None
+            self._continuation_check = None
+        prev = self._directed_origin
         try:
+            if self._directed is None or not event.text:
+                return self._command_run(event, addressed, body_events)
+            self._directed_origin = "chat"
             return self._command_run(event, addressed, body_events)
         finally:
             self._directed_origin = prev
+            if self._continuation_running:
+                self.controller.continuation_admission, self.controller.continuation_validate = admission, validate
+                self._continuation_check = check
 
-    def _command_run(self, event: CommandReceived, addressed: bool = True, body_events: list[dict] | None = None) -> None:
+    def _discard_continuation(self, reason: str, silent: bool = False) -> None:
+        if self._continuation is not None:
+            self._continuation = None
+            self.log.log("continuation_stopped", reason=reason)
+            if not silent:
+                self.controller.say(f"I stopped the earlier request: {reason}.")
+
+    @staticmethod
+    def _continuation_identity(state: dict) -> tuple:
+        world = state.get("world")
+        world_guid = state.get("world_guid") or (world.get("guid") or world.get("world_guid")
+                                                     if isinstance(world, dict) else None)
+        return os.environ.get("DW_WORLD_GUID"), world_guid, state.get("name"), state.get("pawn")
+
+    def _resume_continuation(self, ready) -> None:
+        if (self.pending_goal or self.active_goal or self._cancelled or
+                (self.director is not None and (self.director.running or self.director.ops.b.paused))):
+            return self._discard_continuation("another job took ownership")
+        if self.clock() >= ready["deadline"]:
+            return self._discard_continuation("the continuation time limit was reached")
+        state = self._fresh_state()
+        identity = self._continuation_identity(state)
+        if (state.get("unavailable") or state.get("dead") is True or state.get("paused") is True or
+                identity != ready["identity"] or
+                (self.continuation_budget_required and not all(identity[-2:]))):
+            return self._discard_continuation("the character state changed or is unavailable")
+        self._continuation = None
+        self._continuation_running = True
+        def allowed():
+            if self.clock() >= ready["deadline"]:
+                return False
+            budget = self.budget
+            if budget is None:
+                return not self.continuation_budget_required
+            if self.continuation_budget_required and (budget.spend_fn is None or not budget.has_successful_read()):
+                return False
+            return budget.allows("continuation")
+        def check():
+            # Route events which arrived during a provider call before dispatching its response.
+            admission, validate = self.controller.continuation_admission, self.controller.continuation_validate
+            self.controller.continuation_admission = self.controller.continuation_validate = None
+            try:
+                self.pump()
+            finally:
+                self.controller.continuation_admission, self.controller.continuation_validate = admission, validate
+            if self._continuation_epoch != ready["epoch"]:
+                raise ContinuationInvalidated("a newer request took ownership", silent=True)
+            pending_chat = getattr(self, "_pending", None)
+            if self._chat_stashed() or (self._chat_waiting() and
+                    (pending_chat is None or any(item[2] for item in pending_chat))):
+                raise ContinuationInvalidated("a new addressed message arrived", silent=True)
+            if (self.pending_goal or self.active_goal or self._cancelled or
+                    (self.director is not None and (self.director.running or self.director.ops.b.paused))):
+                raise ContinuationInvalidated("another job took ownership")
+            fresh = self._fresh_state()
+            identity = self._continuation_identity(fresh)
+            if (fresh.get("unavailable") or fresh.get("dead") is True or fresh.get("paused") is True or
+                    identity != ready["identity"] or (self.continuation_budget_required and not all(identity[-2:]))):
+                raise ContinuationInvalidated("the character state changed or is unavailable")
+            if not allowed():
+                raise ContinuationBudgetDenied("continuation model budget unavailable or exhausted")
+            self.controller._state_for_reads = fresh
+            return fresh
+        self.controller.continuation_admission = allowed
+        self.controller.continuation_validate = check
+        self._continuation_check = check
+        try:
+            self._command_run(ready["event"], ready["addressed"], None, continuation=ready, state=state)
+        finally:
+            self.controller.continuation_admission = self.controller.continuation_validate = None
+            self._continuation_check = None
+            self._continuation_running = False
+
+    def _command_run(self, event: CommandReceived, addressed: bool = True, body_events: list[dict] | None = None,
+                     continuation=None, state=None) -> None:
         """``addressed=False``: a chat line nobody addressed to the companion (LiveAgent's chat
         reading); the model may decide it is not for him, and then nothing is said or done.
         ``body_events``: body situations (broker) this run must also decide on; with an empty text it
@@ -325,10 +427,31 @@ class Agent:
         until it stops calling tools; a new chat line ends the chain (the player has the floor)."""
         if event.text:
             self.broker.note_busy()  # he is talking with the player: no proactive review on top
-        state = self._fresh_state()  # unavailable: still let the Controller answer; actions will refuse
+        state = state if state is not None else self._fresh_state()  # unavailable: actions refuse
         body_ctx = (body_events[0] if len(body_events) == 1 else {"events": body_events}) if body_events else None
-        d = self.controller.decide(event.player, event.text, state, self.active_goal, addressed=addressed,
-                                   body_event=body_ctx)
+        if continuation is None:
+            deadline = self.clock() + CONTINUATION_SECONDS
+            d = self.controller.decide(event.player, event.text, state, self.active_goal, addressed=addressed,
+                                       body_event=body_ctx)
+        else:
+            deadline = continuation["deadline"]
+            try:
+                d = continuation.get("dispatch_decision")
+                if d is None:
+                    d = self.controller.next_turn(continuation["decision"], continuation["results"], state,
+                                                  failed=continuation["failed"], note=continuation["note"])
+            except ContinuationInvalidated as exc:
+                self.log.log("continuation_stopped", reason=str(exc))
+                if not exc.silent:
+                    self.controller.say(f"I couldn't continue the earlier request: {exc}.")
+                return
+            except Exception as exc:
+                reason = "deadline" if self.clock() >= deadline else "budget" if isinstance(exc, ContinuationBudgetDenied) else "provider error"
+                self.log.log("continuation_stopped", reason=reason, error=repr(exc))
+                self.controller.say("I couldn't finish the earlier request before time ran out." if reason == "deadline" else
+                                    "I couldn't continue the earlier request: my thinking budget is unavailable." if reason == "budget" else
+                                    "I couldn't continue the earlier request because my thinking failed.")
+                return
         if body_events:  # speak-time check of the situation itself, on fresh state
             state = self._fresh_state()
             still = self.broker.still_valid(body_events, state)
@@ -338,24 +461,63 @@ class Agent:
                 if not event.text:
                     return
             body_events = still
-        d, state = self._fresh_reply(event, d, state, addressed, body_ctx)
+        if continuation is None:
+            d, state = self._fresh_reply(event, d, state, addressed, body_ctx)
         if not addressed and not (d.actions or d.goal or d.skill or d.refusals or d.speech):
             self.log.log("chat_decision", player=event.player, text=event.text, decision="ignored",
                          reason="model: not meant for me")
             return
+        if continuation is None and self._continuation_running and (d.actions or d.goal or d.skill):
+            self._continuation_epoch += 1
+        if self._continuation is not None and (d.actions or d.goal or d.skill):
+            self._continuation_epoch += 1
+            self._discard_continuation("another action took ownership")
         if not addressed:
             self.log.log("chat_decision", player=event.player, text=event.text, decision="addressed",
                          reason="model: meant for me", actions=[c.name for c in d.actions], speech=d.speech)
         kind = "notice" if body_events and not event.text else "reply"
-        ran_all: list[str] = []  # every tool this request ran (the board hears about player commands)
-        said = False  # anything said for this request (single voice: at most one line per turn)
-        lines: list[str] = []  # what the model's turns actually said (for previous_review.you_said)
-        acted = False
-        turn = 0
+        ran_all: list[str] = list(continuation.get("ran_all", [])) if continuation else []
+        said = continuation.get("said", False) if continuation else False
+        lines: list[str] = list(continuation.get("lines", [])) if continuation else []
+        acted = continuation.get("acted", False) if continuation else False
+        turn = continuation.get("dispatch_turn", 1) if continuation else 0
         while True:
+            if continuation is not None:
+                reason = "the time limit was reached" if self.clock() >= deadline else None
+                if reason:
+                    self.log.log("continuation_stopped", reason=reason)
+                    self.controller.say(f"I stopped the earlier request because {reason}.")
+                    break
             if d.interrupts and self.active_goal:
                 self._cancelled = True
-            t = self._run_turn(d, state, event)
+            try:
+                if continuation is not None:
+                    state = self._continuation_check()
+                    if self._chat_waiting():
+                        self._continuation = {**continuation, "dispatch_decision": d, "dispatch_turn": turn,
+                                              "ran_all": ran_all, "said": said, "lines": lines, "acted": acted}
+                        self.log.log("continuation_waiting_chat", turns=turn)
+                        return
+                t = self._run_turn(d, state, event, partial=continuation.get("partial_turn") if continuation else None)
+            except ContinuationInvalidated as exc:
+                self.log.log("continuation_stopped", reason=str(exc))
+                if not exc.silent:
+                    self.controller.say(f"I couldn't continue the earlier request: {exc}.")
+                return
+            except ContinuationBudgetDenied as exc:
+                reason = "deadline" if self.clock() >= deadline else "budget"
+                self.log.log("continuation_stopped", reason=reason, error=repr(exc))
+                self.controller.say("I couldn't finish the earlier request before time ran out." if reason == "deadline" else
+                                    "I couldn't continue the earlier request: my thinking budget is unavailable.")
+                return
+            if t.get("deferred"):
+                self._continuation = {**continuation, "dispatch_decision": d, "dispatch_turn": turn,
+                                      "partial_turn": t["deferred"], "ran_all": ran_all, "said": said,
+                                      "lines": lines, "acted": acted}
+                self.log.log("continuation_waiting_chat", turns=turn, partial=True)
+                return
+            if continuation is not None:
+                continuation.pop("partial_turn", None)
             nonbody_success = not t["ran"] and any(r.get("ok", True) for r in t["results"].values())
             acted = acted or bool(t["ran"]) or nonbody_success
             ran_all.extend(t["ran"])
@@ -384,8 +546,51 @@ class Agent:
             more = more or promise_check
             if not more:
                 break
-            if turn >= MAX_TURNS or self._player_spoke():
-                self.log.log("chain_stopped", turns=turn, why="budget" if turn >= MAX_TURNS else "the player spoke")
+            spoke = self._player_spoke()
+            if spoke and continuation is not None and turn < MAX_TURNS:
+                try:
+                    state = self._continuation_check()
+                except ContinuationInvalidated as exc:
+                    self.log.log("continuation_stopped", reason=str(exc))
+                    if not exc.silent:
+                        self.controller.say(f"I couldn't continue the earlier request: {exc}.")
+                    return
+                except ContinuationBudgetDenied as exc:
+                    self.log.log("continuation_stopped", reason="budget", error=repr(exc))
+                    self.controller.say("I couldn't continue the earlier request: my thinking budget is unavailable.")
+                    return
+                if self._chat_waiting():
+                    say_res = {"ok": True, "note": "said"} if line_said else {
+                        "ok": None, "note": "not said: a step failed first; say what's true now" if t["failure"]
+                        else "not said (too close to a line you just said)"}
+                    self._continuation = {**continuation, "decision": d, "results": {**t["results"], "say": say_res},
+                                          "failed": bool(t["failure"]), "note": PROMISE_NOTE if promise_check else None,
+                                          "dispatch_decision": None, "dispatch_turn": turn + 1,
+                                          "ran_all": ran_all, "said": said, "lines": lines, "acted": acted}
+                    self.log.log("continuation_waiting_chat", turns=turn, completed_turn=True)
+                    return
+                spoke = False
+            if turn >= MAX_TURNS or spoke:
+                self.log.log("chain_stopped", turns=turn, why="the player spoke" if spoke else "budget")
+                if (not spoke and turn >= MAX_TURNS and continuation is None and event.text and addressed
+                        and self._directed is None and not self.pending_goal and not self.active_goal
+                        and not d.goal and not d.skill and self.clock() < deadline):
+                    say_res = {"ok": True, "note": "said"} if line_said else {
+                        "ok": None, "note": "not said: a step failed first; say what's true now" if t["failure"]
+                        else "not said (too close to a line you just said)"}
+                    self._continuation = {"event": event, "addressed": addressed, "decision": d,
+                                          "results": {**t["results"], "say": say_res},
+                                          "failed": bool(t["failure"]), "note": PROMISE_NOTE if promise_check else None,
+                                          "deadline": deadline, "identity": self._continuation_identity(state),
+                                          "epoch": self._continuation_epoch}
+                    self.log.log("continuation_queued", turns=turn)
+                    break
+                if not spoke and continuation is not None and not t["failure"]:
+                    self.log.log("continuation_stopped", reason="turn limit")
+                    self.controller.say("I couldn't finish the earlier request within my available time and attention.")
+                elif not spoke and continuation is None and event.text and self._directed is None and self.clock() >= deadline:
+                    self.log.log("continuation_stopped", reason="deadline")
+                    self.controller.say("I couldn't finish the earlier request before time ran out.")
                 if self._directed is not None and turn < MAX_TURNS:
                     self._directed_end = "chat"
                 if t["failure"]:
@@ -400,9 +605,25 @@ class Agent:
                      else "not said (too close to a line you just said)"}
                 d = self.controller.next_turn(d, {**t["results"], "say": say_res}, state, failed=bool(t["failure"]),
                                               note=PROMISE_NOTE if promise_check else None)
+            except ContinuationInvalidated as exc:
+                self.log.log("continuation_stopped", reason=str(exc))
+                if not exc.silent:
+                    self.controller.say(f"I couldn't continue the earlier request: {exc}.")
+                said = True
+                break
+            except ContinuationBudgetDenied as exc:
+                reason = "deadline" if self.clock() >= deadline else "budget"
+                self.log.log("continuation_stopped", reason=reason, error=repr(exc))
+                self.controller.say("I couldn't finish the earlier request before time ran out." if reason == "deadline" else
+                                    "I couldn't continue the earlier request: my thinking budget is unavailable.")
+                said = True
+                break
             except Exception as exc:  # model/provider error: the template still says why
                 self.log.log("next_turn_error", turn=turn, error=repr(exc))
-                if t["failure"]:
+                if continuation is not None:
+                    self.controller.say("I couldn't continue the earlier request because my thinking failed.")
+                    said = True
+                elif t["failure"]:
                     self.controller.report_failure(*t["failure"])
                     said = True
                 break
@@ -433,7 +654,7 @@ class Agent:
         if self.pending_goal:
             self._goal_episode = self.log.episode_id  # the goal's rows stay in the episode that asked for it
 
-    def _run_turn(self, d, state: dict, event: CommandReceived) -> dict:
+    def _run_turn(self, d, state: dict, event: CommandReceived, partial=None) -> dict:
         """Run one model turn's calls in order; stop at the first failure. Every result is kept for the
         model's next turn (a failure also carries the tool's own argument descriptions)."""
         failure = d.refusals[0] if d.refusals else None
@@ -444,9 +665,20 @@ class Agent:
             results[failed_call.id or failed_call.name] = {"ok": False, "reason": failure[1], "data": failure[2],
                                                            "args_help": self.controller.arg_help(failed_call.name)}
         extra: list[str] = []  # facts the body reported that the speech must carry (single voice)
-        spoken, ran = False, []
-        self.broker.learn_names(looks=d.looks)  # body_status then names the things this turn's looks found
-        for call in ([] if failure else d.actions):
+        spoken, ran, start_index = False, [], 0
+        if partial is not None:
+            results, extra, spoken, ran, start_index = (dict(partial["results"]), list(partial["extra"]),
+                                                         partial["spoken"], list(partial["ran"]), partial["index"])
+        else:
+            self.broker.learn_names(looks=d.looks)  # learn once even if the turn is suspended
+        for index, call in enumerate([] if failure else d.actions):
+            if index < start_index:
+                continue
+            if self._continuation_check is not None:
+                state = self._continuation_check()
+                if self._chat_waiting():
+                    return {"deferred": {"index": index, "results": results, "extra": extra,
+                                         "spoken": spoken, "ran": ran}}
             if call.name in ("remember", "forget_skill"):
                 res = self._remember(call.arguments, state, event.player) if call.name == "remember" \
                     else self._forget_skill(call.arguments)
@@ -491,6 +723,11 @@ class Agent:
                 failure, failed_call = (call.name, outcome.reason, outcome.data), call
                 break  # steps run in order and stop at the first that fails (the model hears why)
         if d.skill and failure is None:
+            if self._continuation_check is not None:
+                state = self._continuation_check()
+                if self._chat_waiting():
+                    return {"deferred": {"index": len(d.actions), "results": results, "extra": extra,
+                                         "spoken": spoken, "ran": ran}}
             failure = self._queue_skill(*d.skill, state)
         return {"failure": failure, "failed_call": failed_call, "results": results, "extra": extra,
                 "spoken": spoken, "ran": ran}

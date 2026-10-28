@@ -42,3 +42,11 @@ Command-only implementation: the current single-jump calibration records `measur
 Reader regressions cover separately verified versus legacy heights, a locked perk, and Windstep cooldown/runes/unlock gates. Windstep calibration remains absent and no Windstep measurement was created.
 
 Cold review correction: grounded waiting has a bounded timeout both before the first trial and after a trial with no landing; failure releases the pawn and timer without saving.
+
+## Native calibration verified — 2026-10-28
+
+On deployed528ae99/build26162923/ClaudeDev, developer queue20261028-010539 passed after a fresh dry-ground scan and a real short go_to. Actual calibration site[58.41,1819.78,-30.75] capsule centre, movementmode1/depth0, flat/open guard range0cm; code performs16 floor/16 side/one roof traces and accepts at least12 floor hits, not necessarily16. Nine grounded trials completed: singles179/179/179cm; double pairs295/295 at0.25s,313/313 at0.33s,322/323 at0.40s with observed airborne count1->2. HP100 before/after. Existing calibration saved1.64m single and3.07m double with0.40s delay and per-field verified provenance after the existing0.15m margin. The pre-write envelope directory was empty and preserved at `R/logs/recovery/r10-pre-de212fec/`. No Windstep field was invented.
+
+The first status-based reader check failed because its already-arrived move did not need/build a navigation envelope; it was not a failed calibration or proof of reader rejection. Separate read-only queue20261028-010945 invoked the existing reader and passed: source verified measurements, jump164cm, double307cm, both measured flags true, perk available. Raw native results remain private under R/logs/recovery. This closes positive single/double calibration and reader validation, not Windstep measurement, typed-edge traversal, fall prevention or autonomous navigation success.
+
+Runtime measurement files remain outside Git. Before adding the generated-envelope ignore, searched `git gitignore untracked generated directory` and opened [Git gitignore documentation](https://git-scm.com/docs/gitignore). Decision: reuse a shared data/envelopes/ ignore pattern; no generated measurement, backup or world state is committed.

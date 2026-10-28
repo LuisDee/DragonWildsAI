@@ -44,6 +44,7 @@ class Budget:
         self.chat_grace_s = chat_grace_s
         self._at: float | None = None
         self._spent = 0.0
+        self._successful_read = False  # set only after the first spend read has actually completed
         self._warned_day: str | None = None
         self._out_said: float | None = None
         self._blocked = False
@@ -82,6 +83,7 @@ class Budget:
             self._at = now
             try:
                 self._spent = float(self.spend_fn() or 0.0)
+                self._successful_read = True
             except Exception as exc:  # fail CLOSED: see allows()
                 if self._error_since is None:
                     self._error_since = now
@@ -117,6 +119,10 @@ class Budget:
                       spent_usd=round(spent, 3), cap_usd=self.cap)
         self._blocked = not ok
         return ok
+
+    def has_successful_read(self) -> bool:
+        """Whether this reader has completed a successful read (not whether its cache is fresh)."""
+        return self._successful_read
 
     def out_line(self) -> str:
         return BLIND_LINE if self._why == "blind" else OUT_LINE
