@@ -1,5 +1,27 @@
 # Progress log (append-only)
 
+### Explicit lifecycle candidate: full gate GREEN, isolated (2026-10-28)
+
+Reviewed floor_read logical leases passed56 actual-hub fake checks,5 design tests and full gate1158/1 skipped381.80s (`logs/recovery/cf-b8d23d4b/check-all.log`), source hashes unchanged throughout. It remains disabled/unpublished to R and has no production consumer or support classifier. Logical cleanup/reacquisition preserves the native registration ledger; legacy/foreign/pending/ambiguous state refuses. Reliable external lifecycle invalidation and native attribution limits still apply. Deployedc145862 separately passed actual developer walk/Jump/air/landing/cleanup withHP100 and unchangednavmemory. No original milestone completion claimed.
+
+
+### Current-source native walk and jump (2026-10-28)
+
+On deployedc145862, DEV client10824 executed actual move.go_to, stopped its exact owned movement, and acknowledged cleanup. Walk trialjumpbind_walk_01f1dca16b02 observed28.93cm motion before owned stop. Then ONE developer synthetic same-height150cm jump edge trialjumpbind_jump_01a6b7c544e8 submitted actual Jump, observed airborne movement mode and about179.18cm peak rise, landed and settled. All sampled HP100; endurance0 was recorded, not changed. Both operators TERMINAL, watchdogs stopped, cleanupacktrue, nav_memory.json SHA unchanged, final body/arbiter idle/slotFREE. Position `[58.41,1819.8690782694,-30.754965129417]`. This is a developer-driven flat input-path check, not autonomous compound play, obstacle clearance, spells, ledge prevention or a GOAL score.
+
+Raw operators and queue records are archived at `R/logs/recovery/jump-binding-publication-f59c07e4/native-evidence/`. Only the named completed private registrations were archived and removed from tools/live_checks; logs/state/per-world memory retained. Local runout scan queued a bridge restart while idle; actual movement operator explicitly retained the healthy bridge. No command was in flight during restart, no extra brain/API calls.
+
+
+### Jump ownership published; native confirmation pending
+
+Sourcec145862 is pushed/deployed on newDEV client10824 after51.1s client-only restart. Server7016/Steam3284 retained, runtime source digests matched, all21 backed-up state files unchanged and approved judges untouched. Companion9b93dd8d5b1eed87/body6f10d817633533e5. Fresh local rearward100/150/200cm native floor observations succeeded.4Bread/8CleanWater plus real consumption healed HP1->100 (R26 total18/29), no autonomous survival credit. Supervised movement check awaits corrected runner rereview. Candidate floor lifecycle remains isolated in W:56 actual-hub fake checks/5 design tests, cold review/full gate pending.
+
+
+### Jump ownership published; native confirmation pending
+
+Sourcec145862 is pushed and deployed on newDEV client10824 after a51.1s client-only restart. Server/Steam retained, runtime source digests matched, all21 backed-up state files unchanged and judges untouched. Companion9b93dd8d5b1eed87/body6f10d817633533e5. Fresh local runout observations succeeded;4Bread/8CleanWater plus actual consumption healed HP1->100 (R26 total18/29), no autonomous survival credit. Supervised move/jump check awaits the corrected runner review; floor lifecycle candidate stays isolated in W.
+
+
 ## 2026-10-28: jump ownership checkpoint, publication pending
 
 Frozen movement/arbiter changes bind Jump/StopJumping and caller progress to the exact movement generation, token, controller, pawn and life. Arbiter transitions provide a scoped stop context; cleanup and route-memory callbacks revalidate ownership. A failed native call cannot consume jump progress, and accepted intent remains distinct from observed flight. Arrival success still persists in per-world navigation memory. Independent design/code reviews approved; focused design/move/arbiter tests passed6, and full gate `logs/recovery/cf-a810de39/check-all.log` is TERMINAL GREEN:1158 passed/1 skipped in378.82s. This is not a floor-support guard or a live jump pass.
@@ -9,14 +31,14 @@ Three developer flat walking repetitions on preceding deployed source0a1590d rea
 Root now owns client-off publication and supervised walk/one jump verification; a bounded Terra design worker and independent reviewer work in parallel. No duplicate client or game-model brain. Development allowance32% weekly used; zero new game-model API calls, last UTC-day spend$0.0073/10 across6Haiku/0Sonnet.
 
 
-## 2026-10-25 — Session 1
+## 2026-10-25 â€” Session 1
 
 - Toolchain: Git 2.56.0 and Python 3.12.10 installed via winget (`--source winget`; the msstore source fails with a certificate error on this VM). The session runs elevated (admin: True).
 - Repo initialised at `C:\gameserver` with the CLAUDE.md section 12 layout.
 - Luis approved subagents and parallel work (this overrides CLAUDE.md section 2's single-session rule).
 - Parallel subagents ran for: Track M (brain), UE4SS/chat/bridge research, the Lua bridge body, Phase 4 body research, and the two dump analyses.
 - **Server (Phase 1 build steps done):** SteamCMD (winget) installed build 26161880 into `C:\GameServers\Dragonwilds`.
-  - The server needed the VC++ 2015–2022 runtime; without it, it hangs with no log.
+  - The server needed the VC++ 2015â€“2022 runtime; without it, it hangs with no log.
   - `DedicatedServer.ini` has Luis's OwnerId, world `CompanionDev` and a world password (in `server-secrets.local.txt`, not in git).
   - UDP 7777 and 8888 (beacon) are open. The EOS session is created and advertised.
   - Scripts are in `tools/`.
@@ -27,7 +49,7 @@ Root now owns client-off publication and supervised walk/one jump verification; 
   - Headless dumps are generated by `mod/scripts/dumper.lua` (with `dump.flag`) and copied to `dumps/26161880/` (gitignored).
 - **Bridge:** `mod/scripts/bridge.lua` runs inside the live server. Python `BridgeClient` pinged it 10 times: median 166 ms, max 187 ms (the poll interval is 150 ms). The in-game `!ping` gate is still open: it needs chat hooks and Luis.
 - **Track M:** 38 tests pass (`.\.venv\Scripts\python.exe -m pytest tests -q`), including the Lua bridge tests (Lua 5.4.5). Evals are written but have not been run, so no API spend.
-- Windows Update: active hours 08–02, no auto-reboot while a user is logged on.
+- Windows Update: active hours 08â€“02, no auto-reboot while a user is logged on.
 - **PHASE 1 GATE PASSED (2026-10-25 12:18 UTC):** Luis joined `CompanionDev` from GeForce Now. Server log: `Login request ... Name=luisdeburnaybastos userId: RedpointEOS:...`, then `Join succeeded: luisdeburnaybastos`. GFN can reach a self-hosted server.
   - The `PlayerController:ClientRestart` hook did not fire on join; Dragonwilds' spawn and possession path differs, so hooks will be based on the dump.
 - **PHASE 2 GATE PASSED (12:23 UTC):** the mod logs at start, the dump is generated and searchable, and the item-pickup hooks logged functions with parameters while Luis picked up sticks.
@@ -52,13 +74,13 @@ Root now owns client-off publication and supervised walk/one jump verification; 
 - Nothing is blocked. Remaining work needs Luis in game, plus a decision later on model provider and API key for Phase 6.
 - **PHASE 4 GATE PASSED, as CLAUDE.md words it (12:46 UTC):**
   - `ToggleFollower(DA_Kalphite_Friend)` spawned a Kalphite on Luis's GFN client. It followed for a while, then stalled.
-  - `DominionAICharacter:Confuse(pawn, true)` on a wild Kebbit made it follow and keep up over 30–40 m.
+  - `DominionAICharacter:Confuse(pawn, true)` on a wild Kebbit made it follow and keep up over 30â€“40 m.
   - The follow does not survive a rejoin, so a body reflex (`mod/scripts/companion.lua`, checking every 5 s) re-recruits a Kebbit or deer within 60 m. Luis rejoined and a Kebbit was following him again.
 - **Goal clarified by Luis:** the companion must be a HUMANOID that acts like another player: switch weapons, kill enemies, pick up loot, talk, in real time. A following animal proves the mechanism but is not the body.
   - New task P4.H. Two research agents launched: dump analysis of player-pawn dependencies and factions, and web research on player-like bots in UE.
 - Fixed: `debug_run` now loads modules with `loadfile`. `package.loaded` + `require` did not pick up redeployed files under UE4SS.
 - Written down so nothing is lost: `docs/research/2026-10-25-voice-discord.md` (Discord voice and realtime-voice research) and `docs/research/2026-10-25-humanoid-goal-and-routes.md` (clarified goal, three routes, experiment order). Route 1 experiment module: `mod/scripts/puppet_test.lua`.
-- **Route 1 milestones with Luis (13:00–13:10 UTC):** spawn, possess, walk (done). Dressed in Luis's Zamorak set and skillcape, holding a Skullsplitter (done). Swung at a Kebbit and did damage, the Kebbit fought back, and the puppet stayed immortal (done).
+- **Route 1 milestones with Luis (13:00â€“13:10 UTC):** spawn, possess, walk (done). Dressed in Luis's Zamorak set and skillcape, holding a Skullsplitter (done). Swung at a Kebbit and did damage, the Kebbit fought back, and the puppet stayed immortal (done).
 - The "freezes" turned out to be crashes behind UE4SS's blocking MessageBox. Root causes found from dumps with cdb. The watchdog now auto-restarts the server. See DISCOVERIES "ROOT CAUSES".
 - Design for crash-proofing and the item catalog: `docs/design/robustness-and-item-catalog.md`. An agent is building `mod/scripts/catalog.lua` and `tools/build_catalog.py`.
 - **Model API configured (2026-10-25):** `ANTHROPIC_API_KEY`, `DW_CONTROLLER_MODEL=anthropic/claude-haiku-5-5` and `DW_PLANNER_MODEL=anthropic/claude-sonnet-5-5` are set as **user environment variables** on the VM. They are not in any file and not in git (`git grep sk-ant-` is clean).
@@ -81,7 +103,7 @@ Root now owns client-off publication and supervised walk/one jump verification; 
 - **Catalog:** ran it live, staged, with no crash: `data/items_26161880.json` holds 466 items. It now records swing timing from the montage notifies (`--notifies`), and tools no longer count as "magic" weapons.
 - **Generator:** `tools/gen_attack_data.py` produces `mod/body/attack_data.lua` (81 melee items, 26 sets).
 - **Attack loop rewritten:** `mod/body/combat.lua` is a reactive behaviour tree on vendored beehive.lua (MIT).
-  - It uses the held weapon's chain (Skullsplitter: Club 1→5) and issues each step at that step's input-window end.
+  - It uses the held weapon's chain (Skullsplitter: Club 1â†’5) and issues each step at that step's input-window end.
   - It resets the chain after the finisher or after a long gap, and uses the weapon special between combos when charged.
   - It has `on_tick`/`evade`/`before_swing`/`after_swing` hooks for spells.
   - `skills.lua` keeps the handler contract.
@@ -144,7 +166,7 @@ Root now owns client-off publication and supervised walk/one jump verification; 
   - Buy and create Claude's own Steam account.
   - Gate 3: real axe and chop.
 
-## 2026-10-25 19:15 — R2 wave status
+## 2026-10-25 19:15 â€” R2 wave status
 - Verified live on Shockbyte as the real player Claude:
   - joining, walking and jumping, chat both ways, collecting items, equipping (Luis confirmed visually), death and gravestone recovery (twice);
   - eating and drinking (dehydration killed him twice; the stay-fed reflex fixed it);
@@ -156,12 +178,12 @@ Root now owns client-off publication and supervised walk/one jump verification; 
   - character data is server-side on dedicated servers;
   - the client can hang under memory pressure (needs 16 GB).
 - Running agents: locomotion v2 (local trace planner), bridge (look/inspect/interact and events), combat and arbiter.
-- Roadmap: docs/tasks.json, ids R2.1–R2.25 (append-only). Design docs: real-player-remediation.md, research/2026-10-25-client-side-botting.md, research/2026-10-25-traversal.md.
+- Roadmap: docs/tasks.json, ids R2.1â€“R2.25 (append-only). Design docs: real-player-remediation.md, research/2026-10-25-client-side-botting.md, research/2026-10-25-traversal.md.
 
-## 2026-10-25 ~21:45 local — state snapshot before context compaction
+## 2026-10-25 ~21:45 local â€” state snapshot before context compaction
 **Live now:**
 - Claude's headless client is on Shockbyte as the real player "Claude".
-- The character was re-IDed with Luis's edited stats: total level 1076, Agility/Attack 99. GUID A8642C53…; the old GUID's server copy overrides on rejoin.
+- The character was re-IDed with Luis's edited stats: total level 1076, Agility/Attack 99. GUID A8642C53â€¦; the old GUID's server copy overrides on rejoin.
 - The client watchdog is running.
 - The freeze fix is in: tickguard plus the 30 fps cap.
 - The brain was restarted with the new batch: manifest-driven primitives, event broker, single voice, information-only grounding, activity memory, lookup/knowledge.
@@ -188,18 +210,18 @@ Root now owns client-off publication and supervised walk/one jump verification; 
 - Windstep via wheel slots 9-12 (gamepad path).
 
 **Agents still active (resume via SendMessage):**
-- ad944… capability contract/skills/perception;
-- a1c1aa… locomotion (water cost, low-obstacle jumps, calibration);
-- a0b192… combat (defence round);
-- ae9335… spells (shelter/sleep);
-- aabcc7… traversal learning;
-- aa990d… reviewer (design notes);
-- aae572… crafting, a1a836… broker, aaebdf… knowledge, ae688f… scenarios, af4712… hang: finished.
+- ad944â€¦ capability contract/skills/perception;
+- a1c1aaâ€¦ locomotion (water cost, low-obstacle jumps, calibration);
+- a0b192â€¦ combat (defence round);
+- ae9335â€¦ spells (shelter/sleep);
+- aabcc7â€¦ traversal learning;
+- aa990dâ€¦ reviewer (design notes);
+- aae572â€¦ crafting, a1a836â€¦ broker, aaebdfâ€¦ knowledge, ae688fâ€¦ scenarios, af4712â€¦ hang: finished.
 
 **Binding principles:** docs/design/PRINCIPLES.md; CLAUDE.md section 0. Roadmap: docs/tasks.json (R2.*, S.*). Streamline plan: docs/design/streamline-plan.md. Review: docs/reviews/2026-10-25-north-star-review.md.
 
 
-## 2026-10-25 22:00–22:45 UTC: /goal started (GOAL.md, milestones M1–M6, dev world only)
+## 2026-10-25 22:00â€“22:45 UTC: /goal started (GOAL.md, milestones M1â€“M6, dev world only)
 - **Done:**
   - Claude moved to the DEV world as the dedicated character **ClaudeDev** (`client_io/state/character_name.txt`).
   - `logs/state/client_default_target.txt` = dev; `client_forbid_targets.txt` = shockbyte.
@@ -208,23 +230,23 @@ Root now owns client-off publication and supervised walk/one jump verification; 
   - The judge-guard hook is installed but inactive until Luis tags the judge baseline.
 - **Incident L23:** ClaudeDev was on Shockbyte for about 40 s (main's default-target bug); fixed, with real-boot regression tests.
 - **False patch alarm:** client build 26162923 vs server 26161880 is the same version (Net CL 254097).
-- **Committed:** Director waves 1–3, benchmark v1 + goal_check v2, observability, spend guard, needs/map memory/explore, the spell 'for' field, defence pre-casting (offline).
+- **Committed:** Director waves 1â€“3, benchmark v1 + goal_check v2, observability, spend guard, needs/map memory/explore, the spell 'for' field, defence pre-casting (offline).
 - **Next:**
-  - the eval agent verifies bench_probe → referee → fixtures on dev, then fills the goal cases (for Luis's approval and judge tag);
+  - the eval agent verifies bench_probe â†’ referee â†’ fixtures on dev, then fills the goal cases (for Luis's approval and judge tag);
   - Director wave 4;
   - the broker applies the Director hooks;
   - first T0 benchmark run on dev.
 
 
 ## 2026-10-26 07:08 UTC: first GOAL-loop iteration (M1, T0 smoke on dev)
-- **Measure → fix → re-measure:** 2/6 → 3/6 pass, with 0 measurement errors. Latency p50 4.2 → 2.7 s and worst case 12.8 → 3.5 s.
+- **Measure â†’ fix â†’ re-measure:** 2/6 â†’ 3/6 pass, with 0 measurement errors. Latency p50 4.2 â†’ 2.7 s and worst case 12.8 â†’ 3.5 s.
 - **Fixes that worked:** L25 (settled cast replies), L26 (stable foliage ids), L27 (cold-start warm-up), and the observer timing fix.
 - **Still open:**
   - Axtral: the harness can't see its sub-second projectile, so the referee now polls spell actors; re-running.
   - Phase Dash: honestly unverifiable as a T0 cast; measured in spell-use instead.
   - Eye of Oculus: needs specific evidence data.
   - Latency: p50 is 0.2 s above target.
-- **Process change (Luis):** never idle (GOAL §2b), a 2-hourly cadence check, and standing approvals for agents. A 7 h stall overnight was main's blocking question.
+- **Process change (Luis):** never idle (GOAL Â§2b), a 2-hourly cadence check, and standing approvals for agents. A 7 h stall overnight was main's blocking question.
 
 ## 2026-10-26 Director: /simplify applied + chained steps + live smoke run 1
 - /simplify items 1-16 applied:
@@ -239,7 +261,7 @@ Root now owns client-off publication and supervised walk/one jump verification; 
   - the model judges "stop";
   - autoflush=False with one write per tick;
   - pruned per-task dicts.
-- Chained transitions (≤8 per tick, never during chat): the step-to-step gap is under 1 s at 1/30/300 s ticks (test).
+- Chained transitions (â‰¤8 per tick, never during chat): the step-to-step gap is under 1 s at 1/30/300 s ticks (test).
 - Live smoke run 1 on dev: see DISCOVERIES "Director live smoke, run 1". Research, plan, verified runs, replan and the budget window all work. The job never finished: its done test was unsatisfiable (gained+lost). That is now a repair, and Haiku runs ahead of the step (instruction added).
 - Next: smoke run 2 after the voice fixes ("EMPTY" spoken).
 
@@ -263,7 +285,7 @@ Root now owns client-off publication and supervised walk/one jump verification; 
 - brain/mock/sim_session.py runs one open Brynmoor session in simulated time:
   - game time is the clock; Haiku costs 2 s per call and Sonnet 4 s per request; polling every 0.25 s;
   - log rows use that clock, so tools/obs_tasks metrics work as they do live.
-- The session goes chop → chest → 3 copper trips (60 copper in his chest) → plot → dig+plant → grinder+kiln → wait for the crop → harvest → flour → bread. It ends by choice after 504 s of simulated time.
+- The session goes chop â†’ chest â†’ 3 copper trips (60 copper in his chest) â†’ plot â†’ dig+plant â†’ grinder+kiln â†’ wait for the crop â†’ harvest â†’ flour â†’ bread. It ends by choice after 504 s of simulated time.
 - Biggest waste measured: waiting for the crop re-ran the Controller on every poll (58 runs; 99 Haiku calls in the session).
 - Fix: a `wait` step field chosen by the model.
   - The board re-checks the test each tick with no Controller run.
@@ -291,7 +313,7 @@ Root now owns client-off publication and supervised walk/one jump verification; 
   - The gather args are wrong: the arg is `resource`.
   - Root cause: the Director's tool list had descriptions only, with no argument names.
   - Fixes:
-    - the tool list now shows each tool's args from the manifest (`gather(resource*, count*, …)`);
+    - the tool list now shows each tool's args from the manifest (`gather(resource*, count*, â€¦)`);
     - the Validator checks first_call args against the tool's schema and sends a mismatch back for repair with the reason.
   - The cassette replays as "rejected since".
 - **Preconditions on a fresh dev character**, checked against the real knowledge index (tests/test_director_preconditions.py).
@@ -317,14 +339,14 @@ Root now owns client-off publication and supervised walk/one jump verification; 
   - Both xfails now pass. Sticks stay open until live.
 
 ## 2026-10-26 Director: M6 Vel'gar curriculum (data/curricula/velgar.json)
-- The milestones in docs/design/velgar.md §4 become jobs with done tests, queued with `tools/board.py curriculum`. Inbox add records now carry `success`.
+- The milestones in docs/design/velgar.md Â§4 become jobs with done tests, queued with `tools/board.py curriculum`. Inbox add records now carry `success`.
 - New predicates: `spell`, and `vital` max_at_least / max_gain_at_least.
 - On the mock (tests/test_director_velgar.py) a stand-in planner reads only its research results: craft_plan, compare_gear, the creatures and usable things in sight. With it, 7 of 9 milestones run to done:
   - Challenge Horn, Anti-Dragon Shield, 20 Lesser Antipoison, 20 Berry Drizzle;
   - the PL 4 kit, crafted and worn;
   - 5 Sanguine Urns (+50 max HP);
   - Attack 8.
-- Real Sonnet, 3 requests (Lesser Antipoison): craft_plan research, then Pottery Wheel → Kiln → Brewing Cauldron, with correct first_call args.
+- Real Sonnet, 3 requests (Lesser Antipoison): craft_plan research, then Pottery Wheel â†’ Kiln â†’ Brewing Cauldron, with correct first_call args.
 - Fixes on the way:
   - mock craft_plan no longer "crafts" from traders (knowledge.vendor_station, shared);
   - mock craft_plan avoids cyclic recipes;
@@ -335,20 +357,20 @@ Root now owns client-off publication and supervised walk/one jump verification; 
   - the Dragon Slayer step texts are unknown until live;
   - vault/fight drops (Vault Shards, Opals, Dragon Tooth, Bloodwood Sap) aren't simulated.
 
-## 2026-10-26 — Codex recovery status
+## 2026-10-26 â€” Codex recovery status
 
 - Recovered original goal, transcripts and late live results; pushed recovery snapshot 7921ff5 and history to origin/main. Preserved runtime memory in a private local archive and adopted the existing dev processes.
 - Implemented and focused-tested speech protocol repair, FX reference/token checks, test-fixture/debugger portability fixes, and movement ownership plumbing. Regenerated places from all 31 live region tags. These are infrastructure and correctness improvements; Windstep execution and autonomous task evidence remain pending.
 - Fresh full regression run: `logs/recovery/resume-check-d9d6a5820c534a45b9f0e432b147f876/check-all.log` (result pending at this entry). Earlier corrected baseline was 6 failed / 1045 passed / 1 skipped; focused tests for its failures now pass.
 - Survival diagnostic was ignored by addressed-chat routing because its text omitted `!c `: zero model calls, no gameplay improvement. Correct diagnostic routing before re-measuring. Daily API spend remains governed by the shared $10 UTC-day cap.
-- No fresh M1–M6 success claimed; planner responsiveness, traversal, survival and no-axe proof remain outstanding.
+- No fresh M1â€“M6 success claimed; planner responsiveness, traversal, survival and no-axe proof remain outstanding.
 - Full rerun finished: 1053 passed, 2 failed, 1 skipped. The two failures were WinError 5 during atomic test-state replacement; both passed immediately in isolation. A final full run is needed before GREEN. Created the requested five-hour continuation schedule in this thread.
 
-## 2026-10-27 — Recovery checkpoint verified
+## 2026-10-27 â€” Recovery checkpoint verified
 
 - **CHECK_ALL: GREEN: 1057 passed, 1 skipped**, full suite on the corrected source (387.55 s). Private log: `logs/recovery/state-fixed-check-d1c78face399405685b82f4f7d293bfc/check-all.log`.
 - Reused the shared Windows-safe atomic writer for task-state persistence; regressions prove recovery from temporary denial and preservation/error propagation on permanent denial. Fresh Terra design and code review clear. Confirmed workspace Modify access and full owner access to the failed files, plus 50 successful probe replacements in that directory; no additional elevation required.
-- Approved judge diff is empty. Recovery fixes are ready for a coherent Git checkpoint; live FX/survival and unfinished traversal/planner work remain pending. No M1–M6 completion claim.
+- Approved judge diff is empty. Recovery fixes are ready for a coherent Git checkpoint; live FX/survival and unfinished traversal/planner work remain pending. No M1â€“M6 completion claim.
 - Requested five-hour continuation is ACTIVE in this thread (`resume-dragonwilds-companion`). Current UTC-day game-model spend read $0.00 / $10, zero calls; account five-hour allowance reset, latest reading 3% used.
 
 - Follow-up wave: board-result continuation and bounded Windstep executor implemented with independent reviews and regressions. **CHECK_ALL: GREEN, 1061 passed, 1 skipped** (379.17 s). Specific cast/landing failures remain explicit; live performance and calibration pending. All 40 queued live-check definitions validate; dev target and Shockbyte prohibition confirmed. Main reserved the idle client while testing.
@@ -357,34 +379,34 @@ Root now owns client-off publication and supervised walk/one jump verification; 
 - Fresh capped survival diagnostic: 6 Haiku calls / 0 Sonnet, $0.0050. It fought, gathered food and drank, but **died to a Goblin Runt and did not rest**. Failure retained in the handoff; no goal milestone credited. Investigating escape continuation and defense evidence.
 - New dirty-tree work: calibration integrity/provenance reviewed and targeted-tested; water gain attribution fixed with 60 capability regressions passing and cold review clear; flee continuation under final review. These changes still require a fresh full gate and live remeasurement. No judge changes or memory resets.
 
-## 2026-10-27, 15:13 Berlin — Survival fixes verified offline
+## 2026-10-27, 15:13 Berlin â€” Survival fixes verified offline
 
 - **CHECK_ALL: GREEN, 1067 passed / 1 skipped**, 454.32 s. This includes calibration integrity, actual-source water reporting, bounded escape continuation and true failure activity. Focused suites: 60 skills, 396 combat/arbiter; independent reviews complete. Live remeasurement remains pending.
 - Repaired the final interrupted gate's bare scenario lease replacement and reused the shared writer for client-slot/live-queue state. Six denial-injection regressions and 38 focused operations tests pass; existing data is preserved on permanent denial. Approved judges unchanged.
 - Confirmed the five-hour schedule did start at 13:01, but the app rejected it for account usage until 13:05. Updated scheduled instructions for allowance checks/checkpoint margin; Goal mode is separately paused. No automatic-retry guarantee. Current task resumed on Luis's instruction.
 
-## 2026-10-27, 15:55 Berlin — Live attribution and service adoption
+## 2026-10-27, 15:55 Berlin â€” Live attribution and service adoption
 
 - Water regression passed its second allowed attempt: correctly named Dirty Water, actual source, independent inventory +2; first attempt path-blocked retained. Calibration remains unmeasured after readiness refused uneven/obstructed ground. Memory backed up beforehand; no envelope created.
 - Manual use of existing service APIs refreshed stale callbacks, preserving policy/orders; native reflex then drank carried water and verified hydration 0 -> 19.54. Added the general supervisor adoption correction with pending failure/backoff and idempotent existing-loop reuse.
 - **CHECK_ALL: GREEN, 1067 passed / 1 skipped**, 386.40 s; focused bridge tests 11 passed. Automatic native adoption and a short M1 pilot are next. No two-hour exposure/stability or overall-goal completion claim.
 
-## 2026-10-27, 16:16 Berlin — Native adoption and short M1 pilot
+## 2026-10-27, 16:16 Berlin â€” Native adoption and short M1 pilot
 
 - 7c6a2e2 is pushed; automatic native adoption now verified with all six services current and no duplicate fed/guard loop. Global policy/orders preserved. Full gate remains 1067 passed / 1 skipped.
 - Five-minute A1 pilot completed; chat/health proof passed. Actual water collection, hydration increase, berry gathering and eating observed. Three scheduled chats plus proof; latest A1 p50 9.0 s / p90 9.92 s, n=4, so latency targets remain unmet. Exposure 0.102 h is insufficient for M1 stability. Top-level report also includes old phases; preserve that distinction.
 - Found command/reflex consume input overlap; R14 is open. Reviewed generic transaction design precedes implementation. Stale grave targets, failed interaction and interrupted actions also remain in evidence.
 - Pilot used 29 Controller, 3 Director and 1 warmup request; $0.096 incremental, UTC-day total $0.101 / $10 (39 priced calls). Runner brain stopped, reservation released, native client idle in dev. No game/client/Steam restart and no world memory reset. Low RAM was observed; single-heavy-workload rule retained.
 
-- Fresh bounded pilot window (15:03:41–15:10:40 UTC): 0.111 active hours, 21 world-changing calls, zero measured crashes/deaths/stalls. Companion bridge and fed/guard loops then stopped through normal cached APIs at an idle boundary to prevent automatic adoption of incomplete source edits. Game/server remain running; policy/orders retained. Explicit offline gate and controlled rearm required.
+- Fresh bounded pilot window (15:03:41â€“15:10:40 UTC): 0.111 active hours, 21 world-changing calls, zero measured crashes/deaths/stalls. Companion bridge and fed/guard loops then stopped through normal cached APIs at an idle boundary to prevent automatic adoption of incomplete source edits. Game/server remain running; policy/orders retained. Explicit offline gate and controlled rearm required.
 
-## 2026-10-27, 16:25 Berlin — Unfinished candidate saved before allowance exhaustion
+## 2026-10-27, 16:25 Berlin â€” Unfinished candidate saved before allowance exhaustion
 
 - Account 95% five-hour used, 46% weekly; reset 19:59 Berlin. Delegation stopped. Tested main evidence checkpoint 139d2a0 pushed; unfinished consumable candidate stays in working tree with private patch backup, not presented as tested or pushed source.
 - Initial targeted green candidate failed cold review on transaction expiry/duplicate input, unknown readings, stale reflex baselines and insufficient real integration coverage. Partial revisions remain unvalidated. Recovery handoff lists exact next steps.
-- Companion services stopped and dev client held through existing stop_client.ps1 -Hold while offline code is incomplete; Steam/dev server retained. This is an agent operational hold, not a human pause. Resume offline checks first, then announce/release/relaunch dev client only after approval by tests/review. M1–M6 remain unmet.
+- Companion services stopped and dev client held through existing stop_client.ps1 -Hold while offline code is incomplete; Steam/dev server retained. This is an agent operational hold, not a human pause. Resume offline checks first, then announce/release/relaunch dev client only after approval by tests/review. M1â€“M6 remain unmet.
 
-## 2026-10-27 evening — Consumable ownership integration
+## 2026-10-27 evening â€” Consumable ownership integration
 
 - Goal is active and account allowance permits work again. One bounded fresh Terra finished the coupled inventory/skills/combat lifecycle; a separate reviewer approved the revised candidate after pause, owner-loss and unreadable-inventory findings were fixed. No live result yet.
 - Shared transaction binds owner and item, accepts one input, preserves an interrupted press through its existing verification window, and does not expire an uninterrupted live waiter. Command, fed-reflex and combat uses share it; raw consumable use/equip cannot bypass it. Unknown readings are unverified, not fabricated success or bad-item strikes.
@@ -392,73 +414,73 @@ Root now owns client-off publication and supervised walk/one jump verification; 
 - First full gate: 1066 passed / 1 failed / 1 skipped, 386.88 s. Only failure was the design note's missing exact Search record heading; actual searches/sources were present. Heading corrected and all five design-note tests pass; full rerun in progress. Record its actual result before deployment.
 - Fresh memory backup before planned live work: logs/recovery/memory-before-consume-live-20261027T185613Z.zip (13 files, 45214 bytes). Dev client remains held; Steam and dedicated ClaudeDev configuration verified. API spend unchanged at $0.101 UTC-day, with no API calls during offline work.
 - Full rerun **CHECK_ALL: GREEN, 1067 passed / 1 skipped**, 366.77 s. Log: logs/recovery/consumable-full-fixed-7862886332dc4ac2b4ed55906acf70d9/check-all.log. Frozen judge diff empty. Native deployment and remeasurement are next; no survival or M1 completion claimed.
-- Pushed 62e7f81; client relaunched first attempt on dev, Steam retained. Native queue 20261027-201444: water collection first-attempt pass; food first deferred busy/pending verification, then configured retry verified Bread use (sustenance 33 -> 63, count fell, gameplay input). Transaction afterward idle, no action/waiters, background services running. This verifies directed mechanics; autonomous self-care/no-axe and M1–M6 remain pending. Existing test setup restored health from 1 to 100; that is harness preparation, not autonomous healing.
+- Pushed 62e7f81; client relaunched first attempt on dev, Steam retained. Native queue 20261027-201444: water collection first-attempt pass; food first deferred busy/pending verification, then configured retry verified Bread use (sustenance 33 -> 63, count fell, gameplay input). Transaction afterward idle, no action/waiters, background services running. This verifies directed mechanics; autonomous self-care/no-axe and M1â€“M6 remain pending. Existing test setup restored health from 1 to 100; that is harness preparation, not autonomous healing.
 
-## 2026-10-27 evening — Autonomous measurement and false goal completion
+## 2026-10-27 evening â€” Autonomous measurement and false goal completion
 
 - Self-care: 6 Haiku / 0 Sonnet, 48.3s, $0.0042. Own-grave retrieval, eating and drinking increased food35.7->62.4 and water9.8->37; health100 maintained. One consume verification failed then recovered. Endurance0 and no rest action: full task not proved; no new grants during run.
 - No-axe task87658e1c FAILED independent audit despite board done: one tool-free stick pickup satisfied the model-chosen AshLogs+1 predicate; zero swings/hits/breaks, no axe/craft/bench, WCXP206 unchanged. Log brain-live-20261027-203109-8512.jsonl; before/after probes preserved. Runtime planner success was too weak; frozen benchmark judges are unchanged.
 - Run including old/background jobs used31 Controller /18 Director /1 warmup. UTC-day total $0.4827,95 calls. Owned brain stopped and remaining body action cleared through normal main-channel stop. Client now down/held for next body work; server/Steam/memory retained, freeRAM~3.3GB.
 - Primary-source gathering-operation design conditionally approved. PhaseA contract/guidance implementation underway; root-count rewrite deferred pending actual native signals. No no-axe, M1 or broader completion claimed.
 
-## 2026-10-27, 21:23 Berlin — Gather contract gated; live throughput priority
+## 2026-10-27, 21:23 Berlin â€” Gather contract gated; live throughput priority
 
 - Reviewed Phase A passed CHECK_ALL: GREEN, 1069 passed /1 skipped in366.57s; frozen judge diff empty. Optional gather mode survives typed validation and learned skills, fallback remains available, profile/expected-training labels no longer imply actual operation provenance. No live improvement or no-axe completion yet.
 - Stable runtime plus isolated candidate development is the agreed next operating arrangement. One live operator keeps relevant cases moving; client-off publication/resource windows remain bounded. Server never stopped; client relaunch follows this checkpoint.
 
-## 2026-10-27, 21:32 Berlin — Concurrent stable runtime and candidate work
+## 2026-10-27, 21:32 Berlin â€” Concurrent stable runtime and candidate work
 
 - Client relaunched dev and remained available while code was edited in a managed isolated candidate. The real no-axe run immediately found a transport-signature gap missed by schema-only tests; model selected chop, bridge rejected mode. No game action/felling/XP gain occurred. Stopped promptly and preserved task. New adapter regression covers actual Executor to Lua transport.31focused tests pass; full/live fix verification next.
 - Native FX enchant queue passed22.3s, zero API calls; setup sword/runes/unlock grants are not autonomous evidence. Noaxe remainsunproved. UTC spend.6067/10,115 calls.
 
-## 2026-10-27, 21:49 Berlin — Adapter and isolated candidate verification
+## 2026-10-27, 21:49 Berlin â€” Adapter and isolated candidate verification
 
 - Candidate fullgate GREEN1070passed/5skipped,367.17s. Four dump-signature skips repaired by provisioning the exact private header inputs; four tests then passed. Existing incomplete cassette remains the single intentional skip. New transport regression covers explicit, omitted and null mode through real Executor/JSONL/Lua.
 - Separate candidate supports targeted tests while stable dev client stays online. Initial full RED69/1000/6 exposed ignored dependency, path-length and raw manifest EOL portability issues; setup corrected without changing criteria or repinning. Source fix now ready for Python-only deployment and live tree rerun; no noaxe/M1-M6 success.
 - Live directed FX held enchant and dirtywater tests passed,0modelcalls. Brain-off exposure showed hp1/nofood; not autonomous maintenance. API total remains.6067/10,115calls.
 
-## 2026-10-27, 22:15 Berlin — No-axe pilot and next coherent batch
+## 2026-10-27, 22:15 Berlin â€” No-axe pilot and next coherent batch
 
 - Published/pusheda12412a withverifiedunchangedbodybytes; nativegatherfood/water andconsume worked, but noaxe proofFAILED. NewWoodcuttingXPconditiondidnotacceptgrave-lootedlogs. ActualKillZdeathoverlappedfalse2Darrival; preserveworld/graves andreportedfailure. $0.133run,UTCtotal.7397/10,145calls.
 - Reviewedqueue,3D/life-arrival andcatalog-categorydiscoverycandidates areisolated; fullgatehasNOTstarted. Batchthem afterfinalnavreviewbeforeonecoherentgate+briefbodyrestart. No M1-M6 completion. Nativecalibrationrefusednonflat55cmspot, nojumps/envelopechange; positivecalibrationstillpending.
 
-## 2026-10-27, 22:25 Berlin — Combined outcome/discovery/queue gate
+## 2026-10-27, 22:25 Berlin â€” Combined outcome/discovery/queue gate
 
 - CHECK_ALL: GREEN1096passed/1skipped,371.46s; approvedjudgediffempty. Queue samePIDreadiness, immediate-onlybusyrefusal, truthfulheight/lifearrival andcatalogcategorycandidates independentlyreviewed andintegrated90focusedchecks beforefull.
 - Devclientrestartannounced forbodypublication; stableclientwasonline throughoutdevelopment/tests. ServerandSteamremainadopted. Backups/affectedpathmanifest and44memoryfiles savedprivately. Nativecurrent-codeverificationstillnext; no axe/bench/felling, no fallprevention/M1-M6 claim.
 
-## 2026-10-27 — 23:10 Berlin: live-throughput and process diagnosis
+## 2026-10-27 â€” 23:10 Berlin: live-throughput and process diagnosis
 
-- Confirmed one ChatGPT app root with renderer/service children, one dev client/server, no active game brain or leftover test runner. Retained development agents completed. Both game processes normal priority8; app summed working sets about1.6GiB, host8GiB with576–1178MiB available during diagnosis. No confirmed orphan killed and no working-set trimming.
+- Confirmed one ChatGPT app root with renderer/service children, one dev client/server, no active game brain or leftover test runner. Retained development agents completed. Both game processes normal priority8; app summed working sets about1.6GiB, host8GiB with576â€“1178MiB available during diagnosis. No confirmed orphan killed and no working-set trimming.
 - Live operator used queue20261027-230505 for read-only FPS/floor checks:2s active,20s readiness blocked,0 model calls/grants, slot released. Configured client limit30FPS; actual rate unmeasured. Positive jump calibration blocked by HP1/food0/endurance0.5 and unverified route, not by an offline gate.
 - Found scheduling gap: pending queue consisted of4 blocked cases; no DragonwildsLiveQueue task in scheduled-task inventory. Keep a single operator selecting relevant ready cases and recording idle reasons. Do not claim a live/offline ratio from spot checks or auto-run legacy fixtures into the autonomous task.
-- Saved previously completed cde construction evidence and new R22 mixed plan/help failure in recovery/BUGS/DISCOVERIES. Unlock-information candidate remains uncommitted and unpublished, no new full gate; next implementation is generic Director decision-contract repair, then integrated gate/publication/live resumption. Goal remains active, no axe/felling/M1–M6 completion.
+- Saved previously completed cde construction evidence and new R22 mixed plan/help failure in recovery/BUGS/DISCOVERIES. Unlock-information candidate remains uncommitted and unpublished, no new full gate; next implementation is generic Director decision-contract repair, then integrated gate/publication/live resumption. Goal remains active, no axe/felling/M1â€“M6 completion.
 
-## 2026-10-27 — Parallel implementation and developer-driven validation
+## 2026-10-27 â€” Parallel implementation and developer-driven validation
 
 - Luis approved offline checks -> developer-driven real-client validation -> unassisted Haiku. Recorded in AGENTS; sessions explicitly retain driver/setup provenance.
 - Root directly used the table, crafted/equipped a Stone Logging Axe and felled a real tree on deployed cde. Native item/material/Artisan and Woodcutting changes verified; no model API calls. Assisted tree trial parked with backup rather than falsely counted unaided.
 - Two bounded Terra implementation streams ran in an isolated interaction worktree while the primary candidate was frozen: UI interaction ownership/verification and precise rest perception. Independent reviews approved both. A separate recipe-card regression correction preserved unchanged real-data quantity checks and bounded context.139 integrated focused checks passed.
 - First gate62459 ended RED1/1116/1skip due verbose unlock fields displacing the ore recipe. It was corrected with atomic detail fields/schema11,18 knowledge and5 design checks passing. Current integrated gate62885 is RUNNING in logs/recovery/cf-aa9ea208/check-all.log; no Green/deployment claim yet.
 - Developer-native Summon Shelter and daytime-rest controls verified shelter effects and endurance33->54 over20s with sleeping/timeframefalse. Declared health/nutrition/time fixtures, no endurance manipulation. Exit returned got_up/Gameplay. R24 false path_blocked while already resting is separately recorded and not repaired in this candidate.
-- Current runtime remains cde, no brain or live tester. Last API spend0.9880/10 with197 priced calls; subsequent direct diagnostics0 model calls. Both original pilot tasks parked as assisted. Full fresh no-axe chain and M1–M6 remain unmet.
+- Current runtime remains cde, no brain or live tester. Last API spend0.9880/10 with197 priced calls; subsequent direct diagnostics0 model calls. Both original pilot tasks parked as assisted. Full fresh no-axe chain and M1â€“M6 remain unmet.
 
 - Integrated gate62885 completed GREEN1126 passed/1 skipped in378.54s. Fresh UTC spend scan confirmed0.9880/10,197 calls,0 unpriced. Source frozen; main announced client-only publication restart, with server/Steam/world memory retained. Native candidate remeasurement follows deployment.
 
-## 2026-10-28 — Deployed528ae99 and completed validation cycle
+## 2026-10-28 â€” Deployed528ae99 and completed validation cycle
 
 - Source checkpoint528ae99 pushed/deployed afterGREEN1126/1skip; all24 affected bytes verified, world memory/SQLite backup preserved, server/Steam retained through client-only restart. New ClaudeDev client11752. Native developer tests now pass both crafting and processing menus: correct owner, one press, screen_opened, clean Gameplay.
 - First2-call Haiku pilot exposed an unpumped diagnostic queue. Private corrected harness passed5 offline regressions and independent review; it then executed model-selected work in the real client.
 - Corrected pilot10Haiku0Sonnet collected3 berries; reflex consumption contributed to health/food/water gains. Water failed too_far and artificial planner cap0 prevented repair; no complete survival, rest or fresh-goal proof. Both pilots terminal, body idle, slot released; final UTC spend1.0021/10,209 priced/0 unpriced.
-- R24 design ready/approved contingent on verified getter ABI/read-only contract; no body implementation yet. Original no-axe chain, positive calibration and full M1–M6 remain active/unmet. Next failure-recovery pilot must use appropriate planner allowance and disclose assisted starting state.
+- R24 design ready/approved contingent on verified getter ABI/read-only contract; no body implementation yet. Original no-axe chain, positive calibration and full M1â€“M6 remain active/unmet. Next failure-recovery pilot must use appropriate planner allowance and disclose assisted starting state.
 
-## 2026-10-28 — Compound-request diagnosis and parallel follow-up
+## 2026-10-28 â€” Compound-request diagnosis and parallel follow-up
 
 - Prepared/reviewed private planner4 diagnostic, retaining 20 Haiku controller / four total Sonnet planner caps and unchanged production/judges; seven focused harness tests passed. The live run ended naturally in188.4s, five Haiku/zero Sonnet calls, +$0.0039. Native food0->49.3 and health1->12; water stayed0, endurance60.9->58.5, no sleep. No fixtures/hints/restart in this run; prior assisted-world provenance remains.
 - Trace proves the direct chat chain hit MAX_TURNS=4 (initial action plus four continuation turns) after gather/consume, without model completion or pending goal. A later continuous agent might react to other events; that was not measured by this finite harness. Generic deferred-continuation design was independently reviewed/narrowed; isolated W implementation and targeted tests are in progress, not deployed.
 - Root developer water check on unchanged528ae99 collected one Dirty Water through real bank approach/interact and native inventory+1. Body reflex_use ts1793145368 consumed it; subsequent boiling correctly reported missing_materials with0 Dirty Water. This is capability/reflex evidence, not an autonomous compound pass. A separate collect-six/boil-one developer check is running as live-queue exec17686; adopt its actual handle/process rather than duplicate it.
 - R24 protected pointer observation establishes a zero wrapper address with stable pawn/component in Gameplay. CDB raw comparison was denied with Windows error5; no memory inspection/patch/restart. Prerequisite parked, no R24 implementation. Native world memory retained.
-- UTC2026-10-27 ended at last measured$1.0060/10,214 priced/0 unpriced. UTC rolled to28 during zero-API native work; read the new day before further model calls. Development account ordinary usage allowed at18% weekly used. Goal remains active, original full unaided no-axe chain and M1–M6 unmet.
+- UTC2026-10-27 ended at last measured$1.0060/10,214 priced/0 unpriced. UTC rolled to28 during zero-API native work; read the new day before further model calls. Development account ordinary usage allowed at18% weekly used. Goal remains active, original full unaided no-axe chain and M1â€“M6 unmet.
 
 - Developer collect-six/boil-one queue010040 passed primitive chain39.7s:6Dirty Water collected; real Campfire used1Dirty Water +1carriedAsh fuel and yielded1Clean Water; Cooking107->108. Main reflex_use1793145682 drank Clean Water; later native hydration38.1. No fixtures/API calls; pre-existing campfire/earlier assisted world disclosed.
 - R10 positive calibration queue010539 passed39.1s: three179cm singles, validated double pairs295/295,313/313,322/323cm at0.25/0.33/0.40s. HP100 before/after. Saved verified single1.64m/double3.07m/delay0.40s with safety margin, prior empty-envelope directory backed up. Reader queue010945 independently confirms both measured fields. Original status-only reader attempt failed because an already-arrived move had no computed envelope; evidence retained. No Windstep/obstacle-traversal/fall-prevention claim. Raw envelopes now explicitly ignored per existing preservation policy.

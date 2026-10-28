@@ -1,5 +1,22 @@
 # Discoveries
 
+### Explicit lifecycle candidate: full gate GREEN, isolated (2026-10-28)
+
+Reviewed floor_read logical leases passed56 actual-hub fake checks,5 design tests and full gate1158/1 skipped381.80s (`logs/recovery/cf-b8d23d4b/check-all.log`), source hashes unchanged throughout. It remains disabled/unpublished to R and has no production consumer or support classifier. Logical cleanup/reacquisition preserves the native registration ledger; legacy/foreign/pending/ambiguous state refuses. Reliable external lifecycle invalidation and native attribution limits still apply. Deployedc145862 separately passed actual developer walk/Jump/air/landing/cleanup withHP100 and unchangednavmemory. No original milestone completion claimed.
+
+
+### Current-source native walk and jump (2026-10-28)
+
+On deployedc145862, DEV client10824 executed actual move.go_to, stopped its exact owned movement, and acknowledged cleanup. Walk trialjumpbind_walk_01f1dca16b02 observed28.93cm motion before owned stop. Then ONE developer synthetic same-height150cm jump edge trialjumpbind_jump_01a6b7c544e8 submitted actual Jump, observed airborne movement mode and about179.18cm peak rise, landed and settled. All sampled HP100; endurance0 was recorded, not changed. Both operators TERMINAL, watchdogs stopped, cleanupacktrue, nav_memory.json SHA unchanged, final body/arbiter idle/slotFREE. Position `[58.41,1819.8690782694,-30.754965129417]`. This is a developer-driven flat input-path check, not autonomous compound play, obstacle clearance, spells, ledge prevention or a GOAL score.
+
+Raw operators and queue records are archived at `R/logs/recovery/jump-binding-publication-f59c07e4/native-evidence/`. Only the named completed private registrations were archived and removed from tools/live_checks; logs/state/per-world memory retained. Local runout scan queued a bridge restart while idle; actual movement operator explicitly retained the healthy bridge. No command was in flight during restart, no extra brain/API calls.
+
+
+### Fresh process runout after source publication (2026-10-28)
+
+NewDEV client10824 on sourcec145862 rejoinedClaudeDev at `[58.41,1820.934,-30.755]` (network-quantized). Typed current-floor callback and rearward capsule samples100/150/200cm away were blocking/walkable/non-line/nonpenetrating with normalZ1 and floor distance about2.14844cm. Exact diagnostic subscriber cleanup succeeded. This is local geometry evidence, not general coverage or a support-guard pass. Raw `R/logs/recovery/r26_jump_runout_20261028-result-full.json`.
+
+
 ## 2026-10-28: repeated flat walking release and ownership evidence
 
 On DEV client11752 and deployed source0a1590d, three12-input developer flat walking trials reached450cm/s. Horizontal drift after owned input release was7.5254347176,6.9538611515 and7.3935943663cm, with observed stable rest and HP100. Actual callback cadence was about33ms. Sparse capsule observations showed walkable nonpenetrating flat support locally; they do not establish a general sprint/drop/streaming stopping margin. R/logs/recovery/r26-flat-{a,b,c}-operator-result-20261028.json retains raw status and cleanup evidence. The calibration character was harness-positioned and supplied; none is autonomous task evidence.

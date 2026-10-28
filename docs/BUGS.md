@@ -1,5 +1,20 @@
 # Live bug ledger
 
+### Floor-reader logical cleanup was terminal (2026-10-28)
+
+Original standalone reader's closed marker prevented same-process reacquisition. Reviewed isolated fix separates exact logical leases from a versioned native registration ledger, permits the same factory on the same healthy record, and refuses legacy/foreign/ambiguous state.56 actual-hub checks and full gate1158/1 skipped GREEN; runtime enable/rejoin invalidation remain unverified and unpublished. No native hook unregister or forced marker clearing.
+
+
+### Jump ownership: live flat-path confirmation (2026-10-28)
+
+Sourcec145862 passed developer native movement/owned stop and ONE actual Jump/air/landing/settled check on DEV10824, HP100 and nav SHA unchanged. Exact cleanup acknowledged, final arbiter/body idle and slotfree. Supersession/error branches remain offline regressions; neither ledge prevention nor autonomous route selection is proven. Private runner corrections passed actual queue/two-take and cold rereview before live use.
+
+
+### Private runner defects caught before native input (2026-10-28)
+
+Queue renews its own slot after acquisition; a free-only wrapper rejected that renewal. Its bridge-start delegate would restart an already healthy bridge. Independent review caught both before helper input. Private corrections now test the actual Runner/two-take flow and skip bridge restart after verified readiness; rereview pending. Sourcec145862 jump binding is published, native confirmation pending.
+
+
 ## Jump cleanup could affect a successor movement (2026-10-28)
 
 Old jump calls could advance one-shot progress after a failed or superseded native call; second jumps lacked a verified airborne binding. Stop cleanup could run after callbacks transferred ownership, and a reentrant route-memory flush could clear a successor trip. Frozen fix captures and revalidates the old movement binding, introduces an exact scoped arbiter stop context, and performs owned native cleanup before completion callbacks. Actual-module regressions include failed calls, pause, transition/reentry, successor preservation and persisted successful arrival. Full gate1158/1 skipped GREEN; live verification and publication pending. No floor-support prevention claim.

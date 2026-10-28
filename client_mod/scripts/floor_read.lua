@@ -59,40 +59,60 @@ local function factory(hub, type_of)
         else out.hit = {known = false} end
         return out
     end
+    -- The caller must permanently invalidate its predicate after any unverified
+    -- world/pawn/operation boundary; pause alone is not a lifecycle epoch.
     local function live(s)
         if rawget(_G,"DW_PAUSE") == true then return false end
         local ok, v = pcall(s.lifecycle)
         return ok and v == true and rawget(_G,"DW_PAUSE") ~= true
     end
     local function registry(s)
-        return rawget(_G,"DWHookHub") == s.hubstate and s.hubstate.paths[PATH] == s.record and
-            s.record and s.record.native == true and not s.record.pending and not s.record.error and not s.record.last_error and
-            s.record.subs[KEY] == s.callback
+        return type(s.hubstate) == "table" and type(s.hubstate.paths) == "table" and rawget(_G,"DWFloorReader") == s and rawget(_G,"DWHookHub") == s.hubstate and
+            s.hubstate.paths[PATH] == s.record and s.record and s.record.native == true and
+            not s.record.pending and not s.record.error and not s.record.last_error and
+            type(s.record.subs) == "table" and s.record.subs[KEY] == s.callback
     end
-    local function init(opt)
-        if type(opt) ~= "table" or opt.enabled ~= true or type(opt.lifecycle) ~= "function" then return nil, "not_enabled_or_lifecycle_missing" end
+    local function acquire(opt)
+        if type(opt) ~= "table" or opt.enabled ~= true or opt.continuity_verified ~= true or type(opt.lifecycle) ~= "function" then
+            return nil, "not_enabled_or_lifecycle_missing"
+        end
         if rawget(_G,"DW_PAUSE") == true then return nil, "paused" end
         local s = rawget(_G,"DWFloorReader")
+        local rec, h
         if s then
-            if s.status ~= "ready" or s.hub ~= hub or s.owner ~= owner or not registry(s) then return nil, "registration_unavailable" end
-            return s
+            if type(s) ~= "table" or s.version ~= 2 or s.owner ~= owner or s.hub ~= hub or s.status ~= "closed" or s.query then
+                return nil, "registration_unavailable"
+            end
+            h, rec = s.hubstate, s.record
+            if type(h) ~= "table" or type(h.paths) ~= "table" or rawget(_G,"DWHookHub") ~= h or h.paths[PATH] ~= rec or not rec or rec.native ~= true or
+                rec.pending or rec.error or rec.last_error or type(rec.subs) ~= "table" or rec.subs[KEY] ~= nil then
+                return nil, "hub_ambiguous"
+            end
+            s.status = "acquiring"
+        else
+            s = {version=2, status="attempted", hub=hub, owner=owner}
+            _G.DWFloorReader = s -- durable before any attempt or reentrant lifecycle predicate
+            h = hub._state(); rec = type(h) == "table" and type(h.paths) == "table" and h.paths[PATH] or nil
+            if type(h) ~= "table" or type(h.paths) ~= "table" or rawget(_G,"DWHookHub") ~= h or (rec and (type(rec.subs) ~= "table" or rec.subs[KEY] ~= nil or rec.pending or rec.error or rec.last_error or rec.native ~= true)) then
+                return nil, "hub_ambiguous"
+            end
+            s.hubstate = h
+            s.status = "acquiring"
         end
-        s = {status="attempted", hub=hub, owner=owner, lifecycle=opt.lifecycle}
-        _G.DWFloorReader = s
-        if not live(s) then return nil, "lifecycle_unknown" end
-        local h = hub._state(); local rec = h and h.paths and h.paths[PATH]
-        if rawget(_G,"DWHookHub") ~= h or (rec and (type(rec.subs) ~= "table" or rec.subs[KEY] ~= nil or rec.pending or rec.error or rec.last_error)) then return nil, "hub_ambiguous" end
-        -- Existing unregistered records are ambiguous; never cause a second native registration.
-        if rec and rec.native ~= true then return nil, "hub_ambiguous" end
-        s.hubstate = h
-        s.callback = function(ctx, loc, result)
+        local lease = {}
+        s.lease, s.lifecycle = lease, opt.lifecycle
+        if not live(s) or rawget(_G,"DWFloorReader") ~= s or s.status ~= "acquiring" or s.lease ~= lease then
+            s.status = "failed"; return nil, "lifecycle_unknown"
+        end
+        local callback
+        callback = function(ctx, loc, result)
             local q = s.query
             if not q or not q.active then return end
             q.count = q.count + 1
             if q.busy or q.count ~= 1 then q.invalid = "callback_cardinality"; return end
             q.busy = true
             local ok, err = pcall(function()
-                if not live(s) or not registry(s) or s.query ~= q then error("ownership_changed") end
+                if s.status ~= "ready" or s.lease ~= lease or not registry(s) or not live(s) or not registry(s) or s.query ~= q or q.lease ~= lease then error("ownership_changed") end
                 local object = wrapped(ctx,"RemoteUnrealParam")
                 local location = wrapped(loc,"LocalUnrealParam")
                 local output = wrapped(result,"LocalUnrealParam")
@@ -103,54 +123,78 @@ local function factory(hub, type_of)
             q.busy = false
             if not ok then q.invalid = tostring(err) end
         end
-        -- No native calls or yields between this identity check and on().
-        if rawget(_G,"DW_PAUSE") == true or rawget(_G,"DWHookHub") ~= h or h.paths[PATH] ~= rec or (rec and rec.subs[KEY] ~= nil) then return nil, "hub_changed" end
-        local ok, registered = pcall(hub.on, PATH, KEY, s.callback)
+        s.callback = callback
+        -- No native call or yield between the final exact record check and on.
+        if rawget(_G,"DW_PAUSE") == true or rawget(_G,"DWFloorReader") ~= s or s.status ~= "acquiring" or s.lease ~= lease or
+            rawget(_G,"DWHookHub") ~= h or h.paths[PATH] ~= rec or (rec and (rec.native ~= true or rec.pending or rec.error or rec.last_error or type(rec.subs) ~= "table" or rec.subs[KEY] ~= nil)) then
+            s.status = "failed"; return nil, "hub_changed"
+        end
+        local ok, registered = pcall(hub.on, PATH, KEY, callback)
         local installed = h.paths[PATH]
         s.record = installed
-        if not ok or not registered or not registry(s) then
-            if rawget(_G,"DWHookHub") == h and h.paths[PATH] == installed and installed and installed.subs and installed.subs[KEY] == s.callback then
-                hub.off(PATH,KEY)
-            end
+        if not ok or not registered or s.status ~= "acquiring" or s.lease ~= lease or not registry(s) or
+            not live(s) or s.status ~= "acquiring" or s.lease ~= lease or not registry(s) then
+            if rawget(_G,"DW_PAUSE") ~= true and rawget(_G,"DWHookHub") == h and h.paths[PATH] == installed and
+                installed and installed.subs and installed.subs[KEY] == callback then hub.off(PATH,KEY) end
+            s.status = "failed"
             return nil, "registration_failed_or_ambiguous"
         end
         s.status = "ready"
-        return s
+        return lease
     end
     local function query(opt, component, location, remaining)
         if not finite(remaining) or remaining < 1 then return {status="unknown", reason="budget", consumed=0} end
         local loc = vector(location)
         if not loc then return {status="unknown", reason="location", consumed=0} end
-        local s, why = init(opt)
-        if not s then return {status="unknown",reason=why,consumed=0} end
-        -- Each caller's lifecycle must be checked, including after module reload.
+        local s = rawget(_G,"DWFloorReader")
+        local lease = type(opt) == "table" and opt.lease or nil
+        if type(s) ~= "table" or s.version ~= 2 or s.owner ~= owner or s.hub ~= hub or s.status ~= "ready" or not lease or s.lease ~= lease then
+            return {status="unknown",reason="lease_unavailable",consumed=0}
+        end
         if s.query then return {status="unknown",reason="busy_or_lifecycle",consumed=0} end
-        s.lifecycle = opt.lifecycle
-        if not live(s) or not registry(s) then return {status="unknown",reason="busy_or_lifecycle",consumed=0} end
+        if not registry(s) then return {status="unknown",reason="busy_or_lifecycle",consumed=0} end
+        if not live(s) then if s.status == "ready" and s.lease == lease then s.status="closing" end; return {status="unknown",reason="busy_or_lifecycle",consumed=0} end
+        if s.status ~= "ready" or s.lease ~= lease or not registry(s) then return {status="unknown",reason="busy_or_lifecycle",consumed=0} end
         local id = address(component)
-        if not id or not live(s) or not registry(s) then return {status="unknown",reason="component_or_lifecycle",consumed=0} end
-        local q = {active=true, count=0, component=id, location=loc}
+        if s.status ~= "ready" or s.lease ~= lease or not registry(s) then return {status="unknown",reason="component_or_lifecycle",consumed=0} end
+        local still_live = live(s)
+        if not id or not still_live then
+            if not still_live and s.status == "ready" then s.status="closing" end
+            return {status="unknown",reason="component_or_lifecycle",consumed=0}
+        end
+        if s.status ~= "ready" or s.lease ~= lease or not registry(s) then return {status="unknown",reason="component_or_lifecycle",consumed=0} end
+        local q = {active=true, count=0, component=id, location=loc, lease=lease}
         s.query = q
         local ok = pcall(function() component:K2_FindFloor({X=loc.X,Y=loc.Y,Z=loc.Z},{}) end)
         q.active = false
-        local valid = ok and q.count == 1 and not q.invalid and q.fields and s.query == q and live(s) and registry(s) and address(component) == id
+        local valid = ok and q.count == 1 and not q.invalid and q.fields and s.query == q and s.status == "ready" and s.lease == lease and registry(s) and live(s) and registry(s) and address(component) == id
+        valid = valid and q.count == 1 and not q.invalid and s.query == q and q.active == false and s.status == "ready" and s.lease == lease and registry(s) and live(s) and registry(s) and
+            s.query == q and s.status == "ready" and s.lease == lease and q.count == 1 and not q.invalid
         if s.query == q then s.query = nil end
-        if not valid then return {status="unknown", reason=q.invalid or "query_or_lifecycle", consumed=1, callbacks=q.count} end
+        if not valid then
+            if s.status == "ready" and s.lease == lease and registry(s) and not live(s) and s.status == "ready" and s.lease == lease and registry(s) then s.status="closing" end
+            return {status="unknown", reason=q.invalid or "query_or_lifecycle", consumed=1, callbacks=q.count}
+        end
         return {status="observed", fields=q.fields, location=loc, consumed=1, callbacks=1}
     end
-    local function cleanup()
+    local function cleanup(lease)
         local s = rawget(_G,"DWFloorReader")
-        if not s or s.hub ~= hub or s.owner ~= owner then return false, "owner_unknown" end
+        if type(s) ~= "table" or s.version ~= 2 or s.hub ~= hub or s.owner ~= owner or not lease or s.lease ~= lease then return false, "owner_unknown" end
         if s.query then return false, "query_active" end
+        if s.status ~= "ready" and s.status ~= "closing" then return false, "registration_unavailable" end
+        s.status = "closing" -- invalidate before any cleanup, even when paused
         if rawget(_G,"DW_PAUSE") == true then return false, "paused" end
-        if rawget(_G,"DWHookHub") ~= s.hubstate or not s.record or
-            s.hubstate.paths[PATH] ~= s.record or not s.record.subs or
-            s.record.subs[KEY] ~= s.callback then return false, "ownership_changed" end
+        if rawget(_G,"DWHookHub") ~= s.hubstate or not s.record or s.hubstate.paths[PATH] ~= s.record or
+            s.record.native ~= true or s.record.pending or s.record.error or s.record.last_error or
+            type(s.record.subs) ~= "table" or s.record.subs[KEY] ~= s.callback then return false, "ownership_changed" end
         hub.off(PATH, KEY)
+        if rawget(_G,"DWFloorReader") ~= s or rawget(_G,"DWHookHub") ~= s.hubstate or s.hubstate.paths[PATH] ~= s.record or
+            s.record.subs[KEY] ~= nil or s.status ~= "closing" or s.lease ~= lease then return false, "ownership_changed" end
+        s.lease, s.lifecycle, s.callback = nil, nil, nil
         s.status = "closed"
         return true
     end
-    return query, cleanup
+    return query, cleanup, acquire
 end
 function M.new(hub) return factory(hub, type) end
 -- Offline fake parameters only; production callers use new().
