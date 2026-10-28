@@ -1,5 +1,15 @@
 # Live bug ledger
 
+### R26 contrasting typed controls (2026-10-28)
+
+Native -100cm query: floor-block=false but hit-block=true/penetrating=true;
+-20cm: walkable=true, FloorDist=-17.84766, penetration=false. HitDistance0
+also occurs on the +100cm no-hit control. Treat fields independently; none
+alone proves full capsule clearance. Eight new stationary native queries
+completed with unchanged physical state and memory, owned cleanup confirmed.
+Continuous support behavior remains unimplemented; do not claim prevention.
+
+
 ### Floor-reader logical cleanup was terminal (2026-10-28)
 
 Original standalone reader's closed marker prevented same-process reacquisition. Reviewed isolated fix separates exact logical leases from a versioned native registration ledger, permits the same factory on the same healthy record, and refuses legacy/foreign/ambiguous state.56 actual-hub checks and full gate1158/1 skipped GREEN; runtime enable/rejoin invalidation remain unverified and unpublished. No native hook unregister or forced marker clearing.

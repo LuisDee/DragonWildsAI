@@ -1,5 +1,69 @@
 # R26 floor observations, 2026-10-28
 
+## Contrasting query-origin controls and scoped reader (2026-10-28, 04:03 UTC)
+
+DEV client10824, deployedc145862 (companion9b93dd8d5b1eed87), stationary
+ClaudeDev at centre `[5841,181986.90782694,-3075.4965129417]` cm. The
+character never moved: only the location passed to K2_FindFloor changed. Typed
+posthook values, not packed output-table flags, produced:
+
+| Query Z offset cm | Floor blocking | Walkable | Hit blocking | Hit starts penetrating | FloorDist cm | Hit Distance cm |
+|---:|---|---|---|---|---:|---:|
+| 0 | true | true | true | false | 2.1523433 | 7.5523453 |
+| +100 | false | false | false | false | 47.4001007 | 0 |
+| -20 | true | true | true | false | -17.8476582 | 30.7523403 |
+| -100 | false | false | true | true | -34 | 0 |
+
+All line-trace flags were false. The0/+100 anchors were repeated as part of the
+second three-query batch. A zero hit distance occurs both with no hit and with
+initial penetration. A negative floor distance can coexist with walkable floor
+and no reported initial penetration. Neither distance zero nor penetration=false
+certifies full capsule clearance. The reduced-capsule/retry explanation for the
+-20 result is a hypothesis; it was not directly traced in the installed engine.
+The -100 query establishes a contrasting typed initial-penetration result at
+this plane; it is not an actual actor overlap, ledge or a safe-drop experiment.
+
+Queries used the preexisting healthy exclusive native floor hook. Both private
+batches completed with exact subscriber cleanup, same position/health100, both
+velocities zero, idle body/arbiter and unchanged per-world nav-memory SHA.
+`r26_controls_cd5996936ea4` used0/+100/-20;
+`r26_controls_2d0a991d01a0` used0/+100/-100. Independent watchdog arm-to-reply
+intervals were0.515/0.532s including event writes, queue and IPC; same-frame
+game-clock deltas were0. These do not measure per-query processor cost.
+
+A separate diagnostic loaded the GREEN eac2503 source floor_read.lua from W,
+SHA256 `2bcb2d38184938f690ae13dc80319240be476a01686b2af7e42a1501469ec068`,
+while the ordinary deployed client files remainedc145862. Two sequential fresh
+non-yielding acquire-one-current-query-close scopes both returned observed,
+consumed1, cleanup=true and ledger=closed; native registration count was
+unchanged. `r26_scoped_6a7edeb937ce` arm-to-reply was0.516s including IPC.
+This verifies these two scoped reads, not rejoin continuity or an arbitrary
+late callback. The continuity declaration is limited to the reviewed synchronous
+game-thread ordering and observed bindings. No lease crossed a tick/rejoin;
+closed version2 process marker remains and belongs to that private factory.
+Do not reset it, recreate a foreign factory or blindly rerun the old source
+smoke. Normal future behavior integration will need its reviewed fresh-process
+window or exact-owner retained factory; no migration is approved.
+
+Raw results/operators/designs are archived under
+`R/logs/recovery/floor-controls-1348bed1/`. All three operators are TERMINAL
+and released the slot only after confirmed cleanup. No model calls, movement,
+physics/health writes, world-memory migration or resets occurred. Declared
+setup4Bread/8CleanWater was consumed through the normal reflex; total R26
+harness nutrition is22Bread/37CleanWater. No autonomous survival credit.
+
+Search: actual queries `site:dev.epicgames.com UCharacterMovementComponent FindFloor ComputeFloorDist sweep distance penetration capsule` and
+`site:github.com UnrealEngine CharacterMovementComponent.cpp ComputeFloorDist ShrinkHeight bStartPenetrating`. Opened primary
+[Epic ComputeFloorDist5.5](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/GameFramework/UCharacterMovementComponent/ComputeFloorDist?application_version=5.5),
+[Epic FindFloorResult4.27](https://dev.epicgames.com/documentation/en-us/unreal-engine/python-api/class/FindFloorResult?application_version=4.27)
+and [Epic FindFloor](https://dev.epicgames.com/documentation/en-us/unreal-engine/BlueprintAPI/Pawn/Components/CharacterMovement/FindFloor).
+The documented distinction between floor blocking and nested hit evidence is
+consistent with the -100 observation; cross-version docs are conceptual
+precedent, not proof of the exact installed implementation. Reuse the existing
+masked typed reader/hub and scoped ownership; adapt geometry interpretation;
+build no collision/physics workaround or no-fall claim from these controls.
+
+
 These are developer diagnostics on ClaudeDev, local DEV, client build 26162923,
 Unreal 5.6.1 and logged UE4SS SHA `83330635`. They do not establish the cause of
 the earlier KillZ entry, safe traversal, or an autonomous milestone pass.

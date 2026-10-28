@@ -1,5 +1,22 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+### Native floor controls and scoped lifecycle measured (2026-10-28)
+
+Eight native query calls completed on DEV10824 without moving the pawn: six
+control queries across two batches and two separate source-reader leases.
+Raised+100cm returned no floor; lower-20cm returned walkable/negativeFloorDist
+without penetration; lower-100cm returned floor-block=false/hit-block=true/
+penetrating=true. Typed flags, exact cleanup, unchangedHP100/position/nav SHA
+and stable registration verified. These distinguish real field meanings and
+close/reacquire compatibility, not full clearance, safe drops or prevention.
+See docs/research/r26-floor-observations-20261028.md and private archive
+R/logs/recovery/floor-controls-1348bed1. No production runtime change or API
+model calls. Goal remains original/unmet; next natural tree-task diagnostic is
+being prepared with both Haiku roles under one shared6-attempt cap, not a
+scripted gather/craft plan. Incomplete inventory coverage cannot count as
+verified no-axe recovery.
+
+
 ## Current handoff: 2026-10-28, live ownership verified; isolated lifecycle GREEN
 
 - **Actual runtime remains sourcec145862** (companion9b93dd8d5b1eed87/body6f10d817633533e5), DEV client10824/ClaudeDev/local127.0.0.1:7777, server7016/Steam3284 retained. Developer walk and ONE synthetic flat150cm jump edge both TERMINAL/cleanupacktrue/nav SHA unchanged. Actual jump takeoff,179.18cm rise, landing/settled observed; allHP100. Final `[58.41,1819.8690782694,-30.754965129417]`, arbiter/body idle/slotFREE. No autonomous/ledge/obstacle/spell/GOAL pass implied. Raw archive `R/logs/recovery/jump-binding-publication-f59c07e4/native-evidence/`; live-time.json records driven/observed world-clock intervals and full-gate validation pause.

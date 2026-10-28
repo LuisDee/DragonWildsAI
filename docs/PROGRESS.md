@@ -1,5 +1,22 @@
 # Progress log (append-only)
 
+### Native floor controls and scoped lifecycle measured (2026-10-28)
+
+Eight native query calls completed on DEV10824 without moving the pawn: six
+control queries across two batches and two separate source-reader leases.
+Raised+100cm returned no floor; lower-20cm returned walkable/negativeFloorDist
+without penetration; lower-100cm returned floor-block=false/hit-block=true/
+penetrating=true. Typed flags, exact cleanup, unchangedHP100/position/nav SHA
+and stable registration verified. These distinguish real field meanings and
+close/reacquire compatibility, not full clearance, safe drops or prevention.
+See docs/research/r26-floor-observations-20261028.md and private archive
+R/logs/recovery/floor-controls-1348bed1. No production runtime change or API
+model calls. Goal remains original/unmet; next natural tree-task diagnostic is
+being prepared with both Haiku roles under one shared6-attempt cap, not a
+scripted gather/craft plan. Incomplete inventory coverage cannot count as
+verified no-axe recovery.
+
+
 ### Explicit lifecycle candidate: full gate GREEN, isolated (2026-10-28)
 
 Reviewed floor_read logical leases passed56 actual-hub fake checks,5 design tests and full gate1158/1 skipped381.80s (`logs/recovery/cf-b8d23d4b/check-all.log`), source hashes unchanged throughout. It remains disabled/unpublished to R and has no production consumer or support classifier. Logical cleanup/reacquisition preserves the native registration ledger; legacy/foreign/pending/ambiguous state refuses. Reliable external lifecycle invalidation and native attribution limits still apply. Deployedc145862 separately passed actual developer walk/Jump/air/landing/cleanup withHP100 and unchangednavmemory. No original milestone completion claimed.
