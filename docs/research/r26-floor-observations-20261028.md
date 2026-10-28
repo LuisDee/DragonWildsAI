@@ -98,12 +98,71 @@ Raw evidence stays in `R/logs/recovery/r26-near-floor-{scan,sides,width}-result-
 tools, designs, fakes and raw files is in local archive
 `C:/gameserver/logs/recovery/r26-private-checkpoint-b662bb5f/`.
 
+## Walking-speed and source-reader checkpoint
+
+Further staged diagnostics used the same DEV character and native movement:
+
+| Queue run | Input cap / requested interval | Release speed (cm/s) | Observed horizontal travel after release | Result |
+|---|---|---:|---:|---|
+| 025603 | 2 / 50ms | 0 | 0 | Stable; isolated tiny steps, not representative walking |
+| 025913 | 2 / 1ms | 130.138 | 0.361cm | Stable; native speed agreed with sampled displacement |
+| 030438 | 8 / 1ms | 372.343 | 5.259cm | Partial: later observation read exceeded timing proxy |
+| 030842 | 12 / 1ms | 450.000 | 7.399cm | Stable; released at the inner boundary |
+
+The final trial reached the recorded MaxWalkSpeed450cm/s. Actor and CMC
+velocities agreed; post-release samples were182.81,39.15, then0cm/s, with
+stable position afterward. Samples were about33.33ms apart despite requested
+1ms input/10ms observation timers. HP100 was retained, exact-ID cleanup was
+acknowledged, and arbiter/body/slot ended idle/free. This is ONE slope trial
+with zero endurance, not sprint or a general braking envelope, guard margin,
+exact input-consumption time, benign-drop calibration or fall-prevention pass.
+The reported displacement is horizontal along the input direction; terrain
+also caused a small vertical change. Input and release are sampled states.
+
+The 8-input result remains partial. A13ms snapshot exceeded the provisional
+10ms os.clock admission proxy after input had already been canceled. The
+reviewed correction keeps startup/injection strict, while separately recording
+unknown/overbudget costs during verified observation after the input handle is
+cleared and generation advances. Other guards remain unchanged. The subsequent
+12-input run recorded23 known1-3ms deltas without overrun. os.clock is accurately
+labeled as its own clock: Lua's C-clock binding and MSVC's documented elapsed
+semantics are precedent, not independently verified hard wall-time preemption.
+
+Production source now has standalone `floor_read.lua` plus33 actual-hub fake
+checks and a design note. Startup/bridge/steering never load or enable it.
+Full gate52513 completed **1158 passed,1 skipped, CHECK_ALL: GREEN**,382.51s;
+log `W/logs/recovery/cf-92b34b84/check-all.log`. Then one explicitly enabled
+current-position source smoke (`20261028-031825`) returned one correlated typed
+observation, all required fields known, position/health/native identities
+unchanged, and owned subscriber cleanup succeeded. Native registrations stayed
+15 before/after; no new hook was registered. The process marker is now closed;
+never reset it or blindly rerun that smoke. General movement integration remains
+unimplemented and needs its own lifecycle and geometry validation.
+
+Two review defects were corrected before the source gate: ambiguous hub pending
+state must be preserved, and cleanup must check exact factory ownership rather
+than removing a replaced subscriber. Root's smoke separately rejects absent or
+replaced existing native records, including changes during lifecycle checks.
+
+Additional declared nutrition buffers this stage were1Bread/2CleanWater and
+4Bread/4CleanWater. Total R26 fixtures to date: **10 Bread,13 Clean Water**;
+exclude them from autonomous survival credit. No health/physics write, restart,
+save restore, judged success or model API call occurred. Private exact tools,
+raw evidence and SHA256 manifest are archived at
+`C:/gameserver/logs/recovery/r26-walking-checkpoint-04724d0c/` (95 files).
+Native pulse results and operator traces use the corresponding r26-two-input,
+r26-fast-two-input, r26-walk-eight-input, r26-walk-twelve-input prefixes under
+`R/logs/recovery/`; source smoke is r26-source-reader-stationary-result-20261028.json.
+The next integration design is private `r26-support-integration-design-20261028.md`.
+It identifies jump/spell side effects before the common input point and separate
+combat/gather inputs; a common move.lua guard must not claim wider coverage.
+
 ## Remaining work
 
-Nearby queries and a one-input pilot are now observed. Representative walking
-and sprint release distance, a wider reviewed runway and the production guard
-remain unvalidated. The sampler has113 offline checks; its latest velocity
-recording fields still need live measurement. Its adapter must distinguish configured/cached world
+Nearby queries and a walking-speed slope trial are now observed. Repeated
+walking/sprint and varied-terrain braking, wider calibrated envelopes and the
+production guard remain unvalidated. Latest velocity recording has live evidence
+for these specific pulses; do not generalize it beyond measured conditions. Its adapter must distinguish configured/cached world
 namespace from verified server identity, and game-world time from an independent
 monotonic wall clock. A stationary adapter probe must not start the sampler,
 timers, an arbiter lease or input. Follow the existing

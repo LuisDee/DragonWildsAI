@@ -2300,3 +2300,7 @@ Native snapshot-only adapter independently read CurrentFloor,34/88cmcapsule, zer
 ### One-input native diagnostic (2026-10-28)
 
 One AddMovementInput call movedY+1.392664cm/Z-0.116089cm; four post-release samples were stationary with zero actor/CMC velocity, HP100 unchanged. Own cleanup was acknowledged and the slot freed. Requested50ms callbacks actually spanned66.67-120.96ms. This does not prove full-speed braking or exact engine input timing; the pilot predates the new113-check release-velocity fields. See [R26 observations](research/r26-floor-observations-20261028.md) for provenance and limits.
+
+### Walking-speed release and typed source reader (2026-10-28)
+
+The staged12-input walking trial recorded450cm/s actor/CMC release velocity and7.399cm horizontal post-release travel; velocity was0 by the third roughly33ms sample, HP100 unchanged, exact cleanup acknowledged. This is one slope trial, not a universal stopping bound or sprint evidence. The standalone source reader passed33 fake assertions, GREEN1158/1skip and one explicit current-position read. Registration count remained15 and its own subscriber was removed; normal steering/startup never enables it. See [full provenance and limitations](research/r26-floor-observations-20261028.md).

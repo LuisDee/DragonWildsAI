@@ -427,6 +427,15 @@ Route R2 (`docs/design/real-player-remediation.md`): Claude plays through a real
   - state in `bridge_status.services` (`running` / `starting` / `missing`, `starts`).
   - Nobody needs to start them by hand after a client restart any more.
 
+- `floor_read.lua` is a standalone, opt-in observation utility. Startup, the
+  bridge and normal steering do not load or enable it. `new(hookhub)` returns
+  `query` and `cleanup` closures; the caller retains that exact owner and supplies
+  an enabled lifecycle check and query budget. Input is capsule-centre XYZ in
+  centimetres; output contains copied typed fields with explicit known flags,
+  never a terrain-safety verdict. Cleanup removes only the owned subscriber,
+  leaves the native hook installed and permanently closes that reader for the
+  process. See `docs/design/native-floor-reader.md` before any caller integration.
+
 ### 8.2 Module API, as the bridge uses it
 
 Every function takes the DWClient text logger `log(msg)` first and returns a table with `ok`. Fields may be flat or under `data`. A failure carries `reason` or `error`, as free text or a snake_case code; `client_bridge.REASONS` / `REASON_PATTERNS` map these to protocol reasons. Positions are metres `[x,y,z]`. Loading a module has no side effects, and live state lives in `_G`.
