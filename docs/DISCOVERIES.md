@@ -2791,3 +2791,14 @@ outbound succeeded without a route discard. Preserve this distinction when
 choosing fixes: a failed support check after fallback does not prove the
 original remembered connector is physically blocked. Evidence remains private
 under logs/recovery/nct-trial-a804; research and limits are in the crossing design.
+
+
+### Full model feedback led to recovery beyond the temple (2026-10-29)
+
+On `1ba76d5` full-agent a811, Sonnet successfully researched live lodestones and
+returned a complete1590-token initial ordered plan. Haiku received a blocked sweep,
+explored, encountered `movement owner token required`, used stop and retried go_to,
+then reached the selected lodestone about152m from the spawn landmark. Subsequent
+local-route failures prevented the200m/return objective; maximum observed distance
+189.4103m, health100. This is fresh full-agent behavior, not an acceptance pass.
+Model requests/responses and body receipts survive in the private a811 evidence.

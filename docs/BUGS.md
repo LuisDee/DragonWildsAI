@@ -783,3 +783,15 @@ cause in this run. The outbound a810 passed, so the earlier failure is not
 assumed deterministic. See design/guarded-waypoint-crossing.md for the bounded
 sample-crossing hypothesis, guard-preserving candidate and adversarial controls.
 No radius inflation, temple rule, model steering or autonomous success claimed.
+
+
+### Local walking loses progress credit before pending guard returns (2026-10-29)
+
+OPEN on full-agent `1ba76d5` a811, generations10/11/12. Each actual local route
+advanced approximately12-13m through successive waypoints/windows, but prog_pos
+remained at the start. All ended `local route unavailable`; final progress-clock
+ages approximately2.6s fit the existing self-stuck backtrack test. The invalid
+selected source is inferred from source and timing, not directly stamped by the
+current invariant trace. Audit early physical credit before guard-pending/prefix
+returns and recovery ownership. The preserved feedback-loop candidate has relevant
+early-credit hunks, but its unrelated route-selection changes must not be imported.

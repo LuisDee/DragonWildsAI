@@ -1539,3 +1539,30 @@ and confirmed absent; DEV server and Steam retained. World memories preserved.
 Sol owns the bounded crossing repair under the reviewed design; another Sol
 completed model-interface fixes and the private complete-agent runner. Both
 candidate repairs still require the combined gate and fresh live validation.
+
+
+### Full agent exits temple and reaches 189.4 m; round trip incomplete (2026-10-29 21:49 UTC)
+
+Published `1ba76d5` passed CHECK_ALL GREEN (1301 passed, 1 skipped).
+Developer return a818 succeeded in 42.109 seconds, health 100, arriving at
+[51.96,1889.31,-35.16] beside the spawn lodestone on the lower floor. Native
+traces show intermediate waypoint crossings without the former entry stall.
+
+Full Sonnet Director + Haiku Controller trial a811 then chose its own route,
+walked out of the temple, recovered from a blocked sweep and movement-owner
+failure, and reached its independently selected other-lodestone checkpoint.
+Maximum observed horizontal distance from the fixed spawn lodestone was
+189.4103 m; minimum observed health was 100. The 24-call cap ended the trial
+(12 Controller, 12 Planner including background generation). It never reached
+200 m or returned. **Autonomous round-trip acceptance remains 0/3.**
+
+Three later coordinate walks advanced roughly 12-13 m each then failed with
+`local route unavailable`. Physical progress existed but the recorded progress
+position remained each command's start. The next investigation is lost progress
+credit across guard-pending returns and local-route ownership during recovery.
+No unchanged full run will be repeated. Prior developer-learned routes and
+supplied food/water were disclosed; this proves neither unfamiliar route discovery
+nor food/water self-acquisition. Private evidence: logs/recovery/nct-trial-a816
+and logs/recovery/nct-full-a811/measured-outcome.json. Task7fa3c149 and all world
+memories remain preserved. Shared spend reconciliation is investigating two
+background responses absent from the ordinary 22-call increase.
