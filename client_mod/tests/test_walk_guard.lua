@@ -82,4 +82,43 @@ f.opts.acquire=function()
 end
 g=f:start();for i=0,8 do r=f:check(0,100,i*.01);if r.status~='pending' then break end end
 check('real sampler completes through finite polls',r.status=='clear' and r.consumed_total==queries and queries>4 and f.acquires==1)
+-- Real sampler with time spent both between polls and inside native callbacks.
+f=fixture(); f.opts.sample_module=assert(loadfile(here..'/../scripts/sampled_ground_walk.lua'))()
+local time=0; local count=0
+f.opts.read_time=function() return time end
+f.opts.acquire=function()
+ f.acquires=f.acquires+1
+ local function tick() time=time+.04; count=count+1 end
+ return {shape={radius_cm=34,half_height_cm=88,step_cm=45,clearance_cm=2},
+  valid=function() time=time+.01; return true end, close=function() f.closes=f.closes+1;return true end,
+  initial=function() tick();return {known=true,blocking=false,consumed=1} end,
+  floor=function(p) tick();return {status='observed',callbacks=1,consumed=1,fields={
+   bBlockingHit=known(true),bWalkableFloor=known(true),bLineTrace=known(false),FloorDist=known(p.Z-90),hit={bStartPenetrating=known(false),bBlockingHit=known(true)}}} end,
+  sweep=function() tick();return {known=true,blocking=false,consumed=1} end}
+end
+g=f:start(); repeat r=f:check(0,100,time); if r.status=='pending' then time=time+.03 end until r.status~='pending'
+check('real elapsed acquisition exceeds reuse TTL but completes',r.status=='clear' and time>.35 and time<2 and r.scan_duration_s>.35 and r.oldest_observation_age_s>.35 and r.cache_completion_age_s==0 and r.consumed_total==count)
+r=f:check(0,100,time); check('immediate pre-input cache recheck',r.status=='clear' and r.cache_completion_age_s<.35 and r.oldest_observation_age_s>.35)
+time=time+.36;r=f:check(0,100,time);check('completion TTL expires',r.reason=='refresh_required' and r.refresh_cause=='cache_expired')
+f=fixture();time=0; f.opts.read_time=function() return time end; f.mode='clear'
+local old_new=f.sampler.new; f.sampler.new=function(o) local job=old_new(o); local poll=job.poll; job.poll=function() local v=poll();time=2.1;return v end; return job end
+g=f:start();r=f:check(0,100,0);check('final clear after deadline rejected and charged',r.reason=='scan_timeout' and r.consumed_total==1)
+f=fixture();f.opts.read_time=function() return 0/0 end;g=f:start();r=f:check(0,100,0);check('invalid clock fails',r.reason=='clock_unknown')
+f=fixture();f.opts.read_time=function() return .5 end;g=f:start();r=f:check(0,100,1);check('callback clock reversal fails',r.reason=='clock_reversed')
+f=fixture();f.opts.budget=100;g=f:start();local t=0
+for i=1,6 do
+ if i>1 then t=t+.4; f:check(0,100,t); t=t+.01 end
+ f.delay=1; f:check(0,100,t);t=t+.01;r=f:check(3,100,t);t=t+.01
+ f.delay=0;r=f:check(3,100,t);t=t+.01
+end
+check('successful fresh scans reset only streak',r.status=='clear' and r.coast_reset_streak==0 and r.coast_reset_total==6 and r.consumed_total==12)
+f=fixture();f.opts.max_resets=1;g=f:start();f.delay=1;f:check(0,100,0);f:check(3,100,.1);f:check(3,101,.2);f:check(3,101,.21);r=f:check(6,101,.3)
+check('aim changes do not reset streak',r.reason=='coast_reset_limit' and r.coast_reset_streak==2 and r.coast_reset_total==2)
+f=fixture();local reenter_clock=false
+f.opts.read_time=function()
+ if reenter_clock then f.nested=f.guard.check({X=0,Y=0,Z=90},{X=100,Y=0,Z=0},.1) end
+ return reenter_clock and .1 or 0
+end
+g=f:start();r=f:check(0,100,0);reenter_clock=true;r=f:check(0,100,.1)
+check('cached clock reentry cannot authorize clear',r.status=='unknown' and r.reason=='binding_changed' and f.nested.reason=='reentrant_check')
 print(string.format('%d passed, %d failed',pass,fail));os.exit(fail==0 and 0 or 1)

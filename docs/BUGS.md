@@ -2,7 +2,9 @@
 
 ### Interpolated floor probes reject physically walkable flat support (2026-10-29)
 
-ROOT CAUSE MEASURED, candidate awaiting full gate/deployment. Exact rejected nav
+REPAIRED/PUBLISHED3ff9496, fullgate1279pass/1skipGREEN. Normal developer movement
+passed the rejected segment but was extremely slow and failed a separate
+coast_reset_limit; no route acceptance. Exact rejected nav
 segment was crossed by production-matched normal input117.82cm/0.7705s, grounded
 and HP100. Read-only query replay found five flat-floor hits, then a no-hit when
 interpolated target elevation plus probe lift exceeded native FindFloor range.
@@ -11,6 +13,15 @@ Resolved-support candidate fixes query geometry, preserves full sweeps and adds
 one bounded lower retry only for known nonblocking misses. It resolves all6raw
 support samples in historical replay; no full route or autonomous pass yet.
 Evidence: private native-input-ab-a705; design: design/resolved-floor-probes.md.
+
+### Walking scan can expire before it enables input (2026-10-29)
+
+OPEN on3ff9496. Actual nearby walking took68s for~3.6m then coast_reset_limit,
+2.32m short/HP100. Cache age starts at scan acquisition instead of completion,
+while geometry is collected over several polls; later pre-input clock can reject
+a just-completed scan. Lifetime coast resets compound this. This is a controller
+timing/retry defect, not proof that terrain is unwalkable. Fresh Astra review and
+narrow design: design/walk-scan-timing.md; private rfp-trial-a709 evidence.
 
 ### Planning repairs can exhaust hourly allowance before an action (2026-10-29)
 

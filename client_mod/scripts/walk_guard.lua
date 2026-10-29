@@ -21,7 +21,7 @@ local function dist(a,b)
 end
 function M.new(o)
     if type(o)~='table' or type(o.acquire)~='function' or type(o.live)~='function' or type(o.read_pose)~='function' or
-       type(o.sample_module)~='table' or type(o.sample_module.new)~='function' then return nil,'invalid_callbacks' end
+       (o.read_time~=nil and type(o.read_time)~='function') or type(o.sample_module)~='table' or type(o.sample_module.new)~='function' then return nil,'invalid_callbacks' end
     local h,ttl,corridor,drift,reserve=o.horizon_cm,o.ttl_s,o.corridor_cm,o.drift_cm,o.reserve_cm
     local budget,poll_budget,max_scan,max_resets=o.budget,o.poll_budget,o.max_scan_s,o.max_resets
     if not finite(h) or h<=0 or h>100 or not finite(ttl) or ttl<=0 or not finite(corridor) or corridor<=0 or
@@ -30,9 +30,22 @@ function M.new(o)
        not integer(max_resets) or max_resets<0 then return nil,'invalid_limits' end
     local acquire,live,read_pose,sampler_new=o.acquire,o.live,o.read_pose,o.sample_module.new
     local sensor,scan,cache,aim,terminal=nil,nil,nil,nil,nil
-    local total,resets,last_t=0,0,nil
+    local total,resets,reset_total,last_t=0,0,0,nil
+    local scan_duration,oldest_started,completed_at,refresh_cause=nil,nil,nil,nil
     local locked,latched,closed=false,false,false
-    local function result(status,reason) return {status=status,reason=reason,consumed_total=total} end
+    local function result(status,reason)
+        return {status=status,reason=reason,consumed_total=total,scan_duration_s=scan_duration,
+            cache_completion_age_s=completed_at and last_t and last_t-completed_at or nil,
+            oldest_observation_age_s=oldest_started and last_t and last_t-oldest_started or nil,
+            coast_reset_streak=resets,coast_reset_total=reset_total,refresh_cause=refresh_cause}
+    end
+    local function clock(fallback)
+        local ok,t=true,fallback
+        if o.read_time then ok,t=pcall(o.read_time) end
+        if not ok or not finite(t) then return nil,'clock_unknown' end
+        if last_t and t<last_t then return nil,'clock_reversed' end
+        last_t=t; return t
+    end
     local function alive()
         if latched then return false end
         local ok,v=pcall(live)
@@ -103,21 +116,24 @@ function M.new(o)
         if not alive() then return done(fail('binding_changed')) end
         if aim and not eq(aim,target) then
             if not release() then terminal={status='unknown',reason='cleanup_pending'}; return done(result('unknown','cleanup_pending')) end
-            terminal=nil; aim=nil
+            terminal=nil; aim=nil; refresh_cause='target_changed'
             return done(result('pending','target_changed'))
         end
         if terminal then return done(result(terminal.status,terminal.reason)) end
         if cache then
             local pose
-            if t-cache.started<ttl and valid_sensor() then
+            if t-cache.completed_at<ttl and valid_sensor() then
                 pose=fresh_pose()
                 if not pose then return done(fail(latched and 'binding_changed' or 'position_unknown')) end
             end
             if pose and inside(pose,target) then
                 if not alive() then return done(fail('binding_changed')) end
-                return done(result('clear','sampled_corridor'))
+                local fresh,why=clock(t); if not fresh then return done(fail(why)) end
+                if not alive() then return done(fail('binding_changed')) end
+                if fresh-cache.completed_at<ttl then return done(result('clear','sampled_corridor')) end
             end
             if latched then return done(fail('binding_changed')) end
+            refresh_cause=(last_t-cache.completed_at>=ttl) and 'cache_expired' or (not pose and 'sensor_invalid' or 'outside_corridor')
             if not release() then terminal={status='unknown',reason='cleanup_pending'}; return done(result('unknown','cleanup_pending')) end
             return done(result('pending','refresh_required'))
         end
@@ -125,7 +141,7 @@ function M.new(o)
             local delta=dist(me,scan.start)
             if not delta or not finite(me.Z-scan.start.Z) then return done(fail('invalid_derived_geometry')) end
             if delta>drift or math.abs(me.Z-scan.start.Z)>drift then
-                resets=resets+1
+                resets=resets+1; reset_total=reset_total+1; refresh_cause='coast'
                 if not release() then terminal={status='unknown',reason='cleanup_pending'}; return done(result('unknown','cleanup_pending')) end
                 if resets>max_resets then return done(fail('coast_reset_limit')) end
                 return done(result('pending','coast_reset'))
@@ -158,6 +174,7 @@ function M.new(o)
                 spacing_cm=shape.radius_cm/2,budget=remaining,poll_budget=per})
             if not good or type(job)~='table' or type(job.poll)~='function' then return done(fail('sample_init:'..tostring(why or 'unknown'))) end
             scan={job=job,start=vec(me),far=vec(far),started=t,consumed=0,step_cm=shape.step_cm,limit=remaining,per=per}
+            oldest_started=t; completed_at=nil; scan_duration=nil
         end
         local ok,r=pcall(scan.job.poll)
         if not ok or type(r)~='table' or not integer(r.consumed_total) or r.consumed_total<scan.consumed or r.consumed_total>scan.limit then
@@ -167,6 +184,10 @@ function M.new(o)
         if used>scan.per or used>budget-total then total=budget; return done(fail('sampler_budget_invalid')) end
         total=total+used; scan.consumed=r.consumed_total
         if not alive() then return done(fail('binding_changed')) end
+        local after_poll,clock_why=clock(t); if not after_poll then return done(fail(clock_why)) end
+        scan_duration=after_poll-scan.started
+        if not finite(scan_duration) then return done(fail('clock_unknown')) end
+        if scan_duration>max_scan then return done(fail('scan_timeout')) end
         if used==0 then return done(fail('sampler_no_progress')) end
         if r.status=='pending' then
             if total>=budget then return done(fail('budget_exhausted')) end
@@ -187,6 +208,7 @@ function M.new(o)
         if math.abs(last.X-scan.far.X)>1e-6 or math.abs(last.Y-scan.far.Y)>1e-6 then return done(fail('sample_endpoint_mismatch')) end
         if not valid_sensor() then
             if latched then return done(fail('binding_changed')) end
+            refresh_cause='sensor_invalid'
             if not release() then terminal={status='unknown',reason='cleanup_pending'}; return done(result('unknown','cleanup_pending')) end
             return done(result('pending','refresh_required'))
         end
@@ -195,18 +217,29 @@ function M.new(o)
         local moved=dist(pose,scan.start)
         if not moved or not finite(pose.Z-scan.start.Z) then return done(fail('invalid_derived_geometry')) end
         if moved>drift or math.abs(pose.Z-scan.start.Z)>drift then
-            resets=resets+1
+            resets=resets+1; reset_total=reset_total+1; refresh_cause='coast'
             if not release() then terminal={status='unknown',reason='cleanup_pending'}; return done(result('unknown','cleanup_pending')) end
             if resets>max_resets then return done(fail('coast_reset_limit')) end
             return done(result('pending','coast_reset'))
         end
-        cache={points=pts,started=scan.started,step_cm=scan.step_cm}; scan=nil
-        if t-cache.started>=ttl or not inside(pose,target) then
+        -- FindFloor permits location-sensitive cached use; retain the oldest sample
+        -- time separately from reuse after a fully validated scan completes.
+        -- https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/UCharacterMovementComponent/FindFloor
+        -- Nav2 likewise bounds collision checking in time and distance (conceptual precedent).
+        -- https://docs.nav2.org/rolling/configuration_and_development/configuration_guide/controller_plugins/configuring_regulated_pp/
+        local finished,why=clock(t); if not finished then return done(fail(why)) end
+        scan_duration=finished-scan.started
+        if not finite(scan_duration) then return done(fail('clock_unknown')) end
+        if scan_duration>max_scan then return done(fail('scan_timeout')) end
+        cache={points=pts,started=scan.started,completed_at=finished,step_cm=scan.step_cm}; completed_at=finished; scan=nil
+        if not inside(pose,target) then
             if latched then return done(fail('binding_changed')) end
+            refresh_cause='outside_corridor'
             if not release() then terminal={status='unknown',reason='cleanup_pending'}; return done(result('unknown','cleanup_pending')) end
             return done(result('pending','refresh_required'))
         end
         if not alive() then return done(fail('binding_changed')) end
+        resets=0; refresh_cause=nil
         return done(result('clear','sampled_corridor'))
     end
     local function close()

@@ -1466,6 +1466,7 @@ function WALK.check(st,pawn,pc,me,aim,goal,t)
             end,
             sample_module=WALK.modules.sampler,live=live,
             read_pose=function() return v(pawn:K2_GetActorLocation()) end,
+            read_time=function() return now(pawn) end,
             horizon_cm=M.cfg.walk_horizon_cm,ttl_s=0.35,corridor_cm=10,drift_cm=2,reserve_cm=25,
             budget=M.cfg.walk_query_limit-(st.walk_spent or 0),poll_budget=4,max_scan_s=2,max_resets=4}
         if not current() then if guard then pcall(guard.close) end;return {status='unknown',reason='binding_changed'} end

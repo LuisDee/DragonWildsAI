@@ -1,5 +1,23 @@
 # Progress log (append-only)
 
+### Published floor repair exposes control-loop starvation (2026-10-29 14:33 UTC)
+
+3ff9496 pushed and published after GREEN1279pass/1skip463.56s;597sourcefiles and
+49preserved memory/state files matched. DEV boot49.5s; Steam/server/oracle retained.
+Normal developer go_to from[81.60,1875.20,-31.27] toward[77,1879,-31.28] passed
+the earlier false-veto segment but moved only~3.6m in68s, failed coast_reset_limit
+2.32m short, HP100.95observations:71sampling,15refreshing,8moving;1598queries.
+No full-agent call or autonomous pass. The short walk fails practical throughput.
+
+Fresh Astra reassessment confirmed cache TTL starts before multi-poll acquisition
+and may expire before input; coast counts never reset after success. Narrow
+repair design: design/walk-scan-timing.md. Preserve collision/layer checks; no new
+planner/framework. Actual post-failure primary-source searches are recorded there.
+Timing candidate passed53sampler/52guard checks, actual grounded-mover preflight
+and7pytest preflights; fresh Astra and Terra reviews CLEAR. Fullgatewt-g-a715
+GREEN1279passed/1skip472.56s;597sourcefiles match. Live performance not yet proved.
+Developer assistance remains declared; independent provisions remain unproven.
+
 ### False floor rejection isolated; resolved-support candidate (2026-10-29)
 
 Production-matched developer input crossed a retained rejected segment117.82cm
