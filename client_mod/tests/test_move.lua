@@ -286,6 +286,18 @@ function SNAPSHOT_PREEMPTION_CASE() -- Reentry must not write into or cancel the
 end
 if os.getenv("MOVE_SNAPSHOT_PREEMPT_ONLY")=="1" then SNAPSHOT_PREEMPTION_CASE(); os.exit(fails==0 and 0 or 1) end
 
+local function force_guard_stall(st)
+    local context=(st.local_authority and st.lpath) or (st.memory_binding and st.mpath) or (st.source=='memory' and st.mpath) or (st.source=='local' and st.lpath) or
+        (st.source=='nav' and st.path) or st.source or 'straight'
+    st.guard_stall={context=context,elapsed=2,pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z},sent=false}
+end
+local function wait_guard_stall(st)
+    local before,gen=st.local_replans or 0,st.gen
+    for _=1,100 do
+        step(1)
+        if st.gen~=gen or (st.local_replans or 0)>before or st.result then return end
+    end
+end
 if os.getenv('MOVE_JUMP_ONLY')~='1' then
 if os.getenv('MOVE_PROTOCOL_WIRE_ONLY')~='1' and os.getenv('MOVE_AUTHORITY_ONLY')~='1' then
 do -- Actual mover + sampled guard: memory entries and native coverage repair.
@@ -300,6 +312,67 @@ do -- Actual mover + sampled guard: memory entries and native coverage repair.
   local f=assert(io.open(seed,'w'))
   f:write([==[{"v":1,"traps":[{"id":"wrong-floor","center":[0,0,-0.9],"radius_m":5,"z_min":-2,"z_max":2,"exit":[[0.01,0,-4.4],[0,8,-4.4]]}],"taboos":[],"routes":[]}]==])
   f:close()
+ end
+ do -- Held scans do not spend the guarded input window or reset it.
+  local function setup_guard()
+   clean();oracle=nil;pump_oracle()
+   M.go_to(log,{15,0,0},{nav=false,local_plan=false,sprint=false,timeout_s=30})
+   local s=_G.DW_MOVE
+   s.mpath={{X=25,Y=0,Z=-90},{X=1500,Y=0,Z=-90}};s.mwp=1;s.walk_guarded=true;s.walk_goal={X=s.goal.X,Y=s.goal.Y,Z=s.goal.Z}
+   local mode='pending'
+   s.walk_guard={check=function() return {status=mode,reason='test',consumed_total=1} end,close=function() return true end}
+   return s,function(v) mode=v end
+  end
+  local s,set=setup_guard()
+  step(60)
+  check('long initial pending scan never starts input stall window',not s.guard_stall and s.mpath and pawn.input==nil,s.status)
+  set('clear');step(1)
+  check('short entry submits after held scan',s.guard_stall and s.guard_stall.sent and s.mpath and pawn.loc.X>0,s.status)
+  clean()
+  local paused_move,pause_change=setup_guard();pause_change('clear');step(1)
+  _G.DW_PAUSE=true;step(1);T=T+5;_G.DW_PAUSE=false;step(1)
+  check('paused interval does not spend guarded active window',paused_move.guard_stall and paused_move.guard_stall.elapsed<1 and not paused_move.local_replans,tostring(paused_move.status)..' elapsed='..tostring(paused_move.guard_stall and paused_move.guard_stall.elapsed)..' replans='..tostring(paused_move.local_replans)..' src='..tostring(paused_move.source))
+  clean()
+  local delayed,delayed_change=setup_guard();delayed_change('clear')
+  local late=false;local old_check=delayed.walk_guard.check
+  delayed.walk_guard.check=function(...)
+   if not late then late=true;T=T+2 end
+   return old_check(...)
+  end
+  local old_input=pawn.AddMovementInput;local submitted=0
+  pawn.AddMovementInput=function() submitted=submitted+1 end
+  step(1);step(1)
+  check('long first clear callback is not charged as active input',late and submitted==2 and delayed.guard_stall and delayed.guard_stall.elapsed<1 and not delayed.local_replans,delayed.status)
+  for _=1,90 do step(1);if delayed.local_replans then break end end
+  pawn.AddMovementInput=old_input
+  check('blocked input still stalls after first observation',delayed.local_replans and delayed.local_replans>0,delayed.status)
+  clean()
+  for _,oscillate in ipairs({false,true}) do
+   local q,change=setup_guard();change('clear')
+   local original=pawn.AddMovementInput;local inputs=0
+   pawn.AddMovementInput=function() inputs=inputs+1 end
+   step(1)
+   local before=q.guard_stall and q.guard_stall.elapsed or 0
+   for i=1,180 do
+    change((math.floor((i-1)/4)%2==0) and 'pending' or 'clear')
+    if oscillate then pawn.loc.X=(i%2==0) and 20 or 0 end
+    step(1)
+    if q.local_replans then break end
+   end
+   pawn.AddMovementInput=original
+   check((oscillate and 'oscillation' or 'stationary')..' remains bounded across repeated guard holds',inputs>1 and q.local_replans and q.local_replans>0 and before==0,q.status)
+   clean()
+  end
+  local q,change=setup_guard();change('clear')
+  local original=pawn.AddMovementInput;local oldgen=q.gen;local fired=false
+  pawn.AddMovementInput=function()
+   fired=true;pawn.AddMovementInput=original
+   M.go_to(log,{4,4,0},{nav=false,local_plan=false,sprint=false})
+  end
+  step(1);pawn.AddMovementInput=original
+  check('preemption during guarded input cannot mutate successor',fired and q.gen>oldgen and q.mode=='go_to' and q.guard_stall==nil,q.status)
+  clean()
+  if os.getenv('MOVE_GUARD_STALL_ONLY')=='1' then print(fails==0 and 'GUARD STALL OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
  end
  if os.getenv('MOVE_PREFIX_ONLY')~='1' then
  clean();bad_seed()
@@ -348,7 +421,7 @@ do -- Actual mover + sampled guard: memory entries and native coverage repair.
  check('carried strafe cannot escape checked forward corridor',pawn.loc.X>0 and math.abs(pawn.loc.Y)<0.01 and _G.DW_MOVE.strafe_until==nil,pawn.loc.Y)
  clean();oracle=nil;pump_oracle()
  M.go_to(log,{8,0,0},{nav=false,sprint=false,timeout_s=30});st=_G.DW_MOVE;st.walk_guarded=true
- run(4);st.win_t=T-2;st.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z};step(1)
+ run(4);force_guard_stall(st);wait_guard_stall(st)
  check('guarded stalled direct mode preserves nav opt-out',st.nav_required==false and pawn.input==nil,st.status)
  run(180)
  check('guarded direct recovery terminates at actual destination',st.result and st.result.status=='arrived',st.status)
@@ -750,8 +823,8 @@ do
     -- and the oracle request remains independently owned while observing again.
     local recovery=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
     local pending=recovery.nav_pending; local original_path=recovery.lpath
-    recovery.win_t=T-2; recovery.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z}
-    local original_jump_count=pawn.jumps; step(1)
+    force_guard_stall(recovery)
+    local original_jump_count=pawn.jumps; wait_guard_stall(recovery)
     check("local stall holds input and preserves pending oracle",pawn.input==nil and not recovery.local_authority and not recovery.lpath and recovery.local_replans==1 and recovery.nav_pending==pending and pawn.jumps==original_jump_count,recovery.status)
     step(1)
     check("local stall starts observational replan",recovery.lp_state=="sampling" and recovery.lp_observe==true and recovery.nav_pending==pending and pawn.input==nil,recovery.lp_state)
@@ -763,14 +836,14 @@ do
         local old_limit=M.cfg.lp_max_plans; M.cfg.lp_max_plans=2
         local bounded=observe_case({X=700,Y=0,Z=210,act="walk"},1.5)
         for _, x in ipairs({750,800}) do
-            bounded.win_t=T-2; bounded.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z}; step(1)
+            force_guard_stall(bounded); wait_guard_stall(bounded)
             step(1)
             local endx=x
             bounded.lp={step=function() return "ready" end,plan=function() return {{X=0,Y=0,Z=-90,act="walk"},{X=endx,Y=0,Z=210,act="walk"}} end,verify=function() return "ok" end}
             step(2)
             check("distinct replacement route admitted within retry bound",bounded.local_authority and bounded.lpath[#bounded.lpath].X==x,bounded.status)
         end
-        bounded.win_t=T-2; bounded.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z}; step(1)
+        force_guard_stall(bounded); wait_guard_stall(bounded)
         check("distinct routes still exhaust bounded replan",not bounded.local_authority and bounded.local_replans==3 and bounded.nav_fail=="local_replan_limit" and pawn.input==nil,bounded.status)
         step(1)
         check("exhausted replan reports specific failure",bounded.result and bounded.result.reason=="verification_failed" and bounded.result.detail:find("local_replan_limit",1,true),bounded.status)
@@ -779,7 +852,7 @@ do
     do -- A complete late oracle route may win, without mixing local waypoints.
         local race=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
         local pending=race.nav_pending
-        race.win_t=T-2; race.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z}; step(1); step(1)
+        force_guard_stall(race); wait_guard_stall(race); step(1)
         local reply=assert(io.open(dir.."/client_io/nav/resp.lua","w"))
         reply:write(('return {version=2,epoch="%s",nonce="%s",id=%d,ok=true,partial=false,points={{0,0,0},{8,0,3}}}'):format(pending.epoch,pending.nonce,pending.id));reply:close()
         step(1)
@@ -793,13 +866,13 @@ do
         M.follow(log,"Zezima",0.5);step(1)
         local follow=_G.DW_MOVE
         follow.lp={step=function() return "ready" end,plan=function() return {{X=0,Y=0,Z=-90,act="walk"},{X=800,Y=200,Z=210,act="walk"}} end,verify=function() return "ok" end};step(2)
-        follow.win_t=T-2;follow.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z};step(2)
+        force_guard_stall(follow);wait_guard_stall(follow);step(1)
         check("exhausted local recovery preserves follow",follow.mode=="follow" and follow.status=="unreachable" and follow.unreach and follow.unreach.reason=="no_route" and pawn.input==nil,follow.status)
         M.stop(log);M.cfg.lp_max_plans=old_limit
     end
     do -- Owner can replace the move during the final stalled-route check.
         local owned_move=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
-        local prior=owned_move.gen;owned_move.win_t=T-2;owned_move.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z}
+        local prior=owned_move.gen;force_guard_stall(owned_move)
         local old_height=pawn.CapsuleComponent.GetScaledCapsuleHalfHeight;local calls=0;local fired=false
         pawn.CapsuleComponent.GetScaledCapsuleHalfHeight=function(...)
             calls=calls+1

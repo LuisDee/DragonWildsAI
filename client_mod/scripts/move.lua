@@ -1594,6 +1594,7 @@ end
 local function tick(st, gen, log)
     if st.gen ~= gen then return "stale" end
     if paused() then
+        if st.guard_stall then st.guard_stall.sent=false end
         if st.local_binding then
             st.local_authority, st.local_binding, st.lpath, st.lp, st.lp_state, st.lp_observe = nil, nil, nil, nil, nil, nil
             st.local_observe_done, st.lp_jump_exec, st.jump_double = true, nil, false
@@ -1612,6 +1613,14 @@ local function tick(st, gen, log)
     end
     local dt = st.last_t and (t - st.last_t) or 0
     st.last_t = t
+    -- Only the interval following submitted guarded input counts as active.
+    -- https://docs.nav2.org/jazzy/configuration_and_development/configuration_guide/core_servers/controller_server/controller_server_plugins/simple_progress_checker/
+    -- Adapt progress over time; guard sampling is held time, not progress.
+    if st.guard_stall then
+        if st.guard_stall.first_observation then st.guard_stall.first_observation=false
+        elseif st.guard_stall.sent then st.guard_stall.elapsed=st.guard_stall.elapsed+math.max(dt,0) end
+        st.guard_stall.sent=false
+    end
     local me = pawn:K2_GetActorLocation()
     local idx_progress = false
     if not st.progress_positions then st.progress_positions = {v(me)} end
@@ -2890,32 +2899,6 @@ local function tick(st, gen, log)
         end
     end
 
-    -- A required local route cannot use the ordinary stuck ladder: that ladder
-    -- replaces its path and can issue raw jumps. Hold this frame before input,
-    -- then re-admit a fresh observation under the original goal.
-    if (st.local_authority or st.walk_guarded) and not st.lp_jump_exec and not st.ws_exec and not st.jump_t and
-        st.win_t and st.win_pos and t-st.win_t >= M.cfg.stuck_window_s and
-        d2(me,st.win_pos) < M.cfg.stuck_min_cm then
-        local old_binding, old_path = st.local_binding, st.lpath
-        if st.local_authority and not local_route_owned(st,gen,pawn,pc,goal) then return end
-        local p = old_path and old_path[st.lwp] or st.aim
-        if not p or (st.local_authority and not local_route_owned(st,gen,pawn,pc,goal)) or
-            st.local_binding ~= old_binding or st.lpath ~= old_path then return end
-        if not WALK.close(st) or not owned(binding(st,pawn)) then return end
-        st.local_failed_points = st.local_failed_points or {}
-        st.local_failed_points[#st.local_failed_points+1] = {X=p.X,Y=p.Y,Z=p.Z}
-        st.local_replans = (st.local_replans or 0) + 1
-        st.local_authority, st.local_binding, st.lpath, st.lp, st.lp_state, st.lp_observe = nil,nil,nil,nil,nil,nil
-        st.mpath,st.memory_binding,st.trail_i,st.bug,st.stepoff,st.backtrack_until=nil,nil,nil,nil,nil,nil
-        st.mem_retry=true
-        st.nav_required=st.use_nav~=false
-        st.local_observe_done = st.local_replans > M.cfg.lp_max_plans
-        if st.local_observe_done then st.nav_fail = "local_replan_limit" end
-        st.status = "planning"
-        st.win_t,st.win_pos,st.prog_t,st.prog_pos = t,v(me),t,v(me)
-        return
-    end
-
     -- Shared guard before every ordinary walking input once memory/local steering
     -- is involved. Neither initial selection nor recovery can bypass it.
     if src=='memory' or (src=='local' and st.local_authority) then st.walk_guarded=true end
@@ -2982,6 +2965,37 @@ local function tick(st, gen, log)
             if log then log('move: memory connector not admitted: '..st.walk_failure..'; planning toward actual goal') end
             return
         end
+        local context = (src=='memory' and st.mpath) or (src=='local' and st.lpath) or (src=='nav' and st.path) or src
+        local window=st.guard_stall
+        if window and window.context==context and window.elapsed>=M.cfg.stuck_window_s then
+            if d2(me,window.pos)>=M.cfg.stuck_min_cm then
+                window.elapsed,window.pos=0,v(me)
+            else
+                -- Preserve the existing bounded recovery, after the current
+                -- guard is clear and before another input is submitted.
+                local old_binding, old_path = st.local_binding, st.lpath
+                if st.local_authority and not local_route_owned(st,gen,pawn,pc,goal) then return end
+                if st.memory_binding and not local_route_owned(st,gen,pawn,pc,goal,true) then return end
+                local p = old_path and old_path[st.lwp] or st.aim
+                if not p or (st.local_authority and not local_route_owned(st,gen,pawn,pc,goal)) or
+                    st.local_binding ~= old_binding or st.lpath ~= old_path then return end
+                if not WALK.close(st) or not owned(binding(st,pawn)) then return end
+                if st.memory_binding and not local_route_owned(st,gen,pawn,pc,goal,true) then return end
+                st.local_failed_points = st.local_failed_points or {}
+                st.local_failed_points[#st.local_failed_points+1] = {X=p.X,Y=p.Y,Z=p.Z}
+                st.local_replans = (st.local_replans or 0) + 1
+                st.local_authority, st.local_binding, st.lpath, st.lp, st.lp_state, st.lp_observe = nil,nil,nil,nil,nil,nil
+                st.mpath,st.memory_binding,st.trail_i,st.bug,st.stepoff,st.backtrack_until=nil,nil,nil,nil,nil,nil
+                st.guard_stall=nil
+                st.mem_retry=true
+                st.nav_required=st.use_nav~=false
+                st.local_observe_done = st.local_replans > M.cfg.lp_max_plans
+                if st.local_observe_done then st.nav_fail = "local_replan_limit" end
+                st.status = "planning"
+                st.win_t,st.win_pos,st.prog_t,st.prog_pos = t,v(me),t,v(me)
+                return
+            end
+        end
     end
 
     -- face where we go (control rotation = camera yaw; the pawn orients to its movement)
@@ -2996,8 +3010,10 @@ local function tick(st, gen, log)
         st.hold_gap = nil
         st.move_acc, st.bt_tested = M.cfg.self_stuck_cm, t -- holding on purpose: not wedged
     else
+        local input_pos
         if walk_target then
-            local checked=WALK.check(st,pawn,pc,pawn:K2_GetActorLocation(),walk_target,goal,now(pawn))
+            input_pos=pawn:K2_GetActorLocation()
+            local checked=WALK.check(st,pawn,pc,input_pos,walk_target,goal,now(pawn))
             if rawget(_G,'DW_MOVE')~=st or st.gen~=gen or not owned(binding(st,pawn)) then return end
             if checked.status~='clear' then st.status='checking_terrain';return end
         end
@@ -3006,7 +3022,30 @@ local function tick(st, gen, log)
             elseif st.memory_binding then if not local_route_owned(st,gen,pawn,pc,goal,true) then return end
             elseif not route_owned(st, gen, pawn, pc) then return end
         end
-        pawn:AddMovementInput({ X = dx, Y = dy, Z = 0 }, 1.0, false)
+        if walk_target then
+            local input_binding=binding(st,pawn)
+            local input_arb=rawget(_G,'DWArbiter');local input_owner=input_arb and input_arb.owner
+            local input_world=world_identity()
+            local input_target=st.target;local input_goal=v(goal)
+            local context=(src=='memory' and st.mpath) or (src=='local' and st.lpath) or (src=='nav' and st.path) or src
+            local submitted=pcall(function() pawn:AddMovementInput({ X = dx, Y = dy, Z = 0 }, 1.0, false) end)
+            if not owned(input_binding) or st.gen~=gen or not input_world or world_identity()~=input_world or
+                rawget(_G,'DWArbiter')~=input_arb or not input_arb or input_arb.owner~=input_owner then return end
+            local okgoal,current_goal=pcall(function() return st.target_name and st.target:K2_GetActorLocation() or st.goal end)
+            if not okgoal or st.target~=input_target or not current_goal or current_goal.X~=input_goal.X or
+                current_goal.Y~=input_goal.Y or current_goal.Z~=input_goal.Z or not owned(input_binding) then return end
+            if st.nav_required then
+                if st.local_authority then if not local_route_owned(st,gen,pawn,pc,goal) then return end
+                elseif st.memory_binding then if not local_route_owned(st,gen,pawn,pc,goal,true) then return end
+                elseif not route_owned(st,gen,pawn,pc) then return end
+            end
+            if not submitted then return finish(st,{status='failed',reason='verification_failed',detail='movement input failed'},log) end
+            local current=(src=='memory' and st.mpath) or (src=='local' and st.lpath) or (src=='nav' and st.path) or src
+            if current~=context then return end
+            local w=st.guard_stall
+            if not w or w.context~=context then w={context=context,elapsed=0,pos=v(input_pos),first_observation=true};st.guard_stall=w end
+            w.sent=true
+        else pawn:AddMovementInput({ X = dx, Y = dy, Z = 0 }, 1.0, false) end
         st.status = "moving"
     end
 
@@ -3038,7 +3077,7 @@ local function tick(st, gen, log)
     end
     -- stuck detection over 1 s windows, and the unstuck ladder
     if not st.win_t then st.win_t, st.win_pos = t, v(me) end
-    if t - st.win_t >= M.cfg.stuck_window_s then
+    if not st.walk_guarded and t - st.win_t >= M.cfg.stuck_window_s then
         local moved = d2(me, st.win_pos)
         st.move_acc = (st.move_acc or 0) + moved
         st.speed_cms = moved / (t - st.win_t)
@@ -3470,6 +3509,7 @@ local function start(log, mode, opts)
         rawget(_G,"DWArbiter")~=admitted_arb or admitted_arb.owner~=admitted_owner then return abort_start() end
     local handle = LoopInGameThreadWithDelay(1, function()
         if paused() then
+            if st.gen == gen and st.guard_stall then st.guard_stall.sent=false end
             if st.gen == gen and st.local_binding then
                 st.local_authority, st.local_binding, st.lpath, st.lp, st.lp_state, st.lp_observe = nil,nil,nil,nil,nil,nil
                 st.local_observe_done, st.lp_jump_exec, st.jump_double = true,nil,false

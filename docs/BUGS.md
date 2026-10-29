@@ -749,3 +749,14 @@ The installed UE4SS struct-to-table output copier uses an unmasked Boolean conve
 R26 measurement update2026-10-28: nine typed offset queries succeeded; one-input developer pilot stopped after1.39cm with HP100. Diagnostic plumbing is verified; continuous support and representative braking remain open. Requested50ms timers produced66.67-120.96ms gaps. Latest113-check sampler adds input/release velocity recording, not yet live. Do not infer the fatal terrain cause or prevention from this pilot.
 
 R26 source checkpoint: disabled floor_read utility is implemented, full gate1158/1skip GREEN and one stationary caller-specific read verified. A12-input walking trial completed at450cm/s release with7.399cm horizontal post-release; only one slope, no sprint/general envelope. Earlier8-input result remains partial after observation cost overrun. Continuous support is still NOT integrated. Phase audit found jump/spell side effects before the final input point and separate combat/gather inputs; prevent an overly broad coverage claim. Preserve unknown-vs-obstacle distinction and avoid learning unknown observations as traps.
+
+### Guarded execution can confuse held time with a movement stall
+
+Publishedb13793e normalramp replay failed45s belowrequestedfloor. Firstmemory
+entry25cm away, earlysampledcorridorclear, later memoryloss/nativepartial/water
+replan. Syntheticstationaryentry reproducesguardedstall mechanism; actualinitial
+inputcause remainsunproven. Currentstalltest precedes pendingguardtimeexclusion;
+latchedclock can also charge preinputcallbacktime. Narrowcandidateafterclear and
+ownedinputfirst-observationanchor underreview; no tolerance/watermap workaround.
+Discoverywithoutoperatorroutes and self-suppliedwater remainopen. Clientwas
+closedat59HP/dehydration0 afterfixturesranout, noautonomouspassclaimed.

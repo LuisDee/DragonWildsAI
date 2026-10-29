@@ -2758,3 +2758,13 @@ yet established. The local planner already represents two floor layers and
 provisional slope edges. Preserve the pending discriminating experiment instead
 of describing absent slope/layer support as fact. Private source traces and
 operator interventions remain under logs/recovery/friend-trial-20261028/.
+
+### Processed movement input and truthful lexical controls (2026-10-29)
+
+Actualclientread-only APawn.GetLastMovementInputVector and pendingvector getters
+worked. Midramp native vectors about(0.69,-0.724,0) corresponded to observed
+velocity andclimbing; this is not proof whytheinitial25cmentry stalled. Native
+gametime is latchedinsidecallback: measuredforward_search.duration_s0 is not
+zeroCPU/wallcost. The two recorded doorwayqueries nowreturnmatchedfalse while
+AshLogs returntrue againstthe same64loadedentities, with lexicalbasis explicit.
+No actualdoor absence, geometricunderstanding or autonomous taskpass follows.

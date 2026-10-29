@@ -1476,3 +1476,20 @@ pass. Luis challenged preseeded-route validity; Accepted steer now explicitly
 separates learned-route execution from independent discovery, requiring a held-out
 unfamiliar route without prior demonstration/recorded path/hints. Never erase real
 memory to disguise provenance or count taught replay as terrain understanding.
+
+### Guarded replay failure and native input observations (2026-10-29)
+
+On testedb13793e developer publicgo_to fromlowerapproach towardupperfloor
+selected8pointmemory then discarded it and fell back to nativepartial/local
+waterplanning, stopped45s belowgoalHP100. Waterreplanningwas downstream; the
+initial livecause is unproven. Syntheticstationary25cmentry reproducesguarded
+stall discard. Midrampprobea725verified realpending/processedinputvectors and
+velocity, moved2.4m/climbed1.18m during8s boundedstop withmemoryretained; notarrival
+or autonomous. a724highfreqrecorderfailed; its1Hzmovementtraceonly is valid.
+Read-onlylook controls now reject both exact false doorwayqueries and positively
+matchAshLogs in the same64entitycensus; lexicalcandidates, notgeometricvision.
+Waterfixture exhausted; setupguardrefusedhealthbelow75, clientstoppedat59HP and
+hydration0, server/Steam/oracle preserved. NoHaikuornewunassistedpass. Newnarrow
+candidate counts guarded activeinput ratherthan heldtime, including latchedclock
+first-observationanchor; focusedcasespassed, finalwhole/fullgate/live pending.
+Research, counterexamples and scope in design/active-guard-progress.md.
