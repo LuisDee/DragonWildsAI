@@ -80,6 +80,36 @@ positive control on final source SHA256
 authority or caller integration. The
 floor-probe command has28 fake assertions and the native controls above.
 
+## Terrain and gap traversal follow-up
+
+Luis confirmed that the terrain/perception repair must support future single
+jump, double jump and Windstep gap crossing. The current local planner already
+samples up to two floor layers and types adjacent-cell moves by elevation. Its
+`plan` neighbour loop connects only adjacent grid cells; that alone does not
+discover a distant landing across missing cells. Measured envelopes and learned
+directed traversal links exist elsewhere, but neither constitutes a fresh
+autonomous general-gap acceptance pass. Files named terrain.lua/traverse.lua in
+the older architecture proposal are not implemented files at this checkpoint.
+
+Actual follow-up queries:
+`site:dev.epicgames.com automatic navigation link generation jump length trajectory sampling height Unreal 5.5`,
+`site:github.com/PrismarineJS/mineflayer-pathfinder movements.js getMoveParkourForward landing headroom`,
+`site:github.com/recastnavigation/recastnavigation recastdemomod off mesh links jump traversal`.
+Opened Epic's [automatic links](https://dev.epicgames.com/documentation/unreal-engine/automatic-navigation-link-generation?lang=en-US),
+the [5.5 jump-link configuration](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/NavigationSystem/NavMesh/FNavLinkGenerationJumpDownConfig?application_version=5.5)
+and actual [Mineflayer movement source](https://raw.githubusercontent.com/PrismarineJS/mineflayer-pathfinder/master/lib/movements.js).
+
+Epic's engine recipe samples takeoff/landing trajectories with configurable
+horizontal reach, height, depth, endpoint tolerance and spacing; it primarily
+targets NPC jumping/falling and is not an automatically verified player-ability
+adapter. Mineflayer's `getMoveParkourForward` searches beyond the unsupported
+neighbour for a landing, checks overhead/path cells and distinguishes sprint
+availability; its Minecraft dimensions/physics are not transferable constants.
+Decision: adapt those candidate-generation and execution/landing-feedback
+patterns to native player observations and measured abilities after the walking
+repair. Reuse the existing planner, envelope and traversal-link services rather
+than creating separate place-specific jumping scripts or a second world map.
+
 ## Search record
 
 Queries actually run include:

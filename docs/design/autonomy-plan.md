@@ -35,6 +35,26 @@ Sol headless interaction/source review. Root owns integration and the one DEV
 client; those reviewers do not operate it. No new autonomous pass is implied by
 research, offline tests, manual help or a diagnostic probe.
 
+### Terrain and traversal direction — Luis, 2026-10-29
+
+Build one reusable terrain representation for seeing and routing over obstacles,
+then gaps requiring single jump, double jump or Windstep. Current walking repair
+comes first; the three walking round trips and original judges remain unchanged.
+Keep nearby observed floor layers/elevation, capsule clearance, edges, candidate
+takeoff/landing areas and unknown regions distinct. An unobserved/unloaded floor
+is unknown, not proof of a gap or an impossible route. Retain sourced observations
+and successful directed routes per world, with freshness and failed-attempt
+feedback; recheck physical conditions before execution.
+
+Generate ability-specific traversal candidates from measured horizontal/vertical
+reach, available run-up, trajectory clearance, landing support and current
+unlocks/cooldown/runes. Compare walking detours and traversal costs. Haiku/Sonnet
+retain intent and route/ability choices; frame-rate services execute and observe
+the selected move. Confirm actual landing before learning success. Do not infer
+horizontal gap range from vertical jump height or count partial jump controls as
+general obstacle-crossing capability. Research and current gaps are recorded in
+[the grounding research](../research/2026-10-29-player-grounding-native-controls.md#terrain-and-gap-traversal-follow-up).
+
 ### Standing decisions
 
 1. **Keep the reusable, two-speed architecture.** Sonnet researches and maintains
