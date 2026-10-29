@@ -1493,3 +1493,28 @@ hydration0, server/Steam/oracle preserved. NoHaikuornewunassistedpass. Newnarrow
 candidate counts guarded activeinput ratherthan heldtime, including latchedclock
 first-observationanchor; focusedcasespassed, finalwhole/fullgate/live pending.
 Research, counterexamples and scope in design/active-guard-progress.md.
+
+### Actual ground-trajectory discriminator and adaptive candidate (2026-10-29)
+
+Source7142526 passed the original short entry in the instrumented developer run,
+followed five recorded points and climbed about3.2m, then rejected an upper sweep.
+A fresh actual-pose blocking capsule query followed by real movement crossed the
+same segment, ending grounded/healthy with no driver jump/teleport command.
+Native stationary controls retained the original blocked chord while freshly
+supported midpoint subsegments were clear. Global fine sampling cost35/67/165
+queries; bounded candidate refinement used26 total queries, one refinement and
+11accepted samples at the ordinary coarse setting. Frozen candidate SHA matched
+source; valid binding/cleanup, no candidate input or autonomous pass.
+
+70sampler and67guard focused checks passed; exact whole mover integration ALL OK;
+Astra final cold review CLEAR. Design adaptive-ground-chords.md records sources,
+negative controls and evidence limits. A separate source review identified the
+unfamiliar-route selection gap: partial NPC paths suppress observed local planning
+for the original goal; proposed discriminator saved under docs/research. No such
+policy change is implemented. User's no-demonstration discovery requirement stands.
+
+Idle DEV exhausted remaining food and reached1HP; root closed client immediately
+when checked. This is operator validation overhead and unproved self-care, not a
+capability success. Preserve actual saves/memories. Future diagnostic setup must
+restore both food/water and health explicitly, record fixtures, and avoid idle
+client time while awaiting integration. No new game-model calls or full-agent pass.

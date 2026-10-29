@@ -15,6 +15,12 @@ local function fixture()
    if f.mode=='move_during' then f.pose={X=3,Y=0,Z=90} end
    if n<=f.delay then return {status='pending',consumed_total=n} end
    if f.mode=='blocked' then return {status='blocked',reason='floor_not_walkable',consumed_total=n} end
+   if f.mode=='refined_blocked' or f.mode=='refined_pending' or f.mode=='refined_unknown' then
+    local status=f.mode=='refined_blocked' and 'blocked' or (f.mode=='refined_pending' and 'pending' or 'unknown')
+    return {status=status,reason='sweep_blocking',consumed_total=n,refinement_count=2,
+    first_blocked={from={X=0,Y=0,Z=90},to={X=10,Y=0,Z=90},depth=0},last_blocked={from={X=0,Y=0,Z=90},to={X=2.5,Y=0,Z=90},depth=2}} end
+   if f.mode=='malformed_refinement' then return {status='blocked',reason='sweep_blocking',consumed_total=n,refinement_count=2,
+    first_blocked={from={X=0/0,Y=0,Z=90},to={X=10,Y=0,Z=90},depth=0},last_blocked={from={X=0,Y=0,Z=90},to={X=2,Y=0,Z=90},depth=2}} end
    if f.mode=='unknown' then return {status='unknown',reason='floor_unknown',consumed_total=n} end
    return {status='sampled_clear',initial={status=f.mode=='bad_initial' and 'unknown' or 'clear'},sample_count=1,consumed_total=n,samples={{resolved={X=o.to_feet.X+(f.mode=='bad_endpoint' and 2 or 0),Y=o.to_feet.Y,Z=o.to_feet.Z+o.half_height_cm+o.clearance_cm}}}}
   end}
@@ -50,6 +56,44 @@ f=fixture();g=f:start();f.delay=1;r=f:check(0,100,0);r=f:check(3,100,.01);check(
 f=fixture();g=f:start();f.delay=100;f:check(0,100,0);r=f:check(0,100,2.1);check('scan timeout terminal',r.status=='unknown' and r.reason=='scan_timeout' and f.closes==1)
 f=fixture();f.opts.max_resets=1;g=f:start();f.delay=100;f:check(0,100,0);f:check(3,100,.1);f:check(3,100,.11);r=f:check(6,100,.2);check('finite coast reset limit',r.status=='unknown' and r.reason=='coast_reset_limit')
 for _,mode in ipairs({'blocked','unknown'}) do f=fixture();g=f:start();f.mode=mode;r=f:check(0,100,0);local calls=f.acquires;r=f:check(0,100,.1);check(mode..' terminal on same target',r.status==mode and f.acquires==calls);f.mode='clear';r=f:check(0,101,.2);r=f:check(0,101,.21);check(mode..' new route can retry',r.status=='clear' and f.acquires==calls+1) end
+f=fixture();g=f:start();f.mode='refined_blocked';r=f:check(0,100,0)
+check('guard retains refinement after cleanup',r.status=='blocked' and f.closes==1 and r.refinement and r.refinement.count==2 and r.refinement.first_blocked.to.X==10 and r.refinement.last_blocked.depth==2)
+r.refinement.first_blocked.to.X=999;r=f:check(0,100,.1);check('guard copies retained refinement',r.refinement.first_blocked.to.X==10)
+f.alive=false;r=f:check(0,100,.2);check('stale binding hides retained refinement',r.reason=='binding_changed' and r.refinement==nil)
+f=fixture();g=f:start();f.mode='malformed_refinement';r=f:check(0,100,0)
+check('malformed refinement cannot authorize',r.status=='unknown' and r.reason=='sampler_metadata_invalid' and f.closes==1)
+for _,mode in ipairs({'refined_blocked','refined_pending','refined_unknown'}) do
+ f=fixture();f.mode=mode;f.opts.read_time=function() f.alive=false;return 0 end;g=f:start();r=f:check(0,100,0)
+ check('clock lifecycle change drops '..mode..' refinement',r.status=='unknown' and r.reason=='binding_changed' and r.refinement==nil and r.consumed_total==1 and f.closes==1)
+end
+for _,mode in ipairs({'nil','nan','reversed','throw'}) do
+ f=fixture();f.mode='refined_blocked'
+ f.opts.read_time=function()
+  f.alive=false
+  if mode=='throw' then error('clock failure') end
+  if mode=='nan' then return 0/0 end
+  if mode=='reversed' then return 0 end
+  return nil
+ end
+ g=f:start();r=f:check(0,100,1)
+ check('invalid '..mode..' clock with binding change scrubs refinement',r.status=='unknown' and r.refinement==nil and r.consumed_total==1 and f.closes==1 and (r.reason=='clock_unknown' or r.reason=='clock_reversed'))
+end
+f=fixture();f.mode='refined_blocked'
+local original_acquire=f.opts.acquire
+f.opts.acquire=function(live)
+ local sensor=original_acquire(live);local close=sensor.close
+ sensor.close=function()
+  f.nested=f.guard.check(cp(f.pose),{X=100,Y=0,Z=0},0)
+  return close()
+ end
+ return sensor
+end
+g=f:start();r=f:check(0,100,0)
+check('cleanup reentry scrubs refinement and preserves accounting',r.status=='blocked' and r.refinement==nil and r.consumed_total==1 and f.closes==1 and f.nested.reason=='reentrant_check')
+f=fixture();f.mode='refined_blocked';f.cleanup=false
+f.opts.read_time=function() f.alive=false;return 0/0 end
+g=f:start();r=f:check(0,100,0)
+check('cleanup pending remains explicit with stale refinement',r.reason=='cleanup_pending' and r.refinement==nil and r.consumed_total==1)
 f=fixture();f.opts.budget=2;g=f:start();f:check(0,100,0);f:check(0,101,.1);r=f:check(0,101,.11);check('budget charged across waypoint scans',r.status=='clear' and r.consumed_total==2);f:check(0,102,.2);r=f:check(0,102,.21);check('budget exhaustion after refresh',r.status=='unknown' and r.reason=='budget_exhausted' and f.acquires==2)
 f=fixture();g=f:start();f:check(0,100,0);f.cleanup=false;r=f:check(0,101,.1);check('failed cleanup holds new acquisition',r.status=='unknown' and r.reason=='cleanup_pending' and f.acquires==1);r=f:check(0,102,.11);check('changed target cannot bypass failed cleanup',r.reason=='cleanup_pending' and f.closes==1 and f.acquires==1);check('failed close retained',not g.close());f.cleanup=true;check('failed close retry',g.close() and f.closes==3)
 f=fixture();g=f:start();r=f:check(0,10,0);check('short target admitted',r.status=='clear');r=f:check(5,10,.1);check('short target remains covered',r.status=='clear')
@@ -82,6 +126,19 @@ f.opts.acquire=function()
 end
 g=f:start();for i=0,8 do r=f:check(0,100,i*.01);if r.status~='pending' then break end end
 check('real sampler completes through finite polls',r.status=='clear' and r.consumed_total==queries and queries>4 and f.acquires==1)
+f=fixture();f.opts.sample_module=assert(loadfile(here..'/../scripts/sampled_ground_walk.lua'))();f.opts.budget=100
+local calls=0
+f.opts.acquire=function()
+ return {shape={radius_cm=34,half_height_cm=88,step_cm=45,clearance_cm=2},valid=function() return true end,
+  close=function() f.closes=f.closes+1;return true end,
+  initial=function() calls=calls+1;return {known=true,blocking=false,consumed=1} end,
+  floor=function(p) calls=calls+1;return {status='observed',callbacks=1,consumed=1,fields={
+   bBlockingHit=known(true),bWalkableFloor=known(true),bLineTrace=known(false),FloorDist=known(p.Z-90),hit={bStartPenetrating=known(false)}}} end,
+  sweep=function(a,b) calls=calls+1;return {known=true,blocking=b.X-a.X>8,consumed=1} end}
+end
+g=f:start();for i=0,30 do r=f:check(0,100,i*.01);if r.status~='pending' then break end end
+check('guard accepts actual refined ordered polyline',r.status=='clear' and r.refinement and r.refinement.count==18 and r.refinement.first_blocked and r.consumed_total==calls)
+check('refinement evidence survives close',g.close() and f.closes==1)
 -- Real sampler with time spent both between polls and inside native callbacks.
 f=fixture(); f.opts.sample_module=assert(loadfile(here..'/../scripts/sampled_ground_walk.lua'))()
 local time=0; local count=0

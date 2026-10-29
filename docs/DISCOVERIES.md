@@ -2768,3 +2768,13 @@ gametime is latchedinsidecallback: measuredforward_search.duration_s0 is not
 zeroCPU/wallcost. The two recorded doorwayqueries nowreturnmatchedfalse while
 AshLogs returntrue againstthe same64loadedentities, with lexicalbasis explicit.
 No actualdoor absence, geometricunderstanding or autonomous taskpass follows.
+
+### Native ground-following differs from one straight capsule chord
+
+Actual-pose query then real input crossed the blocked segment with grounded final
+state, H100, no driver jump/teleport. The same retained sampler subspan's midpoint
+resolved about3.2cm above straight interpolation; left and re-resolved right full
+capsule sweeps were clear. One candidate refinement produced11samples/26queries.
+This supports a generic bounded terrain-following alternative, not declaring the
+blocked chord clear or certifying arbitrary StepUp. Actor/component remainunknown;
+unknown weak handles were not dereferenced. Privatea735/a737/a738/a740 evidence.

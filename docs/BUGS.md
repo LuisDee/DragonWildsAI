@@ -760,3 +760,12 @@ latchedclock can also charge preinputcallbacktime. Narrowcandidateafterclear and
 ownedinputfirst-observationanchor underreview; no tolerance/watermap workaround.
 Discoverywithoutoperatorroutes and self-suppliedwater remainopen. Clientwas
 closedat59HP/dehydration0 afterfixturesranout, noautonomouspassclaimed.
+
+### Coarse ground-following chord rejects traversable terrain
+
+Fresh native capsule query blocked, but real ordinary input from the identical
+pose crossed alive/grounded. Native midpoint support plus two full-capsule sweeps
+validated a different ground-following polyline while retaining the old block.
+Bounded adaptive candidate passes stationary native replay and focused negative
+controls; full deployment/live acceptance pending. No capsule shrink or hit-ignore.
+Fresh-route discovery remains separately blocked by partial-NPC selection gating.

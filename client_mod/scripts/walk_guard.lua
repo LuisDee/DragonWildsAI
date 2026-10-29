@@ -32,9 +32,30 @@ function M.new(o)
     local sensor,scan,cache,aim,terminal=nil,nil,nil,nil,nil
     local total,resets,reset_total,last_t=0,0,0,nil
     local scan_duration,oldest_started,completed_at,refresh_cause=nil,nil,nil,nil
+    local refinement=nil
     local locked,latched,closed=false,false,false
+    local function metadata(r)
+        if r.refinement_count==nil and r.first_blocked==nil and r.last_blocked==nil then return {} end
+        if not integer(r.refinement_count) or r.refinement_count<0 or r.refinement_count>127 then return nil end
+        local function segment(s)
+            if s==nil then return nil end
+            if type(s)~='table' or not integer(s.depth) or s.depth<0 or s.depth>2 then return false end
+            local a,b=vec(s.from),vec(s.to)
+            if not a or not b then return false end
+            return {from=a,to=b,depth=s.depth}
+        end
+        local first,last=segment(r.first_blocked),segment(r.last_blocked)
+        if first==false or last==false or (first==nil)~=(last==nil) or (r.refinement_count>0 and not first) then return nil end
+        return {count=r.refinement_count,first_blocked=first,last_blocked=last}
+    end
+    local function copy_metadata(m)
+        if not m then return nil end
+        local function segment(s) return s and {from=vec(s.from),to=vec(s.to),depth=s.depth} end
+        return {count=m.count,first_blocked=segment(m.first_blocked),last_blocked=segment(m.last_blocked)}
+    end
     local function result(status,reason)
         return {status=status,reason=reason,consumed_total=total,scan_duration_s=scan_duration,
+            refinement=copy_metadata(refinement),
             cache_completion_age_s=completed_at and last_t and last_t-completed_at or nil,
             oldest_observation_age_s=oldest_started and last_t and last_t-oldest_started or nil,
             coast_reset_streak=resets,coast_reset_total=reset_total,refresh_cause=refresh_cause}
@@ -60,8 +81,12 @@ function M.new(o)
         return true
     end
     local function fail(reason,status)
+        if reason=='binding_changed' then refinement=nil end
         terminal={status=status or 'unknown',reason=reason}
         if not release() then terminal={status='unknown',reason='cleanup_pending'} end
+        -- Cleanup and clock callbacks can invalidate the captured lifecycle.
+        -- Preserve accounting/cleanup status but never return stale evidence.
+        if not alive() then refinement=nil end
         return result(terminal.status,terminal.reason)
     end
     local function valid_sensor()
@@ -113,10 +138,10 @@ function M.new(o)
         if last_t and t<last_t then return done(fail('clock_reversed')) end
         last_t=t
         if terminal and terminal.reason=='cleanup_pending' then return done(result('unknown','cleanup_pending')) end
-        if not alive() then return done(fail('binding_changed')) end
+        if not alive() then refinement=nil;return done(fail('binding_changed')) end
         if aim and not eq(aim,target) then
             if not release() then terminal={status='unknown',reason='cleanup_pending'}; return done(result('unknown','cleanup_pending')) end
-            terminal=nil; aim=nil; refresh_cause='target_changed'
+            terminal=nil; aim=nil; refinement=nil;refresh_cause='target_changed'
             return done(result('pending','target_changed'))
         end
         if terminal then return done(result(terminal.status,terminal.reason)) end
@@ -149,6 +174,7 @@ function M.new(o)
         end
         if total>=budget then return done(fail('budget_exhausted')) end
         if not scan then
+            refinement=nil
             if not alive() then return done(fail('binding_changed')) end
             aim=vec(target)
             local d=dist(me,target)
@@ -184,7 +210,11 @@ function M.new(o)
         if used>scan.per or used>budget-total then total=budget; return done(fail('sampler_budget_invalid')) end
         total=total+used; scan.consumed=r.consumed_total
         if not alive() then return done(fail('binding_changed')) end
+        local observed=metadata(r)
+        if not observed then return done(fail('sampler_metadata_invalid')) end
+        refinement=observed
         local after_poll,clock_why=clock(t); if not after_poll then return done(fail(clock_why)) end
+        if not alive() then return done(fail('binding_changed')) end
         scan_duration=after_poll-scan.started
         if not finite(scan_duration) then return done(fail('clock_unknown')) end
         if scan_duration>max_scan then return done(fail('scan_timeout')) end

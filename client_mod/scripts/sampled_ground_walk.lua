@@ -56,6 +56,7 @@ function M.new(o)
     local initial={status='unknown',reason='shape_overlap_not_observed'}
     local samples={}; local total,index=0,1
     local pending,terminal,busy,latched,start_floor=nil,nil,false,false,nil
+    local todo,refinements,first_blocked,last_blocked=nil,0,nil,nil
     local failure_detail,query_origin=nil,nil
     local function detail(phase_name, origin, r)
         local d={phase=phase_name,query=vec(origin)}
@@ -87,8 +88,9 @@ function M.new(o)
         return true
     end
     local function result(status,reason)
-        return {status=status,reason=reason,consumed_total=total,spacing_cm=actual_spacing,
-            sample_count=n,completed_samples=#samples,initial=copy(initial),start_floor=copy(start_floor),samples=copy(samples),failure_detail=copy(failure_detail),
+        return {status=status,reason=reason,consumed_total=total,spacing_cm=actual_spacing,coarse_count=n,
+            sample_count=#samples,completed_samples=#samples,initial=copy(initial),start_floor=copy(start_floor),samples=copy(samples),failure_detail=copy(failure_detail),
+            refinement_count=refinements,first_blocked=copy(first_blocked),last_blocked=copy(last_blocked),
             limits='sampled observations only; no continuity proof or movement authority'}
     end
     local function finish(status,reason) terminal=result(status,reason); return copy(terminal) end
@@ -108,16 +110,20 @@ function M.new(o)
             if phase=='overlap' then ok,r=pcall(overlap,vec(a),1)
             elseif phase=='start_floor' then ok,r=pcall(floor,vec(a),1)
             elseif phase=='floor' then
-                local t=index/n
+                if not todo then
+                    local t=index/n
+                    todo={{X=a.X+dx*t,Y=a.Y+dy*t,depth=0}}
+                end
+                local task=todo[#todo]
                 -- FindFloor traces vertically from the capsule location; its search range is bounded.
                 -- https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/UCharacterMovementComponent/FindFloor
                 -- https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/UCharacterMovementComponent/ComputeFloorDist
-                local expected={X=a.X+dx*t,Y=a.Y+dy*t,Z=current.Z}
+                local expected={X=task.X,Y=task.Y,Z=current.Z}
                 local raised={X=expected.X,Y=expected.Y,Z=current.Z+step-5}
                 if not vec(expected) or not vec(raised) then
                     busy=false; return finish('unknown','invalid_derived_geometry')
                 end
-                pending={expected=expected,raised=raised}
+                pending={expected=expected,raised=raised,depth=task.depth}
                 query_origin=raised
                 ok,r=pcall(floor,vec(query_origin),1)
             elseif phase=='floor_fallback' then
@@ -138,11 +144,27 @@ function M.new(o)
                 if r.known~=true or type(r.blocking)~='boolean' then busy=false; return finish('unknown',phase..'_unknown') end
                 if r.blocking then
                     if phase=='overlap' then initial={status='blocked',reason='shape_overlap_query_blocking'} end
-                    busy=false; return finish('blocked',phase..'_blocking')
-                end
-                if phase=='overlap' then initial={status='clear',reason='shape_overlap_query_clear'}; phase='start_floor'
+                    if phase=='overlap' then busy=false; return finish('blocked','overlap_blocking') end
+                    local blocked={from=vec(current),to=vec(pending.resolved),depth=pending.depth}
+                    if not first_blocked then first_blocked=copy(blocked) end
+                    last_blocked=copy(blocked);failure_detail={phase='sweep',from=vec(blocked.from),to=vec(blocked.to),depth=blocked.depth}
+                    if pending.depth>=2 then busy=false;return finish('blocked','sweep_blocking') end
+                    if n+refinements+1>limit then busy=false;return finish('unknown','sample_limit') end
+                    -- A blocked chord stays blocked. Adapt discrete subdivision
+                    -- with fresh support at both new endpoints, not interpolated
+                    -- Z or a weakened collision check:
+                    -- https://ompl.kavrakilab.org/stateValidation.html
+                    -- https://raw.githubusercontent.com/ompl/ompl/main/src/ompl/base/src/DiscreteMotionValidator.cpp
+                    local task=todo[#todo];local depth=task.depth+1
+                    todo[#todo]={X=task.X,Y=task.Y,depth=depth}
+                    todo[#todo+1]={X=(current.X+task.X)/2,Y=(current.Y+task.Y)/2,depth=depth}
+                    if not finite(todo[#todo].X) or not finite(todo[#todo].Y) then busy=false;return finish('unknown','invalid_derived_geometry') end
+                    refinements=refinements+1;pending=nil;phase='floor'
+                elseif phase=='overlap' then initial={status='clear',reason='shape_overlap_query_clear'}; phase='start_floor'
                 else
-                    pending.sweep='clear'; samples[#samples+1]=pending; current=vec(pending.resolved); pending=nil; index=index+1
+                    pending.sweep='clear'; samples[#samples+1]=pending; current=vec(pending.resolved); pending=nil
+                    todo[#todo]=nil
+                    if #todo==0 then todo=nil;index=index+1 end
                     if index>n then
                         busy=false
                         if initial.status~='clear' then return finish('unknown','initial_overlap_unknown') end

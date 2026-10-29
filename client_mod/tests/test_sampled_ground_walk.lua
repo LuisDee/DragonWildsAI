@@ -34,6 +34,45 @@ check('spacing at most half radius',r.spacing_cm==10 and #r.samples==4 and f.sw=
 check('raised search and grounded centres',r.samples[1].raised.Z==130 and r.samples[1].resolved.Z==94 and r.samples[1].support.distance_cm==38)
 check('actual centre is first sweep origin',r.samples[1].expected.X==10 and r.start_floor.start_penetrating==false)
 r.samples[1].resolved.Z=999; check('terminal returns independent snapshots',tx.poll().samples[1].resolved.Z==94)
+for _,case in ipairs({{5,1,2,8},{2.5,3,4,16}}) do
+ f=setup();f.opts.to_feet.X=10;f.opts.budget=40;f.opts.poll_budget=1
+ f.opts.sweep=function(a,b) f.calls=f.calls+1;return {known=true,blocking=b.X-a.X>case[1]+1e-8,consumed=1} end
+ tx=f:start();r=f:run()
+ check('refined supported chord '..case[1],r.status=='sampled_clear' and r.refinement_count==case[2] and r.sample_count==case[3] and #r.samples==case[3] and r.consumed_total==case[4])
+ check('original block retained '..case[1],r.first_blocked and r.first_blocked.from.X==0 and r.first_blocked.to.X==10 and r.first_blocked.depth==0)
+ local ordered=true;for i,p in ipairs(r.samples) do if i>1 and p.resolved.X<=r.samples[i-1].resolved.X then ordered=false end end
+ check('refined polyline ordered '..case[1],ordered and r.samples[#r.samples].resolved.X==10)
+ r.first_blocked.from.X=999;check('refinement evidence copied '..case[1],tx.poll().first_blocked.from.X==0)
+end
+f=setup();f.opts.to_feet.X=10;f.opts.budget=40;local floor_queries={}
+local flat=f.opts.floor
+f.opts.floor=function(p,n)
+ floor_queries[#floor_queries+1]={X=p.X,Z=p.Z};local obs=flat(p,n)
+ if p.X==5 then obs.fields.FloorDist=known(p.Z-95) end
+ return obs
+end
+f.opts.sweep=function(a,b) f.calls=f.calls+1;return {known=true,blocking=a.X==0 and b.X==10,consumed=1} end
+tx=f:start();r=f:run()
+check('refinement re-resolves endpoint from midpoint support',r.status=='sampled_clear' and #floor_queries==4 and floor_queries[2].X==10 and floor_queries[3].X==5 and floor_queries[4].X==10 and r.samples[1].resolved.Z==97 and r.samples[2].raised.Z==137)
+f=setup();f.opts.to_feet.X=10;f.opts.budget=40;f.mode='wall';tx=f:start();r=f:run()
+check('blocked leaf depth bounded',r.status=='blocked' and r.reason=='sweep_blocking' and r.last_blocked.depth==2 and r.refinement_count==2 and r.consumed_total==8)
+f=setup();f.opts.to_feet.X=10;f.opts.budget=40
+f.opts.sweep=function(a,b) f.calls=f.calls+1;return {known=true,blocking=(b.X-a.X>5.01 or a.X>=5),consumed=1} end
+tx=f:start();r=f:run();check('blocked second half remains blocked',r.status=='blocked' and r.last_blocked.depth==2 and r.last_blocked.from.X>=5)
+for _,mode in ipairs({'unsupported','missing','penetrating'}) do
+ f=setup();f.opts.to_feet.X=10;f.opts.budget=40
+ local basefloor=f.opts.floor
+ f.opts.floor=function(p,n) if p.X==5 then f.mode=mode end;return basefloor(p,n) end
+ f.opts.sweep=function(a,b) f.calls=f.calls+1;return {known=true,blocking=b.X-a.X>5.01,consumed=1} end
+ tx=f:start();r=f:run();check('midpoint '..mode..' rejects',r.status~='sampled_clear' and r.refinement_count==1)
+end
+f=setup();f.opts.to_feet.X=10;f.opts.max_samples=1;f.mode='wall';tx=f:start();r=f:run()
+check('refinement respects sample cap',r.status=='unknown' and r.reason=='sample_limit' and r.first_blocked and r.refinement_count==0)
+f=setup();f.opts.to_feet.X=10;f.opts.budget=4;f.opts.poll_budget=2;f.mode='wall';tx=f:start();r=f:run()
+check('refinement respects cumulative budget',r.status=='unknown' and r.reason=='budget_exhausted' and r.consumed_total==4 and r.refinement_count==1)
+f=setup();f.opts.to_feet.X=10;f.opts.budget=40
+f.opts.sweep=function(a,b) f.calls=f.calls+1;f.alive=false;return {known=true,blocking=true,consumed=1} end
+tx=f:start();r=f:run();check('binding loss before refinement fails closed',r.reason=='binding_changed' and r.refinement_count==0)
 f=setup(); f.opts.overlap=nil; tx=f:start(); r=f:run(); check('floor does not prove initial overlap',r.status=='unknown' and r.reason=='initial_overlap_unknown' and r.completed_samples==4)
 for _,pair in ipairs({{'unsupported','floor_not_walkable','blocked'},{'penetrating','floor_initial_penetration','blocked'},
  {'wall','sweep_blocking','blocked'},{'ceiling','sweep_blocking','blocked'},{'overlap','overlap_blocking','blocked'},
