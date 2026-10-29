@@ -26,6 +26,7 @@ local walls = {}           -- {x0,x1,y0,y1[,tall]}: short (80 cm, jumpable) or t
 local FLOOR = -90
 local pawn, pc, luis, settings, eis
 local sprinting, injected, air = false, 0, 0
+local walking_speed = 450
 local function blocked(x, y, airborne)
     for _, w in ipairs(walls) do
         if x > w[1] and x < w[2] and y > w[3] and y < w[4] and (w[5] or not airborne) then return true end
@@ -153,7 +154,7 @@ local function step(n)
         for id, fn in pairs(loops) do scheduled[#scheduled+1]={id=id,fn=fn} end
         for _, item in ipairs(scheduled) do if loops[item.id]==item.fn then item.fn() end end
         if pawn.input then
-            local sp = (sprinting and 680 or 450) * DT
+            local sp = (sprinting and 680 or walking_speed) * DT
             if in_lake(pawn.loc.X, pawn.loc.Y) then sp = 150 * DT; water_frames = water_frames + 1 end
             local nx, ny = pawn.loc.X + pawn.input.X * sp, pawn.loc.Y + pawn.input.Y * sp
             -- heights: a rise above a step needs a jump within jump height; tall walls never pass
@@ -227,6 +228,148 @@ for _, l in ipairs(logs) do if l:find("src=nav") then saw_nav = true end end
 check("used nav waypoints (oracle heartbeat live)", (s.nav_requests or 0) >= 1 and saw_nav, s.nav_requests); if os.getenv("DBG") then for _, l in ipairs(logs) do print("  " .. l) end; print(pawn.loc.X, pawn.loc.Y) end
 check("sprint injected", injected > 0, injected)
 if os.getenv("MOVE_PROTOCOL_WIRE_ONLY") == "1" then os.exit(fails == 0 and 0 or 1) end
+
+do -- The oracle's next point is closer, but the intervening corner is mandatory.
+    M.stop(log); pawn.loc={X=0,Y=0,Z=0}; air=0
+    walls={{-100,250,400,600,true}}
+    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{10,0,0},{0,10,0},{-5,10,0}}}"):format(id) end
+    pump_oracle(); M.go_to(log,{-5,10,0},{local_plan=false,timeout_s=30})
+    run(3)
+    local corner=_G.DW_MOVE
+    check("unreached corner retained despite nearer next point",corner.path and corner.wp==2 and pawn.loc.X>0 and pawn.loc.Y<100,corner.wp)
+    run(180)
+    check("physical detour follows mandatory corner",M.status().result and M.status().result.status=="arrived",M.status().status)
+    M.stop(log); walls={}
+end
+
+do -- A long first leg goes directly away from the destination for over five seconds.
+    pawn.loc={X=0,Y=0,Z=0}; air=0; walking_speed=150
+    walls={{300,700,-200,1400,true}}
+    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{-15,0,-0.9},{-15,18,-0.9},{10,18,-0.9},{10,0,-0.9}}}"):format(id) end
+    pump_oracle(); M.go_to(log,{10,0,0},{local_plan=false,sprint=false,timeout_s=70})
+    run(70)
+    local detour=M.status()
+    check("moving away along admitted segment remains live",not detour.result and pawn.loc.X < -300,detour.status.." x="..pawn.loc.X)
+    run(580)
+    check("long physical U detour completes",M.status().result and M.status().result.status=="arrived",M.status().status)
+    M.stop(log); walking_speed=450; walls={}
+end
+
+do -- Overshooting a corner must steer back and recover within the action deadline.
+    pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}
+    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{10,0,0},{10,10,0}}}"):format(id) end
+    pump_oracle(); M.go_to(log,{10,10,0},{local_plan=false,sprint=false,timeout_s=20})
+    run(3); pawn.loc={X=1350,Y=0,Z=0}; run(180)
+    check("overshot corner recovers or terminates within deadline",M.status().result~=nil,M.status().status)
+    check("overshot corner recovers to destination",M.status().result and M.status().result.status=="arrived",M.status().status)
+    M.stop(log)
+end
+
+do -- A pawn repeatedly displaced within a small area cannot earn unlimited time.
+    pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}
+    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{20,0,0},{30,0,0}}}"):format(id) end
+    luis.loc={X=90000,Y=90000,Z=0}
+    pump_oracle(); M.go_to(log,{30,0,0},{local_plan=false,sprint=false,timeout_s=120})
+    local frames=0
+    frame_hook=function()
+        frames=frames+1; pawn.loc.X=(frames%2==0) and 40 or 0; pawn.loc.Y=0
+        if frames%30==0 then _G.DW_MOVE.want_repath=true end
+    end
+    run(240); frame_hook=nil
+    check("oscillation fails before action deadline",M.status().result and M.status().result.status=="failed" and M.status().result.reason~="timeout",M.status().status)
+    M.stop(log); luis.loc={X=3000,Y=0,Z=0}
+end
+
+do -- Matching XY is not enough to reach an elevated native link endpoint.
+    pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}
+    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{0,0,5},{10,0,5}}}"):format(id) end
+    pump_oracle(); M.go_to(log,{10,0,5},{local_plan=false,timeout_s=20})
+    run(3)
+    local elevated=_G.DW_MOVE
+    check("native link at same XY on another floor is not reached",elevated.path and elevated.wp==2,elevated.wp)
+    M.stop(log)
+end
+
+do -- Real oracle replacements with jittered starts must not refresh the stall budget.
+    pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}
+    local replies=0
+    oracle=function(id)
+        replies=replies+1
+        local x=pawn.loc.X/100
+        return ("return {id=%d,ok=true,partial=false,points={{%.3f,0,-0.9},{%.3f,0,-0.9},{30,0,-0.9}}}"):format(id,x,10+replies*0.001)
+    end
+    luis.loc={X=90000,Y=90000,Z=0}
+    pump_oracle(); M.go_to(log,{30,0,0},{local_plan=false,sprint=false,timeout_s=120})
+    local frames, ages=0,{}
+    frame_hook=function()
+        frames=frames+1
+        pawn.loc.X=(math.floor(frames/45)%2==0) and 0 or 200
+        pawn.loc.Y=0
+        local move=_G.DW_MOVE
+        -- Withdraw the active path to trigger the normal nonce-bound request/response path.
+        if frames%75==0 and move.mode=="go_to" and move.path then
+            ages[#ages+1]=move.prog_t and T-move.prog_t or 0
+            move.path,move.nav_fail=nil,nil
+        end
+    end
+    run(270); frame_hook=nil
+    local result=M.status().result
+    check("jittered oracle replacements were admitted",replies>=2,replies)
+    check("replacements preserve accumulated stall age",ages[2] and ages[2]>ages[1]+1,table.concat(ages,","))
+    local move=_G.DW_MOVE
+    check("large oscillation and jittered intermediate replans fail before deadline",result and result.status=="failed" and result.reason~="timeout",
+        (result and result.reason or M.status().status).." age="..tostring(move.prog_t and T-move.prog_t).." replies="..replies)
+    M.stop(log); luis.loc={X=3000,Y=0,Z=0}
+end
+
+do -- A persistent follow may revisit a prior leg after the leader moves back.
+    pawn.loc={X=500,Y=0,Z=0}; luis.loc={X=2000,Y=0,Z=0}; air=0; walls={}; walking_speed=150
+    oracle=function(id)
+        return ("return {id=%d,ok=true,partial=false,points={{%.3f,0,-0.9},{%.3f,0,-0.9}}}"):format(id,pawn.loc.X/100,luis.loc.X/100)
+    end
+    pump_oracle(); M.follow(log,{actor=luis},1,{local_plan=false,sprint=false}); run(130)
+    local outbound=M.status()
+    check("persistent follow reaches first end of leg",outbound.status=="near",outbound.status)
+    luis.loc={X=500,Y=0,Z=0}; run(130)
+    local inbound=M.status()
+    check("persistent follow returns on revisited leg",inbound.status=="near" and pawn.loc.X<650,inbound.status.." x="..pawn.loc.X)
+    M.stop(log); walking_speed=450; luis.loc={X=3000,Y=0,Z=0}
+end
+
+do -- A different incoming leg to the same endpoint cannot borrow the old projection.
+    pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}
+    local replies=0
+    oracle=function(id)
+        replies=replies+1
+        return ("return {id=%d,ok=true,partial=false,points={{%.3f,%.3f,-0.9},{30,0,-0.9}}}"):format(id,pawn.loc.X/100,pawn.loc.Y/100)
+    end
+    frame_hook=function() pawn.loc.X,pawn.loc.Y=0,0 end
+    pump_oracle(); M.go_to(log,{30,0,0},{local_plan=false,sprint=false,timeout_s=20}); run(20)
+    local move=_G.DW_MOVE
+    move.path,move.nav_fail=nil,nil
+    frame_hook=function() pawn.loc.X,pawn.loc.Y=600,500 end
+    run(25); frame_hook=nil
+    check("changed incoming leg does not credit lateral projection",replies>=2 and move.prog_t and T-move.prog_t>3,
+        "replies="..replies.." age="..tostring(move.prog_t and T-move.prog_t))
+    run(60)
+    check("changed incoming leg earns progress once physically followed",not M.status().result and pawn.loc.X>1200,
+        M.status().status.." x="..pawn.loc.X)
+    M.stop(log)
+end
+
+do -- Long physical routes retain a fixed upper bound on progress evidence.
+    pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}
+    oracle=function(id)
+        local points={}
+        for i=0,70 do points[#points+1]=("{%d,0,-0.9}"):format(i*2) end
+        return ("return {id=%d,ok=true,partial=false,points={%s}}"):format(id,table.concat(points,","))
+    end
+    pump_oracle(); M.go_to(log,{140,0,0},{local_plan=false,sprint=false,timeout_s=120}); run(400)
+    local move=_G.DW_MOVE
+    check("long physical route completes",M.status().result and M.status().result.status=="arrived",M.status().status)
+    check("progress history remains bounded",move.progress_positions and #move.progress_positions==64,#(move.progress_positions or {}))
+    M.stop(log)
+end
 
 do
     -- Drive the actual move module with a deterministic planner result. The real planner's

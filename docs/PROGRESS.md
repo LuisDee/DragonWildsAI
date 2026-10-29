@@ -1,5 +1,37 @@
 # Progress log (append-only)
 
+### Traversal goal resumed; independent audits and DEV discrimination (2026-10-29)
+
+Luis set the updated Goal in NEXT-GOAL-PROMPT.md. Accepted steer now prioritizes
+three complete-agent walking round trips temple -> 200 m outside -> return;
+original M1-M6/judges stay unchanged. Research/priority checkpoint e19fae7 and
+Astra/Sol review checkpoint c4bf2de are pushed. Reviews and native evidence are
+in docs/research/2026-10-29-{traversal-perception-direction,astra-navigation-review,sol-headless-interaction-review}.md.
+
+Root adopted DEV/ClaudeDev and existing client/server/oracle; no game brain or
+model calls. Nil and explicit Default native queries reproduce the friend
+partial endpoint; Gigantic also fails. Both endpoints of the manually climbed
+segment fail tight projection, including explicit Default. A normal short
+developer go_to selected a saved trap exit below its current floor, stepped off
+and failed landing; HP100 preserved. Operator fixture food/water supplied before
+this diagnostic is recorded, not autonomous survival evidence. No new autonomous
+task passed. A generic waypoint/progress patch is under offline validation;
+neither the native coverage nor memory-connector problem is declared fixed.
+
+The bounded corner/progress revision subsequently passed fresh Astra cold review,
+focused protocol tests, the complete fake movement harness (including unchanged
+water controls), 43 design/principles/probe/DEV-control preflights and the full
+gate: **1,250 passed, 1 skipped, CHECK_ALL: GREEN, 452.78 s**. Private gate
+`C:/gameserver/logs/recovery/g-route-5aff3567/check-all.log`; candidate source
+hashes match the pre-review freeze and frozen judge diff is zero. The final
+revision uses one compatible segment high-water and a shared 64-pose local
+liveness FIFO, permits real follow episodes/revisits and prevents jittered
+replans buying time. Prepatch corner index3/long-U failures now pass; new
+oscillation controls fail before action timeout. This is offline evidence,
+not a full-agent or live slope pass. Sparse curved native legs remain a specific
+developer validation risk. Client was stopped for the gate's RAM window with
+Steam/server/world data retained; publication and DEV reboot follow.
+
 ### Navigation result feedback gate passed; live measurement next (2026-10-28)
 
 The isolated candidate preserves requested XYZ and existing movement behavior,
@@ -1104,3 +1136,22 @@ Root now owns client-off publication and supervised walk/one jump verification; 
 - Published source5cf1c8a additively:383 existing runtime files SHA256-unchanged, no restart or normal enable; current companion/body hashes0263243d9b28900f/ee34af4478a8b40a. Frozen judge diff empty. Publication/native source digest preserved; earlier pulses remain prior-hash diagnostics, not GOAL scores.
 
 Full candidate gate bfed7f2c completed:1241 passed,1 known cassette skip,453.10s, CHECK_ALL: GREEN. All9 frozen file hashes unchanged after gate; teleport remains llmfalse pending deployed compound proof.
+
+
+### Friend trial and pathing discrimination prepared (2026-10-28)
+
+Luis authorized a separate fresh-character friend trial while the original Goal
+remained paused. Real chat round trips and a model-directed goblin kill were
+observed, alongside navigation stalls, KillZ and dehydration deaths, and a body
+death-memory isolation defect. Developer inputs proved a walkable ramp line;
+Luis confirmed the top but still saw doorway obstruction. Assistance, diagnostic
+stalls and client-only recovery are recorded separately from model outcomes.
+No new original milestone or full autonomous job is claimed passed.
+
+The latest user request is handback to Haiku plus a generic pathing repair. The
+tested friend runtime is retained. A bounded Terra review found a wrong-level
+waypoint steering snapshot but insufficient evidence to select a root repair.
+The isolated candidate prepares a read-only native context comparison, with no
+movement policy change. Controlled DEV measurements are still required. See
+`docs/design/pathing-ramp-investigation.md`; the targeted design-note gate passed
+5 tests. Original judges remain unchanged.

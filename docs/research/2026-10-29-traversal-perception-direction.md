@@ -177,3 +177,33 @@ FindFloor URL returned no content, so the working current URL is:
 https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UCharacterMovementComponent/FindFloor?lang=en-US
 It describes a capsule floor sweep; cross-version API documentation does not
 validate a reflected call or prove a particular sampled surface is traversable.
+
+Root also measured current hardware through Windows inventory: 8,186 MB visible
+RAM, about 754 MB free with the existing client/server, Microsoft Basic Display
+Adapter reporting zero adapter RAM and a Microsoft Remote Display Adapter.
+This does not prove every rendering path impossible; it establishes no currently
+reported hardware GPU capacity for a local vision stack. Raw snapshot:
+`logs/recovery/nav-dev-20261029/hardware.json`. A rendered fallback still requires
+an admitted performance/coverage experiment, not speculative installation.
+
+Astra's floor-reader followup found the verified native typed-reader source
+unchanged but no ready one-query wrapper for a hypothetical upper point: archived
+callers use obsolete paths or multiple queries within a 150 cm offset bound.
+Do not widen that to the 327 cm connector casually. Preserve healthy hook ownership
+and exact retained factory/lease closures; a closed marker is not transferable.
+Use a reviewed finite caller after the integration window, not another unbounded
+callback replay. Cached CurrentFloor is current-pawn evidence only and unknown
+bitfields/distances must not become invented penetration or clearance facts.
+
+To discriminate actual missing geometry from navigation projection, root reused
+the existing synchronous Visibility-line call pattern for two finite samples at
+the previously physically climbed endpoints. Both hit: at XY `[69.35,1867.33]`
+the surface was Z `-33.674904`, and at `[76.49,1867.33]` it was `-32.028516`.
+They are consistent with the recorded actor centres minus 0.88 m half-height.
+Both surfaces lie inside the tight projection boxes that failed on explicit
+Default. The pawn identity/position stayed unchanged; no hooks or delayed
+callbacks were registered. These are line samples, not full capsule clearance,
+penetration or proof of the intervening route. They strengthen the missing
+player-walkable nav-coverage hypothesis relative to a simple height-origin bug.
+Private source/results: `logs/recovery/nav-dev-20261029/ramp_floor_lines.lua`
+and `ramp-floor-lines.json`.

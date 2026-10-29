@@ -1,5 +1,68 @@
 # Dragonwilds workspace recovery, 2026-10-26
 
+## Current: active traversal/perception Goal (2026-10-29)
+
+Luis explicitly resumed the updated Goal in docs/NEXT-GOAL-PROMPT.md. Read the
+Accepted steer at the top of docs/design/autonomy-plan.md before selecting work.
+First deliverable: three unassisted complete Sonnet Director + Haiku Controller
+walking round trips from temple lodestone to 200 m outside and back, correct
+floor; no temple-specific code, hidden waypoint hints or teleportation. Original
+M1-M6/judges remain unchanged. Older paused/trial paragraphs below are history.
+
+The friend trial ended at Luis's request. Existing client returned to local DEV
+as ClaudeDev, native world dev; friend memories/character are retained. Root owns
+the single DEV operator slot, uses tested R at C:/gameserver and isolated F at
+C:/Users/Administrator/.codex/worktrees/feedback-loop/gameserver. Do not start a
+second client/server/brain. Read live process IDs and current candidate/gate state
+from C:/gameserver/logs/recovery/ACTIVE-HANDOFF.txt instead of historical entries.
+
+Research checkpoints e19fae7/c4bf2de are pushed. Astra navigation and Sol headless
+interaction audits are saved under docs/research/2026-10-29-*.md. Actual DEV
+native queries reproduce the friend partial endpoint on nil/Default, Gigantic
+also partial; manual climb points off tight Default projection. A short existing
+developer go_to failed after selecting a remembered lower-floor trap exit and
+step-off recovery. Private proof: logs/recovery/nav-dev-20261029. No model calls
+or new autonomous pass. A reviewed generic waypoint/progress correction is in
+offline development; source reviews and diagnostics do not certify the full trip.
+
+## Latest: friend trial handed back to Haiku; targeted pathing repair requested
+
+The original development Goal remains paused. Luis separately authorized the
+friend-server trial, explicitly requested help with the grave/ramp, then asked
+for control back with Haiku. He also requested a generic pathing repair. These
+requests do not authorize running the frozen goal on the friend world or
+unannounced experimental callbacks on its active client.
+
+Read the accepted steer at `docs/design/autonomy-plan.md` and the scoped design
+`docs/design/pathing-ramp-investigation.md` before selecting repair work. Current
+runtime identities, trial logs and specific assistance are recorded privately in
+`C:/gameserver/logs/recovery/ACTIVE-HANDOFF.txt`; use that newer live evidence over
+the historical planning and deployment entries below. A fresh Standard guest
+character was created and joined through real client paths. Existing characters
+and saves were retained. Full map reveal and general Lodestone eligibility are
+still not proven. Secrets remain in the local ignored connection profile.
+
+The full Sonnet Director + Haiku Controller is enabled. Brain/task/skill state
+for this trial is separate, but a body-level global death-memory leak was found;
+do not claim complete world/character isolation. The task board holds the open
+exploration/hunting order and an assisted grave-recovery job. Preserve its pause
+and subsequent player instructions rather than silently resuming it.
+
+Developer movement proved a physically walkable climb; it did not clear the
+doorway or demonstrate autonomous route learning. A verified model-directed
+goblin kill is in the trace; later native KillZ and dehydration deaths are also
+recorded. No milestone or new full autonomous job is claimed passed. The tested
+movement source remains unchanged. New context-comparison diagnostics are being
+prepared only in the isolated development tree; they require offline review and
+a controlled DEV measurement before any routing fix is selected.
+
+The existing scheduled check now observes the friend trial every five minutes,
+appending timestamped evidence-linked local notes and remaining quiet on routine
+state. It must not resume the paused Goal, steer, reload or restart on its own.
+No new experimental runtime probe on the friend's active client. Use the single
+client on DEV for the next controlled pathing experiment when that slot is
+available; do not create another server, client, brain or navigation service.
+
 ## Latest override: accepted steer persisted; Goal paused for friend-trial planning
 
 Luis approved the full-agent steer and requested durable persistence, then

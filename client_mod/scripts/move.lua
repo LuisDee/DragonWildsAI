@@ -703,24 +703,73 @@ local function nearest_crumb(c, me)
     return (g > 0 and search(g + 1)) or search(1)
 end
 
--- Skip points already reached, or passed (closer to the next one than this one is), but only at
+-- Skip points already reached, but only at
 -- the point's own level: |(me.Z - zoff) - p.Z| < dz_tol. zoff = 0 for capsule-centre points
 -- (leader crumbs), ~90 for floor points (local plan cells, navmesh waypoints).
 local function advance(pts, i, me, radius, dz_tol, zoff, local_edges)
     dz_tol, zoff = dz_tol or 60, zoff or 0
     while i <= #pts do
-        local p, nxt = pts[i], pts[i + 1]
+        local p = pts[i]
         local dz = math.abs((me.Z - zoff) - p.Z)
         if p.gap or (local_edges and (p.act == "superjump" or p.act == "jump" or p.act == "djump")) then break end -- local superjump requires verified landing
         -- slope-aware: an ordinary point may differ in height by ~0.9 x the horizontal distance
         -- (slopes up to ~42 deg); jump/link endpoints need us really up there (strict dz_tol)
         local strict = p.link or p.act == "jump" or p.act == "djump"
         local tol = strict and dz_tol or (dz_tol + 0.9 * d2(me, p))
-        if (p.air or dz < tol) and (d2(me, p) < radius or (nxt and d2(me, nxt) < d2(p, nxt))) then
+        if (p.air or dz < tol) and d2(me, p) < radius then
             i = i + 1
         else break end
     end
     return i
+end
+
+-- A bounded local history is shared by waypoint and segment credit. Changing
+-- path tables or jittering their points never supplies movement evidence.
+local function novel_progress(st, me)
+    for _, p in ipairs(st.progress_positions) do
+        if d2(me, p) < M.cfg.progress_cm and math.abs(me.Z-p.Z) < 65 then return false end
+    end
+    st.progress_positions[#st.progress_positions+1] = v(me)
+    if #st.progress_positions > 64 then table.remove(st.progress_positions, 1) end
+    return true
+end
+
+-- Keep one active leg. Compatible replans retain its reference and high-water;
+-- replacement merely establishes a baseline and never earns progress by itself.
+local function segment_progress(st, pts, i, me, zoff, ztol)
+    local a, b = pts and pts[i-1], pts and pts[i]
+    if not a or not b then return false end
+    local function in_corridor(seg, p, offset)
+        local x, y = p.X-seg.x, p.Y-seg.y
+        local along = x*seg.dx+y*seg.dy
+        local lateral = math.abs(x*seg.dy-y*seg.dx)
+        local expected_z = seg.z + seg.dz * math.max(0, math.min(1, along/seg.len))
+        return lateral <= M.cfg.wp_radius_cm and along >= -M.cfg.wp_radius_cm and
+            along <= seg.len + M.cfg.wp_radius_cm and math.abs(p.Z-offset-expected_z) <= (ztol or 65), along
+    end
+    local seg = st.segment_progress
+    local compatible = seg and d2(b, seg.endpoint) <= M.cfg.wp_radius_cm and
+        math.abs(b.Z-seg.endpoint.Z) <= (ztol or 65) and in_corridor(seg, a, 0)
+    if not compatible then
+        local dx, dy = b.X-a.X, b.Y-a.Y
+        local len = math.sqrt(dx*dx+dy*dy)
+        if len < 1 then st.segment_progress = nil; return false end
+        local candidate = {x=a.X, y=a.Y, z=a.Z, dz=b.Z-a.Z, dx=dx/len, dy=dy/len, len=len, endpoint=v(b)}
+        local valid, projected = in_corridor(candidate, me, zoff or 0)
+        if not valid then return false end
+        candidate.high = math.max(0, math.min(len, projected))
+        candidate.mark = candidate.high
+        st.segment_progress = candidate
+        return false
+    end
+    local pawn_ok, projected = in_corridor(seg, me, zoff or 0)
+    if not pawn_ok then return false end
+    seg.high = math.max(seg.high, math.max(0, math.min(seg.len, projected)))
+    if seg.high >= seg.mark + M.cfg.progress_cm then
+        seg.mark = seg.high -- consume the high-water even when novelty rejects credit
+        return novel_progress(st, me)
+    end
+    return false
 end
 
 -- ------------------------------------------------------------------ local planner glue
@@ -1418,6 +1467,8 @@ local function tick(st, gen, log)
     local dt = st.last_t and (t - st.last_t) or 0
     st.last_t = t
     local me = pawn:K2_GetActorLocation()
+    local idx_progress = false
+    if not st.progress_positions then st.progress_positions = {v(me)} end
     st.ticks = st.ticks + 1
     if st.ws_exec and (st.lpath ~= st.ws_exec.path or st.lwp ~= st.ws_exec.index
         or not st.lpath or st.lpath[st.lwp] ~= st.ws_exec.endpoint or st.lpath[st.lwp].act ~= "superjump") then
@@ -1520,6 +1571,14 @@ local function tick(st, gen, log)
         st.target_pos = goal
     else
         goal = st.goal
+    end
+    if st.mode == "follow" then
+        local anchor = st.progress_target_anchor
+        if not anchor or d2(goal, anchor) > M.cfg.repath_goal_move_cm or
+            math.abs(goal.Z-anchor.Z) > M.cfg.repath_goal_move_cm then
+            st.progress_target_anchor = v(goal)
+            st.segment_progress, st.progress_positions = nil, {v(me)}
+        end
     end
     local dist = d2(me, goal)
     st.dist_cm = dist
@@ -1644,8 +1703,11 @@ local function tick(st, gen, log)
             if not b or b.gen ~= gen or b.token ~= st.owner_token or b.pawn ~= pawn or
                 not world or b.world ~= world then return end
             if not st.lpath and not st.trail_i and not st.mpath and not st.link_exec then
-                st.wp = advance(st.path, st.wp, me, M.cfg.wp_radius_cm,
+                local first = st.wp
+                local next_wp = advance(st.path, first, me, M.cfg.wp_radius_cm,
                     math.max((st.env and st.env.step or 45) + 20, 60), st.half_h or 90)
+                if next_wp > first then idx_progress = novel_progress(st, me) end
+                st.wp = next_wp
             end
             if st.wp > #st.path then
                 local last = st.path[#st.path]
@@ -1747,7 +1809,9 @@ local function tick(st, gen, log)
         if not st.path and st.nav_required and not st.local_authority then
             st.nav_wait_t = st.nav_wait_t or t
             st.status = st.unreach and "unreachable" or "planning"
-            st.prog_t, st.prog_pos, st.win_t, st.win_pos = t, v(me), t, v(me)
+            if st.prog_t then st.prog_t = st.prog_t + math.max(dt, 0)
+            else st.prog_t, st.prog_pos = t, v(me) end
+            st.win_t, st.win_pos = t, v(me)
             if st.prog_tr then st.prog_tr.last_t = nil end
             if st.mode == "go_to" and t - st.t0 > st.timeout_s then
                 return finish(st, { status="failed", reason="timeout", detail="route not yet verified" }, log)
@@ -1847,6 +1911,7 @@ local function tick(st, gen, log)
             st.lp, st.lp_state, st.lpath = nil, nil, nil
             return
         end
+        if st.idle then st.segment_progress, st.progress_positions = nil, {v(me)} end
         st.idle = false
     end
 
@@ -2065,7 +2130,6 @@ local function tick(st, gen, log)
 
     -- choose the steering point
     local aim, src = goal, "straight"
-    local idx_progress = false
     local lx = st.link_exec
     if lx then
         -- running a learned traversal link (traverse_learn.lua): approach the run-up point, run at
@@ -2201,7 +2265,7 @@ local function tick(st, gen, log)
             local i0 = st.lwp
             st.lwp = advance(st.lpath, st.lwp, me, M.cfg.lp_radius_cm, math.max((st.env and st.env.step or 45) + 20, 60), st.half_h or 90, true)
             if st.lwp > i0 then
-                idx_progress = true
+                idx_progress = novel_progress(st, me) or idx_progress
                 for k = i0, st.lwp - 1 do
                     local pt = st.lpath[k]
                     if k > 1 and (pt.act == "jump" or pt.act == "djump" or pt.act == "drop") then
@@ -2341,7 +2405,7 @@ local function tick(st, gen, log)
         if not st.lpath and st.trail_i then
             local i0 = st.trail_i
             st.trail_i = advance(st.crumbs, st.trail_i, me, M.cfg.wp_radius_cm, math.max((st.env and st.env.step or 45) + 20, 60))
-            if st.trail_i > i0 then idx_progress = true end
+            if st.trail_i > i0 then idx_progress = novel_progress(st, me) or idx_progress end
             if st.trail_i > #st.crumbs then
                 st.trail_i = nil
                 if log then log("move: trail OFF (caught up)") end
@@ -2370,7 +2434,7 @@ local function tick(st, gen, log)
         if not st.lpath and not st.trail_i and st.mpath then
             local i0 = st.mwp
             st.mwp = advance(st.mpath, st.mwp, me, M.cfg.wp_radius_cm, math.max((st.env and st.env.step or 45) + 20, 60), st.half_h or 90)
-            if st.mwp > i0 then idx_progress = true end
+            if st.mwp > i0 then idx_progress = novel_progress(st, me) or idx_progress end
             if st.mwp > #st.mpath then
                 if log then log("move: memory route done (" .. tostring(st.msrc) .. ")") end
                 st.mpath, st.nav_force = nil, true
@@ -2391,8 +2455,6 @@ local function tick(st, gen, log)
             end
         end
         if not st.lpath and not st.trail_i and not st.mpath and path then
-            local i0 = st.wp
-            if st.wp > i0 then idx_progress = true end
             if st.wp <= #path then
                 aim, src = path[st.wp], "nav"
                 -- an oracle segment that rises more than a step over a short run is a nav LINK (the
@@ -2693,14 +2755,22 @@ local function tick(st, gen, log)
         st.win_t, st.win_pos = t, v(me)
     end
 
-    -- bounded give-up: no net progress toward the goal (or point reached) for > give_up_s
+    -- Bounded give-up: actual route progress or point reach earns another window.
     if not st.prog_t then st.prog_t, st.prog_pos = t, v(me) end
     local gx, gy = goal.X - st.prog_pos.X, goal.Y - st.prog_pos.Y
     local gl = math.max(math.sqrt(gx * gx + gy * gy), 1)
     local toward = ((me.X - st.prog_pos.X) * gx + (me.Y - st.prog_pos.Y) * gy) / gl
-    if toward >= M.cfg.progress_cm or idx_progress then
+    local route, route_index
+    if src == "nav" then route, route_index = st.path, st.wp
+    elseif src == "local" then route, route_index = st.lpath, st.lwp
+    elseif src == "memory" then route, route_index = st.mpath, st.mwp
+    elseif src == "trail" then route, route_index = st.crumbs, st.trail_i end
+    local route_progress = route and segment_progress(st, route, route_index, me,
+        src == "trail" and 0 or (st.half_h or 90), 65)
+    local straight_progress = src == "straight" and toward >= M.cfg.progress_cm
+    if route_progress or straight_progress or idx_progress then
         st.prog_t, st.prog_pos, st.move_acc, st.bt_tested, st.bt_pos = t, v(me), 0, nil, nil
-        if toward >= M.cfg.progress_cm then st.lp_plans_np = 0 end
+        if route_progress or straight_progress then st.lp_plans_np = 0 end
     elseif t - st.prog_t > M.cfg.give_up_s then
         local at = { math.floor(me.X) / 100, math.floor(me.Y) / 100, math.floor(me.Z) / 100 }
         local self_stuck = false
@@ -2991,6 +3061,7 @@ local function start(log, mode, opts)
     end
     st.owner_token, st.owner_implicit = candidate, implicit
     st.crumbs, st.self_crumbs, st.lp_plans_np, st.trail_jumped, st.nav_jumped = {}, {}, 0, {}, {}
+    st.segment_progress, st.progress_positions, st.progress_target_anchor = nil, nil, nil
     st.half_h = half_height
     st.t0 = now(pawn)
     if paused() or death_seq()~=start_life_seq or rawget(_G,"DW_MOVE")~=st or st.gen~=gen or st.mode~=mode or

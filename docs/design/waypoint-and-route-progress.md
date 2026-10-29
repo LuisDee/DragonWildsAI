@@ -49,6 +49,54 @@ Run focused movement tests, cold review, then the full gate before deployment.
 Developer real-client checks precede full Sonnet/Haiku acceptance. The temple
 round trip remains unmet until separately measured.
 
+### First implementation: cold review requested changes
+
+The first implementation passed the focused tests and complete fake movement
+harness, including a genuine dense-water-waypoint regression fixed during
+development. A fresh Astra review nevertheless blocked the full gate: lifetime
+endpoint histories can reject a legitimate persistent-follow revisit; exact
+endpoint keys allow jittered intermediate corners to bypass oscillation checks;
+three unbounded histories add lifetime work/state. New negative assertions also
+ran beyond the action timeout and did not prove the stagnation bound itself.
+Do not interpret those test passes as publication approval.
+
+The revision must preserve equivalent-segment high-water through jittered
+replans, allow genuinely new traversal episodes without granting time merely
+for a new route, bound retained state/work, and make negative controls fail by
+stagnation before the action deadline. Persistent follow must revisit a long
+edge and approach a reused endpoint from a different valid leg successfully.
+Actual oracle replacements must jitter intermediate endpoints, not only starts.
+The author owns movement/tests; main owns integration; fresh review precedes
+the full gate. Native coverage and remembered-floor entry remain separate work.
+
+### Approved bounded revision
+
+Astra approved one active segment with a monotonic high-water, retaining its
+original geometry across equivalent jittered replacements. Initialize a new
+segment only at a pose inside its corridor and interpolated floor; initialization
+does not earn time. Route and waypoint progress share one physical-novelty check
+and bounded pose FIFO; consume forward high-water even when novelty refuses
+credit. Eviction only follows actual new credit and earns nothing itself.
+
+Seed each episode at the current pose; reset evidence only after verified
+near-to-resume or material live-target displacement from a stable epoch anchor,
+never a route table/nonce or frame jitter. Evidence reset preserves stall age.
+The FIFO is bounded local liveness, not a global no-cycle proof; unchanged fixed
+goal deadlines and three-dimensional arrival checks retain their separate roles.
+Add actual follow revisit and new incoming-leg positives, jittered intermediate
+endpoint/stagnation negatives before action timeout, and a bounded-state longevity
+check. This revises the implementation approach, not the final goal or judges.
+
+### Verification of the revised candidate
+
+Fresh Astra cold review cleared the bounded revision. Focused protocol tests,
+all movement Lua checks including the original water controls, and preflights
+passed. Full `tools/check_all.ps1` completed: 1,250 passed, 1 skipped in 452.78 s,
+CHECK_ALL: GREEN. Frozen judges were unchanged and candidate file hashes match
+the pre-review freeze. The live risk of a sparse curved segment departing over
+65 cm from its interpolated height must be measured before claiming autonomous
+acceptance. No new live or full-agent pass is implied by this gate.
+
 ## Search record
 
 Root searched `site:docs.nav2.org regulated pure pursuit path pruning collision

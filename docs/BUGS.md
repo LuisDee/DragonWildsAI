@@ -1,5 +1,42 @@
 # Live bug ledger
 
+### DEV: disconnected native route and unsafe remembered floor connector (2026-10-29)
+
+OPEN; no autonomous traversal pass. The exact friend-route endpoint was reproduced
+by a stationary DEV native query without the mover: nil and explicit Default end
+at `[71.68,1862.08,-35.2]`; Gigantic is also partial. Manually walkable ramp
+endpoints fail tight projection on Default. This is not evidence for an axis
+swap or a simple alternate-mesh fix. Independent current short-move failure
+selected trap t7's lower-floor exit while on the upper floor, triggered step-off
+recovery and failed landing. Preserve the memory; validate connectors/floors.
+
+Astra also proved an unrelated generic waypoint-skipping counterexample and
+broken native index-progress accounting. A bounded reviewed patch is in progress,
+not yet deployed; it cannot alone fix the reproduced native partial path.
+Evidence and proposed negative controls: docs/research/2026-10-29-astra-navigation-review.md
+and docs/design/waypoint-and-route-progress.md. Sol found identity/coverage/read
+completeness risks for nearby containers; these are static findings pending live
+discrimination, not all confirmed causes of the reported chest failures.
+
+### Friend trial: walkable ramp missed; route context remains unresolved (2026-10-28)
+
+OPEN. Developer real inputs climbed a loaded rubble approach to the upper stone
+floor with health 100; Luis visually confirmed the top, then doorway obstruction.
+The same trial contains partial native paths and steering toward a waypoint
+almost vertically below the character. This is sufficient to investigate a
+generic route/layer/steering defect, not to identify a ramp-specific root cause.
+The local planner already supports two floor layers and slope verification.
+See `docs/design/pathing-ramp-investigation.md` for the discriminating DEV test.
+No movement-policy change has been implemented or validated from this trial.
+
+Additional observed gaps are parked separately: body death memory exposed old
+DEV deaths to the fresh friend character; remembered death coordinates were
+about 46 m below the live registry's safely placed gravestone; `explore("rat")`
+matched visible raw meat; and the model lacked the fatal cause available in the
+raw log. Do not clear memory or hide those failures. Native KillZ death and a
+later dehydration death are distinct events. Some operator diagnostics also
+stalled the client and required a disclosed client-only restart.
+
 ### Navigation failure feedback implemented; deployment proof pending
 
 2026-10-28: candidate retains validated route endpoint/partial/projection facts

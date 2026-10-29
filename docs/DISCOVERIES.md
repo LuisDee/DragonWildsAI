@@ -1,5 +1,24 @@
 # Discoveries
 
+### Controlled DEV routing reproduces friend failure; context switch is insufficient (2026-10-29)
+
+With ClaudeDev stationary, the bounded diagnostic queried the actual recorded
+start/goal. Nil and explicit Default returned the same six points and partial
+endpoint `[71.68,1862.08,-35.2]`; Gigantic returned a different partial path.
+Thus a mover-only explanation cannot account for that endpoint, and selecting
+Gigantic is not a demonstrated cure. Tight projection of both endpoints of a
+physically climbed short segment failed, including explicit Default. Expected
+feet are within the +/-1.5 m centre-origin box, so merely lowering/widening the
+box could select another floor rather than repair a coordinate conversion.
+
+Indexed native PathPoints reads in nav_route_probe worked in these serialized
+calls. UObject validity remains distinct from unknown native path validity.
+A separate developer movement trace selected an old lower-floor trap exit,
+stepped off the upper floor and failed landing, while HP100 was preserved.
+This supports connector/floor validation; old n_ok counters are not present-day
+clearance evidence. Source surveys and limits are in the 2026-10-29 research notes;
+raw native and movement records stay private under logs/recovery/nav-dev-20261029.
+
 ### Nearby Lodestone construction/use and Fire Spirit controls (2026-10-28)
 
 Developer-only on53fd3f7: normal21m movement and real build-menu placement
@@ -2652,3 +2671,31 @@ One AddMovementInput call movedY+1.392664cm/Z-0.116089cm; four post-release samp
 ### Walking-speed release and typed source reader (2026-10-28)
 
 The staged12-input walking trial recorded450cm/s actor/CMC release velocity and7.399cm horizontal post-release travel; velocity was0 by the third roughly33ms sample, HP100 unchanged, exact cleanup acknowledged. This is one slope trial, not a universal stopping bound or sprint evidence. The standalone source reader passed33 fake assertions, GREEN1158/1skip and one explicit current-position read. Registration count remained15 and its own subscriber was removed; normal steering/startup never enables it. See [full provenance and limitations](research/r26-floor-observations-20261028.md).
+
+
+### Friend-trial grave placement and assisted ramp climb (2026-10-28)
+
+Read-only GameplayObjectRegistry.Gravestones exposed the guest character
+owned grave at a surface location approximately46m above the remembered falling
+death position. Registry owner GUID matched GetCharacterGuid. The remembered
+death point is not a verified gravestone access point. Global body death memory
+also exposed older DEV-character records despite isolated brain/task/navigation
+state; keep that leakage as an open defect, not a successful migration.
+
+Native fatal information identified KillZVolume for the first recorded death
+and dehydration for a later death. The first exploration result reported
+nothing_in_range and8legs despite several repeated trail positions and an
+actual death. Those labels do not prove successful walks or a harmless stop.
+
+Developer real movement inputs walked the loaded rubble approach from
+[69.35,1867.33,-32.70] east to[76.49,1867.33,-31.13] with health100; Luis visually
+confirmed reaching the top, still caught in the doorway. No actor location,
+health or inventory was written. This is a positive control for physical
+traversability, not an autonomous climb, exit or learned-route proof.
+
+A separate follow snapshot steered toward a waypoint below the current feet at
+almost the sameXY. Neither stale binding nor incorrect nav-data/projection is
+yet established. The local planner already represents two floor layers and
+provisional slope edges. Preserve the pending discriminating experiment instead
+of describing absent slope/layer support as fact. Private source traces and
+operator interventions remain under logs/recovery/friend-trial-20261028/.
