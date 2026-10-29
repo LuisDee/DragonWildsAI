@@ -1,5 +1,27 @@
 # Progress log (append-only)
 
+### False floor rejection isolated; resolved-support candidate (2026-10-29)
+
+Production-matched developer input crossed a retained rejected segment117.82cm
+in0.7705s to within0.098cm of its aim, grounded/HP100. Independent post-control
+confirmed stopped/no owner. The prior0.2/50ms pulse was inconclusive, not a
+physical obstruction proof. Raw native support replay found interpolated probe
+height exceeding the measured FindFloor range despite a flat floor.
+
+Candidate follows previously resolved support height and permits one budgeted
+lower probe only after a known nonblocking/nonpenetrating miss. Cold review
+required nested-hit flag consistency and bounded starting distance; amendments
+passed50sampler/43guard Lua checks, plus7pytest preflight tests. Read-only native
+candidate replay resolved all6support samples where the old sampler failed at6;
+initial-position admission was deliberately omitted in this historical replay,
+so its final initial_overlap_unknown is expected and grants no movement.
+First full gate caught the wrong-floor admission regression (1278pass/1fail/1skip).
+Final endpoint support consistency restored with existing no-input/jump/step-off
+assertions retained;53sampler/43guard checks and grounded mover preflight pass.
+Revised full gate rfp-g2-a712/session55665 GREEN1279passed/1skip in463.56s;
+597sourcefiles match the freeze, frozen judges unchanged. No autonomous pass yet. Existing reserves/health were supplied DEV diagnostic fixtures, never
+independent survival evidence. Source/design/research links are persisted.
+
 ### Input repair published; complete agent moved, route and provisions failed (2026-10-29)
 
 Sourceb68fc5e pushed/deployed after1279passed/1skipGREEN459.28s; no judge changes,

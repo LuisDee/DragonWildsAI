@@ -1,5 +1,17 @@
 # Live bug ledger
 
+### Interpolated floor probes reject physically walkable flat support (2026-10-29)
+
+ROOT CAUSE MEASURED, candidate awaiting full gate/deployment. Exact rejected nav
+segment was crossed by production-matched normal input117.82cm/0.7705s, grounded
+and HP100. Read-only query replay found five flat-floor hits, then a no-hit when
+interpolated target elevation plus probe lift exceeded native FindFloor range.
+The old floor_not_walkable reason conflated this no-hit with nonwalkable hits.
+Resolved-support candidate fixes query geometry, preserves full sweeps and adds
+one bounded lower retry only for known nonblocking misses. It resolves all6raw
+support samples in historical replay; no full route or autonomous pass yet.
+Evidence: private native-input-ab-a705; design: design/resolved-floor-probes.md.
+
 ### Planning repairs can exhaust hourly allowance before an action (2026-10-29)
 
 PARTIAL REPAIR onb68fc5e: fullgate1279/1skipGREEN and actual complete-agent

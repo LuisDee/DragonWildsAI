@@ -56,6 +56,30 @@ function M.new(o)
     local initial={status='unknown',reason='shape_overlap_not_observed'}
     local samples={}; local total,index=0,1
     local pending,terminal,busy,latched,start_floor=nil,nil,false,false,nil
+    local failure_detail,query_origin=nil,nil
+    local function detail(phase_name, origin, r)
+        local d={phase=phase_name,query=vec(origin)}
+        if type(r)=='table' then
+            local f=type(r.fields)=='table' and r.fields or {}
+            d.status=type(r.status)=='string' and r.status:sub(1,80) or nil
+            d.callbacks=finite(r.callbacks) and r.callbacks or nil
+            d.fields={}
+            for _,k in ipairs({'bBlockingHit','bWalkableFloor','bLineTrace','FloorDist','LineDist'}) do
+                local v=field(f,k,k:sub(1,1)=='b' and 'boolean' or 'number')
+                if v~=nil then d.fields[k]=v end
+            end
+            local hit=type(f.hit)=='table' and f.hit or {}
+            d.fields.bStartPenetrating=field(hit,'bStartPenetrating','boolean')
+            d.fields.hitBlocking=field(hit,'bBlockingHit','boolean')
+            d.fields.hitDistance=field(hit,'Distance','number')
+            for _,k in ipairs({'ImpactNormal','Normal'}) do
+                local v=hit[k]
+                if type(v)=='table' and v.known==true then v=v.value end
+                local n=vec(v); if n then d.fields[k]=n end
+            end
+        end
+        return d
+    end
     local function still_live()
         if latched then return false end
         local ok,v=pcall(live)
@@ -64,7 +88,7 @@ function M.new(o)
     end
     local function result(status,reason)
         return {status=status,reason=reason,consumed_total=total,spacing_cm=actual_spacing,
-            sample_count=n,completed_samples=#samples,initial=copy(initial),start_floor=copy(start_floor),samples=copy(samples),
+            sample_count=n,completed_samples=#samples,initial=copy(initial),start_floor=copy(start_floor),samples=copy(samples),failure_detail=copy(failure_detail),
             limits='sampled observations only; no continuity proof or movement authority'}
     end
     local function finish(status,reason) terminal=result(status,reason); return copy(terminal) end
@@ -85,14 +109,20 @@ function M.new(o)
             elseif phase=='start_floor' then ok,r=pcall(floor,vec(a),1)
             elseif phase=='floor' then
                 local t=index/n
-                local end_center_z=b.Z+hh+gap
-                local expected={X=a.X+dx*t,Y=a.Y+dy*t,Z=a.Z+(end_center_z-a.Z)*t}
-                local raised={X=expected.X,Y=expected.Y,Z=expected.Z+step-5}
-                if not finite(end_center_z) or not vec(expected) or not vec(raised) then
+                -- FindFloor traces vertically from the capsule location; its search range is bounded.
+                -- https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/UCharacterMovementComponent/FindFloor
+                -- https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/UCharacterMovementComponent/ComputeFloorDist
+                local expected={X=a.X+dx*t,Y=a.Y+dy*t,Z=current.Z}
+                local raised={X=expected.X,Y=expected.Y,Z=current.Z+step-5}
+                if not vec(expected) or not vec(raised) then
                     busy=false; return finish('unknown','invalid_derived_geometry')
                 end
                 pending={expected=expected,raised=raised}
-                ok,r=pcall(floor,vec(raised),1)
+                query_origin=raised
+                ok,r=pcall(floor,vec(query_origin),1)
+            elseif phase=='floor_fallback' then
+                query_origin=pending.expected
+                ok,r=pcall(floor,vec(query_origin),1)
             else
                 local from,to=vec(current),pending and vec(pending.resolved)
                 if not from or not to then busy=false; return finish('unknown','invalid_derived_geometry') end
@@ -100,7 +130,10 @@ function M.new(o)
             end
             used,total=used+1,total+1
             if not still_live() then busy=false; return finish('unknown','binding_changed') end
-            if not ok or type(r)~='table' or r.consumed~=1 then busy=false; return finish('unknown','query_failed_or_budget_unknown') end
+            if not ok or type(r)~='table' or r.consumed~=1 then
+                if phase=='floor' or phase=='floor_fallback' or phase=='start_floor' then failure_detail=detail(phase, phase=='start_floor' and a or query_origin, r) end
+                busy=false; return finish('unknown','query_failed_or_budget_unknown')
+            end
             if phase=='overlap' or phase=='sweep' then
                 if r.known~=true or type(r.blocking)~='boolean' then busy=false; return finish('unknown',phase..'_unknown') end
                 if r.blocking then
@@ -113,11 +146,19 @@ function M.new(o)
                     if index>n then
                         busy=false
                         if initial.status~='clear' then return finish('unknown','initial_overlap_unknown') end
+                        local expected_z=b.Z+hh+gap
+                        local delta=current.Z-expected_z
+                        if not finite(expected_z) or not finite(delta) then return finish('unknown','invalid_derived_geometry') end
+                        if math.abs(delta)>step then
+                            failure_detail={phase='target_support',actual_z=current.Z,expected_z=expected_z}
+                            return finish('unknown','target_support_mismatch')
+                        end
                         return finish('sampled_clear','samples_and_full_shape_sweeps_clear')
                     end
                     phase='floor'
                 end
             else
+                failure_detail=detail(phase,phase=='start_floor' and a or query_origin,r)
                 if r.status~='observed' or r.callbacks~=1 or type(r.fields)~='table' then busy=false; return finish('unknown','floor_unknown') end
                 local f=r.fields; local hit=f.hit
                 local pen=field(hit,'bStartPenetrating','boolean')
@@ -126,22 +167,37 @@ function M.new(o)
                 local blocking=field(f,'bBlockingHit','boolean')
                 if pen==nil or walk==nil or line==nil or blocking==nil then busy=false; return finish('unknown','floor_fields_unknown') end
                 if pen then busy=false; return finish('blocked','floor_initial_penetration') end
-                if not walk then busy=false; return finish('blocked','floor_not_walkable') end
+                if not walk then
+                    local hit_blocking=field(hit,'bBlockingHit','boolean')
+                    if not blocking and (hit_blocking==nil or hit_blocking~=false) then
+                        busy=false; return finish('unknown','floor_hit_flags_unknown_or_inconsistent')
+                    end
+                    if not blocking and phase=='floor' then
+                        phase='floor_fallback'
+                    elseif not blocking and phase=='floor_fallback' then
+                        busy=false; return finish('unknown','no_floor_support')
+                    else busy=false; return finish('blocked','floor_not_walkable') end
+                else
                 if not blocking then busy=false; return finish('unknown','floor_flags_inconsistent') end
                 local dist=field(f,line and 'LineDist' or 'FloorDist','number')
                 if not finite(dist) then busy=false; return finish('unknown','floor_distance_unknown') end
                 if phase=='start_floor' then
+                    if math.abs(dist)>5 then busy=false; return finish('unknown','start_floor_distance_out_of_bounds') end
                     start_floor={walkable=walk,start_penetrating=pen,line_trace=line,distance_cm=dist}
                     phase='floor'
                 else
-                    local resolved={X=pending.raised.X,Y=pending.raised.Y,Z=pending.raised.Z-dist+gap}
+                    local resolved={X=query_origin.X,Y=query_origin.Y,Z=query_origin.Z-dist+gap}
                     if not vec(resolved) then busy=false; return finish('unknown','invalid_derived_geometry') end
-                    if dist<0 or math.abs(resolved.Z-pending.expected.Z)>step then
+                    if dist<0 or math.abs(resolved.Z-current.Z)>step then
                         busy=false; return finish('unknown','floor_resolution_out_of_bounds')
                     end
+                    pending.query=vec(query_origin)
+                    pending.fallback=phase=='floor_fallback'
                     pending.resolved=resolved
                     pending.support={walkable=walk,start_penetrating=pen,line_trace=line,distance_cm=dist}
                     phase='sweep'
+                end
+                failure_detail=nil
                 end
             end
         end

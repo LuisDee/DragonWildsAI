@@ -64,3 +64,30 @@ fresh game-state outcomes. Preserve all existing per-world state and histories.
 
 The urgent navigation proof remains first; inaccessible supplies behind a broken
 ramp are not repaired by begging for food or hard-coding a survival route.
+
+## External precedent inspected while the traversal gate runs
+
+Actual2026-10-29 queries: `site:github.com mindcraft survival hunger eat food goal
+interrupt task resume agent`, `site:github.com/PrismarineJS/mineflayer collect food
+auto eat inventory hunger`, and `mindcraft github survival self preservation
+modes hunger auto eat resource gathering`. Opened primary sources:
+
+- https://github.com/PrismarineJS/mineflayer/blob/master/docs/api.md
+- https://raw.githubusercontent.com/mindcraft-bots/mindcraft/stable/src/agent/modes.js
+- https://raw.githubusercontent.com/mindcraft-bots/mindcraft/stable/src/agent/self_prompter.js
+- https://raw.githubusercontent.com/PrismarineJS/mineflayer-collectblock/master/src/CollectBlock.ts
+
+Mineflayer exposes food/health events, inventory and real consumption separately.
+Mindcraft implements priority interrupts and continuation after modes; its
+self-prompt loop retains a goal and bounds commandless turns. This supports our
+existing reflex/model-plan separation; it does not demonstrate dependable supply
+acquisition in Dragonwilds. The inspected modes.js has no food-acquisition mode.
+
+CollectBlock separates pathfinding, tool selection, harvesting and pickup queues;
+it confirms event-based collection but its entity-disappearance wait alone is
+not an inventory-gain proof. Keep our observed inventory/vitals verification.
+Decision: adapt interruption/resumption and composable primitive patterns within
+the existing architecture when a trace demonstrates the missing link. Do not
+port Minecraft block/name rules, unknown-as-air assumptions, bypass commands or
+cheats, and do not add a scripted food route. No survival implementation or new
+live acceptance was performed during this source inspection.

@@ -277,6 +277,41 @@ No new terrain tool or automatic model-choice rewrite is selected here.
 
 ## Search record
 
+### Same-segment control confirms a false floor rejection (2026-10-29, 14:00 UTC)
+
+Private native-input-ab-a705 captured the exact retained nav aim after a normal
+go_to failed floor_not_walkable. The initial low-scale0.2/50ms control moved12.24cm;
+it was inconclusive because production uses1.0/1ms and there was no matching
+clear-space positive. Epic AddMovementInput and ConsumeMovementInputVector were
+actually opened: analog scaling and consumed updates make cadence material.
+
+A production-matched bounded developer control then traversed117.82cm to within
+0.098cm of that captured aim in0.7705s,22inputs/23observations, all grounded/HP100.
+Its aim-reached assertion stopped it; no internal coast result was produced.
+An independent subsequent observation confirmed the same position, idle/no
+owner, grounded/HP100. This is a short developer diagnostic, not temple exit or
+an autonomous pass. Food/water/health setup was declared; no teleport.
+
+A read-only historical support/sweep replay found five walkable hits at the
+same flat support height. The sixth probe returned no blocking hit at47.4001cm
+search distance: interpolated navigation elevation plus40cm lift had pushed the
+query above the native search range. The replay omitted initial-position
+admission because the pawn had already moved; it authorizes no movement.
+
+New actual queries: `site:dev.epicgames.com FindFloor capsule location vertical
+sweep MaxStepHeight ComputeFloorDist walkable floor` and `site:github.com Unreal
+Engine CharacterMovementComponent FindFloor FloorSweepTraceDist MaxStepHeight
+MAX_FLOOR_DIST`. Opened primary
+[FindFloor](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UCharacterMovementComponent/FindFloor?lang=en-US),
+[ComputeFloorDist](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/UCharacterMovementComponent/ComputeFloorDist),
+[AddMovementInput](https://dev.epicgames.com/documentation/en-us/unreal-engine/BlueprintAPI/Pawn/Input/AddMovementInput)
+and [input consumption](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/APawn/ConsumeMovementInputVector).
+Decision: adapt the existing sampler to follow resolved support, with one
+budgeted lower probe only for a known nonblocking miss. Full capsule sweeps and
+failure checks remain. Design and fresh review: ../design/resolved-floor-probes.md.
+Real diagonal walls, missing distant coverage and bounded-detour limitations
+remain separate open problems; this control does not remove them.
+
 ### Complete-agent movement and adversarial reassessment (2026-10-29, 13:02-13:06 UTC)
 
 Publishedb68fc5e improved actual model input; the native body remained unchanged.

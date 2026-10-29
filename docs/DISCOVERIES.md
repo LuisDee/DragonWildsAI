@@ -1,5 +1,16 @@
 # Discoveries
 
+### Native floor search origin affects support visibility (2026-10-29)
+
+On this client/build, historical support queries over one flat floor returned
+walkable hits at distances43.18-47.29cm but a no-hit at the next raised origin,
+with returned FloorDist47.4001cm and both blocking flags false. Exact segment
+was independently traversed through normal character input while grounded.
+Interpolated nav height was the query-origin error, not a demonstrated wall.
+This is a measured local case, not a universal FindFloor range constant or proof
+of temple exit. Adapted source references sit beside the sampler; details and
+actual primary-source searches are in research/2026-10-29-player-grounding-native-controls.md.
+
 ### Historical citation correction (2026-10-29)
 
 Opening https://github.com/UE4SS-RE/RE-UE4SS/issues/484 during the inline-source

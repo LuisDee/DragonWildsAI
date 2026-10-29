@@ -65,7 +65,7 @@ end,
   local function known(v) return {known=true,value=v} end
   return {status='observed',consumed=1,callbacks=1,fields={bBlockingHit=known(d<=47.4),
    bWalkableFloor=known(d>=-1 and d<=47.4),bLineTrace=known(false),FloorDist=known(d),LineDist=known(0),
-   hit={bStartPenetrating=known(d < -1)}}}
+   hit={bStartPenetrating=known(d < -1),bBlockingHit=known(d<=47.4)}}}
  end,
  sweep=function(a,b)
   for k=0,24 do
@@ -305,18 +305,18 @@ do -- Actual mover + sampled guard: memory entries and native coverage repair.
  pump_oracle();local jumps=pawn.jumps
  M.go_to(log,{8,0,0},{sprint=false,timeout_s=30});run(220)
  local st=_G.DW_MOVE
- check('wrong-floor memory entry rejected before jump or step-off',st.walk_failure=='floor_initial_penetration' and pawn.jumps==jumps and not st.stepoff,st.walk_failure)
+ check('wrong-floor memory entry rejected before jump or step-off',st.walk_failure=='target_support_mismatch' and pawn.jumps==jumps and not st.stepoff,st.walk_failure)
  check('actual-goal native route wins after invalid memory entry',M.status().result and M.status().result.status=='arrived' and math.abs(pawn.loc.Z)<1,M.status().status)
  clean();bad_seed();walls={{70,100,-50,50}};oracle=nil;pump_oracle()
  jumps=pawn.jumps;M.go_to(log,{8,0,0},{sprint=false,timeout_s=30});step(1)
- check('reactive low-obstacle hop cannot bypass wrong-floor admission',pawn.jumps==jumps and pawn.input==nil and _G.DW_MOVE.walk_failure=='floor_initial_penetration',_G.DW_MOVE.walk_failure)
+ check('reactive low-obstacle hop cannot bypass wrong-floor admission',pawn.jumps==jumps and pawn.input==nil and _G.DW_MOVE.walk_failure=='target_support_mismatch',_G.DW_MOVE.walk_failure)
  clean();bad_seed();oracle=nil;pump_oracle()
  M.go_to(log,{8,0,0},{sprint=false,timeout_s=30})
  st=_G.DW_MOVE;st.mem_checked=true
  step(1)
  st.prog_t=T-M.cfg.give_up_s-1;st.prog_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z};st.move_acc=200
  jumps=pawn.jumps;step(1);run(220)
- check('recovery memory uses same floor guard and cannot step off',st.walk_failure=='floor_initial_penetration' and st.mem_retry and pawn.jumps==jumps and not st.stepoff,st.walk_failure)
+ check('recovery memory uses same floor guard and cannot step off',st.walk_failure=='target_support_mismatch' and st.mem_retry and pawn.jumps==jumps and not st.stepoff,st.walk_failure)
  check('recovery replans to actual nearby goal',M.status().result and M.status().result.status=='arrived',M.status().status)
  clean()
  oracle=function(id)
