@@ -1,5 +1,22 @@
 # Progress log (append-only)
 
+### Published ordered repair; real return passed, full trial stalled in planning (2026-10-29)
+
+a9f5782 pushed/deployed after1276passed/1skipGREEN, source/memory freeze matched.
+DEV reboot49.8s, native worlddev restored, existing dev_director brain memory
+preserved. Developer real return control passed8.81s, health100, ending near the
+spawn lodestone. This was declared assisted starting setup.
+
+Full Sonnet/Haiku task3fccd0b3 chose the new ordered checkpoints, visible in
+actual requests to BOTH models, but exhausted the existing hourly Director
+allowance in planning/repair/prepare before movement. Both checkpoints pending,
+zero attempts; actual position unchanged; no false completion and no autonomous
+pass.20newcalls (15Sonnet/5Haiku), incremental$0.3322; UTCday28calls/$0.4584.
+Clean shutdown confirmed, no orphan brain/action. Saved full raw evidence and
+assessment in privateoc-trial-83a2. Details, actual searches and next bounded
+input repair: docs/research/2026-10-29-planner-input-friction.md. The guard/coast
+failure and missing long-route coverage remain unresolved; no200m/M1-M6 pass.
+
 ### Ordered completion candidate and fresh outward controls (2026-10-29)
 
 Luis clarified200m is measured FROM the temple spawn lodestone, with the

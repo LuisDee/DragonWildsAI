@@ -1,5 +1,17 @@
 # Live bug ledger
 
+### Planning repairs can exhaust hourly allowance before an action (2026-10-29)
+
+OPEN, measured complete Sonnet/Haiku trial on a9f5782. Actual Director prompt
+omits tool numeric bounds, so two leg_m100 requests needed repair against
+maximum80; already-true final-state advisories also revised an explicitly
+ordered plan, followed by separate risk preparation and late research refusals.
+15Sonnet requests plus5earlier requests exhausted the20/hour Director window.
+Task3fccd0b3 waited on budget with both checkpoints pending and no movement.
+Source/actual inputs/evidence/searches and bounded next repair are persisted in
+docs/research/2026-10-29-planner-input-friction.md. Daily spend/account allowance
+were available; do not call this provider exhaustion or clear window history.
+
 ### Guard exhausts drift resets on a short native route (2026-10-29)
 
 OPEN, developer diagnostic on fd9fa13. After declared DEV survival setup, a
