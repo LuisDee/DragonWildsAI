@@ -315,6 +315,144 @@ do -- Actual mover + sampled guard: memory entries and native coverage repair.
   f:write([==[{"v":1,"traps":[{"id":"wrong-floor","center":[0,0,-0.9],"radius_m":5,"z_min":-2,"z_max":2,"exit":[[0.01,0,-4.4],[0,8,-4.4]]}],"taboos":[],"routes":[]}]==])
   f:close()
  end
+ do -- Real local planner + sampled guard, including several rolling windows.
+  local NM=assert(loadfile(dir..'/client_mod/scripts/navmem.lua'))()
+  local original_input=pawn.AddMovementInput
+  local function begin(target,follow)
+   clean();motor=nil;frame_hook=nil
+   local mem=NM.new_mem('test-world');mem._world='test-world'
+   _G.DW_NAVMEM=mem;_G.DW_MOVE_WORLD={id='test-world',t=os.time()}
+   oracle=function(id) return ('return {id=%d,ok=false,reason="no_path",points={}}'):format(id) end
+   pump_oracle()
+   if follow then luis.loc={X=target*100,Y=0,Z=0};M.follow(log,'Zezima',0.5)
+   else M.go_to(log,{target,0,0},{sprint=false,timeout_s=90,tolerance_m=0.5}) end
+   return _G.DW_MOVE
+  end
+  local q=begin(40);local start=q.t0;local missed,credited,holds=0,0,0
+  for _=1,2700 do
+   local path,index=q.lpath,q.lwp
+   step(1);pump_oracle()
+   if q.status=='checking_terrain' then holds=holds+1 end
+   if path and q.lpath==path and index and q.lwp>index and q.status=='checking_terrain' then
+    local last=q.progress_positions and q.progress_positions[#q.progress_positions]
+    if last and math.abs(last.X-pawn.loc.X)<0.01 and math.abs(last.Y-pawn.loc.Y)<0.01 then
+     if q.prog_pos and math.abs(q.prog_pos.X-last.X)<0.01 and math.abs(q.prog_pos.Y-last.Y)<0.01 then credited=credited+1
+     else missed=missed+1 end
+    end
+   end
+   if q.result then break end
+  end
+  check('real-guard multiple local windows retain physical progress',q.result and q.result.status=='arrived' and
+   (q.local_prefixes or 0)>=2 and credited>2 and missed==0 and holds>10,
+   'x='..pawn.loc.X..' prefixes='..tostring(q.local_prefixes)..' credited='..credited..' lost='..missed..' result='..tostring(q.result and q.result.detail))
+  print('progress replay x='..pawn.loc.X..' prefixes='..tostring(q.local_prefixes)..' credited='..credited..' lost='..missed..' terminal='..tostring(q.result and (q.result.detail or q.result.status)))
+  check('rolling local execution preserves deadline and cumulative sensing',q.t0==start and (q.walk_spent or 0)>0 and T-start<90)
+  if os.getenv('MOVE_PROGRESS_MULTI_ONLY')=='1' then print(fails==0 and 'PROGRESS MULTI OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
+  local function admitted(points,follow)
+   local st=begin(20,follow)
+   pawn.AddMovementInput=function() end
+   for _=1,40 do step(1);pump_oracle();if st.lp_observe then break end end
+   st.lp={step=function() return 'ready' end,plan=function() return points end,verify=function() return 'ok' end}
+   for _=1,30 do step(1);pump_oracle();if st.local_authority and st.walk_input then break end end
+   check('progress fixture owns an admitted local route',st.local_authority and st.lpath,st.status)
+   return st
+  end
+  local function points() return {{X=0,Y=0,Z=-90,act='walk'},{X=200,Y=0,Z=-90,act='walk'},{X=400,Y=0,Z=-90,act='walk'}} end
+  q=admitted(points());pawn.loc.X=200;q.prog_t=T-3;q.progress_positions={{X=0,Y=0,Z=0}}
+  step(1)
+  check('novel local waypoint credits before real guard target-change hold',q.lwp==3 and q.status=='checking_terrain' and q.prog_pos.X==200 and pawn.input==nil,q.status)
+  q=admitted(points());pawn.loc.X=200;q.prog_t=T-3;q.progress_positions={{X=0,Y=0,Z=0},{X=200,Y=0,Z=0}}
+  step(1)
+  check('revisited local waypoint cannot renew physical progress',q.prog_pos.X==0 and #q.progress_positions==2 and pawn.input==nil,q.prog_pos.X)
+  q=admitted({{X=0,Y=0,Z=-90,act='walk'},{X=200,Y=0,Z=-90,act='walk'}})
+  pawn.loc.X=200;q.prog_t=T-3;q.progress_positions={{X=0,Y=0,Z=0}};step(1)
+  check('novel prefix-final waypoint credits before planning handoff',q.local_prefixes==1 and not q.local_authority and q.prog_pos.X==200 and pawn.input==nil,q.status)
+  local height=pawn.CapsuleComponent.GetScaledCapsuleHalfHeight
+  for _,kind in ipairs({'successor','path','goal','pose','world','authority'}) do
+   q=admitted(points());pawn.loc.X=200;q.prog_t=T-3;q.progress_positions={{X=0,Y=0,Z=0}}
+   local oldgen=q.gen;local fired=false;local replacement
+   pawn.CapsuleComponent.GetScaledCapsuleHalfHeight=function(...)
+    if not fired and q.lwp==3 then
+     fired=true
+     if kind=='successor' then M.go_to(log,{8,8,0},{nav=false,local_plan=false})
+     elseif kind=='path' then replacement=points();q.lpath=replacement
+     elseif kind=='goal' then q.goal.X=q.goal.X+1
+     elseif kind=='world' then _G.DW_WORLD_GUID='changed-progress-world'
+     elseif kind=='authority' then q.local_authority=false
+     else pawn.loc.X=250 end
+    end
+    return height(...)
+   end
+   step(1);pawn.CapsuleComponent.GetScaledCapsuleHalfHeight=height
+   check('credit callback '..kind..' cannot consume successor progress',fired and pawn.input==nil and
+    (kind=='successor' and q.gen>oldgen and not q.prog_pos or kind~='successor' and q.prog_pos.X==0 and #q.progress_positions==1),q.status)
+   _G.DW_WORLD_GUID='test-world'
+  end
+  local location=pawn.K2_GetActorLocation
+  q=admitted(points());pawn.loc.X=200;q.progress_positions={{X=0,Y=0,Z=0}};local fired=false
+  pawn.K2_GetActorLocation=function(...)
+   if not fired and q.lwp==3 then fired=true;_G.DW_WORLD_GUID='pose-changed-world' end
+   return location(...)
+  end
+  step(1);pawn.K2_GetActorLocation=location;_G.DW_WORLD_GUID='test-world'
+  check('final pose callback world change cannot mint progress',fired and q.prog_pos.X==0 and #q.progress_positions==1 and pawn.input==nil,q.status)
+  q=admitted(points(),true);pawn.loc.X=200;q.prog_t=T-3;q.progress_positions={{X=0,Y=0,Z=0}}
+  step(1)
+  check('dynamic target keeps prior pending-waypoint credit behavior',q.target_name and q.status=='checking_terrain' and q.prog_pos.X==0,q.status)
+  q=admitted(points(),true);pawn.loc.X=200;q.prog_t=T-3;q.progress_positions={{X=0,Y=0,Z=0}}
+  q.walk_guard.close();q.walk_guard={check=function() return {status='clear',consumed_total=0} end,close=function() return true end}
+  step(1)
+  check('dynamic target retains existing late physical waypoint credit',q.target_name and q.prog_pos.X==200 and #q.progress_positions==2,q.status)
+  local function selected_route(source)
+   clean();local mem=NM.new_mem('test-world');mem._world='test-world'
+   if source=='memory' then mem.routes={{id='progress',n_ok=1,pts={{0,0,-0.9},{2,0,-0.9},{4,0,-0.9},{20,0,-0.9}}}} end
+   _G.DW_NAVMEM=mem;_G.DW_MOVE_WORLD={id='test-world',t=os.time()}
+   oracle=function(id)
+    if source=='memory' then return ('return {id=%d,ok=false,reason="no_path",points={}}'):format(id) end
+    return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{2,0,-0.9},{20,0,-0.9}}}'):format(id)
+   end
+   pump_oracle();M.go_to(log,{20,0,0},{sprint=false,timeout_s=60});local st=_G.DW_MOVE;st.walk_guarded=true
+   for _=1,70 do step(1);pump_oracle();if st.walk_input and st.source==source then break end end
+   check('selected '..source..' fixture has real guarded authority',st.source==source and st.walk_input~=nil,st.status)
+   pawn.loc.X=200;st.prog_t=T-3;st.progress_positions={{X=0,Y=0,Z=0}}
+   return st
+  end
+  for _,source in ipairs({'memory','nav'}) do
+   q=selected_route(source);step(1)
+   check('selected '..source..' waypoint credits before real guard hold',q.status=='checking_terrain' and q.prog_pos.X==200 and pawn.input==nil,q.status)
+  end
+  q=selected_route('nav');q.nav_binding.metadata_goal.X=q.nav_binding.metadata_goal.X+1;step(1)
+  check('native goal-binding mutation cannot grant early credit',q.prog_pos.X==0 and #q.progress_positions==1 and pawn.input==nil,q.status)
+  q=selected_route('nav');q.backtrack_pt={X=-400,Y=0,Z=0};q.backtrack_until=T+2;step(1)
+  check('inactive native waypoint cannot grant early credit',q.prog_pos.X==0 and #q.progress_positions==1,q.status)
+  -- Let a real clear guard deliver the expiry tick, without waiting out its
+  -- separate input-stall detector. The deadline and no-novel limit stay intact.
+  for _,follow in ipairs({false,true}) do
+   q=admitted(points(),follow)
+   local closed=q.walk_guard.close
+   q.walk_guard.close=function() closed();return true end
+   local check_guard=q.walk_guard.check
+   local entered=false
+   q.walk_guard.check=function(...)
+    local r=check_guard(...)
+    if r.status=='clear' then q.prog_t=T-M.cfg.give_up_s-1;entered=true end
+    return r
+   end
+   for _=1,30 do step(1);if q.result or q.unreach then break end end
+   check((follow and 'follow' or 'go_to')..' no-novel expiry preserves local recovery ownership',entered and not q.backtrack_until and not q.bug and
+    (follow and q.mode=='follow' and q.unreach and q.unreach.reason=='no_route' or not follow and q.result and q.result.detail=='local route made no novel progress'),q.status)
+  end
+  q=admitted(points());q.backtrack_pt={X=-400,Y=0,Z=0};q.backtrack_until=T+2;q.bt_tested=T-0.1;q.move_acc=12
+  step(1)
+  local mismatch
+  for _,row in ipairs(q.route_trace or {}) do if row.reason=='local_source_mismatch' then mismatch=row end end
+  check('local source invariant stamps attempted primitive cause',mismatch and mismatch.attempted_src=='backtrack' and mismatch.local_authority==true and
+   mismatch.move_acc==12 and type(mismatch.bt_tested)=='number' and type(mismatch.backtrack_until)=='number' and q.result and q.result.detail=='local route unavailable',q.status)
+  local copied=mismatch and mismatch.backtrack_until;q.backtrack_until=0
+  check('source mismatch stamp survives later state mutation',mismatch and mismatch.backtrack_until==copied)
+  pawn.AddMovementInput=original_input;clean();luis.loc={X=3000,Y=0,Z=0};oracle=nil;pump_oracle()
+  if os.getenv('MOVE_PROGRESS_CREDIT_ONLY')=='1' then print(fails==0 and 'PROGRESS CREDIT OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
+ end
  do -- Adjacent physical observations, not a larger acceptance disk.
   local saved_dt,old_input=DT,pawn.AddMovementInput
   local function prepare(points)

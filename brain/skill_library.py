@@ -33,12 +33,13 @@ import re
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from .jsonl_log import JsonlLogger
-from .llm import LLMClient
+from .llm import LLMClient, request_log_fields
+from .llm_json import BudgetStop
 from .situation import tokens
 from .state_store import SkillRegistry, Task, _atomic_write
 
@@ -429,10 +430,12 @@ class SkillLibrary:
             raise SkillError("the postcondition does not hold in the current game state")
 
     def propose(self, goal: str, tasks: list[Task], state: dict, llm: LLMClient, registry: SkillRegistry,
-                max_repairs: int = 1) -> tuple[SkillRecord, dict] | None:
+                max_repairs: int = 1, before_request: Callable[[], bool] | None = None) -> tuple[SkillRecord, dict] | None:
         """The model part of learning: one call (plus repair rounds) that names and parameterises the verified
-        steps, checked on ``state``. Writes nothing, so it can run on a worker thread over its OWN library
-        instance (docs/design/director.md section 12 item 4); the agent loop then calls ``accept``."""
+        steps, checked on ``state``. Writes no skill records, so it can run on a worker thread over its OWN
+        library instance (docs/design/director.md section 12 item 4); the agent loop then calls ``accept``.
+        An optional admission callback runs before every request; returned usage is logged before validation.
+        """
         actual = self._verified(tasks, registry)
         if len(actual) < 2:
             return None
@@ -441,9 +444,18 @@ class SkillLibrary:
         user = {"goal": goal, "verified_steps": [{"skill": s, "args": a} for s, a in actual]}
         messages = [{"role": "system", "content": prompt}, {"role": "user", "content": json.dumps(user)}]
         for round_ in range(max_repairs + 1):
-            self._log("prompt", component="skill_learner", model=llm.model, messages=messages)
+            if before_request is not None and not before_request():
+                raise BudgetStop("skill learning daily budget unavailable or exhausted")
+            # Reuse the adapter input contract, including cache blocks/settings and truthful boundary.
+            # https://docs.litellm.ai/docs/completion/input
+            self._log("prompt", component="skill_learner", model=llm.model, round=round_,
+                      **request_log_fields(llm, messages))
             resp = llm.complete(messages)
-            self._log("llm_response", component="skill_learner", content=resp.content, usage=resp.usage)
+            # Account for each paid response before validation or another admission decision.
+            # https://docs.litellm.ai/docs/observability/custom_callback
+            self._log("llm_response", component="skill_learner", model=llm.model, round=round_,
+                      content=resp.content, usage=resp.usage, finish_reason=resp.finish_reason,
+                      tool_calls=[vars(c) for c in resp.tool_calls])
             try:
                 rec, example = self._parse(resp.content or "")
                 self._check(rec, example, actual, state, registry)

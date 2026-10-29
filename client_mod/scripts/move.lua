@@ -1335,6 +1335,7 @@ local function trace_route(st, reason, t, me, goal, source, aim, report)
         oldest_age_s=scalar(r.oldest_observation_age_s),refresh_cause=scalar(r.refresh_cause)}
     rows[#rows+1]=row
     if #rows>64 then table.remove(rows,1);st.route_trace_dropped=(st.route_trace_dropped or 0)+1 end
+    return row
 end
 
 finish = function(st, result, log)
@@ -1505,6 +1506,47 @@ function WALK.advance(st, pts, i, me, t, goal, source, radius, dz_tol, zoff, loc
         math.abs(me.Z-(zoff or 0)-p.Z)>dz_tol+0.9*d2(me,p) then return next_i end
     trace_route(st,'waypoint_crossed',t,me,goal,source)
     return i+1
+end
+
+-- Accept observed physical progress before a guard hold or prefix handoff can
+-- return from this tick. Adapt immediate baseline renewal, retaining novelty:
+-- https://raw.githubusercontent.com/ros-navigation/navigation2/main/nav2_controller/plugins/simple_progress_checker.cpp
+function WALK.credit(st,gen,pawn,pc,goal,source,path,index,expected,me,t)
+    local captured=v(goal)
+    local operation=binding(st,pawn)
+    local target,target_name,half_h,world=st.target,st.target_name,st.half_h,rawget(_G,'DW_WORLD_GUID')
+    local arb=rawget(_G,'DWArbiter');local owner=arb and arb.owner
+    local metadata=source=='nav' and expected and expected.metadata_goal
+    if source=='nav' and (not metadata or metadata.X~=captured.X or metadata.Y~=captured.Y or metadata.Z~=captured.Z) then return false end
+    local function current()
+        local b=source=='memory' and st.memory_binding or source=='local' and st.local_binding or st.nav_binding
+        local p=source=='memory' and st.mpath or source=='local' and st.lpath or st.path
+        local i=source=='memory' and st.mwp or source=='local' and st.lwp or st.wp
+        return rawget(_G,'DW_MOVE')==st and st.gen==gen and st.mode~='idle' and b==expected and
+            (source~='local' or st.local_authority==true) and
+            p==path and i==index and st.pawn==pawn and st.pc==pc and st.owner_token==operation.token and
+            st.life_seq==operation.life and st.target==target and st.target_name==target_name and st.half_h==half_h and
+            rawget(_G,'DW_WORLD_GUID')==world and rawget(_G,'DWArbiter')==arb and arb and arb.owner==owner and
+            (source~='nav' or expected.metadata_goal==metadata and metadata.X==captured.X and metadata.Y==captured.Y and metadata.Z==captured.Z) and
+            goal.X==captured.X and goal.Y==captured.Y and goal.Z==captured.Z
+    end
+    if not current() then return false end
+    local valid
+    if source=='nav' then valid=route_owned(st,gen,pawn,pc)
+    else valid=local_route_owned(st,gen,pawn,pc,goal,source=='memory') end
+    if not valid or not current() then return false end
+    local ok,g=pcall(function() return st.target_name and st.target:K2_GetActorLocation() or st.goal end)
+    if not ok or not g or g.X~=captured.X or g.Y~=captured.Y or g.Z~=captured.Z or not owned(operation) then return false end
+    local observed=pawn:K2_GetActorLocation()
+    local life=rawget(_G,'DW_LIFE')
+    if not current() or observed.X~=me.X or observed.Y~=me.Y or observed.Z~=me.Z or paused() or
+        (not st.target_name and (not st.goal or st.goal.X~=captured.X or st.goal.Y~=captured.Y or st.goal.Z~=captured.Z)) or
+        (type(life)=='table' and (life.move_death_seq or 0) or 0)~=operation.life or
+        not arb or not arb.owner or arb.owner.token~=operation.token then return false end
+    if novel_progress(st,me) then
+        st.prog_t,st.prog_pos,st.move_acc,st.bt_tested,st.bt_pos=t,v(me),0,nil,nil
+    end
+    return true
 end
 
 -- A discarded memory proposal must not resurrect an older native executor.
@@ -1728,7 +1770,7 @@ local function tick(st, gen, log)
     local me = pawn:K2_GetActorLocation()
     st.walk_previous,st.walk_input=st.walk_input,nil -- consume exactly the next observation, including held ticks
     st.trace_pose=v(me)
-    local idx_progress = false
+    local idx_progress,native_advanced = false,nil
     if not st.progress_positions then st.progress_positions = {v(me)} end
     st.ticks = st.ticks + 1
     if st.ws_exec and (st.lpath ~= st.ws_exec.path or st.lwp ~= st.ws_exec.index
@@ -2051,7 +2093,10 @@ local function tick(st, gen, log)
                 local next_wp = WALK.advance(st,st.path,first,me,t,goal,'nav',st.walk_guarded and 10 or M.cfg.wp_radius_cm,
                     math.max((st.env and st.env.step or 45) + 20, 60), st.half_h or 90)
                 if not next_wp then return end
-                if next_wp > first then idx_progress = novel_progress(st, me) end
+                if next_wp > first then
+                    if st.walk_guarded and not st.target_name then native_advanced={path=st.path,binding=st.nav_binding}
+                    else idx_progress=novel_progress(st,me) end
+                end
                 st.wp = next_wp
             end
             if st.wp > #st.path then
@@ -2631,7 +2676,9 @@ local function tick(st, gen, log)
             if not next_wp then return end
             st.lwp=next_wp
             if st.lwp > i0 then
-                idx_progress = novel_progress(st, me) or idx_progress
+                if st.local_authority and not st.target_name then
+                    if not WALK.credit(st,gen,pawn,pc,goal,'local',st.lpath,st.lwp,st.local_binding,me,t) then return end
+                else idx_progress=novel_progress(st,me) or idx_progress end
                 for k = i0, st.lwp - 1 do
                     local pt = st.lpath[k]
                     if k > 1 and (pt.act == "jump" or pt.act == "djump" or pt.act == "drop") then
@@ -2814,7 +2861,11 @@ local function tick(st, gen, log)
             local next_wp=WALK.advance(st,st.mpath,st.mwp,me,t,goal,'memory',st.walk_guarded and 10 or M.cfg.wp_radius_cm, math.max((st.env and st.env.step or 45) + 20, 60), st.half_h or 90)
             if not next_wp then return end
             st.mwp=next_wp
-            if st.mwp > i0 then idx_progress = novel_progress(st, me) or idx_progress end
+            if st.mwp > i0 then
+                if st.memory_binding and not st.target_name then
+                    if not WALK.credit(st,gen,pawn,pc,goal,'memory',st.mpath,st.mwp,st.memory_binding,me,t) then return end
+                else idx_progress=novel_progress(st,me) or idx_progress end
+            end
             if st.mwp > #st.mpath then
                 if log then log("move: memory route done (" .. tostring(st.msrc) .. ")") end
                 local prefix=st.memory_binding and st.memory_binding.prefix
@@ -2869,6 +2920,9 @@ local function tick(st, gen, log)
     end
     if zone_in and st.zone_exit and not st.escape then aim, src, idx_progress = st.zone_exit, "avoid_exit", true end
     if st.local_authority and src ~= "local" then
+        local row=trace_route(st,'local_source_mismatch',t,me,goal,'local',aim)
+        row.attempted_src=src;row.local_authority=true
+        row.backtrack_until=st.backtrack_until;row.bt_tested=st.bt_tested;row.move_acc=st.move_acc
         return finish(st, {status="failed", reason="verification_failed", detail="local route unavailable"}, log)
     end
     if st.nav_required and src == "straight" then
@@ -2877,6 +2931,9 @@ local function tick(st, gen, log)
         end
         st.status = "unreachable"
         return
+    end
+    if native_advanced and src=='nav' and st.path==native_advanced.path and st.nav_binding==native_advanced.binding then
+        if not WALK.credit(st,gen,pawn,pc,goal,'nav',st.path,st.wp,native_advanced.binding,me,t) then return end
     end
     local trace_path=(src=='memory' and st.mpath) or (src=='local' and st.lpath) or (src=='nav' and st.path)
     if st.source~=src or trace_path~=st.trace_path then trace_route(st,'source_selected',t,me,goal,src,aim) end
@@ -3337,6 +3394,23 @@ local function tick(st, gen, log)
         st.prog_t, st.prog_pos, st.move_acc, st.bt_tested, st.bt_pos = t, v(me), 0, nil, nil
         if route_progress or straight_progress then st.lp_plans_np = 0 end
     elseif t - st.prog_t > M.cfg.give_up_s then
+        if st.local_authority then
+            -- Recovery stays with the admitted local executor; ordinary
+            -- backtrack/Bug2 cannot silently become a competing source.
+            -- https://recastnav.com/classdtPathCorridor.html
+            if not local_route_owned(st,gen,pawn,pc,goal) then return end
+            trace_route(st,'local_no_progress',t,me,goal)
+            if not WALK.close(st) or not local_route_owned(st,gen,pawn,pc,goal) then return end
+            if st.mode=='follow' then
+                st.local_authority,st.local_binding,st.lpath,st.lp,st.lp_state,st.lp_observe=nil,nil,nil,nil,nil,nil
+                st.local_observe_done=true;st.nav_fail='local_no_progress'
+                st.unreach={reason='no_route',since=t,check_t=t,leader_pos=v(goal),my_pos=v(me),detail='local route made no novel progress'}
+                st.status='unreachable'
+                pcall(emit_move_event,'unreachable',{reason='no_route',detail=st.unreach.detail,leader_pos=goal,my_pos=me,mode='follow'})
+                return
+            end
+            return finish(st,{status='failed',reason='verification_failed',detail='local route made no novel progress'},log)
+        end
         local at = { math.floor(me.X) / 100, math.floor(me.Y) / 100, math.floor(me.Z) / 100 }
         local self_stuck = false
         if (st.move_acc or 0) < M.cfg.self_stuck_cm then

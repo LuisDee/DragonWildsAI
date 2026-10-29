@@ -1829,8 +1829,9 @@ class Director:
         snap, reg, lib_dir, goal = copy.deepcopy(state), self.skills_registry, self.skills.dir, step.title
         self._learn_pending = {"goal": goal, "tasks": tasks, "started": self.clock()}
 
-        def job():  # on the worker: its own library instance (own SQLite), which writes nothing
-            return SkillLibrary(lib_dir).propose(goal, tasks, snap, self.llm, reg)
+        def job():  # worker owns its SQLite; emits logs but never writes skill records
+            return SkillLibrary(lib_dir, log=self.log).propose(
+                goal, tasks, snap, self.llm, reg, before_request=lambda: not self._over_daily_cap())
         self._learn_future = self.executor.submit(job)
         self.window.spend(1)
 
