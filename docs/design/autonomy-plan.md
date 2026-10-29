@@ -8,6 +8,12 @@ recovery notes. It controls implementation priorities over the historical task
 lists below. The original M1-M6 objective, milestone order, approved judges,
 evidence requirements and sign-off remain unchanged.
 
+### Adopted Astra execution plan — Luis, 2026-10-29 evening
+
+Luis explicitly resumed the Goal and adopted the [independent Astra review](../research/2026-10-29-astra-independent-reset-review.md) and [observability recommendations](../research/2026-10-29-observability-durable-execution.md). First capture the exact cause of the ordinary navigation failure with minimal telemetry on published behaviour; preserve the pending candidate instead of automatically deploying it. Repair the demonstrated cause, verify developer real controls, then the complete Sonnet Director + Haiku Controller. The three temple round trips and generalization checks remain first; original M1-M6 and frozen judges stay unchanged.
+
+Fix verified model-interface defects independently with bounded delegation. Luis requested the implementation worker use Sol. Add persistent terrain connectivity where evidence demonstrates the need. DBOS/Postgres migration is not a prerequisite. After each failed experiment record what it ruled out and select a materially different next experiment. Hourly reports count live goal outcomes only and explicitly state when no autonomous task passed. Persist decisions, sources and evidence. Code, research and offline tests are prerequisites, not realized capability.
+
 ### Immediate priority — Luis, 2026-10-29
 
 The active Goal now uses [the updated prompt](../NEXT-GOAL-PROMPT.md).

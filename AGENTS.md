@@ -110,6 +110,10 @@ autonomous test configuration.
   a task-local TMP/TEMP directory can avoid the inaccessible inherited temp root.
 - If design notes change, run `tests/test_design_notes.py` before the full gate
   so a missing research-record heading does not waste a full regression cycle.
+- Before a new worktree's first full gate, apply the bootstrap checklist in
+  `docs/design/live-runtime-isolation.md`: independent private wiki snapshot,
+  exact approved snapshot-manifest bytes (no repinning), and short unique temp.
+  Run the knowledge/skill and pinned-case preflights before the expensive gate.
 
 ## Memory, evidence and budget
 

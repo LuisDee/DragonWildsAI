@@ -346,6 +346,32 @@ do -- Actual mover + sampled guard: memory entries and native coverage repair.
   for _=1,90 do step(1);if delayed.local_replans then break end end
   pawn.AddMovementInput=old_input
   check('blocked input still stalls after first observation',delayed.local_replans and delayed.local_replans>0,delayed.status)
+  local captured
+  for _,row in ipairs(delayed.route_trace or {}) do if row.reason=='guarded_stall' then captured=row end end
+  check('trace records first guarded discard before clearing route',captured and captured.source=='memory' and captured.points==2 and captured.wp==1 and not delayed.mpath,delayed.status)
+  check('trace captures active exposure and primitive cause',captured and captured.active_s>=M.cfg.stuck_window_s and captured.stall_distance_cm<M.cfg.stuck_min_cm and captured.guard_status=='clear' and captured.guard_queries==1)
+  local saved_x=captured and captured.position_cm and captured.position_cm.X
+  pawn.loc.X=1234
+  check('trace snapshot survives later native position mutation',captured and captured.position_cm.X==saved_x and captured.position_cm~=pawn.loc)
+  local primitives=true
+  local function primitive_tree(x,depth)
+   if type(x)=='table' then
+    if depth>2 or getmetatable(x) then return false end
+    for k,v in pairs(x) do if type(k)~='string' or not primitive_tree(v,depth+1) then return false end end
+    return true
+   end
+   return type(x)=='string' or type(x)=='number' or type(x)=='boolean'
+  end
+  for _,row in ipairs(delayed.route_trace or {}) do primitives=primitives and primitive_tree(row,0) end
+  check('route trace contains primitives without route or native references',primitives)
+  clean()
+  local bounded=setup_guard()
+  for i=1,72 do
+   bounded.mpath={{X=25,Y=0,Z=-90},{X=1500,Y=0,Z=-90}};bounded.mwp=1
+   step(1)
+  end
+  check('transition ring is bounded with explicit lost-event count',#bounded.route_trace==64 and bounded.route_trace_dropped==bounded.route_trace_seq-64)
+  check('retained transition sequence exposes overflow gap',bounded.route_trace[1].seq>1 and bounded.route_trace[64].seq==bounded.route_trace_seq)
   clean()
   for _,oscillate in ipairs({false,true}) do
    local q,change=setup_guard();change('clear')

@@ -1293,6 +1293,49 @@ function WALK.close(st)
     return false
 end
 
+-- Snapshot transient route decisions before mutation, adapted from Epic's Visual Logger:
+-- https://dev.epicgames.com/documentation/en-us/unreal-engine/visual-logger-in-unreal-engine
+-- Shipping editor support is not assumed. Primitive memory only: no native calls,
+-- log callbacks or disk I/O here; an external observer persists the bounded ring.
+local function trace_route(st, reason, t, me, goal, source, aim, report)
+    local function scalar(x)
+        local k=type(x); if k=='number' or k=='string' or k=='boolean' then return x end
+    end
+    local function point(p)
+        if type(p)=='table' then return {X=scalar(p.X),Y=scalar(p.Y),Z=scalar(p.Z)} end
+    end
+    me=st.trace_pose or me -- cached primitive copy of this tick's native position
+    local w=st.guard_stall or {}; local r=report or st.walk_report or {}
+    local selected=source or st.source
+    local b=(selected=='memory' and st.memory_binding) or (selected=='local' and st.local_binding) or {}
+    local arb=rawget(_G,'DWArbiter'); local owner=arb and arb.owner
+    local life=rawget(_G,'DW_LIFE')
+    local path=(selected=='memory' and st.mpath) or (selected=='local' and st.lpath) or (selected=='nav' and st.path)
+    if path~=st.trace_path or selected~=st.trace_source then
+        st.trace_route_seq=(st.trace_route_seq or 0)+1
+        st.trace_path,st.trace_source=path,selected
+    end
+    local rows=st.route_trace or {}; st.route_trace=rows
+    st.route_trace_seq=(st.route_trace_seq or 0)+1
+    local row={seq=st.route_trace_seq,reason=reason,world_real_s=t,gen=st.gen,
+        source=selected,previous_source=st.source,route_seq=st.trace_route_seq,
+        world=scalar(rawget(_G,'DW_WORLD_GUID')),bound_world=scalar(b.world),
+        life=st.life_seq,observed_life=type(life)=='table' and scalar(life.move_death_seq) or nil,
+        token=scalar(st.owner_token),owner_token=type(owner)=='table' and scalar(owner.token) or nil,
+        position_cm=point(me),goal_cm=point(goal),aim_cm=point(aim or st.aim),
+        wp=selected=='memory' and st.mwp or selected=='local' and st.lwp or st.wp,
+        points=type(path)=='table' and #path or nil,native_wp=st.wp,native_partial=st.path_partial,
+        status=st.status,active_s=w.elapsed,input_sent=w.sent,first_observation=w.first_observation,
+        stall_origin_cm=point(w.pos),stall_distance_cm=me and w.pos and d2(me,w.pos) or nil,
+        stall_min_cm=M.cfg.stuck_min_cm,stall_window_s=M.cfg.stuck_window_s,
+        progress_s=st.prog_t,progress_cm=point(st.prog_pos),ticks=st.ticks,
+        guard_status=scalar(r.status),guard_reason=scalar(r.reason),guard_queries=scalar(r.consumed_total),
+        scan_duration_s=scalar(r.scan_duration_s),cache_age_s=scalar(r.cache_completion_age_s),
+        oldest_age_s=scalar(r.oldest_observation_age_s),refresh_cause=scalar(r.refresh_cause)}
+    rows[#rows+1]=row
+    if #rows>64 then table.remove(rows,1);st.route_trace_dropped=(st.route_trace_dropped or 0)+1 end
+end
+
 finish = function(st, result, log)
     if st.mode == "idle" then return end
     local gen, token, pawn, pc = st.gen, st.owner_token, st.pawn, st.pc
@@ -1304,6 +1347,7 @@ finish = function(st, result, log)
             arb==initial_arb and owner==initial_owner and (not owner or owner.token==token)
     end
     if not current() then return end
+    trace_route(st,'terminal:'..tostring(result and (result.reason or result.status)),st.last_t,st.trace_pose,st.goal)
     -- Optional terminal feedback is measured before release and never changes outcome.
     local evidence = st.route_feedback
     if result and result.status == "failed" and st.mode == "go_to" and evidence and not paused() and
@@ -1622,6 +1666,7 @@ local function tick(st, gen, log)
         st.guard_stall.sent=false
     end
     local me = pawn:K2_GetActorLocation()
+    st.trace_pose=v(me)
     local idx_progress = false
     if not st.progress_positions then st.progress_positions = {v(me)} end
     st.ticks = st.ticks + 1
@@ -1783,6 +1828,7 @@ local function tick(st, gen, log)
                     rawget(_G,'DWArbiter')==arb and arb==b.arb and arb and arb.owner==b.owner and owned(binding(st,pawn))
             end
             if not safe() or not WALK.close(st) or not safe() then return end
+            trace_route(st,'memory_binding_invalid',t,me,goal)
             st.memory_binding,st.mpath,st.mwp,st.msrc=nil,nil,nil,nil
             st.mem_retry=true
             st.nav_required=st.use_nav~=false
@@ -1861,6 +1907,7 @@ local function tick(st, gen, log)
                             math.abs(pts[#pts].Z-goal.Z)<=2*st.half_h then
                             if not local_route_owned(st,gen,pawn,pc,goal,true) or not WALK.close(st) or
                                 not local_route_owned(st,gen,pawn,pc,goal,true) then return end
+                            trace_route(st,'complete_native_replaces_memory',t,me,goal)
                             st.mpath,st.mwp,st.msrc,st.memory_binding=nil,nil,nil,nil
                             st.mem_retry=true
                         end
@@ -2706,6 +2753,7 @@ local function tick(st, gen, log)
                 local prefix=st.memory_binding and st.memory_binding.prefix
                 if st.memory_binding and (not local_route_owned(st,gen,pawn,pc,goal,true) or
                     not WALK.close(st) or not local_route_owned(st,gen,pawn,pc,goal,true)) then return end
+                trace_route(st,'memory_prefix_exhausted',t,me,goal)
                 st.mpath, st.memory_binding, st.nav_force = nil, nil, true
                 if prefix then
                     -- The old native response was based on the pre-prefix pose.
@@ -2763,6 +2811,8 @@ local function tick(st, gen, log)
         st.status = "unreachable"
         return
     end
+    local trace_path=(src=='memory' and st.mpath) or (src=='local' and st.lpath) or (src=='nav' and st.path)
+    if st.source~=src or trace_path~=st.trace_path then trace_route(st,'source_selected',t,me,goal,src,aim) end
     st.source, st.aim = src, aim
     if src=='memory' or (src=='local' and st.local_authority) then st.walk_guarded=true end
     if st.walk_guarded then st.strafe_until=nil end
@@ -2959,6 +3009,7 @@ local function tick(st, gen, log)
             end
             -- Preserve the memory as a proposal; do not step off toward its
             -- wrong-floor entry or select it again through ordinary recovery.
+            trace_route(st,'memory_guard_rejected:'..st.walk_failure,t,me,goal,nil,nil,r)
             st.mpath,st.memory_binding,st.mwp,st.msrc,st.bug,st.stepoff,st.backtrack_until=nil,nil,nil,nil,nil,nil,nil
             st.nav_required,st.local_observe_done,st.mem_retry=st.use_nav~=false,false,true
             st.status='planning'
@@ -2981,6 +3032,7 @@ local function tick(st, gen, log)
                     st.local_binding ~= old_binding or st.lpath ~= old_path then return end
                 if not WALK.close(st) or not owned(binding(st,pawn)) then return end
                 if st.memory_binding and not local_route_owned(st,gen,pawn,pc,goal,true) then return end
+                trace_route(st,'guarded_stall',t,me,goal,nil,nil,r)
                 st.local_failed_points = st.local_failed_points or {}
                 st.local_failed_points[#st.local_failed_points+1] = {X=p.X,Y=p.Y,Z=p.Z}
                 st.local_replans = (st.local_replans or 0) + 1
@@ -3223,6 +3275,7 @@ local function tick(st, gen, log)
                 end
                 if pts then
                     if st.memory_binding and (not WALK.close(st) or not owned(binding(st,pawn))) then return end
+                    trace_route(st,'no_progress_memory_retry',t,me,goal)
                     st.memory_binding = nil
                     st.mpath, st.mwp, st.msrc = pts, 1, okt and trap and ("trap:" .. tostring(trap.id)) or "memory"
                     st.walk_guarded=true
@@ -3236,6 +3289,7 @@ local function tick(st, gen, log)
         -- Next: Bug2 wall-following (bounded), once per move
         if not st.bug_tried and st.use_lp then
             if st.memory_binding and (not WALK.close(st) or not owned(binding(st,pawn))) then return end
+            trace_route(st,'no_progress_bug2',t,me,goal)
             st.memory_binding = nil
             st.bug_tried = true
             st.bug = { s = v(me), hit_d = dist, t0 = t, travel = 0, dir = 1, switched = false,
