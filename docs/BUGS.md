@@ -2,6 +2,13 @@
 
 ### Planning repairs can exhaust hourly allowance before an action (2026-10-29)
 
+PARTIAL REPAIR onb68fc5e: fullgate1279/1skipGREEN and actual complete-agent
+remeasurement issued movement at23.38s, with zero observed numeric-argument or
+global-trivial advisory repair requests. The trial used an explicit60/hour
+allowance and resumed the existing task; this does not prove the default20/hour
+policy adequate. Native movement still failed; no gameplay pass. The private
+wrapper's24call stop caused artificial planning errors/park, recorded separately.
+
 OPEN, measured complete Sonnet/Haiku trial on a9f5782. Actual Director prompt
 omits tool numeric bounds, so two leg_m100 requests needed repair against
 maximum80; already-true final-state advisories also revised an explicitly

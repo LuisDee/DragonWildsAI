@@ -277,6 +277,58 @@ No new terrain tool or automatic model-choice rewrite is selected here.
 
 ## Search record
 
+### Complete-agent movement and adversarial reassessment (2026-10-29, 13:02-13:06 UTC)
+
+Publishedb68fc5e improved actual model input; the native body remained unchanged.
+First complete-agent go_to[290,1889,-35] used local coverage fallback and failed
+`floor_not_walkable` near[53.17,1890.06,-35.37]. The maximum36.64m from lodestone
+came in later food-seeking travel to a sensed bush, not that first command.
+Subsequent gather/interact/combat approaches failed around the diagonal wall.
+Actual13:04:30-40 native follow used straight movement and recovery jumps but
+remained around[83.37,1873.77,-31.27]: an existing physical negative control.
+Therefore removing a guard alone is not a demonstrated solution to the wall.
+
+After failure actually searched
+`site:github.com/PrismarineJS/mineflayer-pathfinder movements getMoveJumpUp path noPath partial`
+and `site:docs.nav2.org frontier exploration local minima global planner obstacle detour`;
+opened [Mineflayer movement source](https://github.com/PrismarineJS/mineflayer-pathfinder/blob/master/lib/movements.js).
+The attempted Nav2 concepts URL404 was not relied upon. Fresh Astra reassessment
+read actual results/native trace and current source; it reaffirmed separate
+guard/acquisition and retained-detour issues, without claiming a new pass.
+
+Code facts: four drift resets accumulate for a whole guard even across clear
+samples/aim changes; nonwalkable hypothetical floor queries lose failing geometry
+in the public result; LP and rolling-prefix admission require net goal-distance
+improvement. A route that must temporarily end farther away cannot be represented
+by that contract. These are implementation choices, not frozen judge requirements.
+
+Next discriminating developer experiment: at a reproducible rejected nearby
+walking segment, capture actual pose and its exact next aim/floor/velocity; end
+go_to, then acquire exclusive arbiter ownership and apply short low-speed REAL
+movement-input pulses toward that SAME segment, no jump/sprint, bounded2m/3s,
+stopping for support loss, damage, ownership change or no progress. Do not
+teleport for a reset or mistake a different far target for the same-segment test.
+Ordinary character input is permitted by PRINCIPLES1/9; no game outcomes are
+written. This is a diagnostic design, not an executed control or a code fix.
+
+Astra's source follow-up confirmed no telemetry patch is needed: move.lua2666
+persists st.source/st.aim before WALK.check; finish retains those fields after
+closing the guard. Immediately copy raw primitive aim/source/gen/result/half_h,
+not rounded public status or path indices (takeoff/avoid_exit can override those).
+Require terminal `walking terrain:` and identity checks. Full bounded harness
+design: ../design/native-guard-input-control.md, awaiting fresh review/execution.
+
+Native movement precedent opened by the reviewer:
+[MoveAlongFloor](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/GameFramework/UCharacterMovementComponent/MoveAlongFloor?application_version=5.5),
+[StepUp](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/GameFramework/UCharacterMovementComponent/StepUp?application_version=5.5)
+and [AddMovementInput](https://dev.epicgames.com/documentation/en-us/unreal-engine/BlueprintAPI/Pawn/Input/AddMovementInput).
+They document normal physics/inputs, not proof of this game's rejected segment.
+If that control succeeds, correct the measured false veto; retain command/time/
+query bounds and known-obstacle feedback. Independently change lifetime coast
+resets to bound consecutive unsuccessful acquisition, and support bounded
+observed detours with failed-edge/visited evidence and anti-loop limits. Do not
+build another continuous-floor framework or simply remove collision checks.
+
 ### Nearby route and changed destination controls (2026-10-29, 12:42-12:45 UTC)
 
 On the tested a9f5782 body, developer normal go_to from the lodestone area to

@@ -1,5 +1,47 @@
 # Planner input and repair overhead before real movement
 
+## Current-code remeasurement: b68fc5e
+
+Fresh full gate1279passed/1skipGREEN459.28s;597sourcefiles and49memory/state
+files matched. Published b68fc5e exposes intact manifest schemas, shared metre
+wire conventions and corrected ordered-final-state feedback. Developer real
+return to the perceived lodestone ID passed8.78s, health100, actual end
+[51.66,1889.53,-35.08]. No new grants or teleportation for this setup.
+
+The complete Sonnet5.5/Haiku5.5 resumed existing task3fccd0b3 with an explicitly
+recorded60/hour Director allowance, preserving old window/history and the shared
+$10day cap. It issued its first go_to23.38s after the first model request.
+There were ZERO observed numeric-argument repair requests and ZERO generic
+already-true-global advisory requests. This measures the repaired interface;
+it is not a causal isolation of every timing improvement because the task was
+resumed and the hourly allowance differed.
+
+The first model-selected go_to[290,1889,-35] FAILED near
+[53.17,1890.06,-35.37] with `walking terrain: floor_not_walkable`, after native
+coverage fallback admitted a local prefix. Later food-seeking travel reached
+[83.37,1873.77,-31.27]; maximum observed horizontal distance from the lodestone
+was36.64m. Do not attribute that later displacement to the original outbound leg.
+Food-seeking tried remembered bushes, a grave, a kebbit, gather and interactions;
+approaches failed and it asked for supplies. No consumable inventory gains;
+no traversal or independent-provisions pass.
+
+24newcalls=7Sonnet/17Haiku,$0.2225; UTCday52calls/$0.6809. The private bounded
+wrapper's call cap ended the trial. Its RuntimeError stop was counted as two
+planning failures and parked the task: this park is a HARNESS termination effect,
+not proof of provider exhaustion or a new semantic-plan defect. Preserve history;
+future bounded wrappers should propagate the existing budget/cancellation type
+rather than manufacturing a planning failure, and use supported board resume
+when appropriate instead of rewriting status. Outbound checkpoint failed after
+one attempt; return pending. Cleanup verified idle/no follow, health100,
+sustenance4.1/hydration26.3; no orphan brain. Canonical assessment and actual
+request-start/model/input/result evidence are privatepi-trial-a703.
+
+Terrain failure packets reached actual Haiku inputs in this run. They were NOT
+observed in the Sonnet requests; offline generator transport tests do not prove
+that remaining live integration path. Keep that limitation visible. The native
+movement failure is now the next priority; do not repeat more planner-only work
+or the same failed live commands without a discriminating experiment.
+
 ## Actual evidence
 
 On published a9f5782 (fresh CHECK_ALL: GREEN, 1276 passed / 1 skipped), the

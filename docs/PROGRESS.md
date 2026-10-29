@@ -1,5 +1,22 @@
 # Progress log (append-only)
 
+### Input repair published; complete agent moved, route and provisions failed (2026-10-29)
+
+Sourceb68fc5e pushed/deployed after1279passed/1skipGREEN459.28s; no judge changes,
+597sourcefiles/49preserved statefiles matched. DEV reboot50.5s preserved
+Steam/server/oracle. Developer real return to lodestone passed8.78s, health100.
+
+Complete Sonnet/Haiku resumed3fccd0b3 with preserved state and explicit60/hour
+Director window. First real movement request at23.38s; no observed tool-bound
+repair or generic-global-trivial advisory. First outbound command failed near
+the lodestone onfloor_not_walkable; later food-seeking reached36.64m maximum
+from it, then failed routes to supplies and asked for donations. No inventory
+gain or autonomous round-trip/self-sufficiency pass.24calls7Sonnet17Haiku,
+$0.2225incremental; UTC52calls/$0.6809. Wrapper call cap caused artificial
+planning failures/task park; no provider/account exhaustion. Cleanup idle, no
+orphan brain. Actual terrain packet reached Haiku but not observed in Sonnet
+requests. Research/evidence: docs/research/2026-10-29-planner-input-friction.md.
+
 ### Planner interface candidate and changed-route controls (2026-10-29)
 
 Candidate in isolated F exposes intact body argument schemas to Director input,
