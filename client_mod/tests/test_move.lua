@@ -35,6 +35,7 @@ local function blocked(x, y, airborne)
     end
 end
 local frame_hook = nil
+local motor = nil -- optional independent acceleration/braking model for coarse-cadence cases
 local raised = {}          -- {x0,x1,y0,y1, h0, h1}: floor raised by h0..h1 cm (linear along x) = plateau / ramp
 local lakes = {}           -- {x0,x1,y0,y1}: shallow water (EnvironmentComponent depth 0.6, slow walking)
 local function in_lake(x, y) for _, l in ipairs(lakes) do if x > l[1] and x < l[2] and y > l[3] and y < l[4] then return true end end end
@@ -181,7 +182,8 @@ local function step(n)
         local scheduled={}
         for id, fn in pairs(loops) do scheduled[#scheduled+1]={id=id,fn=fn} end
         for _, item in ipairs(scheduled) do if loops[item.id]==item.fn then item.fn() end end
-        if pawn.input then
+        if motor then motor(DT,pawn.input)
+        elseif pawn.input then
             local sp = (sprinting and 680 or walking_speed) * DT
             if in_lake(pawn.loc.X, pawn.loc.Y) then sp = 150 * DT; water_frames = water_frames + 1 end
             local nx, ny = pawn.loc.X + pawn.input.X * sp, pawn.loc.Y + pawn.input.Y * sp
@@ -312,6 +314,187 @@ do -- Actual mover + sampled guard: memory entries and native coverage repair.
   local f=assert(io.open(seed,'w'))
   f:write([==[{"v":1,"traps":[{"id":"wrong-floor","center":[0,0,-0.9],"radius_m":5,"z_min":-2,"z_max":2,"exit":[[0.01,0,-4.4],[0,8,-4.4]]}],"taboos":[],"routes":[]}]==])
   f:close()
+ end
+ do -- Adjacent physical observations, not a larger acceptance disk.
+  local saved_dt,old_input=DT,pawn.AddMovementInput
+  local function prepare(points)
+   clean();motor=nil;DT=saved_dt;frame_hook=nil;oracle=nil;pump_oracle()
+   M.go_to(log,{15,0,0},{nav=false,local_plan=false,sprint=false,timeout_s=45,tolerance_m=0.5})
+   local s=_G.DW_MOVE
+   s.mpath=points or {{X=26.55,Y=0,Z=-90},{X=500,Y=0,Z=-90},{X=1500,Y=0,Z=-90}}
+   s.mwp=1;s.walk_guarded=true
+   return s
+  end
+  local s=prepare();local vx,vy=0,0
+  motor=function(dt,input)
+   local tx,ty=input and input.X*450 or 0,input and input.Y*450 or 0
+   local acceleration=input and 1800 or 6000
+   local dx,dy=tx-vx,ty-vy;local delta=math.sqrt(dx*dx+dy*dy)
+   local f=delta>0 and math.min(1,acceleration*dt/delta) or 0
+   vx,vy=vx+dx*f,vy+dy*f
+   local nx,ny=pawn.loc.X+vx*dt,pawn.loc.Y+vy*dt
+   if not blocked(nx,ny,false) then pawn.loc.X,pawn.loc.Y=nx,ny end
+  end
+  local crossed=false;local retained=true
+  for i=1,230 do
+   DT=({1/6,0.2,0.24})[(i-1)%3+1];step(1)
+   crossed=crossed or (s.mwp or 1)>1
+   retained=retained and not s.local_replans
+   if s.result then break end
+  end
+  check('coarse finite motor crosses short entry once and retains route',crossed and retained and s.result and s.result.status=='arrived',s.status..' x='..pawn.loc.X)
+  local observed=0
+  for _,row in ipairs(s.route_trace or {}) do if row.reason=='waypoint_crossed' then observed=observed+1 end end
+  check('crossing trace records bounded actual-pose transition',observed>=1,observed)
+  if os.getenv('MOVE_CROSSING_MOTOR_ONLY')=='1' then print(fails==0 and 'CROSSING MOTOR OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
+  motor=nil;DT=saved_dt
+
+  -- Hold the motor, then supply independent consecutive pose observations.
+  -- Real guard admission still decides whether input may follow a crossing.
+  local function arm(points)
+   local q=prepare(points)
+   pawn.AddMovementInput=function() end
+   for _=1,50 do step(1);if q.walk_input then break end end
+   check('crossing fixture has real admitted first input',q.walk_input~=nil,q.status)
+   return q
+  end
+  local function negative(name,mutate,points)
+   local q=arm(points);local path=q.mpath
+   local token,world,life=q.owner_token,_G.DW_WORLD_GUID,_G.DW_LIFE
+   pawn.loc={X=55,Y=0,Z=0};mutate(q,path)
+   step(1)
+   check('crossing rejects '..name,(q.mwp==1 or not q.mpath) and not (q.route_trace and q.route_trace[#q.route_trace].reason=='waypoint_crossed'),q.status..' wp='..tostring(q.mwp))
+   q.owner_token=token;_G.DW_WORLD_GUID=world;_G.DW_LIFE=life
+   pawn.AddMovementInput=old_input
+  end
+  negative('wrong floor',function() pawn.loc.Z=300 end)
+  negative('teleport',function() pawn.loc.X=150 end)
+  negative('long observation interval',function() DT=0.5 end)
+  negative('changed route',function(q,path) q.mpath={{X=path[1].X,Y=0,Z=-90},path[2],path[3]} end)
+  negative('changed endpoint',function(q,path) path[1].Y=2 end)
+  negative('changed goal',function(q) q.goal.Y=1 end)
+  negative('changed owner',function(q) q.owner_token=q.owner_token+1 end)
+  negative('changed world',function() _G.DW_WORLD_GUID='other-crossing-world' end)
+  _G.DW_WORLD_GUID='test-world';_G.DW_MOVE_WORLD=nil
+  negative('changed life',function() _G.DW_LIFE={move_death_seq=1} end)
+  _G.DW_LIFE=nil
+  negative('airborne observation',function() air=0.5 end)
+  for _,kind in ipairs({'gap','air','link','jump','djump','superjump','drop'}) do
+   local p={X=26.55,Y=0,Z=-90}
+   if kind=='gap' or kind=='air' or kind=='link' then p[kind]=true else p.act=kind end
+   negative(kind..' waypoint',function() end,{p,{X=500,Y=0,Z=-90},{X=1500,Y=0,Z=-90}})
+  end
+  negative('final waypoint',function() end,{{X=26.55,Y=0,Z=-90}})
+  local q=arm();_G.DW_PAUSE=true;step(1);_G.DW_PAUSE=false;pawn.loc.X=55;step(1)
+  check('pause discards previous crossing sample',q.mwp==1,q.mwp)
+  pawn.AddMovementInput=old_input
+  q=arm();step(1) -- pending? force one held tick through the real guard
+  local guard=q.walk_guard;local prior=guard.check
+  guard.check=function() return {status='pending'} end
+  step(1);guard.check=prior;pawn.loc.X=55;step(1)
+  check('held interval cannot reuse earlier input crossing',q.mwp==1,q.mwp)
+  pawn.AddMovementInput=old_input
+  local ground=pawn.CharacterMovement.IsMovingOnGround
+  for _,kind in ipairs({'pose','index','route','goal'}) do
+   q=arm();pawn.loc.X=55;local fired=false;local replacement
+   pawn.CharacterMovement.IsMovingOnGround=function()
+    if not fired then
+     fired=true
+     if kind=='pose' then pawn.loc.X=0
+     elseif kind=='index' then q.mwp=3
+     elseif kind=='route' then replacement={{X=800,Y=0,Z=-90}};q.mpath=replacement;q.mwp=1
+     else q.goal.Y=1 end
+    end
+    return true
+   end
+   step(1);pawn.CharacterMovement.IsMovingOnGround=ground
+   check('ground callback changing '..kind..' aborts crossing without stale input',fired and pawn.input==nil and
+    (kind~='index' or q.mwp==3) and (kind~='route' or q.mpath==replacement) and (kind~='pose' or q.mwp==1),q.status)
+   pawn.AddMovementInput=old_input
+  end
+  -- Change state during the input callback: the already submitted direction
+  -- must never be attributed to a successor waypoint/route.
+  for _,kind in ipairs({'index','endpoint','guard','pose'}) do
+   q=prepare();local fired=false
+   pawn.AddMovementInput=function()
+    fired=true
+    if kind=='index' then q.mwp=2 elseif kind=='endpoint' then q.mpath[1].Y=2
+    elseif kind=='pose' then pawn.loc.X=55 else q.walk_guard={} end
+   end
+   for _=1,50 do step(1);if fired then break end end
+   check('input callback changing '..kind..' cannot record successor sample',fired and not q.walk_input,q.status)
+   if kind=='guard' then q.walk_guard=nil end
+   pawn.AddMovementInput=old_input
+  end
+  for _,kind in ipairs({'pose','route','goal'}) do
+   q=prepare();local fired=false;local inputs=0
+   -- Hold the real scan until a clear result; then mutate inside the new ground
+   -- read immediately before the final actual-pose guard check.
+   local g={check=function() return {status='clear',reason='fixture'} end,close=function() return true end}
+   q.walk_guard=g;q.walk_goal={X=q.goal.X,Y=q.goal.Y,Z=q.goal.Z}
+   pawn.CharacterMovement.IsMovingOnGround=function()
+    if not fired then
+     fired=true
+     if kind=='pose' then pawn.loc.X=300
+     elseif kind=='route' then q.mpath={{X=900,Y=0,Z=-90}};q.mwp=1
+     else q.goal.Y=1 end
+    end
+    return true
+   end
+   -- Route/goal mutations must abort; a moved pose must be rechecked, never
+   -- submitted along the old direction. This spy requires the fresh pose.
+   g.check=function(me) if fired then return {status='pending'} end;return {status='clear'} end
+   pawn.AddMovementInput=function() inputs=inputs+1 end
+   step(1);pawn.CharacterMovement.IsMovingOnGround=ground
+   check('pre-input ground callback changing '..kind..' cannot use stale clearance',fired and inputs==0 and not q.walk_input,q.status)
+   pawn.AddMovementInput=old_input
+  end
+  q=prepare();q.target_name='moving-fixture';q.target_kind='actor'
+  q.target=obj({loc={X=1500,Y=0,Z=0},K2_GetActorLocation=pawn.K2_GetActorLocation})
+  local dynamic_inputs=0
+  pawn.AddMovementInput=function() dynamic_inputs=dynamic_inputs+1;q.target.loc.Y=q.target.loc.Y+1 end
+  for _=1,50 do step(1);if dynamic_inputs>1 then break end end
+  check('dynamic target inputs do not create crossing evidence',dynamic_inputs>0 and not q.walk_input,dynamic_inputs)
+  pawn.AddMovementInput=old_input
+  q=arm({{X=26.55,Y=0,Z=-90},{X=26.55,Y=500,Z=-90},{X=1500,Y=0,Z=-90}})
+  pawn.loc.X=55;walls={{0,80,30,80,true}};step(1)
+  check('changed next aim holds before inheriting old clearance',q.mwp==2 and pawn.input==nil and q.status=='checking_terrain',q.status)
+  for _=1,40 do step(1);if q.walk_failure then break end end
+  check('blocked corner chord cannot receive new segment input',q.walk_failure~=nil and pawn.input==nil,q.walk_failure)
+  pawn.AddMovementInput=old_input
+
+  -- A route from before the memory leg cannot silently become its recovery.
+  local function dormant_native()
+   local q=arm()
+   q.use_nav=true;q.nav_required=true;q.forward_checked=true
+   q.path={{X=0,Y=0,Z=-90},{X=1000,Y=500,Z=-90}};q.wp=2;q.path_partial=true
+   q.nav_id=(q.nav_id or 0)+1
+   local pending={id=q.nav_id,epoch=offer.epoch,nonce=offer.nonce,gen=q.gen,token=q.owner_token,pawn=pawn,world='test-world',metadata_goal={X=1500,Y=0,Z=0}}
+   q.nav_pending=pending;q.nav_binding=pending;q.nav_goal={X=1500,Y=0,Z=0};q.nav_sent_t=T
+   return q,pending
+  end
+  q=select(1,dormant_native());local old_deadline,spent=q.t0,q.walk_spent
+  force_guard_stall(q)
+  for _=1,30 do step(1);if q.local_replans then break end end
+  check('memory stall withdraws dormant partial native and pending request',q.local_replans and not q.mpath and not q.path and not q.nav_binding and not q.nav_pending,q.status)
+  check('memory discard preserves command deadline and accumulated guard spend',q.t0==old_deadline and (q.walk_spent or 0)>=(spent or 0),q.walk_spent)
+  pawn.AddMovementInput=old_input
+  local old;q,old=dormant_native()
+  local prior=q.walk_guard.check
+  q.walk_guard.check=function() return {status='blocked',reason='test_blocked',consumed_total=1} end
+  step(1)
+  check('memory guard rejection also withdraws dormant native authority',not q.mpath and not q.path and not q.nav_pending and q.walk_failure=='test_blocked',q.status)
+  local f=assert(io.open(dir..'/client_io/nav/resp.lua','w'))
+  f:write(('return {version=2,id=%d,epoch="%s",nonce="%s",ok=true,partial=false,points={{0,0,-0.9},{15,0,-0.9}}}'):format(old.id,old.epoch,old.nonce));f:close()
+  offer.no=offer.no+1;offer.nonce=fake_nonce(offer.no)
+  oracle=function() return nil end;pump_oracle();step(1)
+  local fresh=q.nav_pending
+  check('recovery requests a fresh route instead of accepting late old reply',not q.path and fresh and fresh.id>old.id and fresh.nonce~=old.nonce and pawn.input==nil,q.status)
+  step(1)
+  check('late old response stays rejected while fresh request waits',q.nav_pending==fresh and not q.path and pawn.input==nil,q.status)
+  pawn.AddMovementInput=old_input
+  clean();motor=nil;frame_hook=nil;DT=saved_dt
+  if os.getenv('MOVE_CROSSING_ONLY')=='1' then print(fails==0 and 'CROSSING OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
  end
  do -- Held scans do not spend the guarded input window or reset it.
   local function setup_guard()

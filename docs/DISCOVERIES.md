@@ -2778,3 +2778,16 @@ capsule sweeps were clear. One candidate refinement produced11samples/26queries.
 This supports a generic bounded terrain-following alternative, not declaring the
 blocked chord clear or certifying arbitrary StepUp. Actor/component remainunknown;
 unknown weak handles were not dereferenced. Privatea735/a737/a738/a740 evidence.
+
+
+### Native partial route can reappear after guarded memory stall (2026-10-29)
+
+On `ccfd357`, a812 trace shows source memory / wp1 / clear corridor, then
+`guarded_stall`, then source nav with the old partial route. Memory clearing
+left that dormant route available. The first stall occurs around a nearby
+intermediate point with observations on both sides; sparse samples establish
+oscillation but not exact per-frame friction or motor response. a810 normal
+outbound succeeded without a route discard. Preserve this distinction when
+choosing fixes: a failed support check after fallback does not prove the
+original remembered connector is physically blocked. Evidence remains private
+under logs/recovery/nct-trial-a804; research and limits are in the crossing design.

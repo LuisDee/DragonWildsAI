@@ -40,7 +40,7 @@ from . import situation as sit
 from .interface import (BRAIN_TOOLS, PROGRESS_EVENTS, READ_TOOLS, RULE_TOOLS, SENSABLE_TRIGGERS, TOOLS, Event, GameInterface,
                         GatherProgress, Reason, tool_schema, validate_args)
 from .jsonl_log import JsonlLogger
-from .llm import LLMClient, LLMResponse, ToolCall, assistant_message, strip_markers, tool_result_message
+from .llm import LLMClient, LLMResponse, ToolCall, assistant_message, request_log_fields, strip_markers, tool_result_message
 from .spells import SpellBook
 from .state_store import StateStore
 from .voice import Voice
@@ -701,13 +701,7 @@ class Controller:
         resp = LLMResponse()
         for step in range(self.max_calls):
             tag = f"{label}{step}" if label else step
-            self.log.log("prompt", component="controller", model=self.llm.model, step=tag,
-                         messages=messages if step == 0 and not label else messages[-2:],
-                         effort=self._sent_effort(d))  # the effort actually sent (L27)
-            resp = self._complete(messages, self.tools, d)
-            d.model_calls += 1
-            self.log.log("llm_response", component="controller", step=tag, content=resp.content,
-                         tool_calls=[vars(c) for c in resp.tool_calls], usage=resp.usage)
+            resp = self._complete(messages, self.tools, d, step=tag)
             calls = self.acts(resp)
             reads = [c for c in calls if c.name in self.read_tools and c.name in offered]
             commits = [c for c in calls if c.name not in self.read_tools]
@@ -738,18 +732,13 @@ class Controller:
         self._answer_says(messages, resp)
         messages.append({"role": "user", "content": FINAL_PASS_NOTE})
         tools = [t for t in self.tools if t["function"]["name"] not in self.read_tools]
-        self.log.log("prompt", component="controller", model=self.llm.model, step=f"{tag}final", messages=messages[-2:],
-                     effort=self._sent_effort(d))
         try:
-            final = self._complete(messages, tools, d)
+            final = self._complete(messages, tools, d, step=f"{tag}final")
         except (ContinuationBudgetDenied, ContinuationInvalidated):
             raise
         except Exception as exc:  # the turn ends as before (nothing done), the error is logged
             self.log.log("controller_final_pass", ok=False, error=repr(exc))
             return resp, base
-        d.model_calls += 1
-        self.log.log("llm_response", component="controller", step=f"{tag}final", content=final.content,
-                     tool_calls=[vars(c) for c in final.tool_calls], usage=final.usage)
         self.log.log("controller_final_pass", ok=True, actions=[c.name for c in final.tool_calls],
                      speech=self.speech_of(final, log=False))
         return final, messages
@@ -795,12 +784,19 @@ class Controller:
         """The effort a call sends: the request's own level, else the client's default (logged, L27)."""
         return (d.effort if d is not None else None) or getattr(self.llm, "effort", None)
 
-    def _complete(self, messages: list[dict], tools: list[dict], d: Decision) -> LLMResponse:
+    def _complete(self, messages: list[dict], tools: list[dict], d: Decision, *, step=None) -> LLMResponse:
         """One model call at the request's effort (passed only when it overrides the client's default)."""
         if self.continuation_admission is not None and not self.continuation_admission():
             raise ContinuationBudgetDenied("continuation model budget unavailable or exhausted")
+        self.log.log("prompt", component="controller", model=self.llm.model, step=step,
+                     effort=self._sent_effort(d), **request_log_fields(self.llm, messages, tools, d.effort))
         response = (self.llm.complete(messages, tools=tools, effort=d.effort) if d.effort else
                     self.llm.complete(messages, tools=tools))
+        # Paid response accounting precedes stale-continuation rejection; no action is applied here.
+        d.model_calls += 1
+        self.log.log("llm_response", component="controller", step=step, content=response.content,
+                     tool_calls=[vars(c) for c in response.tool_calls], usage=response.usage,
+                     finish_reason=response.finish_reason)
         if self.continuation_validate is not None:
             self.continuation_validate()
         return response

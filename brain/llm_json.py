@@ -47,7 +47,8 @@ def json_decision(llm: LLMClient, messages: list[dict], validate: Callable[[str,
                   tools: list[dict] | None = None, run_tool: Callable[[str, dict], Any] | None = None,
                   max_tool_rounds: int = 3, max_repairs: int = 1,
                   before_request: Callable[[], bool] | None = None,
-                  on_response: Callable[[LLMResponse], None] | None = None) -> tuple[Any, dict]:
+                  on_response: Callable[[LLMResponse], None] | None = None,
+                  on_request: Callable[[list[dict], list[dict] | None], None] | None = None) -> tuple[Any, dict]:
     """Returns (value, info) with info = {requests, tool_calls: [{name, args, refused}], repairs, advised,
     messages}."""
     msgs = list(messages)
@@ -68,10 +69,16 @@ def json_decision(llm: LLMClient, messages: list[dict], validate: Callable[[str,
         if can_research and tool_rounds >= max_tool_rounds and not info.get("research_over"):
             info["research_over"] = True
             msgs = msgs + [{"role": "user", "content": RESEARCH_OVER}]
+        if on_request is not None:
+            on_request(msgs, tools if can_research else None)
         resp = llm.complete(msgs, tools) if can_research else llm.complete(msgs)
         info["requests"] += 1
         if on_response is not None:
             on_response(resp)
+        # Incomplete tool blocks must never be executed. Report the ceiling rather than blindly retry.
+        # https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons
+        if resp.finish_reason in ("length", "max_tokens", "model_context_window_exceeded"):
+            raise DecisionError(f"model output truncated (finish_reason={resp.finish_reason})")
         if can_research and resp.tool_calls:
             over = tool_rounds >= max_tool_rounds
             tool_rounds += 1

@@ -52,7 +52,7 @@ from .executor import Executor
 from .interface import ChatHeard, CommandReceived, Event
 from .jsonl_log import JsonlLogger
 from .knowledge import open_knowledge
-from .llm import CONTROLLER_MODEL_ENV, PLANNER_MODEL_ENV, LLMClient, LiteLLMClient, missing_keys
+from .llm import CONTROLLER_MODEL_ENV, PLANNER_MODEL_ENV, LLMClient, controller_llm, planner_llm, missing_keys
 from .planner import Planner
 from .skill_library import SkillLibrary
 from .state_store import StateStore
@@ -463,17 +463,7 @@ def _env_prefixes() -> list[str] | None:
 def make_llms(dry_run: bool) -> tuple[LLMClient, LLMClient]:
     if dry_run:
         return DryRunController(), DryRunPlanner()
-    # Controller: up to 3 short calls per command; room for default-on adaptive thinking + one tool call.
-    # Speed plan §2 (live p50: ~170 of ~266 completion tokens per Controller call were thinking): effort
-    # "low" for the fast Controller (Claude API docs: low suits latency-sensitive, chat-like routes; keep
-    # adaptive thinking ON rather than disabling it, which can put tool calls into the visible text).
-    # DW_CONTROLLER_EFFORT= (empty) uses the model's default (Haiku 5.5: medium). A constant effort keeps
-    # the prompt cache. LiteLLM 1.106 passes output_config through to the Messages API unchanged.
-    controller = os.environ[CONTROLLER_MODEL_ENV]
-    effort = os.environ.get("DW_CONTROLLER_EFFORT", "low").strip()
-    extra = {"output_config": {"effort": effort}} if effort and controller.startswith("anthropic/") else {}
-    return (LiteLLMClient(controller, max_tokens=1024, **extra),
-            LiteLLMClient(os.environ[PLANNER_MODEL_ENV], max_tokens=2048))
+    return controller_llm(), planner_llm()
 
 
 def check_credentials() -> list[str]:

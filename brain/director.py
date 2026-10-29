@@ -51,6 +51,7 @@ from .board import ENDED, PLAN_FIELDS, WINDOW_NAME, BoardError, BoardOps, BoardS
 from .capability_gaps import GapLog, default_path
 from .interface import Reason
 from .knowledge_memory import Efficiency, KnowledgeMemory, matches_unknown, recall
+from .llm import request_log_fields
 from .llm_json import BudgetStop, DecisionError, extract_json, json_decision
 from .situation import quest_rows
 
@@ -231,7 +232,7 @@ NOTICE_INSTRUCTIONS = ("Tell the player this about your task board once, briefly
 
 SYSTEM = """You are the long-term planner (the Director) for {name}, an AI companion playing RuneScape: Dragonwilds
 like another player. You never act or speak yourself: you choose the next steps of the current job on his task
-board, and his fast controller carries each step out with these body tools:
+board, and his fast controller carries each step out with these plan actions (not immediate research calls):
 {tools}
 
 Every step needs a success test that code checks on fresh game state (never anyone's claim):
@@ -379,11 +380,16 @@ class BodyProxy:
         self.q: queue.Queue = queue.Queue()
 
     def request(self, tool: str, args: dict) -> dict:
-        if self.owner is None or threading.get_ident() == self.owner:
+        if self.owner is not None and threading.get_ident() == self.owner:
             return self._do(tool, args)
-        box: dict = {"ev": threading.Event()}
+        # Event timeout alone does not cancel queued work; synchronize cancellation with the claim.
+        # https://docs.python.org/3/library/threading.html#event-objects
+        box: dict = {"ev": threading.Event(), "lock": threading.Lock(), "cancelled": False,
+                     "deadline": time.monotonic() + self.timeout_s}
         self.q.put((tool, args, box))
         if not box["ev"].wait(self.timeout_s):
+            with box["lock"]:
+                box["cancelled"] = True
             return {"ok": False, "reason": Reason.BUSY, "data": {"detail": "the body is busy right now; plan without it"}}
         return box["res"]
 
@@ -394,6 +400,11 @@ class BodyProxy:
                 tool, args, box = self.q.get_nowait()
             except queue.Empty:
                 return
+            # Claim only a still-live request; once claimed, the read is already in flight.
+            with box["lock"]:
+                if box["cancelled"] or time.monotonic() >= box["deadline"]:
+                    continue
+                box["started"] = True
             box["res"] = self._do(tool, args)
             box["ev"].set()
 
@@ -583,18 +594,36 @@ PROXY_TOOL_DOCS = {
 class Research:
     """Read-only research over an immutable snapshot (safe on the worker thread)."""
 
-    def __init__(self, snap: dict, knowledge=None, proxy: BodyProxy | None = None, body_tools: set[str] = frozenset()):
+    def __init__(self, snap: dict, knowledge=None, proxy: BodyProxy | None = None, body_tools: set[str] = frozenset(),
+                 manifest: dict | None = None):
         self.snap = snap
         self.knowledge = knowledge
         self.proxy = proxy
         self.body_tools = set(body_tools)
+        self.manifest = manifest or {}
         self.lookups: list[dict] = []
 
     def tools(self) -> list[dict]:
         out = [t for t in RESEARCH_TOOLS if self.knowledge is not None or t["function"]["name"] != "lookup"]
-        return out + [PROXY_TOOL_DOCS[n] for n in PROXIED_READS if n in self.body_tools and self.proxy is not None]
+        out += [PROXY_TOOL_DOCS[n] for n in PROXIED_READS if n in self.body_tools and self.proxy is not None]
+        # Use the body-published schema for these verified read handlers, never a guessed schema.
+        # https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools
+        for n in ("look", "lodestones"):
+            entry = self.manifest.get(n) or {}
+            if (self.proxy is not None and n in self.body_tools and entry.get("kind") == "read"
+                    and entry.get("moves") is False and isinstance(entry.get("args"), dict)):
+                out.append({"type": "function", "function": {"name": n,
+                    "description": entry.get("description") or "Read current body state.", "parameters": entry["args"]}})
+        return out
 
     def run(self, name: str, args: dict) -> Any:
+        offered = {t["function"]["name"]: t["function"]["parameters"] for t in self.tools()}
+        if name not in offered:
+            return {"ok": False, "error": f"no research tool {name!r}"}
+        try:
+            jsonschema.validate(args, offered[name])
+        except (jsonschema.ValidationError, jsonschema.SchemaError) as exc:
+            return {"ok": False, "error": f"invalid research arguments: {exc.message}"}
         if name == "recall":
             return {"facts": recall(self.snap["facts"], str(args.get("query") or ""))}
         if name == "lookup" and self.knowledge is not None:
@@ -616,7 +645,7 @@ class Research:
         if name == "learned_skills":
             q = P.tokens(str(args.get("query") or ""))
             return {"skills": [s for s in self.snap.get("learned", []) if not q or q & P.tokens(json.dumps(s))]}
-        if name in PROXIED_READS and name in self.body_tools and self.proxy is not None:
+        if name in (*PROXIED_READS, "look", "lodestones") and name in self.body_tools and self.proxy is not None:
             return self.proxy.request(name, args)
         return {"ok": False, "error": f"no research tool {name!r}"}
 
@@ -1278,7 +1307,7 @@ class Director:
     def _decide(self, snap: dict) -> Decision:
         """Worker thread: model requests over the snapshot. Writes nothing (the agent loop applies the result)."""
         dec = Decision(kind=snap["kind"])
-        research = Research(snap, self.knowledge, self.proxy, set(self.body_tools))
+        research = Research(snap, self.knowledge, self.proxy, set(self.body_tools), getattr(self.caps, "manifest", None))
         rounds = [0]  # research rounds used (json_decision allows RESEARCH_ROUNDS)
 
         def before() -> bool:
@@ -1291,19 +1320,21 @@ class Director:
             rounds[0] += bool(resp.tool_calls)
             self._log("llm_response", component="director", model=getattr(self.llm, "model", "?"),
                       content=(resp.content or "")[:4000], tool_calls=[c.name for c in resp.tool_calls],
-                      usage=resp.usage)
+                      usage=resp.usage, finish_reason=resp.finish_reason)
 
         validator = Validator(snap["kind"], snap["state"], snap["task"], self.items, places=snap.get("places"),
                               research_left=lambda: bool(research.tools()) and rounds[0] < RESEARCH_ROUNDS,
                               tools=set(self.body_tools), caps=self.caps)
         with self._episode("director"):
             messages = self._messages(snap)
-            self._log("prompt", component="director", model=getattr(self.llm, "model", "?"), decision=snap["kind"],
-                      task=snap["task"]["id"], messages=messages)
+            def on_request(request_messages, request_tools):
+                self._log("prompt", component="director", model=getattr(self.llm, "model", "?"),
+                          decision=snap["kind"], task=snap["task"]["id"],
+                          **request_log_fields(self.llm, request_messages, request_tools))
             try:
                 dec.value, info = json_decision(self.llm, messages, validator, tools=research.tools(),
                                                 run_tool=research.run, max_tool_rounds=RESEARCH_ROUNDS, max_repairs=2,
-                                                before_request=before, on_response=on_response)
+                                                before_request=before, on_response=on_response, on_request=on_request)
                 dec.tool_calls = info["tool_calls"]
             except BudgetStop as exc:
                 dec.error, dec.budget_stop = str(exc), True

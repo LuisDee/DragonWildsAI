@@ -769,3 +769,17 @@ validated a different ground-following polyline while retaining the old block.
 Bounded adaptive candidate passes stationary native replay and focused negative
 controls; full deployment/live acceptance pending. No capsule shrink or hit-ignore.
 Fresh-route discovery remains separately blocked by partial-NPC selection gating.
+
+
+### Guarded memory waypoint oscillation discards route (2026-10-29)
+
+OPEN, measured on `ccfd357` developer return a812. First memory waypoint is
+26.55 cm away; observed positions bracket it while its index stays 1. After
+1.0028744 seconds of admitted-input exposure, net displacement is 19.1553 cm
+against 50 cm threshold, causing `guarded_stall` despite a clear corridor.
+The dormant partial native path takes over next tick, then fails support.
+This rules out complete-native replacement and binding invalidation as the first
+cause in this run. The outbound a810 passed, so the earlier failure is not
+assumed deterministic. See design/guarded-waypoint-crossing.md for the bounded
+sample-crossing hypothesis, guard-preserving candidate and adversarial controls.
+No radius inflation, temple rule, model steering or autonomous success claimed.

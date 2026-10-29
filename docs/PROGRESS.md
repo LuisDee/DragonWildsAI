@@ -1518,3 +1518,24 @@ when checked. This is operator validation overhead and unproved self-care, not a
 capability success. Preserve actual saves/memories. Future diagnostic setup must
 restore both food/water and health explicitly, record fixtures, and avoid idle
 client time while awaiting integration. No new game-model calls or full-agent pass.
+
+
+### Measured normal movement and first route discard (2026-10-29 21:10 UTC)
+
+Autonomous temple objective remains **0/3**. Published observation-only `ccfd357`
+passed 1275 tests with five skips; the four missing-dump checks then passed
+separately on exact existing inputs. No navigation behavior changed in that revision.
+Developer normal controls moved from the declared ramp-base fixture to the upper
+endpoint in 32.953 seconds, health 100, using existing developer-learned memory.
+The return failed after 13.016 seconds, health 100. Its trace identifies the first
+memory discard as `guarded_stall`, followed by selection of the old partial native
+route and terminal `target_support_mismatch`. These are developer diagnostics,
+not autonomous or unfamiliar discovery passes. No model calls occurred.
+
+Private receipts: `logs/recovery/nct-trial-a804/normal-entry-a810.json`,
+`return-lodestone-a812.json`, corresponding samples and `causal-result.json`.
+The stationary read-only sampler produced 39 valid samples. Client was stopped
+and confirmed absent; DEV server and Steam retained. World memories preserved.
+Sol owns the bounded crossing repair under the reviewed design; another Sol
+completed model-interface fixes and the private complete-agent runner. Both
+candidate repairs still require the combined gate and fresh live validation.

@@ -41,6 +41,7 @@ class LLMResponse:
     # message's ``thinking_blocks`` unchanged, or it is rejected (LiteLLM "reasoning content" docs).
     message: dict | None = None
     usage: dict | None = None
+    finish_reason: str | None = None
 
 
 class LLMClient(Protocol):
@@ -148,10 +149,9 @@ class LiteLLMClient:
             self.kwargs = saved
         return {"s": round(time.monotonic() - t0, 2), "usage": resp.usage}
 
-    def complete(self, messages: list[dict], tools: list[dict] | None = None,
-                 effort: str | None = None) -> LLMResponse:
-        import litellm
-
+    def request_payload(self, messages: list[dict], tools: list[dict] | None = None,
+                        effort: str | None = None) -> dict:
+        """Exact LiteLLM input, before LiteLLM's provider/HTTP serialization."""
         params = dict(self.kwargs)
         if effort and self.model.startswith("anthropic/"):  # one call at another level (output_config.effort)
             params["output_config"] = {**(params.get("output_config") or {}), "effort": effort}
@@ -162,7 +162,13 @@ class LiteLLMClient:
             params.update(tools=tools, tool_choice="auto")
         if self.model.startswith("anthropic/"):
             messages = with_cache_control(messages)
-        resp = litellm.completion(model=self.model, messages=messages, **params)
+        return {"model": self.model, "messages": messages, **params}
+
+    def complete(self, messages: list[dict], tools: list[dict] | None = None,
+                 effort: str | None = None) -> LLMResponse:
+        import litellm
+
+        resp = litellm.completion(**self.request_payload(messages, tools, effort))
         msg = resp.choices[0].message
         calls = []
         raw_calls = []
@@ -183,7 +189,10 @@ class LiteLLMClient:
         thinking = getattr(msg, "thinking_blocks", None)
         if thinking:
             replay["thinking_blocks"] = [dict(b) if not isinstance(b, dict) else b for b in thinking]
-        return LLMResponse(content=text, tool_calls=calls, message=replay, usage=_usage(resp))
+        # LiteLLM exposes provider termination as a choice finish_reason:
+        # https://docs.litellm.ai/docs/completion/output
+        return LLMResponse(content=text, tool_calls=calls, message=replay, usage=_usage(resp),
+                           finish_reason=getattr(resp.choices[0], "finish_reason", None))
 
 
 def _model_from_env(var: str) -> str:
@@ -202,11 +211,28 @@ def missing_keys(model: str) -> list[str]:
 
 
 def controller_llm() -> LiteLLMClient:
-    return LiteLLMClient(_model_from_env(CONTROLLER_MODEL_ENV), max_tokens=4096)
+    model = _model_from_env(CONTROLLER_MODEL_ENV)
+    effort = os.environ.get("DW_CONTROLLER_EFFORT", "low").strip()
+    extra = {"output_config": {"effort": effort}} if effort and model.startswith("anthropic/") else {}
+    return LiteLLMClient(model, max_tokens=1024, **extra)
 
 
 def planner_llm() -> LiteLLMClient:
-    return LiteLLMClient(_model_from_env(PLANNER_MODEL_ENV), max_tokens=16000)
+    return LiteLLMClient(_model_from_env(PLANNER_MODEL_ENV), max_tokens=int(os.environ.get("DW_PLANNER_MAX_TOKENS", "4096")))
+
+
+def request_log_fields(llm: LLMClient, messages: list[dict], tools: list[dict] | None = None,
+                       effort: str | None = None) -> dict:
+    """Log the complete adapter input, including cache blocks and per-call overrides.
+
+    This is the LiteLLM boundary, not a claim to capture its final HTTP body.
+    https://docs.litellm.ai/docs/completion/input
+    """
+    request = (llm.request_payload(messages, tools, effort) if isinstance(llm, LiteLLMClient) else
+               {"model": llm.model, "messages": messages, "tools": tools, "effort": effort})
+    return {"request_boundary": "litellm.completion" if isinstance(llm, LiteLLMClient) else "llm.complete",
+            "messages": request["messages"], "tools": request.get("tools"),
+            "settings": {k: v for k, v in request.items() if k not in ("messages", "tools")}}
 
 
 # --------------------------------------------------------------------------- fake

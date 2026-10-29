@@ -125,6 +125,7 @@ M.cfg = {
     lp_max_plans = 4,          -- plans without progress before the ladder takes over
     lp_cooldown_s = 1.5,       -- after a failed plan
     walk_horizon_cm = 100,    -- sampled local/memory walking, refreshed under real physics
+    walk_ttl_s = 0.35,        -- also bounds adjacent owned waypoint-crossing samples
     walk_query_limit = 20000, -- cumulative per command, including discarded scans
     local_prefix_limit = 64,  -- finite rolling windows; never resets the command deadline
     probe_every_s = 0.3,       -- forward wall probe cadence
@@ -1457,6 +1458,64 @@ local function ground_check(pawn)
     return ground
 end
 
+-- Adapt bounded local path progress, not a larger waypoint acceptance radius:
+-- https://api.nav2.org/nav2-rolling/html/md_nav2_regulated_pure_pursuit_controller_README.html
+-- The short pose chord is an inference; the next aim still needs its own guard.
+function WALK.advance(st, pts, i, me, t, goal, source, radius, dz_tol, zoff, local_edges)
+    local next_i=advance(pts,i,me,radius,dz_tol,zoff,local_edges)
+    local s,p=st.walk_previous,pts[i]
+    if next_i~=i or not st.walk_guarded or st.target_name or i>=#pts or not s or s.path~=pts or s.index~=i or
+        s.source~=source or s.guard~=st.walk_guard or not p or p.gap or p.air or p.link or
+        (p.act and p.act~='walk') or st.jump_t or st.lp_jump_exec or st.ws_exec or st.link_exec or
+        s.endpoint.X~=p.X or s.endpoint.Y~=p.Y or s.endpoint.Z~=p.Z or
+        s.half_h~=st.half_h or s.target~=st.target or s.goal.X~=goal.X or s.goal.Y~=goal.Y or s.goal.Z~=goal.Z or
+        t<=s.t or t-s.t>M.cfg.walk_ttl_s or d2(me,s.position)>M.cfg.walk_horizon_cm then return next_i end
+    local function current()
+        local a=rawget(_G,'DWArbiter')
+        local valid=owned(s.binding) and a==s.arb and a and a.owner==s.owner and world_identity()==s.world
+        local ok,g=pcall(function() return st.target_name and st.target:K2_GetActorLocation() or st.goal end)
+        local path=source=='memory' and st.mpath or source=='local' and st.lpath or source=='nav' and st.path
+        local index=source=='memory' and st.mwp or source=='local' and st.lwp or source=='nav' and st.wp
+        local pose=st.pawn:K2_GetActorLocation()
+        local life=rawget(_G,'DW_LIFE')
+        return valid and ok and g and g.X==s.goal.X and g.Y==s.goal.Y and g.Z==s.goal.Z and
+            pose.X==me.X and pose.Y==me.Y and pose.Z==me.Z and
+            path==pts and index==i and pts[i]==p and p.X==s.endpoint.X and p.Y==s.endpoint.Y and p.Z==s.endpoint.Z and
+            st.walk_guard==s.guard and st.half_h==s.half_h and st.target==s.target and
+            rawget(_G,'DWArbiter')==a and a.owner==s.owner and st.gen==s.binding.gen and
+            st.owner_token==s.binding.token and st.life_seq==s.binding.life and
+            (type(life)=='table' and (life.move_death_seq or 0) or 0)==s.binding.life
+    end
+    if not current() then return nil end
+    local grounded=ground_check(st.pawn)
+    if not current() then return nil end
+    if grounded~=true then return next_i end
+    local dx,dy=me.X-s.position.X,me.Y-s.position.Y
+    local len2=dx*dx+dy*dy
+    if len2<=0 then return next_i end
+    local u=((p.X-s.position.X)*dx+(p.Y-s.position.Y)*dy)/len2
+    if u<=0 or u>=1 then return next_i end
+    local x,y=s.position.X+u*dx,s.position.Y+u*dy
+    local lateral=math.sqrt((p.X-x)^2+(p.Y-y)^2)
+    local z=s.position.Z+u*(me.Z-s.position.Z)-(zoff or 0)
+    -- Grounded alone is not floor identity. Check both observed feet as well
+    -- as the interpolated crossing, retaining the existing ordinary-slope bound.
+    if lateral>=radius or math.abs(z-p.Z)>dz_tol or
+        math.abs(s.position.Z-(zoff or 0)-p.Z)>dz_tol+0.9*d2(s.position,p) or
+        math.abs(me.Z-(zoff or 0)-p.Z)>dz_tol+0.9*d2(me,p) then return next_i end
+    trace_route(st,'waypoint_crossed',t,me,goal,source)
+    return i+1
+end
+
+-- A discarded memory proposal must not resurrect an older native executor.
+-- Adapt the existing prefix-exhaustion invalidation / fresh-pose replan pattern:
+-- https://github.com/PrismarineJS/mineflayer-pathfinder/blob/master/index.js
+function WALK.invalidate_native(st)
+    st.path,st.wp,st.path_partial,st.path_goal,st.nav_binding=nil,nil,nil,nil,nil
+    st.nav_pending,st.nav_goal,st.nav_fail,st.nav_wait_t,st.nav_sent_t=nil,nil,nil,nil,nil
+    st.route_feedback,st.nav_jumped,st.walk_previous,st.walk_input=nil,nil,nil,nil
+end
+
 -- Both initial and recovery memory steering, plus locally admitted routes, use
 -- the same actual-position walking check. Native snapshots stay in walk_sense;
 -- this is sampled short-horizon control, not a whole-route safety certificate.
@@ -1513,7 +1572,7 @@ function WALK.check(st,pawn,pc,me,aim,goal,t)
             sample_module=WALK.modules.sampler,live=live,
             read_pose=function() return v(pawn:K2_GetActorLocation()) end,
             read_time=function() return now(pawn) end,
-            horizon_cm=M.cfg.walk_horizon_cm,ttl_s=0.35,corridor_cm=10,drift_cm=2,reserve_cm=25,
+            horizon_cm=M.cfg.walk_horizon_cm,ttl_s=M.cfg.walk_ttl_s,corridor_cm=10,drift_cm=2,reserve_cm=25,
             budget=M.cfg.walk_query_limit-(st.walk_spent or 0),poll_budget=4,max_scan_s=2,max_resets=4}
         if not current() then if guard then pcall(guard.close) end;return {status='unknown',reason='binding_changed'} end
         if not guard then return {status='unknown',reason=why or 'walk_sensor_unavailable'} end
@@ -1638,6 +1697,7 @@ end
 local function tick(st, gen, log)
     if st.gen ~= gen then return "stale" end
     if paused() then
+        st.walk_input,st.walk_previous=nil,nil
         if st.guard_stall then st.guard_stall.sent=false end
         if st.local_binding then
             st.local_authority, st.local_binding, st.lpath, st.lp, st.lp_state, st.lp_observe = nil, nil, nil, nil, nil, nil
@@ -1666,6 +1726,7 @@ local function tick(st, gen, log)
         st.guard_stall.sent=false
     end
     local me = pawn:K2_GetActorLocation()
+    st.walk_previous,st.walk_input=st.walk_input,nil -- consume exactly the next observation, including held ticks
     st.trace_pose=v(me)
     local idx_progress = false
     if not st.progress_positions then st.progress_positions = {v(me)} end
@@ -1829,6 +1890,7 @@ local function tick(st, gen, log)
             end
             if not safe() or not WALK.close(st) or not safe() then return end
             trace_route(st,'memory_binding_invalid',t,me,goal)
+            WALK.invalidate_native(st)
             st.memory_binding,st.mpath,st.mwp,st.msrc=nil,nil,nil,nil
             st.mem_retry=true
             st.nav_required=st.use_nav~=false
@@ -1986,8 +2048,9 @@ local function tick(st, gen, log)
                 not world or b.world ~= world then return end
             if not st.lpath and not st.trail_i and not st.mpath and not st.link_exec then
                 local first = st.wp
-                local next_wp = advance(st.path, first, me, st.walk_guarded and 10 or M.cfg.wp_radius_cm,
+                local next_wp = WALK.advance(st,st.path,first,me,t,goal,'nav',st.walk_guarded and 10 or M.cfg.wp_radius_cm,
                     math.max((st.env and st.env.step or 45) + 20, 60), st.half_h or 90)
+                if not next_wp then return end
                 if next_wp > first then idx_progress = novel_progress(st, me) end
                 st.wp = next_wp
             end
@@ -2564,7 +2627,9 @@ local function tick(st, gen, log)
         if st.backtrack_until then st.backtrack_until, st.backtrack_pt = nil, nil end
         if st.lpath then
             local i0 = st.lwp
-            st.lwp = advance(st.lpath, st.lwp, me, st.walk_guarded and 10 or M.cfg.lp_radius_cm, math.max((st.env and st.env.step or 45) + 20, 60), st.half_h or 90, true)
+            local next_wp=WALK.advance(st,st.lpath,st.lwp,me,t,goal,'local',st.walk_guarded and 10 or M.cfg.lp_radius_cm, math.max((st.env and st.env.step or 45) + 20, 60), st.half_h or 90, true)
+            if not next_wp then return end
+            st.lwp=next_wp
             if st.lwp > i0 then
                 idx_progress = novel_progress(st, me) or idx_progress
                 for k = i0, st.lwp - 1 do
@@ -2746,7 +2811,9 @@ local function tick(st, gen, log)
         end
         if not st.lpath and not st.trail_i and st.mpath then
             local i0 = st.mwp
-            st.mwp = advance(st.mpath, st.mwp, me, st.walk_guarded and 10 or M.cfg.wp_radius_cm, math.max((st.env and st.env.step or 45) + 20, 60), st.half_h or 90)
+            local next_wp=WALK.advance(st,st.mpath,st.mwp,me,t,goal,'memory',st.walk_guarded and 10 or M.cfg.wp_radius_cm, math.max((st.env and st.env.step or 45) + 20, 60), st.half_h or 90)
+            if not next_wp then return end
+            st.mwp=next_wp
             if st.mwp > i0 then idx_progress = novel_progress(st, me) or idx_progress end
             if st.mwp > #st.mpath then
                 if log then log("move: memory route done (" .. tostring(st.msrc) .. ")") end
@@ -3010,6 +3077,7 @@ local function tick(st, gen, log)
             -- Preserve the memory as a proposal; do not step off toward its
             -- wrong-floor entry or select it again through ordinary recovery.
             trace_route(st,'memory_guard_rejected:'..st.walk_failure,t,me,goal,nil,nil,r)
+            WALK.invalidate_native(st)
             st.mpath,st.memory_binding,st.mwp,st.msrc,st.bug,st.stepoff,st.backtrack_until=nil,nil,nil,nil,nil,nil,nil
             st.nav_required,st.local_observe_done,st.mem_retry=st.use_nav~=false,false,true
             st.status='planning'
@@ -3033,6 +3101,7 @@ local function tick(st, gen, log)
                 if not WALK.close(st) or not owned(binding(st,pawn)) then return end
                 if st.memory_binding and not local_route_owned(st,gen,pawn,pc,goal,true) then return end
                 trace_route(st,'guarded_stall',t,me,goal,nil,nil,r)
+                if src=='memory' then WALK.invalidate_native(st) end
                 st.local_failed_points = st.local_failed_points or {}
                 st.local_failed_points[#st.local_failed_points+1] = {X=p.X,Y=p.Y,Z=p.Z}
                 st.local_replans = (st.local_replans or 0) + 1
@@ -3062,12 +3131,46 @@ local function tick(st, gen, log)
         st.hold_gap = nil
         st.move_acc, st.bt_tested = M.cfg.self_stuck_cm, t -- holding on purpose: not wedged
     else
-        local input_pos
+        local input_pos,input_grounded,input_sample
         if walk_target then
+            local context=(src=='memory' and st.mpath) or (src=='local' and st.lpath) or (src=='nav' and st.path)
+            local index=src=='memory' and st.mwp or src=='local' and st.lwp or src=='nav' and st.wp
+            local endpoint=context and index and context[index]
+            local a=rawget(_G,'DWArbiter')
+            input_sample={binding=binding(st,pawn),arb=a,owner=a and a.owner,world=world_identity(),
+                path=context,index=index,endpoint=endpoint and v(endpoint),source=src,guard=st.walk_guard,
+                t=t,half_h=st.half_h,target=st.target,goal=v(goal)}
+            local function unchanged(primitive)
+                local same_world,ok,g,valid=true,true,goal,true
+                if not primitive then
+                    same_world=world_identity()==input_sample.world
+                    ok,g=pcall(function() return st.target_name and st.target:K2_GetActorLocation() or st.goal end)
+                    valid=owned(input_sample.binding)
+                elseif not st.target_name then g=st.goal end
+                local life=rawget(_G,'DW_LIFE')
+                local path=(src=='memory' and st.mpath) or (src=='local' and st.lpath) or (src=='nav' and st.path)
+                local idx=src=='memory' and st.mwp or src=='local' and st.lwp or src=='nav' and st.wp
+                local p=path and idx and path[idx]
+                return valid and same_world and ok and g and g.X==input_sample.goal.X and g.Y==input_sample.goal.Y and g.Z==input_sample.goal.Z and
+                    rawget(_G,'DWArbiter')==input_sample.arb and input_sample.arb.owner==input_sample.owner and
+                    rawget(_G,'DW_MOVE')==st and st.gen==gen and st.mode~='idle' and not paused() and
+                    st.owner_token==input_sample.binding.token and st.pawn==pawn and st.pc==pc and
+                    st.life_seq==input_sample.binding.life and
+                    (type(life)=='table' and (life.move_death_seq or 0) or 0)==input_sample.binding.life and
+                    st.target==input_sample.target and
+                    st.half_h==input_sample.half_h and st.walk_guard==input_sample.guard and
+                    path==context and idx==index and p==endpoint and
+                    (not p or p.X==input_sample.endpoint.X and p.Y==input_sample.endpoint.Y and p.Z==input_sample.endpoint.Z) and
+                    goal.X==input_sample.goal.X and goal.Y==input_sample.goal.Y and goal.Z==input_sample.goal.Z
+            end
+            input_sample.unchanged=unchanged
+            input_grounded=ground_check(pawn)
+            if not unchanged() then return end
             input_pos=pawn:K2_GetActorLocation()
-            local checked=WALK.check(st,pawn,pc,input_pos,walk_target,goal,now(pawn))
-            if rawget(_G,'DW_MOVE')~=st or st.gen~=gen or not owned(binding(st,pawn)) then return end
-            if checked.status~='clear' then st.status='checking_terrain';return end
+            local x,y=aim.X-input_pos.X,aim.Y-input_pos.Y
+            local length=math.sqrt(x*x+y*y)
+            if length<1 then return end
+            dx,dy=x/length,y/length
         end
         if st.nav_required then
             if st.local_authority then if not local_route_owned(st,gen,pawn,pc,goal) then return end
@@ -3080,6 +3183,15 @@ local function tick(st, gen, log)
             local input_world=world_identity()
             local input_target=st.target;local input_goal=v(goal)
             local context=(src=='memory' and st.mpath) or (src=='local' and st.lpath) or (src=='nav' and st.path) or src
+            if not input_sample.unchanged() then return end
+            -- All route/world/ground callbacks above may have moved the pawn.
+            -- Re-admit after them, then make the last native read the actual
+            -- pose; only primitive checks occur between it and input submission.
+            local final_check=WALK.check(st,pawn,pc,input_pos,walk_target,goal,now(pawn))
+            if final_check.status~='clear' then st.status='checking_terrain';return end
+            local final_pose=pawn:K2_GetActorLocation()
+            if final_pose.X~=input_pos.X or final_pose.Y~=input_pos.Y or final_pose.Z~=input_pos.Z or
+                not input_sample.unchanged(true) then return end
             local submitted=pcall(function() pawn:AddMovementInput({ X = dx, Y = dy, Z = 0 }, 1.0, false) end)
             if not owned(input_binding) or st.gen~=gen or not input_world or world_identity()~=input_world or
                 rawget(_G,'DWArbiter')~=input_arb or not input_arb or input_arb.owner~=input_owner then return end
@@ -3094,9 +3206,17 @@ local function tick(st, gen, log)
             if not submitted then return finish(st,{status='failed',reason='verification_failed',detail='movement input failed'},log) end
             local current=(src=='memory' and st.mpath) or (src=='local' and st.lpath) or (src=='nav' and st.path) or src
             if current~=context then return end
+            if not input_sample.unchanged() then return end
             local w=st.guard_stall
             if not w or w.context~=context then w={context=context,elapsed=0,pos=v(input_pos),first_observation=true};st.guard_stall=w end
             w.sent=true
+            if input_grounded==true and not st.target_name and input_sample.endpoint and not st.jump_t and not st.lp_jump_exec and not st.ws_exec and not st.link_exec then
+                local observed=pawn:K2_GetActorLocation()
+                if observed.X~=input_pos.X or observed.Y~=input_pos.Y or observed.Z~=input_pos.Z or
+                    not input_sample.unchanged(true) then return end
+                input_sample.position=v(input_pos);input_sample.unchanged=nil
+                st.walk_input=input_sample
+            end
         else pawn:AddMovementInput({ X = dx, Y = dy, Z = 0 }, 1.0, false) end
         st.status = "moving"
     end
@@ -3563,6 +3683,7 @@ local function start(log, mode, opts)
         rawget(_G,"DWArbiter")~=admitted_arb or admitted_arb.owner~=admitted_owner then return abort_start() end
     local handle = LoopInGameThreadWithDelay(1, function()
         if paused() then
+            if st.gen==gen then st.walk_input,st.walk_previous=nil,nil end
             if st.gen == gen and st.guard_stall then st.guard_stall.sent=false end
             if st.gen == gen and st.local_binding then
                 st.local_authority, st.local_binding, st.lpath, st.lp, st.lp_state, st.lp_observe = nil,nil,nil,nil,nil,nil

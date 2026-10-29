@@ -58,6 +58,7 @@ def test_the_director_can_read_buildables_while_it_researches():
     assert "buildables" in D.PROXIED_READS and "buildables" in D.PROXY_TOOL_DOCS
     r = D.Research({"facts": {}, "state": {}}, None, D.BodyProxy(lambda t, a: {"ok": True, "data": {"tool": t}}),
                    {"buildables"})
+    r.proxy.serve()  # establish this thread as the bridge owner, as Director.tick does
     assert "buildables" in [t["function"]["name"] for t in r.tools()]
     assert r.run("buildables", {"about": "chest"})["data"]["tool"] == "buildables"
 
