@@ -2802,3 +2802,10 @@ then reached the selected lodestone about152m from the spawn landmark. Subsequen
 local-route failures prevented the200m/return objective; maximum observed distance
 189.4103m, health100. This is fresh full-agent behavior, not an acceptance pass.
 Model requests/responses and body receipts survive in the private a811 evidence.
+
+
+### Exterior blocked sweep has side-contact evidence, not the old floor chord signature (2026-10-29)
+
+After developer a823/35d8d61, a stationary replay at recorded [226.11,1790,-34.39] used the current full player capsule/profile and typed floor queries. It reproduced blocking at refinement depths0/1/2 and both extra split halves. Impact normal was approximately[-0.8023,0.5963,-0.0264], with contact about55cm above capsule centre; supporting floor was about88cm below with upward normalZ~0.96. This strongly supports a real side obstruction rather than the earlier upward-floor-normal chord artifact. Actor identity, historical scene equality and full-route feasibility remain unknown. No guard was relaxed. The18-query probe completed with owned cleanup; private collision-analysis-a825.json records sources and limits.
+
+Full-agent a821 later stalled at a different temple location near69m-X. Do not transfer this exterior collision explanation to that separate failure.

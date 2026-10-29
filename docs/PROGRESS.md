@@ -1566,3 +1566,14 @@ nor food/water self-acquisition. Private evidence: logs/recovery/nct-trial-a816
 and logs/recovery/nct-full-a811/measured-outcome.json. Task7fa3c149 and all world
 memories remain preserved. Shared spend reconciliation is investigating two
 background responses absent from the ordinary 22-call increase.
+
+
+### 35d8d61 measured: developer return, autonomous exit still fails (2026-10-29 22:32 UTC)
+
+Published/pushed 35d8d61; exact release gate a820 was GREEN, 1306 passed/1 skipped in 531.54s, 611 source files checked and 50 per-world/client files preserved. This is release validation, not gameplay acceptance. The physical-progress and learner-accounting changes are documented in their design notes.
+
+Developer a823 at the previous Haiku endpoint retained physical progress across local windows, then failed on a different sweep collision after 14.76m/25.093s. Developer a824 covered about167m of actual path toward spawn with health100, but its unchanged120s command deadline expired with50m left. A separate ordinary go_to a825 completed that remainder in44.515s, ending [51.82,1889.41,-35.12], health100 and0.0083m vertical error. Two developer commands and retained taught memories/nutrition are disclosed; this is not an autonomous round trip or unfamiliar route discovery.
+
+Complete Sonnet Director + Haiku Controller trial a821 on35d8d61 FAILED: max29.0105m from the spawn lodestone, health100 throughout, 6Haiku+9Sonnet responses. First memory route stalled despite a clear guard, then partial native/local recovery ended in floor_not_walkable. The task entered waiting_budget before executing Sonnet's alternative plan; this is a local planning allowance, not exhausted shared API dollars. Wrapper cleanup left the body idle and history intact. Autonomous temple streak remains **0/3**. Private evidence: logs/recovery/lpc-full-a821/measured-outcome.json and actual native/model/body records.
+
+Next work is the measured guard-clear/physical-stall disagreement, with one decisive diagnostic rather than another identical agent run. A separate bounded feedback-retention candidate repairs the a811 empty-run loss and is in cold review, not deployed or live-proven.

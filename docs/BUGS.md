@@ -795,3 +795,16 @@ selected source is inferred from source and timing, not directly stamped by the
 current invariant trace. Audit early physical credit before guard-pending/prefix
 returns and recovery ownership. The preserved feedback-loop candidate has relevant
 early-credit hunks, but its unrelated route-selection changes must not be imported.
+
+
+### Current autonomous exit: clear guard, real stall, then lower partial route (2026-10-29 22:32 UTC)
+
+OPEN, measured complete-agent a821/35d8d61. Generation4 memory waypoint13 admits1.0205s input but observes only8.43cm displacement near [69.35,1872.09,-33.10], aiming [71.78,1869.53,-31.46]. Guard reports sampled_corridor clear. guarded_stall discards it, fresh partial native/local routes run, then floor_not_walkable. This is distinct from the repaired lost-progress bookkeeping and the exterior226m side collision. Actual input vectors/velocity/contact during this stall were not captured by the one-Hz full-agent observer; don't infer a particular collider or unsafe memory connector without the next diagnostic.
+
+### Empty board run erases real failures from Director feedback (2026-10-29)
+
+MEASURED a811 model boundary: three movement failures reached Haiku in calls21/22. Empty board run then overwrote _last_results with []; Sonnet call23 saw only predicate no-progress. Current-attempt step.actions retained the raw results. First-call feedback also omitted route_feedback. Candidate in design/attempt-feedback-retention.md uses bounded current-attempt evidence, clears on new attempt, and preserves supplied metadata without invented freshness. Focused12/design5 pass; cold review/full gate/deployment/live proof pending.
+
+### Acceptance wrapper stops on recoverable local planning wait (2026-10-29)
+
+OBSERVED a821 ends waiting_budget after15responses, below its40-call/900s bounds and below shared dollar cap. Sonnet had constructed an alternative plan but it had not executed. Inspect production wait/resume semantics and wrapper termination contract before treating this as permanent task inability or starting another acceptance episode. Do not inflate budgets or erase no-progress history to hide the wait.
