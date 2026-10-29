@@ -161,5 +161,41 @@ local top_end = rp and rp[#rp]
 check("ramp over dead space: route climbs the ramp to the upper floor", top_end and top_end.Z >= 300 and top_end.X > 900,
     top_end and string.format("end (%.0f,%.0f)", top_end.X, top_end.Z) or "no plan")
 
+-- A low obstacle must not produce a hop without enough reach for a probe
+-- above knee height. A real wall remains blocked even with jump reach.
+local function hop_case(reach, wall_high)
+    local heights = {}
+    local function obstacle(a, b, horizontal)
+        if horizontal then
+            heights[#heights + 1] = a.Z
+            return wall_high or a.Z <= 50
+        end
+        return 0, false
+    end
+    local p = LP.new({ trace = obstacle, center = { X = 0, Y = 0, Z = 90 }, env = { step = 45, jump = reach } })
+    local a, b = {i=0, j=0, z=0}, {i=1, j=0, z=0}
+    local pts = { {X=0, Y=0, Z=0, node=a}, {X=100, Y=0, Z=0, node=b, act="walk"} }
+    local result = p:verify(pts, 10)
+    return p, a, b, result, heights
+end
+local zero, za, zb, zr, zh = hop_case(0, false)
+check("zero jump blocks low obstacle without high probe", zr == "blocked" and #zh == 1 and zh[1] == 50)
+zero.hop[tostring(za) .. ">" .. tostring(zb)] = true
+check("zero jump ignores remembered hop", zero:edge(za, zb) == "walk")
+zero.wall_pts = { {X=50, Y=0, Z=50} }
+check("zero jump remembered hop cannot bypass wall", zero:crosses_wall(za, zb))
+local small, sa, sb, sr, sh = hop_case(70, false)
+check("insufficient jump clearance blocks without high probe", sr == "blocked" and #sh == 1 and sh[1] == 50)
+small.hop[tostring(sa) .. ">" .. tostring(sb)] = true
+check("insufficient jump clearance ignores remembered hop", small:edge(sa, sb) == "walk")
+small.wall_pts = { {X=50, Y=0, Z=50} }
+check("insufficient jump remembered hop cannot bypass wall", small:crosses_wall(sa, sb))
+local _, _, _, equal_result, equal_heights = hop_case(80, false)
+check("equal-height hop probe is skipped", equal_result == "blocked" and #equal_heights == 1 and equal_heights[1] == 50)
+local hop, ha, hb, hr, hh = hop_case(165, false)
+check("positive jump probes above knee and proposes hop", hr == "blocked" and #hh == 2 and hh[2] > hh[1] and hop:edge(ha, hb) == "jump")
+local solid, wa, wb, wr, wh = hop_case(165, true)
+check("true wall remains blocked with jump reach", wr == "blocked" and #wh == 2 and solid:edge(wa, wb) == "walk" and next(solid.hop) == nil)
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

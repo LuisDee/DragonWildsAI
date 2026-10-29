@@ -1,5 +1,24 @@
 # Live bug ledger
 
+### Far-route continuation: local improvement is not global reachability (2026-10-29)
+
+OPEN. Source65af2cb real developer far go_to moved to a partial native endpoint,
+then failed268.81m from destination. Reconstructed candidate rays hit actual
+vertical faces, not a verified false ramp hit. Readonly9m local window cannot
+find its required two-cell improvement after12distinct blocked candidates;
+raising the replan allowance alone does not repair it. Necessary detours may
+initially increase goal distance; local sampled connectivity and model-visible
+geometry/alternatives are insufficient. Do not ignore these wall hits or count
+native endpoint arrival as task completion. Research/evidence in the grounding
+native controls record; original full-agent temple walks remain unmet.
+
+Separate candidate fix: zero/too-small jump reach cannot propose/consume a
+low-obstacle hop or bypass a known wall point. Focused23Lua checks/cold review
+pass; full gate pending. This does not repair the above world-routing failure.
+
+The narrow hop fix subsequently passed full gate1258/1skip GREEN512.59s;
+world-routing failure remains OPEN and no full-agent route passed.
+
 ### Player-grounding: copied Distance and straight endpoint interpolation (2026-10-29)
 
 OPEN in movement integration. Native controls reproduce Distance0 for clear/no-hit

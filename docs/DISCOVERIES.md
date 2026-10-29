@@ -1,5 +1,17 @@
 # Discoveries
 
+### DEV local barrier reconstruction (2026-10-29 10:32Z)
+
+On published65af2cb, three candidate edges rejected by localplan were reproduced
+with Player-profile rays at knee and higher heights: both hit normals with
+Z near0. Their endpoints yielded native walkable floor results; those endpoint
+results did not establish passage through the intervening vertical collision.
+Readonly9m-radius map had338sampled surface nodes;755native queries and12lazy
+blocked paths ended in unreachable_in_window even with96diagnostic iterations
+allowed. This local improvement failure is not proof of no world route.
+Private candidate-edge-controls/window-map artifacts are under
+logs/recovery/grounding-20261029. No pawn position writes or autonomous outcome.
+
 ### DEV typed floor and sampled capsule controls (2026-10-29)
 
 Current FindFloor yielded walkable support/nonpenetration; +100cm yielded no

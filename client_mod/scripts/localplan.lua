@@ -170,8 +170,14 @@ end
 -- provisional "walk" (a slope), unless verify() found the profile to be a step (self.steep[ek]).
 local function ekey(a, b) return tostring(a) .. ">" .. tostring(b) end
 
+-- The planner's movement envelope is fixed for its lifetime. The hop probe is
+-- only useful if its height (jump reach minus 30 cm) is above the 50 cm walk probe.
+local function can_probe_hop(env)
+    return type(env.jump) == "number" and env.jump > 80
+end
+
 function LP:edge(a, b)
-    if self.hop[ekey(a, b)] then return "jump", 2 end
+    if can_probe_hop(self.env) and self.hop[ekey(a, b)] then return "jump", 2 end
     local dz = b.z - a.z
     local e = self.env
     if dz <= e.step and dz >= -e.step then return "walk", 0 end
@@ -204,7 +210,7 @@ end
 -- rules out every edge across that wall nearby, instead of one re-plan per crossing edge (a thin
 -- wall spanning many cells exhausted the 12-round budget: "walls everywhere").
 function LP:crosses_wall(a, b)
-    if #self.wall_pts == 0 or self.hop[ekey(a, b)] then return false end
+    if #self.wall_pts == 0 or (can_probe_hop(self.env) and self.hop[ekey(a, b)]) then return false end
     local ax, ay = self:pos(a.i, a.j)
     local bx, by = self:pos(b.i, b.j)
     local top = math.max(a.z, b.z)
@@ -363,7 +369,7 @@ function LP:verify(pts, budget)
             if math.sqrt((bx - ax) ^ 2 + (by - ay) ^ 2) > 10 then
                 hit, hp = self.trace({ X = ax, Y = ay, Z = z }, { X = bx, Y = by, Z = z }, true)
             end
-            if hit and b.act ~= "jump" and b.act ~= "djump" and b.act ~= "superjump" then
+            if hit and can_probe_hop(self.env) and b.act ~= "jump" and b.act ~= "djump" and b.act ~= "superjump" then
                 -- a LOW obstacle (felled log, fence) is clear at jump height: hop it instead of a wall
                 local zh = math.max(a.Z, b.Z) + (self.env.jump or 165) - 30
                 local hh = self.trace({ X = ax, Y = ay, Z = zh }, { X = bx, Y = by, Z = zh }, true)

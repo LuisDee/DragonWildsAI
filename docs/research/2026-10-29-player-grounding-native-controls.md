@@ -162,6 +162,119 @@ read here; no claim to have reviewed its complete methods or implementation.
 It is not a UE backend or evidence of this companion's capability. No dependency,
 rendering or judge change was made because of these searches.
 
+## Published developer walk: real barriers and a local-window limit
+
+Source65af2cb was pushed/deployed after CHECK_ALL: GREEN1258passed/1skip.
+Its native adapter passed current/unsupported/penetrating floor, initial clear,
+wall/overhead blocked, exact cleanup and reacquisition controls on ClaudeDev.
+The first control invocation failed lifecycle preflight before native queries:
+fresh boot had not initialized the idle mover/arbiter tables. Ordinary status
+reads established idle ownership; corrected control02 passed. Query actually
+run: `site:lua.org manual logical operators and or return operand nil false`;
+opened https://www.lua.org/manual/5.4/manual.html#3.4.5. This was diagnostic
+setup, not a gameplay repair or permission to reset ownership.
+
+At10:27Z a developer normal `go_to` to an independently projected destination
+about300m east ended after28.06seconds with `route_ended_before_goal`:
+final horizontal error268.81m, vertical error24.18m, health100. There were no
+intermediate hints, position writes or game-model calls. Native navigation and
+ordinary local detours moved the pawn; the final observation-window candidate
+failed lazy edge verification. This is a failed developer route, not autonomous
+evidence. Private records are `grounding-20261029/developer-far-walk-result.json`,
+`candidate-edge-controls.json` and `candidate-window-map.json` under recovery.
+
+Reconstructed native rays on three logged edges hit vertical normals (Z near0)
+at both knee and higher clearance heights. These particular hits are real
+barriers; they do not justify ignoring a floor-like hit or raising a ray until
+clear. Native endpoint floor queries were walkable, which does not make the
+connection between them traversable. The readonly9m-radius map sampled338floor
+nodes in755queries; after12distinct blocked candidates it returned
+`unreachable_in_window` even with a96iteration diagnostic allowance. Merely
+increasing the replan limit does not solve this sample. The bounded local
+planner's two-cell improvement threshold and the rolling-prefix closer-to-goal
+contract cannot represent every necessary detour. Absence of a local improving
+route is not absence of a route through the world.
+
+Actual queries:
+`site:dev.epicgames.com Unreal CharacterMovement FindFloor capsule sweep ramp ground collision walking step up`,
+`site:github.com PrismarineJS mineflayer-pathfinder movements diagonal safeToBreak collision landing`,
+`site:ompl.kavrakilab.org LazyPRM lazy collision checking remove invalid edges`,
+`site:github.com/ompl/ompl LazyPRM.cpp remove vertices edges solution`.
+Opened [Epic FindFloor](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/UCharacterMovementComponent/FindFloor),
+[Mineflayer movement source](https://github.com/PrismarineJS/mineflayer-pathfinder/blob/master/lib/movements.js)
+and [OMPL LazyPRM source](https://ompl.kavrakilab.org/LazyPRM_8cpp_source.html).
+The latter removes invalid edges/vertices and replans while retaining the
+roadmap. Decision: adapt that retained-connectivity pattern using existing
+world memory and local observations; do not add a temple route or treat
+collision checking as a replacement for global route selection. Walking control
+still requires the real player-sized guard. A model-visible geometric map and
+detour planning across windows remain work, not implemented capability.
+
+Independent Terra review also found a separate walking-only defect:
+`env.jump=0` remains truthy in Lua, so the low-obstacle verifier can query
+`max_floor-30`, mark a hop and emit a jump despite zero jump capability. This
+was not observed as the cause of this failed route. Its narrow design is to
+require positive available jump reach both when proposing a hop and consuming
+a remembered hop flag. Existing positive-height jumping remains unchanged.
+Regression: a wall whose higher ray is clear must remain blocked for walking
+only, while the same geometry permits a hop with sufficient jump reach. Do not
+query a supposed high-clearance ray below the knee ray. This is a generic
+capability contract fix, not a temple or gap-crossing workflow.
+
+Principles: reuse real observations and localplanner; preserve model goal,
+world data, actual-arrival verification and frozen judges. No outcomes are
+emulated. Offline contract tests precede publication; developer walking then
+full Sonnet/Haiku acceptance remain required. No new autonomous task passed.
+
+### Terrain information delivery: next bounded repair
+
+Actual additional root queries:
+`site:arongranberg.com astar LayerGridGraph multiple layers raycast collision height testing`,
+`site:github.com frontier_exploration frontier_search.cpp searchFrom costmap`,
+`site:docs.nav2.org global planner costmap obstacle local controller global path replanning`.
+Opened [LayerGridGraph documentation](https://arongranberg.com/astar/documentation/stable/layergridgraph.html)
+and [m-explore-ros2 frontier source](https://raw.githubusercontent.com/robo-friends/m-explore-ros2/main/explore/src/frontier_search.cpp).
+They separate stacked surfaces and unknown/known-free boundaries respectively.
+These are conceptual patterns: Unity's library is not our Unreal backend, and
+our line-hit candidate grid is not a known-free robotics occupancy map.
+
+Independent Terra design review recommends feedback first: before `lp_work`
+discards its candidate planner, copy a bounded primitive snapshot of exact
+failure, sampled window/cell size/count, observed candidate surfaces, individual
+barrier-ray hits and missing coverage. Carry it through actual movement result
+and bridge data to Haiku and the Director. Reuse existing result/state transport;
+do not assume raw state is included in either model's compact prompt. If retained
+for later turns, key to the world and include age/source, truncation and explicit
+staleness; do not retain native object references or promote stale data to
+movement authority. Keep task-board intent and actual-arrival predicates.
+
+Root source audit confirmed the current transport gap: Haiku's `next_turn`
+appends actual tool results, but Director `_last_results` currently copies only
+`tool`, `ok` and `reason` from action records before constructing replan
+`last_actions`. Detailed route feedback is dropped there. This is code evidence,
+not a measurement of the full agent using a future terrain snapshot. Extending
+body observations without checking this compacting boundary would leave the
+planner missing the new geometry and failure detail.
+
+LP has at most two ray-hit layers, may collapse close layers and substitutes its
+own floor near the pawn. Its graph search visits unchecked edges; its wall points
+lack normals and actor identity. Therefore a node must not be labelled reachable
+or capsule-clear, a point hit must not become a complete wall, and a missing
+sample must not become a gap. Provisional side/endpoints remain candidate surfaces
+until normal real movement and its guard verify passage. Returning a checked
+route/frontier needs actual connected-edge evidence; neither diagonal grid
+adjacency nor both endpoint floors proves it.
+
+This incremental feedback repair is not a complete mapping or exploration
+capability. Sustained navigation still needs retained geometric connectivity
+across local windows and detours that temporarily increase destination distance.
+Ability edges later need measured run-up/trajectory/landing and current ability
+resources, not guessed gap reach. Required regressions cover different floors,
+blocked side candidates, unknown coverage, stale/rebound worlds/owners/goals,
+bounded serialized size, unchanged task intent and actual delivery to both
+models. Then developer real controls and unassisted full-agent validation.
+No new terrain tool or automatic model-choice rewrite is selected here.
+
 ## Search record
 
 Queries actually run include:

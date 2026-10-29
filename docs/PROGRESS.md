@@ -1,5 +1,29 @@
 # Progress log (append-only)
 
+### Published terrain control and failed far-route measurement (2026-10-29 10:27Z)
+
+Source65af2cb pushed/deployed after1258/1skip full GREEN. New real adapter
+controls passed floor/unsupported/penetrating, clear/wall/overhead, cleanup and
+reacquisition. Developer normal go_to about300m away ended28.06s later,
+268.81m short/24.18m vertical error, health100; no model calls or intermediate
+route hints. Native plus ordinary local detours moved the character, but the
+candidate observation window failed at real vertical barriers. Readonly native
+map338nodes/755queries returned unreachable_in_window after12blocked paths;
+increasing the diagnostic allowance did not find an improving local route.
+This does not prove no world route exists. No new autonomous task passed.
+
+A separate zero-jump low-obstacle hop defect is fixed in the candidate, including
+cached-hop wall bypass. Focused Lua23checks and fresh Terra cold review passed;
+full gate is running before commit/publication. Current DEV client deliberately
+stopped for gate RAM; server/Steam/world memory preserved. Terrain-map delivery
+and retained detour connectivity remain work, with research/design recorded in
+docs/research/2026-10-29-player-grounding-native-controls.md.
+
+The hop-fix gate subsequently completed1258passed/1skip in512.59s,
+CHECK_ALL: GREEN (privateg-hop-e926bbd9). The272frozenLua files were unchanged,
+and the frozen-judge diff was empty. This clears a tested source checkpoint;
+the failed far route and full-agent acceptance remain unresolved.
+
 ### Walking admission integrated; full gate green (2026-10-29)
 
 Native sensor/short-horizon guard now connect to memory entry and recovery,
