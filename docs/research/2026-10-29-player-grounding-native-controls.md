@@ -277,6 +277,32 @@ No new terrain tool or automatic model-choice rewrite is selected here.
 
 ## Search record
 
+### Nearby route and changed destination controls (2026-10-29, 12:42-12:45 UTC)
+
+On the tested a9f5782 body, developer normal go_to from the lodestone area to
+[77,1879,-31.28] PASSED in9.52s, ending[76.17,1877.93,-31.26], health100.
+This is the same nearby candidate that previously failed from the wall corner,
+but with a different starting position.55read-only samples from the existing
+observe-walk command captured pose/status; no guard terrain report was present,
+so this does NOT diagnose the prior coast_reset_limit or prove that guard clear.
+
+A changed distant final target[76.17,2110,-7.09] then failed in19.56s,
+`route unavailable: no_path`, with no displacement/health100. The ordinary
+observation pass again produced real candidate surfaces and diagonal barrier
+samples, not an admitted path. Do not generalise the nearby success to temple
+exit. Raw before/results/after and samples are privatepi-control-a702.
+
+After the failure actually searched
+`site:dev.epicgames.com navigation mesh ramp max step height agent radius path not found Unreal`
+and `site:github.com/PrismarineJS/mineflayer-pathfinder noPath partial visited nodes searchRadius`.
+Opened [Epic NavMesh settings](https://dev.epicgames.com/documentation/unreal-engine/navigation-mesh-settings-in-the-unreal-engine-project-settings?lang=en-US)
+and [Mineflayer A* source](https://github.com/PrismarineJS/mineflayer-pathfinder/blob/master/lib/astar.js).
+The en-us Epic URL variant was inaccessible. Agent/voxel/step settings and
+bounded search status are documented; this is not evidence of this game's exact
+missing ramp coverage or justification to change collision. Decision: retain
+the failed frontier/connected-route evidence, distinguish native-route coverage
+from guarded execution, and do not repeat unchanged distant goals blindly.
+
 ### Outbound and parallel-wall controls (2026-10-29, 11:57-12:07 UTC)
 
 Luis clarified the goal: outside the temple and at least 200m FROM its spawn

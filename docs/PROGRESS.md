@@ -1,5 +1,25 @@
 # Progress log (append-only)
 
+### Planner interface candidate and changed-route controls (2026-10-29)
+
+Candidate in isolated F exposes intact body argument schemas to Director input,
+shares accurate metre/XY/Z wire conventions with both models and removes only
+the redundant global-final-state advisory for validated ordered checkpoint plans.
+No action selection, native movement, default budget or frozen judge changes.
+Fresh design/cold reviews CLEAR;86focused tests and20main input/ordered/design
+preflight tests passed. Fresh full gate passed1279tests/1skip,CHECK_ALL: GREEN
+in459.28s;597sourcefiles and49preserved memory/state files matched snapshots.
+No autonomous gameplay pass yet.
+
+While candidate stayed isolated, the tested client completed developer go_to
+to[77,1879,-31.28] from the lodestone area in9.52s, health100.55read-only samples
+had no guard report, so this does not clear the old coast failure. A changed
+distant destination then failed no_path in19.56s with no displacement/health100.
+Evidence and actual post-failure primary-source search are recorded in
+docs/research/2026-10-29-player-grounding-native-controls.md. Full trial will
+resume the existing pending task, retaining its history/window and explicit
+bounded hourly allowance rather than creating another duplicate job.
+
 ### Self-sufficiency requirement reinforced and persisted (2026-10-29)
 
 Luis requires independent food/water acquisition and repeated return to useful

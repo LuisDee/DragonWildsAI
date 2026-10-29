@@ -42,6 +42,7 @@ from typing import Any, Callable
 import jsonschema
 
 from . import item_stats
+from .geom import WIRE_COORDINATES
 from . import needs
 from . import places
 from . import predicates as P
@@ -249,6 +250,7 @@ Rules:
   something with "equipped".
 - For a specific job requiring ordered intermediate outcomes, choose completion_mode ordered_steps and mark each required outcome step with a unique checkpoint_id. On replans include all unfinished checkpoints in order with the same IDs and success tests; never include completed checkpoints or put required checkpoints in loops. Other preparation steps need no checkpoint_id. The final job test must also pass.
 - Open-ended jobs use state mode and end by choice. Specific ordered jobs finish only when all checkpoints and the final test pass.
+- In a valid ordered job the final test can already be true while required checkpoints are pending; the checkpoints and final test jointly establish completion. Do not add elapsed time merely to make that final test initially false.
 - Repeated trips: give the steps a group and a loop with an "until" test; code repeats the group by itself.
   Steps after the loop (deliver, report) run once the loop's until test passes.
 - An amount the player left open (no number) on a long job is not a token pass: aim for what the job's words
@@ -816,7 +818,6 @@ class Validator:
             tr = P.evaluate(out["task_success"], self.state, fresh) if out["task_success"] else None
             if tr is not None and tr.passed is True:
                 out["task_success_trivial"] = True
-                info.append("task_success is already true now.")
             elif tr is not None and tr.passed is None and not set(tr.missing) & set(BOOKKEEPING):
                 # wave 5 (quest): a job whose done test can never be checked would never end; say why instead
                 errs.append(f"task_success can't be checked from what the body reports (missing: "
@@ -876,6 +877,12 @@ class Validator:
         errs.extend(_checkpoint_errors(self.task, out, self.kind))
         if errs:
             raise ValueError("; ".join(errs[:12]))
+        # Sequence progress and a current condition are distinct; the validated
+        # ordered contract still requires all checkpoints and the final condition.
+        # https://www.behaviortree.dev/docs/3.8/nodes-library/SequenceNode/
+        pending_ordered = out["completion_mode"] == "ordered_steps" and any(s.get("checkpoint_id") for s in steps)
+        if out["task_success_trivial"] and not pending_ordered:
+            info.insert(0, "task_success is already true now.")
         unknown = [f.get("fact") for f in out["facts"] if f.get("status") == "unknown"]
         advisories = ([f"These facts are listed as unknown: {unknown[:6]}; look them up with your tools, or say in "
                        f"explanation why the plan doesn't need them."] if unknown and self.research_left() else [])
@@ -1242,9 +1249,15 @@ class Director:
 
     def _messages(self, snap: dict) -> list[dict]:
         manifest = getattr(self.caps, "manifest", None) or {}
-        tools = "\n".join(f"- {n}{_arg_list((manifest.get(n) or {}).get('args'))}: {d}"
-                          for n, d in sorted(self.body_tools.items())) or "- (unknown)"
+        # Render the intact published schema, including nested constraints and descriptions.
+        # https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools
+        tools = "\n".join(
+            f"- {n}: {d}\n  args JSON schema: " +
+            (json.dumps(manifest[n]["args"], ensure_ascii=False) if n in manifest and manifest[n].get("args") is not None
+             else "unknown (not published)")
+            for n, d in sorted(self.body_tools.items())) or "- (unknown)"
         system = SYSTEM.format(name=self.name, tools=tools, predicates=P.SCHEMA_DOC, output=OUTPUT_DOC)
+        system += "\n\n" + WIRE_COORDINATES
         task = snap["task"]
         user = {"decision": snap["kind"], "what_to_do": KIND_NOTES.get(snap["kind"], KIND_NOTES["plan"]),
                 "job": {"text": task["text"], "kind": task["kind"], "given_by": task["by"], "because": task.get("because"),

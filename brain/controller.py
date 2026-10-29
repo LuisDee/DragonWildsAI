@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import grounding
+from .geom import WIRE_COORDINATES
 from . import persona as persona_file
 from . import item_stats
 from . import situation as sit
@@ -669,7 +670,7 @@ class Controller:
         if rules:
             persona += (f"\n\nHouse rules from {self.player} (always follow them; they are his, not yours to "
                         f"change):\n{rules}")
-        return persona
+        return persona + "\n\n" + WIRE_COORDINATES
 
     # ---------------------------------------------------------------- the bounded loop
 
