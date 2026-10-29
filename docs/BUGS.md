@@ -842,3 +842,7 @@ wrapper; current stationary reproduction identifies a real present blocker,
 not every prior sensor_unavailable occurrence. Separate bounded design audit
 is underway. Evidence: private lpc-trial-a819/decision-a830.json and its linked
 raw results. No autonomous pass or floor-limit relaxation is claimed.
+
+
+### 2026-10-30: blocked partial native route prevents local recovery
+Observed on a98de42: a832 memory proposal included an unwitnessed r95→r14 connector through a side wall. Guard rejected it correctly; fresh partial native path also hit a side surface. Since `st.path` existed, strict local observation was skipped, and nonmemory guard failure ended the command. a837 additionally demonstrates the legacy short-route local→memory authority switch; it does not test strict local recovery. See private a832 navigation-audit and a834/a837 decisions. Repair under design review; no live fix claimed.

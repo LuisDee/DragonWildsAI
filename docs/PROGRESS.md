@@ -1620,3 +1620,13 @@ Steam/server/world memory retained; client stopped at the demonstrated floor
 counterexample for the controlled integration window. No new autonomous pass;
 three-round-trip acceptance remains0/3. Designs and private npg-a831 review
 records preserve exact source hashes and validation scope.
+
+
+### 2026-10-30: blocked connector recovery evidence (a832–a837)
+- Autonomous temple trips remain **0/3**. a98de42 full gate GREEN (1311 passed, 1 skipped) is not a gameplay pass.
+- Developer a832 return advanced from the previous floor-admission failure but failed after 64.313 s, 39.55 m short, HP100. Fresh stationary full-capsule probes reproduced side collisions for the remembered connector and fallback native route, including finer splits. Do not loosen collision checking.
+- The remembered connector joins different journey records across an unwitnessed 3.65 m gap. Fresh partial native routing then suppresses strict local observation and terminates at its blocked segment.
+- Existing local planner produced a ray-checked alternative (a835), not an executable-route proof. Public developer move to its first executable node passed (a836, 0.515 s); a short detour goal failed (a837, 14.203 s) after legacy local steering switched to memory. No new model calls or autonomous pass.
+- Evidence: private `logs/recovery/npg-trial-a832/` contains decisions, probes, traces and audit. Next: review a bounded same-goal strict-local recovery design; preserve selected authority and all collision/floor/lifecycle checks.
+
+- Follow-up a840 used exact production observation adapter, Player profile, walking environment and 12-replan rule: failed on the 13th rejected path, 758 rays, .431 CPU s, unchanged actual pose. Dispatch-only recovery is on hold; compare bounded verification strategies before implementation. No production edits or new autonomous pass.

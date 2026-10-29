@@ -2822,3 +2822,9 @@ from current sampled support and actual character pose. This observation
 does not itself authorize dropping floor checks or changing arrival criteria.
 Private evidence: lpc-trial-a819/retained-segment-a829.json and generation8
 route trace in outbound-input-a828-samples.jsonl.
+
+
+### 2026-10-30: physical side collisions versus unavailable route
+Stationary a834 full-capsule queries at the actual a832 failure pose reproduced memory-connector side contact (normal approximately [-0.707,-0.707,0], contact 13 cm above capsule centre) and native side contact. Finer subdivisions still blocked. The long direct chord separately hit the floor; the sampled failure was a different side contact. Plain copied output flags retain their known marshalling caveat; native Boolean and consistent geometric copies support the side-contact conclusion. Sensor cleanup succeeded. A blocking segment is not proof that the original destination has no route.
+- Sources opened: [FHitResult](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/FHitResult), [native StepUp](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/GameFramework/UCharacterMovementComponent/StepUp?application_version=5.5), [Nav2 recovery](https://docs.nav2.org/jazzy/getting_started/nav2_behavior_trees/trees/nav_to_pose_with_consistent_replanning_and_if_path_becomes_invalid/), [LazyPRM invalid-edge removal](https://ompl.kavrakilab.org/LazyPRM_8cpp_source.html). These describe semantics/patterns, not drop-in Dragonwilds APIs.
+- Decision: reuse existing guarded local planning on a demonstrated blocked native segment; do not weaken collision checks or delete learned world routes. Exact queries and runtime receipts remain in private `logs/recovery/npg-trial-a832/decision-a834.json`.
