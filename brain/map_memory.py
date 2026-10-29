@@ -17,6 +17,12 @@ docs/ARCHITECTURE.md 8.4b). Decision: build (a 200-line JSON store; no library f
 """
 from __future__ import annotations
 
+# Place/observation-memory precedents; this store uses our own census schema:
+# https://arxiv.org/abs/2305.16291
+# https://github.com/mindcraft-bots/mindcraft
+# Historical Generative Agents attribution above has no exact retained URL;
+# see docs/research/2026-10-25-scalable-agent-frameworks.md for recovered sources.
+
 import heapq
 import json
 import math

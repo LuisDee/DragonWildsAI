@@ -711,6 +711,9 @@ end
 -- the point's own level: |(me.Z - zoff) - p.Z| < dz_tol. zoff = 0 for capsule-centre points
 -- (leader crumbs), ~90 for floor points (local plan cells, navmesh waypoints).
 local function advance(pts, i, me, radius, dz_tol, zoff, local_edges)
+    -- Adapted corridor invariant: closer next point does not prove a valid shortcut.
+    -- https://recastnav.com/classdtPathCorridor.html
+    -- https://docs.nav2.org/jazzy/configuration_and_development/configuration_guide/controller_plugins/configuring_regulated_pp/
     dz_tol, zoff = dz_tol or 60, zoff or 0
     while i <= #pts do
         local p = pts[i]
@@ -730,6 +733,10 @@ end
 -- A bounded local history is shared by waypoint and segment credit. Changing
 -- path tables or jittering their points never supplies movement evidence.
 local function novel_progress(st, me)
+    -- Separate path-relative progress, physical liveness and arrival; conceptual
+    -- references only, with our own monotonic high-water/ownership contract:
+    -- https://github.com/ros-navigation/navigation2/blob/main/nav2_controller/plugins/simple_progress_checker.cpp
+    -- https://github.com/ros-navigation/navigation2/blob/main/nav2_bt_navigator/src/navigators/navigate_to_pose.cpp
     for _, p in ipairs(st.progress_positions) do
         if d2(me, p) < M.cfg.progress_cm and math.abs(me.Z-p.Z) < 65 then return false end
     end
@@ -1372,6 +1379,9 @@ end
 -- the same actual-position walking check. Native snapshots stay in walk_sense;
 -- this is sampled short-horizon control, not a whole-route safety certificate.
 function WALK.check(st,pawn,pc,me,aim,goal,t)
+    -- Bounded receding collision checks adapted from Nav2; native UE adapter and
+    -- lifecycle rules are local code, not ROS APIs exposed by Dragonwilds:
+    -- https://github.com/ros-navigation/navigation2/blob/main/nav2_regulated_pure_pursuit_controller/src/collision_checker.cpp
     local gen=st.gen
     local operation=binding(st,pawn)
     local function current()

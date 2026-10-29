@@ -10,6 +10,10 @@
 --     layer watches conditions and aborts lower-priority work.
 -- Decision: ADAPT (a priority slot + suspended stack + leases), BUILD the thin Lua (no Lua library
 -- for this exists; the pattern is ~150 lines).
+-- Priority/suspension and observer-abort references, not imported implementations:
+-- https://ojs.aaai.org/index.php/AIIDE/article/view/12350
+-- https://courses.csail.mit.edu/6.189/fall2005/pub/lectures/Releases/2005_10_12_lecture10_arbitrationv4.pdf
+-- https://docs.unity3d.com/Packages/com.unity.behavior@1.0/manual/observer-abort-mechanics.html
 --
 -- Levels: reflex (4) > command (3) > task (2) > idle (1).
 --   * A request at a HIGHER level than the owner preempts it: the owner is suspended (its move is

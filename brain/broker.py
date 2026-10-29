@@ -30,6 +30,11 @@ structured fields only: no phrase tables (Luis, 2026-10-25).
 """
 from __future__ import annotations
 
+# Adapted work-key debounce pattern (synchronous polling here, not this async bus):
+# https://bubus.sweeting.me/features/event-debouncing
+# Historical bark-manager publisher roots (exact article URLs not retained):
+# https://bugnet.io/ and https://pulsegeek.com/
+
 import math
 import re
 import time

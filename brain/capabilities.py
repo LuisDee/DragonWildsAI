@@ -18,6 +18,10 @@ typed params, runAsAction timeout).
 """
 from __future__ import annotations
 
+# Adapted tool-discovery/schema contract; not an MCP transport implementation:
+# https://modelcontextprotocol.io/specification/2025-06-18/server/tools
+# https://github.com/mindcraft-bots/mindcraft/blob/main/src/agent/commands/actions.js
+
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Callable

@@ -8,6 +8,9 @@
 -- Shape (adapted from MCP `tools/list` {name, description, inputSchema} and MINDcraft's command table
 -- {name, description, params{type, description, domain}, perform = runAsAction(fn, resume, timeout)};
 -- see docs/ARCHITECTURE.md 8.6):
+-- Contract-shape references (this bridge does not implement MCP transport):
+-- https://modelcontextprotocol.io/specification/2025-06-18/server/tools
+-- https://github.com/mindcraft-bots/mindcraft/blob/main/src/agent/commands/actions.js
 --   name         wire tool name
 --   description  one or two sentences FOR THE LLM: what it does, what it needs, what it can't do
 --   args         JSON Schema (draft 2020-12 subset: type, properties, required, enum, minimum, maximum,

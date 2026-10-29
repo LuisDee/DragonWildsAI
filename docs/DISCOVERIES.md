@@ -1,5 +1,16 @@
 # Discoveries
 
+### Historical citation correction (2026-10-29)
+
+Opening https://github.com/UE4SS-RE/RE-UE4SS/issues/484 during the inline-source
+audit found a DWMAPI loader report, with no UnregisterHook match. The older
+hookhub/recovery claim attributing function-dependent hook crashes to that issue
+is unsupported. hookhub comments now preserve that attribution as historical
+and link the actual upstream lifetime fix and later transition-crash report:
+https://github.com/UE4SS-RE/RE-UE4SS/pull/1010 and
+https://github.com/UE4SS-RE/RE-UE4SS/issues/1351.
+Those sources establish upstream reports, not our native crash's root cause.
+
 ### DEV local barrier reconstruction (2026-10-29 10:32Z)
 
 On published65af2cb, three candidate edges rejected by localplan were reproduced

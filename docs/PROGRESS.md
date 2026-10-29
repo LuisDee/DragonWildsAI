@@ -1,5 +1,20 @@
 # Progress log (append-only)
 
+### Source references beside implementation (2026-10-29)
+
+Luis requested direct online-source links next to the code they informed.
+Added references across 27 code files: native floor/collision and guarded
+movement, local planning/memory, arbitration/hooks, capability contracts,
+crafting/gathering/fishing/combat, knowledge/skill/place memory and log tooling.
+Comments distinguish conceptual patterns, API contracts, rejected alternatives
+and runtime proof. Added the standing rule to AGENTS.md. Two historical bark
+article URLs were not recoverable; publisher roots are explicitly incomplete.
+Corrected the unsupported historical UE4SS issue484 hook-crash attribution.
+
+Validation: 18 Lua files have identical non-comment lines and pass luac syntax;
+9 Python files have identical ASTs. Frozen judges unchanged; diff check clean.
+No behavior, model calls, live actions, restarts or new gameplay acceptance.
+
 ### Published terrain control and failed far-route measurement (2026-10-29 10:27Z)
 
 Source65af2cb pushed/deployed after1258/1skip full GREEN. New real adapter

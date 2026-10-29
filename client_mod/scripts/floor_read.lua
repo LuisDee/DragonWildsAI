@@ -1,5 +1,10 @@
 -- Opt-in only. Loading this file does not register hooks or query the engine.
--- A Lua pcall cannot contain a native crash; this ABI is not yet live-approved.
+-- A Lua pcall cannot contain a native crash; compatibility is specific to the
+-- game/build and the native controls referenced below, not guaranteed by docs.
+-- API/result contract and UE4SS callback parameter wrapping (not ABI proof):
+-- https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/FFindFloorResult
+-- https://docs.ue4ss.com/lua-api/global-functions/registerhook.html
+-- Current native controls: docs/research/2026-10-29-player-grounding-native-controls.md.
 local M = {}
 local PATH = "/Script/Engine.CharacterMovementComponent:K2_FindFloor"
 local KEY = "floor_read:typed"

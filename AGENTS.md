@@ -77,6 +77,12 @@ autonomous test configuration.
   findings and reuse/adapt/build decision; distinguish conceptual precedent from
   APIs verified in this game/runtime. Reuse that search for subsequent edits to
   the same problem instead of repeating it for every line or file.
+- Luis's source-reference rule (2026-10-29): when an online source informs code,
+  put its direct URL in a nearby code comment with a short explanation of what
+  was reused or adapted. Keep research notes too. Distinguish conceptual
+  precedent from API documentation and runtime evidence; prefer stable versions
+  or commit permalinks when known, and mark unrecovered historical URLs rather
+  than inventing citations. Preserve upstream licence/attribution notices.
 
 ## Delegation, integration and resources
 

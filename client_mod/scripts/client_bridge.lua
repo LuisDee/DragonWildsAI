@@ -1,5 +1,8 @@
 -- client_bridge.lua: the brain <-> CLIENT body link (route R2, docs/research/2026-10-25-client-side-botting.md
 -- decision 1: the "agent server" of a Microbot/Mineflayer-style client API).
+-- Client-API architectural precedents (not dependencies or native game APIs):
+-- https://github.com/chsami/Microbot
+-- https://github.com/PrismarineJS/mineflayer
 --
 -- Speaks the SAME JSONL protocol as the server puppet (brain/BRIDGE_PROTOCOL.md v1, "Client endpoint"):
 -- it loads the server mod's own mod/scripts/bridge.lua (a fresh instance via loadfile) with the client's

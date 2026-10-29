@@ -3,6 +3,10 @@
 -- goal arrival. Caller owns actual inputs, lifecycle, physics and progress.
 -- read_pose() is required: return the current capsule-centre vector while the
 -- caller's world/life/owner/goal binding is valid. It is reread before clear.
+-- Adapted pattern: bounded forward collision checking followed by fresh feedback.
+-- Nav2 is conceptual precedent, not a UE backend or copied controller/geometry:
+-- https://github.com/ros-navigation/navigation2/blob/main/nav2_regulated_pure_pursuit_controller/README.md
+-- https://github.com/ros-navigation/navigation2/blob/main/nav2_regulated_pure_pursuit_controller/src/collision_checker.cpp
 local M={}
 local function finite(n) return type(n)=='number' and n==n and math.abs(n)<math.huge end
 local function integer(n) return finite(n) and n%1==0 end

@@ -4,11 +4,11 @@
 --  * ROUTE CACHE: every successful trip is stored as a polyline (~2.5 m spacing). Routes are joined
 --    into one graph (consecutive points, plus "join" edges between points of different routes that
 --    are close), and planned with Dijkstra, the way the FFXIV bot keeps learned waypoints
---    (github.com/Syraxius/FFXIVSyraxiusBot). Learned traversal links (traverse_learn.lua) are extra
+--    (https://github.com/Syraxius/FFXIVSyraxiusBot). Learned traversal links (traverse_learn.lua) are extra
 --    directed edges in the same graph.
 --  * TRAP MEMORY: an area where Claude got stuck, with the exit that worked. Inside a trap with the
 --    goal outside, the exit comes first. A failed approach is TABOOED (Pogamut taboo nav points:
---    diana.ms.mff.cuni.cz/pogamut_files/lectures/2015-2016/Pogamut_3-2016-Lecture-05-Slides-Navigation.pdf):
+--    https://diana.ms.mff.cuni.cz/pogamut_files/lectures/2015-2016/Pogamut_3-2016-Lecture-05-Slides-Navigation.pdf):
 --    edges toward the tabooed point from the trap get a large cost.
 --  * Storage (data, not code): learned per world  -> <root>/data/skills/<world>/nav_memory.json
 --                              map seeds (static) -> <root>/data/nav/<map>_seeds.json

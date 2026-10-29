@@ -277,6 +277,18 @@ No new terrain tool or automatic model-choice rewrite is selected here.
 
 ## Search record
 
+Inline-source audit follow-up (Luis, 2026-10-29): source URLs now sit beside
+the implementations they informed, with the retained research as context.
+Queries included `site:github.com/UE4SS-RE/RE-UE4SS/issues/484 UnregisterHook`,
+`Cutumisu Szafron Behavior Multi Queues 2009 AIIDE`,
+`site:bugnet.io/blog "barks"`, `site:pulsegeek.com "barks"`, and exact
+publisher-name/bark searches. The bark article URLs were not recovered and
+are marked incomplete, not replaced by guessed articles. Opened the historical
+issue484, upstream PR1010/issue1351, AAAI Behavior Multi-Queues paper page,
+Epic EQS overview and MCP tools specification. Comments link those primary
+sources and distinguish concepts/API references from current runtime evidence.
+No implementation was changed on the basis of this attribution audit.
+
 Queries actually run include:
 
 - `site:dev.epicgames.com CharacterMovement K2_FindFloor capsule location walkable floor navigation mesh`

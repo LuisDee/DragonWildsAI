@@ -10,6 +10,10 @@
 --   * walls/thin obstacles are checked LAZILY (Lazy PRM, Bohlin & Kavraki 2000): A* runs on floor
 --     data only, then only the chosen path's edges get horizontal traces; a blocked edge is
 --     removed and the path re-planned. That keeps the trace count bounded.
+-- Source references for the adapted patterns above (not drop-in UE libraries):
+-- Layered surface sampling: https://arongranberg.com/astar/documentation/stable/layergridgraph.html
+-- Movement candidates: https://github.com/PrismarineJS/mineflayer-pathfinder/blob/master/lib/movements.js
+-- Lazy edge invalidation: https://ompl.kavrakilab.org/LazyPRM_8cpp_source.html
 -- Cost on the dev server: ~1 ms CPU per LineTraceSingle from Lua (FHitResult marshalling), so all
 -- traces are spread over frames with a budget (step()).
 --
@@ -173,6 +177,8 @@ local function ekey(a, b) return tostring(a) .. ">" .. tostring(b) end
 -- The planner's movement envelope is fixed for its lifetime. The hop probe is
 -- only useful if its height (jump reach minus 30 cm) is above the 50 cm walk probe.
 local function can_probe_hop(env)
+    -- Lua considers zero truthy; capability availability needs a numeric bound:
+    -- https://www.lua.org/manual/5.4/manual.html#3.4.5
     return type(env.jump) == "number" and env.jump > 80
 end
 

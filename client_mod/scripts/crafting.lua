@@ -30,6 +30,10 @@
 -- Prior art (search-before-building, design note): Mineflayer/Mindcraft craft = recipe resolved from
 -- game data + walk to the table + the client's own window click; Mindcraft's crafting-plan text;
 -- Plancraft's dependency tree; ported from the legacy mod/body/crafting.lua plan/check.
+-- Conceptual recipe/planning references, not Dragonwilds UI API documentation:
+-- https://github.com/PrismarineJS/mineflayer/blob/master/docs/api.md#botcraftrecipe-count-craftingtable
+-- https://sites.uci.edu/kolbynottingham/2024/10/30/mindcraft
+-- https://arxiv.org/html/2412.21033v1
 --
 -- Contract: HANDLERS[tool](log, args, ctx) with ctx.api = client_bridge M.API (as skills.lua).
 -- W = the engine touches (tests replace them).

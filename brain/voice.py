@@ -15,6 +15,11 @@ pulsegeek.com bark write-ups, searched 2026-10-25. The work is split three ways:
 """
 from __future__ import annotations
 
+# Historical bark-manager publisher references from the original research:
+# https://bugnet.io/ and https://pulsegeek.com/
+# Exact article URLs were not retained and could not be recovered in the
+# 2026-10-29 source audit; these roots are attribution, not verified articles.
+
 import difflib
 import re
 import time

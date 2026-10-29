@@ -12,6 +12,8 @@
 -- (stamina spent per swing, the server's damage multicasts on the target, target HP / IsDead).
 --
 -- Design (search-before-building, DISCOVERIES "Client combat (R2)"):
+-- Engage-loop precedent (Minecraft API/physics are not used here):
+-- https://github.com/PrismarineJS/mineflayer-pvp
 --   * fight-or-flight = a small utility function (time-to-kill comparison, gamedev.net "help me
 --     understand utility AI"; Infinite Axis-style response curves) gated by hard vetoes (boss,
 --     power-level gap, outnumbered, low HP) and hysteresis;

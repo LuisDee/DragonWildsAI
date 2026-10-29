@@ -23,6 +23,10 @@
 -- stop at the desired quantity, blacklist the closest target when pathing fails, rescan, give up when
 -- nothing is known), the legacy server gather (mod/body/gather.lua: profiles, chain, reach, aim).
 -- Decision: ADAPT those shapes; BUILD the thin Lua loop over the existing client modules.
+-- Collection/tool/quantity-loop references, not Dragonwilds outcome implementations:
+-- https://github.com/PrismarineJS/mineflayer-collectblock
+-- https://github.com/PrismarineJS/mineflayer-tool
+-- https://github.com/cabaletta/baritone/blob/master/src/main/java/baritone/process/MineProcess.java
 --
 -- Entry points (log = DWClient text logger):
 --   M.start(log, args, ctx) args = {resource, count (MORE to collect), radius (m), stumps (bool)}

@@ -23,6 +23,11 @@ step by step by the executor like any plan.
 """
 from __future__ import annotations
 
+# Verified-skill/workflow precedents; we retain declarative steps, not generated code:
+# Voyager: https://arxiv.org/abs/2305.16291
+# GITM: https://arxiv.org/abs/2305.17144
+# Agent Workflow Memory: https://arxiv.org/abs/2409.07429
+
 import json
 import re
 import sqlite3

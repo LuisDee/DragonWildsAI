@@ -16,6 +16,12 @@ format). Encrypted indexes are not supported (the script fails loudly).
 """
 from __future__ import annotations
 
+# Container tools reviewed before the local read-only parser; none is imported:
+# https://github.com/trumank/retoc
+# https://github.com/FabianFG/CUE4Parse
+# https://github.com/4sval/FModel
+# Binary layout provenance is the named Unreal header above, not copied parser code.
+
 import argparse
 import re
 import struct

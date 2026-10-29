@@ -9,6 +9,9 @@
 --   * "get out now" = an EQS-style query: generate candidate points around us (rays in 32
 --     directions, the first point along each ray that is outside every zone), filter by the bound,
 --     score by distance, then test reachability (done by move.lua with real traces).
+-- Influence-map cost and generate/filter/score precedents; no native EQS call:
+-- https://www.cs.mun.ca/~dchurchill/publications/pdf/cog2021sneak.pdf
+-- https://dev.epicgames.com/documentation/en-us/unreal-engine/environment-query-system-in-unreal-engine
 --
 -- Zone (wire format, scalars only: UE4SS R15 crashes on struct userdata inside Lua table params):
 --   { id = "breath1", kind = "circle" | "cone", x, y, z (METRES, like every move API), r_cm,

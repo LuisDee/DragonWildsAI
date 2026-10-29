@@ -26,6 +26,9 @@
 -- (find nearest -> path -> collect -> verify inventory), the interaction-detector facing lesson
 -- (DISCOVERIES R2: the detector targets what he FACES within ~1.5 m). Decision: ADAPT those shapes
 -- over the bridge's own services (ctx.api); BUILD the thin Lua state machines.
+-- High-level action/timeout and collection precedents; actual inputs are local:
+-- https://github.com/mindcraft-bots/mindcraft/blob/main/src/agent/commands/actions.js
+-- https://github.com/PrismarineJS/mineflayer-collectblock
 --
 -- Contract: HANDLERS[tool](log, args, ctx) -> {pending = action} | failure. ctx.api = the bridge's
 -- services (client_bridge.lua M.API: call, census_things, find_thing, match_score, actor_of, counts,

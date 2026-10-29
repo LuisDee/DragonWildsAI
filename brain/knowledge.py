@@ -18,6 +18,11 @@ Prior art: PUBG Ally's knowledge-lookup tool ("tool results are the only ground 
 """
 from __future__ import annotations
 
+# Knowledge-tool precedents from the retained framework research, not game APIs:
+# https://developer.nvidia.com/blog/how-krafton-built-pubg-ally-a-co-playable-character-powered-by-nvidia-ace/
+# https://github.com/mindcraft-bots/mindcraft/blob/main/src/agent/commands/queries.js
+# https://arxiv.org/abs/2305.17144
+
 import json
 import os
 import re

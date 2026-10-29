@@ -23,6 +23,11 @@
 -- for the bobber event, verify the collected item); the Dragonwilds wiki/guides for the controls (A/D against
 -- the fish, hold LMB to reel; nets hold LMB inside a net spot); Palworld UE4SS fishing mods (which skip the
 -- minigame by calling the success RPC; rejected here: real inputs only).
+-- Input/verification pattern and the retained game-mechanics source:
+-- https://github.com/PrismarineJS/mineflayer/blob/master/lib/plugins/fishing.js
+-- https://dragonwilds.runescape.wiki/w/Fishing
+-- Rejected success-shortcut examples: https://www.nexusmods.com/palworld/mods/3850
+-- and https://www.nexusmods.com/palworld/mods/3798 (not copied or dependencies).
 --
 -- The MODEL decides when and where to fish; `fish` only runs the frame-coupled loop (approach, aim, charge,
 -- fight) that the model cannot do at tick speed (PRINCIPLES 4b), and reports every failure with one truthful

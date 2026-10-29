@@ -8,6 +8,12 @@
 -- Callbacks must use the captured full capsule/profile and remain synchronous.
 -- live() is the caller's latched world/life/owner/goal/config binding. A poll
 -- issues at most poll_budget queries and charges even errors. Endpoints are cm.
+-- API semantics: capsule-centre support, sweep/line distances and walkability:
+-- https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/FFindFloorResult
+-- https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/UCharacterMovementComponent/FindFloor
+-- Conceptual precedent: discrete motion checks depend on sampling resolution;
+-- these samples do not establish continuous clearance or authorize movement:
+-- https://ompl.kavrakilab.org/stateValidation.html
 local M={}
 local function finite(x) return type(x)=='number' and x==x and math.abs(x)<math.huge end
 local function integer(x) return finite(x) and x%1==0 end

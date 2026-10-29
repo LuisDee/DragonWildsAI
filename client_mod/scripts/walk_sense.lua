@@ -2,6 +2,11 @@
 -- Caller owns a permanently latched world/life/owner/goal predicate and controls
 -- client lifecycle, game thread and budgets. Initial is a +10 cm full-capsule
 -- sweep, NOT a general overlap API; it can conservatively reject a low ceiling.
+-- Native API references; current-build compatibility controls are recorded in
+-- docs/research/2026-10-29-player-grounding-native-controls.md, not implied by docs:
+-- https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/UCharacterMovementComponent/FindFloor
+-- https://dev.epicgames.com/documentation/en-us/unreal-engine/BlueprintAPI/Collision/CapsuleTraceByProfile
+-- https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/Components/UPrimitiveComponent/MoveIgnoreActors?application_version=5.5
 local M={}
 local SERVICE='DWWalkSenseServiceV1'
 local PATH='/Script/Engine.CharacterMovementComponent:K2_FindFloor'

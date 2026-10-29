@@ -14,6 +14,10 @@
 -- one-way latency off the wind-up (gamedev.net/forums/topic/634003). Nothing found for bots that
 -- learn parry timing; decision: build a small per-attack estimator (EMA of observed impact times +
 -- an outcome-driven offset).
+-- Historical timing references retained from that research (conceptual, not
+-- proof of Dragonwilds latency or parry mechanics; exact runtime data wins):
+-- https://bugnet.io/blog/bug-reporting-for-games-with-parry-and-block-timing
+-- https://www.gamedev.net/forums/topic/634003/
 --
 -- Timing model (client clock): the telegraph (AI attack multicast) reaches us one-way latency L
 -- after the server starts the attack; the server resolves the hit T after its start. A press must

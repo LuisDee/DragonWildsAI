@@ -32,6 +32,12 @@ Decision (search-before-building, 2026-10-26):
 """
 from __future__ import annotations
 
+# Historical location-source survey (reviewed alternatives, not imported coordinates):
+# https://dragonwilds.runescape.wiki/ (exact historical map-page URL not retained)
+# https://metabot.gg/ and https://dragonwildsmap.com/
+# https://mapgenie.io/runescape-dragonwilds
+# Positions here still come from the game's own data/perception as described above.
+
 import json
 import re
 from functools import lru_cache

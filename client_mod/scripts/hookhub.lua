@@ -5,7 +5,8 @@
 -- "StartCallbackGarbageCollector" without symbols) during a disconnect. Before it, our vitals re-arm had
 -- called UnregisterHook + RegisterHook on Multicast_ApplyDamage* / OnRep_* (only one of the four
 -- unregisters even logged), and combat.lua hooked the same Multicast_* functions a second time. UE4SS
--- issue #484 reports UnregisterHook crashing a game depending on the hooked function (v3.0.1 builds).
+-- Historical notes cited issue #484 for UnregisterHook crashes, but its current page concerns
+-- DWMAPI loader problems and does not substantiate that attribution.
 -- So, from now on:
 --   * each UFunction path is natively hooked AT MOST ONCE per client process (one post-hook), and
 --     NEVER unregistered (re-arming = swapping the Lua handler, no native call);
@@ -16,8 +17,15 @@
 --   * the native registration is deferred until a pawn exists in the game world (opts.defer_until_world):
 --     registering at the main menu is never needed and is where the vitals hooks went silent.
 -- State lives in _G.DWHookHub (survives hot reloads of this file and of the subscribing modules).
--- Precedent: UE4SS docs (RegisterHook returns ids; UnregisterHook needs both), UE4SS issue #484
--- (UnregisterHook crash, function-dependent), PalMods guidance (do engine work in the game thread).
+-- Precedent: UE4SS hook API, with later upstream hook-lifetime crash evidence.
+-- These sources do not establish the cause of this project's native crash:
+-- https://docs.ue4ss.com/lua-api/global-functions/registerhook.html
+-- https://github.com/UE4SS-RE/RE-UE4SS/pull/1010
+-- https://github.com/UE4SS-RE/RE-UE4SS/issues/1351
+-- Historical citation retained for audit, not as hook-crash evidence:
+-- https://github.com/UE4SS-RE/RE-UE4SS/issues/484
+-- Game-thread API reference; exact historical PalMods guidance URL was not retained:
+-- https://docs.ue4ss.com/lua-api/global-functions/executeingamethread.html
 local M = {}
 
 local function H()

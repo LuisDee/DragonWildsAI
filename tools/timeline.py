@@ -29,6 +29,12 @@ Interactive browsing: lnav with tools/lnav/dw_timeline.json (see docs/RUNBOOK-pa
 """
 from __future__ import annotations
 
+# Timeline/format precedents from docs/design/streamline-plan.md; no dependency
+# imported here. lnav consumes our normalized rows; logmerger informed the view:
+# https://docs.lnav.org/en/latest/formats.html
+# https://docs.lnav.org/en/latest/cli.html
+# https://github.com/ptmcg/logmerger
+
 import argparse
 import html
 import json
