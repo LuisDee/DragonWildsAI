@@ -35,13 +35,17 @@ end
 local function load(root,path)
     local f=assert(loadfile(root..'/'..path)); return f()
 end
-local function clearance(mc)
+local function clearance(mc,step)
     local f=mc.CurrentFloor
     if not f or f:type()~='UScriptStruct' or f:IsValid()~=true or not finite(f:GetStructAddress()) or f:GetStructAddress()==0 then return nil end
     if f.bBlockingHit~=true or f.bWalkableFloor~=true or type(f.bLineTrace)~='boolean' then return nil end
-    local d=f.bLineTrace and f.LineDist or f.FloorDist
-    if not finite(d) or d<0 or d>5 then return nil end
-    return d
+    local d
+    if f.bLineTrace then d=f.LineDist else d=f.FloorDist end
+    -- Line fallback distance is not bounded by a universal walking hover height.
+    -- Preserve its reference and the existing step-derived geometry bound.
+    -- https://dev.epicgames.com/documentation/en-us/unreal-engine/python-api/class/FindFloorResult?application_version=5.5
+    if not finite(d) or d<0 or not finite(step) or step<=5 or d>=step-5 then return nil end
+    return d,f.bLineTrace
 end
 function M.acquire(o)
     if type(o)~='table' or type(o.root)~='string' or o.root=='' or not o.pawn or not o.pc or type(o.live)~='function' then return nil,'invalid_request' end
@@ -70,12 +74,12 @@ function M.acquire(o)
         if not same(apos,cpos) then error('capsule_origin') end
         local radius,hh,step=cap:GetScaledCapsuleRadius(),cap:GetScaledCapsuleHalfHeight(),mc.MaxStepHeight
         local profile=cap:GetCollisionProfileName():ToString()
-        local gap=clearance(mc)
+        local gap,line=clearance(mc,step)
         if not finite(radius) or radius<=0 or not finite(hh) or hh<radius or not finite(step) or step<=5 or not gap or gap>=step-5 or
             (profile~='Player' and profile~='Pawn') or count(cap:CopyArrayOfMoveIgnoreActors())~=0 or count(cap:CopyArrayOfMoveIgnoreComponents())~=0 then error('shape_or_collision') end
         local dead,health,ground=hp:IsDead(),hp:GetAuthoritativeHealth(),mc:IsMovingOnGround()
         if dead~=false or not finite(health) or health<=0 or ground~=true then error('life_or_ground') end
-        return {radius_cm=radius,half_height_cm=hh,step_cm=step,clearance_cm=gap,profile=profile},
+        return {radius_cm=radius,half_height_cm=hh,step_cm=step,clearance_cm=gap,clearance_line_trace=line,profile=profile},
             {mc=mc,cap=cap,hp=hp,pid=pid,cid=cid,mid=mid,hid=hid,pcid=pcid}
     end)
     if not ok then service.busy=nil; return nil,'preflight:'..tostring(shape) end
@@ -94,12 +98,14 @@ function M.acquire(o)
                    type(rec.subs)~='table' or rec.subs[KEY]~=ledger.callback then return false end
             end
             local a,b=vector(pawn:K2_GetActorLocation()),vector(cap:K2_GetComponentLocation())
+            local gap,line=clearance(mc,shape.step_cm)
             return address(pc)==ctx.pcid and address(pc.Pawn)==ctx.pid and address(pawn)==ctx.pid and address(pawn.RootComponent)==ctx.cid and
                 address(pawn.CapsuleComponent)==ctx.cid and address(pawn.CharacterMovement)==ctx.mid and address(pawn.HealthComponent)==ctx.hid and
                 same(a,b) and cap:GetScaledCapsuleRadius()==shape.radius_cm and cap:GetScaledCapsuleHalfHeight()==shape.half_height_cm and
                 mc.MaxStepHeight==shape.step_cm and cap:GetCollisionProfileName():ToString()==shape.profile and
                 count(cap:CopyArrayOfMoveIgnoreActors())==0 and count(cap:CopyArrayOfMoveIgnoreComponents())==0 and
-                clearance(mc)~=nil and hp:IsDead()==false and finite(hp:GetAuthoritativeHealth()) and hp:GetAuthoritativeHealth()>0 and
+                gap~=nil and line==shape.clearance_line_trace and math.abs(gap-shape.clearance_cm)<=5 and
+                hp:IsDead()==false and finite(hp:GetAuthoritativeHealth()) and hp:GetAuthoritativeHealth()>0 and
                 mc:IsMovingOnGround()==true and live()==true and rawget(_G,'DW_PAUSE')~=true and
                 rawget(_G,SERVICE)==service and service.active==marker and (service.busy==nil or service.busy==marker)
         end)
@@ -134,7 +140,8 @@ function M.acquire(o)
         return nil,'acquire:'..tostring(why)
     end
     service.busy=nil
-    local sensor={shape={radius_cm=shape.radius_cm,half_height_cm=shape.half_height_cm,step_cm=shape.step_cm,clearance_cm=shape.clearance_cm,profile=shape.profile}}
+    local sensor={shape={radius_cm=shape.radius_cm,half_height_cm=shape.half_height_cm,step_cm=shape.step_cm,
+        clearance_cm=shape.clearance_cm,clearance_line_trace=shape.clearance_line_trace,profile=shape.profile}}
     local function begin(remaining)
         if not finite(remaining) or remaining<1 then return false,'budget' end
         if service.busy then return false,'binding_or_busy' end

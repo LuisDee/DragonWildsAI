@@ -2809,3 +2809,16 @@ Model requests/responses and body receipts survive in the private a811 evidence.
 After developer a823/35d8d61, a stationary replay at recorded [226.11,1790,-34.39] used the current full player capsule/profile and typed floor queries. It reproduced blocking at refinement depths0/1/2 and both extra split halves. Impact normal was approximately[-0.8023,0.5963,-0.0264], with contact about55cm above capsule centre; supporting floor was about88cm below with upward normalZ~0.96. This strongly supports a real side obstruction rather than the earlier upward-floor-normal chord artifact. Actor identity, historical scene equality and full-route feasibility remain unknown. No guard was relaxed. The18-query probe completed with owned cleanup; private collision-analysis-a825.json records sources and limits.
 
 Full-agent a821 later stalled at a different temple location near69m-X. Do not transfer this exterior collision explanation to that separate failure.
+
+### Complete native route points do not certify the intervening floor profile (a828)
+
+Actual retained native route from developer generation8 starts at feet
+[8760,180527,-2998]cm and next point[13312,181024,-3030]cm. The character
+walked between these XY points with health100 and clear short-horizon sampled
+guard observations; at trace23 its centreZ was-3040.091cm and half-height88cm.
+Its feet therefore differed by about1.17m from the straight interpolation
+of those route endpoint heights. Keep sparse native route geometry distinct
+from current sampled support and actual character pose. This observation
+does not itself authorize dropping floor checks or changing arrival criteria.
+Private evidence: lpc-trial-a819/retained-segment-a829.json and generation8
+route trace in outbound-input-a828-samples.jsonl.

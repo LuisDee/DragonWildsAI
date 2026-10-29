@@ -808,3 +808,37 @@ MEASURED a811 model boundary: three movement failures reached Haiku in calls21/2
 ### Acceptance wrapper stops on recoverable local planning wait (2026-10-29)
 
 OBSERVED a821 ends waiting_budget after15responses, below its40-call/900s bounds and below shared dollar cap. Sonnet had constructed an alternative plan but it had not executed. Inspect production wait/resume semantics and wrapper termination contract before treating this as permanent task inability or starting another acceptance episode. Do not inflate budgets or erase no-progress history to hide the wait.
+
+### Long native leg enters recovery despite physical advance (a828, 2026-10-29)
+
+MEASURED on35d8d61 developer replay, generation8: complete native five-point
+route selected after memory scan_timeout. While targeting waypoint2, progress
+position remained[9074.010,180561.706,-2970.022]cm. At no_progress_bug2 the
+pawn was[10623.019,180730.678,-3040.091]cm,15.582m away from that baseline,
+with a clear sampled guard. The operation eventually hit its120s deadline.
+
+Read-only retained segment has start[8760,180527,-2998], endpoint
+[13312,181024,-3030], high409.460cm, mark315.922cm and half-height88cm.
+The segment helper requires feet within65cm of a linear endpoint-height
+interpolation. Exact predicate reconstruction is the next diagnosis; do not
+claim the live trace directly stamped that rejection or enlarge the tolerance
+without a reviewed floor-safe design. Earlier 3cm splice stall is timing
+sensitive and was not reproduced by the bounded private motor baseline; it
+remains a separate unresolved issue, not a proven permanent obstruction.
+
+### Grounded line-fallback floor rejected by fixed 5cm sensor limit (a830)
+
+MEASURED on deployed35d8d61: developer return failed sensor_unavailable after
+27.438s, health100. At the stopped pose, ordinary walk_sense.acquire reproduces
+preflight:shape_or_collision. Native CurrentFloor is valid, blocking, walkable
+and line-derived; pawn is grounded. LineDist=6.142799cm, FloorDist=0.260828cm,
+capsule34/88cm, MaxStepHeight45cm, Player profile and empty ignore arrays.
+clearance() selects LineDist and rejects values above5cm. sampled_ground_walk
+also has an independent fixed5cm starting-floor bound. Choosing FloorDist
+instead or changing only the first limit is not a demonstrated repair.
+
+Exact historical acquisition detail was discarded by walk_guard's pcall
+wrapper; current stationary reproduction identifies a real present blocker,
+not every prior sensor_unavailable occurrence. Separate bounded design audit
+is underway. Evidence: private lpc-trial-a819/decision-a830.json and its linked
+raw results. No autonomous pass or floor-limit relaxation is claimed.

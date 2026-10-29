@@ -253,6 +253,88 @@ local function check(name, c, info)
  end
 end
 
+function NATIVE_SEGMENT_CASES()
+ -- Independent supported terrain descends 1.2m below a sparse native chord.
+ -- Actual mover, oracle admission, guard and sampler run without progress hooks.
+ -- Conceptual surface-vs-corner precedent:
+ -- https://raw.githubusercontent.com/recastnavigation/recastnavigation/v1.6.0/DetourCrowd/Source/DetourPathCorridor.cpp
+ local seed=dir..'/data/nav/L_World_seeds.json'
+ local memory=dir..'/data/skills/test-world/nav_memory.json'
+ local saved_dt,saved_speed=DT,walking_speed;DT=0.1;walking_speed=150
+ local old_ground=pawn.CharacterMovement.IsMovingOnGround
+ local old_input=pawn.AddMovementInput
+ local function begin(goal_z)
+  M.stop(log);motor=nil;frame_hook=nil;air=0;walls={};lakes={};sprinting=false
+  pawn.loc={X=0,Y=0,Z=0};pawn.AddMovementInput=old_input
+  pawn.CharacterMovement.IsMovingOnGround=old_ground
+  raised={{-1,600.001,-500,500,0,-120},{600,1600.001,-500,500,-120,-120},{1600,3001,-500,500,-120,0}}
+  _G.DW_NAVMEM=nil;_G.DW_TRAP_CAND=nil;_G.DW_LP_CACHE=nil;_G.DW_WORLD_GUID='test-world';_G.DW_LIFE=nil
+  os.remove(seed);os.remove(memory)
+  offer.no=offer.no+1;offer.nonce=fake_nonce(offer.no)
+  oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{30,0,-0.9}}}'):format(id) end
+  pump_oracle();M.go_to(log,{30,0,goal_z or 0},{sprint=false,local_plan=false,tolerance_m=0.5,timeout_s=90})
+  local st=_G.DW_MOVE;st.walk_guarded=true -- same execution mode as memory→native live transition
+  return st
+ end
+ local q=begin();local started=q.t0;local holds,clear_below,credits=0,0,0;local last=0
+ for _=1,900 do
+  step(1);pump_oracle()
+  if q.status=='checking_terrain' then holds=holds+1 end
+  if q.source=='nav' and q.walk_report and q.walk_report.status=='clear' and pawn.loc.Z < -70 then clear_below=clear_below+1 end
+  if q.prog_pos.X>last then credits=credits+1;last=q.prog_pos.X end
+  if q.result or q.backtrack_until or q.bug then break end
+ end
+ print('native uneven replay x='..pawn.loc.X..' progress='..q.prog_pos.X..' credits='..credits..' holds='..holds..' below_clear='..clear_below..' recovery='..tostring(q.backtrack_until or q.bug)..' terminal='..tostring(q.result and q.result.status))
+ check('uneven native leg retains observed progress without false recovery',q.result and q.result.status=='arrived' and not q.backtrack_until and not q.bug and credits>3 and clear_below>5 and holds>5,q.status)
+ check('native liveness preserves original deadline and endpoint',q.t0==started and q.timeout_s==90 and q.goal.X==3000 and q.path and q.path[2].Z==-90)
+ if os.getenv('MOVE_NATIVE_SEGMENT_REPLAY_ONLY')=='1' then return end
+ -- Real guard must reject missing support, blocked/unknown observations and air.
+ for _,kind in ipairs({'air','blocked','unknown','no_input','wrong_floor'}) do
+  q=begin(kind=='wrong_floor' and 5 or 0);local floor,sweep=TEST_WALK_NATIVE.floor,TEST_WALK_NATIVE.sweep
+  if kind=='air' then pawn.CharacterMovement.IsMovingOnGround=function() return false end
+  elseif kind=='blocked' then TEST_WALK_NATIVE.sweep=function() return true end
+  elseif kind=='unknown' then TEST_WALK_NATIVE.floor=function() return {status='unknown',consumed=1} end
+  elseif kind=='no_input' then pawn.AddMovementInput=function() end
+  end
+  for _=1,(kind=='wrong_floor' and 900 or 120) do step(1);pump_oracle();if q.result or q.backtrack_until or q.bug then break end end
+  check('native '..kind..' cannot manufacture progress or arrival',not (q.result and q.result.status=='arrived') and
+   (kind=='wrong_floor' and math.abs(pawn.loc.X-3000)<=50 and math.abs(pawn.loc.Z-q.goal.Z)>180 or
+    kind=='air' and q.prog_pos.X<650 or kind~='air' and kind~='wrong_floor' and q.prog_pos.X<150),q.prog_pos.X)
+  TEST_WALK_NATIVE.floor,TEST_WALK_NATIVE.sweep=floor,sweep
+ end
+ for _,kind in ipairs({'world','goal','path','index','endpoint','pose','owner','guard','metadata','life','pause','stale','jump'}) do
+  q=begin();local fired=false;local baseline,history
+  pawn.CharacterMovement.IsMovingOnGround=function(...)
+   if not fired and q.walk_input and pawn.loc.X>250 then
+    fired=true;baseline=q.prog_pos.X;history=#q.progress_positions
+    if kind=='world' then _G.DW_WORLD_GUID='changed-segment-world'
+    elseif kind=='goal' then q.goal.X=q.goal.X+1
+    elseif kind=='path' then q.path={{X=0,Y=0,Z=-90},{X=3000,Y=1,Z=-90}}
+    elseif kind=='index' then q.wp=1
+    elseif kind=='endpoint' then q.path[q.wp].Y=1
+    elseif kind=='pose' then pawn.loc.X=pawn.loc.X+5
+    elseif kind=='owner' then _G.DWArbiter.owner.token=_G.DWArbiter.owner.token+100
+    elseif kind=='guard' then q.walk_guard.close();q.walk_guard={check=function()return {status='clear',reason='sampled_corridor'}end,close=function()return true end}
+    elseif kind=='metadata' then q.nav_binding.metadata_goal.X=q.nav_binding.metadata_goal.X+1
+    elseif kind=='life' then _G.DW_LIFE={move_death_seq=1}
+    elseif kind=='pause' then _G.DW_PAUSE=true
+    elseif kind=='stale' then T=T+1
+    else q.jump_t=T end
+   end
+   return old_ground(...)
+  end
+  for _=1,100 do step(1);pump_oracle();if fired or q.result then break end end
+  check('guarded native credit rejects callback '..kind,fired and q.prog_pos.X==baseline and #q.progress_positions==history,q.status)
+  if kind=='owner' then _G.DWArbiter.owner.token=q.owner_token end
+  _G.DW_WORLD_GUID='test-world';_G.DW_PAUSE=nil;_G.DW_LIFE=nil
+ end
+ M.stop(log);pawn.CharacterMovement.IsMovingOnGround=old_ground;pawn.AddMovementInput=old_input
+ frame_hook=nil;motor=nil;walls={};raised={};lakes={};air=0;pawn.loc={X=0,Y=0,Z=0}
+ oracle=nil;pump_oracle();_G.DW_NAVMEM=nil;os.remove(seed);os.remove(memory)
+ DT,walking_speed=saved_dt,saved_speed
+end
+if os.getenv('MOVE_NATIVE_SEGMENT_ONLY')=='1' then NATIVE_SEGMENT_CASES();print(fails==0 and 'NATIVE SEGMENT OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
+
 function SNAPSHOT_PREEMPTION_CASE() -- Reentry must not write into or cancel the successor.
     pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}; raised={}
     oracle=function() return nil end; pump_oracle()
@@ -3323,6 +3405,7 @@ do
         string.format("fired=%s gen=%s token=%s handle=%s loop=%s mode=%s trip=%s",tostring(fired),tostring(st.gen==successor_gen),tostring(st.owner_token==successor_token),tostring(st.handle==successor_handle),tostring(loops[successor_handle]~=nil),tostring(st.mode),tostring(st.trip==sentinel)))
     M.stop(log)
 end
+NATIVE_SEGMENT_CASES()
 for _, l in ipairs(logs) do if l:find("error") then print("LOG " .. l) end end
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

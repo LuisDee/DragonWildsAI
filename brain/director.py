@@ -82,6 +82,7 @@ MAX_REMEMBERED = 200  # per-task / per-step memories kept by the Director (prune
 # https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls
 RESULTS_BUDGET = 16 * 1024  # serialized bytes for all eight summaries
 RESULT_DATA_BUDGET = 8 * 1024  # one action cannot monopolize the context
+RESULT_META_BUDGET = 1024  # reserve bounded args/correlation before allocating bulk result data
 
 
 def _bounded_result_value(value: Any, list_limit: int, string_limit: int, depth: int = 0,
@@ -147,10 +148,44 @@ def _result_summaries(actions: list[dict]) -> list[dict]:
             summary["summary_truncated"] = True
         if "data" in action:
             summary["data_omitted"] = True
+        if "args" in action:
+            summary["args_omitted"] = True
         summaries.append(summary)
     # Reserve all summaries first. Failed actions and then successful actions are
     # considered newest-first, so old bulk cannot crowd out recent failures.
     order = sorted(range(len(actions)), key=lambda i: (actions[i].get("ok") is not False, -i))
+    # Retain supplied correlation/freshness only; composing a new prompt must not refresh old evidence.
+    # https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls
+    metadata_keys = ("origin", "action_id", "task_id", "tool_call_id", "call_id", "source",
+                     "observed_at", "completed_at", "received_at")
+    for i in order:
+        metadata = {k: actions[i][k] for k in metadata_keys if k in actions[i]}
+        if metadata:
+            summaries[i]["metadata_omitted"] = True
+            candidate = dict(summaries[i])
+            candidate.pop("metadata_omitted")
+            for key, value in metadata.items():
+                candidate[key], cut = (_bounded_result_value(value, 0, 64) if not isinstance(value, (dict, list))
+                                       else (None, True))
+                if cut:
+                    candidate["summary_truncated"] = True
+            previous = summaries[i]
+            summaries[i] = candidate
+            if _result_size(candidate) > RESULT_META_BUDGET or _result_size(summaries) > RESULTS_BUDGET:
+                summaries[i] = previous
+        if "args" in actions[i]:
+            for list_limit, string_limit in ((32, 1024), (16, 512), (8, 256), (4, 128), (0, 64)):
+                args, truncated = _bounded_result_value(actions[i]["args"], list_limit, string_limit)
+                candidate = dict(summaries[i])
+                candidate.pop("args_omitted", None)
+                candidate["args"] = args
+                if truncated:
+                    candidate["args_truncated"] = True
+                previous = summaries[i]
+                summaries[i] = candidate
+                if _result_size(candidate) <= RESULT_META_BUDGET and _result_size(summaries) <= RESULTS_BUDGET:
+                    break
+                summaries[i] = previous
     for i in order:
         if "data" not in actions[i]:
             continue
@@ -1504,6 +1539,7 @@ class Director:
                 self._need(task, "prepare", {"prepare_for": step.title, "step_id": step.id})
                 return True
             self.ops.activate(step, state)
+            self._last_results.pop(step.id, None)  # activate clears step.actions and begins a new attempt
             r = P.evaluate(step.success, state, self.ops.step_ctx(task, step, state, places))
             if r.passed is None:
                 self._uncheckable(task, step, r)
@@ -1548,6 +1584,7 @@ class Director:
 
     def _event(self, task: Task, step: Step, r: P.Result) -> dict:
         ev: dict[str, Any] = {"type": "board_step", "instructions": STEP_INSTRUCTIONS, "task": task.text,
+                              "board_task_id": task.id, "step_id": step.id, "attempt": step.attempts,
                               "step": {"title": step.title, "why": step.why, "hints": step.hints},
                               "step_done_when": P.describe(step.success), "step_progress": r.detail,
                               "run": step.runs + 1}
@@ -1606,7 +1643,9 @@ class Director:
             self.ops.note_stored(task, step, f["stored"])
         gains = self.ops.close_segment(task, step, state1, tainted=tainted, repicked=self.ops.repicked(task, picked))
         step.actions = (step.actions + board_recs)[-40:]
-        self._last_results[step.id] = _result_summaries(board_recs)
+        # An empty later run cannot erase failures still relevant to this attempt.
+        # https://www.anthropic.com/research/effective-context-engineering-for-ai-agents
+        self._last_results[step.id] = _result_summaries(step.actions)
         self._body_findings(task, step, fx, state1)
         ctx = self.ops.step_ctx(task, step, state1, places)
         if step.abort_if is not None:
@@ -1672,9 +1711,7 @@ class Director:
             # job's first step, a message to pass on, a resume or a note always get the Controller's turn.
             return {"actions": [rec], "ended": "interrupted" if rec.get("interrupt") else "normal",
                     "said": False}, state
-        event["first_call_result"] = {k: rec.get(k) for k in ("tool", "args", "ok", "reason")} | {
-            "data": {k: v for k, v in (rec.get("data") or {}).items() if k in ("detail", "item", "count", "gathered",
-                                                                              "crafted", "missing", "why")}}
+        event["first_call_result"] = _result_summaries([rec])[0]
         event["step_progress"] = r.detail
         res = self.port.run(event)
         return {**res, "actions": [rec] + list(res.get("actions") or [])}, None
@@ -1705,6 +1742,7 @@ class Director:
         if self._spend(task, SPEND["failed"], reason):
             return
         self._need(task, "replan", {"failed": {"step": step.title, "reason": reason, "attempt": step.attempts,
+                                               "board_task_id": task.id, "step_id": step.id,
                                                "detail": r.detail if r else None,
                                                "last_actions": self._last_results.get(step.id, [])}})
 

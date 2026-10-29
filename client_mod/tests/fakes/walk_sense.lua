@@ -12,7 +12,7 @@ function M.acquire(o)
   if kind=='floor' then return env.floor(a) end
   return {known=true,blocking=env.sweep(a,b),consumed=1}
  end
- return {shape={radius_cm=34,half_height_cm=90,step_cm=45,clearance_cm=0,profile='Player'},
+ return {shape={radius_cm=34,half_height_cm=90,step_cm=45,clearance_cm=0,clearance_line_trace=false,profile='Player'},
   valid=valid,floor=function(a) return call('floor',a) end,
   sweep=function(a,b) return call('sweep',a,b) end,
   initial=function(a) return call('initial',a,{X=a.X,Y=a.Y,Z=a.Z+10}) end,

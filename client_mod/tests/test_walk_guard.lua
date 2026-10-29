@@ -27,7 +27,7 @@ local function fixture()
  end}
  f.opts={acquire=function(live)
   f.acquires=f.acquires+1; f.sensor_live=live
-  local sensor={shape={radius_cm=34,half_height_cm=88,step_cm=45,clearance_cm=2,profile='Player'},
+  local sensor={shape={radius_cm=34,half_height_cm=88,step_cm=45,clearance_cm=2,clearance_line_trace=false,profile='Player'},
     floor=function() end,sweep=function() end,initial=function() end,
     valid=function() f.valids=f.valids+1;return f.valid end,
     close=function() f.closes=f.closes+1;return f.cleanup end}
@@ -43,6 +43,13 @@ end
 local f=fixture();local g=f:start();local r=f:check(0,200,0)
 check('first clear is validated',r.status=='clear' and f.acquires==1 and f.valids==1 and r.consumed_total==1)
 check('horizon clamped and z interpolated',f.last_options.to_feet.X==100 and f.last_options.to_feet.Z==0)
+check('explicit captured floor reference reaches sampler',f.last_options.clearance_line_trace==false)
+for _,kind in ipairs({'missing','string'}) do
+ local bad=fixture();local acquire=bad.opts.acquire
+ bad.opts.acquire=function(live) local sensor=acquire(live);sensor.shape.clearance_line_trace=kind=='string' and 'false' or nil;return sensor end
+ bad:start();local result=bad:check(0,100,0)
+ check('unknown sensor floor reference refused '..kind,result.status=='unknown' and result.reason=='sensor_shape_unknown' and bad.closes==1 and bad.polls==0)
+end
 r=f:check(10,200,.1);check('cache uses valid without resampling',r.status=='clear' and f.valids==2 and f.polls==1)
 f=fixture();g=f:start();f:check(0,200,0);r=f:check(80,200,.1);check('reserve near horizon requests held refresh',r.status=='pending' and r.reason=='refresh_required' and f.closes==1)
 f=fixture();g=f:start();f:check(0,200,0)
@@ -117,7 +124,7 @@ local queries=0
 local function known(v) return {known=true,value=v} end
 f.opts.acquire=function()
  f.acquires=f.acquires+1
- return {shape={radius_cm=34,half_height_cm=88,step_cm=45,clearance_cm=2},
+ return {shape={radius_cm=34,half_height_cm=88,step_cm=45,clearance_cm=2,clearance_line_trace=false},
   valid=function() return true end,close=function() f.closes=f.closes+1;return true end,
   initial=function() queries=queries+1;return {known=true,blocking=false,consumed=1} end,
   floor=function(p) queries=queries+1;return {status='observed',callbacks=1,consumed=1,fields={
@@ -126,10 +133,27 @@ f.opts.acquire=function()
 end
 g=f:start();for i=0,8 do r=f:check(0,100,i*.01);if r.status~='pending' then break end end
 check('real sampler completes through finite polls',r.status=='clear' and r.consumed_total==queries and queries>4 and f.acquires==1)
+-- Actual a830 gap/shape through the real guard and sampler; deterministic native fixtures only.
+f=fixture();f.opts.sample_module=assert(loadfile(here..'/../scripts/sampled_ground_walk.lua'))()
+local gap=6.1427993774414;local native_calls=0;local base_acquire=f.opts.acquire
+f.opts.acquire=function(live)
+ local sensor=base_acquire(live);sensor.shape.clearance_cm=gap;sensor.shape.clearance_line_trace=true
+ sensor.initial=function() native_calls=native_calls+1;return {known=true,blocking=false,consumed=1} end
+ sensor.sweep=function() native_calls=native_calls+1;return {known=true,blocking=false,consumed=1} end
+ sensor.floor=function(p)
+  native_calls=native_calls+1;local d=p.Z-90+gap
+  return {status='observed',callbacks=1,consumed=1,fields={bBlockingHit=known(true),bWalkableFloor=known(true),bLineTrace=known(p.X==0),FloorDist=known(d),LineDist=known(d),hit={bStartPenetrating=known(false),bBlockingHit=known(true)}}}
+ end
+ return sensor
+end
+g=f:start();for i=0,8 do r=g.check(cp(f.pose),{X=100,Y=0,Z=90-88-gap},i*.01);if r.status~='pending' then break end end
+check('a830 gap preserves full shape and real sampler accounting',r.status=='clear' and native_calls==r.consumed_total and f.acquires==1 and f.last_sensor.shape.radius_cm==34 and f.last_sensor.shape.half_height_cm==88)
+f.valid=false;r=g.check(cp(f.pose),{X=100,Y=0,Z=90-88-gap},.1)
+check('invalidated lease clears actual sampled cache',r.status~='clear' and f.closes==1)
 f=fixture();f.opts.sample_module=assert(loadfile(here..'/../scripts/sampled_ground_walk.lua'))();f.opts.budget=100
 local calls=0
 f.opts.acquire=function()
- return {shape={radius_cm=34,half_height_cm=88,step_cm=45,clearance_cm=2},valid=function() return true end,
+ return {shape={radius_cm=34,half_height_cm=88,step_cm=45,clearance_cm=2,clearance_line_trace=false},valid=function() return true end,
   close=function() f.closes=f.closes+1;return true end,
   initial=function() calls=calls+1;return {known=true,blocking=false,consumed=1} end,
   floor=function(p) calls=calls+1;return {status='observed',callbacks=1,consumed=1,fields={
@@ -146,7 +170,7 @@ f.opts.read_time=function() return time end
 f.opts.acquire=function()
  f.acquires=f.acquires+1
  local function tick() time=time+.04; count=count+1 end
- return {shape={radius_cm=34,half_height_cm=88,step_cm=45,clearance_cm=2},
+ return {shape={radius_cm=34,half_height_cm=88,step_cm=45,clearance_cm=2,clearance_line_trace=false},
   valid=function() time=time+.01; return true end, close=function() f.closes=f.closes+1;return true end,
   initial=function() tick();return {known=true,blocking=false,consumed=1} end,
   floor=function(p) tick();return {status='observed',callbacks=1,consumed=1,fields={

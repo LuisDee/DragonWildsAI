@@ -2,7 +2,7 @@
 -- continuity proof or movement authority. Inputs and callback results must be
 -- plain primitive tables without metatables or native objects; none are retained.
 -- new{floor,sweep,overlap?,live,from_center,to_feet,radius_cm,half_height_cm,
---     step_cm,clearance_cm,spacing_cm,budget,poll_budget,max_samples?}
+--     step_cm,clearance_cm,clearance_line_trace,spacing_cm,budget,poll_budget,max_samples?}
 -- floor(center,1) returns floor_read's primitive observation; sweep(a,b,1)
 -- and optional overlap(center,1) return {known=bool,blocking=bool,consumed=1}.
 -- Callbacks must use the captured full capsule/profile and remain synchronous.
@@ -36,8 +36,9 @@ function M.new(o)
        (o.overlap~=nil and type(o.overlap)~='function') then return nil,'invalid_callbacks' end
     local a,b=vec(o.from_center),vec(o.to_feet)
     local radius,hh,step,gap,spacing=o.radius_cm,o.half_height_cm,o.step_cm,o.clearance_cm,o.spacing_cm
+    local gap_line=o.clearance_line_trace
     if not a or not b or not finite(radius) or radius<=0 or not finite(hh) or hh<radius or
-       not finite(step) or step<=5 or not finite(gap) or gap<0 or gap>=step-5 or
+       not finite(step) or step<=5 or not finite(gap) or gap<0 or gap>=step-5 or type(gap_line)~='boolean' or
        not finite(spacing) or spacing<=0 or not integer(o.budget) or o.budget<1 or o.budget>1000 or
        not integer(o.poll_budget) or o.poll_budget<1 or o.poll_budget>100 or o.poll_budget>o.budget then return nil,'invalid_geometry_or_budget' end
     local limit=o.max_samples or 128
@@ -204,7 +205,12 @@ function M.new(o)
                 local dist=field(f,line and 'LineDist' or 'FloorDist','number')
                 if not finite(dist) then busy=false; return finish('unknown','floor_distance_unknown') end
                 if phase=='start_floor' then
-                    if math.abs(dist)>5 then busy=false; return finish('unknown','start_floor_distance_out_of_bounds') end
+                    -- Compare like floor references against the immutable observed starting offset.
+                    -- Later raised queries may naturally resolve via a different kind of floor test.
+                    -- https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/GameFramework/UCharacterMovementComponent/ComputeFloorDist?application_version=5.5
+                    if line~=gap_line then busy=false; return finish('unknown','start_floor_reference_changed') end
+                    if dist<0 or dist>=step-5 then busy=false; return finish('unknown','start_floor_distance_out_of_bounds') end
+                    if math.abs(dist-gap)>5 then busy=false; return finish('unknown','start_floor_clearance_mismatch') end
                     start_floor={walkable=walk,start_penetrating=pen,line_trace=line,distance_cm=dist}
                     phase='floor'
                 else

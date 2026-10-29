@@ -748,16 +748,16 @@ end
 
 -- Keep one active leg. Compatible replans retain its reference and high-water;
 -- replacement merely establishes a baseline and never earns progress by itself.
-local function segment_progress(st, pts, i, me, zoff, ztol)
+local function segment_progress(st, pts, i, me, zoff, ztol, observed_floor)
     local a, b = pts and pts[i-1], pts and pts[i]
     if not a or not b then return false end
-    local function in_corridor(seg, p, offset)
+    local function in_corridor(seg, p, offset, supported)
         local x, y = p.X-seg.x, p.Y-seg.y
         local along = x*seg.dx+y*seg.dy
         local lateral = math.abs(x*seg.dy-y*seg.dx)
         local expected_z = seg.z + seg.dz * math.max(0, math.min(1, along/seg.len))
         return lateral <= M.cfg.wp_radius_cm and along >= -M.cfg.wp_radius_cm and
-            along <= seg.len + M.cfg.wp_radius_cm and math.abs(p.Z-offset-expected_z) <= (ztol or 65), along
+            along <= seg.len + M.cfg.wp_radius_cm and (supported or math.abs(p.Z-offset-expected_z) <= (ztol or 65)), along
     end
     local seg = st.segment_progress
     local compatible = seg and d2(b, seg.endpoint) <= M.cfg.wp_radius_cm and
@@ -767,14 +767,14 @@ local function segment_progress(st, pts, i, me, zoff, ztol)
         local len = math.sqrt(dx*dx+dy*dy)
         if len < 1 then st.segment_progress = nil; return false end
         local candidate = {x=a.X, y=a.Y, z=a.Z, dz=b.Z-a.Z, dx=dx/len, dy=dy/len, len=len, endpoint=v(b)}
-        local valid, projected = in_corridor(candidate, me, zoff or 0)
+        local valid, projected = in_corridor(candidate, me, zoff or 0, observed_floor)
         if not valid then return false end
         candidate.high = math.max(0, math.min(len, projected))
         candidate.mark = candidate.high
         st.segment_progress = candidate
         return false
     end
-    local pawn_ok, projected = in_corridor(seg, me, zoff or 0)
+    local pawn_ok, projected = in_corridor(seg, me, zoff or 0, observed_floor)
     if not pawn_ok then return false end
     seg.high = math.max(seg.high, math.max(0, math.min(seg.len, projected)))
     if seg.high >= seg.mark + M.cfg.progress_cm then
@@ -1511,13 +1511,21 @@ end
 -- Accept observed physical progress before a guard hold or prefix handoff can
 -- return from this tick. Adapt immediate baseline renewal, retaining novelty:
 -- https://raw.githubusercontent.com/ros-navigation/navigation2/main/nav2_controller/plugins/simple_progress_checker.cpp
-function WALK.credit(st,gen,pawn,pc,goal,source,path,index,expected,me,t)
+function WALK.credit(st,gen,pawn,pc,goal,source,path,index,expected,me,t,walk)
     local captured=v(goal)
     local operation=binding(st,pawn)
     local target,target_name,half_h,world=st.target,st.target_name,st.half_h,rawget(_G,'DW_WORLD_GUID')
     local arb=rawget(_G,'DWArbiter');local owner=arb and arb.owner
     local metadata=source=='nav' and expected and expected.metadata_goal
     if source=='nav' and (not metadata or metadata.X~=captured.X or metadata.Y~=captured.Y or metadata.Z~=captured.Z) then return false end
+    local aim,point=st.aim,path[index]
+    local function walking()
+        return not walk or source=='nav' and not target_name and st.walk_guarded and st.walk_guard==walk.guard and
+            st.aim==aim and aim and aim.X==walk.endpoint.X and aim.Y==walk.endpoint.Y and aim.Z==walk.endpoint.Z and
+            path[index]==point and point and point.X==walk.endpoint.X and point.Y==walk.endpoint.Y and point.Z==walk.endpoint.Z and
+            not point.link and not point.gap and not point.air and (not point.act or point.act=='walk') and
+            not st.jump_t and not st.lp_jump_exec and not st.ws_exec and not st.link_exec
+    end
     local function current()
         local b=source=='memory' and st.memory_binding or source=='local' and st.local_binding or st.nav_binding
         local p=source=='memory' and st.mpath or source=='local' and st.lpath or st.path
@@ -1528,7 +1536,7 @@ function WALK.credit(st,gen,pawn,pc,goal,source,path,index,expected,me,t)
             st.life_seq==operation.life and st.target==target and st.target_name==target_name and st.half_h==half_h and
             rawget(_G,'DW_WORLD_GUID')==world and rawget(_G,'DWArbiter')==arb and arb and arb.owner==owner and
             (source~='nav' or expected.metadata_goal==metadata and metadata.X==captured.X and metadata.Y==captured.Y and metadata.Z==captured.Z) and
-            goal.X==captured.X and goal.Y==captured.Y and goal.Z==captured.Z
+            goal.X==captured.X and goal.Y==captured.Y and goal.Z==captured.Z and walking()
     end
     if not current() then return false end
     local valid
@@ -1537,14 +1545,31 @@ function WALK.credit(st,gen,pawn,pc,goal,source,path,index,expected,me,t)
     if not valid or not current() then return false end
     local ok,g=pcall(function() return st.target_name and st.target:K2_GetActorLocation() or st.goal end)
     if not ok or not g or g.X~=captured.X or g.Y~=captured.Y or g.Z~=captured.Z or not owned(operation) then return false end
+    if walk then
+        local checked_at=now(pawn)
+        local report=WALK.check(st,pawn,pc,me,walk.endpoint,goal,checked_at)
+        if report.status~='clear' or report.reason~='sampled_corridor' or not current() or
+            ground_check(pawn)~=true or not current() then return false end
+        local observed_at=now(pawn)
+        if not current() or observed_at<checked_at or type(report.cache_completion_age_s)~='number' or
+            observed_at-checked_at+report.cache_completion_age_s>=M.cfg.walk_ttl_s then return false end
+    end
     local observed=pawn:K2_GetActorLocation()
     local life=rawget(_G,'DW_LIFE')
     if not current() or observed.X~=me.X or observed.Y~=me.Y or observed.Z~=me.Z or paused() or
         (not st.target_name and (not st.goal or st.goal.X~=captured.X or st.goal.Y~=captured.Y or st.goal.Z~=captured.Z)) or
         (type(life)=='table' and (life.move_death_seq or 0) or 0)~=operation.life or
         not arb or not arb.owner or arb.owner.token~=operation.token then return false end
-    if novel_progress(st,me) then
+    -- Sparse native corners describe steering, not intervening floor height.
+    -- Reuse fresh sampled support for liveness only; endpoint reach is unchanged.
+    -- Detour likewise resolves height on the current surface, not a corner chord:
+    -- https://raw.githubusercontent.com/recastnavigation/recastnavigation/v1.6.0/DetourCrowd/Source/DetourPathCorridor.cpp
+    local progressed
+    if walk then progressed=segment_progress(st,path,index,me,half_h,65,true)
+    else progressed=novel_progress(st,me) end
+    if progressed then
         st.prog_t,st.prog_pos,st.move_acc,st.bt_tested,st.bt_pos=t,v(me),0,nil,nil
+        if walk then st.lp_plans_np=0 end
     end
     return true
 end
@@ -3273,6 +3298,11 @@ local function tick(st, gen, log)
                     not input_sample.unchanged(true) then return end
                 input_sample.position=v(input_pos);input_sample.unchanged=nil
                 st.walk_input=input_sample
+                local credit_point=src=='nav' and context[input_sample.index]
+                if credit_point and not credit_point.link and not credit_point.gap and not credit_point.air and
+                    (not credit_point.act or credit_point.act=='walk') then
+                    if not WALK.credit(st,gen,pawn,pc,goal,'nav',context,input_sample.index,st.nav_binding,input_pos,t,input_sample) then return end
+                end
             end
         else pawn:AddMovementInput({ X = dx, Y = dy, Z = 0 }, 1.0, false) end
         st.status = "moving"

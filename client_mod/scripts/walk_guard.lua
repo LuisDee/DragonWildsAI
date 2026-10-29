@@ -184,11 +184,15 @@ function M.new(o)
             sensor=s
             if not alive() then return done(fail('binding_changed')) end
             local shape=s.shape
+            -- Preserve the supplied floor-test reference, never invent sweep semantics for an unknown kind.
+            -- https://dev.epicgames.com/documentation/en-us/unreal-engine/python-api/class/FindFloorResult?application_version=5.5
             if type(shape)~='table' or not finite(shape.radius_cm) or shape.radius_cm<=0 or
                not finite(shape.half_height_cm) or shape.half_height_cm<shape.radius_cm or
-               not finite(shape.step_cm) or shape.step_cm<=5 or not finite(shape.clearance_cm) or shape.clearance_cm<0 or
+               not finite(shape.step_cm) or shape.step_cm<=5 or not finite(shape.clearance_cm) or shape.clearance_cm<0 or shape.clearance_cm>=shape.step_cm-5 or
+               type(shape.clearance_line_trace)~='boolean' or
                type(s.floor)~='function' or type(s.sweep)~='function' or type(s.initial)~='function' or type(s.close)~='function' then return done(fail('sensor_shape_unknown')) end
-            shape={radius_cm=shape.radius_cm,half_height_cm=shape.half_height_cm,step_cm=shape.step_cm,clearance_cm=shape.clearance_cm}
+            shape={radius_cm=shape.radius_cm,half_height_cm=shape.half_height_cm,step_cm=shape.step_cm,
+                clearance_cm=shape.clearance_cm,clearance_line_trace=shape.clearance_line_trace}
             local ratio=math.min(1,h/d)
             local start_feet=me.Z-shape.half_height_cm-shape.clearance_cm
             local far={X=me.X+(target.X-me.X)*ratio,Y=me.Y+(target.Y-me.Y)*ratio,Z=start_feet+(target.Z-start_feet)*ratio}
@@ -197,6 +201,7 @@ function M.new(o)
             local per=math.min(poll_budget,remaining)
             local good,job,why=pcall(sampler_new,{floor=s.floor,sweep=s.sweep,overlap=s.initial,live=alive,from_center=vec(me),to_feet=far,
                 radius_cm=shape.radius_cm,half_height_cm=shape.half_height_cm,step_cm=shape.step_cm,clearance_cm=shape.clearance_cm,
+                clearance_line_trace=shape.clearance_line_trace,
                 spacing_cm=shape.radius_cm/2,budget=remaining,poll_budget=per})
             if not good or type(job)~='table' or type(job.poll)~='function' then return done(fail('sample_init:'..tostring(why or 'unknown'))) end
             scan={job=job,start=vec(me),far=vec(far),started=t,consumed=0,step_cm=shape.step_cm,limit=remaining,per=per}

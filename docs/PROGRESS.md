@@ -1577,3 +1577,46 @@ Developer a823 at the previous Haiku endpoint retained physical progress across 
 Complete Sonnet Director + Haiku Controller trial a821 on35d8d61 FAILED: max29.0105m from the spawn lodestone, health100 throughout, 6Haiku+9Sonnet responses. First memory route stalled despite a clear guard, then partial native/local recovery ended in floor_not_walkable. The task entered waiting_budget before executing Sonnet's alternative plan; this is a local planning allowance, not exhausted shared API dollars. Wrapper cleanup left the body idle and history intact. Autonomous temple streak remains **0/3**. Private evidence: logs/recovery/lpc-full-a821/measured-outcome.json and actual native/model/body records.
 
 Next work is the measured guard-clear/physical-stall disagreement, with one decisive diagnostic rather than another identical agent run. A separate bounded feedback-retention candidate repairs the a811 empty-run loss and is in cold review, not deployed or live-proven.
+
+### a827/a828 developer outcomes; no autonomous pass (2026-10-29 late UTC)
+
+On deployed code35d8d61, the next destination selected by Sonnet in a821 was
+executed by the developer through ordinary go_to: PASS38.672s, health100.
+This demonstrates that the unexecuted alternative was physically reachable;
+it does not complete or resume the stopped full-agent episode. A normal
+return to the spawn standing position passed59.094s.
+
+The next ordinary outward replay passed the earlier 3cm memory splice but
+failed at120.484s, health100, at[106.68,1807.53,-30.41]. After a memory scan
+timeout it selected a complete native route, moved along it, then backtracked
+and entered Bug2 while its physical-progress baseline stayed behind. Native
+trace event23 shows15.582m displacement from that baseline. Temple acceptance
+remains0/3. No model calls were made in these developer diagnostics.
+
+Evidence: private lpc-trial-a819/model-continuation-a827.json,
+return-for-input-a828.json, outbound-input-a828.json and decision-a828.json.
+Retained state read-only capture retained-segment-a829.json exposes the actual
+segment/path for the next causal check. Do not repeat an unchanged full-agent
+run or treat this as proof of independent discovery.
+
+### Frozen generic repairs awaiting combined publication/live proof (2026-10-30 local)
+
+Native long-leg progress now has a reviewed observed-support liveness path,
+retaining original waypoint/floor/arrival criteria, novelty and deadlines.
+The same actual-mover offline fixture advances10.8m then falsely backtracks on
+published35d8d61; the candidate reaches its30m target with19credits. Native
+callback negatives and prior early-progress regressions pass. This is offline
+diagnostic evidence, not a live capability or temple-trip pass.
+
+Fresh stationary a830 support query reproduces LineDist6.142799cm exactly,
+with one correlated callback and verified cleanup. The paired sensor/sampler
+repair retains that observed reference and checks fresh-start consistency,
+existing step-derived bounds and full-capsule sweeps. Three focused suites
+and design checks pass; fresh independent code reviews CLEAR for both repairs
+and the retained-attempt model-feedback candidate. Full combined release gate
+and current-code developer/complete-agent measurements remain required.
+
+Steam/server/world memory retained; client stopped at the demonstrated floor
+counterexample for the controlled integration window. No new autonomous pass;
+three-round-trip acceptance remains0/3. Designs and private npg-a831 review
+records preserve exact source hashes and validation scope.

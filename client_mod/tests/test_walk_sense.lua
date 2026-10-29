@@ -47,7 +47,12 @@ local function setup()
   if f.mode=='reentry' then f.nested_close,f.nested_reason=f.sensor.close() end
   local hit=struct{bBlockingHit=true,bStartPenetrating=false,Distance=0,ImpactPoint={X=1,Y=2,Z=3},ImpactNormal={X=0,Y=0,Z=1}}
   local floor=struct{bBlockingHit=true,bWalkableFloor=true,bLineTrace=false,FloorDist=2,LineDist=0,HitResult=hit}
+  if f.mode=='a830' then floor.bLineTrace=true;floor.FloorDist=.26082754135132;floor.LineDist=6.1427993774414 end
+  if f.mode=='callback_missing' then return end
   f.post(param('RemoteUnrealParam',self),param('LocalUnrealParam',struct{X=pos.X,Y=pos.Y,Z=pos.Z}),param('LocalUnrealParam',floor))
+  if f.mode=='callback_duplicate' then f.post(param('RemoteUnrealParam',self),param('LocalUnrealParam',struct{X=pos.X,Y=pos.Y,Z=pos.Z}),param('LocalUnrealParam',floor)) end
+  if f.mode=='floor_kind_change' then f.floor.bLineTrace=not f.floor.bLineTrace end
+  if f.mode=='floor_gap_change' then f.floor.FloorDist=f.floor.FloorDist+6 end
   if f.mode=='floor_invalidate' then f.live=false end
  end
  f.mod=assert(real(script))()
@@ -55,10 +60,10 @@ local function setup()
  return f
 end
 local f=setup();check('load inert',f.regs==0 and f.native==0 and f.traces==0 and _G.DWWalkSenseServiceV1==nil)
-local s,why=f:acquire();check('acquire first',s~=nil and f.regs==1 and s.shape.profile=='Player' and s.shape.radius_cm==34)
+local s,why=f:acquire();check('acquire first',s~=nil and f.regs==1 and s.shape.profile=='Player' and s.shape.radius_cm==34 and s.shape.clearance_line_trace==false)
 f.floor.FloorDist=2.7
 check('valid tolerates in-range clearance jitter',s.valid() and s.shape.clearance_cm==2.1 and f.native==0 and f.traces==0)
-s.shape.radius_cm=999;s.shape.half_height_cm=999;s.shape.profile='Custom';s.shape.clearance_cm=999
+s.shape.radius_cm=999;s.shape.half_height_cm=999;s.shape.profile='Custom';s.shape.clearance_cm=999;s.shape.clearance_line_trace=true
 check('public shape mutation leaves private binding valid',s.valid())
 local r=s.floor({X=1,Y=2,Z=3},0);check('floor budget',r.consumed==0 and f.native==0)
 r=s.sweep({X=1,Y=2,Z=3},{X=3,Y=2,Z=3},0);check('sweep budget',not r.known and r.consumed==0 and f.traces==0)
@@ -80,9 +85,29 @@ f=setup();f.cap.CopyArrayOfMoveIgnoreActors=function() return nil end;s=f:acquir
 f=setup();f.radius=0;s=f:acquire();check('invalid capsule rejected',not s and f.regs==0)
 f.radius=34;s=f:acquire();check('safe preflight failure permits later acquire',s~=nil and f.regs==1);if s then s.close() end
 f=setup();f.floor.FloorDist=0/0;s=f:acquire();check('unknown clearance rejected',not s and f.regs==0)
-f=setup();s=f:acquire();f.floor.FloorDist=5.01;check('out-of-range current clearance invalidates',not s.valid());f.floor.FloorDist=2.1;check('invalid clearance latches',not s.valid());s.close()
+f=setup();s=f:acquire();f.floor.FloorDist=7.101;check('inconsistent current clearance invalidates',not s.valid());f.floor.FloorDist=2.1;check('invalid clearance latches',not s.valid());s.close()
 f=setup();s=f:acquire();f.floor.FloorDist=nil;check('unknown current clearance invalidates',not s.valid());s.close()
 f=setup();f.floor.bLineTrace=true;f.floor.LineDist=3;s=f:acquire();check('line clearance used',s and s.shape.clearance_cm==3);if s then s.close() end
+f=setup();f.floor.bLineTrace=true;f.floor.FloorDist=.26082754135132;f.floor.LineDist=6.1427993774414;f.mode='a830';s=f:acquire()
+check('a830 larger line clearance acquired without field substitution',s and s.shape.clearance_cm==6.1427993774414 and s.shape.clearance_line_trace==true and s.valid() and f.native==0)
+r=s.floor(f.position,1);check('a830 typed fresh floor retains both distances',r.status=='observed' and r.callbacks==1 and r.fields.LineDist.value==6.1427993774414 and r.fields.FloorDist.value==.26082754135132 and r.fields.bLineTrace.value==true)
+f.floor.LineDist=s.shape.clearance_cm+5;check('same lease residual boundary stays captured',s.valid() and s.shape.clearance_cm==6.1427993774414)
+f.floor.LineDist=s.shape.clearance_cm+5.001;check('same lease residual exceeded',not s.valid());f.floor.LineDist=s.shape.clearance_cm;check('restoring distance cannot revive lease',not s.valid());check('invalidated lease closes',s.close())
+s=f:acquire();check('fresh lease recaptures after cleanup',s and s.valid() and f.regs==1);if s then s.close() end
+f=setup();s=f:acquire();f.floor.bLineTrace=true;f.floor.LineDist=2.1;check('changed floor reference invalidates even with same distance',not s.valid());f.floor.bLineTrace=false;check('reference change permanently latches lease',not s.valid());s.close()
+for _,value in ipairs({-0.01,40,math.huge}) do f=setup();f.floor.FloorDist=value;s=f:acquire();check('invalid captured gap '..value,not s and f.regs==0) end
+f=setup();f.floor.FloorDist=39.99;s=f:acquire();check('step bound admits finite observed gap without universal hover cap',s and s.shape.clearance_cm==39.99);if s then s.close() end
+for _,field in ipairs({'bBlockingHit','bWalkableFloor','bLineTrace'}) do f=setup();f.floor[field]=nil;s=f:acquire();check('missing current floor field '..field,not s and f.regs==0) end
+for _,field in ipairs({'bBlockingHit','bWalkableFloor'}) do f=setup();f.floor[field]=false;s=f:acquire();check('invalid current support flag '..field,not s and f.regs==0) end
+f=setup();f.floor.bLineTrace=true;f.floor.LineDist=nil;s=f:acquire();check('missing selected line never falls back to sweep',not s and f.regs==0)
+for _,value in ipairs({0/0,math.huge,-.1}) do f=setup();f.floor.bLineTrace=true;f.floor.LineDist=value;s=f:acquire();check('invalid selected line never falls back '..tostring(value),not s and f.regs==0) end
+f=setup();f.hh=20;s=f:acquire();check('capsule half height cannot be below radius',not s and f.regs==0)
+for _,mode in ipairs({'callback_missing','callback_duplicate','floor_kind_change','floor_gap_change'}) do
+ f=setup();s=f:acquire();f.mode=mode;r=s.floor(f.position,1)
+ check('typed query or lease change rejected '..mode,r.status=='unknown' and r.consumed==1 and f.native==1 and s.close())
+end
+f=setup();s=f:acquire();f.mc.K2_FindFloor=function() error('private native fixture error') end;r=s.floor(f.position,1)
+check('native floor error remains bounded unknown with exact cleanup',r.status=='unknown' and r.consumed==1 and not tostring(r.reason):find('private native') and s.close())
 f=setup();f.mode='dead';s=f:acquire();check('dead refused',not s and f.regs==0)
 f=setup();f.mode='air';s=f:acquire();check('airborne refused',not s and f.regs==0)
 f=setup();f.pawn.RootComponent=object(40);s=f:acquire();check('root mismatch refused',not s and f.regs==0)
