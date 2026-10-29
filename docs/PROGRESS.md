@@ -32,6 +32,18 @@ not a full-agent or live slope pass. Sparse curved native legs remain a specific
 developer validation risk. Client was stopped for the gate's RAM window with
 Steam/server/world data retained; publication and DEV reboot follow.
 
+Checkpoint **453e543** was pushed, fast-forwarded into the clean runtime and
+booted on DEV/ClaudeDev. Current-code developer `go_to` to the observed lodestone
+passed from the lower floor over approximately 34 m, using local and native
+segments, ending 1.37 m from its requested point with health 100 before/after.
+This is a developer positive control, not autonomous acceptance or the temple
+exit. Setup supplied Clean Water20/Bread5 and used real consume after a first
+low-health preflight refused movement; no model calls, position writes or hidden
+intermediate waypoints. Private proof: nav-dev-20261029/post-gate-lodestone-control.json.
+Companion hash `1a88fa3f24d9f6ce`, body `449562ee473a6db2`; original judges remain
+unchanged. Unsafe remembered floor connectors and missing player-compatible
+native coverage still block the first complete-agent round-trip deliverable.
+
 ### Navigation result feedback gate passed; live measurement next (2026-10-28)
 
 The isolated candidate preserves requested XYZ and existing movement behavior,

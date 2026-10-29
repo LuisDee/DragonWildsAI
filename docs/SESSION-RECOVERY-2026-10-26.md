@@ -25,6 +25,17 @@ step-off recovery. Private proof: logs/recovery/nav-dev-20261029. No model calls
 or new autonomous pass. A reviewed generic waypoint/progress correction is in
 offline development; source reviews and diagnostics do not certify the full trip.
 
+Latest code checkpoint 453e543 is pushed and deployed, full gate 1250 passed /
+1 skipped / GREEN452.78s, fresh Astra revision cold review clear. DEV client
+rebooted normally; existing Steam/server/oracle retained. Developer current-code
+lower-floor return to lodestone passed about34m with HP100 throughout. Food/water
+setup was supplied and disclosed, not an autonomous survival/task pass. Body hash
+449562ee473a6db2, companion1a88fa3f24d9f6ce. The first full-agent200m trip remains
+unmet. Resume at generic memory-floor connector and missing nav-coverage repair,
+using the existing client and root slot; do not restart the passed gate or run
+unchanged failing Haiku attempts. Current process/slot/evidence is in the private
+ACTIVE-HANDOFF.txt, not the historical IDs below.
+
 ## Latest: friend trial handed back to Haiku; targeted pathing repair requested
 
 The original development Goal remains paused. Luis separately authorized the
