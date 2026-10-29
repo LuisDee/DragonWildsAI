@@ -1,5 +1,19 @@
 # Live bug ledger
 
+### Guard exhausts drift resets on a short native route (2026-10-29)
+
+OPEN, developer diagnostic on fd9fa13. After declared DEV survival setup, a
+normal go_to toward a nearby candidate beside the recorded barrier moved2.66m
+in26.06s then failed `walking terrain: coast_reset_limit`, with health100,
+4.46m horizontal remaining and0.016m height error. Native route was nonpartial;
+this execution failure is distinct from missing long-route coverage. Guard
+allows2cm pose drift while scanning and four resets over its lifetime; the
+counter is not reset by a successful corridor. The causal role of braking,
+network correction or the lifetime counter remains unmeasured. Need timestamped
+pose/velocity/input/scan observations; do not disable collision or infer an
+impassable route. Evidence and actual primary-source search are persisted in
+docs/research/2026-10-29-player-grounding-native-controls.md.
+
 ### Compound task can finish at an intermediate recurrence of final state (2026-10-29)
 
 OPEN, reproduced by complete Sonnet/Haiku onfd9fa13. Director authored a plan

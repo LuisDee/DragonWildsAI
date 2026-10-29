@@ -92,6 +92,7 @@ PLAN_FIELDS = ("title", "why", "hints", "success", "abort_if", "escape", "risk",
 class Step(BaseModel):
     id: str = Field(default_factory=_id)
     title: str
+    checkpoint_id: str | None = None
     why: str = ""
     hints: str = ""
     success: dict  # a validated predicate
@@ -151,6 +152,8 @@ class Task(BaseModel):
     status: TaskStatus = "queued"
     paused_by: str | None = None
     success: dict | None = None  # {predicate, set_at, set_by, trivial}
+    completion_mode: Literal["state", "ordered_steps"] = "state"
+    checkpoints: list[dict] = []  # immutable ordered IDs and predicates
     tallies: dict[str, float] = {}
     my_drops: list[dict] = []  # [{world_item, item, count}] from his own drop results in this task
     stored: list[dict] = []  # [{item, count, container, container_name, step, run}] his verified store results
@@ -497,7 +500,7 @@ class BoardOps:
         if t is None:
             return None
         bucket = t.status if t.status in ENDED or t.status in ("paused", "parked", "waiting_help") else "live"
-        blob = json.dumps({"s": bucket, "ok": t.success, "steps": [(s.id, s.status) for s in t.steps],
+        blob = json.dumps({"s": bucket, "ok": t.success, "completion_mode": t.completion_mode, "checkpoints": t.checkpoints, "steps": [(s.id, s.status) for s in t.steps],
                            "notes": len(t.notes_from_player), "paused": bool(self.b.paused)}, sort_keys=True,
                           default=str)
         return hashlib.sha1(blob.encode("utf-8")).hexdigest()
@@ -719,6 +722,16 @@ class BoardOps:
         self.save()
         return t.spent >= PROGRESS_BUDGET
 
+    def checkpoint_progress(self, t: Task) -> list[dict]:
+        return [{**c, "status": next((s.status for s in t.steps if s.checkpoint_id == c["id"]), "missing")}
+                for c in t.checkpoints]
+
+    def checkpoints_complete(self, t: Task) -> bool:
+        # SequenceWithMemory: completed siblings remain complete across retries.
+        # https://www.behaviortree.dev/docs/3.8/nodes-library/SequenceNode/
+        return t.completion_mode != "ordered_steps" or bool(t.checkpoints) and all(
+            c["status"] == "done" for c in self.checkpoint_progress(t))
+
     # ---------------------------------------------------------------- views
 
     def brief(self, state: dict | None = None, places: dict | None = None, limit: int = 6) -> dict:
@@ -734,6 +747,8 @@ class BoardOps:
                     row["done_when_trivial"] = True
                 if state is not None:
                     row["progress"] = P.evaluate(t.success["predicate"], state, self.task_ctx(t, state, places)).detail
+            if t.completion_mode == "ordered_steps":
+                row["checkpoints"] = self.checkpoint_progress(t)
             step = t.next_step()
             if step is not None:
                 row["step"] = step.title

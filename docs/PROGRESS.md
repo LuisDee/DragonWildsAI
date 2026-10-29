@@ -1,5 +1,28 @@
 # Progress log (append-only)
 
+### Ordered completion candidate and fresh outward controls (2026-10-29)
+
+Luis clarified200m is measured FROM the temple spawn lodestone, with the
+outbound point outside the temple. Saved steer/prompt corrected; frozen judges
+unchanged. Optional model-declared ordered checkpoint candidate reuses Step
+evidence across retries, preserves immutable required outcomes, rejects dropped
+or reordered checkpoints and gates whole-task completion on sequence plus final
+state. Both actual model-input generators include remaining checkpoints. Legacy
+state and open-ended completion remain available. Cold review was CLEAR after
+repairs;113focused tests passed, then the added actual Director round-trip
+simulation plus design-note preflight passed17tests. Fresh full gate passed:
+1276passed,1skipped,CHECK_ALL: GREEN in465.39s. All596frozen source files and
+49preserved world/state files matched their pre-gate snapshots. No judge changes.
+
+On the last deployed source, developer outward control moved about34m from the
+lodestone then failed at the same native endpoint. Parallel-wall control moved
+2.66m but failedcoast_reset_limit after26.06s despite a nonpartial native route.
+These are diagnostics, not autonomous passes. Native stepping/scan observability
+is the next measured navigation concern. Explicit DEV survival setup and actual
+consume calls preceded the second control; preserve that assistance attribution.
+Research/evidence: docs/research/2026-10-29-player-grounding-native-controls.md.
+No new200m round trip or M1-M6 pass. No new game-model calls in this wave yet.
+
 ### Real controls then full-agent trial: return works, compound job stops early (2026-10-29)
 
 Publishedfd9fa13 passed the fresh1264/1skip full gate. Developer real go_to

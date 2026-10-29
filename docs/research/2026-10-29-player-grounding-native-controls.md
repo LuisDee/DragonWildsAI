@@ -277,6 +277,57 @@ No new terrain tool or automatic model-choice rewrite is selected here.
 
 ## Search record
 
+### Outbound and parallel-wall controls (2026-10-29, 11:57-12:07 UTC)
+
+Luis clarified the goal: outside the temple and at least 200m FROM its spawn
+lodestone, then return. The east destination below is a developer diagnostic
+choice, not a waypoint or route supplied to the autonomous agent.
+
+On testedfd9fa13, a fresh developer go_to from the lodestone
+[51.69,1889.51,-35.09] toward [350.65,1890.26,-7.09] moved about34m to
+[82.30,1874.24,-31.27], then failed route_ended_before_goal/verification after
+18.08s, health100. The terrain packet reproduced the338surface/12barrier
+candidate observation. Existing native controls already established real vertical
+barriers here; repeating those same rays would not add useful evidence.
+
+A short developer control toward a candidate on the same side of the observed
+diagonal wall, [77,1879,-31.28] (capsule-centre target), moved2.66m to
+[80.32,1876.02,-31.26] in26.06s, then failed `walking terrain: coast_reset_limit`.
+Its native route was NOT partial, and the final height error was0.016m with
+4.46m horizontal distance remaining. This distinguishes a guard/control failure
+from the earlier missing long route. It does not prove that the candidate was
+reachable or identify the temple exit. Raw before/results/after remain private in
+g-obs-f92e3f08/developer-ramp-*.json and developer-wall-parallel-control.json.
+
+Before that short control, preflight refused movement because health had fallen
+to0.5 with hydration0 while the developer-controlled client was idle. Declared
+DEV setup granted5Bread/10CleanWater, reset health, then used the REAL consume
+tool for one of each. Health100/sustenance61.8/hydration49.8 verified afterward.
+This is assisted setup, not autonomous survival; no position was changed by
+fixtures. These records remain in declared-survival-setup-next.json. The client
+was subsequently closed for the full regression RAM window, preserving Steam,
+server, oracle and per-world memories.
+
+After the failed control, queries actually run:
+`site:dev.epicgames.com LineTraceSingleByProfile OutHit ImpactNormal initial overlap walkable floor`,
+`site:github.com/PrismarineJS/mineflayer-pathfinder partial path search radius goal heuristic detour`,
+`site:docs.nav2.org regulated pure pursuit collision detection time to collision velocity`,
+`site:dev.epicgames.com CharacterMovement BrakingDecelerationWalking StopMovementImmediately velocity`.
+Opened [Mineflayer pathfinder source](https://github.com/PrismarineJS/mineflayer-pathfinder/blob/master/index.js),
+[Nav2 controller documentation](https://docs.nav2.org/rolling/configuration_and_development/configuration_guide/controller_plugins/configuring_regulated_pp/)
+and [Epic CharacterMovement documentation](https://dev.epicgames.com/documentation/en-us/unreal-engine/python-api/class/CharacterMovementComponent?application_version=5.3).
+The FHitResult/LineTraceSingleByProfile pages returned no useful body and are not
+relied upon. Nav2 checks projected poses using velocity/time horizons, while UE
+documents native acceleration/braking and network correction. These are precedent
+and API context, not proof of a compatible controller or a measured runtime cause.
+
+Decision: inspect drift, stop/scan timing and the guard's cumulative reset counter
+before another short control; do not infer collision or disable capsule checks.
+Code currently permits2cm drift during a multi-frame scan and four resets for the
+guard lifetime, with no reset after a successful corridor. Whether momentum,
+network correction, target churn or that cumulative counter caused this specific
+failure needs timestamped native observations. No new guard repair has landed.
+
 Inline-source audit follow-up (Luis, 2026-10-29): source URLs now sit beside
 the implementations they informed, with the retained research as context.
 Queries included `site:github.com/UE4SS-RE/RE-UE4SS/issues/484 UnregisterHook`,

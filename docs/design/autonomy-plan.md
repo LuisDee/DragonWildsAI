@@ -13,8 +13,10 @@ evidence requirements and sign-off remain unchanged.
 The active Goal now uses [the updated prompt](../NEXT-GOAL-PROMPT.md).
 Reliable traversal, truthful perception and sustained tasks take priority over
 the historical recovery/setup order below. First prove three unassisted complete
-Sonnet/Haiku walking round trips: temple lodestone -> at least 200 metres outside
-the temple -> the same lodestone on the correct floor. No temple-specific code,
+Sonnet/Haiku walking round trips: temple spawn lodestone -> outside the temple
+and at least 200 metres from that lodestone -> the same lodestone on the correct floor.
+Luis clarified the distance origin on 2026-10-29: it is the lodestone, not the temple edge.
+No temple-specific code,
 hidden intermediate waypoints or teleportation. Verify a changed destination and
 another slope/doorway. These are additional diagnostics; original M1-M6 judges
 and completion requirements are unchanged.

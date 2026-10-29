@@ -247,6 +247,8 @@ Rules:
 - "start", "gained", "lost" and "elapsed" in a STEP's test mean since that step began; in the job's done test,
   since the job began. So compare gear with "start" in the job's done test, and test a step that equips
   something with "equipped".
+- For a specific job requiring ordered intermediate outcomes, choose completion_mode ordered_steps and mark each required outcome step with a unique checkpoint_id. On replans include all unfinished checkpoints in order with the same IDs and success tests; never include completed checkpoints or put required checkpoints in loops. Other preparation steps need no checkpoint_id. The final job test must also pass.
+- Open-ended jobs use state mode and end by choice. Specific ordered jobs finish only when all checkpoints and the final test pass.
 - Repeated trips: give the steps a group and a loop with an "until" test; code repeats the group by itself.
   Steps after the loop (deliver, report) run once the loop's until test passes.
 - An amount the player left open (no number) on a long job is not a token pass: aim for what the job's words
@@ -280,8 +282,9 @@ Answer with ONE JSON object only:
 
 OUTPUT_DOC = """{"description": str, "explanation": str|null,
  "facts": [{"fact": str, "for_step": str, "status": "known"|"unknown", "source": str, "confidence": str}],
+ "completion_mode": "state"|"ordered_steps" (first plan; state is the default),
  "task_success": <test>|null   (the job's own done test, first decision of a specific job only),
- "steps": [{"title": str, "why": str, "hints": str, "success": <test>, "risk": "fight"|"trip"|null,
+ "steps": [{"checkpoint_id": str|null (required outcome checkpoint), "title": str, "why": str, "hints": str, "success": <test>, "risk": "fight"|"trip"|null,
             "abort_if": <test>|null, "escape": str|null, "needs": [primitive]|[], "group": str|null,
             "wait": bool (true: nothing to do but let time pass, e.g. a crop growing or a furnace smelting; his
                     body stays free and the test is re-checked by itself; give it a test that ends the wait),
@@ -799,6 +802,9 @@ class Validator:
         errs: list[str] = []
         info: list[str] = []
         out: dict[str, Any] = {k: raw.get(k) for k in ("description", "explanation", "ask_help")}
+        out["completion_mode"] = raw.get("completion_mode") or self.task.get("completion_mode", "state")
+        if out["completion_mode"] not in ("state", "ordered_steps"):
+            raise ValueError("completion_mode must be state or ordered_steps")
         out["done"] = done
         out["facts"] = [f for f in raw.get("facts") or [] if isinstance(f, dict)]
         self.unknown_seen += [f for f in out["facts"] if f.get("status") == "unknown"]
@@ -841,7 +847,11 @@ class Validator:
             if r.passed is None:
                 errs.append(f"steps[{i}] '{s['title']}': its test can't be checked from what the body reports "
                             f"(missing: {', '.join(r.missing)}); choose a checkable test or name the gap")
-            row = {"title": str(s["title"])[:120], "why": str(s.get("why") or "")[:300],
+            checkpoint_id = s.get("checkpoint_id")
+            if checkpoint_id is not None and (not isinstance(checkpoint_id, str) or not checkpoint_id.strip()):
+                errs.append(f"steps[{i}].checkpoint_id must be a nonempty string or null")
+                checkpoint_id = None
+            row = {"checkpoint_id": checkpoint_id, "title": str(s["title"])[:120], "why": str(s.get("why") or "")[:300],
                    "hints": str(s.get("hints") or "")[:500], "success": pred, "abort_if": abort,
                    "escape": s.get("escape"), "risk": s.get("risk") if s.get("risk") in ("fight", "trip") else None,
                    "needs": [str(n) for n in s.get("needs") or []][:5], "group": s.get("group") or None,
@@ -863,6 +873,7 @@ class Validator:
             errs.append("task_success is required for the first plan of a specific job")
         if not steps and not out["ask_help"] and not out["done"] and self.kind not in ("review", "reflect"):
             errs.append("give steps, ask_help, or done")
+        errs.extend(_checkpoint_errors(self.task, out, self.kind))
         if errs:
             raise ValueError("; ".join(errs[:12]))
         unknown = [f.get("fact") for f in out["facts"] if f.get("status") == "unknown"]
@@ -872,6 +883,42 @@ class Validator:
             advisories.append(" ".join(info[:6]) + " Tests already true measure nothing: choose tests that measure "
                               "the work, or keep them if that is really intended.")
         return out, advisories
+
+
+def _checkpoint_errors(task: dict, decision: dict, kind: str) -> list[str]:
+    """Validate the immutable ordered contract before any board mutation."""
+    mode = task.get("completion_mode", "state")
+    contract = task.get("checkpoints") or []
+    chosen = decision.get("completion_mode", mode)
+    steps = decision.get("steps") or []
+    if task.get("kind") == "open" and (chosen == "ordered_steps" or mode == "ordered_steps"):
+        return ["ordered_steps is supported only for specific jobs; open-ended jobs use state"]
+    selected = [s for s in steps if s.get("checkpoint_id")]
+    if contract and chosen != mode:
+        return ["completion_mode is fixed by the initial plan"]
+    if not contract and task.get("success") is not None and chosen != mode:
+        return ["completion_mode is fixed by the initial plan"]
+    if not contract and mode == "state" and chosen == "state":
+        return ["checkpoint_id requires ordered_steps"] if selected else []
+    if not contract:
+        if decision.get("ask_help"):
+            return []
+        ids = [s["checkpoint_id"] for s in selected]
+        if not ids or len(ids) != len(set(ids)):
+            return ["ordered_steps requires unique checkpoint IDs"]
+    else:
+        # A no-change review or help request does not replace the plan.
+        if not steps and (kind in ("review", "reflect") or decision.get("ask_help")):
+            return []
+        statuses = {s.get("checkpoint_id"): s.get("status") for s in task.get("steps", []) if s.get("checkpoint_id")}
+        remaining = [c for c in contract if statuses.get(c["id"]) != "done"]
+        if [s["checkpoint_id"] for s in selected] != [c["id"] for c in remaining]:
+            return ["replan must include every unfinished checkpoint exactly once in order, and no completed checkpoint"]
+        if any(s["success"] != c["predicate"] for s, c in zip(selected, remaining)):
+            return ["checkpoint success predicates are fixed by the initial plan"]
+    if any(s.get("group") for s in selected):
+        return ["required checkpoints cannot belong to loops"]
+    return []
 
 
 # ------------------------------------------------------------------------------ the Director
@@ -1188,7 +1235,7 @@ class Director:
         prog = P.evaluate(task.success["predicate"], state, self.ops.task_ctx(task, state, self.places())).to_dict() \
             if task.success else None
         return {"kind": aw["kind"], "detail": aw.get("detail") or {}, "task": cur, "task_progress": prog,
-                "board": board, "state": copy.deepcopy(state), "compact": _compact_state(state),
+                "checkpoints": self.ops.checkpoint_progress(task), "board": board, "state": copy.deepcopy(state), "compact": _compact_state(state),
                 "map": self.map_memory.snapshot() if self.map_memory is not None else {},
                 "facts": self.memory.snapshot(), "learned": learned, "gaps": self.gaps.rows()[:12],
                 "places": copy.deepcopy(self.places()), "now": self.clock(), "body_tools": dict(self.body_tools)}
@@ -1202,7 +1249,8 @@ class Director:
         user = {"decision": snap["kind"], "what_to_do": KIND_NOTES.get(snap["kind"], KIND_NOTES["plan"]),
                 "job": {"text": task["text"], "kind": task["kind"], "given_by": task["by"], "because": task.get("because"),
                         "done_when": P.describe(task["success"]["predicate"]) if task.get("success") else None,
-                        "done_progress": snap["task_progress"], "collected": task.get("tallies"),
+                        "done_progress": snap["task_progress"], "completion_mode": task.get("completion_mode", "state"),
+                        "checkpoints": snap.get("checkpoints", []), "collected": task.get("tallies"),
                         "notes_from_player": task.get("notes_from_player")},
                 "steps_so_far": [{k: s.get(k) for k in ("title", "status", "attempts", "failures", "success_words", "risk")}
                                  for s in task.get("steps", [])][-15:],
@@ -1289,7 +1337,6 @@ class Director:
             if not dec.budget_stop:  # out of budget: the next tick waits and says so
                 self._decision_failed(task, dec.error)
             return
-        self._fail_count.pop(task.id, None)
         self._apply(task, pend["aw"], dec.value or {}, pend.get("snapshot_state") or {})
 
     def _decision_failed(self, task: Task, why: str) -> None:
@@ -1301,8 +1348,13 @@ class Director:
             self._notice(task, f"My planning for '{task.text}' keeps failing, so I've put it aside.", {"why": why})
 
     def _apply(self, task: Task, aw: dict, v: dict, state: dict) -> None:
-        self.ops.b.awaiting_decision = None
         kind = aw["kind"]
+        errors = _checkpoint_errors(task.model_dump(), v, kind)
+        if errors:
+            self._decision_failed(task, "; ".join(errors))
+            return
+        self._fail_count.pop(task.id, None)
+        self.ops.b.awaiting_decision = None
         self._log("director_decision", task=task.id, decision=kind, description=v.get("description"),
                   explanation=v.get("explanation"), steps=[s["title"] for s in v.get("steps", [])],
                   ask_help=v.get("ask_help"))
@@ -1311,30 +1363,36 @@ class Director:
                 self.efficiency.log_reflection(task.text, aw["detail"].get("step"), r["key"], r.get("rate"),
                                                r.get("best"), (aw["detail"] or {}).get("alternatives") or [],
                                                v.get("description"))
-        if v.get("task_success") is not None:
+        if v.get("task_success") is not None and not (v.get("ask_help") and task.success is None and v.get("completion_mode") == "ordered_steps"):
             if task.success is None:
-                self.ops.set_success(task, v["task_success"], "director", state=state)
+                trivial = P.evaluate(v["task_success"], state, self.ops.task_ctx(task, state)).passed is True
+                task.success = {"predicate": v["task_success"], "set_at": self.clock(), "set_by": "director", "trivial": trivial}
             elif v["task_success"] != task.success["predicate"]:
                 task.history.append({"title": "note", "outcome": "ignored",
                                      "reason": "the job's done test is fixed; a new one was not used"})
-        for t in v.get("add_tasks", [])[:1]:  # one prerequisite per decision (wave 5: real plans added three)
-            try:
-                kid = self.ops.add_task(str(t["text"]), by="self", parent=task.id, because=t.get("because"),
-                                        when="next")
-                self._log("director_prerequisite", task=task.id, prerequisite=kid.id, text=kid.text)
-            except BoardError as exc:
-                task.history.append({"title": f"prerequisite '{t['text']}'", "outcome": "refused", "reason": str(exc)})
-        self._take_gaps(task, v.get("capability_gaps", []))
         if v.get("ask_help"):
+            self._apply_extras(task, v)
             self._ask_help(task, str(v["ask_help"]))
             return
         if v.get("done") and task.kind == "open":
+            self._apply_extras(task, v)
             self._finish_task(task, "done", "ended by choice")
             return
-        existing = {(s.title, json.dumps(s.success, sort_keys=True)): s for s in task.steps if s.status == "pending"}
+        if not task.checkpoints and v.get("completion_mode", "state") == "ordered_steps" and v.get("steps"):
+            task.completion_mode = "ordered_steps"
+            task.checkpoints = [{"id": s["checkpoint_id"], "predicate": copy.deepcopy(s["success"])}
+                                for s in v["steps"] if s.get("checkpoint_id")]
+        existing = {(s.title, json.dumps(s.success, sort_keys=True)): s for s in task.steps if s.status == "pending" and s.checkpoint_id is None}
         new_steps = []
         for s in v.get("steps", []):
-            old = existing.get((s["title"], json.dumps(s["success"], sort_keys=True)))
+            checkpoint_id = s.get("checkpoint_id")
+            old = next((x for x in task.steps if x.checkpoint_id == checkpoint_id), None) if checkpoint_id else \
+                existing.get((s["title"], json.dumps(s["success"], sort_keys=True)))
+            if old is not None and old.status == "active" and kind in ("review", "reflect"):
+                continue
+            if old is not None and checkpoint_id:
+                task.steps.remove(old)
+                old.status, old.ended = "pending", None
             if old is not None:  # the same pending step again keeps its attempts; the new plan's details win
                 for f in (*PLAN_FIELDS, "trivial"):
                     setattr(old, f, s.get(f, getattr(old, f)))
@@ -1345,8 +1403,19 @@ class Director:
         loops = {g: Loop(until=u) for g, u in (v.get("loops") or {}).items()}
         if new_steps or kind not in ("review", "reflect"):  # a review that keeps the plan returns no steps
             self.ops.set_steps(task, new_steps, loops=loops, replace_active=kind not in ("review", "reflect"))
+        self._apply_extras(task, v)
         if not self.ops.progressed(task, state, self.places()):
             self._spend(task, SPEND["decision"], f"{kind} decision while the job hasn't moved")
+
+    def _apply_extras(self, task: Task, v: dict) -> None:
+        for t in v.get("add_tasks", [])[:1]:  # one prerequisite per decision (wave 5: real plans added three)
+            try:
+                kid = self.ops.add_task(str(t["text"]), by="self", parent=task.id, because=t.get("because"),
+                                        when="next")
+                self._log("director_prerequisite", task=task.id, prerequisite=kid.id, text=kid.text)
+            except BoardError as exc:
+                task.history.append({"title": f"prerequisite '{t['text']}'", "outcome": "refused", "reason": str(exc)})
+        self._take_gaps(task, v.get("capability_gaps", []))
 
     def _take_gaps(self, task: Task, gaps: list[dict]) -> None:
         """The plan's gaps: body gaps (action, perception) to the gap log, cross-checked against the body's tools;
@@ -1438,6 +1507,8 @@ class Director:
                               "step": {"title": step.title, "why": step.why, "hints": step.hints},
                               "step_done_when": P.describe(step.success), "step_progress": r.detail,
                               "run": step.runs + 1}
+        if task.completion_mode == "ordered_steps":
+            ev["checkpoints"] = self.ops.checkpoint_progress(task)
         if task.success:
             ev["job_done_when"] = P.describe(task.success["predicate"])
         if step.escape:
@@ -1620,7 +1691,7 @@ class Director:
                                              "alternatives": self._alternatives(step, state)})
         if task.success is not None:
             tr = P.evaluate(task.success["predicate"], state, self.ops.task_ctx(task, state, self.places()))
-            if tr.passed is True:
+            if tr.passed is True and self.ops.checkpoints_complete(task):
                 self._finish_task(task, "done", tr.detail)
 
     def _alternatives(self, step: Step, state: dict) -> dict:

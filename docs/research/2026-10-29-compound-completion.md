@@ -52,8 +52,50 @@ false/unknown final state; already-true state-only goal; loop completion;
 failure/replan/restart; no premature completion speech; model-request capture
 of remaining obligations. Then developer real controls and unassisted complete
 agent, with actual spatial/temporal evidence and original acceptance intact.
-The planner's210m-from-lodestone proxy does not establish200m beyond the temple
-edge; its correct-floor proxy also needs independent measurement.
+Luis clarified the test on 2026-10-29: at least 200m FROM the spawn lodestone,
+and outside the temple, then return. It does not require 200m beyond the temple
+edge. Distance, being outside, and the final floor need observed evidence.
+
+## Selected bounded repair (fresh review clear)
+
+- **Goal:** a recurring final state cannot complete an ordered job before its
+  model-declared intermediate outcomes have been observed.
+- **Approach:** optional `completion_mode: ordered_steps` with explicitly required
+  checkpoint steps, default legacy `state`. Pin only required checkpoint IDs and
+  predicates on the initial plan. Reuse existing Step activation, segments and
+  accumulated evidence rather than adding a second predicate evaluator. Methods,
+  hints and unrequired preparation steps remain editable. Replans must include
+  every unfinished checkpoint exactly once in order with its unchanged predicate;
+  reject omissions or changes truthfully before mutating the board. Failed
+  checkpoints resume the same Step, removing the old list occurrence first.
+  Required checkpoints cannot be loop members in this minimal version; ordinary
+  loops and state-only goals retain their existing behavior. This version limits
+  ordered contracts to specific jobs; open-ended jobs retain choice-based ending.
+  Set contract and
+  initial steps atomically, include progress in plan_key, and show remaining
+  checkpoints in actual Director and Controller inputs. Global success is still
+  required after the checkpoint sequence; false/unknown never completes the job.
+- **Precedent:** adapt the Sequence distinction in the primary source below;
+  use the existing board/predicate engine, no dependency or scripted route.
+- **Generality check:** no place, item, task-word or recipe selection in code;
+  Sonnet declares outcome checkpoints and chooses methods.
+- **Principles:** real controls and frozen judges unchanged; observed outcomes
+  enforce the model's declared contract rather than rewriting its intent.
+- **Acceptance:** recurring initial/final state, unknown/false final tests,
+  failed retry/replan/restart evidence, rejected omission/reorder, legacy state
+  and loops, actual model-input capture and no premature whole-job speech;
+  offline then developer real controls then the complete autonomous agent.
+- **Review:** fresh Terra `ordered_contract_review` accepted this bounded variant
+  before implementation, requiring atomic persistence, no duplicate resumed
+  Steps, immutable checkpoint predicates, active/prepare/review validation and
+  exclusion of required checkpoints from loop groups.
+
+Cold review found and the candidate repaired initial help losing the completion
+mode, lost capability gaps on help, application failure counters being reset too
+early, checkpoint reuse by an identically titled preparation step, and open-job
+choice bypass. The final bounded recheck was CLEAR. A direct Director execution
+regression also covers starting at home, actually moving away, and returning;
+it is a simulation, not gameplay evidence.
 
 ## Search record
 

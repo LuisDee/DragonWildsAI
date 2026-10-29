@@ -7,7 +7,7 @@ is the immediate priority and overrides older recovery/setup task order.
 
 First deliver a reliable, generally capable movement and interaction foundation.
 The first acceptance test is: starting at the temple lodestone on DEV, autonomously
-walk out of the temple, travel at least 200 metres beyond it, and return to the
+walk out of the temple, reach at least 200 metres from the spawn lodestone, and return to the
 lodestone on the correct floor. Pass three consecutive round trips without
 operator steering, intermediate waypoint hints, teleportation or temple-specific
 code. Use generic navigation, legitimate unlocked movement abilities and learned
