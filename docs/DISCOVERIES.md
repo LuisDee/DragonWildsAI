@@ -1,5 +1,16 @@
 # Discoveries
 
+### Temple ramp supports normal player walking; route choice was wrong (2026-10-29)
+
+Default NPC navigation from the demonstrated approach steered behind the ramp
+and failed below the requested floor. Real client input along the human's actual
+line climbed4.2m in3.135s, then crossed the upper doorway in3.88s, health100.
+Developer-selected travel reached207m from lodestone and returned by real controls;
+nutrition fixtures and steering were declared, so this is not an autonomous pass.
+Saved route records r126/r127 are useful experience with developer provenance.
+Do not infer that the blocked behind-ramp sweep was itself a false collision:
+it tested a different segment. Private wt-trial-a716 retains actual traces.
+
 ### Native floor search origin affects support visibility (2026-10-29)
 
 On this client/build, historical support queries over one flat floor returned

@@ -764,25 +764,44 @@ local function thing_of(cat, row)
     return t
 end
 
--- Port of mod/body/sense.lua M.match_score (pure): the share of the player's words found in the
--- thing's name, class, prompt, drops, item id, kind and verb, with simple plural forms.
+-- Lexical evidence only: normalize identifier boundaries and compare whole tokens.
+-- Lua patterns provide the token primitives; this is ASCII-oriented, not Unicode segmentation:
+-- https://www.lua.org/manual/5.4/manual.html#6.4.1
+-- Filtering before ranking is conceptual precedent, not a Dragonwilds API:
+-- https://dev.epicgames.com/documentation/unreal-engine/eqs-node-reference-tests-in-unreal-engine?lang=en-US
 local function words(s)
-    local out = {}
-    for w in tostring(s or ""):lower():gmatch("[%a]+") do if #w > 2 then out[#out + 1] = w end end
+    local text=tostring(s or ''):gsub('(%l)(%u)', '%1 %2'):gsub('(%u)(%u%l)', '%1 %2'):lower()
+    local out={}
+    for w in text:gmatch('[%a]+') do out[#out+1]=w end
     return out
 end
-function M.match_score(t, about)
-    local q = words(about)
-    if #q == 0 then return 0 end
-    local hay = table.concat({ t.name or "", t.class or "", t.prompt or "", t.drops or "", t.drop_item or "",
-                               t.item or "", t.kind or "", t.verb or "" }, " "):lower()
-    local score = 0
-    for _, w in ipairs(q) do
-        for _, f in ipairs({ w, (w:gsub("ies$", "y")), (w:gsub("es$", "")), (w:gsub("s$", "")) }) do
-            if #f > 2 and hay:find(f, 1, true) then score = score + 1; break end
-        end
+local stop={a=true,an=true,the=true,["and"]=true,["or"]=true,of=true,["in"]=true,on=true,at=true,to=true,["for"]=true,
+    from=true,with=true,by=true,is=true,are=true,was=true,were=true,be=true,as=true,that=true,this=true,
+    it=true,its=true,into=true,through=true,out=true,where=true,which=true}
+local function forms(w)
+    local f={[w]=true}
+    if #w>3 then
+        if w:sub(-3)=='ies' then f[w:sub(1,-4)..'y']=true end
+        if w:sub(-2)=='es' then f[w:sub(1,-3)]=true end
+        if w:sub(-1)=='s' then f[w:sub(1,-2)]=true end
     end
-    return score / #q
+    return f
+end
+function M.match_score(t, about)
+    local q,seen={},{}
+    for _,w in ipairs(words(about)) do
+        if #w>2 and not stop[w] and not seen[w] then q[#q+1]=w; seen[w]=true end
+    end
+    if #q==0 then return 0 end
+    local hay=table.concat({t.name or '',t.class or '',t.prompt or '',t.drops or '',t.drop_item or '',
+                            t.item or '',t.kind or '',t.verb or ''},' ')
+    local tokens={}
+    for _,w in ipairs(words(hay)) do for f in pairs(forms(w)) do tokens[f]=true end end
+    local score=0
+    for _,w in ipairs(q) do
+        for f in pairs(forms(w)) do if tokens[f] then score=score+1; break end end
+    end
+    return score/#q
 end
 
 -- The shared item-name resolver for rows the player's words must pick ONE item from (his inventory, a
@@ -911,7 +930,7 @@ R.look = { needs = { { "sense", "census" } }, fn = function(args)
     local out, matched = {}, false
     for i = 1, math.min(#things, max) do
         local t = things[i]
-        if about then t.match = math.floor(t._score * 100 + 0.5) / 100 end
+        if about then t.match = math.floor(t._score * 100 + 0.5) / 100; t.match_basis = 'lexical' end
         if t._score > 0 then matched = true end
         t._score = nil
         out[#out + 1] = t
@@ -919,7 +938,7 @@ R.look = { needs = { { "sense", "census" } }, fn = function(args)
     local m = S.bridge.null -- a boolean only when about was given (an and/or chain would turn false into null)
     if about then m = matched end
     return { ok = true, data = { origin = r.data.origin, radius_m = radius, about = about or S.bridge.null, total = #things,
-                                 things = out, matched = m } }
+                                 things = out, matched = m, match_basis = about and 'lexical' or S.bridge.null } }
 end }
 
 -- The live actor behind a thing (class word from the census row; alive only).

@@ -868,11 +868,12 @@ local function route_owned(st, gen, pawn, pc)
         st.pawn == pawn and b.gen == gen and b.pawn == pawn and world ~= nil and
         current_world == world and owner and owner.token == token
 end
-local function local_route_owned(st, gen, pawn, pc, goal)
-    local b = st.local_binding
+local function local_route_owned(st, gen, pawn, pc, goal, memory, proposal)
+    local b = proposal or (memory and st.memory_binding or st.local_binding)
     if not b or b.gen ~= gen or b.pawn ~= pawn or b.pc ~= pc or b.token ~= st.owner_token or
         b.life ~= st.life_seq or b.half_h ~= st.half_h or b.target ~= st.target or
-        (st.local_authority and st.lpath ~= b.path) or not goal or
+        (proposal and (st.t0 ~= b.t0 or st.timeout_s ~= b.timeout_s)) or
+        ((memory and not proposal and st.mpath ~= b.path) or (not memory and st.local_authority and st.lpath ~= b.path)) or not goal or
         goal.X ~= b.goal.X or goal.Y ~= b.goal.Y or goal.Z ~= b.goal.Z then return false end
     local arb = rawget(_G, "DWArbiter")
     if arb ~= b.arb or not arb or arb.owner ~= b.owner then return false end
@@ -896,10 +897,11 @@ local function local_route_owned(st, gen, pawn, pc, goal)
     return okpawn and final_pawn == pawn and life_seq == b.life and
         ok_again and current_again and current_again.X == b.goal.X and current_again.Y == b.goal.Y and
         current_again.Z == b.goal.Z and world_again == b.world and not paused() and
-        rawget(_G,"DW_MOVE") == st and st.gen == gen and st.local_binding == b and
+        rawget(_G,"DW_MOVE") == st and st.gen == gen and (proposal and st.memory_binding==nil and st.mpath==nil or
+            not proposal and (memory and st.memory_binding == b or not memory and st.local_binding == b)) and
         rawget(_G,"DWArbiter") == arb and arb.owner == b.owner and st.owner_token == b.token and
         st.half_h == b.half_h and st.life_seq == b.life and st.target == b.target and
-        (not st.local_authority or st.lpath == b.path)
+        (proposal or memory and st.mpath == b.path or not memory and (not st.local_authority or st.lpath == b.path))
 end
 local function nav_mem()
     local NMm = nm_module()
@@ -1759,6 +1761,25 @@ local function tick(st, gen, log)
             st.nav_wait_t = nil
         end
         local world = world_identity()
+        if st.memory_binding and not local_route_owned(st,gen,pawn,pc,goal,true) then
+            local b, arb = st.memory_binding, rawget(_G,'DWArbiter')
+            local function safe()
+                local okh, hh=pcall(function() return pawn.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
+                local okp, current_pawn=pcall(function() return pc.Pawn end)
+                local life=rawget(_G,'DW_LIFE')
+                local seq=type(life)=='table' and (life.move_death_seq or 0) or 0
+                return st.memory_binding==b and b.gen==gen and b.token==st.owner_token and b.pawn==pawn and b.pc==pc and
+                    okp and current_pawn==pawn and b.life==st.life_seq and seq==b.life and okh and hh==b.half_h and
+                    b.half_h==st.half_h and b.world==world_identity() and
+                    rawget(_G,'DWArbiter')==arb and arb==b.arb and arb and arb.owner==b.owner and owned(binding(st,pawn))
+            end
+            if not safe() or not WALK.close(st) or not safe() then return end
+            st.memory_binding,st.mpath,st.mwp,st.msrc=nil,nil,nil,nil
+            st.mem_retry=true
+            st.nav_required=st.use_nav~=false
+            st.status='planning'
+            return
+        end
         local prior = st.route_feedback
         if prior and (prior.gen ~= gen or prior.token ~= st.owner_token or prior.pawn ~= pawn or prior.world ~= world or
             not goal or prior.goal.X ~= goal.X or prior.goal.Y ~= goal.Y or prior.goal.Z ~= goal.Z) then st.route_feedback = nil end
@@ -1827,7 +1848,14 @@ local function tick(st, gen, log)
                             st.lp, st.lp_state, st.lp_observe, st.local_binding = nil, nil, nil, nil
                             st.local_observe_done = true
                         end
-                        if st.mpath and st.original_goal_xy<=M.cfg.lp_grid_m*100 and r.partial==false and
+                        if st.memory_binding and r.partial==false and d2(pts[#pts],goal)<=st.tol_cm and
+                            math.abs(pts[#pts].Z-goal.Z)<=2*st.half_h then
+                            if not local_route_owned(st,gen,pawn,pc,goal,true) or not WALK.close(st) or
+                                not local_route_owned(st,gen,pawn,pc,goal,true) then return end
+                            st.mpath,st.mwp,st.msrc,st.memory_binding=nil,nil,nil,nil
+                            st.mem_retry=true
+                        end
+                        if st.mpath and not st.memory_binding and st.original_goal_xy<=M.cfg.lp_grid_m*100 and r.partial==false and
                             d2(pts[#pts],goal)<=st.tol_cm and math.abs(pts[#pts].Z-goal.Z)<=2*st.half_h then
                             if not WALK.close(st) or not owned(binding(st,pawn)) then return end
                             st.mpath,st.mwp,st.msrc=nil,nil,nil
@@ -1846,6 +1874,54 @@ local function tick(st, gen, log)
                         st.path, st.nav_fail = nil, r.reason or "invalid_route"
                     end
                 end
+            end
+        end
+        local offer = oracle_offer()
+        local native_decided = st.path or st.nav_fail or not offer or
+            (st.nav_pending and t-(st.nav_sent_t or t)>M.cfg.nav_timeout_s)
+        if st.nav_required and not st.forward_checked and st.mode == 'go_to' and native_decided then
+            st.forward_checked = true
+            local mem, NMm = nav_mem()
+            local arb = rawget(_G,'DWArbiter')
+            local last=st.path and st.path[#st.path]
+            local complete=last and st.path_partial==false and d2(last,goal)<=st.tol_cm and math.abs(last.Z-goal.Z)<=2*st.half_h
+            if not complete and mem and mem._world == world and NMm.forward_walk and arb and arb.owner and owned(binding(st,pawn)) then
+                local proposed={gen=gen,token=st.owner_token,pawn=pawn,pc=pc,arb=arb,owner=arb.owner,
+                    world=world,goal=v(goal),life=st.life_seq,half_h=st.half_h,target=st.target,
+                    t0=st.t0,timeout_s=st.timeout_s}
+                local before=now(pawn)
+                local ok, pts, info = pcall(NMm.forward_walk,mem,feet_of(st,me),feet_of(st,goal),M.cfg.progress_cm)
+                if not local_route_owned(st,gen,pawn,pc,goal,true,proposed) then return end
+                local okpos, post=pcall(function() return pawn:K2_GetActorLocation() end)
+                local oktime, after=pcall(now,pawn)
+                if not local_route_owned(st,gen,pawn,pc,goal,true,proposed) then return end
+                if not okpos or not post or type(post.X)~='number' or type(post.Y)~='number' or type(post.Z)~='number' or
+                    post.X~=post.X or post.Y~=post.Y or post.Z~=post.Z or math.abs(post.X)==math.huge or
+                    math.abs(post.Y)==math.huge or math.abs(post.Z)==math.huge or not oktime or type(after)~='number' or
+                    after~=after or math.abs(after)==math.huge then
+                    return finish(st,{status='failed',reason='verification_failed',detail='route search observation unavailable'},log)
+                end
+                oktime,after=pcall(now,pawn)
+                if not local_route_owned(st,gen,pawn,pc,goal,true,proposed) then return end
+                if not oktime or type(after)~='number' or after~=after or math.abs(after)==math.huge then
+                    return finish(st,{status='failed',reason='verification_failed',detail='route search clock unavailable'},log)
+                end
+                st.forward_search={duration_s=math.max(0,after-before),before=v(me),after=v(post)}
+                if after-st.t0>st.timeout_s then
+                    return finish(st,{status='failed',reason='timeout',detail='movement deadline reached'},log)
+                end
+                if ok and pts and #pts >= 2 then
+                    st.mpath, st.mwp, st.msrc = pts, 1, 'forward_memory'
+                    proposed.path,proposed.prefix=pts,info and info.prefix==true
+                    st.memory_binding = proposed
+                    st.walk_guarded = true
+                    if not local_route_owned(st,gen,pawn,pc,goal,true) then return end
+                    if log then log('move: forward observed route proposed ('..#pts..' points)') end
+                    return -- reacquire actual pose before guarded input
+                end
+                -- A known native failure can be reported now; any path input
+                -- waits for a fresh pose on the next tick.
+                if not st.nav_fail or st.path or st.local_authority then return end
             end
         end
         if st.path then
@@ -1885,7 +1961,7 @@ local function tick(st, gen, log)
             st.local_authority, st.local_binding, st.lpath, st.lp_observe = nil, nil, nil, nil
             return
         end
-        if not st.path and st.nav_required and not st.local_authority then
+        if not st.path and st.nav_required and not st.local_authority and not st.memory_binding then
             -- A short candidate is sampled while input is held. It is not authority until complete.
             if st.use_lp and st.original_goal_xy and not st.local_observe_done and
                 (st.original_goal_xy<=M.cfg.lp_grid_m*100 or st.nav_fail) and
@@ -1970,7 +2046,7 @@ local function tick(st, gen, log)
                 end
             end
         end
-        if not st.path and st.nav_required and not st.local_authority then
+        if not st.path and st.nav_required and not st.local_authority and not st.memory_binding then
             st.nav_wait_t = st.nav_wait_t or t
             st.status = st.unreach and "unreachable" or "planning"
             if st.prog_t then st.prog_t = st.prog_t + math.max(dt, 0)
@@ -2618,7 +2694,21 @@ local function tick(st, gen, log)
             if st.mwp > i0 then idx_progress = novel_progress(st, me) or idx_progress end
             if st.mwp > #st.mpath then
                 if log then log("move: memory route done (" .. tostring(st.msrc) .. ")") end
-                st.mpath, st.nav_force = nil, true
+                local prefix=st.memory_binding and st.memory_binding.prefix
+                if st.memory_binding and (not local_route_owned(st,gen,pawn,pc,goal,true) or
+                    not WALK.close(st) or not local_route_owned(st,gen,pawn,pc,goal,true)) then return end
+                st.mpath, st.memory_binding, st.nav_force = nil, nil, true
+                if prefix then
+                    -- The old native response was based on the pre-prefix pose.
+                    -- https://github.com/PrismarineJS/mineflayer-pathfinder/blob/master/index.js
+                    -- Adapt path invalidation, retaining this command's deadline and guard budget.
+                    st.path,st.wp,st.nav_binding,st.nav_pending,st.nav_goal,st.nav_fail=nil,nil,nil,nil,nil,nil
+                    st.route_feedback,st.nav_wait_t,st.nav_sent_t=nil,nil,nil
+                    st.lpath,st.local_binding,st.local_authority,st.lp,st.lp_state,st.lp_observe=nil,nil,nil,nil,nil,nil
+                    st.local_observe_done,st.mem_retry=true,true
+                    st.status='planning'
+                    return
+                end
             else
                 local mp = st.mpath[st.mwp]
                 aim, src = { X = mp.X, Y = mp.Y, Z = mp.Z + (st.half_h or 90) }, "memory"
@@ -2816,7 +2906,8 @@ local function tick(st, gen, log)
         st.local_failed_points[#st.local_failed_points+1] = {X=p.X,Y=p.Y,Z=p.Z}
         st.local_replans = (st.local_replans or 0) + 1
         st.local_authority, st.local_binding, st.lpath, st.lp, st.lp_state, st.lp_observe = nil,nil,nil,nil,nil,nil
-        st.mpath,st.trail_i,st.bug,st.stepoff,st.backtrack_until=nil,nil,nil,nil,nil
+        st.mpath,st.memory_binding,st.trail_i,st.bug,st.stepoff,st.backtrack_until=nil,nil,nil,nil,nil,nil
+        st.mem_retry=true
         st.nav_required=st.use_nav~=false
         st.local_observe_done = st.local_replans > M.cfg.lp_max_plans
         if st.local_observe_done then st.nav_fail = "local_replan_limit" end
@@ -2885,7 +2976,7 @@ local function tick(st, gen, log)
             end
             -- Preserve the memory as a proposal; do not step off toward its
             -- wrong-floor entry or select it again through ordinary recovery.
-            st.mpath,st.mwp,st.msrc,st.bug,st.stepoff,st.backtrack_until=nil,nil,nil,nil,nil,nil
+            st.mpath,st.memory_binding,st.mwp,st.msrc,st.bug,st.stepoff,st.backtrack_until=nil,nil,nil,nil,nil,nil,nil
             st.nav_required,st.local_observe_done,st.mem_retry=st.use_nav~=false,false,true
             st.status='planning'
             if log then log('move: memory connector not admitted: '..st.walk_failure..'; planning toward actual goal') end
@@ -2896,6 +2987,7 @@ local function tick(st, gen, log)
     -- face where we go (control rotation = camera yaw; the pawn orients to its movement)
     if st.nav_required then
         if st.local_authority then if not local_route_owned(st,gen,pawn,pc,goal) then return end
+        elseif st.memory_binding then if not local_route_owned(st,gen,pawn,pc,goal,true) then return end
         elseif not route_owned(st, gen, pawn, pc) then return end
     end
     pc:SetControlRotation({ Pitch = 0, Yaw = math.deg(math.atan(dy, dx)), Roll = 0 })
@@ -2911,6 +3003,7 @@ local function tick(st, gen, log)
         end
         if st.nav_required then
             if st.local_authority then if not local_route_owned(st,gen,pawn,pc,goal) then return end
+            elseif st.memory_binding then if not local_route_owned(st,gen,pawn,pc,goal,true) then return end
             elseif not route_owned(st, gen, pawn, pc) then return end
         end
         pawn:AddMovementInput({ X = dx, Y = dy, Z = 0 }, 1.0, false)
@@ -3090,6 +3183,8 @@ local function tick(st, gen, log)
                     pts = okp and pp or nil
                 end
                 if pts then
+                    if st.memory_binding and (not WALK.close(st) or not owned(binding(st,pawn))) then return end
+                    st.memory_binding = nil
                     st.mpath, st.mwp, st.msrc = pts, 1, okt and trap and ("trap:" .. tostring(trap.id)) or "memory"
                     st.walk_guarded=true
                     st.prog_t, st.prog_pos, st.move_acc, st.bt_tested = t, v(me), 0, nil
@@ -3101,6 +3196,8 @@ local function tick(st, gen, log)
         end
         -- Next: Bug2 wall-following (bounded), once per move
         if not st.bug_tried and st.use_lp then
+            if st.memory_binding and (not WALK.close(st) or not owned(binding(st,pawn))) then return end
+            st.memory_binding = nil
             st.bug_tried = true
             st.bug = { s = v(me), hit_d = dist, t0 = t, travel = 0, dir = 1, switched = false,
                 yaw = math.deg(math.atan(goal.Y - me.Y, goal.X - me.X)) + 35 }

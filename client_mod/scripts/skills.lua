@@ -1794,8 +1794,8 @@ local function start_explore(api, args, ctx)
     if not start then return api.fail("companion_down", { detail = "no position" }) end
     local hit = matching(api, args.about, radius)
     if hit then
-        return api.fail("already_in_sight", { found = hit, detail = tostring(hit.name) .. " is already in sight ("
-            .. tostring(hit.distance) .. " m, id " .. tostring(hit.id) .. ")" })
+        return api.fail("already_in_sight", { found = hit, detail = "Lexical candidate " .. tostring(hit.name) .. " is already in sight ("
+            .. tostring(hit.distance) .. " m, id " .. tostring(hit.id) .. "); this does not verify the full description", match_basis = "lexical" })
     end
     local mem = memory()
     local job = { kind = "explore", legs_done = 0, failed = {}, trail = { start }, travelled = 0 }
@@ -1835,7 +1835,7 @@ local function start_explore(api, args, ctx)
             job.trail[#job.trail + 1] = here
         end
         if h then
-            return { ok = true, data = { found = h, legs = job.legs_done, travelled_m = math.floor(job.travelled + 0.5),
+            return { ok = true, data = { found = h, match_basis = "lexical", detail = "Lexical candidate; full description not verified", legs = job.legs_done, travelled_m = math.floor(job.travelled + 0.5),
                                          from = start, position = here } }
         end
         local res = type(st.result) == "table" and st.result or {}
@@ -1843,7 +1843,7 @@ local function start_explore(api, args, ctx)
         if not next_leg() then
             return api.fail("nothing_in_range", { about = args.about, legs = job.legs_done, travelled_m = math.floor(job.travelled + 0.5),
                 trail = job.trail, detail = "explored " .. job.legs_done .. " legs (about " .. math.floor(job.travelled + 0.5)
-                    .. " m) and saw nothing matching '" .. args.about .. "'" })
+                    .. " m) and saw no lexical candidate for '" .. args.about .. "'" })
         end
         return nil
     end

@@ -1,5 +1,24 @@
 # Live bug ledger
 
+### Explore claims an exit is visible because `the` matches `gather` (2026-10-29)
+
+MEASURED on complete7ccecf6 trial. Both door/gate/stairs/opening queries returned
+already_in_sight Ash Logs. Shared scorer matched arbitrary substrings and admitted
+the grammatical token `the` inside verb `gather`. Candidate uses meaningful whole
+tokens/identifier boundaries/plurals; exact resolver tiers unchanged. Results
+state lexical-candidate scope, not complete geometric understanding. Focused
+tests and cold review CLEAR; full gate/live validation pending.
+
+### Required NPC navigation suppresses player-compatible learned routes (2026-10-29)
+
+MEASURED: native partial route went behind ramp and stopped2.9m below its goal;
+ordinary movement along the actual human line climbed in3.135s/HP100. Recorded
+same-world routes existed but mandatory native routing excluded their initial
+selection. Candidate reuses directed observed graph proposals and guarded joins,
+including a bounded useful prefix, then replans actual original goal. No temple
+coordinates in production. See design/player-route-proposals.md; full gate/live
+normal guarded replay pending. Physical operator success is not autonomous proof.
+
 ### Interpolated floor probes reject physically walkable flat support (2026-10-29)
 
 REPAIRED/PUBLISHED3ff9496, fullgate1279pass/1skipGREEN. Normal developer movement

@@ -286,6 +286,7 @@ function SNAPSHOT_PREEMPTION_CASE() -- Reentry must not write into or cancel the
 end
 if os.getenv("MOVE_SNAPSHOT_PREEMPT_ONLY")=="1" then SNAPSHOT_PREEMPTION_CASE(); os.exit(fails==0 and 0 or 1) end
 
+if os.getenv('MOVE_JUMP_ONLY')~='1' then
 if os.getenv('MOVE_PROTOCOL_WIRE_ONLY')~='1' and os.getenv('MOVE_AUTHORITY_ONLY')~='1' then
 do -- Actual mover + sampled guard: memory entries and native coverage repair.
  local seed=dir..'/data/nav/L_World_seeds.json'
@@ -300,6 +301,7 @@ do -- Actual mover + sampled guard: memory entries and native coverage repair.
   f:write([==[{"v":1,"traps":[{"id":"wrong-floor","center":[0,0,-0.9],"radius_m":5,"z_min":-2,"z_max":2,"exit":[[0.01,0,-4.4],[0,8,-4.4]]}],"taboos":[],"routes":[]}]==])
   f:close()
  end
+ if os.getenv('MOVE_PREFIX_ONLY')~='1' then
  clean();bad_seed()
  oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{8,0,-0.9}}}'):format(id) end
  pump_oracle();local jumps=pawn.jumps
@@ -361,6 +363,106 @@ do -- Actual mover + sampled guard: memory entries and native coverage repair.
  step(1);pawn.SprintComponent.IsSprinting=getter;pawn.SprintComponent.TryRequestStopSprinting=stop
  check('sprint getter preemption cannot stop or mutate successor',fired and _G.DW_MOVE.gen>old_gen and stops==0 and _G.DW_MOVE.sprint_id==nil and pawn.input==nil,stops)
  clean();oracle=nil;pump_oracle()
+ end
+ do
+  local NM=assert(loadfile(dir..'/client_mod/scripts/navmem.lua'))()
+  local function install()
+   local mem=NM.new_mem('test-world');mem._world='test-world'
+   NM.add_route(mem,{{X=0,Y=0,Z=-90},{X=500,Y=0,Z=-90},{X=1000,Y=0,Z=-90},{X=1500,Y=0,Z=-90}},{src='self'})
+   _G.DW_NAVMEM=mem;_G.DW_MOVE_WORLD={id='test-world',t=os.time()}
+  end
+  local function on_search(fn)
+   local routes=_G.DW_NAVMEM.routes;local fired=false
+   _G.DW_NAVMEM.routes=setmetatable({}, {__index=function(_,i)
+    if not fired then fired=true;fn() end
+    return routes[i]
+   end})
+  end
+  install();oracle=nil;pump_oracle()
+  M.go_to(log,{15,0,0},{local_plan=false,sprint=false,timeout_s=1})
+  local delayed=_G.DW_MOVE;on_search(function() T=T+2 end);step(1)
+  check('forward search exceeding deadline never adopts or moves',delayed.result and delayed.result.reason=='timeout' and not delayed.memory_binding and not delayed.mpath and pawn.input==nil and delayed.forward_search and delayed.forward_search.duration_s>1.9,tostring(delayed.status)..' mode='..tostring(delayed.mode)..' result='..tostring(delayed.result and delayed.result.reason)..' searched='..tostring(delayed.forward_checked)..' evidence='..tostring(delayed.forward_search and delayed.forward_search.duration_s)..' path='..tostring(delayed.mpath)..' input='..tostring(pawn.input))
+  clean();install();oracle=nil;pump_oracle()
+  M.go_to(log,{15,0,0},{local_plan=false,sprint=false,timeout_s=30})
+  local interrupted=_G.DW_MOVE;local owner=_G.DWArbiter.owner
+  on_search(function() _G.DWArbiter.owner=nil end);step(1)
+  check('forward search owner change never adopts or moves',not interrupted.memory_binding and not interrupted.mpath and pawn.input==nil,interrupted.status)
+  _G.DWArbiter.owner=owner;clean();install();oracle=nil;pump_oracle()
+  M.go_to(log,{15,0,0},{local_plan=false,sprint=false,timeout_s=30})
+  local drifted=_G.DW_MOVE;on_search(function() pawn.loc.X=35 end);step(1)
+  check('forward search records actual drift and defers input',drifted.memory_binding and drifted.forward_search and drifted.forward_search.before.X==0 and drifted.forward_search.after.X==35 and pawn.input==nil,drifted.status)
+  clean();install();oracle=nil;pump_oracle()
+  if os.getenv('MOVE_POST_SEARCH_ONLY')=='1' then print(fails==0 and 'POST SEARCH OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
+  install();M.go_to(log,{15,0,0},{local_plan=false,sprint=false,timeout_s=30});run(200)
+  check('forward memory runs with unavailable oracle',_G.DW_MOVE.forward_checked and _G.DW_MOVE.result and _G.DW_MOVE.result.status=='arrived',_G.DW_MOVE.status)
+  clean();install()
+  oracle=function(id) return ('return {id=%d,ok=true,partial=true,points={{0,0,-0.9},{0,3,-0.9}}}'):format(id) end
+  pump_oracle();M.go_to(log,{15,0,0},{local_plan=false,sprint=false,timeout_s=30});run(200)
+  check('partial native route cannot suppress connected forward walk',_G.DW_MOVE.result and _G.DW_MOVE.result.status=='arrived' and math.abs(pawn.loc.Y)<1,_G.DW_MOVE.status)
+  clean();install();oracle=nil;pump_oracle()
+  M.go_to(log,{15,0,0},{local_plan=false,sprint=false,timeout_s=30});step(1)
+  local late=_G.DW_MOVE;local had_memory=late.memory_binding~=nil
+  oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{15,0,-0.9}}}'):format(id) end
+  pump_oracle();run(20)
+  check('late complete native route replaces proposal',had_memory and not late.memory_binding and late.path and late.path_partial==false,late.status)
+  clean();install();oracle=nil;pump_oracle()
+  M.go_to(log,{15,0,0},{local_plan=false,sprint=false,timeout_s=30});step(1)
+  local bound=_G.DW_MOVE;bound.goal.X=1600
+  oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{16,0,-0.9}}}'):format(id) end;pump_oracle();run(200)
+  check('changed goal abandons proposal and falls back to native',not bound.memory_binding and bound.mem_retry and bound.result and bound.result.status=='arrived' and pawn.loc.X>=1450,bound.status)
+  clean();install();luis.loc={X=1500,Y=0,Z=0};oracle=nil;pump_oracle()
+  M.go_to(log,'Zezima',{local_plan=false,sprint=false,timeout_s=30});step(1)
+  bound=_G.DW_MOVE
+  check('stationary actor can use a bound forward proposal',bound.target_name and bound.memory_binding and bound.forward_checked,bound.status)
+  luis.loc.X=1600;oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{16,0,-0.9}}}'):format(id) end;pump_oracle();run(200)
+  check('moving actor abandons proposal and falls back',not bound.memory_binding and bound.mem_retry and bound.result and bound.result.status=='arrived',bound.status)
+  clean();install();oracle=nil;pump_oracle()
+  M.go_to(log,{30,0,0},{local_plan=false,sprint=false,timeout_s=60});step(1)
+  bound=_G.DW_MOVE;local start_t=bound.t0;local active=bound.memory_binding and bound.memory_binding.prefix
+  local prefix_end,spent,old_id
+  oracle=function(id)
+   if not prefix_end then return ('return {id=%d,ok=true,partial=true,points={{0,0,-0.9},{0,3,-0.9}}}'):format(id) end
+   return ('return {id=%d,ok=true,partial=false,points={{%.3f,0,-0.9},{30,0,-0.9}}}'):format(id,pawn.loc.X/100)
+  end
+  for _=1,900 do
+   step(1)
+   if active and not bound.memory_binding then prefix_end=true;spent=bound.walk_spent;old_id=bound.nav_id;break end
+   pump_oracle()
+  end
+  check('prefix ends short without false arrival',active and prefix_end and not bound.result and pawn.loc.X>1000 and pawn.loc.X<2000,bound.status..' failure='..tostring(bound.walk_failure)..' x='..pawn.loc.X..' y='..pawn.loc.Y)
+  check('prefix preserves deadline and accumulated guard budget',bound.t0==start_t and spent and spent>0 and bound.forward_checked,bound.walk_spent)
+  step(1)
+  local pending=bound.nav_pending
+  if pending then
+   local f=assert(io.open(dir..'/client_io/nav/resp.lua','w'))
+   f:write(('return {version=2,epoch="%s",nonce="%s",id=%d,ok=true,partial=false,points={{0,0,-0.9},{30,0,-0.9}}}'):format(pending.epoch,pending.nonce,old_id));f:close()
+  end
+  local x_before=pawn.loc.X;step(2)
+  check('stale native response is not reused after prefix',pending and bound.nav_pending==pending and not bound.path and pawn.loc.X==x_before,bound.status)
+  run(200)
+  check('prefix requests fresh native path and never reselects memory',bound.nav_id>old_id and bound.forward_checked and not bound.memory_binding and bound.result and bound.result.status=='arrived',bound.status..' fail='..tostring(bound.nav_fail)..' pending='..tostring(bound.nav_pending~=nil)..' id='..tostring(bound.nav_id)..' old='..tostring(old_id)..' x='..pawn.loc.X)
+  clean();install()
+  _G.DW_NAVMEM.routes={
+   {id='a',n_ok=1,pts={{0,0,-0.9},{5,0,-0.9},{10,0,-0.9}}},
+   {id='b',n_ok=1,pts={{13,0,-0.9},{18,0,-0.9},{23,0,-0.9}}}}
+  walls={{1100,1200,-100,100,true}};oracle=nil;pump_oracle()
+  M.go_to(log,{30,0,0},{local_plan=false,sprint=false,timeout_s=60})
+  bound=_G.DW_MOVE
+  for _=1,600 do step(1);if bound.walk_failure then break end end
+  check('blocked inter-record join is rejected before crossing',bound.walk_failure and not bound.memory_binding and pawn.loc.X<1100,bound.status..' x='..pawn.loc.X)
+  clean();install();oracle=nil;pump_oracle()
+  M.go_to(log,{15,0,0},{local_plan=false,sprint=false,timeout_s=30});step(1)
+  bound=_G.DW_MOVE;bound.mpath=nil
+  oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{15,0,-0.9}}}'):format(id) end;pump_oracle();run(200)
+  check('abandoned proposal clears binding and falls back',not bound.memory_binding and bound.mem_retry and bound.result and bound.result.status=='arrived',bound.status)
+  clean();install();walls={{100,200,-100,100,true}}
+  oracle=nil;pump_oracle();M.go_to(log,{15,0,0},{local_plan=false,sprint=false,timeout_s=40});step(1)
+  for _=1,120 do step(1);if _G.DW_MOVE.walk_failure then break end end
+  oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{0,4,-0.9},{15,4,-0.9},{15,0,-0.9}}}'):format(id) end
+  pump_oracle();run(450)
+  check('rejected forward proposal falls back once to native',_G.DW_MOVE.forward_checked and _G.DW_MOVE.mem_retry and _G.DW_MOVE.walk_failure and _G.DW_MOVE.result and _G.DW_MOVE.result.status=='arrived',_G.DW_MOVE.status)
+  clean();oracle=nil;pump_oracle()
+ end
  if os.getenv('MOVE_GROUND_WALK_ONLY')=='1' then print(fails==0 and 'GROUND WALK OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
 end
 end
@@ -405,6 +507,7 @@ do -- A long first leg goes directly away from the destination for over five sec
     check("long physical U detour completes",M.status().result and M.status().result.status=="arrived",M.status().status)
     M.stop(log); walking_speed=450; walls={}
 end
+if os.getenv('MOVE_DETOUR_ONLY')=='1' then print(fails==0 and 'DETOUR OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
 
 do -- Overshooting a corner must steer back and recover within the action deadline.
     pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}
@@ -620,6 +723,11 @@ do
         offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no)
         oracle=function() return nil end; pump_oracle()
         M.go_to(log,{8,0,3},{tolerance_m=tolerance})
+        -- This fixture measures the local planner's retry bound, independently
+        -- of any successful trips recorded by earlier sandbox scenarios.
+        local NM=assert(loadfile(dir..'/client_mod/scripts/navmem.lua'))()
+        _G.DW_NAVMEM=NM.new_mem('test-world');_G.DW_NAVMEM._world='test-world'
+        _G.DW_MOVE_WORLD={id='test-world',t=os.time()}
         step(1)
         local move=_G.DW_MOVE
         local held=move.lp_state=="sampling" and pawn.input==nil and move.nav_pending~=nil
@@ -955,7 +1063,15 @@ end
 raised={}
 
 if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
+    -- The protocol assertions below exercise native authority alone. Earlier
+    -- mover scenarios can have recorded routes in this test world's sandbox.
+    local NM=assert(loadfile(dir..'/client_mod/scripts/navmem.lua'))()
+    local function empty_native_memory()
+        local m=NM.new_mem('test-world');m._world='test-world'
+        _G.DW_NAVMEM=m;_G.DW_MOVE_WORLD={id='test-world',t=os.time()}
+    end
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }; walls = {}; oracle = function() return nil end
+    empty_native_memory()
     pump_oracle()
     M.go_to(log, { 20, 0, 0 }, { local_plan=false })
     run(20)
@@ -975,6 +1091,25 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     check("world identity change fails closed", pawn.loc.X == 0 and M.status().result and M.status().result.reason == "verification_failed", M.status().status)
     check("world replacement cannot donate route feedback", M.status().result and M.status().result.route_feedback == nil)
     _G.DW_WORLD_GUID = "test-world"
+    do -- A stale helper response cannot donate authority to independent memory.
+        M.stop(log); pawn.loc={X=0,Y=0,Z=0}; empty_native_memory()
+        offer.no=offer.no+1;offer.nonce=fake_nonce(offer.no)
+        oracle=function() return nil end;pump_oracle()
+        M.go_to(log,{20,0,0},{local_plan=false,sprint=false});run(1)
+        local active=_G.DW_MOVE;local pending=active.nav_pending
+        local m=NM.new_mem('test-world');m._world='test-world'
+        NM.add_route(m,{{X=0,Y=0,Z=-90},{X=500,Y=0,Z=-90},{X=1000,Y=0,Z=-90},{X=2000,Y=0,Z=-90}},{src='self'})
+        _G.DW_NAVMEM=m;TEST_WALK_NATIVE.calls={}
+        local reply=assert(io.open(dir..'/client_io/nav/resp.lua','w'))
+        reply:write(('return {version=2,epoch="%s",nonce="%s",id=%d,ok=true,partial=false,points={{0,0,0},{20,0,0}}}'):format(pending.epoch,pending.nonce,pending.id));reply:close()
+        local hb=assert(io.open(dir..'/client_io/nav/alive.lua','w'))
+        hb:write(('return {version=2,epoch="33333333-3333-4333-8333-333333333333",state="recovering",updated=%d}'):format(os.time()));hb:close()
+        step(1)
+        check('stale helper cannot donate memory authority or input',active.memory_binding and not active.nav_binding and not active.route_feedback and pawn.input==nil and pawn.loc.X==0,active.status)
+        step(30)
+        check('independent memory moves only with fresh physical guard',pawn.loc.X>0 and #TEST_WALK_NATIVE.calls>0 and not active.nav_binding and not active.route_feedback,active.status)
+        M.stop(log);empty_native_memory()
+    end
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
     offer.no = offer.no + 1; offer.nonce = fake_nonce(offer.no)
     oracle = function() return nil end; pump_oracle()
@@ -1079,7 +1214,7 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     oracle = function(id) return ("return {id=%d,ok=true,partial=false,points={{%.2f,%.2f,0},{20,2,0}}}"):format(id,pawn.loc.X/100,pawn.loc.Y/100) end
     run(130)
     check("routed follow resumes on fresh admitted route", M.status().mode == "follow" and M.status().status == "near", M.status().status)
-    M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }; oracle = nil; pump_oracle()
+    M.stop(log); empty_native_memory(); pawn.loc = { X=0, Y=0, Z=0 }; oracle = nil; pump_oracle()
     local original_timeout = M.cfg.nav_timeout_s; M.cfg.nav_timeout_s = 0.5
     M.go_to(log, {20,0,0}, {local_plan=false}); run(20)
     check("missing service reports unavailable without input", pawn.loc.X == 0 and M.status().result and
@@ -1092,7 +1227,7 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     os.rename=function(a,b) if tostring(b):find("req%.json$") then return nil,"denied" end return saved_rename(a,b) end
     M.go_to(log,{20,0,0},{tolerance_m=1}); run(100); os.rename=saved_rename
     check("refused rename still obtains admitted route", M.status().result and M.status().result.status == "arrived", tostring(M.status().status) .. " requests=" .. tostring(M.status().nav_requests))
-    M.stop(log); walls={}; pawn.loc={X=0,Y=0,Z=0}; oracle=nil; pump_oracle()
+    M.stop(log); empty_native_memory(); walls={}; pawn.loc={X=0,Y=0,Z=0}; oracle=nil; pump_oracle()
     oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{20,0,0}}}"):format(id) end
     pump_oracle(); M.go_to(log,{20,0,0},{local_plan=false}); run(1)
     local owner = _G.DWArbiter.owner
@@ -1166,7 +1301,7 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     M.stop(log); pawn.loc={X=0,Y=0,Z=0}
     M.go_to(log, {20,0,0}, {nav=false,local_plan=false}); run(60)
     check("explicit direct opt-out moves", pawn.loc.X > 0, pawn.loc.X)
-    M.stop(log)
+    M.stop(log); empty_native_memory()
     do -- Actual arbiter + mover + interaction episode, no fake ownership layer.
         local A=assert(loadfile(dir.."/client_mod/scripts/arbiter.lua"))(); A.set_move(M)
         local SK=assert(loadfile(here.."/../scripts/skills.lua"))()
@@ -2640,12 +2775,16 @@ do
     check("jump binding: stop context restored after throw",first.ok and next_owner.ok and _G.DWArbiter.move_stop_context==prior)
     _G.DWArbiter.move_stop_context=nil; A.release(log,next_owner.token,"cleanup"); A.set_move(M)
 end
+end -- full mover scenarios before the isolated jump-path fixture
 do
     local original_jump=pawn.Jump
     local function setup()
         pawn.Jump=original_jump; M.stop(log)
         walls, raised, oracle, frame_hook, air = {}, {}, nil, nil, 0
         pawn.loc={X=0,Y=0,Z=0}; M.go_to(log,{20,0,0},{nav=false,local_plan=false})
+        local NM=assert(loadfile(dir..'/client_mod/scripts/navmem.lua'))()
+        _G.DW_NAVMEM=NM.new_mem('test-world');_G.DW_NAVMEM._world='test-world'
+        _G.DW_MOVE_WORLD={id='test-world',t=os.time()}
         return _G.DW_MOVE
     end
     local attempts=0
@@ -2679,7 +2818,7 @@ do
     pawn.Jump=refuse; attempts=0; run(1); KSL_BASE=old_trace
     check("jump paths: reactive hop rejection preserves counter",attempts==1 and st.result and st.result.reason=="verification_failed" and not st.hops and not st.jump_t)
     st=setup(); st.use_nav=true
-    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{2,0,1}}}"):format(id) end; pump_oracle(); run(1)
+    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{2,0,1},{20,0,0}}}"):format(id) end; pump_oracle(); run(1)
     pawn.Jump=refuse; attempts=0; run(1)
     check("jump paths: oracle link rejection preserves marker",attempts==1 and st.result and st.result.reason=="verification_failed" and not st.nav_jumped[2] and not st.link_jumps)
     local scenarios={
@@ -2689,7 +2828,7 @@ do
         {name="link",prepare=function(s) local e={phase="run",t0=T,link={id="t",from={0,0,-.9},to={5,0,-.9},move="jump"}}; s.link_exec=e; return e,"t_jump" end},
         {name="oracle",prepare=function(s)
             s.use_nav=true
-            oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{2,0,1}}}"):format(id) end; pump_oracle(); run(1)
+            oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{2,0,1},{20,0,0}}}"):format(id) end; pump_oracle(); run(1)
             return s.nav_jumped,2
         end},
         {name="stepoff",prepare=function(s) pawn.loc.Z=300; s.win_t=T-2; s.win_pos={X=0,Y=0,Z=300}; return s,"stepoff_tried" end},
@@ -2718,6 +2857,7 @@ do
     end
     pawn.Jump=original_jump; M.stop(log)
 end
+if os.getenv('MOVE_JUMP_ONLY')=='1' then print(fails==0 and 'JUMP PATHS OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
 do
     walls, raised, oracle, frame_hook, air = {}, {}, nil, nil, 0
     M.stop(log)

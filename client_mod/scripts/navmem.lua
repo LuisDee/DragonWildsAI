@@ -172,6 +172,14 @@ end
 
 local function route_len(pts) local L = 0; for i = 2, #pts do L = L + d3(pts[i - 1], pts[i]) end; return L end
 
+-- A forward observed route without action tags is only a proposal: historical
+-- records may contain untagged airborne movement, and all segments need fresh
+-- physical checks. Conceptual route/reset precedent, not a Dragonwilds API:
+-- https://github.com/PrismarineJS/mineflayer-pathfinder/blob/master/index.js
+function NM.forward_walk(mem, from, goal, min_progress_cm)
+    return NM.plan(mem, from, goal, {forward_proposal=true, min_progress_cm=min_progress_cm})
+end
+
 -- Store a successful trip (cm points). Returns the route record (new or the one it replaced).
 function NM.add_route(mem, pts_cm, meta)
     meta = meta or {}
@@ -266,9 +274,10 @@ end
 -- links: optional list of learned traversal links {from={x,y,z} m (feet), to=..., move, usable=bool}
 function NM.plan(mem, from, to, opts)
     opts = opts or {}
+    local forward = opts.forward_proposal == true
     local nodes, adj = {}, {}
     local function add_node(p, tag) nodes[#nodes + 1] = { p = p, tag = tag }; adj[#nodes] = {}; return #nodes end
-    local function edge(i, j, c) adj[i][#adj[i] + 1] = { j, c } end
+    local function edge(i, j, c, recorded) adj[i][#adj[i] + 1] = { j, c, recorded } end
     local function cost(a, b, base)
         local c = base or d3(a, b)
         if NM.is_taboo(mem, a, b) then c = c * NM.cfg.taboo_cost end
@@ -278,7 +287,12 @@ function NM.plan(mem, from, to, opts)
     -- route polylines (both directions; jump points only upward along the recorded direction)
     local route_nodes = {}
     for _, r in ipairs(mem.routes) do
-        if not r.disabled then
+        local eligible = not r.disabled
+        if forward then
+            eligible = eligible and not r.seed and (r.n_ok or 0) > 0 and type(r.pts)=='table'
+            if eligible then for _, q in ipairs(r.pts) do if q[4] then eligible=false; break end end end
+        end
+        if eligible then
             local prev
             for k, q in ipairs(r.pts) do
                 local p = cm(q)
@@ -287,15 +301,15 @@ function NM.plan(mem, from, to, opts)
                 route_nodes[#route_nodes + 1] = id
                 if prev then
                     local pen = 1 + (r.n_fail or 0) * 0.5
-                    edge(prev, id, cost(nodes[prev].p, p) * pen)
-                    if not (p.act == "jump" or p.act == "djump") then edge(id, prev, cost(p, nodes[prev].p) * pen) end
+                    edge(prev, id, cost(nodes[prev].p, p) * pen, true)
+                    if not forward and not (p.act == "jump" or p.act == "djump") then edge(id, prev, cost(p, nodes[prev].p) * pen) end
                 end
                 prev = id
             end
         end
     end
     -- learned links as directed edges
-    for _, L in ipairs(opts.links or {}) do
+    for _, L in ipairs(forward and {} or (opts.links or {})) do
         if L.usable ~= false then
             local a, b = add_node(cm(L.from), "link"), add_node(cm(L.to), "link")
             nodes[b].p.act = (L.move == "drop") and "drop" or "jump"
@@ -305,6 +319,33 @@ function NM.plan(mem, from, to, opts)
             route_nodes[#route_nodes + 1] = b
         end
     end
+    -- Fixed-radius neighbour bins: concept only, not a game API.
+    -- https://docs.lammps.org/latest/Developer_flow.html
+    if forward then
+        local bins, size = {}, NM.cfg.join_cm
+        for _,i in ipairs(route_nodes) do
+            local p=nodes[i].p; local x,y=math.floor(p.X/size),math.floor(p.Y/size)
+            bins[x]=bins[x] or {}; bins[x][y]=bins[x][y] or {}
+            bins[x][y][#bins[x][y]+1]=i
+        end
+        for _,i in ipairs(route_nodes) do
+            local p=nodes[i].p; local x,y=math.floor(p.X/size),math.floor(p.Y/size)
+            local candidates={}
+            for dx=-1,1 do for dy=-1,1 do
+                local bucket=bins[x+dx] and bins[x+dx][y+dy]
+                for _,j in ipairs(bucket or {}) do if j>i then candidates[#candidates+1]=j end end
+            end end
+            table.sort(candidates)
+            for _,j in ipairs(candidates) do
+                if nodes[i].tag~=nodes[j].tag or nodes[i].tag=="link" then
+                    local dd=d3(p,nodes[j].p)
+                    if dd<NM.cfg.join_cm and math.abs(p.Z-nodes[j].p.Z)<120 then
+                        edge(i,j,cost(p,nodes[j].p,dd*1.2));edge(j,i,cost(nodes[j].p,p,dd*1.2))
+                    end
+                end
+            end
+        end
+    else
     -- join edges between nearby points of different routes/links
     for x = 1, #route_nodes do
         local i = route_nodes[x]
@@ -318,15 +359,80 @@ function NM.plan(mem, from, to, opts)
             end
         end
     end
+    end
     if #route_nodes == 0 then return nil, "empty" end
     local S = add_node(cm(from), "start")
     local G = add_node(cm(to), "goal")
     local direct = d3(nodes[S].p, nodes[G].p)
     for _, i in ipairs(route_nodes) do
         local ds = d3(nodes[S].p, nodes[i].p)
-        if ds < NM.cfg.entry_cm then edge(S, i, cost(nodes[S].p, nodes[i].p, ds * NM.cfg.entry_factor)) end
+        local bound = forward and NM.cfg.join_cm or NM.cfg.entry_cm
+        if ds < bound and (not forward or math.abs(nodes[S].p.Z-nodes[i].p.Z)<120) then edge(S, i, cost(nodes[S].p, nodes[i].p, ds * NM.cfg.entry_factor)) end
         local dg = d3(nodes[i].p, nodes[G].p)
-        if dg < NM.cfg.entry_cm then edge(i, G, cost(nodes[i].p, nodes[G].p, dg * NM.cfg.entry_factor)) end
+        if dg < bound and (not forward or math.abs(nodes[i].p.Z-nodes[G].p.Z)<120) then edge(i, G, cost(nodes[i].p, nodes[G].p, dg * NM.cfg.entry_factor)) end
+    end
+    if forward then
+        -- Two Dijkstra states per node ensure a proposal includes a directed
+        -- recorded edge, rather than only unverified entry/join connectors.
+        local n=#nodes
+        -- Dijkstra open set adapted conceptually from Mineflayer's heap.
+        -- https://raw.githubusercontent.com/PrismarineJS/mineflayer-pathfinder/master/lib/heap.js
+        local dist, prev, done = {[S]=0}, {}, {}
+        local heap={}
+        local function less(a,b) return a[2]<b[2] or (a[2]==b[2] and a[1]<b[1]) end
+        local function push(v,d)
+            local item={v,d}; local i=#heap+1
+            while i>1 do local p=math.floor(i/2);if not less(item,heap[p]) then break end;heap[i]=heap[p];i=p end
+            heap[i]=item
+        end
+        local function pop()
+            local first,last=heap[1],table.remove(heap)
+            if #heap>0 then
+                local i=1
+                while i*2<=#heap do
+                    local j=i*2;if j<#heap and less(heap[j+1],heap[j]) then j=j+1 end
+                    if not less(heap[j],last) then break end
+                    heap[i]=heap[j];i=j
+                end
+                heap[i]=last
+            end
+            return first
+        end
+        push(S,0)
+        while #heap>0 do
+            local item=pop();local u,best=item[1],item[2]
+            if not done[u] and dist[u]==best then
+                done[u]=true
+                local base=u>n and u-n or u
+                for _,e in ipairs(adj[base]) do
+                    local v=e[1]+((u>n or e[3]) and n or 0)
+                    local nd=best+e[2]
+                    if not dist[v] or nd<dist[v] then dist[v],prev[v]=nd,u;push(v,nd) end
+                end
+            end
+        end
+        local target, prefix = dist[G+n] and G+n or nil, false
+        if not target then
+            local initial=d2(nodes[S].p,nodes[G].p)
+            local best_remaining,best_cost=math.huge,math.huge
+            for _, id in ipairs(route_nodes) do
+                local c=dist[id+n]
+                local remaining=d2(nodes[id].p,nodes[G].p)
+                if c and initial-remaining >= (opts.min_progress_cm or 150) and
+                    (remaining<best_remaining or (remaining==best_remaining and c<best_cost)) then
+                    target,prefix,best_remaining,best_cost=id+n,true,remaining,c
+                end
+            end
+        end
+        if not target then return nil, 'no_connection' end
+        local out,k={},target
+        while k and k~=S do
+            local base=k>n and k-n or k
+            local p=nodes[base].p
+            table.insert(out,1,{X=p.X,Y=p.Y,Z=p.Z})
+            k=prev[k]
+        end
+        return out,{prefix=prefix,cost_cm=dist[target],n=#out}
     end
     -- Dijkstra (graphs are small: hundreds of nodes)
     local dist, prev, done = { [S] = 0 }, {}, {}

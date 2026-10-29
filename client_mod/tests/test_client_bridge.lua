@@ -475,6 +475,23 @@ test("look: every census category as things, ranked by match, matched flag, radi
     assert(B.match_score({ name = "Ash Branches" }, "branch") == 1 and B.match_score({ name = "Oak" }, "an oak tree") == 0.5)
 end)
 
+test("lexical search uses whole meaningful identifier tokens", function()
+    local ash={name="Ash Logs",class="BP_Spawner_AshBranch_01_C",item="ITEM_Resources_Wood_Ash",kind="foliage",verb="gather"}
+    assert(B.match_score(ash,"a door, gate, stairs or opening leading out of the temple")==0)
+    assert(B.match_score(ash,"gap in the wall, gate or opening")==0)
+    assert(B.match_score(ash,"the and or")==0 and B.match_score({name="The"},"the")==0)
+    assert(B.match_score(ash,"gather")==1 and B.match_score(ash,"ash logs")==1)
+    assert(B.match_score(ash,"branches")==1 and B.match_score({name="Branch"},"branches")==1)
+    assert(B.match_score({class="BP_RedBerry_Bush_C"},"berry bush")==1)
+    assert(B.match_score({name="Gathering"},"gather")==0)
+    assert(B.match_score({name="Oak"},"oak oak tree")==0.5)
+    local rows={{name="Ash Logs",item="ITEM_Resources_Wood_Ash"},{name="Ash Rod",item="ITEM_Rod_Ash"}}
+    local row,meta=B.resolve_name(rows,"ITEM_Resources_Wood_Ash"); assert(row==rows[1] and meta.tier==3)
+    row,meta=B.resolve_name(rows,"ash logs"); assert(row==rows[1] and meta.tier==3)
+    row,meta=B.resolve_name(rows,"og"); assert(row==rows[1] and meta.tier==2)
+    local r=rpc("look",{about="the and or"}); assert(r.ok and r.data.matched==false and r.data.match_basis=="lexical")
+end)
+
 test("inspect: one thing with gives/requires, container contents; unknown id", function()
     local r = rpc("inspect", { target = "oak_1" })
     assert(r.ok and r.data.id == "oak_1" and r.data.requires.tool == "Hatchet" and r.data.gives[1] == "Oak Logs")

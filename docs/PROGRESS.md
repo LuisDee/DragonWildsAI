@@ -1,5 +1,31 @@
 # Progress log (append-only)
 
+### Physical temple route demonstrated; generic autonomy repairs prepared (2026-10-29)
+
+On published7ccecf6 developer controls climbed the real ramp4.2m in3.135s,
+crossed the upper doorway in3.88s, walked beyond207m horizontal from the spawn
+lodestone with health100, and returned through the doorway and down the ramp to
+the lodestone. Outside observation found a clear20m overhead capsule sweep.
+This was operator-selected routing with declared nutrition/health fixtures;
+it is NOT an unassisted round trip, fresh discovery or independent survival.
+Real moves automatically produced reusable DEV records including r126/r127;
+developer provenance is preserved in private wt-trial-a716 evidence.
+
+The complete Sonnet/Haiku trial on7ccecf6 still FAILED:18Sonnet+6Haiku requests,
+maximum observed19.11m from lodestone, attempted NPC interaction, false explore
+matches and a support-height failure. It ended at the local call cap with clean
+ownership; no new autonomous pass. Existing task history/checkpoints preserved.
+
+Prepared generic repairs: lexical whole-token matches instead of `the` matching
+`gather`; explicit lexical-candidate wording; forward recorded-route graph
+proposals for partial/unavailable native routes, including one useful prefix,
+with actual-position guard checks and unchanged final goal/deadline/spending.
+Complete native paths retain preference; actors invalidate on movement; no
+seeds/inferred reverse/tagged traversals authorize this proposal. Fresh Terra
+lexical and Astra navigation reviews CLEAR. Targeted suites passed; isolated
+authority test1passed37.86s after FAKE-world fixture isolation. Real world memory
+was never cleared. Designs: lexical-search-truth.md and player-route-proposals.md.
+
 ### Published floor repair exposes control-loop starvation (2026-10-29 14:33 UTC)
 
 3ff9496 pushed and published after GREEN1279pass/1skip463.56s;597sourcefiles and
@@ -1422,3 +1448,20 @@ The isolated candidate prepares a read-only native context comparison, with no
 movement policy change. Controlled DEV measurements are still required. See
 `docs/design/pathing-ramp-investigation.md`; the targeted design-note gate passed
 5 tests. Original judges remain unchanged.
+
+### Real-memory preflight and route proposal performance (2026-10-29)
+
+Candidate gate rp-g-a720 GREEN1279pass/1skip497.10s was not published: the
+prepublication actual-memory check found2394eligiblepoints versus an arbitrary
+new2000-node cutoff. Removed that cutoff; preserved every real-memory record.
+A >2000 connected-route regression now passes. Actual read-only memory proposals
+were uppercomplete8points and outwardprefix73points, but synchronoussearch1.6s.
+Forward-only neighbourbins/minheap reduce actualcase to~.35s with exact measured
+paths/costs/endpoints; independentreference boundary/negative/floor/water/taboo/
+cycle/tie checks and200variedgraphs agree. Dense500 overlap remains~.73s.
+Captured prospective binding, fresh postsearchdeadline/identity checks and
+nexttick pose/guard prevent adopting expired/stale proposals or immediateinput.
+Focused expiry/owner/drift cases pass. Fresh Astra cold review CLEAR; final
+whole-mover/fullgate pending. These are implementation diagnostics, no new
+unassisted task pass, no proven food/water acquisition. Primarysource links and
+measured limitations are in design/player-route-proposals.md and codecomments.

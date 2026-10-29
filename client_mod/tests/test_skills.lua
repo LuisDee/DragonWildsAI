@@ -1377,6 +1377,19 @@ test("BUGS L21: explore walks least-visited legs and stops when something matchi
 end)
 
 -- ------------------------------------------------------------------ containers: deposit / withdraw (build design §5)
+test("explore labels lexical candidates and ignores function-word substrings", function()
+    for _,query in ipairs({"a door, gate, stairs or opening leading out of the temple", "gap in the wall, gate or opening"}) do
+        reset(); F.me_pos=nil; F.move.position={0,0,3}; F.world.resources={}; F.world.interactables={}
+        table.insert(F.world.interactables,{id="ash_1",class="BP_Spawner_AshBranch_01_C",name="Ash Logs",kind="foliage",verb="gather",item="ITEM_Resources_Wood_Ash",position={5,0,3}})
+        local immediate,id=rpc("explore",{about=query,max_legs=1,leg_m=10})
+        if immediate then assert(immediate.reason=="nothing_in_range",json.encode(immediate)) else assert(id); local done=run(id,40); assert(done.reason=="nothing_in_range",json.encode(done)) end
+    end
+    reset(); F.me_pos=nil; F.move.position={0,0,3}; F.world.resources={}; F.world.interactables={}
+    table.insert(F.world.interactables,{id="ash_1",class="BP_Spawner_AshBranch_01_C",name="Ash Logs",kind="foliage",verb="gather",position={5,0,3}})
+    local hit=rpc("explore",{about="ash missing"})
+    assert(hit.reason=="already_in_sight" and hit.data.match_basis=="lexical" and hit.data.detail:find("not verify"),json.encode(hit))
+end)
+
 local function chest_world(slots, rows)
     reset()
     F.world.items, F.world.resources = {}, {} -- nothing else in the detector's reach
