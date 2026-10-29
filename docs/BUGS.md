@@ -1,5 +1,21 @@
 # Live bug ledger
 
+### Compound task can finish at an intermediate recurrence of final state (2026-10-29)
+
+OPEN, reproduced by complete Sonnet/Haiku onfd9fa13. Director authored a plan
+start-at-lodestone ->210m outbound ->return, with global task_success simply
+near(lodestone,4m). After the first real34.23m return to that landmark,
+Director `_step_done` observed the global predicate true and `_finish_task`
+ended the job while both later steps were pending/zero attempts. Haiku then
+reported the whole walk-out-and-back complete. Actual traces reject that claim.
+The failed task and history are preserved, not cleared or rewritten.
+
+Do not globally force every pending step for all tasks: state-only goals and
+auto-requeued loops can legitimately finish early. Investigate explicit
+model-authored ordered completion, durable progress through replan/restart and
+truthful completion feedback. No frozen predicate/judge edit is authorized.
+Details and primary-source research: docs/research/2026-10-29-compound-completion.md.
+
 ### Director loses detailed action failure evidence (2026-10-29)
 
 Candidate fix, live validation pending. `_last_results` previously copied only

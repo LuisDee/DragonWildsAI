@@ -1,5 +1,35 @@
 # Progress log (append-only)
 
+### Real controls then full-agent trial: return works, compound job stops early (2026-10-29)
+
+Publishedfd9fa13 passed the fresh1264/1skip full gate. Developer real go_to
+reproduced the blocked route in7.33s at health100 and returned the new real
+terrain packet:361sampled cells,338candidate surfaces summarized to24,12recorded
+barrier points summarized to8,9m radius,6.21s observation window and
+underlying unreachable_in_window. This is a live observability positive, not
+successful traversal. No model calls were used for that control.
+
+Then the complete Sonnet5.5 Director+Haiku5.5 Controller used existing DEV
+memory/research and independently located the temple lodestone. Its actual
+go_to returned from[82.32,1874.23,-31.27] to[51.69,1889.51,-35.09]:34.23m
+horizontally and3.82m down, with the first step recorded13.7s and health100.
+It then falsely completed the whole job: task_success near(lodestone,4m) became
+true after that first step, and Director ended the job while the210m outbound
+and return steps were both pending with zero attempts. The200m round trip
+FAILED; the new terrain packet was not exercised in live model requests because
+the successful return step produced no failure packet. Do not count the job's
+internal done status or speech as evidence. The return is a verified component
+outcome, not the full traversal deliverable or a new M1-M6 pass.
+
+Actual model inputs, outputs, body results and board evidence are retained in
+privateg-obs-f92e3f08;8calls=5Sonnet+3Haiku cost$0.1262 UTCday. The wrapper sent
+stop/read final state, then hit a bookkeeping error calling StateStore.flush;
+that wrapper call was corrected, and the result was reconstructed from retained
+evidence without rerunning. No brain remains; ClaudeDev is idle at health100.
+Next root cause: model-declared ordered completion versus final-state-only
+completion, with replanning and loop semantics preserved. Research:
+docs/research/2026-10-29-compound-completion.md.
+
 ### Bounded terrain evidence reaches model decision paths (2026-10-29)
 
 Candidate captures local observation-planner failures before discarding their

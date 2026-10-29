@@ -82,3 +82,26 @@ Opened primary sources:
 Decision: reuse existing transport and model loops, adapt bounded source-aware
 feedback. No new runtime library, model service, map backend or perception claim.
 Native terrain sources are already opened and recorded in the grounding note.
+
+## Live measurement on fd9fa13
+
+Fresh full gate1264/1skip GREEN, followed by developer real controls: the actual
+failure packet returned24/338surface candidates and8/12recorded barrier samples,
+with9m coverage and underlying unreachable_in_window, health100. The route
+itself failed. This validates body observability, not successful navigation.
+
+Complete Sonnet5.5/Haiku5.5 then independently completed a34.23m return step to
+the lodestone but prematurely marked the compound job done before its outbound
+leg. No new terrain packet was present in live model requests during that
+successful step. Thus live complete-agent use of failure geometry remains
+unproven despite the offline request-capture checks. Preserve this distinction
+and repair the separate completion contract before the next full trip trial.
+
+Before selecting that complete-agent trial, root inspected the developer failure
+and searched `site:docs.nav2.org local planner global path obstacles detour` and
+`site:github.com/mindcraft-bots/mindcraft pathfinder no path navigate`. No directly
+applicable UE implementation was established from those results. Opened the
+Anthropic effective-agents primary source again for grounded result/replan
+feedback. Decision: measure the full agent on the original objective with no
+operator route hints; do not repeat the unchanged failed eastward command or
+silently substitute a Minecraft movement fix.
