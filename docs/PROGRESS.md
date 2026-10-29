@@ -1,5 +1,17 @@
 # Progress log (append-only)
 
+### Self-sufficiency requirement reinforced and persisted (2026-10-29)
+
+Luis requires independent food/water acquisition and repeated return to useful
+work, alongside reliable temple exit. Accepted steer and NEXT-GOAL-PROMPT now
+explicitly distinguish carried-item reflex consumption, self-replenishment and
+assisted diagnostic setup. Code audit found low-vitals model routing plus a
+fallback requesting player supplies; this is not yet a root-cause live diagnosis.
+Historical Haiku water/build/processing success used supplied starting materials
+and Director-off diagnostics. No complete-agent from-scratch survival or new
+walking pass claimed. Audit: docs/research/2026-10-29-survival-self-sufficiency.md.
+No runtime source, model calls, fixtures or frozen judges changed by this steer.
+
 ### Published ordered repair; real return passed, full trial stalled in planning (2026-10-29)
 
 a9f5782 pushed/deployed after1276passed/1skipGREEN, source/memory freeze matched.

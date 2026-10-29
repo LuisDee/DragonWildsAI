@@ -41,6 +41,17 @@ to repeated resource runs, station use and crafting, rune essence and useful
 unlocked spells, then quest progression, in the original milestone order.
 New tasks should require knowledge and model plans, not scripted recipes.
 
+Self-sufficiency is part of sustained work: notice diminishing food/water
+reserves, independently find and obtain suitable provisions, process them when
+needed, consume them and resume the interrupted job with progress retained.
+Prove repeated replenishment cycles with the complete Sonnet/Haiku system;
+player donations and developer grants are not survival acceptance evidence.
+Declare initial tools/materials/unlocks/stations and separate ingredients-assisted
+diagnostics from from-scratch capability. Do not implement recipe/location scripts
+or accept repeated complaints and waiting for players as autonomous self-care.
+Keep the temple exit and corrected200m walking test first; this requirement must
+not dilute that urgent traversal repair. Original frozen judges stay unchanged.
+
 For every failed live experiment, stop blind repetition, inspect its trace,
 web-search the specific failure and open primary documentation/source before
 choosing the next experiment. Record queries, links, findings, hypotheses and

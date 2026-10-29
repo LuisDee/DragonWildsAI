@@ -57,6 +57,37 @@ horizontal gap range from vertical jump height or count partial jump controls as
 general obstacle-crossing capability. Research and current gaps are recorded in
 [the grounding research](../research/2026-10-29-player-grounding-native-controls.md#terrain-and-gap-traversal-follow-up).
 
+### Self-sufficient survival — Luis, 2026-10-29
+
+Luis reinforced that the companion must consistently leave the spawn temple and
+obtain its own food and water. Complaining and waiting for other players to
+provide consumables is not a successful survival response. The ramp/traversal
+repair remains the immediate priority; self-care is required for sustained work,
+not a replacement goal that defers the walking proof.
+
+The complete Sonnet Director + Haiku Controller must recognise low reserves
+before a predictable shortage, choose an attainable supply source from current
+perception/research/world memory, obtain and if needed process suitable food and
+water, consume through real controls, retain useful reserves, and resume the
+interrupted job with progress preserved. Models choose methods; do not add a
+food recipe, source-location or temple workflow. Existing carried-item reflexes
+are the fast consumption layer, not evidence of autonomous replenishment.
+
+Validate repeated provision -> consume -> resume cycles without player donations,
+operator hints, food/water/health grants or supplied station ingredients during
+the acceptance episode. Record starting tools, unlocks, materials and stations;
+an ingredients-assisted diagnostic is not a from-scratch proof. Observe actual
+source pickups/processing, inventory changes, hydration/sustenance recovery and
+resumed task progress. Resource exhaustion, path failures and unavailable
+capabilities must be reported specifically; asking for supplies is not the
+default substitute for trying feasible self-provisioning.
+
+DEV fixtures remain permitted for isolated navigation/mechanic diagnostics with
+explicit attribution. They never establish self-sufficiency. Preserve existing
+worlds/state and original frozen judges; these are additional capability checks.
+Current audit and limits of historical evidence are in
+[the survival audit](../research/2026-10-29-survival-self-sufficiency.md).
+
 ### Standing decisions
 
 Luis reinforced validation and observability on 2026-10-29: offline checks ->
