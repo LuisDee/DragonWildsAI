@@ -1,5 +1,20 @@
 # Progress log (append-only)
 
+### Player-grounding compatibility and sampled control checkpoint (2026-10-29 09:10Z)
+
+Goal explicitly resumed and confirmedACTIVE. Native typed floor probes distinguish
+current support, no support and initial penetration; current/below full-capsule
+sweeps establish Boolean/profile compatibility. A one-metre capsule chord hit
+floor while seven short floor-following sweeps were clear, with the pawn unchanged.
+The diagnostic sampler passed34 fake assertions and this native positive control;
+the floor-probe command passed28 fake assertions and current/above/below controls.
+No movement integration/deployment or new autonomous task passed. Original M1-M6
+and the three complete-agent200m round trips remain unmet; zero game-model calls.
+Root stopped expanding an overstrong full-edge proof prototype and persisted
+the sampled/receding-horizon decision and actual searches in
+docs/research/2026-10-29-player-grounding-native-controls.md. Unsafe remembered
+connectors and missing NPC-mesh coverage still require the next functional repair.
+
 ### Traversal goal resumed; independent audits and DEV discrimination (2026-10-29)
 
 Luis set the updated Goal in NEXT-GOAL-PROMPT.md. Accepted steer now prioritizes

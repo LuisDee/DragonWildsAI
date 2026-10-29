@@ -1,5 +1,19 @@
 # Discoveries
 
+### DEV typed floor and sampled capsule controls (2026-10-29)
+
+Current FindFloor yielded walkable support/nonpenetration; +100cm yielded no
+support; -100cm yielded explicit initial penetration. Each query had one typed
+callback; retained factory reuse kept native hooks14 with logical cleanup.
+Player capsule34/88cm, profilePlayer and zero ignore arrays were observed.
+The native full-capsule return Boolean distinguished current-clear from
+below-floor-blocked, while copied Distance0 did not. A one-metre chord hit floor;
+seven14.2857cm floor-following capsule sweeps were clear without pawn movement.
+These are compatibility/sample controls, not autonomous or general traversal
+proof. Private raw logs: R/logs/recovery/grounding-20261029. Full interpretation,
+source searches and limitations are persisted in
+docs/research/2026-10-29-player-grounding-native-controls.md.
+
 ### Controlled DEV routing reproduces friend failure; context switch is insufficient (2026-10-29)
 
 With ClaudeDev stationary, the bounded diagnostic queried the actual recorded

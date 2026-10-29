@@ -1,5 +1,15 @@
 # Live bug ledger
 
+### Player-grounding: copied Distance and straight endpoint interpolation (2026-10-29)
+
+OPEN in movement integration. Native controls reproduce Distance0 for clear/no-hit
+and penetrating cases. Do not use it as an overlap classifier. A full-capsule
+one-metre chord hit walkable floor; seven native floor-following short segments
+were clear. Raising the endpoint floor query alone did not fix the chord.
+Typed floor fields and bounded sampling now have diagnostic controls; they are
+not yet connected to route selection. Preserve the separate unsafe-memory-entry
+and native-coverage bugs. Details: docs/research/2026-10-29-player-grounding-native-controls.md.
+
 ### DEV: disconnected native route and unsafe remembered floor connector (2026-10-29)
 
 OPEN; no autonomous traversal pass. The exact friend-route endpoint was reproduced
