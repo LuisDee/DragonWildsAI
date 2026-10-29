@@ -21,6 +21,15 @@ hidden intermediate waypoints or teleportation. Verify a changed destination and
 another slope/doorway. These are additional diagnostics; original M1-M6 judges
 and completion requirements are unchanged.
 
+Luis challenged demonstrated-route reuse on 2026-10-29. Reusing successful world
+memory is valuable, but an operator-taught route replay does not prove discovery
+or general terrain understanding. Disclose demonstration provenance and require
+a separate unfamiliar-route test with no recorded path, operator demonstration
+or hidden intermediate hints. Preserve existing memories; choose and document a
+held-out case rather than erasing history. If it fails, repair the demonstrated
+perception/planning gap instead of supplying another route. Do not count taught
+temple replay as closing the independent route-discovery gap.
+
 Diagnose agent/NavData selection, projection/floor identity, coordinate units,
 capsule feet/centre, collision/steps/slopes, streaming, waypoint authority and
 moving targets before selecting a repair. A partial route is not proof of no

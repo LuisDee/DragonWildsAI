@@ -1465,3 +1465,14 @@ Focused expiry/owner/drift cases pass. Fresh Astra cold review CLEAR; final
 whole-mover/fullgate pending. These are implementation diagnostics, no new
 unassisted task pass, no proven food/water acquisition. Primarysource links and
 measured limitations are in design/player-route-proposals.md and codecomments.
+
+### Route reuse checkpoint published; discovery remains open (2026-10-29)
+
+Final exact-source whole-mover suite ALL OK, design-note5pass, fullgate
+rp-g-a722 GREEN1279passed/1skip480.05s. Source597files matched frozen candidate;
+49world/client memory files preserved. Checkpointb13793e pushed/FFdeployed with
+clientoff. DEV boot in progress, server/Steam/oracle retained. No new autonomous
+pass. Luis challenged preseeded-route validity; Accepted steer now explicitly
+separates learned-route execution from independent discovery, requiring a held-out
+unfamiliar route without prior demonstration/recorded path/hints. Never erase real
+memory to disguise provenance or count taught replay as terrain understanding.
