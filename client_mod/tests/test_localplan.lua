@@ -197,5 +197,33 @@ check("positive jump probes above knee and proposes hop", hr == "blocked" and #h
 local solid, wa, wb, wr, wh = hop_case(165, true)
 check("true wall remains blocked with jump reach", wr == "blocked" and #wh == 2 and solid:edge(wa, wb) == "walk" and next(solid.hop) == nil)
 
+do
+    local p=LP.new({center={X=0,Y=0,Z=90},self_pos={X=0,Y=0,Z=90},radius_m=3,
+        trace=function(a) if a.X==100 and a.Y==0 then return nil end
+            return a.Z>500 and 400 or 0 end})
+    p:step(2)
+    local first=p:observation_snapshot()
+    check("partial observation records unknown unvisited cells and self feet",first.coverage.unvisited_cells>0 and
+        first.candidate_surfaces[1].source=="self_feet_substitution" and first.coverage.sampled_cells==2)
+    while p:step(100)~="ready" do end
+    for i=1,10 do p.wall_pts[i]={X=i,Y=2*i,Z=50} end
+    local snap=p:observation_snapshot()
+    check("selection spans full window",math.abs(snap.candidate_surfaces[24].position_m[1])==3 or
+        math.abs(snap.candidate_surfaces[24].position_m[2])==3)
+    check("snapshot caps candidates and recorded ray hits",#snap.candidate_surfaces==24 and snap.candidate_truncated and
+        #snap.barrier_samples==8 and snap.barrier_truncated and snap.barrier_total==10)
+    check("snapshot labels unknowns and synthetic trace plane",snap.candidate_surfaces[2].capsule_clearance=="unknown" and
+        snap.candidate_surfaces[2].connectivity=="unknown" and
+        snap.barrier_samples[1].source=="horizontal_trace_plane_at_recorded_hit_xy" and
+        snap.coverage.cells_with_candidate_surface<snap.coverage.sampled_cells and snap.coverage.max_layers==2)
+    p.cache_hits=1
+    check("cached samples disclose unknown age",p:observation_snapshot().coverage.cache_age=="unknown")
+    local layers=LP.new({center={X=0,Y=0,Z=90},radius_m=0,
+        trace=function(a) return a.Z>500 and 400 or 0 end})
+    layers:step(2)
+    local layered=layers:observation_snapshot()
+    check("separate trace layers remain candidates",#layered.candidate_surfaces==2 and
+        layered.candidate_surfaces[1].position_m[3]~=layered.candidate_surfaces[2].position_m[3])
+end
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

@@ -28,6 +28,7 @@ from __future__ import annotations
 import concurrent.futures as cf
 import copy
 import json
+import math
 import os
 import queue
 import threading
@@ -72,6 +73,99 @@ WAIT_MAX_S = 1800.0  # a wait step whose test still fails after this is a failed
 MAX_TRANSITIONS = 8  # per tick: a passed step or a landed decision starts the next one at once (no tick of dead time).
 # The bound only stops a tight loop; chat is checked between transitions and runs pump body events themselves.
 MAX_REMEMBERED = 200  # per-task / per-step memories kept by the Director (pruned)
+
+# Curate environment feedback for the next decision, retaining its uncertainty:
+# https://www.anthropic.com/research/effective-context-engineering-for-ai-agents
+# Tool results are evidence associated with the actual action, not instructions:
+# https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls
+RESULTS_BUDGET = 16 * 1024  # serialized bytes for all eight summaries
+RESULT_DATA_BUDGET = 8 * 1024  # one action cannot monopolize the context
+
+
+def _bounded_result_value(value: Any, list_limit: int, string_limit: int, depth: int = 0,
+                          remaining: list[int] | None = None) -> tuple[Any, bool]:
+    """Copy JSON primitives only; report every omitted or shortened value."""
+    if remaining is None:
+        remaining = [1024]
+    if remaining[0] <= 0:
+        return None, True
+    remaining[0] -= 1
+    if value is None or isinstance(value, bool):
+        return value, False
+    if isinstance(value, int):
+        return (value, False) if value.bit_length() <= 256 else (None, True)
+    if isinstance(value, float):
+        return (value, False) if math.isfinite(value) else (None, True)
+    if isinstance(value, str):
+        return value[:string_limit], len(value) > string_limit
+    if depth >= 8:
+        return None, True
+    if isinstance(value, list):
+        # Small scalar lists carry coordinates and limitations even when large
+        # collections of observations have to be reduced.
+        limit = max(list_limit, 32) if all(not isinstance(x, (list, dict)) for x in value[:33]) else list_limit
+        out, changed = [], len(value) > limit
+        for item in value[:limit]:
+            copied, cut = _bounded_result_value(item, list_limit, string_limit, depth + 1, remaining)
+            out.append(copied)
+            changed |= cut
+        return out, changed
+    if isinstance(value, dict):
+        out, changed = {}, len(value) > 64
+        for index, (key, item) in enumerate(value.items()):
+            if index >= 64:
+                break
+            if not isinstance(key, str) or len(key) > 128:
+                changed = True
+                continue
+            copied, cut = _bounded_result_value(item, list_limit, string_limit, depth + 1, remaining)
+            out[key] = copied
+            changed |= cut
+        return out, changed
+    return None, True
+
+
+def _result_size(value: Any) -> int:
+    return len(json.dumps(value, allow_nan=False).encode("utf-8"))
+
+
+def _result_summaries(actions: list[dict]) -> list[dict]:
+    """Keep eight summaries and fit recent failures first, without cutting JSON."""
+    actions = actions[-8:]
+    summaries = []
+    for action in actions:
+        summary = {}
+        truncated = False
+        for key in ("tool", "ok", "reason"):
+            value = action.get(key)
+            summary[key], cut = (_bounded_result_value(value, 0, 64) if not isinstance(value, (dict, list))
+                                 else (None, True))
+            truncated |= cut
+        if truncated:
+            summary["summary_truncated"] = True
+        if "data" in action:
+            summary["data_omitted"] = True
+        summaries.append(summary)
+    # Reserve all summaries first. Failed actions and then successful actions are
+    # considered newest-first, so old bulk cannot crowd out recent failures.
+    order = sorted(range(len(actions)), key=lambda i: (actions[i].get("ok") is not False, -i))
+    for i in order:
+        if "data" not in actions[i]:
+            continue
+        for list_limit, string_limit in ((32, 1024), (16, 512), (8, 256), (4, 128), (0, 64)):
+            data, truncated = _bounded_result_value(actions[i]["data"], list_limit, string_limit)
+            candidate = dict(summaries[i])
+            candidate.pop("data_omitted", None)
+            candidate["data"] = data
+            if truncated:
+                candidate["data_truncated"] = True
+            previous = summaries[i]
+            summaries[i] = candidate
+            if _result_size(candidate) <= RESULT_DATA_BUDGET and _result_size(summaries) <= RESULTS_BUDGET:
+                break
+            summaries[i] = previous
+    return summaries
+
 
 # ------------------------------------------------------------------------------ the Controller's board tools
 
@@ -1397,8 +1491,7 @@ class Director:
             self.ops.note_stored(task, step, f["stored"])
         gains = self.ops.close_segment(task, step, state1, tainted=tainted, repicked=self.ops.repicked(task, picked))
         step.actions = (step.actions + board_recs)[-40:]
-        self._last_results[step.id] = [{"tool": x.get("tool"), "ok": x.get("ok"), "reason": x.get("reason")}
-                                       for x in board_recs][-8:]
+        self._last_results[step.id] = _result_summaries(board_recs)
         self._body_findings(task, step, fx, state1)
         ctx = self.ops.step_ctx(task, step, state1, places)
         if step.abort_if is not None:

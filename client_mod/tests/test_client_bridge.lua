@@ -296,13 +296,23 @@ test("go_to failed route evidence belongs only to accepted generation", function
     for _, gen in ipairs({1, 2}) do
         local _, _, id = rpc("go_to", { target = {10, 0, 0} })
         FAKE.move.mode, FAKE.move.result = "idle", {status="failed", reason="no_path",
-            route_feedback={generation=gen, goal_projected=false, requested_xyz={10, 0, 0}}}
+            route_feedback={generation=gen, goal_projected=false, requested_xyz={10, 0, 0}},
+            navigation_observation={generation=gen, phase="sampling"}}
         step()
         local r = results(drain(), id)[1]
         assert(r and not r.ok)
-        if gen == 1 then assert(r.data.route_feedback.goal_projected == false)
-        else assert(r.data.route_feedback == nil) end
+        if gen == 1 then assert(r.data.route_feedback.goal_projected == false and r.data.navigation_observation.phase == "sampling")
+        else assert(r.data.route_feedback == nil and r.data.navigation_observation == nil) end
     end
+end)
+
+test("observation survives without optional native route metadata", function()
+    local _, _, id = rpc("go_to", { target = {10, 0, 0} })
+    FAKE.move.mode, FAKE.move.result = "idle", {status="failed", reason="no_path",
+        navigation_observation={generation=1, phase="verification"}}
+    step()
+    local r=results(drain(), id)[1]
+    assert(r and not r.ok and not r.data.route_feedback and r.data.navigation_observation.phase=="verification")
 end)
 
 test("go_to: arrival claim far from the target -> verification_failed", function()

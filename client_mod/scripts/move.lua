@@ -1162,6 +1162,31 @@ local function lp_begin(st, pawn, me, far, why, log, observe)
     return true
 end
 
+-- Environmental feedback grounds the next model step; it is never route authority.
+-- https://www.anthropic.com/research/building-effective-agents
+function WALK.capture_observation(st, P, t, phase, reason, underlying)
+    local b=st.local_binding
+    if not b or type(b.world)~="string" or #b.world>128 or not local_route_owned(st,st.gen,st.pawn,st.pc,b.goal) then return end
+    if type(reason)~="string" or #reason>64 or not reason:match("^[%w_]+$") then return end
+    local packet=P:observation_snapshot()
+    packet.generation,packet.world=st.gen,b.world
+    packet.requested_xyz={b.goal.X/100,b.goal.Y/100,b.goal.Z/100}
+    packet.sample_started_at_s,packet.captured_at_s,packet.clock,packet.age_s=st.lp_t0,t,"game_real_time","unknown"
+    packet.phase,packet.reason=phase,reason
+    if type(underlying)=="string" and #underlying<=64 and underlying:match("^[%w_]+$") then packet.underlying_reason=underlying end
+    local function bounded(value)
+        if type(value)=="number" then return value==value and math.abs(value)<1e9 end
+        if type(value)=="string" then return #value<=128 end
+        if type(value)=="boolean" then return true end
+        if type(value)~="table" then return false end
+        for _,child in pairs(value) do if not bounded(child) then return false end end
+        return true
+    end
+    if not bounded(packet) then return end
+    if st.local_binding~=b or not local_route_owned(st,st.gen,st.pawn,st.pc,b.goal) or st.local_binding~=b then return end
+    st.navigation_evidence={binding=b, packet=packet}
+end
+
 -- One frame of planner work. Returns true while the planner owns this frame (we stand still).
 local function lp_work(st, t, log)
     local P, generation, observation = st.lp, st.gen, st.lp_observe
@@ -1174,6 +1199,8 @@ local function lp_work(st, t, log)
             local pts, why = P:plan(st.lp_far)
             if not current() then return false end
             if not pts then
+                if observation then WALK.capture_observation(st,P,t,"sampling",why,why) end
+                if not current() then return false end
                 st.lp, st.lp_state, st.lp_fail_t, st.lp_fail = nil, nil, t, why
                 if log then log("move: local plan failed: " .. tostring(why)) end
                 if not st.lp_observe then st.want_trail = true; st.nav_force = true end -- ordinary replans only
@@ -1187,9 +1214,12 @@ local function lp_work(st, t, log)
         if not current() then return false end
         if r == "blocked" then
             st.lp_rounds = st.lp_rounds + 1
-            local pts = st.lp_rounds <= 12 and P:plan(st.lp_far) or nil
+            local pts, underlying
+            if st.lp_rounds <= 12 then pts, underlying = P:plan(st.lp_far) else underlying = "verification_budget_exhausted" end
             if not current() then return false end
             if not pts then
+                if observation then WALK.capture_observation(st,P,t,"verification","verify_exhausted",underlying) end
+                if not current() then return false end
                 st.lp, st.lp_state, st.lp_fail_t, st.lp_fail = nil, nil, t, "verify_exhausted"
                 if log then log("move: local plan failed: walls everywhere (" .. table.concat(P.block_log or {}, " ") .. ") hops=" .. tostring(P.hops) .. " steeps=" .. tostring(P.steeps) .. " firstseg=" .. tostring(P.first_blocks)) end
                 if not st.lp_observe then st.want_trail = true; st.nav_force = true end
@@ -1321,6 +1351,12 @@ finish = function(st, result, log)
                 result.route_feedback = f
             end
         end
+    end
+    if not current() then return end
+    local ne=st.navigation_evidence
+    if result and result.status=="failed" and st.mode=="go_to" and ne and st.local_binding==ne.binding and
+        local_route_owned(st,gen,pawn,pc,ne.binding.goal) and current() then
+        result.navigation_observation=ne.packet
     end
     if not current() then return end
     cancel_superjump(st)
@@ -3542,6 +3578,50 @@ local function m3(p) return p and { math.floor(p.X) / 100, math.floor(p.Y) / 100
 function M.status()
     local st = S()
     local result = st.result
+    if result and result.navigation_observation then
+        local original, ne = result, st.navigation_evidence
+        local b=ne and ne.binding
+        local world=not paused() and world_identity() or nil
+        local function current()
+            local life=rawget(_G,"DW_LIFE")
+            local seq=type(life)=="table" and (life.move_death_seq or 0) or 0
+            local arb=rawget(_G,"DWArbiter"); local owner=arb and arb.owner
+            return b and not paused() and rawget(_G,"DW_MOVE")==st and st.result==original and
+                st.navigation_evidence==ne and st.gen==b.gen and st.pc==b.pc and st.pawn==b.pawn and
+                st.life_seq==b.life and seq==b.life and st.target==b.target and arb==b.arb and
+                (st.target_name or (st.goal and st.goal.X==b.goal.X and st.goal.Y==b.goal.Y and st.goal.Z==b.goal.Z)) and
+                (st.owner_token==b.token or (st.owner_token==nil and owner==nil)) and
+                (not owner or (owner==b.owner and owner.token==b.token))
+        end
+        local function world_current()
+            if not current() then return false end
+            local w=world_identity()
+            return current() and w and w==b.world
+        end
+        local okc,cv,okp,pawn,okv,pv,okg,goal=false,nil,false,nil,false,nil,false,nil
+        if world_current() then okc,cv=pcall(function() return b.pc and b.pc:IsValid() end) end
+        if okc and cv==true and world_current() then okp,pawn=pcall(function() return b.pc.Pawn end) end
+        if okp and pawn==b.pawn and world_current() then okv,pv=pcall(function() return pawn and pawn:IsValid() end) end
+        if okv and pv==true and world_current() then
+            okg,goal=pcall(function() if st.target_name then return st.target:K2_GetActorLocation() end return st.goal end)
+        end
+        local world2=not paused() and world_identity() or nil
+        local life=rawget(_G,"DW_LIFE")
+        local life_seq=type(life)=="table" and (life.move_death_seq or 0) or 0
+        local arb=rawget(_G,"DWArbiter"); local owner=arb and arb.owner
+        local valid=current() and world and world==b.world and world2==world and okc and cv==true and okp and pawn==b.pawn and okv and pv==true and
+            okg and goal and goal.X==b.goal.X and goal.Y==b.goal.Y and goal.Z==b.goal.Z and
+            rawget(_G,"DW_MOVE")==st and st.result==original and st.navigation_evidence==ne and st.gen==b.gen and st.pawn==b.pawn and st.pc==b.pc and
+            st.life_seq==b.life and life_seq==b.life and st.target==b.target and
+            (st.owner_token==b.token or (st.owner_token==nil and owner==nil)) and
+            arb==b.arb and (not owner or owner==b.owner) and not paused()
+        if not valid then
+            result={}; for k,v in pairs(original) do if k~="navigation_observation" then result[k]=v end end
+            if rawget(_G,"DW_MOVE")==st and st.result==original and st.navigation_evidence==ne then
+                st.result=result; st.navigation_evidence=nil
+            end
+        end
+    end
     if result and result.route_feedback then
         local original_result = result
         local e = st.route_feedback

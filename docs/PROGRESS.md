@@ -1,5 +1,29 @@
 # Progress log (append-only)
 
+### Bounded terrain evidence reaches model decision paths (2026-10-29)
+
+Candidate captures local observation-planner failures before discarding their
+surface candidates and recorded ray-hit points. Packet preserves sampling
+window, resolution, counts, unknowns, units, timing, source and truncation;
+24 surface samples cover the candidate order and8 recorded hit points are
+explicitly not complete walls or verified routes. Ownership/life/world/goal
+changes drop stale evidence without hiding the terminal failure. Bridge checks
+the accepted generation. Director now retains bounded primitive action data in
+continuation and replan inputs (16KiB aggregate), prioritizing recent failures.
+No movement choice, goal predicate or frozen judge is changed.
+
+Offline evidence:100 targeted brain checks, then6 focused boundary/delivery
+checks passed; localplan/bridge and changed real-planner failure, verification,
+lifecycle and snapshot-preemption fixtures passed. Fresh design and cold review
+cleared the bounded implementation. Current full gate is running, with developer
+real controls then complete Sonnet/Haiku trials still pending. No new autonomous
+task passed. Design: docs/design/terrain-feedback.md.
+
+Fresh full gate subsequently passed1264tests/1skip in508.58s,
+CHECK_ALL: GREEN, with423frozenPython/Lua files unchanged and no frozen-judge
+diff. Privateg-obs-f92e3f08 includes source hashes and49world-state backups.
+Publication clears developer real-control testing; model acceptance is pending.
+
 ### Source references beside implementation (2026-10-29)
 
 Luis requested direct online-source links next to the code they informed.

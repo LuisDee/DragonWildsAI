@@ -48,6 +48,12 @@ autonomous test configuration.
   capabilities and never counts as unaided completion. Preserve progress and
   record any setup or assistance so later measurements cannot inherit a false
   autonomous pass.
+- Luis reinforced this on 2026-10-29: for behavior changes, establish developer
+  real-control evidence before the unaided complete Sonnet/Haiku attempt. Treat
+  observability as part of the feature: identify the relevant observations,
+  sources, freshness, unknowns and outcomes, and verify they reach developer
+  traces and both models' actual inputs. Prefer useful bounded evidence over
+  raw log volume. Do not label a change tested through all stages until it is.
 - Announce game/client restarts before executing them. Never restart Steam as a
   routine repair: the previous login was not persistent and may require Luis's
   Steam Guard approval. Use `tools/steam_restart.py` for its safety check.

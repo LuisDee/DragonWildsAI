@@ -156,6 +156,48 @@ function LP:sample(i, j)
     return zs and 2 or 0
 end
 
+-- Layered samples are candidates, not proven clearance or connectivity.
+-- https://arongranberg.com/astar/documentation/stable/layergridgraph.html
+function LP:observation_snapshot()
+    local out = { version=1, semantics="Historical candidate observations; not movement authority",
+        coverage = { center_m={self.c.X/100,self.c.Y/100,self.c.Z/100},
+        radius_m=self.r*self.cell/100, cell_m=self.cell/100, sampled_cells=self.qi-1,
+        total_cells=#self.queue, unvisited_cells=#self.queue-(self.qi-1), cells_with_candidate_surface=0,
+        sampled_without_candidate=0, center_convention="XY snapped to grid; Z is capsule center",
+        max_layers=2, cache_hits=self.cache_hits, cache_age=self.cache_hits>0 and "unknown" or "not_used",
+        limitations="Candidate Z is line-hit or substituted feet; barriers use trace-plane Z. Penetration/read failure detail unknown." },
+        candidate_surfaces={}, barrier_samples={}, candidate_total=0, barrier_total=#self.wall_pts,
+        selection="evenly spaced through spiral cell and layer order; first recorded barrier hits" }
+    local candidates={}
+    for n=1,self.qi-1 do
+        local q=self.queue[n]
+        local layers=self.nodes[key(q[1],q[2])] or {}
+        if #layers>0 then out.coverage.cells_with_candidate_surface=out.coverage.cells_with_candidate_surface+1 end
+        local x,y=self:pos(q[1],q[2])
+        local self_cell=self.self_pos and math.sqrt((x-self.self_pos.X)^2+(y-self.self_pos.Y)^2)<self.self_r
+        for _,node in ipairs(layers) do
+            candidates[#candidates+1]={position_m={x/100,y/100,node.z/100},
+                source=self_cell and "self_feet_substitution" or "line_hit_candidate",
+                connectivity="unknown", capsule_clearance="unknown"}
+        end
+    end
+    out.coverage.sampled_without_candidate=out.coverage.sampled_cells-out.coverage.cells_with_candidate_surface
+    out.candidate_total=#candidates
+    local take=math.min(#candidates,24)
+    for i=1,take do
+        local index=take==1 and 1 or 1+math.floor((i-1)*(#candidates-1)/(take-1))
+        out.candidate_surfaces[i]=candidates[index]
+    end
+    for i=1,math.min(#self.wall_pts,8) do
+        local w=self.wall_pts[i]
+        out.barrier_samples[#out.barrier_samples+1]={position_m={w.X/100,w.Y/100,w.Z/100},
+            source="horizontal_trace_plane_at_recorded_hit_xy"}
+    end
+    out.candidate_truncated=out.candidate_total>#out.candidate_surfaces
+    out.barrier_truncated=out.barrier_total>#out.barrier_samples
+    return out
+end
+
 function LP:step(budget)
     local used = 0
     while self.qi <= #self.queue and used + 2 <= budget do

@@ -594,6 +594,11 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
                 data.route_feedback = f
                 if type(self.target) == "string" and #self.target <= 256 then data.requested_target = self.target end
             end
+            local observation = res.navigation_observation
+            if type(self.accepted_generation) == "number" and type(observation) == "table" and
+                observation.generation == self.accepted_generation then
+                data.navigation_observation = observation
+            end
             return fail(reason_code(res.reason or "path_blocked"), data)
         end
         if res.status == "stopped" or self.polls > 3 then

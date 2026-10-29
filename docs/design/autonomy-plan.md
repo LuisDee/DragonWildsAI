@@ -57,6 +57,15 @@ general obstacle-crossing capability. Research and current gaps are recorded in
 
 ### Standing decisions
 
+Luis reinforced validation and observability on 2026-10-29: offline checks ->
+developer in the real client's driver seat -> unaided complete Sonnet Director
+and Haiku Controller. For each behavior change, inspect what the body, developer,
+Haiku and Sonnet actually receive. Expose relevant current geometry, object/UI
+state, action ownership, specific failures, observed effects, provenance and
+unknowns; verify delivery into model inputs rather than only adding log rows.
+Bound and summarize the evidence without silently discarding the facts needed
+to decide. Developer/simulated success remains diagnostic, not autonomous proof.
+
 1. **Keep the reusable, two-speed architecture.** Sonnet researches and maintains
    the plan; Haiku selects and executes actions from current observations; native
    movement, interaction and reflex services handle frame-rate work. The models

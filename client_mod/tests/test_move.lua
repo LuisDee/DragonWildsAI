@@ -251,6 +251,41 @@ local function check(name, c, info)
  end
 end
 
+function SNAPSHOT_PREEMPTION_CASE() -- Reentry must not write into or cancel the successor.
+    pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}; raised={}
+    oracle=function() return nil end; pump_oracle()
+    local old=M.go_to(log,{8,0,3},{tolerance_m=0.5,timeout_s=10})
+    step(1)
+    local st=_G.DW_MOVE
+    local planner=st.lp
+    local fired, successor, successor_handle, cancelled = false,nil,nil,false
+    local old_cancel=CancelDelayedAction
+    CancelDelayedAction=function(handle)
+        if successor_handle and handle==successor_handle then cancelled=true end
+        return old_cancel(handle)
+    end
+    if planner then
+        planner.trace=function() return nil end
+        local snapshot=planner.observation_snapshot
+        planner.observation_snapshot=function(self)
+            local packet=snapshot(self)
+            fired=true
+            successor=M.go_to(log,{9,0,0},{nav=false,local_plan=false,sprint=false})
+            successor_handle=_G.DW_MOVE.handle
+            return packet
+        end
+    end
+    for i=1,300 do if fired then break end; step(1) end
+    CancelDelayedAction=old_cancel
+    local current=_G.DW_MOVE
+    check("snapshot preemption preserves successor evidence, result and handle",fired and old and successor and successor.ok and
+        current.gen>old.gen and current.gen==successor.gen and current.mode=="go_to" and
+        current.navigation_evidence==nil and current.result==nil and successor_handle and
+        current.handle==successor_handle and loops[successor_handle] and not cancelled)
+    M.stop(log)
+end
+if os.getenv("MOVE_SNAPSHOT_PREEMPT_ONLY")=="1" then SNAPSHOT_PREEMPTION_CASE(); os.exit(fails==0 and 0 or 1) end
+
 if os.getenv('MOVE_PROTOCOL_WIRE_ONLY')~='1' and os.getenv('MOVE_AUTHORITY_ONLY')~='1' then
 do -- Actual mover + sampled guard: memory entries and native coverage repair.
  local seed=dir..'/data/nav/L_World_seeds.json'
@@ -484,6 +519,93 @@ do -- Long physical routes retain a fixed upper bound on progress evidence.
     local move=_G.DW_MOVE
     check("long physical route completes",M.status().result and M.status().result.status=="arrived",M.status().status)
     check("progress history remains bounded",move.progress_positions and #move.progress_positions==64,#(move.progress_positions or {}))
+    M.stop(log)
+end
+
+SNAPSHOT_PREEMPTION_CASE()
+do -- A real failed observation planner must reach the terminal result without native route metadata.
+    pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}; raised={}
+    offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no)
+    oracle=function() return nil end; pump_oracle()
+    M.go_to(log,{8,0,3},{tolerance_m=0.5,timeout_s=10})
+    step(1)
+    local st=_G.DW_MOVE
+    if st.lp then st.lp.trace=function() return nil end end
+    for i=1,300 do if st.lp_fail or st.result then break end; step(1) end
+    check("real failed observation captures planner evidence",st.lp_fail and st.navigation_evidence and
+        st.navigation_evidence.packet.coverage.sampled_cells>0,st.lp_fail)
+    for i=1,500 do if st.result then break end; step(1) end
+    local result=M.status().result
+    check("failed observation reaches terminal without route metadata",result and result.status=="failed" and
+        result.navigation_observation and not result.route_feedback,result and result.reason)
+    local evidence=st.navigation_evidence
+    local function invalid_case(name, mutate, restore)
+        local oldvalid, reads=pc.IsValid,0
+        local oldavoid=M.avoid_status
+        M.avoid_status=function() return {} end -- isolate the packet path from its independent fresh-controller lookup
+        pc.IsValid=function(...) reads=reads+1; return oldvalid(...) end
+        mutate()
+        local dropped=M.status().result
+        check("observation rejects changed "..name,dropped and result and dropped.reason==result.reason and not dropped.navigation_observation)
+        if name=="life" or name=="owner" then check("stale "..name.." avoids cached controller",reads==0,reads) end
+        restore()
+        pc.IsValid=oldvalid
+        M.avoid_status=oldavoid
+        check("changed "..name.." cannot revive observation",M.status().result and not M.status().result.navigation_observation)
+        -- Recreate the terminal fixture for the next independent invalidation case.
+        st.result=result; st.navigation_evidence=evidence
+    end
+    local oldgen=st.gen
+    invalid_case("generation",function() st.gen=oldgen+1 end,function() st.gen=oldgen end)
+    local oldgoal=st.goal
+    invalid_case("goal",function() st.goal={X=oldgoal.X+1,Y=oldgoal.Y,Z=oldgoal.Z} end,function() st.goal=oldgoal end)
+    local oldpawn=st.pawn
+    invalid_case("pawn",function() st.pawn={} end,function() st.pawn=oldpawn end)
+    local oldlife=_G.DW_LIFE
+    invalid_case("life",function() _G.DW_LIFE={move_death_seq=(st.life_seq or 0)+1} end,function() _G.DW_LIFE=oldlife end)
+    local oldtoken=st.owner_token
+    invalid_case("owner",function() st.owner_token="other" end,function() st.owner_token=oldtoken end)
+    local old=_G.DW_WORLD_GUID; _G.DW_WORLD_GUID="other-world"
+    local dropped=M.status().result
+    check("stale observation drops without changing failure",dropped and result and dropped.reason==result.reason and not dropped.navigation_observation)
+    _G.DW_WORLD_GUID=old
+    check("dropped observation cannot revive",M.status().result and not M.status().result.navigation_observation)
+    M.stop(log)
+end
+
+do -- Exercise the real planner's verification and recorded horizontal hit path.
+    pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}; raised={}
+    offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no)
+    oracle=function() return nil end; pump_oracle()
+    M.go_to(log,{8,0,3},{tolerance_m=0.5,timeout_s=10})
+    step(1)
+    local st=_G.DW_MOVE
+    for i=1,300 do if st.lp_state=="verifying" or st.result then break end; step(1) end
+    local planner=st.lp
+    if planner and st.lp_state=="verifying" then
+        local trace=planner.trace
+        planner.trace=function(a,b,horizontal)
+            if horizontal then return true,{X=(a.X+b.X)/2,Y=(a.Y+b.Y)/2,Z=12345} end
+            return trace(a,b,horizontal)
+        end
+        st.lp_rounds=12
+        step(1)
+    end
+    local packet=st.navigation_evidence and st.navigation_evidence.packet
+    check("real verification records bounded synthetic-plane barrier",packet and packet.phase=="verification" and
+        packet.reason=="verify_exhausted" and packet.underlying_reason=="verification_budget_exhausted" and
+        #packet.barrier_samples>0 and packet.barrier_samples[1].position_m[3]~=123.45)
+    for i=1,500 do if st.result then break end; step(1) end
+    local terminal=M.status().result
+    check("verification evidence reaches terminal",terminal and terminal.navigation_observation~=nil)
+    local oldvalid=pc.IsValid; local reads=0
+    pc.IsValid=function(...) reads=reads+1; return oldvalid(...) end
+    _G.DW_PAUSE=true
+    local paused_result=M.status().result
+    _G.DW_PAUSE=false; pc.IsValid=oldvalid
+    check("paused status drops packet without controller access",reads==0 and paused_result and
+        not paused_result.navigation_observation and terminal and paused_result.reason==terminal.reason)
+    check("paused packet cannot revive",M.status().result and not M.status().result.navigation_observation)
     M.stop(log)
 end
 

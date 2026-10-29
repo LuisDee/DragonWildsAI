@@ -452,3 +452,23 @@ def test_route_feedback_reaches_provider_with_original_tool_id(rig):
     assert result["tool_call_id"] == "route-call"
     assert json.loads(result["content"])["data"]["route_feedback"] == feedback
     assert messages[0]["content"] == "original request"
+
+
+def test_navigation_observation_reaches_controller_provider_with_tool_id(rig):
+    # Simulated provider capture, not an autonomous game run.
+    from brain.controller import Decision
+    from brain.llm import ToolCall, assistant_message
+    packet = {"generation": 3, "world": "dev", "requested_xyz": [20, 0, -4],
+              "sample_started_at_s": 9.5, "captured_at_s": 10, "clock": "game_real_time", "age_s": None,
+              "coverage": {"unvisited_cells": 2, "max_layers": 2},
+              "candidate_surfaces": [{"position_m": [1, 2, 3], "connectivity": "unknown",
+                                      "capsule_clearance": "unknown"}],
+              "barrier_samples": [], "semantics": "historical candidate observations; not movement authority"}
+    prior = FakeLLM.say("", ToolCall("go_to", {"target": [20, 0, -4]}, "route-call"))
+    decision = Decision(messages=[{"role": "user", "content": "original request"}, assistant_message(prior)])
+    rig.controller_llm.push(FakeLLM.say(""))
+    rig.controller.next_turn(decision, {"route-call": {"ok": False, "reason": "blocked",
+                                                       "data": {"navigation_observation": packet}}}, {}, failed=True)
+    result = next(m for m in rig.controller_llm.calls[0]["messages"] if m.get("role") == "tool")
+    assert result["tool_call_id"] == "route-call"
+    assert json.loads(result["content"])["data"]["navigation_observation"] == packet

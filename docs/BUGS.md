@@ -1,5 +1,20 @@
 # Live bug ledger
 
+### Director loses detailed action failure evidence (2026-10-29)
+
+Candidate fix, live validation pending. `_last_results` previously copied only
+tool/ok/reason, dropping detailed route and terrain evidence from Sonnet's
+continuation/replan input although Haiku received tool results. New bounded
+primitive data retention has provider-request capture regressions, source record
+immutability and explicit context-budget truncation. Body additionally captures
+local candidate-planner failure geometry and sends it through a generation-bound
+result. Full regression gate, developer real controls and complete model trial
+remain separate gates. This does not fix the far-route local-window limitation
+or prove a new autonomous capability.
+
+Candidate full gate now GREEN1264/1skip508.58s; developer and full-model live
+evidence remain pending. Keep the world-routing limitation separate.
+
 ### Far-route continuation: local improvement is not global reachability (2026-10-29)
 
 OPEN. Source65af2cb real developer far go_to moved to a partial native endpoint,

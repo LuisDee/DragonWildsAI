@@ -1015,3 +1015,111 @@ def test_the_planner_snapshot_lists_his_spells_for_prep():
     assert D._compact_state(state)["spells"] == [
         {"name": "Spell A", "role": "enchant", "castable": True},
         {"name": "Spell B", "castable": False, "reason": "requirement", "needs": "X"}]
+
+
+# Simulated transport checks only: these are not autonomous game acceptance.
+def _navigation_packet():
+    return {"generation": 3, "world": "dev", "requested_xyz": [20, 0, -4],
+            "sample_started_at_s": 9.5, "captured_at_s": 10.0, "clock": "game_real_time", "age_s": None,
+            "phase": "sampling", "reason": "blocked",
+            "coverage": {"center_m": [0, 0, 0], "radius_m": 5, "cell_m": 1,
+                         "sampled_cells": 20, "total_cells": 30, "unvisited_cells": 10,
+                         "cells_with_candidate_surface": 2, "max_layers": 2,
+                         "limitations": ["unvisited cells are unknown"]},
+            "candidate_surfaces": [{"position_m": [1, 2, 3], "source": "line_hit_candidate",
+                                    "connectivity": "unknown", "capsule_clearance": "unknown"}],
+            "barrier_samples": [{"position_m": [2, 3, 4],
+                                 "source": "horizontal_trace_plane_at_recorded_hit_xy"}],
+            "truncated": False, "selection": "nearest", "semantics": "historical candidate observations; not movement authority"}
+
+
+def test_failed_navigation_evidence_reaches_continuation_and_replan_provider(tmp_path):
+    packet = _navigation_packet()
+    action = {"tool": "go_to", "ok": False, "reason": "blocked", "origin": "board",
+              "data": {"navigation_observation": packet, "route_feedback": {"partial": True},
+                       "detail": "collision", "position": [1, 2, 3]}}
+    original = copy.deepcopy(action)
+    def failed(ev, port):
+        return {"actions": [action], "ended": "normal"}
+    d, port, world, llm, clock = make(tmp_path, failed, [
+        decision(task_success=have(COPPER, 5), steps=[step("work", gained(COPPER, 5))]),
+        decision(ask_help="Where should I go?")])
+    task_id = d.handle_tool("add_task", {"text": "collect copper"}, "Zezima")["data"]["id"]
+    ticks(d, 4)
+    events = [e for e in port.events if e["type"] == "board_step"]
+    assert events[1]["last_results"][0]["data"] == action["data"]
+    request = json.loads(llm.calls[1]["messages"][1]["content"])
+    assert request["decision"] == "replan"
+    assert request["detail"]["failed"]["last_actions"][0]["data"] == action["data"]
+    assert request["job"]["text"] == "collect copper"
+    assert d.ops.b.task(task_id).success["predicate"]["have"]["at_least"] == 5
+    assert COPPER in d.ops.b.task(task_id).success["predicate"]["have"]["ids"]
+    assert action == original
+
+
+def test_evidence_budget_prioritizes_latest_failures_and_reports_omissions():
+    packet = _navigation_packet()
+    huge = [{"position_m": [i, i, i], "source": "candidate", "unknown": "unknown"} for i in range(200)]
+    actions = [{"tool": "go_to", "ok": False, "reason": "blocked",
+                "data": {"navigation_observation": {**packet, "candidate_surfaces": huge},
+                         "blob": "x" * 30000}} for _ in range(7)]
+    actions.append({"tool": "go_to", "ok": False, "reason": "blocked",
+                    "data": {"navigation_observation": packet}})
+    original = copy.deepcopy(actions)
+    summaries = D._result_summaries(actions)
+    assert len(json.dumps(summaries, allow_nan=False).encode()) <= D.RESULTS_BUDGET
+    assert summaries[-1]["data"]["navigation_observation"] == packet
+    assert all({"tool", "ok", "reason"} <= set(s) for s in summaries)
+    assert all(s.get("data_truncated") or s.get("data_omitted") for s in summaries[:-1])
+    for row in summaries[:-1]:
+        if "data" in row:
+            observation = row["data"]["navigation_observation"]
+            assert observation["coverage"]["limitations"] == packet["coverage"]["limitations"]
+            assert observation["semantics"] == packet["semantics"]
+    assert actions == original
+
+
+def test_malformed_evidence_is_valid_bounded_json_and_unchanged():
+    bad = {"tool": "go_to", "ok": False, "reason": "blocked",
+           "data": {"bad": float("nan"), "infinite": float("inf"), "object": object(),
+                    "nested": [[[[[[[[[1]]]]]]]]], "array": list(range(100))}}
+    before = copy.deepcopy(bad)
+    result = D._result_summaries([bad])
+    assert result[0]["data_truncated"] is True
+    json.dumps(result, allow_nan=False)
+    assert bad["data"]["array"] == before["data"]["array"]
+    assert bad["data"]["bad"] != bad["data"]["bad"]
+
+
+def test_oversized_evidence_is_bounded_in_replan_provider(tmp_path):
+    actions = [{"tool": "go_to", "ok": False, "reason": "blocked",
+                "data": {"evidence": "x" * 30000, "rows": list(range(200))}}
+               for _ in range(8)]
+    actions[-1]["data"] = {"navigation_observation": _navigation_packet()}
+    before = copy.deepcopy(actions)
+    d, port, world, llm, clock = make(tmp_path,
+        lambda ev, port: {"actions": actions, "ended": "normal"}, [
+            decision(task_success=have(COPPER, 5), steps=[step("work", gained(COPPER, 5))]),
+            decision(ask_help="Where should I go?")])
+    d.handle_tool("add_task", {"text": "collect copper"}, "Zezima")
+    ticks(d, 4)
+    request = json.loads(llm.calls[1]["messages"][1]["content"])
+    rows = request["detail"]["failed"]["last_actions"]
+    assert len(json.dumps(rows, allow_nan=False).encode()) <= D.RESULTS_BUDGET
+    assert rows[-1]["data"]["navigation_observation"] == _navigation_packet()
+    assert all(row.get("data_truncated") or row.get("data_omitted") for row in rows[:-1])
+    assert actions == before
+
+
+def test_summary_field_bounds_preserve_short_codes_and_mark_multibyte_truncation():
+    actions = [{"tool": "go_to", "ok": False, "reason": "blocked"} for _ in range(7)]
+    actions.append({"tool": "工具" * 1000, "ok": False, "reason": "障害" * 1000})
+    original = copy.deepcopy(actions)
+    rows = D._result_summaries(actions)
+    assert len(rows) == 8
+    assert all(row == {"tool": "go_to", "ok": False, "reason": "blocked"} for row in rows[:-1])
+    assert rows[-1]["tool"] == actions[-1]["tool"][:64]
+    assert rows[-1]["reason"] == actions[-1]["reason"][:64]
+    assert rows[-1]["summary_truncated"] is True
+    assert len(json.dumps(rows, allow_nan=False).encode("utf-8")) <= D.RESULTS_BUDGET
+    assert actions == original
