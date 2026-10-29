@@ -1,5 +1,23 @@
 # Progress log (append-only)
 
+### Walking admission integrated; full gate green (2026-10-29)
+
+Native sensor/short-horizon guard now connect to memory entry and recovery,
+current-goal replanning and bounded local prefixes at partial native endpoints.
+Focused preflight12pytest tests passed, including full fake mover and protocol
+checks. New simulated cases prove the shared wrong-floor guard and no jump,
+actual goal arrival after repeated prefixes, moving-target scans, inherited
+strafe and sprint-release/preemption behavior. Astra cleared final code for
+the full gate. Further real stationary sweeps independently observed wall and
+overhead collisions; no actor movement or model calls. Native adapter controls,
+developer traversal and full Sonnet/Haiku trials remain pending. No new autonomous
+task passed; deployed runtime remains d01c574/source453e543 until publication.
+
+The fresh frozen-candidate full gate subsequently passed1258tests/1knownskip in
+468.70s, CHECK_ALL: GREEN, privateg-walk-7a3b8913. All frozen Lua hashes matched
+afterward and approved-judge diff remained zero. This clears publication and an
+idle DEV boot for native adapter controls; it does not prove gameplay capability.
+
 ### Player-grounding compatibility and sampled control checkpoint (2026-10-29 09:10Z)
 
 Goal explicitly resumed and confirmedACTIVE. Native typed floor probes distinguish

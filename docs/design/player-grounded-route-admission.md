@@ -109,6 +109,70 @@ evidence; `sampled_clear` gives no movement authority. The caller owns native
 binding, lifecycle, query/retry budgets and subsequent feedback. Real geometry
 controls and the full acceptance sequence remain prerequisites to deployment.
 
+## Walking integration boundary
+
+The native sensor adapter owns one retained floor-reader factory and exact
+logical leases. A short-horizon guard composes that sensor with the sampled
+observer; it never writes inventory, position, physics or route memory. Hold
+input while checking actual-centre -> next selected walking target (including
+the first remembered waypoint). Keep operation query/time/retry limits and
+short-lived covered geometry; waypoint changes or departure from that geometry
+require a fresh check. Native physics and actual grounded/progress feedback
+remain authoritative after input. Query/sweep unknowns are specific failures,
+not permission to step off or use the ordinary blind recovery ladder.
+
+For short actual goals, a native or local complete-goal route takes precedence
+over an unverified trap exit. Rejecting a memory entry routes the command through
+the same held local planning path as missing native coverage, preserving memory.
+At a far native partial endpoint, a bounded locally planned walking prefix can
+advance under that guard; completion discards prefix authority and reobserves
+under the original goal. It is never goal arrival. Bound prefix count, sampling
+and repeated/no-progress attempts without resetting the total command deadline.
+Existing typed jumps retain their separate execution/landing checks; new walking
+admission does not invent jump range or reinterpret a drop as supported walking.
+
+Additional actual search: `site:github.com/PrismarineJS/mineflayer-pathfinder
+index.js partial path resetPath stuck tickTimeout` and
+`site:docs.nav2.org path tracking local planner rolling window replanning progress checker`.
+Opened actual [Mineflayer controller source](https://raw.githubusercontent.com/PrismarineJS/mineflayer-pathfinder/master/index.js)
+and [Nav2 controller source](https://github.com/ros-navigation/navigation2/blob/main/nav2_regulated_pure_pursuit_controller/src/regulated_pure_pursuit_controller.cpp).
+Reuse their bounded partial-plan/replan and fresh control-result patterns as
+conceptual precedent. Neither is a native Dragonwilds backend. Root owns mover,
+guard and integration tests; Terra owns walk_sense and its focused tests.
+
+### Integration review and current limits
+
+Astra cleared final source1089cbb9 (move),2f757746 (guard) and166831ed
+(sensor) for the fresh full gate. Fixes cover reactive-hop and inherited-strafe
+bypasses, actual-pose checks after native callbacks, moving actor identity,
+retained exact cleanup, nav=false recovery, and preemption during sprint reads.
+Memory selection waits for an existing airborne transaction, and immediately
+latches guarded steering when it selects a proposal. Guarded sprint is withheld;
+TryRequestStopSprinting(uint8) requests release and requires an observed false
+IsSprinting before input. The reflected game ABI is in Dominion.hpp:35379;
+actual stop acknowledgment is a required developer control, not yet proven.
+
+New sprint research query: `site:dev.epicgames.com enhanced input sprint
+Completed Canceled input actions`; opened
+https://dev.epicgames.com/documentation/en-us/unreal-engine/enhanced-input-in-unreal-engine .
+This documents input state transitions, not this game's custom sprint request.
+Reuse the existing client request path, not a movement-speed property write.
+
+This first integration guards memory, admitted local routes and their subsequent
+recovery inputs; ordinary legacy local plans otherwise retain their existing
+checks. Far local prefixes currently require immediate progress toward the goal.
+A larger detour may therefore remain unavailable; rejection is not proof that no
+route exists. No generic jump-gap acceptance is claimed. Guarded corner advance
+uses10cm to avoid cutting outside sampled geometry, and total command deadlines
+remain independent of planning/sampling pauses.
+
+Independent fake-world corrections: walking admission fixtures now include the
+claimed physical slope, ray normals distinguish slopes from vertical walls, and
+fixtures restore their geometry afterward. With those truthful normals, direct
+following can remain valid on the plateau test; its actual distance/elevation
+arrival assertion remains, while an implementation-only demand for breadcrumb
+selection was removed. Frozen judges are untouched.
+
 ## Acceptance and negative controls
 
 ### Fresh review amendments (Astra)

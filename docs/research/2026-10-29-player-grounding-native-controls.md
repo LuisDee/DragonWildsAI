@@ -80,6 +80,36 @@ positive control on final source SHA256
 authority or caller integration. The
 floor-probe command has28 fake assertions and the native controls above.
 
+## Walking integration and additional native shape controls
+
+The candidate now connects native walk_sense, sampled_ground_walk and walk_guard
+to memory entry/recovery and admitted local routes. It can continue a far native
+partial endpoint with bounded walking prefixes under the original goal, keeping
+actual3D arrival and the whole-command deadline. Simulated mover cases cover
+wrong-floor entry/recovery without jumping, actual-goal replanning, multiple
+prefixes reaching30m, moving-target scans, inherited strafe and observed sprint
+release/preemption. Focused preflight12pytest tests passed in113.14s; final full
+gate subsequently passed1258tests/1knownskip,468.70s,CHECK_ALL:GREEN at
+R/logs/recovery/g-walk-7a3b8913. Frozen Lua unchanged and judge diff zero;
+native adapter/developer validation remain pending at this entry.
+
+Astra reviewed fixes for reactive-hop/strafe bypasses, lifecycle/lease cleanup,
+actor identity, explicit nav=false, sprint-stop preemption and inherited jumps;
+final reviewed source hashes are recorded in the design note. Code does not
+claim continuous floor proof, all-path protection, general gap crossing or a
+new full-agent pass. Native deployment remains the earlier tested checkpoint.
+
+`scene-shape-controls.json`: stationary current Player34/88 capsule +12m X sweep
+hit an actual face with normal[-1,0,0], while other directions hit floor-facing
+normals. Current +15m vertical was clear, so it is not a ceiling-negative control.
+`headroom-controls.json` used hypothetical origins without moving the pawn:
+offset[-400,-400]cm had a clear +10cm initial sweep, then a blocking +15m sweep
+at time0.0983525 with normal[-0.0616283,-0.0616283,-0.9961947], impact
+[4777.6126,188565.6534,-3272.3851]cm. This is an observed overhead face and
+full-shape negative control; the hypothetical position is not a learned route.
+Eight other origins were clear overhead or initially blocked and explicitly
+separated. All calls preserved the real character position.
+
 ## Terrain and gap traversal follow-up
 
 Luis confirmed that the terrain/perception repair must support future single
@@ -109,6 +139,28 @@ Decision: adapt those candidate-generation and execution/landing-feedback
 patterns to native player observations and measured abilities after the walking
 repair. Reuse the existing planner, envelope and traversal-link services rather
 than creating separate place-specific jumping scripts or a second world map.
+
+## Fresh tooling survey during the full gate
+
+Actual queries: `site:github.com Unreal Engine MCP packaged game shipping UMG
+navigation 2026` and `site:arxiv.org 2025 2026 game agent spatial memory mapping
+navigation Minecraft`. Opened
+[runtime Unreal-MCP Build.cs](https://github.com/IvanMurzak/Unreal-MCP/blob/main/UnrealMCP/Source/UnrealMcpRuntime/UnrealMcpRuntime.Build.cs),
+[EngineWire FAQ](https://github.com/ChiR24/Unreal_mcp/wiki/FAQ) and
+[Mine Odyssey abstract](https://arxiv.org/abs/2610.11328).
+
+Runtime Unreal-MCP exists and has an explicit compiled shipping allowance gate.
+The other plugin's FAQ says editor-only. Neither is verified drop-in support
+for this already-built Steam client; that compatibility limitation is our
+inference from their build/interface requirements, not a native test. Keep the
+working UE4SS bridge and revisit only on a demonstrated integration path.
+MCP transport itself does not supply collision or terrain perception.
+
+Mine Odyssey (Oct8,2026) provides fresh benchmark precedent for ordered waypoints,
+entrances, multi-floor traversal and feedback recovery. Only the abstract was
+read here; no claim to have reviewed its complete methods or implementation.
+It is not a UE backend or evidence of this companion's capability. No dependency,
+rendering or judge change was made because of these searches.
 
 ## Search record
 

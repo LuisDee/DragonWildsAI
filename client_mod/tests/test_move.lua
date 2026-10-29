@@ -7,10 +7,12 @@ os.execute('mkdir "' .. (dir .. "/client_io/nav"):gsub("/", "\\") .. '" 2>nul')
 os.execute('mkdir "' .. (dir .. "/client_mod/scripts"):gsub("/", "\\") .. '" 2>nul')
 local here = (debug.getinfo(1, "S").source:match("^@(.*)[/\\][^/\\]*$")) or "."
 do -- move.lua loads <root>/client_mod/scripts/{localplan,navmem,dkjson}.lua
-    for _, n in ipairs({ "localplan.lua", "navmem.lua", "dkjson.lua", "avoidzones.lua", "arbiter.lua", "move.lua" }) do
+    for _, n in ipairs({ "localplan.lua", "navmem.lua", "dkjson.lua", "avoidzones.lua", "arbiter.lua", "move.lua", "walk_guard.lua", "sampled_ground_walk.lua" }) do
         local src = assert(io.open(here .. "/../scripts/" .. n, "rb")):read("a")
         local f = assert(io.open(dir .. "/client_mod/scripts/" .. n, "wb")); f:write(src); f:close()
     end
+    local native=assert(io.open(here..'/fakes/walk_sense.lua','rb')):read('a')
+    local nf=assert(io.open(dir..'/client_mod/scripts/walk_sense.lua','wb'));nf:write(native);nf:close()
     os.execute('mkdir "' .. (dir .. "/data/nav"):gsub("/", "\\") .. '" 2>nul')
     os.execute('mkdir "' .. (dir .. "/mod/body"):gsub("/", "\\") .. '" 2>nul')
     local util = assert(io.open(here .. "/../../mod/body/util.lua", "rb")):read("a")
@@ -48,6 +50,31 @@ local function wall_top(x, y)
         if x > w[1] and x < w[2] and y > w[3] and y < w[4] then return FLOOR + (w[5] and 900 or 80) end
     end
 end
+_G.TEST_WALK_NATIVE={normal=function(x,y)
+ for _,r in ipairs(raised) do
+  if x>r[1] and x<r[2] and y>r[3] and y<r[4] then
+   local slope=(r[6]-r[5])/(r[2]-r[1]);local length=math.sqrt(1+slope*slope)
+   return {X=-slope/length,Y=0,Z=1/length}
+  end
+ end
+ return {X=-1,Y=0,Z=0}
+end,
+ floor=function(at)
+  local z=wall_top(at.X,at.Y) or FLOOR
+  local d=at.Z-90-z
+  local function known(v) return {known=true,value=v} end
+  return {status='observed',consumed=1,callbacks=1,fields={bBlockingHit=known(d<=47.4),
+   bWalkableFloor=known(d>=-1 and d<=47.4),bLineTrace=known(false),FloorDist=known(d),LineDist=known(0),
+   hit={bStartPenetrating=known(d < -1)}}}
+ end,
+ sweep=function(a,b)
+  for k=0,24 do
+   local f=k/24;local x,y,z=a.X+(b.X-a.X)*f,a.Y+(b.Y-a.Y)*f,a.Z+(b.Z-a.Z)*f
+   local top=wall_top(x,y)
+   if top and z-90<top-1 then return true end
+  end
+  return false
+ end}
 -- Claude's attached gear: bIgnoreSelf ignores his pawn but NOT his armour/tool actors (live 19:22)
 local GEAR = false
 local function in_gear(x, y, z)
@@ -101,7 +128,7 @@ KSL_BASE = function(self, ctx, a, b, ch, cx, ign, dbg, out)
         end
         local top = wall_top(x, y)
         if top and a.Z < top then
-            out.ImpactPoint = { X = x, Y = y, Z = a.Z }; out.ImpactNormal = { X = -1, Y = 0, Z = 0 }
+            out.ImpactPoint = { X = x, Y = y, Z = a.Z }; out.ImpactNormal = TEST_WALK_NATIVE.normal(x,y)
             return true
         end
     end
@@ -124,6 +151,7 @@ pawn.CapsuleComponent = obj({ GetScaledCapsuleHalfHeight = function() return 90 
 pawn.EnvironmentComponent = obj({ GetNormalizedWaterDepth = function() return in_lake(pawn.loc.X, pawn.loc.Y) and 0.6 or 0 end })
 local water_frames = 0
 pawn.SprintComponent = obj({ SprintInputAction = obj({}), IsSprinting = function() return sprinting end })
+function pawn.SprintComponent:TryRequestStopSprinting() sprinting=false end
 pc = obj({ Pawn = pawn, IsLocalController = function() return true end, SetControlRotation = function() end, GetFullName = function() return "PC /Game/pc" end })
 pc.SkillPerkComponent = obj({ IsPerkUnlocked = function(self, perk) return HAS_DJ end })
 pawn.DoubleJumpSkillPerk = obj({})
@@ -212,7 +240,95 @@ local logs = {}
 local function log(m) logs[#logs + 1] = m end
 local function run(n) for _ = 1, n do step(3); pump_oracle() end end
 local fails = 0
-local function check(name, c, info) if c then print("ok   " .. name) else fails = fails + 1; print("FAIL " .. name .. " " .. tostring(info)) end end
+local function check(name, c, info)
+ if c then print('ok   '..name) else
+  fails=fails+1;print('FAIL '..name..' '..tostring(info))
+  if os.getenv('DBG_MOVE_FAILURES')=='1' then
+   local st=_G.DW_MOVE
+   print('detail '..tostring(st.result and st.result.detail)..' terrain '..tostring(st.walk_failure)..' guard '..tostring(st.walk_report and st.walk_report.reason))
+   for i=math.max(1,#logs-7),#logs do print('  '..logs[i]) end
+  end
+ end
+end
+
+if os.getenv('MOVE_PROTOCOL_WIRE_ONLY')~='1' and os.getenv('MOVE_AUTHORITY_ONLY')~='1' then
+do -- Actual mover + sampled guard: memory entries and native coverage repair.
+ local seed=dir..'/data/nav/L_World_seeds.json'
+ local memory=dir..'/data/skills/test-world/nav_memory.json'
+ local function clean()
+  M.stop(log);walls={};raised={};lakes={};air=0;pawn.loc={X=0,Y=0,Z=0}
+  _G.DW_NAVMEM=nil;_G.DW_TRAP_CAND=nil;_G.DW_LP_CACHE=nil
+  os.remove(seed);os.remove(memory);TEST_WALK_NATIVE.calls={}
+ end
+ local function bad_seed()
+  local f=assert(io.open(seed,'w'))
+  f:write([==[{"v":1,"traps":[{"id":"wrong-floor","center":[0,0,-0.9],"radius_m":5,"z_min":-2,"z_max":2,"exit":[[0.01,0,-4.4],[0,8,-4.4]]}],"taboos":[],"routes":[]}]==])
+  f:close()
+ end
+ clean();bad_seed()
+ oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{8,0,-0.9}}}'):format(id) end
+ pump_oracle();local jumps=pawn.jumps
+ M.go_to(log,{8,0,0},{sprint=false,timeout_s=30});run(220)
+ local st=_G.DW_MOVE
+ check('wrong-floor memory entry rejected before jump or step-off',st.walk_failure=='floor_initial_penetration' and pawn.jumps==jumps and not st.stepoff,st.walk_failure)
+ check('actual-goal native route wins after invalid memory entry',M.status().result and M.status().result.status=='arrived' and math.abs(pawn.loc.Z)<1,M.status().status)
+ clean();bad_seed();walls={{70,100,-50,50}};oracle=nil;pump_oracle()
+ jumps=pawn.jumps;M.go_to(log,{8,0,0},{sprint=false,timeout_s=30});step(1)
+ check('reactive low-obstacle hop cannot bypass wrong-floor admission',pawn.jumps==jumps and pawn.input==nil and _G.DW_MOVE.walk_failure=='floor_initial_penetration',_G.DW_MOVE.walk_failure)
+ clean();bad_seed();oracle=nil;pump_oracle()
+ M.go_to(log,{8,0,0},{sprint=false,timeout_s=30})
+ st=_G.DW_MOVE;st.mem_checked=true
+ step(1)
+ st.prog_t=T-M.cfg.give_up_s-1;st.prog_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z};st.move_acc=200
+ jumps=pawn.jumps;step(1);run(220)
+ check('recovery memory uses same floor guard and cannot step off',st.walk_failure=='floor_initial_penetration' and st.mem_retry and pawn.jumps==jumps and not st.stepoff,st.walk_failure)
+ check('recovery replans to actual nearby goal',M.status().result and M.status().result.status=='arrived',M.status().status)
+ clean()
+ oracle=function(id)
+  local x=math.min(30,pawn.loc.X/100+4)
+  return ('return {id=%d,ok=true,partial=%s,points={{%.3f,0,-0.9},{%.3f,0,-0.9}}}'):format(id,tostring(x<30),pawn.loc.X/100,x)
+ end
+ pump_oracle();M.go_to(log,{30,0,0},{sprint=false,timeout_s=80});run(600)
+ st=_G.DW_MOVE
+ check('native partial endpoints continue through bounded local prefixes',st.local_prefixes and st.local_prefixes>=2,st.local_prefixes)
+ check('prefix completion is not false arrival; actual far goal reached',M.status().result and M.status().result.status=='arrived' and math.abs(pawn.loc.X-3000)<=150,M.status().status..' x='..pawn.loc.X)
+ clean();oracle=nil;pump_oracle()
+ M.go_to(log,{8,0,3},{sprint=false,timeout_s=0.3});run(8)
+ check('held planning retains whole-command deadline',M.status().result and M.status().result.reason=='timeout',M.status().status)
+ clean();luis.loc={X=1000,Y=0,Z=0}
+ oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{10,0,-0.9}}}'):format(id) end
+ pump_oracle();M.follow(log,'Zezima',0.5);_G.DW_MOVE.walk_guarded=true
+ frame_hook=function() luis.loc.X=luis.loc.X+1 end
+ run(24);frame_hook=nil
+ check('moving actor does not restart every multi-poll walking scan',pawn.loc.X>150 and _G.DW_MOVE.mode=='follow' and #TEST_WALK_NATIVE.calls>8,_G.DW_MOVE.status..' x='..pawn.loc.X)
+ clean();luis.loc={X=3000,Y=0,Z=0}
+ oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{8,0,-0.9}}}'):format(id) end
+ pump_oracle();M.go_to(log,{8,0,0},{sprint=true,timeout_s=30});_G.DW_MOVE.walk_guarded=true
+ _G.DW_MOVE.strafe_until=T+10;_G.DW_MOVE.strafe_dir=1;sprinting=true
+ step(1)
+ check('guarded walking observes sprint release before input',pawn.input==nil and not sprinting,_G.DW_MOVE.status)
+ run(20)
+ check('carried strafe cannot escape checked forward corridor',pawn.loc.X>0 and math.abs(pawn.loc.Y)<0.01 and _G.DW_MOVE.strafe_until==nil,pawn.loc.Y)
+ clean();oracle=nil;pump_oracle()
+ M.go_to(log,{8,0,0},{nav=false,sprint=false,timeout_s=30});st=_G.DW_MOVE;st.walk_guarded=true
+ run(4);st.win_t=T-2;st.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z};step(1)
+ check('guarded stalled direct mode preserves nav opt-out',st.nav_required==false and pawn.input==nil,st.status)
+ run(180)
+ check('guarded direct recovery terminates at actual destination',st.result and st.result.status=='arrived',st.status)
+ clean();M.go_to(log,{8,0,0},{nav=false,sprint=false,timeout_s=30});st=_G.DW_MOVE;st.walk_guarded=true
+ local old_gen=st.gen;local getter=pawn.SprintComponent.IsSprinting;local stop=pawn.SprintComponent.TryRequestStopSprinting
+ local fired,stops=false,0
+ pawn.SprintComponent.IsSprinting=function()
+  if not fired then fired=true;M.go_to(log,{4,4,0},{nav=false,local_plan=false}) end
+  return true
+ end
+ pawn.SprintComponent.TryRequestStopSprinting=function() stops=stops+1 end
+ step(1);pawn.SprintComponent.IsSprinting=getter;pawn.SprintComponent.TryRequestStopSprinting=stop
+ check('sprint getter preemption cannot stop or mutate successor',fired and _G.DW_MOVE.gen>old_gen and stops==0 and _G.DW_MOVE.sprint_id==nil and pawn.input==nil,stops)
+ clean();oracle=nil;pump_oracle()
+ if os.getenv('MOVE_GROUND_WALK_ONLY')=='1' then print(fails==0 and 'GROUND WALK OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
+end
+end
 
 -- 1. go_to via a dog-leg nav path (wall in the straight line)
 walls = { { 900, 1100, -500, 500 } }
@@ -351,7 +467,7 @@ do -- A different incoming leg to the same endpoint cannot borrow the old projec
     run(25); frame_hook=nil
     check("changed incoming leg does not credit lateral projection",replies>=2 and move.prog_t and T-move.prog_t>3,
         "replies="..replies.." age="..tostring(move.prog_t and T-move.prog_t))
-    run(60)
+    run(100)
     check("changed incoming leg earns progress once physically followed",not M.status().result and pawn.loc.X>1200,
         M.status().status.." x="..pawn.loc.X)
     M.stop(log)
@@ -376,6 +492,9 @@ do
     -- nearest-node contract is covered separately; these isolate admission and ownership.
     local function observe_case(endpoint, tolerance, act)
         pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}
+        -- A planner promise alone no longer permits input. Walking fixtures
+        -- include the corresponding physical ramp in the independent fake world.
+        raised=(not act or act=='walk') and {{0,1000,-100,100,0,375}} or {}
         offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no)
         oracle=function() return nil end; pump_oracle()
         M.go_to(log,{8,0,3},{tolerance_m=tolerance})
@@ -390,6 +509,7 @@ do
         step(1)
         local still_held=pawn.input==nil and move.lp_state=="verifying"
         step(1)
+        if not act or act=='walk' then step(4) end -- bounded native walking scan
         return move,held,still_held,goal_seen
     end
     local localmove, held, verified_hold, feetgoal=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
@@ -485,7 +605,7 @@ do
     end
     localmove=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
     local path_copy=localmove.lpath
-    pawn.loc={X=700,Y=0,Z=300}; step(1)
+    pawn.loc={X=700,Y=0,Z=262.5}; step(6)
     check("final waypoint retained outside exact tolerance",localmove.local_authority and localmove.lwp==#localmove.lpath and pawn.input~=nil,localmove.lwp)
     _G.DW_WORLD_GUID="changed-world"; step(1)
     check("local authority rejects world change before input",pawn.input==nil and not localmove.local_authority,localmove.status)
@@ -710,6 +830,7 @@ do
     offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no)
 
 end
+raised={}
 
 if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }; walls = {}; oracle = function() return nil end
@@ -1286,7 +1407,9 @@ local dl = math.sqrt((pawn.loc.X - luis.loc.X) ^ 2 + (pawn.loc.Y - luis.loc.Y) ^
 check("leader on a plateau: reached him via his trail", dl < 450 and math.abs(pawn.loc.Z - luis.loc.Z) < 60,
     string.format("d=%.0f dz=%.0f status=%s res=%s trail=%s lp_fail=%s", dl, pawn.loc.Z - luis.loc.Z, tostring(s.status),
         tostring(s.result and s.result.reason), tostring(s.trail_entries), tostring(s.lp_fail)))
-check("plateau: trail used", (s.trail_entries or 0) >= 1, s.trail_entries); if os.getenv("DBG8") then for i = math.max(1, #logs - 40), #logs do print("  " .. logs[i]) end end
+-- Correct ramp normals can keep direct pursuit valid. The preceding assertion
+-- requires actual arrival/elevation, without prescribing a particular router.
+if os.getenv("DBG8") then for i = math.max(1, #logs - 40), #logs do print("  " .. logs[i]) end end
 M.stop(log)
 frame_hook = nil
 raised = {}

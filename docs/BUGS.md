@@ -10,6 +10,12 @@ Typed floor fields and bounded sampling now have diagnostic controls; they are
 not yet connected to route selection. Preserve the separate unsafe-memory-entry
 and native-coverage bugs. Details: docs/research/2026-10-29-player-grounding-native-controls.md.
 
+Candidate walking integration now passed the fresh1258/1skip full gate and
+Astra review. Shared memory-entry/recovery checks, bounded local prefixes,
+held-planning deadline and input-bypass regressions are covered offline. Keep
+this issue OPEN until native adapter and actual temple traversal pass; no
+autonomous route has been newly accepted.
+
 ### DEV: disconnected native route and unsafe remembered floor connector (2026-10-29)
 
 OPEN; no autonomous traversal pass. The exact friend-route endpoint was reproduced
