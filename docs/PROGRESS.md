@@ -1691,3 +1691,23 @@ receive the structured failed navigation packet, so this is not blanket feedback
 loss. Next: repair demonstrated planning ownership and compare local verification
 budget use before assuming a persistent graph is the immediate missing repair.
 Private evidence: `full-agent-a873/measured-outcome.json` and its two audits.
+
+### Away-first movement measured; complete-agent continuity repair pending (2026-10-30)
+
+No new autonomous pass: temple round trips remain 0/3. Exact production
+local-planner replay a875 failed both baseline (751 queries, verification budget)
+and a private batching variant (838 queries, unreachable within window). Batching
+alone is not a demonstrated repair and remains unpublished. Developer a879 then
+walked to an observed away-first candidate using ordinary go_to in 2.406s, H100.
+A880 retried the original destination and failed after 11.640s: routing returned
+to the previous partial endpoint, 13.305m horizontal and 5.054m vertical short.
+One away move does not solve discovery; retained exploration context is needed.
+
+The separate Director-review ownership candidate addresses the actual a873
+planning/review race. Cold review found ambiguous historically rounded survival
+thresholds; a focused correction is pending. Full gate and live remeasurement
+remain required. All diagnostic artifacts are private logs/recovery/full-agent-a873
+and npg-trial-a832. No navigation acceptance is implied by this candidate.
+
+Scheduling candidate cold review now CLEAR after the rounded-band correction;
+184 focused tests and five final design checks passed. Full gate is next.

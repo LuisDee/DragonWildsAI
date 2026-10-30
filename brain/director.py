@@ -1085,6 +1085,19 @@ class Director:
     def running(self) -> bool:
         return self._in_run
 
+    @property
+    def owns_transition(self) -> bool:
+        """A board run or decision still owns the ordinary autonomous decision stream."""
+        # A done/cancelled Future still needs collection before the transition is settled.
+        # https://docs.python.org/3/library/concurrent.futures.html#future-objects
+        if self._in_run or self._future is not None:
+            return True
+        board = self.ops.b
+        task = board.current_task()  # read only: never pick a task or check/spend budget here
+        awaiting = board.awaiting_decision
+        return bool(not board.paused and task is not None and task.status in ("active", "preempted", "queued")
+                    and awaiting and awaiting.get("task_id") == task.id)
+
     def tool_schemas(self) -> list[dict]:
         return copy.deepcopy(BOARD_TOOLS)
 

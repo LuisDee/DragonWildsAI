@@ -2858,3 +2858,22 @@ input and no observed waypoint crossing; it does not establish a stall bug.
 a872 separately captures an unwalkable floor result with normalZ0.686586 on a
 partial native path. Alternative routes remain untested by those failures.
 Private records contain exact geometry, limitations, queries and source links.
+
+### Local away-first corridor is physically walkable, not a solved route (2026-10-30)
+
+A875 recorded-query graph and a877 full-capsule stationary sweep found an
+eight-point candidate corridor initially farther from the desired lower floor.
+A879 ordinary developer go_to reached its endpoint in2.406s, H100, without
+route injection. A880 retry of the original destination returned to the prior
+dead end in11.640s. The physical corridor and the unsuccessful goal retry are
+separate observations; neither proves autonomous discovery or temple completion.
+
+Research query after a880: `site.frontier exploration robot navigation move away
+goal frontier Yamauchi 1997`; also `site:docs.nav2.org frontier exploration route
+planning unknown space`. Opened primary paper mirror:
+https://www.cs.cmu.edu/~motionplanning/papers/sbp_papers/integrated1/yamauchi_frontiers.pdf
+(author site PDF returned403). Frontier exploration retains visited/inaccessible
+frontiers and refreshes observations after travel. Conceptual precedent only;
+our candidate floor hits are not yet a verified occupancy map or accessible frontier.
+Decision: adapt retained observation/attempt context, first review existing explore
+interfaces; do not transplant ROS or assume every sampled floor is reachable.

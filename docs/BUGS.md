@@ -885,3 +885,12 @@ Separate provenance defect: the internally generated pause is recorded as
 the original trace and distinguish model/internal event origin in the repair.
 Private proof: `full-agent-a873/perception-feedback-audit.md`, actual input/output
 calls6/7/31/32 and session log `brain-live-20261030-021349-14184.jsonl`.
+
+### Retrying final goal discards useful away-first exploration (2026-10-30)
+
+OPEN on6cade13. A879 walked to sampled candidate [52,1907,-31.168] with H100,
+then a880 normal final-goal retry navigated back to the same disconnected basin
+and ended route_ended_before_goal/verify_exhausted. This rules out a simple
+away-first nudge followed by unchanged retry as a sufficient repair. The sampled
+endpoint is not yet proven a route to the goal. Need generic observed-frontier
+selection and retained outcomes; no task-specific route or hidden hints.

@@ -14,12 +14,15 @@ planner call; "what have you learned?" and "forget <skill>" are answered without
 """
 from __future__ import annotations
 
+import copy
+import math
 import os
 import time
 from typing import Literal
 
 from . import situation as sit
-from .broker import BODY_SITUATIONS, REVIEW_SAMPLE_S, EventBroker, facts, fallback_line
+from .broker import (BODY_SITUATIONS, REVIEW_BAG_FULL, REVIEW_IDLE_S, REVIEW_NEAR_M, REVIEW_SAMPLE_S,
+                     EventBroker, facts, fallback_line)
 from .controller import LONG_ACTIONS, ContinuationBudgetDenied, ContinuationInvalidated, Controller, describe_rule
 from .executor import Executor, Outcome, StateUnavailable
 from .interface import (RULE_TOOLS, Activity, Attacked, ChatHeard, CommandReceived, Event, GameInterface, Reason,
@@ -175,7 +178,8 @@ class Agent:
         busy = bool(self.active_goal or self.pending_goal or self._situations or self._chat_waiting()
                     or self._chat_stashed()
                     or (ep is not None and ep.ended is None and ep.tool != "follow")
-                    or (self.director is not None and self.director.running))
+                    or (self.director is not None and
+                        getattr(self.director, "owns_transition", self.director.running)))
         ev = self.broker.review_due(busy=busy)
         if ev:
             self._situations.append(ev)
@@ -251,11 +255,92 @@ class Agent:
         events, self._situations = self._situations, []
         if not events:
             return []
-        still = self.broker.still_valid(events, state if state is not None else self._fresh_state())
+        # Ordinary external reviews wait for the owned transition to settle. Urgent body
+        # situations and human commands keep their existing paths, including mixed queues.
+        # https://www.w3.org/TR/scxml/#run-to-completion (scheduling precedent only)
+        if self.director is not None and getattr(self.director, "owns_transition", self.director.running):
+            self._situations = [e for e in events if e.get("type") == "situation_review"]
+            events = [e for e in events if e.get("type") != "situation_review"]
+        if not events:
+            return []
+        state = state if state is not None else self._fresh_state()
+        still = self.broker.still_valid(events, state)
         for e in events:
             if e not in still:
                 self.log.log("situation_stale", event=e, why="fixed before it was voiced")
-        return still
+        out = []
+        for e in still:
+            current = self._revalidate_review(e, state) if e.get("type") == "situation_review" else e
+            if current is not None:
+                out.append(current)
+            else:
+                self.log.log("situation_stale", event=e, why="review changes no longer true")
+        return out
+
+    def _revalidate_review(self, event: dict, state: dict) -> dict | None:
+        """Keep historical changes only when still true (or explicitly unknown), with current facts.
+
+        This shared take boundary also covers reviews emitted from the broker's pending
+        changes after planning ends, and situations merged into a human chat run.
+        """
+        # Keep bounded relevant context without refreshing old observation provenance.
+        # https://www.anthropic.com/research/effective-context-engineering-for-ai-agents
+        def number(v):
+            return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+        available = bool(state) and not state.get("unavailable")
+        stats = {k: v for k, v in self.broker.stats(state).items() if number(v)} if available else {}
+        tod = state.get("time_of_day") if available and isinstance(state.get("time_of_day"), dict) else {}
+        bag = state.get("bag") if available and isinstance(state.get("bag"), dict) else {}
+        players = [p for p in (state.get("players") or []) if isinstance(p, dict) and
+                   number(p.get("distance")) and p["distance"] <= REVIEW_NEAR_M] if available else []
+        changes = []
+        for original in event.get("changes", []):
+            change = copy.deepcopy(original)
+            what, valid = change.get("what"), None
+            if (what in stats and change.get("direction") == "down" and number(change.get("from_pct"))
+                    and number(change.get("to_pct"))):
+                # Broker round() loses up to half a percentage point, not an exact band.
+                # https://docs.python.org/3/library/functions.html#round
+                def possible_bands(rounded):
+                    return range(self.broker.band(rounded + 0.5), self.broker.band(rounded - 0.5) + 1)
+                triggers = {after for before in possible_bands(change["from_pct"])
+                            for after in possible_bands(change["to_pct"]) if after > before}
+                satisfied = [self.broker.band(stats[what]) >= band for band in triggers]
+                if satisfied:
+                    valid = True if all(satisfied) else False if not any(satisfied) else None
+            elif what == "time_of_day":
+                phase = tod.get("phase") or (("night" if tod["is_night"] else "day")
+                                            if isinstance(tod.get("is_night"), bool) else None)
+                if phase is not None:
+                    valid = phase == change.get("to")
+            elif what == "sleep_allowed" and isinstance(tod.get("sleep_allowed"), bool):
+                valid = tod["sleep_allowed"] == change.get("to")
+            elif what == "bag" and number(bag.get("used")) and number(bag.get("capacity")) and bag["capacity"] > 0:
+                valid = bag["used"] / bag["capacity"] >= REVIEW_BAG_FULL
+            elif what == "idle" and available and isinstance(state.get("players"), list):
+                last_busy = self.broker._last_busy if self.broker._last_busy is not None else self.broker._first_seen
+                if not players:
+                    valid = False
+                elif last_busy is not None:
+                    valid = self.broker.clock() - last_busy >= REVIEW_IDLE_S
+            if valid is not False:
+                if valid is None:
+                    change["current_validity"] = "unknown"
+                else:
+                    change.pop("current_validity", None)
+                changes.append(change)
+        if not changes:
+            return None
+        out = copy.deepcopy(event)
+        out.update(changes=changes, changes_are_historical=True, stats_pct={k: round(v) for k, v in stats.items()},
+                   time_of_day=copy.deepcopy(tod) or None, bag=copy.deepcopy(bag) or None,
+                   players_near=[str(p.get("name")) for p in players]
+                   if available and isinstance(state.get("players"), list) else None)
+        if not available:
+            out["current_facts_unknown"] = True
+        else:
+            out.pop("current_facts_unknown", None)
+        return out
 
     def flush_situations(self) -> None:
         if not self._situations or self._chat_waiting() or self._chat_stashed():
