@@ -397,12 +397,13 @@ end
 
 -- Observation must not turn malformed native results into clear space or change
 -- the shared profile. Select a profile locally when no validated one is known.
-local function make_observation_trace(st, pawn, me, hh, valid)
+local function make_observation_trace(st, pawn, me, hh, valid, before_query)
     local ksl = KSL or StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
     if not valid() or not ksl then error("trace library unavailable") end
     local function finite(n) return type(n)=="number" and n==n and math.abs(n)<math.huge end
     local function call(profile, a, b, vertical)
         if not valid() then error("observation interrupted") end
+        if before_query then before_query() end -- optional read-job budget; legacy movement callers unchanged
         local out = {}
         local ok, hit = pcall(function()
             if profile then return ksl:LineTraceSingleByProfile(pawn,a,b,profile,false,{},0,out,true,C0,C0,0.0) end
@@ -447,6 +448,10 @@ local function make_observation_trace(st, pawn, me, hh, valid)
         return p.Z, d < 0.5
     end
 end
+-- Read-only terrain survey reuses the exact production profile/line-hit contract.
+-- https://ompl.kavrakilab.org/classompl_1_1geometric_1_1LazyPRM.html
+-- Observation reuse only; this export supplies no movement authority.
+M.terrain_observation_trace = make_observation_trace
 
 -- Jump envelope from the engine's own numbers (traversal design, docs/research/2026-10-25-traversal.md):
 -- CMC:GetMaxJumpHeightWithJumpTime() (or GetMaxJumpHeight()) already folds in gravity scale and

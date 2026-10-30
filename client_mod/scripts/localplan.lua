@@ -273,6 +273,7 @@ end
 -- A* over the sampled nodes from the node nearest to the centre at our level, toward `goal`
 -- (cm). If the goal is off-grid, the target is the reachable node closest to it.
 function LP:plan(goal)
+    self.observation_start = nil -- read-only survey metadata; never infer a start from arbitrary sampled nodes
     local start, best = nil, math.huge
     for _, n in ipairs(self.nodes[key(0, 0)] or {}) do
         local d = math.abs(n.z - self.feet)
@@ -288,6 +289,7 @@ function LP:plan(goal)
         end end
     end
     if not start then return nil, "no_start_floor" end
+    self.observation_start = start
     local cell = self.cell
     local function h(n)
         local x, y = self:pos(n.i, n.j)

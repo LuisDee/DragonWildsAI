@@ -101,6 +101,22 @@ M.TOOLS = {
         description = "Type one line into the game chat (the brain's Controller owns all speech).",
         args = { type = "object", required = { "text" }, properties = obj({ text = str("The chat line.") }) } },
     -- ------------------------------------------------------------------ reads
+    terrain = { kind = 'read', llm = true, moves = false, duration_s = 6, timeout_s = 10,
+        description = 'Survey nearby floor layers and recorded ray connections while idle, or read retained terrain/attempts. '
+            .. 'Candidates include floor coordinates and a separately derived capsule-centre estimate for ordinary go_to; '
+            .. 'capsule clearance and route execution remain unknown. Does not move or retry a destination.',
+        args = {type='object',additionalProperties=false,properties=obj({
+            mode={type='string',enum={'survey','history','window'},default='survey'},
+            toward={type='array',items={type='number'},minItems=3,maxItems=3,description='Optional original capsule-centre XYZ in metres, survey planning context only.'},
+            window_id={type='string',minLength=1,maxLength=80,description='Required for window mode: retained window id.'},
+            column_m={type='array',items={type='number'},minItems=2,maxItems=2,description='Window mode only: exact retained XY column, metres.'},
+            cursor={type='integer',minimum=0,default=0},limit={type='integer',minimum=1,maximum=24,default=8}}),
+            allOf={
+                {['if']={required={'mode'},properties=obj({mode={const='window'}})},
+                    ['then']={required={'window_id'}},['else']={properties=obj({window_id=false,column_m=false})}},
+                {['if']={required={'mode'},properties=obj({mode={enum={'history','window'}}})},
+                    ['then']={properties=obj({toward=false})}}}},
+        reasons={'busy','invalid_args','interrupted','timeout','verification_failed','state_unavailable'} },
     look = { kind = "read", llm = true, moves = false, duration_s = 0.3, timeout_s = 15,
         description = "List things nearby (items, plants, resources, creatures, players, usables) with ids. Read-only.",
         args = { type = "object", properties = obj({

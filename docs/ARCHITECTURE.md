@@ -700,3 +700,10 @@ retried on later drains, at most 3 runs).
 > **Deploy note (L28, 2026-10-26):** the game loads the DEPLOYED `ue4ss\Mods\DWClient\scripts\main.lua`, not the repo copy. Other modules are loaded from the repo by path. So a change to `main.lua` must be redeployed (`tools/install_client_ue4ss.ps1`) and the client restarted. The command runner now reads `client_io/cmd/queue.txt` (no process spawning on the game thread).
 
 > **Deploy note (2026-10-26):** after changing `tools/client_lib.ps1` / `client_boot.ps1` / `client_watchdog.ps1`, RESTART the client watchdog (`tools/start_client_watchdog.ps1 -Stop`, then start it). It loads those scripts once, at its own start. An old watchdog kept writing probes the new queue runner never saw, and killed a healthy client about every 4 min (08:04–08:24 UTC).
+
+
+## Retained terrain observations (2026-10-30 candidate)
+
+`client_mod/scripts/terrain.lua` owns the readonly `terrain` survey/history/window interface and bounded per-world `data/skills/<world>/terrain_observations.json`. It reuses localplan and the production observation trace through bridge read waiters; it does not own movement. Ordinary go_to outcomes are appended as observations. Floors, derived capsule centres, ray connectivity and unknown capsule clearance remain distinct.
+
+The cached compact packet is exposed in get_state and preserved in Controller initial/continuation input and Director state/research input. Both models may query retained detail; the body manifest supplies the schema. No new waypoint authority or task-specific workflow is introduced. See [the reviewed design](design/observed-terrain-exploration.md); candidate implementation is not live capability proof.

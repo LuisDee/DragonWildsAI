@@ -588,6 +588,10 @@ def _compact_state(state: dict) -> dict:
                          "complete": list(q.get("complete") or [])[:30]}
     if state.get("following"):
         out["following"] = state["following"]
+    if "terrain" in state:
+        # Body already bounds retained observations; keep its layers/unknowns/source ages intact.
+        # https://arxiv.org/abs/2305.16986 (observations/history as model inputs, not route authority)
+        out["terrain"] = copy.deepcopy(state["terrain"])
     return out
 
 
@@ -643,7 +647,7 @@ class Research:
         out += [PROXY_TOOL_DOCS[n] for n in PROXIED_READS if n in self.body_tools and self.proxy is not None]
         # Use the body-published schema for these verified read handlers, never a guessed schema.
         # https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools
-        for n in ("look", "lodestones"):
+        for n in ("look", "lodestones", "terrain"):
             entry = self.manifest.get(n) or {}
             if (self.proxy is not None and n in self.body_tools and entry.get("kind") == "read"
                     and entry.get("moves") is False and isinstance(entry.get("args"), dict)):
@@ -680,7 +684,7 @@ class Research:
         if name == "learned_skills":
             q = P.tokens(str(args.get("query") or ""))
             return {"skills": [s for s in self.snap.get("learned", []) if not q or q & P.tokens(json.dumps(s))]}
-        if name in (*PROXIED_READS, "look", "lodestones") and name in self.body_tools and self.proxy is not None:
+        if name in (*PROXIED_READS, "look", "lodestones", "terrain") and name in self.body_tools and self.proxy is not None:
             return self.proxy.request(name, args)
         return {"ok": False, "error": f"no research tool {name!r}"}
 
@@ -1337,12 +1341,12 @@ class Director:
         system += "\n\n" + WIRE_COORDINATES
         task = snap["task"]
         user = {"decision": snap["kind"], "what_to_do": KIND_NOTES.get(snap["kind"], KIND_NOTES["plan"]),
-                "job": {"text": task["text"], "kind": task["kind"], "given_by": task["by"], "because": task.get("because"),
+                "job": {"id": task["id"], "text": task["text"], "kind": task["kind"], "given_by": task["by"], "because": task.get("because"),
                         "done_when": P.describe(task["success"]["predicate"]) if task.get("success") else None,
                         "done_progress": snap["task_progress"], "completion_mode": task.get("completion_mode", "state"),
                         "checkpoints": snap.get("checkpoints", []), "collected": task.get("tallies"),
                         "notes_from_player": task.get("notes_from_player")},
-                "steps_so_far": [{k: s.get(k) for k in ("title", "status", "attempts", "failures", "success_words", "risk")}
+                "steps_so_far": [{k: s.get(k) for k in ("id", "title", "status", "attempts", "failures", "success_words", "risk")}
                                  for s in task.get("steps", [])][-15:],
                 "history": task.get("history", [])[-15:], "detail": snap["detail"],
                 "board": snap["board"], "me": snap["compact"], "known_gaps": snap["gaps"],

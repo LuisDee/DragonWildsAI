@@ -899,3 +899,10 @@ Scheduling race candidate published08f2f6d after GREEN1345/1; live closure pendi
 A883 confirms the reached away point supplies179additional observed columns, but
 the ordinary goal-directed planner still fails. Observation/attempt continuity
 and explicit exploratory selection remain open; there is no autonomous pass.
+
+
+### Complete agent still returns to a failed navigation basin (2026-10-30, a885)
+
+OPEN. With two Director replans applied on08f2f6d, the complete agent still never acquired the starting lodestone. Its lexical ramp exploration walked53m but the next original-goal retry returned to the failed ledge. Replanning ownership alone therefore does not solve navigation. New bounded terrain observation/history candidate remains unproven until developer and complete-agent live tests.
+
+The final pause_board call was model-originated, yet task07b319e8 records player:Luis. This provenance bug is still OPEN; it must not pause the development Goal or be reported as a user cancellation. Retain history and use supported operations for a fresh trial. Evidence: private full-agent-a885.

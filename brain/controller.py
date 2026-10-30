@@ -22,6 +22,7 @@ standing orders and the last N events. No transcript; a loop step appends only t
 """
 from __future__ import annotations
 
+import copy
 import json
 import math
 import os
@@ -414,9 +415,14 @@ def continuation_observation(state: dict | None) -> dict:
     def bounded(text):
         return text if len(text) <= 240 else text[:224] + "... [truncated]"
 
-    return {"status": "observed", "position": pos, "vitals": vitals,
+    out = {"status": "observed", "position": pos, "vitals": vitals,
             "inventory_read": bounded(sit.inventory_read_line(state)),
             "inventory": bounded(sit.carrying(state, sit.item_names(state))), "stations": stations}
+    if "terrain" in state:
+        # Retained terrain is already compact; observation time/unknown clearance stay body facts.
+        # https://arxiv.org/abs/2305.16986 (observation/history delivery, not movement authority)
+        out["terrain"] = copy.deepcopy(state["terrain"])
+    return out
 
 class Controller:
     def __init__(self, llm: LLMClient, game: GameInterface, store: StateStore, logger: JsonlLogger,
@@ -630,6 +636,8 @@ class Controller:
                 self.log.log("recent_activity_error", error=repr(exc))
         if body_event:
             ctx["body_event"] = body_event
+        if "terrain" in state:
+            ctx["terrain"] = copy.deepcopy(state["terrain"])
         if text and state and not state.get("unavailable"):
             refs = grounding.hints(grounding.read(text, sit.perceived(state), exclude=[player, self.name]))
             if refs:

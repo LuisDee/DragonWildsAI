@@ -1723,3 +1723,10 @@ seconds, kept pawn unchanged, and sampled179new columns relative to a875.
 Original-goal local planning still exhausted verification; no route or autonomous
 pass. Next design retains local observation/attempt continuity and exposes
 model-selected candidate routes; full graph and rendered fallback are not assumed.
+
+
+### Full agent a885: no autonomous pass after scheduling repair (2026-10-30)
+
+Published 08f2f6d / docs 606a89c ran 15 Haiku + 9 Sonnet calls, with 218 native samples. Two replans were applied, but initial lodestone arrival failed: closest XY 12.812m with 4.678m height error; maximum anchor distance39.226m; health minimum100. Autonomous round trips remain **0/3**. The model explored, retried the blocked destination, attempted Windstep (no displacement), then paused and requested help. No operator steering occurred in this trial; carried navigation supplies remain declared fixtures.
+
+Private full-agent-a885/measured-outcome.json, scheduling-audit.json and failure-decision.json retain evidence. No stale-plan record or situation_review prompt was observed; this single trace does not prove all scheduling races closed. Next candidate is readonly retained terrain evidence, not a proven route fix. Both-model Python projection has focused tests/cold review; body integration and live measurement pending. Game API spend at02:36UTC:57calls/$1.0394 of$10.

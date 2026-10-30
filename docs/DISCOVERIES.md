@@ -2887,3 +2887,10 @@ with2heights. These are measured observations, not certified traversable floors
 or new connection identities. The original-goal planner still failed after13
 rejected proposals. Preserve new observations before retrying; a880 shows the
 otherwise repeated return to the previous failure neighborhood.
+
+
+### Replanning can complete while navigation still fails (2026-10-30, a885)
+
+Three Director decisions (initial plan plus two replans) were applied before the model paused its board step. The trial nevertheless stayed within39.226m of the temple anchor and never reached its starting floor. This separates the prior discarded-plan defect from the still-open terrain/navigation failure; it does not establish a universally race-free scheduler. Windstep returned native cast confirmation and consumed5AirRunes but moved0m in this situation; do not count casting as traversal.
+
+After this failure, searched `site:arxiv.org NavGPT navigation history observations candidate viewpoints 2305.16986` and opened https://arxiv.org/abs/2305.16986 . Its observation/history/explorable-option interface is conceptual precedent for the already-reviewed retained-terrain slice, not a drop-in route solution. Reuse ordinary game controls; adapt factual model context; measure whether behavior changes. Private failure-decision.json records the next materially different experiment.
