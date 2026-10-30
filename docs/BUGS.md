@@ -911,3 +911,21 @@ The final pause_board call was model-originated, yet task07b319e8 records player
 ### Terrain live startup a894 (2026-10-30)
 
 5d20332 pushed/deployed after1360pass1skipGREEN; all50 runtime memory files preserved. Fresh developer terrain read exposed an incorrect requirement for pre-existing DW_MOVE. A normal stop initialized it without displacement; survey then returned361columns/3candidates with honest partial timeout. Narrow nil-binding correction and cold-start regression prepared; not yet deployed. Developer survey/move/survey and full-agent acceptance remain pending,0/3. Water fixture exhausted (hydration0, health52 last measured); client closed normally, server/Steam retained. Evidence and primary-source decision: private terrain-dev-a894/failure-decision.json and design/observed-terrain-exploration.md.
+
+
+### Current navigation lacks a native connector to a distant recorded route (2026-10-30, a902/a903)
+
+MEASURED source/graph gap, physical end-to-end repair not yet proven. From the new west viewpoint, ordinary original-goal movement selected a native partial path and returned to the same wrong-floor basin. NM.forward_walk returned no_connection: the west source had no recorded node within its4m attachment bound; the basin attached only to a graph component disconnected from goal-reaching routes. Existing directed inbound routes r132/r138 can reach the original goal from their entries. Read-only native queries returned COMPLETE paths from the basin to those entries (80.88m/57.69m), but production does not enumerate/query these farther connectors. Ordinary movement to r138 entry passed10.343s. Do not widen straight-line attachment distance or treat a native path as physical clearance proof. Original-goal suffix and a generic composition design remain pending. Private connector-offline-a902, connector-query-a903 and terrain-native-entry-a904 preserve evidence.
+
+### Exhausted research still advertises optional tools (2026-10-30, a891)
+
+OPEN pending implementation validation. Sonnet requested unavailable go_to twice before research exhaustion, then inspect/stop after exhaustion while request tool_choice remained auto. All were truthfully refused; no physical tool ran. The latter is a demonstrated request-boundary mismatch. The former remains a distinct open namespace/prompt issue. Installed LiteLLM1.106.4 does not forward OpenAI function.strict to Anthropic, and current schemas do not meet the documented strict subset; blanket strict activation is not a verified repair. Private planner-tool-contract-review.md contains sources and scope.
+
+Terrain cold-start a894 is now repaired and developer-verified on f808d3d (a898). This closes that read startup defect only; a891 proves terrain delivery alone did not close autonomous navigation.
+
+
+### Developer route composition and censored full-stack attempt (2026-10-30, a904–a906)
+
+The original-goal suffix after a904 also passed: a905 ordinary go_to reached [51.99,1889.29,-35.17] in59.297s, HP100. Two developer-selected ordinary legs thus connect the prior failed basin to the lodestone; no autonomous pass. New route memories were recorded naturally and retained; the pre-experiment graph snapshot preserves the missing-connection evidence.
+
+Attempt a906 then started at the actual lodestone with those declared developer memories. It is INCOMPLETE, not a full-agent pass: Sonnet made0calls because17/20 hourly slots were occupied and a decision requires5free. Haiku made18calls while the task waited, including native-confirmed collection of3Redberries and later recovery/consumption of existing grave food. Root ended the trial once the admission wait was verified beyond its deadline. No cap reset or model-limit retry. The launcher must check actual MAX_REQUESTS admission before creating a LiveSession; daily allowance alone is insufficient. First hourly release04:22:01UTC. Private temple-full-a906/measured-outcome.json and native/model/body logs retain the evidence. Navigation streak remains0/3.

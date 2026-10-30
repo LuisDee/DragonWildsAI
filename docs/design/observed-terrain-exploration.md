@@ -1,6 +1,6 @@
 # Observed terrain exploration: read, choose, move, retain
 
-2026-10-30. **Stage1 implementation candidate after design CLEAR and root authorization; release pending cold code review and validation.** Supersedes the larger private draft's strict route-reference prerequisite. Root explicitly narrowed the first slice after a879/a883: a terrain read, retained observations/attempts and both-model delivery, using existing ordinary coordinate `go_to` unchanged. No future-stance adapter or selected-route authority is required in Stage1. Autonomous acceptance remains0/3.
+2026-10-30. **Stage1 published as f808d3d; developer observation loop verified, complete-agent navigation failed (a891).** Supersedes the larger private draft's strict route-reference prerequisite. Root explicitly narrowed the first slice after a879/a883: a terrain read, retained observations/attempts and both-model delivery, using existing ordinary coordinate `go_to` unchanged. No future-stance adapter or selected-route authority is required in Stage1. Autonomous acceptance remains0/3.
 
 ## Goal and controlling steer
 
@@ -138,3 +138,13 @@ Private offline replay of all actual a883 queries through the final body driver 
 Published5d20332 developer read rejected a fresh valid grounded idle ClaudeDev because DW_MOVE was nil. Source move.S initializes it lazily; a normal stop created idle state without displacement and the next read retained361columns/3candidates, timing out with truthful partial evidence at8seconds. The survey therefore must bind to absence as well as an existing idle mover. Accept unchanged nil without initializing it; any nil-to-table transition invalidates before geometry. Native pawn/component/life/ground/pose/arbiter checks stay intact. Regress cold completion and binding creation during a pending read. No deadline/geometry/movement change.
 
 Actual searches: `site:docs.ue4ss.com Lua UObject GetAddress IsValid`; `site:docs.ue4ss.com LoopInGameThreadWithDelay milliseconds`. Opened https://docs.ue4ss.com/lua-api/classes/uobject.html and https://docs.ue4ss.com/dev/lua-api/global-functions/delayedactions.html . These document native object validity and game-thread timer semantics, not our lazy mover contract. Decision: adapt existing optional binding checks from measured source/runtime; no new framework. Private terrain-dev-a894 preserves before/after/partial result. No autonomous pass; developer movement sequence pending.
+
+
+## Published live outcomes (2026-10-30)
+
+f808d3d passed GREEN1360/1 and developer cold read/move/resurvey (a898). Actual Sonnet and Haiku inputs both received terrain. Full a891 nevertheless failed0/3 (20Haiku17Sonnet, HP100): candidate moves occurred without continued resurvey, and original-goal retries returned to the same basin. No new autonomous pass. Developer a900/a901 extended survey coverage but a902 still failed original arrival. a903/a904 expose a separate native-to-distant-recorded-entry connector gap; this does not justify marking Stage1 sufficient or inventing terrain connectivity. See current PROGRESS/BUGS and private evidence.
+
+
+## Connector-selection discriminator (a903–a908)
+
+Two developer-selected recorded entries had complete native connectors; ordinary go_to reached one in10.343s and the original-goal suffix in59.297s, HP100. This proves executor composition through developer-selected legs, not generic selection or autonomy. A general offline selector used one reverse directed graph pass and ranked connector lower-bound plus suffix cost with spatial clustering. Its top3 on the preserved pre-demonstration memory all targeted the lower floor; actual native queries from the historical failed source returned partial=true for all3. No new movement occurred in this query test. Do not implement that selector as if it solved the gap or tune it to the two known routeIDs. Next decision must account for observed native coverage or directed route transitions; private connector-review-a902 and connector-top3-a907-design retain research and exact evidence. Current memory includes naturally learned developer connections and is not the old disconnected fixture.

@@ -2899,3 +2899,19 @@ After this failure, searched `site:arxiv.org NavGPT navigation history observati
 ### Terrain live startup a894 (2026-10-30)
 
 5d20332 pushed/deployed after1360pass1skipGREEN; all50 runtime memory files preserved. Fresh developer terrain read exposed an incorrect requirement for pre-existing DW_MOVE. A normal stop initialized it without displacement; survey then returned361columns/3candidates with honest partial timeout. Narrow nil-binding correction and cold-start regression prepared; not yet deployed. Developer survey/move/survey and full-agent acceptance remain pending,0/3. Water fixture exhausted (hydration0, health52 last measured); client closed normally, server/Steam retained. Evidence and primary-source decision: private terrain-dev-a894/failure-decision.json and design/observed-terrain-exploration.md.
+
+
+### Terrain delivery and native-to-recorded route connectivity are distinct (2026-10-30)
+
+On f808d3d, a cold terrain survey succeeds without creating DW_MOVE; measured6.188s/361columns. Both complete-agent model request streams contain bounded terrain history/candidates/unknown connectors. Candidate moves can succeed while the original destination remains unreachable to the current planner. Full a891 still failed0/3; a900/a901 developer move/resurvey found233/90 new columns but a902 returned to the same wrong floor.
+
+Offline actual-memory graph analysis and read-only native a903 queries show a missing planner composition: the current region cannot attach to the goal-reaching recorded component under the4m straight-join rule, although native COMPLETE paths reach two farther component entries. The r138 entry physically passed ordinary go_to in10.343s. This is a general connection hypothesis backed by one live connector, not an autonomous pass or proof of unfamiliar-route discovery.
+
+After a902 searched `site.arongranberg.com layered grid graph raycast thick raycast ramps multiple floors` and `site.dev.epicgames.com navigation partial path pathfinding partial path Unreal Engine`. Opened https://arongranberg.com/astar/documentation/stable/layergridgraph.html and https://dev.epicgames.com/documentation/en-us/unreal-engine/BlueprintAPI/AI/Navigation/HasPartialPath . Layered sampling/slope-sensitive connections are conceptual precedent, not Dragonwilds API proof; Epic confirms a partial path does not reach its destination. Decision: inspect/reuse complete native paths plus existing directed memory before adding a new map framework; never enlarge unverified straight joins as the fix. Private failure-decision-a902.json links evidence.
+
+
+### Developer route composition and censored full-stack attempt (2026-10-30, a904–a906)
+
+The original-goal suffix after a904 also passed: a905 ordinary go_to reached [51.99,1889.29,-35.17] in59.297s, HP100. Two developer-selected ordinary legs thus connect the prior failed basin to the lodestone; no autonomous pass. New route memories were recorded naturally and retained; the pre-experiment graph snapshot preserves the missing-connection evidence.
+
+Attempt a906 then started at the actual lodestone with those declared developer memories. It is INCOMPLETE, not a full-agent pass: Sonnet made0calls because17/20 hourly slots were occupied and a decision requires5free. Haiku made18calls while the task waited, including native-confirmed collection of3Redberries and later recovery/consumption of existing grave food. Root ended the trial once the admission wait was verified beyond its deadline. No cap reset or model-limit retry. The launcher must check actual MAX_REQUESTS admission before creating a LiveSession; daily allowance alone is insufficient. First hourly release04:22:01UTC. Private temple-full-a906/measured-outcome.json and native/model/body logs retain the evidence. Navigation streak remains0/3.

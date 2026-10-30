@@ -1735,3 +1735,19 @@ Private full-agent-a885/measured-outcome.json, scheduling-audit.json and failure
 ### Terrain live startup a894 (2026-10-30)
 
 5d20332 pushed/deployed after1360pass1skipGREEN; all50 runtime memory files preserved. Fresh developer terrain read exposed an incorrect requirement for pre-existing DW_MOVE. A normal stop initialized it without displacement; survey then returned361columns/3candidates with honest partial timeout. Narrow nil-binding correction and cold-start regression prepared; not yet deployed. Developer survey/move/survey and full-agent acceptance remain pending,0/3. Water fixture exhausted (hydration0, health52 last measured); client closed normally, server/Steam retained. Evidence and primary-source decision: private terrain-dev-a894/failure-decision.json and design/observed-terrain-exploration.md.
+
+
+### Terrain reached both models; full agent still failed (2026-10-30, a898/a891)
+
+Published f808d3d passed the full gate (1360 passed, 1 skipped) and preserved all 51 runtime memory files. Developer cold survey completed in 6.188s with 361 columns and no pre-existing mover; ordinary movement to an observed candidate passed in 1.985s, then resurvey retained 165 new columns and the move outcome. These are developer diagnostics. Twenty Clean Water were supplied as a declared DEV navigation fixture; health recovered naturally, without health/position writes. This does not prove self-sufficiency.
+
+The complete agent then FAILED: 20 Haiku + 17 Sonnet calls, 266 native samples, minimum health100. It never reached the initial lodestone: closest13.228m XY with3.968m height error, maximum distance59.419m. Autonomous round trips remain **0/3**. Actual request logs verify terrain evidence reached both models. Haiku moved to two candidates successfully but did not continue resurveying after those moves; it retried the original goal and ultimately requested help. Four invalid planner research tool names were refused. Private terrain-full-a891 retains actual inputs, outputs, body results, native route, delivery audit and failure decision.
+
+Following developer tests a899/a900/a901 reached successively observed positions, including a westward candidate the models had not selected. Two surveys exposed233 then90 new columns. Retrying the original goal from that new viewpoint still failed (a902,12.531s) at the same upper basin. Native read-only queries a903 then found complete paths to two existing recorded inbound-route entries. Ordinary real-client movement to one entry passed (a904,10.343s,health100). The original-goal suffix is a separate pending diagnostic; no autonomous claim. Evidence: private npg-trial-a832.
+
+
+### Developer route composition and censored full-stack attempt (2026-10-30, a904–a906)
+
+The original-goal suffix after a904 also passed: a905 ordinary go_to reached [51.99,1889.29,-35.17] in59.297s, HP100. Two developer-selected ordinary legs thus connect the prior failed basin to the lodestone; no autonomous pass. New route memories were recorded naturally and retained; the pre-experiment graph snapshot preserves the missing-connection evidence.
+
+Attempt a906 then started at the actual lodestone with those declared developer memories. It is INCOMPLETE, not a full-agent pass: Sonnet made0calls because17/20 hourly slots were occupied and a decision requires5free. Haiku made18calls while the task waited, including native-confirmed collection of3Redberries and later recovery/consumption of existing grave food. Root ended the trial once the admission wait was verified beyond its deadline. No cap reset or model-limit retry. The launcher must check actual MAX_REQUESTS admission before creating a LiveSession; daily allowance alone is insufficient. First hourly release04:22:01UTC. Private temple-full-a906/measured-outcome.json and native/model/body logs retain the evidence. Navigation streak remains0/3.

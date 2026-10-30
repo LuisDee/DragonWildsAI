@@ -12,8 +12,9 @@ decisions (review M5a).
   repair; the answer after it is accepted whatever its advisories (simplify item 4). A ValueError (or pydantic's
   ValidationError) is a real problem: its message goes back in a repair round.
 * Tool rounds: while the model calls tools (and ``max_tool_rounds`` allows), each call runs through
-  ``run_tool(name, args) -> result`` and the results go back. After the limit the tools stay offered (LiteLLM
-  would otherwise inject a dummy tool), the model is told research is over, and late calls are refused as a repair.
+  ``run_tool(name, args) -> result`` and the results go back. After the limit definitions stay present (LiteLLM
+  would otherwise inject a dummy tool), but tool_choice=none disables research; violations still get refused.
+  The request scope reaches synchronous forwarding wrappers and request logging without new keywords.
 * Raises ``DecisionError`` when no valid answer came back, ``BudgetStop`` when ``before_request`` refused.
 """
 from __future__ import annotations
@@ -23,7 +24,7 @@ from typing import Any, Callable
 
 from pydantic import ValidationError
 
-from .llm import LLMClient, LLMResponse, assistant_message, tool_result_message
+from .llm import LLMClient, LLMResponse, assistant_message, request_tool_choice, tool_result_message
 
 RESEARCH_OVER = "Research is over: answer now with the JSON object only, without calling more tools."
 
@@ -69,9 +70,14 @@ def json_decision(llm: LLMClient, messages: list[dict], validate: Callable[[str,
         if can_research and tool_rounds >= max_tool_rounds and not info.get("research_over"):
             info["research_over"] = True
             msgs = msgs + [{"role": "user", "content": RESEARCH_OVER}]
-        if on_request is not None:
-            on_request(msgs, tools if can_research else None)
-        resp = llm.complete(msgs, tools) if can_research else llm.complete(msgs)
+        # Keep definitions for historical tool blocks, but disable further tool use at the limit.
+        # https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools#controlling-claudes-output
+        # https://github.com/BerriAI/litellm/blob/v1.106.4/litellm/llms/anthropic/chat/transformation.py
+        choice = "none" if can_research and tool_rounds >= max_tool_rounds else None
+        with request_tool_choice(choice):
+            if on_request is not None:
+                on_request(msgs, tools if can_research else None)
+            resp = llm.complete(msgs, tools) if can_research else llm.complete(msgs)
         info["requests"] += 1
         if on_response is not None:
             on_response(resp)

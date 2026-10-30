@@ -18,11 +18,33 @@ import json
 import time
 import re
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
 CONTROLLER_MODEL_ENV = "DW_CONTROLLER_MODEL"
 PLANNER_MODEL_ENV = "DW_PLANNER_MODEL"
+
+_REQUEST_TOOL_CHOICE: ContextVar[str | dict | None] = ContextVar("llm_request_tool_choice", default=None)
+
+
+@contextmanager
+def request_tool_choice(choice: str | dict | None):
+    """Scope one synchronous request's serialization through unchanged forwarding wrappers."""
+    # Python3.12 set/reset supports exceptions and isolated concurrent contexts; a wrapper
+    # offloading to another thread would need explicit copy_context().run, not implicit inheritance.
+    # https://docs.python.org/3.12/library/contextvars.html
+    # https://peps.python.org/pep-0567/#offloading-execution-to-other-threads
+    token = _REQUEST_TOOL_CHOICE.set(choice)
+    try:
+        yield
+    finally:
+        _REQUEST_TOOL_CHOICE.reset(token)
+
+
+def _effective_tool_choice(choice):
+    return choice if choice is not None else _REQUEST_TOOL_CHOICE.get()
 
 
 @dataclass
@@ -48,8 +70,8 @@ class LLMClient(Protocol):
     model: str
 
     def complete(self, messages: list[dict], tools: list[dict] | None = None,
-                 effort: str | None = None) -> LLMResponse:
-        """``effort``: this call's effort level, overriding the client's default (None = the default)."""
+                 effort: str | None = None, *, tool_choice: str | dict | None = None) -> LLMResponse:
+        """Optional per-call effort/tool choice; None inherits request scope/client defaults."""
         ...
 
 
@@ -150,8 +172,8 @@ class LiteLLMClient:
         return {"s": round(time.monotonic() - t0, 2), "usage": resp.usage}
 
     def request_payload(self, messages: list[dict], tools: list[dict] | None = None,
-                        effort: str | None = None) -> dict:
-        """Exact LiteLLM input, before LiteLLM's provider/HTTP serialization."""
+                        effort: str | None = None, *, tool_choice: str | dict | None = None) -> dict:
+        """LiteLLM input: explicit choice wins over request scope, then existing defaults."""
         params = dict(self.kwargs)
         if effort and self.model.startswith("anthropic/"):  # one call at another level (output_config.effort)
             params["output_config"] = {**(params.get("output_config") or {}), "effort": effort}
@@ -160,15 +182,21 @@ class LiteLLMClient:
             # go_to then drop): the agent runs them IN ORDER, each verified, stopping at the first failure.
             # (They were disabled because the model paired follow with stop; the persona now forbids that.)
             params.update(tools=tools, tool_choice="auto")
+        tool_choice = _effective_tool_choice(tool_choice)
+        if tool_choice is not None:
+            # Explicit per-request control, without changing shared settings or default callers.
+            # https://docs.litellm.ai/docs/completion/input
+            params["tool_choice"] = tool_choice
         if self.model.startswith("anthropic/"):
             messages = with_cache_control(messages)
         return {"model": self.model, "messages": messages, **params}
 
     def complete(self, messages: list[dict], tools: list[dict] | None = None,
-                 effort: str | None = None) -> LLMResponse:
+                 effort: str | None = None, *, tool_choice: str | dict | None = None) -> LLMResponse:
         import litellm
 
-        resp = litellm.completion(**self.request_payload(messages, tools, effort))
+        options = {"tool_choice": tool_choice} if tool_choice is not None else {}
+        resp = litellm.completion(**self.request_payload(messages, tools, effort, **options))
         msg = resp.choices[0].message
         calls = []
         raw_calls = []
@@ -222,14 +250,17 @@ def planner_llm() -> LiteLLMClient:
 
 
 def request_log_fields(llm: LLMClient, messages: list[dict], tools: list[dict] | None = None,
-                       effort: str | None = None) -> dict:
+                       effort: str | None = None, *, tool_choice: str | dict | None = None) -> dict:
     """Log the complete adapter input, including cache blocks and per-call overrides.
 
     This is the LiteLLM boundary, not a claim to capture its final HTTP body.
+    For wrappers, record effective scoped settings at the llm.complete boundary.
     https://docs.litellm.ai/docs/completion/input
     """
-    request = (llm.request_payload(messages, tools, effort) if isinstance(llm, LiteLLMClient) else
-               {"model": llm.model, "messages": messages, "tools": tools, "effort": effort})
+    tool_choice = _effective_tool_choice(tool_choice)
+    options = {"tool_choice": tool_choice} if tool_choice is not None else {}
+    request = (llm.request_payload(messages, tools, effort, **options) if isinstance(llm, LiteLLMClient) else
+               {"model": llm.model, "messages": messages, "tools": tools, "effort": effort, **options})
     return {"request_boundary": "litellm.completion" if isinstance(llm, LiteLLMClient) else "llm.complete",
             "messages": request["messages"], "tools": request.get("tools"),
             "settings": {k: v for k, v in request.items() if k not in ("messages", "tools")}}
@@ -257,8 +288,10 @@ class FakeLLM:
         self.script.extend(items)
 
     def complete(self, messages: list[dict], tools: list[dict] | None = None,
-                 effort: str | None = None) -> LLMResponse:
-        self.calls.append({"messages": messages, "tools": tools, "effort": effort})
+                 effort: str | None = None, *, tool_choice: str | dict | None = None) -> LLMResponse:
+        tool_choice = _effective_tool_choice(tool_choice)
+        options = {"tool_choice": tool_choice} if tool_choice is not None else {}
+        self.calls.append({"messages": messages, "tools": tools, "effort": effort, **options})
         if not self.script:
             raise AssertionError("FakeLLM script exhausted")
         item = self.script.pop(0)
