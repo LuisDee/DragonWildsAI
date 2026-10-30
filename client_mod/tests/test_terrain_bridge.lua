@@ -90,6 +90,20 @@ local terrain=B.module('terrain');local response=terrain.handle(B.API,{},{id='af
 check('pause releases marker',response.wait~=nil);response.wait:cancel()
 local q2=send('terrain',{});clock=clock+8;B.step();local expired=find(drain(),q2)
 check('bridge deadline terminates read',expired and not expired.ok)
+-- Fresh live boot leaves move.S() uninitialized. A read must not need a prior
+-- action or create movement state; later initialization revokes the read.
+local saved_move=DW_MOVE;DW_MOVE=nil
+local fresh=terrain.handle(B.API,{},{id='freshboot',chan=B._state().bridge})
+check('fresh idle accepts survey without mover state',fresh.wait~=nil)
+local fresh_result
+for _=1,80 do fresh_result=fresh.wait:poll();if fresh_result then break end end
+check('fresh idle completes without initializing mover',fresh_result and fresh_result.ok and DW_MOVE==nil)
+local interrupted=terrain.handle(B.API,{},{id='freshboot-mutation',chan=B._state().bridge})
+check('second cold survey accepted',interrupted.wait~=nil)
+DW_MOVE={gen=0,mode='idle'}
+local before_rays=FAKE.rays;local invalidated=interrupted.wait:poll()
+check('new mover binding invalidates before geometry',not invalidated.ok and invalidated.reason=='interrupted' and FAKE.rays==before_rays)
+DW_MOVE=saved_move
 B.stop()
 check('no floor reader acquired',rawget(_G,'DWFloorReader')==nil and rawget(_G,'DWWalkSenseServiceV1')==nil)
 print('terrain_bridge: '..pass..' checks passed')

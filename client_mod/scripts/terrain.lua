@@ -341,7 +341,7 @@ function M.handle(api,args,ctx)
             if latched then return false end
             local worked,current=pcall(function()
                 if rawget(_G,'DW_PAUSE') or world()~=w or api.terrain_busy() or not api.terrain_channel_current(ctx.chan) or
-                    rawget(_G,'DW_MOVE')~=st or not st or st.gen~=gen or st.mode~='idle' or rawget(_G,'DWArbiter')~=arb or
+                    rawget(_G,'DW_MOVE')~=st or (st and (st.gen~=gen or st.mode~='idle')) or rawget(_G,'DWArbiter')~=arb or
                     (arb and (arb.owner~=nil or #(arb.stack or {})>0)) or rawget(_G,'DW_TRACE_PROFILE')~=profile or
                     (profile and profile.name~=profile_name)then return false end
                 local l=rawget(_G,'DW_LIFE');if (type(l)=='table' and l.move_death_seq or nil)~=seq then return false end
@@ -350,7 +350,11 @@ function M.handle(api,args,ctx)
                     pawn.HealthComponent:IsDead()~=false or pawn.HealthComponent:GetAuthoritativeHealth()<=0 or mc:IsMovingOnGround()~=true then return false end
                 local p=pawn:K2_GetActorLocation()
                 local last_life=rawget(_G,'DW_LIFE')
-                return same(p,source) and not rawget(_G,'DW_PAUSE') and world()==w and rawget(_G,'DW_MOVE')==st and st.gen==gen and st.mode=='idle' and
+                -- move.S() is lazy: a fresh idle client has no DW_MOVE. Retain that
+                -- exact nil binding without initializing it; any new owner invalidates.
+                -- Native identity/validity remains independently checked above:
+                -- https://docs.ue4ss.com/lua-api/classes/uobject.html
+                return same(p,source) and not rawget(_G,'DW_PAUSE') and world()==w and rawget(_G,'DW_MOVE')==st and (not st or (st.gen==gen and st.mode=='idle')) and
                     (type(last_life)=='table' and last_life.move_death_seq or nil)==seq and rawget(_G,'DWArbiter')==arb and
                     (not arb or (arb.owner==nil and #(arb.stack or {})==0)) and rawget(_G,'DW_TRACE_PROFILE')==profile and
                     (not profile or profile.name==profile_name) and not api.terrain_busy()

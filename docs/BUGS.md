@@ -906,3 +906,8 @@ and explicit exploratory selection remain open; there is no autonomous pass.
 OPEN. With two Director replans applied on08f2f6d, the complete agent still never acquired the starting lodestone. Its lexical ramp exploration walked53m but the next original-goal retry returned to the failed ledge. Replanning ownership alone therefore does not solve navigation. New bounded terrain observation/history candidate remains unproven until developer and complete-agent live tests.
 
 The final pause_board call was model-originated, yet task07b319e8 records player:Luis. This provenance bug is still OPEN; it must not pause the development Goal or be reported as a user cancellation. Retain history and use supported operations for a fresh trial. Evidence: private full-agent-a885.
+
+
+### Terrain live startup a894 (2026-10-30)
+
+5d20332 pushed/deployed after1360pass1skipGREEN; all50 runtime memory files preserved. Fresh developer terrain read exposed an incorrect requirement for pre-existing DW_MOVE. A normal stop initialized it without displacement; survey then returned361columns/3candidates with honest partial timeout. Narrow nil-binding correction and cold-start regression prepared; not yet deployed. Developer survey/move/survey and full-agent acceptance remain pending,0/3. Water fixture exhausted (hydration0, health52 last measured); client closed normally, server/Steam retained. Evidence and primary-source decision: private terrain-dev-a894/failure-decision.json and design/observed-terrain-exploration.md.
