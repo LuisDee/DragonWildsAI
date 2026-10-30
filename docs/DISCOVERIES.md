@@ -1,5 +1,21 @@
 # Discoveries
 
+### One autonomous temple round trip; partial-connector limits (2026-10-30)
+
+Full Sonnet/Haiku a907 on f63d809 achieved one temple200m walking round trip:
+200.6509m maximum horizontal distance, correct-floor grounded return, health100,
+taskdone. Developer route memories and provision fixtures are disclosed; this
+proves their autonomous use in one episode, not fresh discovery. Native positions
+and completed ordered checkpoints corroborate it; Haiku's later claim of only40m
+outbound is false. Private measured-outcome.json retains sample bounds/provenance.
+
+Historical-source/current-scene queries a912 rejected all three a911
+height-transition-selected entry targets as partial. Do not ship that selector
+or infer that no player route exists. Two partial prefixes pass near an existing
+goal-connected recorded entry; this suggests auditing prefix/roadmap connections
+with fresh physical join checks. Proximity supplies no movement authority.
+No such connector implementation or live acceptance is claimed.
+
 ### Temple ramp supports normal player walking; route choice was wrong (2026-10-29)
 
 Default NPC navigation from the demonstrated approach steered behind the ramp

@@ -1,5 +1,36 @@
 # Progress log (append-only)
 
+### First full-agent temple round trip observed (2026-10-30 04:33 UTC)
+
+On published `f63d809`, complete Sonnet Director + Haiku Controller trial a907
+walked from the temple spawn lodestone to **200.6509 m horizontal distance** and
+returned to the same floor without operator intervention. The final position
+was 0.0417 m horizontally and 0.0029 m vertically from the independently recorded
+start anchor; grounded, health100. The ordered task45d55b1a ended `done` and the
+runner exited0 with acknowledged cleanup. There were373 in-episode native
+samples and40 model calls (23Haiku,17Sonnet). First qualifying return occurred
+502.93s after trial start. Current-code repeat count is **1/3**, not goal complete.
+
+This reuses preserved route memory, including developer demonstrations. Earlier
+supplied water/food fixtures and a913 developer setup are disclosed. It does not
+prove unfamiliar-route discovery, independent provisioning, generalization or
+any original M1-M6 milestone. No teleport/cast/jump tools were dispatched; one
+native sample was airborne. Exact telemetry is retained, not inferred from chat.
+
+The agent recovered from movement deadlines and an outbound sweep rejection;
+the latter occurred after crossing200m. Haiku later falsely said it had only
+travelled40m. The board and independent route record contradict that statement.
+Inter-action busy errors and discarded recovery skill selections are being
+audited separately. The next complete trial needs5 Director hourly slots; only3
+remained at04:34UTC, next capacity approximately05:24:39UTC. No limiter reset.
+Shared game-model spend was$2.4225/152calls for the UTC day. Client was closed
+normally after the trial to preserve supplies; server/Steam/worlds retained.
+
+Private evidence: `logs/recovery/model-choice-full-a907/measured-outcome.json`,
+full-agent-result, experiment-contract, actual native/body/model logs. Publication
+gate `rc-g-a910` was GREEN1378passed/1skipped;628source and52memory files verified.
+Those tests are prerequisites; the round trip is the realized behavior.
+
 ### Physical temple route demonstrated; generic autonomy repairs prepared (2026-10-29)
 
 On published7ccecf6 developer controls climbed the real ramp4.2m in3.135s,

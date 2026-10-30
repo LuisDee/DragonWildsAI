@@ -32,6 +32,16 @@ Focused offline tests drive real json_decision through unchanged frozen Counting
 
 The previous explicit-wrapper candidate is superseded because frozen judges must remain unchanged. The approved revised implementation passed **146 focused tests in21.02s**, including actual json_decision through unchanged CountingLLM, all other existing forwarding wrappers, generic-boundary scoped logging, exception/nesting/concurrency isolation, admission/counting/refusal, existing Director/run-live/model/terrain/accounting suites and design-note checks. Runtime Python used unique basetemp `C:/gameserver/logs/recovery/exhausted-choice-a908-sol-context-2`. These are fake-provider offline diagnostics, not autonomous acceptance. Pre-limit unsupported research names and strict-schema migration remain outside scope. No game/model API, runtime source, ledger, full gate, commit or publication changes were performed by this worker.
 
+## Published and live verification (2026-10-30)
+
+Published f63d809 after rc-g-a910 GREEN1378passed/1skipped. Complete a907 actual
+adapter-input traces show first research requests auto, then call3 none and a
+JSON plan with finish_reason stop and no tool calls. This verifies the real
+model response at the exhausted boundary, not captured HTTP serialization or
+strict-schema support. The complete agent subsequently completed one200m temple
+round trip; do not attribute that entire behavior causally to this request fix.
+Trace: private model-choice-full-a907/exhausted-choice-live-check.json.
+
 ## Search record
 
 Reused actual fresh research from the same a891 problem. Queries: `site.platform.claude.com docs strict tool use JSON schema limitations tool names additionalProperties`; `site.docs.litellm.ai anthropic strict tool use strict true supported`. Inspected installed LiteLLM1.106.4 mapping plus all repository complete methods and the current private Counted. A read-only method probe verified none maps to native type=none; no provider call occurred.

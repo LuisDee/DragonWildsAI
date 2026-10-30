@@ -145,6 +145,41 @@ Actual searches: `site:docs.ue4ss.com Lua UObject GetAddress IsValid`; `site:doc
 f808d3d passed GREEN1360/1 and developer cold read/move/resurvey (a898). Actual Sonnet and Haiku inputs both received terrain. Full a891 nevertheless failed0/3 (20Haiku17Sonnet, HP100): candidate moves occurred without continued resurvey, and original-goal retries returned to the same basin. No new autonomous pass. Developer a900/a901 extended survey coverage but a902 still failed original arrival. a903/a904 expose a separate native-to-distant-recorded-entry connector gap; this does not justify marking Stage1 sufficient or inventing terrain connectivity. See current PROGRESS/BUGS and private evidence.
 
 
+## Rejected transition selector and next evidence question (a911–a912)
+
+The next offline selector ranked directed recorded edges leaving the source's
+existing120cm height band, with a forced goal-reaching suffix. It examined51
+intervals in0.579CPU seconds; this is not permission for an unsliced game-thread
+search. Three selected upstream targets all returned partial native paths when
+queried from the historical a902 source in the current loaded scene. One recorded
+transition drops3.69m and is not certified walking. No new movement occurred.
+Do not deploy either failed selector or tune them to successful route IDs.
+
+Two returned native prefixes pass [90.56,1879.36,-31.2]feet, near an existing
+recorded entry independently reached by developer ordinary controls in a904.
+Its original-goal suffix passed in a905. The next evidence question is whether a
+native prefix intersects a goal-reaching recorded component with a physically
+valid join. Closeness, same height and a complete graph suffix are not clearance.
+Any future composition must retain original-goal verification, directionality,
+source binding, per-input guards and cancellation; never relabel a partial native
+answer complete or append an unchecked straight segment. No implementation yet.
+
+Fresh queries after the failed selectors, then repeated/opened during a907's
+independent run: `site.ompl.kavrakilab.org LazyPRM query connect start goal motion
+validity roadmap`; `site.docs.nav2.org route graph first last mile path planning
+navigation`. Primary sources:
+
+- https://ompl.kavrakilab.org/LazyPRM_8cpp_source.html — retained roadmap with
+  candidate motion validity checked before accepting a solution.
+- https://docs.nav2.org/jazzy/getting_started/nav2_behavior_trees/trees/navigate_on_route_graph_w_recovery/
+  — explicitly plan the free-space connector to/from a route graph.
+
+Decision: reuse existing graph/native paths and guards; investigate composition
+before another selector or framework. These are conceptual precedents, not game
+APIs or imported implementations. Private npg-trial-a832 retains a911 selector,
+a912 native queries and failure-decision; no claim of fresh discovery follows
+from a907's later successful use of developer-taught memory.
+
 ## Connector-selection discriminator (a903–a908)
 
 Two developer-selected recorded entries had complete native connectors; ordinary go_to reached one in10.343s and the original-goal suffix in59.297s, HP100. This proves executor composition through developer-selected legs, not generic selection or autonomy. A general offline selector used one reverse directed graph pass and ranked connector lower-bound plus suffix cost with spatial clustering. Its top3 on the preserved pre-demonstration memory all targeted the lower floor; actual native queries from the historical failed source returned partial=true for all3. No new movement occurred in this query test. Do not implement that selector as if it solved the gap or tune it to the two known routeIDs. Next decision must account for observed native coverage or directed route transitions; private connector-review-a902 and connector-top3-a907-design retain research and exact evidence. Current memory includes naturally learned developer connections and is not the old disconnected fixture.

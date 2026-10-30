@@ -1,5 +1,17 @@
 # Live bug ledger
 
+### Full-agent route completed; recovery and reporting defects remain (2026-10-30)
+
+One complete temple200m walking round trip passed on f63d809; two repeats and
+generalization remain unproved. Haiku call38 falsely reported only40m outbound
+despite native200.6509m, correct-floor return and ordered task completion.
+Preserve this as a reporting/context defect, not a reason to discard the native
+measurement. Calls17/21 selected run_skill after a failed go_to but no skill
+dispatch reached the body; a bounded audit is isolating the continuation gate.
+Movement-token refusals must be distinguished from stale movement: current
+audit correlates inter-action refusals with consumable verification ownership.
+Evidence: private model-choice-full-a907 actual model/body/native logs.
+
 ### Explore claims an exit is visible because `the` matches `gather` (2026-10-29)
 
 MEASURED on complete7ccecf6 trial. Both door/gate/stairs/opening queries returned
