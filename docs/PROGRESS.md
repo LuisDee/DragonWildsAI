@@ -1630,3 +1630,25 @@ records preserve exact source hashes and validation scope.
 - Evidence: private `logs/recovery/npg-trial-a832/` contains decisions, probes, traces and audit. Next: review a bounded same-goal strict-local recovery design; preserve selected authority and all collision/floor/lifecycle checks.
 
 - Follow-up a840 used exact production observation adapter, Player profile, walking environment and 12-replan rule: failed on the 13th rejected path, 758 rays, .431 CPU s, unchanged actual pose. Dispatch-only recovery is on hold; compare bounded verification strategies before implementation. No production edits or new autonomous pass.
+
+### Grounded descent mismatch isolated (2026-10-30)
+
+No new autonomous pass: temple round trips remain0/3. Developer a848 walked a
+short obstacle with eleven active samples grounded, zero jumps and35.24cm rise.
+Stationary a850 confirms all13 observed poses clear but a straight descent chord
+blocked; horizontal then down is clear. Whole-segment private comparison a851
+passes with26 actual queries. Wall remains blocked and missing floor stays unknown.
+These are diagnostic evidence, not completed navigation or self-sufficiency.
+Narrow deferred-descent repair under design/cache review; no production change yet.
+Evidence: private npg-trial-a832/decision-a850-a854.json and linked raw records.
+
+Further baseline a858 normal return failed24.812s at a floor-resolution predicate;
+a860 stationary final-position replay clears, so the exact moving sample remains
+unknown. Private broader-proposal a857 clears one rise but fails next floor query.
+These remain explicit limits; no whole-route or autonomous pass. Client closed
+through documented normal engine QuitGame after OS stop failed to terminate it.
+
+Deferred-descent candidate frozen after122sampler/96guard/3actual-mover trace
+checks and5design checks. Recorded baseline blocks31queries; candidate clears23
+with no unrecorded geometry. Terminal trace now preserves the failing sample
+before cleanup. Fullgate/publication/live validation pending;0/3 unchanged.

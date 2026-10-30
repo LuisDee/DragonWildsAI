@@ -19,6 +19,45 @@ local function dist(a,b)
     local dx,dy=a.X-b.X,a.Y-b.Y
     local d=math.sqrt(dx*dx+dy*dy); if finite(d) then return d end
 end
+-- Retain transient observations before lease cleanup; no native calls or arbitrary data.
+-- https://dev.epicgames.com/documentation/en-us/unreal-engine/visual-logger-in-unreal-engine
+function M.copy_failure(value)
+    local function plain(t) return type(t)=='table' and getmetatable(t)==nil end
+    local function number(n) return finite(n) and math.abs(n)<=1e9 and n or nil end
+    local function label(s) return type(s)=='string' and #s<=80 and s or nil end
+    local function point(p)
+        if not plain(p) then return nil end
+        local x,y,z=number(p.X),number(p.Y),number(p.Z)
+        if x and y and z then return {X=x,Y=y,Z=z} end
+    end
+    if not plain(value) then return nil end
+    local out={reason=label(value.reason)}
+    local d=value.detail
+    if plain(d) then
+        out.detail={phase=label(d.phase),status=label(d.status),query=point(d.query),from=point(d.from),to=point(d.to),
+            actual_z=number(d.actual_z),expected_z=number(d.expected_z)}
+        if integer(d.depth) and d.depth>=0 and d.depth<=2 then out.detail.depth=d.depth end
+        if integer(d.callbacks) and d.callbacks>=0 and d.callbacks<=4 then out.detail.callbacks=d.callbacks end
+        if plain(d.fields) then
+            local f={};out.detail.fields=f
+            for _,k in ipairs({'bBlockingHit','bWalkableFloor','bLineTrace','bStartPenetrating','hitBlocking'}) do
+                if type(d.fields[k])=='boolean' then f[k]=d.fields[k] end
+            end
+            for _,k in ipairs({'FloorDist','LineDist','hitDistance'}) do f[k]=number(d.fields[k]) end
+            f.ImpactNormal=point(d.fields.ImpactNormal);f.Normal=point(d.fields.Normal)
+        end
+    end
+    local s=value.scan
+    if plain(s) then
+        out.scan={start=point(s.start),far=point(s.far)}
+        if plain(s.shape) then
+            out.scan.shape={}
+            for _,k in ipairs({'radius_cm','half_height_cm','step_cm','clearance_cm'}) do out.scan.shape[k]=number(s.shape[k]) end
+            if type(s.shape.clearance_line_trace)=='boolean' then out.scan.shape.clearance_line_trace=s.shape.clearance_line_trace end
+        end
+    end
+    return out
+end
 function M.new(o)
     if type(o)~='table' or type(o.acquire)~='function' or type(o.live)~='function' or type(o.read_pose)~='function' or
        (o.read_time~=nil and type(o.read_time)~='function') or type(o.sample_module)~='table' or type(o.sample_module.new)~='function' then return nil,'invalid_callbacks' end
@@ -32,10 +71,13 @@ function M.new(o)
     local sensor,scan,cache,aim,terminal=nil,nil,nil,nil,nil
     local total,resets,reset_total,last_t=0,0,0,nil
     local scan_duration,oldest_started,completed_at,refresh_cause=nil,nil,nil,nil
-    local refinement=nil
+    local refinement,failure=nil,nil
     local locked,latched,closed=false,false,false
     local function metadata(r)
-        if r.refinement_count==nil and r.first_blocked==nil and r.last_blocked==nil then return {} end
+        local descents=r.deferred_descent_count
+        if descents==nil then descents=0 end
+        if not integer(descents) or descents<0 or descents>128 then return nil end
+        if r.refinement_count==nil and r.first_blocked==nil and r.last_blocked==nil then return {deferred_descents=descents} end
         if not integer(r.refinement_count) or r.refinement_count<0 or r.refinement_count>127 then return nil end
         local function segment(s)
             if s==nil then return nil end
@@ -46,16 +88,18 @@ function M.new(o)
         end
         local first,last=segment(r.first_blocked),segment(r.last_blocked)
         if first==false or last==false or (first==nil)~=(last==nil) or (r.refinement_count>0 and not first) then return nil end
-        return {count=r.refinement_count,first_blocked=first,last_blocked=last}
+        return {count=r.refinement_count,first_blocked=first,last_blocked=last,deferred_descents=descents}
     end
     local function copy_metadata(m)
         if not m then return nil end
         local function segment(s) return s and {from=vec(s.from),to=vec(s.to),depth=s.depth} end
-        return {count=m.count,first_blocked=segment(m.first_blocked),last_blocked=segment(m.last_blocked)}
+        return {count=m.count,first_blocked=segment(m.first_blocked),last_blocked=segment(m.last_blocked),deferred_descents=m.deferred_descents}
     end
     local function result(status,reason)
         return {status=status,reason=reason,consumed_total=total,scan_duration_s=scan_duration,
             refinement=copy_metadata(refinement),
+            deferred_descent_count=refinement and refinement.deferred_descents or 0,
+            failure=M.copy_failure(failure),
             cache_completion_age_s=completed_at and last_t and last_t-completed_at or nil,
             oldest_observation_age_s=oldest_started and last_t and last_t-oldest_started or nil,
             coast_reset_streak=resets,coast_reset_total=reset_total,refresh_cause=refresh_cause}
@@ -76,17 +120,17 @@ function M.new(o)
     local function release()
         if not sensor then return true end
         local ok,closed_ok=pcall(sensor.close)
-        if not ok or closed_ok~=true then return false end
+        if not ok or closed_ok~=true then failure=nil;return false end
         sensor=nil; scan=nil; cache=nil
         return true
     end
     local function fail(reason,status)
-        if reason=='binding_changed' then refinement=nil end
+        if reason=='binding_changed' then refinement,failure=nil,nil end
         terminal={status=status or 'unknown',reason=reason}
         if not release() then terminal={status='unknown',reason='cleanup_pending'} end
         -- Cleanup and clock callbacks can invalidate the captured lifecycle.
         -- Preserve accounting/cleanup status but never return stale evidence.
-        if not alive() then refinement=nil end
+        if not alive() then refinement,failure=nil,nil end
         return result(terminal.status,terminal.reason)
     end
     local function valid_sensor()
@@ -119,8 +163,14 @@ function M.new(o)
                 local lateral=math.sqrt((me.X-x)^2+(me.Y-y)^2)
                 local z=a.Z+t*(b.Z-a.Z)
                 if not finite(lateral) or not finite(z) then return false end
-                if lateral<best then best,best_z,best_along=lateral,z,total_len+t*len end
+                if lateral<best or best_z and lateral==best and math.abs(me.Z-z)<math.abs(me.Z-best_z) then best,best_z,best_along=lateral,z,total_len+t*len end
                 total_len=total_len+len
+            elseif a.Z~=b.Z then
+                -- A measured settling leg adds a bounded Z interval, no forward reserve.
+                -- https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/GameFramework/UCharacterMovementComponent/MoveAlongFloor?application_version=5.5
+                local lateral=math.sqrt((me.X-a.X)^2+(me.Y-a.Y)^2)
+                local z=math.max(math.min(a.Z,b.Z),math.min(math.max(a.Z,b.Z),me.Z))
+                if lateral<best or best_z and lateral==best and math.abs(me.Z-z)<math.abs(me.Z-best_z) then best,best_z,best_along=lateral,z,total_len end
             end
         end
         local rem=dist(me,target)
@@ -140,8 +190,9 @@ function M.new(o)
         if terminal and terminal.reason=='cleanup_pending' then return done(result('unknown','cleanup_pending')) end
         if not alive() then refinement=nil;return done(fail('binding_changed')) end
         if aim and not eq(aim,target) then
+            failure=nil
             if not release() then terminal={status='unknown',reason='cleanup_pending'}; return done(result('unknown','cleanup_pending')) end
-            terminal=nil; aim=nil; refinement=nil;refresh_cause='target_changed'
+            terminal=nil; aim=nil; refinement=nil;failure=nil;refresh_cause='target_changed'
             return done(result('pending','target_changed'))
         end
         if terminal then return done(result(terminal.status,terminal.reason)) end
@@ -174,7 +225,7 @@ function M.new(o)
         end
         if total>=budget then return done(fail('budget_exhausted')) end
         if not scan then
-            refinement=nil
+            refinement,failure=nil,nil
             if not alive() then return done(fail('binding_changed')) end
             aim=vec(target)
             local d=dist(me,target)
@@ -204,7 +255,7 @@ function M.new(o)
                 clearance_line_trace=shape.clearance_line_trace,
                 spacing_cm=shape.radius_cm/2,budget=remaining,poll_budget=per})
             if not good or type(job)~='table' or type(job.poll)~='function' then return done(fail('sample_init:'..tostring(why or 'unknown'))) end
-            scan={job=job,start=vec(me),far=vec(far),started=t,consumed=0,step_cm=shape.step_cm,limit=remaining,per=per}
+            scan={job=job,start=vec(me),far=vec(far),started=t,consumed=0,step_cm=shape.step_cm,shape=shape,limit=remaining,per=per}
             oldest_started=t; completed_at=nil; scan_duration=nil
         end
         local ok,r=pcall(scan.job.poll)
@@ -228,17 +279,29 @@ function M.new(o)
             if total>=budget then return done(fail('budget_exhausted')) end
             return done(result('pending','sampling'))
         end
+        if r.status~='sampled_clear' then
+            failure=M.copy_failure{reason=r.reason,detail=r.failure_detail,scan={start=scan.start,far=scan.far,shape=scan.shape}}
+        end
         if r.status=='blocked' then return done(fail(type(r.reason)=='string' and r.reason~='' and r.reason or 'sample_blocked','blocked')) end
         if r.status~='sampled_clear' or type(r.initial)~='table' or r.initial.status~='clear' or
            type(r.samples)~='table' or not integer(r.sample_count) or r.sample_count<1 or r.sample_count>128 or #r.samples~=r.sample_count then
             return done(fail(type(r.reason)=='string' and r.reason~='' and r.reason or 'sample_unknown'))
         end
-        local pts={vec(scan.start)}
+        local pts={vec(scan.start)};local descents=0
         for _,sample in ipairs(r.samples) do
             local p=type(sample)=='table' and vec(sample.resolved)
             if not p then return done(fail('sample_geometry_unknown')) end
+            if sample.via~=nil then
+                local via=vec(sample.via);local prior=pts[#pts]
+                if not via or sample.sweep~='deferred_descent_clear' or via.X~=p.X or via.Y~=p.Y or
+                    via.Z~=prior.Z or p.Z>=prior.Z or prior.Z-p.Z>scan.step_cm then
+                    return done(fail('sample_descent_geometry_unknown'))
+                end
+                pts[#pts+1]=via;descents=descents+1
+            elseif sample.sweep=='deferred_descent_clear' then return done(fail('sample_descent_geometry_unknown')) end
             pts[#pts+1]=p
         end
+        if descents~=observed.deferred_descents then return done(fail('sample_descent_count_mismatch')) end
         local last=pts[#pts]
         if math.abs(last.X-scan.far.X)>1e-6 or math.abs(last.Y-scan.far.Y)>1e-6 then return done(fail('sample_endpoint_mismatch')) end
         if not valid_sensor() then
@@ -282,7 +345,7 @@ function M.new(o)
         if closed then return true end
         locked=true; latched=true
         if not release() then locked=false; return false,'cleanup_pending' end
-        closed=true; locked=false; return true
+        failure=nil;closed=true; locked=false; return true
     end
     return {check=check,close=close}
 end

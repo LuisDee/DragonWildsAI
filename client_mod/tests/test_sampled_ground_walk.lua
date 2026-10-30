@@ -1,5 +1,5 @@
 local here=debug.getinfo(1,'S').source:match('^@(.*)[/\\][^/\\]*$') or '.'
-local M=assert(loadfile(here..'/../scripts/sampled_ground_walk.lua'))()
+local M=assert(loadfile(os.getenv('SAMPLED_GROUND_WALK_FILE') or here..'/../scripts/sampled_ground_walk.lua'))()
 local pass,fail=0,0
 local function check(s,v) if v then pass=pass+1 else fail=fail+1; print('FAIL '..s) end end
 local function known(v) return {known=true,value=v} end
@@ -193,4 +193,102 @@ for _,case in ipairs({{47,'sampled_clear'},{47.01,'unknown'}}) do
 end
 f=terrain({92,110,130,150,170},nil); r=f:run()
 check('rolling terrain drift cannot pass wrong target floor',r.reason=='target_support_mismatch' and r.failure_detail.actual_z==172 and r.failure_detail.expected_z==98)
+
+do -- Immutable a849/a851 native requests/results: no invented unqueried geometry.
+ -- Diagnostic fixtures only, not hidden runtime coordinates or autonomous proof.
+ -- Observed native walking semantics:
+ -- https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/GameFramework/UCharacterMovementComponent/MoveAlongFloor?application_version=5.5
+ local floors={{7703.3343028396,185498.93608937,-3086.1674565941,2.1500010490417,0.0,false,true,true,false,true},{7800,185500,-3046.1674565941,43.413425445557,0.0,false,true,true,false,true},{7703.3343028396,185498.93608937,-3086.1674565941,2.1500010490417,0.0,false,true,true,false,true},{7717.1436881482,185499.0880766,-3046.1674565941,28.40145111084,0.0,false,true,true,false,true},{7730.9530734569,185499.24006384,-3032.4189066559,25.678609848022,0.0,false,true,true,false,true},{7724.0483808025,185499.16407022,-3032.4189066559,30.898445129395,0.0,false,true,true,false,true},{7730.9530734569,185499.24006384,-3021.1673507363,36.930168151855,0.0,false,true,true,false,true},{7744.7624587655,185499.39205107,-3015.9475178391,38.330959320068,0.0,false,true,true,false,true},{7758.5718440741,185499.5440383,-3012.1284761101,41.019397735596,0.0,false,true,true,false,true},{7772.3812293827,185499.69602553,-3010.9978727966,42.434921264648,0.0,false,true,true,false,true},{7786.1906146914,185499.84801277,-3011.2827930123,44.967807769775,0.0,false,true,true,false,true},{7800.0,185500.0,-3014.100599733,47.400100708008,0.0,false,false,false,false,false},{7800.0,185500.0,-3054.100599733,35.480270385742,0.0,false,true,true,false,true},{7703.3343028396,185498.93608937,-3086.1674565941,2.1500010490417,0.0,false,true,true,false,true},{7800,185500,-3046.1674565941,43.413425445557,0.0,false,true,true,false,true},{7703.3343028396,185498.93608937,-3086.1674565941,2.1500010490417,0.0,false,true,true,false,true},{7717.1436881482,185499.0880766,-3046.1674565941,28.40145111084,0.0,false,true,true,false,true},{7730.9530734569,185499.24006384,-3032.4189066559,25.678609848022,0.0,false,true,true,false,true},{7724.0483808025,185499.16407022,-3032.4189066559,30.898445129395,0.0,false,true,true,false,true},{7730.9530734569,185499.24006384,-3021.1673507363,36.930168151855,0.0,false,true,true,false,true},{7744.7624587655,185499.39205107,-3015.9475178391,38.330959320068,0.0,false,true,true,false,true},{7758.5718440741,185499.5440383,-3012.1284761101,41.019397735596,0.0,false,true,true,false,true},{7772.3812293827,185499.69602553,-3010.9978727966,42.434921264648,0.0,false,true,true,false,true},{7786.1906146914,185499.84801277,-3011.2827930123,44.967807769775,0.0,false,true,true,false,true},{7800.0,185500.0,-3014.100599733,47.400100708008,0.0,false,false,false,false,false},{7800.0,185500.0,-3054.100599733,35.480270385742,0.0,false,true,true,false,true},{7793.0953073457,185499.92400638,-3014.100599733,45.893817901611,0.0,false,true,true,false,true},{7800.0,185500.0,-3017.8444165856,47.400100708008,0.0,false,false,false,false,false},{7800.0,185500.0,-3057.8444165856,31.736450195312,0.0,false,true,true,false,true},{7796.5476536728,185499.96200319,-3017.8444165856,46.245410919189,0.0,false,true,true,false,true},{7800.0,185500.0,-3021.9398264557,47.400100708008,0.0,false,false,false,false,false},{7800.0,185500.0,-3061.9398264557,27.641052246094,0.0,false,true,true,false,true},{7798.2738268364,185499.9810016,-3021.9398264557,47.400100708008,0.0,false,false,false,false,false},{7798.2738268364,185499.9810016,-3061.9398264557,27.331638336182,0.0,false,true,true,false,true},{7800.0,185500.0,-3047.1214637428,42.459415435791,0.0,false,true,true,false,true}}
+ local sweeps={{7703.3343028396,185498.93608937,-3086.1674565941,7800,185500,-3087.4308809906,true},{7703.3343028396,185498.93608937,-3086.1674565941,7703.3343028396,185498.93608937,-3076.1674565941,false},{7703.3343028396,185498.93608937,-3086.1674565941,7717.1436881482,185499.0880766,-3072.4189066559,false},{7717.1436881482,185499.0880766,-3072.4189066559,7730.9530734569,185499.24006384,-3055.9475154549,true},{7717.1436881482,185499.0880766,-3072.4189066559,7724.0483808025,185499.16407022,-3061.1673507363,false},{7724.0483808025,185499.16407022,-3061.1673507363,7730.9530734569,185499.24006384,-3055.9475178391,false},{7730.9530734569,185499.24006384,-3055.9475178391,7744.7624587655,185499.39205107,-3052.1284761101,false},{7744.7624587655,185499.39205107,-3052.1284761101,7758.5718440741,185499.5440383,-3050.9978727966,false},{7758.5718440741,185499.5440383,-3050.9978727966,7772.3812293827,185499.69602553,-3051.2827930123,false},{7772.3812293827,185499.69602553,-3051.2827930123,7786.1906146914,185499.84801277,-3054.100599733,false},{7786.1906146914,185499.84801277,-3054.100599733,7800.0,185500.0,-3087.4308690697,true},{7786.1906146914,185499.84801277,-3054.100599733,7800.0,185500.0,-3054.100599733,false},{7800.0,185500.0,-3054.100599733,7800.0,185500.0,-3087.4308690697,false},{7703.3343028396,185498.93608937,-3086.1674565941,7800,185500,-3087.4308809906,true},{7703.3343028396,185498.93608937,-3086.1674565941,7703.3343028396,185498.93608937,-3076.1674565941,false},{7703.3343028396,185498.93608937,-3086.1674565941,7717.1436881482,185499.0880766,-3072.4189066559,false},{7717.1436881482,185499.0880766,-3072.4189066559,7730.9530734569,185499.24006384,-3055.9475154549,true},{7717.1436881482,185499.0880766,-3072.4189066559,7724.0483808025,185499.16407022,-3061.1673507363,false},{7724.0483808025,185499.16407022,-3061.1673507363,7730.9530734569,185499.24006384,-3055.9475178391,false},{7730.9530734569,185499.24006384,-3055.9475178391,7744.7624587655,185499.39205107,-3052.1284761101,false},{7744.7624587655,185499.39205107,-3052.1284761101,7758.5718440741,185499.5440383,-3050.9978727966,false},{7758.5718440741,185499.5440383,-3050.9978727966,7772.3812293827,185499.69602553,-3051.2827930123,false},{7772.3812293827,185499.69602553,-3051.2827930123,7786.1906146914,185499.84801277,-3054.100599733,false},{7786.1906146914,185499.84801277,-3054.100599733,7800.0,185500.0,-3087.4308690697,true},{7786.1906146914,185499.84801277,-3054.100599733,7793.0953073457,185499.92400638,-3057.8444165856,false},{7793.0953073457,185499.92400638,-3057.8444165856,7800.0,185500.0,-3087.4308657318,true},{7793.0953073457,185499.92400638,-3057.8444165856,7796.5476536728,185499.96200319,-3061.9398264557,false},{7796.5476536728,185499.96200319,-3061.9398264557,7800.0,185500.0,-3087.4308776528,true},{7796.5476536728,185499.96200319,-3061.9398264557,7798.2738268364,185499.9810016,-3087.1214637428,true},{7798.2738268364,185499.9810016,-3087.1214637428,7800.0,185500.0,-3087.4308781296,false}}
+ local calls,unknown=0,0
+ local function near(a,b)return math.abs(a-b)<1e-4 end -- JSON/native float replay noise, cm
+ local function floor(p)
+  calls=calls+1;local best,delta
+  for _,q in ipairs(floors)do
+   if near(p.X,q[1]) and near(p.Y,q[2]) and near(p.Z,q[3]) then
+    local d=math.abs(p.Z-q[3]);if not delta or d<delta then best,delta=q,d end
+   end
+  end
+  if not best then unknown=unknown+1;error('unrecorded native floor')end
+  local q=best
+  return {status='observed',consumed=1,callbacks=1,fields={FloorDist=known(q[4]),LineDist=known(q[5]),
+   bLineTrace=known(q[6]),bWalkableFloor=known(q[7]),bBlockingHit=known(q[8]),hit={bStartPenetrating=known(q[9]),bBlockingHit=known(q[10])}}}
+ end
+ local function sweep(a,b)
+  calls=calls+1;local best,delta
+  for _,q in ipairs(sweeps)do
+   if near(a.X,q[1]) and near(a.Y,q[2]) and near(a.Z,q[3]) and near(b.X,q[4]) and near(b.Y,q[5]) and near(b.Z,q[6]) then
+    local d=math.abs(a.Z-q[3])+math.abs(b.Z-q[6]);if not delta or d<delta then best,delta=q,d end
+   end
+  end
+  if not best then unknown=unknown+1;error('unrecorded native sweep')end
+  return {known=true,blocking=best[7],consumed=1}
+ end
+ for _,per in ipairs({1,2,4})do
+  calls,unknown=0,0
+  local tx=assert(M.new{floor=floor,sweep=sweep,overlap=function(p)return sweep(p,{X=p.X,Y=p.Y,Z=p.Z+10})end,live=function()return true end,
+   from_center={X=7703.3343028396,Z=-3086.1674565941,Y=185498.93608937},to_feet={X=7800,Z=-3178.55,Y=185500},radius_cm=34,half_height_cm=88,step_cm=45,clearance_cm=2.1500010490417,clearance_line_trace=false,spacing_cm=16,budget=96,poll_budget=per})
+  local r;local max=0
+  repeat local before=calls;r=tx.poll();max=math.max(max,calls-before) until r.status~='pending'
+  if per==4 then print('native descent replay status='..r.status..' reason='..r.reason..' queries='..calls..' unknown='..unknown..' deferred='..tostring(r.deferred_descent_count)) end
+  check('recorded a851 full segment admits descent budget '..per,r.status=='sampled_clear' and r.deferred_descent_count==1 and r.refinement_count==1 and unknown==0)
+  check('recorded native callbacks all charged '..per,r.consumed_total==calls and calls==23 and max<=per)
+  local last=r.samples[#r.samples]
+  check('recorded descent retains explicit two-leg geometry '..per,last and last.sweep=='deferred_descent_clear' and last.via and last.via.X==last.resolved.X and last.via.Z>last.resolved.Z)
+ end
+end
+
+if os.getenv('SAMPLED_NATIVE_REPLAY_ONLY')=='1' then print(string.format('%d passed, %d failed',pass,fail));os.exit(fail==0 and 0 or 1)end
+do -- Independent configuration-space obstacle crossing the diagonal only.
+ local function descent(mode,per,budget)
+  local f={calls=0,alive=true,segments={},mode=mode}
+  local function floor(p)
+   f.calls=f.calls+1
+   local centre=p.X==0 and 92 or (mode=='rising' and 112 or mode=='flat' and 92 or 72)
+   local d=p.Z-centre;local supported=d<=47.4 and mode~='missing'
+   return {status='observed',consumed=1,callbacks=1,fields={FloorDist=known(d),LineDist=known(0),bLineTrace=known(false),
+    bWalkableFloor=known(supported),bBlockingHit=known(supported),hit={bStartPenetrating=known(false),bBlockingHit=known(supported)}}}
+  end
+  local function sweep(a,b)
+   f.calls=f.calls+1;f.segments[#f.segments+1]={a=a,b=b}
+   local dx,dz=b.X-a.X,b.Z-a.Z;local len=dx*dx+dz*dz
+   local t=len>0 and math.max(0,math.min(1,((5-a.X)*dx+(84-a.Z)*dz)/len)) or 0
+   local blocked=(a.X+t*dx-5)^2+(a.Z+t*dz-84)^2<1
+   if mode=='wall' or mode=='rising' or mode=='flat' then blocked=(a.X<5 and b.X>=5) end
+   if mode=='down_blocked' then blocked=(a.Z>=84 and b.Z<84) end
+   local horizontal=dx>0 and dz==0;local down=dx==0 and dz<0
+   if mode=='life_horizontal' and horizontal or mode=='life_down' and down then f.alive=false end
+   if mode=='reenter' and horizontal then f.nested=f.tx.poll() end
+   if mode=='throw_horizontal' and horizontal then error('sensor callback failure')end
+   local unknown=mode=='unknown_horizontal' and horizontal or mode=='unknown_down' and down
+   return {known=not unknown,blocking=blocked,consumed=1}
+  end
+  f.tx=assert(M.new{from_center={X=0,Y=0,Z=94},to_feet={X=10,Y=0,Z=(mode=='rising' and 20 or mode=='flat' and 0 or -20)},
+   radius_cm=20,half_height_cm=90,step_cm=45,clearance_cm=2,clearance_line_trace=false,spacing_cm=10,
+   budget=budget or 40,poll_budget=per or 1,live=function()return f.alive end,floor=floor,sweep=sweep,
+   overlap=function()f.calls=f.calls+1;return {known=true,blocking=false,consumed=1}end})
+  function f:run()
+   local r;self.max=0
+   for _=1,100 do local before=self.calls;r=self.tx.poll();self.max=math.max(self.max,self.calls-before);if r.status~='pending'then return r end end
+   error('pending descent did not terminate')
+  end
+  return f
+ end
+ for _,per in ipairs({1,2,4})do
+  local f=descent('clear',per);local r=f:run()
+  check('deferred geometry all counted '..per,r.status=='sampled_clear' and r.deferred_descent_count==1 and r.sample_count==1 and r.consumed_total==7 and f.calls==7 and f.max<=per)
+  check('diagonal remains blocked evidence '..per,r.first_blocked and r.first_blocked.from.Z==94 and r.first_blocked.to.Z==74 and r.samples[1].via.Z==94 and r.samples[1].sweep=='deferred_descent_clear')
+  r.samples[1].via.Z=999;check('descent via copied '..per,f.tx.poll().samples[1].via.Z==94)
+ end
+ for _,budget in ipairs({4,5,6})do
+  local f=descent('clear',1,budget);local r=f:run()
+  check('uncompleted descent budget '..budget,r.reason=='budget_exhausted' and r.sample_count==0 and r.deferred_descent_count==0 and r.consumed_total==budget and f.calls==budget)
+ end
+ for _,mode in ipairs({'wall','down_blocked','unknown_horizontal','unknown_down','life_horizontal','life_down','reenter','throw_horizontal','rising','flat','missing'})do
+  local f=descent(mode);local r=f:run()
+  check('descent negative '..mode,r.status~='sampled_clear' and r.deferred_descent_count==0 and r.consumed_total==f.calls and f.max<=1)
+  if mode=='wall' or mode=='down_blocked' then check('failed descent uses bounded refinement '..mode,r.reason=='sweep_blocking' and r.refinement_count==2)end
+  if mode=='reenter' then check('descent reentry latches',r.reason=='binding_changed' and f.nested.reason=='reentrant_poll')end
+ end
+end
 print(string.format('%d passed, %d failed',pass,fail)); os.exit(fail==0 and 0 or 1)

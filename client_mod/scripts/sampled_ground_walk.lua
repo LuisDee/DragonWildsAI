@@ -59,6 +59,7 @@ function M.new(o)
     local pending,terminal,busy,latched,start_floor=nil,nil,false,false,nil
     local todo,refinements,first_blocked,last_blocked=nil,0,nil,nil
     local failure_detail,query_origin=nil,nil
+    local deferred_descents=0
     local function detail(phase_name, origin, r)
         local d={phase=phase_name,query=vec(origin)}
         if type(r)=='table' then
@@ -92,9 +93,38 @@ function M.new(o)
         return {status=status,reason=reason,consumed_total=total,spacing_cm=actual_spacing,coarse_count=n,
             sample_count=#samples,completed_samples=#samples,initial=copy(initial),start_floor=copy(start_floor),samples=copy(samples),failure_detail=copy(failure_detail),
             refinement_count=refinements,first_blocked=copy(first_blocked),last_blocked=copy(last_blocked),
+            deferred_descent_count=deferred_descents,
             limits='sampled observations only; no continuity proof or movement authority'}
     end
     local function finish(status,reason) terminal=result(status,reason); return copy(terminal) end
+    local function accept_sample()
+        samples[#samples+1]=pending; current=vec(pending.resolved); pending=nil
+        todo[#todo]=nil
+        if #todo==0 then todo=nil;index=index+1 end
+        if index>n then
+            if initial.status~='clear' then return finish('unknown','initial_overlap_unknown') end
+            local expected_z=b.Z+hh+gap
+            local delta=current.Z-expected_z
+            if not finite(expected_z) or not finite(delta) then return finish('unknown','invalid_derived_geometry') end
+            if math.abs(delta)>step then
+                failure_detail={phase='target_support',actual_z=current.Z,expected_z=expected_z}
+                return finish('unknown','target_support_mismatch')
+            end
+            return finish('sampled_clear','samples_and_full_shape_sweeps_clear')
+        end
+        phase='floor'
+    end
+    local function refine_sample()
+        if pending.depth>=2 then return finish('blocked','sweep_blocking') end
+        if n+refinements+1>limit then return finish('unknown','sample_limit') end
+        -- Retain bounded support-following subdivision after a blocked candidate.
+        -- https://ompl.kavrakilab.org/stateValidation.html
+        local task=todo[#todo];local depth=task.depth+1
+        todo[#todo]={X=task.X,Y=task.Y,depth=depth}
+        todo[#todo+1]={X=(current.X+task.X)/2,Y=(current.Y+task.Y)/2,depth=depth}
+        if not finite(todo[#todo].X) or not finite(todo[#todo].Y) then return finish('unknown','invalid_derived_geometry') end
+        refinements=refinements+1;pending=nil;phase='floor'
+    end
     local function poll()
         if busy then latched=true; return result('unknown','reentrant_poll') end
         if terminal then
@@ -131,7 +161,8 @@ function M.new(o)
                 query_origin=pending.expected
                 ok,r=pcall(floor,vec(query_origin),1)
             else
-                local from,to=vec(current),pending and vec(pending.resolved)
+                local from=phase=='descent_down' and pending and vec(pending.via) or vec(current)
+                local to=pending and vec(phase=='descent_horizontal' and pending.via or pending.resolved)
                 if not from or not to then busy=false; return finish('unknown','invalid_derived_geometry') end
                 ok,r=pcall(sweep,from,to,1)
             end
@@ -141,44 +172,35 @@ function M.new(o)
                 if phase=='floor' or phase=='floor_fallback' or phase=='start_floor' then failure_detail=detail(phase, phase=='start_floor' and a or query_origin, r) end
                 busy=false; return finish('unknown','query_failed_or_budget_unknown')
             end
-            if phase=='overlap' or phase=='sweep' then
-                if r.known~=true or type(r.blocking)~='boolean' then busy=false; return finish('unknown',phase..'_unknown') end
+            if phase=='overlap' or phase=='sweep' or phase=='descent_horizontal' or phase=='descent_down' then
+                if r.known~=true or type(r.blocking)~='boolean' then
+                    if phase=='overlap' then failure_detail={phase=phase,query=vec(a)}
+                    else failure_detail={phase=phase,from=phase=='descent_down' and vec(pending.via) or vec(current),
+                        to=vec(phase=='descent_horizontal' and pending.via or pending.resolved),depth=pending.depth} end
+                    busy=false; return finish('unknown',phase..'_unknown')
+                end
                 if r.blocking then
                     if phase=='overlap' then initial={status='blocked',reason='shape_overlap_query_blocking'} end
                     if phase=='overlap' then busy=false; return finish('blocked','overlap_blocking') end
-                    local blocked={from=vec(current),to=vec(pending.resolved),depth=pending.depth}
+                    local blocked={from=phase=='descent_down' and vec(pending.via) or vec(current),
+                        to=vec(phase=='descent_horizontal' and pending.via or pending.resolved),depth=pending.depth}
                     if not first_blocked then first_blocked=copy(blocked) end
-                    last_blocked=copy(blocked);failure_detail={phase='sweep',from=vec(blocked.from),to=vec(blocked.to),depth=blocked.depth}
-                    if pending.depth>=2 then busy=false;return finish('blocked','sweep_blocking') end
-                    if n+refinements+1>limit then busy=false;return finish('unknown','sample_limit') end
-                    -- A blocked chord stays blocked. Adapt discrete subdivision
-                    -- with fresh support at both new endpoints, not interpolated
-                    -- Z or a weakened collision check:
-                    -- https://ompl.kavrakilab.org/stateValidation.html
-                    -- https://raw.githubusercontent.com/ompl/ompl/main/src/ompl/base/src/DiscreteMotionValidator.cpp
-                    local task=todo[#todo];local depth=task.depth+1
-                    todo[#todo]={X=task.X,Y=task.Y,depth=depth}
-                    todo[#todo+1]={X=(current.X+task.X)/2,Y=(current.Y+task.Y)/2,depth=depth}
-                    if not finite(todo[#todo].X) or not finite(todo[#todo].Y) then busy=false;return finish('unknown','invalid_derived_geometry') end
-                    refinements=refinements+1;pending=nil;phase='floor'
-                elseif phase=='overlap' then initial={status='clear',reason='shape_overlap_query_clear'}; phase='start_floor'
-                else
-                    pending.sweep='clear'; samples[#samples+1]=pending; current=vec(pending.resolved); pending=nil
-                    todo[#todo]=nil
-                    if #todo==0 then todo=nil;index=index+1 end
-                    if index>n then
-                        busy=false
-                        if initial.status~='clear' then return finish('unknown','initial_overlap_unknown') end
-                        local expected_z=b.Z+hh+gap
-                        local delta=current.Z-expected_z
-                        if not finite(expected_z) or not finite(delta) then return finish('unknown','invalid_derived_geometry') end
-                        if math.abs(delta)>step then
-                            failure_detail={phase='target_support',actual_z=current.Z,expected_z=expected_z}
-                            return finish('unknown','target_support_mismatch')
-                        end
-                        return finish('sampled_clear','samples_and_full_shape_sweeps_clear')
+                    last_blocked=copy(blocked);failure_detail={phase=phase,from=vec(blocked.from),to=vec(blocked.to),depth=blocked.depth}
+                    if phase=='sweep' and pending.resolved.Z<current.Z then
+                        -- Native grounded walking need not lower along the endpoint chord.
+                        -- Observe horizontal passage then settling; neither input nor StepUp emulation.
+                        -- https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/GameFramework/UCharacterMovementComponent/MoveAlongFloor?application_version=5.5
+                        pending.via={X=pending.resolved.X,Y=pending.resolved.Y,Z=current.Z}
+                        phase='descent_horizontal'
+                    else
+                        local done=refine_sample();if done then busy=false;return done end
                     end
-                    phase='floor'
+                elseif phase=='overlap' then initial={status='clear',reason='shape_overlap_query_clear'}; phase='start_floor'
+                elseif phase=='descent_horizontal' then phase='descent_down'
+                else
+                    pending.sweep=phase=='descent_down' and 'deferred_descent_clear' or 'clear'
+                    if phase=='descent_down' then deferred_descents=deferred_descents+1 end
+                    local done=accept_sample();if done then busy=false;return done end
                 end
             else
                 failure_detail=detail(phase,phase=='start_floor' and a or query_origin,r)

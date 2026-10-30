@@ -125,6 +125,85 @@ reviewed finite query/time search budget. Candidate replays must fail closed on
 unrecorded geometry; additional native queries, if needed, belong to root's
 bounded read-only collection. No production planner/limit changes yet.
 
+### a843 amendment: bounded verification of more than one invalid walking edge
+
+Root executed a private batching comparison at the same stationary historical
+query origin/current loaded geometry. `batch-production-plan-a843.json` finds a
+22-point **ray proposal** after seven blocked rounds, 798 raw queries, .367 CPU
+seconds, with at most16 native queries in any poll; actual pawn and guards remain
+unchanged. The original12-replan bound suffices. This supports a small algorithm
+adaptation rather than increasing12. It does not prove full-capsule feasibility
+or actual detour execution; root will validate the proposed actual-start and
+subsequent full-capsule edges before an expensive release gate.
+
+The private variant records a candidate edge's failure, then checks other
+ordinary walking edges from the same already-planned path until its query slice
+is used. It returns `blocked` when any checked edge failed, including at a slice
+boundary; it cannot return `ok` until every required candidate edge is verified.
+Lazy graph removal and future A* planning remain unchanged. Do not promote
+unknown results or initial-connector failures into successful validation.
+
+Production scope is an explicit **opt-in** only for the new blocked-native,
+strict local walking observation. Apply the existing long-goal walking-only
+environment override for this recovery even when its original destination is
+nearby: jump0/djump0/drop<=step/no-superjump. Legacy local planning, ordinary
+strict observation and typed traversal keep their existing policies. Unexpected
+non-walking actions cannot acquire this walking authority.
+
+The private first batching variant exposed a pre-existing query-accounting
+hazard: one remaining query can be consumed by a valid slope midpoint, then a
+horizontal check would exceed the slice. The opted-in implementation must
+reserve/account **each native ray**, including actual-source connector,
+midpoint and horizontal checks. Cache an accepted midpoint for its exact graph
+edge so a last-slot midpoint can resume on the next slice without repeating
+forever. Invalidity must survive slicing via the graph's rejected edge evidence
+and a `blocked` outcome; unfinished work is `verifying`, never `ok`.
+
+An additional PRIVATE budget-hardened variant, with per-edge accepted-midpoint
+cache plus a check before its following horizontal ray, replays a843's immutable
+recording successfully: `observed`, seven blocked rounds, 798 queries, zero
+unrecorded requests, .097 offline CPU seconds. This is algorithm replay only.
+No result was invented for missing geometry. Before a843 collection, that
+same-bounds batching experiment stopped on its first unrecorded query rather
+than assuming clear (`replay-batch-a840.json`). Baseline offline replay exactly
+reproduces a840's758 requests and13 blocked outcomes.
+
+The earlier a840 HOLD applies to dispatch-only repair. The amended proposal is
+**native blocked→owned strict walking observation plus opted-in bounded batching**,
+pending fresh review, focused regressions and the capsule discriminator. Owned
+files after authorization: mover and its integration tests, `localplan.lua` and
+its focused tests, plus this note. No production edits authorized by this note.
+
+### a844–a846 reversal: capsule collision is not walking-edge invalidity
+
+The read-only a844 full-capsule route check clears proposed executor edges2–5,
+then blocks node5 `[7700,185500,-3178]` floor cm→node6
+`[7800,185500,-3178]`, including smaller supported chords. It used81 queries,
+.277 CPU seconds, exact lease cleanup and no movement. This initially motivated
+a PRIVATE combined planner/capsule feedback discriminator. That probe was
+prepared but **NOT executed or approved as production behavior**.
+
+Root then obtained stronger real-control evidence: ordinary public go_to a845
+reached approximately node5 in .516 s; a846 traversed approximately node5→node6
+in .563 s, health100, ending near `[78.06,1855,-30.89]` m. The observed near-end
+pose is grounded with a two-point native path and `walk_guarded=nil`. Detailed
+jump/input/ground/trajectory attribution is still being collected: end-grounded
+alone does not exclude a brief jump, and exact StepUp versus slide is unproved.
+Nevertheless the sampled blocked chord did not establish the physical edge was
+impassable. Do not poison that graph edge or approve the combined rejection
+feedback as a generic walking validator on this evidence.
+
+**Current implementation HOLD:** narrow strict-local dispatch and bounded ray
+batching remain supported components, but they do not repair the demonstrated
+controller/sampler disagreement. Native walking can follow floor, step or slide
+where this chord model collides. Select a generic repair only after attributing
+the actual player motion and checking existing safe APIs. No threshold loosening,
+unchecked collision bypass, hidden waypoint or blind invalidation follows.
+Any future proposal validation must model the relevant walking kinematics or
+label a chord block as unresolved, while preserving actual-input guard safety,
+same-goal ownership and bounded truthful failure. The PRIVATE combined probe
+must not be treated as an authorized graph-edge rejection policy.
+
 The knee ray is not a substitute: it skips memory and starts 60 cm ahead; the
 native side collision was within about 12 cm. Its exact miss is not recorded.
 The full-shape guard's blocked result should trigger this bounded planning
@@ -141,6 +220,12 @@ detour, and arrive only under the existing original-goal/floor predicate.
 No forced helper successes, progress, local paths or expected result injection.
 The discriminator must exercise the unchanged production observation and
 verification budgets; a generous diagnostic wrapper cannot substitute for it.
+Replay a840 baseline exhaustion and a843 proposed success from recorded native
+queries. New queries are unknown and fail closed. Add slice-limit tests for
+budgets1/2/16, valid midpoint in the last slot, actual-source connector consuming
+the last slot, several invalid edges in a candidate, invalid→slice-end, and
+unfinished candidates. Every native trace count must stay within the supplied
+slice; no repeated midpoint starvation, false `ok`, or typed/legacy activation.
 
 Negative controls: no local route; ray-valid but capsule-blocked first connector;
 unknown/blocked/cleanup failure; repeated rejected route with new table identity;
@@ -191,3 +276,16 @@ Decision: **reuse/adapt** existing strict local observation, planner and guarded
 executor after observed native collision. Nav2 is conceptual precedent only;
 no APIs or thresholds imported. Build neither a new planner nor a StepUp/slide
 emulator. Preserve direct source URLs near any later adapted code.
+
+Amendment search/open, 2026-10-30:
+`site:ompl.kavrakilab.org LazyPRM constructSolution invalid edges remove checkMotion`;
+`site:docs.nav2.org smac planner 2d max_planning_time max_iterations`.
+
+- https://ompl.kavrakilab.org/LazyPRM_8cpp_source.html — lazy invalid-edge removal
+  and repeated solution construction under an explicit termination condition.
+  OMPL's edge loop returns after its first invalid edge; this is conceptual
+  precedent, **not** a claim that OMPL implements our within-slice batching.
+- https://api.nav2.org/nav2-rolling/html/smac__planner__2d__impl_8hpp_source.html
+  — explicit search iteration/time budgets distinguish resource exhaustion from
+  no valid path. This comparison did not adopt Nav2's values or enlarge our
+  limits; measured batching keeps the existing16-query/12-replan bounds.

@@ -1333,6 +1333,12 @@ local function trace_route(st, reason, t, me, goal, source, aim, report)
         guard_status=scalar(r.status),guard_reason=scalar(r.reason),guard_queries=scalar(r.consumed_total),
         scan_duration_s=scalar(r.scan_duration_s),cache_age_s=scalar(r.cache_completion_age_s),
         oldest_age_s=scalar(r.oldest_observation_age_s),refresh_cause=scalar(r.refresh_cause)}
+    -- Snapshot the bounded guard diagnostic before WALK.close clears its live report.
+    -- https://dev.epicgames.com/documentation/en-us/unreal-engine/visual-logger-in-unreal-engine
+    if r.failure and WALK.modules and WALK.modules.guard and WALK.modules.guard.copy_failure then
+        row.guard_failure=WALK.modules.guard.copy_failure(r.failure)
+    end
+    row.deferred_descent_count=scalar(r.deferred_descent_count)
     rows[#rows+1]=row
     if #rows>64 then table.remove(rows,1);st.route_trace_dropped=(st.route_trace_dropped or 0)+1 end
     return row
@@ -3133,6 +3139,7 @@ local function tick(st, gen, log)
                 return
             end
             local memory=src=='memory'
+            trace_route(st,(memory and 'memory_guard_rejected:' or 'walking_guard_rejected:')..tostring(r.reason or 'terrain_unknown'),t,me,goal,nil,nil,r)
             if not WALK.close(st) or not owned(binding(st,pawn)) then
                 return finish(st,{status='failed',reason='verification_failed',detail='walking sensor cleanup pending'},log)
             end
@@ -3158,7 +3165,6 @@ local function tick(st, gen, log)
             end
             -- Preserve the memory as a proposal; do not step off toward its
             -- wrong-floor entry or select it again through ordinary recovery.
-            trace_route(st,'memory_guard_rejected:'..st.walk_failure,t,me,goal,nil,nil,r)
             WALK.invalidate_native(st)
             st.mpath,st.memory_binding,st.mwp,st.msrc,st.bug,st.stepoff,st.backtrack_until=nil,nil,nil,nil,nil,nil,nil
             st.nav_required,st.local_observe_done,st.mem_retry=st.use_nav~=false,false,true

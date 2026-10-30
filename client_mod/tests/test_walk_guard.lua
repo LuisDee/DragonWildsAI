@@ -202,4 +202,94 @@ f.opts.read_time=function()
 end
 g=f:start();r=f:check(0,100,0);reenter_clock=true;r=f:check(0,100,.1)
 check('cached clock reentry cannot authorize clear',r.status=='unknown' and r.reason=='binding_changed' and f.nested.reason=='reentrant_check')
+do -- Actual sampler + independent C-space lip: horizontal then settling clears.
+ local function descent_guard(target)
+  local f=fixture();local calls=0
+  f.opts.sample_module=assert(loadfile(here..'/../scripts/sampled_ground_walk.lua'))();f.opts.budget=100
+  f.opts.acquire=function()
+   f.acquires=f.acquires+1
+   return {shape={radius_cm=34,half_height_cm=88,step_cm=45,clearance_cm=2,clearance_line_trace=false},
+    valid=function()return f.valid end,close=function()f.closes=f.closes+1;return f.cleanup end,
+    initial=function()calls=calls+1;return {known=true,blocking=false,consumed=1}end,
+    floor=function(p)
+     calls=calls+1;local d=p.Z-(p.X>90 and 68 or 88);local supported=d<=47.4
+     return {status='observed',consumed=1,callbacks=1,fields={FloorDist=known(d),LineDist=known(0),bLineTrace=known(false),
+      bBlockingHit=known(supported),bWalkableFloor=known(supported),hit={bStartPenetrating=known(false),bBlockingHit=known(supported)}}}
+    end,
+    sweep=function(a,b)
+     calls=calls+1;local dx,dz=b.X-a.X,b.Z-a.Z;local length=dx*dx+dz*dz
+     local t=length>0 and math.max(0,math.min(1,((91.6666666667-a.X)*dx+(80-a.Z)*dz)/length))or 0
+     return {known=true,blocking=(a.X+t*dx-91.6666666667)^2+(a.Z+t*dz-80)^2<1,consumed=1}
+    end}
+  end
+  local g=f:start();local target={X=target or 100,Y=0,Z=-20};local r
+  for i=0,30 do r=g.check(cp(f.pose),target,i*.005);if r.status~='pending'then break end end
+  check('real descent guard accounts every callback',r.status=='clear' and r.deferred_descent_count==1 and r.refinement.deferred_descents==1 and r.consumed_total==calls)
+  return f,g,target
+ end
+ local f,g,target=descent_guard()
+ for _,z in ipairs({90,80,70})do
+  f.pose={X=100,Y=0,Z=z};local r=g.check(cp(f.pose),target,.2)
+  check('vertical cached interval admits observed height '..z,r.status=='clear' and f.acquires==1)
+ end
+ f.pose={X=100,Y=0,Z=136};local r=g.check(cp(f.pose),target,.21)
+ check('vertical cache Z remains bounded',r.status=='pending' and r.refresh_cause=='outside_corridor' and f.closes==1)
+ f,g,target=descent_guard();f.pose={X=100,Y=0,Z=-200};r=g.check(cp(f.pose),target,.2)
+ check('descent cache rejects another floor',r.status~='clear' and f.closes==1)
+ f,g,target=descent_guard(150);f.pose={X=95,Y=0,Z=80};r=g.check(cp(f.pose),target,.2)
+ check('vertical distance supplies no forward reserve',r.status=='pending' and r.refresh_cause=='outside_corridor')
+ for _,kind in ipairs({'x','height','nonfinite','ascending','drop','missing','tag','count','boolean_count'})do
+  f=fixture();f.opts.sample_module={new=function(o)return {poll=function()
+   local via={X=100,Y=0,Z=90};local p={X=100,Y=0,Z=70};local count=1;local tag='deferred_descent_clear'
+   if kind=='x'then via.X=99 elseif kind=='height'then via.Z=91 elseif kind=='nonfinite'then via.Z=math.huge
+   elseif kind=='ascending'then p.Z=91 elseif kind=='drop'then p.Z=44 elseif kind=='missing'then via=nil
+   elseif kind=='tag'then tag='clear' elseif kind=='count'then count=2 else count=false end
+   return {status='sampled_clear',initial={status='clear'},sample_count=1,consumed_total=1,deferred_descent_count=count,
+    samples={{resolved=p,via=via,sweep=tag}}}
+  end}end}
+  g=f:start();r=g.check(cp(f.pose),{X=100,Y=0,Z=-20},0)
+  check('malformed deferred cache '..kind,r.status=='unknown' and f.closes==1)
+ end
+end
+do -- Bounded transient failure evidence survives cleanup without native reads.
+ local f=fixture();local polls=0
+ f.opts.sample_module={new=function(o)return {poll=function()
+  polls=polls+1
+  return {status='unknown',reason='floor_resolution_out_of_bounds',consumed_total=1,
+   failure_detail={phase='floor',query={X=17,Y=0,Z=130},depth=1,actual_z=70,expected_z=90,callbacks=1,
+    fields={bWalkableFloor=true,bLineTrace=false,FloorDist=62,ImpactNormal={X=0,Y=0,Z=1},secret='omit'},arbitrary={1,2,3}}}
+ end}end}
+ local g=f:start();local target={X=100,Y=0,Z=0};local r=g.check(cp(f.pose),target,0)
+ check('terminal failure captures scan and floor reference',r.reason=='floor_resolution_out_of_bounds' and f.closes==1 and r.failure and
+  r.failure.scan.start.X==0 and r.failure.scan.far.X==100 and r.failure.scan.shape.clearance_line_trace==false and
+  r.failure.scan.shape.clearance_cm==2 and r.failure.scan.shape.step_cm==45 and r.failure.detail.fields.FloorDist==62)
+ r.failure.detail.fields.FloorDist=999;r.failure.scan.start.X=999
+ r=g.check(cp(f.pose),target,.01)
+ check('failure diagnostic independent after terminal cleanup',r.failure.detail.fields.FloorDist==62 and r.failure.scan.start.X==0 and polls==1 and r.consumed_total==1)
+ check('failure diagnostic whitelists fields',r.failure.detail.arbitrary==nil and r.failure.detail.fields.secret==nil)
+ local malformed=M.copy_failure{reason=string.rep('x',81),detail={phase='floor',query={X=math.huge,Y=0,Z=0},actual_z=0/0,
+  fields={FloorDist=math.huge,bWalkableFloor='yes',Normal=setmetatable({},{__index=function()error('must not dereference')end})}}}
+ check('malformed diagnostic omitted without interpretation',malformed.reason==nil and malformed.detail.query==nil and malformed.detail.actual_z==nil and
+  malformed.detail.fields.FloorDist==nil and malformed.detail.fields.bWalkableFloor==nil and malformed.detail.fields.Normal==nil)
+ f.cleanup=false;r=g.check(cp(f.pose),{X=101,Y=0,Z=0},.02)
+ check('new aim hides prior failure even with cleanup pending',r.failure==nil)
+ f.alive=false;r=g.check(cp(f.pose),target,.03)
+ check('stale binding hides failure',r.failure==nil and r.status~='clear')
+ -- The ORIGINAL failure may already have an ambiguous release. Its fast path
+ -- must not re-expose that diagnostic before checking a later aim/binding.
+ f=fixture();f.cleanup=false;local original_polls=0;local reads=0
+ f.opts.live=function()reads=reads+1;return f.alive end
+ f.opts.sample_module={new=function()return {poll=function()
+  original_polls=original_polls+1
+  return {status='unknown',reason='floor_resolution_out_of_bounds',consumed_total=1,
+   failure_detail={phase='floor',query={X=17,Y=0,Z=130},fields={FloorDist=62}}}
+ end}end}
+ g=f:start();r=g.check(cp(f.pose),target,0)
+ check('original ambiguous cleanup omits diagnostic',r.reason=='cleanup_pending' and r.failure==nil and f.closes==1)
+ local before=reads;f.alive=false
+ r=g.check(cp(f.pose),target,.01)
+ check('ambiguous cleanup fast path hides stale failure without callbacks',r.reason=='cleanup_pending' and r.failure==nil and reads==before and original_polls==1)
+ r=g.check(cp(f.pose),{X=101,Y=0,Z=0},.02)
+ check('ambiguous cleanup fast path hides new-aim failure without callbacks',r.reason=='cleanup_pending' and r.failure==nil and reads==before and original_polls==1 and f.closes==1)
+end
 print(string.format('%d passed, %d failed',pass,fail));os.exit(fail==0 and 0 or 1)

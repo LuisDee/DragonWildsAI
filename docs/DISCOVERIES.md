@@ -2828,3 +2828,17 @@ route trace in outbound-input-a828-samples.jsonl.
 Stationary a834 full-capsule queries at the actual a832 failure pose reproduced memory-connector side contact (normal approximately [-0.707,-0.707,0], contact 13 cm above capsule centre) and native side contact. Finer subdivisions still blocked. The long direct chord separately hit the floor; the sampled failure was a different side contact. Plain copied output flags retain their known marshalling caveat; native Boolean and consistent geometric copies support the side-contact conclusion. Sensor cleanup succeeded. A blocking segment is not proof that the original destination has no route.
 - Sources opened: [FHitResult](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/FHitResult), [native StepUp](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/GameFramework/UCharacterMovementComponent/StepUp?application_version=5.5), [Nav2 recovery](https://docs.nav2.org/jazzy/getting_started/nav2_behavior_trees/trees/nav_to_pose_with_consistent_replanning_and_if_path_becomes_invalid/), [LazyPRM invalid-edge removal](https://ompl.kavrakilab.org/LazyPRM_8cpp_source.html). These describe semantics/patterns, not drop-in Dragonwilds APIs.
 - Decision: reuse existing guarded local planning on a demonstrated blocked native segment; do not weaken collision checks or delete learned world routes. Exact queries and runtime receipts remain in private `logs/recovery/npg-trial-a832/decision-a834.json`.
+
+### Grounded movement need not follow the straight supported chord (2026-10-30)
+
+Actual native controls a848 stayed grounded with no jump; a850 capsule queries
+accept every recorded pose but reject one interpose descending chord. At the
+failed segment, horizontal then vertical-down checks both clear. Private a851
+whole-segment deferred-descent comparison clears; measured wall and missing
+nearby-support controls still reject. This supports a minimal trajectory-check
+repair, not exact engine StepUp equivalence or general step/cliff navigation.
+Fresh capsule support a853 rejects some locations proposed by line-floor scans;
+a852's first drop fixture was initial overlap, not evidence of a walkable ledge.
+Primary semantics: https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/GameFramework/UCharacterMovementComponent/MoveAlongFloor?application_version=5.5
+and https://dev.epicgames.com/documentation/unreal-engine/BlueprintAPI/Collision/CapsuleTraceByProfile .
+Raw evidence and search decision: private npg-trial-a832/decision-a850-a854.json.

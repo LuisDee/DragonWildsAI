@@ -335,6 +335,34 @@ function NATIVE_SEGMENT_CASES()
 end
 if os.getenv('MOVE_NATIVE_SEGMENT_ONLY')=='1' then NATIVE_SEGMENT_CASES();print(fails==0 and 'NATIVE SEGMENT OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
 
+function WALK_FAILURE_TRACE_CASE()
+ M.stop(log);pawn.loc={X=0,Y=0,Z=0};air=0;walls={};raised={};lakes={};motor=nil;frame_hook=nil
+ _G.DW_NAVMEM=nil;_G.DW_LP_CACHE=nil
+ os.remove(dir..'/data/nav/L_World_seeds.json');os.remove(dir..'/data/skills/test-world/nav_memory.json')
+ local floor=TEST_WALK_NATIVE.floor
+ TEST_WALK_NATIVE.floor=function(at)
+  local r=floor(at)
+  if at.X>0 then r.fields.FloorDist={known=true,value=-1} end
+  return r
+ end
+ offer.no=offer.no+1;offer.nonce=fake_nonce(offer.no)
+ oracle=function(id)return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{20,0,-0.9}}}'):format(id)end
+ pump_oracle();M.go_to(log,{20,0,0},{sprint=false,local_plan=false});local st=_G.DW_MOVE;st.walk_guarded=true
+ local gen=st.gen
+ for _=1,100 do step(1);pump_oracle();if st.result then break end end
+ local row,count
+ count=0;for _,q in ipairs(st.route_trace or {})do if q.reason=='walking_guard_rejected:floor_resolution_out_of_bounds'then row=q;count=count+1 end end
+ check('nonmemory floor failure survives cleanup in bounded route trace',st.result and st.result.detail=='walking terrain: floor_resolution_out_of_bounds' and
+  st.walk_report==nil and row and count==1 and row.source=='nav' and row.gen==gen and row.guard_failure and
+  row.guard_failure.detail.fields.FloorDist==-1 and row.guard_failure.scan.start.X==0 and row.guard_failure.scan.shape.half_height_cm==90)
+ TEST_WALK_NATIVE.floor=floor;M.stop(log)
+ check('failure trace keeps original generation after stop',row and row.gen==gen and row.guard_failure.detail.fields.FloorDist==-1)
+ M.go_to(log,{10,0,0},{nav=false,local_plan=false});local successor=_G.DW_MOVE
+ check('successor cannot inherit old current failure evidence',successor.gen>gen and successor.route_trace==nil and successor.walk_report==nil and row and row.gen==gen)
+ M.stop(log);oracle=nil;pump_oracle();_G.DW_NAVMEM=nil
+end
+if os.getenv('MOVE_FAILURE_TRACE_ONLY')=='1' then WALK_FAILURE_TRACE_CASE();print(fails==0 and 'FAILURE TRACE OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1)end
+
 function SNAPSHOT_PREEMPTION_CASE() -- Reentry must not write into or cancel the successor.
     pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}; raised={}
     oracle=function() return nil end; pump_oracle()
@@ -3406,6 +3434,7 @@ do
     M.stop(log)
 end
 NATIVE_SEGMENT_CASES()
+WALK_FAILURE_TRACE_CASE()
 for _, l in ipairs(logs) do if l:find("error") then print("LOG " .. l) end end
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)
