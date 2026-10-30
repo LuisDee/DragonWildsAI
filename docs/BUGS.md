@@ -1,5 +1,9 @@
 # Live bug ledger
 
+### Valid planning candidate lost at optional advisory budget boundary (a914)
+
+The first five-call planning decision produced repaired output that validates in a bounded replay, then an already-true-step advisory attempted another round. The request cap rejected it and discarded the valid candidate. Fresh planning and preparation exhausted hourly allowance before walking. Exact snapshot replay and reviewed repair are next; no fix claimed. The same live run also selected a long remembered prefix for a nearby destination and timed out. See [evidence and limits](research/2026-10-30-second-roundtrip-failure.md).
+
 ### Recovery decisions discarded after an action fails (a907)
 
 Haiku's run_skill-only recovery became Decision.skill, but Agent's empty-response
