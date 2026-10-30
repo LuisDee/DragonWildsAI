@@ -1,5 +1,9 @@
 # Progress log (append-only)
 
+### Tested brain candidate integrated; live validation pending (2026-10-30)
+
+Runtime fast-forwarded to40c6345 after a922 GREEN. Companion3ba9f0c108e05a65, bodyefbdb4916b730917 and frozen judgeb5057d95be92c264 verified;53world/state files preserved byte-for-byte. Client remains off and no brain was started. Developer real-control and complete-agent tests remain pending. Development account allowance reached1%; handoff retained before any new live trial. No new autonomous pass.
+
 ### Planning checkpoint GREEN; detour trigger reproduced offline (2026-10-30)
 
 aabdd66 is pushed, a922 fullgate1388passed/1skipped GREEN;635source and53memory files verified. Runtime remains unchanged and no autonomous pass occurred. A pure Lua replay isolates adding newly learned route r152 as the trigger for the89point detour;110 live waypoint samples match exactly. [Evidence and limits](research/2026-10-30-second-roundtrip-failure.md).

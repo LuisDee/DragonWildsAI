@@ -1,5 +1,9 @@
 # Live bug ledger
 
+### Planning/recovery fixes integrated, not live-proven
+
+The recovery-dispatch and optional-advisory repairs are in deployed40c6345 after the full offline gate. Do not label either issue live-closed until developer and full-agent measurements confirm it. The a914 navigation-prefix detour remains unfixed.
+
 ### Newly learned connectivity selects a costly incomplete route (a914)
 
 At the captured source/goal, pre-trip memory has no connection. Adding the one newly learned outbound route selects a231.55m prefix to a destination initially71.91m away; the prefix still ends45.86m short. Before/after water costs yield the identical path. Actual live waypoint samples bind the replay. This diagnoses route-choice provenance, not a viable alternative or completed repair. [Audit](research/2026-10-30-second-roundtrip-failure.md).

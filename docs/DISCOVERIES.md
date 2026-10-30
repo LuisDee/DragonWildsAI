@@ -1,5 +1,9 @@
 # Discoveries
 
+### Runtime integration preserved world memory
+
+The tested brain candidate was fast-forwarded with the client off; all53frozen memory/state files retained identical hashes. This verifies deployment preservation, not gameplay capability. Developer and complete-agent validation remain outstanding.
+
 ### Route learning can expose a worse partial-route choice
 
 The a914 memory comparison reproduces the exact89point prefix after adding only newly learned r152;110 sampled points over45indices match0cm. Existing selector prefers closest remaining endpoint, with path cost only as tie-break. Preserve the learned data and compare partial-memory authority against local feasible progress. No shorter path or new gameplay pass has been demonstrated.
