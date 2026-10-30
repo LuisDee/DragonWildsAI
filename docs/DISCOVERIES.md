@@ -2842,3 +2842,19 @@ a852's first drop fixture was initial overlap, not evidence of a walkable ledge.
 Primary semantics: https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/GameFramework/UCharacterMovementComponent/MoveAlongFloor?application_version=5.5
 and https://dev.epicgames.com/documentation/unreal-engine/BlueprintAPI/Collision/CapsuleTraceByProfile .
 Raw evidence and search decision: private npg-trial-a832/decision-a850-a854.json.
+
+### Distinguish later collisions from the descent mismatch (2026-10-30)
+
+On published6cade13, developer a867 physically reached the lodestone with the
+deferred-descent primitive in its crossed-waypoint trace. Later a869 records
+the full failing scan before cleanup. a870 reproduces that scan exactly:
+horizontal capsule collision persists at lifts2/5/15/45cm; the starting pose's
+upward1cm query clears but the failed endpoint's does not. This evidence does
+not justify treating every capsule block as a floor-chord artefact. A nearby
+tree appears in ordinary look data, but hit actor identity is unproven.
+
+The independent a870 waypoint audit finds near-zero motion under directional
+input and no observed waypoint crossing; it does not establish a stall bug.
+a872 separately captures an unwalkable floor result with normalZ0.686586 on a
+partial native path. Alternative routes remain untested by those failures.
+Private records contain exact geometry, limitations, queries and source links.

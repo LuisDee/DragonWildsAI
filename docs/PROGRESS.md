@@ -1652,3 +1652,42 @@ Deferred-descent candidate frozen after122sampler/96guard/3actual-mover trace
 checks and5design checks. Recorded baseline blocks31queries; candidate clears23
 with no unrecorded geometry. Terminal trace now preserves the failing sample
 before cleanup. Fullgate/publication/live validation pending;0/3 unchanged.
+
+### Current-code live evidence after descent repair (2026-10-30)
+
+Published `6cade13`, full gate GREEN: 1311 passed / 1 skipped. Developer return
+a867 reached the spawn lodestone in59.688s, health100, horizontal error0.264m
+and vertical error0.038m. The retained trace confirms a crossed waypoint used
+the deferred-descent primitive. This is a developer diagnostic, not an
+autonomous round trip; navigation food/water fixtures and taught memory remain
+disclosed.
+
+Developer outward a868 reached114.51m from the lodestone before the120s command
+deadline while still advancing. Continuation a869 failed after25.922s: a memory
+stall followed by a local-plan capsule collision. Exact captured-scan replay
+a870 reproduces the collision; raising the horizontal sweep2/5/15/45cm does not
+clear it. The separate waypoint audit finds no demonstrated false stall, so no
+stall threshold or collision policy was changed. Evidence and search decisions
+are preserved under private `logs/recovery/npg-trial-a832/`.
+
+Return a872 stopped54.685m short after78.641s at `floor_not_walkable`, with
+health100. A fresh complete-agent episode a873 is tasked first to walk to the
+spawn lodestone, then complete the original200m out-and-return objective. It
+receives no coordinates or intermediate directions. The initial return is setup,
+not a round-trip pass;0/3 until actual initial arrival, excursion and return.
+
+a873 ended without acquiring the starting lodestone: closest horizontal
+distance12.81m, still5.60m above the reference floor; maximum distance64.24m,
+minimum health100. It used17 Haiku and16 Sonnet calls, costing$0.629. The models
+researched landmarks, tried alternate targets, explored, consumed carried food
+and water, and attempted stairs; neither stair placement succeeded. These are
+observed actions, not a completed autonomous navigation/building task.
+
+The trial also demonstrates a scheduling defect: a routine hydration review
+ran during a Sonnet replan, independently retried movement and later paused the
+board. The paid replan was then discarded as stale. Root ended the wrapper after
+that model-created pause; the development Goal remains active. Both models did
+receive the structured failed navigation packet, so this is not blanket feedback
+loss. Next: repair demonstrated planning ownership and compare local verification
+budget use before assuming a persistent graph is the immediate missing repair.
+Private evidence: `full-agent-a873/measured-outcome.json` and its two audits.

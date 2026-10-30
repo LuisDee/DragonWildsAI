@@ -858,3 +858,30 @@ poses; exact native internal StepUp invocation remains unobserved. Do not mark
 this edge unwalkable or promote the parked fullcapsule graph-edge invalidation.
 Repair must preserve query accounting, explicit swept polyline, floor, lifecycle
 and cache checks. See design/grounded-step-sweep.md. Not yet live repaired.
+
+Follow-up on `6cade13`: developer a867 exercised the repaired descending
+primitive and reached the lodestone. This closes that diagnostic reproduction,
+not general navigation acceptance. In a869 the later local-plan collision is
+reproducible with captured scan geometry and remains blocked when raised through
+the measured step-height range (a870). Preceding memory stall audit found no
+observed waypoint crossing or adequate movement under input. Do not weaken
+thresholds or treat this as another proven descent mismatch. The exact cause of
+a later3.95m idle-position change is unrecorded; bridge history has no new go_to.
+See private `npg-trial-a832/stall-a870-review.md` and `collision-a870.json`.
+
+### Routine review competes with pending Director planning (2026-10-30)
+
+Verified full-agent a873: after generation6 route failure, Sonnet replan call6
+started; Haiku situation-review call7 independently retried the same destination.
+Later a hydration review called `pause_board` while another replan was pending;
+the completed Sonnet plan32 was discarded because the task was now paused.
+`Agent._review_tick` checks `Director.running` (only `_in_run`), not pending
+planning, and `flush_situations` has no equivalent planning guard. Defer and
+revalidate ordinary reviews while preserving urgent situations and human
+interrupts. Do not disable stale-plan rejection or rewrite model-selected actions.
+
+Separate provenance defect: the internally generated pause is recorded as
+`player:Luis`. Luis did not pause this trial or the development Goal. Preserve
+the original trace and distinguish model/internal event origin in the repair.
+Private proof: `full-agent-a873/perception-feedback-audit.md`, actual input/output
+calls6/7/31/32 and session log `brain-live-20261030-021349-14184.jsonl`.
