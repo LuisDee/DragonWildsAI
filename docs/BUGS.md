@@ -894,3 +894,8 @@ and ended route_ended_before_goal/verify_exhausted. This rules out a simple
 away-first nudge followed by unchanged retry as a sufficient repair. The sampled
 endpoint is not yet proven a route to the goal. Need generic observed-frontier
 selection and retained outcomes; no task-specific route or hidden hints.
+
+Scheduling race candidate published08f2f6d after GREEN1345/1; live closure pending.
+A883 confirms the reached away point supplies179additional observed columns, but
+the ordinary goal-directed planner still fails. Observation/attempt continuity
+and explicit exploratory selection remain open; there is no autonomous pass.

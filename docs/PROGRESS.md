@@ -1711,3 +1711,15 @@ and npg-trial-a832. No navigation acceptance is implied by this candidate.
 
 Scheduling candidate cold review now CLEAR after the rounded-band correction;
 184 focused tests and five final design checks passed. Full gate is next.
+
+### Scheduling checkpoint published; reached-window survey measured (2026-10-30)
+
+08f2f6d is pushed/deployed after ro-g-a881 GREEN1345passed/1skipped574.44s;
+619source/50memoryfiles verified. Scheduler has offline proof, not full-agent
+live acceptance yet. Developer a883 ordinary movement to the away observation
+point passed3.657s/H100. Actual-source stationary survey queried754rays in0.835CPU
+seconds, kept pawn unchanged, and sampled179new columns relative to a875.
+173new columns yielded177candidate heights, including4multilayercolumns.
+Original-goal local planning still exhausted verification; no route or autonomous
+pass. Next design retains local observation/attempt continuity and exposes
+model-selected candidate routes; full graph and rendered fallback are not assumed.

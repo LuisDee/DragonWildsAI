@@ -2877,3 +2877,13 @@ frontiers and refreshes observations after travel. Conceptual precedent only;
 our candidate floor hits are not yet a verified occupancy map or accessible frontier.
 Decision: adapt retained observation/attempt context, first review existing explore
 interfaces; do not transplant ROS or assume every sampled floor is reachable.
+
+### Survey after actual away movement reveals additional surface observations (2026-10-30)
+
+Private current-away-window-a883.json captures actual current pawn [52.534,1906.890,
+-31.146]m, unchanged throughout754queries/max16perpoll. Of361columns,179were
+outside both historical a875 footprints;173contain177candidateheights,4columns
+with2heights. These are measured observations, not certified traversable floors
+or new connection identities. The original-goal planner still failed after13
+rejected proposals. Preserve new observations before retrying; a880 shows the
+otherwise repeated return to the previous failure neighborhood.
