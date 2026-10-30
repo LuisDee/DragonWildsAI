@@ -718,7 +718,9 @@ class Agent:
                     said = True
                 break
             self.log.log("chain_turn", turn=turn, actions=[c.name for c in d.actions], speech=d.speech)
-            if t["failure"] and not (d.actions or d.speech or d.refusals):
+            # A model-selected goal/skill is recovery work even without primitive actions.
+            # https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls
+            if t["failure"] and not (d.actions or d.goal or d.skill or d.speech or d.refusals):
                 self.controller.report_failure(*t["failure"])  # the model had nothing to say about it
                 said = True
                 break

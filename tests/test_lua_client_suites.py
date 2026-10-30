@@ -17,8 +17,10 @@ pytestmark = pytest.mark.skipif(LUA is None, reason="no Lua interpreter on PATH 
 
 @pytest.mark.parametrize("suite", SUITES, ids=[s.stem for s in SUITES])
 def test_client_lua_suite(suite, tmp_path):
+    # Hang protection, not a gameplay-speed assertion: the unchanged movement suite took177.17s.
+    # https://github.com/pytest-dev/pytest-timeout/blob/main/README.rst
     proc = subprocess.run([LUA, str(suite), str(tmp_path)], capture_output=True, text=True,
-                          timeout=180, cwd=str(suite.parents[2]))
+                          timeout=240, cwd=str(suite.parents[2]))
     out = proc.stdout + proc.stderr
     assert proc.returncode == 0, out[-4000:]
     assert "FAIL" not in proc.stdout, out[-4000:]

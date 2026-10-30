@@ -1,5 +1,21 @@
 # Progress log (append-only)
 
+### Recovery dispatch candidate; no additional live pass (2026-10-30)
+
+The a907 trace exposed a dropped model-selected recovery skill after a failed
+action. The isolated Python fix preserves goal/skill choices through the existing
+dispatch boundary;156 focused checks and a fresh cold review passed. Goal-only
+choices previously reached pending dispatch but could emit stale failure speech.
+No native ownership or route behavior changed. This candidate is not deployed;
+the runtime's existing1/3 result does not validate it.
+
+Full gate a915 stayed RED: the unchanged Lua movement suite exceeded its external
+180s timeout;1380 passed and1skipped. Isolating that suite with the same limit
+passed in177.17s. Freshly reviewed test-launcher headroom raises only that generic
+external ceiling to240s; all assertions, simulated deadlines and frozen judges
+remain unchanged. A fresh full gate is required, not a reinterpretation of a915.
+Designs: recovery-decision-dispatch.md and lua-suite-timeout-headroom.md.
+
 ### First full-agent temple round trip observed (2026-10-30 04:33 UTC)
 
 On published `f63d809`, complete Sonnet Director + Haiku Controller trial a907

@@ -1,5 +1,15 @@
 # Discoveries
 
+### Transient consumable ownership explains a907 busy refusals
+
+Native movement released its token on each timeout/failure. Food or water reflex
+verification then acquired a new owner for several seconds; ordinary movement
+subsequently recovered without a reset. Token-to-consumable identity is a timing
+and source inference, while release/use/verify events and new token values were
+observed. Preserve that guard. Separately, Python dropped two selected recovery
+skills before dispatch; these are distinct causes, not a broken movement bridge.
+The persisted a907 audit records exact row references and primary sources.
+
 ### One autonomous temple round trip; partial-connector limits (2026-10-30)
 
 Full Sonnet/Haiku a907 on f63d809 achieved one temple200m walking round trip:

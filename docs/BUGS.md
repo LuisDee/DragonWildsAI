@@ -1,5 +1,15 @@
 # Live bug ledger
 
+### Recovery decisions discarded after an action fails (a907)
+
+Haiku's run_skill-only recovery became Decision.skill, but Agent's empty-response
+check omitted it and broke before queueing. The candidate includes goal/skill in
+that check; goal-only already reached pending dispatch but could receive stale
+failure narration. Actual Agent mock tests verify single skill/goal execution
+and unchanged empty-response fallback. Live validation remains pending. The
+native busy refusals protected transient consumable ownership, not leaked tokens.
+Audit: research/2026-10-30-roundtrip-recovery-audit.md; design/recovery-decision-dispatch.md.
+
 ### Full-agent route completed; recovery and reporting defects remain (2026-10-30)
 
 One complete temple200m walking round trip passed on f63d809; two repeats and
