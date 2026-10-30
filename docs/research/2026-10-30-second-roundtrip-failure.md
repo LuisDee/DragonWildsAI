@@ -68,3 +68,33 @@ weaken ordered predicates. Independently inspect the captured generation-3
 route selection and compare complete route cost and feasible connections before
 another walking change. Preserve all world history. The pre-existing recovery
 dispatch candidate still needs developer real controls before full-agent proof.
+
+## Follow-up: deterministic memory-growth comparison
+
+After the a922 candidate was frozen, root replayed the unchanged pure Lua
+`navmem.forward_walk` against the private pre-a914 snapshot, then added only
+route `r152`, learned during the successful outward landmark leg. `r153`, learned
+on the later return, was excluded. Water cells were the only other changed
+existing memory field; before/after water states produced identical paths.
+No game input, model call or live memory edit was made.
+
+At the exact generation-3 source and goal, pre-a914 memory returned
+`no_connection`. Adding r152 returned the same 89-point prefix seen live:
+231.550 m polyline length, 239.009 m weighted cost, starting 71.906 m from the
+goal and ending 45.859 m from it. All 110 sampled remembered-point observations,
+covering 45 waypoint indices, match replay coordinates exactly (0 cm error).
+Artifacts: `replay-gen3.lua`, `gen3-selector-replay.json`,
+`gen3-replay-binding.json`, `gen3-replay-analysis.md` in the private a914 folder.
+
+This isolates newly available graph connectivity as the trigger for the long
+prefix selection, not a water-cost change. It does not prove a shorter physical
+path. In a907, local `route_observation` plans toward the same destination crossed
+200 m; different start/memory conditions prevent treating that as a controlled
+live comparison. Next examine arbitration between an incomplete remembered
+proposal and local feasible progress. Preserve complete-route authority and
+away-first discovery; do not erase learned routes or blacklist route IDs.
+The Nav2 source above supplies conceptual precedent. No navigation patch yet.
+
+The independent planning repair is checkpoint `aabdd66`, with a922 full gate
+1,388 passed/1 skipped/600.27 s GREEN, 635 source and 53 memory files verified.
+It is not deployed and has no new developer or autonomous gameplay proof.

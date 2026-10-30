@@ -1,5 +1,9 @@
 # Discoveries
 
+### Route learning can expose a worse partial-route choice
+
+The a914 memory comparison reproduces the exact89point prefix after adding only newly learned r152;110 sampled points over45indices match0cm. Existing selector prefers closest remaining endpoint, with path cost only as tie-break. Preserve the learned data and compare partial-memory authority against local feasible progress. No shorter path or new gameplay pass has been demonstrated.
+
 ### Optional refinement and mandatory validation need separate capacity decisions
 
 A scripted reproduction of a914's two research rounds, two repairs and fifth valid plan failed before the candidate and passes through actual Director completion afterward. This is offline harness evidence only. No budget increase or frozen predicate change was needed; real-control and complete-agent validation remain required.

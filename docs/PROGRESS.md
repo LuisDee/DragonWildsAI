@@ -1,5 +1,9 @@
 # Progress log (append-only)
 
+### Planning checkpoint GREEN; detour trigger reproduced offline (2026-10-30)
+
+aabdd66 is pushed, a922 fullgate1388passed/1skipped GREEN;635source and53memory files verified. Runtime remains unchanged and no autonomous pass occurred. A pure Lua replay isolates adding newly learned route r152 as the trigger for the89point detour;110 live waypoint samples match exactly. [Evidence and limits](research/2026-10-30-second-roundtrip-failure.md).
+
 ### Advisory-capacity candidate (2026-10-30)
 
 The isolated repair retains a validated final-request decision when optional refinement has no capacity. The actual five-call shape reproduced before the fix;154 focused regressions including Director ordered completion and hard refusal paths now pass. No runtime deployment or new autonomous outcome is claimed. Design: [optional advisory capacity](design/optional-advisory-capacity.md).
