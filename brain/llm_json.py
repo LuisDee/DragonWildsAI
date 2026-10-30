@@ -48,6 +48,7 @@ def json_decision(llm: LLMClient, messages: list[dict], validate: Callable[[str,
                   tools: list[dict] | None = None, run_tool: Callable[[str, dict], Any] | None = None,
                   max_tool_rounds: int = 3, max_repairs: int = 1,
                   before_request: Callable[[], bool] | None = None,
+                  can_advise: Callable[[], bool] | None = None,
                   on_response: Callable[[LLMResponse], None] | None = None,
                   on_request: Callable[[list[dict], list[dict] | None], None] | None = None) -> tuple[Any, dict]:
     """Returns (value, info) with info = {requests, tool_calls: [{name, args, refused}], repairs, advised,
@@ -112,6 +113,14 @@ def json_decision(llm: LLMClient, messages: list[dict], validate: Callable[[str,
                                                        f"Return the corrected JSON object only."}]
             continue
         value, advisories = out if isinstance(out, tuple) and len(out) == 2 and isinstance(out[1], list) else (out, [])
+        # Optional refinement must not discard an already validated model choice
+        # merely because this decision has no requests left. Hard request guards
+        # still run for every actual call; no older-value fallback after a reply.
+        # https://claude.com/resources/articles/common-workflow-patterns-for-ai-agents-and-when-to-use-them
+        if advisories and not info["advised"] and can_advise is not None and not can_advise():
+            info["advisory_skipped"] = "capacity"
+            info["messages"] = msgs + [{"role": "assistant", "content": text}]
+            return value, info
         if advisories and not info["advised"]:  # one round of information, not a repair
             info["advised"] = True
             msgs = msgs + [{"role": "assistant", "content": text},

@@ -1386,8 +1386,12 @@ class Director:
             try:
                 dec.value, info = json_decision(self.llm, messages, validator, tools=research.tools(),
                                                 run_tool=research.run, max_tool_rounds=RESEARCH_ROUNDS, max_repairs=2,
+                                                can_advise=lambda: dec.requests < MAX_REQUESTS,
                                                 before_request=before, on_response=on_response, on_request=on_request)
                 dec.tool_calls = info["tool_calls"]
+                if info.get("advisory_skipped"):
+                    self._log("director_advisory_skipped", task=snap["task"]["id"],
+                              decision=snap["kind"], reason=info["advisory_skipped"], requests=dec.requests)
             except BudgetStop as exc:
                 dec.error, dec.budget_stop = str(exc), True
             except DecisionError as exc:

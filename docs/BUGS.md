@@ -1,5 +1,9 @@
 # Live bug ledger
 
+### Optional-advisory loss: candidate repair, live validation pending
+
+The shared JSON loop now accepts a pure availability callback, evaluated only after successful validation. Director disables optional refinement when its five-request decision budget is spent, logs the skip, and keeps the model value. Hard guards and invalid/truncated-output rejection remain.154 focused checks pass; this does not fix the a914 route-prefix detour. See [design](design/optional-advisory-capacity.md).
+
 ### Valid planning candidate lost at optional advisory budget boundary (a914)
 
 The first five-call planning decision produced repaired output that validates in a bounded replay, then an already-true-step advisory attempted another round. The request cap rejected it and discarded the valid candidate. Fresh planning and preparation exhausted hourly allowance before walking. Exact snapshot replay and reviewed repair are next; no fix claimed. The same live run also selected a long remembered prefix for a nearby destination and timed out. See [evidence and limits](research/2026-10-30-second-roundtrip-failure.md).

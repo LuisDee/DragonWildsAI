@@ -1,5 +1,9 @@
 # Progress log (append-only)
 
+### Advisory-capacity candidate (2026-10-30)
+
+The isolated repair retains a validated final-request decision when optional refinement has no capacity. The actual five-call shape reproduced before the fix;154 focused regressions including Director ordered completion and hard refusal paths now pass. No runtime deployment or new autonomous outcome is claimed. Design: [optional advisory capacity](design/optional-advisory-capacity.md).
+
 ### Second full-agent repeat failed (2026-10-30)
 
 a914 reached 150.397 m and returned to the correct lodestone floor with HP100, but never crossed 200 m. Consecutive streak is now 0/3; a907 remains a historical pass. No new autonomous task passed. 17 Haiku + 16 Sonnet calls; 407.211 s before first movement, including planning budget waits. The far leg selected an 89-point remembered prefix and timed out after a substantial detour. Evidence and next decision: [second-roundtrip failure](research/2026-10-30-second-roundtrip-failure.md). Runtime remains 3b7d61e; candidate694fb84 stays isolated, GREEN offline and unproven live.

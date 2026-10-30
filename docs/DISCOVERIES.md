@@ -1,5 +1,9 @@
 # Discoveries
 
+### Optional refinement and mandatory validation need separate capacity decisions
+
+A scripted reproduction of a914's two research rounds, two repairs and fifth valid plan failed before the candidate and passes through actual Director completion afterward. This is offline harness evidence only. No budget increase or frozen predicate change was needed; real-control and complete-agent validation remain required.
+
 ### Second trip breaks the autonomous consistency streak (2026-10-30)
 
 Native observations prove a914 climbed out, reached an outside landmark and returned to the proper floor, but maximum lodestone distance was only150.397m. It does not pass the200m task. The outward extension selected an89-point prefix, travelled approximately123.31m and ended farther from its requested destination. The first successful a907 cannot establish repeatability. See [audit](research/2026-10-30-second-roundtrip-failure.md).
