@@ -9,6 +9,13 @@ proves their autonomous use in one episode, not fresh discovery. Native position
 and completed ordered checkpoints corroborate it; Haiku's later claim of only40m
 outbound is false. Private measured-outcome.json retains sample bounds/provenance.
 
+The single airborne native sample at04:27:36UTC matches client.log42239,
+`move: hop over a low obstacle`, after the outbound retry near[101.79,1803.07].
+The ordinary native-route branch in move.lua probes at knee and jump height,
+then calls start_jump when the low-obstacle condition is met. This diagnoses
+this episode's issued hop, not the historical friend-server ramp jump. The
+temple trial is on-foot with that hop, not a claim of zero-jump traversal.
+
 Historical-source/current-scene queries a912 rejected all three a911
 height-transition-selected entry targets as partial. Do not ship that selector
 or infer that no player route exists. Two partial prefixes pass near an existing

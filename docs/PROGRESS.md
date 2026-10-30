@@ -14,8 +14,12 @@ samples and40 model calls (23Haiku,17Sonnet). First qualifying return occurred
 This reuses preserved route memory, including developer demonstrations. Earlier
 supplied water/food fixtures and a913 developer setup are disclosed. It does not
 prove unfamiliar-route discovery, independent provisioning, generalization or
-any original M1-M6 milestone. No teleport/cast/jump tools were dispatched; one
-native sample was airborne. Exact telemetry is retained, not inferred from chat.
+any original M1-M6 milestone. No teleport/cast/jump tools were dispatched. One
+airborne sample corresponds to the ordinary mover's logged low-obstacle hop at
+04:27:36UTC near[101.79,1803.07,-28.93], outside the temple. This was an issued
+native jump, not automatic stepping. NEXT-GOAL-PROMPT permits legitimate unlocked
+movement abilities; this is on-foot traversal, not a zero-jump demonstration.
+Exact telemetry is retained, not inferred from chat.
 
 The agent recovered from movement deadlines and an outbound sweep rejection;
 the latter occurred after crossing200m. Haiku later falsely said it had only
