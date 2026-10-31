@@ -243,8 +243,10 @@ def outcome(reached: bool | None, verdict: dict) -> str:
     return "untruthful_failure"
 
 
-def score_leg(root, t0: float, t1: float, goal, tol: float, final_pos=None, positions=None, brain_logs=None) -> dict:
-    v = tc.analyse_window(root, t0, t1, tuple(goal) if goal else None, tol, positions=positions, brain_logs=brain_logs)
+def score_leg(root, t0: float, t1: float, goal, tol: float, final_pos=None, positions=None, brain_logs=None,
+              place: str | None = None) -> dict:
+    v = tc.analyse_window(root, t0, t1, tuple(goal) if goal else None, tol, positions=positions, brain_logs=brain_logs,
+                          place=place)
     trips = tc._trips(obs.Dirs.of(root).events, t0, t1 + 5)
     if final_pos is None and goal:
         c = obs.load(root, t0, t1)
@@ -513,7 +515,7 @@ def run_leg(a, j: dict, i: int, cli, brain_file: Path, run_id: str, haiku_used: 
     rows = brain_rows([brain_file], t0 - 1, ended + 1)
     sess = next((r for r in obs.jsonl(brain_file) if r.get("kind") == "session_start"), None)
     calls = model_calls(rows, sess)
-    s = score_leg(None, t0 - 1, ended + 1, goal, tol, final_pos=trace[-1][1] if trace else None, positions=trace)
+    s = score_leg(None, t0 - 1, ended + 1, goal, tol, final_pos=trace[-1][1] if trace else None, positions=trace, place=j.get("place"))
     return {"run_id": run_id, "journey": j["id"], "kind": j.get("kind"), "line": line, "place": j["place"],
             "start": j["start"], "goal": goal, "tol_m": tol, "sent_at": obs._iso(t0),
             "heard_s": round(heard_at - t0, 1) if heard_at else None, "ended": why, "wall_s": round(ended - t0, 1),
