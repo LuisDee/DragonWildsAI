@@ -1629,7 +1629,8 @@ function M.state_extras(api, data)
     end
     local life = rawget(_G, "DW_LIFE")
     if type(life) == "table" and life.died_at then
-        out.last_death = { ago_s = math.max(0, math.floor(api.now() - life.died_at)), respawned = life.respawned_at ~= nil }
+        out.last_death = { ago_s = math.max(0, math.floor(api.now() - life.died_at)), respawned = life.respawned_at ~= nil,
+                           killed_by = life.killed_by, fell_m = life.fell_m, at = life.at }
     end
     return out
 end

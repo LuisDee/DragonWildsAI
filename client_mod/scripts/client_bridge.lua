@@ -581,7 +581,12 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
                     (dist2d(self.target_position, goal) > 0.01 or math.abs(self.target_position[3] - goal[3]) > 0.01)) then
                 return fail("verification_failed", { detail = "fresh position does not confirm arrival", position = here, target_position = goal })
             end
-            return { ok = true, data = { target_position = goal, target = tostring(target), trip = res.trip,
+            local tdesc = target
+            if type(target) == "table" then -- a name/id table or {x,y,z}; never "table: 0000..." to the model
+                tdesc = target.name or target.id or target.place or (type(target[1]) == "number" and
+                    string.format("[%.1f,%.1f,%.1f]", target[1], target[2] or 0, target[3] or 0)) or nil
+            end
+            return { ok = true, data = { target_position = goal, target = tdesc ~= nil and tostring(tdesc) or nil, trip = res.trip,
                                          position = here, arrive_tolerance = self.tol, dist_m = res.dist_m,
                                          vertical_distance_m = verified.data.vertical_distance_m,
                                          vertical_tolerance_m = verified.data.vertical_tolerance_m } }
@@ -1367,6 +1372,7 @@ local function forward_vitals()
             _G.DW_LIFE = life
             if m.type == "death" then
                 life.move_death_seq = (life.move_death_seq or 0) + 1
+                if type(m.at) == "table" then life.at = m.at end
                 life.died_at, life.respawned_at = tonumber(m.ts) or now_s(), nil
                 -- BUGS L19: remember WHERE he died and what he carried, persisted, until the grave is recovered
                 local sk = M.module("skills")
@@ -1383,6 +1389,7 @@ local function forward_vitals()
             local kb = type(m.killed_by) == "table" and m.killed_by or nil
             life.killed_by = kb and (kb.self and (m.status and m.status[1] or "my own condition") or kb.name or kb.player or kb.class) or m.text
             life.fell_m = tonumber(m.fell_m)
+            if type(m.at) == "table" then life.at = m.at end
         end
         if ok and type(m) == "table" and m.type == "damage" and type(m.instigator) == "table" and not m.instigator.self then
             local by = m.instigator.id or m.instigator.name or m.instigator.player or "?"
