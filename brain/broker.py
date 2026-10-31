@@ -222,6 +222,7 @@ class Episode:
     reason: str | None = None
     why: str | None = None
     voiced: set = field(default_factory=set)  # unreachable reasons said in this episode
+    end_pos: list | None = None  # where the body said it ended
 
     def label(self) -> str:
         if self.player:
@@ -324,6 +325,7 @@ class EventBroker:
             return  # a follow keeps running in the body after its reply
         ep.ended, ep.ok, ep.reason = self.clock(), ok, reason
         ep.why = str((data or {}).get("why") or (data or {}).get("detail") or "") or None
+        ep.end_pos = _pos((data or {}).get("position"))
 
     def _record(self, tool: str, args: dict, ok: bool, reason, why, name) -> None:
         row = (self.clock(), tool, args, ok, reason, why, name if isinstance(name, str) and name else None)
@@ -804,7 +806,12 @@ class EventBroker:
             elif now - ep.ended <= DIGEST_KEEP_S:
                 how = "arrived" if ep.ok else (f"failed: {ep.reason}" + (f" ({ep.why})" if ep.why else "")
                                                if ep.ok is False else ep.reason or "ended")
-                out.append(f"Last move: {ep.label()} {how}, {now - ep.ended:.0f}s ago")
+                here = self._track[-1][1] if self._track else None
+                gone = math.dist(here[:2], ep.end_pos[:2]) if here and ep.end_pos else 0.0
+                # moved since without walking (a teleport, a respawn, the dev harness): that arrival no longer
+                # says where you are (chat run 5: "I'm at the lodestone now" 222 m off after a harness move)
+                out.append(f"Last move: {ep.label()} {how}, {now - ep.ended:.0f}s ago"
+                           + (f"; you are now {gone:.0f} m from where it ended" if gone > 15 else ""))
         if self._unreachable_open and now - self._unreachable_open["at"] <= DIGEST_KEEP_S:
             u = self._unreachable_open
             out.append(f"You told the player {now - u['at']:.0f}s ago that you can't reach "

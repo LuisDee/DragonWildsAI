@@ -354,8 +354,9 @@ def current_observation(state: dict | None) -> dict:
             "stations": stations}
 
 
-MAP_NAMES_NOTE = (" Also a place name from the game's map (a region, NPC or landmark), even out of sight: pass the name"
-                  " itself, no need to look for it first; the result says what it was taken to be.")
+MAP_NAMES_NOTE = (" Also a place name from the game's map (a region, NPC or landmark), even out of sight, or a lodestone"
+                  " by what stands near it (\"the lodestone by Zanik\"): pass the name itself, no need to look for it"
+                  " first; the result says what it was taken to be.")
 
 
 def _with_map_names(t: dict) -> dict:
@@ -945,6 +946,14 @@ class Controller:
             # item stats from game data + numeric deltas to what is equipped (the model judges)
             res = {**res, "data": item_stats.enrich_inventory(res["data"], getattr(self, "_state_for_reads", None) or {})}
             d.inventory = res["data"]
+        if call.name == "lodestones" and res.get("ok") and getattr(self, "places", None) is not None:
+            for ln in (res.get("data") or {}).get("lodestones") or []:  # the game names no lodestone: say what
+                try:                                                     # stands by it (go_to takes "the lodestone by X")
+                    by = self.places.name_at(ln.get("position"), 40.0)
+                except Exception:
+                    by = None
+                if by and isinstance(ln, dict):
+                    ln["name"] = f"lodestone by {by}"
         if call.name == "look" and res.get("ok"):
             look = {**res["data"], "_about": args.get("about")}
             d.looks.append(look)
