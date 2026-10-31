@@ -27,7 +27,7 @@ local U = assert(loadfile(ROOT .. "/mod/body/util.lua"))()
 local M = { W = {} }
 local W = M.W
 
-M.cfg = { arrive_m = 25, success_wait_s = 30, map_wait_s = 4, list_ttl_s = 30, timeout_s = 160 }
+M.cfg = { arrive_m = 25, success_wait_s = 30, map_wait_s = 4, list_ttl_s = 30, timeout_s = 160, here_m = 10 }
 M.HOOK = "/Script/Dominion.BaseTeleportationComponent:Client_OnTeleportSuccessful"
 
 local function paused() return rawget(_G, "DW_PAUSE") == true end
@@ -174,7 +174,10 @@ local function describe(api, l, from, here, item)
         r.can_teleport_now = W.can_teleport(api, from, l)
         local n, afford = W.cost(api, from, l)
         r.cost = n and { count = n, item = item and item.name or nil, can_afford = afford } or nil
-    elseif from then r.here = true end
+    elseif from then
+        r.nearest_to_you = true -- the one a teleport leaves from; "here" only when he stands by it (chat run 4:
+        if r.distance and r.distance <= M.cfg.here_m then r.here = true end -- "here" 54 m off read as "I'm at it")
+    end
     return r
 end
 -- `to` = "lodestone:<hex>" or [x, y, z] metres (the lodestone nearest that point)
@@ -221,7 +224,12 @@ M.HANDLERS.teleport = function(log, args, ctx)
     local from, dfrom = nearest(list, here)
     local to = M.resolve(list, args.to)
     if not to then return api.fail("unknown_target", { to = args.to, detail = "I don't know that lodestone." }) end
-    if to.key == from.key then return api.fail("already_there", { detail = "That's the lodestone I'm next to." }) end
+    if to.key == from.key then
+        if (dfrom or 0) <= M.cfg.here_m then return api.fail("already_there", { detail = "That's the lodestone I'm next to." }) end
+        return api.fail("invalid_args", { lodestone_position = to.respawn or to.position, detail = string.format(
+            "That's the lodestone nearest me, %d m away: a teleport leaves from it to another one. To get to it, walk there.",
+            math.floor((dfrom or 0) + 0.5)) })
+    end
     local n, item
     local stone -- the lodestone ACTOR nearest me (to walk to and press use on)
     for _, t in ipairs(api.census_things(80, 40) or {}) do
