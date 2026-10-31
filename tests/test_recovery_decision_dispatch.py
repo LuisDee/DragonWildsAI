@@ -82,6 +82,6 @@ def test_empty_recovery_still_reports_original_failure_without_retry(tmp_path):
     rig.agent._command(CommandReceived(player="Luis", text="continue the journey"))
     assert moves(sent) == [{"target": [10, 0, 0]}]
     assert len(rig.controller_llm.calls) == 2 and not rig.planner_llm.calls
-    assert len(rig.companion_said()) == 1 and BUSY_DETAIL in rig.companion_said()[0]
+    assert rig.companion_said() == []  # the model chose silence; the body's busy detail is never read out
     assert rig.agent.pending_goal is None and rig.agent.pending_skill is None
     assert not records(rig, "skill_queued")

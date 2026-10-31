@@ -6,7 +6,7 @@ tool call), never its words; the model's answer is used as it is. The agent's fi
 from __future__ import annotations
 
 from brain.controller import TALK_ONLY_NOTE
-from brain.interface import ok
+from brain.interface import fail, ok
 from brain.llm import FakeLLM, LLMResponse
 
 from test_event_hygiene import STATES, Replay
@@ -15,9 +15,11 @@ MEAT = "BP_RuntimeSpawnedWorldItem_C_2147464905"
 TOOLS = {"get_state", "say", "follow", "go_to", "stop", "interact", "cast"}
 
 
-def _rig(tmp_path):
+def _rig(tmp_path, worked: bool = False):
+    """The pickup fails (out of reach): the follow-up talk-only turn gets the check. ``worked``: it succeeds, and a
+    talk-only follow-up is then the report itself, with no check call (chat ladder 2026-10-31)."""
     r = Replay(tmp_path, STATES[5], tools=TOOLS)
-    r.body.act("interact", ok(target=MEAT))
+    r.body.act("interact", ok(target=MEAT) if worked else fail("not_interactable", detail="out of reach"))
     r.model.replies["grab that meat"] = FakeLLM.say("", FakeLLM.call("interact", target=MEAT))
     return r
 
@@ -34,14 +36,14 @@ def _notes(r):
 def test_a_talk_only_follow_up_promise_gets_its_tool_call_before_it_is_said(tmp_path):
     r = _rig(tmp_path)
     r.body.act("go_to", ok(target="Zezima"))
-    r.model.turns = [FakeLLM.say("it's raw, I'll find a fire for it"),  # after the pickup: talk only
+    r.model.turns = [FakeLLM.say("can't reach it, I'll walk closer"),  # after the failed pickup: talk only
                      FakeLLM.say("", FakeLLM.call("go_to", target="Zezima")),  # the check turn: the call
                      FakeLLM.say("")]  # after the walk: nothing to add
     _run(r)
     assert [c[0] for c in r.body.calls] == ["interact", "go_to"]
-    assert r.body.said == ["it's raw, I'll find a fire for it"]  # one line, kept as the model wrote it
+    assert r.body.said == ["can't reach it, I'll walk closer"]  # one line, kept as the model wrote it
     tl = r.body.timeline
-    assert tl.index(("say", "it's raw, I'll find a fire for it")) < tl.index(("call", "go_to"))
+    assert tl.index(("say", "can't reach it, I'll walk closer")) < tl.index(("call", "go_to"))
     assert TALK_ONLY_NOTE in _notes(r)
     row = r.records("talk_only_check")[0]
     assert row["actions"] == ["go_to"]
@@ -77,6 +79,18 @@ def test_a_failed_check_call_keeps_the_line(tmp_path):
     _run(r)
     assert r.body.said == ["got it, raw though"]
     assert "provider down" in r.records("talk_only_check")[0]["error"]
+
+
+def test_after_a_turn_that_worked_a_talk_only_reply_is_the_report_with_no_check(tmp_path):
+    """Live chat ladder 2026-10-31: "I'm at Vannaka, what's up?" after a verified go_to cost a 3rd call that only
+    repeated it. After a turn whose actions worked the follow-up note asks for any promised call in the same
+    reply, and a talk-only reply is said as it is."""
+    r = _rig(tmp_path, worked=True)
+    r.model.turns = [FakeLLM.say("got it, raw though")]
+    _run(r)
+    assert r.body.said == ["got it, raw though"] and len(r.model.calls) == 2
+    assert r.records("talk_only_check") == [] and TALK_ONLY_NOTE not in _notes(r)
+    assert "comes with its tool call in this same reply" in _notes(r)[-1]
 
 
 def test_a_silent_follow_up_costs_no_check(tmp_path):

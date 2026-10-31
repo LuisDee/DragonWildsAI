@@ -350,6 +350,19 @@ def current_observation(state: dict | None) -> dict:
             "stations": stations}
 
 
+MAP_NAMES_NOTE = " Also a place name from the game's map (a region, NPC or landmark), even out of sight."
+
+
+def _with_map_names(t: dict) -> dict:
+    f = t.get("function") or {}
+    params = f.get("parameters") or {}
+    target = (params.get("properties") or {}).get("target")
+    if not isinstance(target, dict) or MAP_NAMES_NOTE in str(target.get("description") or ""):
+        return t
+    target = {**target, "description": str(target.get("description") or "").rstrip() + MAP_NAMES_NOTE}
+    return {**t, "function": {**f, "parameters": {**params, "properties": {**params["properties"], "target": target}}}}
+
+
 def _look_row(t):
     """One look row as the model sees it: the engine class and category repeat id/name/kind, and a zero match score
     says nothing (the full row stays in the log and in the situation's looks)."""
@@ -397,6 +410,7 @@ class Controller:
         self.director = None  # brain.director.Director | None: the task board's tools (attach_director)
         self._progress_at: float | None = None
         self._progress_last: str | None = None
+        self.map_names = False  # go_to also takes the game map's place names (executor fallback; use_map_names)
         self.tools = self._tool_list()
         self.chat_provider: Callable[[], list[dict]] | None = None  # recent chat lines (run_live.ChatMemory)
         self.on_say: Callable[[str], None] | None = None  # told about every line the companion says
@@ -425,6 +439,8 @@ class Controller:
             f = t.get("function") or {}
             if f.get("name") in self.read_tools and not re.search(r"read[- ]only", f.get("description") or "", re.I):
                 t = {**t, "function": {**f, "description": (f.get("description") or "").rstrip() + " " + READ_ALONE}}
+            if self.map_names and f.get("name") == "go_to":
+                t = _with_map_names(t)
             out.append(t)
         if self.say_channel:
             out.insert(0, SAY_SCHEMA)
@@ -446,6 +462,12 @@ class Controller:
         acts = [n for n in ACTION_TOOLS if self.has(n)]
         reads = [n for n in READ_TOOLS if self.has(n) and n not in BRAIN_TOOLS]
         return [tool_schema(n) for n in reads + acts] + rules + brain
+
+    def use_map_names(self) -> None:
+        """The brain resolves go_to <a region / NPC / landmark name> from the game's map data when the body can't
+        see it (Executor.places): the tool says so, truthfully."""
+        self.map_names = True
+        self.tools = self._tool_list()
 
     def attach_director(self, director) -> None:
         """Offer the task board's tools (docs/design/director.md §8): board tools never interrupt a job,
@@ -780,7 +802,7 @@ class Controller:
         return {}
 
     def next_turn(self, d: Decision, results: dict[str, dict], state: dict | None = None,
-                  failed: bool = False, note: str | None = None) -> Decision:
+                  failed: bool = False, note: str | None = None, news: list[str] | None = None) -> Decision:
         """The standard agent loop: the results of the turn's tool calls go back to the model, which
         continues its plan (more tools), reports, or stops (an empty reply). Reads run inline again."""
         msgs = list(d.messages)
@@ -794,19 +816,27 @@ class Controller:
                 if name == SAY_TOOL and self.say_channel else {"ok": None, "note": "not run"})
             msgs.append(tool_result_message(ToolCall(name or "?", {}, tc.get("id")), res))
         observation = current_observation(state)
+        if news:  # body activity since the last turn (the stay-fed reflex, kills, pickups), as it happened
+            observation["since_last_turn"] = news[-8:]
         msgs.append({"role": "user", "content": "Current observation: " + json.dumps(observation, ensure_ascii=False)})
         msgs.append({"role": "user", "content": note or (
             "A step did not work (results above). Fix it with the right tool or another way; if you can't, "
             "tell the player in one short plain line what's wrong and what you need." if failed else
             "Your tools ran (results above). Continue with the next step, or stop. Say something only if the "
             "player needs to hear it (an answer he asked for, a result he can't see, a problem); otherwise "
-            "reply with no text at all.")})
+            "reply with no text at all. A line saying you'll do something comes with its tool call in this same "
+            "reply.")})
         self._state_for_reads = state or {}
         d2 = Decision(effort=d.effort)  # the same request keeps its effort (and its cache entry)
         resp, msgs = self._loop(msgs, d2, label="turn")
         msgs = msgs + [assistant_message(resp)]
         speech = self.speech_of(resp)
-        if speech and not self.acts(resp) and note is None and self.check_talk_only:
+        # After a turn whose actions all worked, a reply that only talks is the report itself: no check call (live
+        # chat ladder 2026-10-31: "I'm at Vannaka" after a verified go_to cost a 3rd call that repeated the line;
+        # logs: 15 such checks, 1 added a call, and that one was about an earlier failure).
+        succeeded = not failed and any(isinstance(r, dict) and r.get("ok") is True
+                                       for k, r in results.items() if k != SAY_TOOL)
+        if speech and not self.acts(resp) and note is None and self.check_talk_only and not succeeded:
             self._answer_says(msgs, resp)  # the held line is a tool call too: answer it before the check request
             resp, msgs, speech = self._talk_only_check(msgs, d2, speech)
         d2.speech = speech
@@ -1045,8 +1075,14 @@ class Controller:
             self.say(f"There's no {what} anywhere near me." if what else "There's nothing like that near me.")
         elif reason in Reason.CANT_YET:
             self.say(f"Sorry, I can't {SKILL_PHRASES.get(tool, tool.replace('_', ' '))} yet.")
-        elif reason == Reason.STATE_UNAVAILABLE:
-            self.say(f"I can't {SKILL_PHRASES.get(tool, tool.replace('_', ' '))} yet: I can't read the game state.")
+        elif reason == Reason.BUSY:  # who had the body, in words; never the body's internal detail (owner tokens)
+            owner = str(data.get("owner") or data.get("busy_by") or "")
+            who = (f"I was busy with {data['busy_item']}" if data.get("busy_item") else
+                   "I was still on your last request" if owner.startswith("brain") else
+                   f"my {owner.split(':')[0]} had hold of me" if owner else "something else had hold of me")
+            self.say(f"I couldn't {SKILL_PHRASES.get(tool, tool.replace('_', ' '))} just then: {who}.")
+        elif reason == Reason.STATE_UNAVAILABLE:  # a failed read, not a lasting "can't": no stock line (2026-10-31)
+            self.log.log("failure_unspoken", tool=tool, reason=reason, why="state read failed")
         elif reason_base in REASON_PHRASES:
             self.say(f"I couldn't {tool.replace('_', ' ')}: {REASON_PHRASES[reason_base]}.")
         else:

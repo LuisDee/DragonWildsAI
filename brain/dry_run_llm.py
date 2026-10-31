@@ -34,6 +34,7 @@ def _target(word: str, situation: list[str]) -> str:
 
 class DryRunController:
     model = "dry-run/rules"
+    template_voice = True  # no model to phrase a failure: the Agent says the truthful reason template for it
 
     def __init__(self) -> None:
         self.calls: list[dict] = []

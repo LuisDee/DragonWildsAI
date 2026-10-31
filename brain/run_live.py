@@ -364,6 +364,7 @@ class LiveSession:
         self.agent.body_self_defends = "combat_status" in self.caps.extras
         try:  # the game's map data: the Where line (region, named places near) and go_to <place name>
             self.agent.broker.places = self.executor.places = Places()
+            self.controller.use_map_names()
         except Exception as exc:  # no data file: both work without it
             self.log.log("places_unavailable", error=repr(exc)[:200])
         # Luis's daily $ cap (cap from tools/spend.py). The reader runs on its own thread (started now, so the
@@ -377,7 +378,8 @@ class LiveSession:
                                                  log=self.log, player=opts.player)
             self.agent.director = self.director
             self.controller.attach_director(self.director)
-        self.log.log("session_start", dry_run=opts.dry_run, controller_model=controller_llm.model,
+        self.log.log("session_start", player=opts.player, name=opts.name, dry_run=opts.dry_run,
+                     controller_model=controller_llm.model,
                      planner_model=planner_llm.model, body=opts.body, bridge_dir=str(d), prefixes=opts.prefixes,
                      ping_ms=round(self.rtt * 1000, 1), skills=self.store.skills.names(),
                      capabilities_source=self.caps.source, missing=self.caps.missing,

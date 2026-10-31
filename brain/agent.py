@@ -419,20 +419,22 @@ class Agent:
                              why="the player spoke" if spoke else "deadline" if late else "budget")
                 if self._directed is not None and spoke:
                     self._directed_end = "chat"
-                if t["failure"]:
-                    self.controller.report_failure(*t["failure"])
+                if t["failure"] and not spoke:  # the model never saw this failure; when he spoke, he has the
+                    self.controller.report_failure(*t["failure"])  # floor (the next run's body_status has it)
                     said = True
                 break
             turn += 1
             before, state = state, self._fresh_state()
             parked = self._note_progress(t, before, state, event.player)
             self.request_parked = parked or self.request_parked
+            news = self._news()
             try:
                 say_res = {"ok": True, "note": "said"} if line_said else \
                     {"ok": None, "note": "not said: a step failed first; say what's true now" if t["failure"]
                      else "not said (too close to a line you just said)"}
                 d = self.controller.next_turn(d, {**t["results"], "say": say_res}, state, failed=bool(t["failure"]),
-                                              note=PARKED_NOTE if parked else PROMISE_NOTE if promise_check else None)
+                                              note=PARKED_NOTE if parked else PROMISE_NOTE if promise_check else None,
+                                              news=news)
             except Exception as exc:  # model/provider error: the template still says why
                 self.log.log("next_turn_error", turn=turn, error=repr(exc))
                 if t["failure"]:
@@ -444,8 +446,12 @@ class Agent:
             # A model-selected goal/skill is recovery work even without primitive actions.
             # https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls
             if t["failure"] and not (d.actions or d.goal or d.skill or d.speech or d.refusals):
-                self.controller.report_failure(*t["failure"])  # the model had nothing to say about it
-                said = True
+                if getattr(self.controller.llm, "template_voice", False):  # the dry run: no model to phrase it
+                    self.controller.report_failure(*t["failure"])
+                    said = True
+                else:  # the model saw the failure and chose silence: code doesn't talk over it (2026-10-31)
+                    self.log.log("failure_unspoken", tool=t["failure"][0], reason=t["failure"][1],
+                                 why="model chose silence")
                 break
         if not said and body_events and not event.text:  # the model said nothing about a body situation
             # Live 20:21:53: the model fixed it silently (picked up 4 sandwiches) and the template "I'm really
@@ -459,7 +465,7 @@ class Agent:
                 self.log.log("situation_unspoken", events=body_events, still=still,
                              why="fixed by the model's own action" if acted else "fixed before speaking")
         elif not said and addressed and not body_events and not (acted or d.goal or d.skill or d.refusals):
-            self.controller.say("Sorry, I didn't catch that.")  # nothing ran, started, was said or refused
+            self.log.log("reply_silent", player=event.player, text=event.text)  # the model chose silence: no stock line
         if body_events and said:
             self.broker.voiced(body_events, text=" ".join(lines) or d.speech)
         if self.director is not None and event.text and (ran_all or d.goal or d.skill):
@@ -519,6 +525,10 @@ class Agent:
                 held, self._held = self._held, None
             spoken = spoken or bool(held and held["said"])
             ran.append(call.name)
+            if outcome.reason == Reason.BUSY and isinstance(outcome.data, dict) and not outcome.data.get("owner"):
+                hint = self.broker.busy_with()  # name who had the body (the stay-fed reflex), never a token
+                if hint:
+                    outcome.data.update(busy_with=hint["what"], busy_by=hint["by"], busy_item=hint["name"])
             res = {"ok": outcome.ok, "reason": outcome.reason, "data": outcome.data}
             body.append((call.id or call.name, call.name, call.arguments))
             if not outcome.ok and outcome.reason in (Reason.UNKNOWN_TARGET, Reason.INVALID_ARGS, Reason.NOT_PERCEIVED,
@@ -643,6 +653,18 @@ class Agent:
             held["said"] = True
             self.log.log("held_line_said", tool=tool, id=request_id)
             self.controller.say(held["line"])
+
+    def _news(self) -> list[str]:
+        """Body activity that arrived during this chain (the stay-fed reflex drinking, a kill, a pickup): handled now
+        and told to the model's next turn, not only after the chain ends. Other events stay stashed, in order."""
+        self._stash.extend(self.game.poll_events())
+        acts = [e for e in self._stash if isinstance(e, Activity)]
+        if not acts:
+            return []
+        self._stash = [e for e in self._stash if not isinstance(e, Activity)]
+        for ev in acts:
+            self.handle_event(ev)
+        return [self.broker.describe_activity(ev) for ev in acts]
 
     def _player_spoke(self) -> bool:
         """Has a chat line arrived since this request started? (peeked, kept for the next pump)"""

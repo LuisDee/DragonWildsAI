@@ -57,10 +57,10 @@ def test_free_text_alone_is_never_said(srig):
 def test_a_failure_replaces_the_say_line_and_the_model_hears_it_was_not_said(srig):
     srig.game.player_say("pick up the sticks")
     srig.controller_llm.push(reply("got them", FakeLLM.call("pickup", target="nearest", item="stick")),
-                             LLMResponse())  # the follow-up turn says nothing: the template reports the failure
+                             LLMResponse())  # the follow-up turn says nothing: so does the code (2026-10-31)
     srig.agent.step()
     said = srig.companion_said()
-    assert "got them" not in said and said  # the failure line, never the model's claim
+    assert "got them" not in said  # never the model's claim; and no stock failure line over its silence
     second = srig.controller_llm.calls[1]
     assert tool_msgs(second, SAY_TOOL) and tool_msgs(second, SAY_TOOL)[0]["ok"] is None
 
@@ -86,7 +86,9 @@ def test_say_only_followup_answers_its_tool_before_the_check(srig, check_outcome
     srig.game.add_ground_item("oak_log", 2, [1, 0, 0])
     srig.game.player_say("grab those logs")
     last = reply(None, FakeLLM.call("go_to", target=[2, 0, 0])) if check_outcome == "action" else LLMResponse()
-    srig.controller_llm.push(reply(None, FakeLLM.call("pickup", target="nearest", item="oak")),
+    # the pickup fails (no sticks here): a talk-only follow-up after a failed turn gets the check (after a turn
+    # that worked it is the report itself, with no check: chat ladder 2026-10-31)
+    srig.controller_llm.push(reply(None, FakeLLM.call("pickup", target="nearest", item="stick")),
                              reply("got the logs"), last, LLMResponse())
     complete = srig.controller_llm.complete
     violations, checks = [], []

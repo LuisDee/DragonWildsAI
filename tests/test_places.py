@@ -372,3 +372,13 @@ def test_go_to_the_region_you_are_in_says_so(tmp_path):
     out = _executor(tmp_path, body).run_task(Task(skill="go_to", args={"target": "Temple Woods"}))
     assert not out.ok and body.calls == [{"target": "Temple Woods"}]
     assert out.data["resolved"] == "'Temple Woods' is the game map's region Temple Woods: you are in it now"
+
+
+def test_go_to_says_it_takes_map_names_only_when_the_brain_resolves_them(tmp_path):
+    from conftest import Rig
+    rig = Rig(tmp_path)
+    target = lambda: next(t for t in rig.controller.tools  # noqa: E731
+                          if t["function"]["name"] == "go_to")["function"]["parameters"]["properties"]["target"]
+    assert "game's map" not in str(target().get("description"))
+    rig.controller.use_map_names()
+    assert str(target()["description"]).endswith("(a region, NPC or landmark), even out of sight.")

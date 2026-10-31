@@ -228,7 +228,7 @@ def test_controller_context_is_bounded(rig):
 
 def test_the_action_is_the_answer_and_no_canned_lines(rig):
     """Voice workstream (Luis: no stock lines): an action, a started goal or a refusal is the answer;
-    only when nothing at all happened does he say he didn't catch it."""
+    when the model replies with nothing at all, nothing is said either (no "Sorry, I didn't catch that.")."""
     rig.game.player_say("follow me")
     rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("follow", player="Luis")))
     rig.agent.step()
@@ -243,7 +243,7 @@ def test_the_action_is_the_answer_and_no_canned_lines(rig):
     rig.game.player_say("hmm")
     rig.controller_llm.push(FakeLLM.say(""))
     rig.agent.step()
-    assert rig.companion_said()[n:] == ["Sorry, I didn't catch that."]
+    assert rig.companion_said()[n:] == []
 
 
 def test_speech_is_one_chat_line():

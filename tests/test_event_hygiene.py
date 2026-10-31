@@ -239,8 +239,9 @@ def test_replay_1921_no_stale_contradictory_or_duplicate_lines(tmp_path):
     sent = [c.get("body_event") for c in r.model.contexts if c.get("body_event")]
     kinds = [e["type"] for b in sent for e in (b.get("events") or [b])]
     assert "unreachable" not in kinds, sent
-    # sustenance: he carried 23 sandwiches by then (the stay-fed reflex eats them): never sent
-    assert not any(e.get("stat") == "sustenance" for b in sent for e in (b.get("events") or [b]))
+    # sustenance: he carried 23 sandwiches by then (the stay-fed reflex eats them): the alarm still reaches the
+    # model (only a recovered stat drops it, 2026-10-31), saying he carries one
+    assert all(e.get("carrying_one") for b in sent for e in (b.get("events") or [b]) if e.get("stat") == "sustenance")
     # at most ONE line per batch, and no line twice
     assert all(len(lines) <= 1 for _, lines in batches), batches
     assert len(said) == len(set(said)), said
@@ -248,13 +249,14 @@ def test_replay_1921_no_stale_contradictory_or_duplicate_lines(tmp_path):
     last = r.model.contexts[-1]
     assert last["command"]["text"] == ("come to me this way / path to me- figure out the path / theres food and "
                                        "water infront of my character / find a path and come to me")
-    assert last["body_event"]["type"] == "vitals_low" and last["body_event"]["stat"] == "hydration"
+    evs = last["body_event"].get("events") or [last["body_event"]]
+    assert ("vitals_low", "hydration") in [(e["type"], e["stat"]) for e in evs]
+    assert all(e.get("carrying_one") for e in evs if e["stat"] == "sustenance")  # food carried: said so
     assert any("Last move: go_to Zezima arrived" in line for line in last["body_status"])
     # what was dropped, and why, is in the log
     whys = [x["why"] for x in r.records("event_triage") if x["verdict"] == "drop"] + \
         [x["why"] for x in r.records("event_dropped")]
     assert any("arrived" in w or "next to Zezima" in w for w in whys), whys
-    assert any("carries Forager's Sandwich" in w for w in whys), whys
     assert any("synchronous" in w for w in whys), whys
 
 
@@ -386,8 +388,8 @@ def test_vitals_stale_cooldown_and_worse():
     clock = Clock()
     b = EventBroker(clock=clock)
     assert b.assess(VitalsLow(stat="hydration", value=10, max=75), _state(5, hyd=40)).action == "drop"  # drank
-    assert b.assess(VitalsLow(stat="hydration", value=10, max=75),
-                    _state(5, hyd=10, carried=[("Tea", "drink")])).action == "drop"  # carries one now
+    carrying = b.assess(VitalsLow(stat="hydration", value=10, max=75), _state(5, hyd=10, carried=[("Tea", "drink")]))
+    assert carrying.action == "decide" and carrying.event["carrying_one"] is True  # carrying is not recovering
     v = b.assess(VitalsLow(stat="hydration", value=10, max=75), _state(5, hyd=10))
     assert v.action == "decide"
     b.voiced([v.event])

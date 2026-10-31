@@ -200,7 +200,7 @@ def fallback_line(events: list[dict]) -> str | None:
                                                e.get("question")))
         elif str(e.get("type", "")).endswith("_ended"):
             lines.append(f"I've stopped following you: {str(e.get('reason') or 'it ended').replace('_', ' ')}.")
-        elif e.get("type") == "vitals_low":
+        elif e.get("type") == "vitals_low" and not e.get("carrying_one"):  # carrying one: the model's call alone
             needs.append(NEED_WORDS.get(str(e.get("stat")), (f"low on {e.get('stat')}", "something for it")))
     if needs:
         feel = " and ".join(f for f, _ in needs)
@@ -481,16 +481,18 @@ class EventBroker:
             return Verdict("drop", f"stale: {ev.stat} is {cur:g} now (was {ev.value:g})")
         need = VITAL_NEEDS.get(ev.stat)
         carried = carried_consumables(state) if state else {}
-        if need and need in carried:
-            return Verdict("drop", f"stale: carries {carried[need]} now (the stay-fed reflex uses it)")
+        # Carrying one is not recovering (it may be in the bag, out of the reflex's reach): only a recovered stat
+        # drops a survival alarm; the model hears what he carries (2026-10-31).
         last = self._vitals_said.get(ev.stat)
         if last is not None and now - last[0] < VITALS_REPEAT_S and not ev.value <= last[1] * VITALS_WORSE:
             return Verdict("drop", f"said {now - last[0]:.0f}s ago and not worse ({ev.value:g} vs {last[1]:g})")
         value = cur if cur is not None else ev.value
-        return Verdict("decide", f"{ev.stat} low and nothing to fix it carried",
+        carrying = bool(need and need in carried)
+        return Verdict("decide", f"{ev.stat} low" + (f", carrying {carried[need]}" if carrying else
+                                                     " and nothing to fix it carried"),
                        {"type": "vitals_low", "stat": ev.stat,
                         "feels": sit.feel(ev.stat, 100.0 * value / ev.max if value is not None and ev.max else None),
-                        "value": value, "max": ev.max, "fixed_by": need, "carrying_one": False})
+                        "value": value, "max": ev.max, "fixed_by": need, "carrying_one": carrying})
 
     def _dropped(self, ev: ItemsDropped, state: dict) -> Verdict:
         """Someone dropped things by him: the model decides (pick up? thanks?). Stale once they are gone."""
@@ -530,10 +532,13 @@ class EventBroker:
                 here = {str(i.get("id")) for i in state.get("nearby_items") or [] if isinstance(i, dict)}
                 if not any(str(i.get("id")) in here for i in e.get("items") or []):
                     continue
-            if e.get("type") == "vitals_low":
-                need = e.get("fixed_by")
-                if (need and f.get(f"has_{need}")) or f.get(f"{e.get('stat')}_low") is False:
+            if e.get("type") == "vitals_low":  # only a stat that really recovered drops a survival alarm
+                cur = _num(state.get(str(e.get("stat")))) if state else None
+                was = _num(e.get("value"))
+                if cur is not None and was is not None and cur >= was + VITALS_RECOVERED:
                     continue
+                need = e.get("fixed_by")
+                e = {**e, "carrying_one": bool(need and f.get(f"has_{need}"))}
             keep.append(e)
         return keep
 
@@ -541,6 +546,19 @@ class EventBroker:
 
     def remember_activity(self, ev: Activity) -> None:
         self._activity.append((self.clock(), ev))
+
+    def busy_with(self, within_s: float = 20.0) -> dict | None:
+        """Who else had the body just now, from the activity the body reported (a reflex drinking, eating,
+        fleeing): for a busy result that doesn't name its owner. {by, name, what}; None when nothing recent."""
+        now = self.clock()
+        for t, ev in reversed(self._activity):
+            if now - t > within_s:
+                break
+            if ev.by and ev.by != "brain":
+                name = ev.fields().get("name")
+                return {"by": ev.by, "name": name if isinstance(name, str) else None,
+                        "what": f"{self.describe_activity(ev)}, {now - t:.0f}s ago"}
+        return None
 
     @staticmethod
     def describe_activity(ev: Activity) -> str:

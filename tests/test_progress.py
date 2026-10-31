@@ -132,3 +132,28 @@ def test_a_step_that_burns_its_call_budget_fails_the_attempt(tmp_path):
     assert len(seen) == 1
     request = json.loads(llm.calls[1]["messages"][1]["content"])
     assert request["detail"]["failed"]["reason"].startswith(f"used {STEP_CALL_BUDGET} model calls on this step")
+
+
+# ------------------------------------------------------------------ busy names who had the body (chat ladder)
+
+
+def test_busy_names_the_reflex_never_the_token(tmp_path):
+    from brain.interface import parse_event
+    rig = Rig(tmp_path, max_attempts=1)
+    original = rig.game.call
+
+    def call(tool, args):
+        if tool == "go_to":
+            return {"ok": False, "reason": "busy", "data": {"detail": "movement owner token required"}}
+        return original(tool, args)
+    rig.game.call = call
+    rig.agent.handle_event(parse_event({"type": "activity", "kind": "reflex_use", "by": "reflex", "name": "Clean Water",
+                                        "item": "ITEM_Consumable_Water_Clean", "ok": True}))
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("go_to", target=[20, 0, 0])), FakeLLM.say(""))
+    rig.game.player_say("come here")
+    rig.agent.step()
+    seen = _tool_results(rig.controller_llm.calls[1])[-1]
+    assert seen["data"]["busy_by"] == "reflex" and seen["data"]["busy_item"] == "Clean Water"
+    rig.controller.report_failure("go_to", "busy", seen["data"])
+    assert rig.companion_said()[-1] == "I couldn't walk somewhere just then: I was busy with Clean Water."
+    assert not any("token" in s for s in rig.companion_said())

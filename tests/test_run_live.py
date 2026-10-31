@@ -149,8 +149,8 @@ def test_missing_get_state_refuses_actions(tmp_path):
     rig = Live(tmp_path, not_implemented={"get_state"})
     try:
         assert "no 'get_state'" in "\n".join(rig.banner)
-        rig.chat("!c follow me")
-        assert rig.said() == ["I can't follow you yet: I can't read the game state."]
+        rig.chat("!c follow me", until=lambda: "failure_unspoken" in rig.kinds())
+        assert rig.said() == []  # a failed state read is no stock line (the model hears the result)
         assert rig.game.following is None
     finally:
         rig.close()
