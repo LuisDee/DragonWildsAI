@@ -218,8 +218,8 @@ def test_controller_context_is_bounded(rig):
     rig.controller.decide("Luis", "hello", rig.game.get_state()["data"], None)
     c = ctx(rig.controller_llm.calls[0])
     assert "state" not in c and len(c["situation"]) <= MAX_LINES
-    assert set(c) >= {"command", "situation", "active_goal", "notes", "learned_skills", "castable_spells",
-                      "reflex_rules", "recent_events"}
+    assert set(c) >= {"command", "situation", "castable_spells"}
+    assert all(v not in (None, [], {}, "") for k, v in c.items() if k not in ("command", "situation"))  # no empty keys
     assert {"look", "inspect", "interact", "run_skill", "start_goal"} <= offered(rig.controller_llm.calls[0])
 
 
@@ -435,7 +435,7 @@ def test_unavailable_observation_preserves_each_tool_result_id(rig):
     assert messages[0]["content"] == "original request"
 
 
-def test_route_feedback_reaches_provider_with_original_tool_id(rig):
+def test_route_feedback_stays_out_of_the_model_view_with_original_tool_id(rig):
     from brain.controller import Decision
     from brain.llm import ToolCall, assistant_message
     prior = FakeLLM.say("", ToolCall("go_to", {"target": [20, 0, -4]}, "route-call"))
@@ -448,11 +448,11 @@ def test_route_feedback_reaches_provider_with_original_tool_id(rig):
     messages = rig.controller_llm.calls[0]["messages"]
     result = next(m for m in messages if m.get("role") == "tool")
     assert result["tool_call_id"] == "route-call"
-    assert json.loads(result["content"])["data"]["route_feedback"] == feedback
+    assert json.loads(result["content"]) == {"ok": False, "reason": "verification_failed", "data": {}}
     assert messages[0]["content"] == "original request"
 
 
-def test_navigation_observation_reaches_controller_provider_with_tool_id(rig):
+def test_navigation_observation_stays_out_of_the_model_view_with_tool_id(rig):
     # Simulated provider capture, not an autonomous game run.
     from brain.controller import Decision
     from brain.llm import ToolCall, assistant_message
@@ -469,4 +469,4 @@ def test_navigation_observation_reaches_controller_provider_with_tool_id(rig):
                                                        "data": {"navigation_observation": packet}}}, {}, failed=True)
     result = next(m for m in rig.controller_llm.calls[0]["messages"] if m.get("role") == "tool")
     assert result["tool_call_id"] == "route-call"
-    assert json.loads(result["content"])["data"]["navigation_observation"] == packet
+    assert "navigation_observation" not in json.loads(result["content"])["data"]

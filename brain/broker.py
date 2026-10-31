@@ -548,9 +548,11 @@ class EventBroker:
             if isinstance(v, dict) and v.get("name"):
                 return str(v["name"]) + (f" x{v['count']}" if (v.get("count") or 1) > 1 else "")
             if isinstance(v, float):
-                return f"{v:g}"
+                return f"{round(v, 1):g}"
             return str(v)
-        bits = [f"{k}={val(v)}" for k, v in ev.fields().items()]
+        f = ev.fields()
+        # an item id beside its in-game name is noise for the model (prompt diet 2026-10-31)
+        bits = [f"{k}={val(v)}" for k, v in f.items() if not (k == "item" and f.get("name"))]
         return f"{ev.kind}: {'; '.join(bits)}" + (f" (started by {ev.by})" if ev.by else "")
 
     @staticmethod
@@ -564,8 +566,20 @@ class EventBroker:
         self._progress = (self.clock(), text)
 
     def activity_lines(self) -> list[str]:
+        """Oldest first; repeats of one thing (same kind, name, reason, outcome: the reflex holding back the same
+        drink every minute) are one line, the newest, with how many times (prompt diet 2026-10-31)."""
         now = self.clock()
-        return [f"{now - t:.0f}s ago: {self.describe_activity(ev)}" for t, ev in self._activity]
+        rows: dict[tuple, list] = {}
+        for t, ev in reversed(self._activity):
+            f = ev.fields()
+            key = (ev.kind, ev.by, str(f.get("name")), str(f.get("reason")), str(f.get("ok")), str(f.get("outcome")))
+            if key in rows:
+                rows[key][2] += 1
+            else:
+                rows[key] = [t, ev, 1]
+        out = sorted(rows.values(), key=lambda r: r[0])
+        return [f"{now - t:.0f}s ago: {self.describe_activity(ev)}" + (f" (x{n} lately)" if n > 1 else "")
+                for t, ev, n in out]
 
     # ---------------------------------------------------------------- where am I (live 20:26:20)
 

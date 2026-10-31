@@ -738,7 +738,7 @@ class Agent:
         return "stuck"
 
     def _planner_notes(self) -> dict:
-        notes = dict(self.store.notes())
+        notes = dict(self.store.prompt_notes())
         for name, rec in self.store.places().items():
             if isinstance(rec, dict) and rec.get("position"):
                 notes[f"place:{name}"] = f"go_to target [x, y, z] = {rec['position']}" + (

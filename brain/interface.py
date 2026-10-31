@@ -219,7 +219,8 @@ class SayArgs(BaseModel):
 
 
 class RememberArgs(BaseModel):
-    key: str = Field(description="Short key, e.g. 'place:lake_hut' or 'pref:favourite_axe'.")
+    key: str = Field(description="Short key, e.g. 'place:lake_hut' or 'pref:favourite_axe'; a 'state:<x>' note is a "
+                                 "passing condition and is forgotten after 30 min.")
     value: str
     at: Literal["self", "player"] | None = Field(
         None, description="For a place: store the position where you stand (self) or where a player stands (player).")
@@ -361,10 +362,28 @@ BRAIN_TOOLS = ("remember", "run_skill", "lookup")
 BODY_TOOLS = [name for name in TOOLS if name not in BRAIN_TOOLS]
 
 
+def _lean(schema: Any) -> Any:
+    """A pydantic JSON schema without what tells a model nothing: titles, ``default: null`` and the
+    ``anyOf [X, null]`` of an Optional field (it is simply not required). Prompt diet 2026-10-31."""
+    if isinstance(schema, list):
+        return [_lean(s) for s in schema]
+    if not isinstance(schema, dict):
+        return schema
+    out = {k: _lean(v) for k, v in schema.items() if k != "title" and not (k == "default" and v is None)}
+    alts = out.get("anyOf")
+    if isinstance(alts, list):
+        real = [a for a in alts if a != {"type": "null"}]
+        if len(real) == 1 and len(real) < len(alts) and isinstance(real[0], dict):
+            del out["anyOf"]
+            out = {**real[0], **out}
+    if isinstance(out.get("properties"), dict):  # a property literally named "title" stays
+        out["properties"] = {k: _lean(v) for k, v in schema["properties"].items()}
+    return out
+
+
 def tool_schema(name: str, description: str | None = None) -> dict:
     model, default_desc = TOOLS[name]
-    params = model.model_json_schema()
-    params.pop("title", None)
+    params = _lean(model.model_json_schema())
     return {
         "type": "function",
         "function": {"name": name, "description": description or default_desc, "parameters": params},

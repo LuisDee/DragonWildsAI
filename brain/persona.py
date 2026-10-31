@@ -2,7 +2,7 @@
 
 The text lives in a Markdown file so the voice can be edited without touching code; it is re-read
 when the file changes (like house_rules.md). Placeholders, filled by ``render``: {name} {player}
-{triggers} {look_rule} {lookup_rule}. Any other brace in the file is a mistake and fails the tests.
+{rules_rule} {look_rule} {lookup_rule}. Any other brace in the file is a mistake and fails the tests.
 DW_PERSONA overrides the path (evals and A/B tests).
 """
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-PLACEHOLDERS = ("name", "player", "triggers", "look_rule", "lookup_rule")
+PLACEHOLDERS = ("name", "player", "rules_rule", "look_rule", "lookup_rule")
 DEFAULT_PATH = Path(__file__).with_name("persona.md")
 
 _cache: dict[str, tuple[float, str]] = {}
@@ -38,8 +38,9 @@ def template(path: Path | None = None, fallback: str | None = None) -> str:
 
 
 def render(text: str, **values: str) -> str:
-    """Fill the placeholders (all of them are required, so a missing one fails loudly in tests)."""
+    """Fill the placeholders (all of them are required, so a missing one fails loudly in tests; extra values fill
+    an older persona's own placeholders, e.g. the eval's frozen "old" persona)."""
     missing = [k for k in PLACEHOLDERS if k not in values]
     if missing:
         raise KeyError(f"persona placeholders not given: {missing}")
-    return text.format(**{k: values[k] for k in PLACEHOLDERS})
+    return text.format(**values)

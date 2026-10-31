@@ -109,8 +109,25 @@ def assistant_message(resp: LLMResponse) -> dict:
     return msg
 
 
+# Body diagnostics that stay in the logs and never reach a model (forensics 2026-10-31 §3.2: a stale 6 KB terrain
+# blob in 78/110 prompts, ray samples, route traces, read-status gaps). Dropped at any depth of a result; the
+# body's one-sentence reason/detail is kept untouched.
+LOG_ONLY_KEYS = frozenset({"terrain", "navigation_observation", "barrier_samples", "route_feedback", "read_status",
+                           "inventory_read_status", "route_trace", "ray_samples", "rays", "samples", "match_basis",
+                           "actor_position"})
+
+
+def model_view(value: Any) -> Any:
+    """``value`` without LOG_ONLY_KEYS (dicts and lists walked; everything else as is)."""
+    if isinstance(value, dict):
+        return {k: model_view(v) for k, v in value.items() if k not in LOG_ONLY_KEYS}
+    if isinstance(value, list):
+        return [model_view(v) for v in value]
+    return value
+
+
 def tool_result_message(call: ToolCall, result: Any) -> dict:
-    content = result if isinstance(result, str) else json.dumps(result, default=str, ensure_ascii=False)
+    content = result if isinstance(result, str) else json.dumps(model_view(result), default=str, ensure_ascii=False)
     return {"role": "tool", "tool_call_id": call.id or f"call_0_{call.name}", "name": call.name, "content": content}
 
 

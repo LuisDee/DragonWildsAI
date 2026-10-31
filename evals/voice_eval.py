@@ -43,7 +43,7 @@ from brain import paths  # noqa: E402
 from brain import persona as persona_file  # noqa: E402
 from brain.capabilities import Capabilities, _parse_manifest  # noqa: E402
 from brain.agent import PROMISE_NOTE  # noqa: E402
-from brain.controller import FINAL_PASS_NOTE, LOOK_RULE, LOOKUP_RULE, TALK_ONLY_NOTE, Controller  # noqa: E402
+from brain.controller import FINAL_PASS_NOTE, LOOK_RULE, LOOKUP_RULE, RULES_RULE, TALK_ONLY_NOTE, Controller  # noqa: E402
 from brain.interface import BODY_TOOLS, SENSABLE_TRIGGERS  # noqa: E402
 from brain.jsonl_log import JsonlLogger, read_jsonl  # noqa: E402
 from brain.llm import (CONTROLLER_MODEL_ENV, PLANNER_MODEL_ENV, FakeLLM, LiteLLMClient, LLMResponse,  # noqa: E402
@@ -146,7 +146,9 @@ _OVERRIDE: dict[str, Path] = {}  # main(): the persona text measured (HEAD by de
 def system_prompt(variant: str, ctl: Controller) -> str:
     ov = _OVERRIDE.get(variant)
     text = persona_file.template(ov if ov is not None and Path(ov).exists() else PERSONAS[variant])
-    prompt = persona_file.render(text, name=ctl.name, player=ctl.player, triggers=", ".join(SENSABLE_TRIGGERS),
+    prompt = persona_file.render(text, name=ctl.name, player=ctl.player,
+                                 triggers=", ".join(SENSABLE_TRIGGERS),  # the frozen "old" persona's placeholder
+                                 rules_rule=RULES_RULE.format(triggers=", ".join(SENSABLE_TRIGGERS)),
                                  look_rule=LOOK_RULE, lookup_rule=LOOKUP_RULE)
     rules = ctl.house_rules()
     if rules:  # the same suffix Controller.persona() adds

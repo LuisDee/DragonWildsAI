@@ -24,6 +24,9 @@ from . import paths
 from .fileio import atomic_write as _atomic_write
 from .interface import TOOLS, ActionResult, ok
 
+# notes.json "state:<x>" keys are passing conditions, shown to a model only this long after they were written
+STATE_PREFIX, STATE_NOTE_TTL_S = "state:", 1800.0
+
 TaskStatus = Literal["pending", "running", "done", "failed"]
 GoalStatus = Literal["active", "done", "stuck", "interrupted"]
 
@@ -115,6 +118,7 @@ class StateStore:
         self.tree_path = self.dir / "task_tree.json"
         self.progress_path = self.dir / "progress.jsonl"
         self.notes_path = self.dir / "notes.json"
+        self.notes_at_path = self.dir / "notes_at.json"  # {key: unix time written} (state:* notes expire)
         self.places_path = self.dir / "places.json"
         self.rules_path = self.dir / "reflex_rules.json"
         self.skills = skills or SkillRegistry()
@@ -147,11 +151,38 @@ class StateStore:
             return json.loads(self.notes_path.read_text(encoding="utf-8"))
         return {}
 
+    def _notes_at(self) -> dict[str, float]:
+        try:
+            d = json.loads(self.notes_at_path.read_text(encoding="utf-8")) if self.notes_at_path.exists() else {}
+        except ValueError:
+            return {}
+        return d if isinstance(d, dict) else {}
+
     def remember(self, key: str, value: str) -> ActionResult:
         notes = self.notes()
         notes[key] = value
         _atomic_write(self.notes_path, json.dumps(notes, indent=2, ensure_ascii=False))
+        at = self._notes_at()
+        at[key] = round(time.time())
+        _atomic_write(self.notes_at_path, json.dumps(at, indent=2))
         return ok(key=key)
+
+    def prompt_notes(self, now: float | None = None) -> dict[str, str]:
+        """The notes a model sees. A ``state:*`` note is a passing condition ("at 0 water, 1% HP"): it is shown only
+        within STATE_NOTE_TTL_S of being written, with its age, and never without a write time (forensics
+        2026-10-31: a 4-day-old false "body link keeps restarting" note sat in 110/110 prompts). Other notes are
+        long-term facts and always shown."""
+        now = time.time() if now is None else now
+        at = self._notes_at()
+        out = {}
+        for k, v in self.notes().items():
+            if str(k).lower().startswith(STATE_PREFIX):
+                t = at.get(k)
+                if not isinstance(t, (int, float)) or now - t > STATE_NOTE_TTL_S:
+                    continue
+                v = f"{v} (noted {max(0, now - t) / 60:.0f} min ago)"
+            out[k] = v
+        return out
 
     # named places
     def places(self) -> dict[str, dict]:

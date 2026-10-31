@@ -40,7 +40,8 @@ from . import situation as sit
 from .interface import (BRAIN_TOOLS, PROGRESS_EVENTS, READ_TOOLS, RULE_TOOLS, SENSABLE_TRIGGERS, TOOLS, Event, GameInterface,
                         GatherProgress, Reason, tool_schema, validate_args)
 from .jsonl_log import JsonlLogger
-from .llm import LLMClient, LLMResponse, ToolCall, assistant_message, request_log_fields, strip_markers, tool_result_message
+from .llm import (LLMClient, LLMResponse, ToolCall, assistant_message, model_view, request_log_fields, strip_markers,
+                  tool_result_message)
 from .spells import SpellBook
 from .state_store import StateStore
 from .voice import Voice
@@ -120,12 +121,16 @@ Your body (body_status, body_event):
   {player} asks about it.
 - If you can't tell what {player} means, ask ONE short question naming the things you can see.
 
-Spells: castable_spells lists what you can cast (name, role, when to use it). A spell that is not
-listed can't be cast: say so instead of calling cast.
-Standing orders (set_reflex_rule): something your body should do by itself, instantly, whenever a
-trigger it can sense happens (enemy = the enemy kind, or "*"). You can only sense these triggers:
-{triggers}. If the player's condition is not one of them, do NOT call set_reflex_rule: say you
-can't sense that. reflex_rules lists the current orders; list_rules and clear_rule manage them."""
+Spells: castable_spells lists what you can cast (name, role, what it's for). A spell that is not
+listed can't be cast: say so instead of calling cast. How one is really used: the spells tool.{rules_rule}
+Read-only tools only run on their own: in a reply that also calls an action they are skipped, so look
+first, then act on the result in your next reply."""
+
+# Only for a body with standing orders (set_reflex_rule offered): the triggers it can sense.
+RULES_RULE = ("\nStanding orders (set_reflex_rule): something your body does by itself, instantly, when a trigger it "
+              "can sense happens (enemy = the enemy kind, or \"*\"). It can only sense: {triggers}. If his condition "
+              "isn't one of them, don't call set_reflex_rule: say you can't sense that. reflex_rules lists current "
+              "orders; list_rules and clear_rule manage them.")
 
 # Talk-only follow-up turns (GOAL M1 talk_without_action): a later turn of the agent loop that only talks
 # gets ONE more model call before its line is said, to call what the line says it will do. Decided on the
@@ -144,9 +149,9 @@ TALK_ONLY_NOTE = ("You replied without calling any tool, and nothing has been sa
 ADDRESSED_EFFORT_ENV = "DW_CONTROLLER_EFFORT_ADDRESSED"
 ADDRESSED_EFFORT_DEFAULT = ""  # off until it passes the latency budget (A/B 2026-10-26: chat p50 2.45 -> 3.02 s)
 
-# Appended to every read-only tool's description (Controller._tool_list): how _loop really runs them.
-READ_ALONE = ("Runs only when called on its own: in a reply that also calls an action it is skipped, so look "
-              "first, then act on its result in your next reply.")
+# Marks a read-only tool whose description doesn't say so (Controller._tool_list); how _loop runs reads
+# (only on their own) is said once in the persona, not in every tool (prompt diet 2026-10-31: ~500 tokens).
+READ_ALONE = "Read-only."
 
 # The read budget's last call (Controller._final_pass): only acting tools are offered.
 FINAL_PASS_NOTE = ("No more looking this turn (the read-only tools are used up). Act now with your tools on what "
@@ -274,7 +279,7 @@ def player_words(text: str, name: str | None = None) -> str:
 
 
 # spell_lines: the body's `how` per castable spell, cut to this (bounded prompt growth: one short tail per line)
-SPELL_HOW_CHARS = 150
+SPELL_HOW_CHARS = 110
 
 
 def clip(text: str, limit: int = MAX_SAY) -> str:
@@ -345,6 +350,14 @@ def current_observation(state: dict | None) -> dict:
             "stations": stations}
 
 
+def _look_row(t):
+    """One look row as the model sees it: the engine class and category repeat id/name/kind, and a zero match score
+    says nothing (the full row stays in the log and in the situation's looks)."""
+    if not isinstance(t, dict):
+        return t
+    return {k: v for k, v in t.items() if k not in ("class", "category") and not (k == "match" and not v)}
+
+
 class Controller:
     def __init__(self, llm: LLMClient, game: GameInterface, store: StateStore, logger: JsonlLogger,
                  name: str = "Claude", player: str = "Luis", recent_events: int = 10,
@@ -410,7 +423,7 @@ class Controller:
         out = []
         for t in self._schemas():
             f = t.get("function") or {}
-            if f.get("name") in self.read_tools and READ_ALONE not in (f.get("description") or ""):
+            if f.get("name") in self.read_tools and not re.search(r"read[- ]only", f.get("description") or "", re.I):
                 t = {**t, "function": {**f, "description": (f.get("description") or "").rstrip() + " " + READ_ALONE}}
             out.append(t)
         if self.say_channel:
@@ -479,24 +492,28 @@ class Controller:
         return self._rules
 
     def spell_lines(self) -> list[str]:
-        """One line per spell (speed plan §2.2: the JSON rows were ~6k characters): name, role, what it
-        does (80 chars), why it can't be cast now, and HOW it is really used (``how``, body-supplied from
-        data/spell_mechanics.json, SPELL_HOW_CHARS): drop-then-cast (Divine Rock: drop 5 ore), cast-on-a-thing,
-        held open while walking (Recall). ``spells`` (read) has the full rows."""
+        """One line per spell: name, role, what it is for, what the game needs, and for a spell castable now HOW it
+        is really used when it is cast AT something (``how``, body-supplied from data/spell_mechanics.json, cut at
+        SPELL_HOW_CHARS): drop-then-cast (Divine Rock: drop 5 ore), cast-on-a-thing, held open while walking (Recall).
+        Instant (self) and aimed spells need only their purpose. A spell that can't be cast now
+        says only why. The game's flavour text (``use_when``) only when there is no ``for`` (prompt diet 2026-10-31:
+        9.4k -> ~5k chars). ``spells`` (read) has the full rows."""
         out = []
         for s in self.castable_spells():
             bits = [str(s.get("role") or "")]
             if s.get("for"):
-                bits.append(f"for: {s['for']}")
+                bits.append(f"for {s['for']}")
             if s.get("needs"):
-                bits.append(f"needs: {s['needs']}")
+                bits.append(f"needs {s['needs']}")
             if s.get("castable") is False:
-                bits.append("NOT castable now: " + str(s.get("reason") or "?"))
-            elif s.get("remaining_s"):
+                out.append(f"{s.get('name')} (NOT castable now: {s.get('reason') or '?'})")
+                continue
+            if s.get("remaining_s"):
                 bits.append(f"cooldown {float(s['remaining_s']):.0f}s")
-            use = clip(str(s.get("use_when") or ""), 80)
-            how = clip(str(s.get("how") or ""), SPELL_HOW_CHARS)
-            out.append(f"{s.get('name')} ({', '.join(b for b in bits if b)})" + (f": {use}" if use else "")
+            use = "" if s.get("for") else clip(str(s.get("use_when") or ""), 80)
+            # a spell cast at something (placed, held open while walking) needs its how; a self/aimed one its purpose
+            how = clip(str(s.get("how") or ""), SPELL_HOW_CHARS) if s.get("role") not in ("instant", "aimed") else ""
+            out.append(f"{s.get('name')} ({'; '.join(b for b in bits if b)})" + (f": {use}" if use else "")
                        + (f" | how: {how}" if how else ""))
         return out
 
@@ -519,7 +536,7 @@ class Controller:
             return []
 
     def _notes(self) -> dict:
-        notes = self.store.notes()
+        notes = self.store.prompt_notes()
         if len(notes) > 20:  # bounded: the newest 20 (insertion order)
             notes = dict(list(notes.items())[-20:])
         return notes
@@ -555,7 +572,7 @@ class Controller:
             except Exception as exc:  # context is best effort
                 self.log.log("recent_activity_error", error=repr(exc))
         if body_event:
-            ctx["body_event"] = body_event
+            ctx["body_event"] = model_view(body_event)
         if text and state and not state.get("unavailable"):
             refs = grounding.hints(grounding.read(text, sit.perceived(state), exclude=[player, self.name]))
             if refs:
@@ -565,7 +582,8 @@ class Controller:
                 ctx["chat"] = self.chat_provider()
             except Exception as exc:  # context is best effort
                 self.log.log("chat_context_error", error=repr(exc))
-        return ctx
+        # an empty section says nothing (no goal, no board, no rules ...): leave it out (prompt diet 2026-10-31)
+        return {k: v for k, v in ctx.items() if k in ("command", "situation") or v not in (None, [], {}, "")}
 
     def house_rules(self) -> str:
         """Luis's house rules (brain/house_rules.md, or DW_HOUSE_RULES): rules the MODEL follows, not
@@ -584,8 +602,9 @@ class Controller:
     def persona(self) -> str:
         """brain/persona.md (voice workstream; re-read on change, DW_PERSONA overrides; PERSONA is the
         fallback when the file is missing), then Luis's house rules."""
+        orders = RULES_RULE.format(triggers=", ".join(SENSABLE_TRIGGERS)) if self.has("set_reflex_rule") else ""
         persona = persona_file.render(persona_file.template(fallback=PERSONA), name=self.name, player=self.player,
-                                      triggers=", ".join(SENSABLE_TRIGGERS),
+                                      rules_rule=orders,
                                       look_rule=LOOK_RULE if self.can_look else NO_LOOK_RULE,
                                       lookup_rule=LOOKUP_RULE if self.knowledge is not None else "")
         if not self.say_channel:
@@ -839,8 +858,10 @@ class Controller:
         if call.name == "look" and res.get("ok"):
             look = {**res["data"], "_about": args.get("about")}
             d.looks.append(look)
+            data = {**res["data"], "things": [_look_row(t) for t in res["data"].get("things") or []]}
             if args.get("about"):  # say it plainly to the model too (the body only ranks by match score)
-                res = {**res, "data": {**res["data"], "matched": bool(sit.look_matched(look))}}
+                data["matched"] = bool(sit.look_matched(look))
+            res = {**res, "data": data}
         if not res.get("ok") and res.get("reason") in Reason.CANT_YET:
             return {"ok": False, "reason": res["reason"], "note": f"you can't {call.name} yet"}
         return res

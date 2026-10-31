@@ -391,7 +391,7 @@ def wearing(state: dict, names: dict[str, str] | None = None) -> list[str]:
 
 def recent_life(state: dict) -> list[str]:
     """Own gravestone(s) and the last death, from the client body's get_state: one "Recent:" line, then
-    one "Grave:" line per unrecovered grave not in sight, most valuable first (BUGS L19/L22)."""
+    one "Graves ..." line with up to 3 unrecovered graves not in sight, most valuable first (BUGS L19/L22)."""
     bits, grave_lines = [], []
     d = state.get("last_death") if isinstance(state.get("last_death"), dict) else None
     if d and isinstance(d.get("ago_s"), (int, float)):
@@ -405,11 +405,10 @@ def recent_life(state: dict) -> list[str]:
     for gv in item_stats.rank_graves(graves or []):  # most valuable first, from item data (BUGS L22)
         if seen_id and gv.get("grave_id") == seen_id:
             continue  # the one in sight is described below
-        dist = f"{gv['distance']} m away" if isinstance(gv.get("distance"), (int, float)) else "somewhere"
-        lost = ", ".join(str(x) for x in (gv.get("lost") or [])[:6])
-        grave_lines.append((f"Grave: an unrecovered grave of yours (not in sight) from {gv.get('iso') or '?'}, {dist} "
-                            f"(go_to target '{gv.get('go_to') or 'my_grave'}')"
-                            + (f", holding about {gv.get('lost_items')} items: {lost}" if lost else ""))[:LINE_CHARS])
+        dist = f"{gv['distance']:.0f} m away" if isinstance(gv.get("distance"), (int, float)) else "somewhere"
+        lost = ", ".join(str(x) for x in (gv.get("lost") or [])[:3])
+        grave_lines.append(f"{dist}, from {gv.get('iso') or '?'} (go_to target '{gv.get('go_to') or 'my_grave'}')"
+                           + (f", about {gv.get('lost_items')} items: {lost}" if lost else ""))
     g = state.get("my_grave") if isinstance(state.get("my_grave"), dict) else None
     if g:
         dist = f"{g['distance']:.0f} m away" if isinstance(g.get("distance"), (int, float)) else "nearby"
@@ -419,7 +418,9 @@ def recent_life(state: dict) -> list[str]:
     if isinstance(state.get("other_graves"), int) and state["other_graves"] > 0:
         bits.append(f"{state['other_graves']} other gravestone(s) here are not yours")
     out = [("Recent: " + "; ".join(bits))[:LINE_CHARS]] if bits else []
-    return out + grave_lines[:3]
+    if grave_lines:  # one line for every grave not in sight (prompt diet 2026-10-31: was a line each)
+        out.append(("Graves of yours not in sight, most valuable first: " + " | ".join(grave_lines[:3]))[:2 * LINE_CHARS])
+    return out
 
 
 def sleep_timeframe(state: dict) -> str:

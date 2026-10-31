@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from brain import persona as persona_file
+from brain.controller import RULES_RULE
 from brain.llm import FakeLLM, LLMResponse, ToolCall
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,7 +19,8 @@ spec = importlib.util.spec_from_file_location("voice_eval", ROOT / "evals" / "vo
 ve = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ve)
 
-VALUES = dict(name="Claude", player="Zezima", triggers="telegraph, own_hp_below", look_rule=" -> LOOK RULE",
+VALUES = dict(name="Claude", player="Zezima", rules_rule=RULES_RULE.format(triggers="telegraph, own_hp_below"),
+              look_rule=" -> LOOK RULE",
               lookup_rule="\n- LOOKUP RULE")
 
 
