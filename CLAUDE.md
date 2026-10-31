@@ -4,6 +4,8 @@ Read this whole file before doing anything. It is the single source of truth for
 
 ---
 
+## 00. READ FIRST: docs/HANDOVER-2026-10-31.md (Codex audit, Luis's new live-first direction, TASK-0). It overrides anything below.
+
 ## 0. Current state and standing decisions (updated 2026-10-25, end of session 1)
 
 **Read next:**
