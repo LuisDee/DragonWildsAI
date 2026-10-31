@@ -363,7 +363,7 @@ class LiveSession:
                                calls_per_min=opts.chat_calls_per_min, debounce_s=opts.chat_debounce_s)
         self.agent.body_self_defends = "combat_status" in self.caps.extras
         try:  # the game's map data: the Where line (region, named places near) and go_to <place name>
-            self.agent.broker.places = self.executor.places = Places()
+            self.agent.broker.places = self.executor.places = self.controller.places = Places()
             self.controller.use_map_names()
         except Exception as exc:  # no data file: both work without it
             self.log.log("places_unavailable", error=repr(exc)[:200])

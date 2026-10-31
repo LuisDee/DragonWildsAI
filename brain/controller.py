@@ -373,6 +373,36 @@ def _look_row(t):
     return {k: v for k, v in t.items() if k not in ("class", "category") and not (k == "match" and not v)}
 
 
+def _map_names(rows: list, places, about: str | None) -> bool | None:
+    """Give each seen thing the game map's name for its spot (``map_name``: "Law Anima Vent" where the census only
+    says "Anima Vent"). With ``about``, a thing whose map name lacks a word of it is no match: returns whether
+    anything still matches, or None when no row got a map name (the body's verdict stands)."""
+    if places is None:
+        return None
+    from .knowledge import _terms
+    q = _terms(about) if about else set()
+    got, hit = False, False
+    for t in rows:
+        if not isinstance(t, dict):
+            continue
+        try:
+            name = places.name_at(t.get("actor_position") or t.get("position"))
+        except Exception:
+            name = None
+        if name and name != t.get("name"):
+            t["map_name"] = name
+        if name:
+            got = True
+            if q:
+                full = q <= (_terms(name) | _terms(str(t.get("name") or "")))
+                if not full:
+                    t.pop("match", None)
+                hit = hit or full
+        elif q and (t.get("match") or 0) > 0:
+            hit = True
+    return hit if (got and q) else None
+
+
 class Controller:
     def __init__(self, llm: LLMClient, game: GameInterface, store: StateStore, logger: JsonlLogger,
                  name: str = "Claude", player: str = "Luis", recent_events: int = 10,
@@ -412,6 +442,7 @@ class Controller:
         self.director = None  # brain.director.Director | None: the task board's tools (attach_director)
         self._progress_at: float | None = None
         self._progress_last: str | None = None
+        self.places = None  # brain.places.Places (LiveSession): look rows get the map name of their spot
         self.map_names = False  # go_to also takes the game map's place names (executor fallback; use_map_names)
         self.tools = self._tool_list()
         self.chat_provider: Callable[[], list[dict]] | None = None  # recent chat lines (run_live.ChatMemory)
@@ -890,9 +921,11 @@ class Controller:
         if call.name == "look" and res.get("ok"):
             look = {**res["data"], "_about": args.get("about")}
             d.looks.append(look)
-            data = {**res["data"], "things": [_look_row(t) for t in res["data"].get("things") or []]}
+            rows = [_look_row(t) for t in res["data"].get("things") or []]
+            named = _map_names(rows, getattr(self, "places", None), args.get("about"))
+            data = {**res["data"], "things": rows}
             if args.get("about"):  # say it plainly to the model too (the body only ranks by match score)
-                data["matched"] = bool(sit.look_matched(look))
+                data["matched"] = bool(sit.look_matched(look)) if named is None else named
             res = {**res, "data": data}
         if not res.get("ok") and res.get("reason") in Reason.CANT_YET:
             return {"ok": False, "reason": res["reason"], "note": f"you can't {call.name} yet"}

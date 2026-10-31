@@ -299,6 +299,12 @@ class Executor:
             return failed
         best = next(iter((res.get("data") or {}).get("results") or []), None)
         if not best or best.get("match") not in ("exact", "named") or not best.get("position"):
+            try:  # no exact map name: say which map names share a word with it (the model decides)
+                like = self.places.similar(target, now.get("position"))
+            except Exception:
+                like = []
+            if like:
+                return {**failed, "data": {**(failed.get("data") or {}), "map_names_like_it": like}}
             return failed
         if best.get("you_are_inside"):
             return {**failed, "data": {**(failed.get("data") or {}),

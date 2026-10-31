@@ -332,6 +332,46 @@ class Places:
                         "inside the province, height unknown, not checked for ground or a path"})
         return ans
 
+    def name_at(self, pos, max_m: float = 4.0) -> str | None:
+        """The game-map landmark name standing at ``pos`` (within ``max_m`` horizontally, 5 m vertically), else None.
+        Lets a seen thing carry the map's name: the census calls every vent "Anima Vent", the map knows it's the Law one."""
+        p = _pos(pos)
+        if not p:
+            return None
+        best, best_d = None, max_m
+        for name, rows in self.landmarks.items():
+            for lm in rows:
+                q = _pos(lm.get("position"))
+                if not q:
+                    continue
+                d = ((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2) ** 0.5
+                if d <= best_d and (len(p) < 3 or len(q) < 3 or abs(p[2] - q[2]) <= 5.0):
+                    best, best_d = name, d
+        return best
+
+    def similar(self, query: str, here=None, k: int = 3) -> list[str]:
+        """Map names (landmarks, regions) sharing a word with ``query``, most shared words first, then nearest:
+        "temple entrance" -> "Forgotten Temple (landmark, 180 m)". Information for the model, never a choice."""
+        q = _terms(query)
+        here = _pos(here)
+        cands: list[tuple[int, float, str]] = []
+        for name, rows in self.landmarks.items():
+            shared = len(_terms(name) & q)
+            if shared:
+                ds = [dist(here, _pos(r.get("position"))) for r in rows if here and _pos(r.get("position"))]
+                d = min(ds) if ds else float("inf")
+                cands.append((shared, d, f"{name} (landmark" + (f", {d:.0f} m)" if d != float("inf") else ")")))
+        for r in self.regions:
+            shared = len(_terms(r["name"]) & q)
+            if shared:
+                cands.append((shared, float("inf"), f"{r['name']} (region)"))
+        cands.sort(key=lambda c: (-c[0], c[1]))
+        out: list[str] = []
+        for _, _, label in cands:
+            if label not in out:
+                out.append(label)
+        return out[:k]
+
     def where(self, query: str, here=None, *, lodestones: Iterable[dict] | None = None,
               remembered: Iterable[dict] | None = None, saved: dict | None = None, limit: int = 4) -> dict:
         """Honest facts about where ``query`` is. ``remembered``: map memory sightings ({name, position, kind,
