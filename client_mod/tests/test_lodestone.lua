@@ -32,8 +32,7 @@ local function reset(opts)
     W.cost_item = function() return { item = "ITEM_Rune_Law", name = "Law Rune" } end
     W.map_open = function() return G.map end
     W.map_closed = function() return not G.map end
-    W.map_ready = function() if G.ready == false then return nil end return {menu={},parent={},pc={}} end
-    W.same_ready = function() return true end
+    W.map_ready = function() if G.ready == false then return nil end return {menu={},parent={}} end
     W.close_map = function() G.closes = G.closes + 1; G.map = false; return true end
     W.try_teleport = function(_, f, t)
         G.tries[#G.tries + 1] = { f.key, t.key }
@@ -103,7 +102,7 @@ check("teleport by id: ok", r and r.ok)
 -- the game's gates before any walk or press
 reset({ can = false })
 r = teleport({ to = "lodestone:bbbb" })
-check("CanTeleport false at map: currently unavailable, no teleport", r.reason == "verification_failed" and r.data.why == "teleport_unavailable_now" and #G.tries == 0 and G.ep_polls > 0)
+check("CanTeleport false at the open map: not_unlocked, no teleport", r.reason == "not_unlocked" and r.data.to == "lodestone:bbbb" and #G.tries == 0 and G.ep_polls > 0)
 reset({ afford = false })
 r = teleport({ to = "lodestone:bbbb" })
 check("can't afford the runes: missing_materials with the cost", r.reason == "missing_materials" and r.data.missing[1].need == 3, r.data and r.data.detail)
@@ -129,10 +128,6 @@ check("unknown affordability cannot submit",r and r.reason=="state_unavailable" 
 reset(); W.can_teleport=function() return "yes" end
 r=teleport({to="lodestone:bbbb"})
 check("nonboolean availability cannot submit",r and r.reason=="state_unavailable" and #G.tries==0)
-reset(); W.can_teleport=function() _G.DWArbiter.owner={token=99};return true end
-dynamic=L.HANDLERS.teleport(nil,{to="lodestone:bbbb"},{api=api,id="replacement"})
-for _=1,5 do T=T+1;dynamic.pending:poll() end
-check("owner change during check prevents submit",#G.tries==0)
 
 -- the map never opens -> verification_failed, no teleport
 reset({ no_map = true })
@@ -204,25 +199,21 @@ check("empty screens and gameplay mode confirm closure",native_closed(api)==true
 INPUT.observe_screens = function() return nil end
 check("unreadable screen census is unknown",native_open(api)==nil and native_closed(api)==nil)
 
--- Actual binding reader rejects unrelated controller, panel and active parent.
+-- The map-parent reader rejects an unrelated controller or a non-map panel.
 local function object(id)
     return {IsValid=function() return true end, GetAddress=function() return id end,
             GetFullName=function() return "Class /Transient/" .. tostring(id) end}
 end
-local pc, other, panel, parent, stack, root_widget, menu = object(1),object(2),object(3),object(4),object(5),object(6),object(7)
-pc.Pawn=object(8);_G.DW_WORLD_GUID="dev"
+local pc, other, panel, parent, menu = object(1),object(2),object(3),object(4),object(7)
 parent.GetOwningPlayer=function() return pc end;parent.MapPanel=panel;parent.CurrentScreenWidget=panel
-stack.GetActiveWidget=function() return parent end;root_widget.MainMenuStack=stack;menu.MainMenuWidget=root_widget
 menu.GetCurrentScreenWidget=function() return parent end
 FindAllOf=function(name) if name=="MainMenuUIAPI" then return {menu} end return {} end
 INPUT.pc=function() return pc end
-check("actual menu binding accepts matching local map parent",native_ready(api)~=nil)
+check("map parent: accepts the local player's map parent",native_ready(api)~=nil)
 parent.GetOwningPlayer=function() return other end
-check("actual menu binding rejects foreign PC",native_ready(api)==nil)
+check("map parent: rejects a foreign PC",native_ready(api)==nil)
 parent.GetOwningPlayer=function() return pc end;parent.CurrentScreenWidget=other
-check("actual menu binding rejects another panel",native_ready(api)==nil)
-parent.CurrentScreenWidget=panel;stack.GetActiveWidget=function() return other end
-check("actual menu binding waits for active stack",native_ready(api)==nil)
+check("map parent: rejects another panel",native_ready(api)==nil)
 FindAllOf=function() return {} end
 
 -- A delayed close request is submitted once and retains its claim until observed closed.

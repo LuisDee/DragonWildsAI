@@ -124,14 +124,12 @@ function W.map_closed(api)
     for _, screen in ipairs(screens) do if screen.type == 13 or screen.type == 29 then return false end end
     return mode ~= "DIM_FullScreenUIMap"
 end
--- The menu must be the current local player's actual active map parent.
+-- The map's parent screen on the (single) main menu, owned by this player and showing its MapPanel:
+-- what MainMenuUIAPI:NavigateBack closes (DISCOVERIES "Lodestone" map UI).
 function W.map_ready(api)
     if paused() then return nil end
     local input = api.module("input")
     local pc = input and input.pc and input.pc()
-    local pawn = U.valid(pc) and U.try(function() return pc.Pawn end)
-    local world = U.world_id and U.try(function() return U.world_id(ROOT, {cache_s=0}) end)
-    if type(world) ~= "string" or world == "" or world == "unknown" or not U.valid(pawn) then return nil end
     local menus = U.find_all("MainMenuUIAPI", { skip_defaults = true }) or {}
     if not U.valid(pc) or #menus ~= 1 then return nil end
     local menu = menus[1]
@@ -139,20 +137,8 @@ function W.map_ready(api)
     local owner = U.valid(parent) and U.try(function() return parent:GetOwningPlayer() end)
     local current = U.valid(parent) and U.try(function() return parent.CurrentScreenWidget end)
     local panel = U.valid(parent) and U.try(function() return parent.MapPanel end)
-    local root = U.try(function() return menu.MainMenuWidget end)
-    local stack = U.valid(root) and U.try(function() return root.MainMenuStack end)
-    local active = U.valid(stack) and U.try(function() return stack:GetActiveWidget() end)
-    if not (same_object(owner, pc) and same_object(current, panel) and same_object(active, parent)) then return nil end
-    local final_pc = input.pc()
-    local final_parent = U.try(function() return menu:GetCurrentScreenWidget() end)
-    local final_pawn = U.valid(final_pc) and U.try(function() return final_pc.Pawn end)
-    local final_world = U.world_id and U.try(function() return U.world_id(ROOT, {cache_s=0}) end)
-    local final_active = U.try(function() return stack:GetActiveWidget() end)
-    if paused() or final_world ~= world or not (same_object(final_pc, pc) and same_object(final_pawn, pawn) and same_object(final_parent, parent) and same_object(final_active, parent)) then return nil end
-    return { menu = menu, parent = parent, pc = pc, pawn = pawn, world = world }
-end
-function W.same_ready(a, b)
-    return a and b and a.world == b.world and same_object(a.menu,b.menu) and same_object(a.parent,b.parent) and same_object(a.pc,b.pc) and same_object(a.pawn,b.pawn)
+    if not (same_object(owner, pc) and same_object(current, panel)) then return nil end
+    return { menu = menu, parent = parent }
 end
 function W.close_map(api, ready)
     if not ready or paused() then return false end
@@ -331,14 +317,16 @@ M.HANDLERS.teleport = function(log, args, ctx)
             local owner = rawget(_G, "DWArbiter")
             claim = IN and IN.owner and IN.owner("screen")
             if not ready or not (owner and owner.owner and owner.owner.token == job.token) or not (claim and claim.owner == job.screen_owner) then return nil end
+            -- Read the gates here, at the stone with its map open: CanTeleport is dynamic (false ~19 m from the
+            -- source, true ~1 m away; DISCOVERIES "Lodestones"), so only this read means "not unlocked".
             local can = W.can_teleport(api, from, to)
             local count, afford = W.cost(api, from, to)
             local cost_item = W.cost_item(api)
-            local again = W.map_ready(api)
-            owner = rawget(_G, "DWArbiter")
-            claim = IN and IN.owner and IN.owner("screen")
-            if not (again and W.same_ready(ready, again) and owner and owner.owner and owner.owner.token == job.token and claim and claim.owner == job.screen_owner) or paused() then return nil end
-            if can == false then return api.fail("verification_failed", {why="teleport_unavailable_now",detail="The game cannot teleport between these lodestones right now."}) end
+            if paused() then return nil end
+            if can == false then
+                return api.fail("not_unlocked", { to = "lodestone:" .. to.key,
+                    detail = "I'm at the lodestone with its map open, but the game won't let me teleport there: that lodestone isn't unlocked for me yet." })
+            end
             if can ~= true or type(afford) ~= "boolean" or type(count) ~= "number" then return api.fail("state_unavailable", {detail="I can't verify teleport availability and cost right now."}) end
             if not afford then return api.fail("missing_materials", { missing = {{item=cost_item and cost_item.item, name=cost_item and cost_item.name, need=count}}, detail="I can't afford the teleport cost." }) end
             n, item = count, cost_item or {name="runes"}
