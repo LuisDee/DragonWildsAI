@@ -1249,7 +1249,15 @@ local function trip_report(st, result)
     local fb = st.nav_fallback
     local nav_down = fb == "oracle_unavailable" or fb == "oracle_timeout"
     if nav_down then bits[#bits + 1] = "the navigation helper was unavailable, so I steered by what I could see" end
-    if st.trip_notes then bits[#bits + 1] = table.concat(st.trip_notes, ", ") end
+    if st.trip_notes and #st.trip_notes > 0 then
+        local order, n = {}, {}
+        for _, x in ipairs(st.trip_notes) do
+            if not n[x] then order[#order + 1] = x; n[x] = 0 end
+            n[x] = n[x] + 1
+        end
+        for i, x in ipairs(order) do order[i] = n[x] > 1 and (x .. " (" .. n[x] .. "x)") or x end
+        bits[#bits + 1] = table.concat(order, ", ")
+    end
     local sentence = string.format("%s %.0f m in %.0f s (%.1f m/s) from %s to %s", moved < 1 and "Moved" or "Walked", moved, secs,
         secs > 0 and moved / secs or 0, m3s(tr.start), m3s(tr.last)) .. (#bits > 0 and ("; " .. table.concat(bits, "; ")) or "") .. "."
     local function pm(q) return q and { m1(q.X / 100), m1(q.Y / 100), m1(q.Z / 100) } or nil end

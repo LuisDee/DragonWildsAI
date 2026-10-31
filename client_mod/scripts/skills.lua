@@ -1698,7 +1698,19 @@ local function start_explore(api, args, ctx)
             .. tostring(hit.distance) .. " m, id " .. tostring(hit.id) .. ")" })
     end
     local mem = memory()
-    local job = { kind = "explore", legs_done = 0, failed = {}, trail = { start }, travelled = 0 }
+    local job = { kind = "explore", legs_done = 0, failed = {}, trail = { start }, travelled = 0, trips = {}, bad = {} }
+    -- each leg's own trip sentence (move.lua, PLAN fix 2): kept in data.trips, and the legs that did not arrive are
+    -- named in the detail (forensics E2: a 30 m fall on a leg came back as "saw nothing")
+    local function note_leg(res)
+        if type(res) ~= "table" or type(res.trip) ~= "string" then return end
+        job.trips[#job.trips + 1] = res.trip
+        if res.status ~= "arrived" and res.status ~= "stopped" then job.bad[#job.bad + 1] = res.trip end
+    end
+    local function legs_said()
+        if #job.bad == 0 then return "" end
+        local n = math.min(#job.bad, 2)
+        return "; legs that fell short: " .. table.concat(job.bad, "; ", #job.bad - n + 1, #job.bad)
+    end
     local function pick()
         local here = api.my_position() or start
         local best, bscore
@@ -1722,13 +1734,25 @@ local function start_explore(api, args, ctx)
         end
         return false
     end
-    if not next_leg() then return api.fail("path_blocked", { detail = "no direction to explore from here" }) end
+    if not pick() then return api.fail("path_blocked", { detail = "no direction to explore from here" }) end
     job.on_resume = function() next_leg() end
     job.step = function(t)
+        if not job.begun then
+            -- the first leg starts here, once the job owns the pawn (job.token): started in the starter, before the
+            -- arbiter grant, it was stopped at once and counted as a leg walked (0 m, "explored 1 legs")
+            job.begun = true
+            if not next_leg() then return api.fail("path_blocked", { detail = "no direction to explore from here" }) end
+            return nil
+        end
         local st = api.move_status()
         local h = matching(api, args.about, radius)
         if st.mode == "go_to" and not h then return nil end
-        if h and st.mode == "go_to" then api.call("move", "stop") end
+        if h and st.mode == "go_to" then
+            api.call("move", "stop")
+            st = api.move_status()
+        end
+        local res = type(st.result) == "table" and st.result or {}
+        note_leg(res)
         local here = api.my_position()
         if here then
             job.travelled = job.travelled + (dist2d(here, job.trail[#job.trail]) or 0)
@@ -1736,14 +1760,18 @@ local function start_explore(api, args, ctx)
         end
         if h then
             return { ok = true, data = { found = h, legs = job.legs_done, travelled_m = math.floor(job.travelled + 0.5),
-                                         from = start, position = here } }
+                                         from = start, position = here, trips = job.trips } }
         end
-        local res = type(st.result) == "table" and st.result or {}
+        if res.reason == "companion_down" then
+            return api.fail("companion_down", { about = args.about, legs = job.legs_done, trips = job.trips, position = here,
+                detail = "exploring stopped on leg " .. job.legs_done .. ": I went down" ..
+                    (type(res.trip) == "string" and (" (" .. res.trip .. ")") or "") })
+        end
         if res.status == "failed" and job.leg then job.failed[job.leg.deg] = true end
         if not next_leg() then
             return api.fail("nothing_in_range", { about = args.about, legs = job.legs_done, travelled_m = math.floor(job.travelled + 0.5),
-                trail = job.trail, detail = "explored " .. job.legs_done .. " legs (about " .. math.floor(job.travelled + 0.5)
-                    .. " m) and saw nothing matching '" .. args.about .. "'" })
+                trail = job.trail, trips = job.trips, detail = "explored " .. job.legs_done .. " legs (about " .. math.floor(job.travelled + 0.5)
+                    .. " m) and saw nothing matching '" .. args.about .. "'" .. legs_said() })
         end
         return nil
     end

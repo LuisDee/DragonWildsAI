@@ -1144,6 +1144,28 @@ test("BUGS L21: explore walks least-visited legs and stops when something matchi
     assert(n and n.reason == "nothing_in_range" and n.data.legs == 2 and n.data.detail:find("lava"), json.encode(n))
 end)
 
+test("explore names its legs that fell short, and a death is not 'saw nothing' (forensics E2)", function()
+    reset(); F.me_pos = nil; F.move.position = { 0, 0, 3 }; F.world.interactables = {}; F.world.resources = {}
+    rpc("get_state")
+    F.auto_arrive = false
+    local short = "Walked 4 m in 9 s (0.4 m/s) from [0.00,0.00,3.00] to [4.00,0.00,3.00]; 6 m left (closest 6 m)"
+    local r0, id = rpc("explore", { about = "lava", max_legs = 1, leg_m = 10 })
+    assert(r0 == nil, "async: " .. json.encode(r0))
+    T = T + 1; B.step() -- the first leg starts once the job owns the pawn
+    assert(F.move.mode == "go_to" and #F.move.calls == 1, "one leg walking: " .. json.encode(F.move.calls))
+    F.move.mode, F.move.result = "idle", { status = "failed", reason = "unreachable", trip = short }
+    local n = run(id, 40)
+    assert(n and n.reason == "nothing_in_range" and n.data.detail:find("6 m left", 1, true) and #n.data.trips == 1, json.encode(n))
+    reset(); F.me_pos = nil; F.move.position = { 0, 0, 3 }; F.world.interactables = {}; F.world.resources = {}
+    rpc("get_state")
+    F.auto_arrive = false
+    local _, id2 = rpc("explore", { about = "lava", max_legs = 3, leg_m = 10 })
+    T = T + 1; B.step()
+    F.move.mode, F.move.result = "idle", { status = "failed", reason = "companion_down", trip = short .. "; fell 30.2 m." }
+    local d = run(id2, 40)
+    assert(d and d.reason == "companion_down" and d.data.detail:find("went down", 1, true) and d.data.detail:find("fell 30.2 m", 1, true), json.encode(d))
+end)
+
 -- ------------------------------------------------------------------ containers: deposit / withdraw (build design §5)
 test("explore ignores function-word substrings", function()
     for _,query in ipairs({"a door, gate, stairs or opening leading out of the temple", "gap in the wall, gate or opening"}) do
