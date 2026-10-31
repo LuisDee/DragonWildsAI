@@ -756,8 +756,10 @@ end
 --     1 s poll as a fallback);
 --   {"type":"damage", amount, absorbed, class, fatal, status, types, instigator, source}  each
 --     damage event the server multicasts for his pawn (DamageComponent:Multicast_Apply[Point]DamageFromGameplayEffect);
---   {"type":"fatal", killed_by, text, power_level, status_flags, status}  (DamageComponent:OnRep_FatalDamageInfo);
---   {"type":"death"} / {"type":"revive"} on IsDead transitions;
+--   {"type":"fatal", killed_by, text, power_level, status_flags, status, fell_m, at}  (DamageComponent:OnRep_FatalDamageInfo);
+--   {"type":"death", fell_m, at} / {"type":"revive"} on IsDead transitions;
+--   fell_m = the height of a fall he was in or landed from in the last V.FALL_RECENT_S (> 3 m only), from the
+--   1 s poll's CharacterMovement:IsFalling + Z (the top is the last grounded sample), at = [x,y,z] m there;
 --   {"type":"survival", sustenance, hydration, endurance, hp}  every M.VITALS_SURVIVAL_S seconds.
 -- Read-only (hooks read params, nothing is written). Hot-reload safe: state in _G.DWVitals,
 -- hooks registered once and dispatching to the newest handlers.
@@ -865,9 +867,10 @@ function V.on_fatal(ctx)
     if not is_mine(c) then return end
     local f = U.try(function() return c.FatalDamageInfo end)
     local flags = num(U.try(function() return f.KilledByStatusEffectFlags end))
+    local fell, at = V.fell_m(M.local_pawn())
     emit({ type = "fatal", set = U.try(function() return f.bIsSet end), killed_by = who(U.try(function() return f.KilledBy:Get() end)),
            text = text(U.try(function() return f.KilledByText end)), power_level = num(U.try(function() return f.KilledByPowerLevel end)),
-           status_flags = flags, status = status_names(flags) })
+           status_flags = flags, status = status_names(flags), fell_m = fell, at = at })
     V.counts.fatal = V.counts.fatal + 1
 end
 
@@ -898,6 +901,33 @@ local function register(h, log, in_world)
     return ok
 end
 
+-- Falls (death-loop forensics E2: a 30 m fall was reported as "no idea what hit me"). The poll keeps the last
+-- grounded Z; while IsFalling the top is that Z; on landing the drop is kept for V.FALL_RECENT_S.
+V.FALL_RECENT_S = 6
+local function track_fall(p)
+    local z = U.try(function() return p:K2_GetActorLocation().Z end)
+    if type(z) ~= "number" then return end
+    local falling = U.try(function() return p.CharacterMovement:IsFalling() end) == true
+    if falling then
+        V.air_top = math.max(V.air_top or V.ground_z or z, z)
+    elseif V.air_top then
+        local h = V.air_top - z
+        if h > 300 then V.last_fall = { t = os.time(), h = h } end
+        V.air_top = nil
+    end
+    if not falling then V.ground_z = z end
+end
+
+-- (fell_m, at) now: the fall in progress or the one that just ended (> 3 m), and where he is.
+function V.fell_m(p)
+    local loc = p and U.try(function() return p:K2_GetActorLocation() end)
+    local at = loc and { r1(loc.X / 100), r1(loc.Y / 100), r1(loc.Z / 100) } or nil
+    local h
+    if V.air_top and loc then h = V.air_top - loc.Z end
+    if (not h or h <= 300) and V.last_fall and os.time() - V.last_fall.t <= V.FALL_RECENT_S then h = V.last_fall.h end
+    return (h and h > 300) and r1(h / 100) or nil, at
+end
+
 local function poll()
     if _G.DW_PAUSE then return end -- set by disconnect/travel commands: no UObject access during teardown
     local p = M.local_pawn()
@@ -909,8 +939,12 @@ local function poll()
         V.counts.health = V.counts.health + 1
     end
     if hp then V.last_hp = hp end
+    track_fall(p)
     local dead = U.try(function() return p.HealthComponent:IsDead() end) == true
-    if V.dead ~= nil and dead ~= V.dead then emit({ type = dead and "death" or "revive", hp = r1(hp), survival = M.survival(p) }) end
+    if V.dead ~= nil and dead ~= V.dead then
+        local fell, at = V.fell_m(p)
+        emit({ type = dead and "death" or "revive", hp = r1(hp), survival = M.survival(p), fell_m = dead and fell or nil, at = dead and at or nil })
+    end
     V.dead = dead
     local t = os.time()
     if not V.last_survival or t - V.last_survival >= M.VITALS_SURVIVAL_S then
