@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from . import situation as sit
+from .geom import direction
 from .interface import (PROGRESS_EVENTS, Activity, Attacked, Event, ItemsDropped, Resumed, TaskDone, TaskFailed,
                         Unreachable, VitalsLow)
 
@@ -73,6 +74,8 @@ ACTIVITY_KEEP = 8  # recent_activity lines in every Controller context
 ACTIONS_KEEP = 5  # recent brain actions in body_status
 FAILURES_KEEP = 2  # failures older than those 5 still shown (within DIGEST_KEEP_S), so a run of ok steps
 #                    can't push the reason a thing failed out of view (live 22:19-22:20: 4 x too_far)
+NEAR_PLACES = 2  # named places (game data landmarks) in the Where line, nearest first
+NEAR_PLACES_M = 400.0  # farther than this is not "near"
 NAMES_KEEP = 256  # id -> in-game name, from what was perceived (state, looks)
 ARG_TEXT_MAX = 40  # one free-text argument in the digest; ids and names are never cut
 
@@ -263,6 +266,7 @@ class EventBroker:
         self.clock = clock
         self.tool_of = tool_of or (lambda _id: None)  # bridge request id -> tool (BridgeClient.sent_tool)
         self.abandoned = abandoned or (lambda _id: False)  # ids the brain stopped waiting for (chat interrupt)
+        self.places = None  # brain.places.Places (LiveSession): region / province / named places for the Where line
         self.episode: Episode | None = None
         self._episodes = 0
         self._unreachable_said: dict[str, float] = {}  # reason -> when last voiced (any episode)
@@ -716,6 +720,7 @@ class EventBroker:
         if st.get("following"):
             bits.append(f"your body is set to follow {st['following']}")
         me = _pos(st.get("position"))
+        bits = self._location(me) + bits
         seen = {}
         for p in st.get("players") or []:
             if isinstance(p, dict) and p.get("name"):
@@ -729,7 +734,41 @@ class EventBroker:
         for n in dict.fromkeys(wanted):
             if n not in seen:
                 bits.append(f"{n} is NOT in sight (farther than you can see, distance unknown)")
+        bits += self._target_bit(me)
         return ("Where: " + "; ".join(bits)) if bits else None
+
+    def _location(self, me) -> list[str]:
+        """'in <region> (<province>)' and the nearest named places with distance and compass direction, from the
+        game's map data (brain.places): what a player reads off his map."""
+        if me is None or self.places is None:
+            return []
+        out = []
+        r = self.places.region_at(me)
+        if r is not None:
+            out.append(f"in {r['name']}" + (f" ({r['province']})" if r.get("province") else ""))
+        near: dict[str, tuple[float, list[float]]] = {}
+        for name, rows in self.places.landmarks.items():
+            for row in rows:
+                p = _pos(row.get("position"))
+                d = math.dist(me[:2], p[:2]) if p else None
+                if d is not None and d <= NEAR_PLACES_M and d < near.get(name, (1e12,))[0]:
+                    near[name] = (d, p)
+        if near:
+            rows = sorted(near.items(), key=lambda kv: kv[1][0])[:NEAR_PLACES]
+            out.append("near " + ", ".join(f"{n} {d:.0f} m {direction(me, p)}" if d >= 3 else f"{n} (here)"
+                                          for n, (d, p) in rows))
+        return out
+
+    def _target_bit(self, me) -> list[str]:
+        """The running go_to's point, from where you stand: how far, which way and how much higher or lower."""
+        ep = self.episode
+        t = _pos(ep.target) if ep is not None and ep.ended is None and isinstance(ep.target, list) else None
+        if me is None or t is None:
+            return []
+        d = math.dist(me[:2], t[:2])
+        dz = t[2] - me[2] if len(t) > 2 and len(me) > 2 else None
+        h = f", {abs(dz):.0f} m {'higher' if dz > 0 else 'lower'}" if dz is not None and abs(dz) >= 2 else ""
+        return [f"your go_to point is {d:.0f} m {direction(me, t)}{h}" if d >= 3 else f"your go_to point is here{h}"]
 
     # ---------------------------------------------------------------- what the model sees
 

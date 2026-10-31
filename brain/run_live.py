@@ -53,6 +53,7 @@ from .interface import ChatHeard, CommandReceived, Event
 from .jsonl_log import JsonlLogger
 from .knowledge import open_knowledge
 from .llm import CONTROLLER_MODEL_ENV, PLANNER_MODEL_ENV, LLMClient, controller_llm, planner_llm, missing_keys
+from .places import Places
 from .planner import Planner
 from .skill_library import SkillLibrary
 from .state_store import StateStore
@@ -361,6 +362,10 @@ class LiveSession:
                                self.log, prefixes=opts.prefixes, skills=self.skills,
                                calls_per_min=opts.chat_calls_per_min, debounce_s=opts.chat_debounce_s)
         self.agent.body_self_defends = "combat_status" in self.caps.extras
+        try:  # the game's map data: the Where line (region, named places near) and go_to <place name>
+            self.agent.broker.places = self.executor.places = Places()
+        except Exception as exc:  # no data file: both work without it
+            self.log.log("places_unavailable", error=repr(exc)[:200])
         # Luis's daily $ cap (cap from tools/spend.py). The reader runs on its own thread (started now, so the
         # cold first read overlaps the model warm-up below); allows() never waits for it.
         self.agent.budget = Budget(None if opts.dry_run else default_spend_fn(), log=self.log, background=True).start()

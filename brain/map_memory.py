@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import heapq
 import json
-import math
 import threading
 import time
 from functools import lru_cache
@@ -27,7 +26,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from .fileio import atomic_write, read_json
-from .geom import dist
+from .geom import direction, dist  # noqa: F401  (direction: re-exported for callers)
 
 # STABLE record fields (the Director reads them): kind, name, item, position, last_seen, extra.power_level.
 # Renaming any of them is a schema change: bump SCHEMA and tell the Director's owner first.
@@ -49,14 +48,6 @@ def load(path: str | Path) -> dict:
 
 def _dist(a, b) -> float | None:
     return dist(a, b, planar=True)  # map distances are on the ground plane
-
-
-def direction(frm, to) -> str:
-    """Compass words from one position to another, ASSUMING +X = north and +Y = east (Unreal's usual map
-    convention; UNVERIFIED for Dragonwilds' in-game map)."""
-    dx, dy = to[0] - frm[0], to[1] - frm[1]
-    ang = (math.degrees(math.atan2(dy, dx)) + 360) % 360  # 0 = +X
-    return ("N", "NE", "E", "SE", "S", "SW", "W", "NW")[int(((ang + 22.5) % 360) // 45)]
 
 
 class MapMemory:

@@ -220,6 +220,16 @@ VERIFIERS: dict[str, Callable] = {
 STATE_REUSE_S = 1.0  # a get_state this recent is reused before an action (L6)
 
 
+def _place_basis(best: dict) -> str:
+    """How sure the go_to point is, in a few words (brain.places explains landmarks at length)."""
+    if best.get("kind") != "landmark":
+        return str(best.get("basis") or "")
+    n = sum((best.get("spots_by_province") or {}).values())
+    mine = " in your province" if best.get("your_province") and best.get("province") == best["your_province"] else ""
+    return (f"the nearest{mine} of {n} spots with that name in the game's map data (the one you meet may be another)"
+            if n > 1 else "its spot in the game's map data")
+
+
 class Executor:
     """``sleep`` waits out a short spell cooldown (on_cooldown with data.remaining_s up to
     ``max_cooldown_wait`` seconds) before the retry; longer cooldowns fail at once."""
@@ -235,6 +245,7 @@ class Executor:
         self._baselines: dict[str, dict] = {}  # task id -> state when the task first started
         self._cache: tuple[float, dict] | None = None  # (time, data) of the last get_state
         self._resolved_items: dict[str, str] = {}  # task id -> inventory key the body reported (data.item)
+        self.places = None  # brain.places.Places (LiveSession): game-data place names go_to falls back to
 
     def state(self, max_age: float | None = None) -> dict:
         """Fresh get_state, or (``max_age``) the last one if it is that recent and no action ran since
@@ -274,6 +285,37 @@ class Executor:
         self.log.log("place_resolved", place=target, position=pos)
         return {**args, "target": pos}
 
+    def _go_to_game_place(self, task: Task, args: dict, now: dict, failed: dict) -> dict:
+        """go_to(<a name the body can't see>) -> the place of that name in the game's map data (a landmark spot, or
+        a region / province's best known point), walked to at once; the result says what the name was taken to be.
+        The body's own answer stands when the name isn't in the data or matches only part of a name."""
+        target = args.get("target")
+        if task.skill != "go_to" or self.places is None or not isinstance(target, str):
+            return failed
+        try:
+            res = self.places.where(target, now.get("position"))
+        except Exception as exc:  # map data is best effort: the body's answer stands
+            self.log.log("place_lookup_error", place=target, error=repr(exc)[:200])
+            return failed
+        best = next(iter((res.get("data") or {}).get("results") or []), None)
+        if not best or best.get("match") not in ("exact", "named") or not best.get("position"):
+            return failed
+        if best.get("you_are_inside"):
+            return {**failed, "data": {**(failed.get("data") or {}),
+                                       "resolved": f"{target!r} is the game map's {best['kind']} {best['name']}: "
+                                                   "you are in it now"}}
+        where = ", ".join(x for x in (best.get("region"), best.get("province")) if x and x != best["name"])
+        took = (f"{target!r} is not in sight; walking to the game map's {best['kind']} {best['name']}"
+                + (f" in {where}" if where else "")
+                + (f", {best['distance_m']:.0f} m away" if isinstance(best.get("distance_m"), (int, float)) else "")
+                + (f": {how}" if (how := _place_basis(best)) else "")
+                + (" (approximate)" if best.get("approximate") else ""))
+        self.log.log("place_resolved", place=target, position=best["position"], source=best.get("source"),
+                     place_kind=best["kind"], approximate=bool(best.get("approximate")))
+        result = self.game.call(task.skill, {**args, "target": best["position"]})
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        return {**result, "data": {**data, "resolved": took}}
+
     def run_task(self, task: Task) -> Outcome:
         if task.skill not in self.store.skills:
             return self._finish(task, Outcome(False, Reason.UNKNOWN_SKILL))
@@ -298,6 +340,8 @@ class Executor:
             self.store.save_tree()
             self.log.log("tool_call", task_id=task.id, tool=task.skill, args=args, attempt=task.attempts)
             result = self.game.call(task.skill, args)
+            if not result["ok"] and result["reason"] == Reason.UNKNOWN_TARGET:
+                result = self._go_to_game_place(task, args, now, result)
             self._cache = None  # the world changed: verification reads fresh state
             self.log.log("tool_result", task_id=task.id, tool=task.skill, result=result)
             if task.skill in _COUNTED and isinstance(result.get("data"), dict) and result["data"].get("item"):

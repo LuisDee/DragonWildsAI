@@ -8,10 +8,8 @@ from typing import Any
 # metres is performed by client_mod/scripts/sense.lua and mod/body/util.lua.
 # https://dev.epicgames.com/documentation/unreal-engine/coordinate-system-and-spaces-in-unreal-engine
 # https://dev.epicgames.com/documentation/unreal-engine/units-of-measurement-in-unreal-engine?lang=en-US
-WIRE_COORDINATES = ("Wire positions [x, y, z] are in metres: XY horizontal, positive Z up. "
-                    "The client's own position is its capsule centre; object origins and interaction points "
-                    "can differ. A three-dimensional near distance includes height; it does not prove a "
-                    "labelled floor or a connected path.")
+WIRE_COORDINATES = ("Wire positions [x, y, z] are in metres: XY horizontal, positive Z up; your own position is "
+                    "your body's centre, about 0.9 m above your feet.")
 
 
 def dist(a: Any, b: Any, planar: bool = False) -> float | None:
@@ -21,3 +19,14 @@ def dist(a: Any, b: Any, planar: bool = False) -> float | None:
         return None
     n = 2 if planar or not (len(a) >= 3 and len(b) >= 3) else 3
     return math.dist([float(x) for x in a[:n]], [float(x) for x in b[:n]])
+
+
+def direction(frm, to) -> str:
+    """Compass words from one position to another: north = -Y, east = +X (Unreal's left-handed axes seen from
+    above). Checked against the wiki's own geography over the game's region polygons (data/places_26161880.json
+    centroids): Bramblemead Valley is south of the Whispering Swamp, the Fractured Plains east of the Stormtouched
+    Highlands, Umbral Sands directly east of Ghornfell, Dowdun Reach south of Silverthorn Keep, Emberwood the most
+    western part of Fellhollow: all hold with this mapping, none with +X = north."""
+    east, north = to[0] - frm[0], frm[1] - to[1]
+    ang = (math.degrees(math.atan2(east, north)) + 360) % 360  # 0 = north, 90 = east
+    return ("N", "NE", "E", "SE", "S", "SW", "W", "NW")[int(((ang + 22.5) % 360) // 45)]

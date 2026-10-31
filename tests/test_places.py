@@ -280,3 +280,95 @@ def test_current_teleport_availability_survives_place_views(places, available):
             assert "can_teleport_now" not in view
         else:
             assert view["can_teleport_now"] is available
+
+
+# ------------------------------------------------------------------ compass, the Where line, go_to <place name>
+
+
+def test_compass_matches_the_wikis_geography_on_the_real_map():
+    """north = -Y, east = +X: the wiki's 'Bramblemead Valley is south of the Whispering Swamp', 'the Fractured
+    Plains, east of the Stormtouched Highlands', 'Umbral Sands, directly east of Ghornfell', 'Dowdun Reach, south of
+    Silverthorn Keep' hold over the game's own region polygons."""
+    from brain.geom import direction
+    from brain.places import centroid
+    p = Places()
+    if not p.regions:
+        pytest.skip("no data/places_<build>.json")
+    c = {r["name"]: centroid(r["_shape"]) for r in p.regions}
+    prov = {pv["name"]: [sum(c[r][i] for r in pv["regions"]) / len(pv["regions"]) for i in (0, 1)]
+            for pv in p.provinces if pv.get("regions")}
+    assert direction(c["Whispering Swamp"], c["Bramblemead Valley"]) == "S"
+    assert direction(c["Stormtouched Highlands"], c["Fractured Plains"]) == "E"
+    assert direction(prov["Ghornfell"], prov["Umbral Sands"]) == "E"
+    assert direction(c["Silverthorn Keep"], prov["Dowdun Reach"]) == "S"
+    assert direction([0, 0], [0, -10]) == "N" and direction([0, 0], [10, 0]) == "E"
+
+
+def test_where_line_names_region_province_named_places_and_the_go_to_point():
+    from brain.broker import EventBroker
+    b = EventBroker()
+    b.places = Places(DATA)
+    b.observe({"position": [-55, 50, 0], "players": []})
+    b.action_started("go_to", {"target": [-55, 10, 8]})
+    line = b.where_line()
+    assert line.startswith("Where: in Temple Woods (Southfell); near Zanik 5 m E, Shrine 81 m E; "), line
+    assert line.endswith("your go_to point is 40 m N, 8 m higher"), line
+    b.places = None  # no map data: no location words, nothing invented
+    assert "Temple Woods" not in (b.where_line() or "")
+
+
+class _Body:
+    """A body that sees no 'Zanik' (unknown_target for any name) and walks to points."""
+
+    def __init__(self, pos):
+        self.pos, self.calls = list(pos), []
+
+    def get_state(self):
+        return {"ok": True, "reason": None, "data": {"position": self.pos, "players": []}}
+
+    def call(self, tool, args):
+        if tool == "get_state":
+            return self.get_state()
+        self.calls.append(args)
+        if isinstance(args.get("target"), str):
+            return {"ok": False, "reason": "unknown_target", "data": {"detail": "target_not_visible"}}
+        self.pos = list(args["target"])
+        return {"ok": True, "reason": None, "data": {"position": self.pos, "target_position": self.pos,
+                                                       "arrive_tolerance": 3.0}}
+
+
+def _executor(tmp_path, body):
+    from brain.executor import Executor
+    from brain.jsonl_log import JsonlLogger
+    from brain.state_store import StateStore
+    ex = Executor(body, StateStore(tmp_path / "state"), JsonlLogger(tmp_path / "log.jsonl"), max_attempts=1)
+    ex.places = Places(DATA)
+    return ex
+
+
+def test_go_to_a_name_the_body_cant_see_walks_to_the_game_map_spot(tmp_path):
+    from brain.state_store import Task
+    body = _Body(HERE)
+    out = _executor(tmp_path, body).run_task(Task(skill="go_to", args={"target": "Zanik"}))
+    assert out.ok, out.reason
+    assert body.calls == [{"target": "Zanik"}, {"target": [-50.0, 50.0, 1.0]}]  # the body first, then the map
+    assert out.data["resolved"].startswith("'Zanik' is not in sight; walking to the game map's landmark Zanik in "
+                                           "Temple Woods, Southfell, 10 m away: the nearest in your province of 2 "
+                                           "spots"), out.data["resolved"]
+
+
+def test_go_to_an_unknown_or_partial_name_keeps_the_bodys_answer(tmp_path):
+    from brain.state_store import Task
+    for name in ("the big tree", "Village"):  # nothing by that name / only part of a name
+        body = _Body(HERE)
+        out = _executor(tmp_path, body).run_task(Task(skill="go_to", args={"target": name}))
+        assert not out.ok and out.reason == "unknown_target" and body.calls == [{"target": name}]
+        assert "resolved" not in (out.data or {})
+
+
+def test_go_to_the_region_you_are_in_says_so(tmp_path):
+    from brain.state_store import Task
+    body = _Body(HERE)
+    out = _executor(tmp_path, body).run_task(Task(skill="go_to", args={"target": "Temple Woods"}))
+    assert not out.ok and body.calls == [{"target": "Temple Woods"}]
+    assert out.data["resolved"] == "'Temple Woods' is the game map's region Temple Woods: you are in it now"
