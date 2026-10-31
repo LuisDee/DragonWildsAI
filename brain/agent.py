@@ -40,7 +40,11 @@ MAX_TURNS = 8
 # The no-progress breaker parked a step (brain/progress.py): the model's last turn of this request.
 PARKED_NOTE = ("A step is parked (results above): the same call failed the same way with no progress. If the player "
                "hasn't heard why, tell him in one short plain line; this request ends after this reply.")
-REQUEST_SECONDS = 300.0
+# Wall time for one request's chain: a go_to alone may take 295 s (the body's timeout), and the steps after it fit.
+REQUEST_SECONDS = 600.0
+# The deadline passed during a body action: the model still hears how it went, and this turn is the chain's last.
+LAST_TURN_NOTE = ("Time is up for this request (results above). If the player hasn't heard how it went, tell him in "
+                  "one short plain line; this request ends after this reply.")
 # Tools that take a while: the turn's line is said as they start, so it is true when said.
 ANNOUNCE_FIRST = {"go_to", "come_to", *LONG_ACTIONS}
 # A turn of only these is a standing behaviour, not a step of a plan: no continuation turn.
@@ -377,6 +381,7 @@ class Agent:
         acted = False
         turn = 0
         parked = None  # the no-progress breaker parked a step: this turn is the chain's last
+        last_turn = False  # the deadline passed during a body action: the model's report turn is the chain's last
         while True:
             if d.interrupts and self.active_goal:
                 self._cancelled = True
@@ -399,8 +404,8 @@ class Agent:
                 said = said or t["spoken"]
             elif t["failure"][1] in Reason.INTERRUPTS:  # a newer command took over: it speaks
                 break
-            if parked:  # caps spend: the model heard the step is parked and had its one turn to say why
-                self.log.log("chain_stopped", turns=turn, why="parked", parked=parked)
+            if parked or last_turn:  # caps spend: the model heard why and had its one turn to say it
+                self.log.log("chain_stopped", turns=turn, why="parked" if parked else "deadline", parked=parked)
                 break
             more = bool(t["failure"]) or bool(set(t["ran"]) - STANDING)
             more = more or (bool(event.text) and nonbody_success and not said)
@@ -414,7 +419,9 @@ class Agent:
                 break
             spoke = self._player_spoke()
             late = self.clock() >= deadline
-            if turn >= MAX_TURNS or spoke or late:
+            if late and t["ran"] and not spoke and turn < MAX_TURNS:
+                last_turn = True  # a long action (a 295 s go_to) used the time up: never cut off its report
+            elif turn >= MAX_TURNS or spoke or late:
                 self.log.log("chain_stopped", turns=turn,
                              why="the player spoke" if spoke else "deadline" if late else "budget")
                 if self._directed is not None and spoke:
@@ -433,7 +440,8 @@ class Agent:
                     {"ok": None, "note": "not said: a step failed first; say what's true now" if t["failure"]
                      else "not said (too close to a line you just said)"}
                 d = self.controller.next_turn(d, {**t["results"], "say": say_res}, state, failed=bool(t["failure"]),
-                                              note=PARKED_NOTE if parked else PROMISE_NOTE if promise_check else None,
+                                              note=PARKED_NOTE if parked else LAST_TURN_NOTE if last_turn else
+                                              PROMISE_NOTE if promise_check else None,
                                               news=news)
             except Exception as exc:  # model/provider error: the template still says why
                 self.log.log("next_turn_error", turn=turn, error=repr(exc))

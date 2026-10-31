@@ -117,12 +117,34 @@ LOG_ONLY_KEYS = frozenset({"terrain", "navigation_observation", "barrier_samples
                            "actor_position"})
 
 
+# Movement results (BODY 2026-10-31): the body's one trip sentence (data.trip; data.trips, one per explore leg; a
+# failure's detail starts with it) says what the move did: start and end, metres, closest approach, falls, why. Beside
+# it, the arrival check's numbers are the executor's inputs, not news, and a cause already in the detail is a repeat.
+TRIP_NOISE_KEYS = frozenset({"arrive_tolerance", "vertical_tolerance_m", "vertical_distance_m", "dist_m", "trail"})
+# tostring() of a Lua table or function (a go_to's "target": "table: 000001289324C2F0"): an address, no information
+LUA_ADDRESS = re.compile(r"^(table|function|userdata): (0x)?[0-9A-Fa-f]+$")
+
+
+def _noise(k: str, v: Any, d: dict, trip: bool) -> bool:
+    if k in LOG_ONLY_KEYS or (isinstance(v, str) and LUA_ADDRESS.match(v)):
+        return True
+    if not trip:
+        return False
+    detail = d.get("detail")
+    return k in TRIP_NOISE_KEYS or (k in ("trip", "why") and isinstance(v, str) and bool(v)
+                                    and isinstance(detail, str) and v in detail)
+
+
 def model_view(value: Any) -> Any:
-    """``value`` without LOG_ONLY_KEYS (dicts and lists walked; everything else as is)."""
+    """``value`` without LOG_ONLY_KEYS, Lua addresses, and the numbers beside a trip sentence; floats to 2
+    decimals ("vertical_distance_m": 0.046060739173195). Dicts and lists walked; everything else as is."""
     if isinstance(value, dict):
-        return {k: model_view(v) for k, v in value.items() if k not in LOG_ONLY_KEYS}
+        trip = isinstance(value.get("trip"), str) or isinstance(value.get("trips"), list)
+        return {k: model_view(v) for k, v in value.items() if not _noise(k, v, value, trip)}
     if isinstance(value, list):
         return [model_view(v) for v in value]
+    if isinstance(value, float):
+        return round(value, 2)
     return value
 
 

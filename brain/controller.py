@@ -237,6 +237,8 @@ REASON_PHRASES = {
     Reason.UNKNOWN_RECIPE: "I don't know that recipe",
     Reason.NOT_INTERACTABLE: "there's nothing to do with it",
     Reason.BODY_ERROR: "something glitched in my body",
+    Reason.NAV_UNAVAILABLE: "my navigation helper is down, so I could only steer by what I can see",
+    Reason.RESTING: "I'm still lying down from a rest and can't move",
 }
 
 
@@ -1076,7 +1078,8 @@ class Controller:
         elif reason in Reason.CANT_YET:
             self.say(f"Sorry, I can't {SKILL_PHRASES.get(tool, tool.replace('_', ' '))} yet.")
         elif reason == Reason.BUSY:  # who had the body, in words; never the body's internal detail (owner tokens)
-            owner = str(data.get("owner") or data.get("busy_by") or "")
+            owner = data.get("owner") or data.get("busy_by") or ""
+            owner = str(owner.get("name") or "") if isinstance(owner, dict) else str(owner)  # the arbiter's brief
             who = (f"I was busy with {data['busy_item']}" if data.get("busy_item") else
                    "I was still on your last request" if owner.startswith("brain") else
                    f"my {owner.split(':')[0]} had hold of me" if owner else "something else had hold of me")

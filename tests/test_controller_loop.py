@@ -470,3 +470,37 @@ def test_navigation_observation_stays_out_of_the_model_view_with_tool_id(rig):
     result = next(m for m in rig.controller_llm.calls[0]["messages"] if m.get("role") == "tool")
     assert result["tool_call_id"] == "route-call"
     assert "navigation_observation" not in json.loads(result["content"])["data"]
+
+
+def test_a_trip_sentence_is_the_movement_report_without_the_arrival_numbers(rig):
+    """BODY 2026-10-31: go_to/follow carry one honest trip sentence (data.trip; a failure's detail starts with it).
+    The model sees it, the reason as sent (nav_unavailable, resting: never remapped), and not the arrival check's
+    numbers, a Lua table address or a cause already in the detail."""
+    from brain.controller import Decision
+    from brain.llm import ToolCall, assistant_message
+    trip = "Walked 20 m in 3 s (5.8 m/s) from [88.77,1852.10,-31.46] to [107.86,1845.75,-31.27]."
+    prior = FakeLLM.say("", ToolCall("go_to", {"target": "Doric"}, "a"), ToolCall("go_to", {"target": [1, 2, 3]}, "b"))
+    decision = Decision(messages=[{"role": "user", "content": "go"}, assistant_message(prior)])
+    rig.controller_llm.push(FakeLLM.say(""))
+    worked = {"ok": True, "reason": None, "data": {
+        "target_position": [109.08, 1846.32, -31.31], "trip": trip, "target": "table: 000001289324C2F0",
+        "vertical_tolerance_m": 1.76, "vertical_distance_m": 0.046060739173195, "dist_m": 1.3445557103579,
+        "arrive_tolerance": 3.0, "position": [107.99, 1845.71, -31.26]}}
+    lost = "Walked 3 m in 40 s (0.1 m/s) from [1,2,3] to [4,5,6]; 80 m left (closest 79 m)."
+    failed = {"ok": False, "reason": "nav_unavailable", "data": {
+        "detail": lost + " (stuck)", "trip": lost, "why": "stuck", "position": [4.123456, 5.0, 6.0], "dist_m": 80.1}}
+    rig.controller.next_turn(decision, {"a": worked, "b": failed}, {}, failed=True)
+    seen = {m["tool_call_id"]: json.loads(m["content"]) for m in rig.controller_llm.calls[0]["messages"]
+            if m.get("role") == "tool"}
+    assert seen["a"]["data"] == {"target_position": [109.08, 1846.32, -31.31], "trip": trip,
+                                 "position": [107.99, 1845.71, -31.26]}
+    assert seen["b"] == {"ok": False, "reason": "nav_unavailable",
+                         "data": {"detail": lost + " (stuck)", "position": [4.12, 5.0, 6.0]}}
+    assert worked["data"]["arrive_tolerance"] == 3.0  # the executor's copy is untouched
+
+
+def test_explore_keeps_each_legs_sentence_not_the_trail():
+    from brain.llm import model_view
+    data = {"legs": 2, "trips": ["Walked 30 m ...", "Walked 12 m ...; fell 6.0 m."], "trail": [[0, 0, 0], [30, 0, 0]],
+            "detail": "explored 2 legs (about 42 m) and saw nothing matching 'tin'"}
+    assert model_view(data) == {k: v for k, v in data.items() if k != "trail"}

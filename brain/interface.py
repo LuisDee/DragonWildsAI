@@ -70,7 +70,10 @@ class Reason:
     BUSY = "busy"  # another owner holds the pawn (data: owner, owner_level, owner_since, owner_age_s)
     BODY_RESTARTED = "body_restarted"  # the client bridge restarted while the command was in flight (L2)
     LOST_BY_BODY = "lost_by_body"  # the body is no longer working on the command and never answered (L2)
-    RESTING = "resting"  # he lies in a bed (data.resting_in = its id): get up with interact on it first
+    # he can't move: lying in a bed (data.resting_in = its id: get up with interact on it first), or still lying
+    # down after a rest whose bed/shelter is gone (move.lua: the movement mode stayed None for the whole attempt)
+    RESTING = "resting"
+    NAV_UNAVAILABLE = "nav_unavailable"  # the navigation helper was down: he steered by sight and didn't get there
     # building and containers (client build.lua / store / take; docs/design/build-primitive.md, review finding 16)
     NO_PERMISSION = "no_permission"  # the server's privileges (Build / OpenChests) don't allow it
     HOST_ONLY = "host_only"  # a piece only the world's host/owner may build
@@ -89,7 +92,7 @@ class Reason:
         NOT_UNLOCKED, UNSAFE, CANT_SENSE, NOT_IN_INVENTORY, WRONG_TOOL, INVENTORY_FULL,
         NOT_PERCEIVED, AMBIGUOUS_TARGET, NOT_INTERACTABLE, BUSY,
         # L2: never retried blindly (a lost or timed-out command goes back to the model, which decides)
-        TIMEOUT, BODY_RESTARTED, LOST_BY_BODY, RESTING,
+        TIMEOUT, BODY_RESTARTED, LOST_BY_BODY, RESTING, NAV_UNAVAILABLE,
         NO_PERMISSION, HOST_ONLY, LIMIT_REACHED, BLOCKED, NOT_A_CONTAINER, NOT_IN_CONTAINER, CONTAINER_FULL,
     })
     # The companion simply cannot do this yet (skill missing on the body or in the registry).
