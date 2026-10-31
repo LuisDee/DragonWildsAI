@@ -131,16 +131,28 @@ class Corpus:
     goals: list[dict] = field(default_factory=list)       # progress.jsonl goal rows
     watchdog: list[dict] = field(default_factory=list)
     vitals: list[dict] = field(default_factory=list)      # vitals.jsonl death / fatal rows only
+    reflex: list[dict] = field(default_factory=list)      # vitals.jsonl reflex uses (the fed reflex ate / drank)
+    damage: list[dict] = field(default_factory=list)      # vitals.jsonl damage rows (with instigator)
+    client: list[tuple[float, str]] = field(default_factory=list)  # client.log lines (the mod's mover trace)
+    logs_dir: Path | None = None                         # where the brain logs live (stale_note's remember index)
     companion_sha: str | None = None                     # the --companion-sha filter, when given
     since: float | None = None
     until: float | None = None
     _spans: dict | None = None
+    _positions: list | None = None
+    _pos_ts: list | None = None
 
     @property
     def bridge(self) -> dict[str, dict]:
         if self._spans is None:
             self._spans = _bridge_spans(self)
         return self._spans
+
+    @property
+    def positions(self) -> list[tuple[float, tuple[float, float, float], str]]:
+        if self._positions is None:
+            self._positions = _positions(self)
+        return self._positions
 
 
 def _bridge_spans(c: Corpus) -> dict[str, dict]:
@@ -248,14 +260,178 @@ def load(root: "Path | Dirs | None", since: float | None, until: float | None, p
     c.goals = sorted((r for f in (d.state / "worlds").glob("*/progress.jsonl")
                       for r in _rows_in(f, lo, hi, lambda x: str(x.get("msg", "")).startswith(("goal", "stuck", "replanned")))),
                      key=lambda r: r["ts"])
-    c.vitals = sorted(_rows_in(d.events / "vitals.jsonl", since, until, lambda x: x.get("type") in ("death", "fatal")),
-                      key=lambda r: r["ts"])
+    c.logs_dir = d.logs
+    vit = sorted(_rows_in(d.events / "vitals.jsonl", lo, hi, lambda x: x.get("type") in ("death", "fatal", "damage") or
+                          (x.get("type") == "reflex" and x.get("action") == "use")), key=lambda r: r["ts"])
+    c.vitals = [r for r in vit if r.get("type") in ("death", "fatal") and _in(r["ts"], since, until)]
+    c.reflex = [r for r in vit if r.get("type") == "reflex"]
+    c.damage = [r for r in vit if r.get("type") == "damage"]
+    c.client = client_lines(d.logs / "client" / "client.log", lo, hi)
     c.watchdog = _rows_in(d.logs / "client_watchdog.jsonl", since, until)
     if prefixes:  # only what happened while a brain at those commits ran
         inside = lambda t: any(x["start"] - 5 <= t <= x["end"] + 30 for x in c.sessions)  # noqa: E731
         c.chat, c.body = [r for r in c.chat if inside(r["ts"])], [r for r in c.body if inside(r["ts"])]
         c.vitals, c.watchdog = [r for r in c.vitals if inside(r["ts"])], [r for r in c.watchdog if inside(r["ts"])]
+        c.reflex, c.damage = [r for r in c.reflex if inside(r["ts"])], [r for r in c.damage if inside(r["ts"])]
+        c.client = [x for x in c.client if inside(x[0])]
     return c
+
+
+# ------------------------------------------------------------------ body ground truth (client.log, positions)
+_CLIENT_CACHE: dict[str, tuple[tuple[int, float], list[tuple[str, str]]]] = {}
+_CLIENT_TS_RX = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ) (.*)$")
+
+
+def client_lines(path: Path, lo: float | None, hi: float | None) -> list[tuple[float, str]]:
+    """client.log lines (the mod's own trace: mover, arbiter, reflexes) inside [lo, hi] as (unix ts, text). The file is
+    chronological with ISO-second stamps, so the window is cut by string comparison (read once per size/mtime)."""
+    try:
+        st = path.stat()
+    except OSError:
+        return []
+    key = (st.st_size, st.st_mtime)
+    hit = _CLIENT_CACHE.get(str(path))
+    if hit is None or hit[0] != key:
+        rows = []
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                m = _CLIENT_TS_RX.match(line.rstrip("\n"))
+                if m:
+                    rows.append((m.group(1), m.group(2)))
+        _CLIENT_CACHE[str(path)] = hit = (key, rows)
+    rows = hit[1]
+    stamps = [r[0] for r in rows]
+    a = bisect.bisect_left(stamps, _iso(lo)) if lo is not None else 0
+    b = bisect.bisect_right(stamps, _iso(hi)) if hi is not None else len(rows)
+    return [(parse_ts(s), text) for s, text in rows[a:b]]
+
+
+MOVE_TOOLS = {"go_to", "come_to", "follow", "explore", "collect_water", "recover_grave", "fetch"}
+GOAL_TOOLS = {"go_to", "come_to"}   # tools whose client.log "d=" is the distance to one fixed goal
+_MOVE_D_RX = re.compile(r"^move: (go_to|follow) d=(\d+)cm src=(\w+).*?spr=(\w+)")
+_ME_RX = re.compile(r"\bme=\((-?\d+),(-?\d+),(-?\d+)\)")
+_OBS_POS_RX = re.compile(r'^Current observation: \{"status": "\w+", "position": \[(-?[\d.]+), (-?[\d.]+), (-?[\d.]+)\]')
+
+
+def _xyz(v) -> tuple[float, float, float] | None:
+    if isinstance(v, (list, tuple)) and len(v) >= 3 and all(isinstance(x, (int, float)) for x in v[:3]):
+        return float(v[0]), float(v[1]), float(v[2])
+    return None
+
+
+def result_position(res: dict) -> tuple[float, float, float] | None:
+    """Where the body stood when a tool result came back (any of the shapes the body uses)."""
+    data = (res or {}).get("data") or {}
+    rf = data.get("route_feedback") or {}
+    for v in (data.get("position"), data.get("final_position"), rf.get("final_position"), data.get("my_pos"),
+              (data.get("me") or {}).get("position") if isinstance(data.get("me"), dict) else None):
+        p = _xyz(v)
+        if p:
+            return p
+    return None
+
+
+def _positions(c: Corpus) -> list[tuple[float, tuple[float, float, float], str]]:
+    """Every known body position in the corpus, time-ordered: tool results, the "Current observation" of follow-up
+    prompts, and the mover's own stuck lines in client.log (cm)."""
+    out = []
+    for d in c.brain:
+        k = d.get("kind")
+        if k == "tool_result":
+            p = result_position(d.get("result") or {})
+            if p:
+                out.append((d["ts"], p, "tool_result"))
+        elif k == "prompt" and (m := _OBS_POS_RX.search(observation_text(d))):
+            out.append((d["ts"], (float(m.group(1)), float(m.group(2)), float(m.group(3))), "observation"))
+    for t, text in c.client:
+        if text.startswith("move: stuck") and (m := _ME_RX.search(text)):
+            out.append((t, (int(m.group(1)) / 100, int(m.group(2)) / 100, int(m.group(3)) / 100), "client_log"))
+    out.sort(key=lambda x: x[0])
+    return out
+
+
+def observation_text(rec: dict) -> str:
+    """The head of a follow-up prompt's "Current observation: {...}" message (fresh state after a tool), or ""."""
+    for msg in rec.get("messages") or []:
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if isinstance(content, str) and content.startswith("Current observation"):
+            return content[:800]
+    return ""
+
+
+def position_at(c: Corpus, t: float, before_s: float = 60.0, after_s: float = 0.0) -> tuple[float, float, float] | None:
+    """The last known position at or before t (within before_s), else the first within after_s after it."""
+    pos = c.positions
+    if c._pos_ts is None or len(c._pos_ts) != len(pos):
+        c._pos_ts = [p[0] for p in pos]
+    i = bisect.bisect_right(c._pos_ts, t + 1e-6)
+    if i > 0 and t - pos[i - 1][0] <= before_s:
+        return pos[i - 1][1]
+    if i < len(pos) and pos[i][0] - t <= after_s:
+        return pos[i][1]
+    return None
+
+
+def hdist(a, b) -> float:
+    return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+
+
+def goal_trace(c: Corpus, t0: float, t1: float) -> list[tuple[float, float, str, bool]]:
+    """(ts, distance to the goal m, route source, sprint) from the mover's "move: go_to d=..." lines in [t0, t1]."""
+    out = []
+    for t, text in c.client:
+        if t0 - 1 <= t <= t1 + 1 and (m := _MOVE_D_RX.match(text)) and m.group(1) == "go_to":
+            out.append((t, int(m.group(2)) / 100, m.group(3), m.group(4) == "true"))
+    return out
+
+
+_NOTES_RX = re.compile(r'"notes": \{')
+_REMEMBER_CACHE: dict[str, tuple[tuple[int, float], list[tuple[float, str, str]]]] = {}
+
+
+def remember_index(logs: Path | None) -> dict[tuple[str, str], list[float]]:
+    """(key, value) -> the times a remember tool call wrote it, from every brain log in the log dir (cached per file)."""
+    out: dict[tuple[str, str], list[float]] = {}
+    if logs is None or not Path(logs).exists():
+        return out
+    for f in Path(logs).glob("brain-live-*.jsonl"):
+        try:
+            st = f.stat()
+        except OSError:
+            continue
+        hit = _REMEMBER_CACHE.get(str(f))
+        if hit is None or hit[0] != (st.st_size, st.st_mtime):
+            rows = []
+            with open(f, "rb") as fh:
+                for raw in fh:
+                    if b'"remember"' not in raw or b'"kind": "tool_call"' not in raw[:60]:
+                        continue
+                    try:
+                        r = json.loads(raw)
+                    except ValueError:
+                        continue
+                    args = r.get("args") or {}
+                    if r.get("tool") == "remember" and args.get("key"):
+                        rows.append((float(r["ts"]), str(args["key"]), str(args.get("value"))))
+            _REMEMBER_CACHE[str(f)] = hit = ((st.st_size, st.st_mtime), rows)
+        for t, k, v in hit[1]:
+            out.setdefault((k, v), []).append(t)
+    return out
+
+
+def prompt_notes(rec: dict) -> dict:
+    """The notes dict a controller prompt carried (the state JSON's "notes" in any message), or {}."""
+    for msg in rec.get("messages") or []:
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if not isinstance(content, str) or not (m := _NOTES_RX.search(content)):
+            continue
+        try:
+            notes, _ = json.JSONDecoder().raw_decode(content, m.end() - 1)
+        except ValueError:
+            continue
+        if isinstance(notes, dict):
+            return notes
+    return {}
 
 
 # ------------------------------------------------------------------ episodes
@@ -824,6 +1000,7 @@ class _Detect:
                 out += self.speech(ep, s["text"], s["ts"])
             out += self.timeouts(ep)
         out += self.negations() + self.repeats() + self.unheard() + self.bridge_restarts()
+        out += self.body_truth()
         out.sort(key=lambda a: a["ts"])
         uniq, seen = [], set()
         for a in out:
@@ -1005,6 +1182,147 @@ class _Detect:
                                  f"command(s) in flight: {names}", _episode_at(self.eps, inflight[0][1]), "error",
                                  key=f"bridge:{b['event']}:{T}", ids=[i for i, _, _ in inflight], source="mod"))
         return out
+
+
+    # ---- body ground truth vs what the brain was told (docs/research/2026-10-31-death-loop-forensics.md section 6)
+    def body_truth(self) -> list[dict]:
+        return (self.busy_after_reflex() + self.refusal_without_motion() + self.goal_progress()
+                + self.replan_same_inputs() + self.stale_notes())
+
+    def reflex_uses(self) -> list[tuple[float, str]]:
+        """(ts, what) of every fed-reflex use: vitals.jsonl reflex rows and the arbiter's fed:* lines in client.log."""
+        out = [(r["ts"], f"{r.get('name') or r.get('item') or '?'} ({r.get('kind')})") for r in self.c.reflex]
+        out += [(t, text.split("arbiter: ", 1)[-1]) for t, text in self.c.client if "arbiter:" in text and "fed:" in text]
+        return sorted(out)
+
+    def busy_after_reflex(self) -> list[dict]:
+        """A busy refusal while (or just after) the body's own fed reflex ate or drank: the reflex held the slot for its
+        few seconds of verification. Not a stuck lock (E4/E5: 6/6 busy refusals on 10-30)."""
+        uses, out = self.reflex_uses(), []
+        for ep in self.eps:
+            for r in ep.ran:
+                if r["reason"] != "busy":
+                    continue
+                hit = next((u for u in reversed(uses) if r["end"] - REFLEX_HOLD_S <= u[0] <= r["end"] + 1.0), None)
+                if hit:
+                    out.append(_anom("busy_after_reflex", r["end"], f'{r["tool"]} refused "busy" ({short(r["detail"], 60)}) '
+                                     f"{r['end'] - hit[0]:.1f} s after the fed reflex used {hit[1]}: the reflex held the "
+                                     "action slot, nothing was stuck", ep, key=f"busy_reflex:{round(r['end'], 1)}",
+                                     tool=r["tool"], reflex=hit[1], lag_s=round(r["end"] - hit[0], 1)))
+        return out
+
+    def refusal_without_motion(self) -> list[dict]:
+        """A movement tool that failed within REFUSAL_S with < 2 m moved: a code gate refused (or nothing was tried)."""
+        out = []
+        for ep in self.eps:
+            for r in ep.ran:
+                if r["tool"] not in MOVE_TOOLS or r["ok"] or r["reason"] in ("busy", "interrupted", "already_there", "already_in_sight") \
+                        or r["end"] - r["ts"] > REFUSAL_S:
+                    continue
+                a = position_at(self.c, r["ts"] - 0.05, before_s=120)
+                b = position_at(self.c, r["end"], before_s=0.5, after_s=10)
+                if a is None or b is None or hdist(a, b) >= 2.0:
+                    continue
+                out.append(_anom("refusal_without_motion", r["end"], f'{r["tool"]} failed {r["reason"]} after {r["end"] - r["ts"]:.0f} s '
+                                 f"having moved {hdist(a, b):.1f} m (\"{short(r['detail'], 80)}\")", ep,
+                                 key=f"refusal:{round(r['end'], 1)}", tool=r["tool"], reason=r["reason"],
+                                 moved_m=round(hdist(a, b), 1), seconds=round(r["end"] - r["ts"], 1)))
+        return out
+
+    def goal_progress(self) -> list[dict]:
+        """crawl (approach < CRAWL_MPS over >= 30 s) and moving_away (the goal distance grew >= AWAY_M above its best),
+        from the mover's own goal distance in client.log during each go_to."""
+        out = []
+        for ep in self.eps:
+            for r in ep.ran:
+                if r["tool"] not in GOAL_TOOLS or r["end"] - r["ts"] < 30:
+                    continue
+                tr = goal_trace(self.c, r["ts"], r["end"])
+                if len(tr) < 3 or tr[-1][0] - tr[0][0] < 30:
+                    continue
+                (t0, d0, *_), (t1, d1, *_) = tr[0], tr[-1]
+                srcs = Counter(x[2] for x in tr)
+                mix = ", ".join(f"{k} {v * 100 // len(tr)}%" for k, v in srcs.most_common())
+                sprint = sum(1 for x in tr if x[3]) * 100 // len(tr)
+                rate = (d0 - d1) / (t1 - t0)
+                if d1 > 3.0 and rate < CRAWL_MPS:
+                    out.append(_anom("crawl", t0, f"{r['tool']} closed {d0:.0f} -> {d1:.0f} m in {t1 - t0:.0f} s = {rate:.1f} m/s "
+                                     f"toward the goal (walk 4.5, sprint 6.8; route {mix}; sprint {sprint}%)", ep,
+                                     key=f"crawl:{round(r['ts'], 1)}", tool=r["tool"], mps=round(rate, 2),
+                                     from_m=round(d0, 1), to_m=round(d1, 1), seconds=round(t1 - t0), sources=dict(srcs),
+                                     sprint_pct=sprint, result=r["reason"] or "ok"))
+                best, worst = d0, None
+                for t, d, *_ in tr:
+                    best = min(best, d)
+                    if d - best >= AWAY_M and (worst is None or d > worst[1]):
+                        worst = (t, d, best)
+                if worst:
+                    out.append(_anom("moving_away", worst[0], f"{r['tool']} walked away from the goal: {d0:.0f} -> {worst[2]:.0f} -> "
+                                     f"{worst[1]:.0f} m (ended {d1:.0f} m, {r['reason'] or 'ok'})", ep,
+                                     key=f"away:{round(r['ts'], 1)}", tool=r["tool"], start_m=round(d0, 1), best_m=round(worst[2], 1),
+                                     worst_m=round(worst[1], 1), end_m=round(d1, 1)))
+        return out
+
+    def replan_same_inputs(self) -> list[dict]:
+        """Two Director replans of one task with the same movement-failure signature and < 2 m moved between them:
+        the second replan was given nothing new (E3: 6 Sonnet calls, 0 m)."""
+        disp: dict[str, list[float]] = {}
+        starts: dict[str, float] = {}
+        for d in self.c.brain:
+            if d.get("kind") == "director_dispatch" and d.get("decision") == "replan":
+                disp.setdefault(str(d.get("task")), []).append(d["ts"])
+            elif d.get("kind") in ("board_run_start", "director_dispatch") and str(d.get("task")) not in starts:
+                starts[str(d.get("task"))] = d["ts"]
+        fails = sorted((r["end"], r["tool"], r["reason"]) for ep in self.eps for r in ep.ran
+                       if not r["ok"] and r["tool"] in MOVE_TOOLS)
+
+        def signature(a: float, b: float):
+            sig = Counter((tool, reason) for t, tool, reason in fails if a < t <= b)
+            return sig.most_common(1)[0][0] if sig else None
+        out = []
+        for task, ts in disp.items():
+            prev = starts.get(task, ts[0] - 600)
+            for a, b in zip(ts, ts[1:]):
+                s1, s2 = signature(prev, a), signature(a, b)
+                pa, pb = position_at(self.c, a, 300), position_at(self.c, b, 300)
+                prev = a
+                if s1 is None or s1 != s2 or pa is None or pb is None or hdist(pa, pb) >= 2.0:
+                    continue
+                out.append(_anom("replan_same_inputs", b, f"Director replanned task {task} again after the same {s2[0]} "
+                                 f"{s2[1]} failures, {hdist(pa, pb):.1f} m moved since the last replan", _episode_at(self.eps, b),
+                                 key=f"replan_same:{task}:{round(b, 1)}", task=task, signature=list(s2),
+                                 moved_m=round(hdist(pa, pb), 1)))
+        return out
+
+    def stale_notes(self) -> list[dict]:
+        """A remembered note still in the prompt more than STALE_NOTE_S after it was written (E5: a 4-day-old
+        "body bridge keeps restarting" note in 110/110 prompts). Once per note per scan."""
+        idx, seen, out = None, set(), []
+        for d in self.c.brain:
+            if d.get("kind") != "prompt" or d.get("component") != "controller":
+                continue
+            notes = prompt_notes(d)
+            if not notes:
+                continue
+            idx = remember_index(self.c.logs_dir) if idx is None else idx
+            for k, v in notes.items():
+                written = [t for t in idx.get((str(k), str(v)), []) if t <= d["ts"]]
+                if (k, v) in seen or not written or d["ts"] - max(written) <= STALE_NOTE_S:
+                    continue
+                seen.add((k, v))
+                age_d = (d["ts"] - max(written)) / 86400
+                out.append(_anom("stale_note", d["ts"], f'the prompt still carries note {k}="{short(v, 80)}", written '
+                                 f"{age_d:.1f} days ago ({_iso(max(written))})", _episode_at(self.eps, d["ts"]),
+                                 key=f"stale_note:{k}:{hashlib.md5(str(v).encode()).hexdigest()[:6]}", note=k,
+                                 written=_iso(max(written)), age_days=round(age_d, 2)))
+        return out
+
+
+REFLEX_HOLD_S = 8.0     # the fed reflex holds the action slot for its use + ~4-6 s stat verification
+REFUSAL_S = 20.0        # a movement failure this quick never really walked
+CRAWL_MPS = 2.0         # player walk 4.5 m/s, sprint 6.8 (DISCOVERIES); guarded walking ran 1.1
+AWAY_M = 15.0
+STALE_NOTE_S = 86400.0
 
 
 def detect(c: Corpus, eps: list[Episode], now: float | None = None, stall_s: float = STALL_S) -> list[dict]:
