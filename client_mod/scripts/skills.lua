@@ -93,6 +93,13 @@ local function lower(s) return tostring(s or ""):lower() end
 local function need_str(v) return type(v) == "string" and v ~= "" end
 
 -- ------------------------------------------------------------------ engine touches (tests replace)
+-- The local pawn's capsule half height in metres (0.88 on Claude), 0.88 when unreadable.
+function W.half_h_m(api)
+    local s = api.module("sense")
+    local pawn = s and s.local_pawn and s.local_pawn()
+    local ok, h = pcall(function() return pawn.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
+    return (ok and type(h) == "number" and h > 0 and h < 1000) and h / 100 or 0.88
+end
 -- Face a point: camera yaw (as move.lua steers) + a small movement input toward it, because the body
 -- turns only toward movement (bOrientRotationToMovement; gather.lua does the same nudge).
 function W.face(api, pos, nudge)
@@ -515,7 +522,10 @@ local function episode_poll(api, e, t, owner_token)
         end
         local here = api.my_position()
         local d = here and goal and dist2d(here, goal)
-        local on_top = here and e.ipoint and e.spots and not e.shore and not e.small and (here[3] - (e.ipoint[3] or here[3])) > M.cfg.on_top_m
+        -- "on top" compares the FEET (capsule centre minus half height) with the interaction point: from the centre,
+        -- standing on a built lodestone's base read 1.18 m "above" its point and every spot ended in too_far (live 20:07)
+        local on_top = here and e.ipoint and e.spots and not e.shore and not e.small and
+            (here[3] - W.half_h_m(api) - (e.ipoint[3] or here[3])) > M.cfg.on_top_m
         -- Exact native focus can establish reach even when a generated stand point is missed.
         -- The face phase re-reads focus before pressing; no fuzzy or alternate-target shortcut.
         local focus = not e.water and W.detector(api) or nil
