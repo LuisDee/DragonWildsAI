@@ -381,4 +381,4 @@ def test_go_to_says_it_takes_map_names_only_when_the_brain_resolves_them(tmp_pat
                           if t["function"]["name"] == "go_to")["function"]["parameters"]["properties"]["target"]
     assert "game's map" not in str(target().get("description"))
     rig.controller.use_map_names()
-    assert str(target()["description"]).endswith("(a region, NPC or landmark), even out of sight.")
+    assert str(target()["description"]).endswith("the result says what it was taken to be.")
