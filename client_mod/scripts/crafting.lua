@@ -108,18 +108,12 @@ end
 local function idx()
     local d = M.data()
     if M._idx and M._idx.data == d then return M._idx end
-    local I = { data = d, id_of = {}, name_of = {}, path_of = {}, by_output = {}, by_station = {}, class_sid = {}, ambiguous = {} }
+    local I = { data = d, id_of = {}, name_of = {}, path_of = {}, by_output = {}, by_station = {}, class_sid = {} }
     for p, it in pairs(d.items or {}) do
         local id = it.id or asset(p)
-        I.id_of[p], I.name_of[p] = id, it.name
-        if I.path_of[id] and I.path_of[id] ~= p then I.ambiguous[id] = true else I.path_of[id] = p end
+        I.id_of[p], I.name_of[p], I.path_of[id] = id, it.name, p
     end
-    local function id_of(p)
-        I.id_of[p] = I.id_of[p] or asset(p)
-        local id=I.id_of[p]
-        if I.path_of[id] and I.path_of[id]~=p then I.ambiguous[id]=true else I.path_of[id]=p end
-        return id
-    end
+    local function id_of(p) I.id_of[p] = I.id_of[p] or asset(p); return I.id_of[p] end
     for rid, r in pairs(d.recipes or {}) do
         for _, o in ipairs(r.outputs or {}) do
             local id = id_of(o[1])
@@ -202,29 +196,17 @@ function M.resolve_item(q)
     return nil, hits, #hits > 0 and "category" or nil
 end
 
--- Suggestions are metadata, never an implicit selection, even for one match.
-local function item_resolution_failure(api, query, hits, kind, limit, ctx)
+-- Candidates for an unresolved name (a category match lists its items, never picks one).
+local function item_resolution_failure(api, query, hits, kind, limit)
     local c = {}
     for i = 1, math.min(#(hits or {}), limit) do
         local id = hits[i]
         local item = (M.data().items or {})[idx().path_of[id]] or {}
-        local category = not idx().ambiguous[id] and type(item.category)=="string" and item.category~="" and item.category or nil
-        local recipes, seen = {}, {}
-        for _, rid in ipairs(idx().by_output[id] or {}) do
-            if not seen[rid] then
-                seen[rid] = true
-                local unlock = type(ctx and ctx.unlocked)=="table" and ctx.unlocked[rid]==true and "unlocked" or "unknown"
-                recipes[#recipes+1] = {recipe=rid,unlock_status=unlock}
-            end
-        end
-        c[i] = { item = id, name = name_of_id(id), category = category, recipes = recipes }
+        c[i] = { item = id, name = name_of_id(id), category = kind == "category" and item.category or nil }
     end
-    local total = #(hits or {})
-    local detail = total == 0 and ("I don't know how to make " .. tostring(query) .. ".")
-        or (total == 1 and ("\"" .. query .. "\" matches this item; choose it explicitly.")
-            or ("\"" .. query .. "\" matches these items; choose one explicitly."))
-    return api.fail(total > 0 and "ambiguous_target" or "unknown_recipe",
-                    { item = query, candidates = c, total = total, truncated = total > #c, detail = detail })
+    if #c == 0 then return api.fail("unknown_recipe", { item = query, detail = "I don't know how to make " .. tostring(query) .. "." }) end
+    return api.fail("ambiguous_target", { item = query, candidates = c, total = #hits,
+        detail = "\"" .. query .. "\" could be several things; which one do you mean?" })
 end
 
 -- Unlock rule text with actor class words turned into station names (data, not code).
@@ -237,11 +219,9 @@ local function unlock_text(r)
             return sid and station_name(sid) or cw
         end))
     end
-    return table.concat(out, "; ") .. (#out > 1 and " (relation between conditions unknown)" or "")
+    return table.concat(out, " OR ")
 end
 M.unlock_text = unlock_text
-local UNLOCK_CONTEXT = "Progress records item first pickups and actor-class interactions separately; "
-    .. "the relationship between separate condition queries is not established."
 
 -- ------------------------------------------------------------------ the pure plan (one recipe)
 local function per_craft(r, item)
@@ -287,7 +267,8 @@ function M.plan(rid, crafts, sid)
 end
 
 -- ------------------------------------------------------------------ assessing candidates (pure)
--- ctx = {have = {item_id = n}, unlocked = {rid = true} | nil (unknown), near = {sid = station row}}
+-- ctx = {have = {item_id = n}, native? = fn(item_id) -> n | nil, unlocked = {rid = true} | nil (unknown),
+--        near = {sid = station row}}; native (context()) is the game's own per-item count, preferred over have.
 -- -> {recipe, item, name, station, station_name, kind, crafts, viable, status, missing = {...},
 --     unlock?, vendor?, station_row?, detail}
 -- status: ready | not_unlocked | missing_input | no_station | vendor | no_station_type
@@ -298,20 +279,13 @@ function M.assess(rid, crafts, ctx)
     local r = recipe_of(rid)
     local p = M.plan(rid, crafts)
     local a = { recipe = rid, crafts = crafts, missing = {}, inputs = {}, outputs = {} }
-    local all_carried_known = true
     local out1 = p.outputs[1]
     a.item, a.name = out1 and out1.item, out1 and out1.name
     for _, c in ipairs(p.inputs) do
-        local observation = ctx.native_count and (idx().ambiguous[c.item] and {status="unknown",reason="ambiguous_item_identity"} or ctx.native_count(c.path)) or nil
-        local have
-        if observation and observation.status == "observed" then have=observation.count
-        elseif not ctx.native_count then have=(ctx.have or {})[c.item] or 0 end
-        a.inputs[#a.inputs + 1] = { item = c.item, path = c.path, name = c.name, need = c.count, have = have,
-                                   count_scope = observation and observation.scope, count_status = observation and observation.status }
-        if type(have) ~= "number" or have < c.count then all_carried_known = false end
-        if type(have) == "number" and have < c.count then a.missing[#a.missing + 1] = { item = c.item, name = c.name, need = c.count, have = have, scope = observation and observation.scope } end
+        local have = (ctx.native and ctx.native(c.item)) or (ctx.have or {})[c.item] or 0
+        a.inputs[#a.inputs + 1] = { item = c.item, name = c.name, need = c.count, have = have }
+        if have < c.count then a.missing[#a.missing + 1] = { item = c.item, name = c.name, need = c.count, have = have } end
     end
-    a.carried_sufficient = ctx.native_count and all_carried_known or nil
     for _, c in ipairs(p.outputs) do a.outputs[#a.outputs + 1] = { item = c.item, name = c.name, count = c.count } end
     -- station: the nearest live one of any type that crafts it
     local best
@@ -325,13 +299,7 @@ function M.assess(rid, crafts, ctx)
     local vendor = sid and (station_info(sid) or {}).vendor == true
     local unl
     if ctx.unlocked == nil then unl = nil else unl = ctx.unlocked[rid] == true end
-    if not unl then
-        a.unlock = unlock_text(r)
-        if type(r.uq) == "table" and #r.uq > 0 then
-            a.unlock_queries, a.unlock_context = r.uq, UNLOCK_CONTEXT
-            a.unlock_query_source = "generated recipe catalog (whitespace normalized)"
-        end
-    end
+    if not unl then a.unlock = unlock_text(r) end
     if #(r.stations or {}) == 0 then
         a.status, a.detail = "no_station_type", "nothing in the game crafts " .. tostring(a.name or rid) .. " at a station"
     elseif vendor then
@@ -339,10 +307,10 @@ function M.assess(rid, crafts, ctx)
         a.detail = (a.name or rid) .. " is bought from " .. tostring(a.station_name) .. ", and I can't trade with vendors yet"
     elseif unl == false then
         a.status = "not_unlocked"
-        a.detail = "I haven't unlocked " .. tostring(a.name or rid) .. " yet" .. (a.unlock and (" (catalog conditions: " .. a.unlock .. ")") or "")
+        a.detail = "I haven't unlocked " .. tostring(a.name or rid) .. " yet" .. (a.unlock and (" (it unlocks with: " .. a.unlock .. ")") or "")
     elseif unl == nil then
         a.status, a.detail = "unlock_unknown", "I can't read which recipes I've unlocked right now"
-    elseif #a.missing > 0 and not ctx.native_count then
+    elseif #a.missing > 0 then
         local m = a.missing[1]
         a.status = "missing_input"
         a.detail = "I need " .. m.need .. " " .. tostring(m.name or m.item) .. " for that and I have " .. m.have
@@ -382,269 +350,121 @@ function M.card(a)
                 station_name = a.station_name, kind = a.kind, inputs = a.inputs, outputs = a.outputs, detail = a.detail }
     if #a.missing > 0 then c.missing = a.missing end
     if a.unlock then c.unlock = a.unlock end
-    if a.unlock_queries then
-        c.unlock_queries, c.unlock_context, c.unlock_query_source = a.unlock_queries, a.unlock_context, a.unlock_query_source
-    end
     if a.station_row then c.station_id, c.station_distance = a.station_row.id, a.station_row.distance end
     return c
 end
 
 -- ------------------------------------------------------------------ the crafting tree (pure, read-only)
--- plan_tree(goal = {item | recipe}, count, ctx) reports observed counts and bounded
--- OR acquisition choices; each recipe option has AND inputs. A single option is
--- represented directly by its node. Steps are omitted when choices are unresolved.
--- Recipe execution capability is unknown unless independently established; a
--- station observation and sufficient inputs alone are not proof of craft readiness.
+-- plan_tree(goal = {item | recipe}, count, ctx + {gather_for = fn(item_id) -> resource name | nil,
+--           quantity_mode = "additional_output" (default: count MORE, carried ones don't count) | "inventory_target"
+--           (reach count in total)})
+-- -> {root = node, steps = {...}, missing = {...}, ready = bool, quantity_mode}
+-- node = {item, name, need, have, status, recipe?, station?, crafts?, inputs = {nodes}, alternatives = {...},
+--         unlock?, gather?}
+-- status: have | craft (ready now) | craft_after (needs its inputs first) | not_unlocked | no_station |
+--         gather | obtain | vendor | cycle | depth
+-- The pool of carried items is shared across the tree, so two branches never count the same logs twice.
+-- Every alternative recipe is listed at its node; only the first ranked one is expanded.
 function M.plan_tree(goal, count, ctx)
     count = math.max(1, math.floor(tonumber(count) or 1))
-    ctx = ctx or {}
-    local quantity_mode = ctx.quantity_mode or (goal.recipe and "additional_output" or "inventory_target")
-    local cs = ctx.count_status
-    local exact = type(cs) == "table" and cs.status == "complete" and cs.count_semantics == "exact"
-    local max_options, max_nodes = 8, 100
-    local used, truncated = 0, false
-    local function clone(pool)
-        local out = { values = {}, certainty = copy(pool.certainty), provenance = copy(pool.provenance), exact = pool.exact }
-        for k, v in pairs(pool.values) do out.values[k] = v end
-        return out
+    local mode = ctx.quantity_mode or "additional_output"
+    local pool, seeded = copy(ctx.have), {}
+    local steps, missing = {}, {}
+    local function take(item, n)
+        if ctx.native and not seeded[item] then seeded[item] = true; pool[item] = ctx.native(item) or pool[item] end
+        local have = math.min(pool[item] or 0, n)
+        pool[item] = (pool[item] or 0) - have
+        return have
     end
-    local function merge(pool, branches, incomplete)
-        if incomplete then
-            for k in pairs(pool.values) do pool.values[k] = 0; pool.certainty[k] = false end
-            pool.exact = false
-            return
-        end
-        if #branches == 0 then return end
-        local keys={}
-        for k in pairs(pool.values) do keys[k]=true end
-        for _,branch in ipairs(branches) do for k in pairs(branch.values) do keys[k]=true end end
-        for k in pairs(keys) do
-            local prior=pool.values[k]
-            local minimum, maximum = prior or math.huge, 0
-            local all_known = prior == nil or pool.certainty[k] == true
-            for _, p in ipairs(branches) do
-                local v = p.values[k]
-                if v==nil then v=0; all_known=false end
-                minimum, maximum = math.min(minimum, v), math.max(maximum, v)
-                if not p.exact then pool.exact = false end
-                if not p.certainty[k] then all_known=false end
-            end
-            pool.values[k] = minimum
-            if minimum ~= maximum then pool.exact = false end
-            pool.certainty[k] = all_known and minimum == maximum
-            local sources={}
-            for _,branch in ipairs(branches) do
-                for _,obs in ipairs(branch.provenance[k] or {}) do sources[#sources+1]=obs end
-            end
-            if #sources>0 then pool.provenance[k]=sources end
-        end
-    end
-    local function observed(pool, item, need)
-        local path = ctx.native_count and not idx().ambiguous[item] and idx().path_of[item] or nil
-        local key = ctx.native_count and (path or ("ambiguous:" .. item)) or item
-        local value = pool.values[key]
-        if value == nil and ctx.native_count then
-            local result = path and ctx.native_count(path) or nil
-            if result and result.status == "observed" then value = result.count; pool.certainty[key] = true; pool.provenance[key]={result}
-            else value = 0; pool.certainty[key] = false; pool.provenance[key]=result and {result} or {} end
-        end
-        if type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge or value < 0 then
-            if value ~= nil then pool.exact = false end
-            value = 0
-        end
-        local n = math.min(value, need)
-        pool.values[key] = value - n
-        local known = ctx.native_count and pool.certainty[key] == true or (not ctx.native_count and pool.exact)
-        local sufficiency = n >= need and "enough" or (known and "short" or "unknown")
-        if ctx.native_count and not known then return nil, nil, "unknown", sufficiency, n, pool.provenance[key] end
-        return value, n, known and "exact" or "lower_bound", sufficiency, n, pool.provenance[key]
-    end
-    local node, recipe_option
-    recipe_option = function(rid, item, need, pool, depth, stack)
+    local node
+    local function expand(rid, item, need, depth, stack)
         local r = recipe_of(rid)
         local per = math.max(1, per_craft(r, item))
         local crafts = math.ceil(need / per)
-        local a = M.assess(rid, crafts, { have = pool.values, unlocked = ctx.unlocked, near = ctx.near })
-        local unl = ctx.unlocked == nil and "unknown" or (ctx.unlocked[rid] == true and "unlocked" or "locked")
-        local station = a.station_row and "nearby" or "not_observed"
-        local out = { type = "recipe", recipe = rid, item = item, crafts = crafts,
-                      output_count = crafts * per, station = a.station, station_name = a.station_name,
-                      station_id = a.station_row and a.station_row.id or nil, station_observation = station,
-                      station_kind = a.kind, station_types = r.stations, unlock_status = unl,
-                      execution_capability = a.vendor and "unsupported_vendor" or "unknown",
-                      inputs = {}, status = a.status }
-        if a.unlock then out.unlock = a.unlock end
-        if a.unlock_queries then
-            out.unlock_queries, out.unlock_context, out.unlock_query_source = a.unlock_queries, a.unlock_context, a.unlock_query_source
-        end
-        if a.status == "missing_input" and not pool.exact then out.status = "inventory_unknown"
-        elseif a.status == "ready" then out.status = "execution_unknown"
-        else out.detail = a.detail end
+        local a = M.assess(rid, crafts, { have = {}, unlocked = ctx.unlocked, near = ctx.near })
+        local n = { recipe = rid, crafts = crafts, station = a.station, station_name = a.station_name, kind = a.kind, inputs = {} }
         stack[item] = true
-        local all_enough, has_unknown, has_choices = true, false, false
-        local steps, missing = {}, {}
-        local ingredient_rows = M.plan(rid, crafts).inputs
-        out.inputs_total = #ingredient_rows
-        for _, ingredient in ipairs(ingredient_rows) do
-            if used >= max_nodes then
-                out.inputs_truncated, truncated, has_choices = true, true, true
-                break
-            end
-            local child, child_steps, child_missing, unresolved = node(ingredient.item, ingredient.count, pool, depth + 1, stack)
-            out.inputs[#out.inputs + 1] = child
-            if child.sufficiency ~= "enough" then all_enough = false end
-            if child.sufficiency == "unknown" then has_unknown = true end
-            if unresolved then has_choices = true end
-            for _, step in ipairs(child_steps) do steps[#steps + 1] = step end
-            for _, m in ipairs(child_missing) do missing[#missing + 1] = m end
+        local inputs_ok = true
+        for _, c in ipairs(M.plan(rid, crafts).inputs) do
+            local child = node(c.item, c.count, depth + 1, stack)
+            n.inputs[#n.inputs + 1] = child
+            if child.status ~= "have" then inputs_ok = false end
         end
         stack[item] = nil
-        if ctx.native_count and all_enough and not has_unknown and a.station_row and unl == "unlocked" and not a.vendor then
-            out.status = "execution_unknown"
-            out.suggestion = { ["do"]="craft", recipe=rid, item=item, conditional=true, reason="execution_capability_unknown" }
+        if a.status == "vendor" or a.status == "not_unlocked" or a.status == "unlock_unknown" then
+            n.status, n.unlock, n.detail = a.status == "vendor" and "vendor" or "not_unlocked", a.unlock, a.detail
+            if a.status ~= "vendor" then steps[#steps + 1] = { ["do"] = "unlock", recipe = rid, name = a.name, how = a.unlock } end
+        elseif not a.station_row then
+            n.status, n.detail = "no_station", a.detail
+            steps[#steps + 1] = { ["do"] = "find_station", station = a.station, name = a.station_name, recipe = rid }
+        else
+            n.status = inputs_ok and "craft" or "craft_after"
+            n.station_id = a.station_row.id
         end
-        if has_choices then out.plan_status = "choices_unresolved"
-        elseif has_unknown then out.plan_status = "inventory_unknown"
-        elseif not all_enough then out.plan_status = "craft_after"
-        elseif out.status == "execution_unknown" or a.status == "ready" then out.plan_status = "execution_unknown"
-        else out.plan_status = a.status end
-        if a.status == "ready" and not a.vendor then
-            out.suggestion = { ["do"] = "craft", recipe = rid, item = item, conditional = true,
-                               reason = "execution_capability_unknown" }
-        end
-        if not has_choices then
-            if a.status == "not_unlocked" then
-                steps[#steps + 1] = { ["do"] = "unlock", recipe = rid, name = a.name, how = a.unlock,
-                    unlock_queries = a.unlock_queries, unlock_context = a.unlock_context, unlock_query_source = a.unlock_query_source }
-            elseif unl == "unlocked" and not a.station_row then
-                steps[#steps + 1] = { ["do"] = "find_station", station = a.station, name = a.station_name, recipe = rid }
-            end
-            -- Unknown station execution is not presented as an unconditional craft step.
-            if a.station_row and not a.vendor then
-                steps[#steps + 1] = { ["do"] = "craft", recipe = rid, item = item, name = name_of_id(item),
-                    crafts = crafts, count = crafts * per, station = a.station, station_name = a.station_name,
-                    conditional = true, reason = "execution_capability_unknown" }
-            end
-        end
-        return out, steps, missing, has_choices or has_unknown or a.status == "ready"
+        steps[#steps + 1] = { ["do"] = "craft", recipe = rid, item = item, name = name_of_id(item), crafts = crafts,
+                              count = crafts * per, station = a.station, station_name = a.station_name,
+                              ready = n.status == "craft" or nil }
+        return n
     end
-    node = function(item, need, pool, depth, stack, pinned, is_root)
-        used = used + 1
-        local additional_root = is_root and quantity_mode == "additional_output"
+    node = function(item, need, depth, stack)
         local n = { item = item, name = name_of_id(item), need = need }
-        if ctx.native_count then
-            n.count_scope = "main_inventory"
-            n.asset_path = not idx().ambiguous[item] and idx().path_of[item] or nil
-        end
-        local accounted
-        if pinned or additional_root then
-            local snapshot = clone(pool)
-            n.observed_have, n.have, n.have_semantics, n.sufficiency, accounted, n.count_observations = observed(snapshot, item, need)
-        else
-            n.observed_have, n.have, n.have_semantics, n.sufficiency, accounted, n.count_observations = observed(pool, item, need)
-        end
-        if additional_root then
-            n.allocated_from_inventory = 0
-            n.requested_additional_output = need
-            n.have = nil
-            n.sufficiency = "not_allocated"
-        end
-        if n.sufficiency == "enough" and not pinned and not additional_root then n.status = "have"; return n, {}, {}, false end
-        local remaining = (pinned or additional_root) and need or (need - accounted)
-        if n.sufficiency == "short" then n.short = remaining end
-        if used > max_nodes or depth > M.cfg.plan_depth then
-            n.status, n.options_total, n.options_truncated = "depth", 0, true
-            truncated = true
-            return n, {}, {}, true
-        end
-        if stack[item] then
-            n.status = "cycle"
-            local missing = n.sufficiency == "short" and { {item=item,name=n.name,count=remaining} } or {}
-            return n, {}, missing, n.sufficiency ~= "short"
-        end
-        local specs = {}
-        if not pinned and ctx.gather_for then
-            local names = ctx.gather_for(item)
-            if type(names) == "string" then names = { names } end
-            if type(names) == "table" then
-                local seen = {}
-                for _, name in ipairs(names) do
-                    if type(name) == "string" and not seen[name] then specs[#specs + 1] = { type="gather", resource=name }; seen[name] = true end
-                end
+        -- additional_output: the goal item he already carries does not count toward the goal
+        n.have = (depth == 0 and mode == "additional_output") and 0 or take(item, need)
+        local short = need - n.have
+        if short <= 0 then n.status = "have"; return n end
+        n.short = short
+        if stack[item] then n.status = "cycle"; missing[#missing + 1] = { item = item, name = n.name, count = short }; return n end
+        if depth > M.cfg.plan_depth then n.status = "depth"; missing[#missing + 1] = { item = item, name = n.name, count = short }; return n end
+        local cands = {}
+        for _, rid in ipairs(idx().by_output[item] or {}) do
+            local r = recipe_of(rid)
+            if r and #(r.stations or {}) > 0 and #(r.inputs or {}) > 0 then
+                local a = M.assess(rid, math.ceil(short / math.max(1, per_craft(r, item))), { have = pool, unlocked = ctx.unlocked, near = ctx.near })
+                cands[#cands + 1] = a
             end
         end
-        if pinned then specs[#specs + 1] = { type="recipe", recipe=pinned }
-        else
-            for _, rid in ipairs(idx().by_output[item] or {}) do
-                local r = recipe_of(rid)
-                if r and #(r.stations or {}) > 0 then specs[#specs + 1] = { type="recipe", recipe=rid } end
-            end
-        end
-        table.sort(specs, function(x,y) return (x.type .. ":" .. (x.resource or x.recipe)) < (y.type .. ":" .. (y.resource or y.recipe)) end)
-        n.options_total, n.options_truncated, n.options = #specs, #specs > max_options, {}
-        if n.options_truncated then truncated = true end
-        local branches, alternatives_steps, alternatives_missing = {}, {}, {}
-        for i=1, math.min(#specs, max_options) do
-            if used >= max_nodes then n.options_truncated, truncated = true, true; break end
-            local spec, branch = specs[i], clone(pool)
-            local option, steps, missing, unresolved
-            if spec.type == "gather" then
-                option = { type="gather", resource=spec.resource, provenance="gather_profiles", availability="unknown" }
-                steps = { { ["do"]="gather", resource=spec.resource, item=item, name=n.name, count=remaining } }
-                missing, unresolved = {}, false
-            else
-                option, steps, missing, unresolved = recipe_option(spec.recipe, item, remaining, branch, depth, stack)
-            end
-            option.quantity_semantics = (pinned or additional_root) and "requested" or (n.sufficiency == "unknown" and "upper_bound" or "exact_shortfall")
-            n.options[#n.options + 1], branches[#branches + 1] = option, branch
-            alternatives_steps[i], alternatives_missing[i] = steps, missing
-            if unresolved then option.unresolved = true end
-        end
-        merge(pool, branches, n.options_truncated)
-        if #specs == 0 then
+        table.sort(cands, function(x, y)
+            if x.rank ~= y.rank then return x.rank > y.rank end
+            if #x.missing ~= #y.missing then return #x.missing < #y.missing end
+            return x.recipe < y.recipe
+        end)
+        local res = ctx.gather_for and ctx.gather_for(item) or nil
+        -- a gatherable raw material is gathered unless an unlocked, station-ready recipe exists
+        if res and not (cands[1] and (cands[1].status == "ready" or cands[1].status == "missing_input")) then
+            n.status, n.gather = "gather", res
+            steps[#steps + 1] = { ["do"] = "gather", resource = res, item = item, name = n.name, count = short }
+        elseif #cands == 0 then
             n.status = "obtain"
-            local steps = { { ["do"]="obtain", item=item, name=n.name, count=remaining } }
-            local missing = n.sufficiency == "short" and { {item=item,name=n.name,count=remaining} } or {}
-            return n, steps, missing, n.sufficiency == "unknown"
-        end
-        if #specs ~= 1 or n.options_truncated then n.status = "choices_unresolved"; return n, {}, {}, true end
-        local option = n.options[1]
-        -- A single choice is represented by the requirement node itself; copying
-        -- its recursive inputs into both places would duplicate every subtree on JSON serialization.
-        n.options = nil
-        if option.type == "gather" then
-            n.status, n.gather, n.provenance, n.availability = "gather", option.resource, option.provenance, option.availability
-            n.quantity_semantics = option.quantity_semantics
+            steps[#steps + 1] = { ["do"] = "obtain", item = item, name = n.name, count = short }
+            missing[#missing + 1] = { item = item, name = n.name, count = short }
         else
-            for k,v in pairs(option) do if k ~= "type" then n[k] = v end end
-            n.status = option.plan_status
+            local sub = expand(cands[1].recipe, item, short, depth, stack)
+            for k, v in pairs(sub) do n[k] = v end
+            if res then n.gather_instead = res end
         end
-        if option.unresolved then return n, {}, {}, true end
-        return n, alternatives_steps[1], alternatives_missing[1], n.sufficiency == "unknown"
+        if #cands > 1 or (res and #cands > 0) then
+            n.alternatives = {}
+            for i = (n.recipe and 2 or 1), #cands do
+                local c = cands[i]
+                n.alternatives[#n.alternatives + 1] = { recipe = c.recipe, status = c.status, station = c.station_name, detail = c.detail }
+            end
+        end
+        return n
     end
-    local pool = { values = copy(ctx.have or {}), certainty = {}, provenance = {}, exact = exact }
-    local item, rid, need
+    local root
     if goal.recipe then
-        rid = M.recipe(goal.recipe)
+        local rid = M.recipe(goal.recipe)
         if not rid then return nil, "unknown_recipe" end
         local r = recipe_of(rid)
-        item = r.outputs[1] and item_id(r.outputs[1][1])
-        need = count * per_craft(r, item)
-    else item, need = goal.item, count end
-    local root, steps, missing, unresolved = node(item, need, pool, 0, {}, rid, true)
-    local ready
-    if root.status == "have" then ready = true
-    elseif root.status ~= "execution_unknown" and not unresolved then ready = false end
-    local function has_choices(n)
-        if type(n) ~= "table" then return false end
-        if (type(n.options_total) == "number" and n.options_total > 1) or n.options_truncated then return true end
-        for _, child in ipairs(n.inputs or {}) do if has_choices(child) then return true end end
-        for _, option in ipairs(n.options or {}) do if has_choices(option) then return true end end
-        return false
+        local out = r.outputs[1] and item_id(r.outputs[1][1])
+        root = { item = out, name = out and name_of_id(out), need = count * per_craft(r, out), have = 0 }
+        local sub = expand(rid, out, root.need, 0, {})
+        for k, v in pairs(sub) do root[k] = v end
+    else
+        root = node(goal.item, count, 0, {})
     end
-    return { root=root, steps=not unresolved and steps or nil, missing=not unresolved and missing or nil,
-             quantity_mode=quantity_mode, count_unit=goal.recipe and "crafts" or "items", requested_count=count,
-             ready=ready, choices_unresolved=has_choices(root) or nil, truncated=truncated or nil }
+    local ready = root.status == "have" or root.status == "craft"
+    return { root = root, steps = steps, missing = missing, ready = ready, quantity_mode = goal.recipe and "additional_output" or mode }
 end
 
 -- Every recipe he could craft right now (unlocked + inputs carried), with whether a station of its
@@ -971,20 +791,6 @@ function W.gather_for(api)
     return function(item) return map[item] end
 end
 
--- Every profile is an acquisition hint; the census and actual tool still decide availability.
-function W.gather_options(api)
-    local gp = api.module("gather_profiles")
-    local map = {}
-    for name, profile in pairs(type(gp) == "table" and gp.RESOURCES or {}) do
-        if type(name) == "string" and type(profile) == "table" and type(profile.item) == "string" then
-            map[profile.item] = map[profile.item] or {}
-            table.insert(map[profile.item], name)
-        end
-    end
-    for _, names in pairs(map) do table.sort(names) end
-    return function(item) return map[item] or {} end
-end
-
 -- ------------------------------------------------------------------ live context
 local function unlocked(api)
     local st = state()
@@ -1019,26 +825,22 @@ local function near_map(rows)
     return near
 end
 
-local function context(api, radius_m, scalar_only)
-    local have, count_status
-    local native_count
-    if scalar_only then
-        have, count_status = {}, {status="unknown", count_semantics="lower_bound"}
-        native_count = function(path)
-            local inv = api.module("inventory")
-            if not inv or type(inv.count_item) ~= "function" then return {status="unknown",reason="native_count_unavailable"} end
-            local ok, r = pcall(inv.count_item, path)
-            return ok and type(r)=="table" and r or {status="unknown",reason="native_count_failed"}
-        end
-    end
-    if not scalar_only then
-        if type(api.counts_with_status) == "function" then have, count_status = api.counts_with_status()
-        else have = api.counts() end
-    end
+local function context(api, radius_m)
+    local have = api.counts()
     if not have then return nil, api.fail("state_unavailable", { detail = "I can't read my inventory right now." }) end
     local rows = M.stations(api, radius_m)
     local unl, n = unlocked(api)
-    return { have = have, count_status = count_status, native_count = native_count, unlocked = unl, unlocked_n = n, near = near_map(rows), stations = rows }
+    -- the game's own total for an item (GetNumItemsByData) when it can be read; else the slot count stands.
+    -- One read per item per context (craftable() assesses every unlocked recipe).
+    local inv, seen = api.module("inventory"), {}
+    local function native(item)
+        if seen[item] == nil then
+            local path = idx().path_of[item]
+            seen[item] = path and inv and type(inv.count_item) == "function" and inv.count_item(path) or false
+        end
+        return seen[item] or nil
+    end
+    return { have = have, native = native, unlocked = unl, unlocked_n = n, near = near_map(rows), stations = rows }
 end
 
 -- ------------------------------------------------------------------ the pawn (arbiter), as skills.lua
@@ -1232,7 +1034,7 @@ local function resolve_candidates(api, args, ctx)
     if not need_str(args.item) then return nil, api.fail("invalid_args", { detail = "item or recipe is required" }) end
     local id, hits, kind = M.resolve_item(args.item)
     if not id then
-        return nil, item_resolution_failure(api, args.item, hits, kind, 10, ctx)
+        return nil, item_resolution_failure(api, args.item, hits, kind, 10)
     end
     local list = M.candidates(id, count, ctx)
     if #list == 0 then
@@ -1259,23 +1061,15 @@ local function pick_station(api, a, args, ctx)
 end
 
 local function start_craft(api, args, ctx0)
-    local ctx, bad = context(api, nil, true)
+    local ctx, bad = context(api)
     if not ctx then return bad end
     if ctx.unlocked == nil then
         return api.fail("state_unavailable", { detail = "I can't read which recipes I've unlocked right now." })
     end
     local list, err, item = resolve_candidates(api, args, ctx)
     if not list then return err end
-    local viable, carried = {}, {}
-    for _, a in ipairs(list) do
-        if a.viable then
-            viable[#viable + 1] = a
-            if a.carried_sufficient then carried[#carried + 1] = a end
-        end
-    end
-    -- Prefer a uniquely established carried-input option; other options may
-    -- still be possible from linked storage and remain listed as alternatives.
-    if args.recipe == nil and #carried == 1 then viable = carried end
+    local viable = {}
+    for _, a in ipairs(list) do if a.viable then viable[#viable + 1] = a end end
     if args.recipe == nil and #viable > 1 then
         local names = {}
         for _, a in ipairs(viable) do names[#names + 1] = a.recipe end
@@ -1288,9 +1082,7 @@ local function start_craft(api, args, ctx0)
         local reason = ({ not_unlocked = "not_unlocked", unlock_unknown = "state_unavailable", missing_input = "missing_materials",
                           no_station = "nothing_in_range", vendor = "not_implemented", no_station_type = "unknown_recipe" })[best.status] or "unknown_recipe"
         return api.fail(reason, { recipe = best.recipe, item = best.item, missing = (#best.missing > 0) and best.missing or nil,
-            unlock = best.unlock, unlock_queries = best.unlock_queries, unlock_context = best.unlock_context,
-            unlock_query_source = best.unlock_query_source,
-            station = best.station_name, candidates = (#list > 1) and cand_wire(list) or nil,
+            unlock = best.unlock, station = best.station_name, candidates = (#list > 1) and cand_wire(list) or nil,
             detail = (best.detail or "I can't make that.") .. "." })
     end
     local row, perr = pick_station(api, a, args, ctx)
@@ -1300,41 +1092,15 @@ local function start_craft(api, args, ctx0)
     for _, o in ipairs(list) do if o ~= a then job.alternatives[#job.alternatives + 1] = { recipe = o.recipe, status = o.status } end end
     job.open = { phase = "approach", moving = false, approaches = 0, presses = 0 }
     job.phase = "open"
-    job.before, job.count_bindings = {}, {}
-    for _, group in ipairs({plan.inputs,plan.outputs,plan.fuels or {}}) do
-        for _, entry in ipairs(group) do
-            if not idx().ambiguous[entry.item] and entry.path and job.before[entry.item] == nil then
-                local obs = ctx.native_count(entry.path)
-                if obs and obs.status == "observed" then job.before[entry.item] = obs.count; job.count_bindings[entry.item] = obs; ctx.have[entry.item] = obs.count end
-            end
-        end
-    end
+    job.before = copy(ctx.have)
     W.arm_result_hook(api)
     return job
 end
 
--- Counts helpers
+-- Counts helpers: nil when either inventory read failed (unknown, never a zero)
 local function gained(before, now, item)
-    local b,n=(before or {})[item],(now or {})[item]
-    if type(b)~="number" or type(n)~="number" then return nil end
-    return n-b
-end
-local function current_counts(job, baseline)
-    local out={}
-    if baseline then job.count_bindings={} end
-    for _, group in ipairs({job.plan.inputs,job.plan.outputs,job.plan.fuels or {}}) do
-        for _, entry in ipairs(group) do
-            if not idx().ambiguous[entry.item] and entry.path and out[entry.item]==nil then
-                local obs=job.ctx.native_count(entry.path)
-                if obs and obs.status=="observed" then
-                    local prior=job.count_bindings[entry.item]
-                    if baseline then job.count_bindings[entry.item]=obs; out[entry.item]=obs.count
-                    elseif prior and prior.world==obs.world and prior.controller==obs.controller and prior.pawn==obs.pawn and prior.component==obs.component and prior.asset==obs.asset then out[entry.item]=obs.count end
-                end
-            end
-        end
-    end
-    return out
+    if type(before) ~= "table" or type(now) ~= "table" then return nil end
+    return (now[item] or 0) - (before[item] or 0)
 end
 
 local function base_data(job)
@@ -1346,25 +1112,20 @@ end
 -- bench: send -> await verdict + inventory
 local function bench_step(api, job, t)
     if job.phase == "send" then
-        job.before = current_counts(job, true)
+        job.before = api.counts() or job.before -- fresh: he may have eaten or picked up on the way
         job.seq0 = state().seq or 0
         local ok, err = W.send_craft(api, job.a.recipe, job.a.crafts)
         if not ok then return api.fail("not_implemented", { detail = "The crafting menu didn't take my order (" .. tostring(err) .. ")." }) end
         job.phase, job.until_t = "await", t + M.cfg.result_wait_s + (job.plan.seconds or 0)
         return nil
     end
-    -- await
-    local verdicts = W.results_since(job.seq0)
-    local v, ambiguous = nil, false
-    for _,event in ipairs(verdicts) do
-        if type(event.recipe_path) ~= "string" or type(event.count) ~= "number" or type(event.result) ~= "number" then
-            ambiguous = true
-        elseif event.recipe_path == (recipe_of(job.a.recipe) or {}).path and event.count == job.a.crafts then
-            if v then ambiguous=true else v=event end
-        end
+    -- await: only a verdict for this recipe and count is ours
+    local path = (recipe_of(job.a.recipe) or {}).path
+    local v
+    for _, e in ipairs(W.results_since(job.seq0)) do
+        if e.recipe_path == path and e.count == job.a.crafts then v = e end
     end
-    if ambiguous then v=nil end
-    local now = current_counts(job)
+    local now = api.counts()
     local out = job.plan.outputs[1]
     local got = out and gained(job.before, now, out.item) or nil
     if v and v.result and v.result ~= 0 then
@@ -1374,26 +1135,20 @@ local function bench_step(api, job, t)
         return api.fail(reason, d)
     end
     local want = out and out.count or 1
-    if got and got >= want and v and v.result == 0 then
+    if got and got >= want then
         local d = base_data(job)
         local consumed = {}
-        for _, c in ipairs(job.plan.inputs) do consumed[#consumed + 1] = { item = c.item, name = c.name, count = gained(job.before, now, c.item) and -gained(job.before, now, c.item) or nil } end
-        d.count, d.confirmed_crafts, d.observed_inventory_delta = want, v.count, got
-        d.possible_concurrent_delta = got > want
-        d.consumed, d.result_code = consumed, v.result
-        d.detail = "The game confirmed my request for " .. v.count .. " " .. tostring(job.a.name) .. " craft" .. (v.count == 1 and "" or "s") .. "; my inventory increased by " .. got .. " " .. tostring(out.name) .. "."
+        for _, c in ipairs(job.plan.inputs) do consumed[#consumed + 1] = { item = c.item, name = c.name, count = -gained(job.before, now, c.item) } end
+        d.count, d.gained, d.consumed, d.result_code = got, got, consumed, v and v.result or api.null
+        d.detail = "I made " .. got .. " " .. tostring(out.name) .. " at the " .. tostring(job.station.name) .. "."
         return { ok = true, data = d }
     end
     if t >= job.until_t then
         local d = base_data(job)
-        if v and v.result == 0 and got == nil then
-            d.result_code = 0
-            d.detail = "The game reported success, but I couldn't verify the inventory change."
-            return api.fail("verification_failed", d)
-        end
         if v and v.result == 0 then
             d.result_code = 0
-            d.detail = "The game said the craft worked, but the " .. tostring(out and out.name) .. " didn't show up in my inventory."
+            d.detail = got == nil and "The game said the craft worked, but I couldn't read my inventory to check."
+                or ("The game said the craft worked, but the " .. tostring(out and out.name) .. " didn't show up in my inventory.")
             return api.fail("verification_failed", d)
         end
         d.detail = "I asked the " .. tostring(job.station.name) .. " to make " .. tostring(out and out.name) .. " but nothing happened."
@@ -1418,13 +1173,12 @@ end
 local function carried_rows(api, item)
     local lr = api.call("inventory", "list")
     local rows = {}
-    if not lr.ok then return rows, false end
+    if not lr.ok then return rows end
     local d = lr.data or {}
     for _, where in ipairs({ "hotbar", "bag" }) do
         for _, r in ipairs(d[where] or {}) do if r.item == item and (tonumber(r.count) or 0) > 0 then rows[#rows + 1] = r end end
     end
-    local status = d.read_status and d.read_status.carried
-    return rows, type(status)=="table" and status.status=="complete"
+    return rows
 end
 
 local function proc_setup(api, job)
@@ -1439,12 +1193,6 @@ local function proc_setup(api, job)
     if not f then
         local d = base_data(job); for k, v in pairs(fd or {}) do d[k] = v end
         d.station_before = job.station_before
-        for _, fuel in ipairs(job.plan.fuels or {}) do
-            if job.ctx.have[fuel.item] == nil then
-                d.detail = "I couldn't verify my available fuel for the " .. tostring(job.station.name) .. "."
-                return api.fail("verification_failed", d)
-            end
-        end
         return api.fail(why == "missing_input" and "missing_materials" or why, d)
     end
     job.fuel = f
@@ -1485,14 +1233,10 @@ local function load_step(api, job, t)
         end
         return nil
     end
-    local rows, complete = carried_rows(api, q.item)
+    local rows = carried_rows(api, q.item)
     local row = rows[1]
     if not row then
         local d = base_data(job)
-        if not complete then
-            d.detail = "I couldn't locate " .. tostring(q.name) .. " in my inventory to load the " .. tostring(job.station.name) .. "."
-            return api.fail("verification_failed", d)
-        end
         d.detail = "I ran out of " .. tostring(q.name) .. " while loading the " .. tostring(job.station.name) .. "."
         return api.fail("missing_materials", d)
     end
@@ -1524,30 +1268,14 @@ local function proc_collect_targets(api, job)
 end
 
 local function produced_total(api, job, s)
-    local n, unknown = 0, false
-    local now, world, seen = current_counts(job), {}, {}
-    for _, t in ipairs(proc_collect_targets(api, job)) do
-        if not t.id or seen[t.id] then unknown=true
-        else
-            seen[t.id]=true
-            local count=tonumber(t.count)
-            if not count or count~=count or count<0 or count==math.huge then unknown=true
-            else world[t.item]=(world[t.item] or 0)+count end
-        end
-    end
-    local seen_outputs={}
+    local n = 0
+    local now = api.counts()
     for _, o in ipairs(job.plan.outputs) do
-        if not seen_outputs[o.item] then
-            seen_outputs[o.item]=true
-            local delta=gained(job.before, now, o.item)
-            if delta==nil then unknown=true end
-            local station_delta = ((s and s.output.by_item[o.item]) or 0) - ((job.st0.output.by_item[o.item]) or 0)
-            -- A unit may move between scopes during the episode. The maximum is
-            -- conservative; summing the three views can count the same unit twice.
-            n = n + math.max(0, delta or 0, station_delta, world[o.item] or 0)
-        end
+        n = n + math.max(0, gained(job.before, now, o.item) or 0) + ((s and s.output.by_item[o.item]) or 0)
+            - ((job.st0.output.by_item[o.item]) or 0)
     end
-    return n, unknown
+    for _, t in ipairs(proc_collect_targets(api, job)) do n = n + (tonumber(t.count) or 1) end
+    return n
 end
 
 local function out_total(job)
@@ -1568,7 +1296,7 @@ local function proc_step(api, job, t)
                 .. " instead of " .. tostring(job.a.name) .. "."
             return api.fail("station_busy", d)
         end
-        job.before = current_counts(job, true)
+        job.before = api.counts() or job.before -- fresh: he may have eaten or picked up on the way
         if not s.running then
             local ok, err = W.toggle(api)
             if not ok then return api.fail("not_implemented", { detail = "The " .. tostring(job.station.name) .. "'s start button didn't respond (" .. tostring(err) .. ")." }) end
@@ -1576,8 +1304,7 @@ local function proc_step(api, job, t)
         job.phase, job.until_t = "starting", t + M.cfg.start_wait_s
         return nil
     elseif job.phase == "starting" then
-        local produced, unknown = produced_total(api, job, s)
-        if s.running or produced > 0 then
+        if s.running or produced_total(api, job, s) > 0 then
             job.phase = "wait"
             job.started_at = t
             job.until_t = t + (job.plan.seconds or 0) * M.cfg.proc_slack + M.cfg.proc_extra_s
@@ -1586,25 +1313,21 @@ local function proc_step(api, job, t)
         if t >= job.until_t then
             local d = base_data(job)
             d.station_before, d.loaded, d.fuel_used = job.station_before, job.loaded, job.fuel
-            d.detail = unknown and ("I loaded the " .. tostring(job.station.name) .. " but couldn't verify whether it started or produced anything.")
-                or ("I loaded the " .. tostring(job.station.name) .. " but it won't start.")
-            if unknown then d.observed_output_lower_bound=produced end
+            d.detail = "I loaded the " .. tostring(job.station.name) .. " but it won't start."
             return api.fail("verification_failed", d)
         end
         return nil
     elseif job.phase == "wait" then
-        local made, unknown = produced_total(api, job, s)
+        local made = produced_total(api, job, s)
         if made >= out_total(job) or (not s.running and made > 0) then
             job.phase, job.collect_until = "magnet", t + M.cfg.magnet_wait_s
             return nil
         end
         if t >= job.until_t then
             local d = base_data(job)
-            d.loaded, d.fuel_used, d.station_before = job.loaded, job.fuel, job.station_before
-            d.observed_output_lower_bound = made
-            d.output_count_unknown = unknown
-            d.detail = "The " .. tostring(job.station.name) .. " stopped or took too long; I observed at least " .. made
-                .. " matching output" .. (made == 1 and "" or "s") .. ", but could not verify the total."
+            d.loaded, d.fuel_used, d.produced, d.station_before = job.loaded, job.fuel, made, job.station_before
+            d.detail = "The " .. tostring(job.station.name) .. " stopped or took too long ("
+                .. math.floor(t - (job.started_at or t)) .. " s); it made " .. made .. " of " .. out_total(job) .. "."
             return api.fail("timeout", d)
         end
         return nil
@@ -1646,7 +1369,7 @@ local function proc_step(api, job, t)
             return nil
         end
         if job.took and t < (job.collect_until or 0) then return nil end
-        local now = current_counts(job)
+        local now = api.counts()
         local collected, total = {}, 0
         for _, o in ipairs(job.plan.outputs) do
             local g = gained(job.before, now, o.item)
@@ -1656,13 +1379,10 @@ local function proc_step(api, job, t)
         d.loaded, d.fuel_used, d.station_before, d.collected = job.loaded, job.fuel, job.station_before, collected
         local out = job.plan.outputs[1]
         d.count = out and gained(job.before, now, out.item) or 0
-        if total <= 0 and out and gained(job.before, now, out.item)==nil then
-            d.detail = "The " .. tostring(job.station.name) .. " finished, but I couldn't verify my inventory change."
-            return api.fail("verification_failed", d)
-        end
         if total <= 0 then
-            d.detail = "The " .. tostring(job.station.name) .. " finished, but I couldn't pick up what it made."
-                .. (job.pickup_fail and (" " .. tostring((job.pickup_fail.data or {}).detail or "")) or "")
+            d.detail = now == nil and ("The " .. tostring(job.station.name) .. " finished, but I couldn't read my inventory to check what I got.")
+                or ("The " .. tostring(job.station.name) .. " finished, but I couldn't pick up what it made."
+                    .. (job.pickup_fail and (" " .. tostring((job.pickup_fail.data or {}).detail or "")) or ""))
             return api.fail("verification_failed", d)
         end
         d.detail = "I made " .. total .. " " .. tostring(out and out.name) .. " in the " .. tostring(job.station.name)
@@ -1777,7 +1497,7 @@ local function recipes_tool(api, args)
     if need_str(args.item) then
         local id, hits, kind = M.resolve_item(args.item)
         if not id then
-            return item_resolution_failure(api, args.item, hits, kind, limit, ctx)
+            return item_resolution_failure(api, args.item, hits, kind, limit)
         end
         list = M.candidates(id, tonumber(args.count) or 1, ctx)
     elseif need_str(args.station) then
@@ -1804,16 +1524,16 @@ local function plan_tool(api, args)
     if mode == "inventory_target" and need_str(args.recipe) then
         return api.fail("invalid_args", {detail="inventory_target requires an item, not a recipe."})
     end
-    local ctx, bad = context(api, nil, true)
+    local ctx, bad = context(api)
     if not ctx then return bad end
-    ctx.gather_for = W.gather_options(api)
+    ctx.gather_for = W.gather_for(api)
     ctx.quantity_mode = mode
     local goal
     if need_str(args.recipe) then goal = { recipe = args.recipe }
     elseif need_str(args.item) then
         local id, hits, kind = M.resolve_item(args.item)
         if not id then
-            return item_resolution_failure(api, args.item, hits, kind, M.cfg.list_limit, ctx)
+            return item_resolution_failure(api, args.item, hits, kind, M.cfg.list_limit)
         end
         goal = { item = id }
     else return api.fail("invalid_args", { detail = "item or recipe is required" }) end
@@ -1917,14 +1637,14 @@ M.MANIFEST = {
             limit = { type = "integer", minimum = 1, maximum = 50, default = 25 } }) },
         reasons = { "unknown_recipe", "ambiguous_target", "unknown_target", "state_unavailable" } },
     craft_plan = { kind = "read", llm = true, moves = false, duration_s = 0.5, timeout_s = 15,
-        description = "Plan additional production by default, or choose inventory_target to plan a final stock level. "
-            .. "Counts may be lower bounds; recipe execution and suggested steps can be conditional or unknown. Read only.",
+        description = "Plan a goal item from carried items: ordered steps (gather, craft at station, unlock, find "
+            .. "station) and alternative recipes. Read only.",
         args = { type = "object", properties = obj({
             item = str("Goal item name or id."),
             recipe = str("Or a recipe id."),
-            count = { type = "integer", minimum = 1, default = 1, description = "Additional items, or crafts with recipe; final item total for inventory_target." },
+            count = { type = "integer", minimum = 1, default = 1, description = "How many." },
             quantity_mode = { type = "string", enum = { "additional_output", "inventory_target" }, default = "additional_output",
-                description = "Plan new output (default), or reach a final item inventory target." } }) },
+                description = "additional_output: make count more; inventory_target: end up carrying count in total." } }) },
         reasons = { "unknown_recipe", "ambiguous_target", "invalid_args", "state_unavailable" } },
     stations = { kind = "read", llm = true, moves = false, duration_s = 0.5, timeout_s = 15,
         description = "Stations near you: type, distance, unlocked recipes, what you can make now, and a furnace's "
