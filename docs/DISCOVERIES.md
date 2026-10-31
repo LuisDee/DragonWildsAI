@@ -2964,3 +2964,61 @@ After a902 searched `site.arongranberg.com layered grid graph raycast thick rayc
 The original-goal suffix after a904 also passed: a905 ordinary go_to reached [51.99,1889.29,-35.17] in59.297s, HP100. Two developer-selected ordinary legs thus connect the prior failed basin to the lodestone; no autonomous pass. New route memories were recorded naturally and retained; the pre-experiment graph snapshot preserves the missing-connection evidence.
 
 Attempt a906 then started at the actual lodestone with those declared developer memories. It is INCOMPLETE, not a full-agent pass: Sonnet made0calls because17/20 hourly slots were occupied and a decision requires5free. Haiku made18calls while the task waited, including native-confirmed collection of3Redberries and later recovery/consumption of existing grave food. Root ended the trial once the admission wait was verified beyond its deadline. No cap reset or model-limit retry. The launcher must check actual MAX_REQUESTS admission before creating a LiveSession; daily allowance alone is insufficient. First hourly release04:22:01UTC. Private temple-full-a906/measured-outcome.json and native/model/body logs retain the evidence. Navigation streak remains0/3.
+
+## Codex-period facts, consolidated 2026-10-31 (build 26161880)
+Rewritten from the Codex audit (`docs/audit-2026-10-31/code_audit.md` §5). Where older Codex entries above lost their spaces, these supersede them.
+
+
+1. **Player movement constants.**
+   - Capsule radius 34 cm, half-height 88 cm, collision profile `Player`.
+   - MaxStepHeight 45 cm, WalkableFloorAngle 45.5°.
+   - Walk speed 450 cm/s; about 7 cm drift after releasing input; input callback about every 33 ms.
+   - Source: Codex DISCOVERIES entries on native controls; PROGRESS around 10-28.
+2. **Jumps.** Single jump 1.64 m; double jump 3.07 m (0.4 s delay between presses); a live djump edge rose 2.80 m (`client_io/events/traversal.jsonl`). The Windstep rise is unmeasured. Source: the `move_calib` run on 10-28 00:05Z.
+3. **`K2_FindFloor` behaviour.**
+   - +100 cm above the floor gives no floor; −20 cm gives walkable with negative FloorDist; −100 cm gives penetration.
+   - The full-capsule return value distinguishes clear from blocked; the copied Distance does not.
+   - The search start matters: hits at 43–47 cm, and a miss one step higher at FloorDist 47.4.
+   - Source: `docs/research/r26-floor-observations-20261028.md`.
+4. **KillZ death.** Steering at the raw goal after `no_path` walked into a `KillZVolume` and killed him; the player revived naturally. This is the reason for the route-authority rule. Source: DISCOVERIES "Grave-directed KillZ".
+5. **Temple ramp.**
+   - Normal player input climbs it (4.2 m in 3.1 s), but the default NPC navmesh routes behind it.
+   - The oracle returns `no_path` for the same XY plus 50 m of Z.
+   - A partial native path does not mean "no route".
+   - Reading PathPoints by index works.
+   - Source: DISCOVERIES "Temple ramp supports normal player walking"; `docs/research/2026-10-29-astra-navigation-review.md` evidence.
+6. **Arbiter recompilation.** Ownership checks recompiled move.lua through the arbiter; fixed by reusing the active mover (3e95e40).
+7. **Native item counts.** `pc.InventoryComponent:GetNumItemsByData(ItemData) -> int` gives native per-item counts for the main inventory (live 10-28, 20261028-115703).
+8. **Water sources.** Water volume actors expose `WaterItemData` (the produced item); use it to verify collect_water (5913e5e; BUGS R8).
+9. **Consumables.**
+   - Only hotbar items can be consumed (`in_bag`), and `move_item` to the hotbar fails when it is full.
+   - A second use pressed during the about-6 s use animation is ignored and the stat does not rise (20261027-203109).
+10. **Lodestone.**
+    - Build: `BUILDPIECE_Lodestone` costs 32 Stone, 20 Rune Essence and 1 Vault Core, and unlocked on receiving the materials. It gave 80 Construction XP (the catalog says 750).
+    - Teleport: costs 2 Law Runes (5E74… → D0DF…, 20261028-191640). `TryTeleport(from.guid, to.guid)` after a real use triggers the success RPC.
+    - Map UI: `MapUIAPI:IsShowingMap` can be false while the Map(13) / TopBar(29) widgets and `DIM_FullScreenUIMap` remain; `MainMenuUIAPI:NavigateBack(GetCurrentScreenWidget())` closes them.
+11. **Crafting unlocks and costs.**
+    - Interacting with the Crafting Table unlocked the Stone Logging Axe (native recipe count 83→90). Picking up Ash Logs and Stone alone did not (`IsRecipeUnlocked` false).
+    - `RECIPE_Weapon_Hatchet_Stone` unlock rule: "ANY ITEMS[Ash Logs, Stone] AND ALL ACTORS[Crafting Table]".
+    - Measured live:
+
+      | Piece | Cost | XP |
+      |---|---|---|
+      | Crafting Table | 4 Ash Logs | +12 Construction |
+      | Stone Logging Axe | 8 Ash Logs + 6 Stone | +20 Artisan |
+      | Campfire | 6 Stone | +12 Construction (catalog says 20) |
+
+    - Source: `logs/recovery/progress-native-cde2.json`; 20261028-182010.
+12. **Crafting UI race.** The orphan-UI cleaner can close `DIM_CraftingMenu` before verification, giving a false `verification_failed`.
+13. **Item categories.** recipe_data `category` holds the game's filter tags (e.g. `Item.Equipment.Weapon.2H.Axe`, `ItemFilter.Type.Consumable.Potion`).
+14. **Provinces.** `AMapRegion.MapRegionTag` is hierarchical (`Location.Region.<Province>`); the provinces are `EQuestRegion` 1–6 (`dumps/26161880/luatypes/Dominion_enums.lua:3151`); all 31 region polygons are in `data/places_26161880.json`. NPCs have one copy per province (Luis).
+15. **Windstep cast.** Costs 5 Air; shows tag `Player.Spell.WindStep` plus a `DominionStatusEffect` GE (`logs/recovery/no-axe-pilot-20261028-114914-c1fdfcc8.json`). Phase Dash showed zero horizontal displacement under the old probe.
+16. **FX guard.** New pawns copy `TaggedLocalNiagaraSystems` from the class default objects. These were audited and are not needed: UTagActivatedFX, HeldEquipmentActor FX, StatusEffect SpawnedVFX, Drain/Beam (`fxguard.lua` header).
+17. **Foliage conversion.** `NearbyFoliageConverterComponent` turns foliage instances into actors as he approaches (client.log "adopted", 82 hits).
+18. **Model and harness behaviour.**
+    - **Haiku 5.5** (thinking off) writes its reasoning into free text, hence the say-only channel. It still sometimes writes its chat line into the note.
+    - **Sonnet 5.5 Director at 2048 max_tokens** truncated 4 plans. Use 4096 and reject `finish_reason=length`.
+    - **LiteLLM 1.106 + Anthropic:** `tool_choice="none"` with the tools still defined stops further research calls; `auto` does not.
+    - **Cost of a temple round trip:** about 40 calls (23 Haiku, 17 Sonnet), about 503 s. The Director needs about 5 hourly budget slots per trial. The day's spend was $2.42 for 152 calls.
+    - **Truthfulness:** Haiku under-reported distance travelled ("only 40 m" after 200 m). Board and route records are the truth source.
+    - **Log size:** full-request logging makes prompt rows about 83 KB.

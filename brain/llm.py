@@ -246,7 +246,7 @@ def controller_llm() -> LiteLLMClient:
 
 
 def planner_llm() -> LiteLLMClient:
-    return LiteLLMClient(_model_from_env(PLANNER_MODEL_ENV), max_tokens=int(os.environ.get("DW_PLANNER_MAX_TOKENS", "4096")))
+    return LiteLLMClient(_model_from_env(PLANNER_MODEL_ENV), max_tokens=int(os.environ.get("DW_PLANNER_MAX_TOKENS", "16000")))
 
 
 def request_log_fields(llm: LLMClient, messages: list[dict], tools: list[dict] | None = None,

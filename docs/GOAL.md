@@ -43,14 +43,12 @@ Scoring world: the dev server (real game build, real client and server) with a d
 - The GOAL-required cases are pinned by hash. The judge files are frozen at a Luis-approved tag (`goal-judge-YYYYMMDD`); a diff since then = NOT MET.
 - **Final gate:** goal_check prints GOAL MET, then Luis signs off.
 
-## 2. The iteration loop (every cycle, in this order)
-1. **Measure.** Run the benchmark (dev world first) and the observability metrics; append to `logs/evals/scoreboard.jsonl`.
-2. **Pick** the biggest failure cluster (failures × impact on the targets above), from traces, not hunches.
-3. **Root-cause** it from the episode trace (`tools/obs.py`). Write it in `docs/BUGS.md`.
-4. **Design.** Write a design note with a Search record (≥ 3 sources; enforced by `tests/test_design_notes.py`) and get a fresh-context review against PRINCIPLES.md.
-5. **Build.** Implement with a regression test; `tools/check_all.ps1` must be GREEN.
-6. **Re-measure.** Keep the change only if its target metric improves and nothing else regresses; otherwise revert.
-7. **Persist.** Commit; update BUGS, PROGRESS, DISCOVERIES and the scoreboard.
+## 2. The iteration loop (Luis, 2026-10-31: live-first, no ceremony)
+1. **Look.** Drive or watch the bot live; read the traces (`tools/obs.py`) and server/client logs.
+2. **Pick** the biggest failure you can see, from traces, not hunches. Note it in `docs/BUGS.md`.
+3. **Research** quickly (how others solve it, the docs), then make the smallest change.
+4. **Live-test immediately.** Works → keep and push further; doesn't → bin it (revert). No design-note/review chain and no full test gate first.
+5. **Persist.** Commit; update BUGS, PROGRESS and DISCOVERIES.
 
 ## 2b. Never idle (Luis, 2026-10-26)
 - If blocked on a decision from Luis, park ONLY what depends on it and keep everything else going. Never wait doing nothing. Questions go in plain text; never use a blocking prompt during /goal.

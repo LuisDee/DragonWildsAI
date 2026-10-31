@@ -771,11 +771,12 @@ class BoardOps:
 
 class HourlyWindow:
     """At most ``per_hour`` model requests in any sliding hour, in its own small file next to the board
-    (``director_window.json``; simplify item 1: not part of the plan). The daily dollar cap is brain/budget.py's."""
+    (``director_window.json``; simplify item 1: not part of the plan). The daily dollar cap is brain/budget.py's.
+    ``per_hour`` <= 0 (the default since Luis uncapped Sonnet, 2026-10-31) means no hourly limit."""
 
     def __init__(self, path: Path, per_hour: int | None = None, clock: Callable[[], float] = time.time):
         self.path = Path(path)
-        self.per_hour = int(per_hour if per_hour is not None else os.environ.get("DW_DIRECTOR_CALLS_PER_HOUR", "20"))
+        self.per_hour = int(per_hour if per_hour is not None else os.environ.get("DW_DIRECTOR_CALLS_PER_HOUR", "0"))
         self.clock = clock
         raw = read_json(self.path, default={}) or {}
         self.calls: list[float] = [float(c) for c in raw.get("calls") or [] if isinstance(c, (int, float))]
@@ -786,6 +787,8 @@ class HourlyWindow:
         return self.calls
 
     def left(self) -> int:
+        if self.per_hour <= 0:
+            return 1_000_000
         return max(0, self.per_hour - len(self._prune()))
 
     def allows(self, n: int = 1) -> bool:
@@ -799,7 +802,7 @@ class HourlyWindow:
     def wait_s(self) -> float:
         """Seconds until one more request is allowed (0 when one is allowed now)."""
         calls = sorted(self._prune())
-        if len(calls) < self.per_hour:
+        if self.per_hour <= 0 or len(calls) < self.per_hour:
             return 0.0
         return max(0.0, calls[len(calls) - self.per_hour] + 3600.0 - self.clock())
 

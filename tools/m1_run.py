@@ -63,7 +63,7 @@ def wait_for_slot(minutes: float, poll_s: float = 20) -> None:
 
 
 def start_brain(effort: str | None, cap_usd: float) -> subprocess.Popen:
-    env = dict(os.environ, DW_DIRECTOR="1", DW_DIRECTOR_CALLS_PER_HOUR="10", DW_PLAYER_NAME=ms.TEST_SENDER,
+    env = dict(os.environ, DW_DIRECTOR="1", DW_PLAYER_NAME=ms.TEST_SENDER,
                DW_SPEND_CAP_USD=f"{cap_usd:.2f}")
     env.pop("DW_CONTROLLER_EFFORT_ADDRESSED", None)
     env.pop("DW_COMPANION_NAME", None)  # the brain is Claude; "Tester" is only the dev server's test chat name

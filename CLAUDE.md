@@ -6,6 +6,12 @@ Read this whole file before doing anything. It is the single source of truth for
 
 ## 00. READ FIRST: docs/HANDOVER-2026-10-31.md (Codex audit, Luis's new live-first direction, TASK-0). It overrides anything below.
 
+## 000. Working mode (Luis, 2026-10-31, binding; overrides every review/gate/design-note rule below and in GOAL.md)
+- **Loop:** research + analyse → quick change → **instantly live test** → works? keep and push further : bin it. Local tests are not progress; live behaviour is.
+- **No ceremony:** no design note → review → cold review → re-review chains, no full pytest gates before a live try. Reviews only for genuinely risky changes (native crash risk, Luis's character, Shockbyte). Run targeted tests when they help.
+- **Sonnet uncapped:** no Director calls/hour limit (`DW_DIRECTOR_CALLS_PER_HOUR` defaults to 0 = none), planner `max_tokens` 16000. The $10/day spend guard stays.
+- Ported from the deleted Codex AGENTS.md: **never restart Steam as a routine repair** (the login is not persistent and may need Luis's Steam Guard; use `tools/steam_restart.py` for its safety check). Use `.venv/Scripts/python.exe`. One heavy local workload at a time (8 GB VM).
+
 ## 0. Current state and standing decisions (updated 2026-10-25, end of session 1)
 
 **Read next:**
