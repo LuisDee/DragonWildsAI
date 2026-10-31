@@ -267,7 +267,12 @@ def score_leg(root, t0: float, t1: float, goal, tol: float, final_pos=None, posi
             c._positions = sorted(c.positions + extra, key=lambda x: x[0])
         final_pos = obs.position_at(c, t1 + 5, before_s=t1 - t0 + 60)
     reached = arrived(final_pos, goal, tol) if goal and final_pos else None
-    return {"reached": reached, "final_pos": [round(x, 2) for x in final_pos] if final_pos else None,
+    left = None
+    if reached is False:  # he got there, then left on his own errand (chat run 4: arrived, then foraged 6 m off)
+        ends = [r for r in trips if r.get("status") == "arrived" and obs._xyz(r.get("end")) and arrived(r["end"], goal, tol)]
+        if ends:
+            reached, left = True, {"arrived_iso": ends[0].get("iso"), "final_dist_m": round(obs.hdist(final_pos, goal), 1)}
+    return {"reached": reached, "left_after_arrival": left, "final_pos": [round(x, 2) for x in final_pos] if final_pos else None,
             "goal_dist_m": round(obs.hdist(final_pos, goal), 1) if goal and final_pos else None,
             "outcome": outcome(reached, v), "truthful": v["truthful"], "flags": v["flags"], "unverified": v["unverified"],
             "truth": {k: x[:3] for k, x in v["truth"].items()}, "saw_vs_reality": v["saw_vs_reality"],
@@ -531,7 +536,7 @@ def run_leg(a, j: dict, i: int, cli, brain_file: Path, run_id: str, haiku_used: 
     return {"run_id": run_id, "journey": j["id"], "kind": j.get("kind"), "line": line, "place": j["place"],
             "start": j["start"], "goal": goal, "tol_m": tol, "sent_at": obs._iso(t0),
             "heard_s": round(heard_at - t0, 1) if heard_at else None, "ended": why, "wall_s": round(ended - t0, 1),
-            "success": bool(s["reached"]), **{k: s[k] for k in ("reached", "final_pos", "goal_dist_m", "outcome", "truthful")},
+            "success": bool(s["reached"]), **{k: s[k] for k in ("reached", "left_after_arrival", "final_pos", "goal_dist_m", "outcome", "truthful")},
             "haiku_calls": calls["haiku"], "sonnet_calls": calls["sonnet"], "calls": calls["calls"],
             "calls_by_episode": calls["by_episode"], "prompt_tok": calls["prompt_tok"], "completion_tok": calls["completion_tok"],
             "cached_tok": calls["cached_tok"], "usd": calls["usd"], "flags": s["flags"], "unverified": s["unverified"],
@@ -602,11 +607,12 @@ def cmd_run(a) -> int:
 
 
 def request_calls(leg: dict) -> int:
-    """Model calls spent on the leg's request: the episodes its chat line started. A situation review that fired
-    during the leg on its own trigger (thirst, nightfall) is counted apart (decision 2026-11-01, chat run 3: three
-    legs carried a 1-2 call review the journey didn't cause)."""
+    """Model calls spent on the leg's request: the episodes its chat line started. A review or survival situation
+    that fired during the leg on its own trigger (thirst, nightfall, hunger) is counted apart (decision 2026-11-01,
+    chat runs 3-4: reviews of 1-2 calls, and an 11-call forage-and-cook the journey didn't cause)."""
     by = leg.get("calls_by_episode") or {}
-    return sum(n for e, n in by.items() if not str(e).startswith("review-")) if by else (leg.get("calls") or 0)
+    return (sum(n for e, n in by.items() if not str(e).startswith(("review-", "situation-"))) if by
+            else (leg.get("calls") or 0))
 
 
 def summary(legs: list[dict]) -> str:
