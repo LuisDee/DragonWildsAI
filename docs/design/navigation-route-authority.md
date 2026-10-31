@@ -6,55 +6,21 @@ The oracle reports projection and partial-path evidence as typed true, false, or
 
 Acceptance: actual server module with fake native calls covers both projection attempts and partial getter errors, followed by Python serialization and Lua loading of known false versus absent metadata. Invalid shapes and non-finite coordinates fail closed. Integration requires fresh review, offline checks and separately scheduled live validation.
 
-## Movement contract and acceptance
+## Movement contract (simplified 2026-10-31, cleanup-20261031)
 
-Reuse the existing primary-route boundary: navigation enabled and XY distance
-above `oracle_primary_cm`, or the existing upward jump-height criterion. Missing
-service is unavailable authority. `nav=false` remains an explicit direct opt-out;
-`local_plan=false` changes only local planning. Nearby optional oracle routing
-and existing direct/local, wade and verified traversal behavior remain available.
-
-Bind requests and admitted routes to the movement generation, arbiter token,
-actual pawn, resolved world and original requested three-dimensional goal. A
-stopped/replaced owner, changed pawn/world or meaningfully moved goal invalidates
-the binding. A fresh helper epoch and one-use nonce distinguish old files even
-when numeric request IDs repeat. Check binding before consuming the result and
-again before native input. Unit tests exercise actual module input calls and
-clock/learning state, not just a returned status string.
-
-While required route evidence is unavailable or pending, release movement input
-and pause progress/stuck clocks. A bounded go_to attempt fails with a truthful
-specific detail. Follow remains persistent, reports one unreachable episode and
-retries under its existing bounded retry contract; a newly admitted complete
-route can resume it. The 40-second client wait covers the helper's 25-second
-loading window plus its potentially outstanding 10-second bridge call. Local
-timeout or goal supersession does not cancel that server operation or free the
-helper's single-flight slot.
-
-Admitted partial or unknown-partial paths own only their waypoints. Exhaustion
-cannot authorize raw-goal steering; arrival still uses the original 3D goal.
-Negative planning alone must not create trap, route or traversal-link learning.
-Actual-module regressions must retain positive routes, stale epoch/nonce,
-replacement/stop and pawn/world changes, missing service, pending/negative
-input holds, paused clocks, partial/local exhaustion, persistent follow,
-nearby/direct movement and the existing verified jump/link paths. Explicit
-direct-mode fixtures preserve their original local-mechanic assertions, with
-separate default-routed negative/positive coverage.
-
-After review and the full regression gate, use a reserved developer-driven live
-check: stationary sameXY+50mZ negative and the previously measured nearby2m
-positive. A temporary100cm `oracle_primary_cm` setting can exercise required
-route admission on that small measured corridor, only with protected exact-value
-restoration and a clear configuration-assisted label. This does not establish
-default long-distance coverage. Capture source/process identities, request and
-response identity, owned move state, position/health and terminal cleanup. No
-displacement is not proof of zero native input calls; report that distinction.
-Only after these controls should another capped unaided model task be attempted.
-
-## Search record
-
-Repository research: `docs/DISCOVERIES.md` nav oracle, `docs/research/2026-10-25-traversal.md`, `mod/experiments/nav_oracle.lua`, `tools/nav_oracle.py`, and reviewed `logs/recovery/navigation-route-authority-design-20261028.md`. Actual queries: `site:dev.epicgames.com UNavigationPath IsPartial path unreal`; `site:dev.epicgames.com K2_ProjectPointToNavigation returns bool`; `site:docs.python.org math isfinite validate float nan infinity`. Opened [Epic UNavigationPath](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/NavigationSystem/UNavigationPath?lang=en-US), [Epic partial paths](https://dev.epicgames.com/documentation/en-us/unreal-engine/BlueprintAPI/AI/Navigation/HasPartialPath), [Python isfinite](https://docs.python.org/3.12/library/math.html#math.isfinite) and [Detour source](https://github.com/recastnavigation/recastnavigation/blob/main/Detour/Source/DetourNavMeshQuery.cpp). The targeted Epic projection page returned no details; the prior reviewed design's Epic ProjectPoint reference supplies the general projection precedent, not proof of this runtime's ABI. Reuse existing native calls and transport; adapt their typed error reporting and validate at the boundary. No new service or navigation framework. These sources document concepts, not proof that a particular game call succeeded.
-
+Long trips (XY above `oracle_primary_cm`, or a goal above jump height) ask the
+oracle first and steer only along an admitted route's waypoints while one exists.
+When there is no route (oracle absent, `no_path`, invalid/partial/ended route,
+local replan limit) the move is **not** refused any more: `route_fallback()` hands
+it back to the baseline sources (local planner on real collision, leader trail,
+navmem, stuck ladder). With no oracle running it falls back at once instead of
+holding 40 s. The one guard kept from this rule: straight steering in fallback
+mode traces the floor 1.5 m ahead every frame, and a drop (no floor within 4 m
+below, or > 2.5 m down) hands the frame to the local planner; when that cannot
+help the go_to fails with "no route (...) and a drop ahead". The 2026-10-28 KillZ
+death was exactly that beeline. A bare (token-less) command is refused only while
+a reflex owns the pawn or the owner's own move runs; a finished skill's leftover
+owner is released.
 
 ## Helper lifecycle (v2)
 
