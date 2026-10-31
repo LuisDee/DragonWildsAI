@@ -3378,6 +3378,8 @@ function M.snapshot()
     for k, x in pairs(a.opts) do opts[k] = x end
     -- the trip so far, so a resumed move keeps one record (restore -> start(opts.resume_trip))
     opts.resume_trip = st.trip_rec and { rec = st.trip_rec, notes = st.trip_notes, at = os.time() } or nil
+    local life = rawget(_G, "DW_LIFE")
+    opts.life_seq = type(life) == "table" and (life.move_death_seq or 0) or 0 -- restore refuses across a death
     return { mode = a.mode, goal = a.goal, distance_m = a.distance_m, opts = opts }
 end
 
@@ -3385,6 +3387,23 @@ function M.restore(log, snap)
     if type(snap) ~= "table" or not snap.mode then return { ok = false, error = "no snapshot" } end
     local opts = {}
     for k, x in pairs(snap.opts or {}) do opts[k] = x end
+    -- a move suspended for a fight he then lost is over: never walk on from the respawn point (live 22:08, a Giant Rat
+    -- killed him mid-go_to and the arbiter resumed it from the church, 368 m from the goal)
+    local life = rawget(_G, "DW_LIFE")
+    local seq = type(life) == "table" and (life.move_death_seq or 0) or 0
+    if opts.life_seq ~= nil and opts.life_seq ~= seq then
+        local st = S()
+        local by = type(life) == "table" and life.killed_by or nil
+        local rt = type(opts.resume_trip) == "table" and opts.resume_trip.rec or nil
+        st.result = { status = "failed", reason = "companion_down",
+            detail = "I died before I got there" .. (by and (" (killed by " .. tostring(by) .. ")") or "")
+                .. (type(life) == "table" and life.fell_m and string.format(", after a %.0f m fall", life.fell_m) or ""),
+            dist_m = rt and rt.dist and rt.dist / 100 or nil }
+        st.result.why = st.result.detail
+        if log then log("move: restore refused: " .. st.result.detail) end
+        return { ok = false, reason = "companion_down", detail = st.result.detail }
+    end
+    opts.life_seq = nil
     if snap.mode == "follow" then return M.follow(log, snap.goal, snap.distance_m or opts.tolerance_m or 3, opts) end
     return M.go_to(log, snap.goal, opts)
 end

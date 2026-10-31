@@ -1816,6 +1816,27 @@ check("trip: a resumed go_to keeps one trip from the first start, naming the pau
     tostring(s.result and s.result.status) .. " mid=" .. tostring(x_mid) .. " trip=" .. trip43b)
 MZ.stop(log)
 end
+-- 43c. a go_to suspended for a fight he then lost is not resumed from the respawn point
+do
+zreset()
+walls = {}
+pawn.loc = { X = 0, Y = 0, Z = 0 }
+local life0 = _G.DW_LIFE
+_G.DW_LIFE = { move_death_seq = 3 }
+MZ.go_to(log, { 20, 0, 0 }, { tolerance_m = 1, nav = false, local_plan = false })
+run(10)
+local snap43c = MZ.snapshot()
+MZ.stop(log)
+_G.DW_LIFE = { move_death_seq = 4, killed_by = "Giant Rat" }
+local r43c = MZ.restore(log, snap43c)
+local st43c = MZ.status()
+check("restore: refused across a death, companion_down naming the killer",
+    r43c and r43c.ok == false and r43c.reason == "companion_down" and st43c.mode ~= "go_to" and st43c.result and
+    st43c.result.reason == "companion_down" and tostring(st43c.result.detail):find("Giant Rat", 1, true) ~= nil,
+    tostring(r43c and r43c.reason) .. " mode=" .. tostring(st43c.mode) .. " detail=" .. tostring(st43c.result and st43c.result.detail))
+_G.DW_LIFE = life0
+MZ.stop(log)
+end
 
 -- 44. why_words: one table, truthful clauses, grammar for "you"/"it"/a name, needs:X, unknown
 local W = MZ.why_words

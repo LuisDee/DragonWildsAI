@@ -1377,6 +1377,13 @@ local function forward_vitals()
             else life.respawned_at = tonumber(m.ts) or now_s() end
         end
         if ok and type(m) == "table" and m.type == "revive" then S.escape_pending = "respawn" end
+        if ok and type(m) == "table" and m.type == "fatal" then -- what killed him (and any fall), for move.restore's words
+            local life = rawget(_G, "DW_LIFE") or {}
+            _G.DW_LIFE = life
+            local kb = type(m.killed_by) == "table" and m.killed_by or nil
+            life.killed_by = kb and (kb.self and (m.status and m.status[1] or "my own condition") or kb.name or kb.player or kb.class) or m.text
+            life.fell_m = tonumber(m.fell_m)
+        end
         if ok and type(m) == "table" and m.type == "damage" and type(m.instigator) == "table" and not m.instigator.self then
             local by = m.instigator.id or m.instigator.name or m.instigator.player or "?"
             local t = now_s()
