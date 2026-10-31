@@ -354,3 +354,13 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
 
 ## 2026-10-31 Rung 1 travel ladder (tools/travel_ladder.py, body-only, dev world)
 - 21:17Z baseline @da4376a (post-clean-up): 6/10 (60%). Fails: uphill_plateau, ramp_up, ramp_down, far_to_temple.
+- 20:36Z fix1 @649b42e (+PLAN fixes 1-2, committed b859d44): 8/10, SPL 0.74. Fails: ramp_down (second jump unconfirmed; oracle route ends on the north terrace), far_to_temple (no_route 18 m short).
+- 20:55Z fix3b_temple @8dbe6fc (+memory route to the goal, committed 86f2d49): church journeys only, 3/3, SPL 0.92.
+- 21:01Z fix3 @8dbe6fc (+86f2d49; journeys v2: far_doorway_se, uphill_plateau and around_water end on named Anima Vents): 10/10, SPL 0.989. Fails: none.
+- 21:24Z fix3_rerun @46acd53: 7/10, SPL 0.70. Fails: uphill_plateau, downhill_plateau (busy: a goblin fight still running), around_water. Cause: endurance 0, so 0 s of sprint and jumps that never left the ground. A Summon Shelter rest restored it (0 -> 100 in about 30 s).
+- 21:37Z rested_1 @e8e95cd: 0/10 (harness: teleported out of the shelter mid-rest, MovementMode None, 0 m on every journey; a client rejoin fixed it).
+- 21:48Z rested_2 @ea8f629: 7/10. Fails: near_vannaka, far_to_temple (false "resting" refusals from the start-time MOVE_None check, moved to the failure path in 6a7c7cc), around_water (wading at the goal never counted as arrived; fixed in 5b82948).
+- 21:59Z head_run1 @5b82948: 9/10, SPL 0.89. Fails: around_water (climbed onto the vent: the landmark point is inside the object; the goal is now the stand beside it, 10e6b49).
+- 22:06Z head_run2 @10e6b49: 10/10, SPL 0.99. Fails: none.
+- 22:13Z head_run3 @10e6b49: 8/10, SPL 0.80. Fails: uphill_plateau (killed by a Giant Rat mid-journey; the arbiter then resumed the go_to from the respawn, fixed in 34364b8), around_water (on top of the vent again, 0 m left, 3 m above).
+- Three full runs in a row at >= 80 %: 9/10, 10/10, 8/10.
