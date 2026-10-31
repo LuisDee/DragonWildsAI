@@ -10,7 +10,8 @@ Read this whole file before doing anything. It is the single source of truth for
 - **Loop:** research + analyse → quick change → **instantly live test** → works? keep and push further : bin it. Local tests are not progress; live behaviour is.
 - **No ceremony:** no design note → review → cold review → re-review chains, no full pytest gates before a live try. Reviews only for genuinely risky changes (native crash risk, Luis's character, Shockbyte). Run targeted tests when they help.
 - **Sonnet uncapped:** no Director calls/hour limit (`DW_DIRECTOR_CALLS_PER_HOUR` defaults to 0 = none), planner `max_tokens` 16000. The $10/day spend guard stays.
-- Ported from the deleted Codex AGENTS.md: **never restart Steam as a routine repair** (the login is not persistent and may need Luis's Steam Guard; use `tools/steam_restart.py` for its safety check). Use `.venv/Scripts/python.exe`. One heavy local workload at a time (8 GB VM).
+- Ported from the deleted Codex AGENTS.md: **never restart Steam as a routine repair** (the login is not persistent and may need Luis's Steam Guard; use `tools/steam_restart.py` for its safety check). Use `.venv/Scripts/python.exe`.
+- **RAM: push the boundary** (Luis, 2026-10-31). Low free RAM is not a reason to wait: run the client, tests and agents side by side and let Windows page. The hard wall is **commit charge** (RAM + pagefile, ~12.5 GB): when free commit drops under ~300 MB, allocations fail and the server/client can crash, so back off only then (check: `Win32_OperatingSystem.FreeVirtualMemory`).
 
 ## 0. Current state and standing decisions (updated 2026-10-25, end of session 1)
 

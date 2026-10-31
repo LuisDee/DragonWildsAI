@@ -74,8 +74,8 @@ Scoring world: the dev server (real game build, real client and server) with a d
 
 ## 3b. Running on the 8 GB VM (Luis, 2026-10-25: "flying near the sun" until he looks at bigger options)
 - One client + one server only. Claude moves to the dev world for the goal, and nothing runs on Shockbyte.
-- At most ONE heavy process at a time (full pytest, benchmark batch, dev server world load). Agents run targeted tests; main runs check_all.
-- Watch commit charge (`tools/obs.py anomalies`, watchdog memory_low/critical). On memory_critical, pause new heavy work. If it repeats, print "BLOCKED: memory".
+- Push the RAM boundary (Luis, 2026-10-31): heavy work may overlap (client + tests + agents); Windows paging is acceptable.
+- The hard wall is commit charge: back off only when free commit is under ~300 MB (`tools/obs.py anomalies`, watchdog memory_critical).
 - No Phoenix/Langfuse servers; obs stays offline.
 
 ## 4. Where this can go wrong (watch-list)
