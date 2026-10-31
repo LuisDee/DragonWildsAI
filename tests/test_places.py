@@ -356,9 +356,8 @@ def test_go_to_a_name_the_body_cant_see_walks_to_the_game_map_spot(tmp_path):
     assert out.ok, out.reason
     assert body.calls[:2] == [{"target": "Zanik"}, {"target": [-50.0, 50.0, 1.0]}]  # the body first, then the map
     assert body.calls[2]["about"] == "Zanik" and out.data["on_arrival"] == "Zanik is here, 1 m away"
-    assert out.data["resolved"].startswith("'Zanik' is not in sight; walking to the game map's landmark Zanik in "
-                                           "Temple Woods, Southfell, 10 m away: the nearest in your province of 2 "
-                                           "spots"), out.data["resolved"]
+    assert out.data["resolved"] == ("'Zanik' was not in sight; walked to the game map's landmark Zanik in "
+                                    "Temple Woods, Southfell"), out.data["resolved"]  # seen there: no caveat
 
 
 def test_go_to_an_unknown_or_partial_name_keeps_the_bodys_answer(tmp_path):

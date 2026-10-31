@@ -327,6 +327,9 @@ class Executor:
         data = result.get("data") if isinstance(result.get("data"), dict) else {}
         if result.get("ok") and best["kind"] == "landmark" and (seen := self._seen_at_spot(best["name"])):
             data = {**data, "target": best["name"], "on_arrival": seen}  # chat run 4: he looked to check (1 call)
+            if not seen.startswith("no "):  # seen there: the "may be another" caveat is answered (chat run 5: he
+                took = (f"{target!r} was not in sight; walked to the game map's {best['kind']} {best['name']}"  # still
+                        + (f" in {where}" if where else ""))                                       # looked to check)
         return {**result, "data": {**data, "resolved": took}}
 
     def _seen_at_spot(self, name: str, radius: float = 15.0) -> str | None:
