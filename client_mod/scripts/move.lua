@@ -2805,21 +2805,9 @@ local function tick(st, gen, log)
     end
 end
 
--- A bare (token-less) command is refused only while something really owns movement: a reflex, or
--- the owner's own move still running. A finished skill's leftover owner is released first (live
--- 2026-10-29: go_to right after a failed explore was refused "movement owner token required").
-local function release_stale_owner(st, log)
-    local raw = rawget(_G, "DWArbiter")
-    local o = type(raw) == "table" and raw.owner or nil
-    if not o or o.implicit or (tonumber(o.level) or 0) >= 4 or (st.mode ~= "idle" and st.owner_token == o.token) then return end
-    local a = move_arbiter()
-    if a and a.release then pcall(a.release, log, o.token, "stale owner: new direct command") end
-end
-
 local function start(log, mode, opts)
     if paused() then return { ok = false, error = "paused (world changing)" } end
     local st = S()
-    if not opts.owner_token then release_stale_owner(st, log) end
     local old_gen, old_token, old_mode = st.gen, st.owner_token, st.mode
     local function death_seq()
         local life=rawget(_G,"DW_LIFE")

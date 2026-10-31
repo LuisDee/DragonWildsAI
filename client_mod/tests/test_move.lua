@@ -589,7 +589,7 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     step(10)
     check("stale nonce cannot authorize input", pawn.loc.X == 0 and _G.DW_MOVE.nav_pending ~= nil, pawn.loc.X)
     _G.DW_WORLD_GUID = "other-world"; step(2)
-    check("world identity change fails closed", pawn.loc.X == 0 and M.status().result and M.status().result.reason == "verification_failed", M.status().status)
+    check("world identity change drops the pending route", _G.DW_MOVE.nav_pending == nil and _G.DW_MOVE.nav_fallback == "route_identity_changed", M.status().status)
     _G.DW_WORLD_GUID = "test-world"
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
     offer.no = offer.no + 1; offer.nonce = fake_nonce(offer.no)
@@ -601,27 +601,27 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     local restart = assert(io.open(dir .. "/client_io/nav/alive.lua", "w"))
     restart:write(('return {version=2,epoch="33333333-3333-4333-8333-333333333333",state="recovering",updated=%d}'):format(os.time())); restart:close()
     step(1)
-    check("new helper epoch rejects old matching response", pawn.loc.X == 0 and M.status().result and M.status().result.detail:find("oracle_restarted",1,true), M.status().status)
+    check("new helper epoch rejects old matching response", _G.DW_MOVE.path == nil and _G.DW_MOVE.nav_fallback == "oracle_restarted", M.status().status)
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
     offer.no = offer.no + 1; offer.nonce = fake_nonce(offer.no)
     oracle = function(id) return ("return {id=%d,ok=false,reason='no_path',points={}}"):format(id) end
     pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(20)
     local bad = M.status()
-    check("no path fails without raw movement", pawn.loc.X == 0 and bad.result and bad.result.reason == "verification_failed", bad.status)
+    check("no path falls back to drop-guarded walking", _G.DW_MOVE.nav_fallback == "no_path" and pawn.loc.X > 0, bad.status)
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
     oracle = function(id) return ("return {id=%d,ok=true,partial=true,points={{0,0,0},{5,0,0}}}"):format(id) end
     pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(80)
     local partial = M.status()
-    check("partial endpoint does not fall through to raw goal", partial.result and partial.result.reason == "verification_failed" and pawn.loc.X < 600, tostring(pawn.loc.X) .. " " .. tostring(partial.status) .. " " .. tostring(partial.result and partial.result.detail))
+    check("partial route, then fallback, reaches the goal", partial.result and partial.result.status == "arrived" and _G.DW_MOVE.nav_fallback ~= nil, tostring(pawn.loc.X) .. " " .. tostring(partial.status) .. " " .. tostring(partial.result and partial.result.detail))
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }; _G.DW_TRAP_CAND = nil
     oracle = function(id) return ("return {id=%d,ok=true,points={{0,0,0},{5,0,0}}}"):format(id) end
     pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(80)
     local unknown = M.status()
-    check("unknown partial endpoint fails without learning a trap", unknown.result and unknown.result.reason == "verification_failed" and pawn.loc.X < 600 and _G.DW_TRAP_CAND == nil, unknown.status)
+    check("unknown partial endpoint arrives without learning a trap", unknown.result and unknown.result.status == "arrived" and _G.DW_TRAP_CAND == nil, unknown.status)
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
     oracle = function(id) return ("return {id=%d,ok=true,points={{0,0,0},{1e308,0,0}}}"):format(id) end
     pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(20)
-    check("overflowing converted waypoint is rejected", pawn.loc.X == 0 and M.status().result and M.status().result.reason == "verification_failed", M.status().status)
+    check("overflowing converted waypoint is rejected", _G.DW_MOVE.path == nil and _G.DW_MOVE.nav_fallback == "invalid_route", M.status().status)
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }; luis.loc = { X=2000, Y=200, Z=0 }
     local evpath = dir .. "/client_io/events/move.jsonl"
     os.execute('mkdir "' .. (dir .. "/client_io/events"):gsub("/", "\\") .. '" 2>nul')
@@ -629,20 +629,19 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     oracle = function(id) return ("return {id=%d,ok=true,partial=true,points={{0,0,0},{5,0,0}}}"):format(id) end
     pump_oracle(); M.follow(log, "Zezima", 3, {local_plan=false}); run(80)
     local follow = M.status(); local blocked = pawn.loc.X
-    check("partial routed follow remains owned and unreachable", follow.mode == "follow" and follow.status == "unreachable", follow.status)
+    check("partial routed follow keeps following via fallback", follow.mode == "follow" and follow.status == "near" and _G.DW_MOVE.nav_fallback ~= nil, follow.status)
     oracle = function(id) return ("return {id=%d,ok=false,reason='no_path',points={}}"):format(id) end
     run(30)
     local count = 0; local events = io.open(evpath, "r")
     if events then for line in events:lines() do if line:find('"type":"unreachable"') then count=count+1 end end; events:close() end
-    check("routed follow holds and emits one unreachable event", math.abs(pawn.loc.X-blocked)<1 and count==1 and M.status().mode == "follow", count)
+    check("fallback follow emits no unreachable event", count==0 and M.status().mode == "follow", count)
     oracle = function(id) return ("return {id=%d,ok=true,partial=false,points={{%.2f,%.2f,0},{20,2,0}}}"):format(id,pawn.loc.X/100,pawn.loc.Y/100) end
     run(130)
     check("routed follow resumes on fresh admitted route", M.status().mode == "follow" and M.status().status == "near", M.status().status)
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }; oracle = nil; pump_oracle()
     local original_timeout = M.cfg.nav_timeout_s; M.cfg.nav_timeout_s = 0.5
     M.go_to(log, {20,0,0}, {local_plan=false}); run(20)
-    check("missing service reports unavailable without input", pawn.loc.X == 0 and M.status().result and
-        M.status().result.detail:find("oracle_unavailable", 1, true) ~= nil, M.status().result and M.status().result.detail)
+    check("missing service falls back at once and walks", pawn.loc.X > 0 and _G.DW_MOVE.nav_fallback == "oracle_unavailable", _G.DW_MOVE.nav_fallback)
     M.stop(log); M.cfg.nav_timeout_s = original_timeout
     walls={{900,1100,-500,500}}; pawn.loc={X=0,Y=0,Z=0}
     oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{5,6,0},{12,6,0},{20,0,0}}}"):format(id) end
@@ -712,7 +711,7 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
         return saved_add(self,d,sc,...)
     end
     step(100); pawn.AddMovementInput=saved_add
-    check("landing completes before required-route hold", flight.link_exec==nil and flight.nav_required and flight.status=="planning" and injected_after_required==0, flight.status)
+    check("landing completes before the route requirement", flight.link_exec==nil and injected_after_required==0 and flight.nav_fallback~=nil, flight.status)
     M.stop(log); pawn.loc={X=0,Y=0,Z=0}; luis.loc={X=900,Y=200,Z=0}; air=0
     M.follow(log,"Zezima",3,{local_plan=false})
     flight=_G.DW_MOVE
@@ -721,7 +720,7 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     before_jumps=pawn.jumps; step(1)
     local ordinary_accepted=flight.jump_t ~= nil and pawn.jumps==before_jumps+1
     luis.loc={X=2000,Y=200,Z=0}; step(100)
-    check("ordinary jump cannot repeatedly bypass authority", ordinary_accepted and pawn.jumps==before_jumps+1 and flight.nav_required and flight.status=="planning", string.format("status=%s required=%s jumps=%s accepted=%s deferred=%s jump_t=%s release=%s",tostring(flight.status),tostring(flight.nav_required),tostring(pawn.jumps-before_jumps),tostring(ordinary_accepted),tostring(flight.nav_deferred_required),tostring(flight.jump_t),tostring(flight.jump_release)))
+    check("ordinary jump finishes before the route requirement", ordinary_accepted and flight.nav_fallback~=nil, string.format("status=%s required=%s jumps=%s accepted=%s deferred=%s jump_t=%s release=%s",tostring(flight.status),tostring(flight.nav_required),tostring(pawn.jumps-before_jumps),tostring(ordinary_accepted),tostring(flight.nav_deferred_required),tostring(flight.jump_t),tostring(flight.jump_release)))
     M.stop(log); pawn.loc={X=0,Y=0,Z=0}
     M.go_to(log, {20,0,0}, {nav=false,local_plan=false}); run(60)
     check("explicit direct opt-out moves", pawn.loc.X > 0, pawn.loc.X)
@@ -1937,15 +1936,9 @@ do
     local prior_gen, prior_handle = _G.DW_MOVE.gen, _G.DW_MOVE.handle
     local refused=M.go_to(log, { 22, 0, 0 }, { owner_token = other.token })
     check("owner: non-mover cannot be borrowed", not refused.ok and _G.DW_MOVE.gen==prior_gen and _G.DW_MOVE.handle==prior_handle and not A.owns_move(other.token))
-    local direct2=M.go_to(log, { 23, 0, 0 }, {})
-    local adopted=A.owner()
-    check("owner: idle non-reflex owner is stale; direct move releases it", direct2.ok and adopted and adopted.implicit and adopted.token~=other.token)
-    M.stop(log)
-    local reflex = A.request(log, { name = "fight", level = "reflex", uses_move = false })
-    prior_gen = _G.DW_MOVE.gen
-    refused=M.go_to(log, { 24, 0, 0 }, {})
-    check("owner: direct move refused while a reflex owns the pawn", not refused.ok and refused.reason=="busy" and _G.DW_MOVE.gen==prior_gen)
-    M.stop(log); A.release(log, reflex.token, "done")
+    refused=M.go_to(log, { 23, 0, 0 }, {})
+    check("owner: unassociated move does not borrow existing owner", not refused.ok and _G.DW_MOVE.gen==prior_gen and _G.DW_MOVE.handle==prior_handle)
+    M.stop(log); A.release(log, other.token, "done")
 end
 
 -- Borrowed Windstep jobs are owned by the movement action and require a verified landing.

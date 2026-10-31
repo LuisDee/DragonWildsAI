@@ -506,6 +506,21 @@ local function reflex_owns_pawn()
 end
 M._reflex_owns_pawn = reflex_owns_pawn
 
+-- A brain go_to/follow runs after preempt(), so no bridge action is live: a non-reflex arbiter owner
+-- still holding the pawn is orphaned (a skill whose cleanup was refused while its child move ran).
+-- Stop its move and release it instead of refusing the model "movement owner token required"
+-- (live 2026-10-29, go_to right after a failed explore). A reflex keeps the pawn (busy, as before).
+local function release_orphan_owner()
+    local A = M.module("arbiter")
+    if S.action or not (A and type(A.owner) == "function" and type(A.release) == "function") then return end
+    local ok, o = pcall(A.owner)
+    if not (ok and type(o) == "table" and o.token ~= nil) or o.implicit or o.level == "reflex" or o.state ~= "owner" then return end
+    call("move", "stop")
+    pcall(A.release, S.text_log, o.token, "orphaned: no running action")
+    ev("client_orphan_owner_released", { name = o.name, level = o.level })
+end
+M._release_orphan_owner = release_orphan_owner
+
 -- Lying in a bed/shelter: the game disables movement until he gets up (live 20:58, go_to hung 46 s;
 -- BUGS L2d). Movement tools answer at once with the bed's id.
 local function resting_failure()
@@ -550,6 +565,7 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
             coords = to_m(t.position)
         end
     end
+    release_orphan_owner()
     local r = call("move", "go_to", coords or tostring(target), { tolerance_m = tonumber(args.tolerance) })
     if not r.ok then return r end
     local a = { kind = "go_to", id = ctx.id, target = target, timeout_s = M.GOTO_TIMEOUT_S, target_position = coords,
@@ -609,6 +625,7 @@ R.follow = { needs = { { "move", "follow" }, { "move", "status" } }, fn = functi
     if dist_m < 1 then dist_m = 1 end
     local rf = resting_failure()
     if rf then return rf end
+    release_orphan_owner()
     local r = call("move", "follow", tostring(who), dist_m)
     if not r.ok then return r end
     local a = { kind = "follow", id = ctx.id, player = tostring(who), quiet_preempt = true, replied = true }

@@ -715,6 +715,25 @@ return A
     uninstall("arbiter")
 end)
 
+test("go_to releases an orphaned skill owner, never a reflex", function()
+    install("arbiter", [[
+local A = {}
+function A.owner() return _G.FAKE.owner end
+function A.release(_, token) _G.FAKE.released = token; _G.FAKE.owner = nil; return { ok = true } end
+function A.status() return { ok = true, suspended = {} } end
+return A
+]])
+    FAKE.owner = { name = "skill:explore", level = "command", token = 7, state = "owner" }
+    rpc("go_to", { target = { 10, 0, 0 } })
+    assert(FAKE.released == 7 and FAKE.owner == nil, "orphaned command owner released")
+    rpc("stop")
+    FAKE.released, FAKE.owner = nil, { name = "reflex:guard", level = "reflex", token = 8, state = "owner" }
+    rpc("go_to", { target = { 10, 0, 0 } })
+    assert(FAKE.released == nil and FAKE.owner.token == 8, "a reflex keeps the pawn")
+    rpc("stop"); FAKE.owner = nil
+    uninstall("arbiter")
+end)
+
 test("combat module: attack via its HANDLERS (async), stop ends a commanded fight only", function()
     install("combat", [[
 local C = {}
