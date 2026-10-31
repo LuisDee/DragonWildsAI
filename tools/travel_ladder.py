@@ -33,7 +33,7 @@ SAMPLE_S = 1.0
 GO_TO_WAIT_S = 420.0  # the body's own deadline decides; this only catches a hung bridge
 ARRIVE_M, ARRIVE_DZ = 3.0, 1.8
 
-# capsule-centre metres [x, y, z]
+# capsule-centre metres [x, y, z]. Landmark goals are data/places_26161880.json positions (ground) + 0.88 m.
 P = {
     "lodestone": [50.65, 1890.26, -34.92],   # church lodestone / respawn, lower floor (inside)
     "doorway": [88.77, 1852.10, -31.46],     # church doorway level
@@ -44,19 +44,41 @@ P = {
     "doric": [109.08, 1846.32, -31.31],      # landmark
     "vannaka": [151.83, 1788.53, -26.34],    # landmark
     "pond_south": [155.18, 1914.83, -30.47], # learned water stand (feet -31.37), pond NE of the church
+    "astral_vent": [277.44, 1814.37, -41.25],  # landmark Astral Anima Vent (Temple Woods), 36 m from southeast
+    "earth_vent": [449.69, 1838.51, -15.52],   # landmark Earth Anima Vent on the plateau, 7 m from plateau
+    "water_vent": [161.90, 1927.94, -30.47],   # landmark Water Anima Vent by the pond, 15 m past pond_south
 }
+# What a player would say for each goal (chat_ladder asks for it in chat). Every goal is a named landmark or the
+# temple's lodestone/entrance, so both halves of rung 1 run the same 10 journeys.
+PLACE = {"lodestone": "the temple lodestone", "doorway": "the temple entrance", "zanik": "Zanik", "doric": "Doric",
+         "vannaka": "Vannaka", "astral_vent": "the Astral Anima Vent", "earth_vent": "the Earth Anima Vent",
+         "water_vent": "the Water Anima Vent"}
+
+
+def _j(name, a, b, note):
+    return {"id": name, "from": a, "to": b, "start": P[a], "goal": P[b], "place": PLACE.get(b, ""), "kind": note,
+            "tol_m": ARRIVE_M}
+
+
+# journeys v2 (21:55Z): far_doorway_se, uphill_plateau and around_water end on named landmarks (were open ground
+# 7-36 m away) so they can be asked for in chat; rows before that carry the old goals.
 JOURNEYS = [
-    ("near_doric", "doorway", "doric", "near, flat"),
-    ("near_vannaka", "east_stone", "vannaka", "near, slight rise"),
-    ("far_zanik_doorway", "zanik", "doorway", "far, to the church"),
-    ("far_doorway_se", "doorway", "southeast", "far, out of the church area"),
-    ("uphill_plateau", "zanik", "plateau", "far, uphill +26 m"),
-    ("downhill_plateau", "plateau", "zanik", "far, downhill"),
-    ("ramp_up", "lodestone", "doorway", "temple ramp up"),
-    ("ramp_down", "doorway", "lodestone", "temple ramp down"),
-    ("far_to_temple", "southeast", "lodestone", "far, into the church and down the ramp"),
-    ("around_water", "doorway", "pond_south", "straight line crosses the pond"),
+    _j("near_doric", "doorway", "doric", "near, flat"),
+    _j("near_vannaka", "east_stone", "vannaka", "near, slight rise"),
+    _j("far_zanik_doorway", "zanik", "doorway", "far, to the church"),
+    _j("far_doorway_se", "doorway", "astral_vent", "far, out of the church area"),
+    _j("uphill_plateau", "zanik", "earth_vent", "far, uphill +26 m"),
+    _j("downhill_plateau", "plateau", "zanik", "far, downhill"),
+    _j("ramp_up", "lodestone", "doorway", "temple ramp up"),
+    _j("ramp_down", "doorway", "lodestone", "temple ramp down"),
+    _j("far_to_temple", "southeast", "lodestone", "far, into the church and down the ramp"),
+    _j("around_water", "doorway", "water_vent", "straight line crosses the pond"),
 ]
+
+
+def arrived(pos, goal, tol: float = ARRIVE_M) -> bool:
+    """The ladder's success test on a fresh position: within tol (2D) and ARRIVE_DZ (height) of the goal."""
+    return d2(pos, goal) <= tol and abs(pos[2] - goal[2]) <= ARRIVE_DZ
 
 
 def d2(a, b):
@@ -115,7 +137,16 @@ def trip_for(t0: float, t1: float) -> dict | None:
     return best
 
 
-def place(dev, c, start, tries=3):
+def place(dev, c, start, tries=3, harness_brain=False):
+    """Teleport (dev fixture) to start and wait until he stands still there. harness_brain=True: the caller runs the
+    brain itself (chat_ladder --start-brain), so a running run_live is expected; the dev-server checks still apply."""
+    if harness_brain:
+        saved, dev.brain_running = dev.brain_running, (lambda: False)
+        try:
+            return place(dev, c, start, tries)
+        finally:
+            dev.brain_running = saved
+    last = None
     for _ in range(tries):
         res = dev.setup("teleport", purpose="travel ladder start", at=start)
         if not res.get("ok"):
@@ -132,8 +163,8 @@ def place(dev, c, start, tries=3):
     raise RuntimeError(f"could not place Claude at {start} (last {last})")
 
 
-def run_journey(dev, name, a, b, note):
-    start, goal = P[a], P[b]
+def run_journey(dev, j):
+    name, a, b, note, start, goal = j["id"], j["from"], j["to"], j["kind"], j["start"], j["goal"]
     c, sampler = client(), client()
     c.request("stop", {}, timeout=10)
     s = place(dev, c, start)
@@ -161,7 +192,7 @@ def run_journey(dev, name, a, b, note):
     closest = min(d2(p, goal) for _, p in samples + [(t1, end)])
     straight = d3(s, goal)
     data = (r or {}).get("data") or {}
-    reached = d2(end, goal) <= ARRIVE_M and abs(end[2] - goal[2]) <= ARRIVE_DZ
+    reached = arrived(end, goal)
     ok = bool(r and r.get("ok")) and reached
     trip = trip_for(t0, t1)
     return {
@@ -182,10 +213,11 @@ def main() -> None:
     ap.add_argument("--label", default="run")
     ap.add_argument("--list", action="store_true")
     a = ap.parse_args()
-    js = [j for j in JOURNEYS if not a.only or j[0] in a.only.split(",")]
+    js = [j for j in JOURNEYS if not a.only or j["id"] in a.only.split(",")]
     if a.list:
-        for n, f, t, note in js:
-            print(f"{n:20s} {f:>11s} -> {t:<11s} {d3(P[f], P[t]):6.0f} m  {note}")
+        for j in js:
+            print(f"{j['id']:20s} {j['from']:>11s} -> {j['to']:<11s} {d3(j['start'], j['goal']):6.0f} m  {j['kind']}"
+                  f"  ({j['place'] or 'no chat name'})")
         return
     from evals.bench.devrun import default_dev
     dev = default_dev()
@@ -194,11 +226,12 @@ def main() -> None:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     rows = []
     for rep in range(a.repeat):
-        for n, f, t, note in js:
+        for j in js:
+            n = j["id"]
             try:
-                row = run_journey(dev, n, f, t, note)
+                row = run_journey(dev, j)
             except Exception as x:  # infra failure: recorded, not counted as a body failure
-                row = {"journey": n, "from": f, "to": t, "ok": None, "error": repr(x), "ts": round(time.time(), 1)}
+                row = {"journey": n, "from": j["from"], "to": j["to"], "ok": None, "error": repr(x), "ts": round(time.time(), 1)}
             row.update(run=run_id, label=a.label, head=head(), rep=rep)
             rows.append(row)
             with OUT.open("a", encoding="utf-8") as fh:
