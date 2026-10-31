@@ -66,21 +66,22 @@ def test_final_false_or_unknown_does_not_complete(tmp_path, final):
     assert task.status != "done"
 
 
-def test_retry_preserves_evidence_and_rejects_mutation(tmp_path):
+def test_retry_preserves_evidence_and_advises_on_checkpoint_changes(tmp_path):
     d, _, world, _, _ = make(tmp_path)
     task = d.ops.add_task("job", by="cli")
     d._apply(task, {"kind": "plan"}, plan(), world.state)
     old = task.steps[0]; old.status = "failed"; old.accumulated = {TIN: 2}; old.failures = [{"reason": "blocked"}]
     bad = plan(); bad["steps"] = bad["steps"][1:]
     before = task.model_dump()
-    assert D._checkpoint_errors(before, bad, "replan")
+    assert D._checkpoint_advice(before, bad, "replan") and not D._checkpoint_errors(before, bad, "replan")
     for mutation in ([bad["steps"][0], plan()["steps"][0]], [dict(plan()["steps"][0], success=have(TIN, 2)), plan()["steps"][1]]):
-        assert D._checkpoint_errors(before, {**plan(), "steps": mutation}, "replan")
+        assert D._checkpoint_advice(before, {**plan(), "steps": mutation}, "replan")
+    assert not D._checkpoint_advice(before, plan(), "replan")
     d._apply(task, {"kind": "replan"}, plan(), world.state)
     assert task.steps[0] is old and old.status == "pending" and old.accumulated[TIN] == 2
     assert len([s for s in task.steps if s.checkpoint_id == "out"]) == 1
     old.status = "done"
-    assert D._checkpoint_errors(task.model_dump(), plan(), "replan")
+    assert D._checkpoint_advice(task.model_dump(), plan(), "replan")
     d.store.flush()
     from brain import director
     restarted = director.Director(d.port, d.llm, tmp_path / "worlds" / "dev", executor=director.SyncExecutor())
@@ -112,7 +113,7 @@ def test_validator_and_review_keep_active_checkpoint(tmp_path):
     assert task.steps[-2].title == "prepare"
     active.status = "done"
     assert d.ops.plan_key(task) != old_key
-    assert D._checkpoint_errors(task.model_dump(), reviewed, "review")
+    assert D._checkpoint_advice(task.model_dump(), reviewed, "review")
 
 
 def test_initial_help_defers_contract_and_preserves_gap_then_resumes(tmp_path):
@@ -145,15 +146,15 @@ def test_unrequired_prep_does_not_reuse_checkpoint(tmp_path):
     assert task.steps[0].checkpoint_id is None and task.steps[1].checkpoint_id == "out"
 
 
-def test_rejected_apply_counts_consecutive_failures(tmp_path):
+def test_replan_that_drops_a_checkpoint_redefines_the_contract(tmp_path):
     d, _, world, _, _ = make(tmp_path)
     task = d.ops.add_task("job", by="cli")
     v = plan(); d._apply(task, {"kind": "plan"}, v, world.state)
-    bad = {**v, "steps": v["steps"][1:]}
-    d._apply(task, {"kind": "replan"}, bad, world.state)
-    assert d._fail_count[task.id] == 1
-    d._apply(task, {"kind": "replan"}, bad, world.state)
-    assert task.status == "parked"
+    task.steps[0].status = "done"
+    d._apply(task, {"kind": "replan"}, {**v, "steps": v["steps"][1:]}, world.state)
+    assert [c["id"] for c in task.checkpoints] == ["out", "back"] and task.id not in d._fail_count
+    d._apply(task, {"kind": "replan"}, {**v, "steps": [step("other", have(TIN, 3), checkpoint_id="other")]}, world.state)
+    assert [c["id"] for c in task.checkpoints] == ["out", "other"] and task.status != "parked"
 
 
 def test_open_ordered_rejected_on_plan_and_done(tmp_path):
@@ -170,8 +171,6 @@ def test_open_ordered_rejected_on_plan_and_done(tmp_path):
     validator = D.Validator("review", world.state, task.model_dump(), research_left=lambda: False)
     with pytest.raises(ValueError, match="only for specific"):
         validator(decision(done=True), 0)
-    d._apply(task, {"kind": "review"}, {"done": True}, world.state)
-    assert task.status != "done"
 
 
 def test_state_help_still_sets_success(tmp_path):

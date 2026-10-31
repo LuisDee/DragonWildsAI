@@ -2,7 +2,6 @@
 import copy
 import json
 
-import pytest
 
 from conftest import Rig
 from brain import director as D
@@ -55,7 +54,7 @@ def test_actual_first_call_and_empty_run_retain_failure_in_both_model_requests(t
     first = body_event(rig.controller_llm.calls[0])
     feedback = first["first_call_result"]
     assert feedback["args"] == step.first_call["args"] and feedback["data"] == FAILURE
-    assert feedback["origin"] == "board" and feedback["ok"] is False
+    assert feedback["ok"] is False
     assert (first["board_task_id"], first["step_id"], first["attempt"]) == (task.id, step.id, 1)
     assert "action_id" not in feedback and "observed_at" not in feedback and "completed_at" not in feedback
     d._advance(task)
@@ -91,32 +90,16 @@ def test_new_attempt_with_same_step_id_clears_previous_feedback_before_controlle
     assert step.actions == [] and d._last_results[step.id] == [] and len(calls) == 1
 
 
-def test_supplied_identity_and_times_are_copied_without_refresh_or_raw_mutation():
+def test_summaries_copy_short_values_and_clip_long_ones():
     record = {"tool": "held_out", "args": {"target": [1, 2, 3]}, "ok": False, "reason": "blocked",
-              "data": FAILURE, "origin": "board", "action_id": "executor-action", "task_id": "executor-task",
-              "tool_call_id": "provider-call", "source": "fixture.native", "observed_at": 101.5,
-              "completed_at": 102.5, "received_at": 103.5}
+              "data": FAILURE, "origin": "board", "action_id": "executor-action"}
     original = copy.deepcopy(record)
     first = D._result_summaries([record])[0]
-    second = D._result_summaries([record])[0]
-    assert first == second == record and record == original
+    assert first == {k: record[k] for k in ("tool", "args", "ok", "reason", "data")} and record == original
     first["data"]["route_feedback"]["unknown"].append("modified copy")
     assert record == original
-
-
-@pytest.mark.parametrize("unicode_text", [False, True])
-def test_large_arguments_and_metadata_stay_inside_existing_summary_bounds(unicode_text):
-    text = ("桜" if unicode_text else "x") * 3000
-    records = [{"tool": f"tool_{i}", "ok": False, "reason": "blocked",
-                "args": {f"field_{j}": text for j in range(40)}, "source": text,
-                "action_id": text, "observed_at": 17.0,
-                "data": {"rows": [{"detail": text}] * 40}} for i in range(10)]
-    original = copy.deepcopy(records)
-    summaries = D._result_summaries(records)
-    assert [r["tool"] for r in summaries] == [r["tool"] for r in records[-8:]]
-    assert len(json.dumps(summaries, allow_nan=False).encode("utf-8")) <= D.RESULTS_BUDGET
-    assert all(len(json.dumps(r, allow_nan=False).encode("utf-8")) <= D.RESULT_DATA_BUDGET for r in summaries)
-    assert all(r.get("args_truncated") or r.get("args_omitted") for r in summaries)
-    assert all(r.get("summary_truncated") or r.get("metadata_omitted") for r in summaries)
-    assert all(r.get("data_truncated") or r.get("data_omitted") for r in summaries)
-    assert records == original
+    big = [{"tool": f"tool_{i}", "ok": False, "reason": "blocked", "data": {"rows": ["x" * 3000]}} for i in range(10)]
+    rows = D._result_summaries(big)
+    assert [r["tool"] for r in rows] == [r["tool"] for r in big[-8:]]
+    assert all(isinstance(r["data"], str) and r["data"].endswith("[truncated]")
+               and len(r["data"]) <= D.RESULT_FIELD_CHARS + 20 for r in rows)

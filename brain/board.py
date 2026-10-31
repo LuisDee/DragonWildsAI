@@ -729,8 +729,7 @@ class BoardOps:
     def checkpoints_complete(self, t: Task) -> bool:
         # SequenceWithMemory: completed siblings remain complete across retries.
         # https://www.behaviortree.dev/docs/3.8/nodes-library/SequenceNode/
-        return t.completion_mode != "ordered_steps" or bool(t.checkpoints) and all(
-            c["status"] == "done" for c in self.checkpoint_progress(t))
+        return t.completion_mode != "ordered_steps" or all(c["status"] == "done" for c in self.checkpoint_progress(t))
 
     # ---------------------------------------------------------------- views
 
