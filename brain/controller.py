@@ -352,7 +352,8 @@ def current_observation(state: dict | None) -> dict:
             "stations": stations}
 
 
-MAP_NAMES_NOTE = " Also a place name from the game's map (a region, NPC or landmark), even out of sight."
+MAP_NAMES_NOTE = (" Also a place name from the game's map (a region, NPC or landmark), even out of sight: pass the name"
+                  " itself, no need to look for it first; the result says what it was taken to be.")
 
 
 def _with_map_names(t: dict) -> dict:
