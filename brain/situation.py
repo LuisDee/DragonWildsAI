@@ -389,6 +389,39 @@ def wearing(state: dict, names: dict[str, str] | None = None) -> list[str]:
     return out
 
 
+def death_cause(d: dict) -> str | None:
+    """What the body's vitals rows say killed him (fatal/death: killed_by, fell_m, at), in a few words:
+    "killed by Giant Rat; fell 12 m; at Temple Woods". None when the body sent none of them."""
+    bits = []
+    kb = d.get("killed_by")
+    if isinstance(kb, dict):  # the raw fatal row: {self, name, player, class}
+        kb = "my own condition" if kb.get("self") else kb.get("name") or kb.get("player") or kb.get("class")
+    if isinstance(kb, str) and kb.strip():
+        bits.append(f"killed by {kb.strip()}")
+    if isinstance(d.get("fell_m"), (int, float)) and d["fell_m"] > 0:
+        bits.append(f"fell {d['fell_m']:.0f} m")
+    at = d.get("at")
+    if isinstance(at, (list, tuple)) and len(at) >= 2 and all(isinstance(c, (int, float)) for c in at[:3]):
+        region = _region_name(tuple(at[:3]))
+        bits.append(f"at {region}" if region else "at [" + ", ".join(f"{c:.0f}" for c in at[:3]) + "]")
+    return "; ".join(bits) or None
+
+
+@lru_cache(maxsize=64)
+def _region_name(pos: tuple) -> str | None:
+    """The game map's region at ``pos`` (brain.places, data/places_<build>.json); None without map data."""
+    try:
+        return _map_places().region_name(list(pos))
+    except Exception:
+        return None
+
+
+@lru_cache(maxsize=1)
+def _map_places():
+    from .places import Places  # lazy: only a death with a place needs the map
+    return Places()
+
+
 def recent_life(state: dict) -> list[str]:
     """Own gravestone(s) and the last death, from the client body's get_state: one "Recent:" line, then
     one "Graves ..." line with up to 3 unrecovered graves not in sight, most valuable first (BUGS L19/L22)."""
@@ -397,7 +430,8 @@ def recent_life(state: dict) -> list[str]:
     if d and isinstance(d.get("ago_s"), (int, float)):
         ago = int(d["ago_s"])
         when = f"{ago // 60} min ago" if ago >= 120 else f"{ago} s ago"
-        bits.append(f"you died {when}" + (" and respawned" if d.get("respawned") else ""))
+        how = death_cause(d)
+        bits.append(f"you died {when}" + (f" ({how})" if how else "") + (" and respawned" if d.get("respawned") else ""))
     graves = state.get("graves_remembered") if isinstance(state.get("graves_remembered"), list) else None
     if graves is None and isinstance(state.get("death_memory"), dict):
         graves = [{**state["death_memory"], "go_to": "my_grave"}]
@@ -445,10 +479,7 @@ def world_line(state: dict) -> str | None:
     b = state.get("bag") if isinstance(state.get("bag"), dict) else {}
     if isinstance(b.get("used"), int) and isinstance(b.get("capacity"), int):
         bits.append(f"bag {b['used']}/{b['capacity']} slots")
-    end, mx = state.get("endurance"), state.get("endurance_max")
-    if isinstance(end, (int, float)) and isinstance(mx, (int, float)) and mx:
-        bits.append(f"endurance {round(100 * end / mx)}%")
-    return ("World: " + ", ".join(bits)) if bits else None
+    return ("World: " + ", ".join(bits)) if bits else None  # endurance is on the You: line (rest)
 
 
 def hands(state: dict) -> str | None:
@@ -644,7 +675,7 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
     me = [b for b in (_health(state),) if b]
     if _num(state.get("power_level")) is not None:  # his own power level (combat state_extras), beside the creatures' PL
         me.append(f"PL {_num(state.get('power_level')):g}")
-    for stat, word in (("hydration", "water"), ("sustenance", "food")):  # survival needs (client body)
+    for stat, word in (("hydration", "water"), ("sustenance", "food"), ("endurance", "rest")):  # survival (client body)
         cur, mx = _num(state.get(stat)), _num(state.get(f"{stat}_max"))
         if cur is not None:
             me.append(_stat(word, 100 * cur / mx if mx else cur))

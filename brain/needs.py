@@ -220,8 +220,16 @@ def _people(state: dict) -> list[str]:
     return out
 
 
+# Endurance 0: the game scales his stamina down (BODY live 2026-10-31: sprint 0 s on every trip, jumps that never left
+# the ground; a Summon Shelter rest took it 0 -> 100 in about 30 s).
+REST_AT_ZERO = "; at 0 you can't sprint and your jumps fail until you rest in a bed or a Summon Shelter"
+
+
 def _rest(state: dict) -> list[str]:
     out = [sit.sleep_timeframe(state)]
+    for s in state.get("spells") or []:  # a shelter he can summon is a place to rest (spell list, castable as read)
+        if isinstance(s, dict) and s.get("id") == "USD_SummonShelter":
+            out.append("Summon Shelter (your spell" + (", castable now)" if s.get("castable") else ", not castable now)"))
     for t in state.get("interactables") or []:
         if isinstance(t, dict) and t.get("kind") in ("bed", "resting_area"):
             bits = [f"{t['distance']:.0f} m" if _num(t.get("distance")) is not None else "", f"id {t.get('id')}",
@@ -259,7 +267,8 @@ def lines(state: dict, cat: dict | None = None) -> list[str]:
         word = sit.feel(n["need"], n.get("pct"))  # the words to relay; the numbers are for decisions
         head = f"Need {n['need']}" + (f" ({word + ', ' if word else ''}[{n['pct']:.0f}%]"
                                       + (f", empty in ~{n['zero_min']} min at the current drain; at 0 it hurts until you die"
-                                         if n.get("zero_min") is not None else "") + ")"
+                                         if n.get("zero_min") is not None else "")
+                                      + (REST_AT_ZERO if n["need"] == "rest" and n["pct"] < 1 else "") + ")"
                                       if n.get("pct") is not None else "")
         parts = []
         if n["need"] == "rest":

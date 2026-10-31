@@ -78,7 +78,8 @@ def test_sleep_timeframe_is_not_rest_availability_or_recovery(raw, expected):
         assert all(text not in line for text in ("too early to sleep", "sleeping is possible",
                                                   "resting still restores", "restored by sleep",
                                                   "no bed or shelter near"))
-    assert "endurance 0%" in world
+    assert "rest: exhausted [0%]" in summary(st)[0]  # endurance is a vital: on the You: line (2026-10-31)
+    assert "at 0 you can't sprint and your jumps fail until you rest in a bed or a Summon Shelter" in rest
 
 
 def test_rest_perception_keeps_actual_prompts_and_resting_state():
@@ -88,7 +89,7 @@ def test_rest_perception_keeps_actual_prompts_and_resting_state():
                              "prompt": "Rest", "distance": 2, "owner": "Dev"}]}
     world = world_line(st)
     rest = next(line for line in needs.lines(st, cat={}) if line.startswith("Need rest"))
-    assert "lying in object-7" in world and "endurance 20%" in world
+    assert "lying in object-7" in world and "rest: tired [20%]" in summary(st)[0]
     assert "Covered place" in rest and "prompt Rest" in rest and "owner Dev" in rest
     assert "sleep timeframe closed" in world and "sleep timeframe closed" in rest
 
@@ -174,3 +175,10 @@ def test_activity_lists_the_skills_own_spells_and_the_rate_vs_best():
     assert "140 XP/min (best 190)" in line and "3.5/min (best 4.2)" in line and "Iron Pickaxe: Attack, Block" in line
     assert "Axtral Projection" not in line  # a Woodcutting spell
     assert needs.activity_lines({}) == []
+
+
+def test_a_summon_shelter_he_knows_is_a_rest_option():
+    st = {"endurance": 5, "endurance_max": 100,
+          "spells": [{"id": "USD_SummonShelter", "name": "Summon Shelter", "castable": True}]}
+    rest = next(line for line in needs.lines(st, cat={}) if line.startswith("Need rest"))
+    assert "Summon Shelter (your spell, castable now)" in rest and "at 0 you" not in rest

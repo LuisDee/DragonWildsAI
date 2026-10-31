@@ -157,3 +157,52 @@ def test_busy_names_the_reflex_never_the_token(tmp_path):
     rig.controller.report_failure("go_to", "busy", seen["data"])
     assert rig.companion_said()[-1] == "I couldn't walk somewhere just then: I was busy with Clean Water."
     assert not any("token" in s for s in rig.companion_said())
+
+
+def test_busy_with_the_arbiters_owner_brief_names_it(tmp_path):
+    rig = Rig(tmp_path, max_attempts=1)
+    rig.controller.report_failure("go_to", "busy", {"owner": {"name": "reflex:eat", "level": "reflex", "token": 7},
+                                                    "detail": "busy: reflex:eat (reflex) is using my legs, for 3 s"})
+    assert rig.companion_said()[-1] == "I couldn't walk somewhere just then: my reflex had hold of me."
+
+
+# ------------------------------------------------------------------ the request deadline never cuts a move's report
+
+
+def test_a_long_go_to_past_the_deadline_still_gets_its_report_turn(tmp_path):
+    from brain import agent as agent_mod
+    rig = Rig(tmp_path, max_attempts=1)
+    now = [0.0]
+    rig.agent.clock = lambda: now[0]
+    original = rig.game.call
+
+    def call(tool, args):
+        if tool == "go_to":  # a 295 s go_to after earlier steps: the request's time is up when it ends
+            now[0] += agent_mod.REQUEST_SECONDS + 5
+        return original(tool, args)
+    rig.game.call = call
+    rig.controller_llm.push(FakeLLM.say("", FakeLLM.call("go_to", target=[20, 0, 0])), FakeLLM.say("I'm there now."))
+    rig.game.player_say("come here")
+    rig.agent.step()
+    assert len(rig.controller_llm.calls) == 2
+    assert rig.controller_llm.calls[1]["messages"][-1]["content"] == agent_mod.LAST_TURN_NOTE
+    assert rig.companion_said()[-1] == "I'm there now."
+
+
+def test_nav_unavailable_and_resting_are_reasons_of_their_own():
+    from brain.interface import Reason
+    assert Reason.NAV_UNAVAILABLE == "nav_unavailable" and Reason.RESTING == "resting"
+    assert {Reason.NAV_UNAVAILABLE, Reason.RESTING} <= Reason.DETERMINISTIC  # back to the model, never retried blindly
+
+
+def test_recent_life_says_what_killed_him_and_where():
+    from brain.situation import recent_life
+    assert recent_life({"last_death": {"ago_s": 200, "respawned": True, "killed_by": "Giant Rat"}}) == [
+        "Recent: you died 3 min ago (killed by Giant Rat) and respawned"]
+    line = recent_life({"last_death": {"ago_s": 20, "fell_m": 12.4, "at": [99999.0, 99999.0, 0.0]}})[0]
+    assert line == "Recent: you died 20 s ago (fell 12 m; at [99999, 99999, 0])"
+    assert recent_life({"last_death": {"ago_s": 20, "killed_by": {"self": False, "name": "Goblin"}}})[0].endswith(
+        "(killed by Goblin)")
+    assert recent_life({"last_death": {"ago_s": 20}}) == ["Recent: you died 20 s ago"]
+    assert recent_life({"last_death": {"ago_s": 20, "at": [176.25, 1863.53, -30.23]}})[0].endswith(
+        "(at Temple Woods)")  # the game map's region (data/places_<build>.json)
