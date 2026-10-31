@@ -351,3 +351,6 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
 - **Dropped:** the forward-memory route replay (b13793e) and route_feedback (2201844), both entangled with the deleted guards. Its whole-token `match_score` stays (it fixed "the" matching "gather").
 - **Skipped:** the nav_oracle epoch/nonce simplification (it is the live wire protocol); the 2bff707 admission-layer removal (its refusals are now non-fatal through the fallback); child-generation owner binding.
 - **Next (live, announced window):** `tools/client_smoke.ps1`; a far go_to (compare against 56 %); one gather; one craft; `inventory` text; consume water from the hotbar; one temple round trip; watch for `move: no admitted route` and drop-guard stops in client.log.
+
+## 2026-10-31 Rung 1 travel ladder (tools/travel_ladder.py, body-only, dev world)
+- 21:17Z baseline @da4376a (post-clean-up): 6/10 (60%). Fails: uphill_plateau, ramp_up, ramp_down, far_to_temple.
