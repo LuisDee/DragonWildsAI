@@ -48,7 +48,7 @@ def json_decision(llm: LLMClient, messages: list[dict], validate: Callable[[str,
                   tools: list[dict] | None = None, run_tool: Callable[[str, dict], Any] | None = None,
                   max_tool_rounds: int = 3, max_repairs: int = 1,
                   before_request: Callable[[], bool] | None = None,
-                  can_advise: Callable[[], bool] | None = None,
+                  can_advise: Callable[[], bool] | None = None, advise: bool = True,
                   on_response: Callable[[LLMResponse], None] | None = None,
                   on_request: Callable[[list[dict], list[dict] | None], None] | None = None) -> tuple[Any, dict]:
     """Returns (value, info) with info = {requests, tool_calls: [{name, args, refused}], repairs, advised,
@@ -117,6 +117,10 @@ def json_decision(llm: LLMClient, messages: list[dict], validate: Callable[[str,
         # merely because this decision has no requests left. Hard request guards
         # still run for every actual call; no older-value fallback after a reply.
         # https://claude.com/resources/articles/common-workflow-patterns-for-ai-agents-and-when-to-use-them
+        if advisories and not advise:  # information only: kept for the log, no second round
+            info["advisories"] = advisories
+            info["messages"] = msgs + [{"role": "assistant", "content": text}]
+            return value, info
         if advisories and not info["advised"] and can_advise is not None and not can_advise():
             info["advisory_skipped"] = "capacity"
             info["messages"] = msgs + [{"role": "assistant", "content": text}]

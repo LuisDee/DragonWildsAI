@@ -74,9 +74,7 @@ def test_t3_negative_control_do_nothing_body_never_finishes_the_pickaxe(tmp_path
 
 def test_t3_coal_with_no_known_spot_researches_then_asks_once_to_be_shown(tmp_path):
     k = FakeKnowledge({"coal": "Coal is mined from coal nodes in rocky areas of Coalridge Pass and Dowdun Reach."})
-    rig = JobRig(tmp_path, [
-        plan(facts=[{"fact": "where coal nodes are", "status": "unknown", "source": "none"}],
-             ask_help="Where is coal?"),
+    rig = JobRig(tmp_path, [  # the model researches first (no "listed as unknown" second pass since 2026-10-31)
         LLMResponse(tool_calls=[ToolCall("lookup", {"query": "where is coal mined"}, "l1"),
                                 ToolCall("map_memory", {"name": "coal"}, "l2")]),
         plan(facts=[{"fact": "where coal nodes are", "status": "known", "source": "wiki"}],
@@ -90,7 +88,7 @@ def test_t3_coal_with_no_known_spot_researches_then_asks_once_to_be_shown(tmp_pa
     t = rig.task()
     assert t.status == "waiting_help" and "Coalridge Pass" in t.help.question
     assert k.queries == ["where is coal mined"]
-    assert [r["needed"] for r in rig.log_rows("director_lookup")] == [True]
+    assert len(rig.log_rows("director_lookup")) == 1
     assert rig.director.gaps.gaps["travel:long_distance"]["count"] == 1
     assert rig.director.memory.recall("coal mined")[0]["source"] == "wiki"
     notices = rig.runs("board_notice")

@@ -1284,9 +1284,12 @@ class Director:
             try:
                 dec.value, info = json_decision(self.llm, messages, validator, tools=research.tools(),
                                                 run_tool=research.run, max_tool_rounds=RESEARCH_ROUNDS, max_repairs=2,
-                                                can_advise=lambda: dec.requests < MAX_REQUESTS,
+                                                advise=False,  # no "Before you commit" 2nd pass (2026-10-31)
                                                 before_request=before, on_response=on_response, on_request=on_request)
                 dec.tool_calls = info["tool_calls"]
+                if info.get("advisories"):
+                    self._log("director_advisories", task=snap["task"]["id"], decision=snap["kind"],
+                              advisories=[str(a)[:300] for a in info["advisories"]])
                 if info.get("advisory_skipped"):
                     self._log("director_advisory_skipped", task=snap["task"]["id"],
                               decision=snap["kind"], reason=info["advisory_skipped"], requests=dec.requests)

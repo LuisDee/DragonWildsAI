@@ -261,14 +261,16 @@ def test_claims_only_and_do_nothing_controllers_never_finish(tmp_path):
         assert [e for e in port.events if e["type"] == "board_notice"][-1]["facts"]["question"].startswith("I can't")
 
 
-def test_a_trivial_test_is_information_first_then_flagged(tmp_path):
+def test_a_trivial_test_is_logged_and_flagged_without_a_second_pass(tmp_path):
+    """No "Before you commit" round (2026-10-31): the information goes to the log, the plan stands."""
     d, port, world, llm, clock = make(tmp_path, None, [
-        decision(task_success=have(COPPER, 1), steps=[step("x", have(COPPER, 1))]),
         decision(task_success=have(COPPER, 1), steps=[step("x", have(COPPER, 1))])])
+    d.log = ListLog()
     world.add(COPPER, 3)
     t = d.handle_tool("add_task", {"text": "hold copper"}, "Zezima")["data"]
     ticks(d, 2)
-    assert "already true now" in llm.calls[1]["messages"][-1]["content"]
+    assert len(llm.calls) == 1
+    assert any("already true now" in " ".join(r["advisories"]) for r in d.log.rows if r["kind"] == "director_advisories")
     task = d.ops.b.task(t["id"])
     assert task.success["trivial"] is True
 
@@ -514,18 +516,16 @@ class FakeKnowledge:
         return []
 
 
-def test_unknown_facts_get_one_nudge_and_lookups_are_cached_and_scored(tmp_path):
+def test_unknown_facts_are_logged_and_lookups_are_cached_and_scored(tmp_path):
     k = FakeKnowledge()
-    plan_unknown = decision(task_success=have(TIN, 3), steps=[step("mine tin", gained(TIN, 3))],
-                            facts=[{"fact": "where tin rocks are", "status": "unknown", "source": "none"}])
-    calls = [plan_unknown, LLMResponse(tool_calls=[ToolCall("lookup", {"query": "where are tin rocks"}, "l1")]),
+    calls = [LLMResponse(tool_calls=[ToolCall("lookup", {"query": "where are tin rocks"}, "l1")]),
              decision(task_success=have(TIN, 3), steps=[step("mine tin", gained(TIN, 3))],
                       facts=[{"fact": "where tin rocks are", "status": "unknown", "source": "wiki"}])]
     d, port, world, llm, clock = make(tmp_path, None, calls, knowledge=k)
     d.log = ListLog()
     tid = d.handle_tool("add_task", {"text": "get tin"}, "Zezima")["data"]["id"]
     ticks(d, 1)
-    assert "These facts are listed as unknown" in llm.calls[1]["messages"][-1]["content"] and k.queries == ["where are tin rocks"]
+    assert len(llm.calls) == 2 and k.queries == ["where are tin rocks"]  # research, then the plan: no 2nd pass
     assert d.memory.recall("tin rocks")[0]["source"] == "wiki"
     assert d.ops.b.task(tid).steps[0].title == "mine tin"
     assert [r["needed"] for r in d.log.rows if r["kind"] == "director_lookup"] == [True]
@@ -979,15 +979,16 @@ def test_a_first_call_must_name_one_of_his_tools(tmp_path):
     assert "first_call: tool must be one of your tools" in llm.calls[1]["messages"][-1]["content"]
 
 
-def test_a_working_step_tested_only_by_elapsed_time_gets_one_advisory(tmp_path):
-    """Live smoke run 2: steps tested only by elapsed time passed although their tools failed. The model hears it
-    once (information) and may keep the plan."""
+def test_a_working_step_tested_only_by_elapsed_time_is_logged_not_a_second_pass(tmp_path):
+    """Live smoke run 2: steps tested only by elapsed time passed although their tools failed. That is logged as
+    information (no "Before you commit" round since 2026-10-31) and the plan stands."""
     d, port, world, llm, clock = make(tmp_path, None, [
-        decision(task_success=have(COPPER, 1), steps=[step("set my policy", P.validate({"elapsed": {"seconds": 3}}))]),
         decision(task_success=have(COPPER, 1), steps=[step("set my policy", P.validate({"elapsed": {"seconds": 3}}))])])
+    d.log = ListLog()
     d.handle_tool("add_task", {"text": "copper"}, "Zezima")
     ticks(d, 1)
-    assert "only counts time" in llm.calls[1]["messages"][-1]["content"]
+    assert len(llm.calls) == 1
+    assert any("only counts time" in " ".join(r["advisories"]) for r in d.log.rows if r["kind"] == "director_advisories")
     assert d.ops.b.tasks[0].steps and d.ops.b.tasks[0].steps[0].title == "set my policy"
 
 

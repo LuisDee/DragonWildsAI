@@ -36,7 +36,7 @@ def test_director_applies_fifth_valid_plan_without_sixth_advisory_call(tmp_path)
     assert len(llm.calls) == 5 and d.window.left() == 15
     assert [c["id"] for c in task.checkpoints] == ["out", "back"]
     assert [e["step"]["title"] for e in port.events if e["type"] == "board_step"] == ["out", "back"]
-    assert any(r["kind"] == "director_advisory_skipped" and r["requests"] == 5 for r in log.rows)
+    assert any(r["kind"] == "director_advisories" for r in log.rows)  # information only: no 6th call
 
 
 def test_optional_advisory_still_runs_when_capacity_exists():
