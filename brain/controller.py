@@ -376,6 +376,23 @@ def _look_row(t):
     return {k: v for k, v in t.items() if k not in ("class", "category") and not (k == "match" and not v)}
 
 
+def _on_the_map(places, about: str, here) -> str | None:
+    """One line when the game map has a place of exactly that name: where it is and that go_to takes the name."""
+    if places is None:
+        return None
+    try:
+        res = places.where(about, here)
+    except Exception:
+        return None
+    best = next(iter((res.get("data") or {}).get("results") or []), None)
+    if not best or best.get("match") not in ("exact", "named"):
+        return None
+    d = best.get("distance_m")
+    return (f"not in sight, but the game map has {best['kind']} {best['name']}"
+            + (f" {d:.0f} m away" if isinstance(d, (int, float)) else "")
+            + (f" in {best['region']}" if best.get("region") else "") + f": go_to \"{best['name']}\" walks there")
+
+
 def _map_names(rows: list, places, about: str | None) -> bool | None:
     """Give each seen thing the game map's name for its spot (``map_name``: "Law Anima Vent" where the census only
     says "Anima Vent"). With ``about``, a thing whose map name lacks a word of it is no match: returns whether
@@ -929,6 +946,9 @@ class Controller:
             data = {**res["data"], "things": rows}
             if args.get("about"):  # say it plainly to the model too (the body only ranks by match score)
                 data["matched"] = bool(sit.look_matched(look)) if named is None else named
+                if not data["matched"] and (hint := _on_the_map(getattr(self, "places", None), args["about"],
+                                                                (getattr(self, "_state_for_reads", None) or {}).get("position"))):
+                    data["on_the_map"] = hint  # not in sight, but the game map knows it (chat run 2: look, explore, ask)
             res = {**res, "data": data}
         if not res.get("ok") and res.get("reason") in Reason.CANT_YET:
             return {"ok": False, "reason": res["reason"], "note": f"you can't {call.name} yet"}

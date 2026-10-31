@@ -119,6 +119,31 @@ def _from_travel_ladder(tl) -> list[dict]:
     return out
 
 
+def disambiguate(journeys: list[dict]) -> list[dict]:
+    """A request names a place; when the map has several of that name ("the Earth Anima Vent": 39 of them), the
+    player means the nearest one to where Claude starts, so that one is the chat leg's goal (goal_note says so).
+    The body ladder keeps its fixed goals (chat run 2, 2026-11-01: uphill_plateau's goal was a vent 187 m off
+    while another of the same name stood 86 m away)."""
+    lms: dict[str, list] = {}
+    for f in sorted((ROOT / "data").glob("places_*.json")):
+        for lm in json.loads(f.read_text(encoding="utf-8")).get("landmarks") or []:
+            q = obs._xyz(lm.get("position"))
+            if q and lm.get("name"):
+                lms.setdefault(lm["name"].lower(), []).append(list(q))
+    for j in journeys:
+        name = re.sub(r"^the\s+", "", str(j.get("place") or ""), flags=re.I).lower()
+        spots = lms.get(name) or []
+        if len(spots) < 2:
+            continue
+        near = min(spots, key=lambda q: obs.hdist(j["start"], q))
+        if obs.hdist(near, j["goal"]) > j["tol_m"]:
+            j["goal_note"] = (f"{len(spots)} places named {j['place']!r}: goal is the nearest to the start "
+                              f"({obs.hdist(j['start'], near):.0f} m), not the body ladder's "
+                              f"({obs.hdist(j['start'], j['goal']):.0f} m)")
+            j["goal"] = near
+    return journeys
+
+
 def load_journeys() -> tuple[list[dict], str]:
     """The journeys, each with the name a player would use for its goal ("place"; "" = no such name: not askable
     in chat, skipped). Source: tools/travel_ladder.py, else a JSON list, else the fallback."""
@@ -126,7 +151,7 @@ def load_journeys() -> tuple[list[dict], str]:
         from tools import travel_ladder  # BODY's (read-only use)
         out = _from_travel_ladder(travel_ladder)
         if out:
-            return out, "tools/travel_ladder.py"
+            return disambiguate(out), "tools/travel_ladder.py"
     except Exception:  # noqa: BLE001  (not there yet, or mid-edit: fall through)
         pass
     for f in (ROOT / "data" / "travel_ladder.json", ROOT / "logs" / "evals" / "travel_ladder_journeys.json"):
