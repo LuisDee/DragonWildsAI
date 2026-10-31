@@ -1362,6 +1362,16 @@ local function ground_check(pawn)
     return ground
 end
 
+-- Standing for an arrival: on the ground, or in water (wading/swimming at the spot is being there). Live 21:48: the
+-- Water Anima Vent sits at the pond edge; he stood 1.2 m from it in the water, never "on ground", and the go_to
+-- ended unreachable at 0-2 m.
+local function standing_check(pawn)
+    local g = ground_check(pawn)
+    if g ~= false then return g end
+    local ok, swim = pcall(function() return pawn.CharacterMovement:IsSwimming() end)
+    return ok and swim == true
+end
+
 -- Target Z may be an actor origin or floor point. One capsule's full height covers the
 -- known pawn-centre/floor offset (DISCOVERIES); closer stacked floors can still overlap
 -- this provisional allowance, which is exposed to callers for honest interpretation.
@@ -1379,7 +1389,7 @@ function M.verify_arrival()
     if not is_character(pawn) then return { ok = false, reason = "verification_failed", detail = "player character unavailable" } end
     local alive, reason, detail = life_check(st, pawn)
     if not alive then return { ok = false, reason = reason, detail = detail } end
-    local grounded = ground_check(pawn)
+    local grounded = standing_check(pawn)
     if grounded ~= true then return { ok = false, reason = "verification_failed", detail = grounded == false and "character is airborne" or "ground state unavailable" } end
     if st.escape then return { ok = false, reason = "verification_failed", detail = "escape outcome needs zone verification" } end
     local okp, here = pcall(function() return pawn:K2_GetActorLocation() end)
@@ -1901,7 +1911,7 @@ local function tick(st, gen, log)
         local at_goal = reached(st, me, goal)
         if at_goal == nil then return finish(st, { status = "failed", reason = "verification_failed", detail = "position or destination unavailable" }, log) end
         if at_goal and not st.ws_exec and not st.lp_jump_exec and not (st.lpath and st.lpath[st.lwp] and st.lpath[st.lwp].act == "superjump") then
-            local grounded = ground_check(pawn)
+            local grounded = standing_check(pawn)
             if grounded == nil then return finish(st, { status = "failed", reason = "verification_failed", detail = "ground state unavailable" }, log) end
             if grounded then return finish(st, { status = "arrived", dist_m = dist / 100, s = t - st.t0 }, log) end
             if t - st.t0 <= st.timeout_s then st.status = "awaiting_landing"; return end
