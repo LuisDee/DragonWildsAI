@@ -1,28 +1,5 @@
 # Architecture: how to add features without reinventing the wheel
 
-## Current accepted implementation steer
-
-Read [Accepted steer — Luis, 2026-10-28](design/autonomy-plan.md#accepted-steer--luis-2026-10-28)
-before choosing implementation work. The main proof path is the complete Sonnet
-Director/research/task-board -> Haiku execution -> observed game-result loop.
-Isolated controller, developer and simulated results remain diagnostics. New
-tasks should normally require knowledge and model plans; native controls and
-state readers remain reusable. This changes work selection and validation, not
-the original M1-M6 objective or approved judges.
-
-## Real-client inventory read completeness (2026-10-28 candidate)
-
-The real-client inventory module preserves positive rows with per-scope
-`read_status` for carried items, page mapping, loadout, personal inventory and
-both hands. `get_state.inventory_read_status` mirrors it; partial carried counts
-are lower bounds, legacy/missing status is unknown, and unmapped observed rows
-retain raw identity without guessed actionable slots. The guaranteed situation
-digest preserves those distinctions and positive unknown-quantity observations.
-This is perception only: count-based action verification and native empty/null
-semantics need separate work; the approved judges are unchanged. Candidate
-publication requires its current GREEN gate and controlled client integration.
-
-
 This is the single source of truth for **where code goes** and **which rules it follows**. CLAUDE.md says *what* we are building and *why*. DISCOVERIES.md says *what is proven* in the game. This file says *how the code is organised* so that each new feature reuses what exists.
 
 Read it before adding a skill, a hook, a service or an experiment. When the layout changes, update this file in the same change.
@@ -427,18 +404,6 @@ Route R2 (`docs/design/real-player-remediation.md`): Claude plays through a real
   - autostarts the bridge with `loadfile` (`DW_CLIENT_BRIDGE=0` turns this off);
   - uses dkjson for runner output.
 - Everything below `main.lua` reloads without a restart. `client_mod/commands/bridge_start.lua` restarts the bridge from the newest file: it stops the old loop and keeps the chat hooks. `bridge_status.lua` and `bridge_stop.lua` complete the set.
-- Consumable input and verification share `inventory.lua`'s per-process transaction
-  gate across separately loaded module instances. `consume_begin(token, caller,
-  seconds, item)` binds a real pawn owner and item; `consume_owned(id, token)`
-  revalidates ownership; `consume_finish(id, token, interrupted)` releases or retains
-  an interrupted press through its original verification window. Only one press
-  is accepted per transaction. Command, fed-reflex and combat cure/heal callers
-  use this contract; consumable equip/raw use cannot bypass it. Unknown reads
-  remain unknown, and observed deltas do not establish perfect source attribution.
-- A pending action may expose `pause_cleanup` for state-only teardown. The bridge
-  invokes it before finishing an action on world pause, without normal cancel or
-  the input `after_action` sweep. Consume cleanup invalidates its transaction and
-  releases its lease; combat and reflex teardown do likewise before losing tokens.
 - Bridge events go to `logs/client/mod_<ts>.jsonl` (dwlog); module text logs go to `logs/client/client.log`.
 - **Background services are supervised by the bridge** (`client_bridge.SERVICES`):
   - `chat.start` (receive hooks), `sense.vitals_start` (vitals watcher), `combat.guard_start` (self-defence; `DW_COMBAT_REFLEX=0` off), `inventory.reflex_start` (stay fed) and `tickguard.start` (slows the deadlock-prone `LightFlickeringWorldSubSystem` tick; DISCOVERIES "Client hang (R2)");
@@ -449,15 +414,6 @@ Route R2 (`docs/design/real-player-remediation.md`): Claude plays through a real
   - backoff to once a minute after 3 failed starts;
   - state in `bridge_status.services` (`running` / `starting` / `missing`, `starts`).
   - Nobody needs to start them by hand after a client restart any more.
-
-- `floor_read.lua` is a standalone, opt-in observation utility. Startup, the
-  bridge and normal steering do not load or enable it. `new(hookhub)` returns
-  `query` and `cleanup` closures; the caller retains that exact owner and supplies
-  an enabled lifecycle check and query budget. Input is capsule-centre XYZ in
-  centimetres; output contains copied typed fields with explicit known flags,
-  never a terrain-safety verdict. Cleanup removes only the owned subscriber,
-  leaves the native hook installed and permanently closes that reader for the
-  process. See `docs/design/native-floor-reader.md` before any caller integration.
 
 ### 8.2 Module API, as the bridge uses it
 
@@ -471,6 +427,7 @@ Every function takes the DWClient text logger `log(msg)` first and returns a tab
 | `combat.lua` + `arbiter.lua` (combat/arbiter agent) | `combat.HANDLERS.attack` (async), `combat.status()` (`fight`, `guard`), `combat.stop(log, why)`, `combat.guard_start(log)`; `arbiter.owner()` / `status()` (who owns the pawn: reflex > command > task > idle) | `attack`, `stop` (commanded fights), `get_state.fight`, service `combat_guard`; follow/go_to/interact wait while a reflex owns the pawn. A fight that starts during an NPC dialogue leaves it through `talk.stop(why)` + `talk.start{leave=true}`, falling back to the panel's own Cancel and never `IA_UI_GenericBack`, and emits activity `conversation_interrupted {why = attacked \| fight_ordered, npc, attacker, via}` |
 | `gather.lua` (gather agent) | `gather.HANDLERS.gather` (async), `gather_status`; events `client_io/events/gather.jsonl` (`gather_progress`, `gather_status`); profiles `gather_profiles.lua` | `gather` (failures carry `data.why` + `data.detail`, spoken as is), `gather_progress` events |
 | `move.lua` events | `client_io/events/move.jsonl`: `unreachable` (once per episode), `reachable_again`, `stuck` | events `unreachable`, `resumed` |
+| `move.lua` rules (Codex period, simplified 2026-10-31) | A child move carries its parent's arbiter token; a bare move is refused only while another owner holds movement (`design/nested-interaction-move-ownership.md`). A jump is bound to the movement generation that issued it (`design/movement-jump-binding.md`). Long trips ask the nav oracle; on `no_path` or a partial/ended route it falls back to the local planner and trail, and never beelines at the raw goal into a KillZ (`design/navigation-route-authority.md`). Typed local-plan edges `jump` / `djump` / `superjump` run from the measured `traversal_moves.lua` profile (`move_calib`); Windstep rise is unmeasured (`design/traversal-recovery.md`). | go_to failures name the missing ability (`needs:<ability>`) |
 | `inventory.lua` | `list(log)` → `{hotbar, bag, loadout, personal, held}` (rows carry `consumable`); `drop(log, what, count)`; `equip(log, what)`; `unequip(log, slot)`; `interact_target(pawn)`; `press_interact(log)`; `describe_item(item)` | `get_state.inventory/inventory_items/gear/held`, `drop`, `equip`, `unequip`, `inventory`, `interact` (detector + press), `inspect` (container contents), `vitals_low` (has food/drink) |
 | `arbiter.lua` | `request(log, {name, level=reflex\|command\|task\|idle, uses_move, lease_s, on_suspend, on_resume, on_stop})` → `{ok, token, preempted}` or `{ok=false, reason="busy", owner}`; `release(log, token)` (resumes the newest suspended owner, replaying its move via `move.snapshot/restore`); `renew`, `holds`, `is_suspended`, `owner`, `status`; HANDLERS `arbiter_status` | which module owns the pawn; reflex fights suspend and later resume commands and tasks |
 | `traverse_learn.lua` (traversal agent; READ-ONLY recorder) | `start(log, {world})` / `stop` / `status()`; for move.lua: `links_near(pos, radius_m, {env, usable_only})`, `best_link(from, to, {env, radius_m, max_detour})`, `usable(link, env)`, `record_attempt(log, id, ok, reason)`, `forget(log, id)`, `rebuild(log, world)`; HANDLERS `learn_status`, `learn_links` (not yet in `MODULES`). It records other players' and Claude's own airborne events into `logs/state/worlds/<world>/traversal_events.jsonl` and clusters them into `data/skills/<world>/traversal_links.json`. It is the **only writer** of that file. | (planned) link segments for go_to/follow; "what have you learned?" |
@@ -700,10 +657,3 @@ retried on later drains, at most 3 runs).
 > **Deploy note (L28, 2026-10-26):** the game loads the DEPLOYED `ue4ss\Mods\DWClient\scripts\main.lua`, not the repo copy. Other modules are loaded from the repo by path. So a change to `main.lua` must be redeployed (`tools/install_client_ue4ss.ps1`) and the client restarted. The command runner now reads `client_io/cmd/queue.txt` (no process spawning on the game thread).
 
 > **Deploy note (2026-10-26):** after changing `tools/client_lib.ps1` / `client_boot.ps1` / `client_watchdog.ps1`, RESTART the client watchdog (`tools/start_client_watchdog.ps1 -Stop`, then start it). It loads those scripts once, at its own start. An old watchdog kept writing probes the new queue runner never saw, and killed a healthy client about every 4 min (08:04–08:24 UTC).
-
-
-## Retained terrain observations (2026-10-30 candidate)
-
-`client_mod/scripts/terrain.lua` owns the readonly `terrain` survey/history/window interface and bounded per-world `data/skills/<world>/terrain_observations.json`. It reuses localplan and the production observation trace through bridge read waiters; it does not own movement. Ordinary go_to outcomes are appended as observations. Floors, derived capsule centres, ray connectivity and unknown capsule clearance remain distinct.
-
-The cached compact packet is exposed in get_state and preserved in Controller initial/continuation input and Director state/research input. Both models may query retained detail; the body manifest supplies the schema. No new waypoint authority or task-specific workflow is introduced. See [the reviewed design](design/observed-terrain-exploration.md); candidate implementation is not live capability proof.
