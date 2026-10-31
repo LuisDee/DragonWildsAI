@@ -119,6 +119,7 @@ def _match(name: str, q: set[str]) -> str | None:
 
 
 _RANK = {"exact": 0, "named": 1, "part": 2}
+_NEAR_WORDS = {"lodestone", "near", "by", "next", "beside", "at", "closest", "nearest"}  # "<place> lodestone" -> the place
 
 
 def _pos(p) -> list[float] | None:
@@ -332,6 +333,26 @@ class Places:
                         "inside the province, height unknown, not checked for ground or a path"})
         return ans
 
+    def _lodestone_by(self, rest: set[str], here, lodes: list[dict]) -> list[dict]:
+        """"the lodestone by the Wise Old Man" / "Zanik lodestone": the lodestone nearest the map place of that name
+        (its spot nearest to him). Lodestones carry no names in the game, so a player names one by what stands by it."""
+        out = []
+        for name, rows in self.landmarks.items():
+            how = _match(name, rest)
+            if how not in ("exact", "named"):
+                continue
+            pts = [p for p in (_pos(r.get("position")) for r in rows) if p]
+            if not pts:
+                continue
+            at = min(pts, key=lambda p: _d(here, p) or 0.0) if here else pts[0]
+            ln = min(lodes, key=lambda l: _d(l["position"], at) or 1e12)
+            gap = _d(ln["position"], at)
+            out.append({"name": f"lodestone by {name}", "kind": "lodestone", "match": how, "approximate": False,
+                        "source": "lodestones (live) + game map", "id": ln.get("id"),
+                        "basis": f"the lodestone nearest {name}" + (f" ({gap:.0f} m from it)" if gap is not None else ""),
+                        **self._spot(ln["position"], here, None)})
+        return out
+
     def name_at(self, pos, max_m: float = 4.0) -> str | None:
         """The game-map landmark name standing at ``pos`` (within ``max_m`` horizontally, 5 m vertically), else None.
         Lets a seen thing carry the map's name: the census calls every vent "Anima Vent", the map knows it's the Law one."""
@@ -416,6 +437,8 @@ class Places:
                 out.append({"name": l.get("name"), "kind": "lodestone", "match": how, "source": "lodestones (live)",
                             "approximate": False, "id": l.get("id"), "basis": "a lodestone in this world",
                             **self._spot(l["position"], here, None)})
+        if lodes and "lodestone" in q and (rest := q - _NEAR_WORDS):
+            out += self._lodestone_by(rest, here, lodes)
         for name in self.landmarks:
             how = _match(name, q)
             if how:

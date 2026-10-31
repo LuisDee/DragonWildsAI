@@ -16,6 +16,7 @@ from typing import Any, Callable
 from .interface import GameInterface, Reason
 from .jsonl_log import JsonlLogger
 from .state_store import StateStore, Task
+from .knowledge import _terms
 
 class StateUnavailable(RuntimeError):
     """get_state failed. Without fresh state no step can be verified (principle 2)."""
@@ -293,7 +294,11 @@ class Executor:
         if task.skill != "go_to" or self.places is None or not isinstance(target, str):
             return failed
         try:
-            res = self.places.where(target, now.get("position"))
+            lodes = None
+            if "lodestone" in _terms(target):  # "the lodestone by Zanik": the body lists the world's lodestones
+                lr = self.game.call("lodestones", {})
+                lodes = ((lr.get("data") or {}).get("lodestones") or []) if lr.get("ok") else None
+            res = self.places.where(target, now.get("position"), lodestones=lodes)
         except Exception as exc:  # map data is best effort: the body's answer stands
             self.log.log("place_lookup_error", place=target, error=repr(exc)[:200])
             return failed

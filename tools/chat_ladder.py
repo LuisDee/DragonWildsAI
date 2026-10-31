@@ -125,11 +125,13 @@ def disambiguate(journeys: list[dict]) -> list[dict]:
     The body ladder keeps its fixed goals (chat run 2, 2026-11-01: uphill_plateau's goal was a vent 187 m off
     while another of the same name stood 86 m away)."""
     lms: dict[str, list] = {}
+    cased: dict[str, str] = {}
     for f in sorted((ROOT / "data").glob("places_*.json")):
         for lm in json.loads(f.read_text(encoding="utf-8")).get("landmarks") or []:
             q = obs._xyz(lm.get("position"))
             if q and lm.get("name"):
                 lms.setdefault(lm["name"].lower(), []).append(list(q))
+                cased[lm["name"].lower()] = lm["name"]
     regions = {str(r.get("name") or "").lower() for f in sorted((ROOT / "data").glob("places_*.json"))
                for r in json.loads(f.read_text(encoding="utf-8")).get("regions") or []}
     for j in journeys:
@@ -139,6 +141,16 @@ def disambiguate(journeys: list[dict]) -> list[dict]:
         if name and name not in lms and name not in regions and "lodestone" not in name:
             j["unaskable"] = f"{j['place']!r} is no map name and no lodestone: Claude can't know it unless taught"
             j["place"] = ""
+            continue
+        if "lodestone" in name and name not in lms:
+            # lodestones have no names in the game: a player names one by what stands by it (chat run 3:
+            # "the temple lodestone" was one of three in Temple Woods, 4 calls to pick it)
+            by = min(((n, q) for n, qs in lms.items() for q in qs if obs.hdist(j["goal"], q) <= 40.0),
+                     key=lambda nq: obs.hdist(j["goal"], nq[1]), default=None)
+            if by:
+                j["goal_note"] = (f"{j['place']!r} asked as the lodestone by {cased[by[0]]} "
+                                  f"({obs.hdist(j['goal'], by[1]):.0f} m from it)")
+                j["place"] = f"the lodestone by {cased[by[0]]}"
             continue
         spots = lms.get(name) or []
         if len(spots) < 2:
