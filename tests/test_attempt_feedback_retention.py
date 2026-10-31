@@ -7,13 +7,14 @@ from conftest import Rig
 from brain import director as D
 from brain import predicates as P
 from brain.board import Step
-from brain.llm import FakeLLM
+from brain.llm import FakeLLM, model_view
 from test_director import Clock, decision
 
 
 FAILURE = {"detail": "held-out obstruction", "source": "fixture.native", "observed_at": 17.0, "route_feedback": {
     "generation": 72, "requested_xyz": [12.0, 34.0, 56.0], "final_position": [1.0, 2.0, 3.0],
     "unknown": ["unobserved_surface"], "partial": True}, "position": [1.0, 2.0, 3.0]}
+SEEN = model_view(FAILURE)  # what a model is shown: the route dump stays in the log
 
 
 def body_event(call):
@@ -53,7 +54,7 @@ def test_actual_first_call_and_empty_run_retain_failure_in_both_model_requests(t
     d._advance(task)
     first = body_event(rig.controller_llm.calls[0])
     feedback = first["first_call_result"]
-    assert feedback["args"] == step.first_call["args"] and feedback["data"] == FAILURE
+    assert feedback["args"] == step.first_call["args"] and feedback["data"] == SEEN and "route_feedback" not in SEEN
     assert feedback["ok"] is False
     assert (first["board_task_id"], first["step_id"], first["attempt"]) == (task.id, step.id, 1)
     assert "action_id" not in feedback and "observed_at" not in feedback and "completed_at" not in feedback
@@ -71,7 +72,7 @@ def test_actual_first_call_and_empty_run_retain_failure_in_both_model_requests(t
     failed = json.loads(planner.calls[0]["messages"][1]["content"])["detail"]["failed"]
     assert failed["last_actions"] == retained
     assert (failed["board_task_id"], failed["step_id"], failed["attempt"]) == (task.id, step.id, 1)
-    assert failed["last_actions"][0]["data"]["route_feedback"]["unknown"] == ["unobserved_surface"]
+    assert failed["last_actions"][0]["data"]["detail"] == "held-out obstruction"
 
 
 def test_new_attempt_with_same_step_id_clears_previous_feedback_before_controller_request(tmp_path):
@@ -95,8 +96,8 @@ def test_summaries_copy_short_values_and_clip_long_ones():
               "data": FAILURE, "origin": "board", "action_id": "executor-action"}
     original = copy.deepcopy(record)
     first = D._result_summaries([record])[0]
-    assert first == {k: record[k] for k in ("tool", "args", "ok", "reason", "data")} and record == original
-    first["data"]["route_feedback"]["unknown"].append("modified copy")
+    assert first == {**{k: record[k] for k in ("tool", "args", "ok", "reason")}, "data": SEEN} and record == original
+    first["data"]["position"].append("modified copy")
     assert record == original
     big = [{"tool": f"tool_{i}", "ok": False, "reason": "blocked", "data": {"rows": ["x" * 3000]}} for i in range(10)]
     rows = D._result_summaries(big)

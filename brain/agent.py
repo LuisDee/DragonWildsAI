@@ -25,6 +25,7 @@ from .interface import (RULE_TOOLS, Activity, Attacked, ChatHeard, CommandReceiv
                         TaskDone, TaskFailed)
 from .jsonl_log import JsonlLogger
 from .planner import Planner, PlanError
+from .progress import RepeatWatch, change
 from .skill_library import SkillError, SkillLibrary, check_preconditions
 from .state_store import StateStore, Task
 
@@ -36,6 +37,9 @@ HELP_REPEAT_S = 60.0
 # The agent loop: model turns after the first, per request (every turn's results go back to the model),
 # bounded by a turn cap and a wall deadline (a long chain such as "make an axe then cut a tree" fits).
 MAX_TURNS = 8
+# The no-progress breaker parked a step (brain/progress.py): the model's last turn of this request.
+PARKED_NOTE = ("A step is parked (results above): the same call failed the same way with no progress. If the player "
+               "hasn't heard why, tell him in one short plain line; this request ends after this reply.")
 REQUEST_SECONDS = 300.0
 # Tools that take a while: the turn's line is said as they start, so it is true when said.
 ANNOUNCE_FIRST = {"go_to", "come_to", *LONG_ACTIONS}
@@ -91,6 +95,9 @@ class Agent:
         self._stash: list[Event] = []  # events peeked during a chain (handled by the next pump)
         self.budget = None  # brain.budget.Budget (LiveSession): the daily model-spend cap
         self.check_promises = True  # L5: a talk-only first turn gets one turn to call what it promised
+        self.repeats = RepeatWatch()  # the no-progress breaker (brain/progress.py)
+        self.request_calls = 0  # model calls of the last _command_run (a board step's call budget)
+        self.request_parked: str | None = None  # the last _command_run ended on a parked step: why
         self._sampled_at: float | None = None  # last get_state the broker observed (situation_review)
         self._in_pump = False
         # The model's line held back during a quick action (said after it, unless a failure replaces it): said
@@ -351,7 +358,11 @@ class Agent:
                 if not event.text:
                     return
             body_events = still
-        d, state = self._fresh_reply(event, d, state, addressed, body_ctx)
+        self.request_calls, self.request_parked = d.model_calls, None
+        d2, state = self._fresh_reply(event, d, state, addressed, body_ctx)
+        if d2 is not d:
+            self.request_calls += d2.model_calls
+        d = d2
         if not addressed and not (d.actions or d.goal or d.skill or d.refusals or d.speech):
             self.log.log("chat_decision", player=event.player, text=event.text, decision="ignored",
                          reason="model: not meant for me")
@@ -365,6 +376,7 @@ class Agent:
         lines: list[str] = []  # what the model's turns actually said (for previous_review.you_said)
         acted = False
         turn = 0
+        parked = None  # the no-progress breaker parked a step: this turn is the chain's last
         while True:
             if d.interrupts and self.active_goal:
                 self._cancelled = True
@@ -386,6 +398,9 @@ class Agent:
                         line_said = line_said or bool(d.speech)
                 said = said or t["spoken"]
             elif t["failure"][1] in Reason.INTERRUPTS:  # a newer command took over: it speaks
+                break
+            if parked:  # caps spend: the model heard the step is parked and had its one turn to say why
+                self.log.log("chain_stopped", turns=turn, why="parked", parked=parked)
                 break
             more = bool(t["failure"]) or bool(set(t["ran"]) - STANDING)
             more = more or (bool(event.text) and nonbody_success and not said)
@@ -409,19 +424,22 @@ class Agent:
                     said = True
                 break
             turn += 1
-            state = self._fresh_state()
+            before, state = state, self._fresh_state()
+            parked = self._note_progress(t, before, state, event.player)
+            self.request_parked = parked or self.request_parked
             try:
                 say_res = {"ok": True, "note": "said"} if line_said else \
                     {"ok": None, "note": "not said: a step failed first; say what's true now" if t["failure"]
                      else "not said (too close to a line you just said)"}
                 d = self.controller.next_turn(d, {**t["results"], "say": say_res}, state, failed=bool(t["failure"]),
-                                              note=PROMISE_NOTE if promise_check else None)
+                                              note=PARKED_NOTE if parked else PROMISE_NOTE if promise_check else None)
             except Exception as exc:  # model/provider error: the template still says why
                 self.log.log("next_turn_error", turn=turn, error=repr(exc))
                 if t["failure"]:
                     self.controller.report_failure(*t["failure"])
                     said = True
                 break
+            self.request_calls += d.model_calls
             self.log.log("chain_turn", turn=turn, actions=[c.name for c in d.actions], speech=d.speech)
             # A model-selected goal/skill is recovery work even without primitive actions.
             # https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls
@@ -463,6 +481,7 @@ class Agent:
                                                            "args_help": self.controller.arg_help(failed_call.name)}
         extra: list[str] = []  # facts the body reported that the speech must carry (single voice)
         spoken, ran = False, []
+        body: list[tuple[str, str, dict]] = []  # (result key, tool, args) of the body actions run
         self.broker.learn_names(looks=d.looks)  # body_status then names the things this turn's looks found
         for call in ([] if failure else d.actions):
             if call.name in ("remember", "forget_skill"):
@@ -501,6 +520,7 @@ class Agent:
             spoken = spoken or bool(held and held["said"])
             ran.append(call.name)
             res = {"ok": outcome.ok, "reason": outcome.reason, "data": outcome.data}
+            body.append((call.id or call.name, call.name, call.arguments))
             if not outcome.ok and outcome.reason in (Reason.UNKNOWN_TARGET, Reason.INVALID_ARGS, Reason.NOT_PERCEIVED,
                                                      Reason.AMBIGUOUS_TARGET):
                 res["args_help"] = self.controller.arg_help(call.name)  # how to name a target for this tool
@@ -511,7 +531,31 @@ class Agent:
         if d.skill and failure is None:
             failure = self._queue_skill(*d.skill, state)
         return {"failure": failure, "failed_call": failed_call, "results": results, "extra": extra,
-                "spoken": spoken, "ran": ran}
+                "spoken": spoken, "ran": ran, "body": body}
+
+    def _note_progress(self, t: dict, before: dict, after: dict, player: str) -> str | None:
+        """The no-progress breaker (brain/progress.py), on the turn's body results before the model reads them:
+        what the turn changed, and a plain note on a failure repeated with no progress. Returns the parked note
+        when a step was parked (the chain then ends after the model's next turn)."""
+        body = t.get("body") or []
+        delta = change(before, after) if body else None
+        parked = None
+        for i, (key, tool, args) in enumerate(body):
+            res = t["results"].get(key)
+            if not isinstance(res, dict):
+                continue
+            if delta and i == len(body) - 1:
+                res["change"] = "this turn: " + delta
+            if res.get("ok"):
+                self.repeats.progressed(tool, args)
+                continue
+            n = self.repeats.note(tool, args, res.get("reason"), after)
+            words = self.repeats.verdict(tool, args, res.get("reason"), n, player)
+            if words:
+                res.update(words)
+                self.log.log("no_progress", tool=tool, args=args, reason=res.get("reason"), count=n)
+                parked = words.get("parked") or parked
+        return parked
 
     def run_directed(self, event: dict, player: str) -> dict:
         """One body-initiated Controller run for the board's current step (docs/design/director.md §2.4).
@@ -523,6 +567,7 @@ class Agent:
         ended: normal | chat | interrupted | error}. Activity events that arrived during the run are handled
         before it returns, so the board's counters are current when it checks the step."""
         self._directed, self._directed_end = [], "normal"
+        self.request_calls, self.request_parked = 0, None
         try:
             self._command(CommandReceived(player=player, text=""), addressed=True, body_events=[event])
             if self.pending_goal and self.pending_skill:
@@ -550,7 +595,8 @@ class Agent:
         finally:
             actions, ended = self._directed, self._directed_end
             self._directed = None
-        return {"actions": actions, "ended": ended}
+        return {"actions": actions, "ended": ended, "model_calls": self.request_calls,
+                "parked": self.request_parked}
 
     def run_first_call(self, call: dict, player: str) -> dict:
         """A board step's first call, chosen by the Director's plan (a model decision), run before the Controller's

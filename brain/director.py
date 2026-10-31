@@ -50,7 +50,7 @@ from .board import ENDED, PLAN_FIELDS, WINDOW_NAME, BoardError, BoardOps, BoardS
 from .capability_gaps import GapLog, default_path
 from .interface import Reason
 from .knowledge_memory import Efficiency, KnowledgeMemory, matches_unknown, recall
-from .llm import request_log_fields
+from .llm import model_view, request_log_fields
 from .llm_json import BudgetStop, DecisionError, extract_json, json_decision
 from .situation import quest_rows
 
@@ -75,11 +75,19 @@ MAX_TRANSITIONS = 8  # per tick: a passed step or a landed decision starts the n
 # The bound only stops a tight loop; chat is checked between transitions and runs pump body events themselves.
 MAX_REMEMBERED = 200  # per-task / per-step memories kept by the Director (pruned)
 
+# A run whose only failures are another owner holding the pawn or a body timeout is not the plan's fault: it is run
+# once more after a short wait, not replanned (no Sonnet call for a reflex that was eating).
+HELD_REASONS = frozenset({Reason.BUSY, Reason.TIMEOUT})
+HELD_RETRY_S = 5.0
+HELD_RETRIES = 1
+STEP_CALL_BUDGET = 20  # Controller model calls one attempt at a step may use (live p90 14) before it fails
+
 RESULT_FIELD_CHARS = 1500  # one result field (args, data) as the next decision sees it
 
 
 def _clipped(value: Any, limit: int = RESULT_FIELD_CHARS) -> Any:
-    """The value itself when its JSON is short, else its JSON text cut to ``limit`` (marked)."""
+    """The value itself (log-only diagnostics dropped) when its JSON is short, else its JSON text cut to ``limit``."""
+    value = model_view(value)
     text = json.dumps(value, ensure_ascii=False, default=str)
     return copy.deepcopy(value) if len(text) <= limit else text[:limit] + "... [truncated]"
 
@@ -936,6 +944,8 @@ class Director:
         self._last_results: dict[str, list] = {}
         self._report_note: dict[str, str] = {}
         self._wait_checked: dict[str, float] = {}
+        self._held: dict[str, tuple[int, float]] = {}  # step id -> (busy/timeout retries, retry not before)
+        self._step_calls: dict[str, int] = {}  # step id -> Controller model calls in its current attempt
 
     # ---------------------------------------------------------------- construction for the live session
 
@@ -1448,6 +1458,8 @@ class Director:
         now = self.clock()
         if step.status == "active" and step.wait and now - self._wait_checked.get(step.id, -1e18) < WAIT_CHECK_S:
             return False
+        if step.status == "active" and now < self._held.get(step.id, (0, -1e18))[1]:
+            return False  # the pawn's other owner (or a slow body) gets a moment before the retry
         state = self._fresh_state()
         places = self.places()
         r = None
@@ -1457,6 +1469,8 @@ class Director:
                 return True
             self.ops.activate(step, state)
             self._last_results.pop(step.id, None)  # activate clears step.actions and begins a new attempt
+            self._held.pop(step.id, None)
+            self._step_calls.pop(step.id, None)
             r = P.evaluate(step.success, state, self.ops.step_ctx(task, step, state, places))
             if r.passed is None:
                 self._uncheckable(task, step, r)
@@ -1588,6 +1602,22 @@ class Director:
         if res.get("ended") in ("chat", "interrupted"):  # not the step's fault (H7c), but it costs a little
             step.uncounted_runs += 1
             self._spend(task, SPEND["uncounted_run"], "chat kept interrupting me")
+            return
+        failed = [x for x in board_recs if x.get("ok") is False]
+        tries, _ = self._held.get(step.id, (0, 0.0))
+        if (failed and not any(x.get("ok") for x in board_recs) and all(x.get("reason") in HELD_REASONS for x in failed)
+                and tries < HELD_RETRIES):
+            self._held[step.id] = (tries + 1, self.clock() + HELD_RETRY_S)
+            step.uncounted_runs += 1
+            self._log("board_held", task=task.id, step_id=step.id, reason=failed[-1].get("reason"),
+                      owner=(failed[-1].get("data") or {}).get("owner"), retry_in_s=HELD_RETRY_S)
+            return
+        if res.get("parked"):  # the no-progress breaker: the same failure 3 x with no progress (agent.py)
+            self._fail_attempt(task, step, f"parked: {res['parked']}", r)
+            return
+        calls = self._step_calls[step.id] = self._step_calls.get(step.id, 0) + int(res.get("model_calls") or 0)
+        if calls >= STEP_CALL_BUDGET:
+            self._fail_attempt(task, step, f"used {calls} model calls on this step without passing it: {r.detail}", r)
             return
         step.runs += 1
         meas = _progress_measures(r.measures)

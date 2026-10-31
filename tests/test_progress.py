@@ -1,0 +1,134 @@
+"""The no-progress breaker (brain/progress.py): what a turn changed, the same failure without progress said
+plainly the 2nd time, parked the 3rd; the Director retries a busy/timeout run once instead of replanning."""
+import json
+
+from conftest import Rig
+from brain.llm import FakeLLM
+from brain.progress import RepeatWatch, change
+
+S0 = {"position": [0, 0, 0], "health": 100, "inventory": {"ITEM_Log": 2}}
+
+
+def test_change_says_moved_hp_and_items():
+    after = {"position": [3, 4, 0], "health": 70, "inventory": {"ITEM_Log": 5, "ITEM_Water": 0}}
+    assert change(S0, after) == "moved 5.0 m; HP -30; +3 Log"
+    assert change(S0, S0) == "moved 0.0 m; inventory unchanged"
+    assert change(S0, {"unavailable": "x"}) is None
+
+
+def test_second_identical_failure_is_said_and_third_parks_once():
+    w = RepeatWatch()
+    args = {"target": [12.3, 34.4, 56.0]}
+    assert w.note("go_to", args, "path_blocked", S0) == 1
+    assert w.verdict("go_to", args, "path_blocked", 1, "Zezima") == {}
+    near = {**S0, "position": [1.0, 0.5, 0]}  # < 2 m net, rounded args equal
+    assert w.note("go_to", {"target": [12.1, 34.0, 56.2]}, "path_blocked", near) == 2
+    assert "2nd time go_to" in w.verdict("go_to", args, "path_blocked", 2, "Zezima")["repeat"]
+    assert w.note("go_to", args, "path_blocked", near) == 3
+    first = w.verdict("go_to", args, "path_blocked", 3, "Zezima")["parked"]
+    assert first.startswith("3rd time go_to") and "Tell Zezima" in first
+    assert "already told him" in w.verdict("go_to", args, "path_blocked", 4, "Zezima")["parked"]
+
+
+def test_progress_restarts_the_count():
+    w = RepeatWatch()
+    args = {"target": "tree_1"}
+    w.note("gather", args, "blocked", S0)
+    assert w.note("gather", args, "blocked", {**S0, "position": [5, 0, 0]}) == 1  # moved: a new try
+    assert w.note("gather", args, "blocked", {**S0, "position": [5, 0, 0], "inventory": {"ITEM_Log": 3}}) == 1
+    assert w.note("gather", args, "other_reason", S0) == 1  # another reason is another signature
+    w.progressed("gather", args)
+    assert w.note("gather", args, "blocked", S0) == 1
+
+
+def _failing_go_to(rig):
+    original, sent = rig.game.call, []
+
+    def call(tool, args):
+        if tool == "go_to":
+            sent.append(args)
+            return {"ok": False, "reason": "path_blocked", "data": {"detail": "a wall"}}
+        return original(tool, args)
+    rig.game.call = call
+    return sent
+
+
+def _tool_results(call):
+    return [json.loads(m["content"]) for m in call["messages"] if m.get("role") == "tool"]
+
+
+def test_chain_hears_the_repeat_then_parks_and_stops(tmp_path):
+    rig = Rig(tmp_path, max_attempts=1)
+    sent = _failing_go_to(rig)
+    go = lambda: FakeLLM.call("go_to", target=[20, 0, 0])  # noqa: E731
+    rig.controller_llm.push(FakeLLM.say("", go()), FakeLLM.say("", go()), FakeLLM.say("", go()),
+                            FakeLLM.say("There's a wall in the way, I can't get there."), FakeLLM.say("", go()))
+    rig.game.player_say("come to the cave")
+    rig.agent.step()
+    calls = rig.controller_llm.calls
+    assert len(calls) == 4  # decide + 3 follow-ups; the 4th follow-up after the park never happens
+    second, third = _tool_results(calls[2])[-1], _tool_results(calls[3])[-1]
+    assert "change" in second and second["change"].startswith("this turn: moved")
+    assert "2nd time go_to" in second["repeat"] and "parked" not in second
+    assert third["parked"].startswith("3rd time go_to") and "path_blocked" in third["parked"]
+    assert rig.agent.request_parked == third["parked"] and rig.agent.request_calls == 4
+    assert "There's a wall in the way, I can't get there." in rig.companion_said()
+    assert len(sent) == 3
+
+
+# ------------------------------------------------------------------ the Director side
+
+from test_director import COPPER, decision, gained, have, make, step, ticks  # noqa: E402
+
+
+def _runner(results):
+    """A board run per call: the next scripted (ok, reason, extra) record."""
+    seen = []
+
+    def run(ev, port):
+        if ev["type"] != "board_step":
+            return None
+        rec = results[min(len(seen), len(results) - 1)]
+        seen.append(ev)
+        return {"actions": [{"tool": "gather", "args": {"resource": "copper"}, "ok": rec[0], "reason": rec[1],
+                             "data": {"owner": "fed_reflex"} if rec[1] == "busy" else {}, "origin": "board"}],
+                "ended": "normal", **(rec[2] if len(rec) > 2 else {})}
+    return run, seen
+
+
+def _job(tmp_path, results):
+    run, seen = _runner(results)
+    d, port, world, llm, clock = make(tmp_path, run, [
+        decision(task_success=have(COPPER, 5), steps=[step("mine copper", gained(COPPER, 5))]),
+        decision(ask_help="Where should I go?")])
+    d.handle_tool("add_task", {"text": "collect copper"}, "Zezima")
+    return d, seen, llm, clock
+
+
+def test_a_busy_run_waits_and_runs_again_without_a_replan(tmp_path):
+    d, seen, llm, clock = _job(tmp_path, [(False, "busy")])
+    ticks(d, 2)
+    assert len(seen) == 1 and len(llm.calls) == 1  # held: no second run yet, no replan
+    clock.t += 6
+    ticks(d, 1)
+    assert len(seen) == 2  # the one retry, after the owner had a moment
+    ticks(d, 3)
+    assert len(seen) == 3 and len(llm.calls) == 2  # busy again: counted as usual, 2 runs without progress -> replan
+    assert json.loads(llm.calls[1]["messages"][1]["content"])["decision"] == "replan"
+
+
+def test_a_parked_chain_fails_the_attempt_for_a_replan(tmp_path):
+    d, seen, llm, clock = _job(tmp_path, [(False, "path_blocked", {"parked": "3rd time gather ... parked"})])
+    ticks(d, 3)
+    assert len(seen) == 1
+    request = json.loads(llm.calls[1]["messages"][1]["content"])
+    assert request["decision"] == "replan" and request["detail"]["failed"]["reason"].startswith("parked: 3rd time")
+
+
+def test_a_step_that_burns_its_call_budget_fails_the_attempt(tmp_path):
+    from brain.director import STEP_CALL_BUDGET
+    d, seen, llm, clock = _job(tmp_path, [(False, "path_blocked", {"model_calls": STEP_CALL_BUDGET})])
+    ticks(d, 3)
+    assert len(seen) == 1
+    request = json.loads(llm.calls[1]["messages"][1]["content"])
+    assert request["detail"]["failed"]["reason"].startswith(f"used {STEP_CALL_BUDGET} model calls on this step")

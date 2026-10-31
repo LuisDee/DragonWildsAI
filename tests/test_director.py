@@ -1033,7 +1033,7 @@ def _navigation_packet():
             "truncated": False, "selection": "nearest", "semantics": "historical candidate observations; not movement authority"}
 
 
-def test_failed_navigation_evidence_reaches_controller_and_replan_provider(tmp_path):
+def test_failed_navigation_detail_reaches_controller_and_replan_provider_without_the_dumps(tmp_path):
     packet = _navigation_packet()
     action = {"tool": "go_to", "ok": False, "reason": "blocked", "origin": "board",
               "data": {"navigation_observation": packet, "route_feedback": {"partial": True},
@@ -1047,10 +1047,11 @@ def test_failed_navigation_evidence_reaches_controller_and_replan_provider(tmp_p
     task_id = d.handle_tool("add_task", {"text": "collect copper"}, "Zezima")["data"]["id"]
     ticks(d, 4)
     events = [e for e in port.events if e["type"] == "board_step"]
-    assert events[1]["last_results"][0]["data"] == action["data"]
+    seen = {"detail": "collision", "position": [1, 2, 3]}  # navigation/route dumps stay in the log only
+    assert events[1]["last_results"][0]["data"] == seen
     request = json.loads(llm.calls[1]["messages"][1]["content"])
     assert request["decision"] == "replan"
-    assert request["detail"]["failed"]["last_actions"][0]["data"] == action["data"]
+    assert request["detail"]["failed"]["last_actions"][0]["data"] == seen
     assert request["job"]["text"] == "collect copper"
     assert d.ops.b.task(task_id).success["predicate"]["have"]["at_least"] == 5
     assert COPPER in d.ops.b.task(task_id).success["predicate"]["have"]["ids"]
