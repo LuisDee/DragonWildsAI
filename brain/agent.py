@@ -412,7 +412,9 @@ class Agent:
             # L5 (live 21:02:56 "I'll walk closer and cast it on the tree", no tool call): a first turn that
             # only talked gets ONE more turn to call what it said it would do (or reply empty). Its line
             # is already said, so this costs no reply latency.
-            promise_check = (turn == 0 and self.check_promises and not t["ran"] and not t["failure"]
+            # Only for a player's request: on a situation_review, speaking IS the response (run 1: all 4 reviews
+            # paid a 2nd call that answered "I said my line already").
+            promise_check = (turn == 0 and self.check_promises and bool(event.text) and not t["ran"] and not t["failure"]
                              and bool(d.speech) and not (d.actions or d.goal or d.skill))
             more = more or promise_check
             if not more:
