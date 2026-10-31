@@ -1310,6 +1310,14 @@ finish = function(st, result, log)
         if nav_down and result.status == "failed" and (result.reason == "stuck" or result.reason == "unreachable" or result.reason == "timeout") then
             result.why, result.reason = result.reason, "nav_unavailable"
         end
+        -- MOVE_None for the whole failed attempt: still lying down after a rest whose bed/shelter is gone (live 21:34:
+        -- teleported out of a shelter, every go_to "stuck" at 0 m). Not checked at start: right after a teleport the
+        -- mode reads None for a moment (live 21:43, two false refusals).
+        local okm, mmode = pcall(function() return st.pawn.CharacterMovement.MovementMode end)
+        if okm and mmode == 0 and result.status == "failed" and (result.reason == "stuck" or result.reason == "timeout") then
+            -- why = the words (client_bridge shows why first, after the trip sentence)
+            result.why, result.reason = "my movement is disabled (I'm still lying down from a rest, and the bed or shelter I could get up from is gone)", "resting"
+        end
         if log then log("move: trip: " .. sentence) end
     elseif not okt and log then log("move: trip report error " .. tostring(sentence)) end
     st.result = result
@@ -3013,13 +3021,6 @@ local function start(log, mode, opts)
     if not is_character(pawn) then return { ok = false, error = "no player character (main menu / loading?)" } end
     local alive, life_reason, life_detail = life_check({}, pawn)
     if not alive then return { ok = false, reason = life_reason, detail = life_detail } end
-    -- MOVE_None while alive: still lying down after a rest whose bed/shelter is gone (live 21:34: teleported out of a
-    -- shelter, every go_to "stuck" at 0 m). Say why; a client rejoin restored walking.
-    local okm, mmode = pcall(function() return pawn.CharacterMovement.MovementMode end)
-    if okm and mmode == 0 then
-        return { ok = false, reason = "resting", detail = "my movement is disabled (I'm still lying down from a rest, and the bed "
-            .. "or shelter I could get up from is gone)" }
-    end
     local okh, half_height = pcall(function() return pawn.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
     if not okh or type(half_height) ~= "number" or half_height ~= half_height or half_height <= 0 or half_height == math.huge then
         return { ok = false, reason = "verification_failed", detail = "character capsule height unavailable" }
