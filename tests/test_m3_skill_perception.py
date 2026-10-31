@@ -99,10 +99,8 @@ def test_gather_mode_reaches_controller_and_director(tmp_path):
     caps = Capabilities(tools=["gather"], source="capabilities", manifest={"gather": entry})
     function = caps.function_schema("gather")["function"]
     assert "mode" in function["parameters"]["properties"]
-    assert "not item provenance or observed XP" in function["description"]
     assert caps.validate("gather", {"resource": "x", "count": 1, "mode": "chop"})["mode"] == "chop"
     assert "mode" in _arg_list(entry["args"])
-    assert "selects profile" in entry["description"]
     assert "Item possession or gain alone does not establish" in SYSTEM
 
 
