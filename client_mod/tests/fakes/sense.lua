@@ -42,6 +42,7 @@ local U = {}
 function U.try(f, ...) local ok, v = pcall(f, ...); if ok then return v end return nil end
 function U.valid(o) return o ~= nil end
 function U.str(v) return v ~= nil and tostring(v) or nil end
+function U.prop(o, k) if o == nil then return nil end return U.try(function() return o[k] end) end
 function U.short(a) return a and a.id end
 function U.loc(a) local p = a.position; return { X = p[1] * 100, Y = p[2] * 100, Z = p[3] * 100 } end
 function U.find_all(class)

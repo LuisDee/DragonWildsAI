@@ -62,10 +62,15 @@ local function r1(x) return x and math.floor(x * 10 + 0.5) / 10 or nil end
 
 -- Max health: GetMaxHealth() first (players and many AI keep MaxHealth = 0 and derive it from an
 -- attribute), then the MaxHealth property when it is positive.
+-- Census reads on actors / Blueprint class defaults go through U.prop (risk register R17: UE4SS's FindProperty
+-- cache is keyed by class ADDRESS, and a streamed-out Blueprint class's address gets reused).
+local P = U.prop
 local function max_hp(a)
-    local v = num(U.try(function() return a.HealthComponent:GetMaxHealth() end))
+    local hc = P(a, "HealthComponent")
+    if hc == nil then return nil end
+    local v = num(U.try(function() return hc:GetMaxHealth() end))
     if v and v > 0 then return v end
-    v = num(U.try(function() return a.HealthComponent.MaxHealth end))
+    v = num(U.try(function() return hc.MaxHealth end))
     return (v and v > 0) and v or nil
 end
 
@@ -260,8 +265,9 @@ local function gate(a)
             end)
         end)
     end
-    if not U.try(function() return a.bIsStump end) then scan(U.try(function() return a.DamageModifiersWhenTree end)) end
-    scan(U.try(function() return a.DamageComponent.DamageModifiers end))
+    if not P(a, "bIsStump") then scan(P(a, "DamageModifiersWhenTree")) end
+    local dc = P(a, "DamageComponent")
+    scan(dc ~= nil and U.try(function() return dc.DamageModifiers end) or nil)
     return g
 end
 
@@ -315,16 +321,17 @@ end
 
 local function describe_creature(a, origin)
     local d = base(a, origin)
-    local data = U.try(function() return a.LoadedData end)
+    local data = P(a, "LoadedData")
     d.name = (U.valid(data) and text(U.try(function() return data.AIName end))) or clean_class(d.class)
     d.health, d.max_health = r1(num(U.health(a))), r1(max_hp(a))
-    d.dead = U.try(function() return a.HealthComponent:IsDead() end) or (d.health ~= nil and d.health <= 0) or nil
+    local hc = P(a, "HealthComponent")
+    d.dead = (hc ~= nil and U.try(function() return hc:IsDead() end)) or (d.health ~= nil and d.health <= 0) or nil
     local arch = U.valid(data) and num(U.try(function() return data.Archetype end))
     d.attitude, d.archetype = arch and ARCHETYPE[arch] or nil, arch and ARCHETYPE_NAME[arch] or nil
-    local al = num(U.try(function() return a.CurrentAlertnessState end))
+    local al = num(P(a, "CurrentAlertnessState"))
     d.alertness = al and ALERTNESS[al] or nil
     d.in_combat = al == 3 or al == 4 or nil
-    d.power_level = num(U.try(function() return a.PowerLevel end))
+    d.power_level = num(P(a, "PowerLevel"))
     d.boss = (U.valid(data) and U.try(function() return data.bIsBoss end) == true) or nil
     d.follower = U.try(function() return a:IsFollower() end) == true or nil
     d.tags = U.valid(data) and tags_of(U.try(function() return data.GameplayTags end), "Faction") or nil
@@ -378,12 +385,12 @@ end
 
 local function describe_item(a, origin)
     local d = base(a, origin)
-    local data = U.try(function() return a.ItemData end)
+    local data = P(a, "ItemData")
     d.name, d.item = item_name(data) or clean_class(d.class), item_id(data)
     d.consumable = consumable_kind(data) -- perception: "Pumpkin Spice Infusion (drink)"
     -- who dropped it (AWorldItem.NameOfPlayerCharacterThatDroppedItem, an FString; empty for loot) and how
     -- long it has been seen lying there (first sight per actor, kept in _G across reloads)
-    local by = text(U.try(function() return a.NameOfPlayerCharacterThatDroppedItem end))
+    local by = text(P(a, "NameOfPlayerCharacterThatDroppedItem"))
     if by then d.dropped_by = by end
     local seen = rawget(_G, "DWSeenItems") or {}
     _G.DWSeenItems = seen
@@ -392,7 +399,7 @@ local function describe_item(a, origin)
         d.seen_s = os.time() - seen[d.id]
     end
     d.count = num(U.try(function() return a:GetStackSize() end))
-    local mag = U.try(function() return a.MagneticComponentGrantItem end)
+    local mag = P(a, "MagneticComponentGrantItem")
     if U.valid(mag) then
         local tgt = U.try(function() return mag.Target end)
         d.magnet_target = U.valid(tgt) and U.player_name(tgt) or nil
@@ -402,7 +409,7 @@ end
 
 local function describe_resource(a, origin)
     local d = base(a, origin)
-    local data = U.try(function() return a.ItemData end)
+    local data = P(a, "ItemData")
     if U.valid(data) then -- ground gatherable (BaseInteractableResource)
         d.kind, d.verb = "gatherable", "gather"
         d.name, d.item = item_name(data), item_id(data)
@@ -411,16 +418,16 @@ local function describe_resource(a, origin)
     else
         d.kind = "destructible"
         d.health, d.max_health = r1(num(U.health(a))), r1(max_hp(a))
-        d.stump = U.try(function() return a.bIsStump end) == true or nil
-        d.hidden = U.try(function() return a.bIsHidden end) == true or nil
+        d.stump = P(a, "bIsStump") == true or nil
+        d.hidden = P(a, "bIsHidden") == true or nil
         local has = U.try(function() return a:HasAvailableResources() end)
         if has ~= nil then d.has_resources = has == true end
         local g = gate(a)
         if g then d.tool, d.tool_tier = g.tool, g.tier end
         d.verb = (d.tool == "Hatchet" and "chop") or (d.tool == "Pickaxe" and "mine") or "hit"
-        d.drops, d.drop_item = first_drop(U.try(function() return a.ItemDropOnDestructionComponent end))
-        local dn = text(U.try(function() return a.DisplayName end))
-        if d.stump then dn = text(U.try(function() return a.StumpDisplayName end)) or dn end
+        d.drops, d.drop_item = first_drop(P(a, "ItemDropOnDestructionComponent"))
+        local dn = text(P(a, "DisplayName"))
+        if d.stump then dn = text(P(a, "StumpDisplayName")) or dn end
         d.name = dn or (d.drops and (clean_class(d.class) .. " (" .. d.drops .. ")")) or clean_class(d.class)
     end
     return d
@@ -444,13 +451,14 @@ local function describe_interactable(a, ic, kind, origin)
     end
     d.kind = kind or "interactable"
     d.prompt = ic and text(U.try(function() return ic.InteractionPrompt end)) or nil
-    d.name = text(U.try(function() return a.DisplayName end))
-        or text(U.try(function() return a.DisplayNameText end)) or clean_class(d.class)
+    -- owners of an InteractionComponent are any class: a WorldChest has no DisplayName, and the
+    -- speculative read of it crashed the client through UE4SS's stale property cache (R17)
+    d.name = text(P(a, "DisplayName")) or text(P(a, "DisplayNameText")) or clean_class(d.class)
     -- ownership (BUGS L10): a summoned shelter's caster (AUtilitySpell:GetCaster(), DISCOVERIES "Lodestones /
     -- night skip"), a bed's claimant (UBedComponent:GetClaimingCharacterName); UNVERIFIED on the client
     local caster = U.try(function() return a:GetCaster() end)
     if U.valid(caster) then d.owner = U.player_name(caster) or U.short(caster) end
-    local bed = U.try(function() return a.BedComponent end) or U.try(function() return a.Bed end)
+    local bed = P(a, "BedComponent") or P(a, "Bed")
     if U.valid(bed) then
         local who = text(U.try(function() return bed:GetClaimingCharacterName() end))
         if who then d.claimed_by = who end
@@ -482,13 +490,14 @@ local function facts_of(cls)
     local f = { class = key }
     local cdo = U.try(function() return cls:GetCDO() end)
     if U.valid(cdo) then
-        f.name = text(U.try(function() return cdo.DisplayName end))
+        f.name = text(P(cdo, "DisplayName"))
         if f.name and f.name:upper():find("DEFAULT DISPLAY NAME", 1, true) then f.name = nil end -- placeholder on spawners
-        local data = U.try(function() return cdo.ItemData end) -- ground resources: the item they give
+        local data = P(cdo, "ItemData") -- ground resources: the item they give
         if U.valid(data) then f.item, f.name = item_id(data), f.name or item_name(data) end
         local g = gate(cdo)
         if g then f.tool, f.tool_tier = g.tool, g.tier end
-        f.max_health = num(U.try(function() return cdo.HealthComponent.MaxHealth end))
+        local hc = P(cdo, "HealthComponent")
+        f.max_health = hc ~= nil and num(U.try(function() return hc.MaxHealth end)) or nil
         if f.max_health and f.max_health <= 0 then f.max_health = nil end
     end
     f.name = f.name or clean_class(key)
@@ -539,7 +548,7 @@ function M.foliage(origin, radius_cm, opts)
     local excl = opts.exclude
     if type(excl) == "string" then excl = { excl } end
     for _, c in ipairs(U.find_all("InteractableFoliageISMComponent", { skip_defaults = true })) do
-        local cls = U.try(function() return c.ActorClass end)
+        local cls = P(c, "ActorClass")
         local cname = U.short(cls) or "?"
         local fk = FOLIAGE_KIND[((U.class_word(c) or ""):match("ISMC_([%w]+)_C$")) or ""] or "foliage"
         local ok_cls = (not opts.match or cname:find(opts.match)) and (not opts.kinds or opts.kinds[fk])
@@ -551,10 +560,11 @@ function M.foliage(origin, radius_cm, opts)
                 local yaw = num(U.try(function() return c:K2_GetComponentRotation().Yaw end)) or 0
                 local sc = U.try(function() local s = c:K2_GetComponentScale(); return { X = s.X, Y = s.Y, Z = s.Z } end) or { X = 1, Y = 1, Z = 1 }
                 local facts
+                local psm = P(c, "PerInstanceSMData") -- once per component, not per instance
                 for _, e in ipairs(idxs) do
                     local i = type(e) == "number" and e or U.try(function() return e:get() end)
                     local w = type(i) == "number" and cl and U.try(function()
-                        local m = c.PerInstanceSMData[i + 1].Transform
+                        local m = psm[i + 1].Transform
                         local t, x = m.WPlane, m.XPlane
                         return { X = t.X, Y = t.Y, Z = t.Z, s = math.sqrt(x.X * x.X + x.Y * x.Y + x.Z * x.Z) }
                     end)
@@ -568,8 +578,8 @@ function M.foliage(origin, radius_cm, opts)
                             out[#out + 1] = { id = M.foliage_id(cname, p), _legacy = "fol:" .. (U.short(c) or "?") .. ":" .. i,
                                 hidden = hidden or nil, kind = "foliage", foliage = fk,
                                 class = cname, name = facts.name, position = U.to_wire(p), distance = U.cm_to_m(d), _pos = p,
-                                _comp = c, _index = i, damageable = U.try(function() return c.bDamageable end) == true or nil,
-                                interactable = U.try(function() return c.bInteractable end) == true or nil,
+                                _comp = c, _index = i, damageable = P(c, "bDamageable") == true or nil,
+                                interactable = P(c, "bInteractable") == true or nil,
                                 tool = facts.tool, tool_tier = facts.tool_tier, health = facts.max_health, max_health = facts.max_health, item = facts.item,
                                 verb = (facts.tool == "Hatchet" and "chop") or (facts.tool == "Pickaxe" and "mine") or (fk == "pickup" and "gather") or "hit" }
                         end
@@ -745,6 +755,7 @@ function M.census(log, opts)
     out.origin = U.to_wire(origin)
     out.radius_m = r_cm / 100
     out.totals = totals
+    out.prop_guard = U.prop_stats() -- R17 counters since load (undeclared reads skipped, stale entries refused)
     out.ms = math.floor((os.clock() - t0) * 1000)
     return out
 end
@@ -797,9 +808,9 @@ local function who(a)
     if not U.valid(a) then return nil end
     local d = { id = U.short(a), class = U.class_word(a) }
     if U.short(a) == V.me_id then d.self = true end
-    local ps = U.try(function() return a.PlayerState end)
+    local ps = P(a, "PlayerState") -- the instigator is any class: speculative reads go through U.prop (R17)
     if U.valid(ps) then d.player = U.str(U.try(function() return ps:GetPlayerName() end)) end
-    local data = U.try(function() return a.LoadedData end)
+    local data = P(a, "LoadedData")
     if U.valid(data) then d.name = text(U.try(function() return data.AIName end)) end
     return d
 end

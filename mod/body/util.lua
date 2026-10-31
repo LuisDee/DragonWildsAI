@@ -93,6 +93,115 @@ function U.str(v)
     return U.try(function() return v:ToString() end)
 end
 
+-- ------------------------------------------------------------------ by-name property reads (risk register R17)
+-- UE4SS 3.0.1 resolves every `obj.Prop` (and obj:GetPropertyValue) through UStruct::FindProperty, which memoises
+-- (UStruct* ADDRESS, FName) -> FProperty* in a function-static map that is never evicted (UE4SS.dll disassembly,
+-- crash_2026_11_01_00_08_24, DISCOVERIES "UE4SS FindProperty cache"). When World Partition streams a Blueprint
+-- class out and GC frees it, the next class allocated at that address inherits the old entries: reading a name
+-- the new class does not declare (a WorldChest's "DisplayName") or declares elsewhere ("HealthComponent" has 8
+-- native declarations) returns the OLD class's FProperty, and UE4SS reads the object at the wrong offset/type
+-- (that crash: AWorldActor::DisplayName@0x300 read on a chest, whose 0x300 is a FDataTableRowHandle -> FText
+-- Release through a UDataTable vtable -> DeferredRegister(garbage) -> AV). A miss is never cached, so a
+-- speculative read is harmless until an address is reused, which streaming makes common.
+-- U.prop(obj, name) reads only when the object's class chain, walked LIVE (UStruct:ForEachProperty and
+-- GetSuperStruct do not use that cache), declares `name` AND UE4SS's resolution (obj:Reflection():GetProperty)
+-- is that same declaration; otherwise nil, without touching the value. Use it for reads on Blueprint-class
+-- objects (actors, BP components, BP class defaults): native classes are never freed, so struct fields and
+-- native data assets are safe as plain reads. Residual: a dangling entry for a Blueprint-declared name that the
+-- new class also declares can still fault inside GetProperty's GetFullName (needs a UE4SS fix).
+-- Objects that are not UE4SS userdata (offline fakes) are read directly, as before.
+U.is_ue_object = function(o) return type(o) == "userdata" end
+U.PROP_MAX_DEPTH = 48
+local DECL = {}           -- [struct full name] = { [name] = declaring FProperty full name | false }
+local NAMES = {}          -- [struct full name] = { [name] = true }: what that level's ForEachProperty lists
+-- [struct full name .. "@" .. address] = { [name] = true }: UE4SS's resolution matched the live declaration. An
+-- entry of its cache is only ever inserted (never replaced), so it stays right while that class lives at that
+-- address; another class at a reused address has another full name, hence another key.
+local VERIFIED = {}
+local PROP_STATS = { reads = 0, undeclared = 0, stale = 0, errors = 0 }
+local PROP_NOTED = {}
+
+local function prop_note(kind, key, name, detail)
+    PROP_STATS[kind] = (PROP_STATS[kind] or 0) + 1
+    local k = kind .. "|" .. tostring(key) .. "|" .. tostring(name)
+    if PROP_NOTED[k] then return end
+    PROP_NOTED[k] = true
+    local line = string.format("[DWClient] ue4ss_prop_guard %s struct=%s name=%s %s", kind, tostring(key), tostring(name), detail or "")
+    U.event(nil, "ue4ss_prop_guard", { kind = kind, struct = key, name = name, detail = detail })
+    pcall(print, line .. "\n")
+end
+
+-- The struct UE4SS looks `name` up in: the object itself when it is a class (Cast<UStruct>), else its class.
+local function lookup_struct(obj)
+    if U.try(function() return obj:IsClass() end) == true then return obj end
+    return U.try(function() return obj:GetClass() end)
+end
+
+local function names_of(s, skey)
+    local t = NAMES[skey]
+    if t then return t end
+    t = {}
+    s:ForEachProperty(function(p) local n = U.str(p:GetFName()); if n then t[n] = true end end)
+    NAMES[skey] = t
+    return t
+end
+
+-- Full name of the FProperty `name` that the live chain of `st` declares (most-derived first), false when none,
+-- nil when the walk itself failed. Cached per struct full name (a stable identity, unlike its address); each
+-- level's own names are cached too, so native levels are listed once per session.
+local function declared(st, key, name)
+    local per = DECL[key]
+    if per and per[name] ~= nil then return per[name] end
+    local found, s, depth = false, st, 0
+    local ok = pcall(function()
+        while not found and s ~= nil and depth < U.PROP_MAX_DEPTH and U.valid(s) do
+            local skey = U.fullname(s)
+            if skey and names_of(s, skey)[name] then
+                s:ForEachProperty(function(p)
+                    if U.str(p:GetFName()) == name then found = p:GetFullName() or false; return true end
+                end)
+            end
+            if not found then s = s:GetSuperStruct(); depth = depth + 1 end
+        end
+    end)
+    if not ok then return nil end
+    DECL[key] = per or {}
+    DECL[key][name] = found
+    return found
+end
+
+function U.prop(obj, name)
+    if obj == nil then return nil end
+    if not U.is_ue_object(obj) then return U.try(function() return obj[name] end) end
+    if not U.valid(obj) then return nil end
+    PROP_STATS.reads = PROP_STATS.reads + 1
+    local st = lookup_struct(obj)
+    local key = st and U.fullname(st)
+    if not key then prop_note("errors", "?", name, "no class"); return nil end
+    local want = declared(st, key, name)
+    if want == nil then prop_note("errors", key, name, "live walk failed"); return nil end
+    if not want then PROP_STATS.undeclared = PROP_STATS.undeclared + 1; return nil end
+    local addr = U.try(function() return st:GetAddress() end)
+    local vkey = addr and (key .. "@" .. tostring(addr))
+    local ver = vkey and VERIFIED[vkey]
+    if not (ver and ver[name]) then
+        -- the FProperty UE4SS will use for obj[name] (same FindProperty call and cache); GetFullName is nil-safe
+        local got = U.try(function() return obj:Reflection():GetProperty(name):GetFullName() end)
+        if got ~= want then
+            prop_note("stale", key, name, string.format("live=%s cached=%s", tostring(want), tostring(got)))
+            return nil
+        end
+        if vkey then VERIFIED[vkey] = ver or {}; VERIFIED[vkey][name] = true end
+    end
+    return U.try(function() return obj[name] end)
+end
+
+-- Counters since load: reads, undeclared (skipped: the class has no such property), stale (UE4SS's cache
+-- disagreed with the live class: a crash avoided), errors. For get_state / debug probes.
+function U.prop_stats() return { reads = PROP_STATS.reads, undeclared = PROP_STATS.undeclared, stale = PROP_STATS.stale,
+                                 errors = PROP_STATS.errors } end
+function U.prop_reset() DECL = {}; NAMES = {}; VERIFIED = {}; PROP_NOTED = {}; PROP_STATS = { reads = 0, undeclared = 0, stale = 0, errors = 0 } end
+
 -- ------------------------------------------------------------------ finding objects
 -- FindAllOf(short_class) filtered to alive objects; always a table. opts.skip_defaults also
 -- drops class default objects ("Default__" in the name). opts.valid_only keeps zombies (use only
@@ -205,14 +314,17 @@ end
 -- Connected players' controllers (BP_PlayerController_C), alive only.
 function U.player_controllers() return U.find_all(U.PLAYER_CONTROLLER_CLASS) end
 
+-- HealthComponent has 8 native declarations at different offsets (R17): read it through U.prop.
 function U.health(a)
-    return U.try(function() return a.HealthComponent:GetAuthoritativeHealth() end)
+    local hc = U.prop(a, "HealthComponent")
+    return (hc ~= nil and U.try(function() return hc:GetAuthoritativeHealth() end))
         or U.try(function() return a:GetHealthComponent():GetAuthoritativeHealth() end)
 end
 
 function U.max_health(a)
-    return U.try(function() return a.HealthComponent.MaxHealth end)
-        or U.try(function() return a.HealthComponent:GetMaxHealth() end)
+    local hc = U.prop(a, "HealthComponent")
+    if hc == nil then return nil end
+    return U.try(function() return hc.MaxHealth end) or U.try(function() return hc:GetMaxHealth() end)
 end
 
 -- Player display name (PlayerState name), falling back to the pawn's object name.

@@ -953,7 +953,7 @@ local function contents_of(a, U)
     -- TArray reads on an invalid owner crash natively (UE4SS push_arrayproperty, 21:49:34): validate the
     -- owner and the component in this same tick, never during a pause
     if rawget(_G, "DW_PAUSE") == true or not U.valid(a) then return nil end
-    local inv = U.try(function() return a:GetInventory() end) or U.try(function() return a.InventoryComponent end)
+    local inv = U.try(function() return a:GetInventory() end) or U.prop(a, "InventoryComponent") -- R17: by-name reads via U.prop
     local desc = fn_of("inventory", "describe_item")
     if not (U.valid(inv) and desc) then return nil end
     local out = {}
@@ -982,7 +982,7 @@ R.inspect = { needs = { { "sense", "census" } }, fn = function(args)
     local a, U = actor_of(t)
     if a and U then
         for _, prop in ipairs({ "Description", "DisplayDescription", "DescriptionText" }) do
-            local s = U.str(U.try(function() return a[prop] end))
+            local s = U.str(U.prop(a, prop)) -- speculative names (Description has 42 declarations): R17
             if s and s ~= "" then d.description = s; break end
         end
         d.contents = contents_of(a, U)
