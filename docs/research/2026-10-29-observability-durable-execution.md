@@ -5,10 +5,9 @@ state in Postgres is worthwhile, how to add observability and how to use the
 findings to achieve the goal. This is a researched recommendation, not an
 implementation or permission to resume the PAUSED development Goal.
 
-Read [Accepted steer](../design/autonomy-plan.md) and the
-[independent Astra report](2026-10-29-astra-independent-reset-review.md).
-Original M1-M6, frozen judges and full Sonnet Director + Haiku Controller live
-acceptance remain unchanged. Logging/database/review work is not gameplay gain.
+Codex-era note, kept on 2026-10-31 for its sources. The "Accepted steer" and the Astra
+review it answered were deleted (see docs/audit-2026-10-31/code_audit.md).
+Logging/database work is not gameplay gain.
 
 ## Recommendation
 

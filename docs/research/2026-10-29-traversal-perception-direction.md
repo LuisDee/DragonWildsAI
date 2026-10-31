@@ -2,8 +2,8 @@
 
 Date: 2026-10-29, Europe/Berlin. Owner: root/Sol. This records the source survey
 and accepted priority, not implemented improvements or a live acceptance pass.
-Read [Accepted steer](../design/autonomy-plan.md) and [active Goal prompt](../NEXT-GOAL-PROMPT.md).
-The original M1-M6 targets and frozen judges remain authoritative.
+Codex-era survey, kept on 2026-10-31 for its sources; the "Accepted steer" it followed was
+deleted. Goal prompt of the time: [NEXT-GOAL-PROMPT](../NEXT-GOAL-PROMPT.md).
 
 ## Immediate evidence and falsifiable explanations
 

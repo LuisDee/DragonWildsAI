@@ -1,9 +1,10 @@
 # Goal prompt: traversal, perception and sustained autonomy (Luis, 2026-10-29)
 
 Complete the original Dragonwilds autonomous companion objective in docs/GOAL.md
-and docs/goal_targets.json, preserving M1–M6 and every frozen judge. Follow
-AGENTS.md and the Accepted steer in docs/design/autonomy-plan.md. The following
+and docs/goal_targets.json, preserving M1–M6 and every frozen judge. The following
 is the immediate priority and overrides older recovery/setup task order.
+(As recorded by Codex; AGENTS.md and the "Accepted steer" it pointed to were removed
+on 2026-10-31, and CLAUDE.md §000 now sets the working mode.)
 
 First deliver a reliable, generally capable movement and interaction foundation.
 The first acceptance test is: starting at the temple lodestone on DEV, autonomously
