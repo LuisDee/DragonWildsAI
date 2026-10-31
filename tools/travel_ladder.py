@@ -46,7 +46,8 @@ P = {
     "pond_south": [155.18, 1914.83, -30.47], # learned water stand (feet -31.37), pond NE of the church
     "astral_vent": [277.44, 1814.37, -41.25],  # landmark Astral Anima Vent (Temple Woods), 36 m from southeast
     "earth_vent": [449.69, 1838.51, -15.52],   # landmark Earth Anima Vent on the plateau, 7 m from plateau
-    "water_vent": [161.90, 1927.94, -30.47],   # landmark Water Anima Vent by the pond, 15 m past pond_south
+    "water_vent": [160.97, 1926.83, -30.72],   # beside the Water Anima Vent (landmark 161.90,1927.94 is inside the
+    #   vent object: he climbed onto it, 21:58); this stand arrived twice (21:01, 21:51), 1.3 m from its centre
 }
 # What a player would say for each goal (chat_ladder asks for it in chat). Every goal is a named landmark or the
 # temple's lodestone/entrance, so both halves of rung 1 run the same 10 journeys.
