@@ -130,8 +130,16 @@ def disambiguate(journeys: list[dict]) -> list[dict]:
             q = obs._xyz(lm.get("position"))
             if q and lm.get("name"):
                 lms.setdefault(lm["name"].lower(), []).append(list(q))
+    regions = {str(r.get("name") or "").lower() for f in sorted((ROOT / "data").glob("places_*.json"))
+               for r in json.loads(f.read_text(encoding="utf-8")).get("regions") or []}
     for j in journeys:
         name = re.sub(r"^the\s+", "", str(j.get("place") or ""), flags=re.I).lower()
+        # askable only by a name Claude can know: a map landmark or region, or a lodestone (the body lists them).
+        # "the temple entrance" is none of these (chat run 3: it resolved to the Forgotten Temple region 1.5 km off)
+        if name and name not in lms and name not in regions and "lodestone" not in name:
+            j["unaskable"] = f"{j['place']!r} is no map name and no lodestone: Claude can't know it unless taught"
+            j["place"] = ""
+            continue
         spots = lms.get(name) or []
         if len(spots) < 2:
             continue
@@ -481,7 +489,12 @@ def run_leg(a, j: dict, i: int, cli, brain_file: Path, run_id: str, haiku_used: 
         calls = model_calls(rows)
         busy = [r for r in rows if r.get("kind") in ("prompt", "llm_response", "tool_call", "tool_result", "say")]
         open_prompt = bool(busy) and busy[-1].get("kind") == "prompt"
-        open_tools = sum(1 for r in rows if r.get("kind") == "tool_call") > sum(1 for r in rows if r.get("kind") == "tool_result")
+        # matched by task id: a late result of an earlier leg's action must not cancel this leg's open one (chat run 3:
+        # the next line was sent while a go_to was still walking)
+        called = {r.get("task_id") for r in rows if r.get("kind") == "tool_call" and r.get("task_id")}
+        done = {r.get("task_id") for r in rows if r.get("kind") == "tool_result" and r.get("task_id")}
+        reads = [r.get("kind") for r in rows if r.get("kind") in ("tool_call", "tool_result") and not r.get("task_id")]
+        open_tools = bool(called - done) or reads.count("tool_call") > reads.count("tool_result")
         quiet = now - (busy[-1]["ts"] if busy else t0)
         still = now - last_move
         if heard_at is None and now - t0 > HEARD_S:

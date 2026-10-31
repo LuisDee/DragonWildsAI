@@ -364,7 +364,12 @@ class Places:
         for r in self.regions:
             shared = len(_terms(r["name"]) & q)
             if shared:
-                cands.append((shared, float("inf"), f"{r['name']} (region)"))
+                inside_r = bool(here) and self.region_at(here) is r
+                shape = r.get("_shape") or r.get("polygon")
+                c = centroid(shape) if shape and len(shape) >= 3 and not inside_r else None
+                d = 0.0 if inside_r else (dist(here, c) if here and c else float("inf"))
+                where = "you are in it" if inside_r else (f"centre ~{d:.0f} m" if d != float("inf") else "")
+                cands.append((shared, d, f"{r['name']} (region" + (f", {where})" if where else ")")))
         cands.sort(key=lambda c: (-c[0], c[1]))
         out: list[str] = []
         for _, _, label in cands:
