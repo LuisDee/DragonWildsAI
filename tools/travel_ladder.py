@@ -163,11 +163,26 @@ def place(dev, c, start, tries=3, harness_brain=False):
     raise RuntimeError(f"could not place Claude at {start} (last {last})")
 
 
+def reflex_busy(c, max_s=45.0) -> bool:
+    """True if a reflex (a fight) held the pawn; waits up to max_s for it to let go. The ladder measures travel,
+    so a fight in progress is waited out rather than counted as a walk refused."""
+    held, t_end = False, time.monotonic() + max_s
+    while time.monotonic() < t_end:
+        o = (((c.request("arbiter_status", {}, timeout=10) or {}).get("data") or {}).get("owner")) or {}
+        if o.get("level") != "reflex":
+            return held
+        held = True
+        time.sleep(1.0)
+    return held
+
+
 def run_journey(dev, j):
     name, a, b, note, start, goal = j["id"], j["from"], j["to"], j["kind"], j["start"], j["goal"]
     c, sampler = client(), client()
     c.request("stop", {}, timeout=10)
     s = place(dev, c, start)
+    if reflex_busy(c):  # a fight from the last journey (live 21:20: "busy: combat:reflex"): let it end, start again
+        s = place(dev, c, start)
     samples, stop = [(time.time(), s)], threading.Event()
 
     def sample():
