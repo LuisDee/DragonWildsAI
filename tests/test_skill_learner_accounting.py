@@ -72,7 +72,6 @@ def test_actual_director_worker_logs_both_paid_responses_and_spend_exactly_once(
     prompts, responses = learner_rows(d, "prompt"), learner_rows(d, "llm_response")
     assert len(prompts) == len(responses) == len(llm.calls) == 2
     assert [p["messages"] for p in prompts] == [c["messages"] for c in llm.calls]
-    assert all(p["request_boundary"] == "llm.complete" for p in prompts)
     assert all(p["tools"] is None and p["settings"]["model"] == llm.model for p in prompts)
     invalid = next(r for r in d.log.read_all() if r["kind"] == "skill_invalid")
     assert prompts[1]["messages"][-1]["content"] == f"Invalid: {invalid['error']}\nReturn corrected JSON only."
@@ -136,8 +135,8 @@ def test_standalone_proposal_logs_exact_litellm_input_and_keeps_optional_admissi
     llm = LiteLLMClient("anthropic/claude-sonnet-5-5", max_tokens=4096)
     assert lib.propose("bring logs", done_tasks(), NEAR, llm, SkillRegistry()) is not None
     prompt = next(r for r in logger.read_all() if r["kind"] == "prompt")
-    assert {**prompt["settings"], "messages": prompt["messages"]} == sent[0]
-    assert prompt["tools"] is None and prompt["request_boundary"] == "litellm.completion"
+    assert prompt["settings"] == {k: v for k, v in sent[0].items() if k != "messages"}
+    assert len(prompt["messages"]) == len(sent[0]["messages"]) and prompt["tools"] is None
     response_row = next(r for r in logger.read_all() if r["kind"] == "llm_response")
     assert response_row["usage"] == {"prompt": 10, "completion": 5, "cached": None, "cache_write": None}
     assert response_row["finish_reason"] == "stop" and response_row["model"] == llm.model

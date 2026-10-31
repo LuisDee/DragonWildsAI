@@ -55,7 +55,7 @@ def test_failed_directed_action_dispatches_skill_only_recovery_exactly_once(tmp_
     assert rig.agent.pending_goal is None and rig.agent.pending_skill is None
     assert not any(BUSY_DETAIL in text for text in rig.companion_said())
     old = len(moves(sent))
-    assert rig.agent._after_pump(None) is None and len(moves(sent)) == old
+    assert rig.agent.step() is None and len(moves(sent)) == old
     # The actual failed result reached the model before it selected that recovery.
     result_message = next(m for m in rig.controller_llm.calls[1]["messages"] if m["role"] == "tool")
     assert json.loads(result_message["content"])["data"]["detail"] == BUSY_DETAIL
@@ -70,10 +70,10 @@ def test_goal_only_recovery_uses_existing_pending_path_once_without_stale_speech
     assert moves(sent) == [{"target": [10, 0, 0]}] and not rig.planner_llm.calls
     assert not any(BUSY_DETAIL in text for text in rig.companion_said())
     rig.planner_llm.push(FakeLLM.plan([{"skill": "go_to", "args": {"target": [20, 0, 0]}}]))
-    assert rig.agent._after_pump(None) == "done"
+    assert rig.agent.step() == "done"
     assert moves(sent) == [{"target": [10, 0, 0]}, {"target": [20, 0, 0]}]
     assert len(rig.planner_llm.calls) == 1 and rig.agent.pending_goal is None
-    assert rig.agent._after_pump(None) is None and len(moves(sent)) == 2
+    assert rig.agent.step() is None and len(moves(sent)) == 2
 
 
 def test_empty_recovery_still_reports_original_failure_without_retry(tmp_path):

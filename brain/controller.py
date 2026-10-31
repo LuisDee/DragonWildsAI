@@ -22,7 +22,6 @@ standing orders and the last N events. No transcript; a loop step appends only t
 """
 from __future__ import annotations
 
-import copy
 import json
 import math
 import os
@@ -45,63 +44,6 @@ from .llm import LLMClient, LLMResponse, ToolCall, assistant_message, request_lo
 from .spells import SpellBook
 from .state_store import StateStore
 from .voice import Voice
-
-def _model_read_view(result):
-    """Copy a read result and compact only repeated, simple read-status gaps."""
-    from copy import deepcopy
-
-    view = deepcopy(result)
-
-    def compact(gaps):
-        if not isinstance(gaps, list):
-            return gaps
-        groups = {}
-        for gap in gaps:
-            if (isinstance(gap, dict) and set(gap) == {"raw", "reason"} and
-                    isinstance(gap["reason"], str) and gap["reason"] and
-                    (gap["raw"] is None or type(gap["raw"]) is int)):
-                groups.setdefault(gap["reason"], []).append(gap["raw"])
-        out, emitted = [], set()
-        for gap in gaps:
-            if (isinstance(gap, dict) and set(gap) == {"raw", "reason"} and
-                    isinstance(gap["reason"], str) and gap["reason"] and
-                    (gap["raw"] is None or type(gap["raw"]) is int) and
-                    len(groups[gap["reason"]]) > 3):
-                reason = gap["reason"]
-                if reason not in emitted:
-                    indices = groups[reason]
-                    out.append({"reason": reason, "count": len(indices), "sample_raw": indices[:3],
-                                "omitted": len(indices) - 3, "truncated": True})
-                    emitted.add(reason)
-            else:
-                out.append(gap)
-        return out
-
-    def scope(node):
-        if isinstance(node, dict):
-            for key, value in node.items():
-                if key == "gaps":
-                    node[key] = compact(value)
-                else:
-                    scope(value)
-        elif isinstance(node, list):
-            for item in node:
-                scope(item)
-
-    def find_status(node):
-        if isinstance(node, dict):
-            for key, value in node.items():
-                if key in ("read_status", "inventory_read_status") and isinstance(value, dict):
-                    scope(value)
-                else:
-                    find_status(value)
-        elif isinstance(node, list):
-            for item in node:
-                find_status(item)
-
-    find_status(view)
-    return view
-
 
 MAX_SAY = 200  # one chat line (DW_SAY_MODE=direct sends real chat)
 
@@ -361,21 +303,8 @@ class Decision:
     effort: str | None = None  # the effort this request runs at, when not the client's default (addressed chat)
 
 
-class ContinuationBudgetDenied(RuntimeError):
-    """A deferred turn cannot safely make another provider request."""
-
-
-class ContinuationInvalidated(RuntimeError):
-    """The deferred turn no longer owns its action or has lost its body state."""
-
-    def __init__(self, reason: str, silent: bool = False):
-        super().__init__(reason)
-        self.silent = silent
-
-
-
-def continuation_observation(state: dict | None) -> dict:
-    """Bounded facts from this state read; unknown never means an empty census."""
+def current_observation(state: dict | None) -> dict:
+    """Bounded facts from this state read for a follow-up turn; unknown never means an empty census."""
     def number(value):
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             return None
@@ -386,7 +315,7 @@ def continuation_observation(state: dict | None) -> dict:
 
     if not isinstance(state, dict) or not state or state.get("unavailable"):
         return {"status": "unavailable", "position": None, "vitals": None,
-                "inventory_read": "unknown", "inventory": "unknown", "stations": {"status": "unknown"}}
+                "inventory": "unknown", "stations": {"status": "unknown"}}
 
     raw_pos = state.get("position")
     if isinstance(raw_pos, (list, tuple)) and len(raw_pos) == 3:
@@ -407,22 +336,14 @@ def continuation_observation(state: dict | None) -> dict:
                 continue
             name, ident = row.get("name") or row.get("station"), row.get("id")
             rows.append({"name": name[:80] if isinstance(name, str) else None,
-                         "name_truncated": isinstance(name, str) and len(name) > 80,
                          "id": ident if isinstance(ident, str) and len(ident) <= 80 else None,
-                         "id_truncated": isinstance(ident, str) and len(ident) > 80,
                          "distance_m": number(row.get("distance"))})
         stations = {"status": "observed", "rows": rows, "omitted": max(0, len(raw_stations) - len(rows))}
-    def bounded(text):
-        return text if len(text) <= 240 else text[:224] + "... [truncated]"
+    inventory = sit.carrying(state, sit.item_names(state))
+    return {"status": "observed", "position": pos, "vitals": vitals,
+            "inventory": inventory if len(inventory) <= 240 else inventory[:224] + "... [truncated]",
+            "stations": stations}
 
-    out = {"status": "observed", "position": pos, "vitals": vitals,
-            "inventory_read": bounded(sit.inventory_read_line(state)),
-            "inventory": bounded(sit.carrying(state, sit.item_names(state))), "stations": stations}
-    if "terrain" in state:
-        # Retained terrain is already compact; observation time/unknown clearance stay body facts.
-        # https://arxiv.org/abs/2305.16986 (observation/history delivery, not movement authority)
-        out["terrain"] = copy.deepcopy(state["terrain"])
-    return out
 
 class Controller:
     def __init__(self, llm: LLMClient, game: GameInterface, store: StateStore, logger: JsonlLogger,
@@ -432,8 +353,7 @@ class Controller:
                  progress_interval: float = 20.0, clock: Callable[[], float] = time.monotonic, caps=None,
                  knowledge=None):
         self.llm = llm
-        self.continuation_admission = None  # set only while an autonomous deferred turn is running
-        self.continuation_validate = None
+        self._logged: tuple[int, dict | None] = (0, None)  # the last prompt row's message count and last message
         self.knowledge = knowledge  # brain.knowledge.Knowledge | None: the lookup tool is offered only with one
         self.game = game
         self.store = store
@@ -636,8 +556,6 @@ class Controller:
                 self.log.log("recent_activity_error", error=repr(exc))
         if body_event:
             ctx["body_event"] = body_event
-        if "terrain" in state:
-            ctx["terrain"] = copy.deepcopy(state["terrain"])
         if text and state and not state.get("unavailable"):
             refs = grounding.hints(grounding.read(text, sit.perceived(state), exclude=[player, self.name]))
             if refs:
@@ -742,8 +660,6 @@ class Controller:
         tools = [t for t in self.tools if t["function"]["name"] not in self.read_tools]
         try:
             final = self._complete(messages, tools, d, step=f"{tag}final")
-        except (ContinuationBudgetDenied, ContinuationInvalidated):
-            raise
         except Exception as exc:  # the turn ends as before (nothing done), the error is logged
             self.log.log("controller_final_pass", ok=False, error=repr(exc))
             return resp, base
@@ -793,20 +709,19 @@ class Controller:
         return (d.effort if d is not None else None) or getattr(self.llm, "effort", None)
 
     def _complete(self, messages: list[dict], tools: list[dict], d: Decision, *, step=None) -> LLMResponse:
-        """One model call at the request's effort (passed only when it overrides the client's default)."""
-        if self.continuation_admission is not None and not self.continuation_admission():
-            raise ContinuationBudgetDenied("continuation model budget unavailable or exhausted")
+        """One model call at the request's effort (passed only when it overrides the client's default).
+        The prompt row carries the full request on a request's first call, then only the added messages."""
+        n, tail = self._logged
+        since = n if step != 0 and 0 < n <= len(messages) and messages[n - 1] is tail else 0
         self.log.log("prompt", component="controller", model=self.llm.model, step=step,
-                     effort=self._sent_effort(d), **request_log_fields(self.llm, messages, tools, d.effort))
+                     effort=self._sent_effort(d), **request_log_fields(self.llm, messages, tools, d.effort, since=since))
+        self._logged = (len(messages), messages[-1] if messages else None)
         response = (self.llm.complete(messages, tools=tools, effort=d.effort) if d.effort else
                     self.llm.complete(messages, tools=tools))
-        # Paid response accounting precedes stale-continuation rejection; no action is applied here.
         d.model_calls += 1
         self.log.log("llm_response", component="controller", step=step, content=response.content,
                      tool_calls=[vars(c) for c in response.tool_calls], usage=response.usage,
                      finish_reason=response.finish_reason)
-        if self.continuation_validate is not None:
-            self.continuation_validate()
         return response
 
     def warm_up(self) -> dict | None:
@@ -859,7 +774,7 @@ class Controller:
                 if name in self.read_tools else results.get(SAY_TOOL) or self._say_result(failed)
                 if name == SAY_TOOL and self.say_channel else {"ok": None, "note": "not run"})
             msgs.append(tool_result_message(ToolCall(name or "?", {}, tc.get("id")), res))
-        observation = continuation_observation(state)
+        observation = current_observation(state)
         msgs.append({"role": "user", "content": "Current observation: " + json.dumps(observation, ensure_ascii=False)})
         msgs.append({"role": "user", "content": note or (
             "A step did not work (results above). Fix it with the right tool or another way; if you can't, "
@@ -889,8 +804,6 @@ class Controller:
         The agent's first-turn check (agent.PROMISE_NOTE, passed as ``note``) is never doubled."""
         try:
             resp, out = self._loop(msgs + [{"role": "user", "content": TALK_ONLY_NOTE}], d, label="check")
-        except (ContinuationBudgetDenied, ContinuationInvalidated):
-            raise
         except Exception as exc:  # a failed check only means the line is said as it was
             self.log.log("talk_only_check", speech=speech, error=repr(exc))
             return LLMResponse(content=speech), msgs, speech
@@ -929,9 +842,8 @@ class Controller:
             if args.get("about"):  # say it plainly to the model too (the body only ranks by match score)
                 res = {**res, "data": {**res["data"], "matched": bool(sit.look_matched(look))}}
         if not res.get("ok") and res.get("reason") in Reason.CANT_YET:
-            res = {**res}
-            res.setdefault("note", f"you can't {call.name} yet")
-        return _model_read_view(res)
+            return {"ok": False, "reason": res["reason"], "note": f"you can't {call.name} yet"}
+        return res
 
     def _brain_read(self, tool: str, args: dict) -> dict:
         if tool == "lookup" and self.knowledge is not None:

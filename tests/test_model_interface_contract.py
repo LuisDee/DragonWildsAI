@@ -15,6 +15,18 @@ from brain.run_live import make_llms
 from test_director import COPPER, TIN, ListLog, decision, have, make, step
 
 
+def full_messages(prompts):
+    """Each prompt row's whole message list: later rows of a request log only the messages they added."""
+    out = []
+    for p in prompts:
+        out.append((out[-1][:p["messages_from"]] if "messages_from" in p else []) + p["messages"])
+    return out
+
+
+def settings_of(sent):
+    return {k: v for k, v in sent.items() if k not in ("messages", "tools")}
+
+
 def provider_response(content="{}", finish_reason="stop", tool_calls=None):
     msg = types.SimpleNamespace(content=content, tool_calls=tool_calls)
     usage = types.SimpleNamespace(prompt_tokens=120, completion_tokens=30)
@@ -28,7 +40,7 @@ def test_live_factories_share_limits_effort_and_configurable_planner_trial(monke
     monkeypatch.delenv("DW_PLANNER_MAX_TOKENS", raising=False)
     controller, planner = make_llms(False)
     assert controller.kwargs == L.controller_llm().kwargs == {"max_tokens": 1024, "output_config": {"effort": "low"}}
-    assert planner.kwargs == L.planner_llm().kwargs == {"max_tokens": 4096}
+    assert planner.kwargs == L.planner_llm().kwargs == {"max_tokens": 16000}
     monkeypatch.setenv("DW_CONTROLLER_EFFORT", "")
     monkeypatch.setenv("DW_PLANNER_MAX_TOKENS", "3072")
     controller, planner = make_llms(False)
@@ -48,16 +60,18 @@ def test_serialized_trace_matches_adapter_input_and_preserves_finish_usage(monke
     before = copy.deepcopy(messages)
     trace = L.request_log_fields(client, messages, tools, "medium")
     response = client.complete(messages, tools, effort="medium")
-    assert {**trace["settings"], "messages": trace["messages"], "tools": trace["tools"]} == sent[0]
-    assert trace["request_boundary"] == "litellm.completion"
+    assert trace["settings"] == settings_of(sent[0]) and trace["tools"] == sent[0]["tools"]
+    assert trace["messages"] == messages  # as built (the provider copy carries the cache blocks)
     assert trace["settings"]["tool_choice"] == "auto"
     assert trace["settings"]["output_config"] == {"effort": "medium"}
-    assert trace["messages"][0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+    later = L.request_log_fields(client, messages + [{"role": "user", "content": "more"}], tools, since=2)
+    assert later["messages"] == [{"role": "user", "content": "more"}] and later["messages_from"] == 2
+    assert "tools" not in later
     assert response.finish_reason == "length" and response.usage["completion"] == 30
     assert messages == before and client.effort == "low"
 
 
-def test_director_prompt_log_equals_the_litellm_input_after_cache_transformation(tmp_path, monkeypatch):
+def test_director_prompt_log_matches_the_litellm_input(tmp_path, monkeypatch):
     sent = []
     valid = decision(task_success=have(COPPER, 1), steps=[step("work", have(TIN, 1))])
     monkeypatch.setitem(sys.modules, "litellm", types.SimpleNamespace(
@@ -69,7 +83,8 @@ def test_director_prompt_log_equals_the_litellm_input_after_cache_transformation
     result = d._decide(d._snapshot(task, {"kind": "plan"}, world.state))
     prompt = next(row for row in d.log.rows if row["kind"] == "prompt")
     assert not result.error
-    assert {**prompt["settings"], "messages": prompt["messages"], "tools": prompt["tools"]} == sent[0]
+    assert prompt["settings"] == settings_of(sent[0]) and prompt["tools"] == sent[0]["tools"]
+    assert len(prompt["messages"]) == len(sent[0]["messages"])
     response = next(row for row in d.log.rows if row["kind"] == "llm_response")
     assert response["finish_reason"] == "stop" and response["usage"]["completion"] == 30
 
@@ -178,8 +193,8 @@ def test_semantic_repair_is_logged_in_actual_next_request_and_each_call_is_gated
     result = d._decide(d._snapshot(task, {"kind": "plan"}, world.state))
     prompts = [row for row in d.log.rows if row["kind"] == "prompt"]
     assert not result.error and len(checks) == result.requests == len(prompts) == 2
-    assert [p["messages"] for p in prompts] == [c["messages"] for c in llm.calls]
-    assert "not usable" in prompts[1]["messages"][-1]["content"]
+    assert full_messages(prompts) == [c["messages"] for c in llm.calls]
+    assert "not usable" in prompts[1]["messages"][-1]["content"] and prompts[1]["messages_from"]
     assert task.status != "done"  # model output cannot apply completion from the worker
 
 
@@ -195,7 +210,7 @@ def test_budget_refusal_prevents_retry_and_request_trace():
     assert len(gates) == 2 and len(llm.calls) == len(traces) == 1
 
 
-def test_controller_trace_keeps_full_next_messages_tools_and_finish_reason(rig):
+def test_controller_trace_logs_full_first_request_then_added_messages(rig):
     rig.controller_llm.push(L.LLMResponse(tool_calls=[L.ToolCall("look", {"about": "tree"})],
                                         finish_reason="tool_calls", usage={"completion": 15}),
                             L.LLMResponse(content="Seen.", finish_reason="stop", usage={"completion": 5}))
@@ -203,8 +218,8 @@ def test_controller_trace_keeps_full_next_messages_tools_and_finish_reason(rig):
     prompts = [row for row in rig.log.read_all() if row["kind"] == "prompt"]
     responses = [row for row in rig.log.read_all() if row["kind"] == "llm_response"]
     assert len(prompts) == len(responses) == 2
-    assert [p["messages"] for p in prompts] == [c["messages"] for c in rig.controller_llm.calls]
-    assert [p["tools"] for p in prompts] == [c["tools"] for c in rig.controller_llm.calls]
+    assert full_messages(prompts) == [c["messages"] for c in rig.controller_llm.calls]
+    assert prompts[0]["tools"] == rig.controller_llm.calls[0]["tools"] and "tools" not in prompts[1]
     assert any(m["role"] == "tool" for m in prompts[1]["messages"])
     assert [r["finish_reason"] for r in responses] == ["tool_calls", "stop"]
 
@@ -221,31 +236,8 @@ def test_controller_failed_primitive_is_in_full_next_request_and_serialized_trac
                "observed_position": [0, 0, 0], "unknown": ["unloaded_floor"]}}
     rig.controller.next_turn(d, {"failed-action": failure}, state={}, failed=True)
     prompt = next(row for row in rig.log.read_all() if row["kind"] == "prompt")
-    assert {**prompt["settings"], "messages": prompt["messages"], "tools": prompt["tools"]} == sent[0]
+    assert prompt["settings"] == settings_of(sent[0]) and prompt["tools"] == sent[0]["tools"]
+    assert len(prompt["messages"]) == len(sent[0]["messages"])
     result = next(m for m in prompt["messages"] if m.get("tool_call_id") == "failed-action")
     assert json.loads(result["content"]) == failure
     assert prompt["settings"]["output_config"]["effort"] == "medium"
-
-
-@pytest.mark.parametrize("path", ["loop", "final_pass"])
-def test_controller_logs_and_counts_paid_response_before_continuation_rejection(rig, path):
-    from brain.controller import ContinuationInvalidated, Decision
-    response = L.LLMResponse(tool_calls=[L.ToolCall("go_to", {"target": [1, 2, 3]})],
-                             usage={"completion": 27}, finish_reason="tool_calls")
-    rig.controller_llm.push(response)
-    d = Decision()
-    def invalidate():
-        rows = [r for r in rig.log.read_all() if r["kind"] == "llm_response"]
-        assert d.model_calls == len(rows) == 1
-        assert rows[0]["usage"] == {"completion": 27} and rows[0]["finish_reason"] == "tool_calls"
-        raise ContinuationInvalidated("task ended while the model was responding")
-    rig.controller.continuation_validate = invalidate
-    with pytest.raises(ContinuationInvalidated):
-        if path == "loop":
-            rig.controller._loop([], d)
-        else:
-            pending = L.LLMResponse(tool_calls=[L.ToolCall("look", {}, "unrun-read")])
-            rig.controller._final_pass([], pending, pending.tool_calls, d, "budget")
-    assert len(rig.controller_llm.calls) == d.model_calls == 1
-    assert rig.game.calls == [] and d.actions == []
-    assert len([r for r in rig.log.read_all() if r["kind"] == "llm_response"]) == 1

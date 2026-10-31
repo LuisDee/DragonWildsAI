@@ -250,20 +250,18 @@ def planner_llm() -> LiteLLMClient:
 
 
 def request_log_fields(llm: LLMClient, messages: list[dict], tools: list[dict] | None = None,
-                       effort: str | None = None, *, tool_choice: str | dict | None = None) -> dict:
-    """Log the complete adapter input, including cache blocks and per-call overrides.
-
-    This is the LiteLLM boundary, not a claim to capture its final HTTP body.
-    For wrappers, record effective scoped settings at the llm.complete boundary.
-    https://docs.litellm.ai/docs/completion/input
-    """
+                       effort: str | None = None, *, tool_choice: str | dict | None = None, since: int = 0) -> dict:
+    """The request as logged: the messages as the caller built them (no cache blocks), the tools, and the
+    effective settings (max_tokens, effort, tool_choice). ``since``: a later call of the same request logs
+    only the messages added after the first ``since`` (the first call logged the rest, and the tools)."""
     tool_choice = _effective_tool_choice(tool_choice)
     options = {"tool_choice": tool_choice} if tool_choice is not None else {}
     request = (llm.request_payload(messages, tools, effort, **options) if isinstance(llm, LiteLLMClient) else
                {"model": llm.model, "messages": messages, "tools": tools, "effort": effort, **options})
-    return {"request_boundary": "litellm.completion" if isinstance(llm, LiteLLMClient) else "llm.complete",
-            "messages": request["messages"], "tools": request.get("tools"),
-            "settings": {k: v for k, v in request.items() if k not in ("messages", "tools")}}
+    out = {"settings": {k: v for k, v in request.items() if k not in ("messages", "tools")}}
+    if since and since <= len(messages):
+        return {**out, "messages": messages[since:], "messages_from": since}
+    return {**out, "messages": messages, "tools": request.get("tools")}
 
 
 # --------------------------------------------------------------------------- fake
