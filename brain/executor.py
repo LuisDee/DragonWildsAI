@@ -325,7 +325,25 @@ class Executor:
                      place_kind=best["kind"], approximate=bool(best.get("approximate")))
         result = self.game.call(task.skill, {**args, "target": best["position"]})
         data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        if result.get("ok") and best["kind"] == "landmark" and (seen := self._seen_at_spot(best["name"])):
+            data = {**data, "target": best["name"], "on_arrival": seen}  # chat run 4: he looked to check (1 call)
         return {**result, "data": {**data, "resolved": took}}
+
+    def _seen_at_spot(self, name: str, radius: float = 15.0) -> str | None:
+        """After walking to a map spot: is a thing of that name in sight there? (a body read, no model call)"""
+        try:
+            r = self.game.call("look", {"about": name, "radius": radius, "max": 8})
+        except Exception:
+            return None
+        if not r.get("ok"):
+            return None
+        q = _terms(name)
+        for t in (r.get("data") or {}).get("things") or []:
+            seen = self.places.name_at(t.get("actor_position") or t.get("position")) or t.get("name")
+            if q and q <= _terms(str(seen or "")):
+                d = t.get("distance")
+                return f"{seen} is here" + (f", {d:.0f} m away" if isinstance(d, (int, float)) else "")
+        return f"no {name} in sight within {radius:.0f} m of the map's spot"
 
     def run_task(self, task: Task) -> Outcome:
         if task.skill not in self.store.skills:

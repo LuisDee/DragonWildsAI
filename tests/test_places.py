@@ -330,6 +330,9 @@ class _Body:
         if tool == "get_state":
             return self.get_state()
         self.calls.append(args)
+        if tool == "look":  # after the walk: the named thing stands at the map's spot
+            return {"ok": True, "reason": None, "data": {"things": [{"name": args["about"], "distance": 1.2,
+                                                                      "position": self.pos}]}}
         if isinstance(args.get("target"), str):
             return {"ok": False, "reason": "unknown_target", "data": {"detail": "target_not_visible"}}
         self.pos = list(args["target"])
@@ -351,7 +354,8 @@ def test_go_to_a_name_the_body_cant_see_walks_to_the_game_map_spot(tmp_path):
     body = _Body(HERE)
     out = _executor(tmp_path, body).run_task(Task(skill="go_to", args={"target": "Zanik"}))
     assert out.ok, out.reason
-    assert body.calls == [{"target": "Zanik"}, {"target": [-50.0, 50.0, 1.0]}]  # the body first, then the map
+    assert body.calls[:2] == [{"target": "Zanik"}, {"target": [-50.0, 50.0, 1.0]}]  # the body first, then the map
+    assert body.calls[2]["about"] == "Zanik" and out.data["on_arrival"] == "Zanik is here, 1 m away"
     assert out.data["resolved"].startswith("'Zanik' is not in sight; walking to the game map's landmark Zanik in "
                                            "Temple Woods, Southfell, 10 m away: the nearest in your province of 2 "
                                            "spots"), out.data["resolved"]

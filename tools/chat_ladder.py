@@ -601,24 +601,34 @@ def cmd_run(a) -> int:
     return 0
 
 
+def request_calls(leg: dict) -> int:
+    """Model calls spent on the leg's request: the episodes its chat line started. A situation review that fired
+    during the leg on its own trigger (thirst, nightfall) is counted apart (decision 2026-11-01, chat run 3: three
+    legs carried a 1-2 call review the journey didn't cause)."""
+    by = leg.get("calls_by_episode") or {}
+    return sum(n for e, n in by.items() if not str(e).startswith("review-")) if by else (leg.get("calls") or 0)
+
+
 def summary(legs: list[dict]) -> str:
     done = [x for x in legs if not x.get("skipped")]
     if not done:
         return "no legs ran"
     n = len(done)
     ok = sum(1 for x in done if x.get("success"))
-    calls = [x.get("calls") or 0 for x in done]
+    calls = [request_calls(x) for x in done]
+    reviews = sum((x.get("calls") or 0) - request_calls(x) for x in done)
     truthful = sum(1 for x in done if x.get("truthful"))
     within = sum(1 for c in calls if c <= 2)
-    return (f"success {ok}/{n} = {ok / n:.0%}; calls per leg {calls} (mean {sum(calls) / n:.1f}, <= 2 in {within}/{n}); "
-            f"truthful {truthful}/{n}; outcomes {dict((o, sum(1 for x in done if x.get('outcome') == o)) for o in sorted({x.get('outcome') for x in done}))}")
+    return (f"success {ok}/{n} = {ok / n:.0%}; request calls per leg {calls} (mean {sum(calls) / n:.1f}, <= 2 in "
+            f"{within}/{n}; + {reviews} review calls); truthful {truthful}/{n}; outcomes "
+            f"{dict((o, sum(1 for x in done if x.get('outcome') == o)) for o in sorted({x.get('outcome') for x in done}))}")
 
 
 def gate(legs: list[dict]) -> bool:
-    """One run passes Rung 1 (chat): >= 80 % reached, <= 2 model calls in every leg, every leg truthful."""
+    """One run passes Rung 1 (chat): >= 80 % reached, <= 2 model calls on every leg's request, every leg truthful."""
     done = [x for x in legs if not x.get("skipped")]
     return bool(done) and sum(1 for x in done if x.get("success")) / len(done) >= 0.8 and \
-        all((x.get("calls") or 0) <= 2 for x in done) and all(x.get("truthful") for x in done)
+        all(request_calls(x) <= 2 for x in done) and all(x.get("truthful") for x in done)
 
 
 def cmd_report(a) -> int:
