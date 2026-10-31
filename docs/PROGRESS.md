@@ -364,3 +364,4 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
 - 22:06Z head_run2 @10e6b49: 10/10, SPL 0.99. Fails: none.
 - 22:13Z head_run3 @10e6b49: 8/10, SPL 0.80. Fails: uphill_plateau (killed by a Giant Rat mid-journey; the arbiter then resumed the go_to from the respawn, fixed in 34364b8), around_water (on top of the vent again, 0 m left, 3 m above).
 - Three full runs in a row at >= 80 %: 9/10, 10/10, 8/10.
+- 23:01Z CHAT run 1 (tools/chat_ladder.py, Haiku, Director off) @11088c1-era brain: 5/10 reached, calls/leg mean 4.1 (<=2 in 2/10), truthful 8/10 (one a checker false positive, fixed 11088c1). Fails: "temple entrance" is no map name; look listed every vent as "Anima Vent" (Haiku walked to the wrong one); Haiku cap cut the last leg. Fixes febb6d3 (map names on look rows; similar map names on unknown targets), ba6bf1d (no promise check on reviews), 1d2e1e1 (go_to takes map names as is).
