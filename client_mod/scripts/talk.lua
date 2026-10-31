@@ -753,7 +753,7 @@ function M.start(log, args, ctx)
             on_suspend = function() if J then J.suspended = true end end,
             on_resume = function() if J and not J.done then J.suspended = false; if J.ep then J.ep.phase, J.ep.moving = "approach", false end; return true end return false end,
             on_stop = function(_, _, why) if J and not J.done then J.released = true; finish(J, { ok = false, reason = "interrupted", data = { why = tostring(why), detail = "I was told to do something else." } }) end end })
-        if not r.ok then return bad("interrupted", "pawn_busy", "I'm busy with something else.", { owner = r.owner }) end
+        if not r.ok then return bad("interrupted", "pawn_busy", r.detail or "I'm busy with something else.", { owner = r.owner }) end
         token = r.token
     end
     J = new_job(log, ctx, "start", pc, { token = token, target = { id = t.id or args.target, name = t.name }, npc_name = t.name, note = note })

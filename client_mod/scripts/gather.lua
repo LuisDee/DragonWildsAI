@@ -1141,7 +1141,7 @@ function M.start(log, args, ctx)
             end,
             on_stop = function(_, _, why) if J and not J.done then J.released = true; finish(J, result_of(J, false, "interrupted", { why = tostring(why), detail = "I was told to do something else." })) end end })
         if not r.ok then
-            return { ok = false, reason = "interrupted", data = { why = "pawn_busy", owner = r.owner,
+            return { ok = false, reason = "interrupted", data = { why = "pawn_busy", owner = r.owner, detail = r.detail,
                      busy_with = r.owner and r.owner.name, busy_move = r.owner and r.owner.move } }
         end
         token = r.token

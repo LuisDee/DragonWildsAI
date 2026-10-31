@@ -3175,7 +3175,7 @@ local function start_fight(log, actor, opts)
                                      on_stop = function(_, _, why) local f = C().fight; if f and f.token == token then finish(f, result_of(f, false, "interrupted", { detail = why })) end end })
         if not r.ok then
             local cur = c.fight
-            return { ok = false, reason = "interrupted", data = { detail = "pawn busy", why = "pawn_busy", owner = r.owner,
+            return { ok = false, reason = "interrupted", data = { detail = r.detail or "pawn busy", why = "pawn_busy", owner = r.owner,
                      current_fight = cur and { target = cur.target_name, mode = cur.mode, phase = cur.phase } or nil } }
         end
         token = r.token
@@ -3520,7 +3520,7 @@ function M.use_action(log, style, opts)
     local token
     if arb then
         local r = arb.request(log, { name = "use_action", level = "command", resumable = false, uses_move = false, lease_s = 5 })
-        if not r.ok then return { ok = false, reason = "interrupted", data = { detail = "pawn busy", owner = r.owner } } end
+        if not r.ok then return { ok = false, reason = "interrupted", data = { detail = r.detail or "pawn busy", owner = r.owner } } end
         token = r.token
     end
     local st0 = U.try(function() return pawn.StaminaComponent:GetStamina() end)

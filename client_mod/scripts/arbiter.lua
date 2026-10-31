@@ -298,7 +298,9 @@ function A.request(log, spec)
                 local st = move_call("status")
                 if type(st) == "table" then ob.move = { mode = st.mode, status = st.status, target = st.target, dist_m = st.dist_m } end
             end
-            return { ok = false, reason = "busy", owner = ob }
+            -- the refusal names the owner in words too, so every module that passes it on is truthful
+            return { ok = false, reason = "busy", owner = ob, detail = string.format("busy: %s (%s) is using my legs, for %d s",
+                tostring(ob.name), tostring(ob.level), math.floor(ob.age_s or 0)) }
         end
         s.owner = nil
         if lvl > cur.level and cur.resumable ~= false then

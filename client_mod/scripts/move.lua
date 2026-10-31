@@ -1246,6 +1246,12 @@ local function trip_report(st, result)
         end
     end
     if fall > 300 then bits[#bits + 1] = string.format("fell %.1f m", fall / 100) end
+    -- endurance 0 (no rest) scales his stamina down: no sprint, and jumps fail (live 21:14-21:24: sprint 0 s on every
+    -- trip, "a double jump never left the ground", the ladder 10/10 -> 7/10 until he rested)
+    local okE, endu = pcall(function() return st.pawn.EnduranceComponent:GetCurrentEndurance() end)
+    if okE and type(endu) == "number" and endu <= 0.5 then
+        bits[#bits + 1] = "I'm exhausted (endurance 0): no sprinting and my jumps fail until I rest in a bed or shelter"
+    end
     local fb = st.nav_fallback
     local nav_down = fb == "oracle_unavailable" or fb == "oracle_timeout"
     if nav_down then bits[#bits + 1] = "the navigation helper was unavailable, so I steered by what I could see" end
@@ -1268,7 +1274,8 @@ local function trip_report(st, result)
         d0_m = m1(tr.d0 / 100), end_m = m1(endd / 100), closest_m = m1(tr.best / 100), walked_m = m1(moved), s = m1(secs),
         sprint_s = m1(tr.sprint_t), src_s = src, zmin_m = m1(tr.zmin / 100), zmax_m = m1(tr.zmax / 100),
         fell_m = fall > 300 and m1(fall / 100) or nil, nav_end = pm(st.nav_end), nav_fallback = fb, nav_requests = st.nav_requests,
-        lp_runs = st.lp_runs, stuck_total = st.stuck_total, backtracks = st.backtracks, notes = st.trip_notes, sentence = sentence }
+        lp_runs = st.lp_runs, stuck_total = st.stuck_total, backtracks = st.backtracks, notes = st.trip_notes,
+        endurance = okE and type(endu) == "number" and m1(endu) or nil, sentence = sentence }
     local okr, J = pcall(require, "jsonutil")
     local okj, line = false, nil
     if okr and J then okj, line = pcall(J.encode, row) end

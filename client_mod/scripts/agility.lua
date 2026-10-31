@@ -419,7 +419,7 @@ function M.start(log, args, ctx)
             on_suspend = function() if J then J.suspended = true; J.moving = false end end,
             on_resume = function() if J and not J.done then J.suspended = false; J.moving = false; J.orb = nil; return true end return false end,
             on_stop = function(_, _, why) if J and not J.done then J.released = true; finish(J, result_of(J, false, "interrupted", { why = tostring(why), detail = "I was told to do something else, so I left the course." })) end end })
-        if not r.ok then return { ok = false, reason = "interrupted", data = { why = "pawn_busy", owner = r.owner, detail = "I'm busy with something else." } } end
+        if not r.ok then return { ok = false, reason = "interrupted", data = { why = "pawn_busy", owner = r.owner, detail = r.detail or "I'm busy with something else." } } end
         token = r.token
     end
     c.gen = c.gen + 1
