@@ -64,7 +64,7 @@ FAILURE_TRUTHS = {"code_gate", "guard", "reflex_busy", "timeout", "infra", "fell
 NEG_RX = re.compile(r"\b(?:not|no|never|didn'?t|did not|wasn'?t|isn'?t|haven'?t|hasn'?t|nothing)\b\W*(?:\w+\W+){0,2}$", re.I)
 ARRIVE_RX = re.compile(r"\b(?:i'?m here|i'?m there|made it|arrived|got here|got there|here now|there now|reached (?:it|the|you)|"
                        r"i'?m at (?:the|your)|i'?m (?:right )?(?:next to|by|beside) (?:the|you))\b", re.I)
-NOT_YET_RX = re.compile(r"\b(?:not|haven'?t|didn'?t|yet|once|when|until|if|i'?ll|will|going to|soon|almost)\b", re.I)
+NOT_YET_RX = re.compile(r"\b(?:not|haven'?t|didn'?t|can'?t|cannot|couldn'?t|yet|once|when|until|if|i'?ll|will|going to|soon|almost)\b", re.I)
 NUM_RX = re.compile(r"\b(?:about |around |roughly |~|only )?(\d+(?:\.\d+)?) ?(?:m|metres|meters)\b", re.I)
 TRAVEL_CTX_RX = re.compile(r"\b(?:got|walked|went|made it|covered|travell?ed|moved|ran)\b(?:\W+\w+){0,3}\W*$", re.I)
 LEFT_CTX_RX = re.compile(r"^\W*(?:short|left|to go|away from (?:it|there|the goal)|from (?:it|there|the goal)|off it)\b", re.I)
