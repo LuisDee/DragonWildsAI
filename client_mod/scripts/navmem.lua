@@ -33,6 +33,8 @@ NM.cfg = {
     join_cm = 400,         -- points of different routes this close are connected
     entry_cm = 1500,       -- start/goal connect to graph points within this (straight-line assumed)
     entry_factor = 1.5,    -- the unknown straight bits cost more than remembered ones
+    entry_dz_cm = 150,     -- an entry edge may rise/fall this much ...
+    entry_grade = 0.1,     -- ... plus this much per metre of run (a walkable slope, not a ledge)
     dup_cm = 500,          -- a route with start AND end this close to an existing one replaces it
     max_routes = 400,
     taboo_r_cm = 300,      -- an edge ending within this of a taboo point ...
@@ -322,11 +324,16 @@ function NM.plan(mem, from, to, opts)
     local S = add_node(cm(from), "start")
     local G = add_node(cm(to), "goal")
     local direct = d3(nodes[S].p, nodes[G].p)
+    -- entry edges are walked straight and unseen, so only on the walker's level: rise <= entry_dz_cm + entry_grade x run
+    -- (live 2026-10-31: the terrace outside the church "connected" to the lodestone floor 4-6 m below, through the wall)
+    local function level(a, b)
+        return math.abs(a.Z - b.Z) <= NM.cfg.entry_dz_cm + NM.cfg.entry_grade * math.sqrt((a.X - b.X) ^ 2 + (a.Y - b.Y) ^ 2)
+    end
     for _, i in ipairs(route_nodes) do
         local ds = d3(nodes[S].p, nodes[i].p)
-        if ds < NM.cfg.entry_cm then edge(S, i, cost(nodes[S].p, nodes[i].p, ds * NM.cfg.entry_factor)) end
+        if ds < NM.cfg.entry_cm and level(nodes[S].p, nodes[i].p) then edge(S, i, cost(nodes[S].p, nodes[i].p, ds * NM.cfg.entry_factor)) end
         local dg = d3(nodes[i].p, nodes[G].p)
-        if dg < NM.cfg.entry_cm then edge(i, G, cost(nodes[i].p, nodes[G].p, dg * NM.cfg.entry_factor)) end
+        if dg < NM.cfg.entry_cm and level(nodes[i].p, nodes[G].p) then edge(i, G, cost(nodes[i].p, nodes[G].p, dg * NM.cfg.entry_factor)) end
     end
     -- Dijkstra (graphs are small: hundreds of nodes)
     local dist, prev, done = { [S] = 0 }, {}, {}

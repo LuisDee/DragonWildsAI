@@ -159,6 +159,8 @@ local function suspend_rec(log, s, rec, by)
     rec.suspended_by = by
     if rec.uses_move ~= false then
         rec.move_snap = move_snapshot()
+        local rt = rec.move_snap and rec.move_snap.opts and rec.move_snap.opts.resume_trip
+        if type(rt) == "table" then rt.by = by end -- named in the resumed trip's sentence
         stop_move_for(log, s, rec)
     end
     if rec.on_suspend then pcall(rec.on_suspend, log, rec) end

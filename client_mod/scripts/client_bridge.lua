@@ -550,7 +550,7 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
         end
     end
     release_orphan_owner()
-    local r = call("move", "go_to", coords or tostring(target), { tolerance_m = tonumber(args.tolerance) })
+    local r = call("move", "go_to", coords or tostring(target), { tolerance_m = tonumber(args.tolerance), cmd_id = ctx.id })
     if not r.ok then return r end
     local a = { kind = "go_to", id = ctx.id, target = target, timeout_s = M.GOTO_TIMEOUT_S, target_position = coords,
                 tol = tonumber(args.tolerance) or M.GOTO_TOL_M, polls = 0 }
@@ -612,7 +612,7 @@ R.follow = { needs = { { "move", "follow" }, { "move", "status" } }, fn = functi
     local rf = resting_failure()
     if rf then return rf end
     release_orphan_owner()
-    local r = call("move", "follow", tostring(who), dist_m)
+    local r = call("move", "follow", tostring(who), dist_m, { cmd_id = ctx.id })
     if not r.ok then return r end
     local a = { kind = "follow", id = ctx.id, player = tostring(who), quiet_preempt = true, replied = true }
     a.cancel = function() call("move", "stop") end

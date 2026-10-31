@@ -1795,6 +1795,28 @@ check("progress: failed go_to -> unreachable with move's reason", s.result and s
 check("progress: snapshot keeps opts.progress", snap43 and snap43.opts.progress and snap43.opts.progress.stall_s == 4 and snap43.opts.progress.to[2] == 1)
 MZ.stop(log)
 
+-- 43b. a go_to suspended by a reflex and resumed keeps ONE trip: the sentence covers the whole walk and names the pause
+do
+zreset()
+walls = {}
+pawn.loc = { X = 0, Y = 0, Z = 0 }
+MZ.go_to(log, { 20, 0, 0 }, { tolerance_m = 1, nav = false, local_plan = false, cmd_id = "c43b" })
+run(25)
+local x_mid = pawn.loc.X
+local snap43b = MZ.snapshot()
+MZ.stop(log)
+if snap43b and snap43b.opts.resume_trip then snap43b.opts.resume_trip.by = "combat:reflex" end
+MZ.restore(log, snap43b)
+run(400)
+s = MZ.status()
+local trip43b = s.result and s.result.trip or ""
+check("trip: a resumed go_to keeps one trip from the first start, naming the pause",
+    s.result and s.result.status == "arrived" and x_mid > 100 and trip43b:find("from %[0%.00,0%.00") ~= nil and
+    trip43b:find("combat:reflex had my legs", 1, true) ~= nil and _G.DW_MOVE.cmd_id == "c43b",
+    tostring(s.result and s.result.status) .. " mid=" .. tostring(x_mid) .. " trip=" .. trip43b)
+MZ.stop(log)
+end
+
 -- 44. why_words: one table, truthful clauses, grammar for "you"/"it"/a name, needs:X, unknown
 local W = MZ.why_words
 check("words: every key has a clause", (function() for _, k in ipairs(MZ.WHY_KEYS) do local w = W(k, "the Kebbit"); if type(w) ~= "string" or #w < 8 then return false end end return #MZ.WHY_KEYS >= 15 end)())
@@ -2127,7 +2149,9 @@ do
     local ground=pawn.CharacterMovement.IsMovingOnGround
     pawn.CharacterMovement.IsMovingOnGround=function() error("unknown ground") end
     run(1)
-    check("jump binding: unknown airborne ends truthfully",st.result and st.result.detail=="airborne state unconfirmed for second jump")
+    -- PLAN fix 1: an unconfirmed first jump skips the second press and the go_to carries on (noted on the trip)
+    check("jump binding: unknown airborne skips the second jump",st.mode=="go_to" and not st.result and st.jump_double==false and
+        st.trip_notes and st.trip_notes[#st.trip_notes]=="a double jump never left the ground")
     pawn.CharacterMovement.IsMovingOnGround=ground; air=0
     pawn.loc={X=0,Y=0,Z=0}; M.go_to(log,{20,0,0},{nav=false,local_plan=false}); st=_G.DW_MOVE
     st.mpath={{X=0,Y=0,Z=-90,act="walk"},{X=500,Y=0,Z=-90,act="jump"}}; st.mwp=2
@@ -2320,6 +2344,7 @@ do
         r and (tostring(r.status) .. " " .. tostring(r.detail)))
     M.stop(log); pawn.loc = { X = 0, Y = 0, Z = 0 }
     HOLES = { { 200, 3000, -3000, 3000 } }
+    if _G.DW_NAVMEM then _G.DW_NAVMEM.routes = {} end -- the first case remembered this very line: test the straight guard
     local old_plans = M.cfg.lp_max_plans; M.cfg.lp_max_plans = 0
     M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1 })
     run(30)

@@ -169,6 +169,8 @@ M.cfg = {
     progress_gain_m = 0.5,
     progress_moving_m = 3,     -- target moved this far since the best distance = it is running away (cant_catch)
     deadline_cap_s = 285,      -- go_to deadline ceiling (client_bridge GOTO_TIMEOUT_S = 290)
+    mem_goal_reach_cm = 600,   -- a remembered route "reaches" the goal when its last point is this close (same level)
+    mem_goal_factor = 12,      -- ... and may be this many times the straight distance (+20 m): the direct way failed
 }
 
 -- ------------------------------------------------------------------ helpers
@@ -884,6 +886,22 @@ end
 
 local function feet_of(st, p) return { X = p.X, Y = p.Y, Z = p.Z - (st.half_h or 90) } end
 
+-- A remembered route that really REACHES the goal: its last walked point is within goal_reach_cm of the goal on
+-- the goal's level. Used when the oracle's route ends short (the NPC navmesh misses the church ramp a player
+-- walks: live 2026-10-31, every route to the lodestone ended on the terrace outside, 13 m off and 4 m up), and
+-- before a learned trap's exit (a junk trap's "exit" walked away from the goal). The detour may be long: the
+-- direct way is already known to fail.
+local function mem_goal_plan(st, me, goal)
+    local mem, NMm = nav_mem()
+    if not mem then return nil end
+    local gfe = feet_of(st, goal)
+    local okp, pts = pcall(NMm.plan, mem, feet_of(st, me), gfe, { max_factor = M.cfg.mem_goal_factor })
+    if not (okp and pts and #pts >= 2) then return nil end
+    local last = pts[#pts - 1] -- pts[#pts] is the goal itself
+    if d2(last, gfe) > M.cfg.mem_goal_reach_cm or math.abs(last.Z - gfe.Z) > 200 then return nil end
+    return pts
+end
+
 -- Persist what this move learned: Claude's own trip (only if it got somewhere: arrived, or a follow
 -- that reached the leader) and the leader's walked trail (human-proven). Called when a move ends,
 -- including when a new command interrupts it (live 19:42: a follow's demo trail was lost that way).
@@ -1237,7 +1255,7 @@ local function trip_report(st, result)
     local function pm(q) return q and { m1(q.X / 100), m1(q.Y / 100), m1(q.Z / 100) } or nil end
     local src = {}
     for k, x in pairs(tr.src_t) do src[k] = m1(x) end
-    local row = { type = "trip", ts = os.time(), iso = os.date("!%Y-%m-%dT%H:%M:%SZ"), mode = st.mode, status = result.status,
+    local row = { type = "trip", id = st.cmd_id, ts = os.time(), iso = os.date("!%Y-%m-%dT%H:%M:%SZ"), mode = st.mode, status = result.status,
         reason = result.reason, gen = st.gen, target = st.target_name, start = pm(tr.start), ["end"] = pm(tr.last), goal = pm(tr.goal),
         d0_m = m1(tr.d0 / 100), end_m = m1(endd / 100), closest_m = m1(tr.best / 100), walked_m = m1(moved), s = m1(secs),
         sprint_s = m1(tr.sprint_t), src_s = src, zmin_m = m1(tr.zmin / 100), zmax_m = m1(tr.zmax / 100),
@@ -1478,7 +1496,12 @@ local function tick(st, gen, log)
                 st.jump_double = false; st.jump_t2 = t; st.double_jumps = (st.double_jumps or 0) + 1
                 st.jump_observation.submitted = true
             elseif t - st.jump_t > 1.2 then
-                return finish(st,{status="failed",reason="verification_failed",detail="airborne state unconfirmed for second jump"},log)
+                -- the first jump never left the ground: no second press, carry on (the stuck/re-plan ladder decides;
+                -- live 2026-10-31 20:32 this ended the ramp_down journey)
+                st.jump_double = false
+                st.trip_notes = st.trip_notes or {}
+                st.trip_notes[#st.trip_notes + 1] = "a double jump never left the ground"
+                if log then log("move: double jump: first jump not airborne after 1.2 s; skipping the second") end
             end
         end
         if st.jump_t2 and t - st.jump_t2 > 0.25 then
@@ -1665,6 +1688,21 @@ local function tick(st, gen, log)
                         end
                         st.path, st.wp, st.path_partial = pts, 2, r.partial
                         if r.partial and pts[#pts] then st.nav_end = v(pts[#pts]) end
+                        local lastp = pts[#pts]
+                        if st.mode == "go_to" and lastp and (d2(lastp, goal) > st.tol_cm or math.abs(lastp.Z - goal.Z) > 2 * st.half_h) then
+                            local mp = mem_goal_plan(st, me, goal)
+                            if mp then
+                                st.path, st.nav_fail = nil, "memory_route"
+                                route_fallback(st, "oracle route ends short; a remembered route reaches the goal", log)
+                                st.mem_checked = true
+                                st.mpath, st.mwp, st.msrc = mp, 1, "memory"
+                                -- the remembered route is this trip's authority: asking the oracle again (every ~4 s)
+                                -- re-admitted it and reset the route to its first point (live 20:46-20:48, ramp_up)
+                                st.use_nav = false
+                                if log then log(string.format("move: memory: remembered route reaches the goal (%d pts); the oracle's ends %.0f m short",
+                                    #mp, d2(lastp, goal) / 100)) end
+                            end
+                        end
                         st.path_goal, st.nav_jumped = v(st.nav_goal), {}
                         st.nav_binding = pending
                         st.nav_fail = nil
@@ -2055,7 +2093,12 @@ local function tick(st, gen, log)
                     if log then log("move: memory: in trap " .. tostring(trap.id) .. "; the way out will be learned as its exit") end
                 end
             end
-            if okt and trap and not (okg3 and gtrap and gtrap.id == trap.id) and st.mode == "follow" and st.target then
+            local reach = st.mode == "go_to" and st.nav_fallback and mem_goal_plan(st, me, goal) or nil
+            if reach then
+                -- the oracle's route failed: a remembered route that ends at the goal beats any trap exit or length rule
+                st.mpath, st.mwp, st.msrc = reach, 1, "memory"
+                if log then log(string.format("move: memory: remembered route reaches the goal (%d pts) after %s", #reach, st.nav_fallback)) end
+            elseif okt and trap and not (okg3 and gtrap and gtrap.id == trap.id) and st.mode == "follow" and st.target then
                 -- following a visible leader out: his live trail beats a stored (maybe provisional) exit
             elseif okt and trap and not (okg3 and gtrap and gtrap.id == trap.id) then
                 st.mpath, st.mwp, st.msrc = NMm.trap_exit(trap), 1, "trap:" .. tostring(trap.id)
@@ -2806,7 +2849,9 @@ local function tick(st, gen, log)
             local mem, NMm = nav_mem()
             if mem then
                 local okt, trap = pcall(NMm.trap_at, mem, feet_of(st, me))
-                local pts = okt and trap and NMm.trap_exit(trap) or nil
+                local pts = st.mode == "go_to" and mem_goal_plan(st, me, goal) or nil
+                if pts then trap = nil
+                else pts = okt and trap and NMm.trap_exit(trap) or nil end
                 if not pts then
                     local okp, pp = pcall(NMm.plan, mem, feet_of(st, me), feet_of(st, goal), { max_factor = 3 })
                     pts = okp and pp or nil
@@ -3055,6 +3100,16 @@ local function start(log, mode, opts)
     if paused() or death_seq()~=start_life_seq or rawget(_G,"DW_MOVE")~=st or st.gen~=gen or st.mode~=mode or
         rawget(_G,"DWArbiter")~=admitted_arb or admitted_arb.owner~=admitted_owner then return abort_start() end
     st.tol_cm = (opts.tolerance_m or 1.5) * 100
+    st.cmd_id = opts.cmd_id -- the bridge command this move serves (trips.jsonl "id")
+    local rt = type(opts.resume_trip) == "table" and opts.resume_trip or nil
+    if rt and type(rt.rec) == "table" then
+        -- resumed after an arbiter suspend (a fight): the trip goes on, so its sentence covers the whole walk
+        st.trip_rec, st.trip_notes = rt.rec, {}
+        for i, n in ipairs(rt.notes or {}) do st.trip_notes[i] = n end
+        st.trip_notes[#st.trip_notes + 1] = string.format("paused %d s while %s had my legs",
+            math.max(0, os.time() - (rt.at or os.time())), tostring(rt.by or "a reflex"))
+    end
+    opts.resume_trip = nil
     st.timeout_s = opts.timeout_s or 120
     st.timeout_auto = opts.timeout_s == nil -- grows with the trip on the first tick (tick)
     st.sprint = opts.sprint ~= false
@@ -3288,6 +3343,8 @@ function M.snapshot()
     local a = st.args
     local opts = {}
     for k, x in pairs(a.opts) do opts[k] = x end
+    -- the trip so far, so a resumed move keeps one record (restore -> start(opts.resume_trip))
+    opts.resume_trip = st.trip_rec and { rec = st.trip_rec, notes = st.trip_notes, at = os.time() } or nil
     return { mode = a.mode, goal = a.goal, distance_m = a.distance_m, opts = opts }
 end
 
