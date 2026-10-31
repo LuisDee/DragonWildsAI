@@ -333,6 +333,18 @@ def recent_bridge_driver(window_s: float = 60.0) -> str | None:
     return None
 
 
+def foreign_driver(since: float) -> str | None:
+    """A body command on the debug channel since `since` that this harness never sends (it sends only me and stop there;
+    its brain drives through brain_to_client): BODY started a run mid-ladder."""
+    for r in reversed(_tail_rows(CLIENT_BRIDGE / "debug_to_client.jsonl")):
+        t = r.get("ts")
+        if not isinstance(t, (int, float)) or t < since:
+            break
+        if r.get("tool") not in ("ping", "capabilities", "me", "stop"):
+            return f"debug_to_client.jsonl: {r.get('tool')} {time.time() - t:.0f} s ago"
+    return None
+
+
 def preflight(a) -> list[str]:
     from evals.bench.devtarget import forbidden_addresses, joined_from_game_log
     from tools.scenario_run import Ops
@@ -379,14 +391,16 @@ def start_brain(a, spent: float | None) -> tuple[subprocess.Popen, Path | None]:
            "DW_DIRECTOR": "0", "DW_WORLD_GUID": a.world, "DW_SPEND_CAP_USD": f"{(spent or 0.0) + a.usd:.2f}",
            "PYTHONIOENCODING": "utf-8"}
     log = open(paths.log_dir() / "brain-chat-ladder-console.log", "a", encoding="utf-8")
+    t0 = time.time()
     p = subprocess.Popen([sys.executable, "-m", "brain.run_live", "--body", "client", "--player", TESTER],
                          cwd=str(ROOT), env=env, stdout=log, stderr=subprocess.STDOUT)
-    deadline = time.time() + 90
-    while time.time() < deadline:
-        hits = list(paths.log_dir().glob(f"brain-live-*-{p.pid}.jsonl"))
-        if hits and any(r.get("kind") == "session_start" for r in obs.jsonl(hits[0])):
-            time.sleep(3.0)
-            return p, hits[0]
+    deadline = t0 + 90
+    while time.time() < deadline:  # the log is named after the interpreter's pid, not the venv launcher's (p.pid)
+        for f in paths.log_dir().glob("brain-live-*.jsonl"):
+            if f.stat().st_mtime >= t0 - 1 and any(r.get("kind") == "session_start" and (obs.parse_ts(r.get("ts")) or 0) >= t0 - 1
+                                                   for r in obs.jsonl(f)):
+                time.sleep(3.0)
+                return p, f
         if p.poll() is not None:
             break
         time.sleep(1.0)
@@ -395,6 +409,8 @@ def start_brain(a, spent: float | None) -> tuple[subprocess.Popen, Path | None]:
 
 def stop_brain(p: subprocess.Popen | None) -> None:
     if p is not None and p.poll() is None:
+        if os.name == "nt":  # the venv python.exe is a launcher; take its interpreter child down with it
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
         p.terminate()
         try:
             p.wait(timeout=15)
@@ -404,8 +420,7 @@ def stop_brain(p: subprocess.Popen | None) -> None:
 
 def _brain_file(a, p) -> Path | None:
     if p is not None:
-        hits = list(paths.log_dir().glob(f"brain-live-*-{p.pid}.jsonl"))
-        return hits[0] if hits else None
+        return None
     files = sorted(paths.log_dir().glob("brain-live-*.jsonl"), key=lambda f: f.stat().st_mtime)
     return files[-1] if files else None
 
@@ -469,7 +484,7 @@ def run_leg(a, j: dict, i: int, cli, brain_file: Path, run_id: str, haiku_used: 
             "calls_by_episode": calls["by_episode"], "prompt_tok": calls["prompt_tok"], "completion_tok": calls["completion_tok"],
             "cached_tok": calls["cached_tok"], "usd": calls["usd"], "flags": s["flags"], "unverified": s["unverified"],
             "truth": s["truth"], "saw_vs_reality": s["saw_vs_reality"][:8],
-            "anomalies": [x for x in s["anomalies"] if x["kind"] != "stall"][:12], "claims": s["claims"],
+            "anomalies": [x for x in s["anomalies"] if x["kind"] != "stall"][:12], "claims": s["claims"], "trips": s["trips"],
             "trace": [[round(t - t0, 1)] + [round(v, 2) for v in q] for t, q in trace[::3]]}
 
 
@@ -505,7 +520,11 @@ def cmd_run(a) -> int:
     run_id = datetime.now(timezone.utc).strftime("cl-%Y%m%dT%H%M%SZ")
     legs, haiku = [], 0
     try:
+        t_run = time.time()
         for i, j in enumerate(journeys):
+            if (who := foreign_driver(t_run)) or any(p.exists() for p in HOLD_FILES):
+                print(f"stopping: someone else is driving the client ({who or 'hold file'})")
+                break
             row = run_leg(a, j, i, cli, bfile, run_id, haiku)
             row.setdefault("run_id", run_id)
             row["brain_log"] = bfile.name
