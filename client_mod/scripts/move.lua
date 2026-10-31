@@ -168,6 +168,7 @@ M.cfg = {
     progress_stall_s = 12,     -- no gain of progress_gain_m for this long = stalled
     progress_gain_m = 0.5,
     progress_moving_m = 3,     -- target moved this far since the best distance = it is running away (cant_catch)
+    deadline_cap_s = 285,      -- go_to deadline ceiling (client_bridge GOTO_TIMEOUT_S = 290)
 }
 
 -- ------------------------------------------------------------------ helpers
@@ -1197,6 +1198,59 @@ local function cancel_superjump(st)
     if job and job.cancel then pcall(job.cancel) end
 end
 
+-- ------------------------------------------------------------------ trip record (PLAN fix 2)
+-- One row per go_to/follow in client_io/events/trips.jsonl, and ONE plain sentence on the result (result.trip),
+-- computed from what the body measured: start/end, metres walked, closest approach, "moving away", where the
+-- walkable map (oracle route) ended, falls, and whether the navigation helper was there at all.
+local TRIPS = ROOT .. "/client_io/events/trips.jsonl"
+local function m1(x) return math.floor(x * 10 + 0.5) / 10 end
+local function trip_report(st, result)
+    local tr = st.trip_rec
+    if not (tr and tr.goal and tr.last) or (st.mode ~= "go_to" and st.mode ~= "follow") then return nil end
+    local hh = st.half_h or 88
+    local secs = math.max(0, (tr.t1 or tr.t0) - tr.t0)
+    local endd, moved = tr.dist or d2(tr.last, tr.goal), tr.path / 100
+    local arrived = result.status == "arrived"
+    local fall = tr.fall
+    if tr.air_top and tr.air_top - tr.last.Z > fall then fall = tr.air_top - tr.last.Z end
+    local bits = {}
+    if not arrived and st.mode == "go_to" then
+        bits[#bits + 1] = string.format("%.0f m left (closest %.0f m)", endd / 100, tr.best / 100)
+        if endd > tr.d0 + 300 then
+            bits[#bits + 1] = string.format("moving away: %.0f m further from the goal than at the start", (endd - tr.d0) / 100)
+        end
+        local dz = (tr.goal.Z - tr.last.Z) / 100
+        if math.abs(dz) >= 2 then bits[#bits + 1] = string.format("the goal is %.0f m %s me", math.abs(dz), dz > 0 and "above" or "below") end
+        if st.nav_end and d2(st.nav_end, tr.goal) > 300 then
+            local h = (tr.goal.Z - (st.nav_end.Z + hh)) / 100
+            bits[#bits + 1] = string.format("the walkable map ends %.0f m short of the goal, %.0f m %s it", d2(st.nav_end, tr.goal) / 100,
+                math.abs(h), h >= 0 and "below" or "above")
+        end
+    end
+    if fall > 300 then bits[#bits + 1] = string.format("fell %.1f m", fall / 100) end
+    local fb = st.nav_fallback
+    local nav_down = fb == "oracle_unavailable" or fb == "oracle_timeout"
+    if nav_down then bits[#bits + 1] = "the navigation helper was unavailable, so I steered by what I could see" end
+    if st.trip_notes then bits[#bits + 1] = table.concat(st.trip_notes, ", ") end
+    local sentence = string.format("%s %.0f m in %.0f s (%.1f m/s) from %s to %s", moved < 1 and "Moved" or "Walked", moved, secs,
+        secs > 0 and moved / secs or 0, m3s(tr.start), m3s(tr.last)) .. (#bits > 0 and ("; " .. table.concat(bits, "; ")) or "") .. "."
+    local function pm(q) return q and { m1(q.X / 100), m1(q.Y / 100), m1(q.Z / 100) } or nil end
+    local src = {}
+    for k, x in pairs(tr.src_t) do src[k] = m1(x) end
+    local row = { type = "trip", ts = os.time(), iso = os.date("!%Y-%m-%dT%H:%M:%SZ"), mode = st.mode, status = result.status,
+        reason = result.reason, gen = st.gen, target = st.target_name, start = pm(tr.start), ["end"] = pm(tr.last), goal = pm(tr.goal),
+        d0_m = m1(tr.d0 / 100), end_m = m1(endd / 100), closest_m = m1(tr.best / 100), walked_m = m1(moved), s = m1(secs),
+        sprint_s = m1(tr.sprint_t), src_s = src, zmin_m = m1(tr.zmin / 100), zmax_m = m1(tr.zmax / 100),
+        fell_m = fall > 300 and m1(fall / 100) or nil, nav_end = pm(st.nav_end), nav_fallback = fb, nav_requests = st.nav_requests,
+        lp_runs = st.lp_runs, stuck_total = st.stuck_total, backtracks = st.backtracks, notes = st.trip_notes, sentence = sentence }
+    local okr, J = pcall(require, "jsonutil")
+    local okj, line = false, nil
+    if okr and J then okj, line = pcall(J.encode, row) end
+    local f = okj and line and io.open(TRIPS, "a")
+    if f then f:write(line, "\n"); f:close() end
+    return sentence, nav_down
+end
+
 finish = function(st, result, log)
     if st.mode == "idle" then return end
     local gen, token, pawn, pc = st.gen, st.owner_token, st.pawn, st.pc
@@ -1216,6 +1270,15 @@ finish = function(st, result, log)
     local handle=st.handle
     if handle then pcall(CancelDelayedAction, handle) end
     if not current() or st.handle ~= handle then return end
+    local okt, sentence, nav_down = pcall(trip_report, st, result)
+    if okt and sentence then
+        result.trip = sentence
+        -- an outage is an outage: never "stuck"/"unreachable" (-> path_blocked) when the helper was not there
+        if nav_down and result.status == "failed" and (result.reason == "stuck" or result.reason == "unreachable" or result.reason == "timeout") then
+            result.why, result.reason = result.reason, "nav_unavailable"
+        end
+        if log then log("move: trip: " .. sentence) end
+    elseif not okt and log then log("move: trip report error " .. tostring(sentence)) end
     st.result = result
     st.mode = "idle"
     st.handle = nil
@@ -1491,6 +1554,36 @@ local function tick(st, gen, log)
     local dist = d2(me, goal)
     st.dist_cm = dist
     if st.dz0 == nil then st.dz0 = goal.Z - me.Z; st.original_goal_xy = dist end
+    if st.timeout_auto then
+        -- PLAN fix 1: a long trip gets time to finish: max(120, 3 x distance / 4.5 m/s), capped under the bridge's
+        -- 290 s (live 19:08: 128 m of steady progress was answered "timeout" at 120 s)
+        st.timeout_auto = nil
+        st.timeout_s = math.min(M.cfg.deadline_cap_s, math.max(st.timeout_s, 3 * (dist + math.abs(goal.Z - me.Z)) / 450))
+    end
+    -- trip record (PLAN fix 2): what this move really did, for one honest sentence and client_io/events/trips.jsonl
+    do
+        local tr = st.trip_rec
+        if not tr then
+            tr = { t0 = t, start = v(me), d0 = dist, path = 0, best = dist, last = v(me), zmin = me.Z, zmax = me.Z,
+                   src_t = {}, sprint_t = 0, fall = 0 }
+            st.trip_rec = tr
+        else
+            local step = math.sqrt((me.X - tr.last.X) ^ 2 + (me.Y - tr.last.Y) ^ 2 + (me.Z - tr.last.Z) ^ 2)
+            if step < 1500 then tr.path = tr.path + step end -- a teleport/respawn is not walking
+            if dist < tr.best then tr.best = dist end
+            tr.zmin, tr.zmax = math.min(tr.zmin, me.Z), math.max(tr.zmax, me.Z)
+            local src0 = st.source or "start"
+            tr.src_t[src0] = (tr.src_t[src0] or 0) + dt
+            if st.sprinting then tr.sprint_t = tr.sprint_t + dt end
+        end
+        tr.last, tr.goal, tr.t1, tr.dist = v(me), v(goal), t, dist
+        local okf, falling = pcall(function() return pawn.CharacterMovement:IsFalling() end)
+        if okf and falling then tr.air_top = math.max(tr.air_top or me.Z, me.Z)
+        elseif okf and tr.air_top then
+            if tr.air_top - me.Z > tr.fall then tr.fall = tr.air_top - me.Z end
+            tr.air_top = nil
+        end
+    end
     -- Long trips require an admitted route before any planner, traversal or raw input.
     -- Once required, keep the authority until the real three-dimensional arrival.
     local route_far = dist > M.cfg.oracle_primary_cm or
@@ -1571,6 +1664,7 @@ local function tick(st, gen, log)
                             st.local_observe_done = true
                         end
                         st.path, st.wp, st.path_partial = pts, 2, r.partial
+                        if r.partial and pts[#pts] then st.nav_end = v(pts[#pts]) end
                         st.path_goal, st.nav_jumped = v(st.nav_goal), {}
                         st.nav_binding = pending
                         st.nav_fail = nil
@@ -1598,6 +1692,7 @@ local function tick(st, gen, log)
                 if last and d2(last, goal) <= st.tol_cm and math.abs(last.Z - goal.Z) <= 2 * st.half_h then
                     st.wp = #st.path -- steer to the admitted endpoint, never substitute the raw goal
                 else
+                    st.nav_end = last and v(last) or st.nav_end
                     st.path, st.nav_fail = nil, "route_ended_before_goal"
                 end
             end
@@ -2228,7 +2323,17 @@ local function tick(st, gen, log)
                 if p.act == "jump" or p.act == "djump" then
                     local function traversal_failure(detail)
                         if st.mode ~= "follow" then
-                            return finish(st,{status="failed",reason="verification_failed",detail=detail},log)
+                            -- go_to: a missed landing is one failed local plan, not the end of the trip (live
+                            -- 2026-10-31 19:59: "jump landing missed" ended a 225 m walk 48 m short). Drop the
+                            -- path and re-plan from where he landed; the give-up ladder still ends real non-progress.
+                            st.local_authority, st.local_binding, st.lpath, st.lp_jump_exec = nil,nil,nil,nil
+                            st.jump_double = false
+                            st.lp_fail_t, st.lp_fail = t, detail
+                            st.want_trail, st.nav_force = true, true
+                            st.trip_notes = st.trip_notes or {}
+                            st.trip_notes[#st.trip_notes + 1] = detail
+                            if log then log("move: " .. detail .. "; re-planning from here") end
+                            return
                         end
                         st.local_authority, st.local_binding, st.lpath, st.lp_jump_exec = nil,nil,nil,nil
                         st.local_observe_done, st.nav_required, st.nav_fail = true,true,detail
@@ -2835,7 +2940,13 @@ local function start(log, mode, opts)
         end
         if not unchanged() then return {ok=false,reason="interrupted",detail="movement ownership changed"} end
     elseif old_owner and not (old_owner.implicit and st.owner_implicit and old_owner.token==old_token) then
-        return {ok=false,reason="busy",detail="movement owner token required"}
+        -- say WHO holds the pawn (live 10-30: "movement owner token required" was really the eat reflex)
+        local lvl = ({ "idle", "task", "command", "reflex" })[old_owner.level] or tostring(old_owner.level)
+        local age = old_owner.since and math.max(0, os.time() - old_owner.since) or nil
+        local left = old_owner.lease_s and old_owner.since and math.max(0, old_owner.lease_s - (os.time() - (old_owner.renewed or old_owner.since))) or nil
+        return {ok=false,reason="busy",owner=tostring(old_owner.name),
+            detail=string.format("busy: %s (%s) is using my legs%s%s", tostring(old_owner.name), lvl,
+                age and string.format(", for %d s", age) or "", left and string.format(", lease ends in %d s", left) or "")}
     end
     local pc = local_pc()
     local pawn = pc and pc.Pawn
@@ -2945,6 +3056,7 @@ local function start(log, mode, opts)
         rawget(_G,"DWArbiter")~=admitted_arb or admitted_arb.owner~=admitted_owner then return abort_start() end
     st.tol_cm = (opts.tolerance_m or 1.5) * 100
     st.timeout_s = opts.timeout_s or 120
+    st.timeout_auto = opts.timeout_s == nil -- grows with the trip on the first tick (tick)
     st.sprint = opts.sprint ~= false
     st.use_nav = opts.nav
     st.use_lp = opts.local_plan ~= false and M.cfg.lp_enabled

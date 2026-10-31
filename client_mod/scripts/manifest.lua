@@ -45,7 +45,7 @@ M.TOOLS = {
     stop = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 0, timeout_s = 10,
         description = "Stop the current action and stand still.",
         args = NOARGS, reasons = {} },
-    go_to = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 20, timeout_s = 120,
+    go_to = { kind = "action", llm = true, moves = true, priority = "command", duration_s = 20, timeout_s = 295, -- move.lua: max(120, 3 d / 4.5 m/s) capped at 285 s
         description = "Walk to a player, a perceived thing, a remembered place or a point; answers on arrival or says why not.",
         args = { type = "object", required = { "target" }, properties = obj({
             target = { description = "A player name, a perceived id, a place, 'my_grave' / 'my_grave:<ts>' (a remembered grave), or [x,y,z].",

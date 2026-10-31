@@ -581,14 +581,16 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
                     (dist2d(self.target_position, goal) > 0.01 or math.abs(self.target_position[3] - goal[3]) > 0.01)) then
                 return fail("verification_failed", { detail = "fresh position does not confirm arrival", position = here, target_position = goal })
             end
-            return { ok = true, data = { target_position = goal, target = tostring(target),
+            return { ok = true, data = { target_position = goal, target = tostring(target), trip = res.trip,
                                          position = here, arrive_tolerance = self.tol, dist_m = res.dist_m,
                                          vertical_distance_m = verified.data.vertical_distance_m,
                                          vertical_tolerance_m = verified.data.vertical_tolerance_m } }
         end
         if res.status == "failed" then
-            return fail(reason_code(res.reason or "path_blocked"), { detail = res.why or res.detail or res.reason,
-                                                                      why = res.why, asked = res.asked, position = here,
+            -- the body's own trip sentence first (PLAN fix 2: start/end, metres, closest, why), then the code
+            local cause = res.why or res.detail or res.reason
+            return fail(reason_code(res.reason or "path_blocked"), { detail = res.trip and (res.trip .. " (" .. tostring(cause) .. ")") or cause,
+                                                                      trip = res.trip, why = res.why or cause, asked = res.asked, position = here,
                                                                       dist_m = res.dist_m })
         end
         if res.status == "stopped" or self.polls > 3 then
@@ -619,8 +621,10 @@ R.follow = { needs = { { "move", "follow" }, { "move", "status" } }, fn = functi
         local st = move_status()
         if st.mode == "follow" then return nil end
         local res = type(st.result) == "table" and st.result or {}
-        if res.status == "failed" then return fail(reason_code(res.reason or "unknown_target"), { detail = res.detail }) end
-        return fail("interrupted", { detail = "follow ended (" .. tostring(res.status) .. ")" })
+        if res.status == "failed" then
+            return fail(reason_code(res.reason or "unknown_target"), { detail = res.trip and (res.trip .. " (" .. tostring(res.detail or res.reason) .. ")") or res.detail, trip = res.trip })
+        end
+        return fail("interrupted", { detail = "follow ended (" .. tostring(res.status) .. ")", trip = res.trip })
     end
     local data = copy(r.data)
     data.following, data.distance = a.player, dist_m

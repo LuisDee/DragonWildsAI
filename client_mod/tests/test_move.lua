@@ -378,7 +378,9 @@ do
     M.stop(log); air=0
     local missed=observe_case({X=300,Y=0,Z=210,act="jump"},6)
     step(1); pawn.loc={X=-200,Y=0,Z=300}; air=0; step(1)
-    check("missed landing fails without path success",missed.result and missed.result.reason=="verification_failed" and missed.lp_jump_exec~=nil,missed.status)
+    -- PLAN fix 1 (live 2026-10-31): a missed landing drops the local path and re-plans; the go_to keeps going
+    check("missed landing re-plans without path success",missed.mode=="go_to" and not missed.result and missed.lpath==nil and
+        missed.lp_jump_exec==nil and missed.lp_fail=="jump landing missed",missed.status)
     M.stop(log); air=0
     pawn.loc={X=0,Y=0,Z=0}; luis.loc={X=800,Y=200,Z=300}
     offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no); pump_oracle()
