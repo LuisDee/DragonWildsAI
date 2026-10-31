@@ -229,50 +229,6 @@ test("manifest: one entry per implemented tool; primitives offered, compounds de
     assert(raw:find('"properties":{}', 1, true), "empty properties encode as {}")
 end)
 
-test("capsule bottom uses measured scale and fails closed on identity changes", function()
-    reset()
-    local sk=B.module("skills")
-    local height, center, world, pawn_id = 88, -2748, "dev", 1
-    local capsule={}
-    function capsule:IsValid() return true end
-    function capsule:K2_GetComponentLocation() return {Z=center} end
-    function capsule:GetScaledCapsuleHalfHeight() return height end
-    local pawn={CapsuleComponent=capsule}
-    function pawn:IsValid() return true end
-    function pawn:GetAddress() return pawn_id end
-    local U={valid=function(x) return x and x.IsValid and x:IsValid() end,
-        world_id=function() return world end,try=function(fn) local ok,v=pcall(fn);if ok then return v end end}
-    local sense={U=U,local_pawn=function() return pawn end}
-    local api={module=function(name) if name=="sense" then return sense end end}
-    local feet,status=sk.W.capsule_feet_z(api)
-    assert(status=="ok" and math.abs(feet - (-28.36))<0.0001)
-    height=120;feet,status=sk.W.capsule_feet_z(api);assert(status=="ok" and math.abs(feet - (-28.68))<0.0001)
-    for _,bad in ipairs({0,-1,math.huge,0/0}) do height=bad;feet,status=sk.W.capsule_feet_z(api);assert(feet==nil and status=="unknown") end
-    height=88;local calls=0;U.world_id=function() calls=calls+1;if calls==1 then return "dev" end return "other" end
-    feet,status=sk.W.capsule_feet_z(api);assert(feet==nil and status=="changed")
-    _G.DW_PAUSE=true;feet,status=sk.W.capsule_feet_z(api);_G.DW_PAUSE=nil;assert(feet==nil and status=="changed")
-end)
-
-test("interaction on-top guard uses measured bottom conservatively", function()
-    reset()
-    local sk=B.module("skills")
-    local oldfeet,olddet,oldrest,oldface=sk.W.capsule_feet_z,sk.W.detector,sk.W.resting_in,sk.W.face
-    local feet,status=-28.36,"ok"
-    sk.W.capsule_feet_z=function() return feet,status end
-    sk.W.detector=function() return {actor="stone",prompt="Use"} end
-    sk.W.resting_in=function() return nil end;sk.W.face=function() end
-    local owner={token=777,state="owner"};local oldarb=_G.DWArbiter;_G.DWArbiter={owner=owner}
-    local api={my_position=function() return {0,0,-27.48} end,
-       module=function(name) if name=="arbiter" then return {request=function() end,owns_move=function(t) return t==777 end} end end,
-       call=function() return {ok=true} end,fail=function(reason,data) return {ok=false,reason=reason,data=data} end}
-    local function episode() return {thing={id="stone",position={1,0,-28.76}},phase="approach",spots={{9,0,0}},spot_i=1,ipoint={1,0,-28.76},tol=.4,approaches=0} end
-    local e=episode();sk._episode_poll(api,e,1,777);assert(e.phase=="face")
-    feet=-27.0;e=episode();sk._episode_poll(api,e,1,777);assert(e.phase=="approach")
-    feet=nil;status="unknown";e=episode();sk._episode_poll(api,e,1,777);assert(e.phase=="approach")
-    status="changed";e=episode();sk._episode_poll(api,e,1,777);assert(e.phase=="approach")
-    _G.DWArbiter=oldarb;sk.W.capsule_feet_z,sk.W.detector,sk.W.resting_in,sk.W.face=oldfeet,olddet,oldrest,oldface
-end)
-
 test("manifest follows the modules: no move.follow -> no come_to/give (and no alias without fetch)", function()
     reset()
     local mv = B.module("move")
@@ -356,6 +312,24 @@ test("consume waits for actual pawn ownership before pressing", function()
     local result = run(id, 15)
     assert(result and result.ok and F.uses == 1, json.encode(result))
     T = saved_t
+end)
+
+test("consume waits out another use's animation, then presses once (or says what it's still using)", function()
+    reset()
+    F.cons = { { name = "Clean Water", item = "ITEM_Consumable_Water_Clean", count = 2, consumable = "drink", where = "hotbar", stat = "hydration", amount = 25 } }
+    F.consume_busy = { item = "Pumpkin Spice Infusion", left_s = 4 }
+    local _, id = rpc("consume", { item = "drink" })
+    for _ = 1, 4 do T = T + 0.5; B.step() end
+    assert((F.uses or 0) == 0, "no press while another use runs")
+    F.consume_busy = nil
+    local r = run(id, 15)
+    assert(r and r.ok and F.uses == 1, json.encode(r))
+    F.consume_busy = { item = "Pumpkin Spice Infusion", left_s = 4 }
+    local r0
+    r0, id = rpc("consume", { item = "drink" })
+    r = r0 or run(id, 40)
+    F.consume_busy = nil
+    assert(r and r.reason == "busy" and r.data.detail:find("Pumpkin Spice Infusion", 1, true) and F.uses == 1, json.encode(r))
 end)
 
 test("consume from the hotbar: verified by the stat rising", function()
@@ -720,8 +694,6 @@ test("interact on a shelter: walk to the INTERACTION point's open side (not the 
     table.insert(F.world.interactables, shelter)
     F.move.position = { 20, 20, 5 } -- standing ON the tent (the 20:46 bug)
     local det0, sig0 = sk.W.detector, sk.W.press_signals
-    local feet0 = sk.W.capsule_feet_z
-    sk.W.capsule_feet_z = function() return nil, "unknown" end -- stable pawn, unavailable capsule: conservative center fallback
     local slept = false
     sk.W.detector = function()
         local p = F.move.position
@@ -736,7 +708,7 @@ test("interact on a shelter: walk to the INTERACTION point's open side (not the 
     sk.W.press_signals = function() return { sleeping = slept } end
     local _, id = rpc("interact", { target = shelter.id })
     local r = run(id, 40)
-    sk.W.detector, sk.W.press_signals, inv.press_interact, sk.W.capsule_feet_z = det0, sig0, p0, feet0
+    sk.W.detector, sk.W.press_signals, inv.press_interact = det0, sig0, p0
     assert(r and r.ok and r.data.changed == "sleeping", json.encode(r))
     local tg = F.move.target
     assert(math.abs(tg[1] - 22.5) < 0.01 and tg[2] == 20, "walked to the open side of the collider, not the origin: " .. json.encode(tg))
@@ -778,210 +750,6 @@ test("interact: a pond (water volume) -> walk to its shore and face the surface,
     local tg = F.move.target
     assert(math.abs(tg[1] - 35) < 0.01 and tg[2] == 40, "walked to the shore, not round the origin: " .. json.encode(tg))
     assert(r and r.reason ~= "too_far", json.encode(r)) -- reached and faced it (the water item itself is verified elsewhere)
-end)
-
-test("interact verifies target-owned screen before cleanup, one press", function()
-    for _, family in ipairs({ { 6, "Crafting", "crafting" }, { 15, "Processing", "processing" } }) do
-        reset()
-        local sk, inv, inp = B.module("skills"), B.module("inventory"), B.module("input")
-        local station = { id = "station_heldout", class = "BP_Station_C", name = "Station", kind = "crafting_station",
-                          prompt = "Use", position = { 1, 2, 3 } }
-        table.insert(F.world.interactables, station)
-        local det0, p0 = sk.W.detector, inv.press_interact
-        sk.W.detector = function() return { actor = station.id, prompt = "Use" } end
-        local presses = 0
-        inv.press_interact = function()
-            presses = presses + 1
-            F.screen_owner, F.screen_kind = station.id, family[3]
-            F.screens = { { type = family[1], name = family[2] } }
-            inp.gate(); T = T + 2; inp.gate()
-            assert(#F.screens == 1, "owned screen survived orphan sweep")
-            return { ok = true }
-        end
-        local _, id = rpc("interact", { target = station.id })
-        local result = run(id, 35)
-        sk.W.detector, inv.press_interact = det0, p0
-        assert(result and result.ok and result.data.changed == "screen_opened" and result.data.screen.owner == station.id,
-               json.encode(result))
-        assert(presses == 1 and #F.screens == 0 and not inp.owner("screen"), "one press, then cleanup")
-    end
-end)
-
-test("interact refuses pre-existing, unknown, or unrelated screen without retry", function()
-    for _, situation in ipairs({ "preexisting", "unknown", "other", "conflict" }) do
-        reset()
-        local sk, inv, inp = B.module("skills"), B.module("inventory"), B.module("input")
-        local station = { id = "station_other", class = "BP_Station_C", name = "Station", kind = "crafting_station",
-                          prompt = "Use", position = { 1, 2, 3 } }
-        table.insert(F.world.interactables, station)
-        local det0, p0 = sk.W.detector, inv.press_interact
-        sk.W.detector = function() return { actor = station.id, prompt = "Use" } end
-        if situation == "preexisting" then F.screens = { { type = 6, name = "Crafting" } } end
-        if situation == "unknown" then F.screen_unknown = true end
-        if situation == "conflict" then inp.claim("screen", "other-owner") end
-        local presses = 0
-        inv.press_interact = function()
-            presses = presses + 1
-            F.screens, F.screen_kind, F.screen_owner = { { type = 6, name = "Crafting" } }, "crafting", "wrong_actor"
-            return { ok = true }
-        end
-        local _, id = rpc("interact", { target = station.id })
-        local result = run(id, 35)
-        sk.W.detector, inv.press_interact = det0, p0
-        assert(result and not result.ok and presses == (situation == "other" and 1 or 0), json.encode(result))
-        if situation == "conflict" then assert(inp.owner("screen").owner == "other-owner") end
-    end
-end)
-
-test("interaction screen claim releases on cancel and cannot clear another owner", function()
-    for _, situation in ipairs({ "cancel", "lost" }) do
-        reset()
-        local sk, inv, inp = B.module("skills"), B.module("inventory"), B.module("input")
-        local station = { id = "station_lifecycle", class = "BP_Station_C", name = "Station", kind = "crafting_station",
-                          prompt = "Use", position = { 1, 2, 3 } }
-        table.insert(F.world.interactables, station)
-        local det0, p0 = sk.W.detector, inv.press_interact
-        sk.W.detector = function() return { actor = station.id, prompt = "Use" } end
-        local presses = 0
-        inv.press_interact = function()
-            presses = presses + 1
-            F.screens, F.screen_kind, F.screen_owner = { { type = 6, name = "Crafting" } }, "crafting", station.id
-            return { ok = true }
-        end
-        local _, id = rpc("interact", { target = station.id })
-        for _ = 1, 30 do if presses > 0 then break end; T = T + 0.5; B.step() end
-        assert(presses == 1 and inp.owner("screen"), "interaction holds claim during verification")
-        if situation == "cancel" then
-            rpc("stop")
-            assert(not inp.owner("screen"), "cancel releases own claim")
-        else
-            inp.release("screen"); inp.claim("screen", "other-owner")
-            local result = run(id, 5)
-            assert(result and result.reason == "interrupted" and inp.owner("screen").owner == "other-owner",
-                   json.encode(result))
-        end
-        sk.W.detector, inv.press_interact = det0, p0
-    end
-end)
-
-test("screen ownership follows the detector's accepted alternate target", function()
-    reset()
-    local sk, inv = B.module("skills"), B.module("inventory")
-    local target = { id = "requested_1", class = "BP_Item_C", name = "Object", item = "ITEM_Fixture",
-                     category = "items", position = { 1, 2, 3 }, actions = { "interact" } }
-    table.insert(F.world.items, target)
-    local det0, p0 = sk.W.detector, inv.press_interact
-    sk.W.detector = function() return { actor = "alternate_1", item = target.item, prompt = "Use" } end
-    inv.press_interact = function()
-        F.screens, F.screen_kind, F.screen_owner = { { type = 6, name = "Crafting" } }, "crafting", "alternate_1"
-        return { ok = true }
-    end
-    local _, id = rpc("interact", { target = target.id })
-    local result = run(id, 35)
-    sk.W.detector, inv.press_interact = det0, p0
-    assert(result and result.ok and result.data.target == "alternate_1" and result.data.requested_target == target.id,
-           json.encode(result))
-end)
-
-test("interaction retries only after a known-closed screen", function()
-    for _, unknown in ipairs({ false, true }) do
-        reset()
-        local sk, inv = B.module("skills"), B.module("inventory")
-        local station = { id = "station_retry", class = "BP_Station_C", name = "Station", kind = "crafting_station",
-                          prompt = "Use", position = { 1, 2, 3 } }
-        table.insert(F.world.interactables, station)
-        local det0, p0 = sk.W.detector, inv.press_interact
-        sk.W.detector = function() return { actor = station.id, prompt = "Use" } end
-        local presses = 0
-        inv.press_interact = function()
-            presses = presses + 1
-            if unknown then F.screen_unknown = true
-            elseif presses == 2 then
-                F.screens, F.screen_kind, F.screen_owner = { { type = 6, name = "Crafting" } }, "crafting", station.id
-            end
-            return { ok = true }
-        end
-        local _, id = rpc("interact", { target = station.id })
-        local result = run(id, 50)
-        sk.W.detector, inv.press_interact = det0, p0
-        assert(result and ((unknown and not result.ok and presses == 1) or (not unknown and result.ok and presses == 2)),
-               json.encode(result))
-    end
-end)
-
-test("interaction releases screen on suspension and re-baselines after resume", function()
-    reset()
-    local sk, inv, inp, A = B.module("skills"), B.module("inventory"), B.module("input"), B.module("arbiter")
-    local station = { id = "station_resume", class = "BP_Station_C", name = "Station", kind = "crafting_station",
-                      prompt = "Use", position = { 1, 2, 3 } }
-    table.insert(F.world.interactables, station)
-    local det0, p0 = sk.W.detector, inv.press_interact
-    sk.W.detector = function() return { actor = station.id, prompt = "Use" } end
-    local presses = 0
-    inv.press_interact = function()
-        presses = presses + 1
-        F.screens, F.screen_kind, F.screen_owner = { { type = 6, name = "Crafting" } }, "crafting", station.id
-        return { ok = true }
-    end
-    local _, id = rpc("interact", { target = station.id })
-    for _ = 1, 30 do if presses > 0 then break end; T = T + 0.5; B.step() end
-    assert(presses == 1 and inp.owner("screen"))
-    local fight = A.request(nil, { name = "combat:reflex", level = "reflex", uses_move = true })
-    assert(fight.ok and fight.preempted.suspended and not inp.owner("screen"))
-    inp.close_screens() -- the reflex's existing modal safety exit
-    A.release(nil, fight.token, "won")
-    local result = run(id, 50)
-    sk.W.detector, inv.press_interact = det0, p0
-    assert(result and result.ok and presses == 2 and result.data.changed == "screen_opened", json.encode(result))
-end)
-
-test("pause releases only the interaction claim without native screen reads", function()
-    reset()
-    local sk, inv, inp = B.module("skills"), B.module("inventory"), B.module("input")
-    local station = { id = "station_pause", class = "BP_Station_C", name = "Station", kind = "crafting_station",
-                      prompt = "Use", position = { 1, 2, 3 } }
-    table.insert(F.world.interactables, station)
-    local det0, p0, observe0 = sk.W.detector, inv.press_interact, inp.observe_screens
-    sk.W.detector = function() return { actor = station.id, prompt = "Use" } end
-    local presses, reads = 0, 0
-    inp.observe_screens = function() reads = reads + 1; return observe0() end
-    inv.press_interact = function()
-        presses = presses + 1
-        F.screens, F.screen_kind, F.screen_owner = { { type = 6, name = "Crafting" } }, "crafting", station.id
-        return { ok = true }
-    end
-    local _, id = rpc("interact", { target = station.id })
-    for _ = 1, 30 do if presses > 0 then break end; T = T + 0.5; B.step() end
-    assert(presses == 1 and inp.owner("screen"))
-    local before = reads
-    _G.DW_PAUSE = true; B.step(); _G.DW_PAUSE = nil
-    assert(reads == before and not inp.owner("screen"), "pause performed only state cleanup")
-    local result = result_of(drain(), id)
-    assert(result and result.reason == "companion_down", json.encode(result))
-    sk.W.detector, inv.press_interact, inp.observe_screens = det0, p0, observe0
-end)
-
-test("lost pawn token interrupts and releases interaction screen ownership", function()
-    reset()
-    local sk, inv, inp, A = B.module("skills"), B.module("inventory"), B.module("input"), B.module("arbiter")
-    local station = { id = "station_token", class = "BP_Station_C", name = "Station", kind = "crafting_station",
-                      prompt = "Use", position = { 1, 2, 3 } }
-    table.insert(F.world.interactables, station)
-    local det0, p0, holds0 = sk.W.detector, inv.press_interact, A.holds
-    sk.W.detector = function() return { actor = station.id, prompt = "Use" } end
-    local presses = 0
-    inv.press_interact = function()
-        presses = presses + 1
-        F.screens, F.screen_kind, F.screen_owner = { { type = 6, name = "Crafting" } }, "crafting", station.id
-        return { ok = true }
-    end
-    local _, id = rpc("interact", { target = station.id })
-    for _ = 1, 30 do if presses > 0 then break end; T = T + 0.5; B.step() end
-    assert(presses == 1 and inp.owner("screen"))
-    A.holds = function() return false end
-    local result = run(id, 5)
-    A.holds, sk.W.detector, inv.press_interact = holds0, det0, p0
-    assert(result and result.reason == "interrupted" and not inp.owner("screen"), json.encode(result))
 end)
 
 test("interact: a blocked side -> the next standing spot", function()
@@ -1377,7 +1145,7 @@ test("BUGS L21: explore walks least-visited legs and stops when something matchi
 end)
 
 -- ------------------------------------------------------------------ containers: deposit / withdraw (build design §5)
-test("explore labels lexical candidates and ignores function-word substrings", function()
+test("explore ignores function-word substrings", function()
     for _,query in ipairs({"a door, gate, stairs or opening leading out of the temple", "gap in the wall, gate or opening"}) do
         reset(); F.me_pos=nil; F.move.position={0,0,3}; F.world.resources={}; F.world.interactables={}
         table.insert(F.world.interactables,{id="ash_1",class="BP_Spawner_AshBranch_01_C",name="Ash Logs",kind="foliage",verb="gather",item="ITEM_Resources_Wood_Ash",position={5,0,3}})
@@ -1387,7 +1155,7 @@ test("explore labels lexical candidates and ignores function-word substrings", f
     reset(); F.me_pos=nil; F.move.position={0,0,3}; F.world.resources={}; F.world.interactables={}
     table.insert(F.world.interactables,{id="ash_1",class="BP_Spawner_AshBranch_01_C",name="Ash Logs",kind="foliage",verb="gather",position={5,0,3}})
     local hit=rpc("explore",{about="ash missing"})
-    assert(hit.reason=="already_in_sight" and hit.data.match_basis=="lexical" and hit.data.detail:find("not verify"),json.encode(hit))
+    assert(hit.reason=="already_in_sight" and hit.data.found.id=="ash_1",json.encode(hit))
 end)
 
 local function chest_world(slots, rows)

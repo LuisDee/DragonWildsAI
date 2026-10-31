@@ -12,7 +12,6 @@ on something that is not in it ("I can't see any sticks"), in code, not only in 
 from __future__ import annotations
 
 import json
-import math
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -514,80 +513,16 @@ def consumable_facts(r: dict, order=(("hydration", "water"), ("sustenance", "foo
     return [f"{label} {r[k]}" for k, label in order if r.get(k) not in (None, "", "None")]
 
 
-def _inventory_scope(state: dict, scope: str) -> dict:
-    status = state.get("inventory_read_status")
-    if not isinstance(status, dict):
-        return {}
-    if scope in ("right", "left"):
-        held = status.get("held")
-        value = held.get(scope) if isinstance(held, dict) else None
-    else:
-        value = status.get(scope)
-    if not isinstance(value, dict) or value.get("status") not in ("complete", "partial", "unknown"):
-        return {}
-    if scope == "carried" and value.get("count_semantics") != ("exact" if value["status"] == "complete" else "lower_bound"):
-        return {}
-    return value
-
-
-def _positive_count(value) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
-
-
-def inventory_read_line(state: dict) -> str:
-    carried = _inventory_scope(state, "carried").get("status", "unknown")
-    if carried == "complete":
-        observed = carrying(state, item_names(state))
-        if "(at least" in observed or "quantity unknown" in observed or observed.startswith("Carrying: unknown"):
-            carried = "unknown (inconsistent observations)"
-    right = _inventory_scope(state, "right").get("status", "unknown")
-    left = _inventory_scope(state, "left").get("status", "unknown")
-    return f"Inventory read: carried {carried}; hands right {right}, left {left}"
-
-
 def carrying(state: dict, names: dict[str, str]) -> str:
-    inv = state.get("inventory") if isinstance(state.get("inventory"), dict) else {}
-    rows = state.get("inventory_items") if isinstance(state.get("inventory_items"), list) else []
-    row_counts: dict[str, float] = {}
-    unidentified_quantity: set[str] = set()
-    unidentified_row = False
-    for row in rows:
-        if not isinstance(row, dict) or row.get("where") not in ("hotbar", "bag", "unmapped"):
-            continue
-        key = row.get("item") or row.get("name")
-        if not isinstance(key, str) or not key:
-            unidentified_row = True
-        elif _positive_count(row.get("count")):
-            row_counts[key] = row_counts.get(key, 0) + row["count"]
-        else:
-            unidentified_quantity.add(key)
-    valid_inv = {k: v for k, v in inv.items() if isinstance(k, str) and _positive_count(v)}
-    mismatch = any(key not in valid_inv or valid_inv[key] != count for key, count in row_counts.items())
-    exact = (_inventory_scope(state, "carried").get("status") == "complete" and
-             isinstance(state.get("inventory"), dict) and len(valid_inv) == len(inv) and
-             not unidentified_quantity and not unidentified_row and not mismatch)
-    # The aggregate and stack rows may describe the same items; use the larger
-    # independently observed lower bound rather than summing both sources.
-    counts = {key: max(valid_inv.get(key, 0), row_counts.get(key, 0))
-              for key in valid_inv.keys() | row_counts.keys()}
-    entries = []
-    for key, count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
-        qualifier = "" if exact else " (at least" + ("; additional quantity unknown" if key in unidentified_quantity else "") + ")"
-        entries.append(f"{name_of_item(key, names)} x{count}{qualifier}")
-        unidentified_quantity.discard(key)
-    entries.extend(f"{name_of_item(key, names)} (quantity unknown)" for key in sorted(unidentified_quantity))
-    return _line("Carrying", entries) or ("Carrying: nothing" if exact else "Carrying: unknown (read incomplete)")
+    inv = state.get("inventory") or {}
+    carry = [f"{name_of_item(k, names)} x{v}" for k, v in sorted(inv.items(), key=lambda kv: -kv[1]) if v]
+    return _line("Carrying", carry) or "Carrying: nothing"
 
 
 def consumables(state: dict) -> list[str]:
-    """Food and drink observed in carried slots, without inventing quantities."""
-    exact = _inventory_scope(state, "carried").get("status") == "complete"
-    out = []
-    for k, r in consumable_rows(state):
-        count = r.get("count")
-        quantity = (f"x{count}" + ("" if exact else " at least")) if _positive_count(count) else "quantity unknown"
-        out.append(f"{r.get('name') or r.get('item')} {quantity} ({', '.join([k, r['where'], *consumable_facts(r)])})")
-    return out
+    """Food and drink he carries, with where it is (only hotbar items can be used), from item data."""
+    return [f"{r.get('name') or r.get('item')} x{r.get('count') or 1} ({', '.join([k, r['where'], *consumable_facts(r)])})"
+            for k, r in consumable_rows(state)]
 
 
 QUEST_FIELDS = ("quest", "step", "detail", "hint", "counters")  # what of a quest row the brain shows
@@ -649,7 +584,7 @@ def skills_line(state: dict) -> str | None:
 COVERED_KEYS = frozenset({
     "action", "activity", "bag", "body", "dead", "death_memory", "endurance", "endurance_max", "exhausted", "fight",
     "following", "gear", "graves_remembered", "health", "held", "held_actions", "held_item", "hydration",
-    "hydration_max", "interactables", "inventory", "inventory_items", "inventory_read_status", "last_death", "last_held", "max_health",
+    "hydration_max", "interactables", "inventory", "inventory_items", "last_death", "last_held", "max_health",
     "max_stamina", "my_grave", "name", "nearby_entities", "nearby_items", "nearby_resources", "not_implemented",
     "other_graves", "pawn", "places", "players", "players_online", "position", "recipes_unlocked", "remembered",
     "skills", "sleeping", "stamina", "stations_nearby", "structures", "surroundings", "survival", "sustenance",
@@ -728,7 +663,6 @@ def summary(state: dict, *, active_goal: str | None = None, tasks: list[dict] | 
         me.append("asleep")
     # words first; the [n%] are for decisions (persona: never read numbers out)
     lines.append("You: " + (", ".join(me) or "ok"))
-    lines.append(inventory_read_line(state))
     from . import needs  # lazy: needs imports helpers from this module
     lines.extend(needs.lines(state))  # pressing needs -> the options the game offers (brain/needs.py)
     lines.extend(needs.activity_lines(state))  # current activity: spells/actions for it + rate vs best
