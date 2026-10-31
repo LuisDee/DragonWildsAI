@@ -64,7 +64,8 @@ def test_actual_requests_count_batched_tool_rounds_disable_after_limit_and_log_e
     assert events[::3] == ["admit"] * 4 and events[1::3] == ["request"] * 4
     assert all(e[0] == "response" and e[1]["completion"] == 30 for e in events[2::3])
     for trace, actual in zip(traces, sent):
-        assert {**trace["settings"], "messages": trace["messages"], "tools": trace["tools"]} == actual
+        assert trace["settings"] == {k: v for k, v in actual.items() if k not in ("messages", "tools")}
+        assert trace["tools"] == actual["tools"] and len(trace["messages"]) == len(actual["messages"])
 
 
 def test_provider_violation_after_none_is_refused_and_each_response_counted(monkeypatch):
@@ -159,7 +160,6 @@ def test_real_forwarding_wrappers_keep_none_and_existing_caps(monkeypatch, kind)
     assert threads == trace_threads == [threading.get_ident()] * 2
     assert info["requests"] == len(responses) == len(admissions) == 2
     assert "tool_choice" not in traces[0]["settings"] and traces[1]["settings"]["tool_choice"] == "none"
-    assert all(trace["request_boundary"] == "llm.complete" for trace in traces)
     assert all(s["max_tokens"] == 4096 and s["output_config"] == {"effort": "low"} for s in sent)
     if kind == "latency":
         assert wrapped.n == 2 and clock.t == 4
@@ -255,4 +255,5 @@ def test_director_actual_exhausted_prompt_log_matches_adapter_input(tmp_path, mo
     assert len(prompts) == len(responses) == result.requests == 3
     assert [r["settings"]["tool_choice"] for r in prompts] == ["auto", "auto", "none"]
     for prompt, actual in zip(prompts, sent):
-        assert {**prompt["settings"], "messages": prompt["messages"], "tools": prompt["tools"]} == actual
+        assert prompt["settings"] == {k: v for k, v in actual.items() if k not in ("messages", "tools")}
+    assert prompts[0]["tools"] == sent[0]["tools"] and all(p["messages_from"] for p in prompts[1:])

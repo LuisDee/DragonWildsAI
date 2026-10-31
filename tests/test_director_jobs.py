@@ -51,7 +51,7 @@ def test_t3_better_pickaxe_from_research_to_a_verified_tier_upgrade(tmp_path):
     # research went through the proxied client planner and the catalog comparison
     tools_seen = [m.get("name") for c in rig.director_llm.calls for m in c["messages"] if m.get("role") == "tool"]
     assert tools_seen == ["craft_plan", "compare_gear"]
-    assert len(rig.director_llm.calls) == 2 and rig.director.window.left() == 18
+    assert len(rig.director_llm.calls) == 2 and len(rig.director.window.calls) == 2  # uncapped (41fa4cc): still counted
     assert len(rig.runs()) == 5 and rig.runs("board_notice")[-1]["about"] == "task_report"
     skills = {s["skill"]: s["level"] for s in rig.game.get_state()["data"]["skills"]}
     assert skills["Mining"] > 1 and skills["Artisan"] > 1  # real recipe XP + mined XP

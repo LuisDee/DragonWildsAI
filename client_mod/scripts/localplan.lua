@@ -10,10 +10,6 @@
 --   * walls/thin obstacles are checked LAZILY (Lazy PRM, Bohlin & Kavraki 2000): A* runs on floor
 --     data only, then only the chosen path's edges get horizontal traces; a blocked edge is
 --     removed and the path re-planned. That keeps the trace count bounded.
--- Source references for the adapted patterns above (not drop-in UE libraries):
--- Layered surface sampling: https://arongranberg.com/astar/documentation/stable/layergridgraph.html
--- Movement candidates: https://github.com/PrismarineJS/mineflayer-pathfinder/blob/master/lib/movements.js
--- Lazy edge invalidation: https://ompl.kavrakilab.org/LazyPRM_8cpp_source.html
 -- Cost on the dev server: ~1 ms CPU per LineTraceSingle from Lua (FHitResult marshalling), so all
 -- traces are spread over frames with a budget (step()).
 --
@@ -156,48 +152,6 @@ function LP:sample(i, j)
     return zs and 2 or 0
 end
 
--- Layered samples are candidates, not proven clearance or connectivity.
--- https://arongranberg.com/astar/documentation/stable/layergridgraph.html
-function LP:observation_snapshot()
-    local out = { version=1, semantics="Historical candidate observations; not movement authority",
-        coverage = { center_m={self.c.X/100,self.c.Y/100,self.c.Z/100},
-        radius_m=self.r*self.cell/100, cell_m=self.cell/100, sampled_cells=self.qi-1,
-        total_cells=#self.queue, unvisited_cells=#self.queue-(self.qi-1), cells_with_candidate_surface=0,
-        sampled_without_candidate=0, center_convention="XY snapped to grid; Z is capsule center",
-        max_layers=2, cache_hits=self.cache_hits, cache_age=self.cache_hits>0 and "unknown" or "not_used",
-        limitations="Candidate Z is line-hit or substituted feet; barriers use trace-plane Z. Penetration/read failure detail unknown." },
-        candidate_surfaces={}, barrier_samples={}, candidate_total=0, barrier_total=#self.wall_pts,
-        selection="evenly spaced through spiral cell and layer order; first recorded barrier hits" }
-    local candidates={}
-    for n=1,self.qi-1 do
-        local q=self.queue[n]
-        local layers=self.nodes[key(q[1],q[2])] or {}
-        if #layers>0 then out.coverage.cells_with_candidate_surface=out.coverage.cells_with_candidate_surface+1 end
-        local x,y=self:pos(q[1],q[2])
-        local self_cell=self.self_pos and math.sqrt((x-self.self_pos.X)^2+(y-self.self_pos.Y)^2)<self.self_r
-        for _,node in ipairs(layers) do
-            candidates[#candidates+1]={position_m={x/100,y/100,node.z/100},
-                source=self_cell and "self_feet_substitution" or "line_hit_candidate",
-                connectivity="unknown", capsule_clearance="unknown"}
-        end
-    end
-    out.coverage.sampled_without_candidate=out.coverage.sampled_cells-out.coverage.cells_with_candidate_surface
-    out.candidate_total=#candidates
-    local take=math.min(#candidates,24)
-    for i=1,take do
-        local index=take==1 and 1 or 1+math.floor((i-1)*(#candidates-1)/(take-1))
-        out.candidate_surfaces[i]=candidates[index]
-    end
-    for i=1,math.min(#self.wall_pts,8) do
-        local w=self.wall_pts[i]
-        out.barrier_samples[#out.barrier_samples+1]={position_m={w.X/100,w.Y/100,w.Z/100},
-            source="horizontal_trace_plane_at_recorded_hit_xy"}
-    end
-    out.candidate_truncated=out.candidate_total>#out.candidate_surfaces
-    out.barrier_truncated=out.barrier_total>#out.barrier_samples
-    return out
-end
-
 function LP:step(budget)
     local used = 0
     while self.qi <= #self.queue and used + 2 <= budget do
@@ -219,8 +173,6 @@ local function ekey(a, b) return tostring(a) .. ">" .. tostring(b) end
 -- The planner's movement envelope is fixed for its lifetime. The hop probe is
 -- only useful if its height (jump reach minus 30 cm) is above the 50 cm walk probe.
 local function can_probe_hop(env)
-    -- Lua considers zero truthy; capability availability needs a numeric bound:
-    -- https://www.lua.org/manual/5.4/manual.html#3.4.5
     return type(env.jump) == "number" and env.jump > 80
 end
 
@@ -273,7 +225,6 @@ end
 -- A* over the sampled nodes from the node nearest to the centre at our level, toward `goal`
 -- (cm). If the goal is off-grid, the target is the reachable node closest to it.
 function LP:plan(goal)
-    self.observation_start = nil -- read-only survey metadata; never infer a start from arbitrary sampled nodes
     local start, best = nil, math.huge
     for _, n in ipairs(self.nodes[key(0, 0)] or {}) do
         local d = math.abs(n.z - self.feet)
@@ -289,7 +240,6 @@ function LP:plan(goal)
         end end
     end
     if not start then return nil, "no_start_floor" end
-    self.observation_start = start
     local cell = self.cell
     local function h(n)
         local x, y = self:pos(n.i, n.j)

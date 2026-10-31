@@ -53,7 +53,7 @@ local M = {}
 M.POLL_MS = 100            -- bridge poll + action tick + waiters + chat tail (game thread)
 M.RELOAD_CHECK_S = 2       -- re-read a module file at most this often
 M.GOTO_TIMEOUT_S = 290     -- brain gives up at 300 s (move.lua may wait 60 s for a lead out of a trap, then walk on)
-M.GOTO_TOL_M = 1.5         -- default movement tolerance, in metres
+M.GOTO_TOL_M = 3.0         -- arrival tolerance reported to the brain for coordinates (move.lua stops at 1.5 m)
 M.SAY_ECHO_S = 4           -- wait this long for the server's echo of a chat line
 M.DROP_WAIT_S = 5          -- wait this long for the inventory to show a drop
 M.NEARBY_M = 50            -- census radius for get_state
@@ -215,13 +215,6 @@ local function finish(a, res)
     if a.done then return end
     a.done = true
     if S.action == a then S.action = nil end
-    if a.kind == 'go_to' then
-        local terrain=M.module('terrain')
-        if terrain and terrain.note_move then
-            local ok,summary=pcall(terrain.note_move,M.API,a.id,a.target,res,nil,a.terrain_world)
-            if ok and summary then res.data=res.data or {};res.data.terrain=summary end
-        end
-    end
     ev("client_action_end", { kind = a.kind, id = a.id, ok = res.ok, reason = res.reason })
     -- the general stray-screen guard (input.after_action, BUGS B-stuck-focused-ui): an action that left a HUD
     -- screen open (a Campfire's Processing + Inventory panels) must not leave him in DIM_FocussedInGameUI
@@ -291,11 +284,7 @@ local function tick_waiters()
     local keep, t = {}, now_s()
     for _, w in ipairs(S.waiters) do
         local ok, res = pcall(w.poll, w)
-        if not ok then
-            local err=res
-            if w.pause_cleanup then pcall(w.pause_cleanup,w) end
-            res = fail("body_error", { detail = tostring(err) })
-        end
+        if not ok then res = fail("body_error", { detail = tostring(res) }) end
         if not res and t >= w.deadline then res = w.expire(w) end
         if res then (w.chan or S.bridge).reply(w.id, res) else keep[#keep + 1] = w end
     end
@@ -349,30 +338,17 @@ local function bucket_census(c)
 end
 
 local function item_key(row) return row.item or row.name end
-local function inventory_read_status(d)
-    local source=type(d)=="table" and type(d.read_status)=="table" and d.read_status or {}
-    local function scope(v)
-        if type(v)=="table" and (v.status=="complete" or v.status=="partial" or v.status=="unknown") then return copy(v) end
-        return {status="unknown",reason="read_status_unavailable",gaps={}}
-    end
-    local held=type(source.held)=="table" and source.held or {}
-    local carried=scope(source.carried)
-    carried.count_semantics=carried.status=="complete" and "exact" or "lower_bound"
-    return {carried=carried,pages=scope(source.pages),loadout=scope(source.loadout),
-            personal=scope(source.personal),held={right=scope(held.right),left=scope(held.left)}}
-end
 
 -- inventory.list -> inventory {item: count} (hotbar + bag: what he carries and can use), inventory_items
 -- (instances; loadout ones equipped=true), gear {loadout slot: item} + held.
 local function inventory_view(d)
     local inv, items, gear = {}, {}, {}
-    for _, where in ipairs({ "hotbar", "bag", "unmapped" }) do
+    for _, where in ipairs({ "hotbar", "bag" }) do
         for _, it in ipairs(d[where] or {}) do
             local key = item_key(it)
-            local count=tonumber(it.count)
-            if key and count and count==count and count~=math.huge and count>0 then inv[key] = (inv[key] or 0) + count end
+            if key then inv[key] = (inv[key] or 0) + (tonumber(it.count) or 1) end
             local row = copy(it)
-            row.id, row.where = tostring(it.slot_type or where) .. ":" .. tostring(it.slot ~= nil and it.slot or it.raw), where
+            row.id, row.where = tostring(it.slot_type or where) .. ":" .. tostring(it.slot), where
             items[#items + 1] = row
         end
     end
@@ -398,7 +374,6 @@ function M.get_state()
     local data = { position = b.null, health = b.null, inventory = b.object(), following = M.following() or b.null,
                    players = {}, nearby_entities = {}, nearby_resources = {}, structures = {}, places = {},
                    action = S.action and S.action.kind or b.null, body = "client" }
-    data.inventory_read_status = inventory_read_status(nil)
     local missing = { structures = true, places = true }
     local mine, mr = me()
     if not mine then
@@ -423,13 +398,11 @@ function M.get_state()
         if ir.ok then
             local inv, items, gear = inventory_view(ir.data)
             data.inventory, data.inventory_items, data.gear = b.object(inv), items, b.object(gear)
-            data.inventory_read_status = inventory_read_status(ir.data)
             local held = type(ir.data.held) == "table" and ir.data.held or {}
             data.held = held.right or held.left or b.null -- display name of what is in his hands
             data.held_item = held.right_item or held.left_item or b.null
         else
             missing.inventory = true
-            data.inventory_read_status = inventory_read_status(nil)
         end
     end
     if mine then
@@ -517,6 +490,21 @@ local function reflex_owns_pawn()
 end
 M._reflex_owns_pawn = reflex_owns_pawn
 
+-- A brain go_to/follow runs after preempt(), so no bridge action is live: a non-reflex arbiter owner
+-- still holding the pawn is orphaned (a skill whose cleanup was refused while its child move ran).
+-- Stop its move and release it instead of refusing the model "movement owner token required"
+-- (live 2026-10-29, go_to right after a failed explore). A reflex keeps the pawn (busy, as before).
+local function release_orphan_owner()
+    local A = M.module("arbiter")
+    if S.action or not (A and type(A.owner) == "function" and type(A.release) == "function") then return end
+    local ok, o = pcall(A.owner)
+    if not (ok and type(o) == "table" and o.token ~= nil) or o.implicit or o.level == "reflex" or o.state ~= "owner" then return end
+    call("move", "stop")
+    pcall(A.release, S.text_log, o.token, "orphaned: no running action")
+    ev("client_orphan_owner_released", { name = o.name, level = o.level })
+end
+M._release_orphan_owner = release_orphan_owner
+
 -- Lying in a bed/shelter: the game disables movement until he gets up (live 20:58, go_to hung 46 s;
 -- BUGS L2d). Movement tools answer at once with the bed's id.
 local function resting_failure()
@@ -561,11 +549,11 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
             coords = to_m(t.position)
         end
     end
+    release_orphan_owner()
     local r = call("move", "go_to", coords or tostring(target), { tolerance_m = tonumber(args.tolerance) })
     if not r.ok then return r end
     local a = { kind = "go_to", id = ctx.id, target = target, timeout_s = M.GOTO_TIMEOUT_S, target_position = coords,
-                terrain_world = rawget(_G,'DW_WORLD_GUID'),
-                accepted_generation = r.data and r.data.gen, tol = tonumber(args.tolerance) or M.GOTO_TOL_M, polls = 0 }
+                tol = tonumber(args.tolerance) or M.GOTO_TOL_M, polls = 0 }
     a.cancel = function() call("move", "stop") end
     a.poll = function(self)
         if reflex_owns_pawn() then self.started = now_s(); return nil end -- fighting back; resumes after
@@ -599,19 +587,9 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
                                          vertical_tolerance_m = verified.data.vertical_tolerance_m } }
         end
         if res.status == "failed" then
-            local data = { detail = res.why or res.detail or res.reason, why = res.why, asked = res.asked,
-                           position = here, dist_m = res.dist_m }
-            local f = res.route_feedback
-            if type(self.accepted_generation) == "number" and type(f) == "table" and f.generation == self.accepted_generation then
-                data.route_feedback = f
-                if type(self.target) == "string" and #self.target <= 256 then data.requested_target = self.target end
-            end
-            local observation = res.navigation_observation
-            if type(self.accepted_generation) == "number" and type(observation) == "table" and
-                observation.generation == self.accepted_generation then
-                data.navigation_observation = observation
-            end
-            return fail(reason_code(res.reason or "path_blocked"), data)
+            return fail(reason_code(res.reason or "path_blocked"), { detail = res.why or res.detail or res.reason,
+                                                                      why = res.why, asked = res.asked, position = here,
+                                                                      dist_m = res.dist_m })
         end
         if res.status == "stopped" or self.polls > 3 then
             return fail("interrupted", { detail = "the move ended without arriving (" .. tostring(res.status) .. ")",
@@ -631,6 +609,7 @@ R.follow = { needs = { { "move", "follow" }, { "move", "status" } }, fn = functi
     if dist_m < 1 then dist_m = 1 end
     local rf = resting_failure()
     if rf then return rf end
+    release_orphan_owner()
     local r = call("move", "follow", tostring(who), dist_m)
     if not r.ok then return r end
     local a = { kind = "follow", id = ctx.id, player = tostring(who), quiet_preempt = true, replied = true }
@@ -714,22 +693,20 @@ local function slim(it, with_slot)
     return o
 end
 function M.compact_inventory(d)
-    local worn, hotbar, bag, unmapped = {}, {}, {}, {}
+    local worn, hotbar, bag = {}, {}, {}
     for _, it in ipairs(d.loadout or {}) do
         local slot = it.loadout_slot or tostring(it.slot)
         if slot ~= "HeldRight" and slot ~= "HeldLeft" then worn[slot] = it.name or it.item end
     end
     for _, it in ipairs(d.hotbar or {}) do hotbar[#hotbar + 1] = slim(it, true) end
     for _, it in ipairs(d.bag or {}) do bag[#bag + 1] = slim(it, false) end
-    for _, it in ipairs(d.unmapped or {}) do local row=slim(it,false); row.raw=it.raw; unmapped[#unmapped+1]=row end
     local held = type(d.held) == "table" and d.held or {}
     return { worn = S.bridge.object(worn), held = S.bridge.object({ right = held.right, left = held.left }),
-             hotbar = hotbar, bag = bag, unmapped=unmapped, read_status=inventory_read_status(d), weight = d.weight, empty_slots = d.empty_slots }
+             hotbar = hotbar, bag = bag, weight = d.weight, empty_slots = d.empty_slots }
 end
 R.inventory = { needs = { { "inventory", "list" } }, fn = function(args)
     local r = call("inventory", "list")
-    if not r.ok then return r end
-    if args.raw == true then r.data.read_status=inventory_read_status(r.data); return r end
+    if not r.ok or args.raw == true then return r end
     return { ok = true, data = M.compact_inventory(r.data) }
 end }
 R.census = { needs = { { "sense", "census" } }, fn = function(args) return call("sense", "census", args) end }
@@ -776,11 +753,9 @@ local function thing_of(cat, row)
     return t
 end
 
--- Lexical evidence only: normalize identifier boundaries and compare whole tokens.
--- Lua patterns provide the token primitives; this is ASCII-oriented, not Unicode segmentation:
--- https://www.lua.org/manual/5.4/manual.html#6.4.1
--- Filtering before ranking is conceptual precedent, not a Dragonwilds API:
--- https://dev.epicgames.com/documentation/unreal-engine/eqs-node-reference-tests-in-unreal-engine?lang=en-US
+-- The share of the player's words found as whole tokens (camelCase split, simple plurals, stop words
+-- dropped) in the thing's name, class, prompt, drops, item id, kind and verb. Whole tokens because a
+-- substring match let "the" in a temple-exit query hit "gather" on Ash Logs (live 2026-10-29).
 local function words(s)
     local text=tostring(s or ''):gsub('(%l)(%u)', '%1 %2'):gsub('(%u)(%u%l)', '%1 %2'):lower()
     local out={}
@@ -942,7 +917,7 @@ R.look = { needs = { { "sense", "census" } }, fn = function(args)
     local out, matched = {}, false
     for i = 1, math.min(#things, max) do
         local t = things[i]
-        if about then t.match = math.floor(t._score * 100 + 0.5) / 100; t.match_basis = 'lexical' end
+        if about then t.match = math.floor(t._score * 100 + 0.5) / 100 end
         if t._score > 0 then matched = true end
         t._score = nil
         out[#out + 1] = t
@@ -950,7 +925,7 @@ R.look = { needs = { { "sense", "census" } }, fn = function(args)
     local m = S.bridge.null -- a boolean only when about was given (an and/or chain would turn false into null)
     if about then m = matched end
     return { ok = true, data = { origin = r.data.origin, radius_m = radius, about = about or S.bridge.null, total = #things,
-                                 things = out, matched = m, match_basis = about and 'lexical' or S.bridge.null } }
+                                 things = out, matched = m } }
 end }
 
 -- The live actor behind a thing (class word from the census row; alive only).
@@ -1006,16 +981,9 @@ R.inspect = { needs = { { "sense", "census" } }, fn = function(args)
     return { ok = true, data = d }
 end }
 
-local function counts_with_status()
-    local lr = call("inventory", "list")
-    if not lr.ok or type(lr.data) ~= "table" then return nil, nil end
-    local have = inventory_view(lr.data)
-    return have, inventory_read_status(lr.data).carried
-end
-
 local function counts()
-    local have = counts_with_status()
-    return have
+    local lr = call("inventory", "list")
+    return lr.ok and (inventory_view(lr.data)) or nil
 end
 
 -- Aim the camera at a point, as the mouse does (the same call move.lua steers with).
@@ -1149,7 +1117,7 @@ end
 -- returning what a route returns (see above). Routes win over HANDLERS.
 -- A module may also export NEEDS = {tool = {{module, fn}, ...}}: the handler is listed (and run) only
 -- while those functions exist, exactly like a route's `needs` (skills.lua composes other modules).
-M.MODULES = { "chat", "move", "sense", "inventory", "combat", "arbiter", "gather", "skills", "spells", "crafting", "hookhub", "terrain",
+M.MODULES = { "chat", "move", "sense", "inventory", "combat", "arbiter", "gather", "skills", "spells", "crafting", "hookhub",
                "input", "build", "fishing", "agility", "farm", "quests", "lodestone", "shoot" }
 -- talk.lua stays OUT until its re-review passes (docs/reviews/2026-10-26-talk-primitive-review.md "Re-review (v2)":
 -- sweep_orphan recursed through the gate). Opt-in for a dev test only: _G.DW_ENABLE_TALK = true before bridge_start.
@@ -1242,10 +1210,6 @@ end
 
 -- The bridge's services for module handlers (ctx.api): skills.lua composes these instead of copying them.
 M.API = {
-    client_root = function() return S.root end,
-    ensure_dir = ensure_dir,
-    terrain_busy = function() return S.action ~= nil end,
-    terrain_channel_current = function(ch) return ch == S.bridge or ch == S.debug end,
     call = function(...) return call(...) end,
     module = function(n) return M.module(n) end,
     fail = fail,
@@ -1260,7 +1224,6 @@ M.API = {
     actor_of = function(t) return actor_of(t) end,
     contents_of = function(t) local a, U = actor_of(t); if a and U then return contents_of(a, U) end end,
     counts = function() return counts() end,
-    counts_with_status = function() return counts_with_status() end,
     aim_at = function(p) return aim_at(p) end,
     move_status = function() return move_status() end,
     reflex_owns_pawn = function() return reflex_owns_pawn() end,
@@ -1301,13 +1264,6 @@ local function dispatch(tool, args, ctx)
     end
     if is_action and tool ~= "stop" then preempt(tool) end
     local res = h(args, ctx)
-    if tool=='go_to' and type(res)=='table' and not res.pending and not res.hold and not res.wait then
-        local terrain=M.module('terrain')
-        if terrain and terrain.note_move then
-            local ok,summary=pcall(terrain.note_move,M.API,ctx.id,args.target,res)
-            if ok and summary then res.data=res.data or {};res.data.terrain=summary end
-        end
-    end
     if type(res) == "table" and res.wait then
         add_waiter(res.wait, ctx, res.wait_s or 5)
         return nil -- replied by tick_waiters
@@ -1748,7 +1704,6 @@ local function on_pause_start()
         finish(a, fail("companion_down", { detail = "client paused (disconnect or join in progress)" }))
     end
     for _, w in ipairs(S.waiters) do
-        if w.pause_cleanup then pcall(w.pause_cleanup,w) end -- pure read-job invalidation; never native cleanup
         (w.chan or S.bridge).reply(w.id, fail("companion_down", { detail = "client paused" }))
     end
     S.waiters = {}
@@ -2041,7 +1996,6 @@ end
 
 function M.stop()
     if not S then return end
-    for _,w in ipairs(S.waiters or {})do if w.pause_cleanup then pcall(w.pause_cleanup,w)end end
     if S.loop and CancelDelayedAction then pcall(CancelDelayedAction, S.loop) end
     S.loop = nil
     ev("client_bridge_stopped", { stats = S.bridge.stats })

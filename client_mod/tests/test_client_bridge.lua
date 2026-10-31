@@ -189,37 +189,6 @@ test("get_state from the real module shapes: buckets, inventory, gear, extras", 
     assert(d.gear.HeldRight == "ITEM_Tool_Axe_Bronze" and d.gear.held_right == "ITEM_Tool_Axe_Bronze")
     assert(d.players_online[2] == "Luis")
     assert(has(d.not_implemented, "structures") and has(d.not_implemented, "places") and not has(d.not_implemented, "position"))
-    assert(d.inventory_read_status.carried.status == "unknown" and d.inventory_read_status.held.right.status == "unknown", "legacy missing status stays unknown")
-end)
-
-test("inventory read status and unmapped observations reach state and compact tool", function()
-    local addition = [[
-        local previous = M.list
-        function M.list(log)
-            local d = previous(log)
-            d.unmapped = { {name="Observed",item="ITEM_Observed",count=4,raw=7},
-                           {name="Quantity unknown",item="ITEM_Unknown",raw=8} }
-            d.read_status = { carried={status="partial",reason="slot_read_failed",gaps={{raw=9,reason="slot_read_failed"}}},
-                pages={status="unknown",reason="page_traversal_incomplete"},
-                loadout={status="complete"},personal={status="unknown",reason="component_unavailable"},
-                held={right={status="complete"},left={status="unknown",reason="hand_getter_failed"}} }
-            return d
-        end
-        return M
-    ]]
-    local edited, replacements=FAKES.inventory:gsub("return M%s*$",addition)
-    assert(replacements==1); install("inventory",edited)
-    local d=rpc("get_state").data
-    assert(d.inventory.ITEM_Observed==4 and d.inventory.ITEM_Unknown==nil, json.encode(d.inventory))
-    assert(d.inventory_read_status.carried.status=="partial" and d.inventory_read_status.carried.count_semantics=="lower_bound" and d.inventory_read_status.carried.gaps[1].raw==9)
-    assert(d.inventory_read_status.held.left.reason=="hand_getter_failed")
-    local found=false
-    for _,row in ipairs(d.inventory_items) do if row.item=="ITEM_Observed" then found=row.where=="unmapped" and row.raw==7 end end
-    assert(found,"unmapped row preserved")
-    local compact=rpc("inventory",{}).data
-    assert(compact.read_status.pages.status=="unknown" and #compact.unmapped==2 and compact.unmapped[1].raw==7)
-    assert(compact.unmapped[2].item=="ITEM_Unknown" and compact.unmapped[2].count==nil)
-    install("inventory")
 end)
 
 test("get_state: controller but no pawn -> companion_down", function()
@@ -285,34 +254,11 @@ test("go_to pre-empts follow silently, replies when move.status says arrived (ve
     local out = drain()
     local r = results(out, id)[1]
     assert(r and r.ok, "arrived reply")
-    assert(r.data.target_position[1] == 10 and r.data.position[1] == 9 and r.data.arrive_tolerance == 1.5 and r.data.dist_m == 1.4)
+    assert(r.data.target_position[1] == 10 and r.data.position[1] == 9 and r.data.arrive_tolerance == 3 and r.data.dist_m == 1.4)
     assert(r.data.vertical_distance_m == 0 and r.data.vertical_tolerance_m == 1.8)
     local done = events(out, "task_done")
     assert(#done == 1 and done[1].task_id == id)
     assert(rpc("get_state").data.following == nil, "follow ended")
-end)
-
-test("go_to failed route evidence belongs only to accepted generation", function()
-    for _, gen in ipairs({1, 2}) do
-        local _, _, id = rpc("go_to", { target = {10, 0, 0} })
-        FAKE.move.mode, FAKE.move.result = "idle", {status="failed", reason="no_path",
-            route_feedback={generation=gen, goal_projected=false, requested_xyz={10, 0, 0}},
-            navigation_observation={generation=gen, phase="sampling"}}
-        step()
-        local r = results(drain(), id)[1]
-        assert(r and not r.ok)
-        if gen == 1 then assert(r.data.route_feedback.goal_projected == false and r.data.navigation_observation.phase == "sampling")
-        else assert(r.data.route_feedback == nil and r.data.navigation_observation == nil) end
-    end
-end)
-
-test("observation survives without optional native route metadata", function()
-    local _, _, id = rpc("go_to", { target = {10, 0, 0} })
-    FAKE.move.mode, FAKE.move.result = "idle", {status="failed", reason="no_path",
-        navigation_observation={generation=1, phase="verification"}}
-    step()
-    local r=results(drain(), id)[1]
-    assert(r and not r.ok and not r.data.route_feedback and r.data.navigation_observation.phase=="verification")
 end)
 
 test("go_to: arrival claim far from the target -> verification_failed", function()
@@ -489,7 +435,7 @@ test("lexical search uses whole meaningful identifier tokens", function()
     local row,meta=B.resolve_name(rows,"ITEM_Resources_Wood_Ash"); assert(row==rows[1] and meta.tier==3)
     row,meta=B.resolve_name(rows,"ash logs"); assert(row==rows[1] and meta.tier==3)
     row,meta=B.resolve_name(rows,"og"); assert(row==rows[1] and meta.tier==2)
-    local r=rpc("look",{about="the and or"}); assert(r.ok and r.data.matched==false and r.data.match_basis=="lexical")
+    local r=rpc("look",{about="the and or"}); assert(r.ok and r.data.matched==false)
 end)
 
 test("inspect: one thing with gives/requires, container contents; unknown id", function()
@@ -708,7 +654,6 @@ test("inventory tool: compact worn / held / hotbar with durability / bag; raw on
     assert(#d.bag >= 1 and d.bag[1].count >= 1)
     local raw = rpc("inventory", { raw = true })
     assert(raw.ok and raw.data.loadout and raw.data.loadout[1].loadout_slot == "HeldRight")
-    assert(raw.data.read_status.carried.status == "unknown", "legacy raw read status is unknown")
 end)
 
 test("a reflex fight owns the pawn: go_to and follow wait (no interrupted), then carry on", function()
@@ -735,6 +680,25 @@ return A
     local r = results(drain(), id)[1]
     assert(r and r.ok, json.encode(r))
     FAKE.move.position = nil
+    uninstall("arbiter")
+end)
+
+test("go_to releases an orphaned skill owner, never a reflex", function()
+    install("arbiter", [[
+local A = {}
+function A.owner() return _G.FAKE.owner end
+function A.release(_, token) _G.FAKE.released = token; _G.FAKE.owner = nil; return { ok = true } end
+function A.status() return { ok = true, suspended = {} } end
+return A
+]])
+    FAKE.owner = { name = "skill:explore", level = "command", token = 7, state = "owner" }
+    rpc("go_to", { target = { 10, 0, 0 } })
+    assert(FAKE.released == 7 and FAKE.owner == nil, "orphaned command owner released")
+    rpc("stop")
+    FAKE.released, FAKE.owner = nil, { name = "reflex:guard", level = "reflex", token = 8, state = "owner" }
+    rpc("go_to", { target = { 10, 0, 0 } })
+    assert(FAKE.released == nil and FAKE.owner.token == 8, "a reflex keeps the pawn")
+    rpc("stop"); FAKE.owner = nil
     uninstall("arbiter")
 end)
 
@@ -1047,20 +1011,14 @@ test("bare false adoption remains pending and uses bounded retry", function()
     B2.stop(); _G.ADOPT_TEST = nil; install("inventory")
 end)
 
-test("craft plan uses scoped native item counts without inventory enumeration", function()
+test("craft plan reads the game's own count where the slot rows miss an item (real bridge + crafting)", function()
     install("sense")
     local addition = [[
-        function M.list(log)
-            FAKE.inventory_snapshot_calls=(FAKE.inventory_snapshot_calls or 0)+1
-            return {ok=false,reason="unsafe_inventory_enumeration"}
-        end
         function M.count_item(path)
             FAKE.native_count_calls=(FAKE.native_count_calls or 0)+1
-            if (path=="/fixture/ITEM_Input" or path=="/fixture/ITEM_Goal") and FAKE.inventory_exact_control then
-                return {status="observed",count=path=="/fixture/ITEM_Input" and 2 or 1,path=path,scope="main_inventory",semantics="component_at_read",
-                        observed_at=123,world="dev",controller=10,pawn=11,component=12,asset=13}
-            end
-            return {status="unknown",reason="asset_or_binding_unavailable",path=path,scope="main_inventory"}
+            if path=="/fixture/ITEM_Input" then return FAKE.native_input end
+            if path=="/fixture/ITEM_Goal" then return FAKE.native_goal end
+            return nil, "inventory_or_item_unavailable"
         end
         return M
     ]]
@@ -1074,33 +1032,20 @@ test("craft plan uses scoped native item counts without inventory enumeration", 
         stations={Bench={name="Bench",kind="crafting",classes={}}},
         recipes={R_Goal={inputs={{input,2}},outputs={{goal,1}},stations={"Bench"}}}})
     C.W.unlocked=function() return {R_Goal=true},1 end
-    _G.DWCraft=nil; FAKE.inventory_snapshot_calls=0; FAKE.native_count_calls=0
-    local response=rpc("craft_plan",{recipe="R_Goal"})
-    assert(response and response.ok, response and response.reason)
-    local input_node=response.data.root.inputs[1]
-    assert(FAKE.inventory_snapshot_calls==0 and FAKE.native_count_calls>0, "scoped counts must not fall back to inventory enumeration")
-    assert(input_node.observed_have==nil and input_node.have==nil and input_node.have_semantics=="unknown" and input_node.sufficiency=="unknown")
-    assert(response.data.steps==nil and response.data.missing==nil, "unknown cannot be a definite shortage")
-    assert(response.data.choices_unresolved==nil, "unknown inventory is not an alternative choice")
-    FAKE.inventory_exact_control=true; FAKE.inventory_snapshot_calls=0; FAKE.native_count_calls=0
     C.stations=function() return {{id="bench_1", station="Bench", name="Bench", distance=1}} end
-    local exact=rpc("craft_plan",{recipe="R_Goal"})
-    assert(exact and exact.ok and exact.data.root.status=="execution_unknown")
-    assert(exact.data.root.inputs[1].observed_have==2 and exact.data.root.inputs[1].sufficiency=="enough")
-    local obs=exact.data.root.inputs[1].count_observations[1]
-    assert(obs.scope=="main_inventory" and obs.path==input and obs.observed_at==123 and obs.component==12)
-    assert(exact.data.ready==nil, "serialized unknown readiness must be absent, not false")
-    assert(exact.data.choices_unresolved==nil, "execution uncertainty is not an alternative choice")
-    assert(exact.data.root.suggestion and exact.data.root.suggestion.conditional==true)
-    assert(exact.data.quantity_mode=="additional_output" and exact.data.count_unit=="crafts")
+    _G.DWCraft=nil; FAKE.native_count_calls=0; FAKE.native_input, FAKE.native_goal=2, 1
+    local plan=rpc("craft_plan",{recipe="R_Goal"})
+    assert(plan and plan.ok and plan.data.root.status=="craft" and plan.data.root.inputs[1].have==2 and FAKE.native_count_calls>0, json.encode(plan))
     local target=rpc("craft_plan",{item="Goal",quantity_mode="inventory_target"})
-    assert(target.ok and target.data.quantity_mode=="inventory_target" and target.data.root.status=="have")
+    assert(target.ok and target.data.quantity_mode=="inventory_target" and target.data.root.status=="have", json.encode(target))
     local add=rpc("craft_plan",{item="Goal"})
-    assert(add.ok and add.data.quantity_mode=="additional_output" and add.data.root.observed_have==1 and add.data.root.status~="have")
+    assert(add.ok and add.data.quantity_mode=="additional_output" and add.data.root.status=="craft", json.encode(add))
+    FAKE.native_input=nil
+    local rows=rpc("craft_plan",{recipe="R_Goal"})
+    assert(rows.ok and rows.data.root.status=="craft_after", json.encode(rows)) -- unreadable: the slot rows (none) stand
     local bad=rpc("craft_plan",{recipe="R_Goal",quantity_mode="inventory_target"})
     assert(not bad.ok and bad.reason=="invalid_args")
-    assert(FAKE.inventory_snapshot_calls==0 and FAKE.native_count_calls>0)
-    FAKE.inventory_exact_control=nil; uninstall("crafting"); install("inventory")
+    FAKE.native_input, FAKE.native_goal=nil, nil; uninstall("crafting"); install("inventory")
 end)
 
 -- ------------------------------------------------------------------ run

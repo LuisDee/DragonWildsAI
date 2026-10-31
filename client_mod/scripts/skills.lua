@@ -63,6 +63,7 @@ M.cfg = {
     fetch_radius_m = 30, fetch_max_radius_m = 60,
     consume_ground_m = 15,  -- consume: fetch first when it lies this close
     consume_verify_s = 6,
+    consume_wait_s = 10,    -- consume: wait at most this long for another use's animation to finish
     come_to_m = 2.0, come_to_unreachable_s = 30, come_to_timeout_s = 100,
     give_m = 2.0, give_wait_s = 6,
     grave_radius_m = 80,
@@ -273,30 +274,6 @@ M.cfg.on_top_m = 1.0       -- standing this much above the interaction point = o
 local COLLIDER_PROPS = { "InteractionCollider", "InteractionCollision", "InteractionVolume", "InteractionBox",
                          "InteractionSphere", "InteractionComponent", "Interaction" }
 
--- Read capsule bottom only when the old center-based guard says we may be on top.
--- Unknown geometry keeps that conservative guard; identity changes defer the poll.
-function W.capsule_feet_z(api)
-    local sense = api.module("sense")
-    local U = sense and sense.U
-    if paused() or not (sense and sense.local_pawn and U and U.valid and U.world_id) then return nil, "changed" end
-    local root = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
-    local ok, world = pcall(U.world_id, root, {cache_s=0})
-    local pawn = sense.local_pawn()
-    if not ok or type(world) ~= "string" or world == "" or world == "unknown" or not U.valid(pawn) then return nil, "changed" end
-    local good, z, h = pcall(function()
-        local capsule = pawn.CapsuleComponent
-        if not U.valid(capsule) then return nil, nil end
-        local center = capsule:K2_GetComponentLocation()
-        return center and center.Z, capsule:GetScaledCapsuleHalfHeight()
-    end)
-    local again = sense.local_pawn()
-    local okw, world2 = pcall(U.world_id, root, {cache_s=0})
-    local same = U.valid(again) and U.try(function() return again:GetAddress() == pawn:GetAddress() end) == true
-    if paused() or not okw or world2 ~= world or not same then return nil, "changed" end
-    if not good or type(z) ~= "number" or z ~= z or math.abs(z) == math.huge or type(h) ~= "number" or h ~= h or h <= 0 or h == math.huge then return nil, "unknown" end
-    return (z - h) / 100, "ok"
-end
-
 function W.interaction_point(api, thing)
     local a = api.actor_of(thing)
     local s = api.module("sense")
@@ -384,7 +361,6 @@ local function new_episode(api, thing, opts)
     opts = opts or {}
     local e = { thing = thing, phase = "approach", moving = false, approaches = 0, presses = 0, tol = M.cfg.approach_m,
                 before = api.counts() or {}, accept = opts.accept, label = opts.label or thing.name or "that",
-                screen_job = opts.screen_job,
                 ipoint = thing.position }
     local small = thing.category == "items" or tostring(thing.id):sub(1, 4) == "fol:" or thing.kind == "gatherable"
     if not small and thing.position then
@@ -478,33 +454,6 @@ function W.open_container(api)
     return ok and type(w) == "table" and w or nil
 end
 
--- A station screen is evidence only when its native active station belongs to
--- the actor the detector selected. Other screen families remain unknown here.
-function W.screen_target(api, screens, actor)
-    if not actor then return nil end
-    local craft = api.module("crafting")
-    if not (craft and craft.W and type(craft.W.open_station) == "function") then return nil end
-    for _, screen in ipairs(screens) do
-        local kind = screen.type == 6 and "crafting" or (screen.type == 15 and "processing" or nil)
-        if kind then
-            local ok, owner = pcall(craft.W.open_station, api, kind)
-            if ok and owner == actor then return { screen = screen.name, owner = owner } end
-        end
-    end
-end
-
-local function interaction_screen_ready(api, e)
-    local input = api.module("input")
-    if not (input and type(input.observe_screens) == "function" and type(input.input_mode) == "function"
-            and type(input.is_gameplay_mode) == "function" and type(input.modal) == "function") then
-        return nil, "screen state unavailable"
-    end
-    local screens, mode = input.observe_screens(), input.input_mode()
-    if not screens or not mode then return nil, "screen state unavailable" end
-    if #screens > 0 or not input.is_gameplay_mode(mode) or input.modal() then return nil, "a screen or modal is open" end
-    return input
-end
-
 local function next_spot(e, api)
     if e.small and not e.spots and api then
         -- a small thing the detector would not name from the first approach (another stack in front, the
@@ -566,17 +515,7 @@ local function episode_poll(api, e, t, owner_token)
         end
         local here = api.my_position()
         local d = here and goal and dist2d(here, goal)
-        local on_top = false
-        if e.spots and not e.shore and not e.small then
-            local z, target_z = here and here[3], e.ipoint and e.ipoint[3]
-            if type(z) ~= "number" or z ~= z or math.abs(z) == math.huge or type(target_z) ~= "number" or target_z ~= target_z or math.abs(target_z) == math.huge then return nil end
-            on_top = z - target_z > M.cfg.on_top_m
-            if on_top then
-                local feet, status = W.capsule_feet_z(api)
-                if status == "changed" then return nil end
-                if feet ~= nil then on_top = feet - target_z > M.cfg.on_top_m end
-            end
-        end
+        local on_top = here and e.ipoint and e.spots and not e.shore and not e.small and (here[3] - (e.ipoint[3] or here[3])) > M.cfg.on_top_m
         -- Exact native focus can establish reach even when a generated stand point is missed.
         -- The face phase re-reads focus before pressing; no fuzzy or alternate-target shortcut.
         local focus = not e.water and W.detector(api) or nil
@@ -672,17 +611,6 @@ local function episode_poll(api, e, t, owner_token)
         local det = W.detector(api)
         e.detector = det
         if same_target(th, det) or (det and not det.none and e.accept and e.accept(det)) then
-            if e.screen_job then
-                local input, why = interaction_screen_ready(api, e)
-                if not input then return api.fail("verification_failed", { target = th.id, detail = why }) end
-                local existing = input.owner and input.owner("screen")
-                if not (existing and existing.owner == e.screen_job.screen_owner)
-                    and not (type(input.claim_if_free) == "function" and input.claim_if_free("screen", e.screen_job.screen_owner)) then
-                    return api.fail("busy", { target = th.id, detail = "screen is owned by another action" })
-                end
-                e.screen_job.screen_input = input
-                e.screen_actor = det.actor
-            end
             e.sig_before = W.press_signals(api)
             e.prompt_before = det.prompt
             if e.water and e.need_gain then
@@ -758,22 +686,8 @@ local function episode_poll(api, e, t, owner_token)
         local gone = tostring(source.id):sub(1, 4) ~= "fol:" and api.actor_of(source) == nil and api.find_thing(source.id, 10) == nil
         local changed
         if not e.need_gain then
-            if e.screen_job then
-                local input = e.screen_job.screen_input
-                local own = input and input.owner and input.owner("screen")
-                if not own or own.owner ~= e.screen_job.screen_owner then
-                    return api.fail("interrupted", { target = th.id, detail = "screen ownership lost" })
-                end
-                local screens = input.observe_screens()
-                if not screens then return api.fail("verification_failed", { target = th.id, detail = "screen state unavailable after use" }) end
-                if #screens > 0 and not (item or gone or W.open_container(api) or W.conversation_npc(api)) then
-                    local seen = W.screen_target(api, screens, e.screen_actor)
-                    if seen then changed = "screen_opened"; e.screen_observed = seen
-                    else return api.fail("verification_failed", { target = th.id, detail = "the open screen could not be attributed to the selected target" }) end
-                end
-            end
             local sig = W.press_signals(api)
-            if not changed and sig.sleeping == true and not (e.sig_before and e.sig_before.sleeping) then changed = "sleeping" end
+            if sig.sleeping == true and not (e.sig_before and e.sig_before.sleeping) then changed = "sleeping" end
             -- a chest / storage: the game opened ITS screen (deposit and withdraw: move_item with the container)
             if not changed and sig.container == th.id and not (e.sig_before and e.sig_before.container == th.id) then
                 changed = "opened"
@@ -792,11 +706,8 @@ local function episode_poll(api, e, t, owner_token)
         if item or ((gone or changed) and not e.need_gain) then
             -- water that WORKED: remember where he stood (move.shore_point offers it first next time)
             if e.water and item then local here = api.my_position(); if here and source.position then pcall(api.call, "move", "remember_water_spot", source.position, here) end end
-            return { ok = true, data = { target = e.screen_observed and e.screen_observed.owner or source.id,
-                                         requested_target = e.screen_observed and e.screen_observed.owner ~= source.id and source.id or nil,
-                                         item = item or api.null, count = n, gained = api.object(all),
+            return { ok = true, data = { target = source.id, item = item or api.null, count = n, gained = api.object(all),
                                          target_gone = gone, changed = changed or api.null,
-                                         screen = e.screen_observed,
                                          prompt = e.detector and e.detector.prompt or api.null } }
         end
         if t >= e.verify_until then
@@ -889,13 +800,10 @@ local function action(api, ctx, job)
         end
         release(api, job, "cancelled")
     end
-    if job.kind == "consume" or job.screen_owner then
+    if job.screen_owner then -- lodestone's map screen
         -- State-only cleanup: bridge may call this while the world is tearing down.
         a.pause_cleanup = function()
-            if job.consume_inv and job.consume_tx then
-                job.consume_inv.consume_finish(job.consume_tx, job.token, true); job.consume_tx = nil
-            end
-            if job.screen_owner and job.cleanup then pcall(job.cleanup) end
+            if job.cleanup then pcall(job.cleanup) end
             release(api, job, "paused")
         end
     end
@@ -1075,18 +983,17 @@ local function start_consume(api, args, ctx)
                 detail = "The " .. tostring(r.name) .. " is in my bag, not on my hotbar; I can only use things from the hotbar." })
         end
         job.stat = STAT_OF[r.consumable]
-        job.row = r
-        local A = arbiter(api)
-        if not (A and job.token and A.holds(job.token)) then return api.fail("busy", { detail = "Consumable owner unavailable." }) end
-        local inv = api.module("inventory")
-        local tx, why = inv.consume_begin(job.token, "command", M.cfg.consume_verify_s, r.item)
-        if not tx then return api.fail("busy", { detail = why }) end
-        job.consume_tx, job.consume_inv = tx, inv
+        job.row, job.phase = r, "use"
+        -- another use is mid-animation (the reflex, combat): its press would swallow ours, so wait it out
+        local busy = inv and type(inv.consume_busy) == "function" and inv.consume_busy() or nil
+        if busy then
+            job.busy_until = job.busy_until or (api.now() + M.cfg.consume_wait_s)
+            if api.now() < job.busy_until then return nil end
+            return api.fail("busy", { item = r.item, detail = "I'm still busy using the " .. tostring(busy.item) .. "." })
+        end
         job.before, job.before_n = stat_now(api, job.stat), count_of(api, r.item)
-        if not inv.consume_owned(tx, job.token) then return api.fail("interrupted", { detail = "Consumption interrupted before input." }) end
-        local ur = api.call("inventory", "use", r.item, { require = r.consumable, hotbar_only = true, owner_token = job.token, transaction = tx })
+        local ur = api.call("inventory", "use", r.item, { require = r.consumable, hotbar_only = true })
         if not ur.ok then
-            inv.consume_finish(tx, job.token, true); job.consume_tx = nil
             local d = copy(ur.data); d.detail = d.detail or ("I tried to use the " .. tostring(r.name) .. " but the game didn't take it.")
             return api.fail(ur.reason == "body_error" and "body_error" or ur.reason, d)
         end
@@ -1120,11 +1027,6 @@ local function start_consume(api, args, ctx)
     else
         job.row, job.phase = row, "use"
     end
-    job.cleanup = function()
-        local inv = api.module("inventory")
-        if inv and job.consume_tx then inv.consume_finish(job.consume_tx, job.token, true); job.consume_tx = nil end
-    end
-    job.on_suspend = job.cleanup
     job.on_resume = function() if job.fetch and job.fetch.on_resume then job.fetch.on_resume() end end
     job.step = function(t)
         if job.phase == "use" then return use_step(job.row) end
@@ -1140,20 +1042,15 @@ local function start_consume(api, args, ctx)
             job.fetched = true
             return use_step(r2)
         end
-        local inv = api.module("inventory")
-        if not (inv and inv.consume_owned(job.consume_tx, job.token)) then return api.fail("interrupted", { detail = "Consumption verification interrupted." }) end
         local now_v, now_n = stat_now(api, job.stat), count_of(api, job.row.item)
-        if not inv.consume_owned(job.consume_tx, job.token) then return api.fail("interrupted", { detail = "Consumption verification interrupted." }) end
         local rose = now_v and job.before and now_v > job.before + 0.5
         local used = now_n ~= nil and job.before_n ~= nil and now_n < job.before_n
         if rose or (used and t >= job.until_t - M.cfg.consume_verify_s / 2) then
-            inv.consume_finish(job.consume_tx, job.token, false); job.consume_tx = nil
             return { ok = true, data = { item = job.row.item, name = job.row.name, kind = job.row.consumable, stat = job.stat,
                 before = job.before, after = now_v, stat_rose = rose == true, count_left = now_n, fetched = job.fetched == true,
                 risk = job.row.risk } }
         end
         if t >= job.until_t then
-            inv.consume_finish(job.consume_tx, job.token, false); job.consume_tx = nil
             if used then
                 return { ok = true, data = { item = job.row.item, name = job.row.name, kind = job.row.consumable, stat = job.stat,
                     before = job.before, after = now_v, stat_rose = false, count_left = now_n, fetched = job.fetched == true,
@@ -1408,14 +1305,7 @@ local function start_interact(api, args, ctx)
         end
         return job
     end
-    job.screen_owner = "interact:" .. tostring(job)
-    job.cleanup = function()
-        local input = job.screen_input
-        if input and type(input.release_if_owned) == "function" then input.release_if_owned("screen", job.screen_owner) end
-        job.screen_input = nil
-    end
-    job.on_suspend = job.cleanup
-    job.ep = new_episode(api, t, { accept = accept, screen_job = job })
+    job.ep = new_episode(api, t, { accept = accept })
     job.ep.secondary = args.secondary == true
     if tostring(t.class or ""):find("Gravestone", 1, true) then
         job.verify_final = function(res)
@@ -1794,8 +1684,8 @@ local function start_explore(api, args, ctx)
     if not start then return api.fail("companion_down", { detail = "no position" }) end
     local hit = matching(api, args.about, radius)
     if hit then
-        return api.fail("already_in_sight", { found = hit, detail = "Lexical candidate " .. tostring(hit.name) .. " is already in sight ("
-            .. tostring(hit.distance) .. " m, id " .. tostring(hit.id) .. "); this does not verify the full description", match_basis = "lexical" })
+        return api.fail("already_in_sight", { found = hit, detail = tostring(hit.name) .. " is already in sight ("
+            .. tostring(hit.distance) .. " m, id " .. tostring(hit.id) .. ")" })
     end
     local mem = memory()
     local job = { kind = "explore", legs_done = 0, failed = {}, trail = { start }, travelled = 0 }
@@ -1835,7 +1725,7 @@ local function start_explore(api, args, ctx)
             job.trail[#job.trail + 1] = here
         end
         if h then
-            return { ok = true, data = { found = h, match_basis = "lexical", detail = "Lexical candidate; full description not verified", legs = job.legs_done, travelled_m = math.floor(job.travelled + 0.5),
+            return { ok = true, data = { found = h, legs = job.legs_done, travelled_m = math.floor(job.travelled + 0.5),
                                          from = start, position = here } }
         end
         local res = type(st.result) == "table" and st.result or {}
@@ -1843,7 +1733,7 @@ local function start_explore(api, args, ctx)
         if not next_leg() then
             return api.fail("nothing_in_range", { about = args.about, legs = job.legs_done, travelled_m = math.floor(job.travelled + 0.5),
                 trail = job.trail, detail = "explored " .. job.legs_done .. " legs (about " .. math.floor(job.travelled + 0.5)
-                    .. " m) and saw no lexical candidate for '" .. args.about .. "'" })
+                    .. " m) and saw nothing matching '" .. args.about .. "'" })
         end
         return nil
     end

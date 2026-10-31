@@ -25,8 +25,8 @@ def test_actual_mover_authority_regressions(tmp_path):
     assert run.returncode == 0, run.stdout + run.stderr
     assert "FAIL" not in run.stdout, run.stdout
     assert "pending request holds actual input" in run.stdout
-    assert "world identity change fails closed" in run.stdout
-    assert "partial endpoint does not fall through to raw goal" in run.stdout
+    assert "world identity change drops the pending route" in run.stdout
+    assert "partial route, then fallback, reaches the goal" in run.stdout
 
 
 def test_authority_offer_mover_request_and_authority_accept(tmp_path, monkeypatch):

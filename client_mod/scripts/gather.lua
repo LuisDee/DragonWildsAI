@@ -250,10 +250,6 @@ local function tool_word(p) return TOOL_WORD[p.tool or ""] or tostring(p.tool) e
 local function result_of(J, ok, reason, data)
     data = data or {}
     data.resource, data.item, data.want = J.key, J.item, J.want
-    data.selected_profile, data.mode = J.key, J.profile.mode
-    local training = J.profile.trains
-    data.expected_training = training == false and "none" or training
-    data.asked, data.fallback_reason = J.via and J.via.asked or nil, J.via and J.via.because or nil
     data.gathered = J.gained or 0
     data.total = J.have
     data.swings, data.hits, data.broken, data.targets = J.swings, J.hits, J.broken, J.targets
@@ -984,10 +980,12 @@ local function frame(J)
     refresh_count(J)
     if J.done then return end
     if J.item and (J.gained or 0) >= J.want then
+        local trains = J.profile and J.profile.trains
         local v = J.via
-        local detail = v and string.format("Got %d additional items; selected %s profile because I have no usable %s for %s.", J.gained, J.key, v.tool_word, v.asked)
-            or string.format("Got %d additional items using the %s profile.", J.gained, J.key)
-        return finish(J, result_of(J, true, nil, { detail = detail }))
+        local detail = v and string.format("Got %d %s from %s (no usable %s for %s).", J.gained, v.asked, J.key, v.tool_word, v.asked)
+            or string.format("Got %d %s.", J.gained, J.key)
+        return finish(J, result_of(J, true, nil, { detail = detail, source = J.key, asked = v and v.asked or nil,
+            trains = trains == false and "none" or trains })) -- the skill this gives XP (profile data; "none" = verified none)
     end
     local me = W.loc(pawn)
     J.me = me
@@ -1234,11 +1232,11 @@ do
     M.MANIFEST = {
         gather = { kind = "action", llm = true, moves = true, priority = "task", duration_s = 120, timeout_s = 1800,
             detail_is_speech = true,
-            description = "Gather additional inventory items, including nearby drops. Optional mode selects profile (" .. table.concat(modes, ", ") .. ") and disables cross-mode fallback; it does not prove work occurred. Without mode a same-item tool-free source may substitute. Result selected_profile and expected_training describe profile metadata, not item provenance or observed XP." .. trains,
+            description = "Harvest a resource (a profile key, e.g. oak, ash, copper, stone_boulder, loose_stones) until you have count MORE; finds targets and equips your tool. The result's `trains` names the skill it gave XP to (none = no XP)." .. trains,
             args = { type = "object", required = { "resource", "count" }, properties = obj({
-                resource = { type = "string", description = "A profile key, item, alias or kind; a category selects the nearest matching profile. Inventory gains may include nearby drops." },
-                count = { type = "integer", minimum = 1, description = "How many additional inventory items, in every mode." },
-                mode = { type = "string", description = "Optional acquisition mode from profile data, such as chop or pickup. Limits sources and disables cross-mode fallback; it does not prove a particular target was worked." },
+                resource = { type = "string", description = "A resource (oak, copper, stone_boulder = mine a stone boulder with a pickaxe, Mining XP; loose_stones = pick stones up off the ground, no XP) or a kind (ore, rock, logs, stone: the nearest of that kind)." },
+                count = { type = "integer", minimum = 1, description = "How many more." },
+                mode = { type = "string", description = "Only sources of this kind (" .. table.concat(modes, ", ") .. "); no tool-free substitute." },
                 radius = { type = "number", minimum = 1, maximum = 120, description = "Search radius, m (default 30)." },
                 stumps = { type = "boolean", description = "Also chop stumps." },
                 style = { type = "string", description = "One of the tool's actions (see held_actions), e.g. Overhead Chop." } }) },

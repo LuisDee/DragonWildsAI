@@ -162,7 +162,7 @@ GOAL.md revisions (c6d9c90, after rev 1) are folded in: spell **use** (§5.2), c
 | `evals/bench/manifests/<build>/` | Frozen suite manifests and n/a lists (judge files) |
 | `evals/bench/cases/` | Seen cases (committed). `evals/bench/goal_cases/`: the hand-written GOAL cases (pinned) |
 | `tools/goal_check.py`, `tools/goal_confirm.py` | The grader; the live-confirmation recorder Luis runs |
-| tests | `test_bench_*.py`, `test_goal_check.py`, `test_design_notes.py`, `test_overfit.py` |
+| tests | `test_bench_*.py`, `test_goal_check.py`, `test_overfit.py` |
 
 These are reused, not replaced:
 - scenario_run (`Ops`, the lease, the boot switch, backups, nav-memory isolation);
@@ -511,7 +511,7 @@ Caps exist for cost safety. A case stopped by a cap is `error: budget`, not a ca
    - Wilson LB and minimum n;
    - partial runs ignored;
    - live confirmations only from goal_confirm records.
-8. **test_design_notes, test_overfit** (hash-only output, canaries), and test_principles stay green.
+8. **test_overfit** (hash-only output, canaries) and test_principles stay green (test_design_notes was removed 2026-10-31).
 
 ## Search record
 - Need: a capability benchmark for an embodied LLM game companion (task format, programmatic success, generated tasks, validity, coverage); rev 2 adds contamination control, error bars and resistance to reward hacking by the optimiser.

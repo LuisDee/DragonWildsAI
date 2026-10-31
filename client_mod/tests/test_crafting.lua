@@ -17,7 +17,7 @@ C.set_data(REAL)
 
 local function path_of(id) return C.index().path_of[id] end
 local function has_step(steps, what, key, val)
-    for _, s in ipairs(steps or {}) do if s["do"] == what and (key == nil or s[key] == val) then return s end end
+    for _, s in ipairs(steps) do if s["do"] == what and (key == nil or s[key] == val) then return s end end
 end
 
 -- ------------------------------------------------------------------ fake world
@@ -60,10 +60,11 @@ function MOVE.stop_owned(_,gen,token)
 end
 
 local INV = {}
+-- the game's own per-item total (GetNumItemsByData); F.native overrides it (items the slot rows miss)
 function INV.count_item(path)
     local id = C.index().id_of[path]
-    if not id then return {status="unknown"} end
-    return {status="observed",count=inv_counts()[id] or 0,scope="main_inventory"}
+    if F.native and F.native[id] ~= nil then return F.native[id] or nil end
+    return id and (inv_counts()[id] or 0) or nil
 end
 function INV.interact_target()
     local best, bd
@@ -199,7 +200,7 @@ C.W.send_craft = function(_, rid, count)
     local st = _G.DWCraft
     st.seq = st.seq + 1
     local code = F.result_code or 0
-    st.results[#st.results + 1] = { seq = st.seq, result = code, recipe = rid, recipe_path=REAL.recipes[rid].path, count = count }
+    st.results[#st.results + 1] = { seq = st.seq, result = code, recipe = rid, recipe_path = REAL.recipes[rid].path, count = count }
     if code == 0 then
         local r = REAL.recipes[rid]
         for _, c in ipairs(r.inputs) do add_inv(C.asset(c[1]), -c[2] * count) end
@@ -263,27 +264,26 @@ do
     local ctx = { have = {}, unlocked = U({ "RECIPE_Pickaxe_Stone" }), near = near("CraftingTable"), gather_for = C.W.gather_for(api) }
     local t = C.plan_tree({ item = "ITEM_Pickaxe_Stone" }, 1, ctx)
     check("tree: stone pickaxe root recipe", t and t.root.recipe == "RECIPE_Pickaxe_Stone", t and t.root.recipe)
-    check("tree: alternatives unresolved", t.root.status == "choices_unresolved", t.root.status)
-    check("tree: no unconditional steps with choices", t.steps == nil)
-    check("tree: input acquisition options exposed", #t.root.inputs >= 2 and t.root.inputs[1].options_total >= 1)
+    check("tree: craft_after (inputs first)", t.root.status == "craft_after", t.root.status)
+    check("tree: gather stone step", has_step(t.steps, "gather", "item", "ITEM_Resources_Stone") ~= nil)
+    check("tree: gather ash step", has_step(t.steps, "gather", "item", "ITEM_Resources_Wood_Ash") ~= nil)
     local cs = has_step(t.steps, "craft", "recipe", "RECIPE_Pickaxe_Stone")
-    check("tree: no premature craft step", cs == nil)
+    check("tree: craft step last + station", cs and t.steps[#t.steps] == cs and cs.station == "CraftingTable")
     -- with the inputs carried the root is ready
     ctx.have = { ITEM_Resources_Wood_Ash = 6, ITEM_Resources_Stone = 8 }
     t = C.plan_tree({ item = "ITEM_Pickaxe_Stone" }, 1, ctx)
-    check("tree: carried inputs do not prove execution", t.ready == nil and t.root.status == "execution_unknown" and t.root.suggestion and t.root.suggestion.conditional, t.root.status)
+    check("tree: ready when carried", t.ready and t.root.status == "craft", t.root.status)
     -- the shared pool: 2 pickaxes need 12 ash, 6 carried -> gather 6 more
     t = C.plan_tree({ item = "ITEM_Pickaxe_Stone" }, 2, ctx)
-    local g
-    for _, v in ipairs(t.root.inputs or {}) do if v.item == "ITEM_Resources_Wood_Ash" then g = v end end
-    check("tree: pool counts carried once", g and g.need == 12 and g.observed_have == 6, g and g.observed_have)
+    local g = has_step(t.steps, "gather", "item", "ITEM_Resources_Wood_Ash")
+    check("tree: pool counts carried once", g and g.count == 6, g and g.count)
 end
 do -- alternatives listed; locked recipes carry their unlock text with station names
     local ctx = { have = {}, unlocked = U({ "RECIPE_Process_BronzeBar" }), near = near("Furnace"), gather_for = C.W.gather_for(api) }
     local t = C.plan_tree({ item = "ITEM_Resources_BronzeBar" }, 2, ctx)
-    check("tree: bronze bar exposes recipes", t.root.options and t.root.options_total >= 1)
-    check("tree: bronze alternatives listed", t.root.options and t.root.options_total >= 2, t.root.options_total)
-    check("tree: bronze alternatives not flattened", t.steps == nil)
+    check("tree: bronze bar expands the unlocked ore recipe", t.root.recipe == "RECIPE_Process_BronzeBar", t.root.recipe)
+    check("tree: bronze alternatives listed", t.root.alternatives and #t.root.alternatives >= 2, t.root.alternatives and #t.root.alternatives)
+    check("tree: 2 bars = 1 craft", t.root.crafts == 1, t.root.crafts)
     local cands = C.candidates("ITEM_Resources_IronBar", 1, { have = {}, unlocked = {}, near = {} })
     check("candidates: iron bar has every recipe", #cands >= 2, #cands)
     local a
@@ -312,7 +312,7 @@ do -- cycle + depth guards on a synthetic catalog
                  items = { [A] = { id = "ITEM_A", name = "A" }, [B] = { id = "ITEM_B", name = "B" } },
                  recipes = { R_A = { inputs = { { B, 1 } }, outputs = { { A, 1 } }, stations = { "Bench" } },
                              R_B = { inputs = { { A, 1 } }, outputs = { { B, 1 } }, stations = { "Bench" } } } })
-    local t = C.plan_tree({ item = "ITEM_A" }, 1, { have = {}, count_status = {status="complete",count_semantics="exact"}, unlocked = U({ "R_A", "R_B" }), near = near("Bench") })
+    local t = C.plan_tree({ item = "ITEM_A" }, 1, { have = {}, unlocked = U({ "R_A", "R_B" }), near = near("Bench") })
     local leaf = t.root.inputs[1].inputs[1]
     check("cycle guard", leaf.status == "cycle", leaf and leaf.status)
     check("cycle reported missing", #t.missing == 1)
@@ -424,10 +424,10 @@ do
     check("bench: UI closed on craft_failed", F.closed == 1)
 end
 do
-    reset({ stations = { TABLE() }, have = { ITEM_Resources_Wood_Ash = 6 }, unlocked = U({ "RECIPE_Pickaxe_Stone" }), result_code=1 })
+    reset({ stations = { TABLE() }, have = { ITEM_Resources_Wood_Ash = 6 }, unlocked = U({ "RECIPE_Pickaxe_Stone" }) })
     local r = run({ item = "Stone Pickaxe" })
-    check("bench: scoped shortage still reaches real UI", r.reason == "missing_input" and F.sent ~= nil, tostring(r.reason))
-    check("bench: UI verdict governs shortage", (F.moves or 0) > 0)
+    check("bench: missing -> missing_materials + list", r.reason == "missing_materials" and r.data.missing and r.data.missing[1].item == "ITEM_Resources_Stone", tostring(r.reason))
+    check("bench: no walk when it can't work", (F.moves or 0) == 0)
     reset({ stations = { TABLE() }, have = { ITEM_Resources_Wood_Ash = 6, ITEM_Resources_Stone = 8 }, unlocked = { RECIPE_Torch = true } })
     r = run({ item = "Stone Pickaxe" })
     check("bench: locked -> not_unlocked", r.reason == "not_unlocked", tostring(r.reason))
@@ -471,7 +471,7 @@ do -- ambiguous recipe (two viable) -> candidates; one viable -> recipe_chosen +
     F.items[#F.items + 1] = { id = "pre_1", item = "ITEM_Resources_BronzeBar", name = "Bronze Bar", count = 1, position = { 8, 4.3, 0 } }
     r = run({ item = "Bronze Bar", count = 2 })
     check("proc: one viable -> ok", r.ok, tostring(r.reason) .. " " .. tostring((r.data or {}).detail))
-    check("proc: one carried-sufficient recipe chosen with alternatives", r.data.recipe_chosen == "RECIPE_Process_BronzeBar" and #r.data.alternatives >= 1)
+    check("proc: recipe_chosen + alternatives", r.data.recipe_chosen == "RECIPE_Process_BronzeBar" and #r.data.alternatives >= 1)
     check("proc: collected only the 2 new bars", inv_counts().ITEM_Resources_BronzeBar == 2, inv_counts().ITEM_Resources_BronzeBar)
     local pre = false
     for _, it in ipairs(F.items) do if it.id == "pre_1" then pre = true end end
@@ -590,75 +590,9 @@ do
     r = C.HANDLERS.recipes(nil, { item = "Iron Bar" }, { api = api })
     check("recipes: every iron bar recipe with status", r.ok and r.data.total >= 2 and r.data.recipes[1].status ~= nil)
     r = C.HANDLERS.craft_plan(nil, { item = "Stone Pickaxe", count = 1 }, { api = api })
-    check("craft_plan: execution remains unknown", r.ok and r.data.ready == nil and r.data.root.status == "execution_unknown" and r.data.root.suggestion.conditional)
+    check("craft_plan: tool works", r.ok and r.data.root.status == "craft")
     r = C.HANDLERS.craft_plan(nil, {}, { api = api })
     check("craft_plan: invalid args", r.reason == "invalid_args")
-end
-do -- category discovery offers identities only; exact and substring names retain precedence
-    reset({ stations = { TABLE() }, unlocked = {} })
-    local id, hits, kind = C.resolve_item("  hAtChEt  ")
-    local has_stone = false
-    for _, item in ipairs(hits or {}) do if item == "ITEM_Logging_Axe_Stone" then has_stone = true end end
-    check("category: native hatchet finds stone axe", not id and kind == "category" and has_stone)
-    local _, full, full_kind = C.resolve_item("Item.Equipment.Tool.Hatchet")
-    check("category: full tag and leaf match", full_kind == "category" and #full == #hits)
-    for _, tool in ipairs({ "recipes", "craft_plan", "craft" }) do
-        local r = C.HANDLERS[tool](nil, { item = "Hatchet" }, { api = api })
-        check(tool .. ": category candidates not a selection", not r.ok and r.reason == "ambiguous_target"
-              and r.data.total == #hits and r.data.candidates[1].category == "Item.Equipment.Tool.Hatchet"
-              and r.data.truncated == (#hits > #r.data.candidates))
-    end
-    check("category: no craft action or movement", not F.goal and not F.moves and not F.ui)
-    local fake = { items = {}, recipes = {}, stations = {} }
-    for i = 1, 17 do
-        local path = "/fake/ITEM_" .. i
-        fake.items[path] = { id = "ITEM_" .. i, name = "Object " .. i, category = "Item.Tool.Bundle" }
-        fake.recipes["R" .. i] = { path = "/fake/R" .. i, inputs = {}, outputs = {{ path, 1 }}, stations = {} }
-    end
-    fake.items["/fake/only"] = { id = "ITEM_only", name = "One Object", category = "Item.Tool.Special" }
-    fake.recipes.ONLY = { path = "/fake/ONLY", inputs = {}, outputs = {{ "/fake/only", 1 }}, stations = {} }
-    C.set_data(fake)
-    local single, one, one_kind = C.resolve_item("special")
-    check("category: single still requires selection", not single and #one == 1 and one_kind == "category")
-    local r = C.HANDLERS.craft_plan(nil, { item = "special" }, { api = api })
-    check("category: singular detail is truthful", r.reason == "ambiguous_target" and r.data.total == 1
-          and not r.data.truncated and not r.data.detail:find("these items", 1, true))
-    r = C.HANDLERS.recipes(nil, { item = "bundle" }, { api = api })
-    check("category: bounded sorted candidates", r.reason == "ambiguous_target" and r.data.total == 17
-          and #r.data.candidates == 17 and not r.data.truncated and r.data.candidates[1].item < r.data.candidates[2].item)
-    check("category: exact name wins", C.resolve_item("One Object") == "ITEM_only")
-    check("category: unique substring wins", C.resolve_item("One Obj") == "ITEM_only")
-    local _, none = C.resolve_item("does-not-exist")
-    check("category: absent is unknown", #none == 0)
-    C.set_data(REAL)
-end
-do -- unknown unlocks and raw condition bundles remain distinct and read-only
-    local path = "/fixture/ITEM_Potion"
-    local q1 = "ANY ITEMS[ Glowcap, Pebble ] AND ALL ACTORS[ BP_Station_Kettle_C ]"
-    local q2 = "UNKNOWN_FN[ x ] OR ALL ITEMS[ Berries ]"
-    local fake = { items = { [path] = { id = "ITEM_Potion", name = "Potion" } },
-                   stations = { Kettle = { name = "Brew Kettle", classes = { "BP_Station_Kettle_C" } } },
-                   recipes = { R = { path = "/fixture/R", inputs = {}, outputs = {{ path, 1 }}, stations = { "Kettle" }, uq = {q1, q2} } } }
-    C.set_data(fake)
-    local locked = C.assess("R", 1, { have = {}, unlocked = {}, near = {} })
-    check("unlock: confirmed locked retains exact queries", locked.status == "not_unlocked"
-          and locked.unlock_queries[1] == q1 and locked.unlock_queries[2] == q2
-          and locked.unlock:find("relation between conditions unknown", 1, true) ~= nil)
-    local card = C.card(locked)
-    check("unlock: card carries raw queries and context", card.unlock_queries[1] == q1
-          and card.unlock_context:find("actor%-class interactions")
-          and card.unlock_query_source == "generated recipe catalog (whitespace normalized)")
-    local known = C.plan_tree({ recipe = "R" }, 1, { have = {}, unlocked = {}, near = {} })
-    check("unlock: locked plan retains condition facts", known.root.status == "not_unlocked"
-          and known.root.unlock_queries[2] == q2 and known.root.unlock_status == "locked")
-    local unknown = C.plan_tree({ recipe = "R" }, 1, { have = {}, unlocked = nil, near = {} })
-    check("unlock: unreadable state remains unknown without unlock step", unknown.root.status == "unlock_unknown"
-          and not has_step(unknown.steps, "unlock") and unknown.root.unlock_queries[1] == q1)
-    fake.recipes.R.uq = { q1 }
-    local single = C.assess("R", 1, { have = {}, unlocked = {}, near = {} })
-    check("unlock: one condition has no invented relation", single.unlock_queries[1] == q1
-          and not single.unlock:find("relation between conditions", 1, true))
-    C.set_data(REAL)
 end
 do -- get_state extras: stations nearby with the furnace's state, from the census rows
     reset({ stations = { TABLE(), FURNACE({ res = { { slot = 0, item = "ITEM_Resources_IronOre", name = "Iron Ore", count = 3 } } }) } })
@@ -676,321 +610,112 @@ for name in pairs(C.HANDLERS) do
 end
 check("manifest: craft is an action, plan is read", C.MANIFEST.craft.kind == "action" and C.MANIFEST.craft_plan.kind == "read")
 
-do -- held-out acquisition alternatives and count provenance
-    local A,B,CUR,GOAL = "/fixture/ITEM_A", "/fixture/ITEM_B", "/fixture/ITEM_Currency", "/fixture/ITEM_Goal"
-    local fake = {items={ [A]={id="ITEM_A",name="A"}, [B]={id="ITEM_B",name="B"},
-                          [CUR]={id="ITEM_Currency",name="Currency"}, [GOAL]={id="ITEM_Goal",name="Goal"} },
-        stations={Bench={name="Bench",kind="crafting",classes={"BP_Bench_C"}},
-                  Merchant={name="Merchant",kind="crafting",classes={}}},
-        recipes={ R_Goal={inputs={{B,1},{A,2}},outputs={{GOAL,1}},stations={"Bench"}},
-                  R_B={inputs={{A,2}},outputs={{B,1}},stations={"Merchant"}} } }
+do -- category discovery offers identities only; exact and substring names retain precedence
+    reset({ stations = { TABLE() }, unlocked = {} })
+    local id, hits, kind = C.resolve_item("  hAtChEt  ")
+    local has_stone = false
+    for _, item in ipairs(hits or {}) do if item == "ITEM_Logging_Axe_Stone" then has_stone = true end end
+    check("category: native hatchet finds stone axe", not id and kind == "category" and has_stone)
+    local _, full, full_kind = C.resolve_item("Item.Equipment.Tool.Hatchet")
+    check("category: full tag and leaf match", full_kind == "category" and #full == #hits)
+    for _, tool in ipairs({ "recipes", "craft_plan", "craft" }) do
+        local r = C.HANDLERS[tool](nil, { item = "Hatchet" }, { api = api })
+        check(tool .. ": category candidates not a selection", not r.ok and r.reason == "ambiguous_target"
+              and r.data.total == #hits and r.data.candidates[1].category == "Item.Equipment.Tool.Hatchet")
+    end
+    check("category: no craft action or movement", not F.goal and not F.moves and not F.ui)
+    local fake = { items = {}, recipes = {}, stations = {} }
+    for i = 1, 17 do
+        local path = "/fake/ITEM_" .. i
+        fake.items[path] = { id = "ITEM_" .. i, name = "Object " .. i, category = "Item.Tool.Bundle" }
+        fake.recipes["R" .. i] = { path = "/fake/R" .. i, inputs = {}, outputs = {{ path, 1 }}, stations = {} }
+    end
+    fake.items["/fake/only"] = { id = "ITEM_only", name = "One Object", category = "Item.Tool.Special" }
+    fake.recipes.ONLY = { path = "/fake/ONLY", inputs = {}, outputs = {{ "/fake/only", 1 }}, stations = {} }
     C.set_data(fake)
-    local function sources(item) if item=="ITEM_B" then return {"pickup_b", "extract_b"} end return {} end
-    local ctx={have={ITEM_A=3},count_status={status="complete",count_semantics="exact"},
-               unlocked=U({"R_Goal","R_B"}),near=near("Bench"),gather_for=sources}
-    local t=C.plan_tree({recipe="R_Goal"},1,ctx)
-    local b,a=t.root.inputs[1],t.root.inputs[2]
-    check("options: pinned root preserves OR alternatives", b.options_total==3 and #b.options==3 and t.steps==nil and t.missing==nil)
-    check("options: gather capability not availability", b.options[1].type=="gather" and b.options[1].availability=="unknown")
-    local recipe
-    for _,opt in ipairs(b.options) do if opt.type=="recipe" then recipe=opt end end
-    check("options: recipe AND inputs and unknown execution", recipe and #recipe.inputs==1 and recipe.inputs[1].item=="ITEM_A" and recipe.execution_capability=="unknown")
-    check("options: sibling uses conservative branch pool", a.observed_have==1 and a.have_semantics=="lower_bound" and a.sufficiency=="unknown")
-    ctx.have={};ctx.count_status={status="partial",count_semantics="lower_bound"}
-    t=C.plan_tree({recipe="R_Goal"},1,ctx)
-    b=t.root.inputs[1]
-    check("options: incomplete zero unknown", b.observed_have==0 and b.sufficiency=="unknown" and b.short==nil and b.options[1].quantity_semantics=="upper_bound")
-    ctx.have={ITEM_B=1,ITEM_A=3}
-    t=C.plan_tree({recipe="R_Goal"},1,ctx)
-    check("options: lower bound enough proves snapshot sufficiency", t.root.inputs[1].sufficiency=="enough" and t.root.inputs[2].sufficiency=="enough")
-    ctx.have={ITEM_A=1};ctx.count_status={status="complete",count_semantics="exact"};ctx.gather_for=nil
-    t=C.plan_tree({recipe="R_Goal"},1,ctx)
-    check("options: exact insufficient short", t.root.inputs[2].sufficiency=="short" and t.root.inputs[2].short~=nil)
-    ctx.have={ITEM_Goal=9,ITEM_B=1,ITEM_A=2}
-    t=C.plan_tree({recipe="R_Goal"},1,ctx)
-    check("options: explicit recipe requests one craft even if output carried", t.root.crafts==1 and t.root.output_count==1)
+    local single, one, one_kind = C.resolve_item("special")
+    check("category: single still requires selection", not single and #one == 1 and one_kind == "category")
+    local r = C.HANDLERS.recipes(nil, { item = "bundle" }, { api = api })
+    check("category: sorted candidates", r.reason == "ambiguous_target" and r.data.total == 17
+          and #r.data.candidates == 17 and r.data.candidates[1].item < r.data.candidates[2].item)
+    check("category: exact name wins", C.resolve_item("One Object") == "ITEM_only")
+    check("category: unique substring wins", C.resolve_item("One Obj") == "ITEM_only")
+    local _, none = C.resolve_item("does-not-exist")
+    check("category: absent is unknown", #none == 0)
     C.set_data(REAL)
 end
 
-do -- bounded choices, vendor metadata, and multiple independent profiles
-    local X,G="/heldout/ITEM_X", "/heldout/ITEM_G"
-    local recipes={R_G={inputs={{X,1}},outputs={{G,1}},stations={"Bench"}}}
-    for i=1,10 do recipes[string.format("R_%02d",i)]={inputs={},outputs={{X,1}},stations={i==1 and "Trader" or "Bench"}} end
-    local fake={items={[X]={id="ITEM_X",name="X"},[G]={id="ITEM_G",name="G"}},
-        stations={Bench={name="Bench",kind="crafting",classes={}}, Trader={name="Trader",kind="crafting",vendor=true,classes={}}}, recipes=recipes}
-    C.set_data(fake)
-    local all={"R_G"}; for i=1,10 do all[#all+1]=string.format("R_%02d",i) end
-    local ctx={have={},count_status={status="complete",count_semantics="exact"},unlocked=U(all),near=near("Bench")}
-    local t=C.plan_tree({recipe="R_G"},1,ctx)
-    local x=t.root.inputs[1]
-    check("options: capped deterministic alternatives", x.options_total==10 and #x.options==8 and x.options_truncated and t.truncated and not t.steps)
-    check("options: confirmed vendor unsupported", x.options[1].recipe=="R_01" and x.options[1].execution_capability=="unsupported_vendor")
-    local profile_api={module=function(n) return n=="gather_profiles" and {RESOURCES={z={item="ITEM_X"},a={item="ITEM_X"},b={item="other"}}} end}
-    local gather=C.W.gather_options(profile_api)("ITEM_X")
-    check("options: all matching profiles ordered", #gather==2 and gather[1]=="a" and gather[2]=="z")
-    check("options: absent profile does not invent source", #C.W.gather_options(profile_api)("ITEM_Missing")==0)
-    ctx.count_status={status="complete",count_semantics="bad"}
-    t=C.plan_tree({recipe="R_G"},1,ctx)
-    check("options: malformed exact status unknown", t.root.inputs[1].have_semantics=="lower_bound" and t.root.inputs[1].sufficiency=="unknown")
+do -- the game's own count (GetNumItemsByData) feeds assess and the plan where the slot rows miss an item
+    reset({ stations = { TABLE() }, have = { ITEM_Resources_Wood_Ash = 6 }, unlocked = U({ "RECIPE_Pickaxe_Stone" }) })
+    F.native = { ITEM_Resources_Stone = 8 }
+    local r = C.HANDLERS.craft_plan(nil, { item = "Stone Pickaxe" }, { api = api })
+    check("native: plan counts what the rows miss", r.ok and r.data.root.status == "craft", r.data and r.data.root and r.data.root.status)
+    r = C.HANDLERS.recipes(nil, { item = "Stone Pickaxe" }, { api = api })
+    check("native: assess counts it", r.ok and r.data.recipes[1].status == "ready", r.data and r.data.recipes and r.data.recipes[1] and r.data.recipes[1].status)
+    F.native = { ITEM_Resources_Stone = false }
+    r = C.HANDLERS.craft_plan(nil, { item = "Stone Pickaxe" }, { api = api })
+    check("native: unreadable falls back to the rows", r.ok and r.data.root.status == "craft_after", r.data and r.data.root and r.data.root.status)
+end
+
+do -- quantity_mode: additional_output (default) ignores the carried goal item; inventory_target counts it
+    reset({ stations = { TABLE() }, have = { ITEM_Pickaxe_Stone = 1, ITEM_Resources_Wood_Ash = 6, ITEM_Resources_Stone = 8 },
+            unlocked = U({ "RECIPE_Pickaxe_Stone" }) })
+    local a = C.HANDLERS.craft_plan(nil, { item = "Stone Pickaxe" }, { api = api })
+    check("mode: default plans one more", a.ok and a.data.quantity_mode == "additional_output" and a.data.root.have == 0 and a.data.root.status == "craft")
+    local target = C.HANDLERS.craft_plan(nil, { item = "Stone Pickaxe", quantity_mode = "inventory_target" }, { api = api })
+    check("mode: inventory target counts the carried one", target.ok and target.data.quantity_mode == "inventory_target" and target.data.root.status == "have")
+    local bad = C.HANDLERS.craft_plan(nil, { item = "Stone Pickaxe", quantity_mode = "invalid" }, { api = api })
+    check("mode: unknown rejected", bad.reason == "invalid_args")
+    bad = C.HANDLERS.craft_plan(nil, { recipe = "RECIPE_Pickaxe_Stone", quantity_mode = "inventory_target" }, { api = api })
+    check("mode: recipe with stock target rejected", bad.reason == "invalid_args")
+    local schema = C.MANIFEST.craft_plan.args.properties.quantity_mode
+    check("mode: manifest exposes it", schema and schema.default == "additional_output" and #schema.enum == 2)
+    local A, P = "/cycle/A.A", "/cycle/P.P"
+    C.set_data({ stations = { Bench = { kind = "crafting", name = "Bench" } }, items = { [A] = { id = "A", name = "Input" }, [P] = { id = "P", name = "Product" } },
+                 recipes = { RP = { path = "/cycle/RP", inputs = { { A, 1 } }, outputs = { { P, 1 } }, stations = { "Bench" } },
+                             RA = { path = "/cycle/RA", inputs = { { P, 1 } }, outputs = { { A, 1 } }, stations = { "Bench" } } } })
+    local ctx = { have = { P = 1 }, unlocked = U({ "RP", "RA" }), near = near("Bench"), quantity_mode = "additional_output" }
+    local t = C.plan_tree({ item = "P" }, 1, ctx)
+    check("mode: root stock left for a descendant", t.root.have == 0 and t.root.inputs[1].inputs[1].status == "have")
+    ctx.have = {}
+    t = C.plan_tree({ item = "P" }, 1, ctx)
+    check("mode: cycle detection kept", t.root.inputs[1].inputs[1].status == "cycle")
     C.set_data(REAL)
 end
 
-do -- observed generic station and enough inputs do not establish execution capability
-    local input, goal = "/heldout/ITEM_Input", "/heldout/ITEM_Product"
-    local fake={items={[input]={id="ITEM_Input",name="Input"},[goal]={id="ITEM_Product",name="Product"}},
-        stations={Bench={name="Bench",kind="crafting",classes={"BP_GenericBench_C"}}},
-        recipes={R_Product={inputs={{input,2}},outputs={{goal,1}},stations={"Bench"}}}}
-    C.set_data(fake)
-    local ctx={have={ITEM_Input=2},count_status={status="complete",count_semantics="exact"},
-               unlocked=U({"R_Product"}),near=near("Bench")}
-    local t=C.plan_tree({recipe="R_Product"},1,ctx)
-    check("execution: enough exact input retained", t.root.inputs[1].sufficiency=="enough" and t.root.inputs[1].observed_have==2)
-    check("execution: observed station retained", t.root.station_id=="Bench_1" and t.root.unlock_status=="unlocked")
-    check("execution: capability unknown and no ready", t.root.execution_capability=="unknown" and t.root.status=="execution_unknown" and t.ready==nil)
-    check("execution: suggestion explicitly conditional", t.root.suggestion and t.root.suggestion.conditional==true and t.steps==nil)
-    ctx.have={ITEM_Input=1}; t=C.plan_tree({recipe="R_Product"},1,ctx)
-    local craft=has_step(t.steps,"craft")
-    check("execution: future craft step conditional", craft and craft.conditional==true and craft.ready==nil)
-    C.set_data(REAL)
-end
-
-do -- Per-item provenance and uncertainty survive graph planning.
-    local A,B,P="/G/ITEM_Alpha.ITEM_Alpha","/G/ITEM_Beta.ITEM_Beta","/G/ITEM_Product.ITEM_Product"
-    C.set_data({stations={Bench={kind="crafting",name="Bench",classes={"BP_Bench_C"}}},
-      items={[A]={id="ITEM_Alpha",name="Alpha"},[B]={id="ITEM_Beta",name="Beta"},[P]={id="ITEM_Product",name="Product"}},
-      recipes={R_Product={inputs={{A,2},{B,1}},outputs={{P,1}},stations={"Bench"}}}})
-    local ctx={have={},count_status={status="unknown"},unlocked=U({"R_Product"}),near=near("Bench"),
-      native_count=function(p) if p==A then return {status="observed",count=1,scope="main_inventory",path=p,observed_at=123,controller=4,pawn=5,component=6,asset=7} end return {status="unknown",reason="unloaded"} end}
-    local t=C.plan_tree({recipe="R_Product"},1,ctx)
-    check("native ledger: known short remains exact",t.root.inputs[1].sufficiency=="short" and t.root.inputs[1].observed_have==1)
-    check("native ledger: unknown other ingredient remains unknown",t.root.inputs[2].sufficiency=="unknown" and t.root.inputs[2].observed_have==nil and t.root.inputs[2].have==nil)
-    local obs=t.root.inputs[1].count_observations and t.root.inputs[1].count_observations[1]
-    check("native ledger: source identity and observation time retained",obs and obs.path==A and obs.observed_at==123 and obs.component==6 and obs.scope=="main_inventory")
-    local A2="/Other/ITEM_Alpha.ITEM_Alpha";C.set_data({stations={Bench={kind="crafting",name="Bench"}},
-      items={[A]={id="ITEM_Alpha",name="Alpha"},[A2]={id="ITEM_Alpha",name="Alpha other"},[P]={id="ITEM_Product",name="Product"}},
-      recipes={R_Product={inputs={{A,1}},outputs={{P,1}},stations={"Bench"}}}})
-    t=C.plan_tree({recipe="R_Product"},1,ctx)
-    check("native ledger: colliding full paths remain unknown",t.root.inputs[1].sufficiency=="unknown" and t.root.inputs[1].observed_have==nil and t.root.inputs[1].have==nil)
-    C.set_data(REAL)
-end
-do -- Bench and plan do not enumerate inventory rows; the actual UI still decides.
-    reset({stations={TABLE()},have={ITEM_Resources_Wood_Ash=6},unlocked=U({"RECIPE_Pickaxe_Stone"}),result_code=1})
-    local oldcounts,oldlist=api.counts,INV.list
-    api.counts=function() error("row count unexpectedly read") end
-    INV.list=function() error("row enumeration unexpectedly read") end
-    local plan=C.HANDLERS.craft_plan(nil,{item="Stone Pickaxe"},{api=api})
-    local result=run({item="Stone Pickaxe"})
-    check("native planning bypasses inventory rows",plan.ok)
-    check("linked storage unknown still reaches UI",result.reason=="missing_input" and F.sent~=nil)
-    api.counts,INV.list=oldcounts,oldlist
-end
-do -- A successful UI response cannot compensate for an unknown output baseline.
-    reset({stations={TABLE()},have={ITEM_Resources_Wood_Ash=6,ITEM_Resources_Stone=8},unlocked=U({"RECIPE_Pickaxe_Stone"})})
-    local old=INV.count_item
-    INV.count_item=function(path) if C.asset(path)=="ITEM_Pickaxe_Stone" then return {status="unknown"} end return old(path) end
-    local r=run({item="Stone Pickaxe"})
-    check("unknown baseline never implies output gain",r.reason=="verification_failed",tostring(r.reason))
-    INV.count_item=old
-end
-
-do -- Verdicts must match selected recipe and amount, including when unrelated events arrive.
-    local send=C.W.send_craft
+do -- only a verdict for this recipe and count is ours; another craft's verdict never decides
+    local send = C.W.send_craft
     local function run_extra(code, extra)
-        reset({stations={TABLE()},have={ITEM_Resources_Wood_Ash=6,ITEM_Resources_Stone=8},unlocked=U({"RECIPE_Pickaxe_Stone"}),result_code=code})
-        C.W.send_craft=function(api_,rid,count)
-            local ok=send(api_,rid,count);local st=_G.DWCraft;st.seq=st.seq+1
-            local event=extra(rid,count);event.seq=st.seq;st.results[#st.results+1]=event;return ok
+        reset({ stations = { TABLE() }, have = { ITEM_Resources_Wood_Ash = 6, ITEM_Resources_Stone = 8 }, unlocked = U({ "RECIPE_Pickaxe_Stone" }), result_code = code })
+        C.W.send_craft = function(api_, rid, count)
+            local ok = send(api_, rid, count); local st = _G.DWCraft; st.seq = st.seq + 1
+            local event = extra(rid, count); event.seq = st.seq; st.results[#st.results + 1] = event; return ok
         end
-        local result=run({recipe="RECIPE_Pickaxe_Stone"});C.W.send_craft=send;return result
+        local result = run({ recipe = "RECIPE_Pickaxe_Stone" }); C.W.send_craft = send; return result
     end
-    local r=run_extra(0,function(_,count) return {recipe_path="/Other/Unrelated.Unrelated",count=count,result=2} end)
-    check("unrelated failure cannot override matching success",r.ok,tostring(r.reason))
-    r=run_extra(2,function(_,count) return {recipe_path="/Other/Unrelated.Unrelated",count=count,result=0} end)
-    check("unrelated success cannot hide matching failure",r.reason=="inventory_full",tostring(r.reason))
-    r=run_extra(0,function(rid,count) return {recipe_path=REAL.recipes[rid].path,count=count,result=0} end)
-    check("duplicate matching verdict remains unconfirmed",not r.ok and r.reason=="timeout",tostring(r.reason))
-    r=run_extra(0,function(_,count) return {count=count,result=0} end)
-    check("missing verdict identity remains unconfirmed",not r.ok and r.reason=="timeout",tostring(r.reason))
+    local r = run_extra(0, function(_, count) return { recipe_path = "/Other/Unrelated.Unrelated", count = count, result = 2 } end)
+    check("verdict: unrelated failure ignored", r.ok, tostring(r.reason))
+    r = run_extra(2, function(_, count) return { recipe_path = "/Other/Unrelated.Unrelated", count = count, result = 0 } end)
+    check("verdict: unrelated success can't hide ours", r.reason == "inventory_full", tostring(r.reason))
 end
-do -- Restore one-viable alternative selection coverage with a complete pure inventory.
-    local cs=C.candidates("ITEM_Resources_BronzeBar",2,{have={ITEM_Resources_CopperOre=3,ITEM_Resources_TinOre=3},
-      unlocked=U({"RECIPE_Process_BronzeBar","RECIPE_Process_Bar_Bronze_From_Salvage_01"}),near=near("Furnace")})
-    local viable=0;local selected
-    for _,v in ipairs(cs) do if v.viable then viable=viable+1;selected=v.recipe end end
-    check("one viable candidate is selected when inventory is complete",viable==1 and selected=="RECIPE_Process_BronzeBar")
+
+do -- an unreadable inventory after the craft is never reported as made, nor as "didn't show up"
+    reset({ stations = { TABLE() }, have = { ITEM_Resources_Wood_Ash = 6, ITEM_Resources_Stone = 8 }, unlocked = U({ "RECIPE_Pickaxe_Stone" }) })
+    local counts, send = api.counts, C.W.send_craft
+    C.W.send_craft = function(...) local ok = send(...); api.counts = function() return nil end; return ok end
+    local r = run({ recipe = "RECIPE_Pickaxe_Stone" })
+    api.counts, C.W.send_craft = counts, send
+    check("verify: unknown counts -> verification_failed", r.reason == "verification_failed" and tostring(r.data.detail):find("couldn't read"), tostring(r.reason))
 end
-do -- Processing baseline is captured immediately before the actual start, not before approach.
-    reset({stations={FURNACE()},have={ITEM_Resources_IronOre=3,ITEM_Fuel_Resources_Charcoal=1},unlocked=U({"RECIPE_Process_IronBar"})})
-    local move=C.W.move_into;local injected=false
-    C.W.move_into=function(...) if not injected then injected=true;add_inv("ITEM_Resources_IronBar",1) end;return move(...) end
-    local r=run({recipe="RECIPE_Process_IronBar"});C.W.move_into=move
-    check("processing baseline refresh excludes earlier output",r.ok and r.data.count==1 and inv_counts().ITEM_Resources_IronBar==2,tostring(r.reason))
+
+do -- the processing baseline is read right before the start, not before the walk
+    reset({ stations = { FURNACE() }, have = { ITEM_Resources_IronOre = 3, ITEM_Fuel_Resources_Charcoal = 1 }, unlocked = U({ "RECIPE_Process_IronBar" }) })
+    local move, injected = C.W.move_into, false
+    C.W.move_into = function(...) if not injected then injected = true; add_inv("ITEM_Resources_IronBar", 1) end; return move(...) end
+    local r = run({ recipe = "RECIPE_Process_IronBar" }); C.W.move_into = move
+    check("proc: baseline excludes earlier output", r.ok and r.data.count == 1 and inv_counts().ITEM_Resources_IronBar == 2, tostring(r.reason))
 end
-do -- Missing counts never become a fabricated zero production statement.
-    local native,toggle=INV.count_item,C.W.toggle
-    INV.count_item=function(path) if C.asset(path)=="ITEM_Resources_IronBar" then return {status="unknown"} end return native(path) end
-    reset({stations={FURNACE()},have={ITEM_Resources_IronOre=3,ITEM_Fuel_Resources_Charcoal=1},unlocked=U({"RECIPE_Process_IronBar"})})
-    C.W.toggle=function() F.toggles=1;return true end
-    local r=run({recipe="RECIPE_Process_IronBar"})
-    check("processing start unknown remains unverified",r.reason=="verification_failed" and tostring(r.data.detail):find("couldn't verify") and r.data.produced==nil)
-    C.W.toggle=toggle
-    reset({stations={FURNACE({never=true})},have={ITEM_Resources_IronOre=3,ITEM_Fuel_Resources_Charcoal=1},unlocked=U({"RECIPE_Process_IronBar"})})
-    r=run({recipe="RECIPE_Process_IronBar"})
-    check("processing wait unknown is lower bound",r.reason=="timeout" and r.data.produced==nil and r.data.observed_output_lower_bound==0 and tostring(r.data.detail):find("could not verify"))
-    INV.count_item=function(path) if C.asset(path)=="ITEM_Resources_IronBar" and F.toggles then return {status="unknown"} end return native(path) end
-    reset({stations={FURNACE({never=true})},have={ITEM_Resources_IronOre=3,ITEM_Fuel_Resources_Charcoal=1},unlocked=U({"RECIPE_Process_IronBar"})})
-    r=run({recipe="RECIPE_Process_IronBar"})
-    check("processing current count unknown is lower bound",r.reason=="timeout" and r.data.produced==nil and r.data.observed_output_lower_bound==0)
-    INV.count_item,C.W.toggle=native,toggle
-end
-do -- Alternative branch consumption must not reintroduce a spent count.
-    local A,X,P="/G/A.A","/G/X.X","/G/P.P"
-    C.set_data({stations={Bench={kind="crafting",name="Bench"}},items={[A]={id="A",name="A"},[X]={id="X",name="X"},[P]={id="P",name="P"}},
-      recipes={ROOT={inputs={{X,1},{A,1}},outputs={{P,1}},stations={"Bench"}},
-      X1={inputs={{A,1}},outputs={{X,1}},stations={"Bench"}},X2={inputs={},outputs={{X,1}},stations={"Bench"}}}})
-    local ctx={have={},count_status={status="unknown"},unlocked=U({"ROOT","X1","X2"}),near=near("Bench"),
-      native_count=function(p) return {status="observed",count=p==A and 1 or 0,path=p,scope="main_inventory",observed_at=44,component=9} end}
-    local t=C.plan_tree({recipe="ROOT"},1,ctx)
-    local later=t.root.inputs[2]
-    check("alternative consumption never restores spent inventory",later.sufficiency~="enough")
-    check("alternative provenance retained",later.count_observations and later.count_observations[1] and later.count_observations[1].path==A)
-    C.set_data(REAL)
-end
-do -- A matching verdict does not attribute a concurrent increase to the craft.
-    reset({stations={TABLE()},have={ITEM_Resources_Wood_Ash=6,ITEM_Resources_Stone=8},unlocked=U({"RECIPE_Pickaxe_Stone"})})
-    local send=C.W.send_craft
-    C.W.send_craft=function(api_,rid,count) local ok=send(api_,rid,count);add_inv("ITEM_Pickaxe_Stone",9);return ok end
-    local r=run({recipe="RECIPE_Pickaxe_Stone"});C.W.send_craft=send
-    check("craft confirmation is capped at requested output",r.ok and r.data.count==1 and r.data.confirmed_crafts==1)
-    check("concurrent inventory gain remains separate",r.data.observed_inventory_delta==10 and r.data.possible_concurrent_delta==true and not r.data.detail:find("made 10"))
-end
-do -- The same matching output visible in different locations is not summed twice.
-    local original_state,original_toggle=C.W.station_state,C.W.toggle
-    local function overlapping(mode)
-        reset({stations={FURNACE({never=true,proc_s=1000})},have={ITEM_Resources_IronOre=6,ITEM_Fuel_Resources_Charcoal=2},unlocked=U({"RECIPE_Process_IronBar"})})
-        C.W.toggle=function(...) local ok=original_toggle(...);add_inv("ITEM_Resources_IronBar",1)
-            if mode=="world" then F.items[#F.items+1]={id="new_output",item="ITEM_Resources_IronBar",count=1,position={8,4,0}} end
-            return ok
-        end
-        C.W.station_state=function(...)
-            local state=original_state(...)
-            if mode=="station" and F.toggles and state and state.output then state.output.by_item.ITEM_Resources_IronBar=1 end
-            return state
-        end
-        local result=run({recipe="RECIPE_Process_IronBar",count=2})
-        C.W.station_state,C.W.toggle=original_state,original_toggle
-        return result
-    end
-    local r=overlapping("station")
-    check("station and carried observations do not double count",r.reason=="timeout" and r.data.observed_output_lower_bound==1,tostring(r.reason))
-    r=overlapping("world")
-    check("world and carried observations do not double count",r.reason=="timeout" and r.data.observed_output_lower_bound==1,tostring(r.reason))
-end
-do -- A station output moving to carried/world remains one observed unit.
-    reset({stations={FURNACE({never=true,proc_s=1000})},have={ITEM_Resources_IronOre=6,ITEM_Fuel_Resources_Charcoal=2},unlocked=U({"RECIPE_Process_IronBar"})})
-    local oldstate,oldtoggle=C.W.station_state,C.W.toggle;local started,moved
-    C.W.toggle=function(...) local ok=oldtoggle(...);started=T;return ok end
-    C.W.station_state=function(...)
-        local st=oldstate(...)
-        if started and st and st.output then
-            if T<started+1 then st.output.by_item.ITEM_Resources_IronBar=1
-            elseif not moved then moved=true;add_inv("ITEM_Resources_IronBar",1);F.items[#F.items+1]={id="transfer_world",item="ITEM_Resources_IronBar",count=1,position={8,4,0}} end
-        end
-        return st
-    end
-    local r=run({recipe="RECIPE_Process_IronBar",count=2})
-    C.W.station_state,C.W.toggle=oldstate,oldtoggle
-    check("station to carried/world transfer retains one-unit lower bound",r.reason=="timeout" and r.data.observed_output_lower_bound==1,tostring(r.reason))
-end
-do -- Candidate limits and observed catalog/unlock metadata.
-    local fake={items={},recipes={},stations={}}
-    for i=1,55 do
-        local id=string.format("ITEM_Group_%02d",i);local path="/fixture/"..id.."."..id
-        fake.items[path]={id=id,name="Group "..i};if i~=1 then fake.items[path].category="Item.Group" end
-        fake.recipes["R_"..id]={path="/fixture/R_"..id,inputs={},outputs={{path,1}},stations={}}
-        if i==1 then fake.recipes.R_EXTRA={path="/fixture/R_EXTRA",inputs={},outputs={{path,1}},stations={}} end
-    end
-    for i=1,2 do local path="/fixture/no"..i;fake.items[path]={id="NO_"..i,name="Uncrafted"} end
-    C.set_data(fake)
-    reset({unlocked=U({"R_ITEM_Group_01"})})
-    local r=C.HANDLERS.recipes(nil,{item="Group"},{api=api})
-    check("default candidate limit is 25",r.reason=="ambiguous_target" and r.data.total==55 and #r.data.candidates==25 and r.data.truncated)
-    local r25=C.HANDLERS.recipes(nil,{item="Group",limit=25},{api=api})
-    check("explicit limit 25 respected",#r25.data.candidates==25 and r25.data.candidates[1].item==r.data.candidates[1].item)
-    local r1=C.HANDLERS.recipes(nil,{item="Group",limit=1},{api=api})
-    check("candidate limit one",#r1.data.candidates==1 and r1.data.truncated)
-    local r50=C.HANDLERS.recipes(nil,{item="Group",limit=100},{api=api})
-    check("candidate maximum clamped to 50",#r50.data.candidates==50 and r50.data.total==55 and r50.data.truncated)
-    local c=r.data.candidates[1]
-    check("missing category not invented",c.category==nil)
-    check("partial unlock set preserves member and omitted unknown",#c.recipes==2 and c.recipes[1].recipe=="R_EXTRA" and c.recipes[1].unlock_status=="unknown" and c.recipes[2].unlock_status=="unlocked")
-    reset({unlocked=false});r=C.HANDLERS.recipes(nil,{item="Group",limit=1},{api=api})
-    check("unavailable unlock set remains unknown",r.data.candidates[1].recipes[1].unlock_status=="unknown" and r.data.candidates[1].recipes[2].unlock_status=="unknown")
-    r=C.HANDLERS.recipes(nil,{item="Uncrafted"},{api=api})
-    check("candidate with no recipe has empty recipe list",r.data.total==2 and #r.data.candidates[1].recipes==0)
-    r=C.HANDLERS.craft_plan(nil,{item="Group"},{api=api})
-    check("craft plan uses default 25",#r.data.candidates==25 and r.data.total==55 and r.data.truncated)
-    local smaller={items={},recipes={},stations={}}
-    for i=1,24 do
-        local id=string.format("ITEM_Choice_%02d",i);local path="/small/"..id
-        smaller.items[path]={id=id,name="Choice "..i}
-        smaller.recipes["R_"..id]={path="/small/R_"..id,inputs={},outputs={{path,1}},stations={}}
-    end
-    C.set_data(smaller);reset({unlocked={}})
-    r=C.HANDLERS.recipes(nil,{item="Choice"},{api=api})
-    check("24 candidates all visible by default",r.data.total==24 and #r.data.candidates==24 and not r.data.truncated)
-    r=C.HANDLERS.recipes(nil,{item="Choice",limit=25},{api=api})
-    check("24 candidates all visible with 25",r.data.total==24 and #r.data.candidates==24 and not r.data.truncated)
-    C.set_data(REAL)
-end
-do -- Root inventory observations and requested new production are distinct.
-    local A,P="/mode/A.A","/mode/P.P"
-    C.set_data({stations={Bench={kind="crafting",name="Bench"}},items={[A]={id="A",name="Input"},[P]={id="P",name="Product"}},
-      recipes={R={path="/mode/R.R",inputs={{A,3}},outputs={{P,2}},stations={"Bench"}}}})
-    local native=function(p) return {status="observed",count=p==P and 1 or 3,scope="main_inventory",path=p,observed_at=55} end
-    local ctx={have={},count_status={status="unknown"},unlocked=U({"R"}),near=near("Bench"),native_count=native}
-    local target=C.plan_tree({item="P"},1,ctx)
-    check("pure default retains inventory target",target.root.status=="have" and target.root.observed_have==1 and target.quantity_mode=="inventory_target")
-    ctx.quantity_mode="additional_output"
-    local add=C.plan_tree({item="P"},1,ctx)
-    check("additional root reports stock but allocates none",add.root.observed_have==1 and add.root.allocated_from_inventory==0 and add.root.status~="have" and add.ready~=true)
-    check("additional plan expands recipe and reuses inputs",add.root.recipe=="R" and add.root.inputs[1].observed_have==3 and add.root.inputs[1].sufficiency=="enough")
-    check("additional yield reports rounding",add.root.requested_additional_output==1 and add.root.output_count==2 and add.root.crafts==1)
-    ctx.native_count=function(p) if p==P then return {status="unknown"} end return native(p) end
-    local unknown=C.plan_tree({item="P"},1,ctx)
-    check("unknown root observation stays unknown",unknown.root.observed_have==nil and unknown.root.allocated_from_inventory==0 and unknown.root.recipe=="R")
-    local pinned=C.plan_tree({recipe="R"},2,ctx)
-    check("pinned recipe count means crafts",pinned.count_unit=="crafts" and pinned.requested_count==2 and pinned.root.crafts==2 and pinned.root.output_count==4)
-    C.set_data(REAL)
-end
-do -- Public mode defaults, explicit stock target, schema and validation.
-    reset({stations={TABLE()},have={ITEM_Pickaxe_Stone=1,ITEM_Resources_Wood_Ash=6,ITEM_Resources_Stone=8},unlocked=U({"RECIPE_Pickaxe_Stone"})})
-    local a=C.HANDLERS.craft_plan(nil,{item="Stone Pickaxe"},{api=api})
-    check("public plan defaults to additional output",a.ok and a.data.quantity_mode=="additional_output" and a.data.root.observed_have==1 and a.data.root.status~="have")
-    local target=C.HANDLERS.craft_plan(nil,{item="Stone Pickaxe",quantity_mode="inventory_target"},{api=api})
-    check("explicit inventory target retains held result",target.ok and target.data.quantity_mode=="inventory_target" and target.data.root.status=="have")
-    local bad=C.HANDLERS.craft_plan(nil,{item="Stone Pickaxe",quantity_mode="invalid"},{api=api})
-    check("unknown mode rejected",bad.reason=="invalid_args")
-    bad=C.HANDLERS.craft_plan(nil,{recipe="RECIPE_Pickaxe_Stone",quantity_mode="inventory_target"},{api=api})
-    check("recipe with stock target rejected",bad.reason=="invalid_args")
-    local schema=C.MANIFEST.craft_plan.args.properties.quantity_mode
-    check("manifest exposes mode and default",schema and schema.default=="additional_output" and #schema.enum==2)
-end
-do -- Root stock remains available when a descendant genuinely needs it.
-    local A,P="/cycle/A.A","/cycle/P.P"
-    C.set_data({stations={Bench={kind="crafting",name="Bench"}},items={[A]={id="A",name="Input"},[P]={id="P",name="Product"}},
-      recipes={RP={path="/cycle/RP",inputs={{A,1}},outputs={{P,1}},stations={"Bench"}},
-               RA={path="/cycle/RA",inputs={{P,1}},outputs={{A,1}},stations={"Bench"}}}})
-    local ctx={have={},count_status={status="unknown"},unlocked=U({"RP","RA"}),near=near("Bench"),quantity_mode="additional_output",
-      native_count=function(p) return {status="observed",count=p==P and 1 or 0,path=p,scope="main_inventory"} end}
-    local t=C.plan_tree({item="P"},1,ctx)
-    local descendant=t.root.inputs[1].inputs[1]
-    check("additional root stock remains available to descendant once",t.root.allocated_from_inventory==0 and descendant.sufficiency=="enough" and descendant.observed_have==1)
-    ctx.native_count=function(p) return {status="observed",count=0,path=p,scope="main_inventory"} end
-    t=C.plan_tree({item="P"},1,ctx)
-    check("additional mode preserves cycle detection",t.root.inputs[1].inputs[1].status=="cycle")
-    C.set_data(REAL)
-end
+
 do -- A malformed successful movement response must not release its parent or press UI.
     reset({stations={TABLE()},have={ITEM_Resources_Wood_Ash=6,ITEM_Resources_Stone=8},unlocked=U({"RECIPE_Pickaxe_Stone"})})
     local original=MOVE.go_to
@@ -1002,5 +727,6 @@ do -- A malformed successful movement response must not release its parent or pr
       "owner="..tostring(ARB.owner~=nil).." presses="..tostring(F.presses).." sent="..tostring(F.sent).." goal="..tostring(F.goal~=nil).." moves="..tostring(F.moves))
     MOVE.go_to=original;ARB.owner=nil;F.goal=nil
 end
+
 print(string.format("test_crafting: %d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

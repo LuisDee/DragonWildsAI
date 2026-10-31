@@ -44,7 +44,7 @@ def test_ordered_final_true_suppresses_only_global_warning():
     assert result["task_success_trivial"] is True and advisory == []
     _, advisory = v(decision(task_success=raw["task_success"], steps=[step("out", have(TIN, 1))]), 0)
     assert "task_success is already true" in advisory[0]
-    with pytest.raises(ValueError, match="unique checkpoint"):
+    with pytest.raises(ValueError, match="requires checkpoint IDs"):
         v(decision(completion_mode="ordered_steps", task_success=raw["task_success"], steps=[step("out", have(TIN, 1))]), 0)
     _, advisory = v(decision(completion_mode="ordered_steps", task_success=raw["task_success"],
                              steps=[step("out", have(COPPER, 1), checkpoint_id="out")]), 0)

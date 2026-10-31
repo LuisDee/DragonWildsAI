@@ -28,7 +28,6 @@ from __future__ import annotations
 import concurrent.futures as cf
 import copy
 import json
-import math
 import os
 import queue
 import threading
@@ -76,132 +75,19 @@ MAX_TRANSITIONS = 8  # per tick: a passed step or a landed decision starts the n
 # The bound only stops a tight loop; chat is checked between transitions and runs pump body events themselves.
 MAX_REMEMBERED = 200  # per-task / per-step memories kept by the Director (pruned)
 
-# Curate environment feedback for the next decision, retaining its uncertainty:
-# https://www.anthropic.com/research/effective-context-engineering-for-ai-agents
-# Tool results are evidence associated with the actual action, not instructions:
-# https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls
-RESULTS_BUDGET = 16 * 1024  # serialized bytes for all eight summaries
-RESULT_DATA_BUDGET = 8 * 1024  # one action cannot monopolize the context
-RESULT_META_BUDGET = 1024  # reserve bounded args/correlation before allocating bulk result data
+RESULT_FIELD_CHARS = 1500  # one result field (args, data) as the next decision sees it
 
 
-def _bounded_result_value(value: Any, list_limit: int, string_limit: int, depth: int = 0,
-                          remaining: list[int] | None = None) -> tuple[Any, bool]:
-    """Copy JSON primitives only; report every omitted or shortened value."""
-    if remaining is None:
-        remaining = [1024]
-    if remaining[0] <= 0:
-        return None, True
-    remaining[0] -= 1
-    if value is None or isinstance(value, bool):
-        return value, False
-    if isinstance(value, int):
-        return (value, False) if value.bit_length() <= 256 else (None, True)
-    if isinstance(value, float):
-        return (value, False) if math.isfinite(value) else (None, True)
-    if isinstance(value, str):
-        return value[:string_limit], len(value) > string_limit
-    if depth >= 8:
-        return None, True
-    if isinstance(value, list):
-        # Small scalar lists carry coordinates and limitations even when large
-        # collections of observations have to be reduced.
-        limit = max(list_limit, 32) if all(not isinstance(x, (list, dict)) for x in value[:33]) else list_limit
-        out, changed = [], len(value) > limit
-        for item in value[:limit]:
-            copied, cut = _bounded_result_value(item, list_limit, string_limit, depth + 1, remaining)
-            out.append(copied)
-            changed |= cut
-        return out, changed
-    if isinstance(value, dict):
-        out, changed = {}, len(value) > 64
-        for index, (key, item) in enumerate(value.items()):
-            if index >= 64:
-                break
-            if not isinstance(key, str) or len(key) > 128:
-                changed = True
-                continue
-            copied, cut = _bounded_result_value(item, list_limit, string_limit, depth + 1, remaining)
-            out[key] = copied
-            changed |= cut
-        return out, changed
-    return None, True
+def _clipped(value: Any, limit: int = RESULT_FIELD_CHARS) -> Any:
+    """The value itself when its JSON is short, else its JSON text cut to ``limit`` (marked)."""
+    text = json.dumps(value, ensure_ascii=False, default=str)
+    return copy.deepcopy(value) if len(text) <= limit else text[:limit] + "... [truncated]"
 
 
-def _result_size(value: Any) -> int:
-    return len(json.dumps(value, allow_nan=False).encode("utf-8"))
-
-
-def _result_summaries(actions: list[dict]) -> list[dict]:
-    """Keep eight summaries and fit recent failures first, without cutting JSON."""
-    actions = actions[-8:]
-    summaries = []
-    for action in actions:
-        summary = {}
-        truncated = False
-        for key in ("tool", "ok", "reason"):
-            value = action.get(key)
-            summary[key], cut = (_bounded_result_value(value, 0, 64) if not isinstance(value, (dict, list))
-                                 else (None, True))
-            truncated |= cut
-        if truncated:
-            summary["summary_truncated"] = True
-        if "data" in action:
-            summary["data_omitted"] = True
-        if "args" in action:
-            summary["args_omitted"] = True
-        summaries.append(summary)
-    # Reserve all summaries first. Failed actions and then successful actions are
-    # considered newest-first, so old bulk cannot crowd out recent failures.
-    order = sorted(range(len(actions)), key=lambda i: (actions[i].get("ok") is not False, -i))
-    # Retain supplied correlation/freshness only; composing a new prompt must not refresh old evidence.
-    # https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls
-    metadata_keys = ("origin", "action_id", "task_id", "tool_call_id", "call_id", "source",
-                     "observed_at", "completed_at", "received_at")
-    for i in order:
-        metadata = {k: actions[i][k] for k in metadata_keys if k in actions[i]}
-        if metadata:
-            summaries[i]["metadata_omitted"] = True
-            candidate = dict(summaries[i])
-            candidate.pop("metadata_omitted")
-            for key, value in metadata.items():
-                candidate[key], cut = (_bounded_result_value(value, 0, 64) if not isinstance(value, (dict, list))
-                                       else (None, True))
-                if cut:
-                    candidate["summary_truncated"] = True
-            previous = summaries[i]
-            summaries[i] = candidate
-            if _result_size(candidate) > RESULT_META_BUDGET or _result_size(summaries) > RESULTS_BUDGET:
-                summaries[i] = previous
-        if "args" in actions[i]:
-            for list_limit, string_limit in ((32, 1024), (16, 512), (8, 256), (4, 128), (0, 64)):
-                args, truncated = _bounded_result_value(actions[i]["args"], list_limit, string_limit)
-                candidate = dict(summaries[i])
-                candidate.pop("args_omitted", None)
-                candidate["args"] = args
-                if truncated:
-                    candidate["args_truncated"] = True
-                previous = summaries[i]
-                summaries[i] = candidate
-                if _result_size(candidate) <= RESULT_META_BUDGET and _result_size(summaries) <= RESULTS_BUDGET:
-                    break
-                summaries[i] = previous
-    for i in order:
-        if "data" not in actions[i]:
-            continue
-        for list_limit, string_limit in ((32, 1024), (16, 512), (8, 256), (4, 128), (0, 64)):
-            data, truncated = _bounded_result_value(actions[i]["data"], list_limit, string_limit)
-            candidate = dict(summaries[i])
-            candidate.pop("data_omitted", None)
-            candidate["data"] = data
-            if truncated:
-                candidate["data_truncated"] = True
-            previous = summaries[i]
-            summaries[i] = candidate
-            if _result_size(candidate) <= RESULT_DATA_BUDGET and _result_size(summaries) <= RESULTS_BUDGET:
-                break
-            summaries[i] = previous
-    return summaries
+def _result_summaries(actions: list[dict], limit: int = 8) -> list[dict]:
+    """The last ``limit`` action records of the attempt for the next decision (tool, args, ok, reason, data,
+    clipped). Fed the attempt's whole record list, so an empty later run can't erase earlier failures."""
+    return [{k: _clipped(a[k]) for k in ("tool", "args", "ok", "reason", "data") if k in a} for a in actions[-limit:]]
 
 
 # ------------------------------------------------------------------------------ the Controller's board tools
@@ -588,10 +474,6 @@ def _compact_state(state: dict) -> dict:
                          "complete": list(q.get("complete") or [])[:30]}
     if state.get("following"):
         out["following"] = state["following"]
-    if "terrain" in state:
-        # Body already bounds retained observations; keep its layers/unknowns/source ages intact.
-        # https://arxiv.org/abs/2305.16986 (observations/history as model inputs, not route authority)
-        out["terrain"] = copy.deepcopy(state["terrain"])
     return out
 
 
@@ -647,7 +529,7 @@ class Research:
         out += [PROXY_TOOL_DOCS[n] for n in PROXIED_READS if n in self.body_tools and self.proxy is not None]
         # Use the body-published schema for these verified read handlers, never a guessed schema.
         # https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools
-        for n in ("look", "lodestones", "terrain"):
+        for n in ("look", "lodestones"):
             entry = self.manifest.get(n) or {}
             if (self.proxy is not None and n in self.body_tools and entry.get("kind") == "read"
                     and entry.get("moves") is False and isinstance(entry.get("args"), dict)):
@@ -684,7 +566,7 @@ class Research:
         if name == "learned_skills":
             q = P.tokens(str(args.get("query") or ""))
             return {"skills": [s for s in self.snap.get("learned", []) if not q or q & P.tokens(json.dumps(s))]}
-        if name in (*PROXIED_READS, "look", "lodestones", "terrain") and name in self.body_tools and self.proxy is not None:
+        if name in (*PROXIED_READS, "look", "lodestones") and name in self.body_tools and self.proxy is not None:
             return self.proxy.request(name, args)
         return {"ok": False, "error": f"no research tool {name!r}"}
 
@@ -875,6 +757,8 @@ class Validator:
         out["completion_mode"] = raw.get("completion_mode") or self.task.get("completion_mode", "state")
         if out["completion_mode"] not in ("state", "ordered_steps"):
             raise ValueError("completion_mode must be state or ordered_steps")
+        if self.task.get("checkpoints") and out["completion_mode"] != self.task.get("completion_mode"):
+            out["completion_mode"] = self.task["completion_mode"]  # the first plan's contract stays (completion gate)
         out["done"] = done
         out["facts"] = [f for f in raw.get("facts") or [] if isinstance(f, dict)]
         self.unknown_seen += [f for f in out["facts"] if f.get("status") == "unknown"]
@@ -954,6 +838,7 @@ class Validator:
         unknown = [f.get("fact") for f in out["facts"] if f.get("status") == "unknown"]
         advisories = ([f"These facts are listed as unknown: {unknown[:6]}; look them up with your tools, or say in "
                        f"explanation why the plan doesn't need them."] if unknown and self.research_left() else [])
+        advisories += _checkpoint_advice(self.task, out, self.kind)
         if info:
             advisories.append(" ".join(info[:6]) + " Tests already true measure nothing: choose tests that measure "
                               "the work, or keep them if that is really intended.")
@@ -961,39 +846,40 @@ class Validator:
 
 
 def _checkpoint_errors(task: dict, decision: dict, kind: str) -> list[str]:
-    """Validate the immutable ordered contract before any board mutation."""
+    """Structural problems with ordered checkpoints (the model fixes them in a repair round)."""
     mode = task.get("completion_mode", "state")
-    contract = task.get("checkpoints") or []
     chosen = decision.get("completion_mode", mode)
     steps = decision.get("steps") or []
-    if task.get("kind") == "open" and (chosen == "ordered_steps" or mode == "ordered_steps"):
-        return ["ordered_steps is supported only for specific jobs; open-ended jobs use state"]
     selected = [s for s in steps if s.get("checkpoint_id")]
-    if contract and chosen != mode:
-        return ["completion_mode is fixed by the initial plan"]
-    if not contract and task.get("success") is not None and chosen != mode:
-        return ["completion_mode is fixed by the initial plan"]
-    if not contract and mode == "state" and chosen == "state":
-        return ["checkpoint_id requires ordered_steps"] if selected else []
-    if not contract:
-        if decision.get("ask_help"):
-            return []
-        ids = [s["checkpoint_id"] for s in selected]
-        if not ids or len(ids) != len(set(ids)):
-            return ["ordered_steps requires unique checkpoint IDs"]
-    else:
-        # A no-change review or help request does not replace the plan.
-        if not steps and (kind in ("review", "reflect") or decision.get("ask_help")):
-            return []
-        statuses = {s.get("checkpoint_id"): s.get("status") for s in task.get("steps", []) if s.get("checkpoint_id")}
-        remaining = [c for c in contract if statuses.get(c["id"]) != "done"]
-        if [s["checkpoint_id"] for s in selected] != [c["id"] for c in remaining]:
-            return ["replan must include every unfinished checkpoint exactly once in order, and no completed checkpoint"]
-        if any(s["success"] != c["predicate"] for s, c in zip(selected, remaining)):
-            return ["checkpoint success predicates are fixed by the initial plan"]
+    ids = [s["checkpoint_id"] for s in selected]
+    if task.get("kind") == "open" and "ordered_steps" in (chosen, mode):
+        return ["ordered_steps is supported only for specific jobs; open-ended jobs use state"]
+    if chosen == "state" and selected:
+        return ["checkpoint_id requires ordered_steps"]
+    if len(ids) != len(set(ids)):
+        return ["checkpoint IDs must be unique"]
+    if chosen == "ordered_steps" and not task.get("checkpoints") and steps and not ids and not decision.get("ask_help"):
+        return ["ordered_steps requires checkpoint IDs on its required steps"]
     if any(s.get("group") for s in selected):
         return ["required checkpoints cannot belong to loops"]
     return []
+
+
+def _checkpoint_advice(task: dict, decision: dict, kind: str) -> list[str]:
+    """A replan that changes the unfinished checkpoints is the model's call: say so once, never refuse it."""
+    contract = task.get("checkpoints") or []
+    steps = decision.get("steps") or []
+    if not contract or not steps:
+        return []
+    done = {s.get("checkpoint_id") for s in task.get("steps", []) if s.get("checkpoint_id") and s.get("status") == "done"}
+    remaining = [c for c in contract if c["id"] not in done]
+    selected = [s for s in steps if s.get("checkpoint_id")]
+    if ([s["checkpoint_id"] for s in selected] == [c["id"] for c in remaining]
+            and all(s["success"] == c["predicate"] for s, c in zip(selected, remaining))):
+        return []
+    return [f"This plan changes the job's unfinished checkpoints (were {[c['id'] for c in remaining]} with their "
+            f"tests; now {[s['checkpoint_id'] for s in selected]}). If that is intended, keep it: the job then "
+            f"finishes when your new checkpoints and the job's done test pass."]
 
 
 # ------------------------------------------------------------------------------ the Director
@@ -1379,10 +1265,12 @@ class Director:
                               tools=set(self.body_tools), caps=self.caps)
         with self._episode("director"):
             messages = self._messages(snap)
+            logged = [0]  # the first round logs the full request, later rounds only the messages they added
             def on_request(request_messages, request_tools):
                 self._log("prompt", component="director", model=getattr(self.llm, "model", "?"),
                           decision=snap["kind"], task=snap["task"]["id"],
-                          **request_log_fields(self.llm, request_messages, request_tools))
+                          **request_log_fields(self.llm, request_messages, request_tools, since=logged[0]))
+                logged[0] = len(request_messages)
             try:
                 dec.value, info = json_decision(self.llm, messages, validator, tools=research.tools(),
                                                 run_tool=research.run, max_tool_rounds=RESEARCH_ROUNDS, max_repairs=2,
@@ -1449,10 +1337,6 @@ class Director:
 
     def _apply(self, task: Task, aw: dict, v: dict, state: dict) -> None:
         kind = aw["kind"]
-        errors = _checkpoint_errors(task.model_dump(), v, kind)
-        if errors:
-            self._decision_failed(task, "; ".join(errors))
-            return
         self._fail_count.pop(task.id, None)
         self.ops.b.awaiting_decision = None
         self._log("director_decision", task=task.id, decision=kind, description=v.get("description"),
@@ -1478,10 +1362,20 @@ class Director:
             self._apply_extras(task, v)
             self._finish_task(task, "done", "ended by choice")
             return
+        chosen = [{"id": s["checkpoint_id"], "predicate": copy.deepcopy(s["success"])}
+                  for s in v.get("steps", []) if s.get("checkpoint_id")]
         if not task.checkpoints and v.get("completion_mode", "state") == "ordered_steps" and v.get("steps"):
             task.completion_mode = "ordered_steps"
-            task.checkpoints = [{"id": s["checkpoint_id"], "predicate": copy.deepcopy(s["success"])}
-                                for s in v["steps"] if s.get("checkpoint_id")]
+            task.checkpoints = chosen
+        elif task.checkpoints and v.get("steps"):
+            # The model's replan defines the unfinished checkpoints; done ones it didn't re-issue stay done.
+            again = {c["id"] for c in chosen}
+            done = {s.checkpoint_id for s in task.steps if s.checkpoint_id and s.status == "done"}
+            new = [c for c in task.checkpoints if c["id"] in done and c["id"] not in again] + chosen
+            if new != task.checkpoints:
+                self._log("director_checkpoints_changed", task=task.id, before=[c["id"] for c in task.checkpoints],
+                          after=[c["id"] for c in new])
+                task.checkpoints = new
         existing = {(s.title, json.dumps(s.success, sort_keys=True)): s for s in task.steps if s.status == "pending" and s.checkpoint_id is None}
         new_steps = []
         for s in v.get("steps", []):
@@ -1489,6 +1383,8 @@ class Director:
             old = next((x for x in task.steps if x.checkpoint_id == checkpoint_id), None) if checkpoint_id else \
                 existing.get((s["title"], json.dumps(s["success"], sort_keys=True)))
             if old is not None and old.status == "active" and kind in ("review", "reflect"):
+                for f in PLAN_FIELDS:  # a review keeps the running step; the model's new details win
+                    setattr(old, f, s.get(f, getattr(old, f)))
                 continue
             if old is not None and checkpoint_id:
                 task.steps.remove(old)

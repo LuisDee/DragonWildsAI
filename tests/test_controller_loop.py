@@ -370,7 +370,7 @@ def test_direct_gather_failure_still_reports_why(rig):
     assert rig.companion_said() == ["Mining gold.", "There's no gold anywhere near me."]
 
 
-def test_continuation_observation_reaches_provider_after_failed_action(rig):
+def test_current_observation_reaches_provider_after_failed_action(rig):
     read = rig.game.get_state
     reads = []
     def state():
@@ -378,7 +378,6 @@ def test_continuation_observation_reaches_provider_after_failed_action(rig):
         reads.append(1)
         if rig.calls("pickup"):
             result["data"].update(position=[4, 5, 6], health=0, hydration=12,
-                inventory_read_status={"carried": {"status": "partial", "count_semantics": "lower_bound"}},
                 inventory={"oak_log": 7},
                 stations_nearby=[{"name": "Workshop", "id": "station-1", "distance": 7},
                                  {"name": "Other", "id": "z" * 81, "distance": 9}])
@@ -396,25 +395,24 @@ def test_continuation_observation_reaches_provider_after_failed_action(rig):
     assert messages[result_index]["tool_call_id"]
     obs = json.loads(messages[result_index + 1]["content"].removeprefix("Current observation: "))
     assert obs["position"] == [4, 5, 6] and obs["vitals"]["health"] == 0
-    assert obs["vitals"]["hydration"] == 12 and "carried partial" in obs["inventory_read"]
+    assert obs["vitals"]["hydration"] == 12
     assert obs["stations"]["rows"][0]["distance_m"] == 7
-    assert "7" in obs["inventory"] and "at least" in obs["inventory"]
-    assert obs["stations"]["rows"][1]["id"] is None and obs["stations"]["rows"][1]["id_truncated"] is True
+    assert "7" in obs["inventory"]
+    assert obs["stations"]["rows"][1]["id"] is None
     assert reads  # the normal state read supplied the observation
 
 
-def test_continuation_observation_unknown_and_bounded():
-    from brain.controller import continuation_observation
+def test_current_observation_unknown_and_bounded():
+    from brain.controller import current_observation
     for value in (None, {}, {"unavailable": "offline"}, "bad"):
-        assert continuation_observation(value)["stations"]["status"] == "unknown"
-    obs = continuation_observation({"position": [True, 0, float("nan")], "health": False,
+        assert current_observation(value)["stations"]["status"] == "unknown"
+    obs = current_observation({"position": [True, 0, float("nan")], "health": False,
         "hydration": float("inf"), "stations_nearby": [{"name": "x" * 1000, "distance": False}] * 9})
     assert obs["position"] is None and obs["vitals"]["health"] is None and obs["vitals"]["hydration"] is None
     assert obs["stations"]["status"] == "observed" and len(obs["stations"]["rows"]) == 6
     assert obs["stations"]["omitted"] == 3 and len(obs["stations"]["rows"][0]["name"]) == 80
-    assert obs["stations"]["rows"][0]["name_truncated"] is True
     assert obs["stations"]["rows"][0]["distance_m"] is None
-    assert continuation_observation({"stations_nearby": []})["stations"] == {"status": "observed", "rows": [], "omitted": 0}
+    assert current_observation({"stations_nearby": []})["stations"] == {"status": "observed", "rows": [], "omitted": 0}
 
 
 def test_unavailable_observation_preserves_each_tool_result_id(rig):
