@@ -53,7 +53,7 @@ local M = {}
 M.POLL_MS = 100            -- bridge poll + action tick + waiters + chat tail (game thread)
 M.RELOAD_CHECK_S = 2       -- re-read a module file at most this often
 M.GOTO_TIMEOUT_S = 290     -- brain gives up at 300 s (move.lua may wait 60 s for a lead out of a trap, then walk on)
-M.GOTO_TOL_M = 1.5         -- default movement tolerance, in metres
+M.GOTO_TOL_M = 3.0         -- arrival tolerance reported to the brain for coordinates (move.lua stops at 1.5 m)
 M.SAY_ECHO_S = 4           -- wait this long for the server's echo of a chat line
 M.DROP_WAIT_S = 5          -- wait this long for the inventory to show a drop
 M.NEARBY_M = 50            -- census radius for get_state
@@ -215,13 +215,6 @@ local function finish(a, res)
     if a.done then return end
     a.done = true
     if S.action == a then S.action = nil end
-    if a.kind == 'go_to' then
-        local terrain=M.module('terrain')
-        if terrain and terrain.note_move then
-            local ok,summary=pcall(terrain.note_move,M.API,a.id,a.target,res,nil,a.terrain_world)
-            if ok and summary then res.data=res.data or {};res.data.terrain=summary end
-        end
-    end
     ev("client_action_end", { kind = a.kind, id = a.id, ok = res.ok, reason = res.reason })
     -- the general stray-screen guard (input.after_action, BUGS B-stuck-focused-ui): an action that left a HUD
     -- screen open (a Campfire's Processing + Inventory panels) must not leave him in DIM_FocussedInGameUI
@@ -291,11 +284,7 @@ local function tick_waiters()
     local keep, t = {}, now_s()
     for _, w in ipairs(S.waiters) do
         local ok, res = pcall(w.poll, w)
-        if not ok then
-            local err=res
-            if w.pause_cleanup then pcall(w.pause_cleanup,w) end
-            res = fail("body_error", { detail = tostring(err) })
-        end
+        if not ok then res = fail("body_error", { detail = tostring(res) }) end
         if not res and t >= w.deadline then res = w.expire(w) end
         if res then (w.chan or S.bridge).reply(w.id, res) else keep[#keep + 1] = w end
     end
@@ -564,8 +553,7 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
     local r = call("move", "go_to", coords or tostring(target), { tolerance_m = tonumber(args.tolerance) })
     if not r.ok then return r end
     local a = { kind = "go_to", id = ctx.id, target = target, timeout_s = M.GOTO_TIMEOUT_S, target_position = coords,
-                terrain_world = rawget(_G,'DW_WORLD_GUID'),
-                accepted_generation = r.data and r.data.gen, tol = tonumber(args.tolerance) or M.GOTO_TOL_M, polls = 0 }
+                tol = tonumber(args.tolerance) or M.GOTO_TOL_M, polls = 0 }
     a.cancel = function() call("move", "stop") end
     a.poll = function(self)
         if reflex_owns_pawn() then self.started = now_s(); return nil end -- fighting back; resumes after
@@ -599,19 +587,9 @@ R.go_to = { needs = { { "move", "go_to" }, { "move", "status" } }, fn = function
                                          vertical_tolerance_m = verified.data.vertical_tolerance_m } }
         end
         if res.status == "failed" then
-            local data = { detail = res.why or res.detail or res.reason, why = res.why, asked = res.asked,
-                           position = here, dist_m = res.dist_m }
-            local f = res.route_feedback
-            if type(self.accepted_generation) == "number" and type(f) == "table" and f.generation == self.accepted_generation then
-                data.route_feedback = f
-                if type(self.target) == "string" and #self.target <= 256 then data.requested_target = self.target end
-            end
-            local observation = res.navigation_observation
-            if type(self.accepted_generation) == "number" and type(observation) == "table" and
-                observation.generation == self.accepted_generation then
-                data.navigation_observation = observation
-            end
-            return fail(reason_code(res.reason or "path_blocked"), data)
+            return fail(reason_code(res.reason or "path_blocked"), { detail = res.why or res.detail or res.reason,
+                                                                      why = res.why, asked = res.asked, position = here,
+                                                                      dist_m = res.dist_m })
         end
         if res.status == "stopped" or self.polls > 3 then
             return fail("interrupted", { detail = "the move ended without arriving (" .. tostring(res.status) .. ")",
@@ -1149,7 +1127,7 @@ end
 -- returning what a route returns (see above). Routes win over HANDLERS.
 -- A module may also export NEEDS = {tool = {{module, fn}, ...}}: the handler is listed (and run) only
 -- while those functions exist, exactly like a route's `needs` (skills.lua composes other modules).
-M.MODULES = { "chat", "move", "sense", "inventory", "combat", "arbiter", "gather", "skills", "spells", "crafting", "hookhub", "terrain",
+M.MODULES = { "chat", "move", "sense", "inventory", "combat", "arbiter", "gather", "skills", "spells", "crafting", "hookhub",
                "input", "build", "fishing", "agility", "farm", "quests", "lodestone", "shoot" }
 -- talk.lua stays OUT until its re-review passes (docs/reviews/2026-10-26-talk-primitive-review.md "Re-review (v2)":
 -- sweep_orphan recursed through the gate). Opt-in for a dev test only: _G.DW_ENABLE_TALK = true before bridge_start.
@@ -1242,10 +1220,6 @@ end
 
 -- The bridge's services for module handlers (ctx.api): skills.lua composes these instead of copying them.
 M.API = {
-    client_root = function() return S.root end,
-    ensure_dir = ensure_dir,
-    terrain_busy = function() return S.action ~= nil end,
-    terrain_channel_current = function(ch) return ch == S.bridge or ch == S.debug end,
     call = function(...) return call(...) end,
     module = function(n) return M.module(n) end,
     fail = fail,
@@ -1301,13 +1275,6 @@ local function dispatch(tool, args, ctx)
     end
     if is_action and tool ~= "stop" then preempt(tool) end
     local res = h(args, ctx)
-    if tool=='go_to' and type(res)=='table' and not res.pending and not res.hold and not res.wait then
-        local terrain=M.module('terrain')
-        if terrain and terrain.note_move then
-            local ok,summary=pcall(terrain.note_move,M.API,ctx.id,args.target,res)
-            if ok and summary then res.data=res.data or {};res.data.terrain=summary end
-        end
-    end
     if type(res) == "table" and res.wait then
         add_waiter(res.wait, ctx, res.wait_s or 5)
         return nil -- replied by tick_waiters
@@ -1748,7 +1715,6 @@ local function on_pause_start()
         finish(a, fail("companion_down", { detail = "client paused (disconnect or join in progress)" }))
     end
     for _, w in ipairs(S.waiters) do
-        if w.pause_cleanup then pcall(w.pause_cleanup,w) end -- pure read-job invalidation; never native cleanup
         (w.chan or S.bridge).reply(w.id, fail("companion_down", { detail = "client paused" }))
     end
     S.waiters = {}
@@ -2041,7 +2007,6 @@ end
 
 function M.stop()
     if not S then return end
-    for _,w in ipairs(S.waiters or {})do if w.pause_cleanup then pcall(w.pause_cleanup,w)end end
     if S.loop and CancelDelayedAction then pcall(CancelDelayedAction, S.loop) end
     S.loop = nil
     ev("client_bridge_stopped", { stats = S.bridge.stats })

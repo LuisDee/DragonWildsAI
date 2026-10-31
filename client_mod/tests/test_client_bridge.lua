@@ -285,34 +285,11 @@ test("go_to pre-empts follow silently, replies when move.status says arrived (ve
     local out = drain()
     local r = results(out, id)[1]
     assert(r and r.ok, "arrived reply")
-    assert(r.data.target_position[1] == 10 and r.data.position[1] == 9 and r.data.arrive_tolerance == 1.5 and r.data.dist_m == 1.4)
+    assert(r.data.target_position[1] == 10 and r.data.position[1] == 9 and r.data.arrive_tolerance == 3 and r.data.dist_m == 1.4)
     assert(r.data.vertical_distance_m == 0 and r.data.vertical_tolerance_m == 1.8)
     local done = events(out, "task_done")
     assert(#done == 1 and done[1].task_id == id)
     assert(rpc("get_state").data.following == nil, "follow ended")
-end)
-
-test("go_to failed route evidence belongs only to accepted generation", function()
-    for _, gen in ipairs({1, 2}) do
-        local _, _, id = rpc("go_to", { target = {10, 0, 0} })
-        FAKE.move.mode, FAKE.move.result = "idle", {status="failed", reason="no_path",
-            route_feedback={generation=gen, goal_projected=false, requested_xyz={10, 0, 0}},
-            navigation_observation={generation=gen, phase="sampling"}}
-        step()
-        local r = results(drain(), id)[1]
-        assert(r and not r.ok)
-        if gen == 1 then assert(r.data.route_feedback.goal_projected == false and r.data.navigation_observation.phase == "sampling")
-        else assert(r.data.route_feedback == nil and r.data.navigation_observation == nil) end
-    end
-end)
-
-test("observation survives without optional native route metadata", function()
-    local _, _, id = rpc("go_to", { target = {10, 0, 0} })
-    FAKE.move.mode, FAKE.move.result = "idle", {status="failed", reason="no_path",
-        navigation_observation={generation=1, phase="verification"}}
-    step()
-    local r=results(drain(), id)[1]
-    assert(r and not r.ok and not r.data.route_feedback and r.data.navigation_observation.phase=="verification")
 end)
 
 test("go_to: arrival claim far from the target -> verification_failed", function()

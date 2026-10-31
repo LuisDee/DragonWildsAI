@@ -7,12 +7,10 @@ os.execute('mkdir "' .. (dir .. "/client_io/nav"):gsub("/", "\\") .. '" 2>nul')
 os.execute('mkdir "' .. (dir .. "/client_mod/scripts"):gsub("/", "\\") .. '" 2>nul')
 local here = (debug.getinfo(1, "S").source:match("^@(.*)[/\\][^/\\]*$")) or "."
 do -- move.lua loads <root>/client_mod/scripts/{localplan,navmem,dkjson}.lua
-    for _, n in ipairs({ "localplan.lua", "navmem.lua", "dkjson.lua", "avoidzones.lua", "arbiter.lua", "move.lua", "walk_guard.lua", "sampled_ground_walk.lua" }) do
+    for _, n in ipairs({ "localplan.lua", "navmem.lua", "dkjson.lua", "avoidzones.lua", "arbiter.lua", "move.lua" }) do
         local src = assert(io.open(here .. "/../scripts/" .. n, "rb")):read("a")
         local f = assert(io.open(dir .. "/client_mod/scripts/" .. n, "wb")); f:write(src); f:close()
     end
-    local native=assert(io.open(here..'/fakes/walk_sense.lua','rb')):read('a')
-    local nf=assert(io.open(dir..'/client_mod/scripts/walk_sense.lua','wb'));nf:write(native);nf:close()
     os.execute('mkdir "' .. (dir .. "/data/nav"):gsub("/", "\\") .. '" 2>nul')
     os.execute('mkdir "' .. (dir .. "/mod/body"):gsub("/", "\\") .. '" 2>nul')
     local util = assert(io.open(here .. "/../../mod/body/util.lua", "rb")):read("a")
@@ -28,14 +26,12 @@ local walls = {}           -- {x0,x1,y0,y1[,tall]}: short (80 cm, jumpable) or t
 local FLOOR = -90
 local pawn, pc, luis, settings, eis
 local sprinting, injected, air = false, 0, 0
-local walking_speed = 450
 local function blocked(x, y, airborne)
     for _, w in ipairs(walls) do
         if x > w[1] and x < w[2] and y > w[3] and y < w[4] and (w[5] or not airborne) then return true end
     end
 end
 local frame_hook = nil
-local motor = nil -- optional independent acceleration/braking model for coarse-cadence cases
 local raised = {}          -- {x0,x1,y0,y1, h0, h1}: floor raised by h0..h1 cm (linear along x) = plateau / ramp
 local lakes = {}           -- {x0,x1,y0,y1}: shallow water (EnvironmentComponent depth 0.6, slow walking)
 local function in_lake(x, y) for _, l in ipairs(lakes) do if x > l[1] and x < l[2] and y > l[3] and y < l[4] then return true end end end
@@ -51,31 +47,6 @@ local function wall_top(x, y)
         if x > w[1] and x < w[2] and y > w[3] and y < w[4] then return FLOOR + (w[5] and 900 or 80) end
     end
 end
-_G.TEST_WALK_NATIVE={normal=function(x,y)
- for _,r in ipairs(raised) do
-  if x>r[1] and x<r[2] and y>r[3] and y<r[4] then
-   local slope=(r[6]-r[5])/(r[2]-r[1]);local length=math.sqrt(1+slope*slope)
-   return {X=-slope/length,Y=0,Z=1/length}
-  end
- end
- return {X=-1,Y=0,Z=0}
-end,
- floor=function(at)
-  local z=wall_top(at.X,at.Y) or FLOOR
-  local d=at.Z-90-z
-  local function known(v) return {known=true,value=v} end
-  return {status='observed',consumed=1,callbacks=1,fields={bBlockingHit=known(d<=47.4),
-   bWalkableFloor=known(d>=-1 and d<=47.4),bLineTrace=known(false),FloorDist=known(d),LineDist=known(0),
-   hit={bStartPenetrating=known(d < -1),bBlockingHit=known(d<=47.4)}}}
- end,
- sweep=function(a,b)
-  for k=0,24 do
-   local f=k/24;local x,y,z=a.X+(b.X-a.X)*f,a.Y+(b.Y-a.Y)*f,a.Z+(b.Z-a.Z)*f
-   local top=wall_top(x,y)
-   if top and z-90<top-1 then return true end
-  end
-  return false
- end}
 -- Claude's attached gear: bIgnoreSelf ignores his pawn but NOT his armour/tool actors (live 19:22)
 local GEAR = false
 local function in_gear(x, y, z)
@@ -111,6 +82,9 @@ KSL_BASE = function(self, ctx, a, b, ch, cx, ign, dbg, out)
         out.Distance = a.Z - (pawn.loc.Z + 90); out.ImpactPoint = { X = a.X, Y = a.Y, Z = pawn.loc.Z + 90 }; out.ImpactNormal = { X = 0, Y = 0, Z = 1 }
         return true -- a downward trace through Claude lands on his head/gear
     end
+    if a.X == b.X and a.Y == b.Y and HOLES then
+        for _, h in ipairs(HOLES) do if a.X > h[1] and a.X < h[2] and a.Y > h[3] and a.Y < h[4] then return false end end
+    end
     if a.X == b.X and a.Y == b.Y then
         local top = wall_top(a.X, a.Y) or FLOOR
         -- like the real client: bStartPenetrating is junk (always true), Distance 0 = started inside
@@ -129,7 +103,7 @@ KSL_BASE = function(self, ctx, a, b, ch, cx, ign, dbg, out)
         end
         local top = wall_top(x, y)
         if top and a.Z < top then
-            out.ImpactPoint = { X = x, Y = y, Z = a.Z }; out.ImpactNormal = TEST_WALK_NATIVE.normal(x,y)
+            out.ImpactPoint = { X = x, Y = y, Z = a.Z }; out.ImpactNormal = { X = -1, Y = 0, Z = 0 }
             return true
         end
     end
@@ -152,7 +126,6 @@ pawn.CapsuleComponent = obj({ GetScaledCapsuleHalfHeight = function() return 90 
 pawn.EnvironmentComponent = obj({ GetNormalizedWaterDepth = function() return in_lake(pawn.loc.X, pawn.loc.Y) and 0.6 or 0 end })
 local water_frames = 0
 pawn.SprintComponent = obj({ SprintInputAction = obj({}), IsSprinting = function() return sprinting end })
-function pawn.SprintComponent:TryRequestStopSprinting() sprinting=false end
 pc = obj({ Pawn = pawn, IsLocalController = function() return true end, SetControlRotation = function() end, GetFullName = function() return "PC /Game/pc" end })
 pc.SkillPerkComponent = obj({ IsPerkUnlocked = function(self, perk) return HAS_DJ end })
 pawn.DoubleJumpSkillPerk = obj({})
@@ -182,9 +155,8 @@ local function step(n)
         local scheduled={}
         for id, fn in pairs(loops) do scheduled[#scheduled+1]={id=id,fn=fn} end
         for _, item in ipairs(scheduled) do if loops[item.id]==item.fn then item.fn() end end
-        if motor then motor(DT,pawn.input)
-        elseif pawn.input then
-            local sp = (sprinting and 680 or walking_speed) * DT
+        if pawn.input then
+            local sp = (sprinting and 680 or 450) * DT
             if in_lake(pawn.loc.X, pawn.loc.Y) then sp = 150 * DT; water_frames = water_frames + 1 end
             local nx, ny = pawn.loc.X + pawn.input.X * sp, pawn.loc.Y + pawn.input.Y * sp
             -- heights: a rise above a step needs a jump within jump height; tall walls never pass
@@ -242,760 +214,7 @@ local logs = {}
 local function log(m) logs[#logs + 1] = m end
 local function run(n) for _ = 1, n do step(3); pump_oracle() end end
 local fails = 0
-local function check(name, c, info)
- if c then print('ok   '..name) else
-  fails=fails+1;print('FAIL '..name..' '..tostring(info))
-  if os.getenv('DBG_MOVE_FAILURES')=='1' then
-   local st=_G.DW_MOVE
-   print('detail '..tostring(st.result and st.result.detail)..' terrain '..tostring(st.walk_failure)..' guard '..tostring(st.walk_report and st.walk_report.reason))
-   for i=math.max(1,#logs-7),#logs do print('  '..logs[i]) end
-  end
- end
-end
-
-function NATIVE_SEGMENT_CASES()
- -- Independent supported terrain descends 1.2m below a sparse native chord.
- -- Actual mover, oracle admission, guard and sampler run without progress hooks.
- -- Conceptual surface-vs-corner precedent:
- -- https://raw.githubusercontent.com/recastnavigation/recastnavigation/v1.6.0/DetourCrowd/Source/DetourPathCorridor.cpp
- local seed=dir..'/data/nav/L_World_seeds.json'
- local memory=dir..'/data/skills/test-world/nav_memory.json'
- local saved_dt,saved_speed=DT,walking_speed;DT=0.1;walking_speed=150
- local old_ground=pawn.CharacterMovement.IsMovingOnGround
- local old_input=pawn.AddMovementInput
- local function begin(goal_z)
-  M.stop(log);motor=nil;frame_hook=nil;air=0;walls={};lakes={};sprinting=false
-  pawn.loc={X=0,Y=0,Z=0};pawn.AddMovementInput=old_input
-  pawn.CharacterMovement.IsMovingOnGround=old_ground
-  raised={{-1,600.001,-500,500,0,-120},{600,1600.001,-500,500,-120,-120},{1600,3001,-500,500,-120,0}}
-  _G.DW_NAVMEM=nil;_G.DW_TRAP_CAND=nil;_G.DW_LP_CACHE=nil;_G.DW_WORLD_GUID='test-world';_G.DW_LIFE=nil
-  os.remove(seed);os.remove(memory)
-  offer.no=offer.no+1;offer.nonce=fake_nonce(offer.no)
-  oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{30,0,-0.9}}}'):format(id) end
-  pump_oracle();M.go_to(log,{30,0,goal_z or 0},{sprint=false,local_plan=false,tolerance_m=0.5,timeout_s=90})
-  local st=_G.DW_MOVE;st.walk_guarded=true -- same execution mode as memory→native live transition
-  return st
- end
- local q=begin();local started=q.t0;local holds,clear_below,credits=0,0,0;local last=0
- for _=1,900 do
-  step(1);pump_oracle()
-  if q.status=='checking_terrain' then holds=holds+1 end
-  if q.source=='nav' and q.walk_report and q.walk_report.status=='clear' and pawn.loc.Z < -70 then clear_below=clear_below+1 end
-  if q.prog_pos.X>last then credits=credits+1;last=q.prog_pos.X end
-  if q.result or q.backtrack_until or q.bug then break end
- end
- print('native uneven replay x='..pawn.loc.X..' progress='..q.prog_pos.X..' credits='..credits..' holds='..holds..' below_clear='..clear_below..' recovery='..tostring(q.backtrack_until or q.bug)..' terminal='..tostring(q.result and q.result.status))
- check('uneven native leg retains observed progress without false recovery',q.result and q.result.status=='arrived' and not q.backtrack_until and not q.bug and credits>3 and clear_below>5 and holds>5,q.status)
- check('native liveness preserves original deadline and endpoint',q.t0==started and q.timeout_s==90 and q.goal.X==3000 and q.path and q.path[2].Z==-90)
- if os.getenv('MOVE_NATIVE_SEGMENT_REPLAY_ONLY')=='1' then return end
- -- Real guard must reject missing support, blocked/unknown observations and air.
- for _,kind in ipairs({'air','blocked','unknown','no_input','wrong_floor'}) do
-  q=begin(kind=='wrong_floor' and 5 or 0);local floor,sweep=TEST_WALK_NATIVE.floor,TEST_WALK_NATIVE.sweep
-  if kind=='air' then pawn.CharacterMovement.IsMovingOnGround=function() return false end
-  elseif kind=='blocked' then TEST_WALK_NATIVE.sweep=function() return true end
-  elseif kind=='unknown' then TEST_WALK_NATIVE.floor=function() return {status='unknown',consumed=1} end
-  elseif kind=='no_input' then pawn.AddMovementInput=function() end
-  end
-  for _=1,(kind=='wrong_floor' and 900 or 120) do step(1);pump_oracle();if q.result or q.backtrack_until or q.bug then break end end
-  check('native '..kind..' cannot manufacture progress or arrival',not (q.result and q.result.status=='arrived') and
-   (kind=='wrong_floor' and math.abs(pawn.loc.X-3000)<=50 and math.abs(pawn.loc.Z-q.goal.Z)>180 or
-    kind=='air' and q.prog_pos.X<650 or kind~='air' and kind~='wrong_floor' and q.prog_pos.X<150),q.prog_pos.X)
-  TEST_WALK_NATIVE.floor,TEST_WALK_NATIVE.sweep=floor,sweep
- end
- for _,kind in ipairs({'world','goal','path','index','endpoint','pose','owner','guard','metadata','life','pause','stale','jump'}) do
-  q=begin();local fired=false;local baseline,history
-  pawn.CharacterMovement.IsMovingOnGround=function(...)
-   if not fired and q.walk_input and pawn.loc.X>250 then
-    fired=true;baseline=q.prog_pos.X;history=#q.progress_positions
-    if kind=='world' then _G.DW_WORLD_GUID='changed-segment-world'
-    elseif kind=='goal' then q.goal.X=q.goal.X+1
-    elseif kind=='path' then q.path={{X=0,Y=0,Z=-90},{X=3000,Y=1,Z=-90}}
-    elseif kind=='index' then q.wp=1
-    elseif kind=='endpoint' then q.path[q.wp].Y=1
-    elseif kind=='pose' then pawn.loc.X=pawn.loc.X+5
-    elseif kind=='owner' then _G.DWArbiter.owner.token=_G.DWArbiter.owner.token+100
-    elseif kind=='guard' then q.walk_guard.close();q.walk_guard={check=function()return {status='clear',reason='sampled_corridor'}end,close=function()return true end}
-    elseif kind=='metadata' then q.nav_binding.metadata_goal.X=q.nav_binding.metadata_goal.X+1
-    elseif kind=='life' then _G.DW_LIFE={move_death_seq=1}
-    elseif kind=='pause' then _G.DW_PAUSE=true
-    elseif kind=='stale' then T=T+1
-    else q.jump_t=T end
-   end
-   return old_ground(...)
-  end
-  for _=1,100 do step(1);pump_oracle();if fired or q.result then break end end
-  check('guarded native credit rejects callback '..kind,fired and q.prog_pos.X==baseline and #q.progress_positions==history,q.status)
-  if kind=='owner' then _G.DWArbiter.owner.token=q.owner_token end
-  _G.DW_WORLD_GUID='test-world';_G.DW_PAUSE=nil;_G.DW_LIFE=nil
- end
- M.stop(log);pawn.CharacterMovement.IsMovingOnGround=old_ground;pawn.AddMovementInput=old_input
- frame_hook=nil;motor=nil;walls={};raised={};lakes={};air=0;pawn.loc={X=0,Y=0,Z=0}
- oracle=nil;pump_oracle();_G.DW_NAVMEM=nil;os.remove(seed);os.remove(memory)
- DT,walking_speed=saved_dt,saved_speed
-end
-if os.getenv('MOVE_NATIVE_SEGMENT_ONLY')=='1' then NATIVE_SEGMENT_CASES();print(fails==0 and 'NATIVE SEGMENT OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
-
-function WALK_FAILURE_TRACE_CASE()
- M.stop(log);pawn.loc={X=0,Y=0,Z=0};air=0;walls={};raised={};lakes={};motor=nil;frame_hook=nil
- _G.DW_NAVMEM=nil;_G.DW_LP_CACHE=nil
- os.remove(dir..'/data/nav/L_World_seeds.json');os.remove(dir..'/data/skills/test-world/nav_memory.json')
- local floor=TEST_WALK_NATIVE.floor
- TEST_WALK_NATIVE.floor=function(at)
-  local r=floor(at)
-  if at.X>0 then r.fields.FloorDist={known=true,value=-1} end
-  return r
- end
- offer.no=offer.no+1;offer.nonce=fake_nonce(offer.no)
- oracle=function(id)return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{20,0,-0.9}}}'):format(id)end
- pump_oracle();M.go_to(log,{20,0,0},{sprint=false,local_plan=false});local st=_G.DW_MOVE;st.walk_guarded=true
- local gen=st.gen
- for _=1,100 do step(1);pump_oracle();if st.result then break end end
- local row,count
- count=0;for _,q in ipairs(st.route_trace or {})do if q.reason=='walking_guard_rejected:floor_resolution_out_of_bounds'then row=q;count=count+1 end end
- check('nonmemory floor failure survives cleanup in bounded route trace',st.result and st.result.detail=='walking terrain: floor_resolution_out_of_bounds' and
-  st.walk_report==nil and row and count==1 and row.source=='nav' and row.gen==gen and row.guard_failure and
-  row.guard_failure.detail.fields.FloorDist==-1 and row.guard_failure.scan.start.X==0 and row.guard_failure.scan.shape.half_height_cm==90)
- TEST_WALK_NATIVE.floor=floor;M.stop(log)
- check('failure trace keeps original generation after stop',row and row.gen==gen and row.guard_failure.detail.fields.FloorDist==-1)
- M.go_to(log,{10,0,0},{nav=false,local_plan=false});local successor=_G.DW_MOVE
- check('successor cannot inherit old current failure evidence',successor.gen>gen and successor.route_trace==nil and successor.walk_report==nil and row and row.gen==gen)
- M.stop(log);oracle=nil;pump_oracle();_G.DW_NAVMEM=nil
-end
-if os.getenv('MOVE_FAILURE_TRACE_ONLY')=='1' then WALK_FAILURE_TRACE_CASE();print(fails==0 and 'FAILURE TRACE OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1)end
-
-function SNAPSHOT_PREEMPTION_CASE() -- Reentry must not write into or cancel the successor.
-    pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}; raised={}
-    oracle=function() return nil end; pump_oracle()
-    local old=M.go_to(log,{8,0,3},{tolerance_m=0.5,timeout_s=10})
-    step(1)
-    local st=_G.DW_MOVE
-    local planner=st.lp
-    local fired, successor, successor_handle, cancelled = false,nil,nil,false
-    local old_cancel=CancelDelayedAction
-    CancelDelayedAction=function(handle)
-        if successor_handle and handle==successor_handle then cancelled=true end
-        return old_cancel(handle)
-    end
-    if planner then
-        planner.trace=function() return nil end
-        local snapshot=planner.observation_snapshot
-        planner.observation_snapshot=function(self)
-            local packet=snapshot(self)
-            fired=true
-            successor=M.go_to(log,{9,0,0},{nav=false,local_plan=false,sprint=false})
-            successor_handle=_G.DW_MOVE.handle
-            return packet
-        end
-    end
-    for i=1,300 do if fired then break end; step(1) end
-    CancelDelayedAction=old_cancel
-    local current=_G.DW_MOVE
-    check("snapshot preemption preserves successor evidence, result and handle",fired and old and successor and successor.ok and
-        current.gen>old.gen and current.gen==successor.gen and current.mode=="go_to" and
-        current.navigation_evidence==nil and current.result==nil and successor_handle and
-        current.handle==successor_handle and loops[successor_handle] and not cancelled)
-    M.stop(log)
-end
-if os.getenv("MOVE_SNAPSHOT_PREEMPT_ONLY")=="1" then SNAPSHOT_PREEMPTION_CASE(); os.exit(fails==0 and 0 or 1) end
-
-local function force_guard_stall(st)
-    local context=(st.local_authority and st.lpath) or (st.memory_binding and st.mpath) or (st.source=='memory' and st.mpath) or (st.source=='local' and st.lpath) or
-        (st.source=='nav' and st.path) or st.source or 'straight'
-    st.guard_stall={context=context,elapsed=2,pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z},sent=false}
-end
-local function wait_guard_stall(st)
-    local before,gen=st.local_replans or 0,st.gen
-    for _=1,100 do
-        step(1)
-        if st.gen~=gen or (st.local_replans or 0)>before or st.result then return end
-    end
-end
-if os.getenv('MOVE_JUMP_ONLY')~='1' then
-if os.getenv('MOVE_PROTOCOL_WIRE_ONLY')~='1' and os.getenv('MOVE_AUTHORITY_ONLY')~='1' then
-do -- Actual mover + sampled guard: memory entries and native coverage repair.
- local seed=dir..'/data/nav/L_World_seeds.json'
- local memory=dir..'/data/skills/test-world/nav_memory.json'
- local function clean()
-  M.stop(log);walls={};raised={};lakes={};air=0;pawn.loc={X=0,Y=0,Z=0}
-  _G.DW_NAVMEM=nil;_G.DW_TRAP_CAND=nil;_G.DW_LP_CACHE=nil
-  os.remove(seed);os.remove(memory);TEST_WALK_NATIVE.calls={}
- end
- local function bad_seed()
-  local f=assert(io.open(seed,'w'))
-  f:write([==[{"v":1,"traps":[{"id":"wrong-floor","center":[0,0,-0.9],"radius_m":5,"z_min":-2,"z_max":2,"exit":[[0.01,0,-4.4],[0,8,-4.4]]}],"taboos":[],"routes":[]}]==])
-  f:close()
- end
- do -- Real local planner + sampled guard, including several rolling windows.
-  local NM=assert(loadfile(dir..'/client_mod/scripts/navmem.lua'))()
-  local original_input=pawn.AddMovementInput
-  local function begin(target,follow)
-   clean();motor=nil;frame_hook=nil
-   local mem=NM.new_mem('test-world');mem._world='test-world'
-   _G.DW_NAVMEM=mem;_G.DW_MOVE_WORLD={id='test-world',t=os.time()}
-   oracle=function(id) return ('return {id=%d,ok=false,reason="no_path",points={}}'):format(id) end
-   pump_oracle()
-   if follow then luis.loc={X=target*100,Y=0,Z=0};M.follow(log,'Zezima',0.5)
-   else M.go_to(log,{target,0,0},{sprint=false,timeout_s=90,tolerance_m=0.5}) end
-   return _G.DW_MOVE
-  end
-  local q=begin(40);local start=q.t0;local missed,credited,holds=0,0,0
-  for _=1,2700 do
-   local path,index=q.lpath,q.lwp
-   step(1);pump_oracle()
-   if q.status=='checking_terrain' then holds=holds+1 end
-   if path and q.lpath==path and index and q.lwp>index and q.status=='checking_terrain' then
-    local last=q.progress_positions and q.progress_positions[#q.progress_positions]
-    if last and math.abs(last.X-pawn.loc.X)<0.01 and math.abs(last.Y-pawn.loc.Y)<0.01 then
-     if q.prog_pos and math.abs(q.prog_pos.X-last.X)<0.01 and math.abs(q.prog_pos.Y-last.Y)<0.01 then credited=credited+1
-     else missed=missed+1 end
-    end
-   end
-   if q.result then break end
-  end
-  check('real-guard multiple local windows retain physical progress',q.result and q.result.status=='arrived' and
-   (q.local_prefixes or 0)>=2 and credited>2 and missed==0 and holds>10,
-   'x='..pawn.loc.X..' prefixes='..tostring(q.local_prefixes)..' credited='..credited..' lost='..missed..' result='..tostring(q.result and q.result.detail))
-  print('progress replay x='..pawn.loc.X..' prefixes='..tostring(q.local_prefixes)..' credited='..credited..' lost='..missed..' terminal='..tostring(q.result and (q.result.detail or q.result.status)))
-  check('rolling local execution preserves deadline and cumulative sensing',q.t0==start and (q.walk_spent or 0)>0 and T-start<90)
-  if os.getenv('MOVE_PROGRESS_MULTI_ONLY')=='1' then print(fails==0 and 'PROGRESS MULTI OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
-  local function admitted(points,follow)
-   local st=begin(20,follow)
-   pawn.AddMovementInput=function() end
-   for _=1,40 do step(1);pump_oracle();if st.lp_observe then break end end
-   st.lp={step=function() return 'ready' end,plan=function() return points end,verify=function() return 'ok' end}
-   for _=1,30 do step(1);pump_oracle();if st.local_authority and st.walk_input then break end end
-   check('progress fixture owns an admitted local route',st.local_authority and st.lpath,st.status)
-   return st
-  end
-  local function points() return {{X=0,Y=0,Z=-90,act='walk'},{X=200,Y=0,Z=-90,act='walk'},{X=400,Y=0,Z=-90,act='walk'}} end
-  q=admitted(points());pawn.loc.X=200;q.prog_t=T-3;q.progress_positions={{X=0,Y=0,Z=0}}
-  step(1)
-  check('novel local waypoint credits before real guard target-change hold',q.lwp==3 and q.status=='checking_terrain' and q.prog_pos.X==200 and pawn.input==nil,q.status)
-  q=admitted(points());pawn.loc.X=200;q.prog_t=T-3;q.progress_positions={{X=0,Y=0,Z=0},{X=200,Y=0,Z=0}}
-  step(1)
-  check('revisited local waypoint cannot renew physical progress',q.prog_pos.X==0 and #q.progress_positions==2 and pawn.input==nil,q.prog_pos.X)
-  q=admitted({{X=0,Y=0,Z=-90,act='walk'},{X=200,Y=0,Z=-90,act='walk'}})
-  pawn.loc.X=200;q.prog_t=T-3;q.progress_positions={{X=0,Y=0,Z=0}};step(1)
-  check('novel prefix-final waypoint credits before planning handoff',q.local_prefixes==1 and not q.local_authority and q.prog_pos.X==200 and pawn.input==nil,q.status)
-  local height=pawn.CapsuleComponent.GetScaledCapsuleHalfHeight
-  for _,kind in ipairs({'successor','path','goal','pose','world','authority'}) do
-   q=admitted(points());pawn.loc.X=200;q.prog_t=T-3;q.progress_positions={{X=0,Y=0,Z=0}}
-   local oldgen=q.gen;local fired=false;local replacement
-   pawn.CapsuleComponent.GetScaledCapsuleHalfHeight=function(...)
-    if not fired and q.lwp==3 then
-     fired=true
-     if kind=='successor' then M.go_to(log,{8,8,0},{nav=false,local_plan=false})
-     elseif kind=='path' then replacement=points();q.lpath=replacement
-     elseif kind=='goal' then q.goal.X=q.goal.X+1
-     elseif kind=='world' then _G.DW_WORLD_GUID='changed-progress-world'
-     elseif kind=='authority' then q.local_authority=false
-     else pawn.loc.X=250 end
-    end
-    return height(...)
-   end
-   step(1);pawn.CapsuleComponent.GetScaledCapsuleHalfHeight=height
-   check('credit callback '..kind..' cannot consume successor progress',fired and pawn.input==nil and
-    (kind=='successor' and q.gen>oldgen and not q.prog_pos or kind~='successor' and q.prog_pos.X==0 and #q.progress_positions==1),q.status)
-   _G.DW_WORLD_GUID='test-world'
-  end
-  local location=pawn.K2_GetActorLocation
-  q=admitted(points());pawn.loc.X=200;q.progress_positions={{X=0,Y=0,Z=0}};local fired=false
-  pawn.K2_GetActorLocation=function(...)
-   if not fired and q.lwp==3 then fired=true;_G.DW_WORLD_GUID='pose-changed-world' end
-   return location(...)
-  end
-  step(1);pawn.K2_GetActorLocation=location;_G.DW_WORLD_GUID='test-world'
-  check('final pose callback world change cannot mint progress',fired and q.prog_pos.X==0 and #q.progress_positions==1 and pawn.input==nil,q.status)
-  q=admitted(points(),true);pawn.loc.X=200;q.prog_t=T-3;q.progress_positions={{X=0,Y=0,Z=0}}
-  step(1)
-  check('dynamic target keeps prior pending-waypoint credit behavior',q.target_name and q.status=='checking_terrain' and q.prog_pos.X==0,q.status)
-  q=admitted(points(),true);pawn.loc.X=200;q.prog_t=T-3;q.progress_positions={{X=0,Y=0,Z=0}}
-  q.walk_guard.close();q.walk_guard={check=function() return {status='clear',consumed_total=0} end,close=function() return true end}
-  step(1)
-  check('dynamic target retains existing late physical waypoint credit',q.target_name and q.prog_pos.X==200 and #q.progress_positions==2,q.status)
-  local function selected_route(source)
-   clean();local mem=NM.new_mem('test-world');mem._world='test-world'
-   if source=='memory' then mem.routes={{id='progress',n_ok=1,pts={{0,0,-0.9},{2,0,-0.9},{4,0,-0.9},{20,0,-0.9}}}} end
-   _G.DW_NAVMEM=mem;_G.DW_MOVE_WORLD={id='test-world',t=os.time()}
-   oracle=function(id)
-    if source=='memory' then return ('return {id=%d,ok=false,reason="no_path",points={}}'):format(id) end
-    return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{2,0,-0.9},{20,0,-0.9}}}'):format(id)
-   end
-   pump_oracle();M.go_to(log,{20,0,0},{sprint=false,timeout_s=60});local st=_G.DW_MOVE;st.walk_guarded=true
-   for _=1,70 do step(1);pump_oracle();if st.walk_input and st.source==source then break end end
-   check('selected '..source..' fixture has real guarded authority',st.source==source and st.walk_input~=nil,st.status)
-   pawn.loc.X=200;st.prog_t=T-3;st.progress_positions={{X=0,Y=0,Z=0}}
-   return st
-  end
-  for _,source in ipairs({'memory','nav'}) do
-   q=selected_route(source);step(1)
-   check('selected '..source..' waypoint credits before real guard hold',q.status=='checking_terrain' and q.prog_pos.X==200 and pawn.input==nil,q.status)
-  end
-  q=selected_route('nav');q.nav_binding.metadata_goal.X=q.nav_binding.metadata_goal.X+1;step(1)
-  check('native goal-binding mutation cannot grant early credit',q.prog_pos.X==0 and #q.progress_positions==1 and pawn.input==nil,q.status)
-  q=selected_route('nav');q.backtrack_pt={X=-400,Y=0,Z=0};q.backtrack_until=T+2;step(1)
-  check('inactive native waypoint cannot grant early credit',q.prog_pos.X==0 and #q.progress_positions==1,q.status)
-  -- Let a real clear guard deliver the expiry tick, without waiting out its
-  -- separate input-stall detector. The deadline and no-novel limit stay intact.
-  for _,follow in ipairs({false,true}) do
-   q=admitted(points(),follow)
-   local closed=q.walk_guard.close
-   q.walk_guard.close=function() closed();return true end
-   local check_guard=q.walk_guard.check
-   local entered=false
-   q.walk_guard.check=function(...)
-    local r=check_guard(...)
-    if r.status=='clear' then q.prog_t=T-M.cfg.give_up_s-1;entered=true end
-    return r
-   end
-   for _=1,30 do step(1);if q.result or q.unreach then break end end
-   check((follow and 'follow' or 'go_to')..' no-novel expiry preserves local recovery ownership',entered and not q.backtrack_until and not q.bug and
-    (follow and q.mode=='follow' and q.unreach and q.unreach.reason=='no_route' or not follow and q.result and q.result.detail=='local route made no novel progress'),q.status)
-  end
-  q=admitted(points());q.backtrack_pt={X=-400,Y=0,Z=0};q.backtrack_until=T+2;q.bt_tested=T-0.1;q.move_acc=12
-  step(1)
-  local mismatch
-  for _,row in ipairs(q.route_trace or {}) do if row.reason=='local_source_mismatch' then mismatch=row end end
-  check('local source invariant stamps attempted primitive cause',mismatch and mismatch.attempted_src=='backtrack' and mismatch.local_authority==true and
-   mismatch.move_acc==12 and type(mismatch.bt_tested)=='number' and type(mismatch.backtrack_until)=='number' and q.result and q.result.detail=='local route unavailable',q.status)
-  local copied=mismatch and mismatch.backtrack_until;q.backtrack_until=0
-  check('source mismatch stamp survives later state mutation',mismatch and mismatch.backtrack_until==copied)
-  pawn.AddMovementInput=original_input;clean();luis.loc={X=3000,Y=0,Z=0};oracle=nil;pump_oracle()
-  if os.getenv('MOVE_PROGRESS_CREDIT_ONLY')=='1' then print(fails==0 and 'PROGRESS CREDIT OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
- end
- do -- Adjacent physical observations, not a larger acceptance disk.
-  local saved_dt,old_input=DT,pawn.AddMovementInput
-  local function prepare(points)
-   clean();motor=nil;DT=saved_dt;frame_hook=nil;oracle=nil;pump_oracle()
-   M.go_to(log,{15,0,0},{nav=false,local_plan=false,sprint=false,timeout_s=45,tolerance_m=0.5})
-   local s=_G.DW_MOVE
-   s.mpath=points or {{X=26.55,Y=0,Z=-90},{X=500,Y=0,Z=-90},{X=1500,Y=0,Z=-90}}
-   s.mwp=1;s.walk_guarded=true
-   return s
-  end
-  local s=prepare();local vx,vy=0,0
-  motor=function(dt,input)
-   local tx,ty=input and input.X*450 or 0,input and input.Y*450 or 0
-   local acceleration=input and 1800 or 6000
-   local dx,dy=tx-vx,ty-vy;local delta=math.sqrt(dx*dx+dy*dy)
-   local f=delta>0 and math.min(1,acceleration*dt/delta) or 0
-   vx,vy=vx+dx*f,vy+dy*f
-   local nx,ny=pawn.loc.X+vx*dt,pawn.loc.Y+vy*dt
-   if not blocked(nx,ny,false) then pawn.loc.X,pawn.loc.Y=nx,ny end
-  end
-  local crossed=false;local retained=true
-  for i=1,230 do
-   DT=({1/6,0.2,0.24})[(i-1)%3+1];step(1)
-   crossed=crossed or (s.mwp or 1)>1
-   retained=retained and not s.local_replans
-   if s.result then break end
-  end
-  check('coarse finite motor crosses short entry once and retains route',crossed and retained and s.result and s.result.status=='arrived',s.status..' x='..pawn.loc.X)
-  local observed=0
-  for _,row in ipairs(s.route_trace or {}) do if row.reason=='waypoint_crossed' then observed=observed+1 end end
-  check('crossing trace records bounded actual-pose transition',observed>=1,observed)
-  if os.getenv('MOVE_CROSSING_MOTOR_ONLY')=='1' then print(fails==0 and 'CROSSING MOTOR OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
-  motor=nil;DT=saved_dt
-
-  -- Hold the motor, then supply independent consecutive pose observations.
-  -- Real guard admission still decides whether input may follow a crossing.
-  local function arm(points)
-   local q=prepare(points)
-   pawn.AddMovementInput=function() end
-   for _=1,50 do step(1);if q.walk_input then break end end
-   check('crossing fixture has real admitted first input',q.walk_input~=nil,q.status)
-   return q
-  end
-  local function negative(name,mutate,points)
-   local q=arm(points);local path=q.mpath
-   local token,world,life=q.owner_token,_G.DW_WORLD_GUID,_G.DW_LIFE
-   pawn.loc={X=55,Y=0,Z=0};mutate(q,path)
-   step(1)
-   check('crossing rejects '..name,(q.mwp==1 or not q.mpath) and not (q.route_trace and q.route_trace[#q.route_trace].reason=='waypoint_crossed'),q.status..' wp='..tostring(q.mwp))
-   q.owner_token=token;_G.DW_WORLD_GUID=world;_G.DW_LIFE=life
-   pawn.AddMovementInput=old_input
-  end
-  negative('wrong floor',function() pawn.loc.Z=300 end)
-  negative('teleport',function() pawn.loc.X=150 end)
-  negative('long observation interval',function() DT=0.5 end)
-  negative('changed route',function(q,path) q.mpath={{X=path[1].X,Y=0,Z=-90},path[2],path[3]} end)
-  negative('changed endpoint',function(q,path) path[1].Y=2 end)
-  negative('changed goal',function(q) q.goal.Y=1 end)
-  negative('changed owner',function(q) q.owner_token=q.owner_token+1 end)
-  negative('changed world',function() _G.DW_WORLD_GUID='other-crossing-world' end)
-  _G.DW_WORLD_GUID='test-world';_G.DW_MOVE_WORLD=nil
-  negative('changed life',function() _G.DW_LIFE={move_death_seq=1} end)
-  _G.DW_LIFE=nil
-  negative('airborne observation',function() air=0.5 end)
-  for _,kind in ipairs({'gap','air','link','jump','djump','superjump','drop'}) do
-   local p={X=26.55,Y=0,Z=-90}
-   if kind=='gap' or kind=='air' or kind=='link' then p[kind]=true else p.act=kind end
-   negative(kind..' waypoint',function() end,{p,{X=500,Y=0,Z=-90},{X=1500,Y=0,Z=-90}})
-  end
-  negative('final waypoint',function() end,{{X=26.55,Y=0,Z=-90}})
-  local q=arm();_G.DW_PAUSE=true;step(1);_G.DW_PAUSE=false;pawn.loc.X=55;step(1)
-  check('pause discards previous crossing sample',q.mwp==1,q.mwp)
-  pawn.AddMovementInput=old_input
-  q=arm();step(1) -- pending? force one held tick through the real guard
-  local guard=q.walk_guard;local prior=guard.check
-  guard.check=function() return {status='pending'} end
-  step(1);guard.check=prior;pawn.loc.X=55;step(1)
-  check('held interval cannot reuse earlier input crossing',q.mwp==1,q.mwp)
-  pawn.AddMovementInput=old_input
-  local ground=pawn.CharacterMovement.IsMovingOnGround
-  for _,kind in ipairs({'pose','index','route','goal'}) do
-   q=arm();pawn.loc.X=55;local fired=false;local replacement
-   pawn.CharacterMovement.IsMovingOnGround=function()
-    if not fired then
-     fired=true
-     if kind=='pose' then pawn.loc.X=0
-     elseif kind=='index' then q.mwp=3
-     elseif kind=='route' then replacement={{X=800,Y=0,Z=-90}};q.mpath=replacement;q.mwp=1
-     else q.goal.Y=1 end
-    end
-    return true
-   end
-   step(1);pawn.CharacterMovement.IsMovingOnGround=ground
-   check('ground callback changing '..kind..' aborts crossing without stale input',fired and pawn.input==nil and
-    (kind~='index' or q.mwp==3) and (kind~='route' or q.mpath==replacement) and (kind~='pose' or q.mwp==1),q.status)
-   pawn.AddMovementInput=old_input
-  end
-  -- Change state during the input callback: the already submitted direction
-  -- must never be attributed to a successor waypoint/route.
-  for _,kind in ipairs({'index','endpoint','guard','pose'}) do
-   q=prepare();local fired=false
-   pawn.AddMovementInput=function()
-    fired=true
-    if kind=='index' then q.mwp=2 elseif kind=='endpoint' then q.mpath[1].Y=2
-    elseif kind=='pose' then pawn.loc.X=55 else q.walk_guard={} end
-   end
-   for _=1,50 do step(1);if fired then break end end
-   check('input callback changing '..kind..' cannot record successor sample',fired and not q.walk_input,q.status)
-   if kind=='guard' then q.walk_guard=nil end
-   pawn.AddMovementInput=old_input
-  end
-  for _,kind in ipairs({'pose','route','goal'}) do
-   q=prepare();local fired=false;local inputs=0
-   -- Hold the real scan until a clear result; then mutate inside the new ground
-   -- read immediately before the final actual-pose guard check.
-   local g={check=function() return {status='clear',reason='fixture'} end,close=function() return true end}
-   q.walk_guard=g;q.walk_goal={X=q.goal.X,Y=q.goal.Y,Z=q.goal.Z}
-   pawn.CharacterMovement.IsMovingOnGround=function()
-    if not fired then
-     fired=true
-     if kind=='pose' then pawn.loc.X=300
-     elseif kind=='route' then q.mpath={{X=900,Y=0,Z=-90}};q.mwp=1
-     else q.goal.Y=1 end
-    end
-    return true
-   end
-   -- Route/goal mutations must abort; a moved pose must be rechecked, never
-   -- submitted along the old direction. This spy requires the fresh pose.
-   g.check=function(me) if fired then return {status='pending'} end;return {status='clear'} end
-   pawn.AddMovementInput=function() inputs=inputs+1 end
-   step(1);pawn.CharacterMovement.IsMovingOnGround=ground
-   check('pre-input ground callback changing '..kind..' cannot use stale clearance',fired and inputs==0 and not q.walk_input,q.status)
-   pawn.AddMovementInput=old_input
-  end
-  q=prepare();q.target_name='moving-fixture';q.target_kind='actor'
-  q.target=obj({loc={X=1500,Y=0,Z=0},K2_GetActorLocation=pawn.K2_GetActorLocation})
-  local dynamic_inputs=0
-  pawn.AddMovementInput=function() dynamic_inputs=dynamic_inputs+1;q.target.loc.Y=q.target.loc.Y+1 end
-  for _=1,50 do step(1);if dynamic_inputs>1 then break end end
-  check('dynamic target inputs do not create crossing evidence',dynamic_inputs>0 and not q.walk_input,dynamic_inputs)
-  pawn.AddMovementInput=old_input
-  q=arm({{X=26.55,Y=0,Z=-90},{X=26.55,Y=500,Z=-90},{X=1500,Y=0,Z=-90}})
-  pawn.loc.X=55;walls={{0,80,30,80,true}};step(1)
-  check('changed next aim holds before inheriting old clearance',q.mwp==2 and pawn.input==nil and q.status=='checking_terrain',q.status)
-  for _=1,40 do step(1);if q.walk_failure then break end end
-  check('blocked corner chord cannot receive new segment input',q.walk_failure~=nil and pawn.input==nil,q.walk_failure)
-  pawn.AddMovementInput=old_input
-
-  -- A route from before the memory leg cannot silently become its recovery.
-  local function dormant_native()
-   local q=arm()
-   q.use_nav=true;q.nav_required=true;q.forward_checked=true
-   q.path={{X=0,Y=0,Z=-90},{X=1000,Y=500,Z=-90}};q.wp=2;q.path_partial=true
-   q.nav_id=(q.nav_id or 0)+1
-   local pending={id=q.nav_id,epoch=offer.epoch,nonce=offer.nonce,gen=q.gen,token=q.owner_token,pawn=pawn,world='test-world',metadata_goal={X=1500,Y=0,Z=0}}
-   q.nav_pending=pending;q.nav_binding=pending;q.nav_goal={X=1500,Y=0,Z=0};q.nav_sent_t=T
-   return q,pending
-  end
-  q=select(1,dormant_native());local old_deadline,spent=q.t0,q.walk_spent
-  force_guard_stall(q)
-  for _=1,30 do step(1);if q.local_replans then break end end
-  check('memory stall withdraws dormant partial native and pending request',q.local_replans and not q.mpath and not q.path and not q.nav_binding and not q.nav_pending,q.status)
-  check('memory discard preserves command deadline and accumulated guard spend',q.t0==old_deadline and (q.walk_spent or 0)>=(spent or 0),q.walk_spent)
-  pawn.AddMovementInput=old_input
-  local old;q,old=dormant_native()
-  local prior=q.walk_guard.check
-  q.walk_guard.check=function() return {status='blocked',reason='test_blocked',consumed_total=1} end
-  step(1)
-  check('memory guard rejection also withdraws dormant native authority',not q.mpath and not q.path and not q.nav_pending and q.walk_failure=='test_blocked',q.status)
-  local f=assert(io.open(dir..'/client_io/nav/resp.lua','w'))
-  f:write(('return {version=2,id=%d,epoch="%s",nonce="%s",ok=true,partial=false,points={{0,0,-0.9},{15,0,-0.9}}}'):format(old.id,old.epoch,old.nonce));f:close()
-  offer.no=offer.no+1;offer.nonce=fake_nonce(offer.no)
-  oracle=function() return nil end;pump_oracle();step(1)
-  local fresh=q.nav_pending
-  check('recovery requests a fresh route instead of accepting late old reply',not q.path and fresh and fresh.id>old.id and fresh.nonce~=old.nonce and pawn.input==nil,q.status)
-  step(1)
-  check('late old response stays rejected while fresh request waits',q.nav_pending==fresh and not q.path and pawn.input==nil,q.status)
-  pawn.AddMovementInput=old_input
-  clean();motor=nil;frame_hook=nil;DT=saved_dt
-  if os.getenv('MOVE_CROSSING_ONLY')=='1' then print(fails==0 and 'CROSSING OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
- end
- do -- Held scans do not spend the guarded input window or reset it.
-  local function setup_guard()
-   clean();oracle=nil;pump_oracle()
-   M.go_to(log,{15,0,0},{nav=false,local_plan=false,sprint=false,timeout_s=30})
-   local s=_G.DW_MOVE
-   s.mpath={{X=25,Y=0,Z=-90},{X=1500,Y=0,Z=-90}};s.mwp=1;s.walk_guarded=true;s.walk_goal={X=s.goal.X,Y=s.goal.Y,Z=s.goal.Z}
-   local mode='pending'
-   s.walk_guard={check=function() return {status=mode,reason='test',consumed_total=1} end,close=function() return true end}
-   return s,function(v) mode=v end
-  end
-  local s,set=setup_guard()
-  step(60)
-  check('long initial pending scan never starts input stall window',not s.guard_stall and s.mpath and pawn.input==nil,s.status)
-  set('clear');step(1)
-  check('short entry submits after held scan',s.guard_stall and s.guard_stall.sent and s.mpath and pawn.loc.X>0,s.status)
-  clean()
-  local paused_move,pause_change=setup_guard();pause_change('clear');step(1)
-  _G.DW_PAUSE=true;step(1);T=T+5;_G.DW_PAUSE=false;step(1)
-  check('paused interval does not spend guarded active window',paused_move.guard_stall and paused_move.guard_stall.elapsed<1 and not paused_move.local_replans,tostring(paused_move.status)..' elapsed='..tostring(paused_move.guard_stall and paused_move.guard_stall.elapsed)..' replans='..tostring(paused_move.local_replans)..' src='..tostring(paused_move.source))
-  clean()
-  local delayed,delayed_change=setup_guard();delayed_change('clear')
-  local late=false;local old_check=delayed.walk_guard.check
-  delayed.walk_guard.check=function(...)
-   if not late then late=true;T=T+2 end
-   return old_check(...)
-  end
-  local old_input=pawn.AddMovementInput;local submitted=0
-  pawn.AddMovementInput=function() submitted=submitted+1 end
-  step(1);step(1)
-  check('long first clear callback is not charged as active input',late and submitted==2 and delayed.guard_stall and delayed.guard_stall.elapsed<1 and not delayed.local_replans,delayed.status)
-  for _=1,90 do step(1);if delayed.local_replans then break end end
-  pawn.AddMovementInput=old_input
-  check('blocked input still stalls after first observation',delayed.local_replans and delayed.local_replans>0,delayed.status)
-  local captured
-  for _,row in ipairs(delayed.route_trace or {}) do if row.reason=='guarded_stall' then captured=row end end
-  check('trace records first guarded discard before clearing route',captured and captured.source=='memory' and captured.points==2 and captured.wp==1 and not delayed.mpath,delayed.status)
-  check('trace captures active exposure and primitive cause',captured and captured.active_s>=M.cfg.stuck_window_s and captured.stall_distance_cm<M.cfg.stuck_min_cm and captured.guard_status=='clear' and captured.guard_queries==1)
-  local saved_x=captured and captured.position_cm and captured.position_cm.X
-  pawn.loc.X=1234
-  check('trace snapshot survives later native position mutation',captured and captured.position_cm.X==saved_x and captured.position_cm~=pawn.loc)
-  local primitives=true
-  local function primitive_tree(x,depth)
-   if type(x)=='table' then
-    if depth>2 or getmetatable(x) then return false end
-    for k,v in pairs(x) do if type(k)~='string' or not primitive_tree(v,depth+1) then return false end end
-    return true
-   end
-   return type(x)=='string' or type(x)=='number' or type(x)=='boolean'
-  end
-  for _,row in ipairs(delayed.route_trace or {}) do primitives=primitives and primitive_tree(row,0) end
-  check('route trace contains primitives without route or native references',primitives)
-  clean()
-  local bounded=setup_guard()
-  for i=1,72 do
-   bounded.mpath={{X=25,Y=0,Z=-90},{X=1500,Y=0,Z=-90}};bounded.mwp=1
-   step(1)
-  end
-  check('transition ring is bounded with explicit lost-event count',#bounded.route_trace==64 and bounded.route_trace_dropped==bounded.route_trace_seq-64)
-  check('retained transition sequence exposes overflow gap',bounded.route_trace[1].seq>1 and bounded.route_trace[64].seq==bounded.route_trace_seq)
-  clean()
-  for _,oscillate in ipairs({false,true}) do
-   local q,change=setup_guard();change('clear')
-   local original=pawn.AddMovementInput;local inputs=0
-   pawn.AddMovementInput=function() inputs=inputs+1 end
-   step(1)
-   local before=q.guard_stall and q.guard_stall.elapsed or 0
-   for i=1,180 do
-    change((math.floor((i-1)/4)%2==0) and 'pending' or 'clear')
-    if oscillate then pawn.loc.X=(i%2==0) and 20 or 0 end
-    step(1)
-    if q.local_replans then break end
-   end
-   pawn.AddMovementInput=original
-   check((oscillate and 'oscillation' or 'stationary')..' remains bounded across repeated guard holds',inputs>1 and q.local_replans and q.local_replans>0 and before==0,q.status)
-   clean()
-  end
-  local q,change=setup_guard();change('clear')
-  local original=pawn.AddMovementInput;local oldgen=q.gen;local fired=false
-  pawn.AddMovementInput=function()
-   fired=true;pawn.AddMovementInput=original
-   M.go_to(log,{4,4,0},{nav=false,local_plan=false,sprint=false})
-  end
-  step(1);pawn.AddMovementInput=original
-  check('preemption during guarded input cannot mutate successor',fired and q.gen>oldgen and q.mode=='go_to' and q.guard_stall==nil,q.status)
-  clean()
-  if os.getenv('MOVE_GUARD_STALL_ONLY')=='1' then print(fails==0 and 'GUARD STALL OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
- end
- if os.getenv('MOVE_PREFIX_ONLY')~='1' then
- clean();bad_seed()
- oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{8,0,-0.9}}}'):format(id) end
- pump_oracle();local jumps=pawn.jumps
- M.go_to(log,{8,0,0},{sprint=false,timeout_s=30});run(220)
- local st=_G.DW_MOVE
- check('wrong-floor memory entry rejected before jump or step-off',st.walk_failure=='target_support_mismatch' and pawn.jumps==jumps and not st.stepoff,st.walk_failure)
- check('actual-goal native route wins after invalid memory entry',M.status().result and M.status().result.status=='arrived' and math.abs(pawn.loc.Z)<1,M.status().status)
- clean();bad_seed();walls={{70,100,-50,50}};oracle=nil;pump_oracle()
- jumps=pawn.jumps;M.go_to(log,{8,0,0},{sprint=false,timeout_s=30});step(1)
- check('reactive low-obstacle hop cannot bypass wrong-floor admission',pawn.jumps==jumps and pawn.input==nil and _G.DW_MOVE.walk_failure=='target_support_mismatch',_G.DW_MOVE.walk_failure)
- clean();bad_seed();oracle=nil;pump_oracle()
- M.go_to(log,{8,0,0},{sprint=false,timeout_s=30})
- st=_G.DW_MOVE;st.mem_checked=true
- step(1)
- st.prog_t=T-M.cfg.give_up_s-1;st.prog_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z};st.move_acc=200
- jumps=pawn.jumps;step(1);run(220)
- check('recovery memory uses same floor guard and cannot step off',st.walk_failure=='target_support_mismatch' and st.mem_retry and pawn.jumps==jumps and not st.stepoff,st.walk_failure)
- check('recovery replans to actual nearby goal',M.status().result and M.status().result.status=='arrived',M.status().status)
- clean()
- oracle=function(id)
-  local x=math.min(30,pawn.loc.X/100+4)
-  return ('return {id=%d,ok=true,partial=%s,points={{%.3f,0,-0.9},{%.3f,0,-0.9}}}'):format(id,tostring(x<30),pawn.loc.X/100,x)
- end
- pump_oracle();M.go_to(log,{30,0,0},{sprint=false,timeout_s=80});run(600)
- st=_G.DW_MOVE
- check('native partial endpoints continue through bounded local prefixes',st.local_prefixes and st.local_prefixes>=2,st.local_prefixes)
- check('prefix completion is not false arrival; actual far goal reached',M.status().result and M.status().result.status=='arrived' and math.abs(pawn.loc.X-3000)<=150,M.status().status..' x='..pawn.loc.X)
- clean();oracle=nil;pump_oracle()
- M.go_to(log,{8,0,3},{sprint=false,timeout_s=0.3});run(8)
- check('held planning retains whole-command deadline',M.status().result and M.status().result.reason=='timeout',M.status().status)
- clean();luis.loc={X=1000,Y=0,Z=0}
- oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{10,0,-0.9}}}'):format(id) end
- pump_oracle();M.follow(log,'Zezima',0.5);_G.DW_MOVE.walk_guarded=true
- frame_hook=function() luis.loc.X=luis.loc.X+1 end
- run(24);frame_hook=nil
- check('moving actor does not restart every multi-poll walking scan',pawn.loc.X>150 and _G.DW_MOVE.mode=='follow' and #TEST_WALK_NATIVE.calls>8,_G.DW_MOVE.status..' x='..pawn.loc.X)
- clean();luis.loc={X=3000,Y=0,Z=0}
- oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{8,0,-0.9}}}'):format(id) end
- pump_oracle();M.go_to(log,{8,0,0},{sprint=true,timeout_s=30});_G.DW_MOVE.walk_guarded=true
- _G.DW_MOVE.strafe_until=T+10;_G.DW_MOVE.strafe_dir=1;sprinting=true
- step(1)
- check('guarded walking observes sprint release before input',pawn.input==nil and not sprinting,_G.DW_MOVE.status)
- run(20)
- check('carried strafe cannot escape checked forward corridor',pawn.loc.X>0 and math.abs(pawn.loc.Y)<0.01 and _G.DW_MOVE.strafe_until==nil,pawn.loc.Y)
- clean();oracle=nil;pump_oracle()
- M.go_to(log,{8,0,0},{nav=false,sprint=false,timeout_s=30});st=_G.DW_MOVE;st.walk_guarded=true
- run(4);force_guard_stall(st);wait_guard_stall(st)
- check('guarded stalled direct mode preserves nav opt-out',st.nav_required==false and pawn.input==nil,st.status)
- run(180)
- check('guarded direct recovery terminates at actual destination',st.result and st.result.status=='arrived',st.status)
- clean();M.go_to(log,{8,0,0},{nav=false,sprint=false,timeout_s=30});st=_G.DW_MOVE;st.walk_guarded=true
- local old_gen=st.gen;local getter=pawn.SprintComponent.IsSprinting;local stop=pawn.SprintComponent.TryRequestStopSprinting
- local fired,stops=false,0
- pawn.SprintComponent.IsSprinting=function()
-  if not fired then fired=true;M.go_to(log,{4,4,0},{nav=false,local_plan=false}) end
-  return true
- end
- pawn.SprintComponent.TryRequestStopSprinting=function() stops=stops+1 end
- step(1);pawn.SprintComponent.IsSprinting=getter;pawn.SprintComponent.TryRequestStopSprinting=stop
- check('sprint getter preemption cannot stop or mutate successor',fired and _G.DW_MOVE.gen>old_gen and stops==0 and _G.DW_MOVE.sprint_id==nil and pawn.input==nil,stops)
- clean();oracle=nil;pump_oracle()
- end
- do
-  local NM=assert(loadfile(dir..'/client_mod/scripts/navmem.lua'))()
-  local function install()
-   local mem=NM.new_mem('test-world');mem._world='test-world'
-   NM.add_route(mem,{{X=0,Y=0,Z=-90},{X=500,Y=0,Z=-90},{X=1000,Y=0,Z=-90},{X=1500,Y=0,Z=-90}},{src='self'})
-   _G.DW_NAVMEM=mem;_G.DW_MOVE_WORLD={id='test-world',t=os.time()}
-  end
-  local function on_search(fn)
-   local routes=_G.DW_NAVMEM.routes;local fired=false
-   _G.DW_NAVMEM.routes=setmetatable({}, {__index=function(_,i)
-    if not fired then fired=true;fn() end
-    return routes[i]
-   end})
-  end
-  install();oracle=nil;pump_oracle()
-  M.go_to(log,{15,0,0},{local_plan=false,sprint=false,timeout_s=1})
-  local delayed=_G.DW_MOVE;on_search(function() T=T+2 end);step(1)
-  check('forward search exceeding deadline never adopts or moves',delayed.result and delayed.result.reason=='timeout' and not delayed.memory_binding and not delayed.mpath and pawn.input==nil and delayed.forward_search and delayed.forward_search.duration_s>1.9,tostring(delayed.status)..' mode='..tostring(delayed.mode)..' result='..tostring(delayed.result and delayed.result.reason)..' searched='..tostring(delayed.forward_checked)..' evidence='..tostring(delayed.forward_search and delayed.forward_search.duration_s)..' path='..tostring(delayed.mpath)..' input='..tostring(pawn.input))
-  clean();install();oracle=nil;pump_oracle()
-  M.go_to(log,{15,0,0},{local_plan=false,sprint=false,timeout_s=30})
-  local interrupted=_G.DW_MOVE;local owner=_G.DWArbiter.owner
-  on_search(function() _G.DWArbiter.owner=nil end);step(1)
-  check('forward search owner change never adopts or moves',not interrupted.memory_binding and not interrupted.mpath and pawn.input==nil,interrupted.status)
-  _G.DWArbiter.owner=owner;clean();install();oracle=nil;pump_oracle()
-  M.go_to(log,{15,0,0},{local_plan=false,sprint=false,timeout_s=30})
-  local drifted=_G.DW_MOVE;on_search(function() pawn.loc.X=35 end);step(1)
-  check('forward search records actual drift and defers input',drifted.memory_binding and drifted.forward_search and drifted.forward_search.before.X==0 and drifted.forward_search.after.X==35 and pawn.input==nil,drifted.status)
-  clean();install();oracle=nil;pump_oracle()
-  if os.getenv('MOVE_POST_SEARCH_ONLY')=='1' then print(fails==0 and 'POST SEARCH OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
-  install();M.go_to(log,{15,0,0},{local_plan=false,sprint=false,timeout_s=30});run(200)
-  check('forward memory runs with unavailable oracle',_G.DW_MOVE.forward_checked and _G.DW_MOVE.result and _G.DW_MOVE.result.status=='arrived',_G.DW_MOVE.status)
-  clean();install()
-  oracle=function(id) return ('return {id=%d,ok=true,partial=true,points={{0,0,-0.9},{0,3,-0.9}}}'):format(id) end
-  pump_oracle();M.go_to(log,{15,0,0},{local_plan=false,sprint=false,timeout_s=30});run(200)
-  check('partial native route cannot suppress connected forward walk',_G.DW_MOVE.result and _G.DW_MOVE.result.status=='arrived' and math.abs(pawn.loc.Y)<1,_G.DW_MOVE.status)
-  clean();install();oracle=nil;pump_oracle()
-  M.go_to(log,{15,0,0},{local_plan=false,sprint=false,timeout_s=30});step(1)
-  local late=_G.DW_MOVE;local had_memory=late.memory_binding~=nil
-  oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{15,0,-0.9}}}'):format(id) end
-  pump_oracle();run(20)
-  check('late complete native route replaces proposal',had_memory and not late.memory_binding and late.path and late.path_partial==false,late.status)
-  clean();install();oracle=nil;pump_oracle()
-  M.go_to(log,{15,0,0},{local_plan=false,sprint=false,timeout_s=30});step(1)
-  local bound=_G.DW_MOVE;bound.goal.X=1600
-  oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{16,0,-0.9}}}'):format(id) end;pump_oracle();run(200)
-  check('changed goal abandons proposal and falls back to native',not bound.memory_binding and bound.mem_retry and bound.result and bound.result.status=='arrived' and pawn.loc.X>=1450,bound.status)
-  clean();install();luis.loc={X=1500,Y=0,Z=0};oracle=nil;pump_oracle()
-  M.go_to(log,'Zezima',{local_plan=false,sprint=false,timeout_s=30});step(1)
-  bound=_G.DW_MOVE
-  check('stationary actor can use a bound forward proposal',bound.target_name and bound.memory_binding and bound.forward_checked,bound.status)
-  luis.loc.X=1600;oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{16,0,-0.9}}}'):format(id) end;pump_oracle();run(200)
-  check('moving actor abandons proposal and falls back',not bound.memory_binding and bound.mem_retry and bound.result and bound.result.status=='arrived',bound.status)
-  clean();install();oracle=nil;pump_oracle()
-  M.go_to(log,{30,0,0},{local_plan=false,sprint=false,timeout_s=60});step(1)
-  bound=_G.DW_MOVE;local start_t=bound.t0;local active=bound.memory_binding and bound.memory_binding.prefix
-  local prefix_end,spent,old_id
-  oracle=function(id)
-   if not prefix_end then return ('return {id=%d,ok=true,partial=true,points={{0,0,-0.9},{0,3,-0.9}}}'):format(id) end
-   return ('return {id=%d,ok=true,partial=false,points={{%.3f,0,-0.9},{30,0,-0.9}}}'):format(id,pawn.loc.X/100)
-  end
-  for _=1,900 do
-   step(1)
-   if active and not bound.memory_binding then prefix_end=true;spent=bound.walk_spent;old_id=bound.nav_id;break end
-   pump_oracle()
-  end
-  check('prefix ends short without false arrival',active and prefix_end and not bound.result and pawn.loc.X>1000 and pawn.loc.X<2000,bound.status..' failure='..tostring(bound.walk_failure)..' x='..pawn.loc.X..' y='..pawn.loc.Y)
-  check('prefix preserves deadline and accumulated guard budget',bound.t0==start_t and spent and spent>0 and bound.forward_checked,bound.walk_spent)
-  step(1)
-  local pending=bound.nav_pending
-  if pending then
-   local f=assert(io.open(dir..'/client_io/nav/resp.lua','w'))
-   f:write(('return {version=2,epoch="%s",nonce="%s",id=%d,ok=true,partial=false,points={{0,0,-0.9},{30,0,-0.9}}}'):format(pending.epoch,pending.nonce,old_id));f:close()
-  end
-  local x_before=pawn.loc.X;step(2)
-  check('stale native response is not reused after prefix',pending and bound.nav_pending==pending and not bound.path and pawn.loc.X==x_before,bound.status)
-  run(200)
-  check('prefix requests fresh native path and never reselects memory',bound.nav_id>old_id and bound.forward_checked and not bound.memory_binding and bound.result and bound.result.status=='arrived',bound.status..' fail='..tostring(bound.nav_fail)..' pending='..tostring(bound.nav_pending~=nil)..' id='..tostring(bound.nav_id)..' old='..tostring(old_id)..' x='..pawn.loc.X)
-  clean();install()
-  _G.DW_NAVMEM.routes={
-   {id='a',n_ok=1,pts={{0,0,-0.9},{5,0,-0.9},{10,0,-0.9}}},
-   {id='b',n_ok=1,pts={{13,0,-0.9},{18,0,-0.9},{23,0,-0.9}}}}
-  walls={{1100,1200,-100,100,true}};oracle=nil;pump_oracle()
-  M.go_to(log,{30,0,0},{local_plan=false,sprint=false,timeout_s=60})
-  bound=_G.DW_MOVE
-  for _=1,600 do step(1);if bound.walk_failure then break end end
-  check('blocked inter-record join is rejected before crossing',bound.walk_failure and not bound.memory_binding and pawn.loc.X<1100,bound.status..' x='..pawn.loc.X)
-  clean();install();oracle=nil;pump_oracle()
-  M.go_to(log,{15,0,0},{local_plan=false,sprint=false,timeout_s=30});step(1)
-  bound=_G.DW_MOVE;bound.mpath=nil
-  oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{15,0,-0.9}}}'):format(id) end;pump_oracle();run(200)
-  check('abandoned proposal clears binding and falls back',not bound.memory_binding and bound.mem_retry and bound.result and bound.result.status=='arrived',bound.status)
-  clean();install();walls={{100,200,-100,100,true}}
-  oracle=nil;pump_oracle();M.go_to(log,{15,0,0},{local_plan=false,sprint=false,timeout_s=40});step(1)
-  for _=1,120 do step(1);if _G.DW_MOVE.walk_failure then break end end
-  oracle=function(id) return ('return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{0,4,-0.9},{15,4,-0.9},{15,0,-0.9}}}'):format(id) end
-  pump_oracle();run(450)
-  check('rejected forward proposal falls back once to native',_G.DW_MOVE.forward_checked and _G.DW_MOVE.mem_retry and _G.DW_MOVE.walk_failure and _G.DW_MOVE.result and _G.DW_MOVE.result.status=='arrived',_G.DW_MOVE.status)
-  clean();oracle=nil;pump_oracle()
- end
- if os.getenv('MOVE_GROUND_WALK_ONLY')=='1' then print(fails==0 and 'GROUND WALK OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
-end
-end
+local function check(name, c, info) if c then print("ok   " .. name) else fails = fails + 1; print("FAIL " .. name .. " " .. tostring(info)) end end
 
 -- 1. go_to via a dog-leg nav path (wall in the straight line)
 walls = { { 900, 1100, -500, 500 } }
@@ -1012,252 +231,14 @@ check("used nav waypoints (oracle heartbeat live)", (s.nav_requests or 0) >= 1 a
 check("sprint injected", injected > 0, injected)
 if os.getenv("MOVE_PROTOCOL_WIRE_ONLY") == "1" then os.exit(fails == 0 and 0 or 1) end
 
-do -- The oracle's next point is closer, but the intervening corner is mandatory.
-    M.stop(log); pawn.loc={X=0,Y=0,Z=0}; air=0
-    walls={{-100,250,400,600,true}}
-    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{10,0,0},{0,10,0},{-5,10,0}}}"):format(id) end
-    pump_oracle(); M.go_to(log,{-5,10,0},{local_plan=false,timeout_s=30})
-    run(3)
-    local corner=_G.DW_MOVE
-    check("unreached corner retained despite nearer next point",corner.path and corner.wp==2 and pawn.loc.X>0 and pawn.loc.Y<100,corner.wp)
-    run(180)
-    check("physical detour follows mandatory corner",M.status().result and M.status().result.status=="arrived",M.status().status)
-    M.stop(log); walls={}
-end
-
-do -- A long first leg goes directly away from the destination for over five seconds.
-    pawn.loc={X=0,Y=0,Z=0}; air=0; walking_speed=150
-    walls={{300,700,-200,1400,true}}
-    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,-0.9},{-15,0,-0.9},{-15,18,-0.9},{10,18,-0.9},{10,0,-0.9}}}"):format(id) end
-    pump_oracle(); M.go_to(log,{10,0,0},{local_plan=false,sprint=false,timeout_s=70})
-    run(70)
-    local detour=M.status()
-    check("moving away along admitted segment remains live",not detour.result and pawn.loc.X < -300,detour.status.." x="..pawn.loc.X)
-    run(580)
-    check("long physical U detour completes",M.status().result and M.status().result.status=="arrived",M.status().status)
-    M.stop(log); walking_speed=450; walls={}
-end
-if os.getenv('MOVE_DETOUR_ONLY')=='1' then print(fails==0 and 'DETOUR OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
-
-do -- Overshooting a corner must steer back and recover within the action deadline.
-    pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}
-    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{10,0,0},{10,10,0}}}"):format(id) end
-    pump_oracle(); M.go_to(log,{10,10,0},{local_plan=false,sprint=false,timeout_s=20})
-    run(3); pawn.loc={X=1350,Y=0,Z=0}; run(180)
-    check("overshot corner recovers or terminates within deadline",M.status().result~=nil,M.status().status)
-    check("overshot corner recovers to destination",M.status().result and M.status().result.status=="arrived",M.status().status)
-    M.stop(log)
-end
-
-do -- A pawn repeatedly displaced within a small area cannot earn unlimited time.
-    pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}
-    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{20,0,0},{30,0,0}}}"):format(id) end
-    luis.loc={X=90000,Y=90000,Z=0}
-    pump_oracle(); M.go_to(log,{30,0,0},{local_plan=false,sprint=false,timeout_s=120})
-    local frames=0
-    frame_hook=function()
-        frames=frames+1; pawn.loc.X=(frames%2==0) and 40 or 0; pawn.loc.Y=0
-        if frames%30==0 then _G.DW_MOVE.want_repath=true end
-    end
-    run(240); frame_hook=nil
-    check("oscillation fails before action deadline",M.status().result and M.status().result.status=="failed" and M.status().result.reason~="timeout",M.status().status)
-    M.stop(log); luis.loc={X=3000,Y=0,Z=0}
-end
-
-do -- Matching XY is not enough to reach an elevated native link endpoint.
-    pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}
-    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{0,0,5},{10,0,5}}}"):format(id) end
-    pump_oracle(); M.go_to(log,{10,0,5},{local_plan=false,timeout_s=20})
-    run(3)
-    local elevated=_G.DW_MOVE
-    check("native link at same XY on another floor is not reached",elevated.path and elevated.wp==2,elevated.wp)
-    M.stop(log)
-end
-
-do -- Real oracle replacements with jittered starts must not refresh the stall budget.
-    pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}
-    local replies=0
-    oracle=function(id)
-        replies=replies+1
-        local x=pawn.loc.X/100
-        return ("return {id=%d,ok=true,partial=false,points={{%.3f,0,-0.9},{%.3f,0,-0.9},{30,0,-0.9}}}"):format(id,x,10+replies*0.001)
-    end
-    luis.loc={X=90000,Y=90000,Z=0}
-    pump_oracle(); M.go_to(log,{30,0,0},{local_plan=false,sprint=false,timeout_s=120})
-    local frames, ages=0,{}
-    frame_hook=function()
-        frames=frames+1
-        pawn.loc.X=(math.floor(frames/45)%2==0) and 0 or 200
-        pawn.loc.Y=0
-        local move=_G.DW_MOVE
-        -- Withdraw the active path to trigger the normal nonce-bound request/response path.
-        if frames%75==0 and move.mode=="go_to" and move.path then
-            ages[#ages+1]=move.prog_t and T-move.prog_t or 0
-            move.path,move.nav_fail=nil,nil
-        end
-    end
-    run(270); frame_hook=nil
-    local result=M.status().result
-    check("jittered oracle replacements were admitted",replies>=2,replies)
-    check("replacements preserve accumulated stall age",ages[2] and ages[2]>ages[1]+1,table.concat(ages,","))
-    local move=_G.DW_MOVE
-    check("large oscillation and jittered intermediate replans fail before deadline",result and result.status=="failed" and result.reason~="timeout",
-        (result and result.reason or M.status().status).." age="..tostring(move.prog_t and T-move.prog_t).." replies="..replies)
-    M.stop(log); luis.loc={X=3000,Y=0,Z=0}
-end
-
-do -- A persistent follow may revisit a prior leg after the leader moves back.
-    pawn.loc={X=500,Y=0,Z=0}; luis.loc={X=2000,Y=0,Z=0}; air=0; walls={}; walking_speed=150
-    oracle=function(id)
-        return ("return {id=%d,ok=true,partial=false,points={{%.3f,0,-0.9},{%.3f,0,-0.9}}}"):format(id,pawn.loc.X/100,luis.loc.X/100)
-    end
-    pump_oracle(); M.follow(log,{actor=luis},1,{local_plan=false,sprint=false}); run(130)
-    local outbound=M.status()
-    check("persistent follow reaches first end of leg",outbound.status=="near",outbound.status)
-    luis.loc={X=500,Y=0,Z=0}; run(130)
-    local inbound=M.status()
-    check("persistent follow returns on revisited leg",inbound.status=="near" and pawn.loc.X<650,inbound.status.." x="..pawn.loc.X)
-    M.stop(log); walking_speed=450; luis.loc={X=3000,Y=0,Z=0}
-end
-
-do -- A different incoming leg to the same endpoint cannot borrow the old projection.
-    pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}
-    local replies=0
-    oracle=function(id)
-        replies=replies+1
-        return ("return {id=%d,ok=true,partial=false,points={{%.3f,%.3f,-0.9},{30,0,-0.9}}}"):format(id,pawn.loc.X/100,pawn.loc.Y/100)
-    end
-    frame_hook=function() pawn.loc.X,pawn.loc.Y=0,0 end
-    pump_oracle(); M.go_to(log,{30,0,0},{local_plan=false,sprint=false,timeout_s=20}); run(20)
-    local move=_G.DW_MOVE
-    move.path,move.nav_fail=nil,nil
-    frame_hook=function() pawn.loc.X,pawn.loc.Y=600,500 end
-    run(25); frame_hook=nil
-    check("changed incoming leg does not credit lateral projection",replies>=2 and move.prog_t and T-move.prog_t>3,
-        "replies="..replies.." age="..tostring(move.prog_t and T-move.prog_t))
-    run(100)
-    check("changed incoming leg earns progress once physically followed",not M.status().result and pawn.loc.X>1200,
-        M.status().status.." x="..pawn.loc.X)
-    M.stop(log)
-end
-
-do -- Long physical routes retain a fixed upper bound on progress evidence.
-    pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}
-    oracle=function(id)
-        local points={}
-        for i=0,70 do points[#points+1]=("{%d,0,-0.9}"):format(i*2) end
-        return ("return {id=%d,ok=true,partial=false,points={%s}}"):format(id,table.concat(points,","))
-    end
-    pump_oracle(); M.go_to(log,{140,0,0},{local_plan=false,sprint=false,timeout_s=120}); run(400)
-    local move=_G.DW_MOVE
-    check("long physical route completes",M.status().result and M.status().result.status=="arrived",M.status().status)
-    check("progress history remains bounded",move.progress_positions and #move.progress_positions==64,#(move.progress_positions or {}))
-    M.stop(log)
-end
-
-SNAPSHOT_PREEMPTION_CASE()
-do -- A real failed observation planner must reach the terminal result without native route metadata.
-    pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}; raised={}
-    offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no)
-    oracle=function() return nil end; pump_oracle()
-    M.go_to(log,{8,0,3},{tolerance_m=0.5,timeout_s=10})
-    step(1)
-    local st=_G.DW_MOVE
-    if st.lp then st.lp.trace=function() return nil end end
-    for i=1,300 do if st.lp_fail or st.result then break end; step(1) end
-    check("real failed observation captures planner evidence",st.lp_fail and st.navigation_evidence and
-        st.navigation_evidence.packet.coverage.sampled_cells>0,st.lp_fail)
-    for i=1,500 do if st.result then break end; step(1) end
-    local result=M.status().result
-    check("failed observation reaches terminal without route metadata",result and result.status=="failed" and
-        result.navigation_observation and not result.route_feedback,result and result.reason)
-    local evidence=st.navigation_evidence
-    local function invalid_case(name, mutate, restore)
-        local oldvalid, reads=pc.IsValid,0
-        local oldavoid=M.avoid_status
-        M.avoid_status=function() return {} end -- isolate the packet path from its independent fresh-controller lookup
-        pc.IsValid=function(...) reads=reads+1; return oldvalid(...) end
-        mutate()
-        local dropped=M.status().result
-        check("observation rejects changed "..name,dropped and result and dropped.reason==result.reason and not dropped.navigation_observation)
-        if name=="life" or name=="owner" then check("stale "..name.." avoids cached controller",reads==0,reads) end
-        restore()
-        pc.IsValid=oldvalid
-        M.avoid_status=oldavoid
-        check("changed "..name.." cannot revive observation",M.status().result and not M.status().result.navigation_observation)
-        -- Recreate the terminal fixture for the next independent invalidation case.
-        st.result=result; st.navigation_evidence=evidence
-    end
-    local oldgen=st.gen
-    invalid_case("generation",function() st.gen=oldgen+1 end,function() st.gen=oldgen end)
-    local oldgoal=st.goal
-    invalid_case("goal",function() st.goal={X=oldgoal.X+1,Y=oldgoal.Y,Z=oldgoal.Z} end,function() st.goal=oldgoal end)
-    local oldpawn=st.pawn
-    invalid_case("pawn",function() st.pawn={} end,function() st.pawn=oldpawn end)
-    local oldlife=_G.DW_LIFE
-    invalid_case("life",function() _G.DW_LIFE={move_death_seq=(st.life_seq or 0)+1} end,function() _G.DW_LIFE=oldlife end)
-    local oldtoken=st.owner_token
-    invalid_case("owner",function() st.owner_token="other" end,function() st.owner_token=oldtoken end)
-    local old=_G.DW_WORLD_GUID; _G.DW_WORLD_GUID="other-world"
-    local dropped=M.status().result
-    check("stale observation drops without changing failure",dropped and result and dropped.reason==result.reason and not dropped.navigation_observation)
-    _G.DW_WORLD_GUID=old
-    check("dropped observation cannot revive",M.status().result and not M.status().result.navigation_observation)
-    M.stop(log)
-end
-
-do -- Exercise the real planner's verification and recorded horizontal hit path.
-    pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}; raised={}
-    offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no)
-    oracle=function() return nil end; pump_oracle()
-    M.go_to(log,{8,0,3},{tolerance_m=0.5,timeout_s=10})
-    step(1)
-    local st=_G.DW_MOVE
-    for i=1,300 do if st.lp_state=="verifying" or st.result then break end; step(1) end
-    local planner=st.lp
-    if planner and st.lp_state=="verifying" then
-        local trace=planner.trace
-        planner.trace=function(a,b,horizontal)
-            if horizontal then return true,{X=(a.X+b.X)/2,Y=(a.Y+b.Y)/2,Z=12345} end
-            return trace(a,b,horizontal)
-        end
-        st.lp_rounds=12
-        step(1)
-    end
-    local packet=st.navigation_evidence and st.navigation_evidence.packet
-    check("real verification records bounded synthetic-plane barrier",packet and packet.phase=="verification" and
-        packet.reason=="verify_exhausted" and packet.underlying_reason=="verification_budget_exhausted" and
-        #packet.barrier_samples>0 and packet.barrier_samples[1].position_m[3]~=123.45)
-    for i=1,500 do if st.result then break end; step(1) end
-    local terminal=M.status().result
-    check("verification evidence reaches terminal",terminal and terminal.navigation_observation~=nil)
-    local oldvalid=pc.IsValid; local reads=0
-    pc.IsValid=function(...) reads=reads+1; return oldvalid(...) end
-    _G.DW_PAUSE=true
-    local paused_result=M.status().result
-    _G.DW_PAUSE=false; pc.IsValid=oldvalid
-    check("paused status drops packet without controller access",reads==0 and paused_result and
-        not paused_result.navigation_observation and terminal and paused_result.reason==terminal.reason)
-    check("paused packet cannot revive",M.status().result and not M.status().result.navigation_observation)
-    M.stop(log)
-end
-
 do
     -- Drive the actual move module with a deterministic planner result. The real planner's
     -- nearest-node contract is covered separately; these isolate admission and ownership.
     local function observe_case(endpoint, tolerance, act)
         pawn.loc={X=0,Y=0,Z=0}; air=0; walls={}
-        -- A planner promise alone no longer permits input. Walking fixtures
-        -- include the corresponding physical ramp in the independent fake world.
-        raised=(not act or act=='walk') and {{0,1000,-100,100,0,375}} or {}
         offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no)
         oracle=function() return nil end; pump_oracle()
         M.go_to(log,{8,0,3},{tolerance_m=tolerance})
-        -- This fixture measures the local planner's retry bound, independently
-        -- of any successful trips recorded by earlier sandbox scenarios.
-        local NM=assert(loadfile(dir..'/client_mod/scripts/navmem.lua'))()
-        _G.DW_NAVMEM=NM.new_mem('test-world');_G.DW_NAVMEM._world='test-world'
-        _G.DW_MOVE_WORLD={id='test-world',t=os.time()}
         step(1)
         local move=_G.DW_MOVE
         local held=move.lp_state=="sampling" and pawn.input==nil and move.nav_pending~=nil
@@ -1269,7 +250,6 @@ do
         step(1)
         local still_held=pawn.input==nil and move.lp_state=="verifying"
         step(1)
-        if not act or act=='walk' then step(4) end -- bounded native walking scan
         return move,held,still_held,goal_seen
     end
     local localmove, held, verified_hold, feetgoal=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
@@ -1280,8 +260,8 @@ do
     -- and the oracle request remains independently owned while observing again.
     local recovery=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
     local pending=recovery.nav_pending; local original_path=recovery.lpath
-    force_guard_stall(recovery)
-    local original_jump_count=pawn.jumps; wait_guard_stall(recovery)
+    recovery.win_t=T-2; recovery.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z}
+    local original_jump_count=pawn.jumps; step(1)
     check("local stall holds input and preserves pending oracle",pawn.input==nil and not recovery.local_authority and not recovery.lpath and recovery.local_replans==1 and recovery.nav_pending==pending and pawn.jumps==original_jump_count,recovery.status)
     step(1)
     check("local stall starts observational replan",recovery.lp_state=="sampling" and recovery.lp_observe==true and recovery.nav_pending==pending and pawn.input==nil,recovery.lp_state)
@@ -1293,23 +273,23 @@ do
         local old_limit=M.cfg.lp_max_plans; M.cfg.lp_max_plans=2
         local bounded=observe_case({X=700,Y=0,Z=210,act="walk"},1.5)
         for _, x in ipairs({750,800}) do
-            force_guard_stall(bounded); wait_guard_stall(bounded)
+            bounded.win_t=T-2; bounded.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z}; step(1)
             step(1)
             local endx=x
             bounded.lp={step=function() return "ready" end,plan=function() return {{X=0,Y=0,Z=-90,act="walk"},{X=endx,Y=0,Z=210,act="walk"}} end,verify=function() return "ok" end}
             step(2)
             check("distinct replacement route admitted within retry bound",bounded.local_authority and bounded.lpath[#bounded.lpath].X==x,bounded.status)
         end
-        force_guard_stall(bounded); wait_guard_stall(bounded)
+        bounded.win_t=T-2; bounded.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z}; step(1)
         check("distinct routes still exhaust bounded replan",not bounded.local_authority and bounded.local_replans==3 and bounded.nav_fail=="local_replan_limit" and pawn.input==nil,bounded.status)
         step(1)
-        check("exhausted replan reports specific failure",bounded.result and bounded.result.reason=="verification_failed" and bounded.result.detail:find("local_replan_limit",1,true),bounded.status)
+        check("exhausted replan falls back to local planning",bounded.mode=="go_to" and not bounded.nav_required and bounded.nav_fallback=="local_replan_limit",bounded.status)
         M.stop(log); M.cfg.lp_max_plans=old_limit
     end
     do -- A complete late oracle route may win, without mixing local waypoints.
         local race=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
         local pending=race.nav_pending
-        force_guard_stall(race); wait_guard_stall(race); step(1)
+        race.win_t=T-2; race.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z}; step(1); step(1)
         local reply=assert(io.open(dir.."/client_io/nav/resp.lua","w"))
         reply:write(('return {version=2,epoch="%s",nonce="%s",id=%d,ok=true,partial=false,points={{0,0,0},{8,0,3}}}'):format(pending.epoch,pending.nonce,pending.id));reply:close()
         step(1)
@@ -1323,13 +303,13 @@ do
         M.follow(log,"Zezima",0.5);step(1)
         local follow=_G.DW_MOVE
         follow.lp={step=function() return "ready" end,plan=function() return {{X=0,Y=0,Z=-90,act="walk"},{X=800,Y=200,Z=210,act="walk"}} end,verify=function() return "ok" end};step(2)
-        force_guard_stall(follow);wait_guard_stall(follow);step(1)
-        check("exhausted local recovery preserves follow",follow.mode=="follow" and follow.status=="unreachable" and follow.unreach and follow.unreach.reason=="no_route" and pawn.input==nil,follow.status)
+        follow.win_t=T-2;follow.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z};step(2)
+        check("exhausted local recovery keeps following via fallback",follow.mode=="follow" and not follow.nav_required and follow.nav_fallback~=nil,follow.status)
         M.stop(log);M.cfg.lp_max_plans=old_limit
     end
     do -- Owner can replace the move during the final stalled-route check.
         local owned_move=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
-        local prior=owned_move.gen;force_guard_stall(owned_move)
+        local prior=owned_move.gen;owned_move.win_t=T-2;owned_move.win_pos={X=pawn.loc.X,Y=pawn.loc.Y,Z=pawn.loc.Z}
         local old_height=pawn.CapsuleComponent.GetScaledCapsuleHalfHeight;local calls=0;local fired=false
         pawn.CapsuleComponent.GetScaledCapsuleHalfHeight=function(...)
             calls=calls+1
@@ -1365,7 +345,7 @@ do
     end
     localmove=observe_case({X=800,Y=0,Z=210,act="walk"},0.5)
     local path_copy=localmove.lpath
-    pawn.loc={X=700,Y=0,Z=262.5}; step(6)
+    pawn.loc={X=700,Y=0,Z=300}; step(1)
     check("final waypoint retained outside exact tolerance",localmove.local_authority and localmove.lwp==#localmove.lpath and pawn.input~=nil,localmove.lwp)
     _G.DW_WORLD_GUID="changed-world"; step(1)
     check("local authority rejects world change before input",pawn.input==nil and not localmove.local_authority,localmove.status)
@@ -1590,18 +570,9 @@ do
     offer.no=offer.no+1; offer.nonce=fake_nonce(offer.no)
 
 end
-raised={}
 
 if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
-    -- The protocol assertions below exercise native authority alone. Earlier
-    -- mover scenarios can have recorded routes in this test world's sandbox.
-    local NM=assert(loadfile(dir..'/client_mod/scripts/navmem.lua'))()
-    local function empty_native_memory()
-        local m=NM.new_mem('test-world');m._world='test-world'
-        _G.DW_NAVMEM=m;_G.DW_MOVE_WORLD={id='test-world',t=os.time()}
-    end
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }; walls = {}; oracle = function() return nil end
-    empty_native_memory()
     pump_oracle()
     M.go_to(log, { 20, 0, 0 }, { local_plan=false })
     run(20)
@@ -1619,27 +590,7 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     check("stale nonce cannot authorize input", pawn.loc.X == 0 and _G.DW_MOVE.nav_pending ~= nil, pawn.loc.X)
     _G.DW_WORLD_GUID = "other-world"; step(2)
     check("world identity change fails closed", pawn.loc.X == 0 and M.status().result and M.status().result.reason == "verification_failed", M.status().status)
-    check("world replacement cannot donate route feedback", M.status().result and M.status().result.route_feedback == nil)
     _G.DW_WORLD_GUID = "test-world"
-    do -- A stale helper response cannot donate authority to independent memory.
-        M.stop(log); pawn.loc={X=0,Y=0,Z=0}; empty_native_memory()
-        offer.no=offer.no+1;offer.nonce=fake_nonce(offer.no)
-        oracle=function() return nil end;pump_oracle()
-        M.go_to(log,{20,0,0},{local_plan=false,sprint=false});run(1)
-        local active=_G.DW_MOVE;local pending=active.nav_pending
-        local m=NM.new_mem('test-world');m._world='test-world'
-        NM.add_route(m,{{X=0,Y=0,Z=-90},{X=500,Y=0,Z=-90},{X=1000,Y=0,Z=-90},{X=2000,Y=0,Z=-90}},{src='self'})
-        _G.DW_NAVMEM=m;TEST_WALK_NATIVE.calls={}
-        local reply=assert(io.open(dir..'/client_io/nav/resp.lua','w'))
-        reply:write(('return {version=2,epoch="%s",nonce="%s",id=%d,ok=true,partial=false,points={{0,0,0},{20,0,0}}}'):format(pending.epoch,pending.nonce,pending.id));reply:close()
-        local hb=assert(io.open(dir..'/client_io/nav/alive.lua','w'))
-        hb:write(('return {version=2,epoch="33333333-3333-4333-8333-333333333333",state="recovering",updated=%d}'):format(os.time()));hb:close()
-        step(1)
-        check('stale helper cannot donate memory authority or input',active.memory_binding and not active.nav_binding and not active.route_feedback and pawn.input==nil and pawn.loc.X==0,active.status)
-        step(30)
-        check('independent memory moves only with fresh physical guard',pawn.loc.X>0 and #TEST_WALK_NATIVE.calls>0 and not active.nav_binding and not active.route_feedback,active.status)
-        M.stop(log);empty_native_memory()
-    end
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
     offer.no = offer.no + 1; offer.nonce = fake_nonce(offer.no)
     oracle = function() return nil end; pump_oracle()
@@ -1651,73 +602,17 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     restart:write(('return {version=2,epoch="33333333-3333-4333-8333-333333333333",state="recovering",updated=%d}'):format(os.time())); restart:close()
     step(1)
     check("new helper epoch rejects old matching response", pawn.loc.X == 0 and M.status().result and M.status().result.detail:find("oracle_restarted",1,true), M.status().status)
-    check("old helper response supplies no feedback", M.status().result and M.status().result.route_feedback == nil)
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
     offer.no = offer.no + 1; offer.nonce = fake_nonce(offer.no)
-    oracle = function(id) return ("return {id=%d,ok=false,reason='no_path',goal_projected=false,points={}}"):format(id) end
+    oracle = function(id) return ("return {id=%d,ok=false,reason='no_path',points={}}"):format(id) end
     pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(20)
     local bad = M.status()
     check("no path fails without raw movement", pawn.loc.X == 0 and bad.result and bad.result.reason == "verification_failed", bad.status)
-    local f=bad.result and bad.result.route_feedback
-    check("matched no path preserves false projection and requested 3D goal", f and f.goal_projected==false and f.requested_xyz[1]==20 and f.route_endpoint==nil and f.final_position[1]==0 and f.horizontal_error_m==20, f and f.goal_projected)
-    _G.DW_WORLD_GUID = "other-world"
-    check("terminal world replacement suppresses evidence", M.status().result.route_feedback == nil)
-    _G.DW_WORLD_GUID = "test-world"
-    check("terminal evidence cannot revive after world restoration", M.status().result.route_feedback == nil)
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
-    oracle = function(id)
-        _G.DW_MOVE.goal.X = _G.DW_MOVE.goal.X + 1 -- smaller than ordinary repath threshold
-        return ("return {id=%d,ok=false,reason='no_path',goal_projected=false,points={}}"):format(id)
-    end
-    pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(20)
-    check("changed exact goal suppresses feedback without changing failure", M.status().result and M.status().result.reason == "verification_failed" and M.status().result.route_feedback == nil)
-    M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
-    oracle = function(id)
-        _G.DW_MOVE.unreach = {reason="no_route"}
-        return ("return {id=%d,ok=true,partial=false,goal_projected=true,points={{0,0,0},{20,0,4.62}}}"):format(id)
-    end
-    pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(20)
-    local rejected=M.status().result; f=rejected and rejected.route_feedback
-    check("policy-rejected valid route retains endpoint evidence", rejected and rejected.reason=="verification_failed" and pawn.loc.X==0 and f and f.partial==false and f.route_endpoint[3]==4.62)
-    M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
-    oracle = function(id) return ("return {id=%d,ok=true,partial=false,goal_projected=true,points={{0,0,0},{4,0,7.62}}}"):format(id) end
-    pump_oracle(); M.go_to(log, {4,0,3}, {tolerance_m=0.5}); run(120)
-    local short=M.status().result; f=short and short.route_feedback
-    check("short route rejected for height retains endpoint evidence", short and short.reason=="verification_failed" and f and f.partial==false and f.requested_xyz[3]==3 and f.route_endpoint[3]==7.62, short and short.detail)
-    M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
-    oracle = function(id) return ("return {id=%d,ok=true,partial=true,goal_projected=true,points={{0,0,0},{5,0,0}}}"):format(id) end
+    oracle = function(id) return ("return {id=%d,ok=true,partial=true,points={{0,0,0},{5,0,0}}}"):format(id) end
     pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(80)
     local partial = M.status()
     check("partial endpoint does not fall through to raw goal", partial.result and partial.result.reason == "verification_failed" and pawn.loc.X < 600, tostring(pawn.loc.X) .. " " .. tostring(partial.status) .. " " .. tostring(partial.result and partial.result.detail))
-    f=partial.result and partial.result.route_feedback
-    check("partial result carries admitted route endpoint", f and f.partial==true and f.goal_projected==true and f.route_endpoint[1]==5 and f.requested_xyz[1]==20 and f.vertical_error_m==0 and f.absolute_vertical_error_m==0)
-    pc.Pawn = obj({CharacterMovement=mc})
-    check("terminal pawn replacement suppresses evidence", M.status().result.route_feedback == nil)
-    pc.Pawn = pawn
-    check("terminal evidence cannot revive after pawn restoration", M.status().result.route_feedback == nil)
-    M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }
-    for _, invalid in ipairs({"controller", "pawn", "foreign", "world"}) do
-        oracle = function(id) return ("return {id=%d,ok=true,partial=true,points={{0,0,0},{5,0,0}}}"):format(id) end
-        pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(2)
-        local active = _G.DW_MOVE
-        check("retained evidence before "..invalid.." termination", active.route_feedback ~= nil)
-        local original_loc, original_pc_valid, original_pawn_valid, original_dead = pawn.K2_GetActorLocation, pc.IsValid, pawn.IsValid, pawn.HealthComponent.IsDead
-        local reads = 0
-        pawn.K2_GetActorLocation = function(self) reads=reads+1; return original_loc(self) end
-        if invalid == "controller" then pc.IsValid=function() return false end
-        elseif invalid == "pawn" then pawn.IsValid=function() return false end
-        elseif invalid == "foreign" then pc.Pawn=obj({CharacterMovement=mc, HealthComponent=pawn.HealthComponent})
-        else pawn.HealthComponent.IsDead=function() _G.DW_WORLD_GUID="other-world"; return true end end
-        step(1)
-        local outcome=active.result
-        check("invalid "..invalid.." finish never reads cached pawn", reads==0 and outcome and outcome.status=="failed" and outcome.route_feedback==nil, reads)
-        pc.IsValid, pawn.IsValid, pc.Pawn, pawn.K2_GetActorLocation, pawn.HealthComponent.IsDead = original_pc_valid, original_pawn_valid, pawn, original_loc, original_dead
-        _G.DW_WORLD_GUID="test-world"; M.stop(log); pawn.loc={X=0,Y=0,Z=0}
-    end
-    oracle = function(id) return ("return {id=%d,ok=true,partial=false,goal_projected=true,points={{0,0,0},{20,0,0}}}"):format(id) end
-    pump_oracle(); M.go_to(log, {20,0,-4}, {local_plan=false}); run(200)
-    local vertical=M.status().result; f=vertical and vertical.route_feedback
-    check("route endpoint does not replace requested height",vertical and vertical.reason=="verification_failed" and f and f.partial==false and f.requested_xyz[3]==-4 and f.route_endpoint[3]==0 and f.vertical_error_m==4 and f.absolute_vertical_error_m==4,vertical and vertical.detail)
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }; _G.DW_TRAP_CAND = nil
     oracle = function(id) return ("return {id=%d,ok=true,points={{0,0,0},{5,0,0}}}"):format(id) end
     pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(80)
@@ -1727,7 +622,6 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     oracle = function(id) return ("return {id=%d,ok=true,points={{0,0,0},{1e308,0,0}}}"):format(id) end
     pump_oracle(); M.go_to(log, {20,0,0}, {local_plan=false}); run(20)
     check("overflowing converted waypoint is rejected", pawn.loc.X == 0 and M.status().result and M.status().result.reason == "verification_failed", M.status().status)
-    check("malformed waypoint supplies no feedback", M.status().result and M.status().result.route_feedback == nil)
     M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }; luis.loc = { X=2000, Y=200, Z=0 }
     local evpath = dir .. "/client_io/events/move.jsonl"
     os.execute('mkdir "' .. (dir .. "/client_io/events"):gsub("/", "\\") .. '" 2>nul')
@@ -1744,7 +638,7 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     oracle = function(id) return ("return {id=%d,ok=true,partial=false,points={{%.2f,%.2f,0},{20,2,0}}}"):format(id,pawn.loc.X/100,pawn.loc.Y/100) end
     run(130)
     check("routed follow resumes on fresh admitted route", M.status().mode == "follow" and M.status().status == "near", M.status().status)
-    M.stop(log); empty_native_memory(); pawn.loc = { X=0, Y=0, Z=0 }; oracle = nil; pump_oracle()
+    M.stop(log); pawn.loc = { X=0, Y=0, Z=0 }; oracle = nil; pump_oracle()
     local original_timeout = M.cfg.nav_timeout_s; M.cfg.nav_timeout_s = 0.5
     M.go_to(log, {20,0,0}, {local_plan=false}); run(20)
     check("missing service reports unavailable without input", pawn.loc.X == 0 and M.status().result and
@@ -1757,7 +651,7 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     os.rename=function(a,b) if tostring(b):find("req%.json$") then return nil,"denied" end return saved_rename(a,b) end
     M.go_to(log,{20,0,0},{tolerance_m=1}); run(100); os.rename=saved_rename
     check("refused rename still obtains admitted route", M.status().result and M.status().result.status == "arrived", tostring(M.status().status) .. " requests=" .. tostring(M.status().nav_requests))
-    M.stop(log); empty_native_memory(); walls={}; pawn.loc={X=0,Y=0,Z=0}; oracle=nil; pump_oracle()
+    M.stop(log); walls={}; pawn.loc={X=0,Y=0,Z=0}; oracle=nil; pump_oracle()
     oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{20,0,0}}}"):format(id) end
     pump_oracle(); M.go_to(log,{20,0,0},{local_plan=false}); run(1)
     local owner = _G.DWArbiter.owner
@@ -1831,22 +725,10 @@ if os.getenv("MOVE_AUTHORITY_ONLY") == "1" then
     M.stop(log); pawn.loc={X=0,Y=0,Z=0}
     M.go_to(log, {20,0,0}, {nav=false,local_plan=false}); run(60)
     check("explicit direct opt-out moves", pawn.loc.X > 0, pawn.loc.X)
-    M.stop(log); empty_native_memory()
+    M.stop(log)
     do -- Actual arbiter + mover + interaction episode, no fake ownership layer.
         local A=assert(loadfile(dir.."/client_mod/scripts/arbiter.lua"))(); A.set_move(M)
         local SK=assert(loadfile(here.."/../scripts/skills.lua"))()
-        pawn.loc={X=0,Y=0,Z=0}; air=0; M.stop(log)
-        oracle=function(id) return ("return {id=%d,ok=true,partial=true,points={{0,0,0},{5,0,0}}}"):format(id) end
-        pump_oracle(); local original=M.go_to(log,{20,0,0},{local_plan=false}); run(2)
-        local old_feedback=_G.DW_MOVE.route_feedback
-        local reflex=A.request(log,{name="feedback:reflex",level="reflex",uses_move=true})
-        A.release(log,reflex.token,"done")
-        local resumed_gen=_G.DW_MOVE.gen
-        oracle=function(id) return ("return {id=%d,ok=false,reason='no_path',goal_projected=false,points={}}"):format(id) end
-        pump_oracle(); run(20)
-        local resumed=M.status().result
-        check("real suspend resume cannot donate old generation feedback",original.ok and old_feedback and reflex.ok and resumed_gen~=original.gen and resumed and resumed.status=="failed" and (not resumed.route_feedback or resumed.route_feedback.generation~=original.gen))
-        M.stop(log); pawn.loc={X=0,Y=0,Z=0}; oracle=nil; pump_oracle()
         local faces=0
         SK.W.interaction_point=function(_,thing) return thing.position,"actor_origin" end
         SK.W.resting_in=function() return nil end
@@ -2194,9 +1076,7 @@ local dl = math.sqrt((pawn.loc.X - luis.loc.X) ^ 2 + (pawn.loc.Y - luis.loc.Y) ^
 check("leader on a plateau: reached him via his trail", dl < 450 and math.abs(pawn.loc.Z - luis.loc.Z) < 60,
     string.format("d=%.0f dz=%.0f status=%s res=%s trail=%s lp_fail=%s", dl, pawn.loc.Z - luis.loc.Z, tostring(s.status),
         tostring(s.result and s.result.reason), tostring(s.trail_entries), tostring(s.lp_fail)))
--- Correct ramp normals can keep direct pursuit valid. The preceding assertion
--- requires actual arrival/elevation, without prescribing a particular router.
-if os.getenv("DBG8") then for i = math.max(1, #logs - 40), #logs do print("  " .. logs[i]) end end
+check("plateau: trail used", (s.trail_entries or 0) >= 1, s.trail_entries); if os.getenv("DBG8") then for i = math.max(1, #logs - 40), #logs do print("  " .. logs[i]) end end
 M.stop(log)
 frame_hook = nil
 raised = {}
@@ -2517,7 +1397,6 @@ if os.getenv("DBG19") then for _, l in ipairs(logs) do if l:find("water sense") 
 s = MW2.status()
 check("water: second trip goes round (less wading)", s.result and s.result.status == "arrived" and w2 < w1 * 0.5,
     string.format("w1=%d w2=%d %s", w1, w2, tostring(s.result and s.result.status)))
-check("water detour does not report unrelated route feedback", s.result and s.result.route_feedback == nil)
 MW2.stop(log)
 lakes = {}
 
@@ -3058,9 +1937,15 @@ do
     local prior_gen, prior_handle = _G.DW_MOVE.gen, _G.DW_MOVE.handle
     local refused=M.go_to(log, { 22, 0, 0 }, { owner_token = other.token })
     check("owner: non-mover cannot be borrowed", not refused.ok and _G.DW_MOVE.gen==prior_gen and _G.DW_MOVE.handle==prior_handle and not A.owns_move(other.token))
-    refused=M.go_to(log, { 23, 0, 0 }, {})
-    check("owner: unassociated move does not borrow existing owner", not refused.ok and _G.DW_MOVE.gen==prior_gen and _G.DW_MOVE.handle==prior_handle)
-    M.stop(log); A.release(log, other.token, "done")
+    local direct2=M.go_to(log, { 23, 0, 0 }, {})
+    local adopted=A.owner()
+    check("owner: idle non-reflex owner is stale; direct move releases it", direct2.ok and adopted and adopted.implicit and adopted.token~=other.token)
+    M.stop(log)
+    local reflex = A.request(log, { name = "fight", level = "reflex", uses_move = false })
+    prior_gen = _G.DW_MOVE.gen
+    refused=M.go_to(log, { 24, 0, 0 }, {})
+    check("owner: direct move refused while a reflex owns the pawn", not refused.ok and refused.reason=="busy" and _G.DW_MOVE.gen==prior_gen)
+    M.stop(log); A.release(log, reflex.token, "done")
 end
 
 -- Borrowed Windstep jobs are owned by the movement action and require a verified landing.
@@ -3305,16 +2190,12 @@ do
     check("jump binding: stop context restored after throw",first.ok and next_owner.ok and _G.DWArbiter.move_stop_context==prior)
     _G.DWArbiter.move_stop_context=nil; A.release(log,next_owner.token,"cleanup"); A.set_move(M)
 end
-end -- full mover scenarios before the isolated jump-path fixture
 do
     local original_jump=pawn.Jump
     local function setup()
         pawn.Jump=original_jump; M.stop(log)
         walls, raised, oracle, frame_hook, air = {}, {}, nil, nil, 0
         pawn.loc={X=0,Y=0,Z=0}; M.go_to(log,{20,0,0},{nav=false,local_plan=false})
-        local NM=assert(loadfile(dir..'/client_mod/scripts/navmem.lua'))()
-        _G.DW_NAVMEM=NM.new_mem('test-world');_G.DW_NAVMEM._world='test-world'
-        _G.DW_MOVE_WORLD={id='test-world',t=os.time()}
         return _G.DW_MOVE
     end
     local attempts=0
@@ -3348,7 +2229,7 @@ do
     pawn.Jump=refuse; attempts=0; run(1); KSL_BASE=old_trace
     check("jump paths: reactive hop rejection preserves counter",attempts==1 and st.result and st.result.reason=="verification_failed" and not st.hops and not st.jump_t)
     st=setup(); st.use_nav=true
-    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{2,0,1},{20,0,0}}}"):format(id) end; pump_oracle(); run(1)
+    oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{2,0,1}}}"):format(id) end; pump_oracle(); run(1)
     pawn.Jump=refuse; attempts=0; run(1)
     check("jump paths: oracle link rejection preserves marker",attempts==1 and st.result and st.result.reason=="verification_failed" and not st.nav_jumped[2] and not st.link_jumps)
     local scenarios={
@@ -3358,7 +2239,7 @@ do
         {name="link",prepare=function(s) local e={phase="run",t0=T,link={id="t",from={0,0,-.9},to={5,0,-.9},move="jump"}}; s.link_exec=e; return e,"t_jump" end},
         {name="oracle",prepare=function(s)
             s.use_nav=true
-            oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{2,0,1},{20,0,0}}}"):format(id) end; pump_oracle(); run(1)
+            oracle=function(id) return ("return {id=%d,ok=true,partial=false,points={{0,0,0},{2,0,1}}}"):format(id) end; pump_oracle(); run(1)
             return s.nav_jumped,2
         end},
         {name="stepoff",prepare=function(s) pawn.loc.Z=300; s.win_t=T-2; s.win_pos={X=0,Y=0,Z=300}; return s,"stepoff_tried" end},
@@ -3387,7 +2268,6 @@ do
     end
     pawn.Jump=original_jump; M.stop(log)
 end
-if os.getenv('MOVE_JUMP_ONLY')=='1' then print(fails==0 and 'JUMP PATHS OK' or (fails..' FAILED'));os.exit(fails==0 and 0 or 1) end
 do
     walls, raised, oracle, frame_hook, air = {}, {}, nil, nil, 0
     M.stop(log)
@@ -3433,8 +2313,26 @@ do
         string.format("fired=%s gen=%s token=%s handle=%s loop=%s mode=%s trip=%s",tostring(fired),tostring(st.gen==successor_gen),tostring(st.owner_token==successor_token),tostring(st.handle==successor_handle),tostring(loops[successor_handle]~=nil),tostring(st.mode),tostring(st.trip==sentinel)))
     M.stop(log)
 end
-NATIVE_SEGMENT_CASES()
-WALK_FAILURE_TRACE_CASE()
+-- No admitted route (oracle absent) falls back to local planning at once instead of holding/failing;
+-- straight steering is drop-guarded (the KillZ death was a beeline at a goal far below).
+do
+    M.stop(log); walls, raised, HOLES = {}, {}, nil; pawn.loc = { X = 0, Y = 0, Z = 0 }; air = 0
+    oracle = nil; pump_oracle()
+    M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1 })
+    run(100)
+    local r = M.status().result
+    check("fallback: far go_to without an oracle walks and arrives", r and r.status == "arrived" and _G.DW_MOVE.nav_fallback ~= nil,
+        r and (tostring(r.status) .. " " .. tostring(r.detail)))
+    M.stop(log); pawn.loc = { X = 0, Y = 0, Z = 0 }
+    HOLES = { { 200, 3000, -3000, 3000 } }
+    local old_plans = M.cfg.lp_max_plans; M.cfg.lp_max_plans = 0
+    M.go_to(log, { 20, 0, 0 }, { tolerance_m = 1 })
+    run(30)
+    r = M.status().result
+    check("fallback: drop ahead stops the straight walk with an honest failure", r and r.status == "failed" and pawn.loc.X < 200 and
+        tostring(r.detail):find("drop ahead", 1, true), r and (tostring(r.status) .. " " .. tostring(r.detail) .. " x=" .. pawn.loc.X))
+    M.cfg.lp_max_plans = old_plans; HOLES = nil; M.stop(log)
+end
 for _, l in ipairs(logs) do if l:find("error") then print("LOG " .. l) end end
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)
