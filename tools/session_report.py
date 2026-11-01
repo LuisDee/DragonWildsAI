@@ -9,6 +9,11 @@ Writes logs/reports/session-<log stem>.md (short summary), .steps.md (per-reques
 pickup) and .tables.jsonl (one row per request, tool call, model call, body action, idle gap and pickup; DuckDB:
     SELECT * FROM read_ndjson('logs/reports/*.tables.jsonl', union_by_name=true) WHERE "table"='gap').
 
+Server truth (when a logs/recorder/rec_*.jsonl overlaps the run; tools/recorder_motion.py): per request, Claude's
+moving vs standing time from the dev server's 5 Hz pose (v < 0.3 m/s = standing), idle runs over 5 s from that pose
+(with the interact presses inside them: fumbling vs idle), and every interact press with its target class and the
+inventory change that followed (hit; nothing within 1.5 s = miss). --no-recorder skips it.
+
 Correlation chain (reconstructed, docs/research/2026-11-01-telemetry.md says what to stamp instead):
   chat_heard.episode_id -> llm_response (same episode) -> tool_call -> next bridge_send of the same tool
   (its msg.id is the BODY ACTION ID) -> mod client_action_start/end, trips.jsonl id, gather.jsonl
@@ -38,6 +43,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from tools import recorder_motion as rm
 from tools.timeline import ROOT, _pick_by_start, jsonl, parse_ts, redact, short
 
 UE4SS_LOG = Path(os.environ.get(
@@ -45,6 +51,7 @@ UE4SS_LOG = Path(os.environ.get(
     r"C:\Program Files (x86)\Steam\steamapps\common\RSDragonwilds\RSDragonwilds\Binaries\Win64\ue4ss\UE4SS.log"))
 SERVER_LOG = Path(os.environ.get("DW_SERVER_LOG", r"C:\GameServers\Dragonwilds\RSDragonwilds\Saved\Logs\RSDragonwilds.log"))
 IDLE_MIN_S = 5.0
+NOTE_RX = re.compile(r"^\s*note\s*:", re.IGNORECASE)  # Luis's annotation convention (brain/run_live.py NOTE_LINE)
 BIN = 0.25  # seconds per bin of the activity grid
 READ_TOOLS = {"get_state", "look", "inspect", "inventory", "spells", "buildables", "recipes", "craft_plan", "lodestones",
               "stations", "world_info", "combat_brief", "capabilities", "ping", "me", "census", "quests", "skills_status"}
@@ -163,6 +170,7 @@ class Brain:
         self.player_dist: list[tuple[float, str, float]] = []
         self.reads: list[tuple[float, float, str]] = []   # (start, end, tool) bridge round trips of read tools
         self.says: list[tuple[float, float, str]] = []
+        self.annotations: list[tuple[float, str, str]] = []   # (ts, player, text): "note: ..." lines (never to the model)
         self.first = self.last = None
         self.session: dict = {}
         self._parse()
@@ -203,7 +211,7 @@ class Brain:
                     e = d.get("event") or {}
                     if e.get("type") == "chat_heard" and ep:
                         txt = str(e.get("text", ""))
-                        ep.lines.append((ts, e.get("player"), txt, txt.strip().lower().startswith("note")))
+                        ep.lines.append((ts, e.get("player"), txt, bool(NOTE_RX.match(txt))))
                         ep.t0 = min(ep.t0, ts)
                 elif k == "prompt":
                     c = LLMCall(ts, None, str(d.get("component")), str(d.get("step")), eid, n)
@@ -292,6 +300,8 @@ class Brain:
                     ep.stops.append((ts, d.get("why")))
                 elif k == "bridge_wait_interrupted" and ep:
                     ep.waits_cut.append((ts, d.get("tool"), d.get("why")))
+                elif k == "annotation":
+                    self.annotations.append((ts, d.get("player"), str(d.get("text") or "")))
                 elif k in ("controller_note", "reply_silent", "controller_budget_exhausted", "no_progress") and ep:
                     ep.notes.append((ts, k, short(d.get("text") or d.get("args") or d.get("calls"), 120)))
 
@@ -310,6 +320,28 @@ def _lite(data: dict) -> dict:
 
 # ------------------------------------------------------------------ client and server sources
 _UE_RX = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)(\.\d+)?\] \[Lua\] \[DWClient\] (.*)$")
+
+
+def _ue4ss_boot(path: Path) -> float | None:
+    """A UE4SS.log's boot time: its first line's local stamp ("[2026-11-01 00:13:21.76] Console created")."""
+    try:
+        with open(path, encoding="utf-8-sig", errors="replace") as f:
+            m = re.match(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)", f.readline())
+    except OSError:
+        return None
+    return datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S").astimezone().timestamp() if m else None
+
+
+def pick_ue4ss(root: Path, since: float, live: Path = UE4SS_LOG) -> Path:
+    """The client log that covers a run starting at ``since``: the live UE4SS.log, or, when the client was relaunched
+    since, the newest archive tools/client_boot.ps1 made before launching (logs/client/ue4ss-<UTC boot>Z.log)."""
+    cands = [(t, live) for t in [_ue4ss_boot(live)] if t is not None]
+    for f in (root / "logs" / "client").glob("ue4ss-*Z.log"):
+        m = re.search(r"ue4ss-(\d{8}T\d{6})Z", f.name)
+        if m:
+            cands.append((datetime.strptime(m.group(1), "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc).timestamp(), f))
+    before = [c for c in cands if c[0] <= since + 60]
+    return max(before, key=lambda c: c[0])[1] if before else live
 
 
 def read_ue4ss(path: Path, since: float, until: float, tz: timezone | None) -> list[UELine]:
@@ -458,7 +490,8 @@ def pattern(text: str) -> str:
 # ------------------------------------------------------------------ the report
 class Session:
     def __init__(self, brain_path: Path, root: Path = ROOT, ue4ss: Path = UE4SS_LOG, server: Path = SERVER_LOG,
-                 ue_tz: timezone | None = None, tail_s: float = 120.0):
+                 ue_tz: timezone | None = None, tail_s: float = 120.0, recorder: Path | bool | None = None,
+                 recorder_who: str | None = None):
         self.brain = Brain(brain_path)
         b = self.brain
         self.since, self.until = b.first, b.last + tail_s
@@ -471,6 +504,10 @@ class Session:
         self.gather_ev = read_events(ev / "gather.jsonl", self.since - 5, self.until)
         self.vitals = read_events(ev / "vitals.jsonl", self.since - 5, self.until)
         self.server = read_server(server, self.since, self.until)
+        # the dev server's player recorder: a file, False (off), or None (auto-pick the files overlapping the run)
+        self.rec = (None if recorder is False else rm.load(recorder) if isinstance(recorder, Path) else
+                    rm.load_overlapping(root / "logs" / "recorder", self.since, self.until))
+        self.rec_who = rm.pick_player(self.rec, recorder_who or b.session.get("name") or "Claude")
         self.actions = self._actions()
         self._link()
         self.requests = sorted((e for e in b.episodes.values() if e.kind == "chat" and e.lines), key=lambda e: e.t0)
@@ -804,8 +841,36 @@ class Session:
                 "done_s": done - e.t0, "outcome": outcome, "interrupted": interrupted,
                 "model_calls": len(e.llm), "model_s": sum(c.latency or 0 for c in e.llm),
                 "tools": len(e.tools), "actions": len(acts), "idle_s": round(idle, 1),
-                "next_line_s": (nxt.t0 - e.t0) if nxt else None, "dist_to_player_m": dist})
+                "next_line_s": (nxt.t0 - e.t0) if nxt else None, "dist_to_player_m": dist,
+                "annotations": [t for ts, _, t in self.brain.annotations if e.t0 <= ts <= done],
+                **self.server_truth(e.t0, done)})
         return rows
+
+    def server_truth(self, a: float, b: float) -> dict:
+        """Claude's server-side truth over [a, b] (recorder pose at 5 Hz, interact presses with outcomes)."""
+        rec, who = self.rec, self.rec_who
+        if not rec or not who:
+            return {}
+        mo = rec.motion(who, a, b)
+        idle = rec.idle_segments(who, a, b, min_s=IDLE_MIN_S)
+        ps = rec.presses(who, a, b)
+        out = Counter(p.outcome for p in ps)
+        return {"srv_moving_s": mo["moving_s"], "srv_standing_s": mo["standing_s"], "srv_absent_s": mo["absent_s"],
+                "srv_idle_s": round(sum(i.s for i in idle), 1), "srv_idle_n": len(idle),
+                "srv_idle": [{"start": i.start, "s": i.s, "presses": i.presses, "p": i.p, "hp0": i.hp0, "hp1": i.hp1} for i in idle],
+                "srv_presses": len(ps), "srv_hits": out["hit"], "srv_misses": out["miss"], "srv_changed": out["changed"],
+                "srv_press_list": [{"ts": p.ts, "target_class": p.target_class, "target": p.target, "dist_m": p.dist_m,
+                                    "outcome": p.outcome, "delta": p.delta, "delta_s": p.delta_s, "who_src": p.who_src} for p in ps]}
+
+    def open_union(self) -> list[tuple[float, float]]:
+        """The open-request windows merged (overlapping requests counted once)."""
+        out: list[list[float]] = []
+        for a, b, _ in sorted(self.open_windows()):
+            if out and a <= out[-1][1]:
+                out[-1][1] = max(out[-1][1], b)
+            else:
+                out.append([a, b])
+        return [(a, b) for a, b in out]
 
     def _dist_at(self, ts: float, player: str | None):
         """Claude-to-speaker distance from the nearest get_state within 30 s; 'not seen' when get_state ran but the
@@ -877,12 +942,14 @@ def render_md(s: Session) -> str:
     reqs = s.request_rows()
     L = []
     title = f"Session report: {b.path.name}"
+    rec_src = (", ".join(x.name for x in s.rec.paths) + f"; Claude = `{s.rec_who}`") if s.rec else "none overlapping"
     L.append(f"# {title}\n")
     L.append(f"Window {hms(b.first)}-{hms(b.last)} UTC ({(b.last - b.first) / 60:.0f} min). Player "
              f"`{b.session.get('player')}`, controller `{b.session.get('controller_model')}`, body `{b.session.get('body')}`.")
     L.append(f"Sources: brain log ({len(b.llm)} model calls, {len(b.tools)} tool calls), UE4SS.log ({len(s.ue)} [DWClient] lines), "
              f"mod actions ({len(s.mod)}), trips ({len(s.trips)}), gather events ({len(s.gather_ev)}), vitals ({len(s.vitals)}), "
-             f"server log ({len(s.server)} lines). Generated by `tools/session_report.py`; all times UTC.\n")
+             f"server log ({len(s.server)} lines), server recorder ({rec_src}). "
+             f"Generated by `tools/session_report.py`; all times UTC.\n")
 
     # headline numbers
     acts = [r for r in reqs if r["actions"]]
@@ -910,6 +977,21 @@ def render_md(s: Session) -> str:
              f"{sum(1 for p in pk if p['reason'] == 'interrupted')} cut; {sum(p['press'] for p in pk)} presses, "
              f"{sum(p['picked'] for p in pk)} picked, {sum(p['miss'] for p in pk)} misses, {sum(p['moves'] for p in pk)} re-aim/approach moves, "
              f"{sum(p['s'] for p in pk):.0f} s |")
+    if s.rec and s.rec_who:
+        tr = [s.server_truth(a, b) for a, b in s.open_union()]
+        mv, st = sum(t["srv_moving_s"] for t in tr), sum(t["srv_standing_s"] for t in tr)
+        segs = [g for t in tr for g in t["srv_idle"]]
+        prs = [x for t in tr for x in t["srv_press_list"]]
+        oc = Counter(x["outcome"] for x in prs)
+        cls = Counter(x["target_class"] for x in prs)
+        L.append(f"| server truth while open: Claude moving / standing (v < {rm.V_MIN} m/s) | {mv:.0f} s / {st:.0f} s "
+                 f"({100 * st / max(mv + st, 1):.0f}% standing) |")
+        L.append(f"| server truth: standing runs > {IDLE_MIN_S:.0f} s while open | {len(segs)}, {sum(g['s'] for g in segs):.0f} s "
+                 f"({sum(1 for g in segs if 10 <= g['s'] <= 20)} of 10-20 s, {sum(1 for g in segs if g['s'] > 20)} over 20 s; "
+                 f"{sum(1 for g in segs if g['presses'])} with interact presses inside = fumbling, the rest idle) |")
+        L.append(f"| server truth: interact presses while open | {len(prs)}: {oc['hit']} hit, {oc['miss']} miss (no inventory "
+                 f"change in {rm.OUTCOME_S} s), {oc['changed']} only lost items; targets "
+                 f"{', '.join(f'{k} {v}' for k, v in cls.most_common(5)) or '-'} |")
     sm = s.sampling()
     L.append(f"| body position samples while open | {sm['per_min_open']}/min (median gap {sm['median_gap_s']} s, p95 {sm['p95_gap_s']} s, "
              f"max {sm['max_gap_s']} s); move speed samples cover {sm['speed_coverage_pct']}% of open time |")
@@ -963,12 +1045,17 @@ def render_md(s: Session) -> str:
     L.append("Times are seconds after the line reached the brain; step-by-step timelines are in the steps file. "
              "`ctx Lnnn` there is the brain-log line of the prompt the model saw when it chose a call "
              "(`--why <bridge id>` prints the full rebuilt request).\n")
-    L.append("| # | time | request | dist m | 1st say | 1st action | done | outcome | model calls (s) | idle s | next line |\n"
-             "|---|---|---|---|---|---|---|---|---|---|---|")
+    if s.rec_who:
+        L.append(f"`srv` columns are the dev server's recorder: Claude's moving/standing seconds, standing runs over "
+                 f"{IDLE_MIN_S:.0f} s (seconds, count), interact presses hit/miss.\n")
+    L.append("| # | time | request | dist m | 1st say | 1st action | done | outcome | model calls (s) | idle s | srv move/stand s | "
+             "srv idle s (n) | srv presses hit/miss | next line |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for i, r in enumerate(reqs, 1):
+        srv = (f"{r['srv_moving_s']:.0f}/{r['srv_standing_s']:.0f} | {r['srv_idle_s']:.0f} ({r['srv_idle_n']}) | "
+               f"{r['srv_hits']}/{r['srv_misses']}" if "srv_moving_s" in r else "- | - | -")
         L.append(f"| R{i} | {hms(r['t0'])} | {esc(short(r['text'], 70))} | {r['dist_to_player_m'] if r['dist_to_player_m'] is not None else '-'} | "
                  f"{secs(r['first_say_s'])} | {secs(r['first_action_s'])} | {secs(r['done_s'], 0)} | {esc(r['outcome'])} | "
-                 f"{r['model_calls']} ({r['model_s']:.1f}) | {r['idle_s']:.0f} | {secs(r['next_line_s'], 0)} |")
+                 f"{r['model_calls']} ({r['model_s']:.1f}) | {r['idle_s']:.0f} | {srv} | {secs(r['next_line_s'], 0)} |")
     L.append("")
     S.append("## Requests\n")
     eps = {e.id: e for e in s.requests}
@@ -985,6 +1072,12 @@ def render_md(s: Session) -> str:
             S.append("- interrupted: " + "; ".join(esc(x) for x in r["interrupted"][:4]))
         if r["notes"]:
             S.append("- Luis's notes in this burst: " + " / ".join(f'"{esc(short(n, 120))}"' for n in r["notes"]))
+        if r["annotations"]:
+            S.append("- Luis's annotations while it was open: " + " / ".join(f'"{esc(short(n, 120))}"' for n in r["annotations"]))
+        if "srv_moving_s" in r:
+            S.append(f"- server truth ({s.rec_who}): moving {r['srv_moving_s']:.0f} s, standing {r['srv_standing_s']:.0f} s, "
+                     f"{r['srv_idle_n']} standing runs > {IDLE_MIN_S:.0f} s ({r['srv_idle_s']:.0f} s), presses "
+                     f"{r['srv_presses']} ({r['srv_hits']} hit, {r['srv_misses']} miss)")
         rows = []
         for c in e.llm:
             calls = ", ".join(f"{n}({short(a, 40)})" for n, a in c.calls) or ("says: " + short(c.content, 60) if c.content else "(nothing)")
@@ -1001,6 +1094,18 @@ def render_md(s: Session) -> str:
             a = max(g["start"], e.t0)
             rows.append((a, f"| +{a - e.t0:.1f} | **idle {min(g['end'], end) - a:.0f} s** (gap {hms(g['start'])}, "
                             f"{g['s']:.0f} s): {esc(g['cause'])} | | |"))
+        for g in r.get("srv_idle") or []:
+            hurt = g["hp0"] is not None and g["hp1"] is not None and g["hp1"] < g["hp0"]
+            hp = f", hp {g['hp0']:g} -> {g['hp1']:g}" if hurt else ""
+            what = f"{g['presses']} interact presses (fumbling)" if g["presses"] else "no press (idle)"
+            at = ", ".join(f"{c:.0f}" for c in g["p"])
+            rows.append((g["start"], f"| +{g['start'] - e.t0:.1f} | **server: standing {g['s']:.0f} s** at ({at}), {what}{hp} | | |"))
+        for x in r.get("srv_press_list") or []:
+            got = ", ".join(f"{k} {v:+d}" for k, v in x["delta"].items()) if x["delta"] else "no inventory change"
+            dist = f" at {x['dist_m']:.1f} m" if x["dist_m"] is not None else ""
+            lat = secs(x["delta_s"], 2) if x["delta_s"] is not None else ""
+            rows.append((x["ts"], f"| +{x['ts'] - e.t0:.1f} | server: interact {esc(x['target_class'])}{dist} | {lat} | "
+                                  f"{x['outcome']}: {esc(got)} |"))
         rows.sort(key=lambda x: x[0])
         S.append("\n| t | step | latency | result |\n|---|---|---|---|")
         S += [x for _, x in rows]
@@ -1062,6 +1167,11 @@ def tables(s: Session) -> list[dict]:
         out.append({"table": "gap", "run": run, **g})
     for p in s.pickups:
         out.append({"table": "pickup", "run": run, **p})
+    for r in s.request_rows():  # server truth, one row per standing run / interact press, keyed by request
+        for g in r.get("srv_idle") or []:
+            out.append({"table": "srv_idle", "run": run, "request": r["id"], "who": s.rec_who, **g})
+        for x in r.get("srv_press_list") or []:
+            out.append({"table": "srv_press", "run": run, "request": r["id"], "who": s.rec_who, **x})
     return out
 
 
@@ -1109,15 +1219,21 @@ def why(s: Session, key: str) -> str:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("brain_log", type=Path)
-    ap.add_argument("--ue4ss", type=Path, default=UE4SS_LOG, help="client UE4SS.log (local-time stamps)")
+    ap.add_argument("--ue4ss", type=Path, help="client UE4SS.log (local-time stamps; default: the live one, or the "
+                                               "logs/client/ue4ss-*Z.log archive whose client boot covers the run)")
     ap.add_argument("--server-log", type=Path, default=SERVER_LOG)
     ap.add_argument("--ue4ss-utc-offset", type=float, help="hours; default: this machine's local zone")
     ap.add_argument("--root", type=Path, default=ROOT)
     ap.add_argument("--out", type=Path, help="report path (default logs/reports/session-<stem>.md)")
     ap.add_argument("--why", help="print the exact model context behind a tool call (bridge id, task id or Lnnn)")
+    ap.add_argument("--recorder", type=Path, help="server recorder JSONL (default: logs/recorder/rec_*.jsonl overlapping the run)")
+    ap.add_argument("--no-recorder", action="store_true", help="skip the server recorder")
+    ap.add_argument("--recorder-who", help="Claude's player name in the recorder (default: the one starting with the session name)")
     a = ap.parse_args(argv)
     tz = timezone(timedelta(hours=a.ue4ss_utc_offset)) if a.ue4ss_utc_offset is not None else None
-    s = Session(a.brain_log, a.root, a.ue4ss, a.server_log, tz)
+    ue4ss = a.ue4ss or pick_ue4ss(a.root, next((r['ts'] for r in jsonl(a.brain_log) if 'ts' in r), 0.0))
+    s = Session(a.brain_log, a.root, ue4ss, a.server_log, tz,
+                recorder=False if a.no_recorder else a.recorder, recorder_who=a.recorder_who)
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if a.why:
         sys.stdout.write(why(s, a.why))

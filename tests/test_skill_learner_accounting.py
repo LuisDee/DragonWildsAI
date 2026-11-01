@@ -138,5 +138,8 @@ def test_standalone_proposal_logs_exact_litellm_input_and_keeps_optional_admissi
     assert prompt["settings"] == {k: v for k, v in sent[0].items() if k != "messages"}
     assert len(prompt["messages"]) == len(sent[0]["messages"]) and prompt["tools"] is None
     response_row = next(r for r in logger.read_all() if r["kind"] == "llm_response")
-    assert response_row["usage"] == {"prompt": 10, "completion": 5, "cached": None, "cache_write": None}
+    usage = response_row["usage"]  # token counts + the call's latency/identity/cost (brain/llm.py _call_meta)
+    assert {k: usage[k] for k in ("prompt", "completion", "cached", "cache_write")} == {
+        "prompt": 10, "completion": 5, "cached": None, "cache_write": None}
+    assert {"latency_ms", "response_id", "request_id", "cost_usd"} <= set(usage)
     assert response_row["finish_reason"] == "stop" and response_row["model"] == llm.model

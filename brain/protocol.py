@@ -17,9 +17,11 @@ PROTOCOL_VERSION = 1
 CAPABILITIES = "capabilities"
 
 
-def cmd(req_id: str, tool: str, args: dict | None = None, probe: bool = False) -> dict:
+def cmd(req_id: str, tool: str, args: dict | None = None, probe: bool = False, **ids: Any) -> dict:
+    """``ids``: the correlation envelope (run, ep, call; JsonlLogger.ids()) beside ``id``; None values are left out.
+    A body echoes them on its rows while the command runs (telemetry items 1-2)."""
     msg = {"v": PROTOCOL_VERSION, "type": "cmd", "id": req_id, "tool": tool, "args": args or {},
-           "ts": round(time.time(), 3)}
+           "ts": round(time.time(), 3), **{k: v for k, v in ids.items() if v is not None}}
     if probe:  # "is this tool implemented?" A body may answer without acting.
         msg["probe"] = True
     return msg

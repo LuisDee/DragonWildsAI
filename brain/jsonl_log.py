@@ -55,6 +55,22 @@ class JsonlLogger:
         finally:
             self.episode_id = outer
 
+    @contextmanager
+    def scope(self, **ids: Any) -> Iterator[None]:
+        """Stamp correlation ids (``call=<the model's tool_use id>``) on every row this thread logs inside the block,
+        like ``episode()`` (telemetry item 1, docs/research/2026-11-01-telemetry.md). None values are skipped."""
+        outer = getattr(self._episode, "ids", {})
+        self._episode.ids = {**outer, **{k: v for k, v in ids.items() if v is not None}}
+        try:
+            yield
+        finally:
+            self._episode.ids = outer
+
+    def ids(self) -> dict:
+        """The correlation envelope for a message leaving the brain (a bridge cmd): run (this log's stem), ep, and
+        the open scope's ids, so the body can echo them on its own rows."""
+        return {"run": self.path.stem, "ep": self.episode_id, **getattr(self._episode, "ids", {})}
+
     @classmethod
     def session(cls, prefix: str = "brain-live", directory: Path | None = None) -> "JsonlLogger":
         """A fresh file per session: <log_dir>/<prefix>-YYYYMMDD-HHMMSS-<pid>.jsonl."""
@@ -65,6 +81,8 @@ class JsonlLogger:
         record = {"ts": round(time.time(), 3), "kind": kind, **fields}
         if self.episode_id and "episode_id" not in record:
             record["episode_id"] = self.episode_id
+        for k, v in getattr(self._episode, "ids", {}).items():
+            record.setdefault(k, v)
         line = json.dumps(record, default=str, ensure_ascii=False)
         with self._lock, self.path.open("a", encoding="utf-8") as f:
             f.write(line + "\n")

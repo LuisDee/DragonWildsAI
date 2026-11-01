@@ -100,7 +100,7 @@ def load_debug_runs(mod_log_dir: Path, t0: datetime, t1: datetime) -> list[tuple
                     continue
                 try:
                     r = json.loads(line)
-                    ts = utc(datetime.strptime(r["ts"], "%Y-%m-%dT%H:%M:%SZ"))
+                    ts = utc(datetime.strptime(r["ts"][:19], "%Y-%m-%dT%H:%M:%S"))  # dwlog writes ms since 2026-11-01
                 except (json.JSONDecodeError, KeyError, ValueError):
                     continue
                 if r.get("event") == "debug_run" and t0 - timedelta(seconds=30) <= ts <= t1:

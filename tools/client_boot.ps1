@@ -103,6 +103,30 @@ function New-JoinCmd {
     $tmp
 }
 
+# Telemetry item 6 (docs/research/2026-11-01-telemetry.md): a launch overwrites ue4ss\UE4SS.log, so copy the previous
+# one to logs\client\ue4ss-<UTC boot ts of THAT session>.log first (its first line "[yyyy-MM-dd HH:mm:ss.fffffff]" is
+# local time; fallback: the file's last write). Keeps the newest $Keep archives. Never fails the boot.
+function Save-PreviousUe4ssLog([int]$Keep = 20) {
+    try {
+        $src = Join-Path $ClientDumpDir 'UE4SS.log'
+        if (-not (Test-Path -LiteralPath $src)) { return }
+        $fi = Get-Item -LiteralPath $src
+        if ($fi.Length -eq 0) { return }
+        $boot = $fi.LastWriteTimeUtc
+        $first = Get-Content -LiteralPath $src -TotalCount 1
+        if ($first -match '^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)') {
+            $boot = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture).ToUniversalTime()
+        }
+        $dir = Join-Path $RepoRoot 'logs\client'
+        New-Item -ItemType Directory -Force $dir | Out-Null
+        $dest = Join-Path $dir ('ue4ss-{0}Z.log' -f $boot.ToString('yyyyMMddTHHmmss'))
+        Copy-Item -LiteralPath $src -Destination $dest -Force
+        BLog "archived previous UE4SS.log ($([math]::Round($fi.Length / 1KB)) KB) -> $dest"
+        Get-ChildItem -LiteralPath $dir -Filter 'ue4ss-*Z.log' | Sort-Object Name -Descending |
+            Select-Object -Skip $Keep | Remove-Item -Force -ErrorAction SilentlyContinue
+    } catch { BLog "UE4SS.log archive failed: $_" }
+}
+
 # BUGS L24: instead of an action that needs another front-end visit in a process that has used its 2, kill the
 # process and run the sequence again on a fresh one (its count starts at 0). At most once per boot run.
 function Invoke-Relaunch([string]$why, $fe, $p, [datetime]$t0) {
@@ -140,6 +164,7 @@ function Invoke-BootOnce([datetime]$t0) {
         Act "launch client: steam -applaunch $ClientAppId $($ClientArgs -join ' ')"
         if ($DryRun) { return New-Result $false 'down' 'client_not_running' $null $t0 }
         foreach ($n in 'wd_boot_probe', 'boot_pick_char', 'boot_join_server', 'boot_skip_intro') { Clear-ClientCmd $n }
+        Save-PreviousUe4ssLog
         Start-ClientProcess
         $d = (Get-Date).AddSeconds(120)
         while ((Get-Date) -lt $d -and -not ($proc = Get-ClientProcess)) { Start-Sleep 2 }

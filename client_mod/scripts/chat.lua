@@ -53,9 +53,12 @@ local function guid_hex(g)
     end)
 end
 
+local okw, walltime = pcall(require, "walltime") -- ms epoch ts (mod/scripts/walltime.lua, telemetry item 5)
 local function emit(ev)
-    ev.ts = ev.ts or os.time()
-    ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts)
+    if okw then walltime.stamp(ev) else
+        ev.ts = ev.ts or os.time()
+        ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts)
+    end
     local line = try(function() return json.encode(ev) end)
     if not line then return end
     local f = io.open(EVENTS_PATH, "a")

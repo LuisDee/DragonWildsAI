@@ -178,3 +178,25 @@ def test_gather_failure_says_the_bodys_own_sentence(rig):
     assert rig.said()[-1] == "My axe is too weak for that yew tree."
     rig.session.controller.report_failure("gather", "nothing_in_range", {"resource": "willow"})
     assert rig.said()[-1] == "There's no willow anywhere near me."
+
+
+def test_note_lines_are_annotations_never_sent_to_the_model(rig):
+    """Telemetry item 10: "note: ..." is Luis's annotation for the run report (a convention agreed with him)."""
+    for text in ("note: claude stood at the bush 20 s", "NOTE:he missed the stick twice", "  note : third"):
+        rig.hear("Luis", text)
+    rows = rig.session.log.read_all()
+    assert [r["text"] for r in rows if r["kind"] == "annotation"] == [
+        "claude stood at the bush 20 s", "he missed the stick twice", "third"]
+    assert not [r for r in rows if r["kind"] in ("prompt", "chat_decision")] and not rig.said()
+    assert not any("note" in line["text"].lower() for line in rig.agent.chat.lines())
+    rig.hear("Luis", "noted, claude come here")  # not the convention: a normal line
+    assert ("noted, claude come here", "addressed", "named or prefixed") in rig.decisions()
+
+
+def test_each_request_ends_with_a_request_state_row(rig):
+    """Telemetry item 8: how the chain ended, from the episode's own rows."""
+    rig.hear("Luis", "claude follow me")
+    rig.hear("Luis", "hello claude what are you wearing")
+    states = [r for r in rig.session.log.read_all() if r["kind"] == "request_state"]
+    assert [(r["ended"], r["last_tool"]) for r in states] == [("done", "follow"), ("talk_only", None)]
+    assert all(r["episode_id"] and r["model_calls"] >= 1 and r["s"] >= 0 for r in states)

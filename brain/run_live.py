@@ -24,6 +24,7 @@ DW_PLAYER_NAME.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import re
@@ -65,6 +66,9 @@ PREFIX_ENV = "DW_CHAT_PREFIXES"
 PING = "!ping"
 PARTNER_S = 180.0  # a player he answered this recently is the one he is talking with
 PONG = "pong"
+# "note: ..." from a player annotates the run for the report and never reaches the model (telemetry item 10): a
+# logging convention agreed with Luis, not intent inference. 2026-11-01: 14 note bursts cost 35 model calls.
+NOTE_LINE = re.compile(r"^\s*note\s*:\s*", re.IGNORECASE)
 
 
 def chat_route(text: str, prefixes: list[str], name: str | None = "Claude") -> tuple[str, str | None]:
@@ -173,18 +177,73 @@ class LiveAgent(Agent):
             self._decision(player, text, "budget", "model calls refused by the budget guard")
             if addressed and self.budget.out_line_due():
                 self.controller.say(self.budget.out_line())
+            self.log.log("request_state", ended="budget", s=0.0)
             return
         self._calls.append(self.clock())
         command = CommandReceived(player=player, text=text)
         self._talking_to = player
+        mark, t0, failed = self._log_mark(), time.monotonic(), False
         try:
             self._command(command, addressed=addressed, body_events=self.take_situations() or None)
         except Exception as exc:  # a model/provider error must not kill the session
+            failed = True
             self.log.log("command_error", error=repr(exc), traceback=traceback.format_exc())
             if addressed:
                 self.controller.say("Sorry, my head glitched on that one. Try again?")
         finally:
             self._talking_to = None
+            try:
+                self._request_state(mark, time.monotonic() - t0, failed)
+            except Exception as exc:  # telemetry never breaks a request
+                self.log.log("request_state_error", error=repr(exc))
+
+    def _log_mark(self) -> int:
+        try:
+            return self.log.path.stat().st_size
+        except OSError:
+            return 0
+
+    def _request_state(self, mark: int, secs: float, failed: bool) -> None:
+        """Telemetry item 8 (docs/research/2026-11-01-telemetry.md): one row when a request's chain returns, built from
+        this episode's own rows (the logger stamps the id on every row of this thread, so nothing is inferred from
+        timing): ended = done / failed / running (the body still at it: in_flight) / superseded (interrupted) /
+        talk_only / ignored / silent / error, the chain's stop reason, and the newer lines that took the floor."""
+        eid = self.log.episode_id
+        if not eid:
+            return
+        tag, rows = f'"episode_id": "{eid}"'.encode(), []
+        with self.log.path.open("rb") as f:
+            f.seek(mark)
+            for raw in f:
+                if tag in raw:
+                    try:
+                        rows.append(json.loads(raw))
+                    except ValueError:
+                        pass
+        body = [r for r in rows if r.get("kind") == "tool_result" and r.get("task_id")]  # executor = body skills
+        last = body[-1].get("result") or {} if body else {}
+        left = [r for r in rows if r.get("kind") == "action_left_running"]
+        stop = next((r.get("why") for r in reversed(rows) if r.get("kind") == "chain_stopped"), None)
+        said = any(r.get("kind") == "say_result" and r.get("ok") for r in rows)
+        ignored = any(r.get("kind") == "chat_decision" and r.get("decision") == "ignored" for r in rows)
+        if failed:
+            ended = "error"
+        elif body and last.get("ok"):
+            ended = "done"
+        elif body and last.get("reason") == "still_running":
+            ended = "running"
+        elif body and last.get("reason") == "interrupted":
+            ended = "superseded"
+        elif body:
+            ended = "failed"
+        else:
+            ended = "talk_only" if said else "ignored" if ignored else "silent"
+        self.log.log("request_state", ended=ended, reason=None if ended in ("done", "running") else last.get("reason"),
+                     last_tool=body[-1].get("tool") if body else None, body_calls=len(body), said=said, stop=stop,
+                     in_flight=[{"id": r.get("id"), "tool": r.get("tool"), "progress": r.get("progress")} for r in left],
+                     model_calls=sum(1 for r in rows if r.get("kind") == "llm_response"),
+                     parked=getattr(self, "request_parked", None), s=round(secs, 2),
+                     superseded_by=sorted({x[4] for x in self._pending if x[4] != eid}) or None)
 
     def _rate_capped(self) -> bool:
         now = self.clock()
@@ -201,6 +260,9 @@ class LiveAgent(Agent):
 
     def _heard(self, event: ChatHeard, eid: str) -> None:
         self.log.log("event", event=event.model_dump())
+        if note := NOTE_LINE.match(event.text or ""):
+            self.log.log("annotation", player=event.player, text=event.text[note.end():].strip())
+            return
         self.chat.add(event.player, event.text)
         route, text = chat_route(event.text, self.prefixes, self.controller.name)
         if route == "ping":

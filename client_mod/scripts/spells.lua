@@ -1812,8 +1812,9 @@ function M.emit_activity(ev)
     local root = (os.getenv("DW_CLIENT_ROOT") or "C:/gameserver"):gsub("\\", "/")
     local okj, json = pcall(function() return assert(loadfile(root .. "/client_mod/scripts/dkjson.lua"))() end)
     if not okj then return false end
-    ev.type, ev.ts = "activity", os.time()
-    ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts)
+    local okw, walltime = pcall(require, "walltime") -- ms epoch ts (mod/scripts/walltime.lua, telemetry item 5)
+    ev.type = "activity"
+    if okw then walltime.stamp(ev) else ev.ts = os.time(); ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts) end
     local f = io.open(M.LATE_EVENT_PATH, "a")
     if not f then return false end
     f:write(json.encode(ev), "\n"); f:close()

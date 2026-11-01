@@ -1,5 +1,6 @@
 -- Append-only JSONL logger. One file per server run; Claude/the brain reads it, Luis never pastes it.
 local jsonutil = require("jsonutil")
+local okw, walltime = pcall(require, "walltime") -- ms ISO ts (telemetry item 5); whole seconds without it
 
 local M = {}
 local file_path, file
@@ -30,7 +31,7 @@ function M.path() return file_path end
 function M.event(name, data)
     local f = file or open() -- retry each event if the first open failed
     if not f then return end
-    local ok, line = pcall(jsonutil.encode, { ts = os.date("!%Y-%m-%dT%H:%M:%SZ"), event = name, data = data or {} })
+    local ok, line = pcall(jsonutil.encode, { ts = okw and walltime.iso() or os.date("!%Y-%m-%dT%H:%M:%SZ"), event = name, data = data or {} })
     if not ok then line = jsonutil.encode({ event = "log_encode_error", data = { name = name, err = tostring(line) } }) end
     f:write(line .. "\n")
     f:flush()

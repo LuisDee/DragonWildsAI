@@ -183,6 +183,23 @@ def _usage(resp: Any) -> dict | None:
             "cache_write": getattr(u, "cache_creation_input_tokens", None)}
 
 
+def _call_meta(resp: Any, latency_ms: int) -> dict:
+    """This call's timing, identity and cost, merged into ``usage`` so every llm_response row carries them
+    (telemetry item 7, docs/research/2026-11-01-telemetry.md). OTel GenAI analogues: latency_ms ~
+    gen_ai.client.operation.duration (wall time the brain waited, incl. LiteLLM), response_id ~ gen_ai.response.id
+    (LiteLLM's id; Anthropic's msg_ id is not passed through), request_id = the provider's request-id header
+    (Anthropic req_..., what its support traces), cost_usd = LiteLLM's own price-map cost
+    (_hidden_params["response_cost"], the same as litellm.completion_cost; https://docs.litellm.ai/docs/completion/token_usage)."""
+    hidden = getattr(resp, "_hidden_params", None)
+    hidden = hidden if isinstance(hidden, dict) else {}
+    headers = hidden.get("additional_headers") or {}
+    cost = hidden.get("response_cost")
+    rid = getattr(resp, "id", None)
+    return {"latency_ms": latency_ms, "response_id": rid if isinstance(rid, str) else None,
+            "request_id": headers.get("request-id") or headers.get("llm_provider-request-id"),
+            "cost_usd": round(cost, 7) if isinstance(cost, (int, float)) else None}
+
+
 class LiteLLMClient:
     """Real model client. Importing litellm is deferred so tests stay fast and offline."""
 
@@ -235,7 +252,9 @@ class LiteLLMClient:
         import litellm
 
         options = {"tool_choice": tool_choice} if tool_choice is not None else {}
+        t0 = time.monotonic()
         resp = litellm.completion(**self.request_payload(messages, tools, effort, **options))
+        latency_ms = round((time.monotonic() - t0) * 1000)
         msg = resp.choices[0].message
         calls = []
         raw_calls = []
@@ -258,7 +277,9 @@ class LiteLLMClient:
             replay["thinking_blocks"] = [dict(b) if not isinstance(b, dict) else b for b in thinking]
         # LiteLLM exposes provider termination as a choice finish_reason:
         # https://docs.litellm.ai/docs/completion/output
-        return LLMResponse(content=text, tool_calls=calls, message=replay, usage=_usage(resp),
+        # usage: token counts + this call's latency_ms, cost_usd, response_id, request_id (_call_meta)
+        usage = {**(_usage(resp) or {}), **_call_meta(resp, latency_ms)}
+        return LLMResponse(content=text, tool_calls=calls, message=replay, usage=usage,
                            finish_reason=getattr(resp.choices[0], "finish_reason", None))
 
 
