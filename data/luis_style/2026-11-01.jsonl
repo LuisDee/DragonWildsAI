@@ -1,0 +1,104 @@
+{"ts": 1793530596.565, "text": "claude are you picking those berries ?  what is your food and wayer currently?", "kind": "status", "words": 14, "gap_s": null, "since_claude_s": null, "claude_doing": null}
+{"ts": 1793530646.409, "text": "where are you going?", "kind": "where_why", "words": 4, "gap_s": 49.8, "since_claude_s": 16.8, "claude_doing": null}
+{"ts": 1793530667.707, "text": "claude you are in water now - why not grab some ? ", "kind": "where_why", "words": 12, "gap_s": 21.3, "since_claude_s": 17.7, "claude_doing": "go_to"}
+{"ts": 1793530792.578, "text": "how are you for food and watyer? what are you looking for now ? ", "kind": "where_why", "words": 14, "gap_s": 124.9, "since_claude_s": 0.9, "claude_doing": "gather"}
+{"ts": 1793530792.579, "text": "claude you are motionless in the water. please tell me your current task", "kind": "status", "words": 13, "gap_s": 0.0, "since_claude_s": 0.9, "claude_doing": "gather"}
+{"ts": 1793530848.51, "text": "claude Please destroy the campfire and crafting bench in the water and recreate them over hear by doric. I want you to clean your water on them here once done", "kind": "status", "words": 30, "gap_s": 55.9, "since_claude_s": 54.0, "claude_doing": null}
+{"ts": 1793530871.867, "text": "no worries ", "kind": "ack", "words": 2, "gap_s": 23.4, "since_claude_s": 14.3, "claude_doing": null}
+{"ts": 1793530935.955, "text": "awesome remember i want you to make a crafting bench and a fire here near doric so you can clean your water", "kind": "status", "words": 22, "gap_s": 64.1, "since_claude_s": 50.3, "claude_doing": null}
+{"ts": 1793530956.326, "text": "I am also interested in you crafting yourself a weapon -  maybe a club or other on the bench and using it to kill some kebbits", "kind": "request", "words": 26, "gap_s": 20.4, "since_claude_s": 70.6, "claude_doing": null}
+{"ts": 1793530992.839, "text": "eyou do have a crafting table unlocked its the first item", "kind": "request", "words": 11, "gap_s": 36.5, "since_claude_s": 7.8, "claude_doing": null}
+{"ts": 1793531038.797, "text": "claude youa rent doing anything. you are stood still unresponsive by the tent", "kind": "where_why", "words": 13, "gap_s": 46.0, "since_claude_s": 30.0, "claude_doing": null}
+{"ts": 1793531106.835, "text": "claude you jumped onto the tent and shimmered along on top for 10-15 seconds what are you doing ? ", "kind": "where_why", "words": 19, "gap_s": 68.0, "since_claude_s": 64.0, "claude_doing": null}
+{"ts": 1793531124.693, "text": "its because you are on top of the tent ", "kind": "request", "words": 9, "gap_s": 17.9, "since_claude_s": 14.2, "claude_doing": null}
+{"ts": 1793531363.748, "text": "claude dcome to me pick up this food and drink then eat/drink until you are full", "kind": "status", "words": 16, "gap_s": 239.1, "since_claude_s": 4.6, "claude_doing": null}
+{"ts": 1793531420.555, "text": "now within 20m from me there is loads of sticks and stones. pick them up", "kind": "urgency", "words": 15, "gap_s": 56.8, "since_claude_s": 7.5, "claude_doing": null}
+{"ts": 1793531452.265, "text": "grab these sticks near me", "kind": "correction", "words": 5, "gap_s": 31.7, "since_claude_s": 39.2, "claude_doing": null}
+{"ts": 1793531537.642, "text": "claude what is the recipe for a stone club", "kind": "request", "words": 9, "gap_s": 85.4, "since_claude_s": 2.9, "claude_doing": null}
+{"ts": 1793531560.666, "text": "so you need more stone. thres three stone near me get these first then find soem more", "kind": "correction", "words": 17, "gap_s": 23.0, "since_claude_s": 19.3, "claude_doing": null}
+{"ts": 1793531572.47, "text": "i want you to make that club", "kind": "request", "words": 7, "gap_s": 11.8, "since_claude_s": 31.1, "claude_doing": null}
+{"ts": 1793531603.17, "text": "you missed the part where i said theres some stone near me and that i want you to get these first", "kind": "where_why", "words": 21, "gap_s": 30.7, "since_claude_s": 27.8, "claude_doing": null}
+{"ts": 1793531603.926, "text": "come ti me and grab the stone near me first", "kind": "correction", "words": 10, "gap_s": 0.8, "since_claude_s": 28.5, "claude_doing": null}
+{"ts": 1793531641.363, "text": "let me know once you have made that club", "kind": "request", "words": 9, "gap_s": 37.4, "since_claude_s": 32.8, "claude_doing": null}
+{"ts": 1793531642.073, "text": "the stone here by the campfire i want you to pick up", "kind": "request", "words": 12, "gap_s": 0.7, "since_claude_s": 33.6, "claude_doing": null}
+{"ts": 1793531660.118, "text": "I am asking you on purpose as there is overklapping hitboxes so i want tyo make sure you can grab them", "kind": "request", "words": 21, "gap_s": 18.0, "since_claude_s": 14.8, "claude_doing": null}
+{"ts": 1793531665.279, "text": "theres still 2 stone here that you missed", "kind": "correction", "words": 8, "gap_s": 5.2, "since_claude_s": 2.0, "claude_doing": null}
+{"ts": 1793531673.312, "text": "come back and grab them,", "kind": "request", "words": 5, "gap_s": 8.0, "since_claude_s": 10.1, "claude_doing": null}
+{"ts": 1793531720.462, "text": "you arent by me. i can see the onse on the floor", "kind": "where_why", "words": 12, "gap_s": 47.1, "since_claude_s": 36.0, "claude_doing": null}
+{"ts": 1793531720.463, "text": "remember i said the stone NEAR me  i chavent moved and can see them on the floor", "kind": "correction", "words": 17, "gap_s": 0.0, "since_claude_s": 36.0, "claude_doing": null}
+{"ts": 1793531732.24, "text": "you are like 1-200m away - why are you over there", "kind": "where_why", "words": 11, "gap_s": 11.8, "since_claude_s": 8.9, "claude_doing": null}
+{"ts": 1793531732.241, "text": "tell me what you were doing over there too", "kind": "request", "words": 9, "gap_s": 0.0, "since_claude_s": 8.9, "claude_doing": null}
+{"ts": 1793531742.97, "text": "claude here", "kind": "request", "words": 2, "gap_s": 10.7, "since_claude_s": 7.3, "claude_doing": "gather"}
+{"ts": 1793531758.045, "text": "infront of my character", "kind": "correction", "words": 4, "gap_s": 15.1, "since_claude_s": 22.3, "claude_doing": null}
+{"ts": 1793531758.046, "text": "2 stone", "kind": "request", "words": 2, "gap_s": 0.0, "since_claude_s": 22.3, "claude_doing": null}
+{"ts": 1793531758.047, "text": "get them", "kind": "request", "words": 2, "gap_s": 0.0, "since_claude_s": 22.3, "claude_doing": null}
+{"ts": 1793531793.605, "text": "awesome lets sleep", "kind": "ack", "words": 3, "gap_s": 35.6, "since_claude_s": 2.6, "claude_doing": null}
+{"ts": 1793531832.976, "text": "go kill 3 kebbits then show me what loot you got", "kind": "request", "words": 11, "gap_s": 39.4, "since_claude_s": 33.7, "claude_doing": null}
+{"ts": 1793531926.481, "text": "why have you walked over to this edge?", "kind": "where_why", "words": 8, "gap_s": 93.5, "since_claude_s": 87.9, "claude_doing": null}
+{"ts": 1793531988.924, "text": "grab your gear and find kebbits", "kind": "request", "words": 6, "gap_s": 62.4, "since_claude_s": 1.0, "claude_doing": "gather"}
+{"ts": 1793531988.924, "text": "claude stop", "kind": "request", "words": 2, "gap_s": 0.0, "since_claude_s": 1.0, "claude_doing": "gather"}
+{"ts": 1793531995.703, "text": "stop", "kind": "request", "words": 1, "gap_s": 6.8, "since_claude_s": 4.5, "claude_doing": null}
+{"ts": 1793532005.174, "text": "why are you grabbing berries ?", "kind": "where_why", "words": 6, "gap_s": 9.5, "since_claude_s": 6.8, "claude_doing": null}
+{"ts": 1793532030.883, "text": "you know that you have food in your tombstone -  why would you not collect your items first ? you know there is sandwhiches in there", "kind": "where_why", "words": 26, "gap_s": 25.7, "since_claude_s": 1.0, "claude_doing": null}
+{"ts": 1793532051.236, "text": "claude where are you going", "kind": "where_why", "words": 5, "gap_s": 20.4, "since_claude_s": 17.3, "claude_doing": "go_to"}
+{"ts": 1793532088.662, "text": "you are running further away?", "kind": "request", "words": 5, "gap_s": 37.4, "since_claude_s": 35.7, "claude_doing": null}
+{"ts": 1793532093.207, "text": "claude stop", "kind": "request", "words": 2, "gap_s": 4.5, "since_claude_s": 40.2, "claude_doing": "interact"}
+{"ts": 1793532178.401, "text": "claude do tyou remember your dcoordinates where you just died ?  you fell of f that cliff  why dont you run there", "kind": "where_why", "words": 22, "gap_s": 85.2, "since_claude_s": 33.9, "claude_doing": null}
+{"ts": 1793532252.636, "text": "you havent gone to the correct grave. I am byt your most recent grave. you keep going to the WRONG grave stone. Do you not have any knowledge of where you just were on the map and where you died ? ", "kind": "where_why", "words": 41, "gap_s": 74.2, "since_claude_s": 36.2, "claude_doing": null}
+{"ts": 1793532319.547, "text": "clauide you arent moving - why not", "kind": "where_why", "words": 7, "gap_s": 66.9, "since_claude_s": 62.2, "claude_doing": "go_to"}
+{"ts": 1793532319.548, "text": "claude are you stuck on something? ", "kind": "where_why", "words": 6, "gap_s": 0.0, "since_claude_s": 62.2, "claude_doing": "go_to"}
+{"ts": 1793532501.409, "text": "literallt the rock is infront of you what are you doing ? oh I can see. there is a grave stone infront of you up that hill so theres two bugs. one is that for some reason you are not able to route around that rock to get to your gravestone the other ", "kind": "where_why", "words": 53, "gap_s": 181.9, "since_claude_s": 98.5, "claude_doing": "go_to"}
+{"ts": 1793532501.411, "text": "the other is that you are still targetting the WRTONG gravestone", "kind": "urgency", "words": 11, "gap_s": 0.0, "since_claude_s": 98.5, "claude_doing": "go_to"}
+{"ts": 1793532501.412, "text": "the one you should be targetting is 400m away by the temple", "kind": "request", "words": 12, "gap_s": 0.0, "since_claude_s": 98.5, "claude_doing": "go_to"}
+{"ts": 1793532501.413, "text": "claude your getting arttacked whty arent you killing that goblin", "kind": "request", "words": 10, "gap_s": 0.0, "since_claude_s": 98.5, "claude_doing": "go_to"}
+{"ts": 1793532572.078, "text": "claude Go to the temple now. once at the temple look for a grave within 100m  and get your stuff", "kind": "urgency", "words": 20, "gap_s": 70.7, "since_claude_s": 10.5, "claude_doing": "attack"}
+{"ts": 1793532697.263, "text": "calude stop whgat you are doing and come to me", "kind": "request", "words": 10, "gap_s": 125.2, "since_claude_s": 68.1, "claude_doing": "go_to"}
+{"ts": 1793532697.265, "text": "NOW ", "kind": "urgency", "words": 1, "gap_s": 0.0, "since_claude_s": 68.1, "claude_doing": "go_to"}
+{"ts": 1793532697.265, "text": "come to my person NOW", "kind": "urgency", "words": 5, "gap_s": 0.0, "since_claude_s": 68.1, "claude_doing": "go_to"}
+{"ts": 1793532697.266, "text": "claude come to me urgently", "kind": "urgency", "words": 5, "gap_s": 0.0, "since_claude_s": 68.1, "claude_doing": "go_to"}
+{"ts": 1793532718.941, "text": "wcome to me now", "kind": "urgency", "words": 4, "gap_s": 21.7, "since_claude_s": 5.7, "claude_doing": null}
+{"ts": 1793532813.314, "text": "come to the temple", "kind": "request", "words": 4, "gap_s": 94.4, "since_claude_s": 77.9, "claude_doing": null}
+{"ts": 1793532846.599, "text": "copme to the temple", "kind": "request", "words": 4, "gap_s": 33.3, "since_claude_s": 6.2, "claude_doing": null}
+{"ts": 1793532860.371, "text": "the fucking temple", "kind": "request", "words": 3, "gap_s": 13.8, "since_claude_s": 10.8, "claude_doing": null}
+{"ts": 1793532860.373, "text": "route to the temple ", "kind": "request", "words": 4, "gap_s": 0.0, "since_claude_s": 10.8, "claude_doing": null}
+{"ts": 1793533049.677, "text": "claude come to me", "kind": "request", "words": 4, "gap_s": 189.3, "since_claude_s": 42.5, "claude_doing": "go_to"}
+{"ts": 1793533124.526, "text": "claude come to me you are walking into a log", "kind": "request", "words": 10, "gap_s": 74.8, "since_claude_s": 73.3, "claude_doing": "go_to"}
+{"ts": 1793533170.813, "text": "jump over or walk around", "kind": "request", "words": 5, "gap_s": 46.3, "since_claude_s": 45.0, "claude_doing": null}
+{"ts": 1793533170.815, "text": "its a log on the floor its not a difficult obstacle to traverse", "kind": "request", "words": 13, "gap_s": 0.0, "since_claude_s": 45.0, "claude_doing": null}
+{"ts": 1793533171.054, "text": "why arent you running?", "kind": "where_why", "words": 4, "gap_s": 0.2, "since_claude_s": 45.2, "claude_doing": null}
+{"ts": 1793533171.055, "text": "can you see this grave stone infront of me", "kind": "correction", "words": 9, "gap_s": 0.0, "since_claude_s": 45.2, "claude_doing": null}
+{"ts": 1793533177.432, "text": "can you collect the items", "kind": "request", "words": 5, "gap_s": 6.4, "since_claude_s": 3.8, "claude_doing": null}
+{"ts": 1793533205.111, "text": "theres two kebbits near me come klill them", "kind": "correction", "words": 8, "gap_s": 27.7, "since_claude_s": 20.5, "claude_doing": null}
+{"ts": 1793533218.375, "text": "theres 34 actually - amazing . kill all three", "kind": "request", "words": 9, "gap_s": 13.3, "since_claude_s": 5.6, "claude_doing": null}
+{"ts": 1793533227.979, "text": "come to me", "kind": "request", "words": 3, "gap_s": 9.6, "since_claude_s": 5.6, "claude_doing": null}
+{"ts": 1793533251.009, "text": "they are gere by my character", "kind": "request", "words": 6, "gap_s": 23.0, "since_claude_s": 20.2, "claude_doing": null}
+{"ts": 1793533251.01, "text": "klill all 3", "kind": "request", "words": 3, "gap_s": 0.0, "since_claude_s": 20.2, "claude_doing": null}
+{"ts": 1793533316.047, "text": "awesome youa rent pickiung their stuff -  can you make space in your infventory", "kind": "where_why", "words": 14, "gap_s": 65.0, "since_claude_s": 0.2, "claude_doing": null}
+{"ts": 1793533333.815, "text": "pick up the kebbit looot", "kind": "request", "words": 5, "gap_s": 17.8, "since_claude_s": 6.8, "claude_doing": null}
+{"ts": 1793533358.263, "text": "did you get any meat?", "kind": "request", "words": 5, "gap_s": 24.4, "since_claude_s": 8.7, "claude_doing": null}
+{"ts": 1793533361.983, "text": "cook it if so", "kind": "request", "words": 4, "gap_s": 3.7, "since_claude_s": 0.2, "claude_doing": null}
+{"ts": 1793533372.721, "text": "what is in your inventory", "kind": "status", "words": 5, "gap_s": 10.7, "since_claude_s": 1.3, "claude_doing": null}
+{"ts": 1793533405.041, "text": "i assume thats only your hot bar. your full inventory -  whats in there", "kind": "status", "words": 14, "gap_s": 32.3, "since_claude_s": 28.1, "claude_doing": null}
+{"ts": 1793533429.812, "text": "whats your carry weigh", "kind": "status", "words": 4, "gap_s": 24.8, "since_claude_s": 21.0, "claude_doing": null}
+{"ts": 1793533448.504, "text": "not total - whats your current capacitry", "kind": "request", "words": 7, "gap_s": 18.7, "since_claude_s": 14.0, "claude_doing": null}
+{"ts": 1793533465.565, "text": "also i have 400 - i doubt you have 475", "kind": "request", "words": 10, "gap_s": 17.1, "since_claude_s": 11.6, "claude_doing": null}
+{"ts": 1793533482.874, "text": "are you over encombered ?", "kind": "request", "words": 5, "gap_s": 17.3, "since_claude_s": 11.3, "claude_doing": null}
+{"ts": 1793533500.902, "text": "pick up the ash and stone", "kind": "request", "words": 6, "gap_s": 18.0, "since_claude_s": 13.6, "claude_doing": null}
+{"ts": 1793533511.582, "text": "drop 40 stone keep 80", "kind": "request", "words": 5, "gap_s": 10.7, "since_claude_s": 0.3, "claude_doing": null}
+{"ts": 1793533572.93, "text": "can you not shift click to split ?", "kind": "request", "words": 8, "gap_s": 61.3, "since_claude_s": 44.4, "claude_doing": null}
+{"ts": 1793533597.883, "text": "come to me", "kind": "request", "words": 3, "gap_s": 25.0, "since_claude_s": 5.6, "claude_doing": null}
+{"ts": 1793533632.2, "text": "build a crafting table and campfire here", "kind": "request", "words": 7, "gap_s": 34.3, "since_claude_s": 31.9, "claude_doing": "go_to"}
+{"ts": 1793533632.201, "text": "claude where are you going", "kind": "where_why", "words": 5, "gap_s": 0.0, "since_claude_s": 31.9, "claude_doing": "go_to"}
+{"ts": 1793533635.009, "text": "come to me now", "kind": "urgency", "words": 4, "gap_s": 2.8, "since_claude_s": 34.7, "claude_doing": "go_to"}
+{"ts": 1793533635.009, "text": "stop", "kind": "request", "words": 1, "gap_s": 0.0, "since_claude_s": 34.7, "claude_doing": "go_to"}
+{"ts": 1793533635.264, "text": "claude come to me now", "kind": "urgency", "words": 5, "gap_s": 0.3, "since_claude_s": 34.9, "claude_doing": "go_to"}
+{"ts": 1793533643.863, "text": "buld a crafting tqable and fire pit here", "kind": "request", "words": 8, "gap_s": 8.6, "since_claude_s": 6.5, "claude_doing": null}
+{"ts": 1793533664.026, "text": "do not wander off . build them here", "kind": "request", "words": 8, "gap_s": 20.2, "since_claude_s": 26.7, "claude_doing": null}
+{"ts": 1793533664.027, "text": "fire pit too", "kind": "request", "words": 3, "gap_s": 0.0, "since_claude_s": 26.7, "claude_doing": null}
+{"ts": 1793533679.009, "text": "are you fedd and watered?>", "kind": "request", "words": 5, "gap_s": 15.0, "since_claude_s": 11.9, "claude_doing": null}
+{"ts": 1793533689.919, "text": "whats your levels atr?", "kind": "status", "words": 4, "gap_s": 10.9, "since_claude_s": 7.8, "claude_doing": null}
+{"ts": 1793533704.545, "text": "i meant thirst and hunger", "kind": "correction", "words": 5, "gap_s": 14.6, "since_claude_s": 11.8, "claude_doing": null}
+{"ts": 1793533733.718, "text": "can you build a crate ple3ase", "kind": "request", "words": 6, "gap_s": 29.2, "since_claude_s": 19.6, "claude_doing": null}
+{"ts": 1793533766.014, "text": "awesome, question: can you see where you are putting those down?", "kind": "where_why", "words": 11, "gap_s": 32.3, "since_claude_s": 10.0, "claude_doing": null}
+{"ts": 1793533790.614, "text": "can you see them now", "kind": "urgency", "words": 5, "gap_s": 24.6, "since_claude_s": 6.4, "claude_doing": null}
+{"ts": 1793533808.832, "text": "so why couldnt you vlaidate they placed by the sudden appearance of a crate infront of you", "kind": "where_why", "words": 17, "gap_s": 18.2, "since_claude_s": 15.2, "claude_doing": null}

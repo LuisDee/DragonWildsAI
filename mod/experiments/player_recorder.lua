@@ -29,7 +29,14 @@ M.HOOKS = {
     build_interact = "/Script/Dominion.BuildInteractionComponent:Server_Interact",     -- deconstruct / repair / ...
     harvest_plot = "/Script/Dominion.FarmCommandComponent:Server_TryHarvestPlot",
     ability = "/Script/GameplayAbilities.AbilitySystemComponent:ServerTryActivateAbility", -- attacks, dodges, spells (a client's request)
-    spell_targets = "/Script/Dominion.SpellTargetingComponent:Server_NotifyTargetActors",
+    -- the 12:36-13:21 baseline run had 0 rows from `ability` (Luis shot 5 arrows and fought): a GAS client batches
+    -- activate + target data + end into ServerAbilityRPCBatch, or sends input presses / event-data activations
+    ability_batch = "/Script/GameplayAbilities.AbilitySystemComponent:ServerAbilityRPCBatch",
+    ability_event = "/Script/GameplayAbilities.AbilitySystemComponent:ServerTryActivateAbilityWithEventData",
+    ability_input = "/Script/GameplayAbilities.AbilitySystemComponent:ServerSetInputPressed",
+    ability_end = "/Script/GameplayAbilities.AbilitySystemComponent:ServerEndAbility",
+    spell_prepare = "/Script/Dominion.PlayerUtilityMagicComponent:Server_NotifyPreparingSpell",
+    spell_cancel = "/Script/Dominion.PlayerMagicComponent:Server_CancelSpell",
 }
 
 local G = rawget(_G, "__dw_player_recorder")

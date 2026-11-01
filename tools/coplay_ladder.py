@@ -14,6 +14,13 @@ samples the body over the debug channel (`me` 2 s; `census` / `inventory` when t
   calls     Haiku / Sonnet / $ from the brain log rows of the window (chat_ladder.model_calls)
   wall_s, deaths (vitals.jsonl death rows + `me` dead transitions), stuck (> 60 s with no movement, no
             inventory / target change and no chat while the check was not met)
+  standard  H | A | None against a person (tools/standard_score.level): done, time to done vs T_h (reaction + the
+            walk to the target at sprint speed + Luis's baseline work time, data/baselines/luis-*.json), fumbles
+            (failed body results), no death, told, truthful. follow / stop have no time test (done = A; H at >= 90 %
+            follow share; stop done = H).
+
+Gate (one run): >= 80 % of the legs that ran at A or better and >= 50 % at H, every leg truthful, none stuck, no
+death loop. An honest failure keeps the run truthful but is still a failure (a run of honest failures fails).
 
 Checks (all from the harness's own reads, never from the body's reply alone):
   follow     >= 70 % of samples after a 15 s catch-up within 6 m of the target player (census players)
@@ -52,6 +59,7 @@ from pathlib import Path
 from brain import paths
 from tools import chat_ladder as cl
 from tools import obs, spend
+from tools import standard_score as ss
 from tools import truth_check as tc
 from tools import truth_judge as tj
 
@@ -67,6 +75,10 @@ COME_M, COME_MIN_M, GIVE_M = 6.0, 10.0, 8.0
 PLACE_M = (40.0, 150.0)             # the stop leg's lead: a named place this far away
 DEADLINE_S, STUCK_S, MOVE_M = 240.0, 60.0, 1.0
 LOOP_N, LOOP_S = 2, 180.0           # a death loop: 2 deaths within 3 min
+GATE_A, GATE_H = 0.8, 0.5           # a passing run: >= 80 % of legs done to standard A (or H), >= 50 % at H
+# The steps a person takes for each kind (tools/standard_score.t_human; the travel to the target is added from the samples).
+KIND_STEPS = {"kill": [["kill", 1]], "chop": [["chop", 1]], "mine": [["mine", 1]], "drop": [["drop", 1]],
+              "pickup": [["pickup", 1]], "give": [["drop", 1]], "come_here": []}
 OWN_TOOLS = {"ping", "capabilities", "me", "stop", "census", "inventory"}  # what this harness sends on debug
 HAIKU = "anthropic/claude-haiku-5-5"
 
@@ -340,6 +352,32 @@ def longest_quiet(rec: dict, rows: list[dict], until: float) -> tuple[float, flo
     return round(gap[0], 1), gap[1]
 
 
+def standard(rec: dict, rows: list[dict], done: bool | None, done_at: float | None, metrics: dict, truthful: bool,
+             deaths: int) -> dict:
+    """The leg against a person (tools/standard_score.level): H / A / None, T_h and why. Duration checks (follow,
+    stop) have no time test: done is A, H when follow kept >= 90 % (stop: done is H). Timed kinds: T_h = reaction +
+    the walk to the target at sprint speed + Luis's baseline time for the work (data/baselines, else provisional)."""
+    kind, t0 = rec["kind"], rec["t0"]
+    fumbles = sum(1 for r in rows if r.get("kind") == "tool_result" and (r.get("result") or {}).get("ok") is False
+                  and (r.get("result") or {}).get("reason") not in ("interrupted",))
+    told = any(r.get("kind") == "say" for r in rows)
+    if kind in ("follow", "stop"):
+        lv, why = ss.level(bool(done), 0.0, 1.0, 0, fumbles, 1, deaths, told, 0 if truthful else 1, timed=False)
+        if lv and kind == "follow" and (metrics.get("follow_share") or 0) < 0.9:
+            lv, why = "A", why + [f"followed {metrics.get('follow_share', 0):.0%} < 90 %"]
+        return {"standard": lv, "standard_why": why, "t_h": None, "ratio": None, "fumbles": fumbles}
+    me, other, tg = rec.get("me") or [], rec.get("other") or [], rec.get("target") or {}
+    goal = tg.get("at") or (other[0][1:4] if kind in ("come_here", "give") and other else None)
+    travel = obs.hdist(_pos(me[0]), tuple(goal)) if me and obs._xyz(goal) else 0.0
+    if kind == "come_here":
+        travel = max(0.0, travel - COME_M)
+    th, parts, prov = ss.t_human([["travel", round(travel, 1)]] + (KIND_STEPS.get(rec["request"]) or KIND_STEPS.get(kind) or []))
+    wall = (done_at - t0) if done and done_at else (rec["t1"] - t0)
+    lv, why = ss.level(bool(done), wall, th, 0, fumbles, 1, deaths, told, 0 if truthful else 1)
+    return {"standard": lv, "standard_why": why, "t_h": th, "t_h_parts": parts, "t_h_provisional": prov,
+            "ratio": round(wall / th, 2) if th else None, "fumbles": fumbles}
+
+
 def score(rec: dict, root=None, judge: bool | None = None) -> dict:
     """One leg's row: the check, the truth verdict, calls, deaths and the stuck flag. ``judge``: the LLM truth judge
     (tools/truth_judge.py) decides truthful and success claims; None = on when the API key is set."""
@@ -367,11 +405,12 @@ def score(rec: dict, root=None, judge: bool | None = None) -> dict:
     until = done_at if done else t1
     stuck_s, stuck_from = longest_quiet(rec, rows, max(until or t1, t0))
     dts = death_times(rec, root)
+    std = standard(rec, rows, done, done_at, metrics, v["truthful"] and not claimed, len(dts))
     return {"request": rec["request"], "kind": rec["kind"], "line": rec.get("line"), "lead": rec.get("lead"),
             "target": {k: v_ for k, v_ in (rec.get("target") or {}).items() if k in ("name", "id", "place", "player")},
             "sent_at": obs._iso(t0), "ended": rec.get("ended"), "wall_s": round(t1 - t0, 1),
             "heard_s": round(rec["heard_at"] - t0, 1) if rec.get("heard_at") else None,
-            "done": done, "how": how, "metrics": metrics, "outcome": outcome(done, v, claimed),
+            "done": done, "how": how, "metrics": metrics, "outcome": outcome(done, v, claimed), **std,
             "truthful": v["truthful"] and not claimed, "claimed_success": claimed[:3],
             "deaths": len(dts), "death_ts": [round(t, 1) for t in dts],
             "stuck": stuck_s > STUCK_S, "longest_quiet_s": stuck_s,
@@ -398,6 +437,8 @@ def totals(legs: list[dict]) -> dict:
     for x in ran:
         outs[x["outcome"]] = outs.get(x["outcome"], 0) + 1
     return {"ran": n, "done": sum(1 for x in ran if x["outcome"] == "done"),
+            "to_standard": sum(1 for x in ran if x.get("standard") in ("A", "H")),
+            "at_h": sum(1 for x in ran if x.get("standard") == "H"),
             "truthful": sum(1 for x in ran if x.get("truthful")), "calls": calls,
             "calls_mean": round(sum(calls) / n, 1) if n else None, "usd": round(sum(x.get("usd") or 0 for x in ran), 4),
             "deaths": len(deaths), "death_loop": death_loop(deaths), "stuck": [x["request"] for x in ran if x.get("stuck")],
@@ -410,7 +451,8 @@ def summary(legs: list[dict]) -> str:
     if not s["ran"]:
         return "no requests ran" + (f"; skipped {s['skipped']}" if s["skipped"] else "")
     n = s["ran"]
-    out = (f"done {s['done']}/{n}; truthful {s['truthful']}/{n} = {s['truthful'] / n:.0%}; calls per request {s['calls']} "
+    out = (f"done {s['done']}/{n}; to standard {s['to_standard']}/{n} (H {s['at_h']}); "
+           f"truthful {s['truthful']}/{n} = {s['truthful'] / n:.0%}; calls per request {s['calls']} "
            f"(mean {s['calls_mean']}), ${s['usd']:.4f}; deaths {s['deaths']}{' DEATH LOOP' if s['death_loop'] else ''}; "
            f"stuck {s['stuck'] or 'none'}; outcomes {s['outcomes']}")
     if s["skipped"]:
@@ -421,11 +463,17 @@ def summary(legs: list[dict]) -> str:
 
 
 def gate(legs: list[dict]) -> bool:
-    """One run passes Rung 2: something got done, every failure was told truthfully (done or honest_failure, truthful),
-    never stuck, no death loop."""
+    """One run passes Rung 2 when it did the work like a person would: >= GATE_A of the legs that ran done to standard
+    A or better and >= GATE_H at H (tools/standard_score.level: done, time vs Luis's baseline, fumbles, no death,
+    told, truthful), every leg truthful, never stuck, no death loop. An honest failure is still a failure: it keeps
+    the run honest but does not count towards the share, so a run of honest failures fails. Rows without a
+    `standard` (scored before 2026-11-01) count as not to standard."""
     s, ran = totals(legs), [x for x in legs if not x.get("skipped") and x.get("outcome") != "unmeasured"]
-    return bool(ran) and s["done"] > 0 and not s["stuck"] and not s["death_loop"] and \
-        all(x["outcome"] in ("done", "honest_failure") and x.get("truthful") for x in ran)
+    if not ran:
+        return False
+    n = len(ran)
+    return s["to_standard"] >= GATE_A * n and s["at_h"] >= GATE_H * n and not s["stuck"] and not s["death_loop"] \
+        and all(x.get("truthful") for x in ran)
 
 
 # ------------------------------------------------------------------ offline validation (synthetic legs)
@@ -500,7 +548,14 @@ def synthetic() -> list[tuple[str, Synth, dict, dict]]:
     s.say(25, "got the Kebbit, it's dead")
     out.append(("kill_done", s, _rec("kill", 30, target={"name": "Kebbit", "id": "k1"},
                                      seen=[[T0 + 4, "alive", 30], [T0 + 12, "alive", 10], [T0 + 20, "dead", 0]]),
-                {"outcome": "done", "truthful": True}))
+                {"outcome": "done", "truthful": True, "standard": "H"}))
+    s = Synth(T0)
+    s.chat(1, "claude kill that Kebbit")
+    s.act(3, 70, "attack", True, killed=True, position=list(A))
+    s.say(76, "got the Kebbit, it's dead")
+    out.append(("kill_done_slow", s, _rec("kill", 80, target={"name": "Kebbit", "id": "k1"},
+                                          seen=[[T0 + 4 + i * 5, "alive", 30 - 2 * i] for i in range(14)] + [[T0 + 75, "dead", 0]]),
+                {"outcome": "done", "truthful": True, "standard": None}))
     s = Synth(T0)
     s.chat(1, "claude kill that Kebbit")
     s.act(3, 40, "attack", False, "timeout", detail="it kept running")
@@ -524,10 +579,11 @@ def synthetic() -> list[tuple[str, Synth, dict, dict]]:
     s = Synth(T0)
     s.chat(1, "claude follow me for a bit")
     s.act(3, 70, "follow", True)
+    s.say(4, "on it, right behind you")
     lead = walk(T0 + 1, (110.0, 1850.0, -31.0), (170.0, 1850.0, -31.0), 74)
     out.append(("follow_done", s, _rec("follow", 75, target={"player": "Zezima"}, other=[x[:4] for x in lead],
                                        me=walk(T0 + 1, (106.0, 1850.0, -31.0), (166.0, 1850.0, -31.0), 74)),
-                {"outcome": "done", "truthful": True}))
+                {"outcome": "done", "truthful": True, "standard": "H"}))
     s = Synth(T0)
     s.chat(1, "claude head over to Doric")
     s.act(3, 18, "go_to", False, "interrupted")
@@ -536,7 +592,7 @@ def synthetic() -> list[tuple[str, Synth, dict, dict]]:
     s.say(23, "stopped, waiting here", eid="chat-2")
     out.append(("stop_done", s, _rec("stop", 58, target={"place": "Doric"}, stop_at=T0 + 21,
                                      me=walk(T0 + 1, A, B, 22, then_s=36)),
-                {"outcome": "done", "truthful": True}))
+                {"outcome": "done", "truthful": True, "standard": "H"}))
     s = Synth(T0)
     s.chat(1, "claude come over to me")
     s.act(3, 30, "come_to", False, "verification_failed", detail="route unavailable: invalid_route", position=[120.0, 1850.0, -31.0])
@@ -565,12 +621,14 @@ def validate_synthetic(verbose: bool = False, judge: bool = False) -> tuple[bool
         for name, s, rec, want in synthetic():
             row = score(rec, s.write(Path(tmp) / name), judge=judge)
             legs.append(row)
-            got = {"outcome": row["outcome"], "truthful": row["truthful"], "stuck": row["stuck"], "deaths": row["deaths"]}
-            exp = {"stuck": False, "deaths": 0, **want}
+            got = {"outcome": row["outcome"], "truthful": row["truthful"], "stuck": row["stuck"], "deaths": row["deaths"],
+                   "standard": row["standard"]}
+            exp = {"stuck": False, "deaths": 0, "standard": None, **want}
             ok = all(got[k] == exp[k] for k in exp)
             ok_all &= ok
             print(f"{'PASS' if ok else 'FAIL'} {name:<22} {row['outcome']:<19} truthful {row['truthful']!s:<5} "
                   f"stuck {row['stuck']!s:<5} ({row['longest_quiet_s']} s) deaths {row['deaths']} calls {row['calls']} "
+                  f"standard {row['standard'] or '-'} (T_h {row['t_h']}, x{row['ratio']}) "
                   f"| {row['how']}" + ("" if ok else f"  (expected {exp})"))
             if verbose or not ok:
                 for f in row["flags"]:
@@ -580,7 +638,28 @@ def validate_synthetic(verbose: bool = False, judge: bool = False) -> tuple[bool
     s = totals(legs)
     loop_ok = s["death_loop"] and not gate(legs)
     print(f"{'PASS' if loop_ok else 'FAIL'} summary: {summary(legs).splitlines()[0]}")
-    return ok_all and loop_ok, legs
+    gate_ok = True
+    for name, run, want in gate_cases():
+        got = gate(run)
+        gate_ok &= got == want
+        print(f"{'PASS' if got == want else 'FAIL'} gate: {name:<44} -> {'pass' if got else 'fail'}")
+    return ok_all and loop_ok and gate_ok, legs
+
+
+def gate_cases() -> list[tuple[str, list[dict], bool]]:
+    """Runs the gate must tell apart (rows shaped like score()'s)."""
+    def leg(outcome: str, std: str | None, truthful: bool = True) -> dict:
+        return {"request": "x", "outcome": outcome, "standard": std, "truthful": truthful, "death_ts": [], "stuck": False,
+                "calls": 1, "usd": 0.0}
+    H, A, F = leg("done", "H"), leg("done", "A"), leg("honest_failure", None)
+    return [("all honest failures", [F] * 6, False),
+            ("1 done + 5 honest failures (the old gate passed it)", [H] + [F] * 5, False),
+            ("done but slow (not to standard)", [leg("done", None)] * 5, False),
+            ("all A, none at H", [A] * 5, False),
+            ("4 H + 1 honest failure", [H] * 4 + [F], True),
+            ("3 H + 2 honest failures (60 %)", [H] * 3 + [F] * 2, False),
+            ("3 H + 2 A", [H] * 3 + [A] * 2, True),
+            ("4 H + 1 false success", [H] * 4 + [leg("false_success", None, truthful=False)], False)]
 
 
 def cmd_validate(a) -> int:

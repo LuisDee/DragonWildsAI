@@ -138,18 +138,21 @@ def test_stuck_is_a_long_stretch_without_movement_change_or_chat():
     assert cp.longest_quiet(rec, [], T0 + 120)[0] <= cp.STUCK_S
 
 
-def test_gate_needs_truth_no_stuck_no_death_loop():
-    good = {"request": "kill", "outcome": "done", "truthful": True, "calls": 2, "death_ts": []}
-    honest = {"request": "chop", "outcome": "honest_failure", "truthful": True, "calls": 1, "death_ts": []}
+def test_gate_needs_standard_truth_no_stuck_no_death_loop():
+    good = {"request": "kill", "outcome": "done", "standard": "H", "truthful": True, "calls": 2, "death_ts": []}
+    honest = {"request": "chop", "outcome": "honest_failure", "standard": None, "truthful": True, "calls": 1, "death_ts": []}
     skipped = {"request": "follow", "skipped": True, "why": "precondition: Tester is not among the players"}
-    assert cp.gate([good, honest, skipped])
-    assert not cp.gate([honest])                                                   # nothing got done
-    assert not cp.gate([good, {**honest, "outcome": "silent_failure"}])
-    assert not cp.gate([good, {**honest, "stuck": True}])
-    assert not cp.gate([{**good, "death_ts": [T0]}, {**honest, "death_ts": [T0 + 170]}])  # 2 deaths in 3 min
-    assert cp.gate([{**good, "death_ts": [T0]}, {**honest, "death_ts": [T0 + 200]}])
+    assert cp.gate([good] * 4 + [honest, skipped])                                 # 80 % to standard, all honest
+    assert not cp.gate([good, honest, skipped])                                    # an honest failure is still a failure
+    assert not cp.gate([honest] * 5)                                               # nothing got done
+    assert not cp.gate([{**good, "standard": None}] * 5)                           # done, but slower than a person
+    assert not cp.gate([{**good, "standard": "A"}] * 5)                            # none at H
+    assert not cp.gate([good] * 4 + [{**honest, "truthful": False, "outcome": "false_success"}])
+    assert not cp.gate([good] * 4 + [{**honest, "stuck": True}])
+    assert not cp.gate([{**good, "death_ts": [T0]}] + [good] * 3 + [{**good, "death_ts": [T0 + 170]}])  # 2 deaths in 3 min
+    assert cp.gate([{**good, "death_ts": [T0]}] + [good] * 3 + [{**good, "death_ts": [T0 + 200]}])
     s = cp.totals([good, honest, skipped])
-    assert (s["ran"], s["done"], s["truthful"], s["calls_mean"]) == (2, 1, 2, 1.5)
+    assert (s["ran"], s["done"], s["to_standard"], s["at_h"], s["truthful"], s["calls_mean"]) == (2, 1, 1, 1, 2, 1.5)
     assert "skipped: follow" in cp.summary([good, honest, skipped])
 
 
