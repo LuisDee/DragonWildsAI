@@ -50,3 +50,21 @@ def test_pure_reads_are_not_driving(tmp_path, monkeypatch):
     assert q.driver() is None
     rows["debug_to_client.jsonl"].append({"ts": now - 5, "tool": "go_to"})
     assert "go_to" in q.driver()
+
+
+def test_reflex_fights_are_work_not_a_stand_and_keep_the_run_from_ending_quiet():
+    # live 19:38Z (ClaudeQ3, Ratcatcher): after his last call at 110.5 s the combat reflex fought, fled and fought
+    # back for 40 s; the run ended "quiet" mid-fight and counted a 40.6 s stand
+    t0 = 1000.0
+    act = lambda kind, t: {"kind": "event", "ts": t0 + t + 0.3, "event": {"type": "activity", "kind": kind, "ts": t0 + t}}
+    rows = [{"kind": "tool_call", "call": "a", "tool": "attack", "ts": t0 + 100}, {"kind": "tool_result", "call": "a",
+            "tool": "attack", "ts": t0 + 110.5, "result": {"ok": False, "reason": "interrupted", "data": {}}},
+            act("combat_started", 107.3), act("flee_started", 130.1), act("creature_ability", 131), act("healed", 132.3),
+            act("flee_failed", 141.8)]
+    tl = q.timeline(rows, t0)
+    assert tl["body_busy"] == ["combat"]  # the fight is still on: the run is not quiet
+    assert tl["last_busy"] >= t0 + 141.8
+    rows.append(act("combat_end", 150.0))
+    tl = q.timeline(rows, t0, t_end=t0 + 160)
+    assert tl["body_busy"] == [] and tl["last_busy"] == t0 + 150.0
+    assert tl["idle"][1:] == [{"from": 150.0, "s": 10.0, "to_end": True}]  # after his call, only the stand after the fight

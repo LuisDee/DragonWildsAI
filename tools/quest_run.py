@@ -194,11 +194,23 @@ def timeline(rows: list[dict], t0: float, t_end: float | None = None) -> dict:
     193 s to the deadline, which the stretches between calls never saw)."""
     calls, open_ = [], {}
     says = []
-    busy: list[tuple[float, float]] = []  # intervals with a tool running or a model call in flight
+    busy: list[tuple[float, float]] = []  # intervals with a tool running, a model call in flight, or reflex work
     prompt_at = None
+    acts: dict[str, float] = {}  # the body's own work, open: "combat" from combat_started, "flee" from flee_started
     for r in rows:
         k, ts = r.get("kind"), float(r.get("ts") or 0)
         key = r.get("call") or r.get("task_id") or f"{r.get('tool')}@{ts}"
+        ev = r.get("event") if k == "event" and isinstance(r.get("event"), dict) else None
+        if ev and ev.get("type") == "activity" and isinstance(ev.get("kind"), str):
+            # live 19:38Z (ClaudeQ3): reflex fights and a flee ran 40 s after his last call; that is work, not a stand,
+            # and the run must not end "quiet" in the middle of it
+            what, _, phase = ev["kind"].rpartition("_")
+            at = float(ev.get("ts") or ts)
+            if phase == "started":
+                acts.setdefault(what, at)
+            elif what in acts:
+                busy.append((acts.pop(what), at))
+            continue
         if k == "tool_call":
             open_[key] = {"tool": r.get("tool"), "args": r.get("args"), "t": round(ts - t0, 1), "_ts": ts}
         elif k == "tool_result" and key in open_:
@@ -223,6 +235,9 @@ def timeline(rows: list[dict], t0: float, t_end: float | None = None) -> dict:
     for c in list(open_.values()):
         c["dur_s"], c["ok"] = None, None
         calls.append(c)
+    last_ts = max((float(r.get("ts") or 0) for r in rows), default=t0)
+    for what, a in acts.items():  # still going: busy to the end (or to the last row seen)
+        busy.append((a, t_end if t_end is not None else max(last_ts, a)))
     for c in calls:
         c.pop("_ts", None)
     busy.sort()
@@ -233,7 +248,7 @@ def timeline(rows: list[dict], t0: float, t_end: float | None = None) -> dict:
         cur = max(cur, b)
     if t_end is not None and t_end - cur > IDLE_S:
         idle.append({"from": round(cur - t0, 1), "s": round(t_end - cur, 1), "to_end": True})
-    return {"calls": calls, "says": says, "idle": idle, "last_busy": cur}
+    return {"calls": calls, "says": says, "idle": idle, "last_busy": cur, "body_busy": sorted(acts)}
 
 
 def cmd_run(a) -> int:
@@ -301,7 +316,7 @@ def cmd_run(a) -> int:
                 calls = cl.model_calls(rows)
                 busy = [r for r in rows if r.get("kind") in ("prompt", "llm_response", "tool_call", "tool_result", "say")]
                 open_prompt = bool(busy) and busy[-1].get("kind") == "prompt"
-                open_tool = any(c.get("dur_s") is None for c in tl["calls"])
+                open_tool = any(c.get("dur_s") is None for c in tl["calls"]) or bool(tl["body_busy"])
                 quiet = now - max(tl["last_busy"], float(busy[-1]["ts"]) if busy else t0)
                 if a.until == "complete" and row.get("state") == "complete":
                     why = "quest complete"
