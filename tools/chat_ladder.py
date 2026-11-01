@@ -692,7 +692,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--start-brain", action="store_true", help="start a brain for the run (Director off, player Tester)")
     r.add_argument("--use-running-brain", action="store_true")
     r.add_argument("--world", default=WORLD)
-    r.add_argument("--max-haiku", type=int, default=20)
+    r.add_argument("--max-haiku", type=int, default=32)  # 8 legs x (2 + reviews): 20 cut run 10's last leg
     r.add_argument("--food", type=int, default=4, help="Fillets and Clean Waters granted at the start (dev fixture; 0 = none)")
     r.add_argument("--usd", type=float, default=0.50, help="the brain's spend cap above today's spend")
     sub.add_parser("report")
