@@ -352,21 +352,24 @@ M.local_pc = local_pc
 local function text(v) local s = U.str(v); if s and s ~= "" and s ~= "None" then return s end end
 local function num(v) return type(v) == "number" and v or nil end
 
+-- `a` is any actor (a census row, or whatever target the brain named): by-name reads go through U.prop (R17:
+-- UE4SS's property cache is keyed by class ADDRESS, and a streamed-out Blueprint class's address gets reused).
 local function read_creature(a, origin)
-    local data = U.try(function() return a.LoadedData end)
+    local data = U.prop(a, "LoadedData")
     local at = U.loc(a)
     local hp = num(U.health(a))
+    local hc = U.prop(a, "HealthComponent")
     local d = {
         id = U.short(a), actor = a, pos = at,
         name = (U.valid(data) and text(U.try(function() return data.AIName end))) or U.short(a),
-        hp = hp, max_hp = num(U.try(function() return a.HealthComponent:GetMaxHealth() end)),
-        pl = num(U.try(function() return a.PowerLevel end)),
+        hp = hp, max_hp = hc ~= nil and num(U.try(function() return hc:GetMaxHealth() end)) or nil,
+        pl = num(U.prop(a, "PowerLevel")),
         archetype = U.valid(data) and num(U.try(function() return data.Archetype end)) or nil,
         boss = U.valid(data) and U.try(function() return data.bIsBoss end) == true or nil,
         follower = U.try(function() return a:IsFollower() end) == true or nil,
     }
-    d.dead = U.try(function() return a.HealthComponent:IsDead() end) == true or (hp ~= nil and hp <= 0)
-    local al = num(U.try(function() return a.CurrentAlertnessState end))
+    d.dead = (hc ~= nil and U.try(function() return hc:IsDead() end) == true) or (hp ~= nil and hp <= 0)
+    local al = num(U.prop(a, "CurrentAlertnessState"))
     if al ~= nil then d.in_combat = al == 3 or al == 4 end
     if origin and at then d.distance_m = U.dist(origin, at) / 100 end
     return d
@@ -376,8 +379,9 @@ M.read_creature = read_creature
 -- Live damage-type affinities (TMap<GameplayTag, EDamageTypeAffinity>); empty on the client so far.
 local function read_affinities(a)
     local out
+    local aac = U.prop(a, "AIAttributesComponent") -- any target actor (R17)
     pcall(function()
-        a.AIAttributesComponent.DamageTypeAffinities:ForEach(function(k, v)
+        aac.DamageTypeAffinities:ForEach(function(k, v)
             local tag = U.str(U.try(function() return k:get().TagName end))
             local aff = M.AFFINITY[U.try(function() return v:get() end)]
             if tag and aff then out = out or {}; out[tag] = aff end
@@ -580,7 +584,7 @@ function M.on_damage(ctx, ev)
     end
     if vid == me and iid and not mine_i then
         c.attackers[iid] = t
-        local data = U.try(function() return inst.LoadedData end)
+        local data = U.prop(inst, "LoadedData") -- instigator and victim are any class: by-name reads via U.prop (R17)
         local name = U.valid(data) and text(U.try(function() return data.AIName end)) or iid
         local tk = c.taken[name:lower()] or { sum = 0, t0 = t, n = 0 }
         tk.sum, tk.n, tk.t = tk.sum + amount, tk.n + 1, t
@@ -593,7 +597,7 @@ function M.on_damage(ctx, ev)
             end)
         end)
         pcall(function() e.TypeDamagesOutcome:ForEach(function(_, o) outcomes[#outcomes + 1] = M.OUTCOME[o:get()] end) end)
-        local data = U.try(function() return victim.LoadedData end)
+        local data = U.prop(victim, "LoadedData")
         local name = U.valid(data) and text(U.try(function() return data.AIName end)) or vid
         local hit = { t = t, victim = vid, name = name, amount = amount, types = types, outcomes = outcomes,
                       fatal = U.try(function() return e.bIsFatalHit end) == true }
@@ -602,8 +606,7 @@ function M.on_damage(ctx, ev)
         c.my_hits[#c.my_hits + 1] = hit
         if #c.my_hits > 30 then table.remove(c.my_hits, 1) end
         if #types > 0 and #outcomes > 0 then M.learn_outcome(c.learned, name, types, outcomes); c.learned_ver = (c.learned_ver or 0) + 1 end
-    elseif iid and vid ~= me and U.valid(U.try(function() return victim.PlayerState end))
-        and U.valid(U.try(function() return inst.LoadedData end)) then
+    elseif iid and vid ~= me and U.valid(U.prop(victim, "PlayerState")) and U.valid(U.prop(inst, "LoadedData")) then
         c.ally_attackers[iid] = t -- a creature hit another player (Luis)
     end
 end
@@ -662,11 +665,12 @@ local function read_attack(comp, owner, class_id)
         end)
         if info.shape_raw == false then info.shape_raw = nil end
     end
-    local data = U.try(function() return owner.LoadedData end)
+    local data = U.prop(owner, "LoadedData") -- the attack component's owner is any class (R17)
     local who = U.valid(data) and text(U.try(function() return data.AIName end)) or "?"
     info.key = who .. ":" .. (info.name or ("class" .. tostring(class_id)))
     local D = mod("defense")
-    local hh = num(U.try(function() return owner.CapsuleComponent:GetScaledCapsuleHalfHeight() end))
+    local cap = U.prop(owner, "CapsuleComponent")
+    local hh = cap ~= nil and num(U.try(function() return cap:GetScaledCapsuleHalfHeight() end)) or nil
     if D and info.shape_raw then info.shape = D.shape_info(info.shape_raw, hh) end
     return info
 end
@@ -683,7 +687,7 @@ function M.on_ai_attack(ctx, class_id)
     c.telegraphs[id] = t
     c.counts.telegraphs = c.counts.telegraphs + 1
     do
-        local data = U.try(function() return a.LoadedData end)
+        local data = U.prop(a, "LoadedData") -- any owner class (R17)
         local nm = U.valid(data) and text(U.try(function() return data.AIName end)) or id
         local D = mod("defense")
         if D and D.observe_cadence then D.observe_cadence(nm, t) end
@@ -811,7 +815,7 @@ function M.ability_frame(F, me)
                 c.hazard_watch = c.hazard_watch or {}
                 c.hazard_watch[hz] = math.max(c.hazard_watch[hz] or 0, F.t + M.cfg.hazard_window_s)
             end
-            r.name = owner and U.try(function() return text(owner.LoadedData.AIName) end) or nil
+            r.name = U.try(function() return text(U.prop(owner, "LoadedData").AIName) end) -- any owner class (R17)
             say(F.log, string.format("ai action %s on %s: %s (%s)", tostring(r.action_id), tostring(r.name or id), tostring(r.cls),
                 r.profile and r.profile.kind or "no profile"))
             if r.profile and r.profile.kind ~= "idle" then
@@ -842,7 +846,7 @@ end
 function M.hazard_profiles() return M.data("hazard_profiles") or {} end
 local function first_num(o, names)
     for _, n in ipairs(names or {}) do
-        local v = num(U.try(function() return o[n] end))
+        local v = num(U.prop(o, n)) -- names tried in order on Blueprint subclasses: R17
         if v and v > 0 then return v end
     end
 end
@@ -859,7 +863,7 @@ function M.hazard_census(F, me, names)
                     local owner = hp.component_is_hazard and U.try(function() return o:GetOwner() end) or o
                     local pos = owner and U.loc(owner)
                     if hp.target then
-                        local tl = U.try(function() return o[hp.target] end)
+                        local tl = U.prop(o, hp.target)
                         local tx, ty = tl and num(U.try(function() return tl.X end)), tl and num(U.try(function() return tl.Y end))
                         if tx and ty and (tx ~= 0 or ty ~= 0) then pos = { X = tx, Y = ty, Z = num(U.try(function() return tl.Z end)) or (pos and pos.Z) or 0 } end
                     end
@@ -867,7 +871,7 @@ function M.hazard_census(F, me, names)
                         live[id] = true
                         local seen = c.hazard_seen[id]
                         if not seen then
-                            local tel = hp.telegraph and num(U.try(function() return o[hp.telegraph] end))
+                            local tel = hp.telegraph and num(U.prop(o, hp.telegraph))
                             seen = { t = F.t, ttl = (tel and tel > 0) and tel or hp.ttl_default, kind = hp.name }
                             c.hazard_seen[id] = seen
                         end
@@ -992,7 +996,8 @@ end
 M.DECIDE_S = 0.1
 
 function M.set_reach(F, actor)
-    local rad = num(U.try(function() return actor.CapsuleComponent:GetScaledCapsuleRadius() end)) or 40
+    local cap = U.prop(actor, "CapsuleComponent") -- the target is any actor class (R17)
+    local rad = cap ~= nil and num(U.try(function() return cap:GetScaledCapsuleRadius() end)) or 40
     local extra = math.max(0, rad - 40) / 100
     F.target_radius_cm = rad
     F.reach = M.cfg.reach_m + extra
@@ -2658,7 +2663,7 @@ local function step_loot(F, pawn, me)
                 local d = me.pos and U.dist(p, me.pos) or 0
                 if not bd or d < bd then
                     best, bd = { actor = w, id = id, pos = p, t = F.t, presses = 0,
-                                 name = text(U.try(function() return w.ItemData.Name end)),
+                                 name = text(U.try(function() return U.prop(w, "ItemData").Name end)), -- R17
                                  count = num(U.try(function() return w:GetStackSize() end)) }, d
                 end
             end
@@ -3152,7 +3157,7 @@ local function start_fight(log, actor, opts)
     if not U.alive(actor) then return { ok = false, reason = "unknown_target" } end
     -- never players: a pawn with a valid PlayerState, or any player-character class (AI pawns also
     -- have a PlayerState property, but it is an invalid/null object)
-    if U.valid(U.try(function() return actor.PlayerState end)) or (U.class_word(actor) or ""):find("PlayerCharacter", 1, true) then
+    if U.valid(U.prop(actor, "PlayerState")) or (U.class_word(actor) or ""):find("PlayerCharacter", 1, true) then
         return { ok = false, reason = "unsafe", data = { why = "never attack players" } }
     end
     c.me_id, c.pc_id = U.short(pawn), U.short(pc)

@@ -459,7 +459,7 @@ end
 function W.effects_of(actor)
     local u = U()
     local out = { ge = {}, tags = {} }
-    local ge = u.valid(actor) and u.try(function() return actor.GameplayEffectsComponent end)
+    local ge = u.valid(actor) and u.prop(actor, "GameplayEffectsComponent") -- the pawn or any creature class: R17
     if u.valid(ge) then
         for _, f in ipairs({ "ReplicatedInstances", "NonReplicatedInstances" }) do
             each(u.try(function() return ge[f] end), function(x) if u.valid(x) then out.ge[#out.ge + 1] = u.class_word(x) end end, 64)
@@ -728,7 +728,7 @@ function W.actor_thing(api, id, here)
             local p = to_m(u.loc(a))
             if not p then return nil end
             if here and d3(p, here) > 80 then return nil end
-            local name = u.str(u.try(function() return a.DisplayNameText end)) or u.class_word(a)
+            local name = u.str(u.prop(a, "DisplayNameText")) or u.class_word(a) -- any class: U.prop (R17)
             return { id = id, name = name, position = p }
         end
     end

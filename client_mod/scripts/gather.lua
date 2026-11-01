@@ -126,11 +126,17 @@ function W.alive(a) return U.alive(a) end
 function W.id(a) return U.short(a) end
 function W.class(a) return U.class_word(a) end
 function W.hp(a) local v = U.health(a); return type(v) == "number" and v or nil end
-function W.max_hp(a) local v = U.try(function() return a.HealthComponent:GetMaxHealth() end); return type(v) == "number" and v > 0 and v or nil end
-function W.stump(a) return U.try(function() return a.bIsStump end) == true end
+-- Targets are any resource class (trees, rocks, ground pickups, world items): by-name reads go through U.prop (R17:
+-- UE4SS's property cache is keyed by class ADDRESS, and a streamed-out Blueprint class's address gets reused).
+function W.max_hp(a)
+    local hc = U.prop(a, "HealthComponent")
+    local v = hc ~= nil and U.try(function() return hc:GetMaxHealth() end)
+    return type(v) == "number" and v > 0 and v or nil
+end
+function W.stump(a) return U.prop(a, "bIsStump") == true end
 -- A rock that broke stays as a hidden actor (bDestroyActorOnZeroHealth=false) and respawns.
 function W.depleted(a)
-    if U.try(function() return a.bIsHidden end) == true then return true end
+    if U.prop(a, "bIsHidden") == true then return true end
     local has = U.try(function() return a:HasAvailableResources() end)
     return has == false
 end
@@ -140,7 +146,7 @@ function W.available(a) -- ground resources / bushes
 end
 function W.gate(a) return mcall("sense", "gate", a) end
 function W.item_of(a) -- ItemData id of a ground resource / world item
-    local data = U.try(function() return a.ItemData end)
+    local data = U.prop(a, "ItemData")
     local p = U.valid(data) and U.path_of(data)
     return p and p:match("%.([%w_]+)$") or nil
 end

@@ -295,7 +295,7 @@ function W.interaction_point(api, thing)
     local p, from
     local at = U.loc(a)
     for _, prop in ipairs(COLLIDER_PROPS) do
-        p = loc(U.try(function() return a[prop] end))
+        p = loc(U.prop(a, prop)) -- guessed names on any class: U.prop (R17)
         -- not on the actor (an NPC's InteractionComponent reads (0,0,0): live 09:25 UTC) -> not a usable point
         if p and at and math.sqrt((p[1] * 100 - at.X) ^ 2 + (p[2] * 100 - at.Y) ^ 2) > 1000 then p = nil end
         if p then from = prop; break end

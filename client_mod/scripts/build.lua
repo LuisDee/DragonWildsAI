@@ -887,7 +887,8 @@ function W.structures(api)
                 local d = at and math.sqrt((at.X / 100 - here[1]) ^ 2 + (at.Y / 100 - here[2]) ^ 2)
                 if d and d <= cfg.radius_m then
                     local data = U.try(function() return a.BuildingPieceData end)
-                    out[#out + 1] = { id = U.short(a), name = text(U, U.try(function() return a.DisplayName end))
+                    -- DisplayName has many declarations: by-name reads on Blueprint actors via U.prop (R17)
+                    out[#out + 1] = { id = U.short(a), name = text(U, U.prop(a, "DisplayName"))
                                           or (U.valid(data) and text(U, U.try(function() return data.DisplayName end))) or U.short(a),
                                       piece = asset(U, data), position = { at.X / 100, at.Y / 100, at.Z / 100 },
                                       distance = math.floor(d * 10 + 0.5) / 10,

@@ -213,5 +213,36 @@ do
     check("census: the chest is named from its class", ok and d2 and d2.name == "Treasure Chest", ok and d2 and d2.name)
 end
 
+-- 6. the other modules' speculative reads: combat.read_creature on any actor (the brain may name a chest), and
+--    U.player_name on a pawn whose BP class took the address of an AI controller's (PlayerState: APawn + AController)
+do
+    UE_CACHE = {}; FAKE_AV = nil
+    local Cb = assert(loadfile(root .. "/client_mod/scripts/combat.lua"))()
+    Cb.U.is_ue_object = U.is_ue_object
+    Cb.U.prop_reset()
+    local wolf_c = struct("BlueprintGeneratedClass", "/Game/AI/BP_Wolf.BP_Wolf_C", "0xBB", AIChar, {})
+    local wolf = instance(wolf_c, "BP_Wolf_C /Game/L.L:PersistentLevel.BP_Wolf_C_2", { ["/Script/Dominion.DominionAICharacter:PowerLevel"] = 7 })
+    check("combat: a creature reads its power level", Cb.read_creature(wolf).pl == 7)
+    local chest_c = struct("BlueprintGeneratedClass", "/Game/WP/BP_Chest.BP_Chest_C", "0xBB", WorldChest, {})
+    local chest = instance(chest_c, "BP_Chest_C /Game/L.L:PersistentLevel.BP_Chest_C_2", {})
+    check("combat: the raw read on the chest faults (stale entry)", not pcall(function() return chest.PowerLevel end) and FAKE_AV == "PowerLevel")
+    FAKE_AV = nil
+    local ok, d = pcall(Cb.read_creature, chest)
+    check("combat: read_creature on the chest does not fault", ok and FAKE_AV == nil, tostring(d) .. " " .. tostring(FAKE_AV))
+    check("combat: the chest has no power level or health", ok and d.pl == nil and d.max_hp == nil and d.hp == nil)
+
+    U.prop_reset(); UE_CACHE = {}; FAKE_AV = nil
+    local Pawn = struct("Class", "/Script/Engine.Pawn", "n6", Actor, { { "PlayerState" } })
+    local Controller = struct("Class", "/Script/Engine.Controller", "n7", Actor, { { "PlayerState" } })
+    local aic_c = struct("BlueprintGeneratedClass", "/Game/AI/BP_AIC_Wolf.BP_AIC_Wolf_C", "0xCC", Controller, {})
+    local aic = instance(aic_c, "BP_AIC_Wolf_C /Game/L.L:PersistentLevel.BP_AIC_Wolf_C_1", { ["/Script/Engine.Controller:PlayerState"] = false })
+    check("player_name setup: the controller's PlayerState is cached", U.prop(aic, "PlayerState") == false and UE_CACHE["0xCC"].PlayerState ~= nil)
+    local pawn_c = struct("BlueprintGeneratedClass", "/Game/AI/BP_Golem.BP_Golem_C", "0xCC", Pawn, {})
+    local golem = instance(pawn_c, "BP_Golem_C /Game/L.L:PersistentLevel.BP_Golem_C_1", {})
+    check("player_name: the raw read faults", not pcall(function() return golem.PlayerState end) and FAKE_AV == "PlayerState")
+    FAKE_AV = nil
+    check("player_name: refuses the stale entry, falls back to the object name", U.player_name(golem) == "BP_Golem_C_1" and FAKE_AV == nil, FAKE_AV)
+end
+
 print(string.format("%d passed, %d failed", pass, failn))
 os.exit(failn == 0 and 0 or 1)

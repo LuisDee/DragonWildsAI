@@ -310,7 +310,7 @@ function M.interact_target(pawn)
     local ic = U.try(function() return det.CurrentInteractable end)
     if not U.valid(ic) then return { none = true } end
     local a = U.try(function() return ic:GetOwner() end)
-    local data = U.valid(a) and U.try(function() return a.ItemData end)
+    local data = U.valid(a) and U.prop(a, "ItemData") -- the owner is any class: U.prop (R17)
     local sec = U.try(function() return ic.bHasSecondaryInteraction end) == true
     return { actor = U.short(a), class = U.class_word(a), prompt = text(U.try(function() return ic.InteractionPrompt end)),
              item = item_id(data), name = U.valid(data) and text(U.try(function() return data.Name end)) or nil,
@@ -554,7 +554,7 @@ end
 function M.inventory_of(actor)
     if rawget(_G, "DW_PAUSE") or not U.valid(actor) then return nil end
     local inv = U.try(function() return actor:GetInventory() end)
-    if not U.valid(inv) then inv = U.try(function() return actor.InventoryComponent end) end
+    if not U.valid(inv) then inv = U.prop(actor, "InventoryComponent") end -- any container class: U.prop (R17)
     return U.valid(inv) and inv or nil
 end
 -- Rows of an external inventory: {slots = n, rows = {{slot (0-based), item, name, count}}, by_item = {id = n}}
@@ -917,7 +917,7 @@ function R.tick(log)
             -- only consumables: read the targeted world item's data class
             local data
             for _, w in ipairs(U.find_all("WorldItem", { skip_defaults = true })) do
-                if U.short(w) == tg.actor then data = U.try(function() return w.ItemData end) end
+                if U.short(w) == tg.actor then data = U.prop(w, "ItemData") end -- R17
             end
             local kind = M.consumable_kind(data)
             local is_drink, is_food = kind == "drink", kind == "food"

@@ -328,8 +328,10 @@ function U.max_health(a)
 end
 
 -- Player display name (PlayerState name), falling back to the pawn's object name.
+-- `p` may be any actor (a spell's caster, a magnet's target), and PlayerState is declared twice (APawn, AController):
+-- read through U.prop (R17).
 function U.player_name(p)
-    local ps = U.try(function() return p.PlayerState end)
+    local ps = U.prop(p, "PlayerState")
     local n = U.valid(ps) and U.str(U.try(function() return ps:GetPlayerName() end)) or nil
     if n and n ~= "" then return n end
     return U.short(p)
@@ -338,10 +340,10 @@ end
 -- PlayerState PlayerId: the chat hook reports this as command_received.player (e.g. "256").
 -- The pawn's PlayerState, else its controller's (the chat PlayerId lives on the PlayerState).
 local function player_state(p)
-    local ps = U.try(function() return p.PlayerState end)
+    local ps = U.prop(p, "PlayerState") -- R17, as in U.player_name
     if U.valid(ps) then return ps end
     local c = U.controller_of(p)
-    ps = c and U.try(function() return c.PlayerState end)
+    ps = c and U.prop(c, "PlayerState")
     return U.valid(ps) and ps or nil
 end
 U.player_state = player_state

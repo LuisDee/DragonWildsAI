@@ -616,7 +616,7 @@ local COMPONENTS = { crafting = { "CraftingStation" }, processing = { "Processin
 function W.component(api, actor, kind)
     local U = sense_U(api)
     for _, p in ipairs(COMPONENTS[kind] or {}) do
-        local c = U and U.try(function() return actor[p] end)
+        local c = U and U.prop(actor, p) -- Blueprint variables, on any station class: U.prop (R17)
         if U and U.valid(c) then return c end
     end
 end
