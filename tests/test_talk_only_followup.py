@@ -166,3 +166,35 @@ def test_the_stop_check_is_one_call_and_the_model_may_end_there(tmp_path, monkey
     r = _stop_rig(tmp_path, monkeypatch, FakeLLM.say(""))
     assert sum(n.startswith(STOP_NOTE.split("{")[0]) for n in _notes(r)) == 1
     assert [c[0] for c in r.body.calls] == ["go_to", "go_to"] and len(r.body.said) == 1
+
+
+def _quest_rig(tmp_path, monkeypatch, quests_changed):
+    """Live ClaudeQ5 2026-11-01 21:47Z (logs/brain-live-20261101-214338-8632.jsonl): the talk that finished Rune
+    Mysteries part 1 gave part 2 (quests_changed: Rune Mysteries -> given, "Mine Rune Essence ..."); his reply only
+    said "next up is mining rune essence from the floating rocks", the request ended and he stood 41 s. (The rig's
+    hand-in is an interact on a thing in its state; the check reads only the result's quests_changed.)"""
+    monkeypatch.setenv("DW_SPEECH_CHANNEL", "say")
+    r = Replay(tmp_path, STATES[5], tools=TOOLS | {"gather"})
+    r.body.act("interact", ok(target=MEAT, quests_changed=quests_changed, detail="The conversation ended."))
+    r.body.act("gather", ok(detail="Got 10 rune essence."))
+    r.model.replies["do her quest"] = FakeLLM.say("", FakeLLM.call("interact", target=MEAT))
+    r.model.turns = [FakeLLM.say("", FakeLLM.call("say", text="part 1 done, next up is mining rune essence")),
+                     FakeLLM.say("", FakeLLM.call("gather", resource="rune essence", count=10)), FakeLLM.say(""),
+                     FakeLLM.say("")]
+    r.body.emit({"type": "chat_heard", "player": "Zezima", "text": "claude go and see Zanik and do her quest"})
+    r.at(0).step()
+    return r
+
+
+def test_a_talk_only_reply_right_after_a_result_gave_quest_work_gets_the_check(tmp_path, monkeypatch):
+    r = _quest_rig(tmp_path, monkeypatch, [{"quest": "Rune Mysteries", "from": "given", "to": "complete"},
+                                           {"quest": "Rune Mysteries", "from": "ungiven", "to": "given",
+                                            "step": "Mine Rune Essence, craft some Air and Astral Runes"}])
+    assert TALK_ONLY_NOTE in _notes(r)
+    assert [c[0] for c in r.body.calls] == ["interact", "gather"]  # the model chose to go on
+    assert r.body.said == ["part 1 done, next up is mining rune essence"]
+
+
+def test_a_result_that_only_completed_a_quest_keeps_the_report_with_no_check(tmp_path, monkeypatch):
+    r = _quest_rig(tmp_path, monkeypatch, [{"quest": "Rune Mysteries", "from": "given", "to": "complete"}])
+    assert TALK_ONLY_NOTE not in _notes(r) and [c[0] for c in r.body.calls] == ["interact"]

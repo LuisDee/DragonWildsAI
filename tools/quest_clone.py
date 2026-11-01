@@ -16,8 +16,11 @@ none, and it hides the temple's Wise Old Man whom First Steps needs). The first 
 to the state the game itself saved for characters who had just left the temple (Claude.json and ClaudeGuest.json:
 given at Objective2 "speak to the Wise Old Man", entry and exit volumes passed, his marker on, Doric's off), because
 the game gives that quest from the temple's entry volume, which a clone (spawned where ClaudeDev stood) never crosses.
-Everything else (level, skills, gear, spells, recipes, position) is kept byte for byte, so a run measures the quests,
-not a level-1 start. ClaudeDev.json and its .backup are only read; each clone's pristine copy is kept in
+The cleared quests' deliverables leave his bag (data/quest_deliverables.json: Stone Club, Rat Roast and its raw meat,
+Ash Logs, Rune Essence, Air and Astral Runes): a player meeting those quests holds none of them (live ClaudeQ2-Q5: an
+inherited Stone Club made Getting Started one talk, and four Rat Roasts made Ratcatcher one).
+Everything else (level, skills, gear, tools, spells, recipes, position) is kept byte for byte, so a run measures the
+quests, not a level-1 start. ClaudeDev.json and its .backup are only read; each clone's pristine copy is kept in
 logs/quests/clones/ before its first load.
 """
 from __future__ import annotations
@@ -35,6 +38,7 @@ SOURCE = "ClaudeDev"
 KEEP_DIR = ROOT / "logs" / "quests" / "clones"
 IDS_PROBE = ROOT / "client_io" / "out" / "quest_ids_probe.json"
 LOC_PROBE = ROOT / "client_io" / "out" / "quest_locations_probe.json"
+DELIVERABLES = ROOT / "data" / "quest_deliverables.json"
 FIRST = "Quest_FTUE_GS"  # the first First Steps
 CHAIN = (FIRST, "Quest_FTUE_RtftJ", "Quest_FTUE_RC", "Quest_FTUE_LO", "Quest_FTUE_RM", "Quest_FTUE_FS")
 CHAIN_BOOLS = ("WOMTempleHidden",)
@@ -71,8 +75,23 @@ def _marker_of(loc_id: str, names: set[str], suffixes: set[str]) -> bool:
     return loc_id in names or any(loc_id.endswith(s) for s in suffixes)
 
 
-def clear(save: dict, ids: dict[str, str], names: set[str], suffixes: set[str], name: str) -> dict:
+def deliverables(assets: tuple[str, ...]) -> dict[str, str]:
+    """{item persistence id: item} of what the quests with these assets ask for (by quest name, from the ids probe)."""
+    d = json.loads(DELIVERABLES.read_text(encoding="utf-8"))
+    names = {q.get("name") for q in _probe(IDS_PROBE).get("quests") or [] if q.get("asset") in assets}
+    items = {i for n in names for i in d["quests"].get(n) or []}
+    missing = items - set(d["persistence_ids"])
+    if missing:
+        raise SystemExit(f"no item persistence id for {sorted(missing)} in {DELIVERABLES.name}")
+    return {d["persistence_ids"][i]: i for i in items}
+
+
+def clear(save: dict, ids: dict[str, str], names: set[str], suffixes: set[str], name: str,
+          strip: dict[str, str] | None = None) -> dict:
     out = _copy(save)
+    inv = out["GameProgress"].get("Inventory") or {}
+    for slot in [k for k, v in inv.items() if isinstance(v, dict) and v.get("ItemData") in (strip or {})]:
+        del inv[slot]  # a cleared quest's deliverable: a player meeting the quest holds none
     out["meta_data"]["char_guid"] = uuid.uuid4().hex.upper()
     out["meta_data"]["char_name"] = name
     qp = out["GameProgress"]["QuestProgress"]
@@ -118,6 +137,29 @@ def _block(text: str, key: str) -> tuple[int, int, int]:
     start = text.index("{", i)
     line = text[text.rindex("\n", 0, i) + 1:i]
     depth = len(line) - len(line.lstrip("\t"))
+    return start, _obj_end(text, start), depth
+
+
+def _drop(text: str, key: str, slots: list[str]) -> str:
+    """text with these entries of the `"key":` object cut out as text, each with one separating comma (the game's
+    floats do not survive a Python re-dump: 6.3928642787233e+17 comes back 6.3928642787232998e+17)."""
+    a, b, depth = _block(text, key)
+    blk = text[a:b]
+    for k in slots:
+        tag = "\n" + "\t" * (depth + 1) + json.dumps(k) + ":"
+        if blk.count(tag) != 1:
+            raise SystemExit(f"{key}.{k} is not in the file exactly once")
+        i = blk.index(tag) + 1  # the entry's line
+        e = _obj_end(blk, blk.index("{", i))
+        if blk[e] == ",":  # an entry follows: cut through its comma and line break
+            blk = blk[:i] + blk[blk.index("\n", e) + 1:]
+        else:  # the last entry: cut from the previous entry's comma
+            blk = blk[:blk.rindex(",", 0, i)] + blk[e:]
+    return text[:a] + blk + text[b:]
+
+
+def _obj_end(text: str, start: int) -> int:
+    """The index just past the "}" that closes the object opening at text[start]."""
     level, j, in_str = 0, start, False
     while True:
         c = text[j]
@@ -133,18 +175,21 @@ def _block(text: str, key: str) -> tuple[int, int, int]:
         elif c == "}":
             level -= 1
             if level == 0:
-                return start, j + 1, depth
+                return j + 1
         j += 1
 
 
 def render(text: str, out: dict) -> str:
-    """The source file's text with only meta_data's guid and name and the QuestProgress block replaced; every other
-    byte (floats, position, order) stays as the game wrote it."""
+    """The source file's text with only meta_data's guid and name and the QuestProgress block replaced, and the
+    stripped bag slots cut out; every other byte (floats, position, order) stays as the game wrote it."""
     src = json.loads(text)
     a, b, depth = _block(text, "QuestProgress")
     if ue_json(src["GameProgress"]["QuestProgress"], depth) != text[a:b]:
         raise SystemExit("QuestProgress does not round-trip in the game's layout; not writing")
     body = text[:a] + ue_json(out["GameProgress"]["QuestProgress"], depth) + text[b:]
+    gone = [k for k in src["GameProgress"].get("Inventory") or {} if k not in out["GameProgress"].get("Inventory") or {}]
+    if gone:
+        body = _drop(body, "Inventory", gone)
     for k in ("char_guid", "char_name"):
         old = f'"{k}": {json.dumps(src["meta_data"][k])}'
         if body.count(old) != 1:
@@ -166,8 +211,12 @@ def cmd_make(a) -> int:
     raw = (SAVE_DIR / f"{SOURCE}.json").read_bytes().decode("utf-8")
     src = json.loads(raw)
     ids, names, suffixes = removal(tuple(a.quests))
-    out = clear(src, ids, names, suffixes, a.name)
+    strip = deliverables(tuple(a.quests))
+    out = clear(src, ids, names, suffixes, a.name, strip)
     text = render(raw, out).encode("utf-8")
+    inv0, inv1 = src["GameProgress"].get("Inventory") or {}, out["GameProgress"].get("Inventory") or {}
+    stripped = [{"slot": k, "item": strip[v["ItemData"]], "count": v.get("Count", 1)} for k, v in inv0.items()
+                if k not in inv1 and isinstance(v, dict)]
     KEEP_DIR.mkdir(parents=True, exist_ok=True)
     (KEEP_DIR / f"{a.name}.json").write_bytes(text)
     tmp = target.with_suffix(".json.tmp")
@@ -177,7 +226,7 @@ def cmd_make(a) -> int:
     loc0, loc1 = ({l["QuestLocationId"] for l in q["QuestLocations"]} for q in (qp0, qp1))
     print(json.dumps({"clone": str(target), "kept_copy": str(KEEP_DIR / f"{a.name}.json"),
                       "char_guid": out["meta_data"]["char_guid"], "cleared_quests": sorted(ids.values()),
-                      "quests": f"{len(qp0['Quests'])} -> {len(qp1['Quests'])}",
+                      "quests": f"{len(qp0['Quests'])} -> {len(qp1['Quests'])}", "stripped_from_bag": stripped,
                       "removed_locations": sorted(loc0 - loc1), "added_locations": sorted(loc1 - loc0),
                       "tracked": f"{qp0.get('QuestTrackedMain')} -> {qp1.get('QuestTrackedMain')}"}, indent=1))
     return 0

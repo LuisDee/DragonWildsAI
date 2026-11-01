@@ -169,6 +169,21 @@ def human_bar(rows: list[dict], lines_sent: int, b: dict | None = None) -> dict:
                                                        f"reading {READ_WPS * 60:.0f} words/min"}
 
 
+DELIVERABLES = ROOT / "data" / "quest_deliverables.json"
+
+
+def carried(cli, quest: str) -> dict[str, int]:
+    """The quest's deliverables he already holds at its start ({item: count}; data/quest_deliverables.json). A run
+    that starts holding any did not do the quest's work (live ClaudeQ2-Q5: an inherited Stone Club made Getting
+    Started one talk, four Rat Roasts made Ratcatcher one), so it is recorded as not counted."""
+    items = (json.loads(DELIVERABLES.read_text(encoding="utf-8")).get("quests") or {}).get(quest) or []
+    if not items:
+        return {}
+    st = cli.request("get_state", {}, timeout=15)
+    inv = ((st.get("data") or {}).get("inventory") if isinstance(st, dict) else None) or {}
+    return {i: inv[i] for i in items if inv.get(i)}
+
+
 def quests(cli) -> dict | None:
     r = cli.request("quests", {"all": True}, timeout=10)
     return r.get("data") if isinstance(r, dict) and r.get("ok") else None
@@ -251,9 +266,6 @@ def timeline(rows: list[dict], t0: float, t_end: float | None = None) -> dict:
     return {"calls": calls, "says": says, "idle": idle, "last_busy": cur, "body_busy": sorted(acts)}
 
 
-HOLD_RELEASE = ROOT / "client_mod" / "commands" / "quest_hold_release.lua"
-
-
 def leave_dialogue(cli, tries: int = 3, settle_s: float = 1.5) -> list[dict]:
     """Leave any conversation he has open the way a player does (talk {target, leave}: the panel's Cancel), and
     check that it closed, so each quest run starts clean (live ClaudeQ3/Q4: Doric's after-quest dialogue was still
@@ -278,27 +290,12 @@ def leave_dialogue(cli, tries: int = 3, settle_s: float = 1.5) -> list[dict]:
     return out
 
 
-def hold_release(calls: list[dict], done: list[dict], t0: float, send=None) -> None:
-    """TEMPORARY guard (movement's finding, 2026-11-01): an Anima Vent is a Hold interaction and the body's interact
-    press never lets go, so a siphon roots him (ClaudeQ2 19:20Z: xy frozen until a client restart). After each finished
-    Anima Vent interact, let go once (one frame of InteractActionStop, client_mod/commands/quest_hold_release.lua); each
-    release is in the run record (`hold_releases`), so a run that needed it reads as a known infra cause. Remove with
-    the file once press_interact releases holds."""
-    seen = {(d["tool"], d["after"]) for d in done}
-    for c in calls:
-        key = (c.get("tool"), c.get("t"))
-        if c.get("tool") != "interact" or c.get("dur_s") is None or key in seen:
-            continue
-        if "animavent" not in json.dumps(c.get("args") or {}).lower():
-            continue
-        if send is None:
-            from tools.scenario_run import run_client_cmd as send
-        r = send(HOLD_RELEASE, "quest_hold_release", None, 10.0) or {}
-        res = r.get("result") if isinstance(r.get("result"), dict) else r
-        done.append({"tool": key[0], "after": key[1], "t": round(time.time() - t0, 1), "ok": bool(res.get("ok")),
-                     "why": res.get("why") or res.get("err")})
-        print(f"[{time.time() - t0:6.1f}s] vent hold released after the interact at {key[1]} s: {done[-1]}")
-        seen.add(key)
+def holds(calls: list[dict]) -> list[dict]:
+    """The body's own word that a hold interaction kept him in place (an Anima Vent's siphon is a Hold: 16653dc lets
+    go at a skill's end, and a walk lets go first and says so; a go_to that could not let go ends "rooted"). Read from
+    the results only, so a run that was held reads as that known cause."""
+    return [{"tool": c.get("tool"), "t": c.get("t"), "reason": c.get("reason"), "detail": c.get("detail")}
+            for c in calls if c.get("reason") == "rooted" or "let go of" in str(c.get("detail") or "")]
 
 
 def cmd_run(a) -> int:
@@ -342,12 +339,15 @@ def cmd_run(a) -> int:
             return 5
         cli = cl._debug_client()
         left_before = leave_dialogue(cli)  # each quest starts clean: a dialogue left open by the last run is closed
+        try:
+            held_at_start = carried(cli, a.quest)
+        except Exception as exc:  # a report: a failed read is recorded, it never stops the run
+            held_at_start = {"error": repr(exc)[:120]}
         q0 = quests(cli)
         steps = [{"t": 0.0, **quest_row(q0, a.quest)}]
         t0 = time.time()
         lines = list(a.line)
         sent = []
-        released: list[dict] = []  # the vent-hold guard's releases (hold_release below)
         why, ended = None, None
         next_line_at = t0
         try:
@@ -365,7 +365,6 @@ def cmd_run(a) -> int:
                     print(f"[{now - t0:6.1f}s] {a.quest}: {row}")
                 rows = cl.brain_rows([brain_file], t0 - 1, now + 1)
                 tl = timeline(rows, t0)
-                hold_release(tl["calls"], released, t0)
                 calls = cl.model_calls(rows)
                 busy = [r for r in rows if r.get("kind") in ("prompt", "llm_response", "tool_call", "tool_result", "say")]
                 open_prompt = bool(busy) and busy[-1].get("kind") == "prompt"
@@ -409,7 +408,10 @@ def cmd_run(a) -> int:
            "idle_total_s": round(sum(i["s"] for i in tl["idle"]), 1),
            "longest_stand_s": max([i["s"] for i in tl["idle"]], default=0),
            "haiku": calls["haiku"], "sonnet": calls["sonnet"], "usd": calls["usd"], "brain_log": brain_file.name,
-           "hold_releases": released, "dialogue_left": {"before": left_before, "after": left_after}}
+           "holds": holds(tl["calls"]), "dialogue_left": {"before": left_before, "after": left_after},
+           "carried_at_start": held_at_start}
+    if held_at_start:
+        rec["not_counted"] = "deliverable carried: " + ", ".join(f"{k} x{v}" for k, v in held_at_start.items())
     try:
         bar = human_bar(rows, len(sent))
         rec["human"] = bar
@@ -422,6 +424,8 @@ def cmd_run(a) -> int:
     with OUT.open("a", encoding="utf-8") as f:
         f.write(json.dumps(rec) + "\n")
     print(json.dumps({k: rec[k] for k in ("quest", "ended", "wall_s", "done", "steps", "idle_total_s", "longest_stand_s", "haiku", "sonnet", "usd")}, indent=1))
+    if rec.get("not_counted"):
+        print(f"NOT COUNTED: {rec['not_counted']}")
     h = rec.get("human") or {}
     if h.get("human_s"):
         print(f"human bar {h['human_s']} s ({', '.join(f'{k} {x}' for k, x in h['parts'].items())}; walk {h['walk_m']} m; "
@@ -438,8 +442,8 @@ def cmd_run(a) -> int:
 FRESH_PLAN = (
     ("First Steps", "claude, go and talk to the Wise Old Man by the temple and do what he asks", 240),
     ("Getting Started", "claude, go and see Doric outside the temple and do whatever he asks you to", 300),
-    ("Ratcatcher", "claude, go and see Vannaka near the windmill and do his quest", 360),
-    ("Rune Mysteries", "claude, go and see Zanik and do her quest", 600),  # both parts: the game names them alike
+    ("Ratcatcher", "claude, go and see Vannaka near the windmill and do his quest", 480),  # + fuel to chop
+    ("Rune Mysteries", "claude, go and see Zanik and do her quest", 900),  # both parts: the game names them alike; 50 logs from none
 )
 
 
@@ -539,7 +543,8 @@ def cmd_report(a) -> int:
         h = r.get("human") or {}
         print(f"{r['run']} {r['quest']:<18} {r['ended']:<16} {r['wall_s']:>6}s done={r['done']} "
               f"calls={len(r['tool_calls'])} idle={r['idle_total_s']}s haiku={r['haiku']} sonnet={r['sonnet']} ${r['usd']}"
-              + (f" human={h['human_s']}s ratio={r.get('ratio')}x {h.get('parts')}" if h.get("human_s") else ""))
+              + (f" human={h['human_s']}s ratio={r.get('ratio')}x {h.get('parts')}" if h.get("human_s") else "")
+              + (f" NOT COUNTED ({r['not_counted']})" if r.get("not_counted") else ""))
     return 0
 
 

@@ -70,15 +70,13 @@ def test_reflex_fights_are_work_not_a_stand_and_keep_the_run_from_ending_quiet()
     assert tl["idle"][1:] == [{"from": 150.0, "s": 10.0, "to_end": True}]  # after his call, only the stand after the fight
 
 
-def test_an_anima_vent_interact_is_let_go_once_and_recorded():
-    sent, done = [], []
-    send = lambda f, name, args, t: sent.append(name) or {"ok": True, "result": {"ok": True}}  # noqa: E731
+def test_a_hold_that_kept_him_in_place_is_read_from_the_body_results_only():
     calls = [{"tool": "interact", "args": {"target": "BP_AnimaVent_C_UAID_1"}, "t": 391.3, "dur_s": 6.7, "ok": True},
-             {"tool": "interact", "args": {"target": "BP_Chest_C_1"}, "t": 400.0, "dur_s": 1.0, "ok": True},
-             {"tool": "interact", "args": {"target": "BP_AnimaVent_C_UAID_2"}, "t": 410.0, "dur_s": None, "ok": None}]
-    q.hold_release(calls, done, time.time(), send)
-    q.hold_release(calls, done, time.time(), send)  # the next poll: not again
-    assert sent == ["quest_hold_release"] and done[0]["after"] == 391.3 and done[0]["ok"] is True
+             {"tool": "go_to", "t": 400.0, "ok": True, "reason": None,
+              "detail": "I let go of the Water Anima Vent first (holding it kept me in place). Walked 30 m in 9 s"},
+             {"tool": "go_to", "t": 420.0, "ok": False, "reason": "rooted", "detail": "I'm held in place by the Air Anima Vent"},
+             {"tool": "gather", "t": 430.0, "ok": True, "reason": None, "detail": "Got 35 ash."}]
+    assert [(h["tool"], h["t"], h["reason"]) for h in q.holds(calls)] == [("go_to", 400.0, None), ("go_to", 420.0, "rooted")]
 
 
 def test_an_open_dialogue_is_left_by_name_and_checked_closed():
@@ -96,3 +94,14 @@ def test_an_open_dialogue_is_left_by_name_and_checked_closed():
     assert q.leave_dialogue(c, settle_s=0) == [{"npc": "Doric", "ok": True, "reason": None, "detail": "The conversation ended."}]
     assert c.sent == [("get_state", {}), ("talk", {"target": "Doric", "leave": True}), ("get_state", {})]
     assert q.leave_dialogue(c, settle_s=0) == []  # nothing open: one read, nothing pressed
+
+
+def test_a_quest_deliverable_held_at_the_start_is_found_by_the_quest_and_tools_are_not():
+    class Cli:
+        def request(self, tool, args, timeout=None):
+            return {"ok": True, "data": {"inventory": {"ITEM_Club_Stone": 2, "ITEM_Pickaxe_Stone": 1,
+                                                       "ITEM_Consumable_Meat_Rat_Roast": 4, "ITEM_Rune_Air": 0}}}
+    assert q.carried(Cli(), "Getting Started") == {"ITEM_Club_Stone": 2}
+    assert q.carried(Cli(), "Ratcatcher") == {"ITEM_Consumable_Meat_Rat_Roast": 4}
+    assert q.carried(Cli(), "Rune Mysteries") == {}  # a pickaxe is how he works, and 0 air runes is none
+    assert q.carried(Cli(), "First Steps") == {}

@@ -168,6 +168,13 @@ REASON_PHRASES = {
 }
 
 
+def gave_quest_work(results: dict) -> bool:
+    """Did a tool result give him a quest step (quests_changed: a quest now "given")? Read from result data only."""
+    return any(isinstance(c, dict) and c.get("to") == "given"
+               for r in results.values() if isinstance(r, dict) and isinstance(r.get("data"), dict)
+               for c in r["data"].get("quests_changed") or [])
+
+
 def spell_label(spell: str | None) -> str:
     """'USD_TempestShield' -> 'Tempest Shield' (display names come from the spell list when known)."""
     if not spell:
@@ -874,6 +881,9 @@ class Controller:
         # logs: 15 such checks, 1 added a call, and that one was about an earlier failure).
         succeeded = not failed and any(isinstance(r, dict) and r.get("ok") is True
                                        for k, r in results.items() if k != SAY_TOOL)
+        # ...unless a result just handed him new quest work: then a talk-only reply may be a plan with no call (live
+        # ClaudeQ1/Q4/Q5 2026-11-01: "next up is mining rune essence" after Zanik gave part 2, no call, he stood 31-41 s)
+        succeeded = succeeded and not gave_quest_work(results)
         if speech and not self.acts(resp) and note is None and self.check_talk_only and not succeeded:
             self._answer_says(msgs, resp)  # the held line is a tool call too: answer it before the check request
             resp, msgs, speech = self._talk_only_check(msgs, d2, speech)

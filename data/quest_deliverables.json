@@ -1,0 +1,23 @@
+{
+ "_about": "What each quest asks him to bring or make, and the ingredients its own step names (quest log step text, build 26161880). A fresh player starts these quests holding none of them: tools.quest_clone strips them from a clone's bag, and tools.quest_run marks a run 'not counted: deliverable carried' when he holds any at its start. Tools he works with (axe, pickaxe, weapons) are not deliverables (main, 2026-11-01).",
+ "quests": {
+  "Getting Started": ["ITEM_Club_Stone"],
+  "Ratcatcher": ["ITEM_Consumable_Meat_Rat_Roast", "ITEM_Resources_Raw_Stringy_Meat"],
+  "Rune Mysteries": ["ITEM_Resources_Wood_Ash", "ITEM_Rune_Essence", "ITEM_Rune_Air", "ITEM_Rune_Astral"]
+ },
+ "_steps": {
+  "Getting Started": "Build a Crafting Table and craft a Stone Club. Then bring it to Doric.",
+  "Ratcatcher": "Kill rats and successfully cook one rat roast from their meat.",
+  "Rune Mysteries": "Bring 50 Ash Logs to Zanik. / Mine Rune Essence, craft some Air and Astral Runes by building a Rune Altar or from Siphoning Anima Vents."
+ },
+ "_persistence_ids_source": "The save's GameProgress.Inventory slot keys are the InventoryComponent ItemSlots index (get_state 'raw'). Joined slot by slot: logs/quests/clones/ClaudeQ5.json against his first live bag read after that clone loaded (logs/brain-live-20261101-214338-8632.jsonl, 21:43Z); the counts agree in every slot (e.g. 560 Water Runes, 1949 Astral Runes, 13 Rune Essence).",
+ "persistence_ids": {
+  "ITEM_Club_Stone": "IJILMByu-kCq_0feZkzKBw",
+  "ITEM_Consumable_Meat_Rat_Roast": "0aufkk55nHU1TlSAXZ0o3g",
+  "ITEM_Resources_Raw_Stringy_Meat": "1k8-cj3JqEGeRgu1P7PK2g",
+  "ITEM_Resources_Wood_Ash": "2rxJ495rm0GDn4h5OWKiyQ",
+  "ITEM_Rune_Essence": "qOY004ZJaEaR8DmcDqB2KA",
+  "ITEM_Rune_Air": "Dvo6TE2d7YNnoni8XbKYzw",
+  "ITEM_Rune_Astral": "4wdYZE-FFMhS9Iia0ftWDg"
+ }
+}
