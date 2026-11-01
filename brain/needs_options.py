@@ -303,13 +303,11 @@ def _carried(c: _Ctx, need: str, gap: float | None) -> list[str]:
                 # the reflex's own (live 16:20Z: it drank Clean Water while he queued one too; his ran ~6 s later, when
                 # he was over the line already, and held up his second Fillet)
                 steps += f"; your reflex is already {verb}ing these by itself, one every ~6 s, until you're over your {line:.0f}% line"
-        elif reflex_takes(c.state, need) and not _soul_risk(c, v):
-            # under his line the stay-fed reflex uses a clean hotbar item by itself within one ~2 s tick: a plan that
-            # also uses it doubles up (live 15:49Z: the reflex drank the moved Pumpkin Spice, his own was wasted)
-            steps = (f"move_item to the hotbar: under your line your reflex {verb}s one by itself within ~2 s"
-                     + (f"; {verb} the other {k - 1} yourself" if k > 1 else ", nothing more to do"))
-            t = 2.0 + k * EAT_S
         else:
+            # he uses what he moved himself: a move_item of food/drink holds the reflex for that kind while his use
+            # follows (inventory.lua REFLEX_HOLD_S.move). The old "your reflex uses one within ~2 s, nothing more to
+            # do" contradicted that hold: he moved both and stood 6.5 s until the hold ran out (rung 1 gate, live
+            # 19:26Z, 16.9 s against a 9.1 s bar)
             steps, t = f"move_item to the hotbar, then {verb} {k}", 2.0 + k * EAT_S
         risk = _soul_risk(c, v)
         out.append(_line(f"carried {r.get('name') or c.name(iid)} x{n} ({r['where']})", _gives(v, need) + " each",
@@ -734,15 +732,6 @@ def reflex_under_line(state: dict, need: str) -> float | None:
     cur, mx, _ = gap(state, need)
     line = _num(pol.get("eat_below_pct" if need == "food" else "drink_below_pct"))
     return line if cur is not None and mx and line is not None and cur < mx * line / 100.0 else None
-
-
-def reflex_takes(state: dict, need: str) -> bool:
-    """True when a clean item of that kind moved to the hotbar now is the one the reflex uses by itself: under the
-    line, and nothing of that kind on the hotbar already (with one there, it is already using that one)."""
-    from .situation import consumable_rows
-    if reflex_under_line(state, need) is None:
-        return False
-    return not any(k == need and r.get("where") == "hotbar" for k, r in consumable_rows(state))
 
 
 def digest(state: dict, need: dict, cat: dict, fv: dict | None = None, pc: dict | None = None) -> str:

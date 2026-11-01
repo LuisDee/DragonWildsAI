@@ -195,8 +195,9 @@ def test_a_bag_item_moved_under_the_line_is_used_by_the_reflex_and_the_digest_sa
                            "reflex_on": True, "reflex_every_s": 6}
     drink, food = block(st, "drink"), block(st, "food")
     assert "Pumpkin Spice Infusion x13 (bag)" in drink
-    assert "move_item to the hotbar: under your line your reflex drinks one by itself within ~2 s, nothing more to do" in drink
-    assert "move_item to the hotbar: under your line your reflex eats one by itself within ~2 s; eat the other 3 yourself" in food
+    # he uses what he moves (the move holds the reflex for that kind): no "the reflex does it, nothing more to do"
+    assert "move_item to the hotbar, then drink 1" in drink and "reflex drinks one by itself" not in drink
+    assert "move_item to the hotbar, then eat 4" in food
     for blk in (drink, food):
         opts = blk.split("\n")[1:]
         assert not opts[0].startswith("- the fire"), opts[0]
@@ -205,12 +206,6 @@ def test_a_bag_item_moved_under_the_line_is_used_by_the_reflex_and_the_digest_sa
     off = dict(st, vitals_policy=dict(st["vitals_policy"], reflex_on=False))
     assert "move_item to the hotbar, then drink 1" in block(off, "drink")
     assert "The reflex is OFF" in situation.vitals_policy(off)
-    over = dict(st, sustenance=55.0)  # over his line: the reflex leaves it, he eats it himself (on demand)
-    assert not no.reflex_takes(over, "food") and no.reflex_takes(st, "food")
-    on_bar = dict(st, inventory_items=st["inventory_items"] + [
-        {"kind": "Item", "id": "Hotbar:3", "slot": 3, "count": 2, "item": "ITEM_Consumable_Meat_Fillet", "name": "Fillet",
-         "where": "hotbar", "slot_type": "Hotbar", "consumable": "food"}])
-    assert not no.reflex_takes(on_bar, "food")  # it eats the one already on the bar (first by slot), not the moved one
 
 
 def test_the_reflex_pick_on_the_hotbar_says_the_reflex_is_already_using_it():
