@@ -233,6 +233,12 @@ M.cfg.build = {
     -- (an actor of this piece within find_m of the preview that wasn't there before the press), so the reply can
     -- say where it stands (co-play 2026-11-01: structure was always null, the crate read as a failure)
     find_s = 2.5, find_m = 3.0, before_m = 10.0,
+    -- on = "<piece id>:<side>": attach flush to a built piece (research 2026-11-01 §4.2). Aim snap_aim_m OUTSIDE the
+    -- flush spot: the game's magnet (SnappingRadius 80 cm, 200 cm in Basic mode, live probe) pulls a snapping ghost
+    -- onto it, a free one stays where I aimed. So "colour 2 AND the ghost sits on the flush spot (snap_tol_m)" is the
+    -- positive snap signal colour 2 alone can't give (Valid vs NeedsSnapping). flush_tol_m: the census check after.
+    snap_aim_m = 0.25, snap_tol_m = 0.06, snap_tol_z_m = 0.12, flush_tol_m = 0.06, stand_extra_m = 1.5, taken_m = 0.5,
+    preview_waits = 6, edge_aim_m = 0.3,
     -- live P4 (2026-10-26): the validity hooks never fire (C++ calls, not ProcessEvent), so the MPC colour index
     -- (2 = Valid|NeedsSnapping) on a fresh, on-target preview authorises the press; the game refuses a
     -- NeedsSnapping press itself and Client_ShowValidityNotification names why. true = also require the hook.
@@ -265,10 +271,12 @@ M.REJECT_WORDS = {
     preview_red = "the preview was red there (something in the way, not on solid ground, unstable or needs a foundation)",
     preview_none = "there was no surface it could go on there",
     preview_off_target = "the preview didn't land where I aimed",
+    not_snapped = "the preview didn't snap onto the piece (it stayed where I aimed instead of sitting flush)",
 }
 -- The success reply in the order the model reads it (dkjson __jsonorder; the bridge encodes data as is): what was
 -- placed and where first, the rejected preview spots last and labelled as such.
 M.RESULT_ORDER = { "built", "placed", "name", "piece", "structure", "position", "distance_m", "direction", "facing",
+                   "attached_to", "side", "flush", "gap_m", "offset_m", "level_m", "facing_off_deg",
                    "spent", "xp", "evidence", "rejected_previews_before_placing", "rotation_verified" }
 local RESULT_MT = { __jsontype = "object", __jsonorder = M.RESULT_ORDER }
 local COMPASS = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" }
@@ -390,17 +398,94 @@ function W.construction_xp(api)
     local me = api.me and api.me() or nil
     for _, s in ipairs((me and me.skills) or {}) do if lower(s.skill) == "construction" then return tonumber(s.xp) end end
 end
--- Building actors of this piece within r metres of pos (one find_all per call; called at most once per second).
+-- Piece index (BuildingPieceDataIndex) -> {data, id, name} from my unlocked pieces (static; re-read every 30 s at most)
+local function piece_index(api)
+    local m = mem()
+    local t = api.now()
+    if m.by_index and m.by_index_t and t - m.by_index_t < 30 then return m.by_index end
+    local by = m.by_index or {}
+    for _, d in ipairs((W.unlocked(api)) or {}) do
+        local ok, p = pcall(M.describe, api, d)
+        if ok and p and p.index then by[p.index] = { data = d, id = p.id, name = p.name } end
+    end
+    m.by_index, m.by_index_t = by, t
+    return by
+end
+-- The client's census of built pieces (live 2026-11-01): a structural piece (a Square Foundation, built and confirmed)
+-- has NO actor on the client: it is a HISM instance on a CellBuildingProxy; only props (crate, stations) get a
+-- BaseBuildingActor. Every piece is in GlobalBuildingManager.BuildingPieces (TMap<uint32 ID, FBuildingPieceState>;
+-- .ClientVisible = BuildingPieceDataIndex, Location cm (PlacementZOffset applied: 0.5 m above its preview), Yaw,
+-- bGhosted, StabilityValue); the replicated fast array BuildingReplicationArray is empty on a client.
+-- -> {{id, pid, index, piece, name, data, position, yaw, ghosted, stability, actor?}} within r (2D) of pos | nil
+-- (unreadable). id = the actor's id when it has one (= sense's interactable id), else "BuildingPiece_<ID>".
+function W.built_pieces(api, pos, r)
+    local U = sense_U(api)
+    if paused() or not (U and pos) then return nil end
+    local m = mem()
+    if not (m.gbm and U.valid(m.gbm)) then
+        m.gbm = nil
+        for _, a in ipairs(U.find_all("GlobalBuildingManager", { skip_defaults = true }) or {}) do if U.valid(a) then m.gbm = a end end
+    end
+    local gbm = m.gbm
+    local map = gbm and U.try(function() return gbm.BuildingPieces end)
+    if map == nil then return nil end
+    local out, by = {}, piece_index(api)
+    local ok = pcall(function()
+        map:ForEach(function(k, v)
+            local st = U.try(function() return v:get() end) or v
+            local cv = st and U.try(function() return st.ClientVisible end)
+            local l = cv and U.try(function() return cv.Location end)
+            local okp, x, y, z = pcall(function() return l.X, l.Y, l.Z end)
+            if okp and type(x) == "number" and math.sqrt((x / 100 - pos[1]) ^ 2 + (y / 100 - pos[2]) ^ 2) <= r then
+                local pid = tonumber((U.try(function() return k:get() end)))
+                local idx = tonumber((U.try(function() return cv.BuildingPieceDataIndex end)))
+                local info = (idx and by[idx]) or {}
+                if pid then
+                    out[#out + 1] = { pid = pid, id = "BuildingPiece_" .. pid, index = idx, piece = info.id, name = info.name, data = info.data,
+                                      position = { x / 100, y / 100, z / 100 }, yaw = r1(tonumber((U.try(function() return cv.Yaw end))) or 0),
+                                      ghosted = U.try(function() return cv.bGhosted end) == true or nil,
+                                      stability = tonumber((U.try(function() return cv.StabilityValue end))) }
+                end
+            end
+        end)
+    end)
+    if not ok then return nil end
+    local by_pid = {}
+    for _, e in ipairs(out) do by_pid[e.pid] = e end
+    if next(by_pid) then -- pieces with an actor: its id and the actor itself (its own box, its name)
+        for _, a in ipairs(U.find_all("BaseBuildingActor", { skip_defaults = true }) or {}) do
+            if U.try(function() return a.bIsPreview end) ~= true then
+                local e = by_pid[tonumber((U.try(function() return a.BuildingPieceID end))) or -1]
+                if e then
+                    e.id, e.actor = U.short(a), a
+                    if not e.name then -- a piece I haven't unlocked: the actor's own piece data names it
+                        local d = U.try(function() return a.BuildingPieceData end)
+                        if U.valid(d) then e.name, e.piece = text(U, U.try(function() return d.DisplayName end)), e.piece or asset(U, d) end
+                    end
+                end
+            end
+        end
+    end
+    return out
+end
+-- Built pieces of this piece within r metres of pos (the piece census above; the actor scan if it is unreadable).
 function W.structures_near(api, piece_id, pos, r)
     local U = sense_U(api)
     local out = {}
     if paused() or not pos then return out end
+    local list = W.built_pieces(api, pos, r)
+    if list then
+        for _, e in ipairs(list) do
+            if e.piece == piece_id then out[#out + 1] = { id = e.id, position = e.position, yaw = e.yaw, pid = e.pid } end
+        end
+        return out
+    end
     for _, a in ipairs(U.find_all("BaseBuildingActor", { skip_defaults = true }) or {}) do
         local d = U.try(function() return a.BuildingPieceData end)
         if asset(U, d) == piece_id and U.try(function() return a.bIsPreview end) ~= true then
             local at = U.loc(a)
             if at and math.sqrt((at.X / 100 - pos[1]) ^ 2 + (at.Y / 100 - pos[2]) ^ 2) <= r then
-                local yaw = tonumber(U.try(function() return a:K2_GetActorRotation().Yaw end))
+                local yaw = tonumber((U.try(function() return a:K2_GetActorRotation().Yaw end))) -- (()) = one value, nil-safe
                 out[#out + 1] = { id = U.short(a), position = { at.X / 100, at.Y / 100, at.Z / 100 }, yaw = yaw }
             end
         end
@@ -420,6 +505,132 @@ function W.new_structure(api, job)
         end
     end
     return best
+end
+local function v3m(U, v) -- an FVector in cm -> {x, y, z} metres
+    local ok, x, y, z = pcall(function() return v.X, v.Y, v.Z end)
+    if ok and type(x) == "number" then return { x / 100, y / 100, z / 100 } end
+end
+-- {origin, extent} metres of an FBoxSphereBounds (the piece's local box: origin relative to the actor location)
+local function box_of(U, b)
+    if not b then return nil end
+    local e, o = v3m(U, U.try(function() return b.BoxExtent end)), v3m(U, U.try(function() return b.Origin end))
+    if e and o then return { extent = e, origin = o } end
+end
+-- A piece's placement profile and size from its OWN data, no preview needed: UBuildingPieceData.DerivedData (a soft
+-- pointer: its path, then StaticFindObject = only when already loaded; it is once the piece was selected). Live
+-- 2026-11-01: Square Foundation -> FoundationProfile, bCanOnlyBeSnapped false, box 300 cm cube hanging BELOW the
+-- actor origin (its location is its top), PlacementZOffset 50; Crate -> FloorPropProfile, box on top of its origin.
+-- -> {snap_only = true|false|nil, box = {origin, extent}, profile} | nil (not loaded yet). Cached per piece.
+function W.piece_profile(api, data)
+    local U = sense_U(api)
+    local id = asset(U, data)
+    local m = mem()
+    m.profiles = m.profiles or {}
+    if id and m.profiles[id] then return m.profiles[id] end
+    if paused() or not U.valid(data) then return nil end
+    local soft = U.try(function() return data.DerivedData end)
+    local path = soft and U.str(U.try(function() return soft:GetObjectID():GetAssetPathName() end))
+    local dd = path and U.find_object(path)
+    if not U.valid(dd) then return nil end
+    local p = { box = box_of(U, U.try(function() return dd.BuildingPieceLocalBounds end)),
+                z_offset = (tonumber((U.try(function() return dd.PlacementZOffset end))) or 0) / 100 }
+    local h = U.try(function() return dd.PlacementProfileRowHandle end)
+    local dt = h and U.try(function() return h.DataTable end)
+    p.profile = h and U.str(U.try(function() return h.RowName end)) or nil
+    if U.valid(dt) and p.profile then
+        local ok, row = pcall(function() return dt:FindRow(p.profile) end)
+        if ok and row ~= nil then
+            local v = U.try(function() return row.bCanOnlyBeSnapped end)
+            if v ~= nil then p.snap_only = v == true end
+        end
+    end
+    if id then m.profiles[id] = p end
+    return p
+end
+-- One built piece by its id: {id, name, piece, position (m), yaw, box} | nil
+function W.actor_info(api, id)
+    local U = sense_U(api)
+    if paused() or not need_str(id) then return nil end
+    local here = api.my_position()
+    local list = here and W.built_pieces(api, here, 200)
+    if list then
+        for _, e in ipairs(list) do
+            if e.id == id then
+                -- size: an actor's own box; an instance-only piece's from its data (nil until that data is loaded:
+                -- start_build then goes on with a provisional box, re-read once the new piece is selected)
+                local box = e.actor and box_of(U, U.try(function() return e.actor.BuildingPieceLocalBounds end))
+                if not box and e.data then box = (W.piece_profile(api, e.data) or {}).box end
+                return { id = id, pid = e.pid, piece = e.piece, data = e.data, name = e.name or ("building piece #" .. tostring(e.index)),
+                         position = e.position, yaw = e.yaw, box = box }
+            end
+        end
+        return nil
+    end
+    for _, a in ipairs(U.find_all("BaseBuildingActor", { skip_defaults = true }) or {}) do
+        if U.short(a) == id and U.try(function() return a.bIsPreview end) ~= true then
+            local at = U.loc(a)
+            local data = U.try(function() return a.BuildingPieceData end)
+            return { id = id, piece = asset(U, data), name = U.valid(data) and text(U, U.try(function() return data.DisplayName end)) or id,
+                     position = at and { at.X / 100, at.Y / 100, at.Z / 100 } or nil,
+                     yaw = tonumber((U.try(function() return a:K2_GetActorRotation().Yaw end))) or 0,
+                     box = box_of(U, U.try(function() return a.BuildingPieceLocalBounds end)) }
+        end
+    end
+end
+-- The preview actor's yaw (degrees) | nil
+function W.preview_yaw(api, job)
+    local U = sense_U(api)
+    local pa = W.preview_actor(api, job)
+    return pa and tonumber((U.try(function() return pa:K2_GetActorRotation().Yaw end))) or nil
+end
+
+-- ---------- attach geometry (pure; testable offline). Sides are compass words: north = -Y, east = +X.
+M.SIDES = { n = "N", north = "N", e = "E", east = "E", s = "S", south = "S", w = "W", west = "W", top = "top", up = "top", above = "top" }
+local SIDE_DIR = { N = { 0, -1 }, E = { 1, 0 }, S = { 0, 1 }, W = { -1, 0 } }
+-- The anchor's own horizontal axis nearest a compass side, and the box half-sizes along it:
+-- -> axis {x, y}, half of the anchor along it, the axis index (1 = its local X, 2 = local Y)
+local function side_axis(anchor, side)
+    local d = SIDE_DIR[side]
+    local yaw = math.rad(anchor.yaw or 0)
+    local ax = { { math.cos(yaw), math.sin(yaw) }, { -math.sin(yaw), math.cos(yaw) } }
+    local best, bdot, bi
+    for i, a in ipairs(ax) do
+        for _, sgn in ipairs({ 1, -1 }) do
+            local dot = (a[1] * sgn) * d[1] + (a[2] * sgn) * d[2]
+            if not bdot or dot > bdot then best, bdot, bi = { a[1] * sgn, a[2] * sgn }, dot, i end
+        end
+    end
+    return best, bi
+end
+-- Where a new piece (its box) stands flush against anchor's side: {x, y, z} metres (the new actor's location).
+-- Sides: same level as the anchor (tops flush for tiles); top: the new box's bottom on the anchor box's top.
+function M.flush_spot(anchor, side, new_box)
+    local ab, nb = anchor.box, new_box or anchor.box
+    if not (anchor.position and ab and nb) then return nil end
+    local p = anchor.position
+    if side == "top" then
+        local top = p[3] + ab.origin[3] + ab.extent[3]
+        return { p[1], p[2], top - (nb.origin[3] - nb.extent[3]) }, nil
+    end
+    local axis, i = side_axis(anchor, side)
+    local half = ab.extent[i] + nb.extent[i] -- the same local axis (the new piece takes the anchor's facing)
+    return { p[1] + axis[1] * half, p[2] + axis[2] * half, p[3] }, axis
+end
+-- How the new piece sits against the anchor (census positions): gap along the side's axis, level difference, and
+-- facing off by (degrees, mod 90). flush = all within tol.
+function M.flush_report(anchor, side, new_box, built, tol)
+    local want, axis = M.flush_spot(anchor, side, new_box)
+    if not (want and built and built.position) then return nil end
+    local b = built.position
+    local gap = axis and ((b[1] - want[1]) * axis[1] + (b[2] - want[2]) * axis[2]) or math.sqrt((b[1] - want[1]) ^ 2 + (b[2] - want[2]) ^ 2)
+    local side_off = axis and ((b[1] - want[1]) * -axis[2] + (b[2] - want[2]) * axis[1]) or 0
+    local level = b[3] - want[3]
+    local yo = ((((built.yaw or 0) - (anchor.yaw or 0)) % 90) + 90) % 90
+    if yo > 45 then yo = yo - 90 end
+    local r = { gap_m = math.floor(gap * 100 + 0.5) / 100, offset_m = math.floor(side_off * 100 + 0.5) / 100,
+                level_m = math.floor(level * 100 + 0.5) / 100, facing_off_deg = math.floor(yo * 10 + 0.5) / 10 }
+    r.flush = math.abs(gap) <= tol and math.abs(side_off) <= tol and math.abs(level) <= tol and math.abs(yo) <= 2
+    return r
 end
 -- One line trace from my pawn (KismetSystemLibrary:LineTraceSingle, the call move.lua / spells use).
 function W.trace(api, a, b)
@@ -580,8 +791,56 @@ local function start_build(api, args, ctx)
         center = pos_of(args.near)
         if not center then return api.fail("unknown_target", { near = args.near, detail = "I can't see what to build it next to." }) end
     end
-    local footprint = cfg.footprint_m
-    local standoff = math.max(cfg.standoff_m, footprint + 1.0)
+    -- on = "<piece id>[:N|E|S|W|top]": flush against that built piece (no side: the free side nearest me)
+    local on
+    if args.on ~= nil then
+        local aid, sw = tostring(args.on):match("^([^:]+):?(.*)$")
+        local anchor = W.actor_info(api, aid)
+        if not anchor or not anchor.position then
+            return api.fail("unknown_target", { on = args.on, detail = "I can't see a built piece with the id " .. tostring(aid) .. "." })
+        end
+        local side = sw ~= "" and M.SIDES[lower(sw)] or nil
+        if sw ~= "" and not side then
+            return api.fail("invalid_args", { on = args.on, detail = "I don't know the side '" .. sw .. "': use N, E, S, W or top." })
+        end
+        -- sizes: from the pieces' data, loaded once a piece was selected in the build menu; unknown now = a provisional
+        -- box (for where to stand), re-read in the rotate phase when the new piece is selected (else state_unavailable)
+        local box0 = (W.piece_profile(api, data) or {}).box -- the new piece's size, if its data is loaded
+        if not anchor.box and anchor.piece == piece.id then anchor.box = box0 end
+        local provisional = not (anchor.box and box0)
+        anchor.box = anchor.box or box0 or { origin = { 0, 0, 0 }, extent = { cfg.footprint_m / 2, cfg.footprint_m / 2, 0.5 } }
+        box0 = box0 or anchor.box
+        local function taken(s)
+            local p = M.flush_spot(anchor, s, box0)
+            for _, st in ipairs(W.structures(api, true) or {}) do
+                if st.id ~= anchor.id and st.position and math.sqrt((st.position[1] - p[1]) ^ 2 + (st.position[2] - p[2]) ^ 2) <= cfg.taken_m
+                    and math.abs(st.position[3] - p[3]) <= 1.0 then return st end
+            end
+        end
+        if side then
+            local t = taken(side)
+            if t then
+                return api.fail("blocked", { on = args.on, why = "side_taken", taken_by = t.id,
+                    detail = "The " .. side .. " side of the " .. anchor.name .. " already has a " .. tostring(t.name) .. " (" .. t.id .. ")." })
+            end
+        else
+            local best, bd
+            for _, s in ipairs({ "N", "E", "S", "W" }) do
+                local p = M.flush_spot(anchor, s, box0)
+                local d = math.sqrt((p[1] - here[1]) ^ 2 + (p[2] - here[2]) ^ 2)
+                if not taken(s) and (not bd or d < bd) then best, bd = s, d end
+            end
+            if not best then
+                return api.fail("blocked", { on = args.on, why = "no_free_side", detail = "Every side of the " .. anchor.name .. " already has a piece next to it." })
+            end
+            side = best
+        end
+        on = { anchor = anchor, side = side, box = box0, provisional = provisional }
+        center, exact = M.flush_spot(anchor, side, box0), true
+    end
+    local prof0 = W.piece_profile(api, data)
+    local footprint = (prof0 and prof0.box and math.max(prof0.box.extent[1], prof0.box.extent[2]) * 2) or cfg.footprint_m
+    local standoff = math.max(cfg.standoff_m, footprint / 2 + 1.0)
     if standoff > cfg.reach_m - 0.5 then
         return api.fail("too_far", { piece = piece.id, detail = "The " .. piece.name .. " is too big to place from where I can stand." })
     end
@@ -596,7 +855,7 @@ local function start_build(api, args, ctx)
     local short = false
     for _, x in ipairs(missing) do if (x.have + (x.in_storage or 0)) < x.need then short = true end end
     local job = { kind = "build", piece = piece, data = data, phase = "approach", missing = missing, center = center, exact = exact,
-                  short_materials = short,
+                  short_materials = short, on = on, footprint = footprint,
                   standoff = standoff, presses = {}, spent = {}, counts0 = counts, storage0 = storage, opens = 0, leaves = 0 }
     job.xp0 = W.construction_xp(api)
     return job
@@ -619,6 +878,37 @@ local function preview_reader(api, job)
         local m = W.mpc(api)
         local h = W.hook("validity")
         if not m or not m.position then return nil end
+        if job.on and job.on.target then
+            -- attaching: the positive snap signal. Green (and Valid, if the hook ever fires) AND the ghost itself (the
+            -- preview actor; the cursor stays where I aimed, snap_aim_m outside) sitting on the flush spot = the game
+            -- snapped it onto the anchor's plug. A free green ghost beside the anchor is never pressed.
+            local U = sense_U(api)
+            local pa = W.preview_actor(api, job)
+            local l = pa and U.loc(pa)
+            local at = l and { l.X / 100, l.Y / 100, l.Z / 100 } or m.position
+            local tg = job.on.target
+            local off = math.sqrt((at[1] - tg[1]) ^ 2 + (at[2] - tg[2]) ^ 2)
+            -- level: the census location is PlacementZOffset above where its preview stood (live: foundation +0.5 m),
+            -- so a ghost that low counts as level too
+            local dzs = tg[3] - at[3]
+            local dz = math.min(math.abs(dzs), math.abs(dzs - (job.on.z_offset or 0)))
+            job.on.last = { at = at, off_m = off, dz_m = dz, cursor = m.position, colour = m.index,
+                            yaw = pa and tonumber((U.try(function() return pa:K2_GetActorRotation().Yaw end))) or nil }
+            job.on.best_off = math.min(job.on.best_off or off, off)
+            local function r2(p) return p and { math.floor(p[1] * 100 + 0.5) / 100, math.floor(p[2] * 100 + 0.5) / 100, math.floor((p[3] or 0) * 100 + 0.5) / 100 } end
+            job.on.reads = job.on.reads or {}
+            if #job.on.reads >= 12 then table.remove(job.on.reads, 1) end
+            job.on.reads[#job.on.reads + 1] = { aim = r2(job.last_aim), cursor = r2(m.position), ghost = r2(at), colour = m.index,
+                                                off_m = math.floor(off * 100 + 0.5) / 100, ghost_yaw = job.on.last.yaw and r1(job.on.last.yaw) or nil }
+            local green = m.index == 2 and (not h or h.v == 0)
+            local fresh = not h or h.seq > (job.aim_seq or 0)
+            if green and off <= M.cfg.build.snap_tol_m and dz <= M.cfg.build.snap_tol_z_m then
+                return { valid = true, snapped = true, position = at, fresh = fresh, colour = 2 }
+            end
+            local why = (h and h.v ~= 0 and (M.STATES[h.v] or tostring(h.v))) or (job.short_materials and "MissingMaterials")
+                or (m.index == 2 and "not_snapped") or (m.index == 1 and "preview_red") or "preview_none"
+            return { valid = false, why = why, position = at, fresh = fresh }
+        end
         if not h then
             if m.index == 2 then
                 if M.cfg.build.hook_required then return { valid = nil, position = m.position } end -- no exact state: unreadable
@@ -669,6 +959,24 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
             .. rel .. " at " .. where .. ", where its preview was."
     end
     if not spent_all then line = line .. " My materials didn't visibly go down, so I can't say what it used." end
+    -- attached: how it really sits against the anchor, measured from the census (not from the preview)
+    local att
+    if job.on then
+        local a, side = job.on.anchor, job.on.side
+        local where_on = (side == "top" and "on top of the " or ("on the " .. side .. " side of the ")) .. tostring(a.name) .. " (" .. a.id .. ")"
+        att = s and M.flush_report(a, side, job.on.box, s, M.cfg.build.flush_tol_m)
+        if att then
+            local parts = {}
+            if math.abs(att.gap_m) > M.cfg.build.flush_tol_m then parts[#parts + 1] = string.format("%.2f m %s", math.abs(att.gap_m), att.gap_m > 0 and "gap" or "overlap") end
+            if math.abs(att.offset_m) > M.cfg.build.flush_tol_m then parts[#parts + 1] = string.format("%.2f m off to the side", math.abs(att.offset_m)) end
+            if math.abs(att.level_m) > M.cfg.build.flush_tol_m then parts[#parts + 1] = string.format("%.2f m %s", math.abs(att.level_m), att.level_m > 0 and "higher" or "lower") end
+            if math.abs(att.facing_off_deg) > 2 then parts[#parts + 1] = string.format("turned %.0f degrees", att.facing_off_deg) end
+            line = line .. (att.flush and (" It sits flush " .. where_on .. ": no gap, level, same facing.")
+                or (" It is NOT flush " .. where_on .. ": " .. table.concat(parts, ", ") .. "."))
+        else
+            line = line .. " I meant it to sit flush " .. where_on .. " but can't measure it until I can see it."
+        end
+    end
     local rej = {}
     for _, r in ipairs(job.rejects or {}) do
         rej[#rej + 1] = { spot = r.spot, why = r.why, preview_at = r.preview_at, off_m = r.off_m }
@@ -680,6 +988,9 @@ local function success(api, job, spent, spent_all, evidence, xp_gain)
     return { ok = true, data = setmetatable({ built = line, placed = true, name = job.piece.name, piece = job.piece.id,
         structure = s and s.id or api.null, position = at, distance_m = dist, direction = dir, facing = facing,
         spent = api.object(spent), xp = xp_gain or api.null, evidence = evidence, rotation_verified = false,
+        attached_to = job.on and job.on.anchor.id or nil, side = job.on and job.on.side or nil,
+        flush = att and att.flush, gap_m = att and att.gap_m, offset_m = att and att.offset_m, level_m = att and att.level_m,
+        facing_off_deg = att and att.facing_off_deg,
         rejected_previews_before_placing = #rej > 0 and rej or nil }, RESULT_MT) }
 end
 M._success = success
@@ -695,12 +1006,26 @@ local function step(api, job, t)
     if job.phase == "approach" then
         local here = api.my_position()
         local d = here and math.sqrt((here[1] - job.center[1]) ^ 2 + (here[2] - job.center[2]) ^ 2)
-        if d and d >= job.standoff - 0.6 and d <= cfg.reach_m - 1.5 then job.phase = "open"; return nil end
+        -- attaching: stand OUTSIDE the flush spot, on the far side from the anchor, so the camera ray to the aim
+        -- point never crosses the anchor piece (a side) / beside the anchor (top)
+        if job.on and not job.stand_at then
+            local half = job.footprint / 2
+            local _, axis = M.flush_spot(job.on.anchor, job.on.side, job.on.box)
+            local out_m = half + cfg.stand_extra_m
+            job.stand_at = axis and { job.center[1] + axis[1] * out_m, job.center[2] + axis[2] * out_m, job.center[3] }
+                or stand_point(here or job.center, job.center, out_m)
+        end
+        local ds = job.stand_at and here and math.sqrt((here[1] - job.stand_at[1]) ^ 2 + (here[2] - job.stand_at[2]) ^ 2)
+        if (job.stand_at and ds and ds <= 1.2) or (not job.stand_at and d and d >= job.standoff - 0.6 and d <= cfg.reach_m - 1.5) then
+            job.phase = "open"; return nil
+        end
         if not job.moving then
             if (job.approaches or 0) >= 2 then
+                if job.stand_at and d and d <= cfg.reach_m - 1.5 and d >= 1.5 then job.phase = "open"; return nil end -- close enough to try
                 return api.fail("too_far", { piece = job.piece.id, distance = d, detail = "I can't get to a spot to build the " .. job.piece.name .. " from." })
             end
-            local mr = api.call("move", "go_to", stand_point(here or job.center, job.center, job.standoff + 0.5), { tolerance_m = 0.8, timeout_s = 60, allow_unstuck = false, owner_token = job.token })
+            local goal = job.stand_at or stand_point(here or job.center, job.center, job.standoff + 0.5)
+            local mr = api.call("move", "go_to", goal, { tolerance_m = 0.8, timeout_s = 60, allow_unstuck = false, owner_token = job.token })
             if not mr.ok then return mr end
             job.moving, job.approaches = true, (job.approaches or 0) + 1
             return nil
@@ -766,18 +1091,82 @@ local function step(api, job, t)
                 for _, th in ipairs(api.census_things(30, 20) or {}) do if th.category == "players" then out[#out + 1] = th end end
                 return out
             end,
-            aim = function(p) job.aim_seq = W.hook_seq(); return W.aim(api, p) end,
+            aim = function(p) job.aim_seq, job.last_aim = W.hook_seq(), p; return W.aim(api, p) end,
             read = preview_reader(api, job),
         }
         job.env = env
+        -- snap-only? From the piece's own data first (live 2026-11-01: the preview-actor read came back unreadable for
+        -- the Square Foundation, profile bCanOnlyBeSnapped = false, so a ground foundation was refused as
+        -- preview_ambiguous); else the preview's profile; a preview that hasn't spawned yet is waited for. Unknown
+        -- still counts as snap (never press blind).
+        local prof = W.piece_profile(api, job.data)
         local pa = W.preview_actor(api, job)
-        job.snap = (pa and W.snap_only(api, pa)) ~= false -- unknown counts as snap (never press blind)
-        local spots, skipped = P.spots(env, job.center, { footprint_m = M.cfg.build.footprint_m, standoff_m = 0.8,
-                                                          around_m = job.exact and { 1.0 } or { 1.5, 3.0 }, around_n = 8 })
-        if job.exact and spots[1] and not spots[1].exact then table.insert(spots, 1, { position = job.center, exact = true }) end
-        if #spots == 0 then spots = { { position = job.center, exact = true } } end
+        if prof and prof.snap_only ~= nil then
+            job.snap, job.snap_src = prof.snap_only, "piece data"
+        elseif pa then
+            local v = W.snap_only(api, pa)
+            job.snap, job.snap_src = v ~= false, v == nil and "unreadable" or "preview"
+        elseif (job.pa_waits or 0) < cfg.preview_waits then
+            job.pa_waits = (job.pa_waits or 0) + 1
+            return nil
+        else
+            job.snap, job.snap_src = true, "no preview"
+        end
+        if prof and prof.box then job.footprint = math.max(prof.box.extent[1], prof.box.extent[2]) * 2 end
+        local spots, skipped
+        if job.on then
+            if job.on.provisional then -- the sizes, now that the new piece is selected (its data is loaded)
+                local a = job.on.anchor
+                local ab = a.data and (W.piece_profile(api, a.data) or {}).box
+                if not ab and a.piece == job.piece.id then ab = prof and prof.box end
+                if not (ab and prof and prof.box) then
+                    return leave_then(api.fail("state_unavailable", { on = a.id, detail = "I can't read the size of the "
+                        .. tostring(ab and job.piece.name or a.name) .. ", so I can't line it up flush. Nothing was placed." }))
+                end
+                a.box, job.on.provisional = ab, false
+            end
+            job.on.z_offset = prof and prof.z_offset or 0
+            -- the flush spot from both real sizes, aimed snap_aim_m (then twice that) OUTSIDE it: only a ghost the
+            -- game snapped sits on the spot itself (preview_reader's positive snap signal)
+            local box = (prof and prof.box) or job.on.box
+            local spot, axis = M.flush_spot(job.on.anchor, job.on.side, box)
+            job.on.box, job.on.target, job.center = box, spot, spot
+            local here = api.my_position() or spot
+            local out = axis
+            if not out then
+                local dx, dy = here[1] - spot[1], here[2] - spot[2]
+                local l = math.sqrt(dx * dx + dy * dy)
+                out = l > 0.01 and { dx / l, dy / l } or { 1, 0 }
+            end
+            spots, skipped = {}, {}
+            local function add(p, mm) spots[#spots + 1] = { position = p, exact = true, match_m = mm } end
+            if axis then
+                -- live 2026-11-01: aimed 0.25 / 0.5 m outside the flush spot, the free ghost landed 0.8-1.1 m further
+                -- out and never snapped. A player looks at the anchor's EDGE (its plugs) to snap: aim on its top just
+                -- inside the edge, then just outside it, then the old outside-the-spot points. The free ghost follows
+                -- the cursor (1.5 m+ from the flush spot here), so the snap signal stays unambiguous.
+                local a = job.on.anchor
+                local _, i = side_axis(a, job.on.side)
+                local e = a.box.extent[i]
+                local top = a.position[3] + a.box.origin[3] + a.box.extent[3]
+                local edge = { a.position[1] + axis[1] * e, a.position[2] + axis[2] * e, top }
+                for _, o in ipairs({ -cfg.edge_aim_m, cfg.edge_aim_m, 0 }) do
+                    add({ edge[1] + axis[1] * o, edge[2] + axis[2] * o, top }, 2 * box.extent[i] + 1.5)
+                end
+            end
+            for _, k in ipairs({ 1, 2 }) do
+                local o = cfg.snap_aim_m * k
+                add({ spot[1] + out[1] * o, spot[2] + out[2] * o, spot[3] }, 2 * cfg.snap_aim_m + 0.5)
+            end
+        else
+            spots, skipped = P.spots(env, job.center, { footprint_m = job.footprint, standoff_m = math.max(0.8, job.footprint / 2 + 0.3),
+                                                        around_m = job.exact and { 1.0 } or { 1.5, 3.0 }, around_n = 8 })
+            if job.exact and spots[1] and not spots[1].exact then table.insert(spots, 1, { position = job.center, exact = true }) end
+            if #spots == 0 then spots = { { position = job.center, exact = true } } end
+        end
         job.skipped = skipped
-        job.checker = P.checker(env, spots, { match_m = cfg.match_m, checks = 3, budget_s = cfg.budget_s, compare = "2d" })
+        job.checker = P.checker(env, spots, { match_m = function(sp) return sp.match_m or cfg.match_m end, checks = job.on and 4 or 3,
+                                              budget_s = cfg.budget_s, compare = "2d" })
         job.phase = "check"
         return nil
     elseif job.phase == "check" then
@@ -794,7 +1183,7 @@ local function step(api, job, t)
             for s, name in pairs(M.STATES) do if name == common then code = s end end
             local reason = code and M.STATE_REASON[code] or "blocked"
             if common == "preview_ambiguous" then
-                return leave_then(api.fail("verification_failed", { why = "preview_ambiguous", piece = job.piece.id,
+                return leave_then(api.fail("verification_failed", { why = "preview_ambiguous", piece = job.piece.id, snap_only_from = job.snap_src,
                     detail = "I can't tell whether the " .. job.piece.name .. " would snap into place there, so I didn't place it." }))
             end
             if r.why == "preview_unreadable" then
@@ -805,6 +1194,16 @@ local function step(api, job, t)
                 or "the game wouldn't let me place it"
             local d = { piece = job.piece.id, why = common, tried = r.rejects, skipped = job.skipped,
                         detail = (#r.rejects > 1 and "Every spot I tried here: " or "I can't put the " .. job.piece.name .. " there: ") .. tostring(words) }
+            if job.on then
+                local a, best = job.on.anchor, job.on.best_off
+                d.attach_to, d.side = a.id, job.on.side
+                d.ghost_off_m = best and math.floor(best * 100 + 0.5) / 100 or nil
+                d.preview_reads = job.on.reads -- where I aimed, where the cursor and the ghost landed (newest last)
+                d.detail = "I couldn't get the " .. job.piece.name .. " to sit flush on the " .. job.on.side
+                    .. (job.on.side == "top" and " of the " or " side of the ") .. tostring(a.name) .. " (" .. a.id .. "): " .. tostring(words)
+                    .. (best and string.format("; the closest its preview came was %.2f m from the flush spot", best) or "")
+                    .. ". Nothing was placed."
+            end
             if reason == "missing_materials" then d.missing = job.missing end
             return leave_then(api.fail(reason, d))
         end
@@ -970,15 +1369,29 @@ end
 -- refreshed at most every cfg.structures_every_s (one find_all then), never per frame, never under pause.
 -- `mine` is omitted (unverified which field carries the owner; review finding 20).
 M.cfg.structures = { radius_m = 30, max = 15, every_s = 5 }
-function W.structures(api)
+function W.structures(api, fresh)
     local m = mem()
     local cfg = M.cfg.structures
     local t = api.now()
-    if m.structs and m.structs_t and t - m.structs_t < cfg.every_s then return m.structs end
+    if not fresh and m.structs and m.structs_t and t - m.structs_t < cfg.every_s then return m.structs end
     if paused() then return m.structs or {} end
     local U = sense_U(api)
     local here = api.my_position()
     local out = {}
+    local list = U and here and W.built_pieces(api, here, cfg.radius_m)
+    if list then -- every piece, also the instance-only ones (foundations) that have no actor
+        for _, e in ipairs(list) do
+            local d = math.sqrt((e.position[1] - here[1]) ^ 2 + (e.position[2] - here[2]) ^ 2)
+            out[#out + 1] = { id = e.id, name = e.name or (e.actor and text(U, U.prop(e.actor, "DisplayName"))) or ("building piece #" .. tostring(e.index)),
+                              piece = e.piece, position = e.position, distance = math.floor(d * 10 + 0.5) / 10,
+                              up_m = here[3] and math.floor((e.position[3] - (here[3] - 0.88)) * 10 + 0.5) / 10 or nil,
+                              yaw = e.yaw, ghosted = e.ghosted }
+        end
+        table.sort(out, function(x, y) return x.distance < y.distance end)
+        for i = #out, cfg.max + 1, -1 do out[i] = nil end
+        m.structs, m.structs_t = out, t
+        return out
+    end
     if U and here then
         for _, a in ipairs(U.find_all("BaseBuildingActor", { skip_defaults = true }) or {}) do
             if U.try(function() return a.bIsPreview end) ~= true then
@@ -986,11 +1399,15 @@ function W.structures(api)
                 local d = at and math.sqrt((at.X / 100 - here[1]) ^ 2 + (at.Y / 100 - here[2]) ^ 2)
                 if d and d <= cfg.radius_m then
                     local data = U.try(function() return a.BuildingPieceData end)
-                    -- DisplayName has many declarations: by-name reads on Blueprint actors via U.prop (R17)
-                    out[#out + 1] = { id = U.short(a), name = text(U, U.prop(a, "DisplayName"))
-                                          or (U.valid(data) and text(U, U.try(function() return data.DisplayName end))) or U.short(a),
+                    -- the piece's own name first (= buildables, = sense's interactable name); DisplayName has many
+                    -- declarations: by-name reads on Blueprint actors via U.prop (R17)
+                    out[#out + 1] = { id = U.short(a), name = (U.valid(data) and text(U, U.try(function() return data.DisplayName end)))
+                                          or text(U, U.prop(a, "DisplayName")) or U.short(a),
                                       piece = asset(U, data), position = { at.X / 100, at.Y / 100, at.Z / 100 },
                                       distance = math.floor(d * 10 + 0.5) / 10,
+                                      -- height above my feet (capsule half-height 0.88 m; my_position = capsule centre)
+                                      up_m = here[3] and math.floor((at.Z / 100 - (here[3] - 0.88)) * 10 + 0.5) / 10 or nil,
+                                      yaw = r1(tonumber((U.try(function() return a:K2_GetActorRotation().Yaw end))) or 0),
                                       ghosted = U.try(function() return a.bIsGhosted end) == true or nil }
                 end
             end
@@ -1024,12 +1441,14 @@ M.MANIFEST = {
         description = "Build one piece by its name from buildables (you need its materials). Walks near the spot, tries "
             .. "preview spots until the game shows one valid, places it once and checks it was built. ok: the reply's "
             .. "'built' line says what stands where (metres and compass from you, facing, its structures id); spots "
-            .. "rejected before that are listed under rejected_previews_before_placing and are not failures. Not ok: "
+            .. "rejected before that are listed under rejected_previews_before_placing and are not failures. With on, it "
+            .. "only places once the preview snaps onto that piece and says whether it sits flush (gap, level, facing). Not ok: "
             .. "detail says why, and no new piece was found standing there. Trains Construction.",
         args = { type = "object", required = { "piece" }, properties = obj({
             piece = { type = "string", description = "The piece's name or id from buildables." },
             at = { description = "Exactly here: [x, y, z] metres or an id." },
             near = { type = "string", description = "Somewhere next to this id ('me' for beside you)." },
+            on = { type = "string", description = "Attach to a built piece: its structures id, optionally ':N', ':E', ':S', ':W' or ':top' (no side: the free side nearest you)." },
             rotation = { type = "number", minimum = 0, maximum = 360, description = "Turn it this many degrees (15 degree steps)." } }) },
         reasons = { "no_permission", "host_only", "unknown_target", "ambiguous_target", "missing_materials", "blocked",
                     "limit_reached", "too_far", "path_blocked", "interrupted", "verification_failed", "timeout" } },

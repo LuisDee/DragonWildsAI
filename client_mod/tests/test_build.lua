@@ -404,6 +404,112 @@ r = build({ piece = "campfire" })
 check("new piece but no spend seen: ok, evidence actor, honest about the materials", r and r.ok and r.data.evidence == "actor"
     and r.data.structure == "BP_Campfire_C_NEW" and r.data.built:find("didn't visibly go down", 1, true), r and (tostring(r.reason) .. " " .. tostring(r.data and r.data.built)))
 
+-- 8e. attach (research 2026-11-01-autonomous-building §6 step 3): build {on = "<id>[:side]"} presses only on the
+-- positive snap signal (green AND the ghost itself on the flush spot while the cursor is aimed outside it), and the
+-- reply measures how the new piece really sits from the census (never claims flush from the preview).
+do
+    local function near(a, b) return math.abs(a - b) < 1e-6 end
+    -- live probe 2026-11-01: Square Foundation box 300 cm cube hanging below the actor origin (its location = its top)
+    local FB = { origin = { 0, 0, -1.5 }, extent = { 1.5, 1.5, 1.5 } }
+    local anchor = { id = "BP_Foundation_C_A", piece = "BUILDPIECE_Campfire", name = "Square Foundation", position = { 10, 0, 0 }, yaw = 0, box = FB }
+    local p, ax = Bd.flush_spot(anchor, "E", FB)
+    check("flush_spot E: 3 m east of the anchor, same level", near(p[1], 13) and near(p[2], 0) and near(p[3], 0) and near(ax[1], 1), p and table.concat(p, ","))
+    p = Bd.flush_spot(anchor, "N", FB)
+    check("flush_spot N: north = -Y", near(p[1], 10) and near(p[2], -3), table.concat(p, ","))
+    p = Bd.flush_spot(anchor, "top", FB)
+    check("flush_spot top: the new box's bottom on the anchor's top", near(p[3], 3), table.concat(p, ","))
+    local turned = { position = { 0, 0, 0 }, yaw = 90, box = { origin = { 0, 0, 0 }, extent = { 2, 1, 1 } } }
+    p = Bd.flush_spot(turned, "E", turned.box)
+    check("flush_spot on a turned piece: its own axis nearest east (local Y, half 1 m)", near(p[1], 2) and math.abs(p[2]) < 1e-6, table.concat(p, ","))
+    local rep = Bd.flush_report(anchor, "E", FB, { position = { 13, 0, 0 }, yaw = 90 }, 0.06)
+    check("flush_report: exact spot, turned 90 (a square tile) -> flush", rep.flush and rep.gap_m == 0 and rep.level_m == 0 and rep.facing_off_deg == 0)
+    rep = Bd.flush_report(anchor, "E", FB, { position = { 13.2, 0.1, -0.3 }, yaw = 10 }, 0.06)
+    check("flush_report: gap, side offset, level and facing measured", not rep.flush and rep.gap_m == 0.2 and rep.offset_m == 0.1
+        and rep.level_m == -0.3 and rep.facing_off_deg == 10, string.format("%s %s %s %s", rep.gap_m, rep.offset_m, rep.level_m, rep.facing_off_deg))
+
+    -- the action over fakes: the ghost snaps (to snap_at) or stays where the cursor aims; the census shows the new piece at built_at
+    local function attach_game(o)
+        reset_game({ no_hook = true })
+        CARRIED.ITEM_Resources_Stone = 12
+        Wb.actor_info = function(_, id) if id == anchor.id then return anchor end end
+        Wb.piece_profile = function() return { snap_only = o.snap_only or false, box = FB } end
+        Wb.structures = function()
+            local out = { { id = anchor.id, name = anchor.name, position = anchor.position } }
+            for _, s in ipairs(o.others or {}) do out[#out + 1] = s end
+            return out
+        end
+        Wb.preview_actor = function()
+            return { IsValid = function() return true end,
+                     K2_GetActorLocation = function()
+                         local a = (o.snap and o.snap_at) or G.aimed or { 0, 0, 0 }
+                         return { X = a[1] * 100, Y = a[2] * 100, Z = (a[3] or 0) * 100 }
+                     end,
+                     K2_GetActorRotation = function() return { Yaw = 0 } end }
+        end
+        local press0 = Wb.press
+        Wb.press = function(x, a)
+            if a == "place" and G.mode == "Placement" then G.placed = true end
+            return press0(x, a)
+        end
+        Wb.structures_near = function()
+            if G.placed then return { { id = "BP_Foundation_C_NEW", position = o.built_at, yaw = 90 } } end
+            return {}
+        end
+    end
+    attach_game({ snap = true, snap_at = { 13, 0, 0 }, built_at = { 13, 0, 0 } })
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    local da = r and r.data or {}
+    check("attach: snapped ghost on the flush spot -> placed, measured flush from the census", r and r.ok and da.attached_to == anchor.id
+        and da.side == "E" and da.flush == true and da.gap_m == 0 and da.structure == "BP_Foundation_C_NEW", r and (tostring(r.reason) .. " " .. tostring(da.detail or da.built)))
+    check("attach: the built line says where it sits", type(da.built) == "string"
+        and da.built:find("sits flush on the E side of the Square Foundation (BP_Foundation_C_A)", 1, true), da.built)
+    check("attach: aimed at the anchor's edge, on its top (a player's snap aim), never at the flush spot; one place press",
+        G.aimed and math.abs(G.aimed[1] - 11.2) < 1e-6 and count(G.presses, "place") == 1, G.aimed and table.concat(G.aimed, ","))
+
+    attach_game({ snap = false, built_at = { 13, 0, 0 } })
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    da = r and r.data or {}
+    check("attach: green but never snapped (ghost stays where aimed) -> never pressed, says so", r and not r.ok and da.why == "not_snapped"
+        and count(G.presses, "place") == 0 and tostring(da.detail):find("couldn't get the Campfire to sit flush on the E side of the Square Foundation", 1, true)
+        and tostring(da.detail):find("Nothing was placed", 1, true) and type(da.ghost_off_m) == "number", r and (tostring(r.reason) .. " " .. tostring(da.detail)))
+
+    attach_game({ snap = true, snap_at = { 13, 0, 0 }, built_at = { 13.3, 0, 0 } })
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    da = r and r.data or {}
+    check("attach: snapped, but the census shows it 0.3 m out -> ok (it was built) and says NOT flush with the gap",
+        r and r.ok and da.flush == false and da.gap_m == 0.3 and tostring(da.built):find("NOT flush on the E side", 1, true)
+        and tostring(da.built):find("0.30 m gap", 1, true), r and tostring(da.built))
+
+    attach_game({ snap = true, snap_at = { 13, 0, 0 }, built_at = { 13, 0, 0 },
+                  others = { { id = "BP_Wall_C_9", name = "Wall", position = { 13, 0, 0.5 } } } })
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    check("attach: that side already has a piece -> blocked side_taken, naming it, no press", r and r.reason == "blocked" and r.data.why == "side_taken"
+        and r.data.taken_by == "BP_Wall_C_9" and #G.presses == 0, r and r.reason)
+    attach_game({ snap = true, snap_at = { 7, 0, 0 }, built_at = { 7, 0, 0 } })
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A" })
+    check("attach without a side: the free side nearest me (W, I'm west of it), flush", r and r.ok and r.data.side == "W" and r.data.flush == true,
+        r and (tostring(r.reason) .. " " .. tostring(r.data.side) .. " " .. tostring(r.data.detail or r.data.built)))
+    attach_game({})
+    r = build({ piece = "campfire", on = "BP_Gone_C_1:E" })
+    check("attach to an id I can't see: unknown_target, no press", r and r.reason == "unknown_target" and #G.presses == 0, r and r.reason)
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:up-ish" })
+    check("attach with a side I don't know: invalid_args naming the sides", r and r.reason == "invalid_args" and tostring(r.data.detail):find("N, E, S, W or top", 1, true), r and r.reason)
+    attach_game({ snap = true, snap_only = true, snap_at = { 13, 0, 0 }, built_at = { 13, 0, 0 } })
+    r = build({ piece = "campfire", on = "BP_Foundation_C_A:E" })
+    check("attach: a snap-only piece IS pressed once the snap is seen (no longer preview_ambiguous)", r and r.ok and r.data.flush == true, r and (tostring(r.reason) .. " " .. tostring(r.data.why)))
+end
+-- the piece's own data decides snap-only before the preview actor (live: the preview read came back unreadable)
+reset_game({ no_hook = true })
+Wb.piece_profile = function() return { snap_only = false } end
+Wb.snap_only = function() return nil end
+r = build({ piece = "campfire" })
+check("piece data says not snap-only: pressed although the preview's own read is unreadable", r and r.ok and count(G.presses, "place") == 1, r and (tostring(r.reason) .. " " .. tostring(r.data.why)))
+reset_game({ no_hook = true })
+Wb.preview_actor = function() return nil end
+r = build({ piece = "campfire" }, 400)
+check("no profile and no preview actor: waited, then treated as snap (never pressed blind), says where that came from",
+    r and r.data.why == "preview_ambiguous" and r.data.snap_only_from == "no preview" and count(G.presses, "place") == 0, r and (tostring(r.reason) .. " " .. tostring(r.data.why)))
+
 -- 9. every spot needs a foundation -> blocked, in the game's own words
 reset_game({ state = function() return 3 end })
 r = build({ piece = "campfire" })
@@ -492,6 +598,46 @@ do
     T = 1006; Bd.state_extras(api)
     check("structures: refreshed after 5 s", finds == 2, finds)
     FindAllOf = function() return {} end
+end
+
+-- the piece census (live 2026-11-01): a built foundation has NO actor on the client (HISM instance); every piece is
+-- in GlobalBuildingManager.BuildingPieces (TMap<ID, FBuildingPieceState>.ClientVisible)
+do
+    for k, v in pairs(saved) do Wb[k] = v end
+    _G.DWBuild = nil
+    table_.BuildingPieceDataIndex, campfire.BuildingPieceDataIndex = 27, 25 -- (the fakes all share 26)
+    local function tmap(entries)
+        return { ForEach = function(_, f) for k, v in pairs(entries) do f({ get = function() return k end }, { get = function() return v end }) end end }
+    end
+    local function cv(idx, x, y, z, yaw)
+        return { ClientVisible = { BuildingPieceDataIndex = idx, Location = { X = x, Y = y, Z = z }, Yaw = yaw, bGhosted = false, StabilityValue = 100 } }
+    end
+    local gbm = uobj("GlobalBuildingManager /Game/L.L:PersistentLevel.GlobalBuildingManager_1",
+        { BuildingPieces = tmap({ [59] = cv(27, 300, 0, 50, 0), [60] = cv(25, 500, 0, 0, 90), [61] = cv(27, 9000, 0, 0, 0) }) })
+    local fire = uobj("BP_Campfire_C /Game/L.L:PersistentLevel.BP_Campfire_C_7", { BuildingPieceID = 60, bIsPreview = false,
+        K2_GetActorLocation = function() return { X = 500, Y = 0, Z = 0 } end })
+    FindAllOf = function(cls)
+        if cls == "GlobalBuildingManager" then return { gbm } end
+        if cls == "BaseBuildingActor" then return { fire } end
+        return {}
+    end
+    G = G or {}
+    G.pos = { 0, 0, 0 }
+    T = 2000
+    local st = (Bd.state_extras(api) or {}).structures or {}
+    check("piece census: an instance-only piece (no actor) listed by its piece id, named from buildables",
+        st[1] and st[1].id == "BuildingPiece_59" and st[1].name == "Crafting Table" and st[1].piece == "BUILDPIECE_CraftingStation_Basic"
+        and st[1].position[3] == 0.5, st[1] and (tostring(st[1].id) .. " " .. tostring(st[1].name)))
+    check("piece census: a piece with an actor keeps the actor's id (= the interactable's); far pieces left out",
+        st[2] and st[2].id == "BP_Campfire_C_7" and st[2].name == "Campfire" and st[2].yaw == 90 and #st == 2,
+        st[2] and string.format("%s %s %s %d", tostring(st[2].id), tostring(st[2].name), tostring(st[2].yaw), #st))
+    local nb = Wb.structures_near(api, "BUILDPIECE_CraftingStation_Basic", { 3, 0, 0 }, 3)
+    check("structures_near: from the census, this piece only", #nb == 1 and nb[1].id == "BuildingPiece_59", #nb)
+    local info = Wb.actor_info(api, "BuildingPiece_59")
+    check("actor_info: an instance-only piece by its id; box from its data (nil: not loaded here)",
+        info and info.position[1] == 3 and info.box == nil and info.piece == "BUILDPIECE_CraftingStation_Basic", info and info.id)
+    FindAllOf = function() return {} end
+    table_.BuildingPieceDataIndex, campfire.BuildingPieceDataIndex = 26, 26
 end
 
 print(string.format("%d passed, %d failed", pass, failn))
