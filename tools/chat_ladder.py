@@ -368,14 +368,24 @@ def _dev():
 
 
 def place_at(start, cli) -> tuple[bool, str]:
-    """Stop, then the same placement as the body ladder (travel_ladder.place: teleport fixture + settle)."""
+    """Stop, then the same placement as the body ladder (travel_ladder.place: teleport fixture + settle). If he
+    walks off the spot, the brain is still on the last leg's request (a body stop doesn't end it, BUGS L44): tell
+    him to stop the way a player would, let it settle, and place once more."""
+    from tools import m1_session, travel_ladder as tl
     cli.request("stop", {}, timeout=10)
     try:
-        from tools import travel_ladder as tl
         p = tl.place(_dev(), cli, list(start))
         return True, f"placed at {[round(v, 2) for v in p]}"
     except Exception as exc:  # noqa: BLE001
-        return False, f"placement failed: {exc!r}"
+        first = exc
+    m1_session.send_speech_direct("claude stop, wait there")
+    time.sleep(12.0)
+    cli.request("stop", {}, timeout=10)
+    try:
+        p = tl.place(_dev(), cli, list(start))
+        return True, f"placed at {[round(v, 2) for v in p]} (after a spoken stop; first try: {first!r})"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"placement failed: {exc!r} (also after a spoken stop; first try: {first!r})"
 
 
 def _tail_rows(path: Path, n: int = 400) -> list[dict]:

@@ -27,7 +27,7 @@ def boundary(tmp_path):
     return r, d, task
 
 
-def pending_change(r, pct=45):
+def pending_change(r, pct=25):  # below the 30 % line (food/drink have no 50 % line: the reflex eats at 40)
     r.agent._fresh_state()
     r.body.state["survival"]["hydration"][0] = pct
     r.at(61)

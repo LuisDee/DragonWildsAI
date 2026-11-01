@@ -646,15 +646,18 @@ class EventBroker:
         return out
 
     @staticmethod
-    def band(pct: float) -> int:
-        return sum(1 for cut in REVIEW_BANDS if pct < cut)
+    def band(pct: float, name: str = "") -> int:
+        # food and drink: the stay-fed reflex eats/drinks below 40 %, so 50 % is no news (passes audit: 25 of 40
+        # silent reviews were "a bit thirsty")
+        cuts = REVIEW_BANDS[1:] if name in VITAL_NEEDS else REVIEW_BANDS
+        return sum(1 for cut in cuts if pct < cut)
 
     def _change(self, change: dict) -> None:
         self._pending = [c for c in self._pending if c.get("what") != change.get("what")] + [change]
 
     def _watch(self, state: dict) -> None:
         for name, pct in self.stats(state).items():
-            b = self.band(pct)
+            b = self.band(pct, name)
             prev = self._bands.get(name)
             self._bands[name] = (b, pct)
             if prev is not None and b > prev[0]:  # crossed a line downwards
