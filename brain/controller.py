@@ -98,6 +98,14 @@ LIST_SKILLS = {
     "function": {"name": "list_skills", "description": "Read-only: the skills you have learned, with how often each worked.",
                  "parameters": {"type": "object", "properties": {}}},
 }
+FOOD_OPTIONS = {  # brain/needs_options.py: the same digest situation shows when food or water is low, on demand
+    "type": "function",
+    "function": {"name": "food_options", "description": (
+        "Read-only: your food or water options right now, each with what it restores, your level after, where it "
+        "is, the steps, an estimated time and the risk. situation shows them by itself when a need is low."),
+        "parameters": {"type": "object", "properties": {"need": {"type": "string", "enum": ["food", "drink"],
+                       "description": "Leave out for both."}}}},
+}
 FORGET_SKILL = {
     "type": "function",
     "function": {"name": "forget_skill", "description": "Delete one learned skill by its exact name (from list_skills).",
@@ -374,7 +382,8 @@ class Controller:
         self.caps = caps if caps is not None and getattr(caps, "has_manifest", False) else None
         if self.caps is not None and self.available is None:
             self.available = set(self.caps.tools) | set(self.caps.manifest)
-        self.read_tools = set(READ_TOOLS) | (self.caps.read_tools() if self.caps else set()) | {"list_skills"}
+        self.read_tools = set(READ_TOOLS) | (self.caps.read_tools() if self.caps else set()) | {"list_skills",
+                                                                                               "food_options"}
         self.skills = skills  # SkillLibrary | None
         self.max_calls = max(1, max_calls)
         self.addressed_effort = os.environ.get(ADDRESSED_EFFORT_ENV, ADDRESSED_EFFORT_DEFAULT).strip() or None
@@ -426,7 +435,7 @@ class Controller:
     def _schemas(self) -> list[dict]:
         hide_goal = self.director is not None and self.director.hides_start_goal
         brain = [tool_schema("remember"), tool_schema("run_skill")] + ([] if hide_goal else [START_GOAL]) + \
-            ([LIST_SKILLS, FORGET_SKILL] if self.skills is not None else [])
+            ([LIST_SKILLS, FORGET_SKILL] if self.skills is not None else []) + [FOOD_OPTIONS]
         if self.knowledge is not None:  # the kinds it can filter on come from the index itself
             kinds = ", ".join(self.knowledge.kinds())
             brain.insert(0, tool_schema("lookup", TOOLS["lookup"][1] + (f" kind values: {kinds}." if kinds else "")))
@@ -853,6 +862,15 @@ class Controller:
             recs = self.skills.all() if self.skills else []
             return {"ok": True, "data": {"skills": [{"name": r.name, "ok": r.stats.ok, "runs": r.stats.runs}
                                                     for r in recs]}}
+        if call.name == "food_options":
+            from . import needs_options
+            st = getattr(self, "_state_for_reads", None) or {}
+            want = (call.arguments or {}).get("need")
+            kinds = [want] if want in ("food", "drink") else ["food", "drink"]
+            try:
+                return {"ok": True, "data": {k: needs_options.options_for(st, k) for k in kinds}}
+            except Exception as exc:  # a broken digest never breaks the turn: the model hears why
+                return {"ok": False, "reason": "unavailable", "error": f"{type(exc).__name__}: {exc}"[:300]}
         try:
             args = self._validate(call.name, call.arguments)
         except Exception as exc:

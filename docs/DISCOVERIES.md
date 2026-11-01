@@ -2440,7 +2440,15 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
     - `FToxicityTableRow.Toxicity` in `.../Consumables/DT_Toxicity_V2`;
     - `FWitherTableRow.Wither` in `DT_Wither_V2`;
     - rest in `.../Food/DT_RestEndurance`.
-  - Read-only probe: `client_mod/commands/food_values_probe.lua` (FindAllOf the item data, then FindRow through each handle's own DataTable). **[UNVERIFIED live: not run yet; the live lock was held by other agents all window.]**
+  - Read-only probe: `client_mod/commands/food_values_probe.lua` (FindAllOf the item data, then FindRow through each handle's own DataTable). **Verified live 14:57Z, 0.8 s, no errors:**
+    - 137 food and 23 drink item datas were loaded.
+    - Rows: DT_FoodSustenance 120 (`FoodSustenance`), DT_DrinkHydration 21 (`DrinkHydration`), DT_Toxicity_V2 8 (`ToxicityTableRow`), DT_RestEndurance 2 (`SurvivalBuffDataRow`), DT_Wither_V2 1.
+    - Row names look like `v3_Redberry` and `Sandwhich_Veggie` (sic). `ItemUsageDelay` is 0.01. Forager's Sandwich `Duration` is 600 s (its HP comes over time).
+    - **Redberries heal 10** (the wiki gives none).
+    - **Burnt food carries +20 Soulscourge** (`ToxicityRowHandle` "+20" on Burnt Redberries and others), and its values differ from the wiki's: Burnt Redberries +5 (wiki 10), Burnt Bread +20.
+    - Meat Stew's `AmountToHealOnConsume` is 0 (wiki 50: probably a buff, **[UNVERIFIED]**).
+    - Not loaded on the client, so absent from the probe: Goblin Pack (an `ItemEmitter`), Bird Nest, Steak.
+  - `data/food_values_26161880.json` now has 156 of 158 items from live rows (live wins, with the wiki revid kept as a fallback `src`).
 - **Values now used (wiki, per-page revid kept as `src`; `tools/gen_food_values.py` -> `data/food_values_26161880.json`, where a live probe row wins):**
 
   | Item | Food | HP | Water | Other |
@@ -2484,6 +2492,12 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
     - persona example 2 primed "starving" + berries;
     - the option text buried the outcome.
   - Every option now leads with `[~time -> +gain, level after, lasts ~N min]`. Not re-evaluated: the 10-call budget was spent.
+- **Live check 1 (14:57Z, the real brain, dev world):** water 44% with Clean Water on the hotbar. The stay-fed reflex drank one at 40% on its own (+25, about 37 s into the window). No model call was needed: the body handles carried hotbar items.
+- **Live check 2 (15:17-15:21Z, fixture, restored):** his one hotbar food (Forager's Sandwich) went to the bag, and the eat-below line went to 90% so the reflex could not eat.
+  - At food 48% the vitals_low event came in. The model saw the digest (two blocks; the food one: bag Redberries, Sandwich and Fillet x18; the grave with 45 sandwiches at 453 m; a Redberry Bush 9 m away; Dried Redberries; cook the Egg at the Campfire 16 m away).
+  - He picked **move_item Fillet + consume Fillet**: the LLM answered in 2.0 s, and food went from 47.9 to 67.9 4.8 s after the event. The next turn drank Clean Water (39.6 to 64.6). Then he was silent.
+  - No berries, so the berries bias is gone here. He kept his last sandwich, which is a defensible choice.
+  - **The event came 175 s after the brain started.** The body's vitals_low repeats every 180 s (client_bridge VITALS_REPEAT_S). The first one went out before the brain had connected and was lost **[likely, not verified]**. A brain (re)start does not re-read low needs until the next repeat.
 
 
 ### Deconstruct: taking down built pieces the player's way (2026-11-01, server build 26161880, client 26162923)

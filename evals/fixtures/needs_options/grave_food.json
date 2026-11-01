@@ -1,0 +1,2576 @@
+{
+ "state": {
+  "hydration": 27.0,
+  "stations_nearby": [
+   {
+    "station": "Campfire",
+    "id": "BP_Station_Campfire_C_2147341079",
+    "distance": 42.9,
+    "name": "Campfire",
+    "running": false
+   }
+  ],
+  "max_stamina": 100.0,
+  "places": [],
+  "structures": [],
+  "endurance": 82.9,
+  "sustenance": 42.1,
+  "last_held": "Stone Club",
+  "stamina": 53.8,
+  "survival": {
+   "hydration": [
+    27.0,
+    100.0
+   ],
+   "endurance": [
+    82.9,
+    100.0
+   ],
+   "sustenance": [
+    42.1,
+    100.0
+   ]
+  },
+  "not_implemented": [
+   "places"
+  ],
+  "nearby_resources": [
+   {
+    "position": [
+     149.14,
+     1834.55,
+     -32.15
+    ],
+    "interactable": true,
+    "kind": "foliage",
+    "distance": 15.19,
+    "id": "fol:BP_Spawner_Stone_C@1491,18345,-322",
+    "foliage": "pickup",
+    "verb": "gather",
+    "name": "Stone",
+    "class": "BP_Spawner_Stone_C",
+    "item": "ITEM_Resources_Stone"
+   },
+   {
+    "position": [
+     148.09,
+     1833.08,
+     -32.04
+    ],
+    "interactable": true,
+    "kind": "foliage",
+    "distance": 15.98,
+    "id": "fol:BP_Spawner_Stone_C@1481,18331,-320",
+    "foliage": "pickup",
+    "verb": "gather",
+    "name": "Stone",
+    "class": "BP_Spawner_Stone_C",
+    "item": "ITEM_Resources_Stone"
+   },
+   {
+    "position": [
+     146.78,
+     1832.32,
+     -31.94
+    ],
+    "interactable": true,
+    "kind": "foliage",
+    "distance": 16.16,
+    "id": "fol:BP_Spawner_Stone_C@1468,18323,-319",
+    "foliage": "pickup",
+    "verb": "gather",
+    "name": "Stone",
+    "class": "BP_Spawner_Stone_C",
+    "item": "ITEM_Resources_Stone"
+   },
+   {
+    "tool_tier": 1,
+    "damageable": true,
+    "position": [
+     148.9,
+     1861.93,
+     -32.33
+    ],
+    "interactable": true,
+    "kind": "foliage",
+    "tool": "Hatchet",
+    "distance": 16.43,
+    "class": "BP_BM_Tree_Ash_01_C",
+    "id": "fol:BP_BM_Tree_Ash_01_C@1489,18619,-323",
+    "foliage": "tree",
+    "max_health": 160.0,
+    "name": "Ash Tree",
+    "verb": "chop",
+    "health": 160.0
+   },
+   {
+    "position": [
+     149.74,
+     1832.33,
+     -31.92
+    ],
+    "interactable": true,
+    "kind": "foliage",
+    "distance": 17.41,
+    "id": "fol:BP_Spawner_Stone_C@1497,18323,-319",
+    "foliage": "pickup",
+    "verb": "gather",
+    "name": "Stone",
+    "class": "BP_Spawner_Stone_C",
+    "item": "ITEM_Resources_Stone"
+   },
+   {
+    "tool_tier": 1,
+    "damageable": true,
+    "position": [
+     143.09,
+     1865.1,
+     -32.0
+    ],
+    "interactable": true,
+    "kind": "foliage",
+    "tool": "Hatchet",
+    "distance": 17.76,
+    "class": "BP_BM_Tree_Ash_03_C",
+    "id": "fol:BP_BM_Tree_Ash_03_C@1431,18651,-320",
+    "foliage": "tree",
+    "max_health": 160.0,
+    "name": "Ash Tree",
+    "verb": "chop",
+    "health": 160.0
+   },
+   {
+    "position": [
+     133.59,
+     1863.85,
+     -32.08
+    ],
+    "interactable": true,
+    "kind": "foliage",
+    "distance": 18.04,
+    "id": "fol:BP_Spawner_AshBranch_03_C@1336,18638,-321",
+    "foliage": "pickup",
+    "verb": "gather",
+    "name": "Ash Logs",
+    "class": "BP_Spawner_AshBranch_03_C",
+    "item": "ITEM_Resources_Wood_Ash"
+   },
+   {
+    "position": [
+     151.63,
+     1832.39,
+     -31.93
+    ],
+    "interactable": true,
+    "kind": "foliage",
+    "distance": 18.37,
+    "id": "fol:BP_Spawner_Stone_C@1516,18324,-319",
+    "foliage": "pickup",
+    "verb": "gather",
+    "name": "Stone",
+    "class": "BP_Spawner_Stone_C",
+    "item": "ITEM_Resources_Stone"
+   },
+   {
+    "position": [
+     148.73,
+     1829.99,
+     -31.59
+    ],
+    "interactable": true,
+    "kind": "foliage",
+    "distance": 19.05,
+    "id": "fol:BP_Spawner_Stone_C@1487,18300,-316",
+    "foliage": "pickup",
+    "verb": "gather",
+    "name": "Stone",
+    "class": "BP_Spawner_Stone_C",
+    "item": "ITEM_Resources_Stone"
+   },
+   {
+    "tool_tier": 1,
+    "damageable": true,
+    "position": [
+     132.75,
+     1865.17,
+     -31.75
+    ],
+    "interactable": true,
+    "kind": "foliage",
+    "tool": "Hatchet",
+    "distance": 19.6,
+    "class": "BP_BM_Tree_Ash_03_C",
+    "id": "fol:BP_BM_Tree_Ash_03_C@1327,18652,-318",
+    "foliage": "tree",
+    "max_health": 160.0,
+    "name": "Ash Tree",
+    "verb": "chop",
+    "health": 160.0
+   },
+   {
+    "tool_tier": 1,
+    "damageable": true,
+    "position": [
+     156.3,
+     1863.66,
+     -32.2
+    ],
+    "interactable": true,
+    "kind": "foliage",
+    "tool": "Hatchet",
+    "distance": 22.2,
+    "class": "BP_BM_Tree_Ash_01_C",
+    "id": "fol:BP_BM_Tree_Ash_01_C@1563,18637,-322",
+    "foliage": "tree",
+    "max_health": 160.0,
+    "name": "Ash Tree",
+    "verb": "chop",
+    "health": 160.0
+   },
+   {
+    "tool_tier": 1,
+    "damageable": true,
+    "position": [
+     128.23,
+     1866.9,
+     -30.89
+    ],
+    "interactable": true,
+    "kind": "foliage",
+    "tool": "Hatchet",
+    "distance": 23.33,
+    "class": "BP_BM_Tree_Ash_03_C",
+    "id": "fol:BP_BM_Tree_Ash_03_C@1282,18669,-309",
+    "foliage": "tree",
+    "max_health": 160.0,
+    "name": "Ash Tree",
+    "verb": "chop",
+    "health": 160.0
+   },
+   {
+    "tool_tier": 1,
+    "damageable": true,
+    "position": [
+     134.1,
+     1824.86,
+     -31.06
+    ],
+    "interactable": true,
+    "kind": "foliage",
+    "tool": "Hatchet",
+    "distance": 23.66,
+    "class": "BP_BM_Tree_Ash_01_C",
+    "id": "fol:BP_BM_Tree_Ash_01_C@1341,18249,-311",
+    "foliage": "tree",
+    "max_health": 160.0,
+    "name": "Ash Tree",
+    "verb": "chop",
+    "health": 160.0
+   },
+   {
+    "tool_tier": 1,
+    "damageable": true,
+    "position": [
+     143.71,
+     1870.98,
+     -31.54
+    ],
+    "interactable": true,
+    "kind": "foliage",
+    "tool": "Hatchet",
+    "distance": 23.67,
+    "class": "BP_BM_Tree_Ash_03_C",
+    "id": "fol:BP_BM_Tree_Ash_03_C@1437,18710,-315",
+    "foliage": "tree",
+    "max_health": 160.0,
+    "name": "Ash Tree",
+    "verb": "chop",
+    "health": 160.0
+   },
+   {
+    "position": [
+     116.1,
+     1846.52,
+     -32.24
+    ],
+    "class": "BP_Spawner_AshBranch_02_C",
+    "kind": "gatherable",
+    "prompt": "Collect",
+    "id": "BP_Spawner_AshBranch_02_C_UAID_00BE4395530E8D1602_1652744780",
+    "item": "ITEM_Resources_Wood_Ash",
+    "verb": "gather",
+    "name": "Ash Logs",
+    "distance": 25.06,
+    "available": true
+   },
+   {
+    "position": [
+     115.38,
+     1847.47,
+     -32.31
+    ],
+    "class": "BP_Spawner_AshBranch_02_C",
+    "kind": "gatherable",
+    "prompt": "Collect",
+    "id": "BP_Spawner_AshBranch_02_C_UAID_00BE4395530E6B1702_1827296620",
+    "item": "ITEM_Resources_Wood_Ash",
+    "verb": "gather",
+    "name": "Ash Logs",
+    "distance": 25.77,
+    "available": true
+   },
+   {
+    "position": [
+     114.29,
+     1846.4,
+     -31.92
+    ],
+    "class": "BP_Spawner_AshBranch_03_C",
+    "kind": "gatherable",
+    "prompt": "Collect",
+    "id": "BP_Spawner_AshBranch_03_C_UAID_00BE4395530E8D1602_1665570781",
+    "item": "ITEM_Resources_Wood_Ash",
+    "verb": "gather",
+    "name": "Ash Logs",
+    "distance": 26.86,
+    "available": true
+   },
+   {
+    "position": [
+     114.12,
+     1847.55,
+     -32.04
+    ],
+    "class": "BP_Spawner_AshBranch_03_C",
+    "kind": "gatherable",
+    "prompt": "Collect",
+    "id": "BP_Spawner_AshBranch_03_C_UAID_00BE4395530E8D1602_1560803777",
+    "item": "ITEM_Resources_Wood_Ash",
+    "verb": "gather",
+    "name": "Ash Logs",
+    "distance": 27.02,
+    "available": true
+   },
+   {
+    "position": [
+     113.53,
+     1845.4,
+     -31.91
+    ],
+    "class": "BP_Spawner_AshBranch_03_C",
+    "kind": "gatherable",
+    "prompt": "Collect",
+    "id": "BP_Spawner_AshBranch_03_C_UAID_00BE4395530E8D1602_1747509784",
+    "item": "ITEM_Resources_Wood_Ash",
+    "verb": "gather",
+    "name": "Ash Logs",
+    "distance": 27.68,
+    "available": true
+   },
+   {
+    "position": [
+     111.71,
+     1842.27,
+     -31.92
+    ],
+    "class": "BP_RedberryBush_C",
+    "kind": "gatherable",
+    "prompt": "Collect",
+    "id": "BP_RedberryBush_C_UAID_00BE4395530E8D1602_2135435791",
+    "item": "ITEM_Consumable_Fruit_Redberry",
+    "verb": "gather",
+    "name": "Redberries",
+    "distance": 29.87,
+    "available": false
+   }
+  ],
+  "inventory_items": [
+   {
+    "kind": "MagicAmmo",
+    "raw": 0,
+    "id": "QuickAction:0",
+    "slot": 0,
+    "count": 560,
+    "item": "ITEM_Rune_Water",
+    "category": "ItemFilter.Type.Equipment.Ammo.Rune",
+    "name": "Water Rune",
+    "where": "hotbar",
+    "slot_type": "QuickAction"
+   },
+   {
+    "kind": "MagicAmmo",
+    "raw": 40,
+    "id": "InventoryRunes:0",
+    "slot": 0,
+    "count": 126,
+    "item": "ITEM_Rune_Air",
+    "category": "ItemFilter.Type.Equipment.Ammo.Rune",
+    "name": "Air Rune",
+    "where": "bag",
+    "slot_type": "InventoryRunes"
+   },
+   {
+    "kind": "Item",
+    "raw": 41,
+    "id": "InventoryRunes:1",
+    "slot": 1,
+    "count": 1589,
+    "item": "ITEM_Rune_Law",
+    "category": "ItemFilter.Type.Equipment.Ammo.Rune",
+    "name": "Law Rune",
+    "where": "bag",
+    "slot_type": "InventoryRunes"
+   },
+   {
+    "kind": "Item",
+    "raw": 42,
+    "id": "InventoryRunes:2",
+    "slot": 2,
+    "count": 2019,
+    "item": "ITEM_Rune_Astral",
+    "category": "ItemFilter.Type.Equipment.Ammo.Rune",
+    "name": "Astral Rune",
+    "where": "bag",
+    "slot_type": "InventoryRunes"
+   },
+   {
+    "kind": "Item",
+    "raw": 43,
+    "id": "InventoryRunes:3",
+    "slot": 3,
+    "count": 1785,
+    "item": "ITEM_Rune_Earth",
+    "category": "ItemFilter.Type.Equipment.Ammo.Rune",
+    "name": "Earth Rune",
+    "where": "bag",
+    "slot_type": "InventoryRunes"
+   },
+   {
+    "kind": "Item",
+    "raw": 44,
+    "id": "InventoryRunes:4",
+    "slot": 4,
+    "count": 2050,
+    "item": "ITEM_Rune_Nature",
+    "category": "ItemFilter.Type.Equipment.Ammo.Rune",
+    "name": "Nature Rune",
+    "where": "bag",
+    "slot_type": "InventoryRunes"
+   },
+   {
+    "kind": "MagicAmmo",
+    "raw": 45,
+    "id": "InventoryRunes:5",
+    "slot": 5,
+    "count": 465,
+    "item": "ITEM_Rune_Fire",
+    "category": "ItemFilter.Type.Equipment.Ammo.Rune",
+    "name": "Fire Rune",
+    "where": "bag",
+    "slot_type": "InventoryRunes"
+   },
+   {
+    "kind": "RangedAmmo",
+    "raw": 72,
+    "id": "InventoryAmmunition:0",
+    "slot": 0,
+    "count": 35,
+    "item": "ITEM_Ammo_Arrows_Wood",
+    "category": "Item.Equipment.Ammo.Arrow.Wood",
+    "name": "Wooden Arrow",
+    "where": "bag",
+    "slot_type": "InventoryAmmunition"
+   },
+   {
+    "loadout_slot": "Body",
+    "id": "Loadout:1",
+    "kind": "WearableEquipment",
+    "durability": 0,
+    "broken": true,
+    "where": "loadout",
+    "slot": 1,
+    "count": 1,
+    "item": "ITEM_Armour_T1_Body_Adventurers",
+    "category": "ItemFilter.Type.Equipment.Armour",
+    "name": "Adventurer's Tunic",
+    "max_durability": 500,
+    "equipped": true
+   },
+   {
+    "loadout_slot": "Legs",
+    "id": "Loadout:2",
+    "kind": "WearableEquipment",
+    "durability": 0,
+    "broken": true,
+    "where": "loadout",
+    "slot": 2,
+    "count": 1,
+    "item": "ITEM_Armour_T1_Legs_Adventurers",
+    "category": "ItemFilter.Type.Equipment.Armour",
+    "name": "Adventurer's Leggings",
+    "max_durability": 500,
+    "equipped": true
+   },
+   {
+    "loadout_slot": "Ammo",
+    "kind": "RangedAmmo",
+    "id": "Loadout:5",
+    "equipped": true,
+    "count": 35,
+    "item": "ITEM_Ammo_Arrows_Wood",
+    "category": "Item.Equipment.Ammo.Arrow.Wood",
+    "name": "Wooden Arrow",
+    "where": "loadout",
+    "slot": 5
+   },
+   {
+    "loadout_slot": "MagicAmmo1",
+    "kind": "MagicAmmo",
+    "id": "Loadout:6",
+    "equipped": true,
+    "count": 126,
+    "item": "ITEM_Rune_Air",
+    "category": "ItemFilter.Type.Equipment.Ammo.Rune",
+    "name": "Air Rune",
+    "where": "loadout",
+    "slot": 6
+   }
+  ],
+  "activity": {
+   "window_min": 9.8,
+   "xp_per_min": 5,
+   "skill": "Agility",
+   "items": [],
+   "best_xp_per_min": 20
+  },
+  "skills": [
+   {
+    "xp": 5230,
+    "skill": "Agility",
+    "level": 29
+   },
+   {
+    "xp": 118,
+    "skill": "Artisan",
+    "level": 4
+   },
+   {
+    "xp": 879,
+    "skill": "Attack",
+    "level": 14
+   },
+   {
+    "xp": 244,
+    "skill": "Construction",
+    "level": 6
+   },
+   {
+    "xp": 189,
+    "skill": "Cooking",
+    "level": 5
+   },
+   {
+    "xp": 0,
+    "skill": "Farming",
+    "level": 1
+   },
+   {
+    "xp": 80,
+    "skill": "Fishing",
+    "level": 3
+   },
+   {
+    "xp": 0,
+    "skill": "Magic",
+    "level": 1
+   },
+   {
+    "xp": 68,
+    "skill": "Mining",
+    "level": 2
+   },
+   {
+    "xp": 2,
+    "skill": "Ranged",
+    "level": 1
+   },
+   {
+    "xp": 0,
+    "skill": "Runecrafting",
+    "level": 1
+   },
+   {
+    "xp": 535,
+    "skill": "Woodcutting",
+    "level": 10
+   }
+  ],
+  "interactables": [
+   {
+    "prompt": "Talk",
+    "id": "BP_NPC_Doric_FTUE_C_UAID_AC1A3DB43E39FB1802_1944696016",
+    "position": [
+     109.08,
+     1846.32,
+     -31.31
+    ],
+    "class": "BP_NPC_Doric_FTUE_C",
+    "kind": "interactable",
+    "distance": 32.06,
+    "name": "Doric"
+   },
+   {
+    "actor_position": [
+     98.38,
+     1867.12,
+     -31.6
+    ],
+    "distance": 47.06,
+    "id": "BP_Station_Campfire_C_2147341079",
+    "position": [
+     98.38,
+     1867.12,
+     -31.65
+    ],
+    "class": "BP_Station_Campfire_C",
+    "name": "Station Campfire",
+    "prompt": "Craft",
+    "kind": "processing_station"
+   }
+  ],
+  "held_item": null,
+  "action": "go_to",
+  "players_online": [
+   "ClaudeDev",
+   "luisdeburnaybast"
+  ],
+  "sustenance_max": 100.0,
+  "power_level": 0.0,
+  "gear": {
+   "MagicAmmo1": "ITEM_Rune_Air",
+   "Body": "ITEM_Armour_T1_Body_Adventurers",
+   "Ammo": "ITEM_Ammo_Arrows_Wood",
+   "Legs": "ITEM_Armour_T1_Legs_Adventurers"
+  },
+  "position": [
+   141.12,
+   1847.45,
+   -31.2
+  ],
+  "body": "client",
+  "death_memory": {
+   "position": [
+    11.68,
+    1799.68,
+    -83.12
+   ],
+   "iso": "2026-11-01T11:18:46Z",
+   "go_to": "my_grave:1793531926",
+   "lost_items": 8702,
+   "ago_s": 59,
+   "lost_ids": [
+    {
+     "name": "Water Rune",
+     "count": 560,
+     "item": "ITEM_Rune_Water"
+    },
+    {
+     "name": "Redberries",
+     "count": 5,
+     "item": "ITEM_Consumable_Fruit_Redberry"
+    },
+    {
+     "name": "Forager's Sandwich",
+     "count": 16,
+     "item": "ITEM_Consumable_Sandwich_Veggie"
+    },
+    {
+     "name": "Pumpkin Spice Infusion",
+     "count": 15,
+     "item": "ITEM_Consumable_Tea_Pumpkin"
+    },
+    {
+     "name": "Stone Club",
+     "count": 1,
+     "item": "ITEM_Club_Stone"
+    },
+    {
+     "name": "Ash Logs",
+     "count": 10,
+     "item": "ITEM_Resources_Wood_Ash"
+    },
+    {
+     "name": "Stone",
+     "count": 25,
+     "item": "ITEM_Resources_Stone"
+    },
+    {
+     "name": "Coarse Animal Fur",
+     "count": 1,
+     "item": "ITEM_Resources_Coarse_Animal_Fur"
+    },
+    {
+     "name": "Air Rune",
+     "count": 126,
+     "item": "ITEM_Rune_Air"
+    },
+    {
+     "name": "Law Rune",
+     "count": 1589,
+     "item": "ITEM_Rune_Law"
+    },
+    {
+     "name": "Astral Rune",
+     "count": 2019,
+     "item": "ITEM_Rune_Astral"
+    },
+    {
+     "name": "Earth Rune",
+     "count": 1785,
+     "item": "ITEM_Rune_Earth"
+    },
+    {
+     "name": "Nature Rune",
+     "count": 2050,
+     "item": "ITEM_Rune_Nature"
+    },
+    {
+     "name": "Fire Rune",
+     "count": 465,
+     "item": "ITEM_Rune_Fire"
+    },
+    {
+     "name": "Wooden Arrow",
+     "count": 35,
+     "item": "ITEM_Ammo_Arrows_Wood"
+    }
+   ],
+   "lost": [
+    "Water Rune x560",
+    "Redberries x5",
+    "Forager's Sandwich x16",
+    "Pumpkin Spice Infusion x15",
+    "Stone Club x1",
+    "Ash Logs x10",
+    "Stone x25",
+    "Coarse Animal Fur x1",
+    "Air Rune x126",
+    "Law Rune x1589"
+   ],
+   "ts": 1793531926,
+   "distance": 138
+  },
+  "time_of_day": {
+   "phase": "day",
+   "is_night": false,
+   "hour": 7.3,
+   "sleep_allowed": false,
+   "sleeping": false
+  },
+  "vitals_policy": {
+   "eat_below_pct": 40,
+   "heal_below_pct": null,
+   "safety_floor_pct": 10,
+   "drink_below_pct": 40,
+   "reserve_warn": 2
+  },
+  "perks": [],
+  "bag": {
+   "used": 7,
+   "capacity": 32
+  },
+  "total_level": 77,
+  "following": null,
+  "recipes_unlocked": [
+   "DA_Recipe_Vendor_UmS_Buy_Cloth_Garou",
+   "DA_Recipe_Vendor_UmS_Buy_Food_Cabbage",
+   "DA_Recipe_Vendor_UmS_Buy_Food_Cadavaberry",
+   "DA_Recipe_Vendor_UmS_Buy_Food_Dwellberry",
+   "DA_Recipe_Vendor_UmS_Buy_Food_MapleSap",
+   "DA_Recipe_Vendor_UmS_Buy_Food_Onion",
+   "DA_Recipe_Vendor_UmS_Buy_Food_Potato",
+   "DA_Recipe_Vendor_UmS_Buy_Food_Pumpkin",
+   "DA_Recipe_Vendor_UmS_Buy_Food_Redberry",
+   "DA_Recipe_Vendor_UmS_Buy_Food_Watermelon",
+   "DA_Recipe_Vendor_UmS_Buy_Food_Wheat",
+   "DA_Recipe_Vendor_UmS_Buy_Hide_Animal",
+   "DA_Recipe_Vendor_UmS_Buy_Hide_Draconic",
+   "DA_Recipe_Vendor_UmS_Buy_Hide_Fleece",
+   "DA_Recipe_Vendor_UmS_Buy_Meat_Bestial",
+   "DA_Recipe_Vendor_UmS_Buy_Meat_Bird",
+   "DA_Recipe_Vendor_UmS_Buy_Meat_Egg",
+   "DA_Recipe_Vendor_UmS_Buy_Meat_Farm",
+   "DA_Recipe_Vendor_UmS_Buy_Meat_Game",
+   "DA_Recipe_Vendor_UmS_Buy_Meat_Stringy",
+   "DA_Recipe_Vendor_UmS_Buy_Mineral_Granite",
+   "DA_Recipe_Vendor_UmS_Buy_Mineral_Limestone",
+   "DA_Recipe_Vendor_UmS_Buy_Mineral_Sandstone",
+   "DA_Recipe_Vendor_UmS_Buy_Mineral_Stone",
+   "DA_Recipe_Vendor_UmS_Buy_Misc_DihydrogenMonoxide",
+   "DA_Recipe_Vendor_UmS_Buy_Ore_Clay",
+   "DA_Recipe_Vendor_UmS_Buy_Ore_Coal",
+   "DA_Recipe_Vendor_UmS_Buy_Ore_Copper",
+   "DA_Recipe_Vendor_UmS_Buy_Ore_Gold",
+   "DA_Recipe_Vendor_UmS_Buy_Ore_Iron",
+   "DA_Recipe_Vendor_UmS_Buy_Ore_Mithril",
+   "DA_Recipe_Vendor_UmS_Buy_Ore_Silver",
+   "DA_Recipe_Vendor_UmS_Buy_Ore_Tin",
+   "DA_Recipe_Vendor_UmS_Buy_Plant_AnimaInfusedBark",
+   "DA_Recipe_Vendor_UmS_Buy_Plant_BittercapMushroom",
+   "DA_Recipe_Vendor_UmS_Buy_Plant_Flax",
+   "DA_Recipe_Vendor_UmS_Buy_Plant_Harralander",
+   "DA_Recipe_Vendor_UmS_Buy_Plant_Irit",
+   "DA_Recipe_Vendor_UmS_Buy_Plant_Marrentill",
+   "DA_Recipe_Vendor_UmS_Buy_Plant_Plant_Bulb_Shocking",
+   "DA_Recipe_Vendor_UmS_Buy_Plant_Plant_CorpseCotton",
+   "DA_Recipe_Vendor_UmS_Buy_Plant_Plant_SwampWeed",
+   "DA_Recipe_Vendor_UmS_Buy_Plant_Snapdragon",
+   "DA_Recipe_Vendor_UmS_Buy_Plant_SwampTar",
+   "DA_Recipe_Vendor_UmS_Buy_Plant_Tea_Leaves",
+   "DA_Recipe_Vendor_UmS_Buy_Plant_Toadflax",
+   "DA_Recipe_Vendor_UmS_Buy_Vestige_Armour_T7_Body_Desert",
+   "DA_Recipe_Vendor_UmS_Buy_Vestige_Armour_T7_Body_KalphiteCarapace",
+   "DA_Recipe_Vendor_UmS_Buy_Vestige_Armour_T7_Body_LunarGarouMage",
+   "DA_Recipe_Vendor_UmS_Buy_Vestige_Armour_T7_Body_Obsidian",
+   "DA_Recipe_Vendor_UmS_Buy_Vestige_Armour_T7_Head_Desert",
+   "DA_Recipe_Vendor_UmS_Buy_Vestige_Armour_T7_Head_KalphiteCarapace",
+   "DA_Recipe_Vendor_UmS_Buy_Vestige_Armour_T7_Head_LunarGarouMage",
+   "DA_Recipe_Vendor_UmS_Buy_Vestige_Armour_T7_Head_Obsidian",
+   "DA_Recipe_Vendor_UmS_Buy_Vestige_Armour_T7_Legs_Desert",
+   "DA_Recipe_Vendor_UmS_Buy_Vestige_Armour_T7_Legs_KalphiteCarapace",
+   "DA_Recipe_Vendor_UmS_Buy_Vestige_Armour_T7_Legs_LunarGarouMage",
+   "DA_Recipe_Vendor_UmS_Buy_Vestige_Armour_T7_Legs_Obsidian",
+   "DA_Recipe_Vendor_UmS_Buy_Wood_Ash",
+   "DA_Recipe_Vendor_UmS_Buy_Wood_Blight",
+   "DA_Recipe_Vendor_UmS_Buy_Wood_Maple",
+   "DA_Recipe_Vendor_UmS_Buy_Wood_Oak",
+   "DA_Recipe_Vendor_UmS_Buy_Wood_Willow",
+   "DA_Recipe_Vendor_UmS_Mount_Terrorbird_03_01",
+   "DA_Recipe_Vendor_UmS_Mount_Terrorbird_03_05",
+   "RECIPE_Ammo_Arrows_Bone_Bodkin",
+   "RECIPE_Ammo_Arrows_Stone_Bodkin",
+   "RECIPE_Armour_T0_Cape_Community",
+   "RECIPE_Armour_T1_Body_Adventurers",
+   "RECIPE_Armour_T1_Legs_Adventurers",
+   "RECIPE_Consumable_Cabbage_Fried_From_Cabbage",
+   "RECIPE_Consumable_Dried_Redberries_From_Redberries",
+   "RECIPE_Consumable_Egg_Fried_From_Egg",
+   "RECIPE_Consumable_Fillet_From_Bird",
+   "RECIPE_Consumable_Purposefully_Burnt_Bread",
+   "RECIPE_Consumable_Purposefully_Burnt_Fillet",
+   "RECIPE_Consumable_Purposefully_Burnt_Fish_Anchovies",
+   "RECIPE_Consumable_Rat_Roast_From_Rat",
+   "RECIPE_Consumable_Water_Clean_From_Water_Dirty",
+   "RECIPE_FishBait_Feather",
+   "RECIPE_FishBait_Shrimp",
+   "RECIPE_Journal_Food_Redberry",
+   "RECIPE_Journal_Materials_Basic_Bone_Animal",
+   "RECIPE_Journal_Materials_Basic_Cabbage",
+   "RECIPE_Journal_Materials_Basic_Egg",
+   "RECIPE_Journal_Materials_Basic_Fang",
+   "RECIPE_Journal_Materials_Basic_Feathers",
+   "RECIPE_Journal_Materials_Basic_FishRaw_Shrimp",
+   "RECIPE_Journal_Materials_Basic_Fur_Animal_Coarse",
+   "RECIPE_Journal_Materials_Basic_Hide_Scraps",
+   "RECIPE_Journal_Materials_Basic_Meat_Bird",
+   "RECIPE_Journal_Materials_Basic_Meat_Stringy",
+   "RECIPE_Journal_Materials_Basic_Pack_Goblin",
+   "RECIPE_Journal_Materials_Basic_Rune_Essence",
+   "RECIPE_Journal_Materials_Basic_Stone",
+   "RECIPE_Journal_Materials_Basic_Vault_Core",
+   "RECIPE_Journal_Materials_Basic_Weeds",
+   "RECIPE_Journal_Materials_Basic_Wood_Ash",
+   "RECIPE_Pickaxe_Stone",
+   "RECIPE_Process_Altar_Air_Rune",
+   "RECIPE_Shield_Wood",
+   "RECIPE_Tool_FishingRod_Ash",
+   "RECIPE_Torch",
+   "RECIPE_Weapon_Club_Stone",
+   "RECIPE_Weapon_Hatchet_Stone"
+  ],
+  "endurance_max": 100.0,
+  "graves_remembered": [
+   {
+    "position": [
+     11.68,
+     1799.68,
+     -83.12
+    ],
+    "iso": "2026-11-01T11:18:46Z",
+    "go_to": "my_grave:1793531926",
+    "lost_items": 8702,
+    "ago_s": 59,
+    "lost_ids": [
+     {
+      "name": "Water Rune",
+      "count": 560,
+      "item": "ITEM_Rune_Water"
+     },
+     {
+      "name": "Redberries",
+      "count": 5,
+      "item": "ITEM_Consumable_Fruit_Redberry"
+     },
+     {
+      "name": "Forager's Sandwich",
+      "count": 16,
+      "item": "ITEM_Consumable_Sandwich_Veggie"
+     },
+     {
+      "name": "Pumpkin Spice Infusion",
+      "count": 15,
+      "item": "ITEM_Consumable_Tea_Pumpkin"
+     },
+     {
+      "name": "Stone Club",
+      "count": 1,
+      "item": "ITEM_Club_Stone"
+     },
+     {
+      "name": "Ash Logs",
+      "count": 10,
+      "item": "ITEM_Resources_Wood_Ash"
+     },
+     {
+      "name": "Stone",
+      "count": 25,
+      "item": "ITEM_Resources_Stone"
+     },
+     {
+      "name": "Coarse Animal Fur",
+      "count": 1,
+      "item": "ITEM_Resources_Coarse_Animal_Fur"
+     },
+     {
+      "name": "Air Rune",
+      "count": 126,
+      "item": "ITEM_Rune_Air"
+     },
+     {
+      "name": "Law Rune",
+      "count": 1589,
+      "item": "ITEM_Rune_Law"
+     },
+     {
+      "name": "Astral Rune",
+      "count": 2019,
+      "item": "ITEM_Rune_Astral"
+     },
+     {
+      "name": "Earth Rune",
+      "count": 1785,
+      "item": "ITEM_Rune_Earth"
+     },
+     {
+      "name": "Nature Rune",
+      "count": 2050,
+      "item": "ITEM_Rune_Nature"
+     },
+     {
+      "name": "Fire Rune",
+      "count": 465,
+      "item": "ITEM_Rune_Fire"
+     },
+     {
+      "name": "Wooden Arrow",
+      "count": 35,
+      "item": "ITEM_Ammo_Arrows_Wood"
+     }
+    ],
+    "lost": [
+     "Water Rune x560",
+     "Redberries x5",
+     "Forager's Sandwich x16",
+     "Pumpkin Spice Infusion x15",
+     "Stone Club x1",
+     "Ash Logs x10",
+     "Stone x25",
+     "Coarse Animal Fur x1",
+     "Air Rune x126",
+     "Law Rune x1589"
+    ],
+    "ts": 1793531926,
+    "distance": 138
+   },
+   {
+    "position": [
+     161.05,
+     1926.91,
+     -30.72
+    ],
+    "iso": "2026-11-01T06:05:23Z",
+    "go_to": "my_grave:1793513123",
+    "lost_items": 8669,
+    "ago_s": 18862,
+    "lost_ids": [
+     {
+      "name": "Water Rune",
+      "count": 560,
+      "item": "ITEM_Rune_Water"
+     },
+     {
+      "name": "Air Rune",
+      "count": 126,
+      "item": "ITEM_Rune_Air"
+     },
+     {
+      "name": "Law Rune",
+      "count": 1589,
+      "item": "ITEM_Rune_Law"
+     },
+     {
+      "name": "Astral Rune",
+      "count": 2039,
+      "item": "ITEM_Rune_Astral"
+     },
+     {
+      "name": "Earth Rune",
+      "count": 1805,
+      "item": "ITEM_Rune_Earth"
+     },
+     {
+      "name": "Nature Rune",
+      "count": 2050,
+      "item": "ITEM_Rune_Nature"
+     },
+     {
+      "name": "Fire Rune",
+      "count": 465,
+      "item": "ITEM_Rune_Fire"
+     },
+     {
+      "name": "Wooden Arrow",
+      "count": 35,
+      "item": "ITEM_Ammo_Arrows_Wood"
+     }
+    ],
+    "lost": [
+     "Water Rune x560",
+     "Air Rune x126",
+     "Law Rune x1589",
+     "Astral Rune x2039",
+     "Earth Rune x1805",
+     "Nature Rune x2050",
+     "Fire Rune x465",
+     "Wooden Arrow x35"
+    ],
+    "ts": 1793513123,
+    "distance": 82
+   },
+   {
+    "position": [
+     384.08,
+     1834.68,
+     -18.62
+    ],
+    "iso": "2026-11-01T00:42:46Z",
+    "go_to": "my_grave:1793493766",
+    "lost_items": 8830,
+    "ago_s": 38219,
+    "lost_ids": [
+     {
+      "name": "Water Rune",
+      "count": 560,
+      "item": "ITEM_Rune_Water"
+     },
+     {
+      "name": "Fillet",
+      "count": 6,
+      "item": "ITEM_Consumable_Meat_Fillet"
+     },
+     {
+      "name": "Bronze Sword",
+      "count": 1,
+      "item": "ITEM_Sword_Bronze"
+     },
+     {
+      "name": "Goblin Pack",
+      "count": 1,
+      "item": "ITEM_Consumable_GoblinPack"
+     },
+     {
+      "name": "Clean Water",
+      "count": 6,
+      "item": "ITEM_Consumable_Water_Clean"
+     },
+     {
+      "name": "Wooden Spade",
+      "count": 1,
+      "item": "ITEM_Spade_T1_Wood"
+     },
+     {
+      "name": "Ash Battlestaff",
+      "count": 1,
+      "item": "ITEM_Staff_Ash"
+     },
+     {
+      "name": "Ash Logs",
+      "count": 38,
+      "item": "ITEM_Resources_Wood_Ash"
+     },
+     {
+      "name": "Stone",
+      "count": 38,
+      "item": "ITEM_Resources_Stone"
+     },
+     {
+      "name": "Stone Pickaxe",
+      "count": 1,
+      "item": "ITEM_Pickaxe_Stone"
+     },
+     {
+      "name": "Ash Shortbow",
+      "count": 1,
+      "item": "ITEM_Shortbow_Wood"
+     },
+     {
+      "name": "Coarse Animal Fur",
+      "count": 2,
+      "item": "ITEM_Resources_Coarse_Animal_Fur"
+     },
+     {
+      "name": "Egg",
+      "count": 1,
+      "item": "ITEM_Resources_Egg"
+     },
+     {
+      "name": "Bronze Sword",
+      "count": 1,
+      "item": "ITEM_Sword_Bronze"
+     },
+     {
+      "name": "Ash Battlestaff",
+      "count": 1,
+      "item": "ITEM_Staff_Ash"
+     },
+     {
+      "name": "Raw Rat Meat",
+      "count": 2,
+      "item": "ITEM_Resources_Raw_Stringy_Meat"
+     },
+     {
+      "name": "Feathers",
+      "count": 1,
+      "item": "ITEM_Resources_Feathers"
+     },
+     {
+      "name": "Small Animal Fang",
+      "count": 2,
+      "item": "ITEM_Resources_Fang"
+     },
+     {
+      "name": "Animal Hide Scraps",
+      "count": 2,
+      "item": "ITEM_Resources_Skin_Scraps"
+     },
+     {
+      "name": "Air Rune",
+      "count": 161,
+      "item": "ITEM_Rune_Air"
+     },
+     {
+      "name": "Law Rune",
+      "count": 1589,
+      "item": "ITEM_Rune_Law"
+     },
+     {
+      "name": "Astral Rune",
+      "count": 2054,
+      "item": "ITEM_Rune_Astral"
+     },
+     {
+      "name": "Earth Rune",
+      "count": 1810,
+      "item": "ITEM_Rune_Earth"
+     },
+     {
+      "name": "Nature Rune",
+      "count": 2050,
+      "item": "ITEM_Rune_Nature"
+     },
+     {
+      "name": "Fire Rune",
+      "count": 465,
+      "item": "ITEM_Rune_Fire"
+     },
+     {
+      "name": "Wooden Arrow",
+      "count": 35,
+      "item": "ITEM_Ammo_Arrows_Wood"
+     }
+    ],
+    "lost": [
+     "Water Rune x560",
+     "Fillet x6",
+     "Bronze Sword x1",
+     "Goblin Pack x1",
+     "Clean Water x6",
+     "Wooden Spade x1",
+     "Ash Battlestaff x1",
+     "Ash Logs x38",
+     "Stone x38",
+     "Stone Pickaxe x1"
+    ],
+    "ts": 1793493766,
+    "distance": 243
+   },
+   {
+    "position": [
+     176.25,
+     1863.53,
+     -30.23
+    ],
+    "iso": "2026-10-28T22:43:34Z",
+    "go_to": "my_grave:1793227414",
+    "lost_items": 1,
+    "ago_s": 304571,
+    "lost_ids": [
+     {
+      "name": "Saradominist Cloak",
+      "count": 1,
+      "item": "ITEM_Cape_Saradominist"
+     }
+    ],
+    "lost": [
+     "Saradominist Cloak x1"
+    ],
+    "ts": 1793227414,
+    "distance": 39
+   },
+   {
+    "position": [
+     65.57,
+     1882.93,
+     -31.26
+    ],
+    "iso": "2026-10-28T22:32:12Z",
+    "go_to": "my_grave:1793226732",
+    "lost_items": 1,
+    "ago_s": 305253,
+    "lost_ids": [
+     {
+      "name": "Saradominist Cloak",
+      "count": 1,
+      "item": "ITEM_Cape_Saradominist"
+     }
+    ],
+    "lost": [
+     "Saradominist Cloak x1"
+    ],
+    "ts": 1793226732,
+    "distance": 83
+   },
+   {
+    "position": [
+     82.25,
+     1874.26,
+     -31.27
+    ],
+    "iso": "2026-10-28T22:18:42Z",
+    "go_to": "my_grave:1793225922",
+    "lost_items": 1,
+    "ago_s": 306063,
+    "lost_ids": [
+     {
+      "name": "Saradominist Cloak",
+      "count": 1,
+      "item": "ITEM_Cape_Saradominist"
+     }
+    ],
+    "lost": [
+     "Saradominist Cloak x1"
+    ],
+    "ts": 1793225922,
+    "distance": 65
+   },
+   {
+    "position": [
+     609.13,
+     1858.0,
+     -85.54
+    ],
+    "iso": "2026-10-28T22:04:06Z",
+    "go_to": "my_grave:1793225046",
+    "lost_items": 70,
+    "ago_s": 306939,
+    "lost_ids": [
+     {
+      "name": "Torch",
+      "count": 1,
+      "item": "ITEM_Torch"
+     },
+     {
+      "name": "Adventurer's Tunic",
+      "count": 1,
+      "item": "ITEM_Armour_T1_Body_Adventurers"
+     },
+     {
+      "name": "Pumpkin Spice Infusion",
+      "count": 18,
+      "item": "ITEM_Consumable_Tea_Pumpkin"
+     },
+     {
+      "name": "Forager's Sandwich",
+      "count": 45,
+      "item": "ITEM_Consumable_Sandwich_Veggie"
+     },
+     {
+      "name": "Wolfbane Dagger",
+      "count": 1,
+      "item": "ITEM_Dagger_Wolfbane"
+     },
+     {
+      "name": "Saradominist Cloak",
+      "count": 1,
+      "item": "ITEM_Cape_Saradominist"
+     },
+     {
+      "name": "Bronze Shield",
+      "count": 1,
+      "item": "ITEM_Shield_Bronze"
+     },
+     {
+      "name": "Goblin Pack",
+      "count": 2,
+      "item": "ITEM_Consumable_GoblinPack"
+     }
+    ],
+    "lost": [
+     "Torch x1",
+     "Adventurer's Tunic x1",
+     "Pumpkin Spice Infusion x18",
+     "Forager's Sandwich x45",
+     "Wolfbane Dagger x1",
+     "Saradominist Cloak x1",
+     "Bronze Shield x1",
+     "Goblin Pack x2"
+    ],
+    "ts": 1793225046,
+    "distance": 468
+   },
+   {
+    "position": [
+     88.85,
+     1677.63,
+     -86.58
+    ],
+    "iso": "2026-10-28T04:31:52Z",
+    "go_to": "my_grave:1793161912",
+    "lost_items": 8709,
+    "ago_s": 370073,
+    "lost_ids": [
+     {
+      "name": "Water Rune",
+      "count": 560,
+      "item": "ITEM_Rune_Water"
+     },
+     {
+      "name": "Bread",
+      "count": 7,
+      "item": "ITEM_Consumable_Bread"
+     },
+     {
+      "name": "Clean Water",
+      "count": 12,
+      "item": "ITEM_Consumable_Water_Clean"
+     },
+     {
+      "name": "Air Rune",
+      "count": 231,
+      "item": "ITEM_Rune_Air"
+     },
+     {
+      "name": "Law Rune",
+      "count": 1470,
+      "item": "ITEM_Rune_Law"
+     },
+     {
+      "name": "Astral Rune",
+      "count": 2014,
+      "item": "ITEM_Rune_Astral"
+     },
+     {
+      "name": "Earth Rune",
+      "count": 1845,
+      "item": "ITEM_Rune_Earth"
+     },
+     {
+      "name": "Nature Rune",
+      "count": 2050,
+      "item": "ITEM_Rune_Nature"
+     },
+     {
+      "name": "Fire Rune",
+      "count": 485,
+      "item": "ITEM_Rune_Fire"
+     },
+     {
+      "name": "Wooden Arrow",
+      "count": 35,
+      "item": "ITEM_Ammo_Arrows_Wood"
+     }
+    ],
+    "lost": [
+     "Water Rune x560",
+     "Bread x7",
+     "Clean Water x12",
+     "Air Rune x231",
+     "Law Rune x1470",
+     "Astral Rune x2014",
+     "Earth Rune x1845",
+     "Nature Rune x2050",
+     "Fire Rune x485",
+     "Wooden Arrow x35"
+    ],
+    "ts": 1793161912,
+    "distance": 178
+   },
+   {
+    "position": [
+     88.74,
+     1675.65,
+     -101.47
+    ],
+    "iso": "2026-10-28T00:26:59Z",
+    "go_to": "my_grave:1793147219",
+    "lost_items": 8692,
+    "ago_s": 384766,
+    "lost_ids": [
+     {
+      "name": "Water Rune",
+      "count": 560,
+      "item": "ITEM_Rune_Water"
+     },
+     {
+      "name": "Redberry Seeds",
+      "count": 1,
+      "item": "ITEM_Farming_Seed_Redberry"
+     },
+     {
+      "name": "Stone Logging Axe",
+      "count": 1,
+      "item": "ITEM_Logging_Axe_Stone"
+     },
+     {
+      "name": "Air Rune",
+      "count": 231,
+      "item": "ITEM_Rune_Air"
+     },
+     {
+      "name": "Law Rune",
+      "count": 1470,
+      "item": "ITEM_Rune_Law"
+     },
+     {
+      "name": "Astral Rune",
+      "count": 2014,
+      "item": "ITEM_Rune_Astral"
+     },
+     {
+      "name": "Earth Rune",
+      "count": 1845,
+      "item": "ITEM_Rune_Earth"
+     },
+     {
+      "name": "Nature Rune",
+      "count": 2050,
+      "item": "ITEM_Rune_Nature"
+     },
+     {
+      "name": "Fire Rune",
+      "count": 485,
+      "item": "ITEM_Rune_Fire"
+     },
+     {
+      "name": "Wooden Arrow",
+      "count": 35,
+      "item": "ITEM_Ammo_Arrows_Wood"
+     }
+    ],
+    "lost": [
+     "Water Rune x560",
+     "Redberry Seeds x1",
+     "Stone Logging Axe x1",
+     "Air Rune x231",
+     "Law Rune x1470",
+     "Astral Rune x2014",
+     "Earth Rune x1845",
+     "Nature Rune x2050",
+     "Fire Rune x485",
+     "Wooden Arrow x35"
+    ],
+    "ts": 1793147219,
+    "distance": 180
+   },
+   {
+    "position": [
+     89.18,
+     1682.47,
+     -72.13
+    ],
+    "iso": "2026-10-27T20:57:58Z",
+    "go_to": "my_grave:1793134678",
+    "lost_items": 8764,
+    "ago_s": 397307,
+    "lost_ids": [
+     {
+      "name": "Water Rune",
+      "count": 560,
+      "item": "ITEM_Rune_Water"
+     },
+     {
+      "name": "Redberries",
+      "count": 9,
+      "item": "ITEM_Consumable_Fruit_Redberry"
+     },
+     {
+      "name": "Goblin Pack",
+      "count": 2,
+      "item": "ITEM_Consumable_GoblinPack"
+     },
+     {
+      "name": "Redberry Seeds",
+      "count": 1,
+      "item": "ITEM_Farming_Seed_Redberry"
+     },
+     {
+      "name": "Bronze Sword",
+      "count": 1,
+      "item": "ITEM_Sword_Bronze"
+     },
+     {
+      "name": "Bronze Sword",
+      "count": 1,
+      "item": "ITEM_Sword_Bronze"
+     },
+     {
+      "name": "Dirty Water",
+      "count": 4,
+      "item": "ITEM_Consumable_Water_Dirty"
+     },
+     {
+      "name": "Ash Logs",
+      "count": 8,
+      "item": "ITEM_Resources_Wood_Ash"
+     },
+     {
+      "name": "Animal Hide Scraps",
+      "count": 1,
+      "item": "ITEM_Resources_Skin_Scraps"
+     },
+     {
+      "name": "Coarse Animal Fur",
+      "count": 4,
+      "item": "ITEM_Resources_Coarse_Animal_Fur"
+     },
+     {
+      "name": "Stone",
+      "count": 3,
+      "item": "ITEM_Resources_Stone"
+     },
+     {
+      "name": "Air Rune",
+      "count": 231,
+      "item": "ITEM_Rune_Air"
+     },
+     {
+      "name": "Law Rune",
+      "count": 1470,
+      "item": "ITEM_Rune_Law"
+     },
+     {
+      "name": "Astral Rune",
+      "count": 2034,
+      "item": "ITEM_Rune_Astral"
+     },
+     {
+      "name": "Earth Rune",
+      "count": 1865,
+      "item": "ITEM_Rune_Earth"
+     },
+     {
+      "name": "Nature Rune",
+      "count": 2050,
+      "item": "ITEM_Rune_Nature"
+     },
+     {
+      "name": "Fire Rune",
+      "count": 485,
+      "item": "ITEM_Rune_Fire"
+     },
+     {
+      "name": "Wooden Arrow",
+      "count": 35,
+      "item": "ITEM_Ammo_Arrows_Wood"
+     }
+    ],
+    "lost": [
+     "Water Rune x560",
+     "Redberries x9",
+     "Goblin Pack x2",
+     "Redberry Seeds x1",
+     "Bronze Sword x1",
+     "Bronze Sword x1",
+     "Dirty Water x4",
+     "Ash Logs x8",
+     "Animal Hide Scraps x1",
+     "Coarse Animal Fur x4"
+    ],
+    "ts": 1793134678,
+    "distance": 173
+   }
+  ],
+  "max_health": 100.0,
+  "name": "ClaudeDev",
+  "held_actions": {
+   "detail": "nothing held (bare hands)",
+   "actions": []
+  },
+  "yaw": -6.3,
+  "fight_odds": {
+   "BP_AI_Kebbit_Character_02_C_2147281231": {
+    "kill_s": 4,
+    "pl_gap": 1.0,
+    "verdict": "likely_win",
+    "die_s": 20
+   },
+   "BP_AI_Kebbit_Character_02_C_2147281196": {
+    "kill_s": 4,
+    "pl_gap": 1.0,
+    "verdict": "likely_win",
+    "die_s": 20
+   },
+   "BP_AI_Kebbit_Character_02_C_2147281455": {
+    "kill_s": 4,
+    "pl_gap": 1.0,
+    "verdict": "likely_win",
+    "die_s": 20
+   },
+   "BP_AI_Kebbit_Character_02_C_2147281379": {
+    "kill_s": 4,
+    "pl_gap": 1.0,
+    "verdict": "likely_win",
+    "die_s": 20
+   },
+   "BP_AI_Kebbit_Character_02_C_2147281501": {
+    "kill_s": 4,
+    "pl_gap": 1.0,
+    "verdict": "likely_win",
+    "die_s": 20
+   },
+   "BP_AI_Kebbit_Character_02_C_2147281478": {
+    "kill_s": 4,
+    "pl_gap": 1.0,
+    "verdict": "likely_win",
+    "die_s": 20
+   }
+  },
+  "held": null,
+  "fishing_spots_nearby": [
+   {
+    "level": 2,
+    "id": "BP_FishingNodeV2_Net_Brynmoor_C_UAID_F02F74AF9768DBBB02_1220801512",
+    "method": "net",
+    "name": "Net Fishing Spot",
+    "distance_m": 37.4
+   },
+   {
+    "level": 2,
+    "id": "BP_FishingNodeV2_Net_Brynmoor_C_UAID_DC97BA249CD4FCC402_2104746842",
+    "method": "net",
+    "name": "Net Fishing Spot",
+    "distance_m": 43.3
+   },
+   {
+    "level": 2,
+    "id": "BP_FishingNodeV2_Rod_Brynmoor_C_UAID_DC97BA249CD4FDC402_1155627020",
+    "method": "rod",
+    "name": "Rod Fishing Spot",
+    "distance_m": 52.6
+   }
+  ],
+  "dead": false,
+  "nearby_entities": [
+   {
+    "hostile": false,
+    "alive": true,
+    "position": [
+     154.72,
+     1836.72,
+     -31.95
+    ],
+    "distance": 17.34,
+    "kind": "Kebbit",
+    "hp": 39.0,
+    "archetype": "NeutralUntilAttacked",
+    "attitude": "neutral",
+    "alertness": "ambient",
+    "id": "BP_AI_Kebbit_Character_02_C_2147281196",
+    "class": "BP_AI_Kebbit_Character_02_C",
+    "max_health": 39.0,
+    "name": "Kebbit",
+    "power_level": 1,
+    "health": 39.0
+   },
+   {
+    "hostile": false,
+    "alive": true,
+    "position": [
+     119.14,
+     1845.15,
+     -31.64
+    ],
+    "distance": 22.11,
+    "kind": "Kebbit",
+    "hp": 39.0,
+    "archetype": "NeutralUntilAttacked",
+    "attitude": "neutral",
+    "alertness": "ambient",
+    "id": "BP_AI_Kebbit_Character_02_C_2147281455",
+    "class": "BP_AI_Kebbit_Character_02_C",
+    "max_health": 39.0,
+    "name": "Kebbit",
+    "power_level": 1,
+    "health": 39.0
+   },
+   {
+    "hostile": false,
+    "alive": true,
+    "position": [
+     154.87,
+     1869.08,
+     -31.31
+    ],
+    "distance": 25.63,
+    "kind": "Kebbit",
+    "hp": 39.0,
+    "archetype": "NeutralUntilAttacked",
+    "attitude": "neutral",
+    "alertness": "ambient",
+    "id": "BP_AI_Kebbit_Character_02_C_2147281231",
+    "class": "BP_AI_Kebbit_Character_02_C",
+    "max_health": 39.0,
+    "name": "Kebbit",
+    "power_level": 1,
+    "health": 39.0
+   },
+   {
+    "hostile": false,
+    "alive": true,
+    "position": [
+     114.86,
+     1839.89,
+     -31.56
+    ],
+    "distance": 27.33,
+    "kind": "Kebbit",
+    "hp": 39.0,
+    "archetype": "NeutralUntilAttacked",
+    "attitude": "neutral",
+    "alertness": "ambient",
+    "id": "BP_AI_Kebbit_Character_02_C_2147281379",
+    "class": "BP_AI_Kebbit_Character_02_C",
+    "max_health": 39.0,
+    "name": "Kebbit",
+    "power_level": 1,
+    "health": 39.0
+   },
+   {
+    "hostile": false,
+    "alive": true,
+    "position": [
+     105.33,
+     1838.63,
+     -31.08
+    ],
+    "distance": 36.86,
+    "kind": "Kebbit",
+    "hp": 39.0,
+    "archetype": "NeutralUntilAttacked",
+    "attitude": "neutral",
+    "alertness": "ambient",
+    "id": "BP_AI_Kebbit_Character_02_C_2147281478",
+    "class": "BP_AI_Kebbit_Character_02_C",
+    "max_health": 39.0,
+    "name": "Kebbit",
+    "power_level": 1,
+    "health": 39.0
+   },
+   {
+    "hostile": false,
+    "alive": true,
+    "position": [
+     118.14,
+     1876.26,
+     -29.89
+    ],
+    "distance": 36.87,
+    "kind": "Kebbit",
+    "hp": 39.0,
+    "archetype": "NeutralUntilAttacked",
+    "attitude": "neutral",
+    "alertness": "ambient",
+    "id": "BP_AI_Kebbit_Character_02_C_2147281501",
+    "class": "BP_AI_Kebbit_Character_02_C",
+    "max_health": 39.0,
+    "name": "Kebbit",
+    "power_level": 1,
+    "health": 39.0
+   },
+   {
+    "hostile": false,
+    "alive": true,
+    "position": [
+     176.94,
+     1871.39,
+     -29.48
+    ],
+    "distance": 43.12,
+    "kind": "Kebbit",
+    "hp": 39.0,
+    "archetype": "NeutralUntilAttacked",
+    "attitude": "neutral",
+    "alertness": "ambient",
+    "id": "BP_AI_Kebbit_Character_02_C_2147281023",
+    "class": "BP_AI_Kebbit_Character_02_C",
+    "max_health": 39.0,
+    "name": "Kebbit",
+    "power_level": 1,
+    "health": 39.0
+   },
+   {
+    "hostile": false,
+    "alive": true,
+    "position": [
+     177.79,
+     1820.45,
+     -30.11
+    ],
+    "distance": 45.55,
+    "kind": "Magpie",
+    "hp": 1.0,
+    "archetype": "Bird",
+    "attitude": "passive",
+    "alertness": "ambient",
+    "id": "BP_AI_Magpie_Character_C_2147280912",
+    "class": "BP_AI_Magpie_Character_C",
+    "max_health": 1.0,
+    "name": "Magpie",
+    "power_level": 1,
+    "health": 1.0
+   }
+  ],
+  "players": [
+   {
+    "class": "BP_PlayerCharacter_C",
+    "id": "BP_PlayerCharacter_C_2147290238",
+    "position": [
+     112.33,
+     1832.99,
+     -31.1
+    ],
+    "distance": 32.22,
+    "name": "luisdeburnaybast",
+    "max_health": 270.0,
+    "health": 270.0
+   }
+  ],
+  "vitals_rate": {
+   "sustenance_per_min": null,
+   "hydration_per_min": null
+  },
+  "inventory": {
+   "ITEM_Rune_Water": 560,
+   "ITEM_Ammo_Arrows_Wood": 35,
+   "ITEM_Rune_Law": 1589,
+   "ITEM_Rune_Air": 126,
+   "ITEM_Rune_Nature": 2050,
+   "ITEM_Rune_Fire": 465,
+   "ITEM_Rune_Astral": 2019,
+   "ITEM_Rune_Earth": 1785
+  },
+  "quests": {
+   "counts": {
+    "ungiven": 6,
+    "complete": 0,
+    "active": 3
+   },
+   "complete": [],
+   "active": [
+    {
+     "step": "Speak to the Wise Old Man in the temple.",
+     "quest": "First Steps",
+     "main": true
+    },
+    {
+     "step": "Speak to the Wise Old Man, in Bramblemead, to learn about the Farming skill. ",
+     "quest": "Growing Pains"
+    },
+    {
+     "step": "Speak to the Wise Old Man in Bramblemead Village to learn about Fishing.",
+     "quest": "Shrimp Catcher"
+    }
+   ]
+  },
+  "last_death": {
+   "ago_s": 59,
+   "killed_by": "KillZVolume",
+   "at": [
+    11.1,
+    1799.3,
+    -76.9
+   ],
+   "respawned": true,
+   "fell_m": 29.2
+  },
+  "pawn": "BP_PlayerCharacter_C_2147396375",
+  "spells": [
+   {
+    "school": "Artisan",
+    "castable": true,
+    "how": "Cast on one standing tree: turns it into a stack of bones (pairs with Bones to Peaches).",
+    "runes": {
+     "Earth Rune": 10,
+     "Nature Rune": 10
+    },
+    "id": "USD_Treequipment",
+    "name": "Bark to Bones",
+    "cast_type": "placed"
+   },
+   {
+    "school": "Cooking",
+    "castable": true,
+    "how": "Cast on animal bones lying on the ground (up to 10): turns them into peaches.",
+    "runes": {
+     "Earth Rune": 5,
+     "Nature Rune": 10
+    },
+    "id": "USD_BonesToPeaches",
+    "name": "Bones to Peaches",
+    "cast_type": "placed"
+   },
+   {
+    "school": "Magic",
+    "castable": true,
+    "how": "Cast on an enemy up to 40 m away: it attacks other monsters for 45 s. Hitting it yourself breaks the spell.",
+    "runes": {
+     "Astral Rune": 25
+    },
+    "id": "USD_Confuse",
+    "name": "Confuse",
+    "cast_type": "aimed"
+   },
+   {
+    "school": "Mining",
+    "castable": true,
+    "how": "Two parts: drop 5 ore (any kind) on the ground, then cast on them: they become a small personal ore node (15 ore when mined out).",
+    "runes": {
+     "Earth Rune": 100,
+     "Nature Rune": 100
+    },
+    "id": "USD_DivineRock",
+    "name": "Divine Rock",
+    "cast_type": "placed"
+   },
+   {
+    "school": "Magic",
+    "castable": true,
+    "how": "Cast on an opponent: weakens its attacks.",
+    "runes": {
+     "Water Rune": 20,
+     "Astral Rune": 20
+    },
+    "id": "USD_Enfeeble",
+    "name": "Enfeeble",
+    "cast_type": "aimed"
+   },
+   {
+    "school": "Construction",
+    "castable": true,
+    "how": "Turns your view into a floating eye (up to 30 m away) to place/remove building pieces; leave it to get your view back.",
+    "runes": {
+     "Astral Rune": 3
+    },
+    "id": "USD_EyeOfOculus",
+    "name": "Eye Of Oculus",
+    "cast_type": "instant"
+   },
+   {
+    "school": "Runecrafting",
+    "castable": true,
+    "how": "A fire spirit follows you for 3 minutes and lights the way like a torch.",
+    "runes": {
+     "Fire Rune": 10
+    },
+    "id": "USD_FireSpirit",
+    "name": "Fire Spirit",
+    "cast_type": "instant"
+   },
+   {
+    "school": "Fishing",
+    "castable": true,
+    "how": "Cast on a fishing spot (node): each catch there gives one extra fish of the same kind while it lasts.",
+    "runes": {
+     "Water Rune": 15,
+     "Astral Rune": 5
+    },
+    "id": "USD_FishingFrenzy",
+    "name": "Fishing Frenzy",
+    "cast_type": "placed"
+   },
+   {
+    "school": "Cooking",
+    "castable": true,
+    "how": "Refreshes your ACTIVE food and drink buffs (and their healing); does nothing if none are active.",
+    "runes": {
+     "Nature Rune": 10
+    },
+    "id": "USD_InternalAlchemy",
+    "name": "Internal Alchemy",
+    "cast_type": "instant"
+   },
+   {
+    "school": "Artisan",
+    "castable": true,
+    "how": "Two parts: drop the worn weapons/tools/armour on the floor, then cast on them: +50% durability each; they return to the nearest inventory.",
+    "runes": {
+     "Earth Rune": 20,
+     "Nature Rune": 10
+    },
+    "id": "USD_MagicalMending",
+    "name": "Magical Mending",
+    "cast_type": "placed"
+   },
+   {
+    "school": "Artisan",
+    "castable": true,
+    "how": "Cast on a mechanical processing station (tannery, loom, sawmill, grindstone, stonecutter): faster processing for a while.",
+    "runes": {
+     "Water Rune": 5,
+     "Air Rune": 15
+    },
+    "id": "USD_SpeedupStation",
+    "name": "Overdrive",
+    "cast_type": "placed"
+   },
+   {
+    "school": "Construction",
+    "castable": true,
+    "runes": {
+     "Astral Rune": 15,
+     "Law Rune": 20
+    },
+    "id": "USD_AccessPersonalChest",
+    "name": "Personal Chest",
+    "cast_type": "instant"
+   },
+   {
+    "school": "Agility",
+    "castable": true,
+    "how": "Lets you air-dash again while airborne, up to 3 times per cast.",
+    "runes": {
+     "Astral Rune": 10,
+     "Air Rune": 20
+    },
+    "id": "USD_PhaseDash",
+    "name": "Phase Dash",
+    "cast_type": "instant"
+   },
+   {
+    "school": "Farming",
+    "castable": true,
+    "how": "Cast on growing plots or planted trees: advances them one growth stage; can't be reapplied until they grow again.",
+    "runes": {
+     "Earth Rune": 30,
+     "Nature Rune": 30
+    },
+    "id": "USD_Farming_RapidGrowth",
+    "name": "Rapid Growth",
+    "cast_type": "placed"
+   },
+   {
+    "school": "Agility",
+    "castable": true,
+    "how": "Starting Recall marks where I stand and opens a placement I can keep moving in; finishing it teleports me back to that mark. To come back to a spot, cast it with walk_to: I open it here, walk there while it is held, finish it, and I'm back here. Opened and finished on the spot it moves me 0 m, so cast needs walk_to. A finished Recall leaves no marker for a later cast. The game refuses it during its 75 s cooldown.",
+    "runes": {
+     "Law Rune": 15,
+     "Air Rune": 30
+    },
+    "id": "USD_Recall",
+    "name": "Recall",
+    "cast_type": "instant_after_move"
+   },
+   {
+    "school": "Runecrafting",
+    "castable": true,
+    "how": "Two parts: drop the runes you want to convert on the ground first, then cast on them: gives back about 40% as rune essence.",
+    "runes": {
+     "Water Rune": 5,
+     "Astral Rune": 5
+    },
+    "id": "USD_RunesToRuneEssence",
+    "name": "Runes To Rune Essence",
+    "cast_type": "placed"
+   },
+   {
+    "school": "Ranged",
+    "castable": true,
+    "how": "Lays a trap at your feet: enemies that walk to its centre are rooted for 8 s; a ranged/magic hit on the star triggers it.",
+    "runes": {
+     "Earth Rune": 15,
+     "Nature Rune": 10
+    },
+    "id": "USD_SnareTrap",
+    "name": "Snare",
+    "cast_type": "instant"
+   },
+   {
+    "school": "Woodcutting",
+    "castable": true,
+    "how": "Cast on fallen trees: chops them into logs (25 Woodcutting XP per quarter); never stumps.",
+    "runes": {
+     "Earth Rune": 10,
+     "Nature Rune": 5
+    },
+    "id": "USD_Splinter",
+    "name": "Splinter",
+    "cast_type": "placed"
+   },
+   {
+    "school": "Runecrafting",
+    "castable": true,
+    "how": "Summons wisps that lead to anima vents within 400 m (shown on the compass).",
+    "runes": {
+     "Earth Rune": 5,
+     "Astral Rune": 5
+    },
+    "id": "USD_DetectAnimaVents",
+    "name": "Summon Elemental Spirits",
+    "cast_type": "instant"
+   },
+   {
+    "school": "Construction",
+    "castable": true,
+    "how": "Needs flat ground: summons a tent with a bed anyone can rest in; damage dispels it.",
+    "runes": {
+     "Earth Rune": 10,
+     "Astral Rune": 10
+    },
+    "id": "USD_SummonShelter",
+    "name": "Summon Shelter",
+    "cast_type": "placed"
+   },
+   {
+    "school": "Mining",
+    "castable": true,
+    "how": "Summons a spirit that leads to the nearest ore or clay within 200 m and waits there (up to 5 minutes).",
+    "runes": {
+     "Earth Rune": 5,
+     "Astral Rune": 5
+    },
+    "id": "USD_DetectOre",
+    "name": "Summon Stone Spirits",
+    "cast_type": "instant"
+   },
+   {
+    "school": "Artisan",
+    "castable": true,
+    "how": "Cast on a fire-based processing station (campfire, grill, kiln, furnace...): +90% processing speed for 30 s.",
+    "runes": {
+     "Air Rune": 5,
+     "Fire Rune": 15
+    },
+    "id": "USD_FerociousFurnace",
+    "name": "Superheat",
+    "cast_type": "placed"
+   },
+   {
+    "school": "Magic",
+    "castable": true,
+    "how": "Gives 3 dodge charges for 2 minutes; each dodge carries you about 8 m.",
+    "runes": {
+     "Astral Rune": 10,
+     "Law Rune": 10
+    },
+    "id": "USD_Surge",
+    "name": "Surge",
+    "cast_type": "instant"
+   },
+   {
+    "school": "Attack",
+    "castable": true,
+    "how": "An air shield: no damage while blocking for about a minute; if raised when it ends, it knocks nearby foes down.",
+    "runes": {
+     "Air Rune": 15
+    },
+    "id": "USD_TempestShield",
+    "name": "Tempest Shield",
+    "cast_type": "instant"
+   },
+   {
+    "school": "Woodcutting",
+    "castable": true,
+    "how": "Cast on fallen trees (several in a small area): turns them into one totem; follow with Splinter. Much less Woodcutting XP.",
+    "runes": {
+     "Law Rune": 10,
+     "Nature Rune": 30
+    },
+    "id": "USD_PileEmUp",
+    "name": "Trunk Totem",
+    "cast_type": "placed"
+   },
+   {
+    "school": "Farming",
+    "castable": true,
+    "how": "Harvests every fully grown crop and wild plant within 15 m and draws them to you.",
+    "runes": {
+     "Earth Rune": 10,
+     "Astral Rune": 10
+    },
+    "id": "USD_Harvest",
+    "name": "Uproot",
+    "cast_type": "instant"
+   },
+   {
+    "school": "Magic",
+    "castable": true,
+    "how": "Reflects the damage of incoming attacks back at the attackers.",
+    "runes": {
+     "Earth Rune": 10,
+     "Astral Rune": 20
+    },
+    "id": "USD_Vengeance",
+    "name": "Vengeance",
+    "cast_type": "instant"
+   },
+   {
+    "school": "Agility",
+    "castable": true,
+    "how": "Jump much higher and fall slower; you have about 7 s to use it after casting.",
+    "runes": {
+     "Air Rune": 5
+    },
+    "id": "USD_Windstep",
+    "name": "Windstep",
+    "cast_type": "instant"
+   },
+   {
+    "school": "Woodcutting",
+    "castable": false,
+    "how": "Needs an axe carried: throws an axe forward, felling trees in a line up to 30 m (limited by your best axe).",
+    "runes": {
+     "Air Rune": 10,
+     "Astral Rune": 5
+    },
+    "id": "USD_AxtralProjection",
+    "reason": "requirement",
+    "name": "Axtral Projection",
+    "cast_type": "aimed"
+   },
+   {
+    "school": "Attack",
+    "castable": false,
+    "runes": {
+     "Astral Rune": 5,
+     "Air Rune": 15
+    },
+    "id": "USD_EnchantWeapon_Air",
+    "reason": "requirement",
+    "name": "Enchant Weapon: Air",
+    "cast_type": "instant"
+   },
+   {
+    "school": "Attack",
+    "castable": false,
+    "runes": {
+     "Astral Rune": 5,
+     "Fire Rune": 15
+    },
+    "id": "USD_EnchantWeapon_Fire",
+    "reason": "requirement",
+    "name": "Enchant Weapon: Fire",
+    "cast_type": "instant"
+   },
+   {
+    "school": "Attack",
+    "castable": false,
+    "runes": {
+     "Water Rune": 15,
+     "Astral Rune": 5
+    },
+    "id": "USD_EnchantWeapon_Water",
+    "reason": "requirement",
+    "name": "Enchant Weapon: Water",
+    "cast_type": "instant"
+   },
+   {
+    "school": "Fishing",
+    "castable": false,
+    "how": "Cast on a fishing spot (node): pulls up to 5 fish out. You must carry a net or rod of that spot's power level or better.",
+    "runes": {
+     "Nature Rune": 5,
+     "Air Rune": 15
+    },
+    "id": "USD_FishCyclone",
+    "reason": "requirement",
+    "name": "Fishnado",
+    "cast_type": "placed"
+   },
+   {
+    "school": "Runecrafting",
+    "castable": false,
+    "how": "Needs a claimed bed or bed roll: teleports you to it. 15 minute cooldown.",
+    "runes": {
+     "Law Rune": 15
+    },
+    "id": "USD_HomeTeleport",
+    "reason": "requirement",
+    "name": "Home Teleport",
+    "cast_type": "instant"
+   },
+   {
+    "school": "Farming",
+    "castable": false,
+    "how": "Needs a watering can holding 50 units of water: waters the farming plots in a 3x5 area in front of you.",
+    "runes": {
+     "Water Rune": 15,
+     "Astral Rune": 10
+    },
+    "id": "USD_Humidify",
+    "reason": "requirement",
+    "name": "Humidify",
+    "cast_type": "aimed"
+   },
+   {
+    "school": "Fishing",
+    "castable": false,
+    "how": "Needs a fishing rod equipped: for 2 minutes fish caught with it come out cooked.",
+    "runes": {
+     "Fire Rune": 50
+    },
+    "id": "USD_InfernalRod",
+    "reason": "requirement",
+    "name": "Infernal Rod",
+    "cast_type": "instant"
+   },
+   {
+    "school": "Farming",
+    "castable": false,
+    "how": "Needs 150 units of compost: cast on plots to fertilise up to about 4 of them.",
+    "runes": {
+     "Earth Rune": 20,
+     "Astral Rune": 15
+    },
+    "id": "USD_Farming_Compost",
+    "reason": "requirement",
+    "name": "Mucksplosion",
+    "cast_type": "placed"
+   },
+   {
+    "school": "Mining",
+    "castable": false,
+    "how": "Needs a pickaxe carried: breaks every boulder/ore node within 5 m of the target (limited by your best pickaxe).",
+    "runes": {
+     "Earth Rune": 30,
+     "Fire Rune": 15
+    },
+    "id": "USD_Rocksplosion",
+    "reason": "requirement",
+    "name": "Rocksplosion",
+    "cast_type": "placed"
+   },
+   {
+    "school": "Ranged",
+    "castable": false,
+    "how": "Needs a two-handed bow equipped (not a crossbow): arrows pierce several targets; they can't be recovered.",
+    "runes": {
+     "Air Rune": 5,
+     "Astral Rune": 15
+    },
+    "id": "USD_CorruptionArrows",
+    "reason": "requirement",
+    "name": "Spectral Arrows",
+    "cast_type": "instant"
+   }
+  ],
+  "exhausted": false,
+  "hydration_max": 100.0,
+  "nearby_items": [
+   {
+    "position": [
+     113.52,
+     1872.76,
+     -31.06
+    ],
+    "class": "BP_RuntimeSpawnedWorldItem_C",
+    "seen_s": 1,
+    "prompt": "Collect",
+    "count": 5,
+    "item": "ITEM_Resources_Wood_Ash",
+    "distance": 37.45,
+    "name": "Ash Logs",
+    "id": "BP_RuntimeSpawnedWorldItem_C_2147281266",
+    "collecting": null
+   },
+   {
+    "position": [
+     113.44,
+     1873.08,
+     -31.0
+    ],
+    "class": "BP_RuntimeSpawnedWorldItem_C",
+    "seen_s": 1,
+    "prompt": "Collect",
+    "count": 5,
+    "item": "ITEM_Resources_Wood_Ash",
+    "distance": 37.72,
+    "name": "Ash Logs",
+    "id": "BP_RuntimeSpawnedWorldItem_C_2147281268",
+    "collecting": null
+   },
+   {
+    "position": [
+     133.01,
+     1887.36,
+     -32.66
+    ],
+    "class": "BP_RuntimeSpawnedWorldItem_C",
+    "seen_s": 1,
+    "prompt": "Collect",
+    "count": 5,
+    "item": "ITEM_Resources_Wood_Ash",
+    "distance": 40.75,
+    "name": "Ash Logs",
+    "id": "BP_RuntimeSpawnedWorldItem_C_2147281159",
+    "collecting": null
+   },
+   {
+    "position": [
+     132.81,
+     1887.44,
+     -32.68
+    ],
+    "class": "BP_RuntimeSpawnedWorldItem_C",
+    "seen_s": 1,
+    "prompt": "Collect",
+    "count": 5,
+    "item": "ITEM_Resources_Wood_Ash",
+    "distance": 40.87,
+    "name": "Ash Logs",
+    "id": "BP_RuntimeSpawnedWorldItem_C_2147281162",
+    "collecting": null
+   },
+   {
+    "position": [
+     132.84,
+     1887.94,
+     -32.64
+    ],
+    "class": "BP_RuntimeSpawnedWorldItem_C",
+    "seen_s": 1,
+    "prompt": "Collect",
+    "count": 5,
+    "item": "ITEM_Resources_Wood_Ash",
+    "distance": 41.35,
+    "name": "Ash Logs",
+    "id": "BP_RuntimeSpawnedWorldItem_C_2147281124",
+    "collecting": null
+   },
+   {
+    "position": [
+     106.33,
+     1872.13,
+     -31.38
+    ],
+    "class": "BP_RuntimeSpawnedWorldItem_NoExpiry_C",
+    "seen_s": 1,
+    "prompt": "Collect",
+    "count": 5,
+    "item": "ITEM_Resources_Wood_Oak",
+    "distance": 42.66,
+    "name": "Oak Logs",
+    "id": "BP_RuntimeSpawnedWorldItem_NoExpiry_C_2147281277",
+    "collecting": null
+   },
+   {
+    "position": [
+     106.09,
+     1872.02,
+     -31.4
+    ],
+    "class": "BP_RuntimeSpawnedWorldItem_NoExpiry_C",
+    "seen_s": 1,
+    "prompt": "Collect",
+    "count": 5,
+    "item": "ITEM_Resources_Wood_Oak",
+    "distance": 42.79,
+    "name": "Oak Logs",
+    "id": "BP_RuntimeSpawnedWorldItem_NoExpiry_C_2147281280",
+    "collecting": null
+   },
+   {
+    "position": [
+     105.91,
+     1871.77,
+     -31.25
+    ],
+    "class": "BP_RuntimeSpawnedWorldItem_NoExpiry_C",
+    "seen_s": 1,
+    "prompt": "Collect",
+    "count": 99,
+    "item": "ITEM_Resources_Wood_Oak",
+    "distance": 42.79,
+    "name": "Oak Logs",
+    "id": "BP_RuntimeSpawnedWorldItem_NoExpiry_C_2147281284",
+    "collecting": null
+   },
+   {
+    "position": [
+     105.78,
+     1871.96,
+     -31.42
+    ],
+    "class": "BP_RuntimeSpawnedWorldItem_NoExpiry_C",
+    "seen_s": 1,
+    "prompt": "Collect",
+    "count": 5,
+    "item": "ITEM_Resources_Wood_Oak",
+    "distance": 43.01,
+    "name": "Oak Logs",
+    "id": "BP_RuntimeSpawnedWorldItem_NoExpiry_C_2147281290",
+    "collecting": null
+   },
+   {
+    "position": [
+     104.92,
+     1871.96,
+     -31.46
+    ],
+    "class": "BP_RuntimeSpawnedWorldItem_NoExpiry_C",
+    "seen_s": 1,
+    "prompt": "Collect",
+    "count": 1,
+    "item": "ITEM_Resources_Wood_Oak",
+    "distance": 43.72,
+    "name": "Oak Logs",
+    "id": "BP_RuntimeSpawnedWorldItem_NoExpiry_C_2147281294",
+    "collecting": null
+   }
+  ],
+  "health": 100.0
+ },
+ "event": {
+  "type": "situation_review",
+  "changes": [
+   {
+    "what": "health",
+    "now": "healthy",
+    "from_pct": 0,
+    "to_pct": 100,
+    "direction": "up"
+   }
+  ]
+ },
+ "expect": "the newest grave (16 Forager's Sandwiches)",
+ "note": " vitals_rate nulled: the logged 41/54 per min was a fall across the 11:18:46 death (fixed in skills.lua: falls before the latest death/respawn are not drain), so the fixed body reports no rate 59 s after respawn."
+}

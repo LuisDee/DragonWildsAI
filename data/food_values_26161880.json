@@ -1,0 +1,9478 @@
+{
+ "schema": "dw_food_values/1",
+ "build": "26161880",
+ "generated": "2026-11-01T14:59:54Z",
+ "sources": {
+  "live": null,
+  "live_counts": {
+   "food": 137,
+   "drink": 23
+  },
+  "wiki": "data/wiki/pages (CC BY-NC-SA)",
+  "catalog": "recipes_26161880.json",
+  "wiki_unmatched": [
+   "Berry Drizzle Pan-Seared",
+   "Braised Catfish",
+   "Burnt Catfish"
+  ]
+ },
+ "items": {
+  "ITEM_Consumable_Beast_Flank": {
+   "name": "Flank Steak",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Flank",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 62704"
+   },
+   "sustenance": 25.0,
+   "heal": 30.0,
+   "duration": 150,
+   "live": true
+  },
+  "ITEM_Consumable_Beast_Flank_Burnt": {
+   "name": "Burnt Flank",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Flank_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 15.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Beltfish_Broth": {
+   "name": "Beltfish Broth",
+   "kind": "food",
+   "weight": 1.1000000238419,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Beltfish_Broth",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 61420"
+   },
+   "sustenance": 25.0,
+   "heal": 130.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Bread": {
+   "name": "Bread",
+   "kind": "food",
+   "weight": 0.20000000298023,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Bread",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 30.0,
+   "heal": 20.0,
+   "live": true
+  },
+  "ITEM_Consumable_Bread_Burnt": {
+   "name": "Burnt Bread",
+   "kind": "food",
+   "weight": 0.20000000298023,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Bread_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 20.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Cabbage_Burnt": {
+   "name": "Burnt Cabbage",
+   "kind": "food",
+   "weight": 0.20000000298023,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Cabbage_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Cabbage_Fried": {
+   "name": "Fried Cabbage",
+   "kind": "food",
+   "weight": 0.20000000298023,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Cabbage_Fried",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 20.0,
+   "heal": 20.0,
+   "live": true
+  },
+  "ITEM_Consumable_Cake_VictoriaSpongeCake": {
+   "name": "Victoria Sponge Cake",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Pie_Fruit",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 75950",
+    "shield": "live DT_VitalShield_V2 row Wardstone_Small"
+   },
+   "sustenance": 85.0,
+   "heal": 50.0,
+   "duration": 300,
+   "shield": 30.0,
+   "live": true
+  },
+  "ITEM_Consumable_Crunchies_Dwellberry": {
+   "name": "Dwellberry Crunchies",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Crunchies_Dwellberry",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 40.0,
+   "heal": 70.0,
+   "live": true
+  },
+  "ITEM_Consumable_Crunchies_Dwellberry_OLD": {
+   "name": "Dwellberry Crunchies",
+   "kind": "food",
+   "weight": 0.60000002384186,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row T3_Moderate",
+    "decay_buffer": "live DT_FoodSustenance row T3_Moderate",
+    "shield": "live DT_VitalShield row T1_Minimal_VS_10",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 30.0,
+   "decay_buffer": 4.0,
+   "shield": 5.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Crunchies_Fortifying_OLD": {
+   "name": "Fortifying Crunchies",
+   "kind": "food",
+   "weight": 0.60000002384186,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row T3_Moderate",
+    "decay_buffer": "live DT_FoodSustenance row T3_Moderate",
+    "shield": "live DT_VitalShield row T1_Minimal_VS_10",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 30.0,
+   "decay_buffer": 4.0,
+   "shield": 5.0,
+   "heal": 70.0,
+   "live": true
+  },
+  "ITEM_Consumable_Crunchies_Hearty_OLD": {
+   "name": "Hearty Crunchies",
+   "kind": "food",
+   "weight": 0.60000002384186,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row T3_Moderate",
+    "decay_buffer": "live DT_FoodSustenance row T3_Moderate",
+    "shield": "live DT_VitalShield row T1_Minimal_VS_10",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 30.0,
+   "decay_buffer": 4.0,
+   "shield": 5.0,
+   "heal": 70.0,
+   "live": true
+  },
+  "ITEM_Consumable_Crunchies_Redberry": {
+   "name": "Redberry Crunchies",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Crunchies_Redberry",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 35.0,
+   "heal": 50.0,
+   "live": true
+  },
+  "ITEM_Consumable_Crunchies_Redberry_OLD": {
+   "name": "Redberry Crunchies",
+   "kind": "food",
+   "weight": 0.60000002384186,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row T3_Moderate",
+    "decay_buffer": "live DT_FoodSustenance row T3_Moderate",
+    "shield": "live DT_VitalShield row T1_Minimal_VS_10",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 30.0,
+   "decay_buffer": 4.0,
+   "shield": 5.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Egg_Burnt": {
+   "name": "Burnt Egg",
+   "kind": "food",
+   "weight": 0.20000000298023,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Egg_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Egg_Fried": {
+   "name": "Fried Egg",
+   "kind": "food",
+   "weight": 0.20000000298023,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Egg_Fried",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 20.0,
+   "heal": 20.0,
+   "live": true
+  },
+  "ITEM_Consumable_Eggs_Royale": {
+   "name": "Eggs Royale",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row FishMeal_EggsRoyale",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 62622"
+   },
+   "sustenance": 30.0,
+   "heal": 120.0,
+   "duration": 900,
+   "live": true
+  },
+  "ITEM_Consumable_Farm_Steak": {
+   "name": "Steak",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Steak",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 20.0,
+   "heal": 30.0,
+   "live": true
+  },
+  "ITEM_Consumable_Farm_Steak_Burnt": {
+   "name": "Burnt Steak",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Steak_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Anchovies": {
+   "name": "Seared Anchovies",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Anchovies",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 65761"
+   },
+   "sustenance": 15.0,
+   "heal": 30.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Anchovies_Burnt": {
+   "name": "Burnt Anchovies",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Anchovies_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_ArmouredCatfish": {
+   "name": "Braised Armoured Catfish",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row ArmouredCatfish",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 30.0,
+   "heal": 120.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_ArmouredCatfish_Burnt": {
+   "name": "Burnt Armoured Catfish",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row ArmouredCatfish_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 20.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Beltfish": {
+   "name": "Steamed Beltfish",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Beltfish",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 66042"
+   },
+   "sustenance": 30.0,
+   "heal": 100.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Beltfish_Burnt": {
+   "name": "Burnt Beltfish",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Beltfish_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 15.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_DesertSole": {
+   "name": "Sun Baked Sole",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row DesertSole",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 67201"
+   },
+   "sustenance": 30.0,
+   "heal": 130.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_DesertSole_Burnt": {
+   "name": "Burnt Desert Sole",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Infernal_Eel_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 20.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Fry": {
+   "name": "Fish Fry",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row FishMeal_FishFry",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 62694"
+   },
+   "sustenance": 55.0,
+   "heal": 180.0,
+   "duration": 1200,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_GiantKrill": {
+   "name": "Dried Giant Krill",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row GiantKrill",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 62410"
+   },
+   "sustenance": 25.0,
+   "heal": 50.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_GiantKrill_Burnt": {
+   "name": "Burnt Giant Krill",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row GiantKrill_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 20.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Herring": {
+   "name": "Smoked Herring",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Herring",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 65887"
+   },
+   "sustenance": 20.0,
+   "heal": 50.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Herring_Burnt": {
+   "name": "Burnt Herring",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Herring_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_InfernalEel": {
+   "name": "Smoked Infernal Eel",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Infernal_Eel",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 65888"
+   },
+   "sustenance": 30.0,
+   "heal": 100.0,
+   "duration": 900,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_InfernalEel_Burnt": {
+   "name": "Burnt Infernal Eel",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Infernal_Eel_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 20.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Lobster": {
+   "name": "Roasted Lobster",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Lobster",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 65161"
+   },
+   "sustenance": 20.0,
+   "heal": 50.0,
+   "duration": 120,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Lobster_Burnt": {
+   "name": "Burnt Lobster",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Lobster_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 15.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Monkfish": {
+   "name": "Monkfish Fillets",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Monkfish",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 63984"
+   },
+   "sustenance": 25.0,
+   "heal": 60.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Monkfish_Burnt": {
+   "name": "Burnt Monkfish",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Monkfish_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Salmon": {
+   "name": "Fried Salmon",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Salmon",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 62734"
+   },
+   "sustenance": 20.0,
+   "heal": 70.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Salmon_Burnt": {
+   "name": "Burnt Salmon",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Salmon_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Sardine": {
+   "name": "Fried Sardine",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Sardine",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 62735"
+   },
+   "sustenance": 15.0,
+   "heal": 30.0,
+   "duration": 180,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Sardine_Burnt": {
+   "name": "Burnt Sardine",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Sardine_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 5.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Shrimp": {
+   "name": "Sauteed Shrimp",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Shrimp",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 65744"
+   },
+   "sustenance": 10.0,
+   "heal": 20.0,
+   "duration": 180,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Shrimp_Burnt": {
+   "name": "Burnt Shrimp",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Shrimp_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 5.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Trout": {
+   "name": "Grilled Trout",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Trout",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 63029"
+   },
+   "sustenance": 15.0,
+   "heal": 40.0,
+   "duration": 180,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Trout_Burnt": {
+   "name": "Burnt Trout",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Trout_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 5.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Trout_Burnt_QUEST": {
+   "name": "Burnt Trout",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Trout_Burnt",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 5.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_Trout_QUEST": {
+   "name": "Grilled Trout",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Trout",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 15.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_UndeadBass": {
+   "name": "Grilled Undead Bass",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Undead_Bass",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 63030"
+   },
+   "sustenance": 25.0,
+   "heal": 80.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_UndeadBass_Burnt": {
+   "name": "Burnt Undead Bass",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Undead_Bass_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 15.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_UndeadEel": {
+   "name": "Braised Undead Eel",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Undead_Eel",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 61519"
+   },
+   "sustenance": 25.0,
+   "heal": 60.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Fish_UndeadEel_Burnt": {
+   "name": "Burnt Undead Eel",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Undead_Eel_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 15.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fruit_Berry_Compote_OLD": {
+   "name": "Berry Compote",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row T3_Moderate",
+    "decay_buffer": "live DT_FoodSustenance row T3_Moderate",
+    "shield": "live DT_VitalShield row T1_Minimal_VS_10",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 30.0,
+   "decay_buffer": 4.0,
+   "shield": 5.0,
+   "heal": 60.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fruit_Cadavaberry": {
+   "name": "Cadavaberries",
+   "kind": "food",
+   "weight": 0.10000000149012,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Cadavaberry",
+    "soulscourge": "wiki rev 61742",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "soulscourge": 20,
+   "heal": 10.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fruit_Cadavaberry_Burnt": {
+   "name": "Burnt Cadavaberries",
+   "kind": "food",
+   "weight": 0.10000000149012,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Cadavaberry",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fruit_Dried_Cadavaberry": {
+   "name": "Dried Cadavaberries",
+   "kind": "food",
+   "weight": 0.10000000149012,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Cadavaberry_Dried",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 20.0,
+   "heal": 20.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fruit_Dried_Dwellberry": {
+   "name": "Dried Dwellberries",
+   "kind": "food",
+   "weight": 0.10000000149012,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Dwellberry_Dried",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 20.0,
+   "heal": 20.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fruit_Dried_Redberry": {
+   "name": "Dried Redberries",
+   "kind": "food",
+   "weight": 0.10000000149012,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Redberry_Dried",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 15.0,
+   "heal": 20.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fruit_Dwellberry": {
+   "name": "Dwellberries",
+   "kind": "food",
+   "weight": 0.10000000149012,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Dwellberry",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "heal": 10.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fruit_Dwellberry_Burnt": {
+   "name": "Burnt Dwellberries",
+   "kind": "food",
+   "weight": 0.10000000149012,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Dwellberry_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fruit_Peach": {
+   "name": "Peach",
+   "kind": "food",
+   "weight": 0.10000000149012,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Peach",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 15.0,
+   "heal": 10.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fruit_Peach_Burnt": {
+   "name": "Burnt Peach",
+   "kind": "food",
+   "weight": 0.10000000149012,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Peach_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 15.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fruit_Peach_Dried": {
+   "name": "Dried Peach",
+   "kind": "food",
+   "weight": 0.10000000149012,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Peach_Dried",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 25.0,
+   "heal": 20.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fruit_Redberry": {
+   "name": "Redberries",
+   "kind": "food",
+   "weight": 0.10000000149012,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Redberry",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 5.0,
+   "heal": 10.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fruit_Redberry_Burnt": {
+   "name": "Burnt Redberries",
+   "kind": "food",
+   "weight": 0.10000000149012,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Redberry_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 5.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Fryup_Cheeky": {
+   "name": "Cheeky Fryup",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_CheekyFryup",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 61765"
+   },
+   "sustenance": 70.0,
+   "heal": 70.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Fryup_Vegan": {
+   "name": "Vegan Fryup",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Fryup_Vegan",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 70.0,
+   "heal": 70.0,
+   "live": true
+  },
+  "ITEM_Consumable_Glazed_Dwellberry_Roast_Flank_OLD": {
+   "name": "Dwellberry Glazed Roast Flank",
+   "kind": "food",
+   "weight": 1.2000000476837,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row T3_Moderate",
+    "decay_buffer": "live DT_FoodSustenance row T3_Moderate",
+    "shield": "live DT_VitalShield row T1_Minimal_VS_10",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 30.0,
+   "decay_buffer": 4.0,
+   "shield": 5.0,
+   "heal": 60.0,
+   "live": true
+  },
+  "ITEM_Consumable_Glazed_Dwellberry_Roast_Meat_OLD": {
+   "name": "Dwellberry Glazed Roast Meat",
+   "kind": "food",
+   "weight": 1.2000000476837,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row T3_Moderate",
+    "decay_buffer": "live DT_FoodSustenance row T3_Moderate",
+    "shield": "live DT_VitalShield row T1_Minimal_VS_10",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 30.0,
+   "decay_buffer": 4.0,
+   "shield": 5.0,
+   "heal": 60.0,
+   "live": true
+  },
+  "ITEM_Consumable_Glazed_Redberry_Roast_Flank_OLD": {
+   "name": "Redberry Glazed Roast Flank",
+   "kind": "food",
+   "weight": 1.2000000476837,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row T3_Moderate",
+    "decay_buffer": "live DT_FoodSustenance row T3_Moderate",
+    "shield": "live DT_VitalShield row T1_Minimal_VS_10",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 30.0,
+   "decay_buffer": 4.0,
+   "shield": 5.0,
+   "heal": 60.0,
+   "live": true
+  },
+  "ITEM_Consumable_Glazed_Redberry_Roast_Meat_OLD": {
+   "name": "Redberry Glazed Roast Meat",
+   "kind": "food",
+   "weight": 1.2000000476837,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row T3_Moderate",
+    "decay_buffer": "live DT_FoodSustenance row T3_Moderate",
+    "shield": "live DT_VitalShield row T1_Minimal_VS_10",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 30.0,
+   "decay_buffer": 4.0,
+   "shield": 5.0,
+   "heal": 30.0,
+   "live": true
+  },
+  "ITEM_Consumable_HerbBaked_Trout": {
+   "name": "Herb Baked Trout",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row FishMeal_HerbBakedTrout",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 63077"
+   },
+   "sustenance": 35.0,
+   "heal": 100.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Iconic_Kebab": {
+   "name": "Mushroom Kebab",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Kebab_Mushroom",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 64017"
+   },
+   "sustenance": 100.0,
+   "heal": 120.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Iconic_Pie_Wild": {
+   "name": "Wild Pie",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Pie_Wild",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 66590"
+   },
+   "sustenance": 100.0,
+   "heal": 90.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Iconic_Pizza_Meat": {
+   "name": "Meat Pizza",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Pizza_Meat",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 63898",
+    "decay_buffer": "live DT_FoodSustenance row v3_Pizza_Meat"
+   },
+   "sustenance": 100.0,
+   "heal": 90.0,
+   "duration": 600,
+   "decay_buffer": 5.0,
+   "live": true
+  },
+  "ITEM_Consumable_Meat_Fillet": {
+   "name": "Fillet",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Fillet",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 20.0,
+   "heal": 20.0,
+   "live": true
+  },
+  "ITEM_Consumable_Meat_Fillet_Burnt": {
+   "name": "Burnt Fillet",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Fillet_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Meat_Haunch": {
+   "name": "Haunch",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Haunch",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 20.0,
+   "heal": 30.0,
+   "live": true
+  },
+  "ITEM_Consumable_Meat_Haunch_Burnt": {
+   "name": "Burnt Haunch",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Haunch_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Meat_Mixed_Grill": {
+   "name": "Mixed Grill",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_MixedGrill",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 63981"
+   },
+   "sustenance": 70.0,
+   "heal": 70.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Meat_Mixed_Platter_OLD": {
+   "name": "Mixed Platter",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row T3_Moderate",
+    "decay_buffer": "live DT_FoodSustenance row T3_Moderate",
+    "shield": "live DT_VitalShield row T1_Minimal_VS_10",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 30.0,
+   "decay_buffer": 4.0,
+   "shield": 5.0,
+   "heal": 90.0,
+   "live": true
+  },
+  "ITEM_Consumable_Meat_Rat_Roast": {
+   "name": "Rat Roast",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_RatRoast",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 20.0,
+   "heal": 20.0,
+   "live": true
+  },
+  "ITEM_Consumable_Meat_Rat_Roast_Burnt": {
+   "name": "Burnt Rat Roast",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_RatRoast_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Monkfish_Skewers": {
+   "name": "Monkfish Skewers",
+   "kind": "food",
+   "weight": 1.3999999761581,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Monkfish_Skewers",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 63985"
+   },
+   "sustenance": 60.0,
+   "heal": 120.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Mushroom_Burnt": {
+   "name": "Burnt Mushroom",
+   "kind": "food",
+   "weight": 0.20000000298023,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Mushroom_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Mushroom_Grilled": {
+   "name": "Grilled Mushrooms",
+   "kind": "food",
+   "weight": 0.20000000298023,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Mushroom_Grilled",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 63027"
+   },
+   "sustenance": 20.0,
+   "heal": 20.0,
+   "duration": 150,
+   "live": true
+  },
+  "ITEM_Consumable_Omelette_Pungent": {
+   "name": "Pungent Omelette",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_PungentOmelette",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 64570"
+   },
+   "sustenance": 70.0,
+   "heal": 70.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Omelette_Shrimp": {
+   "name": "Shrimp Omelette",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row FishMeal_OmeletteShrimp",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 65803"
+   },
+   "sustenance": 15.0,
+   "heal": 50.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Onion_Burnt": {
+   "name": "Burnt Onion",
+   "kind": "food",
+   "weight": 0.20000000298023,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Onion_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Onion_Fried": {
+   "name": "Fried Onions",
+   "kind": "food",
+   "weight": 0.20000000298023,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Onion_Fried",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 62733"
+   },
+   "sustenance": 20.0,
+   "heal": 20.0,
+   "duration": 150,
+   "live": true
+  },
+  "ITEM_Consumable_Pie_Fruit": {
+   "name": "Fruit Pie",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Pie_Fruit",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 85.0,
+   "heal": 90.0,
+   "live": true
+  },
+  "ITEM_Consumable_Pie_Meat_Dubious": {
+   "name": "Dubious Meat Pie",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Pie_Meat_Dubious",
+    "heal": "live AmountToHealOnConsume",
+    "soulscourge": "wiki rev 70510",
+    "duration": "wiki rev 70510"
+   },
+   "sustenance": 100.0,
+   "heal": 50.0,
+   "soulscourge": 20,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Pie_Swabbie": {
+   "name": "Swabbie Pie",
+   "kind": "food",
+   "weight": 1.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Pie_Swabbie",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 66116"
+   },
+   "sustenance": 80.0,
+   "heal": 220.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Potato_Burnt": {
+   "name": "Burnt Potato",
+   "kind": "food",
+   "weight": 0.20000000298023,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Potato_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Potato_Jacket": {
+   "name": "Baked Potato",
+   "kind": "food",
+   "weight": 0.20000000298023,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Potato_Baked",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 20.0,
+   "heal": 20.0,
+   "live": true
+  },
+  "ITEM_Consumable_Potion_T4_Antifire_Super": {
+   "name": "Super Antifire Potion",
+   "kind": "potion",
+   "weight": 1.0,
+   "src": {
+    "heal": "wiki rev 70811"
+   },
+   "heal": 600
+  },
+  "ITEM_Consumable_Pumpkin_Burnt": {
+   "name": "Burnt Pumpkin",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Pumpkin_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 15.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Pumpkin_Roast": {
+   "name": "Roast Pumpkin",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Pumpkin_Roast",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 65160"
+   },
+   "sustenance": 25.0,
+   "heal": 20.0,
+   "duration": 150,
+   "live": true
+  },
+  "ITEM_Consumable_Redberry_Roast_Rat": {
+   "name": "Redberry Roast Rat",
+   "kind": "food",
+   "weight": 1.2000000476837,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_RedberryRoastRat",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 45.0,
+   "heal": 30.0,
+   "live": true
+  },
+  "ITEM_Consumable_RoastDinner": {
+   "name": "Roast Dinner",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_RoastDinner",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 65158"
+   },
+   "sustenance": 80.0,
+   "heal": 80.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Sandwich_Glazed_Pumpkin_Roast": {
+   "name": "Glazed Pumpkin Sandwich",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Sandwhich_Glazed_Pumpkin_Roast",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 76603"
+   },
+   "sustenance": 100.0,
+   "heal": 80.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Sandwich_Meat": {
+   "name": "Meat Sandwich",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Sandwhich_Meat",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 76606"
+   },
+   "sustenance": 85.0,
+   "heal": 80.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Sandwich_Meat_Double": {
+   "name": "Meat Twist Sandwich",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Sandwhich_Meat_Double",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 76604"
+   },
+   "sustenance": 80.0,
+   "heal": 90.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Sandwich_Steak": {
+   "name": "Steak Sandwich",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Sandwhich_Steak",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 66040"
+   },
+   "sustenance": 80.0,
+   "heal": 90.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Sandwich_Veggie": {
+   "name": "Forager's Sandwich",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Sandwhich_Veggie",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 76607"
+   },
+   "sustenance": 80.0,
+   "heal": 70.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Sausage_Squeaking": {
+   "name": "Squeaking Sausage",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_SqueakingSausage",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 66023"
+   },
+   "sustenance": 80.0,
+   "heal": 80.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Sauteed_Sardines": {
+   "name": "Sauteed Sardines",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row FishMeal_SauteedSardines",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 72957"
+   },
+   "sustenance": 25.0,
+   "heal": 70.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Soup_Fortifying_OLD": {
+   "name": "Fortifying Soup",
+   "kind": "food",
+   "weight": 0.80000001192093,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row T3_Moderate",
+    "decay_buffer": "live DT_FoodSustenance row T3_Moderate",
+    "shield": "live DT_VitalShield row T1_Minimal_VS_10",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 30.0,
+   "decay_buffer": 4.0,
+   "shield": 5.0,
+   "heal": 40.0,
+   "live": true
+  },
+  "ITEM_Consumable_Soup_Hearty_Fortifying_OLD": {
+   "name": "Hearty Fortifying Soup",
+   "kind": "food",
+   "weight": 0.80000001192093,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row T3_Moderate",
+    "decay_buffer": "live DT_FoodSustenance row T3_Moderate",
+    "shield": "live DT_VitalShield row T1_Minimal_VS_10",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 30.0,
+   "decay_buffer": 4.0,
+   "shield": 5.0,
+   "heal": 60.0,
+   "live": true
+  },
+  "ITEM_Consumable_Soup_Hearty_OLD": {
+   "name": "Hearty Soup",
+   "kind": "food",
+   "weight": 0.80000001192093,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row T3_Moderate",
+    "decay_buffer": "live DT_FoodSustenance row T3_Moderate",
+    "shield": "live DT_VitalShield row T1_Minimal_VS_10",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 30.0,
+   "decay_buffer": 4.0,
+   "shield": 5.0,
+   "heal": 60.0,
+   "live": true
+  },
+  "ITEM_Consumable_Soup_Pumpkin": {
+   "name": "Pumpkin Soup",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Soup_Pumpkin",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 64566"
+   },
+   "sustenance": 75.0,
+   "heal": 70.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Soup_Vegetable": {
+   "name": "Vegetable Soup",
+   "kind": "food",
+   "weight": 0.80000001192093,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Soup_Vegetable",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 50.0,
+   "heal": 40.0,
+   "live": true
+  },
+  "ITEM_Consumable_SteakAndEggs": {
+   "name": "Steak 'N' Eggs",
+   "kind": "food",
+   "weight": 1.2000000476837,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_SteakAndEggs",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 50.0,
+   "heal": 40.0,
+   "live": true
+  },
+  "ITEM_Consumable_Steak_Cactus_Burnt": {
+   "name": "Burnt Cactus Steak",
+   "kind": "food",
+   "weight": 0.20000000298023,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Cactus_Steak_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Steak_Cactus_Cooked": {
+   "name": "Seared Cactus Steak",
+   "kind": "food",
+   "weight": 0.20000000298023,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Cactus_Steak",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 73949"
+   },
+   "sustenance": 20.0,
+   "heal": 20.0,
+   "duration": 120,
+   "live": true
+  },
+  "ITEM_Consumable_Steak_Undead": {
+   "name": "Cauterised Undead Steak",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Steak_Undead",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 63005"
+   },
+   "sustenance": 25.0,
+   "heal": 2.0,
+   "duration": 150,
+   "live": true
+  },
+  "ITEM_Consumable_Steak_Undead_Burnt": {
+   "name": "Burnt Undead Steak",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "sustenance": "live DT_FoodSustenance row v3_Flank",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "soulscourge": 20.0,
+   "sustenance": 25.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Stew_BeefTomato": {
+   "name": "Beef & Tomato Stew",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Stew_BeefTomato",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 65.0,
+   "heal": 60.0,
+   "live": true
+  },
+  "ITEM_Consumable_Stew_Fortifying_OLD": {
+   "name": "Fortifying Stew",
+   "kind": "food",
+   "weight": 1.3999999761581,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row T3_Moderate",
+    "decay_buffer": "live DT_FoodSustenance row T3_Moderate",
+    "shield": "live DT_VitalShield row T1_Minimal_VS_10",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 30.0,
+   "decay_buffer": 4.0,
+   "shield": 5.0,
+   "heal": 60.0,
+   "live": true
+  },
+  "ITEM_Consumable_Stew_Hearty_OLD": {
+   "name": "Hearty Stew",
+   "kind": "food",
+   "weight": 1.3999999761581,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row T3_Moderate",
+    "decay_buffer": "live DT_FoodSustenance row T3_Moderate",
+    "shield": "live DT_VitalShield row T1_Minimal_VS_10",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 30.0,
+   "decay_buffer": 4.0,
+   "shield": 5.0,
+   "heal": 60.0,
+   "live": true
+  },
+  "ITEM_Consumable_Stew_Meat": {
+   "name": "Meat Stew",
+   "kind": "food",
+   "weight": 1.3999999761581,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Stew_Meat",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 50.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Stir-Fry": {
+   "name": "Stir-Fry",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "wiki rev 66064",
+    "heal": "wiki rev 66064",
+    "duration": "wiki rev 66064"
+   },
+   "sustenance": 70,
+   "heal": 150,
+   "duration": 600
+  },
+  "ITEM_Consumable_Stuffed_Catfish": {
+   "name": "Stuffed Catfish",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row FishMeal_StuffedCatfish",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 71107"
+   },
+   "sustenance": 80.0,
+   "heal": 200.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Syrup_Maple": {
+   "name": "Maple Syrup",
+   "kind": "food",
+   "weight": 0.60000002384186,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Syrup_Maple",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 25.0,
+   "heal": 20.0,
+   "live": true
+  },
+  "ITEM_Consumable_Syrup_Maple_Burnt": {
+   "name": "Burnt Maple Syrup",
+   "kind": "food",
+   "weight": 0.60000002384186,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Syrup_Maple_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 15.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Cadavaberry": {
+   "name": "Cadavaberry Infusion",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Tea_Cadavaberry",
+    "duration": "wiki rev 61745"
+   },
+   "hydration": 40.0,
+   "duration": 900,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Dwellberry": {
+   "name": "Dwellberry Infusion",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Tea_Dwellberry",
+    "duration": "wiki rev 62431"
+   },
+   "hydration": 40.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Dwellberry_OLD": {
+   "name": "Dwellberry Infusion",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row T4_Refreshing",
+    "decay_buffer": "live DT_DrinkHydration row T4_Refreshing"
+   },
+   "hydration": 40.0,
+   "decay_buffer": 4.0,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Maple": {
+   "name": "Maple Infusion",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Tea_Maple",
+    "duration": "wiki rev 63885"
+   },
+   "hydration": 80.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Pumpkin": {
+   "name": "Pumpkin Spice Infusion",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Tea_Pumpkin",
+    "duration": "wiki rev 72809"
+   },
+   "hydration": 80.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Redberry": {
+   "name": "Redberry Infusion",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Tea_Redberry",
+    "duration": "wiki rev 65112"
+   },
+   "hydration": 40.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Stamina_Reduction_Attack": {
+   "name": "Ferocious Infusion",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Tea_Ferocious",
+    "duration": "wiki rev 62673"
+   },
+   "hydration": 40.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Stamina_Reduction_Attack_Cooling": {
+   "name": "Cooling Ferocious Infusion",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Tea_Ferocious",
+    "duration": "wiki rev 61873"
+   },
+   "hydration": 40.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Stamina_Reduction_Attack_Ranged_Magic": {
+   "name": "Ferocious Infusion",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Tea_Arcane"
+   },
+   "hydration": 40.0,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Stamina_Reduction_Dodge": {
+   "name": "Evasive Infusion",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Tea_Evasive",
+    "duration": "wiki rev 62641"
+   },
+   "hydration": 40.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Stamina_Reduction_Dodge_Cooling": {
+   "name": "Cooling Evasive Infusion",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Tea_Evasive",
+    "duration": "wiki rev 61872"
+   },
+   "hydration": 40.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Stamina_Reduction_Magic": {
+   "name": "Arcane Infusion",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Tea_Arcane",
+    "duration": "wiki rev 60689"
+   },
+   "hydration": 40.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Stamina_Reduction_Magic_Cooling": {
+   "name": "Cooling Arcane Infusion",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Tea_Arcane",
+    "duration": "wiki rev 61871"
+   },
+   "hydration": 40.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Stamina_Reduction_Ranged": {
+   "name": "Relentless Infusion",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Tea_Relentless",
+    "duration": "wiki rev 65122"
+   },
+   "hydration": 40.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Stamina_Reduction_Ranged_Cooling": {
+   "name": "Cooling Relentless Infusion",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Tea_Relentless",
+    "duration": "wiki rev 61875"
+   },
+   "hydration": 40.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Stamina_Reduction_Sprint": {
+   "name": "Fleet-Footed Infusion",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Tea_FleetFooted",
+    "duration": "wiki rev 62706"
+   },
+   "hydration": 40.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Stamina_Reduction_Sprint_Cooling": {
+   "name": "Cooling Fleet-Footed Infusion",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Tea_FleetFooted",
+    "duration": "wiki rev 61874"
+   },
+   "hydration": 40.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Strong": {
+   "name": "Strong Tea",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Tea_Strong"
+   },
+   "hydration": 10.0,
+   "live": true
+  },
+  "ITEM_Consumable_Tea_Strong_Sweet": {
+   "name": "Strong Sweet Tea",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Tea_Strong_Sweet",
+    "duration": "wiki rev 66077"
+   },
+   "hydration": 10.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Toastie_Maple": {
+   "name": "Maple Toastie",
+   "kind": "food",
+   "weight": 2.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Toastie_Maple",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 70629"
+   },
+   "sustenance": 80.0,
+   "heal": 70.0,
+   "duration": 600,
+   "live": true
+  },
+  "ITEM_Consumable_Tomato_Burnt": {
+   "name": "Burnt Tomato",
+   "kind": "food",
+   "weight": 0.20000000298023,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Tomato_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 10.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Tomato_Grilled": {
+   "name": "Grilled Tomatoes",
+   "kind": "food",
+   "weight": 0.20000000298023,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Tomato_Grilled",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 20.0,
+   "heal": 20.0,
+   "live": true
+  },
+  "ITEM_Consumable_Umbral_Kebab": {
+   "name": "Umbral Kebab",
+   "kind": "food",
+   "weight": 1.2000000476837,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row Umbral_Kebab",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 66308"
+   },
+   "sustenance": 90.0,
+   "heal": 80.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Undead_Delight": {
+   "name": "Undead Delight",
+   "kind": "food",
+   "weight": 0.69999998807907,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row FishMeal_UndeadDelight",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 66314"
+   },
+   "sustenance": 70.0,
+   "heal": 180.0,
+   "duration": 1200,
+   "live": true
+  },
+  "ITEM_Consumable_Vegball_Sweet": {
+   "name": "Sweet Veg Ball",
+   "kind": "food",
+   "weight": 0.5,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_VegBall_Sweet",
+    "heal": "live AmountToHealOnConsume",
+    "duration": "wiki rev 66122"
+   },
+   "sustenance": 65.0,
+   "heal": 70.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Water_Cactus": {
+   "name": "Cactus Water",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Water_Cactus",
+    "duration": "wiki rev 61741"
+   },
+   "hydration": 25.0,
+   "duration": 300,
+   "live": true
+  },
+  "ITEM_Consumable_Water_Clean": {
+   "name": "Clean Water",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Water_Clean"
+   },
+   "hydration": 25.0,
+   "live": true
+  },
+  "ITEM_Consumable_Water_Dirty": {
+   "name": "Dirty Water",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Water_Dirty",
+    "soulscourge": "live DT_Toxicity_V2 row +20"
+   },
+   "hydration": 10.0,
+   "soulscourge": 20.0,
+   "live": true
+  },
+  "ITEM_Consumable_Water_Wither": {
+   "name": "Wither Water",
+   "kind": "drink",
+   "weight": 1.0,
+   "src": {
+    "hydration": "live DT_DrinkHydration row v3_Water_Wither",
+    "wither": "live DT_Wither_V2 row withered_water"
+   },
+   "hydration": 10.0,
+   "wither": 20.0,
+   "live": true
+  },
+  "ITEM_Consumable_Watermelon_Burnt": {
+   "name": "Burnt Watermelon",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Watermelon_Burnt",
+    "soulscourge": "live DT_Toxicity_V2 row +20",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 15.0,
+   "soulscourge": 20.0,
+   "heal": 0.0,
+   "live": true
+  },
+  "ITEM_Consumable_Watermelon_Jerky": {
+   "name": "Watermelon Jerky",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Watermelon_Jerky",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 25.0,
+   "heal": 20.0,
+   "live": true
+  },
+  "ITEM_Consumable_v3_Stew_Meat": {
+   "name": "Meat Stew",
+   "kind": "food",
+   "weight": 1.3999999761581,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Stew_Meat",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 50.0,
+   "heal": 50.0,
+   "live": true
+  },
+  "ITEM_Resources_Watermelon": {
+   "name": "Watermelon",
+   "kind": "food",
+   "weight": 1.0,
+   "src": {
+    "sustenance": "live DT_FoodSustenance row v3_Watermelon",
+    "heal": "live AmountToHealOnConsume"
+   },
+   "sustenance": 15.0,
+   "heal": 10.0,
+   "live": true
+  }
+ },
+ "cooks": {
+  "ITEM_Consumable_Beast_Flank": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Flank",
+    "output": "ITEM_Consumable_Beast_Flank_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Bread": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Bread",
+    "output": "ITEM_Consumable_Bread_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Cabbage_Fried": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Cabbage",
+    "output": "ITEM_Consumable_Cabbage_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Egg_Fried": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Egg",
+    "output": "ITEM_Consumable_Egg_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Farm_Steak": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Steak",
+    "output": "ITEM_Consumable_Farm_Steak_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fish_Anchovies": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Fish_Anchovies",
+    "output": "ITEM_Consumable_Fish_Anchovies_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fish_ArmouredCatfish": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Fish_ArmouredCatfish",
+    "output": "ITEM_Consumable_Fish_ArmouredCatfish_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fish_Beltfish": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Fish_Beltfish",
+    "output": "ITEM_Consumable_Fish_Beltfish_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fish_DesertSole": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Fish_DesertSole",
+    "output": "ITEM_Consumable_Fish_DesertSole_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fish_GiantKrill": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Fish_GiantKrill",
+    "output": "ITEM_Consumable_Fish_GiantKrill_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fish_Herring": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Fish_Herring",
+    "output": "ITEM_Consumable_Fish_Herring_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fish_InfernalEel": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Fish_InfernalEel",
+    "output": "ITEM_Consumable_Fish_InfernalEel_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fish_Lobster": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Fish_Lobster",
+    "output": "ITEM_Consumable_Fish_Lobster_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fish_Monkfish": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Fish_Monkfish",
+    "output": "ITEM_Consumable_Fish_Monkfish_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fish_Salmon": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Fish_Salmon",
+    "output": "ITEM_Consumable_Fish_Salmon_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fish_Sardine": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Fish_Sardine",
+    "output": "ITEM_Consumable_Fish_Sardine_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fish_Shrimp": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Fish_Shrimp",
+    "output": "ITEM_Consumable_Fish_Shrimp_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fish_Trout": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Fish_Trout",
+    "output": "ITEM_Consumable_Fish_Trout_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fish_UndeadBass": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Fish_UndeadBass",
+    "output": "ITEM_Consumable_Fish_UndeadBass_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fish_UndeadEel": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Fish_UndeadEel",
+    "output": "ITEM_Consumable_Fish_UndeadEel_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fruit_Cadavaberry": [
+   {
+    "recipe": "RECIPE_Consumable_Dried_Cadaveberries_From_Cadaveberries",
+    "output": "ITEM_Consumable_Fruit_Dried_Cadavaberry",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Consumable_Fruit_Dried_Cadavaberry": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Cadavaberry",
+    "output": "ITEM_Consumable_Fruit_Cadavaberry_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fruit_Dried_Dwellberry": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Dwellberry",
+    "output": "ITEM_Consumable_Fruit_Dwellberry_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fruit_Dried_Redberry": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Redberry",
+    "output": "ITEM_Consumable_Fruit_Redberry_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fruit_Dwellberry": [
+   {
+    "recipe": "RECIPE_Consumable_Dried_Dwellberries_From_Dwellberries",
+    "output": "ITEM_Consumable_Fruit_Dried_Dwellberry",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel3"
+   }
+  ],
+  "ITEM_Consumable_Fruit_Peach": [
+   {
+    "recipe": "RECIPE_Consumable_Dried_Peach_From_Peach",
+    "output": "ITEM_Consumable_Fruit_Peach_Dried",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel3"
+   }
+  ],
+  "ITEM_Consumable_Fruit_Peach_Dried": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Peach",
+    "output": "ITEM_Consumable_Fruit_Peach_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Fruit_Redberry": [
+   {
+    "recipe": "RECIPE_Consumable_Dried_Redberries_From_Redberries",
+    "output": "ITEM_Consumable_Fruit_Dried_Redberry",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel1"
+   }
+  ],
+  "ITEM_Consumable_Meat_Fillet": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Fillet",
+    "output": "ITEM_Consumable_Meat_Fillet_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Meat_Haunch": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Haunch",
+    "output": "ITEM_Consumable_Meat_Haunch_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Meat_Rat_Roast": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Rat",
+    "output": "ITEM_Consumable_Meat_Rat_Roast_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Mushroom_Grilled": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Mushroom",
+    "output": "ITEM_Consumable_Mushroom_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Onion_Fried": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Onion",
+    "output": "ITEM_Consumable_Onion_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Potato_Jacket": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Potato",
+    "output": "ITEM_Consumable_Potato_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Potion_Focused_T3_Agility": [
+   {
+    "recipe": "RECIPE_Process_Potion_T3_to_T4_Agility",
+    "output": "ITEM_Consumable_Potion_Focused_T4_Super_Agility",
+    "stations": [
+     "FermentationBarrel"
+    ],
+    "processing_time": [
+     120.0,
+     120.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Potion_Focused_T3_Artisan": [
+   {
+    "recipe": "RECIPE_Process_Potion_T3_to_T4_Artisan",
+    "output": "ITEM_Consumable_Potion_Focused_T4_Artisan_Super",
+    "stations": [
+     "FermentationBarrel"
+    ],
+    "processing_time": [
+     120.0,
+     120.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Potion_Focused_T3_Attack": [
+   {
+    "recipe": "RECIPE_Process_Potion_T3_to_T4_Attack",
+    "output": "ITEM_Consumable_Potion_Focused_T4_Attack_Super",
+    "stations": [
+     "FermentationBarrel"
+    ],
+    "processing_time": [
+     120.0,
+     120.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Potion_Focused_T3_Construction": [
+   {
+    "recipe": "RECIPE_Process_Potion_T3_to_T4_Construction",
+    "output": "ITEM_Consumable_Potion_Focused_T4_Construction_Super",
+    "stations": [
+     "FermentationBarrel"
+    ],
+    "processing_time": [
+     120.0,
+     120.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Potion_Focused_T3_Cooking": [
+   {
+    "recipe": "RECIPE_Process_Potion_T3_to_T4_Cooking",
+    "output": "ITEM_Consumable_Potion_Focused_T4_Cooking_Super",
+    "stations": [
+     "FermentationBarrel"
+    ],
+    "processing_time": [
+     120.0,
+     120.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Potion_Focused_T3_Farming": [
+   {
+    "recipe": "RECIPE_Process_Potion_T3_to_T4_Farming",
+    "output": "ITEM_Consumable_Potion_Focused_T4_Farming_Super",
+    "stations": [
+     "FermentationBarrel"
+    ],
+    "processing_time": [
+     120.0,
+     120.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Potion_Focused_T3_Fishing": [
+   {
+    "recipe": "RECIPE_Process_Potion_T3_to_T4_FIshing",
+    "output": "ITEM_Consumable_Potion_Focused_T4_Fishing_Super",
+    "stations": [
+     "FermentationBarrel"
+    ],
+    "processing_time": [
+     120.0,
+     120.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Potion_Focused_T3_Mining": [
+   {
+    "recipe": "RECIPE_Process_Potion_T3_to_T4_Mining",
+    "output": "ITEM_Consumable_Potion_Focused_T4_Mining_Super",
+    "stations": [
+     "FermentationBarrel"
+    ],
+    "processing_time": [
+     120.0,
+     120.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Potion_Focused_T3_Runecrafting": [
+   {
+    "recipe": "RECIPE_Process_Potion_T3_to_T4_Runecrafting",
+    "output": "ITEM_Consumable_Potion_Focused_T4_Runecrafting_Super",
+    "stations": [
+     "FermentationBarrel"
+    ],
+    "processing_time": [
+     120.0,
+     120.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Potion_Focused_T3_Woodcutting": [
+   {
+    "recipe": "RECIPE_Process_Potion_T3_to_T4_Woodcutting",
+    "output": "ITEM_Consumable_Potion_Focused_T4_Woodcutting_Super",
+    "stations": [
+     "FermentationBarrel"
+    ],
+    "processing_time": [
+     120.0,
+     120.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Potion_T3_Antifire": [
+   {
+    "recipe": "RECIPE_Process_Potion_T3_to_T4_Antifre",
+    "output": "ITEM_Consumable_Potion_T4_Antifire_Super",
+    "stations": [
+     "FermentationBarrel"
+    ],
+    "processing_time": [
+     120.0,
+     120.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Potion_T3_Antipoison": [
+   {
+    "recipe": "RECIPE_Process_Potion_T3_to_T4_Antipoison",
+    "output": "ITEM_Consumable_Potion_T4_Antipoison_Super",
+    "stations": [
+     "FermentationBarrel"
+    ],
+    "processing_time": [
+     120.0,
+     120.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Potion_T3_Lumberjack": [
+   {
+    "recipe": "RECIPE_Process_Potion_T3_to_T4_Lumberjack",
+    "output": "ITEM_Consumable_Potion_T4_Lumberjack_Super",
+    "stations": [
+     "FermentationBarrel"
+    ],
+    "processing_time": [
+     120.0,
+     120.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Potion_T3_Quarrymaster": [
+   {
+    "recipe": "RECIPE_Process_Potion_T3_to_T4_Quarrymaster",
+    "output": "ITEM_Consumable_Potion_T4_Quarrymaster_Super",
+    "stations": [
+     "FermentationBarrel"
+    ],
+    "processing_time": [
+     120.0,
+     120.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Pumpkin_Roast": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Pumpkin",
+    "output": "ITEM_Consumable_Pumpkin_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Steak_Cactus_Cooked": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Cactus_Steak",
+    "output": "ITEM_Consumable_Steak_Cactus_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Steak_Undead": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Steak_Undead",
+    "output": "ITEM_Consumable_Steak_Undead_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Syrup_Maple": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Syrup_Maple",
+    "output": "ITEM_Consumable_Syrup_Maple_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Tomato_Grilled": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Tomato",
+    "output": "ITEM_Consumable_Tomato_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Water_Dirty": [
+   {
+    "recipe": "RECIPE_Consumable_Water_Clean_From_Water_Dirty",
+    "output": "ITEM_Consumable_Water_Clean",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     4.0,
+     4.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Water_Wither": [
+   {
+    "recipe": "RECIPE_Consumable_Water_Clean_From_Water_Wither",
+    "output": "ITEM_Consumable_Water_Clean",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     4.0,
+     4.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Consumable_Watermelon_Jerky": [
+   {
+    "recipe": "RECIPE_Consumable_Purposefully_Burnt_Watermelon",
+    "output": "ITEM_Consumable_Watermelon_Burnt",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": null
+   }
+  ],
+  "ITEM_Resources_Cabbage": [
+   {
+    "recipe": "RECIPE_Consumable_Cabbage_Fried_From_Cabbage",
+    "output": "ITEM_Consumable_Cabbage_Fried",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel2"
+   }
+  ],
+  "ITEM_Resources_Egg": [
+   {
+    "recipe": "RECIPE_Consumable_Egg_Fried_From_Egg",
+    "output": "ITEM_Consumable_Egg_Fried",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel1"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Anchovies": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Anchovies",
+    "output": "ITEM_Consumable_Fish_Anchovies",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel3"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_ArmouredCatfish": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_ArmouredCatfish",
+    "output": "ITEM_Consumable_Fish_ArmouredCatfish",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Beltfish": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Beltfish",
+    "output": "ITEM_Consumable_Fish_Beltfish",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_DesertSole": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_DesertSole",
+    "output": "ITEM_Consumable_Fish_DesertSole",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_GiantKrill": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_GiantKrill",
+    "output": "ITEM_Consumable_Fish_GiantKrill",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Herring": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Herring",
+    "output": "ITEM_Consumable_Fish_Herring",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel3"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_InfernalEel": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_InfernalEel",
+    "output": "ITEM_Consumable_Fish_InfernalEel",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Lobster": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Lobster",
+    "output": "ITEM_Consumable_Fish_Lobster",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Monkfish": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Monkfish",
+    "output": "ITEM_Consumable_Fish_Monkfish",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Pristine_Anchovies": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Pristine_Anchovies",
+    "output": "ITEM_Consumable_Fish_Anchovies",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel3"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Pristine_ArmouredCatfish": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Pristine_ArmouredCatfish",
+    "output": "ITEM_Consumable_Fish_ArmouredCatfish",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Pristine_Beltfish": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Pristine_Beltfish",
+    "output": "ITEM_Consumable_Fish_Beltfish",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel1"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Pristine_DesertSole": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Pristine_DesertSole",
+    "output": "ITEM_Consumable_Fish_DesertSole",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel1"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Pristine_GiantKrill": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Pristine_GiantKrill",
+    "output": "ITEM_Consumable_Fish_GiantKrill",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Pristine_Herring": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Pristine_Herring",
+    "output": "ITEM_Consumable_Fish_Herring",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel3"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Pristine_InfernalEel": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Pristine_InfernalEel",
+    "output": "ITEM_Consumable_Fish_InfernalEel",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Pristine_Lobster": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Pristine_Lobster",
+    "output": "ITEM_Consumable_Fish_Lobster",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Pristine_Monkfish": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Pristine_Monkfish",
+    "output": "ITEM_Consumable_Fish_Monkfish",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel1"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Pristine_Salmon": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Pristine_Salmon",
+    "output": "ITEM_Consumable_Fish_Salmon",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel3"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Pristine_Sardine": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Pristine_Sardine",
+    "output": "ITEM_Consumable_Fish_Sardine",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel2"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Pristine_Shrimp": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Pristine_Shrimp",
+    "output": "ITEM_Consumable_Fish_Shrimp",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel2"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Pristine_Trout": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Pristine_Trout",
+    "output": "ITEM_Consumable_Fish_Trout",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel2"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Pristine_UndeadBass": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Pristine_UndeadBass",
+    "output": "ITEM_Consumable_Fish_UndeadBass",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Pristine_UndeadEel": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Pristine_UndeadEel",
+    "output": "ITEM_Consumable_Fish_UndeadEel",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Salmon": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Salmon",
+    "output": "ITEM_Consumable_Fish_Salmon",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel3"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Sardine": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Sardine",
+    "output": "ITEM_Consumable_Fish_Sardine",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel2"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Shrimp": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Shrimp",
+    "output": "ITEM_Consumable_Fish_Shrimp",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel2"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_Trout": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_Trout",
+    "output": "ITEM_Consumable_Fish_Trout",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel2"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_UndeadBass": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_UndeadBass",
+    "output": "ITEM_Consumable_Fish_UndeadBass",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Fish_Raw_UndeadEel": [
+   {
+    "recipe": "RECIPE_Consumable_Fish_UndeadEel",
+    "output": "ITEM_Consumable_Fish_UndeadEel",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Ground_Wheat": [
+   {
+    "recipe": "RECIPE_Consumable_Bread_From_Flour",
+    "output": "ITEM_Consumable_Bread",
+    "stations": [
+     "Kiln"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel2"
+   }
+  ],
+  "ITEM_Resources_Maple_Sap": [
+   {
+    "recipe": "RECIPE_Consumable_Syrup_Maple_From_Sap_Maple",
+    "output": "ITEM_Consumable_Syrup_Maple",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Meat_Bestial": [
+   {
+    "recipe": "RECIPE_Consumable_Flank_From_Beast",
+    "output": "ITEM_Consumable_Beast_Flank",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel3"
+   }
+  ],
+  "ITEM_Resources_Meat_Bird": [
+   {
+    "recipe": "RECIPE_Consumable_Fillet_From_Bird",
+    "output": "ITEM_Consumable_Meat_Fillet",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel1"
+   }
+  ],
+  "ITEM_Resources_Meat_Farm": [
+   {
+    "recipe": "RECIPE_Consumable_Steak_From_Farm",
+    "output": "ITEM_Consumable_Farm_Steak",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel2"
+   }
+  ],
+  "ITEM_Resources_Meat_Game": [
+   {
+    "recipe": "RECIPE_Consumable_Haunch_From_Game",
+    "output": "ITEM_Consumable_Meat_Haunch",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel2"
+   }
+  ],
+  "ITEM_Resources_Meat_Undead": [
+   {
+    "recipe": "RECIPE_Consumable_Steak_Undead_From_Meat_Undead",
+    "output": "ITEM_Consumable_Steak_Undead",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Mushroom": [
+   {
+    "recipe": "RECIPE_Consumable_Mushroom_Grilled_From_Mushroom",
+    "output": "ITEM_Consumable_Mushroom_Grilled",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel2"
+   }
+  ],
+  "ITEM_Resources_Onion": [
+   {
+    "recipe": "RECIPE_Consumable_Fried_Onion_From_Onion",
+    "output": "ITEM_Consumable_Onion_Fried",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel3"
+   }
+  ],
+  "ITEM_Resources_Potato": [
+   {
+    "recipe": "RECIPE_Consumable_Potato_Jacket_From_Potato",
+    "output": "ITEM_Consumable_Potato_Jacket",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel2"
+   }
+  ],
+  "ITEM_Resources_Pumpkin": [
+   {
+    "recipe": "RECIPE_Consumable_Pumpkin_Roast_From_Pumpkin",
+    "output": "ITEM_Consumable_Pumpkin_Roast",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Raw_Stringy_Meat": [
+   {
+    "recipe": "RECIPE_Consumable_Rat_Roast_From_Rat",
+    "output": "ITEM_Consumable_Meat_Rat_Roast",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel1"
+   }
+  ],
+  "ITEM_Resources_Steak_Cactus": [
+   {
+    "recipe": "RECIPE_Consumable_Cactus_Steak_Cooked",
+    "output": "ITEM_Consumable_Steak_Cactus_Cooked",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ],
+  "ITEM_Resources_Tomato": [
+   {
+    "recipe": "RECIPE_Consumable_Tomatoes_Grilled_From_Tomatoes",
+    "output": "ITEM_Consumable_Tomato_Grilled",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel2"
+   }
+  ],
+  "ITEM_Resources_Watermelon": [
+   {
+    "recipe": "RECIPE_Consumable_Watermelon_Jerky_From_Watermelon",
+    "output": "ITEM_Consumable_Watermelon_Jerky",
+    "stations": [
+     "Campfire",
+     "Grill"
+    ],
+    "processing_time": [
+     8.0,
+     12.0
+    ],
+    "burn_attr": "ChanceToBurnFoodLevel4"
+   }
+  ]
+ },
+ "creatures": {
+  "Abyssal Demon": {
+   "pl": [
+    4,
+    7,
+    9
+   ],
+   "hp": [
+    1500,
+    64350,
+    6250
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Abyssal Ashes",
+     "qty": 3,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Monstrous Fang",
+     "qty": 3,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Hard Leather",
+     "qty": 5,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Leather_Hard"
+    },
+    {
+     "name": "Abyssal Remains",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Abyssal Ashes",
+     "qty": 3,
+     "chance": 0.75,
+     "item": null
+    },
+    {
+     "name": "Abyssal Ashes",
+     "qty": 3,
+     "chance": 0.25,
+     "item": null
+    },
+    {
+     "name": "Abyssal Spine",
+     "qty": 1,
+     "chance": 0.45,
+     "item": "ITEM_Resources_Abyssal_Spine"
+    },
+    {
+     "name": "Hard Leather",
+     "qty": 5,
+     "chance": 0.75,
+     "item": "ITEM_Resources_Leather_Hard"
+    },
+    {
+     "name": "Hard Leather",
+     "qty": 5,
+     "chance": 0.25,
+     "item": "ITEM_Resources_Leather_Hard"
+    },
+    {
+     "name": "Monstrous Fang",
+     "qty": 3,
+     "chance": 0.75,
+     "item": null
+    },
+    {
+     "name": "Monstrous Fang",
+     "qty": 3,
+     "chance": 0.25,
+     "item": null
+    },
+    {
+     "name": "Ascension Shard (Power Level 4)",
+     "qty": [
+      12,
+      19
+     ],
+     "chance": 0.4,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Abyssal Demon",
+    "revid": 72437,
+    "url": "https://dragonwilds.runescape.wiki/w/Abyssal_Demon"
+   }
+  },
+  "Aggressive Terrorbird": {
+   "pl": [
+    3
+   ],
+   "hp": [
+    195
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Raw Bird Meat",
+     "qty": 3,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Meat_Bird"
+    },
+    {
+     "name": "Feathers",
+     "qty": [
+      4,
+      5
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Feathers"
+    },
+    {
+     "name": "Shrapnel",
+     "qty": [
+      2,
+      4
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Shrapnel"
+    },
+    {
+     "name": "Egg",
+     "qty": [
+      3,
+      5
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Egg"
+    },
+    {
+     "name": "Raw Bird Meat",
+     "qty": [
+      2,
+      3
+     ],
+     "chance": 0.5,
+     "item": "ITEM_Resources_Meat_Bird"
+    },
+    {
+     "name": "Feathers",
+     "qty": [
+      2,
+      3
+     ],
+     "chance": 0.5,
+     "item": "ITEM_Resources_Feathers"
+    }
+   ],
+   "wiki": {
+    "title": "Aggressive Terrorbird",
+    "revid": 74390,
+    "url": "https://dragonwilds.runescape.wiki/w/Aggressive_Terrorbird"
+   }
+  },
+  "Black Dragon": {
+   "pl": [
+    8
+   ],
+   "hp": [
+    6000
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Black Dragon Hide",
+     "qty": [
+      10,
+      12
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Hide_Dragon_Black"
+    },
+    {
+     "name": "Dragon Blood",
+     "qty": [
+      6,
+      12
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_DragonBlood"
+    },
+    {
+     "name": "Dragon Tooth",
+     "qty": [
+      6,
+      12
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Dragon_Tooth"
+    },
+    {
+     "name": "Discordant Residue",
+     "qty": [
+      12,
+      15
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Residue_Discordent"
+    },
+    {
+     "name": "Ascension Shard (Power Level 8)",
+     "qty": [
+      8,
+      12
+     ],
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Black Dragon",
+    "revid": 74890,
+    "url": "https://dragonwilds.runescape.wiki/w/Black_Dragon"
+   }
+  },
+  "Black Knight Guardian": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    910
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Zamorakian Warrior Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Black Knight Guardian",
+    "revid": 70165,
+    "url": "https://dragonwilds.runescape.wiki/w/Black_Knight_Guardian"
+   }
+  },
+  "Black Knight Sniper": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    560
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Steel Arrow",
+     "qty": [
+      4,
+      8
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Ammo_Arrows_Steel_Bodkin"
+    },
+    {
+     "name": "Zamorakian Warrior Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Black Knight Sniper",
+    "revid": 67293,
+    "url": "https://dragonwilds.runescape.wiki/w/Black_Knight_Sniper"
+   }
+  },
+  "Black Knight Titan": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    14000
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Broken Titan's Wrath",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Quest_DR_Main_Broken_Gatekeeper_Greatsword"
+    },
+    {
+     "name": "Ascension Shard (Power Level 6)",
+     "qty": [
+      20,
+      30
+     ],
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Black Knight Titan",
+    "revid": 67052,
+    "url": "https://dragonwilds.runescape.wiki/w/Black_Knight_Titan"
+   }
+  },
+  "Black Knight Warrior": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    630
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Zamorakian Warrior Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Black Knight Warrior",
+    "revid": 70695,
+    "url": "https://dragonwilds.runescape.wiki/w/Black_Knight_Warrior"
+   }
+  },
+  "Blightscale the Lesser Green Dragon": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    2800
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Dragon Blood",
+     "qty": 8,
+     "chance": 1.0,
+     "item": "ITEM_Resources_DragonBlood"
+    },
+    {
+     "name": "Green Dragon Hide",
+     "qty": [
+      6,
+      8
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Skin_Dragon_Green_Lesser"
+    },
+    {
+     "name": "Dragon Tooth",
+     "qty": [
+      3,
+      5
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Dragon_Tooth"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": [
+      40,
+      50
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "A Cracked Bronze Vanity Mirror",
+     "qty": 1,
+     "chance": 0.025,
+     "item": null
+    },
+    {
+     "name": "Carved Bone Animal Lure",
+     "qty": 1,
+     "chance": 0.025,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Blightscale",
+    "revid": 61466,
+    "url": "https://dragonwilds.runescape.wiki/w/Blightscale"
+   }
+  },
+  "Blue Dragon": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    4000
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Blue Dragonhide",
+     "qty": [
+      6,
+      8
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Skin_Dragon_Blue_Lesser"
+    },
+    {
+     "name": "Dragon Blood",
+     "qty": 8,
+     "chance": 1.0,
+     "item": "ITEM_Resources_DragonBlood"
+    },
+    {
+     "name": "Dragon Tooth",
+     "qty": [
+      3,
+      5
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Dragon_Tooth"
+    },
+    {
+     "name": "Blue Dragon Scale",
+     "qty": [
+      5,
+      8
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Scale_Dragon_Blue"
+    },
+    {
+     "name": "Infernal Fragment",
+     "qty": [
+      40,
+      50
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Currency_DreamShard"
+    },
+    {
+     "name": "Ascension Shard (Power Level 6)",
+     "qty": [
+      15,
+      20
+     ],
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Summerbellied Wagtail",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Eclipseborn Sharpbeak",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Sunkissed Clawfoot",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Blue Dragon",
+    "revid": 76584,
+    "url": "https://dragonwilds.runescape.wiki/w/Blue_Dragon"
+   }
+  },
+  "Boggs": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    50
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Small Ash Pile",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Boggs",
+    "revid": 70739,
+    "url": "https://dragonwilds.runescape.wiki/w/Boggs"
+   }
+  },
+  "Carnivorous Chinchompa": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    230
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Burnt Flank",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Consumable_Beast_Flank_Burnt"
+    },
+    {
+     "name": "Soft Animal Fur",
+     "qty": [
+      1,
+      3
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Soft_Animal_Fur"
+    },
+    {
+     "name": "Naptha",
+     "qty": 1,
+     "chance": 0.1,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Carnivorous Chinchompa",
+    "revid": 76513,
+    "url": "https://dragonwilds.runescape.wiki/w/Carnivorous_Chinchompa"
+   }
+  },
+  "Chicken": {
+   "pl": [
+    1
+   ],
+   "hp": [
+    20
+   ],
+   "aggressive": false,
+   "drops": [
+    {
+     "name": "Raw Bird Meat",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Meat_Bird"
+    },
+    {
+     "name": "Egg",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Egg"
+    },
+    {
+     "name": "Feathers",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Feathers"
+    }
+   ],
+   "wiki": {
+    "title": "Chicken",
+    "revid": 71324,
+    "url": "https://dragonwilds.runescape.wiki/w/Chicken"
+   }
+  },
+  "Chinchompa": {
+   "pl": [
+    3
+   ],
+   "hp": [
+    60
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Raw Rat Meat",
+     "qty": 2,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Raw_Stringy_Meat"
+    },
+    {
+     "name": "Soft Animal Fur",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Soft_Animal_Fur"
+    },
+    {
+     "name": "Animal Hide Scraps",
+     "qty": 2,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Skin_Scraps"
+    }
+   ],
+   "wiki": {
+    "title": "Chinchompa",
+    "revid": 63387,
+    "url": "https://dragonwilds.runescape.wiki/w/Chinchompa"
+   }
+  },
+  "Corrupted Raven": {
+   "pl": [
+    1
+   ],
+   "hp": [
+    50
+   ],
+   "aggressive": false,
+   "drops": [
+    {
+     "name": "Feathers",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Feathers"
+    },
+    {
+     "name": "Corrupted Essence Sample",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Corrupted Raven",
+    "revid": 75554,
+    "url": "https://dragonwilds.runescape.wiki/w/Corrupted_Raven"
+   }
+  },
+  "Cow": {
+   "pl": [
+    2,
+    4
+   ],
+   "hp": [
+    120,
+    270
+   ],
+   "aggressive": false,
+   "drops": [
+    {
+     "name": "Raw Farm Meat",
+     "qty": 2,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Meat_Farm"
+    },
+    {
+     "name": "Animal Hide",
+     "qty": 2,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Animal_Hide"
+    },
+    {
+     "name": "Animal Bone",
+     "qty": 2,
+     "chance": 1.0,
+     "item": "ITEM_Resources_AnimalBone"
+    },
+    {
+     "name": "Raw Farm Meat",
+     "qty": 1,
+     "chance": 0.75,
+     "item": "ITEM_Resources_Meat_Farm"
+    },
+    {
+     "name": "Animal Hide",
+     "qty": 1,
+     "chance": 0.75,
+     "item": "ITEM_Resources_Animal_Hide"
+    },
+    {
+     "name": "Animal Bone",
+     "qty": 2,
+     "chance": 0.5,
+     "item": "ITEM_Resources_AnimalBone"
+    },
+    {
+     "name": "Weeds",
+     "qty": 2,
+     "chance": 0.15,
+     "item": "ITEM_Resources_Weeds"
+    }
+   ],
+   "wiki": {
+    "title": "Cow",
+    "revid": 71346,
+    "url": "https://dragonwilds.runescape.wiki/w/Cow"
+   }
+  },
+  "Curly": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    50
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Small Ash Pile",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Curly",
+    "revid": 70740,
+    "url": "https://dragonwilds.runescape.wiki/w/Curly"
+   }
+  },
+  "Deer": {
+   "pl": [
+    1,
+    2,
+    5
+   ],
+   "hp": [
+    30,
+    172,
+    220
+   ],
+   "aggressive": false,
+   "drops": [
+    {
+     "name": "Raw Game Meat",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Meat_Game"
+    },
+    {
+     "name": "Antler",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Animal_Horn"
+    },
+    {
+     "name": "Animal Hide",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Animal_Hide"
+    },
+    {
+     "name": "Animal Bone",
+     "qty": 2,
+     "chance": 1.0,
+     "item": "ITEM_Resources_AnimalBone"
+    },
+    {
+     "name": "Animal Hide",
+     "qty": 1,
+     "chance": 0.2,
+     "item": "ITEM_Resources_Animal_Hide"
+    }
+   ],
+   "wiki": {
+    "title": "Deer",
+    "revid": 73411,
+    "url": "https://dragonwilds.runescape.wiki/w/Deer"
+   }
+  },
+  "Delrom": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    2100
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Ash Pile",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Delrom",
+    "revid": 73852,
+    "url": "https://dragonwilds.runescape.wiki/w/Delrom"
+   }
+  },
+  "Dire Wolf": {
+   "pl": [
+    3
+   ],
+   "hp": [
+    780
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Raw Bestial Meat",
+     "qty": 2,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Meat_Bestial"
+    },
+    {
+     "name": "Animal Hide",
+     "qty": 4,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Animal_Hide"
+    },
+    {
+     "name": "Soft Animal Fur",
+     "qty": 2,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Soft_Animal_Fur"
+    },
+    {
+     "name": "Small Animal Fang",
+     "qty": 4,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Fang"
+    },
+    {
+     "name": "Dire Wolf Hide",
+     "qty": [
+      2,
+      4
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Alpha_Wolf_Skin"
+    },
+    {
+     "name": "Raw Bestial Meat",
+     "qty": 2,
+     "chance": 0.5,
+     "item": "ITEM_Resources_Meat_Bestial"
+    },
+    {
+     "name": "Animal Hide",
+     "qty": 2,
+     "chance": 0.5,
+     "item": "ITEM_Resources_Animal_Hide"
+    },
+    {
+     "name": "Soft Animal Fur",
+     "qty": 2,
+     "chance": 0.5,
+     "item": "ITEM_Resources_Soft_Animal_Fur"
+    }
+   ],
+   "wiki": {
+    "title": "Dire Wolf",
+    "revid": 73659,
+    "url": "https://dragonwilds.runescape.wiki/w/Dire_Wolf"
+   }
+  },
+  "Dragon Wolf": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    460
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Dragon Blood",
+     "qty": 2,
+     "chance": 1.0,
+     "item": "ITEM_Resources_DragonBlood"
+    },
+    {
+     "name": "Dragonwolf Hide",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Skin_Dragonwolf"
+    },
+    {
+     "name": "Naptha",
+     "qty": 1,
+     "chance": 0.33,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Dragon Wolf",
+    "revid": 70570,
+    "url": "https://dragonwilds.runescape.wiki/w/Dragon_Wolf"
+   }
+  },
+  "Elite Black Knight": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    1680
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Zamorakian Warrior Pack",
+     "qty": 2,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Eclipseborn Sharpbeak",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Summerbellied Wagtail",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Sunkissed Clawfoot",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Elite Black Knight",
+    "revid": 70524,
+    "url": "https://dragonwilds.runescape.wiki/w/Elite_Black_Knight"
+   }
+  },
+  "Fido": {
+   "pl": [
+    6
+   ],
+   "hp": [],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Small Ash Pile",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Fido",
+    "revid": 70718,
+    "url": "https://dragonwilds.runescape.wiki/w/Fido"
+   }
+  },
+  "Fuzan": {
+   "pl": [
+    7
+   ],
+   "hp": [
+    16000
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Fuzan's Head",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Humiliation",
+     "qty": 1,
+     "chance": 0.25,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Helplessness",
+     "qty": 1,
+     "chance": 0.25,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Betrayal",
+     "qty": 1,
+     "chance": 0.25,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of the Hounded",
+     "qty": 1,
+     "chance": 0.25,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Fuzan",
+    "revid": 76587,
+    "url": "https://dragonwilds.runescape.wiki/w/Fuzan"
+   }
+  },
+  "Garou Berserker": {
+   "pl": [
+    3,
+    4,
+    8
+   ],
+   "hp": [
+    292,
+    405,
+    885
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Garou Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Remnants of a Shattered Skull",
+     "qty": 1,
+     "chance": 0.02,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Garou Berserker",
+    "revid": 72319,
+    "url": "https://dragonwilds.runescape.wiki/w/Garou_Berserker"
+   }
+  },
+  "Garou Druid": {
+   "pl": [
+    3,
+    4
+   ],
+   "hp": [
+    292,
+    405
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "A Mysterious Crescent Carving",
+     "qty": 1,
+     "chance": 0.02,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Garou Druid",
+    "revid": 72320,
+    "url": "https://dragonwilds.runescape.wiki/w/Garou_Druid"
+   }
+  },
+  "Garou Hunter": {
+   "pl": [
+    3,
+    4,
+    8
+   ],
+   "hp": [
+    260,
+    360,
+    760
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Garou Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Shrapnel",
+     "qty": 1,
+     "chance": 0.25,
+     "item": "ITEM_Resources_Shrapnel"
+    },
+    {
+     "name": "A String of Sinew",
+     "qty": 1,
+     "chance": 0.03,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Garou Hunter",
+    "revid": 71159,
+    "url": "https://dragonwilds.runescape.wiki/w/Garou_Hunter"
+   }
+  },
+  "Garou King": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    1035
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Garou Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Tainted King's Token",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Ascension Shard (Power Level 4)",
+     "qty": [
+      6,
+      12
+     ],
+     "chance": 0.5,
+     "item": null
+    },
+    {
+     "name": "A Brutal Bladehead",
+     "qty": 1,
+     "chance": 0.05,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Garou King",
+    "revid": 71635,
+    "url": "https://dragonwilds.runescape.wiki/w/Garou_King"
+   }
+  },
+  "Garou Lightning Berserker": {
+   "pl": [
+    4
+   ],
+   "hp": [
+    810
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Garou Pack",
+     "qty": 2,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Copper Ore",
+     "qty": [
+      2,
+      3
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_CopperOre"
+    },
+    {
+     "name": "Tin Ore",
+     "qty": [
+      2,
+      3
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_TinOre"
+    },
+    {
+     "name": "Remnants of a Shattered Skull",
+     "qty": 1,
+     "chance": 0.06,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Garou Lightning Berserker",
+    "revid": 74396,
+    "url": "https://dragonwilds.runescape.wiki/w/Garou_Lightning_Berserker"
+   }
+  },
+  "Garou Thane": {
+   "pl": [
+    3,
+    4,
+    8,
+    8
+   ],
+   "hp": [
+    585,
+    810,
+    1485,
+    1710
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Garou Pack",
+     "qty": 2,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "A Brutal Bladehead",
+     "qty": 1,
+     "chance": 0.05,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Garou Thane",
+    "revid": 71556,
+    "url": "https://dragonwilds.runescape.wiki/w/Garou_Thane"
+   }
+  },
+  "Ghost Wolf": {
+   "pl": [
+    4
+   ],
+   "hp": [
+    360
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Ectoplasm",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Ectoplasm"
+    }
+   ],
+   "wiki": {
+    "title": "Ghost Wolf",
+    "revid": 70575,
+    "url": "https://dragonwilds.runescape.wiki/w/Ghost_Wolf"
+   }
+  },
+  "Giant Rat": {
+   "pl": [
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "hp": [
+    50,
+    100,
+    162,
+    225,
+    288
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Raw Rat Meat",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Raw_Stringy_Meat"
+    },
+    {
+     "name": "Coarse Animal Fur",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Coarse_Animal_Fur"
+    },
+    {
+     "name": "Animal Hide Scraps",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Skin_Scraps"
+    },
+    {
+     "name": "Small Animal Fang",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Fang"
+    }
+   ],
+   "wiki": {
+    "title": "Giant Rat",
+    "revid": 69535,
+    "url": "https://dragonwilds.runescape.wiki/w/Giant_Rat"
+   }
+  },
+  "Gnasher": {
+   "pl": [
+    6
+   ],
+   "hp": [],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Small Ash Pile",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Gnasher",
+    "revid": 70724,
+    "url": "https://dragonwilds.runescape.wiki/w/Gnasher"
+   }
+  },
+  "Goat": {
+   "pl": [
+    7
+   ],
+   "hp": [],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Fleece",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Skin_Fleece"
+    },
+    {
+     "name": "Animal Hide",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Animal_Hide"
+    },
+    {
+     "name": "Ram Horn",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Large_Animal_Horn"
+    },
+    {
+     "name": "Raw Farm Meat",
+     "qty": [
+      2,
+      3
+     ],
+     "chance": 0.75,
+     "item": "ITEM_Resources_Meat_Farm"
+    }
+   ],
+   "wiki": {
+    "title": "Goat",
+    "revid": 62793,
+    "url": "https://dragonwilds.runescape.wiki/w/Goat"
+   }
+  },
+  "Goblin Archer": {
+   "pl": [
+    2,
+    6,
+    8
+   ],
+   "hp": [
+    120,
+    420,
+    570
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Goblin Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Consumable_GoblinPack"
+    }
+   ],
+   "wiki": {
+    "title": "Goblin Archer",
+    "revid": 71161,
+    "url": "https://dragonwilds.runescape.wiki/w/Goblin_Archer"
+   }
+  },
+  "Goblin Bruiser": {
+   "pl": [
+    2,
+    6,
+    8
+   ],
+   "hp": [
+    180,
+    855
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Goblin Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Consumable_GoblinPack"
+    },
+    {
+     "name": "A Cruel Goblin Blade",
+     "qty": 1,
+     "chance": 0.02,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Goblin Bruiser",
+    "revid": 71167,
+    "url": "https://dragonwilds.runescape.wiki/w/Goblin_Bruiser"
+   }
+  },
+  "Goblin Poisonshot Archer": {
+   "pl": [
+    2,
+    3
+   ],
+   "hp": [
+    300,
+    488
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Goblin Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Consumable_GoblinPack"
+    },
+    {
+     "name": "Weapon Poison",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Consumable_WeaponPoison"
+    }
+   ],
+   "wiki": {
+    "title": "Goblin Poisonshot Archer",
+    "revid": 71106,
+    "url": "https://dragonwilds.runescape.wiki/w/Goblin_Poisonshot_Archer"
+   }
+  },
+  "Goblin Runt": {
+   "pl": [
+    1,
+    3,
+    6
+   ],
+   "hp": [
+    60,
+    195,
+    420
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Goblin Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Consumable_GoblinPack"
+    }
+   ],
+   "wiki": {
+    "title": "Goblin Runt",
+    "revid": 71111,
+    "url": "https://dragonwilds.runescape.wiki/w/Goblin_Runt"
+   }
+  },
+  "Goblin Warrior": {
+   "pl": [
+    2,
+    6,
+    8
+   ],
+   "hp": [
+    140,
+    490,
+    665
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Goblin Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Consumable_GoblinPack"
+    },
+    {
+     "name": "A Cruel Goblin Blade",
+     "qty": 1,
+     "chance": 0.02,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Goblin Warrior",
+    "revid": 71160,
+    "url": "https://dragonwilds.runescape.wiki/w/Goblin_Warrior"
+   }
+  },
+  "Green Dragon": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    2800
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Dragon Blood",
+     "qty": 8,
+     "chance": 1.0,
+     "item": "ITEM_Resources_DragonBlood"
+    },
+    {
+     "name": "Green Dragon Hide",
+     "qty": [
+      6,
+      8
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Skin_Dragon_Green_Lesser"
+    },
+    {
+     "name": "Dragon Tooth",
+     "qty": [
+      3,
+      5
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Dragon_Tooth"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": [
+      40,
+      50
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Ascension Shard (Power Level 5)",
+     "qty": [
+      15,
+      20
+     ],
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "A Cracked Bronze Vanity Mirror",
+     "qty": 1,
+     "chance": 0.025,
+     "item": null
+    },
+    {
+     "name": "Carved Bone Animal Lure",
+     "qty": 1,
+     "chance": 0.025,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Springdown Runner",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Grassfoot Screecher",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Leafwood Strider",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Green Dragon",
+    "revid": 76583,
+    "url": "https://dragonwilds.runescape.wiki/w/Green_Dragon"
+   }
+  },
+  "Gyrfalcon": {
+   "pl": [
+    1
+   ],
+   "hp": [
+    1
+   ],
+   "aggressive": false,
+   "drops": [
+    {
+     "name": "Feathers",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Feathers"
+    },
+    {
+     "name": "Feathers",
+     "qty": 1,
+     "chance": 0.6,
+     "item": "ITEM_Resources_Feathers"
+    }
+   ],
+   "wiki": {
+    "title": "Gyrfalcon",
+    "revid": 72300,
+    "url": "https://dragonwilds.runescape.wiki/w/Gyrfalcon"
+   }
+  },
+  "Hellhound": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    420
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Small Ash Pile",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Hellhound",
+    "revid": 70708,
+    "url": "https://dragonwilds.runescape.wiki/w/Hellhound"
+   }
+  },
+  "Hellrat": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    350
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Small Ash Pile",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Hellrat",
+    "revid": 62901,
+    "url": "https://dragonwilds.runescape.wiki/w/Hellrat"
+   }
+  },
+  "Houndmaster Rexiton": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    150
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Zamorakian Warrior Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Houndmaster Rexiton",
+    "revid": 70156,
+    "url": "https://dragonwilds.runescape.wiki/w/Houndmaster_Rexiton"
+   }
+  },
+  "Kalphite Guardian": {
+   "pl": [
+    7
+   ],
+   "hp": [
+    2475
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Greater Kalphite Wing",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Wing_Kalphite_Alpha"
+    },
+    {
+     "name": "Kalphite Shell Fragments",
+     "qty": [
+      3,
+      6
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Shell_Kalphite_Fragments"
+    },
+    {
+     "name": "Kalphite Ichor",
+     "qty": 3,
+     "chance": 0.5,
+     "item": "ITEM_Resources_Ichor_Kalphite"
+    },
+    {
+     "name": "Kalphite Shell",
+     "qty": [
+      2,
+      4
+     ],
+     "chance": 0.5,
+     "item": "ITEM_Resources_Shell_Kalphite"
+    },
+    {
+     "name": "MOUNT: Scorchsummer Ashbeak",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Applefeather Mosstail",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Crimson Crybaby",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Helplessness",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Betrayal",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of the Hounded",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Humiliation",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Kalphite Guardian",
+    "revid": 69682,
+    "url": "https://dragonwilds.runescape.wiki/w/Kalphite_Guardian"
+   }
+  },
+  "Kalphite Queen": {
+   "pl": [
+    7
+   ],
+   "hp": [
+    5500
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Greater Kalphite Wing",
+     "qty": [
+      2,
+      4
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Wing_Kalphite_Alpha"
+    },
+    {
+     "name": "Kalphite Shell",
+     "qty": [
+      5,
+      8
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Shell_Kalphite"
+    },
+    {
+     "name": "Kalphite Ichor",
+     "qty": [
+      6,
+      12
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Ichor_Kalphite"
+    },
+    {
+     "name": "Poison Ichor",
+     "qty": [
+      3,
+      6
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Herb_Poison_Ichor"
+    },
+    {
+     "name": "Ornate Golden Scarab",
+     "qty": 1,
+     "chance": 0.05,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Moonsilk Weave",
+     "qty": 1,
+     "chance": 0.05,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Helplessness",
+     "qty": 1,
+     "chance": 0.025,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Betrayal",
+     "qty": 1,
+     "chance": 0.025,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of the Hounded",
+     "qty": 1,
+     "chance": 0.025,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Humiliation",
+     "qty": 1,
+     "chance": 0.025,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Kalphite Queen",
+    "revid": 75821,
+    "url": "https://dragonwilds.runescape.wiki/w/Kalphite_Queen"
+   }
+  },
+  "Kalphite Soldier": {
+   "pl": [
+    7
+   ],
+   "hp": [
+    825
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Kalphite Wing",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Wing_Kalphite"
+    },
+    {
+     "name": "Kalphite Shell Fragments",
+     "qty": [
+      2,
+      4
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Shell_Kalphite_Fragments"
+    },
+    {
+     "name": "Kalphite Ichor",
+     "qty": 2,
+     "chance": 0.5,
+     "item": "ITEM_Resources_Ichor_Kalphite"
+    },
+    {
+     "name": "Kalphite Shell",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 0.25,
+     "item": "ITEM_Resources_Shell_Kalphite"
+    },
+    {
+     "name": "Crucible Engram of Helplessness",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Betrayal",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of the Hounded",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Humiliation",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Kalphite Soldier",
+    "revid": 63347,
+    "url": "https://dragonwilds.runescape.wiki/w/Kalphite_Soldier"
+   }
+  },
+  "Kalphite Worker": {
+   "pl": [
+    7
+   ],
+   "hp": [
+    495
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Stunted Kalphite Wing",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Wing_Kalphite_Stunted"
+    },
+    {
+     "name": "Kalphite Shell Fragments",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Shell_Kalphite_Fragments"
+    },
+    {
+     "name": "Kalphite Ichor",
+     "qty": 1,
+     "chance": 0.5,
+     "item": "ITEM_Resources_Ichor_Kalphite"
+    },
+    {
+     "name": "Crucible Engram of Helplessness",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Betrayal",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of the Hounded",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Humiliation",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Kalphite Worker",
+    "revid": 69683,
+    "url": "https://dragonwilds.runescape.wiki/w/Kalphite_Worker"
+   }
+  },
+  "Kebbit": {
+   "pl": [
+    1
+   ],
+   "hp": [
+    30
+   ],
+   "aggressive": false,
+   "drops": [
+    {
+     "name": "Coarse Animal Fur",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Coarse_Animal_Fur"
+    },
+    {
+     "name": "Animal Hide Scraps",
+     "qty": 1,
+     "chance": 0.5,
+     "item": "ITEM_Resources_Skin_Scraps"
+    }
+   ],
+   "wiki": {
+    "title": "Kebbit",
+    "revid": 69501,
+    "url": "https://dragonwilds.runescape.wiki/w/Kebbit"
+   }
+  },
+  "KotHaar-Hur": {
+   "pl": [
+    7
+   ],
+   "hp": [
+    660
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Kot Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Elongated Obsidian Construct",
+     "qty": 1,
+     "chance": 0.02,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Helplessness",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Betrayal",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of the Hounded",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Humiliation",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "KotHaar-Hur",
+    "revid": 61211,
+    "url": "https://dragonwilds.runescape.wiki/w/KotHaar-Hur"
+   }
+  },
+  "KotHaar-Kal": {
+   "pl": [
+    7
+   ],
+   "hp": [
+    2475
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Kot Pack",
+     "qty": 2,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Scorchsummer Ashbeak",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Applefeather Mosstail",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Crimson Crybaby",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "Shattered Black Blade (Umbral Sands)",
+     "qty": 1,
+     "chance": 0.02,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Helplessness",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Betrayal",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of the Hounded",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Humiliation",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "KotHaar-Kal",
+    "revid": 63193,
+    "url": "https://dragonwilds.runescape.wiki/w/KotHaar-Kal"
+   }
+  },
+  "KotHaar-Ket": {
+   "pl": [
+    7
+   ],
+   "hp": [
+    990
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Kot Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Bludgeoning Obsidian Construct",
+     "qty": 1,
+     "chance": 0.02,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Helplessness",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Betrayal",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of the Hounded",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Humiliation",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "KotHaar-Ket",
+    "revid": 63362,
+    "url": "https://dragonwilds.runescape.wiki/w/KotHaar-Ket"
+   }
+  },
+  "KotHaar-Xil": {
+   "pl": [
+    7
+   ],
+   "hp": [
+    660
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Kot Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Elongated Obsidian Construct",
+     "qty": 1,
+     "chance": 0.02,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Helplessness",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Betrayal",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of the Hounded",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Humiliation",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "KotHaar-Xil",
+    "revid": 52970,
+    "url": "https://dragonwilds.runescape.wiki/w/KotHaar-Xil"
+   }
+  },
+  "Lesser Demon": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    2100
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Ash Pile",
+     "qty": 2,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Eclipseborn Sharpbeak",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Summerbellied Wagtail",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Sunkissed Clawfoot",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Lesser Demon",
+    "revid": 69057,
+    "url": "https://dragonwilds.runescape.wiki/w/Lesser_Demon"
+   }
+  },
+  "Lost Soul": {
+   "pl": [
+    2
+   ],
+   "hp": [
+    120
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Ectoplasm",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Ectoplasm"
+    }
+   ],
+   "wiki": {
+    "title": "Lost Soul",
+    "revid": 70206,
+    "url": "https://dragonwilds.runescape.wiki/w/Lost_Soul"
+   }
+  },
+  "Lurch": {
+   "pl": [
+    6
+   ],
+   "hp": [],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Small Ash Pile",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Lurch",
+    "revid": 70721,
+    "url": "https://dragonwilds.runescape.wiki/w/Lurch"
+   }
+  },
+  "Mage of Zamorak": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    840
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Zamorakian Mage Pack",
+     "qty": 2,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Mage of Zamorak",
+    "revid": 73923,
+    "url": "https://dragonwilds.runescape.wiki/w/Mage_of_Zamorak"
+   }
+  },
+  "Magpie": {
+   "pl": [
+    1
+   ],
+   "hp": [
+    1
+   ],
+   "aggressive": false,
+   "drops": [
+    {
+     "name": "Feathers",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Feathers"
+    },
+    {
+     "name": "Feathers",
+     "qty": 1,
+     "chance": 0.6,
+     "item": "ITEM_Resources_Feathers"
+    }
+   ],
+   "wiki": {
+    "title": "Magpie",
+    "revid": 63717,
+    "url": "https://dragonwilds.runescape.wiki/w/Magpie"
+   }
+  },
+  "Nature Spirit": {
+   "pl": [
+    5
+   ],
+   "hp": [],
+   "aggressive": false,
+   "drops": [
+    {
+     "name": "Ectoplasm",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Ectoplasm"
+    },
+    {
+     "name": "Primordial Heart",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Nature Spirit",
+    "revid": 73807,
+    "url": "https://dragonwilds.runescape.wiki/w/Nature_Spirit"
+   }
+  },
+  "Nosey": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    50
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Small Ash Pile",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Nosey",
+    "revid": 70742,
+    "url": "https://dragonwilds.runescape.wiki/w/Nosey"
+   }
+  },
+  "Patch": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    50
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Small Ash Pile",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Patch (Hellrat)",
+    "revid": 70744,
+    "url": "https://dragonwilds.runescape.wiki/w/Patch_(Hellrat)"
+   }
+  },
+  "Pip": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    50
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Small Ash Pile",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Pip",
+    "revid": 70746,
+    "url": "https://dragonwilds.runescape.wiki/w/Pip"
+   }
+  },
+  "Plague King": {
+   "pl": [
+    2
+   ],
+   "hp": [
+    300
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Raw Rat Meat",
+     "qty": 3,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Raw_Stringy_Meat"
+    },
+    {
+     "name": "Swamp Tar",
+     "qty": 3,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Swamp_Tar"
+    },
+    {
+     "name": "Animal Hide Scraps",
+     "qty": 3,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Skin_Scraps"
+    },
+    {
+     "name": "Small Animal Fang",
+     "qty": 3,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Fang"
+    },
+    {
+     "name": "Poison Ichor",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Herb_Poison_Ichor"
+    }
+   ],
+   "wiki": {
+    "title": "Plague King",
+    "revid": 64498,
+    "url": "https://dragonwilds.runescape.wiki/w/Plague_King"
+   }
+  },
+  "Putrid Rat": {
+   "pl": [
+    2,
+    3,
+    8
+   ],
+   "hp": [
+    120,
+    195,
+    570
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Raw Rat Meat",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Raw_Stringy_Meat"
+    },
+    {
+     "name": "Swamp Tar",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Swamp_Tar"
+    },
+    {
+     "name": "Animal Hide Scraps",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Skin_Scraps"
+    },
+    {
+     "name": "Small Animal Fang",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Fang"
+    },
+    {
+     "name": "Poison Ichor",
+     "qty": 1,
+     "chance": 0.25,
+     "item": "ITEM_Herb_Poison_Ichor"
+    }
+   ],
+   "wiki": {
+    "title": "Putrid Rat",
+    "revid": 71165,
+    "url": "https://dragonwilds.runescape.wiki/w/Putrid_Rat"
+   }
+  },
+  "Ram": {
+   "pl": [
+    3
+   ],
+   "hp": [
+    50
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Raw Farm Meat",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Meat_Farm"
+    },
+    {
+     "name": "Fleece",
+     "qty": [
+      2,
+      3
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Skin_Fleece"
+    },
+    {
+     "name": "Animal Hide",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Animal_Hide"
+    },
+    {
+     "name": "Ram Horn",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Large_Animal_Horn"
+    },
+    {
+     "name": "Raw Farm Meat",
+     "qty": 1,
+     "chance": 0.75,
+     "item": "ITEM_Resources_Meat_Farm"
+    },
+    {
+     "name": "Fleece",
+     "qty": 1,
+     "chance": 0.75,
+     "item": "ITEM_Resources_Skin_Fleece"
+    },
+    {
+     "name": "Animal Hide",
+     "qty": 1,
+     "chance": 0.5,
+     "item": "ITEM_Resources_Animal_Hide"
+    },
+    {
+     "name": "Ram Horn",
+     "qty": 1,
+     "chance": 0.75,
+     "item": "ITEM_Resources_Large_Animal_Horn"
+    }
+   ],
+   "wiki": {
+    "title": "Ram",
+    "revid": 65042,
+    "url": "https://dragonwilds.runescape.wiki/w/Ram"
+   }
+  },
+  "Rat King": {
+   "pl": [
+    2,
+    5,
+    9
+   ],
+   "hp": [
+    280,
+    805,
+    1505
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Raw Rat Meat",
+     "qty": 3,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Raw_Stringy_Meat"
+    },
+    {
+     "name": "Coarse Animal Fur",
+     "qty": 3,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Coarse_Animal_Fur"
+    },
+    {
+     "name": "Animal Hide Scraps",
+     "qty": 3,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Skin_Scraps"
+    },
+    {
+     "name": "Small Animal Fang",
+     "qty": 3,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Fang"
+    }
+   ],
+   "wiki": {
+    "title": "Rat King",
+    "revid": 71173,
+    "url": "https://dragonwilds.runescape.wiki/w/Rat_King"
+   }
+  },
+  "Rat Master Skrexis": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    840
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Zamorakian Mage Pack",
+     "qty": 2,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Rat Master Skrexis",
+    "revid": 70703,
+    "url": "https://dragonwilds.runescape.wiki/w/Rat_Master_Skrexis"
+   }
+  },
+  "Raven": {
+   "pl": [
+    1
+   ],
+   "hp": [
+    1
+   ],
+   "aggressive": false,
+   "drops": [
+    {
+     "name": "Feathers",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Feathers"
+    }
+   ],
+   "wiki": {
+    "title": "Raven",
+    "revid": 70716,
+    "url": "https://dragonwilds.runescape.wiki/w/Raven"
+   }
+  },
+  "Red Dragon": {
+   "pl": [
+    7
+   ],
+   "hp": [
+    5000
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "d",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Red Dragon Hide",
+     "qty": [
+      6,
+      8
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Skin_Dragon_Red_Lesser"
+    },
+    {
+     "name": "Dragon Blood",
+     "qty": 8,
+     "chance": 1.0,
+     "item": "ITEM_Resources_DragonBlood"
+    },
+    {
+     "name": "Dragon Tooth",
+     "qty": [
+      3,
+      5
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Dragon_Tooth"
+    },
+    {
+     "name": "MOUNT: Scorchsummer Ashbeak",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Applefeather Mosstail",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Crimson Crybaby",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "Commemorative Coin",
+     "qty": 1,
+     "chance": null,
+     "item": null
+    },
+    {
+     "name": "Inspiring Insignia",
+     "qty": 1,
+     "chance": null,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Helplessness",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Betrayal",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of the Hounded",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Humiliation",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Red Dragon",
+    "revid": 76590,
+    "url": "https://dragonwilds.runescape.wiki/w/Red_Dragon"
+   }
+  },
+  "Reek": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    50
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Small Ash Pile",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Reek",
+    "revid": 70748,
+    "url": "https://dragonwilds.runescape.wiki/w/Reek"
+   }
+  },
+  "Rotridden Cow": {
+   "pl": [
+    5
+   ],
+   "hp": [],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Withered Heart",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Heart_Withered"
+    }
+   ],
+   "wiki": {
+    "title": "Rotridden Cow",
+    "revid": 71813,
+    "url": "https://dragonwilds.runescape.wiki/w/Rotridden_Cow"
+   }
+  },
+  "Rotridden Rat": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    345
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Withered Heart",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Heart_Withered"
+    },
+    {
+     "name": "Coarse Animal Fur",
+     "qty": [
+      1,
+      3
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Coarse_Animal_Fur"
+    },
+    {
+     "name": "Small Animal Fang",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Fang"
+    },
+    {
+     "name": "Undead Meat",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Meat_Undead"
+    },
+    {
+     "name": "Withered Heart",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Heart_Withered"
+    }
+   ],
+   "wiki": {
+    "title": "Rotridden Rat",
+    "revid": 65167,
+    "url": "https://dragonwilds.runescape.wiki/w/Rotridden_Rat"
+   }
+  },
+  "Rotsworn Marauder": {
+   "pl": [
+    5
+   ],
+   "hp": [],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Skeleton Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Withered Heart",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Heart_Withered"
+    },
+    {
+     "name": "Undead Bone",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Bone_Undead"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": [
+      3,
+      5
+     ],
+     "chance": 0.25,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Tattered Time-Lost Cloth",
+     "qty": 1,
+     "chance": 0.01,
+     "item": "DA_Consumable_Vestige_Cape_Shadowscale"
+    }
+   ],
+   "wiki": {
+    "title": "Rotsworn Marauder",
+    "revid": 70227,
+    "url": "https://dragonwilds.runescape.wiki/w/Rotsworn_Marauder"
+   }
+  },
+  "Rotsworn Necromancer": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    632
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Skeleton Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Undead Bone",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Bone_Undead"
+    },
+    {
+     "name": "Withered Heart",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Heart_Withered"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": [
+      3,
+      5
+     ],
+     "chance": 0.25,
+     "item": "ITEM_Currency_SoulFragment"
+    }
+   ],
+   "wiki": {
+    "title": "Rotsworn Necromancer",
+    "revid": 70573,
+    "url": "https://dragonwilds.runescape.wiki/w/Rotsworn_Necromancer"
+   }
+  },
+  "Rotsworn Warrior": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    518
+   ],
+   "aggressive": false,
+   "drops": [
+    {
+     "name": "Skeleton Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Undead Bone",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Bone_Undead"
+    },
+    {
+     "name": "Withered Heart",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Heart_Withered"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": [
+      3,
+      5
+     ],
+     "chance": 0.25,
+     "item": "ITEM_Currency_SoulFragment"
+    }
+   ],
+   "wiki": {
+    "title": "Rotsworn Warrior",
+    "revid": 70540,
+    "url": "https://dragonwilds.runescape.wiki/w/Rotsworn_Warrior"
+   }
+  },
+  "Rotsworn Zombie": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    402
+   ],
+   "aggressive": false,
+   "drops": [
+    {
+     "name": "Zombie Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Consumable_ZombiePack"
+    },
+    {
+     "name": "Withered Heart",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Heart_Withered"
+    }
+   ],
+   "wiki": {
+    "title": "Rotsworn Zombie",
+    "revid": 70221,
+    "url": "https://dragonwilds.runescape.wiki/w/Rotsworn_Zombie"
+   }
+  },
+  "Rufus": {
+   "pl": [
+    6
+   ],
+   "hp": [],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Small Ash Pile",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Rufus",
+    "revid": 70731,
+    "url": "https://dragonwilds.runescape.wiki/w/Rufus"
+   }
+  },
+  "Sergeant Blister": {
+   "pl": [
+    7
+   ],
+   "hp": [
+    1072
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Zamorakian Warrior Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Sergeant Blister",
+    "revid": 74459,
+    "url": "https://dragonwilds.runescape.wiki/w/Sergeant_Blister"
+   }
+  },
+  "Shardbound Lesser Demon": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    2100
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Ash Pile",
+     "qty": 2,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Eclipseborn Sharpbeak",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Summerbellied Wagtail",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Sunkissed Clawfoot",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Shardbound Lesser Demon",
+    "revid": 69019,
+    "url": "https://dragonwilds.runescape.wiki/w/Shardbound_Lesser_Demon"
+   }
+  },
+  "Sheep": {
+   "pl": [
+    2
+   ],
+   "hp": [
+    40
+   ],
+   "aggressive": false,
+   "drops": [
+    {
+     "name": "Fleece",
+     "qty": [
+      2,
+      3
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Skin_Fleece"
+    },
+    {
+     "name": "Animal Bone",
+     "qty": 2,
+     "chance": 1.0,
+     "item": "ITEM_Resources_AnimalBone"
+    },
+    {
+     "name": "Raw Farm Meat",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Meat_Farm"
+    }
+   ],
+   "wiki": {
+    "title": "Sheep",
+    "revid": 63379,
+    "url": "https://dragonwilds.runescape.wiki/w/Sheep"
+   }
+  },
+  "Skeletal Archer": {
+   "pl": [
+    5,
+    6,
+    8
+   ],
+   "hp": [
+    460,
+    600,
+    760
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Skeleton Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Undead Bone",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Bone_Undead"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": [
+      3,
+      5
+     ],
+     "chance": 0.25,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Bronze Arrow",
+     "qty": [
+      1,
+      5
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Ammo_Arrows_Bronze_Bodkin"
+    },
+    {
+     "name": "Cloying Damp Cowl",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Skeletal Archer",
+    "revid": 71148,
+    "url": "https://dragonwilds.runescape.wiki/w/Skeletal_Archer"
+   }
+  },
+  "Skeletal Hoplite": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    1380
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Skeleton Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Undead Bone",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Bone_Undead"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": [
+      3,
+      5
+     ],
+     "chance": 0.25,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Sundering Spiked Slab",
+     "qty": 1,
+     "chance": 0.05,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Skeletal Hoplite",
+    "revid": 75194,
+    "url": "https://dragonwilds.runescape.wiki/w/Skeletal_Hoplite"
+   }
+  },
+  "Skeletal Marauder": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    690
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Skeleton Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Undead Bone",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Bone_Undead"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": [
+      3,
+      5
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Tattered Time-Lost Cloth",
+     "qty": 1,
+     "chance": 0.01,
+     "item": "DA_Consumable_Vestige_Cape_Shadowscale"
+    }
+   ],
+   "wiki": {
+    "title": "Skeletal Marauder",
+    "revid": 70242,
+    "url": "https://dragonwilds.runescape.wiki/w/Skeletal_Marauder"
+   }
+  },
+  "Skeletal Necromancer": {
+   "pl": [
+    5,
+    8
+   ],
+   "hp": [
+    575,
+    950
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Skeleton Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Undead Bone",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Bone_Undead"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": [
+      3,
+      5
+     ],
+     "chance": 0.25,
+     "item": "ITEM_Currency_SoulFragment"
+    }
+   ],
+   "wiki": {
+    "title": "Skeletal Necromancer",
+    "revid": 71166,
+    "url": "https://dragonwilds.runescape.wiki/w/Skeletal_Necromancer"
+   }
+  },
+  "Skeletal Warrior": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    150
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Skeleton Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Undead Bone",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Bone_Undead"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": [
+      3,
+      5
+     ],
+     "chance": 0.25,
+     "item": "ITEM_Currency_SoulFragment"
+    }
+   ],
+   "wiki": {
+    "title": "Skeletal Warrior",
+    "revid": 70237,
+    "url": "https://dragonwilds.runescape.wiki/w/Skeletal_Warrior"
+   }
+  },
+  "Soulstone Sentinel": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    1380
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Ectoplasm",
+     "qty": 1,
+     "chance": 0.25,
+     "item": "ITEM_Resources_Ectoplasm"
+    },
+    {
+     "name": "MOUNT: Springdown Runner",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Grassfoot Screecher",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Leafwood Strider",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Soulstone Sentinel",
+    "revid": 70574,
+    "url": "https://dragonwilds.runescape.wiki/w/Soulstone_Sentinel"
+   }
+  },
+  "Spectral Bird": {
+   "pl": [
+    1
+   ],
+   "hp": [
+    1
+   ],
+   "aggressive": false,
+   "drops": [
+    {
+     "name": "Soul Fragment",
+     "qty": [
+      12,
+      15
+     ],
+     "chance": null,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Ectoplasm",
+     "qty": 1,
+     "chance": null,
+     "item": "ITEM_Resources_Ectoplasm"
+    }
+   ],
+   "wiki": {
+    "title": "Spectral Bird",
+    "revid": 66005,
+    "url": "https://dragonwilds.runescape.wiki/w/Spectral_Bird"
+   }
+  },
+  "Stormpact Demon": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    2750
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Ash Pile",
+     "qty": 3,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Cursed Essence",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Essence_Cursed"
+    },
+    {
+     "name": "MOUNT: Sunkissed Clawfoot",
+     "qty": 1,
+     "chance": 0.05,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Stormpact Demon",
+    "revid": 76372,
+    "url": "https://dragonwilds.runescape.wiki/w/Stormpact_Demon"
+   }
+  },
+  "Summoner Flament": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    840
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Zamorakian Mage Pack",
+     "qty": 2,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Summoner Flament",
+    "revid": 70705,
+    "url": "https://dragonwilds.runescape.wiki/w/Summoner_Flament"
+   }
+  },
+  "Terrorbird": {
+   "pl": [
+    3
+   ],
+   "hp": [
+    195
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Raw Bird Meat",
+     "qty": 2,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Meat_Bird"
+    },
+    {
+     "name": "Egg",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Egg"
+    },
+    {
+     "name": "Feathers",
+     "qty": 3,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Feathers"
+    },
+    {
+     "name": "Raw Bird Meat",
+     "qty": 2,
+     "chance": 0.5,
+     "item": "ITEM_Resources_Meat_Bird"
+    },
+    {
+     "name": "Feathers",
+     "qty": 3,
+     "chance": 0.5,
+     "item": "ITEM_Resources_Feathers"
+    },
+    {
+     "name": "Shrapnel",
+     "qty": 1,
+     "chance": 0.25,
+     "item": "ITEM_Resources_Shrapnel"
+    }
+   ],
+   "wiki": {
+    "title": "Terrorbird",
+    "revid": 75609,
+    "url": "https://dragonwilds.runescape.wiki/w/Terrorbird"
+   }
+  },
+  "Tiny": {
+   "pl": [
+    6
+   ],
+   "hp": [],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Small Ash Pile",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Tiny",
+    "revid": 70729,
+    "url": "https://dragonwilds.runescape.wiki/w/Tiny"
+   }
+  },
+  "Tok-Xil": {
+   "pl": [
+    7
+   ],
+   "hp": [
+    7000
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Kot Pack",
+     "qty": 3,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Unyielding Obsidian Construct",
+     "qty": 1,
+     "chance": 0.05,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Uzzerian Umber",
+     "qty": 1,
+     "chance": 0.05,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Helplessness",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Betrayal",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of the Hounded",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    },
+    {
+     "name": "Crucible Engram of Humiliation",
+     "qty": 1,
+     "chance": 0.003,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Tok-Xil",
+    "revid": 66220,
+    "url": "https://dragonwilds.runescape.wiki/w/Tok-Xil"
+   }
+  },
+  "Ulgo the Zogre": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    4200
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Zogre Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Corpse Cotton",
+     "qty": [
+      4,
+      8
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Corpse_Fur"
+    },
+    {
+     "name": "Hard Leather",
+     "qty": [
+      4,
+      8
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Leather_Hard"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": 20,
+     "chance": 1.0,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Undead Bone",
+     "qty": [
+      4,
+      8
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Bone_Undead"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": [
+      15,
+      30
+     ],
+     "chance": 0.005,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Shard of Smoky Glass",
+     "qty": 1,
+     "chance": null,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Springdown Runner",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Grassfoot Screecher",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Leafwood Strider",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "Ascension Shard (Power Level 6)",
+     "qty": [
+      12,
+      19
+     ],
+     "chance": 0.2,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Ulgo the Zogre",
+    "revid": 74476,
+    "url": "https://dragonwilds.runescape.wiki/w/Ulgo_the_Zogre"
+   }
+  },
+  "Vault Archon": {
+   "pl": [
+    2
+   ],
+   "hp": [
+    3100
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Stone",
+     "qty": 5,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Stone"
+    },
+    {
+     "name": "Stone",
+     "qty": 5,
+     "chance": 0.25,
+     "item": "ITEM_Resources_Stone"
+    },
+    {
+     "name": "Rune Essence",
+     "qty": 3,
+     "chance": 0.75,
+     "item": "ITEM_Rune_Essence"
+    },
+    {
+     "name": "Rune Essence",
+     "qty": 3,
+     "chance": 0.46,
+     "item": "ITEM_Rune_Essence"
+    },
+    {
+     "name": "Vault Shard",
+     "qty": 2,
+     "chance": 0.25,
+     "item": "ITEM_Resources_VaultShard"
+    },
+    {
+     "name": "Vault Shard",
+     "qty": 3,
+     "chance": 0.15,
+     "item": "ITEM_Resources_VaultShard"
+    }
+   ],
+   "wiki": {
+    "title": "Vault Archon",
+    "revid": 66500,
+    "url": "https://dragonwilds.runescape.wiki/w/Vault_Archon"
+   }
+  },
+  "Vault Corruptor": {
+   "pl": [
+    4
+   ],
+   "hp": [
+    2925
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Stone",
+     "qty": 30,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Stone"
+    },
+    {
+     "name": "Stone",
+     "qty": 5,
+     "chance": null,
+     "item": "ITEM_Resources_Stone"
+    },
+    {
+     "name": "Rune Essence",
+     "qty": 1,
+     "chance": null,
+     "item": "ITEM_Rune_Essence"
+    },
+    {
+     "name": "Rune Essence",
+     "qty": 1,
+     "chance": null,
+     "item": "ITEM_Rune_Essence"
+    },
+    {
+     "name": "Vault Shard",
+     "qty": 1,
+     "chance": null,
+     "item": "ITEM_Resources_VaultShard"
+    }
+   ],
+   "wiki": {
+    "title": "Vault Corruptor",
+    "revid": 66502,
+    "url": "https://dragonwilds.runescape.wiki/w/Vault_Corruptor"
+   }
+  },
+  "Vault Guardian Hulk": {
+   "pl": [
+    2
+   ],
+   "hp": [],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Stone",
+     "qty": 5,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Stone"
+    },
+    {
+     "name": "Stone",
+     "qty": 5,
+     "chance": 0.25,
+     "item": "ITEM_Resources_Stone"
+    },
+    {
+     "name": "Rune Essence",
+     "qty": 3,
+     "chance": 0.75,
+     "item": "ITEM_Rune_Essence"
+    },
+    {
+     "name": "Rune Essence",
+     "qty": 3,
+     "chance": 0.46,
+     "item": "ITEM_Rune_Essence"
+    },
+    {
+     "name": "Vault Shard",
+     "qty": 2,
+     "chance": 0.25,
+     "item": "ITEM_Resources_VaultShard"
+    },
+    {
+     "name": "Vault Shard",
+     "qty": 3,
+     "chance": 0.15,
+     "item": "ITEM_Resources_VaultShard"
+    }
+   ],
+   "wiki": {
+    "title": "Vault Guardian Hulk",
+    "revid": 66503,
+    "url": "https://dragonwilds.runescape.wiki/w/Vault_Guardian_Hulk"
+   }
+  },
+  "Vault Guardian Sentinel": {
+   "pl": [
+    2
+   ],
+   "hp": [],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Stone",
+     "qty": 15,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Stone"
+    },
+    {
+     "name": "Stone",
+     "qty": 15,
+     "chance": 0.25,
+     "item": "ITEM_Resources_Stone"
+    },
+    {
+     "name": "Rune Essence",
+     "qty": 9,
+     "chance": 0.75,
+     "item": "ITEM_Rune_Essence"
+    },
+    {
+     "name": "Rune Essence",
+     "qty": 9,
+     "chance": 0.46,
+     "item": "ITEM_Rune_Essence"
+    },
+    {
+     "name": "Vault Shard",
+     "qty": 6,
+     "chance": 0.25,
+     "item": "ITEM_Resources_VaultShard"
+    },
+    {
+     "name": "Vault Shard",
+     "qty": 9,
+     "chance": 0.15,
+     "item": "ITEM_Resources_VaultShard"
+    }
+   ],
+   "wiki": {
+    "title": "Vault Guardian Sentinel",
+    "revid": 66504,
+    "url": "https://dragonwilds.runescape.wiki/w/Vault_Guardian_Sentinel"
+   }
+  },
+  "Vault Incinerator": {
+   "pl": [
+    3
+   ],
+   "hp": [
+    2112
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Stone",
+     "qty": 30,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Stone"
+    },
+    {
+     "name": "Stone",
+     "qty": 5,
+     "chance": null,
+     "item": "ITEM_Resources_Stone"
+    },
+    {
+     "name": "Rune Essence",
+     "qty": 1,
+     "chance": null,
+     "item": "ITEM_Rune_Essence"
+    },
+    {
+     "name": "Rune Essence",
+     "qty": 1,
+     "chance": null,
+     "item": "ITEM_Rune_Essence"
+    },
+    {
+     "name": "Vault Shard",
+     "qty": 1,
+     "chance": null,
+     "item": "ITEM_Resources_VaultShard"
+    }
+   ],
+   "wiki": {
+    "title": "Vault Incinerator",
+    "revid": 66507,
+    "url": "https://dragonwilds.runescape.wiki/w/Vault_Incinerator"
+   }
+  },
+  "Vault Overlord": {
+   "pl": [
+    2,
+    5
+   ],
+   "hp": [
+    1300,
+    2875
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Stone",
+     "qty": 15,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Stone"
+    },
+    {
+     "name": "Stone",
+     "qty": 15,
+     "chance": 0.25,
+     "item": "ITEM_Resources_Stone"
+    },
+    {
+     "name": "Rune Essence",
+     "qty": 9,
+     "chance": 0.75,
+     "item": "ITEM_Rune_Essence"
+    },
+    {
+     "name": "Rune Essence",
+     "qty": 9,
+     "chance": 0.46,
+     "item": "ITEM_Rune_Essence"
+    },
+    {
+     "name": "Vault Shard",
+     "qty": 6,
+     "chance": 0.25,
+     "item": "ITEM_Resources_VaultShard"
+    },
+    {
+     "name": "Vault Shard",
+     "qty": 9,
+     "chance": 0.15,
+     "item": "ITEM_Resources_VaultShard"
+    }
+   ],
+   "wiki": {
+    "title": "Vault Overlord",
+    "revid": 66508,
+    "url": "https://dragonwilds.runescape.wiki/w/Vault_Overlord"
+   }
+  },
+  "Vault Pyroclast": {
+   "pl": [
+    4
+   ],
+   "hp": [
+    2925
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Stone",
+     "qty": 30,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Stone"
+    },
+    {
+     "name": "Stone",
+     "qty": 5,
+     "chance": null,
+     "item": "ITEM_Resources_Stone"
+    },
+    {
+     "name": "Rune Essence",
+     "qty": 1,
+     "chance": null,
+     "item": "ITEM_Rune_Essence"
+    },
+    {
+     "name": "Rune Essence",
+     "qty": 1,
+     "chance": null,
+     "item": "ITEM_Rune_Essence"
+    },
+    {
+     "name": "Vault Shard",
+     "qty": 1,
+     "chance": null,
+     "item": "ITEM_Resources_VaultShard"
+    }
+   ],
+   "wiki": {
+    "title": "Vault Pyroclast",
+    "revid": 70219,
+    "url": "https://dragonwilds.runescape.wiki/w/Vault_Pyroclast"
+   }
+  },
+  "Vault Striker": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    3738
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Stone",
+     "qty": 30,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Stone"
+    },
+    {
+     "name": "Stone",
+     "qty": 5,
+     "chance": null,
+     "item": "ITEM_Resources_Stone"
+    },
+    {
+     "name": "Rune Essence",
+     "qty": 1,
+     "chance": null,
+     "item": "ITEM_Rune_Essence"
+    },
+    {
+     "name": "Rune Essence",
+     "qty": 1,
+     "chance": null,
+     "item": "ITEM_Rune_Essence"
+    },
+    {
+     "name": "Vault Shard",
+     "qty": 1,
+     "chance": null,
+     "item": "ITEM_Resources_VaultShard"
+    }
+   ],
+   "wiki": {
+    "title": "Vault Striker",
+    "revid": 66511,
+    "url": "https://dragonwilds.runescape.wiki/w/Vault_Striker"
+   }
+  },
+  "Vulture": {
+   "pl": [
+    1
+   ],
+   "hp": [
+    1
+   ],
+   "aggressive": false,
+   "drops": [
+    {
+     "name": "Egg",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Egg"
+    },
+    {
+     "name": "Feathers",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Feathers"
+    },
+    {
+     "name": "Raw Bird Meat",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Meat_Bird"
+    }
+   ],
+   "wiki": {
+    "title": "Vulture",
+    "revid": 72354,
+    "url": "https://dragonwilds.runescape.wiki/w/Vulture"
+   }
+  },
+  "Wild Jade Vine": {
+   "pl": [
+    3
+   ],
+   "hp": [
+    358
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Poison Ichor",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Herb_Poison_Ichor"
+    },
+    {
+     "name": "Ash Logs",
+     "qty": 2,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Wood_Ash"
+    },
+    {
+     "name": "Poison Ichor",
+     "qty": 1,
+     "chance": 0.5,
+     "item": "ITEM_Herb_Poison_Ichor"
+    },
+    {
+     "name": "Ash Logs",
+     "qty": 2,
+     "chance": 0.5,
+     "item": "ITEM_Resources_Wood_Ash"
+    }
+   ],
+   "wiki": {
+    "title": "Wild Jade Vine",
+    "revid": 66587,
+    "url": "https://dragonwilds.runescape.wiki/w/Wild_Jade_Vine"
+   }
+  },
+  "Wild Lapulis Vine": {
+   "pl": [
+    4
+   ],
+   "hp": [
+    120
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Shocking Plant Bulb",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Herb_Plant_Bulb_Shocking"
+    },
+    {
+     "name": "Ash Logs",
+     "qty": 2,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Wood_Ash"
+    },
+    {
+     "name": "Ash Logs",
+     "qty": 2,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Wood_Ash"
+    },
+    {
+     "name": "Shocking Plant Bulb",
+     "qty": 1,
+     "chance": 0.5,
+     "item": "ITEM_Herb_Plant_Bulb_Shocking"
+    }
+   ],
+   "wiki": {
+    "title": "Wild Lapulis Vine",
+    "revid": 66589,
+    "url": "https://dragonwilds.runescape.wiki/w/Wild_Lapulis_Vine"
+   }
+  },
+  "Wolf": {
+   "pl": [
+    3
+   ],
+   "hp": [
+    195
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Raw Bestial Meat",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Meat_Bestial"
+    },
+    {
+     "name": "Animal Hide",
+     "qty": 2,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Animal_Hide"
+    },
+    {
+     "name": "Soft Animal Fur",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Soft_Animal_Fur"
+    },
+    {
+     "name": "Small Animal Fang",
+     "qty": 2,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Fang"
+    },
+    {
+     "name": "Raw Bestial Meat",
+     "qty": 1,
+     "chance": 0.5,
+     "item": "ITEM_Resources_Meat_Bestial"
+    },
+    {
+     "name": "Animal Hide",
+     "qty": 1,
+     "chance": 0.5,
+     "item": "ITEM_Resources_Animal_Hide"
+    },
+    {
+     "name": "Soft Animal Fur",
+     "qty": 1,
+     "chance": 0.5,
+     "item": "ITEM_Resources_Soft_Animal_Fur"
+    }
+   ],
+   "wiki": {
+    "title": "Wolf",
+    "revid": 66441,
+    "url": "https://dragonwilds.runescape.wiki/w/Wolf"
+   }
+  },
+  "Zamorakian Acolyte": {
+   "pl": [
+    6
+   ],
+   "hp": [
+    560
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Zamorakian Mage Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Zamorakian Acolyte",
+    "revid": 66666,
+    "url": "https://dragonwilds.runescape.wiki/w/Zamorakian_Acolyte"
+   }
+  },
+  "Zogre": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    4200
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Zogre Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Corpse Cotton",
+     "qty": [
+      4,
+      8
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Corpse_Fur"
+    },
+    {
+     "name": "Hard Leather",
+     "qty": [
+      4,
+      8
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Leather_Hard"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": 20,
+     "chance": 1.0,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Undead Bone",
+     "qty": [
+      4,
+      8
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Bone_Undead"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": [
+      15,
+      30
+     ],
+     "chance": 0.005,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Shard of Smoky Glass",
+     "qty": 1,
+     "chance": null,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Springdown Runner",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Grassfoot Screecher",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "MOUNT: Leafwood Strider",
+     "qty": 1,
+     "chance": 0.01,
+     "item": null
+    },
+    {
+     "name": "Ascension Shard (Power Level 5)",
+     "qty": [
+      12,
+      19
+     ],
+     "chance": 0.2,
+     "item": null
+    }
+   ],
+   "wiki": {
+    "title": "Zogre",
+    "revid": 75522,
+    "url": "https://dragonwilds.runescape.wiki/w/Zogre"
+   }
+  },
+  "Zombie": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    345
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Zombie Pack",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Consumable_ZombiePack"
+    },
+    {
+     "name": "Undead Bone",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Bone_Undead"
+    },
+    {
+     "name": "Soul Fragment",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Currency_SoulFragment"
+    }
+   ],
+   "wiki": {
+    "title": "Zombie",
+    "revid": 73151,
+    "url": "https://dragonwilds.runescape.wiki/w/Zombie"
+   }
+  },
+  "Zombie Cow": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    402
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Hard Leather Scraps",
+     "qty": [
+      1,
+      3
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Leather_Scraps_Hard"
+    },
+    {
+     "name": "Undead Meat",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Meat_Undead"
+    },
+    {
+     "name": "Undead Bone",
+     "qty": [
+      1,
+      3
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Bone_Undead"
+    },
+    {
+     "name": "Animal Bone",
+     "qty": [
+      1,
+      3
+     ],
+     "chance": 0.5,
+     "item": "ITEM_Resources_AnimalBone"
+    },
+    {
+     "name": "Weeds",
+     "qty": 1,
+     "chance": 0.15,
+     "item": "ITEM_Resources_Weeds"
+    }
+   ],
+   "wiki": {
+    "title": "Zombie Cow",
+    "revid": 66677,
+    "url": "https://dragonwilds.runescape.wiki/w/Zombie_Cow"
+   }
+  },
+  "Zombie Rat": {
+   "pl": [
+    5
+   ],
+   "hp": [
+    228
+   ],
+   "aggressive": true,
+   "drops": [
+    {
+     "name": "Coarse Animal Fur",
+     "qty": [
+      1,
+      3
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Coarse_Animal_Fur"
+    },
+    {
+     "name": "Small Animal Fang",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Fang"
+    },
+    {
+     "name": "Undead Meat",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Meat_Undead"
+    }
+   ],
+   "wiki": {
+    "title": "Zombie Rat",
+    "revid": 69657,
+    "url": "https://dragonwilds.runescape.wiki/w/Zombie_Rat"
+   }
+  }
+ },
+ "nodes": {
+  "Adamantite Ore Node": {
+   "drops": [
+    {
+     "name": "Adamantite Ore",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_AdamantiteOre"
+    },
+    {
+     "name": "Dragonstone",
+     "qty": 1,
+     "chance": 0.05,
+     "item": "ITEM_Resources_Gem_Dragonstone"
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Adamantite Ore Node",
+    "revid": 69655,
+    "url": "https://dragonwilds.runescape.wiki/w/Adamantite_Ore_Node"
+   }
+  },
+  "Ash Tree": {
+   "drops": [
+    {
+     "name": "Ash Logs",
+     "qty": 28,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Wood_Ash"
+    },
+    {
+     "name": "Bird Nest",
+     "qty": 1,
+     "chance": 0.25,
+     "item": null
+    },
+    {
+     "name": "Ash Tree Seed",
+     "qty": 1,
+     "chance": 0.05,
+     "item": null
+    }
+   ],
+   "respawn": "0.5 Days",
+   "wiki": {
+    "title": "Ash Tree",
+    "revid": 68022,
+    "url": "https://dragonwilds.runescape.wiki/w/Ash_Tree"
+   }
+  },
+  "Barrel Cactus": {
+   "drops": [
+    {
+     "name": "Cactus Water",
+     "qty": [
+      2,
+      3
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Consumable_Water_Cactus"
+    },
+    {
+     "name": "Barrel Cactus Seeds",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Barrel Cactus",
+    "revid": 71387,
+    "url": "https://dragonwilds.runescape.wiki/w/Barrel_Cactus"
+   }
+  },
+  "Bittercap Mushroom (plant)": {
+   "drops": [
+    {
+     "name": "Bittercap Mushroom",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Mushroom"
+    }
+   ],
+   "respawn": "1 Day",
+   "wiki": {
+    "title": "Bittercap Mushroom (plant)",
+    "revid": 61426,
+    "url": "https://dragonwilds.runescape.wiki/w/Bittercap_Mushroom_(plant)"
+   }
+  },
+  "Blightwood Root": {
+   "drops": [
+    {
+     "name": "Blightwood",
+     "qty": 2,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Wood_Blightwood"
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Blightwood Root",
+    "revid": 73604,
+    "url": "https://dragonwilds.runescape.wiki/w/Blightwood_Root"
+   }
+  },
+  "Blurite Ore Node": {
+   "drops": [
+    {
+     "name": "Blurite Ore",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_BluriteOre"
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Blurite Ore Node",
+    "revid": 74206,
+    "url": "https://dragonwilds.runescape.wiki/w/Blurite_Ore_Node"
+   }
+  },
+  "Bunny Cactus": {
+   "drops": [
+    {
+     "name": "Cactus Steak",
+     "qty": [
+      2,
+      3
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Steak_Cactus"
+    },
+    {
+     "name": "Bunny Cactus Seeds",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Bunny Cactus",
+    "revid": 71850,
+    "url": "https://dragonwilds.runescape.wiki/w/Bunny_Cactus"
+   }
+  },
+  "Cadavaberry Bush": {
+   "drops": [
+    {
+     "name": "Cadavaberries",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Consumable_Fruit_Cadavaberry"
+    },
+    {
+     "name": "Cadavaberry Seeds",
+     "qty": 1,
+     "chance": 0.1,
+     "item": null
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Cadavaberry Bush",
+    "revid": 71363,
+    "url": "https://dragonwilds.runescape.wiki/w/Cadavaberry_Bush"
+   }
+  },
+  "Clay Node": {
+   "drops": [
+    {
+     "name": "Clay",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Clay"
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Clay Node",
+    "revid": 61783,
+    "url": "https://dragonwilds.runescape.wiki/w/Clay_Node"
+   }
+  },
+  "Coal Node": {
+   "drops": [
+    {
+     "name": "Coal",
+     "qty": [
+      2,
+      3
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Coal"
+    },
+    {
+     "name": "Diamond",
+     "qty": 1,
+     "chance": null,
+     "item": "ITEM_Resources_Diamond"
+    }
+   ],
+   "respawn": "2-3 In-game days",
+   "wiki": {
+    "title": "Coal Node",
+    "revid": 70678,
+    "url": "https://dragonwilds.runescape.wiki/w/Coal_Node"
+   }
+  },
+  "Copper Ore Node": {
+   "drops": [
+    {
+     "name": "Copper Ore",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_CopperOre"
+    },
+    {
+     "name": "Opal",
+     "qty": 1,
+     "chance": 0.05,
+     "item": "ITEM_Resources_Opal"
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Copper Ore Node",
+    "revid": 74174,
+    "url": "https://dragonwilds.runescape.wiki/w/Copper_Ore_Node"
+   }
+  },
+  "Corpse Cotton Plant": {
+   "drops": [
+    {
+     "name": "Corpse Cotton",
+     "qty": [
+      5,
+      7
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Corpse_Fur"
+    },
+    {
+     "name": "Corpse Cotton Seeds",
+     "qty": 1,
+     "chance": 0.15,
+     "item": null
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Corpse Cotton Plant",
+    "revid": 71498,
+    "url": "https://dragonwilds.runescape.wiki/w/Corpse_Cotton_Plant"
+   }
+  },
+  "Dead Tree": {
+   "drops": [
+    {
+     "name": "Ash Logs",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Wood_Ash"
+    },
+    {
+     "name": "Hollow Bark",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Bark_Hollow"
+    },
+    {
+     "name": "Charcoal",
+     "qty": 1,
+     "chance": null,
+     "item": "ITEM_Fuel_Resources_Charcoal"
+    },
+    {
+     "name": "Ash Logs",
+     "qty": [
+      3,
+      5
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Wood_Ash"
+    },
+    {
+     "name": "Hollow Bark",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Bark_Hollow"
+    },
+    {
+     "name": "Charcoal",
+     "qty": 1,
+     "chance": null,
+     "item": "ITEM_Fuel_Resources_Charcoal"
+    },
+    {
+     "name": "Burnt Fillet",
+     "qty": 1,
+     "chance": 0.1,
+     "item": "ITEM_Consumable_Meat_Fillet_Burnt"
+    }
+   ],
+   "respawn": "0.5 Days",
+   "wiki": {
+    "title": "Dead Tree",
+    "revid": 76017,
+    "url": "https://dragonwilds.runescape.wiki/w/Dead_Tree"
+   }
+  },
+  "Desert Weed (plant)": {
+   "drops": [
+    {
+     "name": "Desert Weed",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Weed_Desert"
+    },
+    {
+     "name": "Desert Weed Seeds",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Desert Weed (plant)",
+    "revid": 71612,
+    "url": "https://dragonwilds.runescape.wiki/w/Desert_Weed_(plant)"
+   }
+  },
+  "Dwellberry Bush": {
+   "drops": [
+    {
+     "name": "Dwellberries",
+     "qty": 3,
+     "chance": 1.0,
+     "item": "ITEM_Consumable_Fruit_Dwellberry"
+    },
+    {
+     "name": "Dwellberry Seeds",
+     "qty": 1,
+     "chance": 0.1,
+     "item": null
+    }
+   ],
+   "respawn": "0.5 Days",
+   "wiki": {
+    "title": "Dwellberry Bush",
+    "revid": 71358,
+    "url": "https://dragonwilds.runescape.wiki/w/Dwellberry_Bush"
+   }
+  },
+  "Fibrous Pipe Cactus": {
+   "drops": [
+    {
+     "name": "Fibrous Pipe Cactus",
+     "qty": [
+      2,
+      3
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Cactus_Pipe"
+    },
+    {
+     "name": "Pipe Cactus Seeds",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Fibrous Pipe Cactus (plant)",
+    "revid": 71852,
+    "url": "https://dragonwilds.runescape.wiki/w/Fibrous_Pipe_Cactus_(plant)"
+   }
+  },
+  "Flax (plant)": {
+   "drops": [
+    {
+     "name": "Flax",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Flax"
+    },
+    {
+     "name": "Flax Seeds",
+     "qty": 1,
+     "chance": 0.15,
+     "item": null
+    }
+   ],
+   "respawn": "1 Day",
+   "wiki": {
+    "title": "Flax (plant)",
+    "revid": 71360,
+    "url": "https://dragonwilds.runescape.wiki/w/Flax_(plant)"
+   }
+  },
+  "Gold Ore Node": {
+   "drops": [
+    {
+     "name": "Gold Ore",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_GoldOre"
+    },
+    {
+     "name": "Sapphire",
+     "qty": 1,
+     "chance": 0.05,
+     "item": "ITEM_Resources_Sapphire"
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Gold Ore Node",
+    "revid": 76552,
+    "url": "https://dragonwilds.runescape.wiki/w/Gold_Ore_Node"
+   }
+  },
+  "Granite Deposit": {
+   "drops": [
+    {
+     "name": "Granite",
+     "qty": [
+      10,
+      16
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Granite"
+    }
+   ],
+   "respawn": "2 Days",
+   "wiki": {
+    "title": "Granite Deposit",
+    "revid": 70683,
+    "url": "https://dragonwilds.runescape.wiki/w/Granite_Deposit"
+   }
+  },
+  "Gypsum Node": {
+   "drops": [
+    {
+     "name": "Gypsum",
+     "qty": [
+      3,
+      6
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Gypsum"
+    },
+    {
+     "name": "quest",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "respawn": "1 Day",
+   "wiki": {
+    "title": "Gypsum Node",
+    "revid": 74193,
+    "url": "https://dragonwilds.runescape.wiki/w/Gypsum_Node"
+   }
+  },
+  "Harralander (plant)": {
+   "drops": [
+    {
+     "name": "Harralander",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Herb_Harralander"
+    },
+    {
+     "name": "Harralander Seeds",
+     "qty": 1,
+     "chance": 0.15,
+     "item": null
+    }
+   ],
+   "respawn": "2 Days",
+   "wiki": {
+    "title": "Harralander (plant)",
+    "revid": 71367,
+    "url": "https://dragonwilds.runescape.wiki/w/Harralander_(plant)"
+   }
+  },
+  "Iron Ore Node": {
+   "drops": [
+    {
+     "name": "Iron Ore",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_IronOre"
+    },
+    {
+     "name": "Jade",
+     "qty": 1,
+     "chance": 0.05,
+     "item": "ITEM_Resources_Jade"
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Iron Ore Node",
+    "revid": 63325,
+    "url": "https://dragonwilds.runescape.wiki/w/Iron_Ore_Node"
+   }
+  },
+  "Kalphite Egg": {
+   "drops": [
+    {
+     "name": "Kalphite Ichor",
+     "qty": [
+      6,
+      9
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Ichor_Kalphite"
+    }
+   ],
+   "respawn": "1 Day",
+   "wiki": {
+    "title": "Kalphite egg",
+    "revid": 69823,
+    "url": "https://dragonwilds.runescape.wiki/w/Kalphite_egg"
+   }
+  },
+  "Limestone Rock": {
+   "drops": [
+    {
+     "name": "Limestone",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Limestone"
+    }
+   ],
+   "respawn": "3 days",
+   "wiki": {
+    "title": "Limestone Rock",
+    "revid": 74706,
+    "url": "https://dragonwilds.runescape.wiki/w/Limestone_Rock"
+   }
+  },
+  "Luminite Deposit": {
+   "drops": [
+    {
+     "name": "Luminite Ore",
+     "qty": [
+      1,
+      2
+     ],
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "respawn": null,
+   "wiki": {
+    "title": "Luminite Deposit",
+    "revid": 71575,
+    "url": "https://dragonwilds.runescape.wiki/w/Luminite_Deposit"
+   }
+  },
+  "Magic Tree": {
+   "drops": [
+    {
+     "name": "Magic Logs",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Wood_Magic"
+    },
+    {
+     "name": "Bird Nest",
+     "qty": 1,
+     "chance": 0.25,
+     "item": null
+    },
+    {
+     "name": "Magic Tree Seed",
+     "qty": 1,
+     "chance": null,
+     "item": null
+    }
+   ],
+   "respawn": "?",
+   "wiki": {
+    "title": "Magic Tree",
+    "revid": 74566,
+    "url": "https://dragonwilds.runescape.wiki/w/Magic_Tree"
+   }
+  },
+  "Maple Tree": {
+   "drops": [
+    {
+     "name": "Maple Logs",
+     "qty": 28,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Wood_Maple"
+    },
+    {
+     "name": "Bird Nest",
+     "qty": 1,
+     "chance": 0.25,
+     "item": null
+    },
+    {
+     "name": "Maple Sap",
+     "qty": 1,
+     "chance": 0.5,
+     "item": "ITEM_Resources_Maple_Sap"
+    },
+    {
+     "name": "Maple Tree Seed",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "respawn": null,
+   "wiki": {
+    "title": "Maple Tree",
+    "revid": 70688,
+    "url": "https://dragonwilds.runescape.wiki/w/Maple_Tree"
+   }
+  },
+  "Marrentil (plant)": {
+   "drops": [
+    {
+     "name": "Marrentil",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    },
+    {
+     "name": "Marentill Seeds",
+     "qty": 1,
+     "chance": 0.15,
+     "item": null
+    }
+   ],
+   "respawn": "2 Days",
+   "wiki": {
+    "title": "Marrentil (plant)",
+    "revid": 71366,
+    "url": "https://dragonwilds.runescape.wiki/w/Marrentil_(plant)"
+   }
+  },
+  "Mithril Ore Node": {
+   "drops": [
+    {
+     "name": "Mithril Ore",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_MithrilOre"
+    },
+    {
+     "name": "Ruby",
+     "qty": 1,
+     "chance": 0.05,
+     "item": "ITEM_Resources_Ruby"
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Mithril Ore Node",
+    "revid": 74180,
+    "url": "https://dragonwilds.runescape.wiki/w/Mithril_Ore_Node"
+   }
+  },
+  "Oak Tree": {
+   "drops": [
+    {
+     "name": "Oak Logs",
+     "qty": 28,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Wood_Oak"
+    },
+    {
+     "name": "Bird Nest",
+     "qty": 1,
+     "chance": 0.25,
+     "item": null
+    },
+    {
+     "name": "Oak Tree Seed",
+     "qty": 1,
+     "chance": 0.05,
+     "item": null
+    }
+   ],
+   "respawn": null,
+   "wiki": {
+    "title": "Oak Tree",
+    "revid": 72824,
+    "url": "https://dragonwilds.runescape.wiki/w/Oak_Tree"
+   }
+  },
+  "Onion (plant)": {
+   "drops": [
+    {
+     "name": "Onion",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Onion"
+    },
+    {
+     "name": "Onion Seeds",
+     "qty": 1,
+     "chance": 0.25,
+     "item": null
+    }
+   ],
+   "respawn": "2 Days",
+   "wiki": {
+    "title": "Onion (plant)",
+    "revid": 71357,
+    "url": "https://dragonwilds.runescape.wiki/w/Onion_(plant)"
+   }
+  },
+  "Potato (plant)": {
+   "drops": [
+    {
+     "name": "Potato",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Potato"
+    },
+    {
+     "name": "Potato Seeds",
+     "qty": 1,
+     "chance": 0.25,
+     "item": null
+    }
+   ],
+   "respawn": "1 Day",
+   "wiki": {
+    "title": "Potato (plant)",
+    "revid": 71365,
+    "url": "https://dragonwilds.runescape.wiki/w/Potato_(plant)"
+   }
+  },
+  "Pumpkin (plant)": {
+   "drops": [
+    {
+     "name": "Pumpkin",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Pumpkin"
+    },
+    {
+     "name": "Pumpkin Seeds",
+     "qty": 1,
+     "chance": 0.1,
+     "item": null
+    }
+   ],
+   "respawn": "2 Days",
+   "wiki": {
+    "title": "Pumpkin (plant)",
+    "revid": 76453,
+    "url": "https://dragonwilds.runescape.wiki/w/Pumpkin_(plant)"
+   }
+  },
+  "Redberry Bush": {
+   "drops": [
+    {
+     "name": "Redberries",
+     "qty": 3,
+     "chance": 1.0,
+     "item": "ITEM_Consumable_Fruit_Redberry"
+    },
+    {
+     "name": "Redberry Seeds",
+     "qty": 1,
+     "chance": 0.15,
+     "item": null
+    }
+   ],
+   "respawn": "0.5 Days",
+   "wiki": {
+    "title": "Redberry Bush",
+    "revid": 71361,
+    "url": "https://dragonwilds.runescape.wiki/w/Redberry_Bush"
+   }
+  },
+  "Rune Essence (Rock)": {
+   "drops": [
+    {
+     "name": "Rune Essence",
+     "qty": [
+      5,
+      6
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Rune_Essence"
+    }
+   ],
+   "respawn": "2 Days",
+   "wiki": {
+    "title": "Rune Essence (Rock)",
+    "revid": 75924,
+    "url": "https://dragonwilds.runescape.wiki/w/Rune_Essence_(Rock)"
+   }
+  },
+  "Rune Essence Geyser": {
+   "drops": [
+    {
+     "name": "Rune Essence",
+     "qty": [
+      26,
+      45
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Rune_Essence"
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Rune Essence Geyser",
+    "revid": 74375,
+    "url": "https://dragonwilds.runescape.wiki/w/Rune_Essence_Geyser"
+   }
+  },
+  "Runite Ore Node": {
+   "drops": [
+    {
+     "name": "Runite Ore",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Ore_Runite"
+    },
+    {
+     "name": "Dragonstone",
+     "qty": 1,
+     "chance": 0.05,
+     "item": "ITEM_Resources_Gem_Dragonstone"
+    }
+   ],
+   "respawn": "Every reset of the raid",
+   "wiki": {
+    "title": "Runite Ore Node",
+    "revid": 74181,
+    "url": "https://dragonwilds.runescape.wiki/w/Runite_Ore_Node"
+   }
+  },
+  "Sandstone Rock": {
+   "drops": [
+    {
+     "name": "Sandstone",
+     "qty": [
+      10,
+      16
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Sandstone"
+    }
+   ],
+   "respawn": "2 Days",
+   "wiki": {
+    "title": "Sandstone Rock",
+    "revid": 70684,
+    "url": "https://dragonwilds.runescape.wiki/w/Sandstone_Rock"
+   }
+  },
+  "Sapling": {
+   "drops": [
+    {
+     "name": "Ash Logs",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Wood_Ash"
+    }
+   ],
+   "respawn": "1 Day",
+   "wiki": {
+    "title": "Sapling",
+    "revid": 65410,
+    "url": "https://dragonwilds.runescape.wiki/w/Sapling"
+   }
+  },
+  "Silver Ore Node": {
+   "drops": [
+    {
+     "name": "Silver Ore",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_SilverOre"
+    },
+    {
+     "name": "Red Topaz",
+     "qty": 1,
+     "chance": 0.05,
+     "item": "ITEM_Resources_Red_Topaz"
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Silver Ore Node",
+    "revid": 74210,
+    "url": "https://dragonwilds.runescape.wiki/w/Silver_Ore_Node"
+   }
+  },
+  "Snapdragon (plant)": {
+   "drops": [
+    {
+     "name": "Snapdragon",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Herb_Snapdragon"
+    },
+    {
+     "name": "Snapdragon Seeds",
+     "qty": 1,
+     "chance": 0.15,
+     "item": null
+    }
+   ],
+   "respawn": "2 Days",
+   "wiki": {
+    "title": "Snapdragon (plant)",
+    "revid": 71681,
+    "url": "https://dragonwilds.runescape.wiki/w/Snapdragon_(plant)"
+   }
+  },
+  "Soul Stone": {
+   "drops": [
+    {
+     "name": "Soul Fragment",
+     "qty": [
+      31,
+      35
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Currency_SoulFragment"
+    },
+    {
+     "name": "Stone",
+     "qty": [
+      25,
+      30
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Stone"
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Soul Stone",
+    "revid": 65992,
+    "url": "https://dragonwilds.runescape.wiki/w/Soul_Stone"
+   }
+  },
+  "Stone Boulder": {
+   "drops": [
+    {
+     "name": "Stone",
+     "qty": [
+      10,
+      16
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Stone"
+    },
+    {
+     "name": "Opal",
+     "qty": 1,
+     "chance": 0.1,
+     "item": "ITEM_Resources_Opal"
+    }
+   ],
+   "respawn": "2 Days",
+   "wiki": {
+    "title": "Stone Boulder",
+    "revid": 66067,
+    "url": "https://dragonwilds.runescape.wiki/w/Stone_Boulder"
+   }
+  },
+  "Swamp Weed (plant)": {
+   "drops": [
+    {
+     "name": "Swamp Weed",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_SwampWeed"
+    },
+    {
+     "name": "Swamp Weed Seeds",
+     "qty": 1,
+     "chance": 0.15,
+     "item": null
+    }
+   ],
+   "respawn": "2 Days",
+   "wiki": {
+    "title": "Swamp Weed (plant)",
+    "revid": 71676,
+    "url": "https://dragonwilds.runescape.wiki/w/Swamp_Weed_(plant)"
+   }
+  },
+  "Thorny Irit Root": {
+   "drops": [
+    {
+     "name": "Irit",
+     "qty": [
+      1,
+      5
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Herb_Irit"
+    },
+    {
+     "name": "Irit Seeds",
+     "qty": 1,
+     "chance": 1.0,
+     "item": null
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Thorny Irit Root",
+    "revid": 71683,
+    "url": "https://dragonwilds.runescape.wiki/w/Thorny_Irit_Root"
+   }
+  },
+  "Tin Ore Node": {
+   "drops": [
+    {
+     "name": "Tin Ore",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Resources_TinOre"
+    },
+    {
+     "name": "Opal",
+     "qty": 1,
+     "chance": 0.05,
+     "item": "ITEM_Resources_Opal"
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Tin Ore Node",
+    "revid": 66289,
+    "url": "https://dragonwilds.runescape.wiki/w/Tin_Ore_Node"
+   }
+  },
+  "Toadflax (plant)": {
+   "drops": [
+    {
+     "name": "Toadflax",
+     "qty": 1,
+     "chance": 1.0,
+     "item": "ITEM_Herb_Toadflax"
+    },
+    {
+     "name": "Toadflax Seeds",
+     "qty": 1,
+     "chance": 0.15,
+     "item": null
+    }
+   ],
+   "respawn": "2 Days",
+   "wiki": {
+    "title": "Toadflax (plant)",
+    "revid": 71680,
+    "url": "https://dragonwilds.runescape.wiki/w/Toadflax_(plant)"
+   }
+  },
+  "Willow Tree": {
+   "drops": [
+    {
+     "name": "Willow Logs",
+     "qty": 28,
+     "chance": 1.0,
+     "item": "ITEM_Resources_Wood_Willow"
+    },
+    {
+     "name": "Bird Nest",
+     "qty": 1,
+     "chance": 0.25,
+     "item": null
+    },
+    {
+     "name": "Willow Tree Seed",
+     "qty": 1,
+     "chance": 0.05,
+     "item": null
+    }
+   ],
+   "respawn": "3 Days",
+   "wiki": {
+    "title": "Willow Tree",
+    "revid": 70535,
+    "url": "https://dragonwilds.runescape.wiki/w/Willow_Tree"
+   }
+  },
+  "Yew Tree": {
+   "drops": [
+    {
+     "name": "Yew Logs",
+     "qty": [
+      26,
+      28
+     ],
+     "chance": 1.0,
+     "item": "ITEM_Resources_Wood_Yew"
+    },
+    {
+     "name": "Bird Nest",
+     "qty": 1,
+     "chance": 0.25,
+     "item": null
+    },
+    {
+     "name": "Yew Tree Seed",
+     "qty": 1,
+     "chance": 0.05,
+     "item": null
+    }
+   ],
+   "respawn": "3 days",
+   "wiki": {
+    "title": "Yew Tree",
+    "revid": 71849,
+    "url": "https://dragonwilds.runescape.wiki/w/Yew_Tree"
+   }
+  }
+ }
+}

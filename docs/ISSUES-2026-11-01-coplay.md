@@ -72,8 +72,8 @@ Status key: **FIXED** (commit, live-checked unless noted) · **AGENT** (being fi
 
 | id | issue | evidence | status |
 |---|---|---|---|
-| D1 | Food: "low food -> berries" instead of "what fills me best?" (cooked meat via club -> kill -> cook is worth the detour) | Luis's note; 10:56-11:09 berries; 11:20 berries before the grave | OPEN (options with costs, from game data) |
-| D2 | After death, berries before his own grave (with 45 sandwiches in it) | 11:19:47, Luis 11:20:30 | OPEN (same as D1: compare options) |
+| D1 | Food: "low food -> berries" instead of "what fills me best?" (cooked meat via club -> kill -> cook is worth the detour) | Luis's note; 10:56-11:09 berries; 11:20 berries before the grave | FIXED IN PART (needs-options agent, 2026-11-01): `brain/needs_options.py` lists every option with [~time -> +gain, level after, lasts], where, steps and risk, from live game data; hunts include cooked value per kill and the odds; a `food_options` read tool gives it on demand. Eval 4/10 before the outcome-first format (berries bias, persona example fixed). Live 15:20Z: he chose the Fillet in his bag (2 s), not berries. Not re-evaluated on the hunt and grave states. |
+| D2 | After death, berries before his own grave (with 45 sandwiches in it) | 11:19:47, Luis 11:20:30 | FIXED IN PART: the newest grave with its food and death is an option (and the bogus drain read across the death, which claimed "empty in ~1 min" at 42% food, is fixed in skills.lua). Eval still 0/3 before the format change; not re-run live (it needs a fresh death). |
 | D3 | No base thinking: own campfire, table, crate, storage | Luis's direction | OPEN (competence map) |
 
 ## E. Honesty

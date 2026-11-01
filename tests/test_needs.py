@@ -35,9 +35,10 @@ def test_2117_hungry_options_list_berries_cooking_and_zezima():
     lines = needs.lines(state())
     food = next(l for l in lines if l.startswith("Need food"))
     assert "Redberry Bush" in food and "fol:BP_InteractableFoliageISMC_PickUps_C_9:1" in food  # the bush 11 m away, with its id
-    assert "Rat Roast (craftable now" in food and "Campfire" in food  # cooking the carried stringy meat
-    assert "players who could help: Zezima" in food
-    assert "carried: none" in food  # he carries no food (the infusions are drinks)
+    # cooking the carried stringy meat, with its value; no fire near is a fact with its cost (brain/needs_options.py)
+    assert "cook your Raw Rat Meat x1 -> Rat Roast: +20 food +20 HP each" in food and "Campfire" in food
+    assert "ask a player: Zezima" in food
+    assert "carried: nothing that restores food" in food  # he carries no food (the infusions are drinks)
 
 
 def test_nothing_pressing_no_lines_and_policy_respected():
@@ -52,7 +53,8 @@ def test_unlocks_filter_craft_options_when_known():
     st = state()
     st["recipes_unlocked"] = ["RECIPE_Consumable_Bread_From_Flour"]
     food = next(l for l in needs.lines(st) if l.startswith("Need food"))
-    assert "Rat Roast" not in food and "Bread" in food and "unlocks unknown" not in food
+    # the carried meat's recipe is locked: no cook option for it; the Giant Rat's would unlock on its own first drop
+    assert "cook your Raw Rat Meat" not in food and "craft Bread" in food and "unlocks unknown" not in food
 
 
 def test_rest_and_health_needs():
@@ -92,6 +94,27 @@ def test_rest_perception_keeps_actual_prompts_and_resting_state():
     assert "lying in object-7" in world and "rest: tired [20%]" in summary(st)[0]
     assert "Covered place" in rest and "prompt Rest" in rest and "owner Dev" in rest
     assert "sleep timeframe closed" in world and "sleep timeframe closed" in rest
+
+
+def test_low_rest_says_what_it_costs_him_and_what_restores_it():
+    """B8 (co-play 2026-11-01): rest 0 all session, slow, never said why. The line names the game's own caps from his
+    maxes (live 2026-11-01 at rest 14.8: max stamina 60, food/water maxes 75) and what restores rest."""
+    st = {"endurance": 14.8, "endurance_max": 100, "max_stamina": 60.0, "hydration_max": 75.0, "sustenance_max": 75.0,
+          "hydration": 70, "sustenance": 70}
+    rest = next(line for line in needs.lines(st, cat={}) if line.startswith("Need rest"))
+    assert "max stamina 60/100: less sprint and jump" in rest
+    assert "max food 75, water 75 (capped under 25 rest" in rest
+    assert "+1 rest/s" in rest and "a night's sleep refills it" in rest
+    full = {"endurance": 20, "endurance_max": 100, "max_stamina": 100.0, "hydration_max": 100.0, "sustenance_max": 100.0}
+    assert "effect now" not in next(line for line in needs.lines(full, cat={}) if line.startswith("Need rest"))
+
+
+def test_a_pond_is_a_drink_option():
+    st = {"hydration": 10, "hydration_max": 75,
+          "interactables": [{"class": "BP_WaterVolume_C", "name": "Water Volume", "id": "BP_WaterVolume_C_1", "distance": 17.2}]}
+    drink = next(line for line in needs.lines(st, cat={}) if line.startswith("Need drink"))
+    assert "collect Dirty Water at Water Volume (id BP_WaterVolume_C_1)" in drink and "| 17 m |" in drink
+    assert "at 0 you lose 1 HP a second down to 1 HP" not in drink  # no drain rate known: no time-to-zero clause
 
 
 def test_missing_sensors_do_not_claim_any_rest_object_or_endurance():
@@ -134,9 +157,10 @@ def test_2117_replay_the_model_sees_the_options(tmp_path):
 
 def test_digest_stays_compact():
     """The needs line is bounded; the whole situation digest stays small (prompt budget, workstream N)."""
+    from brain.needs_options import DIGEST_CHARS
     s = summary(state())
-    assert all(len(line) <= 600 for line in s)
-    assert len(json.dumps(s)) < 4000
+    assert all(len(line) <= (DIGEST_CHARS if line.startswith(("Need food", "Need drink")) else 600) for line in s)
+    assert len(json.dumps(s)) < 6000  # the food options digest (bounded) replaced a 560-char cut line
 
 
 # --------------------------------------------------------------------------- BUGS L17: the 21:17-21:25 starvation replay
@@ -152,9 +176,9 @@ def test_2117_to_2125_every_turn_shows_the_options_and_the_clock():
         st["vitals_rate"] = {"sustenance_per_min": 2.1, "hydration_per_min": 1.4}
         line = next(l for l in needs.lines(st) if l.startswith("Need food"))
         mins = round(food / 2.1)
-        assert f"empty in ~{mins} min at the current drain; at 0 it hurts until you die" in line, (when, line)
-        assert "Redberry Bush" in line and "Rat Roast (craftable now" in line and "Zezima" in line, (when, line)
-        assert "you have no build tool" in line  # the fire is a building piece: a fact, so he stops promising one
+        assert f"empty in ~{mins} min at the current drain; at 0 you lose 1 HP a second down to 1 HP, where any hit kills you" in line, (when, line)
+        assert "Redberry Bush" in line and "-> Rat Roast" in line and "Zezima" in line, (when, line)
+        assert "building one takes 6 Stone" in line  # the fire is a building piece: its cost, so he knows what it takes
 
 
 def test_death_memory_is_always_in_the_digest_until_recovered():

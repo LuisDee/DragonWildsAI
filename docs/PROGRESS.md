@@ -468,3 +468,10 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
 - 15:08Z FIX manifest: the drop description now points to give for handing items to a player. ARCHITECTURE 4b lists give as offered and split as a primitive.
 - 15:08Z LEARN dropped piles: every drop is its own world item (2 drops = 2 items 0.15 m apart). Luis's "pile" (8 drops) was ONE Server_RequestInteraction with bIsSecondaryInteraction = true (+8 Stone). So the pile bar is a secondary (collect-all) press: pickups agent, interact secondary. `dropped_by` reads empty on Claude's client. DISCOVERIES "Giving, splitting and dropped piles".
 - 15:22Z EVALS chat ladder (old Rung 1) GREEN 15:08-15:16Z: 8/8 reached, 8/8 truthful, mean 2.0 calls/request, $0.014 (f988877). The teleport fixture's nearest-fitting-spot fallback (<= 2.5 m, reported as offset_m) moves only the start, not the scoring, so no judge bump (decided, main). live_lock run option parsing fixed.
+- 15:23Z FIX data (live): the food_values_probe ran live (14:57Z, 0.8 s): 137 food and 23 drink items; DT_FoodSustenance has 120 rows. `data/food_values_26161880.json` regenerated, with 156 of 158 items from live rows.
+  - New facts: Redberries heal 10; burnt food carries +20 Soulscourge.
+  - Needs tests 41/41.
+- 15:23Z LIVE needs options: two checks.
+  - (1) Water 44% with Clean Water on the hotbar: the reflex drank at 40% on its own, with no model call.
+  - (2) Fixture, restored: hotbar food moved to the bag and the eat-below line set to 90%. The model saw the digest and picked move_item + consume Fillet: 2.0 s to decide, food 47.9 to 67.9 4.8 s after vitals_low. Then he drank Clean Water. No berries.
+  - The event itself came 175 s after the brain started: the body's vitals_low repeat is 180 s, and the first event went out before the brain connected. Open for the survival owner.

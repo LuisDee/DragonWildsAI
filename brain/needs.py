@@ -142,8 +142,19 @@ def _nearby(state: dict, kinds: list[str], cat: dict) -> list[str]:
             what = r.get("name") or r.get("item")
             rows.append((r.get("distance") or 1e9, f"{what} (gives {cat.get('items', {}).get(r['item'], {}).get('name') or r['item']})",
                          r.get("id")))
+    if "drink" in kinds:  # a pond or river is a drink source too (live 2026-11-01 13:0x: thirsty with water 17 m off)
+        for t in (state.get("interactables") or []) + (state.get("nearby_resources") or []):
+            if isinstance(t, dict) and "WaterVolume" in str(t.get("class") or ""):
+                rows.append((t.get("distance") or 1e9, WATER_SOURCE.format(name=t.get("name") or "Water"), t.get("id")))
+                break
     rows.sort(key=lambda x: x[0])
     return [f"{t} ({d:.0f} m, id {i})" if d < 1e8 else f"{t} (id {i})" for d, t, i in rows[:MAX_OPTIONS]]
+
+
+# Dirty Water facts: game data (consumable_wiki: +10 water, +20 Soulscourge; a full toxicity bar at 100 deals 50 damage,
+# wiki Soulscourge) and the live boil (2026-11-01 13:10: 6 Dirty Water + 1 Ash Log at a Campfire -> 6 Clean Water in 33 s).
+WATER_SOURCE = ("{name} (collect_water: Dirty Water, +10 water and +20 Soulscourge each, about 6 from empty fill the bar "
+                "for 50 damage; boil at a Campfire with 1 log: Clean Water +25)")
 
 
 def _station_names(sids: list[str], cat: dict) -> str:
@@ -223,6 +234,25 @@ def _people(state: dict) -> list[str]:
 # Endurance 0: the game scales his stamina down (BODY live 2026-10-31: sprint 0 s on every trip, jumps that never left
 # the ground; a Summon Shelter rest took it 0 -> 100 in about 30 s).
 REST_AT_ZERO = "; at 0 you can't sprint and your jumps fail until you rest in a bed or a Summon Shelter"
+# What rest (the game's endurance) does, from game data: the wiki's Rest page (dragonwilds.runescape.wiki/w/Rest) and the
+# live read of his BP_EnduranceComponent (2026-11-01, client_mod/commands/survival_probe.lua: levels 0/25/50/75/100,
+# 0.15 per spell cast, 15 lost on death; at 14.8 rest his max stamina read 60 and his food/water maxes 75).
+REST_FACTS = ("a nap in a bed or your Summon Shelter by day: +1 rest/s (empty to full ~100 s; a hit stops it); a night's "
+              "sleep refills it and clears poison and Soulscourge; each spell costs 0.15 rest")
+
+
+def _rest_effects(state: dict) -> str | None:
+    """What low rest is doing to him right now, from his own maxes (the game applies the caps): max stamina (sprint
+    and jumps), food/water caps. None when nothing is capped."""
+    bits = []
+    ms, ms_max = _num(state.get("max_stamina")), 100.0
+    if ms is not None and ms < ms_max:
+        bits.append(f"max stamina {ms:g}/100: less sprint and jump (80 under 50 rest, 60 under 25, 40 at 0)")
+    caps = [f"{w} {_num(state.get(f'{s}_max')):g}" for s, w in (("sustenance", "food"), ("hydration", "water"))
+            if _num(state.get(f"{s}_max")) is not None and _num(state.get(f"{s}_max")) < 100]
+    if caps:
+        bits.append("max " + ", ".join(caps) + " (capped under 25 rest, draining faster)")
+    return "; ".join(bits) or None
 
 
 def _rest(state: dict) -> list[str]:
@@ -264,15 +294,23 @@ def lines(state: dict, cat: dict | None = None) -> list[str]:
     people = _people(state)
     out = []
     for n in pressing(state):
+        if n["need"] in ("food", "drink"):  # options with value, time and risk, bounded (brain/needs_options.py)
+            from . import needs_options  # lazy: needs_options imports helpers from situation
+            out.append(needs_options.digest(state, n, cat))
+            continue
         word = sit.feel(n["need"], n.get("pct"))  # the words to relay; the numbers are for decisions
         head = f"Need {n['need']}" + (f" ({word + ', ' if word else ''}[{n['pct']:.0f}%]"
-                                      + (f", empty in ~{n['zero_min']} min at the current drain; at 0 it hurts until you die"
+                                      + (f", empty in ~{n['zero_min']} min at the current drain; at 0 you lose 1 HP a second down to 1 HP, where any hit kills you"
                                          if n.get("zero_min") is not None else "")
                                       + (REST_AT_ZERO if n["need"] == "rest" and n["pct"] < 1 else "") + ")"
                                       if n.get("pct") is not None else "")
         parts = []
         if n["need"] == "rest":
+            eff = _rest_effects(state)
+            if eff:
+                parts.append("effect now: " + eff)
             parts.append("rest: " + "; ".join(_rest(state) + lines_for(state, ["bed"])[:1]))
+            parts.append("restores: " + REST_FACTS)
         elif n["need"] == "tool":
             parts.extend(_tool(state, n["tool"], cat))
         else:
