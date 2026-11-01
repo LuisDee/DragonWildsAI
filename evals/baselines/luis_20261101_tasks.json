@@ -1,0 +1,1893 @@
+{
+ "player": "luisdeburnaybast",
+ "recordings": [
+  "logs\\recorder\\rec_20261101T123634Z.jsonl"
+ ],
+ "chat": "client_io\\events\\chat.jsonl",
+ "method": "tools/baseline_tasks.py: chat markers 'start X' .. first done/stop (or the next start); server recorder 5 Hz pose (standing = v < 0.3 m/s), inventory deltas, attributed RPCs; an interact with no inventory change in 1.5 s is no_change (opening a station or UI counts too)",
+ "tasks": [
+  {
+   "name": "gather water",
+   "said": "gather water",
+   "start": 1793536822.0,
+   "end": 1793536836.0,
+   "duration_s": 14.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 0.4,
+   "travel_m": 75,
+   "teleports": 0,
+   "moving_s": 13.1,
+   "standing_s": 0.9,
+   "longest_stand_s": 0.0,
+   "stands_over_5s": [],
+   "interact": {
+    "presses": 12,
+    "hit": 8,
+    "changed": 0,
+    "no_change": 4,
+    "while_moving": 12,
+    "targets": {
+     "BP_WaterVolume": 12
+    }
+   },
+   "rpcs": {
+    "interact": 12
+   },
+   "gained": {
+    "Water_Dirty": 12
+   },
+   "spent": {},
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "sticks",
+   "said": "sticks",
+   "start": 1793536841.0,
+   "end": 1793536851.0,
+   "duration_s": 10.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 1.1,
+   "travel_m": 33,
+   "teleports": 0,
+   "moving_s": 8.2,
+   "standing_s": 1.8,
+   "longest_stand_s": 0.0,
+   "stands_over_5s": [],
+   "interact": {
+    "presses": 13,
+    "hit": 10,
+    "changed": 0,
+    "no_change": 3,
+    "while_moving": 13,
+    "targets": {
+     "BP_Spawner_AshBranch_03": 8,
+     "BP_WaterVolume": 2,
+     "BP_Spawner_AshBranch_01": 1,
+     "BP_Spawner_AshBranch_02": 1,
+     "BP_BM_Sapling_Ash_01": 1
+    }
+   },
+   "rpcs": {
+    "interact": 13
+   },
+   "gained": {
+    "Wood_Ash": 11,
+    "Water_Dirty": 2
+   },
+   "spent": {},
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "stones",
+   "said": "stones",
+   "start": 1793536858.0,
+   "end": 1793536876.0,
+   "duration_s": 18.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 0.8,
+   "travel_m": 47,
+   "teleports": 0,
+   "moving_s": 11.1,
+   "standing_s": 6.9,
+   "longest_stand_s": 0.0,
+   "stands_over_5s": [],
+   "interact": {
+    "presses": 10,
+    "hit": 9,
+    "changed": 0,
+    "no_change": 1,
+    "while_moving": 4,
+    "targets": {
+     "BP_Spawner_Stone": 8,
+     "BP_Spawner_AshBranch_03": 1,
+     "BP_Station_Campfire": 1
+    }
+   },
+   "rpcs": {
+    "interact": 10
+   },
+   "gained": {
+    "Stone": 8,
+    "Wood_Ash": 1
+   },
+   "spent": {},
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "pile",
+   "said": "pile",
+   "start": 1793536927.0,
+   "end": 1793536950.0,
+   "duration_s": 23.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 3.7,
+   "travel_m": 3,
+   "teleports": 0,
+   "moving_s": 0.7,
+   "standing_s": 22.3,
+   "longest_stand_s": 11.8,
+   "stands_over_5s": [
+    {
+     "s": 6.8,
+     "presses": 1
+    },
+    {
+     "s": 11.8,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 1,
+    "hit": 1,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 1,
+    "targets": {
+     "BP_RuntimeSpawnedWorldItem": 1
+    }
+   },
+   "rpcs": {
+    "drop": 8,
+    "interact": 1
+   },
+   "gained": {
+    "Stone": 8
+   },
+   "spent": {
+    "Stone": 8
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "split",
+   "said": "split",
+   "start": 1793536959.0,
+   "end": 1793536969.0,
+   "duration_s": 10.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": null,
+   "travel_m": 0,
+   "teleports": 0,
+   "moving_s": 0.0,
+   "standing_s": 10.0,
+   "longest_stand_s": 10.0,
+   "stands_over_5s": [
+    {
+     "s": 10.0,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 0,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 0,
+    "targets": {}
+   },
+   "rpcs": {
+    "split_put": 1,
+    "drop": 1
+   },
+   "gained": {},
+   "spent": {
+    "Wood_Ash": 10
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "craft axe",
+   "said": "craft axe",
+   "start": 1793536991.0,
+   "end": 1793537002.0,
+   "duration_s": 11.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 1.1,
+   "travel_m": 6,
+   "teleports": 0,
+   "moving_s": 1.2,
+   "standing_s": 9.8,
+   "longest_stand_s": 7.5,
+   "stands_over_5s": [
+    {
+     "s": 7.5,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 1,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 1,
+    "while_moving": 0,
+    "targets": {
+     "BP_Crafting_StartingBench": 1
+    }
+   },
+   "rpcs": {
+    "interact": 1,
+    "craft": 1
+   },
+   "gained": {
+    "Logging_Axe_Stone": 1
+   },
+   "spent": {
+    "Wood_Ash": 8,
+    "Stone": 6
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "chop",
+   "said": "chop",
+   "start": 1793537055.0,
+   "end": 1793537102.0,
+   "duration_s": 47.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 1.2,
+   "travel_m": 22,
+   "teleports": 0,
+   "moving_s": 5.4,
+   "standing_s": 41.6,
+   "longest_stand_s": 30.5,
+   "stands_over_5s": [
+    {
+     "s": 10.0,
+     "presses": 0
+    },
+    {
+     "s": 30.5,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 0,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 0,
+    "targets": {}
+   },
+   "rpcs": {},
+   "gained": {
+    "Wood_Ash": 13
+   },
+   "spent": {},
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "gather rocks",
+   "said": "gather rocks",
+   "start": 1793537106.0,
+   "end": 1793537128.0,
+   "duration_s": 22.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 1.1,
+   "travel_m": 89,
+   "teleports": 0,
+   "moving_s": 15.8,
+   "standing_s": 6.2,
+   "longest_stand_s": 2.0,
+   "stands_over_5s": [],
+   "interact": {
+    "presses": 15,
+    "hit": 14,
+    "changed": 0,
+    "no_change": 1,
+    "while_moving": 12,
+    "targets": {
+     "BP_Spawner_Stone": 15
+    }
+   },
+   "rpcs": {
+    "interact": 15
+   },
+   "gained": {
+    "Stone": 15
+   },
+   "spent": {},
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "make pickaxe",
+   "said": "make pickaxe",
+   "start": 1793537138.0,
+   "end": 1793537144.0,
+   "duration_s": 6.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 0.7,
+   "travel_m": 8,
+   "teleports": 0,
+   "moving_s": 1.4,
+   "standing_s": 4.6,
+   "longest_stand_s": 3.9,
+   "stands_over_5s": [],
+   "interact": {
+    "presses": 1,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 1,
+    "while_moving": 0,
+    "targets": {
+     "BP_Crafting_StartingBench": 1
+    }
+   },
+   "rpcs": {
+    "interact": 1,
+    "craft": 1
+   },
+   "gained": {
+    "Pickaxe_Stone": 1
+   },
+   "spent": {
+    "Stone": 8,
+    "Wood_Ash": 6
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "boil water",
+   "said": "boil water",
+   "start": 1793537150.0,
+   "end": 1793537164.0,
+   "duration_s": 14.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 0.4,
+   "travel_m": 11,
+   "teleports": 0,
+   "moving_s": 2.8,
+   "standing_s": 11.2,
+   "longest_stand_s": 4.4,
+   "stands_over_5s": [],
+   "interact": {
+    "presses": 2,
+    "hit": 0,
+    "changed": 1,
+    "no_change": 1,
+    "while_moving": 1,
+    "targets": {
+     "BP_Station_Campfire": 2
+    }
+   },
+   "rpcs": {
+    "interact": 2,
+    "move": 2,
+    "use_item": 1
+   },
+   "gained": {
+    "Water_Clean": 2
+   },
+   "spent": {
+    "Wood_Ash": 31,
+    "Water_Dirty": 14,
+    "Water_Clean": 1
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "splinter",
+   "said": "splinter",
+   "start": 1793537177.0,
+   "end": 1793537205.0,
+   "duration_s": 28.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 19.8,
+   "travel_m": 15,
+   "teleports": 0,
+   "moving_s": 2.3,
+   "standing_s": 25.7,
+   "longest_stand_s": 19.8,
+   "stands_over_5s": [
+    {
+     "s": 19.8,
+     "presses": 0
+    },
+    {
+     "s": 5.9,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 0,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 0,
+    "targets": {}
+   },
+   "rpcs": {},
+   "gained": {
+    "Wood_Ash": 4
+   },
+   "spent": {
+    "Rune_Earth": 10,
+    "Rune_Nature": 5
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "sleep",
+   "said": "sleep",
+   "start": 1793537212.0,
+   "end": 1793537240.0,
+   "duration_s": 28.0,
+   "ended_by": "next start",
+   "notes": [],
+   "first_action_s": 0.9,
+   "travel_m": 31,
+   "teleports": 0,
+   "moving_s": 5.6,
+   "standing_s": 22.4,
+   "longest_stand_s": 13.3,
+   "stands_over_5s": [
+    {
+     "s": 13.3,
+     "presses": 1
+    }
+   ],
+   "interact": {
+    "presses": 1,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 1,
+    "while_moving": 0,
+    "targets": {
+     "BP_Magic_SummonShelter": 1
+    }
+   },
+   "rpcs": {
+    "interact": 1
+   },
+   "gained": {
+    "Water_Clean": 10
+   },
+   "spent": {
+    "Rune_Earth": 10,
+    "Rune_Astral": 10
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "mine rock",
+   "said": "mine rock",
+   "start": 1793537240.0,
+   "end": 1793537255.0,
+   "duration_s": 15.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 0.8,
+   "travel_m": 15,
+   "teleports": 0,
+   "moving_s": 2.1,
+   "standing_s": 12.9,
+   "longest_stand_s": 12.1,
+   "stands_over_5s": [
+    {
+     "s": 12.1,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 0,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 0,
+    "targets": {}
+   },
+   "rpcs": {},
+   "gained": {
+    "Stone": 10
+   },
+   "spent": {},
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "rocksplosion",
+   "said": "rocksplosion",
+   "start": 1793537260.0,
+   "end": 1793537273.0,
+   "duration_s": 13.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 6.8,
+   "travel_m": 5,
+   "teleports": 0,
+   "moving_s": 1.2,
+   "standing_s": 11.8,
+   "longest_stand_s": 6.8,
+   "stands_over_5s": [
+    {
+     "s": 6.8,
+     "presses": 0
+    },
+    {
+     "s": 5.0,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 0,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 0,
+    "targets": {}
+   },
+   "rpcs": {},
+   "gained": {},
+   "spent": {
+    "Rune_Earth": 30,
+    "Rune_Fire": 15
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "astral projection",
+   "said": "astral projection",
+   "start": 1793537284.0,
+   "end": 1793537297.0,
+   "duration_s": 13.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 4.0,
+   "travel_m": 5,
+   "teleports": 0,
+   "moving_s": 1.4,
+   "standing_s": 11.6,
+   "longest_stand_s": 5.6,
+   "stands_over_5s": [
+    {
+     "s": 5.6,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 0,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 0,
+    "targets": {}
+   },
+   "rpcs": {},
+   "gained": {
+    "Wood_Ash": 1,
+    "Farming_TreeSeed_Ash": 1,
+    "BirdNest": 1
+   },
+   "spent": {
+    "Rune_Air": 10,
+    "Rune_Astral": 5
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "trunk totem",
+   "said": "trunk totem",
+   "start": 1793537321.0,
+   "end": 1793537331.0,
+   "duration_s": 10.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 7.9,
+   "travel_m": 10,
+   "teleports": 0,
+   "moving_s": 1.4,
+   "standing_s": 8.6,
+   "longest_stand_s": 7.9,
+   "stands_over_5s": [
+    {
+     "s": 7.9,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 0,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 0,
+    "targets": {}
+   },
+   "rpcs": {},
+   "gained": {},
+   "spent": {
+    "Rune_Nature": 30,
+    "Rune_Law": 10
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "splinter",
+   "said": "splinter",
+   "start": 1793537335.0,
+   "end": 1793537357.0,
+   "duration_s": 22.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 11.6,
+   "travel_m": 58,
+   "teleports": 0,
+   "moving_s": 7.9,
+   "standing_s": 14.1,
+   "longest_stand_s": 11.6,
+   "stands_over_5s": [
+    {
+     "s": 11.6,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 0,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 0,
+    "targets": {}
+   },
+   "rpcs": {},
+   "gained": {
+    "Wood_Ash": 112
+   },
+   "spent": {
+    "Rune_Earth": 10,
+    "Rune_Nature": 5
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "foundation",
+   "said": "foundation",
+   "start": 1793537360.0,
+   "end": 1793537381.0,
+   "duration_s": 21.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 1.7,
+   "travel_m": 32,
+   "teleports": 0,
+   "moving_s": 8.2,
+   "standing_s": 12.8,
+   "longest_stand_s": 4.4,
+   "stands_over_5s": [],
+   "interact": {
+    "presses": 0,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 0,
+    "targets": {}
+   },
+   "rpcs": {
+    "build_spawn": 8
+   },
+   "gained": {},
+   "spent": {
+    "Wood_Ash": 36
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "crafting table and firepit",
+   "said": "crafting table and firepit",
+   "start": 1793537402.0,
+   "end": 1793537413.0,
+   "duration_s": 11.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 2.6,
+   "travel_m": 8,
+   "teleports": 0,
+   "moving_s": 2.6,
+   "standing_s": 8.4,
+   "longest_stand_s": 3.1,
+   "stands_over_5s": [],
+   "interact": {
+    "presses": 0,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 0,
+    "targets": {}
+   },
+   "rpcs": {
+    "build_spawn": 2
+   },
+   "gained": {},
+   "spent": {
+    "Stone": 6,
+    "Wood_Ash": 4
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "club",
+   "said": "club",
+   "start": 1793537428.0,
+   "end": 1793537436.0,
+   "duration_s": 8.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 3.1,
+   "travel_m": 1,
+   "teleports": 0,
+   "moving_s": 0.4,
+   "standing_s": 7.6,
+   "longest_stand_s": 4.5,
+   "stands_over_5s": [],
+   "interact": {
+    "presses": 1,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 1,
+    "while_moving": 1,
+    "targets": {
+     "BP_Crafting_StartingBench": 1
+    }
+   },
+   "rpcs": {
+    "interact": 1,
+    "craft": 1
+   },
+   "gained": {
+    "Club_Stone": 1
+   },
+   "spent": {
+    "Stone": 8,
+    "Wood_Ash": 6
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "hunt (kebbits)",
+   "said": "get food",
+   "start": 1793537447.0,
+   "end": 1793537483.0,
+   "duration_s": 36.0,
+   "ended_by": "done",
+   "notes": [
+    "the above was start hunt"
+   ],
+   "first_action_s": 2.1,
+   "travel_m": 123,
+   "teleports": 0,
+   "moving_s": 21.8,
+   "standing_s": 14.2,
+   "longest_stand_s": 4.0,
+   "stands_over_5s": [],
+   "interact": {
+    "presses": 0,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 0,
+    "targets": {}
+   },
+   "rpcs": {
+    "use_item": 1
+   },
+   "gained": {
+    "Wood_Ash": 15,
+    "Coarse_Animal_Fur": 4,
+    "Skin_Scraps": 1,
+    "Weeds": 1
+   },
+   "spent": {
+    "Water_Clean": 1
+   },
+   "hp": [
+    255.0,
+    270.0
+   ]
+  },
+  {
+   "name": "cook",
+   "said": "cook",
+   "start": 1793537523.0,
+   "end": 1793537545.0,
+   "duration_s": 22.0,
+   "ended_by": "next start",
+   "notes": [
+    "actually scrap that kebbits dont drop meat"
+   ],
+   "first_action_s": 0.9,
+   "travel_m": 4,
+   "teleports": 0,
+   "moving_s": 0.9,
+   "standing_s": 21.1,
+   "longest_stand_s": 20.1,
+   "stands_over_5s": [
+    {
+     "s": 20.1,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 1,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 1,
+    "while_moving": 1,
+    "targets": {
+     "BP_Station_Campfire": 1
+    }
+   },
+   "rpcs": {
+    "interact": 1
+   },
+   "gained": {},
+   "spent": {},
+   "hp": [
+    262.5,
+    270.0
+   ]
+  },
+  {
+   "name": "hunt chicken",
+   "said": "hunt chicken",
+   "start": 1793537545.0,
+   "end": 1793537612.0,
+   "duration_s": 67.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 1.2,
+   "travel_m": 384,
+   "teleports": 0,
+   "moving_s": 59.6,
+   "standing_s": 7.4,
+   "longest_stand_s": 0.0,
+   "stands_over_5s": [],
+   "interact": {
+    "presses": 0,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 0,
+    "targets": {}
+   },
+   "rpcs": {},
+   "gained": {
+    "Meat_Bird": 3,
+    "Feathers": 3,
+    "Egg": 3
+   },
+   "spent": {},
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "pick flax",
+   "said": "pick flax",
+   "start": 1793537615.0,
+   "end": 1793537641.0,
+   "duration_s": 26.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 1.3,
+   "travel_m": 132,
+   "teleports": 0,
+   "moving_s": 22.6,
+   "standing_s": 3.4,
+   "longest_stand_s": 0.0,
+   "stands_over_5s": [],
+   "interact": {
+    "presses": 3,
+    "hit": 3,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 2,
+    "targets": {
+     "BP_Spawner_Flax": 3
+    }
+   },
+   "rpcs": {
+    "interact": 3
+   },
+   "gained": {
+    "Flax": 3
+   },
+   "spent": {},
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "kill goblin",
+   "said": "kill goblin",
+   "start": 1793537658.0,
+   "end": 1793537669.0,
+   "duration_s": 11.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 0.9,
+   "travel_m": 18,
+   "teleports": 0,
+   "moving_s": 6.6,
+   "standing_s": 4.4,
+   "longest_stand_s": 0.0,
+   "stands_over_5s": [],
+   "interact": {
+    "presses": 0,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 0,
+    "targets": {}
+   },
+   "rpcs": {},
+   "gained": {
+    "GoblinPack": 1
+   },
+   "spent": {},
+   "hp": [
+    252.0,
+    270.0
+   ]
+  },
+  {
+   "name": "pick up cabbage",
+   "said": "pickuip cabbage",
+   "start": 1793537679.0,
+   "end": 1793537686.0,
+   "duration_s": 7.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 1.0,
+   "travel_m": 30,
+   "teleports": 0,
+   "moving_s": 4.9,
+   "standing_s": 2.1,
+   "longest_stand_s": 0.0,
+   "stands_over_5s": [],
+   "interact": {
+    "presses": 6,
+    "hit": 6,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 6,
+    "targets": {
+     "BP_Spawner_Cabbage": 6
+    }
+   },
+   "rpcs": {
+    "interact": 6
+   },
+   "gained": {
+    "Cabbage": 6
+   },
+   "spent": {},
+   "hp": [
+    252.0,
+    252.0
+   ]
+  },
+  {
+   "name": "kill cow",
+   "said": "kill cow",
+   "start": 1793537691.0,
+   "end": 1793537765.0,
+   "duration_s": 74.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 1.5,
+   "travel_m": 184,
+   "teleports": 0,
+   "moving_s": 43.5,
+   "standing_s": 30.5,
+   "longest_stand_s": 3.3,
+   "stands_over_5s": [],
+   "interact": {
+    "presses": 0,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 0,
+    "targets": {}
+   },
+   "rpcs": {
+    "use_item": 1
+   },
+   "gained": {
+    "Animal_Hide": 15,
+    "AnimalBone": 14,
+    "Meat_Farm": 14
+   },
+   "spent": {
+    "Water_Clean": 1
+   },
+   "hp": [
+    180.0,
+    252.0
+   ]
+  },
+  {
+   "name": "return back to foundation",
+   "said": "return back to foundation",
+   "start": 1793537787.0,
+   "end": 1793537876.0,
+   "duration_s": 89.0,
+   "ended_by": "done",
+   "notes": [
+    "(piocking up stuff on way)",
+    "got kebbits on way"
+   ],
+   "first_action_s": 4.3,
+   "travel_m": 384,
+   "teleports": 0,
+   "moving_s": 61.7,
+   "standing_s": 27.3,
+   "longest_stand_s": 4.4,
+   "stands_over_5s": [],
+   "interact": {
+    "presses": 6,
+    "hit": 6,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 6,
+    "targets": {
+     "BP_Spawner_Flax": 3,
+     "BP_RedberryBush": 2,
+     "BP_RuntimeSpawnedWorldItem_NoDelayForMagnet": 1
+    }
+   },
+   "rpcs": {
+    "interact": 6
+   },
+   "gained": {
+    "Fruit_Redberry": 6,
+    "Skin_Scraps": 5,
+    "Coarse_Animal_Fur": 5,
+    "Flax": 3,
+    "Farming_Seed_Redberry": 1,
+    "Farming_Seed_Flax": 1,
+    "Weeds": 1
+   },
+   "spent": {},
+   "hp": [
+    180.0,
+    199.5
+   ]
+  },
+  {
+   "name": "cook",
+   "said": "cook",
+   "start": 1793537879.0,
+   "end": 1793537902.0,
+   "duration_s": 23.0,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 1.1,
+   "travel_m": 16,
+   "teleports": 0,
+   "moving_s": 4.7,
+   "standing_s": 18.3,
+   "longest_stand_s": 6.1,
+   "stands_over_5s": [
+    {
+     "s": 6.1,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 2,
+    "hit": 0,
+    "changed": 1,
+    "no_change": 1,
+    "while_moving": 0,
+    "targets": {
+     "BP_Station_Campfire": 2
+    }
+   },
+   "rpcs": {
+    "interact": 2,
+    "move": 2,
+    "use_item": 1
+   },
+   "gained": {
+    "Farm_Steak": 1
+   },
+   "spent": {
+    "Wood_Ash": 80,
+    "Meat_Farm": 14,
+    "Farm_Steak": 1
+   },
+   "hp": [
+    199.5,
+    233.0
+   ]
+  },
+  {
+   "name": "make base",
+   "said": "make base",
+   "start": 1793537904.0,
+   "end": 1793538050.0,
+   "duration_s": 146.0,
+   "ended_by": "done make base",
+   "notes": [],
+   "first_action_s": 4.2,
+   "travel_m": 194,
+   "teleports": 0,
+   "moving_s": 36.7,
+   "standing_s": 109.3,
+   "longest_stand_s": 21.7,
+   "stands_over_5s": [
+    {
+     "s": 14.1,
+     "presses": 0
+    },
+    {
+     "s": 21.7,
+     "presses": 0
+    },
+    {
+     "s": 10.6,
+     "presses": 0
+    },
+    {
+     "s": 5.8,
+     "presses": 0
+    },
+    {
+     "s": 11.2,
+     "presses": 0
+    },
+    {
+     "s": 7.0,
+     "presses": 0
+    },
+    {
+     "s": 5.6,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 11,
+    "hit": 9,
+    "changed": 0,
+    "no_change": 2,
+    "while_moving": 11,
+    "targets": {
+     "BP_Spawner_AshBranch_02": 5,
+     "BP_Spawner_AshBranch_01": 5,
+     "BP_Spawner_AshBranch_03": 1
+    }
+   },
+   "rpcs": {
+    "build_spawn": 24,
+    "interact": 11
+   },
+   "gained": {
+    "Farm_Steak": 13,
+    "Wood_Ash": 12
+   },
+   "spent": {
+    "Wood_Ash": 103,
+    "Rune_Earth": 10,
+    "Rune_Nature": 5,
+    "Coarse_Animal_Fur": 3
+   },
+   "hp": [
+    236.0,
+    270.0
+   ]
+  },
+  {
+   "name": "make plot",
+   "said": "make plot",
+   "start": 1793538134.67,
+   "end": 1793538147.32,
+   "duration_s": 12.6,
+   "ended_by": "sone",
+   "notes": [
+    "done"
+   ],
+   "first_action_s": 2.3,
+   "travel_m": 17,
+   "teleports": 0,
+   "moving_s": 5.1,
+   "standing_s": 7.5,
+   "longest_stand_s": 2.3,
+   "stands_over_5s": [],
+   "interact": {
+    "presses": 0,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 0,
+    "targets": {}
+   },
+   "rpcs": {
+    "build_spawn": 6
+   },
+   "gained": {},
+   "spent": {
+    "Wood_Ash": 48
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "make spade",
+   "said": "make spade",
+   "start": 1793538152.84,
+   "end": 1793538199.92,
+   "duration_s": 47.1,
+   "ended_by": "done",
+   "notes": [
+    "(note this needed string so a prerequisite was the spinning wheel and flax to get the thread"
+   ],
+   "first_action_s": 0.3,
+   "travel_m": 50,
+   "teleports": 0,
+   "moving_s": 11.6,
+   "standing_s": 35.5,
+   "longest_stand_s": 9.8,
+   "stands_over_5s": [
+    {
+     "s": 7.0,
+     "presses": 0
+    },
+    {
+     "s": 9.8,
+     "presses": 0
+    },
+    {
+     "s": 5.8,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 3,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 3,
+    "while_moving": 1,
+    "targets": {
+     "BP_Crafting_StartingBench": 2,
+     "BP_Station_Spinning_Wheel": 1
+    }
+   },
+   "rpcs": {
+    "interact": 3,
+    "build_spawn": 1,
+    "move": 1,
+    "craft": 1
+   },
+   "gained": {
+    "Thread_Coarse": 2,
+    "Spade_T1_Wood": 1
+   },
+   "spent": {
+    "Wood_Ash": 18,
+    "Flax": 6,
+    "Stone": 2,
+    "Thread_Coarse": 1
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "farm",
+   "said": "farm",
+   "start": 1793538238.04,
+   "end": 1793538413.97,
+   "duration_s": 175.9,
+   "ended_by": "stop farm",
+   "notes": [
+    "(this was just planting watering and composting"
+   ],
+   "first_action_s": 0.5,
+   "travel_m": 277,
+   "teleports": 0,
+   "moving_s": 49.9,
+   "standing_s": 126.0,
+   "longest_stand_s": 25.8,
+   "stands_over_5s": [
+    {
+     "s": 13.5,
+     "presses": 0
+    },
+    {
+     "s": 10.5,
+     "presses": 0
+    },
+    {
+     "s": 13.1,
+     "presses": 0
+    },
+    {
+     "s": 14.8,
+     "presses": 0
+    },
+    {
+     "s": 12.2,
+     "presses": 1
+    },
+    {
+     "s": 25.8,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 18,
+    "hit": 2,
+    "changed": 1,
+    "no_change": 15,
+    "while_moving": 9,
+    "targets": {
+     "BP_Station_Composter_New": 13,
+     "BP_WaterVolume": 4,
+     "BP_Crafting_StartingBench": 1
+    }
+   },
+   "rpcs": {
+    "interact": 18,
+    "craft": 2,
+    "build_spawn": 1,
+    "use_item": 4,
+    "move": 2
+   },
+   "gained": {
+    "Weeds": 6,
+    "Water_Dirty": 3,
+    "Bucket_Compost": 1,
+    "WateringCan_Wood": 1
+   },
+   "spent": {
+    "Wood_Ash": 17,
+    "Weeds": 6,
+    "Cabbage": 6,
+    "Stone": 4,
+    "Thread_Coarse": 1,
+    "Farm_Steak": 1,
+    "Water_Clean": 1,
+    "Farming_Seed_Redberry": 1,
+    "Farming_Seed_Flax": 1
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "general gather",
+   "said": "general gather",
+   "start": 1793538454.86,
+   "end": 1793538701.81,
+   "duration_s": 247.0,
+   "ended_by": "stop general gather",
+   "notes": [],
+   "first_action_s": 1.0,
+   "travel_m": 1371,
+   "teleports": 0,
+   "moving_s": 206.0,
+   "standing_s": 40.9,
+   "longest_stand_s": 4.9,
+   "stands_over_5s": [],
+   "interact": {
+    "presses": 32,
+    "hit": 29,
+    "changed": 0,
+    "no_change": 3,
+    "while_moving": 30,
+    "targets": {
+     "BP_Spawner_Flax": 14,
+     "BP_Spawner_Cabbage": 8,
+     "BP_RedberryBush": 3,
+     "BP_Spawner_Potato": 3,
+     "BP_RuntimeSpawnedWorldItem_NoDelayForMagnet": 2,
+     "BP_RuntimeSpawnedWorldItem": 1,
+     "BP_Spawner_AshBranch_03": 1
+    }
+   },
+   "rpcs": {
+    "drop": 1,
+    "interact": 32,
+    "use_item": 2
+   },
+   "gained": {
+    "Flax": 14,
+    "Fruit_Redberry": 9,
+    "Cabbage": 8,
+    "Meat_Bird": 5,
+    "Feathers": 5,
+    "Egg": 5,
+    "AnimalBone": 4,
+    "Farming_Seed_Cabbage": 3,
+    "GoblinPack": 3,
+    "Potato": 3,
+    "Meat_Farm": 3,
+    "Farming_Seed_Redberry": 2,
+    "Animal_Hide": 2,
+    "Club_Stone": 1,
+    "Farming_Seed_Flax": 1,
+    "Wood_Ash": 1,
+    "Farming_Seed_Potato": 1
+   },
+   "spent": {
+    "Club_Stone": 1,
+    "Water_Clean": 1,
+    "Farm_Steak": 1
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "make thread",
+   "said": "made thread",
+   "start": 1793538705.57,
+   "end": 1793538761.93,
+   "duration_s": 56.4,
+   "ended_by": "stop make thread",
+   "notes": [],
+   "first_action_s": 0.4,
+   "travel_m": 79,
+   "teleports": 0,
+   "moving_s": 13.0,
+   "standing_s": 43.4,
+   "longest_stand_s": 16.6,
+   "stands_over_5s": [
+    {
+     "s": 7.9,
+     "presses": 0
+    },
+    {
+     "s": 6.8,
+     "presses": 0
+    },
+    {
+     "s": 16.6,
+     "presses": 0
+    },
+    {
+     "s": 8.4,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 2,
+    "hit": 1,
+    "changed": 0,
+    "no_change": 1,
+    "while_moving": 2,
+    "targets": {
+     "BP_Station_Spinning_Wheel": 2
+    }
+   },
+   "rpcs": {
+    "interact": 2,
+    "move": 1
+   },
+   "gained": {
+    "Thread_Coarse": 13
+   },
+   "spent": {
+    "Rune_Air": 15,
+    "Flax": 14,
+    "Rune_Water": 5
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "make tannery",
+   "said": "MAKE tannery",
+   "start": 1793538823.08,
+   "end": 1793538858.15,
+   "duration_s": 35.1,
+   "ended_by": "wdstop stop make tanner",
+   "notes": [],
+   "first_action_s": 1.4,
+   "travel_m": 20,
+   "teleports": 0,
+   "moving_s": 5.2,
+   "standing_s": 29.9,
+   "longest_stand_s": 17.8,
+   "stands_over_5s": [
+    {
+     "s": 17.8,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 1,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 1,
+    "while_moving": 1,
+    "targets": {
+     "BP_Station_Tanner": 1
+    }
+   },
+   "rpcs": {
+    "build_spawn": 1,
+    "interact": 1,
+    "move": 1
+   },
+   "gained": {
+    "Leather": 3
+   },
+   "spent": {
+    "Animal_Hide": 17,
+    "Rune_Air": 15,
+    "Wood_Ash": 12,
+    "Rune_Water": 5,
+    "AnimalBone": 4,
+    "Thread_Coarse": 2
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "more farming",
+   "said": "more farmign",
+   "start": 1793538883.01,
+   "end": 1793539008.62,
+   "duration_s": 125.6,
+   "ended_by": "stop more farming",
+   "notes": [],
+   "first_action_s": 5.7,
+   "travel_m": 208,
+   "teleports": 0,
+   "moving_s": 41.4,
+   "standing_s": 84.2,
+   "longest_stand_s": 9.1,
+   "stands_over_5s": [
+    {
+     "s": 5.7,
+     "presses": 0
+    },
+    {
+     "s": 5.0,
+     "presses": 0
+    },
+    {
+     "s": 7.0,
+     "presses": 0
+    },
+    {
+     "s": 9.1,
+     "presses": 0
+    },
+    {
+     "s": 5.4,
+     "presses": 0
+    },
+    {
+     "s": 5.6,
+     "presses": 2
+    }
+   ],
+   "interact": {
+    "presses": 10,
+    "hit": 0,
+    "changed": 1,
+    "no_change": 9,
+    "while_moving": 6,
+    "targets": {
+     "BP_Station_Composter_New": 9,
+     "BP_WaterVolume": 1
+    }
+   },
+   "rpcs": {
+    "interact": 10,
+    "move": 2,
+    "use_item": 2
+   },
+   "gained": {
+    "Weeds": 12
+   },
+   "spent": {
+    "Fruit_Redberry": 15,
+    "Cabbage": 8,
+    "Farming_Seed_Cabbage": 2,
+    "Farming_Seed_Flax": 1,
+    "Farming_Seed_Potato": 1
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "animal fur to thread",
+   "said": "animal fur to thread",
+   "start": 1793539033.96,
+   "end": 1793539055.74,
+   "duration_s": 21.8,
+   "ended_by": "done",
+   "notes": [],
+   "first_action_s": 0.7,
+   "travel_m": 4,
+   "teleports": 0,
+   "moving_s": 1.9,
+   "standing_s": 19.9,
+   "longest_stand_s": 12.1,
+   "stands_over_5s": [
+    {
+     "s": 12.1,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 1,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 1,
+    "while_moving": 1,
+    "targets": {
+     "BP_Station_Spinning_Wheel": 1
+    }
+   },
+   "rpcs": {
+    "interact": 1,
+    "move": 1
+   },
+   "gained": {
+    "Thread_Coarse": 2
+   },
+   "spent": {
+    "Rune_Air": 15,
+    "Coarse_Animal_Fur": 8,
+    "Rune_Water": 5
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "make armour",
+   "said": "make armour",
+   "start": 1793539061.44,
+   "end": 1793539094.04,
+   "duration_s": 32.6,
+   "ended_by": "done make armour",
+   "notes": [],
+   "first_action_s": 1.6,
+   "travel_m": 0,
+   "teleports": 0,
+   "moving_s": 0.2,
+   "standing_s": 32.4,
+   "longest_stand_s": 30.8,
+   "stands_over_5s": [
+    {
+     "s": 30.8,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 1,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 1,
+    "while_moving": 0,
+    "targets": {
+     "BP_Crafting_StartingBench": 1
+    }
+   },
+   "rpcs": {
+    "interact": 1,
+    "craft": 2
+   },
+   "gained": {
+    "Armour_T2_Body_Reinforced": 1,
+    "Armour_T2_Head_Reinforced": 1
+   },
+   "spent": {
+    "AnimalBone": 14,
+    "Leather": 10
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "make bow",
+   "said": "make bowq",
+   "start": 1793539105.52,
+   "end": 1793539130.77,
+   "duration_s": 25.3,
+   "ended_by": "stop",
+   "notes": [
+    "done"
+   ],
+   "first_action_s": 0.7,
+   "travel_m": 0,
+   "teleports": 0,
+   "moving_s": 0.0,
+   "standing_s": 25.3,
+   "longest_stand_s": 25.3,
+   "stands_over_5s": [
+    {
+     "s": 25.3,
+     "presses": 1
+    }
+   ],
+   "interact": {
+    "presses": 1,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 1,
+    "while_moving": 0,
+    "targets": {
+     "BP_Crafting_StartingBench": 1
+    }
+   },
+   "rpcs": {
+    "interact": 1,
+    "craft": 3
+   },
+   "gained": {
+    "Arrows_Stone_Bodkin": 528,
+    "Longbow_Wood": 1,
+    "Shield_Wood": 1
+   },
+   "spent": {
+    "Wood_Ash": 58,
+    "Stone": 16,
+    "Feathers": 16,
+    "Thread_Coarse": 6
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  },
+  {
+   "name": "use bow",
+   "said": "use bow",
+   "start": 1793539220.38,
+   "end": 1793539259.7,
+   "duration_s": 39.3,
+   "ended_by": "wstop use bow",
+   "notes": [
+    "done"
+   ],
+   "first_action_s": 1.3,
+   "travel_m": 86,
+   "teleports": 0,
+   "moving_s": 15.5,
+   "standing_s": 23.9,
+   "longest_stand_s": 12.6,
+   "stands_over_5s": [
+    {
+     "s": 12.6,
+     "presses": 0
+    }
+   ],
+   "interact": {
+    "presses": 0,
+    "hit": 0,
+    "changed": 0,
+    "no_change": 0,
+    "while_moving": 0,
+    "targets": {}
+   },
+   "rpcs": {},
+   "gained": {
+    "Meat_Bird": 2,
+    "Feathers": 2,
+    "Egg": 2,
+    "AnimalBone": 2,
+    "Meat_Game": 1,
+    "Animal_Horn": 1,
+    "Arrows_Steel_Bodkin": 1,
+    "Animal_Hide": 1
+   },
+   "spent": {
+    "Arrows_Steel_Bodkin": 5
+   },
+   "hp": [
+    270.0,
+    270.0
+   ]
+  }
+ ]
+}
