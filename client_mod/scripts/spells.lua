@@ -1814,7 +1814,7 @@ function M.emit_activity(ev)
     if not okj then return false end
     local okw, walltime = pcall(require, "walltime") -- ms epoch ts (mod/scripts/walltime.lua, telemetry item 5)
     ev.type = "activity"
-    if okw then walltime.stamp(ev) else ev.ts = os.time(); ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts) end
+    if okw and type(walltime) == "table" and type(walltime.stamp) == "function" then walltime.stamp(ev) else ev.ts = os.time(); ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts) end
     local f = io.open(M.LATE_EVENT_PATH, "a")
     if not f then return false end
     f:write(json.encode(ev), "\n"); f:close()

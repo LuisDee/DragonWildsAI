@@ -31,7 +31,7 @@ function M.path() return file_path end
 function M.event(name, data)
     local f = file or open() -- retry each event if the first open failed
     if not f then return end
-    local ok, line = pcall(jsonutil.encode, { ts = okw and walltime.iso() or os.date("!%Y-%m-%dT%H:%M:%SZ"), event = name, data = data or {} })
+    local ok, line = pcall(jsonutil.encode, { ts = okw and type(walltime) == "table" and type(walltime.iso) == "function" and walltime.iso() or os.date("!%Y-%m-%dT%H:%M:%SZ"), event = name, data = data or {} })
     if not ok then line = jsonutil.encode({ event = "log_encode_error", data = { name = name, err = tostring(line) } }) end
     f:write(line .. "\n")
     f:flush()

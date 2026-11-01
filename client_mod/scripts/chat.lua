@@ -55,7 +55,7 @@ end
 
 local okw, walltime = pcall(require, "walltime") -- ms epoch ts (mod/scripts/walltime.lua, telemetry item 5)
 local function emit(ev)
-    if okw then walltime.stamp(ev) else
+    if okw and type(walltime) == "table" and type(walltime.stamp) == "function" then walltime.stamp(ev) else
         ev.ts = ev.ts or os.time()
         ev.iso = os.date("!%Y-%m-%dT%H:%M:%SZ", ev.ts)
     end
