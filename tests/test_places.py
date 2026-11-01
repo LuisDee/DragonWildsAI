@@ -321,8 +321,8 @@ def test_where_line_names_region_province_named_places_and_the_go_to_point():
 class _Body:
     """A body that sees no 'Zanik' (unknown_target for any name) and walks to points."""
 
-    def __init__(self, pos):
-        self.pos, self.calls = list(pos), []
+    def __init__(self, pos, active=()):
+        self.pos, self.calls, self.active = list(pos), [], list(active)
 
     def get_state(self):
         return {"ok": True, "reason": None, "data": {"position": self.pos, "players": []}}
@@ -330,6 +330,8 @@ class _Body:
     def call(self, tool, args):
         if tool == "get_state":
             return self.get_state()
+        if tool == "quests":  # the active quests and their map markers (quests.lua summary)
+            return {"ok": True, "reason": None, "data": {"active": self.active}}
         self.calls.append(args)
         if tool == "look":  # after the walk: the named thing stands at the map's spot
             return {"ok": True, "reason": None, "data": {"things": [{"name": args["about"], "distance": 1.2,
@@ -378,6 +380,22 @@ def test_go_to_a_names_leading_words_walks_there_only_when_one_name_leads_so(tmp
     out = _executor(tmp_path, body).run_task(Task(skill="go_to", args={"target": "Bramble"}))  # Valley and Village
     assert not out.ok and out.reason == "unknown_target" and body.calls == [{"target": "Bramble"}]
     assert {"Bramble Valley", "Bramble Village"} <= {x.split(" (")[0] for x in out.data["map_names_like_it"]}
+
+
+def test_go_to_a_name_of_an_active_quests_map_marker_walks_to_the_marker(tmp_path):
+    from brain.state_store import Task
+    rc = {"quest": "Ratcatcher", "step": "Kill rats and successfully cook one rat roast from their meat.",
+          "where": [{"name": "Vannaka NPC", "kind": "npc", "position": [152.5, 1787.1, -30.0], "distance_m": 94},
+                    {"name": "Windmill Area", "kind": "area", "radius_m": 80, "position": [156.1, 1713.4, -3.5], "distance_m": 158}]}
+    body = _Body(HERE, [rc])  # live 19:1xZ: go_to "windmill" was unknown_target; the step names it, the map marks it
+    out = _executor(tmp_path, body).run_task(Task(skill="go_to", args={"target": "windmill"}))
+    assert out.ok and body.calls[-1] == {"target": [156.1, 1713.4, -3.5]}, (out, body.calls)
+    assert out.data["resolved"].startswith("'windmill' is not in sight; walking to the game map's Ratcatcher quest marker "
+                                           "Windmill Area, 158 m away: an area of 80 m radius"), out.data["resolved"]
+    two = {**rc, "where": rc["where"] + [{"name": "Windmill Top", "kind": "target", "position": [1, 2, 3]}]}
+    body = _Body(HERE, [two])  # two markers lead with "windmill": the model's call, the body's answer stands
+    out = _executor(tmp_path, body).run_task(Task(skill="go_to", args={"target": "windmill"}))
+    assert not out.ok and out.reason == "unknown_target"
 
 
 def test_real_data_bramblemead_is_the_valley():

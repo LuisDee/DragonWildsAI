@@ -343,6 +343,8 @@ class Executor:
                 like = self.places.similar(target, now.get("position"))
             except Exception:
                 like = []
+            best = self._quest_marker(target)
+        if best is None:
             if like:
                 return {**failed, "data": {**(failed.get("data") or {}), "map_names_like_it": like}}
             return failed
@@ -380,6 +382,31 @@ class Executor:
         """After walking to a map spot: is a thing of that name in sight there? (a body read, no model call)"""
         try:
             r = self.game.call("look", {"about": name, "radius": radius, "max": 8})
+    def _quest_marker(self, target: str) -> dict | None:
+        """The map marker of an active quest that the name names, as a map place, from the body's quests read: the
+        markers the game's map and compass show for the step ("Windmill Area" for "windmill": live 19:1xZ, Ratcatcher's
+        step says "near the windmill" and go_to windmill was unknown_target). Matched like a map name (every word,
+        or the leading words of exactly one marker); None when none or several markers fit."""
+        from .places import _RANK, _match
+        try:
+            r = self.game.call("quests", {})
+        except Exception:
+            return None
+        q, hits = _terms(target), []
+        for a in ((r.get("data") or {}).get("active") or []) if r.get("ok") else []:
+            for m in a.get("where") or []:
+                kind = _match(str(m.get("name") or ""), q)
+                if kind in ("exact", "named", "leading") and m.get("position"):
+                    hits.append((_RANK[kind], a.get("quest"), m))
+        top = [h for h in hits if h[0] == min((h[0] for h in hits), default=None)]
+        if len({h[2]["name"] for h in top}) != 1:
+            return None
+        _, quest, m = top[0]
+        area = m.get("kind") == "area" and m.get("radius_m")
+        return {"name": m["name"], "kind": f"{quest} quest marker" if quest else "quest marker", "position": m["position"],
+                "distance_m": m.get("distance_m"), "you_are_inside": bool(m.get("inside")), "source": "quest_marker",
+                "basis": f"an area of {area:.0f} m radius on the quest map" if area else "its spot on the quest map"}
+
         except Exception:
             return None
         if not r.get("ok"):
