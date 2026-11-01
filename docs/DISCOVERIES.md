@@ -2429,3 +2429,122 @@ The ~70 original Codex entries (process evidence with stripped spaces) and the r
   - This was a full sleep, not a +1/s nap, even though `needs` had said "sleep timeframe closed" at 13:56, so check the time of day before saying which rest applies.
   - After waking, rest drained about 0.6/min while standing.
 - `tools/preflight.py` read READY at 14:03:58: health 100%, water 52%, food 59%, rest 99%, food 12 / drink 20 carried, Bronze Sword, Adventurer's Tunic and legs.
+## Food and drink values, and the options digest (2026-11-01 13:30-14:15Z; build 26161880; needs-options agent)
+- **Where the values live (game data, from the dump `dumps/26161880`):**
+  - Food: `UFoodItemData` (`SustenanceRowHandle`, `VitalShieldRowHandle`, `ToxicityRowHandle`, `AmountToHealOnConsume`).
+  - Drink: `UDrinkItemData` (`HydrationRowHandle`, `ToxicityRowHandle`, `WitherRowHandle`, `EnduranceRowHandle`).
+  - Both are `UBuffItemData : UConsumableItemData` (`Duration`, `ItemUsageDelay`, `UseVerb`).
+  - Rows:
+    - `FFoodSustenance` (StatText, Sustenance, DecayBuffer) in `/Game/Gameplay/Items/Consumables/Food/DT_FoodSustenance`;
+    - `FDrinkHydration` (Hydration, DecayBuffer) in `.../Food/DT_DrinkHydration`;
+    - `FToxicityTableRow.Toxicity` in `.../Consumables/DT_Toxicity_V2`;
+    - `FWitherTableRow.Wither` in `DT_Wither_V2`;
+    - rest in `.../Food/DT_RestEndurance`.
+  - Read-only probe: `client_mod/commands/food_values_probe.lua` (FindAllOf the item data, then FindRow through each handle's own DataTable). **[UNVERIFIED live: not run yet; the live lock was held by other agents all window.]**
+- **Values now used (wiki, per-page revid kept as `src`; `tools/gen_food_values.py` -> `data/food_values_26161880.json`, where a live probe row wins):**
+
+  | Item | Food | HP | Water | Other |
+  |---|---|---|---|---|
+  | Redberries | +5 | | | |
+  | Dried Redberries | +15 | +20 | | |
+  | Fillet, Fried Egg, Rat Roast | +20 | +20 | | |
+  | Steak | +20 | +30 | | |
+  | Forager's Sandwich | +80 | +70 | | |
+  | Meat Sandwich | +85 | +80 | | |
+  | Glazed Pumpkin Sandwich | +100 | +80 | | |
+  | Clean Water | | | +25 | |
+  | Dirty Water | | | +10 | +20 Soulscourge |
+  | Pumpkin Spice Infusion | | | +80 | |
+
+  - These agree with the survival agent's live deltas above: Redberries +4.8; Clean Water +25; Forager's Sandwich and Pumpkin Spice both stop at the 75 max.
+  - Drops (wiki):
+    - Chicken: Raw Bird Meat + Egg (+ Feathers).
+    - Cow PL2: 2 Raw Farm Meat (+75% one more).
+    - Giant Rat: Raw Rat Meat.
+    - **Kebbit: Coarse Animal Fur + 50% Animal Hide Scraps, no meat** (Luis, co-play).
+  - Redberry Bush: 3 Redberries, respawn 0.5 days. Cooking burn = wiki Culinary Confidence (no-burn 50% at a tier's start level, +2-4.55% per level, cap 100%).
+- **No datamined food table was found online.** Searched: "dragonwilds food values datamine", "DT_FoodSustenance", and the Nexus and GitHub Dragonwilds repos. metabot.gg/en/dragonwilds/items lists items with weight, stack size and skill, but no food or water values (checked 14:15Z). The wiki infoboxes are the only public copy found.
+- **The vitals drain rate counted the fall across a death as drain.** At 11:19:45 the rate read 41.2 food and 54.5 water per minute, 59 s after a respawn. The real rate is about 2-4/min. The death removes 10 water (`HydrationRemovedOnDeath`), and respawn vitals vary. The brain was told "empty in ~1 min" at 42% food.
+  - `skills.lua` now skips falls before `DW_LIFE.died_at/respawned_at` (test_skills 74/74). It is live at the client's next skills reload.
+- **Decision: utility-style options, not GOAP or rules (search-before-building).**
+  - Searched:
+    - GOAP / utility AI for need satisfaction in survival games (gamedev.net "help me understand utility AI");
+    - mineflayer-auto-eat (it picks food by `foodPoints` / `saturation`, a fixed priority);
+    - the Dragonwilds wiki pages on Food, Cooking, Dried Redberries, Culinary Confidence and Dirty Water;
+    - docs.ue4ss.com UDataTable (FindRow, ForEachRow).
+  - Decision: **adapt**.
+    - The UE4SS FindRow pattern (as in build.lua) and the wiki generators (`tools/gen_*`) supply the data.
+    - The digest scores nothing, so the model does the utility comparison. Each option carries the same considerations a utility AI would weigh: gain, time, level after, how long it lasts, place and risk.
+    - auto-eat's fixed priority is the "prefer X" rule Luis ruled out.
+  - Sources: https://docs.ue4ss.com/lua-api/classes/udatatable.html, https://dragonwilds.runescape.wiki/w/Food, https://dragonwilds.runescape.wiki/w/Culinary_Confidence, https://dragonwilds.runescape.wiki/w/Dried_Redberries, https://github.com/link-discord/mineflayer-auto-eat, https://www.gamedev.net/forums/topic/686840-help-me-understand-utility-ai/, https://metabot.gg/en/dragonwilds/items.
+- **Eval (Haiku 5.5, controller effort low, 10 calls, $0.02):**
+  - Raw berries at 3% food: 2/2. Boiling dirty water: 2/2.
+  - Grave food: 0/3. Hunt and cook: 0/3. He took the nearest berries for +15 every time, saying "starving".
+  - Two causes were found and fixed in the digest and persona:
+    - persona example 2 primed "starving" + berries;
+    - the option text buried the outcome.
+  - Every option now leads with `[~time -> +gain, level after, lasts ~N min]`. Not re-evaluated: the 10-call budget was spent.
+
+
+### Deconstruct: taking down built pieces the player's way (2026-11-01, server build 26161880, client 26162923)
+- **Path (the real client input; no RPC built by us):**
+  1. `IA_BuildMenu` (B) puts `BuildModeComponent.CurrentBuildMode` in Selection.
+  2. `BuildModeComponent.ToggleRepairAndEditModeAction` (T) switches it to `RepairAndEdit`.
+  3. Aim the camera (`SetControlRotation`).
+  4. `BuildInteractionComponent.DestroyBuildingAction` (MMB, Pressed trigger) is injected through `build.W.press`.
+  5. The game itself sends `Server_Interact(PieceID, EBuildInteractionType Destroy = 3, inventories, location)`.
+  6. The server answers with the `Client_TelemetryDestroyPlacedPiece` post-hook; `CurrentRes` = the refund amounts, e.g. `[8]` for a crate and `[1, 1]` for a torch.
+  - `DestroyBuildingHoldAction` was not needed.
+- **Refund:**
+  - It is 100% of the cost; e.g. the Crate refunds 8 Ash Logs, the Wall-mounted Torch 1 Ash Log + 1 Coarse Animal Fur.
+  - It spawns as `BP_RuntimeSpawnedWorldItem_NoExpiry_C` beside the piece. The game's item magnet takes it into the bag about 1 s later when Claude is within about 1.5 m.
+  - So the job total is the bag's gain over the whole job in the cost's items, plus anything the census still shows on the ground. Summing the bag gain and the drops double-counted it (14:2xZ).
+- **Target signal: `BuildInteractionComponent.TargetedPieceHandle` (FBuildingPieceHandle {PieceResolver, Context}).**
+  - **Instance pieces** (foundation, wall, roof, tile; no client actor):
+    - The resolver is `LightweightBuildingPieceManager` and `Context` = the pid.
+    - This was 0 in the first crate session only because a crate is an actor piece.
+  - **Actor pieces** (crate, torch, stations):
+    - `Context` stays 0 and the resolver reads nil.
+    - The pre-press signal is our own camera view-ray `KismetSystemLibrary.LineTraceSingle` (channel 0). It hits the actor's `Mesh` (profile `BuildingPlaced`, object type 27), and its owner's `BuildingPieceID` gives the pid.
+  - `Server_RegisterTargetPiece` never shows on the client (client-side hooks on Server_ RPCs don't fire).
+- **The camera hangs ~5.8 m behind the pawn and swings round it when the view turns:**
+  - camera at x 89.03 vs pawn 94.86, `PlayerCameraManager.CameraCachePrivate.POV`;
+  - so a rotation computed from the camera's old spot missed a 0.2 m torch by 0.27 m and highlighted the wall behind it (14:27Z, 14:31Z, "not_interactable");
+  - fix: aim from the point of the camera ray nearest the head, then re-aim until the ray passes within 0.06 m (`W.aim`, `W.aim_miss`). Live 14:34Z: the torch came down on the first aim.
+- **Line of sight:**
+  - The game highlights the first piece the view ray meets, so a torch on a wall's inner face must be aimed at from inside.
+  - The stand picker tests eye → aim point against every other piece's box (slab test, `M.blocker`) and refuses stands inside a box (`M.clear_stand`).
+  - Boxes come from `BuildingPieceLocalBounds` (actor) or `BuildingPieceDerivedData`. Walls are 1.0 m thick in this data, so 0.25 m of entry before the aim point is ignored.
+  - A foundation's location is its top, with the box hanging below.
+- **Refusals:** the game's own words come from `DestroyRequestNotificationTextMap` (EBuildingDestroyRequestResult), e.g. CantDestroyWhileNotEmpty and CantDestroyProtected. The per-actor pre-check is `ABaseBuildingActor:CanBeDestroyedByPlayer(pc)`.
+- **Contents:**
+  - `inventory.inventory_of` returns nil for buildings.
+  - A container's or station's items are in `InventoryComponent` subobjects, found with `FindAllOf("InventoryComponent")` + `GetOwner()` == the actor, then `ItemSlots`.
+  - The Campfire held 77 items and the Spinning Wheel 2. Both were left.
+- **Ownership:** no per-piece owner is readable on the client.
+  - "Mine" = the ledger `data/skills/<world>/my_pieces.json` (piece + position, since pids renumber on reload).
+  - It is filled from `Client_TelemetryOnBuildingPieceComplete`, which fires only for the builder.
+- **Support:**
+  - `FBuildingPieceState` stability: ground foundations 1515 (max), walls 1290/965, roofs ~808, stations on a floor ~1514.
+  - Every foundation of Luis's house read 1515, i.e. ground-supported on its own, so removing some does not drop the ones a station stands on.
+  - Guides confirm that removing a supporting piece takes its dependents with it, hence the top-down order and the collateral stop.
+- **Decision (search-before-building): adapt.**
+  - Searched: "Dragonwilds delete/remove/destroy structures", "repair mode middle mouse", refund/ownership, Nexus and GitHub for a Dragonwilds build or deconstruct mod, and Valheim PlanBuild / mineflayer / Mindcraft "dig/break block" skills.
+  - Found: player guides (B → T → aim → MMB, full refund dropped on the ground, connected pieces collapse). No mod or tool drives it. The bot-framework pattern is approach → look at → break → verify gone → collect drops.
+  - Built only the glue in `client_mod/scripts/deconstruct.lua`, on build.lua's input/aim/trace helpers and the arbiter/input-claim pattern.
+  - Sources:
+    - https://primagames.com/tips/how-to-delete-building-structures-runescape-dragonwilds
+    - https://www.sportskeeda.com/mmo/runescape-dragonwilds-move-remove-delete-structures-building
+    - https://thebackdash.com/?p=26707
+    - https://deltiasgaming.com/?p=205159
+    - https://raw.githubusercontent.com/kolbytn/mindcraft/main/src/agent/library/skills.js
+- **Verified live (dev world):**
+  - 14:2xZ: Claude's own Crate in 10 s (+8 Ash Logs).
+  - 14:34Z: a Wall-mounted Torch of Luis's house in 9 s (+1 Ash Log, +1 Coarse Animal Fur).
+  - 14:34:55-14:38:25Z: `deconstruct {target: BuildingPiece_27, whole: true}` took down the other 28 pieces of Luis's house in 207 s, at 2.7-20 s per piece and one destroy press per piece. Top first: 2 torches, a tile, 8 roofs, 12 walls, then 5 foundations. There was no collateral and no collapse.
+  - Refund: 114 Ash Logs + 2 Coarse Animal Fur went into the bag via walk-over. 8 Ash Logs (2 drops) stayed on the ground and were picked up with `fetch`. Total for the house: 123 Ash Logs + 3 Coarse Animal Fur, exactly its cost.
+  - Left as planned:
+    - Crafting Table and Tannery: not Claude's;
+    - Campfire (holds 77 Ash Logs) and Spinning Wheel (2 Fur);
+    - 3 Ash farm plots;
+    - foundations 19/20/21 and 23, which those stations stand on.

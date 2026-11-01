@@ -426,4 +426,29 @@ Codex (gpt-6.1-sol + terra workers) ran the repo for 100 commits (7921ff5..6ee83
   - The 13:26 grave was taken 40 s after the order (51.5 s to the sword in hand). It was the newest grave.
   - The reflex ate within 1 s of the loot; HP went 0.5 to 100.
   - A Summon Shelter sleep took rest 11.8 to 100 in 5 s, at a cost of 16 water and 12 food.
-  - Details are in DISCOVERIES ("Survival, second live window").
+  - Details are in DISCOVERIES ("Survival, second live window").- 14:11Z FIX needs (rung 1, eat and drink by comparing options): new `brain/needs_options.py`. When food or water is pressing, a bounded options digest replaces the old 560-char Need line: at most 2000 chars, 360 per option.
+  - Each option: `[~time -> +gain, level after, lasts ~N min] what: gives | where | steps | risk`. The groups come in a fixed order and nothing ranks them: carried, graves (the newest with its death), ground, gather (raw and cooked), cook, hunt (cooked value per kill, kills, odds, burn chance, plus "no food from: Kebbit"), water (collect or boil), ask, craft.
+  - The fire is named once, with its fuel or the 6-Stone cost to build one.
+  - Pace comes from data/baselines/luis-2026-11-01.json, or 2 m/s when exhausted.
+  - `brain/needs.py` lines() calls it for food and drink (an additive edit); health, rest and tool keep the old path.
+  - Tests: tests/test_needs_options.py 14 and test_needs.py 20, all pass.
+- 14:11Z FIX data: `tools/gen_food_values.py` -> `data/food_values_26161880.json`, holding food, water, HP and Soulscourge per item from the wiki (with revid), the cook recipes, creature drops and the Redberry Bush. A live DataTable row wins over the wiki.
+  - The read-only probe `client_mod/commands/food_values_probe.lua` reads DT_FoodSustenance, DT_DrinkHydration, DT_Toxicity_V2 and DT_Wither_V2 through the item handles. Not run live yet: the lock was busy.
+- 14:11Z FIX persona: example 2 no longer models "starving, eat after this" + berries. The new good line is "starving though, sorting food first" + the call for the option he picked.
+- 14:11Z FIX vitals rate (skills.lua): a fall across a death no longer counts as drain. 11:19:45 read 41-55/min and told the brain "empty in ~1 min" at 42% food; test_skills 74/74.
+- 14:11Z EVAL `evals/needs_options_eval.py`, 4 real states (logs 11:00-11:20), 10 Haiku 5.5 calls, $0.02. Urgent raw berries 2/2, boil 2/2, grave food 0/3, hunt-cook 0/3: he took the nearest berries each time.
+  - Fixed in the digest: the outcome now leads each line (raw berries at 25% read "lasts ~0 min"). Fixed in the persona: the priming. Not re-run, because the budget is spent: the live check judges it.
+- 14:40Z FIX deconstruct (new `client_mod/scripts/deconstruct.lua`, `deconstruct` tool, B13): takes down a piece, or a whole connected building top first, the player's way (B → repair mode → aim → destroy key).
+  - It verifies each piece is gone, counts the refund as the bag's gain and walks over the drops.
+  - It never takes a container holding items, or another's station or plot, and leaves a floor a kept station stands on.
+  - It stops if a press takes anything it didn't plan.
+  - Live: Claude's Crate in 10 s.
+  - Live, Luis's house: 29 pieces in 9 s + 207 s, refunding 123 Ash Logs + 3 Fur, exactly the cost. Stations, plots and the 4 floors under stations stay. test_deconstruct 75/75.
+- 14:40Z FIX deconstruct aim: the camera hangs ~5.8 m behind Claude and swings when he turns, so aiming from its old spot missed a torch by 0.27 m (the wall behind it got highlighted). Now it aims from the camera ray's point nearest his head and re-aims until the ray passes within 6 cm.
+  - The stand point is chosen with a clear line of sight over the piece boxes, e.g. inside for a torch on an inner wall.
+  - `TargetedPieceHandle.Context` = the pid for instance pieces; actor pieces are confirmed by our camera-ray trace.
+- 14:40Z SITE The house plot is clear for Claude's own build:
+  - free 3 m cells at (93.21,1847.14), (93.21,1850.14), (93.21,1853.14), (96.21,1850.14), (96.21,1853.14), z -31.8, open ground east of x 97.7;
+  - still there, west: foundations 19/20/21 at x 90.21 with the Crafting Table, Campfire (77 logs) and Spinning Wheel;
+  - still there, SE: foundation 23 at (96.21,1847.14) with the Tannery;
+  - plots at x 84-87.
